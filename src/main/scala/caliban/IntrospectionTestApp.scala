@@ -2,6 +2,7 @@ package caliban
 
 import caliban.Test.Query
 import caliban.Types.Type
+import caliban.parsing.Parser
 import fastparse.Parsed
 
 object IntrospectionTestApp extends App {

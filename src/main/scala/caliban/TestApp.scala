@@ -1,5 +1,6 @@
 package caliban
 
+import caliban.parsing.Parser
 import fastparse.Parsed
 
 object TestApp extends App {
