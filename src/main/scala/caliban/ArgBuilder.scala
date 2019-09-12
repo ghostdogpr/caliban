@@ -19,9 +19,17 @@ object ArgBuilder {
     case Left(Value.IntValue(value)) => value
     case _                           => throw new Exception("Invalid")
   }
+  implicit val float: ArgBuilder[Float] = {
+    case Left(Value.FloatValue(value)) => value
+    case _                             => throw new Exception("Invalid")
+  }
   implicit val string: ArgBuilder[String] = {
     case Left(Value.StringValue(value)) => value
     case _                              => throw new Exception("Invalid")
+  }
+  implicit val boolean: ArgBuilder[Boolean] = {
+    case Left(Value.BooleanValue(value)) => value
+    case _                               => throw new Exception("Invalid")
   }
   implicit def option[A](implicit ev: ArgBuilder[A]): ArgBuilder[Option[A]] =
     (input: Either[Value, Map[String, Value]]) => Try(ev.build(input)).toOption

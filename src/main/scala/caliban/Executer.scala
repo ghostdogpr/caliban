@@ -17,6 +17,10 @@ object Executer {
   implicit val boolean: Executer[Boolean] = (a: Boolean, _: List[Parser.Selection], _: Map[String, Parser.Value]) =>
     a.toString
   implicit val int: Executer[Int] = (a: Int, _: List[Parser.Selection], _: Map[String, Parser.Value]) => a.toString
+  implicit val float: Executer[Float] = (a: Float, _: List[Parser.Selection], _: Map[String, Parser.Value]) =>
+    a.toString
+  implicit val double: Executer[Double] = (a: Double, _: List[Parser.Selection], _: Map[String, Parser.Value]) =>
+    a.toString
   implicit val string: Executer[String] = (a: String, _: List[Parser.Selection], _: Map[String, Parser.Value]) =>
     s""""$a""""
   implicit def option[A](implicit ev: Executer[A]): Executer[Option[A]] =

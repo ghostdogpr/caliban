@@ -28,6 +28,12 @@ object Schema {
   implicit val intScalar: Schema[Int] = new Schema[Int] {
     override def toType: Type = makeScalar("Int")
   }
+  implicit val floatScalar: Schema[Float] = new Schema[Float] {
+    override def toType: Type = makeScalar("Float")
+  }
+  implicit val doubleScalar: Schema[Double] = new Schema[Double] {
+    override def toType: Type = makeScalar("Float")
+  }
   implicit val stringScalar: Schema[String] = new Schema[String] {
     override def toType: Type = makeScalar("String")
   }
