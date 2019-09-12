@@ -11,6 +11,7 @@ object TestApp extends App {
         characters(origin: "MARS") {
           name
           nicknames
+          role
         }
         character(name: "Amos Burton") {
           name
@@ -24,6 +25,6 @@ object TestApp extends App {
 
   println(GraphQL.schema[Test.Query])
   println("")
-  println(GraphQL.execute(query, Test.resolver))
+  println(GraphQL.execute(query, Test.resolver).mkString("\n"))
 
 }

@@ -2,6 +2,7 @@ package caliban
 
 import caliban.Test.Query
 import caliban.Types.Type
+import caliban.execution.Executer
 import caliban.parsing.Parser
 import fastparse.Parsed
 
@@ -54,7 +55,7 @@ object IntrospectionTestApp extends App {
   val resolver   = Introspection(__Schema(schemaType, types), args => types.find(_.name.contains(args.name)).get)
 
   val Parsed.Success(introspection, _) = Parser.parseQuery(introspectionQuery)
-  println(GraphQL.execute(introspection, resolver))
+  println(GraphQL.execute(introspection, resolver).mkString("\n"))
 
 //    """
 //    query IntrospectionQuery {
