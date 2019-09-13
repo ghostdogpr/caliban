@@ -3,14 +3,11 @@ package caliban
 import caliban.GraphQL._
 import caliban.Test.Query
 import caliban.schema.Types.Type
-import caliban.parsing.Parser
 import caliban.schema.{ Schema, Types }
-import fastparse.Parsed
 import zio.console.putStrLn
 import zio.{ App, Runtime, UIO, ZIO }
 
 object IntrospectionTestApp extends App {
-
   implicit val runtime: Runtime[Environment] = this
 
   case class __Schema(queryType: Type, types: Set[Type])
@@ -59,13 +56,11 @@ object IntrospectionTestApp extends App {
   val types: Set[Type] = Types.collectTypes(schemaType)
   val resolver         = Introspection(__Schema(schemaType, types), args => types.find(_.name.contains(args.name)).get)
 
-  val Parsed.Success(introspection, _) = Parser.parseQuery(introspectionQuery)
-
   val graph: GraphQL[Introspection] = graphQL[Introspection]
 
   override def run(args: List[String]): ZIO[Environment, Nothing, Int] =
     (for {
-      result <- graph.execute(introspection, resolver)
+      result <- graph.execute(introspectionQuery, resolver)
       _      <- putStrLn(result.mkString("\n"))
     } yield ()).foldM(ex => putStrLn(ex.toString).as(1), _ => UIO.succeed(0))
 

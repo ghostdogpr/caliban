@@ -1,9 +1,10 @@
 package caliban
 
 import caliban.Rendering.renderType
-import caliban.schema.Types.{ collectTypes, Type }
-import caliban.parsing.adt.{ Document, Selection, Value }
+import caliban.parsing.Parser
 import caliban.parsing.adt.ExecutableDefinition.OperationDefinition
+import caliban.parsing.adt.{ Selection, Value }
+import caliban.schema.Types.{ collectTypes, Type }
 import caliban.schema.{ ResponseValue, Schema }
 import zio.{ Runtime, Task, ZIO }
 
@@ -11,11 +12,15 @@ class GraphQL[G](schema: Schema[G]) {
 
   def render: String = collectTypes(schema.toType).map(renderType).mkString("\n")
 
-  def execute(query: Document, resolver: G): Task[List[ResponseValue]] =
-    Task.collectAll(query.definitions.flatMap {
-      case OperationDefinition(_, _, _, _, selection) => Some(schema.exec(resolver, selection))
-      case _                                          => None
-    })
+  def execute(query: String, resolver: G): Task[List[ResponseValue]] =
+    for {
+      document <- Task(Parser.parseQuery(query).get).map(_.value)
+      result <- Task.collectAll(document.definitions.flatMap {
+                 case OperationDefinition(_, _, _, _, selection) => Some(schema.exec(resolver, selection))
+                 case _                                          => None
+               })
+    } yield result
+
 }
 
 object GraphQL {
