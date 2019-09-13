@@ -1,4 +1,4 @@
-package caliban
+package caliban.schema
 
 import scala.annotation.StaticAnnotation
 

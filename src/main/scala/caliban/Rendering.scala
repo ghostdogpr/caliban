@@ -1,6 +1,6 @@
 package caliban
 
-import caliban.Types.{ Argument, Field, Type, TypeKind }
+import caliban.schema.Types.{ Argument, Field, Type, TypeKind }
 
 object Rendering {
 

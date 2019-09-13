@@ -1,12 +1,17 @@
 package caliban
 
+import caliban.GraphQL._
 import caliban.Test.Query
-import caliban.Types.Type
-import caliban.execution.Executer
+import caliban.schema.Types.Type
 import caliban.parsing.Parser
+import caliban.schema.{ Schema, Types }
 import fastparse.Parsed
+import zio.console.putStrLn
+import zio.{ App, Runtime, UIO, ZIO }
 
 object IntrospectionTestApp extends App {
+
+  implicit val runtime: Runtime[Environment] = this
 
   case class __Schema(queryType: Type, types: Set[Type])
   case class TypeArgs(name: String)
@@ -48,14 +53,21 @@ object IntrospectionTestApp extends App {
     }
     """
 
-  implicit lazy val typeExecuter: Executer[Type] = Executer.gen[Type]
+  implicit lazy val typeSchema: Schema[Type] = Schema.gen[Type]
 
-  val schemaType = Schema.gen[Query].toType
-  val types      = Types.collectTypes(schemaType)
-  val resolver   = Introspection(__Schema(schemaType, types), args => types.find(_.name.contains(args.name)).get)
+  val schemaType: Type = Schema.gen[Query].toType
+  val types: Set[Type] = Types.collectTypes(schemaType)
+  val resolver         = Introspection(__Schema(schemaType, types), args => types.find(_.name.contains(args.name)).get)
 
   val Parsed.Success(introspection, _) = Parser.parseQuery(introspectionQuery)
-  println(GraphQL.execute(introspection, resolver).mkString("\n"))
+
+  val graph: GraphQL[Introspection] = graphQL[Introspection]
+
+  override def run(args: List[String]): ZIO[Environment, Nothing, Int] =
+    (for {
+      result <- graph.execute(introspection, resolver)
+      _      <- putStrLn(result.mkString("\n"))
+    } yield ()).foldM(ex => putStrLn(ex.toString).as(1), _ => UIO.succeed(0))
 
 //    """
 //    query IntrospectionQuery {

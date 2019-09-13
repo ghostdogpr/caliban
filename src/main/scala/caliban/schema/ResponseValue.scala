@@ -1,4 +1,4 @@
-package caliban.execution
+package caliban.schema
 
 sealed trait ResponseValue
 

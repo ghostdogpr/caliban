@@ -1,4 +1,4 @@
-package caliban
+package caliban.schema
 
 object Types {
 

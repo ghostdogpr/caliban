@@ -1,4 +1,4 @@
-package caliban.execution
+package caliban.schema
 
 import scala.language.experimental.macros
 import scala.util.Try

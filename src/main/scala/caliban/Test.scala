@@ -1,8 +1,9 @@
 package caliban
 
-import caliban.Annotations.GQLDescription
-import caliban.Test.Role._
+import caliban.schema.Annotations.GQLDescription
 import caliban.Test.Origin._
+import caliban.Test.Role._
+import zio.UIO
 
 object Test {
 
@@ -38,13 +39,14 @@ object Test {
   case class CharactersArgs(origin: Option[Origin])
   case class CharacterArgs(name: String)
 
+  @GQLDescription("API")
   case class Query(
-    @GQLDescription("Return all characters from given origin") characters: CharactersArgs => List[Character],
-    @GQLDescription("Find character by name") character: CharacterArgs => Option[Character]
+    @GQLDescription("Return all characters from given origin") characters: CharactersArgs => UIO[List[Character]],
+    @GQLDescription("Find character by name") character: CharacterArgs => UIO[Option[Character]]
   )
 
   val resolver = Query(
-    args => characters.filter(c => args.origin.forall(c.origin == _)),
-    args => characters.find(c => c.name == args.name)
+    args => UIO(characters.filter(c => args.origin.forall(c.origin == _))),
+    args => UIO(characters.find(c => c.name == args.name))
   )
 }
