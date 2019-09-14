@@ -39,9 +39,9 @@ object Test {
   case class CharactersArgs(origin: Option[Origin])
   case class CharacterArgs(name: String)
 
-  @GQLDescription("API")
+  @GQLDescription("Queries")
   case class Query(
-    @GQLDescription("Return all characters from given origin") characters: CharactersArgs => UIO[List[Character]],
+    @GQLDescription("Return all characters from a given origin") characters: CharactersArgs => UIO[List[Character]],
     @GQLDescription("Find character by name") character: CharacterArgs => UIO[Option[Character]]
   )
 

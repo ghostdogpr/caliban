@@ -96,9 +96,9 @@ object Parser {
 
   private def nullValue[_: P]: P[Value]     = P("null").map(_ => NullValue)
   private def enumValue[_: P]: P[Value]     = P(name).map(EnumValue)
-  private def listValue[_: P]: P[ListValue] = P("[" ~ value.rep ~ "]").map(values => ListValue(values.toList))
+  private def listValue[_: P]: P[ListValue] = P("[" ~/ value.rep ~ "]").map(values => ListValue(values.toList))
 
-  private def objectField[_: P]: P[(String, Value)] = P(name ~ ":" ~ value)
+  private def objectField[_: P]: P[(String, Value)] = P(name ~ ":" ~/ value)
   private def objectValue[_: P]: P[ObjectValue] =
     P("{" ~ objectField.rep ~ "}").map(values => ObjectValue(values.toMap))
 
@@ -108,18 +108,18 @@ object Parser {
   private def alias[_: P]: P[String] = P(name ~ ":")
 
   private def argument[_: P]: P[(String, Value)]     = P(name ~ ":" ~ value)
-  private def arguments[_: P]: P[Map[String, Value]] = P("(" ~ argument.rep ~ ")").map(_.toMap)
+  private def arguments[_: P]: P[Map[String, Value]] = P("(" ~/ argument.rep ~ ")").map(_.toMap)
 
-  private def directive[_: P]: P[Directive] = P("@" ~ name ~ arguments).map {
+  private def directive[_: P]: P[Directive] = P("@" ~/ name ~ arguments).map {
     case (name, arguments) => Directive(name, arguments)
   }
   private def directives[_: P]: P[List[Directive]] = P(directive.rep).map(_.toList)
 
   private def selection[_: P]: P[Selection]          = P(field | fragmentSpread | inlineFragment)
-  private def selectionSet[_: P]: P[List[Selection]] = P("{" ~ selection.rep ~ "}").map(_.toList)
+  private def selectionSet[_: P]: P[List[Selection]] = P("{" ~/ selection.rep ~ "}").map(_.toList)
 
   private def namedType[_: P]: P[NamedType] = P(name.filter(_ != "null")).map(NamedType(_, nonNull = false))
-  private def listType[_: P]: P[ListType]   = P("[" ~ type_.rep ~ "]").map(t => ListType(t.toList, nonNull = false))
+  private def listType[_: P]: P[ListType]   = P("[" ~/ type_ ~ "]").map(t => ListType(t, nonNull = false))
 
   private def nonNullType[_: P]: P[Type] = P((namedType | listType) ~ "!").map {
     case t: NamedType => t.copy(nonNull = true)
@@ -127,15 +127,15 @@ object Parser {
   }
   private def type_[_: P]: P[Type] = P(nonNullType | namedType | listType)
 
-  private def variable[_: P]: P[VariableValue] = P("$" ~ name).map(VariableValue)
+  private def variable[_: P]: P[VariableValue] = P("$" ~/ name).map(VariableValue)
   private def variableDefinitions[_: P]: P[List[VariableDefinition]] =
-    P("(" ~ variableDefinition.rep ~ ")").map(_.toList)
+    P("(" ~/ variableDefinition.rep ~ ")").map(_.toList)
 
   private def variableDefinition[_: P]: P[VariableDefinition] =
-    P(variable ~ ":" ~ type_ ~ defaultValue.? ~ directives).map {
+    P(variable ~ ":" ~/ type_ ~ defaultValue.? ~ directives).map {
       case (v, t, default, dirs) => VariableDefinition(v.name, t, default, dirs)
     }
-  private def defaultValue[_: P]: P[Value] = P("=" ~ value)
+  private def defaultValue[_: P]: P[Value] = P("=" ~/ value)
 
   private def field[_: P]: P[Field] = P(alias.? ~ name ~ arguments.? ~ directives.? ~ selectionSet.?).map {
     case (alias, name, args, dirs, sels) =>
@@ -154,7 +154,7 @@ object Parser {
     case (name, dirs) => FragmentSpread(name, dirs)
   }
 
-  private def typeCondition[_: P]: P[NamedType] = P("on" ~ namedType)
+  private def typeCondition[_: P]: P[NamedType] = P("on" ~/ namedType)
 
   private def inlineFragment[_: P]: P[InlineFragment] = P("..." ~ typeCondition.? ~ directives ~ selectionSet).map {
     case (typeCondition, dirs, sel) => InlineFragment(typeCondition, dirs, sel)
@@ -166,13 +166,13 @@ object Parser {
     )
 
   private def operationDefinition[_: P]: P[OperationDefinition] =
-    P(operationType ~ name.? ~ variableDefinitions.? ~ directives ~ selectionSet).map {
+    P(operationType ~/ name.? ~ variableDefinitions.? ~ directives ~ selectionSet).map {
       case (operationType, name, variableDefinitions, directives, selection) =>
         OperationDefinition(operationType, name, variableDefinitions.getOrElse(Nil), directives, selection)
     } | P(selectionSet).map(selection => OperationDefinition(OperationType.Query, None, Nil, Nil, selection))
 
   private def fragmentDefinition[_: P]: P[FragmentDefinition] =
-    P("fragment" ~ fragmentName ~ typeCondition ~ directives ~ selectionSet).map {
+    P("fragment" ~/ fragmentName ~ typeCondition ~ directives ~ selectionSet).map {
       case (name, typeCondition, dirs, sel) => FragmentDefinition(name, typeCondition, dirs, sel)
     }
 
@@ -184,45 +184,4 @@ object Parser {
     P(Start ~ ignored ~ definition.rep ~ ignored ~ End).map(seq => Document(seq.toList))
 
   def parseQuery(query: String): Parsed[Document] = parse(query, document(_))
-
-//  val query =
-//    """
-//    # some comment
-//    query getZuckProfile($devicePicSize: Int! = 2){
-//      someAlias: endpoint(width: 100, height: 50.0, test: "ok\t\u0042", empty:"", n: null, enum: TOTO, list: [1,2 "3"]) @skip(if: true) {
-//        me {
-//          id
-//          nearestThing(location: { lat: -53.211, lon: 12.43 })
-//          pic(size: $devicePicSize)
-//          firstName
-//          lastName
-//          birthday {
-//            month
-//            day
-//            ...f
-//          }
-//          friends {
-//            name
-//          }
-//          ... on Page {
-//            likers {
-//            count
-//          }
-//    }
-//        }
-//      }
-//    }
-//    fragment f on User {
-//      id
-//      name
-//      ...standardProfilePic
-//    }
-//    fragment standardProfilePic on User {
-//      profilePic(size: 50)
-//    }
-//
-//  """
-//
-//  val query2 = "{ sendEmail(message: \"\"\"\n  Hello,\n    World!\n\n  Yours,\n    GraphQL. \\\"\"\"\n \"\"\") }"
-
 }

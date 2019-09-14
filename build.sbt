@@ -24,11 +24,15 @@ developers := List(
 )
 
 libraryDependencies ++= Seq(
-  "com.lihaoyi"    %% "fastparse" % "2.1.3",
-  "com.propensive" %% "magnolia"  % "0.11.0",
-  "dev.zio"        %% "zio"       % "1.0.0-RC12-1",
+  "com.lihaoyi"    %% "fastparse"    % "2.1.3",
+  "com.propensive" %% "magnolia"     % "0.11.0",
+  "dev.zio"        %% "zio"          % "1.0.0-RC12-1",
+  "dev.zio"        %% "zio-test"     % "1.0.0-RC12-1" % "test",
+  "dev.zio"        %% "zio-test-sbt" % "1.0.0-RC12-1" % "test",
   compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.0")
 )
+
+testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework"))
 
 scalacOptions ++= Seq(
   "-deprecation",
