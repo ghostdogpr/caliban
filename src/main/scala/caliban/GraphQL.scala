@@ -1,21 +1,22 @@
 package caliban
 
+import caliban.CalibanError.ExecutionError
 import caliban.Rendering.renderType
 import caliban.parsing.Parser
 import caliban.parsing.adt.ExecutableDefinition.OperationDefinition
 import caliban.parsing.adt.{ Selection, Value }
 import caliban.schema.Types.{ collectTypes, Type }
 import caliban.schema.{ ResponseValue, Schema }
-import zio.{ Runtime, Task, ZIO }
+import zio.{ IO, Runtime, ZIO }
 
 class GraphQL[G](schema: Schema[G]) {
 
   def render: String = collectTypes(schema.toType).map(renderType).mkString("\n")
 
-  def execute(query: String, resolver: G): Task[List[ResponseValue]] =
+  def execute(query: String, resolver: G): IO[CalibanError, List[ResponseValue]] =
     for {
-      document <- Task(Parser.parseQuery(query).get).map(_.value)
-      result <- Task.collectAll(document.definitions.flatMap {
+      document <- Parser.parseQuery(query)
+      result <- IO.collectAll(document.definitions.flatMap {
                  case OperationDefinition(_, _, _, _, selection) => Some(schema.exec(resolver, selection))
                  case _                                          => None
                })
@@ -34,7 +35,11 @@ object GraphQL {
         value: ZIO[R, E, A],
         selectionSet: List[Selection],
         arguments: Map[String, Value]
-      ): Task[ResponseValue] = value.flatMap(ev.exec(_, selectionSet, arguments)).provide(runtime.Environment)
+      ): IO[ExecutionError, ResponseValue] =
+        value.flatMap(ev.exec(_, selectionSet, arguments)).provide(runtime.Environment).mapError {
+          case e: ExecutionError => e
+          case other             => ExecutionError("Caught error during execution of effectful field", Some(other))
+        }
     }
 
 }

@@ -1,18 +1,23 @@
 package caliban.schema
 
 import scala.language.experimental.macros
-import Annotations.GQLDescription
-import Types._
-import caliban.schema.ResponseValue._
+import caliban.CalibanError.ExecutionError
 import caliban.parsing.adt.{ Selection, Value }
+import caliban.schema.Annotations.GQLDescription
+import caliban.schema.ResponseValue._
+import caliban.schema.Types._
 import magnolia._
-import zio.{ Task, UIO }
+import zio.{ IO, UIO }
 
 trait Schema[T] {
   def optional: Boolean         = false
   def arguments: List[Argument] = Nil
   def toType: Type
-  def exec(value: T, selectionSet: List[Selection], arguments: Map[String, Value] = Map()): Task[ResponseValue]
+  def exec(
+    value: T,
+    selectionSet: List[Selection],
+    arguments: Map[String, Value] = Map()
+  ): IO[ExecutionError, ResponseValue]
 }
 
 object Schema {
@@ -23,17 +28,25 @@ object Schema {
       value: Boolean,
       selectionSet: List[Selection],
       arguments: Map[String, Value]
-    ): Task[ResponseValue] =
+    ): IO[ExecutionError, ResponseValue] =
       UIO(BooleanValue(value))
   }
   implicit val intSchema: Schema[Int] = new Schema[Int] {
     override def toType: Type = makeScalar("Int")
-    override def exec(value: Int, selectionSet: List[Selection], arguments: Map[String, Value]): Task[ResponseValue] =
+    override def exec(
+      value: Int,
+      selectionSet: List[Selection],
+      arguments: Map[String, Value]
+    ): IO[ExecutionError, ResponseValue] =
       UIO(IntValue(value))
   }
   implicit val floatSchema: Schema[Float] = new Schema[Float] {
     override def toType: Type = makeScalar("Float")
-    override def exec(value: Float, selectionSet: List[Selection], arguments: Map[String, Value]): Task[ResponseValue] =
+    override def exec(
+      value: Float,
+      selectionSet: List[Selection],
+      arguments: Map[String, Value]
+    ): IO[ExecutionError, ResponseValue] =
       UIO(FloatValue(value))
   }
   implicit val doubleSchema: Schema[Double] = new Schema[Double] {
@@ -42,7 +55,7 @@ object Schema {
       value: Double,
       selectionSet: List[Selection],
       arguments: Map[String, Value]
-    ): Task[ResponseValue] = UIO(FloatValue(value.toFloat))
+    ): IO[ExecutionError, ResponseValue] = UIO(FloatValue(value.toFloat))
   }
   implicit val stringSchema: Schema[String] = new Schema[String] {
     override def toType: Type = makeScalar("String")
@@ -50,7 +63,7 @@ object Schema {
       value: String,
       selectionSet: List[Selection],
       arguments: Map[String, Value]
-    ): Task[ResponseValue] = UIO(StringValue(value))
+    ): IO[ExecutionError, ResponseValue] = UIO(StringValue(value))
   }
   implicit def optionSchema[A](implicit ev: Schema[A]): Schema[Option[A]] = new Typeclass[Option[A]] {
     override def optional: Boolean = true
@@ -59,7 +72,7 @@ object Schema {
       value: Option[A],
       selectionSet: List[Selection],
       arguments: Map[String, Value]
-    ): Task[ResponseValue] = value match {
+    ): IO[ExecutionError, ResponseValue] = value match {
       case Some(value) => ev.exec(value, selectionSet)
       case None        => UIO(NullValue)
     }
@@ -70,7 +83,7 @@ object Schema {
       value: List[A],
       selectionSet: List[Selection],
       arguments: Map[String, Value]
-    ): Task[ResponseValue] = Task.collectAll(value.map(ev.exec(_, selectionSet))).map(ListValue)
+    ): IO[ExecutionError, ResponseValue] = IO.collectAll(value.map(ev.exec(_, selectionSet))).map(ListValue)
   }
   implicit def setSchema[A](implicit ev: Schema[A]): Schema[Set[A]] = new Typeclass[Set[A]] {
     override def toType: Type = makeList(ev.toType)
@@ -78,7 +91,7 @@ object Schema {
       value: Set[A],
       selectionSet: List[Selection],
       arguments: Map[String, Value]
-    ): Task[ResponseValue] = Task.collectAll(value.map(ev.exec(_, selectionSet))).map(ListValue)
+    ): IO[ExecutionError, ResponseValue] = IO.collectAll(value.map(ev.exec(_, selectionSet))).map(ListValue)
   }
   implicit def functionSchema[A, B](implicit arg1: ArgBuilder[A], ev1: Schema[A], ev2: Schema[B]): Schema[A => B] =
     new Typeclass[A => B] {
@@ -104,7 +117,7 @@ object Schema {
         value: A => B,
         selectionSet: List[Selection],
         arguments: Map[String, Value]
-      ): Task[ResponseValue] = {
+      ): IO[ExecutionError, ResponseValue] = {
         val argValue: A = arg1.build(Right(arguments))
         ev2.exec(value(argValue), selectionSet)
       }
@@ -130,19 +143,22 @@ object Schema {
           .toList
       )
 
-    override def exec(value: T, selectionSet: List[Selection], arguments: Map[String, Value]): Task[ResponseValue] =
+    override def exec(
+      value: T,
+      selectionSet: List[Selection],
+      arguments: Map[String, Value]
+    ): IO[ExecutionError, ResponseValue] =
       if (ctx.isObject) {
         UIO(EnumValue(ctx.typeName.short))
       } else {
-        Task
-          .collectAll(selectionSet.map {
+        IO.collectAll(selectionSet.map {
             case Selection.Field(alias, name, args, _, selectionSet) =>
               ctx.parameters
                 .find(_.label == name)
                 .map(p => p.typeclass.exec(p.dereference(value), selectionSet, args))
                 .getOrElse(UIO.succeed(NullValue))
                 .map((alias.getOrElse(name), _))
-            case _ => Task.fail(new Exception("Fragments are not supported yet"))
+            case _ => IO.fail(ExecutionError("Fragments are not supported yet"))
           })
           .map(ObjectValue)
       }
@@ -171,7 +187,11 @@ object Schema {
         )
     }
 
-    override def exec(value: T, selectionSet: List[Selection], arguments: Map[String, Value]): Task[ResponseValue] =
+    override def exec(
+      value: T,
+      selectionSet: List[Selection],
+      arguments: Map[String, Value]
+    ): IO[ExecutionError, ResponseValue] =
       ctx.dispatch(value)(subType => subType.typeclass.exec(subType.cast(value), selectionSet, arguments))
   }
 

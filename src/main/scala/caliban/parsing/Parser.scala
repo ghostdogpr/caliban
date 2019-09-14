@@ -1,11 +1,13 @@
 package caliban.parsing
 
+import caliban.CalibanError.ParsingError
 import caliban.parsing.adt.ExecutableDefinition._
 import caliban.parsing.adt.Selection._
 import caliban.parsing.adt.Type._
 import caliban.parsing.adt.Value._
 import caliban.parsing.adt._
 import fastparse._
+import zio.{ IO, Task }
 
 object Parser {
 
@@ -183,5 +185,9 @@ object Parser {
   private def document[_: P]: P[Document] =
     P(Start ~ ignored ~ definition.rep ~ ignored ~ End).map(seq => Document(seq.toList))
 
-  def parseQuery(query: String): Parsed[Document] = parse(query, document(_))
+  def parseQuery(query: String): IO[ParsingError, Document] =
+    Task(parse(query, document(_))).mapError(ex => ParsingError(s"Internal parsing error", Some(ex))).flatMap {
+      case Parsed.Success(value, _) => IO.succeed(value)
+      case f: Parsed.Failure        => IO.fail(ParsingError(f.msg))
+    }
 }
