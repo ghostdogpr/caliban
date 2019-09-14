@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.GraphQL._
-import caliban.Test.Query
+import caliban.execution.ExecutionSpecUtils.QueryIO
 import caliban.schema.Types.Type
 import caliban.schema.{ Schema, Types }
 import zio.console.putStrLn
@@ -52,7 +52,7 @@ object IntrospectionTestApp extends App {
 
   implicit lazy val typeSchema: Schema[Type] = Schema.gen[Type]
 
-  val schemaType: Type = Schema.gen[Query].toType
+  val schemaType: Type = Schema.gen[QueryIO].toType
   val types: Set[Type] = Types.collectTypes(schemaType)
   val resolver         = Introspection(__Schema(schemaType, types), args => types.find(_.name.contains(args.name)).get)
 
