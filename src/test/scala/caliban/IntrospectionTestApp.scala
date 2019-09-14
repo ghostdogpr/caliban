@@ -53,7 +53,7 @@ object IntrospectionTestApp extends App {
   implicit lazy val typeSchema: Schema[Type] = Schema.gen[Type]
 
   val schemaType: Type = Schema.gen[QueryIO].toType
-  val types: Set[Type] = Types.collectTypes(schemaType)
+  val types: Set[Type] = Types.collectTypes(schemaType).values.toSet
   val resolver         = Introspection(__Schema(schemaType, types), args => types.find(_.name.contains(args.name)).get)
 
   val graph: GraphQL[Introspection] = graphQL[Introspection]

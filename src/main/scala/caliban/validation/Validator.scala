@@ -29,12 +29,7 @@ object Validator {
   private def collectTypesValidForFragments(currentType: Type): Map[String, Type] =
     Types
       .collectTypes(currentType)
-      .collect {
-        case t @ Type(TypeKind.OBJECT, Some(name), _, _, _, _, _)    => name -> t
-        case t @ Type(TypeKind.INTERFACE, Some(name), _, _, _, _, _) => name -> t
-        case t @ Type(TypeKind.UNION, Some(name), _, _, _, _, _)     => name -> t
-      }
-      .toMap
+      .filter { case (_, t) => t.kind == TypeKind.OBJECT || t.kind == TypeKind.INTERFACE || t.kind == TypeKind.UNION }
 
   private def validateDocumentFields(
     document: Document,
@@ -82,7 +77,7 @@ object Validator {
             "The target field of a field selection must be defined on the scoped type of the selection set. There are no limitations on alias names."
           )
       )
-      .flatMap(f => validateFields(field.selectionSet, Types.innerType(f.`type`)))
+      .flatMap(f => validateFields(field.selectionSet, Types.innerType(f.`type`())))
 
   private def validateOperationNameUniqueness(operations: List[OperationDefinition]): IO[ValidationError, Unit] = {
     val names         = operations.flatMap(_.name).groupBy(identity)

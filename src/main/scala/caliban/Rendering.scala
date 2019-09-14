@@ -4,20 +4,24 @@ import caliban.schema.Types.{ Argument, Field, Type, TypeKind }
 
 object Rendering {
 
-  def renderType(t: Type): String = t.kind match {
-    case TypeKind.NON_NULL => ""
-    case TypeKind.LIST     => ""
-    case TypeKind.UNION =>
-      s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} = ${t.subTypes
-        .flatMap(_.name)
-        .mkString(" | ")}"""
-    case _ =>
-      s"""
-         |${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} {
-         |  ${t.fields.map(renderField).mkString("\n  ")}${t.values.mkString("\n  ")}
-         |}
-         |""".stripMargin
-  }
+  def renderTypes(types: Map[String, Type]): String =
+    types.map {
+      case (_, t) =>
+        t.kind match {
+          case TypeKind.NON_NULL => ""
+          case TypeKind.LIST     => ""
+          case TypeKind.UNION =>
+            s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} = ${t.subTypes
+              .flatMap(_.name)
+              .mkString(" | ")}"""
+          case _ =>
+            s"""
+               |${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} {
+               |  ${t.fields.map(renderField).mkString("\n  ")}${t.values.mkString("\n  ")}
+
+               |""".stripMargin
+        }
+    }.mkString("\n")
 
   def renderKind(kind: TypeKind): String =
     kind match {
@@ -34,11 +38,11 @@ object Rendering {
   }
 
   def renderField(field: Field): String =
-    s"${field.name}${renderArguments(field.arguments)}: ${renderTypeName(field.`type`)}"
+    s"${field.name}${renderArguments(field.arguments)}: ${renderTypeName(field.`type`())}"
 
   def renderArguments(arguments: List[Argument]): String = arguments match {
     case Nil  => ""
-    case list => s"(${list.map(a => s"${a.name}: ${renderTypeName(a.argumentType)}").mkString(", ")})"
+    case list => s"(${list.map(a => s"${a.name}: ${renderTypeName(a.argumentType())}").mkString(", ")})"
   }
 
   def renderTypeName(fieldType: Type): String =

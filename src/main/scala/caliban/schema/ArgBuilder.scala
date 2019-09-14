@@ -15,6 +15,7 @@ object ArgBuilder {
 
   type Typeclass[T] = ArgBuilder[T]
 
+  implicit val unit: ArgBuilder[Unit] = _ => ()
   implicit val int: ArgBuilder[Int] = {
     case Left(Value.IntValue(value)) => value
     case _                           => throw new Exception("Invalid")

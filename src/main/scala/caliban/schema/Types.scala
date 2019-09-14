@@ -1,7 +1,5 @@
 package caliban.schema
 
-import scala.annotation.tailrec
-
 object Types {
 
   sealed trait TypeKind
@@ -45,20 +43,25 @@ object Types {
     ofType: Option[Type] = None
   )
 
-  case class Argument(name: String, description: Option[String], argumentType: Type)
+  case class Argument(name: String, description: Option[String], argumentType: () => Type)
 
-  case class Field(name: String, description: Option[String], arguments: List[Argument], `type`: Type)
+  case class Field(name: String, description: Option[String], arguments: List[Argument], `type`: () => Type)
 
-  def collectTypes(t: Type): Set[Type] =
+  def collectTypes(t: Type, existingTypes: Map[String, Type] = Map()): Map[String, Type] =
     t.kind match {
-      case TypeKind.SCALAR   => Set()
-      case TypeKind.ENUM     => Set(t)
-      case TypeKind.LIST     => t.ofType.fold(Set.empty[Type])(collectTypes)
-      case TypeKind.NON_NULL => t.ofType.fold(Set.empty[Type])(collectTypes)
-      case _                 =>
-        // TODO recursive types
-        (t :: t.fields.flatMap(f => collectTypes(f.`type`) ++ f.arguments.map(_.argumentType).flatMap(collectTypes))
-          ++ t.subTypes.flatMap(s => collectTypes(s))).toSet
+      case TypeKind.SCALAR   => existingTypes
+      case TypeKind.ENUM     => t.name.fold(existingTypes)(name => existingTypes.updated(name, t))
+      case TypeKind.LIST     => t.ofType.fold(existingTypes)(collectTypes(_, existingTypes))
+      case TypeKind.NON_NULL => t.ofType.fold(existingTypes)(collectTypes(_, existingTypes))
+      case _ =>
+        val map1          = t.name.fold(existingTypes)(name => existingTypes.updated(name, t))
+        val embeddedTypes = t.fields.flatMap(f => f.`type` :: f.arguments.map(_.argumentType))
+        val map2 = embeddedTypes.foldLeft(map1) {
+          case (types, f) =>
+            val t = innerType(f())
+            t.name.fold(types)(name => if (types.contains(name)) types else collectTypes(t, types.updated(name, t)))
+        }
+        t.subTypes.foldLeft(map2) { case (types, subtype) => collectTypes(subtype, types) }
     }
 
   def innerType(t: Type): Type = t.ofType.map(innerType).getOrElse(t)

@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.CalibanError.ExecutionError
-import caliban.Rendering.renderType
+import caliban.Rendering.renderTypes
 import caliban.parsing.Parser
 import caliban.parsing.adt.ExecutableDefinition.OperationDefinition
 import caliban.parsing.adt.{ Selection, Value }
@@ -12,7 +12,7 @@ import zio.{ IO, Runtime, ZIO }
 
 class GraphQL[G](schema: Schema[G]) {
 
-  def render: String = collectTypes(schema.toType).map(renderType).mkString("\n")
+  def render: String = renderTypes(collectTypes(schema.toType))
 
   def execute(query: String, resolver: G): IO[CalibanError, List[ResponseValue]] =
     for {

@@ -93,6 +93,15 @@ object Schema {
       arguments: Map[String, Value]
     ): IO[ExecutionError, ResponseValue] = IO.collectAll(value.map(ev.exec(_, selectionSet))).map(ListValue)
   }
+  implicit def functionUnitSchema[A](implicit ev: Schema[A]): Schema[() => A] = new Typeclass[() => A] {
+    override def optional: Boolean = ev.optional
+    override def toType: Type      = ev.toType
+    override def exec(
+      value: () => A,
+      selectionSet: List[Selection],
+      arguments: Map[String, Value]
+    ): IO[ExecutionError, ResponseValue] = ev.exec(value(), selectionSet)
+  }
   implicit def functionSchema[A, B](implicit arg1: ArgBuilder[A], ev1: Schema[A], ev2: Schema[B]): Schema[A => B] =
     new Typeclass[A => B] {
       override def arguments: List[Argument] = {
@@ -100,11 +109,14 @@ object Schema {
         incomingType.kind match {
           case TypeKind.OBJECT =>
             incomingType.fields.map { f =>
-              val mappedFieldType = (f.`type`.kind, f.`type`.ofType) match {
-                case (TypeKind.NON_NULL, Some(Type(TypeKind.OBJECT, name, description, fields, _, _, _))) =>
-                  makeNonNull(makeInputObject(name, description, fields))
-                case (TypeKind.OBJECT, _) => makeInputObject(f.`type`.name, f.`type`.description, f.`type`.fields)
-                case _                    => f.`type`
+              val mappedFieldType: () => Type = () => {
+                val t = f.`type`()
+                (t.kind, t.ofType) match {
+                  case (TypeKind.NON_NULL, Some(Type(TypeKind.OBJECT, name, description, fields, _, _, _))) =>
+                    makeNonNull(makeInputObject(name, description, fields))
+                  case (TypeKind.OBJECT, _) => makeInputObject(t.name, t.description, t.fields)
+                  case _                    => t
+                }
               }
               Argument(f.name, f.description, mappedFieldType)
             }
@@ -137,7 +149,7 @@ object Schema {
                 p.label,
                 p.annotations.collectFirst { case GQLDescription(desc) => desc },
                 p.typeclass.arguments,
-                if (p.typeclass.optional) p.typeclass.toType else makeNonNull(p.typeclass.toType)
+                () => if (p.typeclass.optional) p.typeclass.toType else makeNonNull(p.typeclass.toType)
               )
           )
           .toList
