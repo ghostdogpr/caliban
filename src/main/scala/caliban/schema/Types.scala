@@ -1,5 +1,7 @@
 package caliban.schema
 
+import scala.annotation.tailrec
+
 object Types {
 
   sealed trait TypeKind
@@ -58,4 +60,6 @@ object Types {
         (t :: t.fields.flatMap(f => collectTypes(f.`type`) ++ f.arguments.map(_.argumentType).flatMap(collectTypes))
           ++ t.subTypes.flatMap(s => collectTypes(s))).toSet
     }
+
+  def innerType(t: Type): Type = t.ofType.map(innerType).getOrElse(t)
 }

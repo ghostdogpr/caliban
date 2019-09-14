@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.GraphQL._
-import caliban.execution.ExecutionSpecUtils.QueryIO
+import caliban.TestUtils.QueryIO
 import caliban.schema.Types.Type
 import caliban.schema.{ Schema, Types }
 import zio.console.putStrLn

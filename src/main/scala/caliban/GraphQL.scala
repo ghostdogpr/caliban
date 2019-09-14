@@ -7,6 +7,7 @@ import caliban.parsing.adt.ExecutableDefinition.OperationDefinition
 import caliban.parsing.adt.{ Selection, Value }
 import caliban.schema.Types.{ collectTypes, Type }
 import caliban.schema.{ ResponseValue, Schema }
+import caliban.validation.Validator
 import zio.{ IO, Runtime, ZIO }
 
 class GraphQL[G](schema: Schema[G]) {
@@ -16,6 +17,7 @@ class GraphQL[G](schema: Schema[G]) {
   def execute(query: String, resolver: G): IO[CalibanError, List[ResponseValue]] =
     for {
       document <- Parser.parseQuery(query)
+      _        <- Validator.validate(document, schema)
       result <- IO.collectAll(document.definitions.flatMap {
                  case OperationDefinition(_, _, _, _, selection) => Some(schema.exec(resolver, selection))
                  case _                                          => None
