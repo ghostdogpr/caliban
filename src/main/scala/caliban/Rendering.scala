@@ -1,6 +1,6 @@
 package caliban
 
-import caliban.schema.Types.{ Argument, Field, Type, TypeKind }
+import caliban.schema.Types.{ Field, InputValue, Type, TypeKind }
 
 object Rendering {
 
@@ -42,9 +42,9 @@ object Rendering {
       s" @deprecated${field.deprecationReason.fold("")(reason => s"""(reason: "$reason")""")}"
     else ""}"
 
-  def renderArguments(arguments: List[Argument]): String = arguments match {
+  def renderArguments(arguments: List[InputValue]): String = arguments match {
     case Nil  => ""
-    case list => s"(${list.map(a => s"${a.name}: ${renderTypeName(a.argumentType())}").mkString(", ")})"
+    case list => s"(${list.map(a => s"${a.name}: ${renderTypeName(a.`type`())}").mkString(", ")})"
   }
 
   def renderTypeName(fieldType: Type): String =

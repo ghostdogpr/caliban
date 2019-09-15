@@ -10,9 +10,9 @@ import magnolia._
 import zio.{ IO, UIO }
 
 trait Schema[T] {
-  def optional: Boolean         = false
-  def arguments: List[Argument] = Nil
-  def toType: Type
+  def optional: Boolean           = false
+  def arguments: List[InputValue] = Nil
+  def toType(isInput: Boolean = false): Type
   def exec(
     value: T,
     selectionSet: List[Selection],
@@ -23,7 +23,7 @@ trait Schema[T] {
 object Schema {
 
   implicit val unitSchema: Schema[Unit] = new Schema[Unit] {
-    override def toType: Type = makeObject(None, None, Nil)
+    override def toType(isInput: Boolean = false): Type = makeObject(None, None, Nil)
     override def exec(
       value: Unit,
       selectionSet: List[Selection],
@@ -31,7 +31,7 @@ object Schema {
     ): IO[ExecutionError, ResponseValue] = UIO(ObjectValue(Nil))
   }
   implicit val booleanSchema: Schema[Boolean] = new Schema[Boolean] {
-    override def toType: Type = makeScalar("Boolean")
+    override def toType(isInput: Boolean = false): Type = makeScalar("Boolean")
     override def exec(
       value: Boolean,
       selectionSet: List[Selection],
@@ -40,7 +40,7 @@ object Schema {
       UIO(BooleanValue(value))
   }
   implicit val intSchema: Schema[Int] = new Schema[Int] {
-    override def toType: Type = makeScalar("Int")
+    override def toType(isInput: Boolean = false): Type = makeScalar("Int")
     override def exec(
       value: Int,
       selectionSet: List[Selection],
@@ -49,7 +49,7 @@ object Schema {
       UIO(IntValue(value))
   }
   implicit val floatSchema: Schema[Float] = new Schema[Float] {
-    override def toType: Type = makeScalar("Float")
+    override def toType(isInput: Boolean = false): Type = makeScalar("Float")
     override def exec(
       value: Float,
       selectionSet: List[Selection],
@@ -58,7 +58,7 @@ object Schema {
       UIO(FloatValue(value))
   }
   implicit val doubleSchema: Schema[Double] = new Schema[Double] {
-    override def toType: Type = makeScalar("Float")
+    override def toType(isInput: Boolean = false): Type = makeScalar("Float")
     override def exec(
       value: Double,
       selectionSet: List[Selection],
@@ -66,7 +66,7 @@ object Schema {
     ): IO[ExecutionError, ResponseValue] = UIO(FloatValue(value.toFloat))
   }
   implicit val stringSchema: Schema[String] = new Schema[String] {
-    override def toType: Type = makeScalar("String")
+    override def toType(isInput: Boolean = false): Type = makeScalar("String")
     override def exec(
       value: String,
       selectionSet: List[Selection],
@@ -74,8 +74,8 @@ object Schema {
     ): IO[ExecutionError, ResponseValue] = UIO(StringValue(value))
   }
   implicit def optionSchema[A](implicit ev: Schema[A]): Schema[Option[A]] = new Typeclass[Option[A]] {
-    override def optional: Boolean = true
-    override def toType: Type      = ev.toType
+    override def optional: Boolean                      = true
+    override def toType(isInput: Boolean = false): Type = ev.toType(isInput)
     override def exec(
       value: Option[A],
       selectionSet: List[Selection],
@@ -86,7 +86,7 @@ object Schema {
     }
   }
   implicit def listSchema[A](implicit ev: Schema[A]): Schema[List[A]] = new Typeclass[List[A]] {
-    override def toType: Type = makeList(ev.toType)
+    override def toType(isInput: Boolean = false): Type = makeList(ev.toType(isInput))
     override def exec(
       value: List[A],
       selectionSet: List[Selection],
@@ -94,7 +94,7 @@ object Schema {
     ): IO[ExecutionError, ResponseValue] = IO.collectAll(value.map(ev.exec(_, selectionSet))).map(ListValue)
   }
   implicit def setSchema[A](implicit ev: Schema[A]): Schema[Set[A]] = new Typeclass[Set[A]] {
-    override def toType: Type = makeList(ev.toType)
+    override def toType(isInput: Boolean = false): Type = makeList(ev.toType(isInput))
     override def exec(
       value: Set[A],
       selectionSet: List[Selection],
@@ -102,8 +102,8 @@ object Schema {
     ): IO[ExecutionError, ResponseValue] = IO.collectAll(value.map(ev.exec(_, selectionSet))).map(ListValue)
   }
   implicit def functionUnitSchema[A](implicit ev: Schema[A]): Schema[() => A] = new Typeclass[() => A] {
-    override def optional: Boolean = ev.optional
-    override def toType: Type      = ev.toType
+    override def optional: Boolean                      = ev.optional
+    override def toType(isInput: Boolean = false): Type = ev.toType(isInput)
     override def exec(
       value: () => A,
       selectionSet: List[Selection],
@@ -112,27 +112,9 @@ object Schema {
   }
   implicit def functionSchema[A, B](implicit arg1: ArgBuilder[A], ev1: Schema[A], ev2: Schema[B]): Schema[A => B] =
     new Typeclass[A => B] {
-      override def arguments: List[Argument] = {
-        val incomingType = ev1.toType
-        incomingType.kind match {
-          case TypeKind.OBJECT =>
-            incomingType.fields.map { f =>
-              val mappedFieldType: () => Type = () => {
-                val t = f.`type`()
-                (t.kind, t.ofType) match {
-                  case (TypeKind.NON_NULL, Some(Type(TypeKind.OBJECT, name, description, fields, _, _, _))) =>
-                    makeNonNull(makeInputObject(name, description, fields))
-                  case (TypeKind.OBJECT, _) => makeInputObject(t.name, t.description, t.fields)
-                  case _                    => t
-                }
-              }
-              Argument(f.name, f.description, mappedFieldType)
-            }
-          case _ => Nil
-        }
-      }
-      override def optional: Boolean = ev2.optional
-      override def toType: Type      = ev2.toType
+      override def arguments: List[InputValue]            = ev1.toType(true).inputFields
+      override def optional: Boolean                      = ev2.optional
+      override def toType(isInput: Boolean = false): Type = ev2.toType(isInput)
       override def exec(
         value: A => B,
         selectionSet: List[Selection],
@@ -146,24 +128,46 @@ object Schema {
   type Typeclass[T] = Schema[T]
 
   def combine[T](ctx: CaseClass[Schema, T]): Schema[T] = new Schema[T] {
-    override def toType: Type =
-      makeObject(
-        Some(ctx.typeName.short),
-        ctx.annotations.collectFirst { case GQLDescription(desc) => desc },
-        ctx.parameters
-          .map(
-            p =>
-              Field(
-                p.label,
-                p.annotations.collectFirst { case GQLDescription(desc) => desc },
-                p.typeclass.arguments,
-                () => if (p.typeclass.optional) p.typeclass.toType else makeNonNull(p.typeclass.toType),
-                p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
-                p.annotations.collectFirst { case GQLDeprecated(reason) => reason }
-              )
-          )
-          .toList
-      )
+    override def toType(isInput: Boolean = false): Type = {
+      val name        = ctx.typeName.short
+      val description = ctx.annotations.collectFirst { case GQLDescription(desc) => desc }
+      if (isInput)
+        makeInputObject(
+          Some(name),
+          description,
+          ctx.parameters
+            .map(
+              p =>
+                InputValue(
+                  p.label,
+                  p.annotations.collectFirst { case GQLDescription(desc) => desc },
+                  () =>
+                    if (p.typeclass.optional) p.typeclass.toType(isInput) else makeNonNull(p.typeclass.toType(isInput)),
+                  None
+                )
+            )
+            .toList
+        )
+      else
+        makeObject(
+          Some(name),
+          description,
+          ctx.parameters
+            .map(
+              p =>
+                Field(
+                  p.label,
+                  p.annotations.collectFirst { case GQLDescription(desc) => desc },
+                  p.typeclass.arguments,
+                  () =>
+                    if (p.typeclass.optional) p.typeclass.toType(isInput) else makeNonNull(p.typeclass.toType(isInput)),
+                  p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
+                  p.annotations.collectFirst { case GQLDeprecated(reason) => reason }
+                )
+            )
+            .toList
+        )
+    }
 
     override def exec(
       value: T,
@@ -187,18 +191,18 @@ object Schema {
   }
 
   def dispatch[T](ctx: SealedTrait[Schema, T]): Schema[T] = new Typeclass[T] {
-    override def toType: Type = {
-      val subtypes = ctx.subtypes.map(_.typeclass.toType).toList
+    override def toType(isInput: Boolean = false): Type = {
+      val subtypes = ctx.subtypes.map(_.typeclass.toType(isInput)).toList
       val isEnum = subtypes.forall {
-        case Type(TypeKind.OBJECT, _, _, Nil, _, _, _) => true
-        case _                                         => false
+        case Type(TypeKind.OBJECT, _, _, _, Nil, _, _, _) => true
+        case _                                            => false
       }
       if (isEnum && subtypes.nonEmpty)
         makeEnum(
           Some(ctx.typeName.short),
           ctx.annotations.collectFirst { case GQLDescription(desc) => desc },
           subtypes.collect {
-            case Type(TypeKind.OBJECT, Some(name), _, _, _, _, _) => name
+            case Type(TypeKind.OBJECT, Some(name), _, _, _, _, _, _) => name
           }
         )
       else

@@ -17,9 +17,13 @@ import zio.{ IO, Runtime, ZIO }
 class GraphQL[Q, M, S](schema: RootSchema[Q, M, S]) {
 
   val rootType =
-    RootType(schema.query.schema.toType, schema.mutation.map(_.schema.toType), schema.subscription.map(_.schema.toType))
+    RootType(
+      schema.query.schema.toType(),
+      schema.mutation.map(_.schema.toType()),
+      schema.subscription.map(_.schema.toType())
+    )
   val (introspectionSchema, introspectionResolver) = Introspector.introspect(rootType)
-  val introspectionRootType                        = RootType(introspectionSchema.toType, None, None)
+  val introspectionRootType                        = RootType(introspectionSchema.toType(), None, None)
 
   def render: String = renderTypes(rootType.types)
 
@@ -74,7 +78,7 @@ object GraphQL {
 
   implicit def effectSchema[R, E <: Throwable, A](implicit ev: Schema[A], runtime: Runtime[R]): Schema[ZIO[R, E, A]] =
     new Schema[ZIO[R, E, A]] {
-      override def toType: Type = ev.toType
+      override def toType(isInput: Boolean = false): Type = ev.toType(isInput)
       override def exec(
         value: ZIO[R, E, A],
         selectionSet: List[Selection],

@@ -1,7 +1,7 @@
 package caliban.introspection
 
 import caliban.schema.{ RootType, Schema }
-import caliban.schema.Types.{ Argument, Type }
+import caliban.schema.Types.{ InputValue, Type }
 
 object Introspector {
 
@@ -32,7 +32,7 @@ object Introspector {
     name: String,
     description: Option[String],
     locations: Set[__DirectiveLocation],
-    args: List[Argument]
+    args: List[InputValue]
   )
   case class __Schema(
     queryType: Type,
