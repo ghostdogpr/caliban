@@ -47,10 +47,10 @@ object Types {
     kind: TypeKind,
     name: Option[String] = None,
     description: Option[String] = None,
-    fields: DeprecatedArgs => List[Field] = _ => Nil, // TODO includeDeprecated
+    fields: DeprecatedArgs => List[Field] = _ => Nil,
     interfaces: List[Type] = Nil,
     possibleTypes: List[Type] = Nil,
-    enumValues: DeprecatedArgs => List[EnumValue] = _ => Nil, // TODO includeDeprecated
+    enumValues: DeprecatedArgs => List[EnumValue] = _ => Nil,
     inputFields: List[InputValue] = Nil,
     ofType: Option[Type] = None
   )
