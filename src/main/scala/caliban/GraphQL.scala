@@ -9,7 +9,7 @@ import caliban.parsing.adt.OperationType._
 import caliban.parsing.adt.Selection.Field
 import caliban.parsing.adt.{ Document, Selection, Value }
 import caliban.schema.RootSchema.Operation
-import caliban.schema.Types.Type
+import caliban.schema.Types.__Type
 import caliban.schema.{ ResponseValue, RootSchema, RootType, Schema }
 import caliban.validation.Validator
 import zio.{ IO, Runtime, ZIO }
@@ -57,9 +57,9 @@ class GraphQL[Q, M, S](schema: RootSchema[Q, M, S]) {
       case OperationDefinition(_, _, _, _, selectionSet) =>
         selectionSet.forall {
           case Field(_, name, _, _, _) => name == "__schema" || name == "__type"
-          case _                       => false
+          case _                       => true
         }
-      case _ => false
+      case _ => true
     }
 }
 
@@ -78,7 +78,7 @@ object GraphQL {
 
   implicit def effectSchema[R, E <: Throwable, A](implicit ev: Schema[A], runtime: Runtime[R]): Schema[ZIO[R, E, A]] =
     new Schema[ZIO[R, E, A]] {
-      override def toType(isInput: Boolean = false): Type = ev.toType(isInput)
+      override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
       override def exec(
         value: ZIO[R, E, A],
         selectionSet: List[Selection],

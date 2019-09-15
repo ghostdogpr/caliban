@@ -1,7 +1,7 @@
 package caliban.introspection
 
 import caliban.schema.{ RootType, Schema }
-import caliban.schema.Types.{ InputValue, Type }
+import caliban.schema.Types.{ __InputValue, __Type }
 
 object Introspector {
 
@@ -32,19 +32,19 @@ object Introspector {
     name: String,
     description: Option[String],
     locations: Set[__DirectiveLocation],
-    args: List[InputValue]
+    args: List[__InputValue]
   )
   case class __Schema(
-    queryType: Type,
-    mutationType: Option[Type],
-    subscriptionType: Option[Type],
-    types: Set[Type],
+    queryType: __Type,
+    mutationType: Option[__Type],
+    subscriptionType: Option[__Type],
+    types: Set[__Type],
     directives: List[__Directive]
   )
   case class TypeArgs(name: String)
-  case class Introspection(__schema: __Schema, __type: TypeArgs => Type)
+  case class Introspection(__schema: __Schema, __type: TypeArgs => __Type)
 
-  implicit lazy val typeSchema: Schema[Type] = Schema.gen[Type]
+  implicit lazy val typeSchema: Schema[__Type] = Schema.gen[__Type]
 
   def introspect(rootType: RootType): (Schema[Introspection], Introspection) = {
     val types = rootType.types.values.toSet

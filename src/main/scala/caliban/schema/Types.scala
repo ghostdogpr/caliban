@@ -2,85 +2,85 @@ package caliban.schema
 
 object Types {
 
-  sealed trait TypeKind
+  sealed trait __TypeKind
 
-  object TypeKind {
-    case object SCALAR       extends TypeKind
-    case object OBJECT       extends TypeKind
-    case object INTERFACE    extends TypeKind
-    case object UNION        extends TypeKind
-    case object ENUM         extends TypeKind
-    case object INPUT_OBJECT extends TypeKind
-    case object LIST         extends TypeKind
-    case object NON_NULL     extends TypeKind
+  object __TypeKind {
+    case object SCALAR       extends __TypeKind
+    case object OBJECT       extends __TypeKind
+    case object INTERFACE    extends __TypeKind
+    case object UNION        extends __TypeKind
+    case object ENUM         extends __TypeKind
+    case object INPUT_OBJECT extends __TypeKind
+    case object LIST         extends __TypeKind
+    case object NON_NULL     extends __TypeKind
   }
 
-  def makeScalar(name: String) = Type(TypeKind.SCALAR, Some(name))
+  def makeScalar(name: String) = __Type(__TypeKind.SCALAR, Some(name))
 
-  def makeList(underlying: Type) = Type(TypeKind.LIST, ofType = Some(underlying))
+  def makeList(underlying: __Type) = __Type(__TypeKind.LIST, ofType = Some(underlying))
 
-  def makeNonNull(underlying: Type) = Type(TypeKind.NON_NULL, ofType = Some(underlying))
+  def makeNonNull(underlying: __Type) = __Type(__TypeKind.NON_NULL, ofType = Some(underlying))
 
-  def makeEnum(name: Option[String], description: Option[String], values: List[EnumValue]) =
-    Type(
-      TypeKind.ENUM,
+  def makeEnum(name: Option[String], description: Option[String], values: List[__EnumValue]) =
+    __Type(
+      __TypeKind.ENUM,
       name,
       description,
       enumValues = args => values.filter(v => args.includeDeprecated.getOrElse(false) || !v.isDeprecated)
     )
 
-  def makeObject(name: Option[String], description: Option[String], fields: List[Field]) =
-    Type(
-      TypeKind.OBJECT,
+  def makeObject(name: Option[String], description: Option[String], fields: List[__Field]) =
+    __Type(
+      __TypeKind.OBJECT,
       name,
       description,
       fields = args => fields.filter(v => args.includeDeprecated.getOrElse(false) || !v.isDeprecated)
     )
 
-  def makeInputObject(name: Option[String], description: Option[String], fields: List[InputValue]) =
-    Type(TypeKind.INPUT_OBJECT, name, description, inputFields = fields)
+  def makeInputObject(name: Option[String], description: Option[String], fields: List[__InputValue]) =
+    __Type(__TypeKind.INPUT_OBJECT, name, description, inputFields = fields)
 
-  def makeUnion(name: Option[String], description: Option[String], subTypes: List[Type]) =
-    Type(TypeKind.UNION, name, description, possibleTypes = subTypes)
+  def makeUnion(name: Option[String], description: Option[String], subTypes: List[__Type]) =
+    __Type(__TypeKind.UNION, name, description, possibleTypes = subTypes)
 
-  case class Type(
-    kind: TypeKind,
+  case class __Type(
+    kind: __TypeKind,
     name: Option[String] = None,
     description: Option[String] = None,
-    fields: DeprecatedArgs => List[Field] = _ => Nil,
-    interfaces: List[Type] = Nil,
-    possibleTypes: List[Type] = Nil,
-    enumValues: DeprecatedArgs => List[EnumValue] = _ => Nil,
-    inputFields: List[InputValue] = Nil,
-    ofType: Option[Type] = None
+    fields: DeprecatedArgs => List[__Field] = _ => Nil,
+    interfaces: List[__Type] = Nil,
+    possibleTypes: List[__Type] = Nil,
+    enumValues: DeprecatedArgs => List[__EnumValue] = _ => Nil,
+    inputFields: List[__InputValue] = Nil,
+    ofType: Option[__Type] = None
   )
 
   case class DeprecatedArgs(includeDeprecated: Option[Boolean] = None)
 
-  case class EnumValue(
+  case class __EnumValue(
     name: String,
     description: Option[String],
     isDeprecated: Boolean,
     deprecationReason: Option[String]
   )
 
-  case class InputValue(name: String, description: Option[String], `type`: () => Type, defaultValue: Option[String])
+  case class __InputValue(name: String, description: Option[String], `type`: () => __Type, defaultValue: Option[String])
 
-  case class Field(
+  case class __Field(
     name: String,
     description: Option[String],
-    args: List[InputValue],
-    `type`: () => Type,
+    args: List[__InputValue],
+    `type`: () => __Type,
     isDeprecated: Boolean,
     deprecationReason: Option[String]
   )
 
-  def collectTypes(t: Type, existingTypes: Map[String, Type] = Map()): Map[String, Type] =
+  def collectTypes(t: __Type, existingTypes: Map[String, __Type] = Map()): Map[String, __Type] =
     t.kind match {
-      case TypeKind.SCALAR   => existingTypes
-      case TypeKind.ENUM     => t.name.fold(existingTypes)(name => existingTypes.updated(name, t))
-      case TypeKind.LIST     => t.ofType.fold(existingTypes)(collectTypes(_, existingTypes))
-      case TypeKind.NON_NULL => t.ofType.fold(existingTypes)(collectTypes(_, existingTypes))
+      case __TypeKind.SCALAR   => existingTypes
+      case __TypeKind.ENUM     => t.name.fold(existingTypes)(name => existingTypes.updated(name, t))
+      case __TypeKind.LIST     => t.ofType.fold(existingTypes)(collectTypes(_, existingTypes))
+      case __TypeKind.NON_NULL => t.ofType.fold(existingTypes)(collectTypes(_, existingTypes))
       case _ =>
         val map1          = t.name.fold(existingTypes)(name => existingTypes.updated(name, t))
         val embeddedTypes = t.fields(DeprecatedArgs(Some(true))).flatMap(f => f.`type` :: f.args.map(_.`type`))
@@ -92,5 +92,5 @@ object Types {
         t.possibleTypes.foldLeft(map2) { case (types, subtype) => collectTypes(subtype, types) }
     }
 
-  def innerType(t: Type): Type = t.ofType.map(innerType).getOrElse(t)
+  def innerType(t: __Type): __Type = t.ofType.map(innerType).getOrElse(t)
 }

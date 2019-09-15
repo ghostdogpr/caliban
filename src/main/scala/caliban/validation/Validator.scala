@@ -5,7 +5,7 @@ import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationD
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.{ Document, OperationType, Selection }
 import caliban.schema.{ RootType, Types }
-import caliban.schema.Types.{ DeprecatedArgs, Type, TypeKind }
+import caliban.schema.Types.{ __Type, __TypeKind, DeprecatedArgs }
 import caliban.Rendering
 import zio.IO
 
@@ -25,15 +25,15 @@ object Validator {
   private def collectOperations(document: Document): List[OperationDefinition] =
     document.definitions.collect { case o: OperationDefinition => o }
 
-  private def collectTypesValidForFragments(rootType: RootType): Map[String, Type] =
+  private def collectTypesValidForFragments(rootType: RootType): Map[String, __Type] =
     rootType.types.filter {
-      case (_, t) => t.kind == TypeKind.OBJECT || t.kind == TypeKind.INTERFACE || t.kind == TypeKind.UNION
+      case (_, t) => t.kind == __TypeKind.OBJECT || t.kind == __TypeKind.INTERFACE || t.kind == __TypeKind.UNION
     }
 
   private def validateDocumentFields(
     document: Document,
     rootType: RootType,
-    typesForFragments: Map[String, Type]
+    typesForFragments: Map[String, __Type]
   ): IO[ValidationError, Unit] =
     IO.foreach(document.definitions) {
         case OperationDefinition(opType, _, _, _, selectionSet) =>
@@ -63,7 +63,7 @@ object Validator {
       }
       .unit
 
-  private def validateFields(selectionSet: List[Selection], currentType: Type): IO[ValidationError, Unit] =
+  private def validateFields(selectionSet: List[Selection], currentType: __Type): IO[ValidationError, Unit] =
     IO.foreach(selectionSet) {
         case f: Field          => validateField(f, currentType)
         case _: FragmentSpread => IO.unit
@@ -77,7 +77,7 @@ object Validator {
       }
       .unit
 
-  private def validateField(field: Field, currentType: Type): IO[ValidationError, Unit] =
+  private def validateField(field: Field, currentType: __Type): IO[ValidationError, Unit] =
     IO.fromOption(currentType.fields(DeprecatedArgs(Some(true))).find(_.name == field.name))
       .mapError(
         _ =>
