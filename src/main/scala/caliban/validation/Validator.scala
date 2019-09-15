@@ -71,7 +71,7 @@ object Validator {
           validateFields(
             selectionSet,
             typeCondition
-              .flatMap(onType => currentType.subTypes.find(_.name.contains(onType.name)))
+              .flatMap(onType => currentType.possibleTypes.find(_.name.contains(onType.name)))
               .getOrElse(currentType)
           )
       }

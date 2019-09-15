@@ -175,7 +175,7 @@ object Schema {
       arguments: Map[String, Value]
     ): IO[ExecutionError, ResponseValue] =
       if (ctx.isObject) {
-        UIO(EnumValue(ctx.typeName.short))
+        UIO(ResponseValue.EnumValue(ctx.typeName.short))
       } else {
         IO.collectAll(selectionSet.map {
             case Selection.Field(alias, name, args, _, selectionSet) =>
@@ -192,24 +192,30 @@ object Schema {
 
   def dispatch[T](ctx: SealedTrait[Schema, T]): Schema[T] = new Typeclass[T] {
     override def toType(isInput: Boolean = false): Type = {
-      val subtypes = ctx.subtypes.map(_.typeclass.toType(isInput)).toList
+      val subtypes = ctx.subtypes.map(s => s.typeclass.toType(isInput) -> s.annotations).toList
       val isEnum = subtypes.forall {
-        case Type(TypeKind.OBJECT, _, _, _, Nil, _, _, _) => true
-        case _                                            => false
+        case (Type(TypeKind.OBJECT, _, _, Nil, Nil, Nil, Nil, Nil, _), _) => true
+        case _                                                            => false
       }
       if (isEnum && subtypes.nonEmpty)
         makeEnum(
           Some(ctx.typeName.short),
           ctx.annotations.collectFirst { case GQLDescription(desc) => desc },
           subtypes.collect {
-            case Type(TypeKind.OBJECT, Some(name), _, _, _, _, _, _) => name
+            case (Type(TypeKind.OBJECT, Some(name), description, _, _, _, _, _, _), annotations) =>
+              Types.EnumValue(
+                name,
+                description,
+                annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
+                annotations.collectFirst { case GQLDeprecated(reason) => reason }
+              )
           }
         )
       else
         makeUnion(
           Some(ctx.typeName.short),
           ctx.annotations.collectFirst { case GQLDescription(desc) => desc },
-          subtypes
+          subtypes.map(_._1)
         )
     }
 

@@ -21,7 +21,7 @@ object Types {
 
   def makeNonNull(underlying: Type) = Type(TypeKind.NON_NULL, ofType = Some(underlying))
 
-  def makeEnum(name: Option[String], description: Option[String], values: List[String]) =
+  def makeEnum(name: Option[String], description: Option[String], values: List[EnumValue]) =
     Type(TypeKind.ENUM, name, description, enumValues = values)
 
   def makeObject(name: Option[String], description: Option[String], fields: List[Field]) =
@@ -31,17 +31,25 @@ object Types {
     Type(TypeKind.INPUT_OBJECT, name, description, inputFields = fields)
 
   def makeUnion(name: Option[String], description: Option[String], subTypes: List[Type]) =
-    Type(TypeKind.UNION, name, description, subTypes = subTypes)
+    Type(TypeKind.UNION, name, description, possibleTypes = subTypes)
 
   case class Type(
     kind: TypeKind,
     name: Option[String] = None,
     description: Option[String] = None,
-    fields: List[Field] = Nil,
-    enumValues: List[String] = Nil,
+    fields: List[Field] = Nil, // TODO includeDeprecated
+    interfaces: List[Type] = Nil,
+    possibleTypes: List[Type] = Nil,
+    enumValues: List[EnumValue] = Nil, // TODO includeDeprecated
     inputFields: List[InputValue] = Nil,
-    subTypes: List[Type] = Nil,
     ofType: Option[Type] = None
+  )
+
+  case class EnumValue(
+    name: String,
+    description: Option[String],
+    isDeprecated: Boolean,
+    deprecationReason: Option[String]
   )
 
   case class InputValue(name: String, description: Option[String], `type`: () => Type, defaultValue: Option[String])
@@ -69,7 +77,7 @@ object Types {
             val t = innerType(f())
             t.name.fold(types)(name => if (types.contains(name)) types else collectTypes(t, types.updated(name, t)))
         }
-        t.subTypes.foldLeft(map2) { case (types, subtype) => collectTypes(subtype, types) }
+        t.possibleTypes.foldLeft(map2) { case (types, subtype) => collectTypes(subtype, types) }
     }
 
   def innerType(t: Type): Type = t.ofType.map(innerType).getOrElse(t)

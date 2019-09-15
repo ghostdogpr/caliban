@@ -1,6 +1,6 @@
 package caliban
 
-import caliban.schema.Types.{ Field, InputValue, Type, TypeKind }
+import caliban.schema.Types.{ EnumValue, Field, InputValue, Type, TypeKind }
 
 object Rendering {
 
@@ -12,13 +12,13 @@ object Rendering {
           case TypeKind.NON_NULL => ""
           case TypeKind.LIST     => ""
           case TypeKind.UNION =>
-            s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} = ${t.subTypes
+            s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} = ${t.possibleTypes
               .flatMap(_.name)
               .mkString(" | ")}"""
           case _ =>
             s"""
                |${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} {
-               |  ${t.fields.map(renderField).mkString("\n  ")}${t.enumValues.mkString("\n  ")}
+               |  ${t.fields.map(renderField).mkString("\n  ")}${t.enumValues.map(renderEnumValue).mkString("\n  ")}
                |}""".stripMargin
         }
     }.mkString("\n")
@@ -40,6 +40,11 @@ object Rendering {
   def renderField(field: Field): String =
     s"${field.name}${renderArguments(field.args)}: ${renderTypeName(field.`type`())}${if (field.isDeprecated)
       s" @deprecated${field.deprecationReason.fold("")(reason => s"""(reason: "$reason")""")}"
+    else ""}"
+
+  def renderEnumValue(v: EnumValue): String =
+    s"${renderDescription(v.description)}${v.name}${if (v.isDeprecated)
+      s" @deprecated${v.deprecationReason.fold("")(reason => s"""(reason: "$reason")""")}"
     else ""}"
 
   def renderArguments(arguments: List[InputValue]): String = arguments match {
