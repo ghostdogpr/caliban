@@ -13,13 +13,15 @@ object Rendering {
           case __TypeKind.LIST     => ""
           case __TypeKind.UNION =>
             s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} = ${t.possibleTypes
+              .getOrElse(Nil)
               .flatMap(_.name)
               .mkString(" | ")}"""
           case _ =>
             s"""
                |${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} {
-               |  ${t.fields(DeprecatedArgs()).map(renderField).mkString("\n  ")}${t
+               |  ${t.fields(DeprecatedArgs()).getOrElse(Nil).map(renderField).mkString("\n  ")}${t
                  .enumValues(DeprecatedArgs())
+                 .getOrElse(Nil)
                  .map(renderEnumValue)
                  .mkString("\n  ")}
                |}""".stripMargin

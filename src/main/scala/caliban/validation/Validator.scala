@@ -71,14 +71,14 @@ object Validator {
           validateFields(
             selectionSet,
             typeCondition
-              .flatMap(onType => currentType.possibleTypes.find(_.name.contains(onType.name)))
+              .flatMap(onType => currentType.possibleTypes.getOrElse(Nil).find(_.name.contains(onType.name)))
               .getOrElse(currentType)
           )
       }
       .unit
 
   private def validateField(field: Field, currentType: __Type): IO[ValidationError, Unit] =
-    IO.fromOption(currentType.fields(DeprecatedArgs(Some(true))).find(_.name == field.name))
+    IO.fromOption(currentType.fields(DeprecatedArgs(Some(true))).getOrElse(Nil).find(_.name == field.name))
       .mapError(
         _ =>
           ValidationError(

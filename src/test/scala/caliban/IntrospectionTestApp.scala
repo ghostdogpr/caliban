@@ -63,69 +63,122 @@ object IntrospectionTestApp extends App {
         mutationType { name }
         subscriptionType { name }
         types {
-          ...FullType
-        }
-        directives {
-          name
-          description
-          locations
-          args {
-            ...InputValue
-          }
-        }
-      }
-    }
-
-    fragment FullType on __Type {
-      kind
-      name
-      description
-      fields(includeDeprecated: true) {
-        name
-        description
-        args {
-          ...InputValue
-        }
-        type {
-          ...TypeRef
-        }
-        isDeprecated
-        deprecationReason
-      }
-      inputFields {
-        ...InputValue
-      }
-      interfaces {
-        ...TypeRef
-      }
-      enumValues(includeDeprecated: true) {
-        name
-        description
-        isDeprecated
-        deprecationReason
-      }
-      possibleTypes {
-        ...TypeRef
-      }
-    }
-
-    fragment InputValue on __InputValue {
-      name
-      description
-      type { ...TypeRef }
-      defaultValue
-    }
-
-    fragment TypeRef on __Type {
-      kind
-      name
-      ofType {
-        kind
-        name
-        ofType {
           kind
           name
-          ofType {
+          description
+          fields(includeDeprecated: true) {
+            name
+            description
+            args {
+              name
+              description
+              type {
+                kind
+                name
+                ofType {
+                  kind
+                  name
+                  ofType {
+                    kind
+                    name
+                    ofType {
+                      kind
+                      name
+                      ofType {
+                        kind
+                        name
+                        ofType {
+                          kind
+                          name
+                          ofType {
+                            kind
+                            name
+                            ofType {
+                              kind
+                              name
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              defaultValue
+            }
+            type {
+              kind
+              name
+              ofType {
+                kind
+                name
+                ofType {
+                  kind
+                  name
+                  ofType {
+                    kind
+                    name
+                    ofType {
+                      kind
+                      name
+                      ofType {
+                        kind
+                        name
+                        ofType {
+                          kind
+                          name
+                          ofType {
+                            kind
+                            name
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            isDeprecated
+            deprecationReason
+          }
+          inputFields {
+            name
+            description
+            type {
+              kind
+              name
+              ofType {
+                kind
+                name
+                ofType {
+                  kind
+                  name
+                  ofType {
+                    kind
+                    name
+                    ofType {
+                      kind
+                      name
+                      ofType {
+                        kind
+                        name
+                        ofType {
+                          kind
+                          name
+                          ofType {
+                            kind
+                            name
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            defaultValue
+          }
+          interfaces {
             kind
             name
             ofType {
@@ -140,14 +193,200 @@ object IntrospectionTestApp extends App {
                   ofType {
                     kind
                     name
+                    ofType {
+                      kind
+                      name
+                      ofType {
+                        kind
+                        name
+                        ofType {
+                          kind
+                          name
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          enumValues(includeDeprecated: true) {
+            name
+            description
+            isDeprecated
+            deprecationReason
+          }
+          possibleTypes {
+            kind
+            name
+            ofType {
+              kind
+              name
+              ofType {
+                kind
+                name
+                ofType {
+                  kind
+                  name
+                  ofType {
+                    kind
+                    name
+                    ofType {
+                      kind
+                      name
+                      ofType {
+                        kind
+                        name
+                        ofType {
+                          kind
+                          name
+                        }
+                      }
+                    }
                   }
                 }
               }
             }
           }
         }
+        directives {
+          name
+          description
+          locations
+          args {
+            name
+            description
+            type {
+              kind
+              name
+              ofType {
+                kind
+                name
+                ofType {
+                  kind
+                  name
+                  ofType {
+                    kind
+                    name
+                    ofType {
+                      kind
+                      name
+                      ofType {
+                        kind
+                        name
+                        ofType {
+                          kind
+                          name
+                          ofType {
+                            kind
+                            name
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            defaultValue
+          }
+        }
       }
     }
       """
+
+//  val fullIntrospectionQuery = """
+//    query IntrospectionQuery {
+//      __schema {
+//        queryType { name }
+//        mutationType { name }
+//        subscriptionType { name }
+//        types {
+//          ...FullType
+//        }
+//        directives {
+//          name
+//          description
+//          locations
+//          args {
+//            ...InputValue
+//          }
+//        }
+//      }
+//    }
+//
+//    fragment FullType on __Type {
+//      kind
+//      name
+//      description
+//      fields(includeDeprecated: true) {
+//        name
+//        description
+//        args {
+//          ...InputValue
+//        }
+//        type {
+//          ...TypeRef
+//        }
+//        isDeprecated
+//        deprecationReason
+//      }
+//      inputFields {
+//        ...InputValue
+//      }
+//      interfaces {
+//        ...TypeRef
+//      }
+//      enumValues(includeDeprecated: true) {
+//        name
+//        description
+//        isDeprecated
+//        deprecationReason
+//      }
+//      possibleTypes {
+//        ...TypeRef
+//      }
+//    }
+//
+//    fragment InputValue on __InputValue {
+//      name
+//      description
+//      type { ...TypeRef }
+//      defaultValue
+//    }
+//
+//    fragment TypeRef on __Type {
+//      kind
+//      name
+//      ofType {
+//        kind
+//        name
+//        ofType {
+//          kind
+//          name
+//          ofType {
+//            kind
+//            name
+//            ofType {
+//              kind
+//              name
+//              ofType {
+//                kind
+//                name
+//                ofType {
+//                  kind
+//                  name
+//                  ofType {
+//                    kind
+//                    name
+//                  }
+//                }
+//              }
+//            }
+//          }
+//        }
+//      }
+//    }
+//      """
 
 }

@@ -112,7 +112,7 @@ object Schema {
   }
   implicit def functionSchema[A, B](implicit arg1: ArgBuilder[A], ev1: Schema[A], ev2: Schema[B]): Schema[A => B] =
     new Typeclass[A => B] {
-      override def arguments: List[__InputValue]            = ev1.toType(true).inputFields
+      override def arguments: List[__InputValue]            = ev1.toType(true).inputFields.getOrElse(Nil)
       override def optional: Boolean                        = ev2.optional
       override def toType(isInput: Boolean = false): __Type = ev2.toType(isInput)
       override def exec(

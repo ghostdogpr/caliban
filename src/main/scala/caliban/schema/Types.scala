@@ -26,7 +26,7 @@ object Types {
       __TypeKind.ENUM,
       name,
       description,
-      enumValues = args => values.filter(v => args.includeDeprecated.getOrElse(false) || !v.isDeprecated)
+      enumValues = args => Some(values.filter(v => args.includeDeprecated.getOrElse(false) || !v.isDeprecated))
     )
 
   def makeObject(name: Option[String], description: Option[String], fields: List[__Field]) =
@@ -34,24 +34,24 @@ object Types {
       __TypeKind.OBJECT,
       name,
       description,
-      fields = args => fields.filter(v => args.includeDeprecated.getOrElse(false) || !v.isDeprecated)
+      fields = args => Some(fields.filter(v => args.includeDeprecated.getOrElse(false) || !v.isDeprecated))
     )
 
   def makeInputObject(name: Option[String], description: Option[String], fields: List[__InputValue]) =
-    __Type(__TypeKind.INPUT_OBJECT, name, description, inputFields = fields)
+    __Type(__TypeKind.INPUT_OBJECT, name, description, inputFields = Some(fields))
 
   def makeUnion(name: Option[String], description: Option[String], subTypes: List[__Type]) =
-    __Type(__TypeKind.UNION, name, description, possibleTypes = subTypes)
+    __Type(__TypeKind.UNION, name, description, possibleTypes = Some(subTypes))
 
   case class __Type(
     kind: __TypeKind,
     name: Option[String] = None,
     description: Option[String] = None,
-    fields: DeprecatedArgs => List[__Field] = _ => Nil,
-    interfaces: List[__Type] = Nil,
-    possibleTypes: List[__Type] = Nil,
-    enumValues: DeprecatedArgs => List[__EnumValue] = _ => Nil,
-    inputFields: List[__InputValue] = Nil,
+    fields: DeprecatedArgs => Option[List[__Field]] = _ => None,
+    interfaces: Option[List[__Type]] = None,
+    possibleTypes: Option[List[__Type]] = None,
+    enumValues: DeprecatedArgs => Option[List[__EnumValue]] = _ => None,
+    inputFields: Option[List[__InputValue]] = None,
     ofType: Option[__Type] = None
   )
 
@@ -82,14 +82,15 @@ object Types {
       case __TypeKind.LIST     => t.ofType.fold(existingTypes)(collectTypes(_, existingTypes))
       case __TypeKind.NON_NULL => t.ofType.fold(existingTypes)(collectTypes(_, existingTypes))
       case _ =>
-        val map1          = t.name.fold(existingTypes)(name => existingTypes.updated(name, t))
-        val embeddedTypes = t.fields(DeprecatedArgs(Some(true))).flatMap(f => f.`type` :: f.args.map(_.`type`))
+        val map1 = t.name.fold(existingTypes)(name => existingTypes.updated(name, t))
+        val embeddedTypes =
+          t.fields(DeprecatedArgs(Some(true))).getOrElse(Nil).flatMap(f => f.`type` :: f.args.map(_.`type`))
         val map2 = embeddedTypes.foldLeft(map1) {
           case (types, f) =>
             val t = innerType(f())
             t.name.fold(types)(name => if (types.contains(name)) types else collectTypes(t, types.updated(name, t)))
         }
-        t.possibleTypes.foldLeft(map2) { case (types, subtype) => collectTypes(subtype, types) }
+        t.possibleTypes.getOrElse(Nil).foldLeft(map2) { case (types, subtype) => collectTypes(subtype, types) }
     }
 
   def innerType(t: __Type): __Type = t.ofType.map(innerType).getOrElse(t)
