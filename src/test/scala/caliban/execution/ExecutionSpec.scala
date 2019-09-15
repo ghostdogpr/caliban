@@ -88,6 +88,18 @@ object ExecutionSpec
               )
             )
           )
+        },
+        testM("mutation") {
+          val io = Task.runtime.map { implicit rts =>
+            val schema = graphQL(resolverWithMutation)
+            val query =
+              """mutation {
+                |  deleteCharacter(name: "Amos Burton")
+                |}""".stripMargin
+            (query, schema)
+          }.flatMap { case (query, schema) => schema.execute(query).map(_.mkString).run }
+
+          assertM(io, succeeds(equalTo("""{"deleteCharacter":{}}""")))
         }
       )
     )

@@ -51,6 +51,9 @@ object TestUtils {
     @GQLDescription("Find character by name") character: CharacterArgs => UIO[Option[Character]]
   )
 
+  @GQLDescription("Mutations")
+  case class MutationIO(deleteCharacter: CharactersArgs => UIO[Unit])
+
   val resolver = RootResolver(
     Query(
       args => characters.filter(c => args.origin.forall(c.origin == _)),
@@ -62,6 +65,10 @@ object TestUtils {
       args => UIO(characters.filter(c => args.origin.forall(c.origin == _))),
       args => UIO(characters.find(c => c.name == args.name))
     )
+  )
+  val resolverWithMutation = RootResolver(
+    resolverIO.queryResolver,
+    MutationIO(_ => UIO.unit)
   )
 
 }
