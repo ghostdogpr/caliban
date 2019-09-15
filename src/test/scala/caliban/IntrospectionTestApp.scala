@@ -53,6 +53,7 @@ object IntrospectionTestApp extends App {
     (for {
       result <- graph.execute(introspectionQuery)
       _      <- putStrLn(result.mkString("\n"))
+      _      <- putStrLn(graph.render)
     } yield ()).foldM(ex => putStrLn(ex.toString).as(1), _ => UIO.succeed(0))
 
 //    """

@@ -8,6 +8,7 @@ object Rendering {
     types.map {
       case (_, t) =>
         t.kind match {
+          case TypeKind.SCALAR   => ""
           case TypeKind.NON_NULL => ""
           case TypeKind.LIST     => ""
           case TypeKind.UNION =>
@@ -17,9 +18,8 @@ object Rendering {
           case _ =>
             s"""
                |${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} {
-               |  ${t.fields.map(renderField).mkString("\n  ")}${t.values.mkString("\n  ")}
-
-               |""".stripMargin
+               |  ${t.fields.map(renderField).mkString("\n  ")}${t.enumValues.mkString("\n  ")}
+               |}""".stripMargin
         }
     }.mkString("\n")
 
@@ -38,7 +38,9 @@ object Rendering {
   }
 
   def renderField(field: Field): String =
-    s"${field.name}${renderArguments(field.arguments)}: ${renderTypeName(field.`type`())}"
+    s"${field.name}${renderArguments(field.args)}: ${renderTypeName(field.`type`())}${if (field.isDeprecated)
+      s" @deprecated${field.deprecationReason.fold("")(reason => s"""(reason: "$reason")""")}"
+    else ""}"
 
   def renderArguments(arguments: List[Argument]): String = arguments match {
     case Nil  => ""

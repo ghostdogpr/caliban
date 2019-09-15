@@ -2,7 +2,7 @@ package caliban
 
 import caliban.TestUtils.Origin._
 import caliban.TestUtils.Role._
-import caliban.schema.Annotations.GQLDescription
+import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import zio.UIO
 
 object TestUtils {
@@ -42,13 +42,13 @@ object TestUtils {
   @GQLDescription("Queries")
   case class Query(
     @GQLDescription("Return all characters from a given origin") characters: CharactersArgs => List[Character],
-    @GQLDescription("Find character by name") character: CharacterArgs => Option[Character]
+    @GQLDeprecated("Use `characters`") character: CharacterArgs => Option[Character]
   )
 
   @GQLDescription("Queries")
   case class QueryIO(
     @GQLDescription("Return all characters from a given origin") characters: CharactersArgs => UIO[List[Character]],
-    @GQLDescription("Find character by name") character: CharacterArgs => UIO[Option[Character]]
+    @GQLDeprecated("Use `characters`") character: CharacterArgs => UIO[Option[Character]]
   )
 
   @GQLDescription("Mutations")

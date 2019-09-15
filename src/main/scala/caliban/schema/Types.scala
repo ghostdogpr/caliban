@@ -22,7 +22,7 @@ object Types {
   def makeNonNull(underlying: Type) = Type(TypeKind.NON_NULL, ofType = Some(underlying))
 
   def makeEnum(name: Option[String], description: Option[String], values: List[String]) =
-    Type(TypeKind.ENUM, name, description, values = values)
+    Type(TypeKind.ENUM, name, description, enumValues = values)
 
   def makeObject(name: Option[String], description: Option[String], fields: List[Field]) =
     Type(TypeKind.OBJECT, name, description, fields)
@@ -38,14 +38,21 @@ object Types {
     name: Option[String] = None,
     description: Option[String] = None,
     fields: List[Field] = Nil,
-    values: List[String] = Nil,
+    enumValues: List[String] = Nil,
     subTypes: List[Type] = Nil,
     ofType: Option[Type] = None
   )
 
   case class Argument(name: String, description: Option[String], argumentType: () => Type)
 
-  case class Field(name: String, description: Option[String], arguments: List[Argument], `type`: () => Type)
+  case class Field(
+    name: String,
+    description: Option[String],
+    args: List[Argument],
+    `type`: () => Type,
+    isDeprecated: Boolean,
+    deprecationReason: Option[String]
+  )
 
   def collectTypes(t: Type, existingTypes: Map[String, Type] = Map()): Map[String, Type] =
     t.kind match {
@@ -55,7 +62,7 @@ object Types {
       case TypeKind.NON_NULL => t.ofType.fold(existingTypes)(collectTypes(_, existingTypes))
       case _ =>
         val map1          = t.name.fold(existingTypes)(name => existingTypes.updated(name, t))
-        val embeddedTypes = t.fields.flatMap(f => f.`type` :: f.arguments.map(_.argumentType))
+        val embeddedTypes = t.fields.flatMap(f => f.`type` :: f.args.map(_.argumentType))
         val map2 = embeddedTypes.foldLeft(map1) {
           case (types, f) =>
             val t = innerType(f())

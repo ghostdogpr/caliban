@@ -3,7 +3,7 @@ package caliban.schema
 import scala.language.experimental.macros
 import caliban.CalibanError.ExecutionError
 import caliban.parsing.adt.{ Selection, Value }
-import caliban.schema.Annotations.GQLDescription
+import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.ResponseValue._
 import caliban.schema.Types._
 import magnolia._
@@ -157,7 +157,9 @@ object Schema {
                 p.label,
                 p.annotations.collectFirst { case GQLDescription(desc) => desc },
                 p.typeclass.arguments,
-                () => if (p.typeclass.optional) p.typeclass.toType else makeNonNull(p.typeclass.toType)
+                () => if (p.typeclass.optional) p.typeclass.toType else makeNonNull(p.typeclass.toType),
+                p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
+                p.annotations.collectFirst { case GQLDeprecated(reason) => reason }
               )
           )
           .toList
