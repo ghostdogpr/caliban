@@ -2,6 +2,8 @@ package caliban.schema
 
 import scala.language.experimental.macros
 import caliban.CalibanError.ExecutionError
+import caliban.execution.Executor.mergeSelectionSet
+import caliban.parsing.adt.ExecutableDefinition.FragmentDefinition
 import caliban.parsing.adt.{ Selection, Value }
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.ResponseValue._
@@ -16,7 +18,8 @@ trait Schema[T] {
   def exec(
     value: T,
     selectionSet: List[Selection],
-    arguments: Map[String, Value] = Map()
+    arguments: Map[String, Value],
+    fragments: Map[String, FragmentDefinition]
   ): IO[ExecutionError, ResponseValue]
 }
 
@@ -27,7 +30,8 @@ object Schema {
     override def exec(
       value: Unit,
       selectionSet: List[Selection],
-      arguments: Map[String, Value]
+      arguments: Map[String, Value],
+      fragments: Map[String, FragmentDefinition]
     ): IO[ExecutionError, ResponseValue] = UIO(ObjectValue(Nil))
   }
   implicit val booleanSchema: Schema[Boolean] = new Schema[Boolean] {
@@ -35,7 +39,8 @@ object Schema {
     override def exec(
       value: Boolean,
       selectionSet: List[Selection],
-      arguments: Map[String, Value]
+      arguments: Map[String, Value],
+      fragments: Map[String, FragmentDefinition]
     ): IO[ExecutionError, ResponseValue] =
       UIO(BooleanValue(value))
   }
@@ -44,7 +49,8 @@ object Schema {
     override def exec(
       value: Int,
       selectionSet: List[Selection],
-      arguments: Map[String, Value]
+      arguments: Map[String, Value],
+      fragments: Map[String, FragmentDefinition]
     ): IO[ExecutionError, ResponseValue] =
       UIO(IntValue(value))
   }
@@ -53,7 +59,8 @@ object Schema {
     override def exec(
       value: Float,
       selectionSet: List[Selection],
-      arguments: Map[String, Value]
+      arguments: Map[String, Value],
+      fragments: Map[String, FragmentDefinition]
     ): IO[ExecutionError, ResponseValue] =
       UIO(FloatValue(value))
   }
@@ -62,7 +69,8 @@ object Schema {
     override def exec(
       value: Double,
       selectionSet: List[Selection],
-      arguments: Map[String, Value]
+      arguments: Map[String, Value],
+      fragments: Map[String, FragmentDefinition]
     ): IO[ExecutionError, ResponseValue] = UIO(FloatValue(value.toFloat))
   }
   implicit val stringSchema: Schema[String] = new Schema[String] {
@@ -70,7 +78,8 @@ object Schema {
     override def exec(
       value: String,
       selectionSet: List[Selection],
-      arguments: Map[String, Value]
+      arguments: Map[String, Value],
+      fragments: Map[String, FragmentDefinition]
     ): IO[ExecutionError, ResponseValue] = UIO(StringValue(value))
   }
   implicit def optionSchema[A](implicit ev: Schema[A]): Schema[Option[A]] = new Typeclass[Option[A]] {
@@ -79,9 +88,10 @@ object Schema {
     override def exec(
       value: Option[A],
       selectionSet: List[Selection],
-      arguments: Map[String, Value]
+      arguments: Map[String, Value],
+      fragments: Map[String, FragmentDefinition]
     ): IO[ExecutionError, ResponseValue] = value match {
-      case Some(value) => ev.exec(value, selectionSet)
+      case Some(value) => ev.exec(value, selectionSet, arguments, fragments)
       case None        => UIO(NullValue)
     }
   }
@@ -90,16 +100,20 @@ object Schema {
     override def exec(
       value: List[A],
       selectionSet: List[Selection],
-      arguments: Map[String, Value]
-    ): IO[ExecutionError, ResponseValue] = IO.collectAll(value.map(ev.exec(_, selectionSet))).map(ListValue)
+      arguments: Map[String, Value],
+      fragments: Map[String, FragmentDefinition]
+    ): IO[ExecutionError, ResponseValue] =
+      IO.collectAll(value.map(ev.exec(_, selectionSet, arguments, fragments))).map(ListValue)
   }
   implicit def setSchema[A](implicit ev: Schema[A]): Schema[Set[A]] = new Typeclass[Set[A]] {
     override def toType(isInput: Boolean = false): __Type = makeList(ev.toType(isInput))
     override def exec(
       value: Set[A],
       selectionSet: List[Selection],
-      arguments: Map[String, Value]
-    ): IO[ExecutionError, ResponseValue] = IO.collectAll(value.map(ev.exec(_, selectionSet))).map(ListValue)
+      arguments: Map[String, Value],
+      fragments: Map[String, FragmentDefinition]
+    ): IO[ExecutionError, ResponseValue] =
+      IO.collectAll(value.map(ev.exec(_, selectionSet, arguments, fragments))).map(ListValue)
   }
   implicit def functionUnitSchema[A](implicit ev: Schema[A]): Schema[() => A] = new Typeclass[() => A] {
     override def optional: Boolean                        = ev.optional
@@ -107,8 +121,9 @@ object Schema {
     override def exec(
       value: () => A,
       selectionSet: List[Selection],
-      arguments: Map[String, Value]
-    ): IO[ExecutionError, ResponseValue] = ev.exec(value(), selectionSet)
+      arguments: Map[String, Value],
+      fragments: Map[String, FragmentDefinition]
+    ): IO[ExecutionError, ResponseValue] = ev.exec(value(), selectionSet, Map(), fragments)
   }
   implicit def functionSchema[A, B](implicit arg1: ArgBuilder[A], ev1: Schema[A], ev2: Schema[B]): Schema[A => B] =
     new Typeclass[A => B] {
@@ -118,10 +133,11 @@ object Schema {
       override def exec(
         value: A => B,
         selectionSet: List[Selection],
-        arguments: Map[String, Value]
+        arguments: Map[String, Value],
+        fragments: Map[String, FragmentDefinition]
       ): IO[ExecutionError, ResponseValue] = {
         val argValue: A = arg1.build(Right(arguments))
-        ev2.exec(value(argValue), selectionSet)
+        ev2.exec(value(argValue), selectionSet, Map(), fragments)
       }
     }
 
@@ -172,19 +188,20 @@ object Schema {
     override def exec(
       value: T,
       selectionSet: List[Selection],
-      arguments: Map[String, Value]
+      arguments: Map[String, Value],
+      fragments: Map[String, FragmentDefinition]
     ): IO[ExecutionError, ResponseValue] =
       if (ctx.isObject) {
         UIO(ResponseValue.EnumValue(ctx.typeName.short))
       } else {
-        IO.collectAll(selectionSet.map {
+        val mergedSelectionSet = mergeSelectionSet(selectionSet, ctx.typeName.short, fragments)
+        IO.collectAll(mergedSelectionSet.map {
             case Selection.Field(alias, name, args, _, selectionSet) =>
               ctx.parameters
                 .find(_.label == name)
-                .map(p => p.typeclass.exec(p.dereference(value), selectionSet, args))
+                .map(p => p.typeclass.exec(p.dereference(value), selectionSet, args, fragments))
                 .getOrElse(UIO.succeed(NullValue))
                 .map((alias.getOrElse(name), _))
-            case _ => IO.fail(ExecutionError("Fragments are not supported yet"))
           })
           .map(ObjectValue)
       }
@@ -192,7 +209,8 @@ object Schema {
 
   def dispatch[T](ctx: SealedTrait[Schema, T]): Schema[T] = new Typeclass[T] {
     override def toType(isInput: Boolean = false): __Type = {
-      val subtypes = ctx.subtypes.map(s => s.typeclass.toType(isInput) -> s.annotations).toList
+      val subtypes =
+        ctx.subtypes.map(s => s.typeclass.toType(isInput) -> s.annotations).toList.sortBy(_._1.name.getOrElse(""))
       val isEnum = subtypes.forall {
         case (t, _) if t.fields(DeprecatedArgs(Some(true))).isEmpty => true
         case _                                                      => false
@@ -222,9 +240,10 @@ object Schema {
     override def exec(
       value: T,
       selectionSet: List[Selection],
-      arguments: Map[String, Value]
+      arguments: Map[String, Value],
+      fragments: Map[String, FragmentDefinition]
     ): IO[ExecutionError, ResponseValue] =
-      ctx.dispatch(value)(subType => subType.typeclass.exec(subType.cast(value), selectionSet, arguments))
+      ctx.dispatch(value)(subType => subType.typeclass.exec(subType.cast(value), selectionSet, arguments, fragments))
   }
 
   implicit def gen[T]: Typeclass[T] = macro Magnolia.gen[T]

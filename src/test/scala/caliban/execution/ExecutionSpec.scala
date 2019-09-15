@@ -68,6 +68,53 @@ object ExecutionSpec
             )
           )
         },
+        testM("fragment") {
+          val schema = graphQL(resolver)
+          val query =
+            """{
+              |  amos: character(name: "Amos Burton") {
+              |    ...info
+              |  }
+              |}
+              |
+              |fragment info on Character {
+              |  name
+              |}""".stripMargin
+
+          val io = schema.execute(query).map(_.mkString).run
+          assertM(
+            io,
+            succeeds(
+              equalTo(
+                """{"amos":{"name":"Amos Burton"}}"""
+              )
+            )
+          )
+        },
+        testM("inline fragment") {
+          val schema = graphQL(resolver)
+          val query =
+            """{
+              |  amos: character(name: "Amos Burton") {
+              |    name
+              |    role {
+              |      ... on Mechanic {
+              |        shipName
+              |      }
+              |    }
+              |  }
+              |}""".stripMargin
+
+          val io = schema.execute(query).map(_.mkString).run
+          assertM(
+            io,
+            succeeds(
+              equalTo(
+                """{"amos":{"name":"Amos Burton","role":{"shipName":"Rocinante"}}}"""
+              )
+            )
+          )
+        },
         testM("effectful query") {
           val io = Task.runtime.map { implicit rts =>
             val schema = graphQL(resolverIO)

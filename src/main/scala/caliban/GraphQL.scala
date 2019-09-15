@@ -2,10 +2,10 @@ package caliban
 
 import caliban.CalibanError.ExecutionError
 import caliban.Rendering.renderTypes
+import caliban.execution.Executor
 import caliban.introspection.Introspector
 import caliban.parsing.Parser
-import caliban.parsing.adt.ExecutableDefinition.OperationDefinition
-import caliban.parsing.adt.OperationType._
+import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.Selection.Field
 import caliban.parsing.adt.{ Document, Selection, Value }
 import caliban.schema.RootSchema.Operation
@@ -29,27 +29,12 @@ class GraphQL[Q, M, S](schema: RootSchema[Q, M, S]) {
 
   def execute(query: String): IO[CalibanError, List[ResponseValue]] =
     for {
-      document <- Parser.parseQuery(query)
-      intro    = isIntrospection(document)
-      _        <- if (intro) Validator.validate(document, introspectionRootType) else Validator.validate(document, rootType)
-      result <- IO.collectAll(document.definitions.collect {
-                 case OperationDefinition(opType, _, _, _, selection) =>
-                   if (intro) introspectionSchema.exec(introspectionResolver, selection)
-                   else
-                     opType match {
-                       case Query => schema.query.schema.exec(schema.query.resolver, selection)
-                       case Mutation =>
-                         schema.mutation match {
-                           case Some(m) => m.schema.exec(m.resolver, selection)
-                           case None    => IO.fail(ExecutionError("Mutations are not supported on this schema"))
-                         }
-                       case Subscription =>
-                         schema.subscription match {
-                           case Some(m) => m.schema.exec(m.resolver, selection)
-                           case None    => IO.fail(ExecutionError("Subscriptions are not supported on this schema"))
-                         }
-                     }
-               })
+      document   <- Parser.parseQuery(query)
+      intro      = isIntrospection(document)
+      toValidate = if (intro) introspectionRootType else rootType
+      _          <- Validator.validate(document, toValidate)
+      toExecute  = if (intro) Right((introspectionSchema, introspectionResolver)) else Left(schema)
+      result     <- Executor.execute(document, toExecute)
     } yield result
 
   private def isIntrospection(document: Document): Boolean =
@@ -82,9 +67,10 @@ object GraphQL {
       override def exec(
         value: ZIO[R, E, A],
         selectionSet: List[Selection],
-        arguments: Map[String, Value]
+        arguments: Map[String, Value],
+        fragments: Map[String, FragmentDefinition]
       ): IO[ExecutionError, ResponseValue] =
-        value.flatMap(ev.exec(_, selectionSet, arguments)).provide(runtime.Environment).mapError {
+        value.flatMap(ev.exec(_, selectionSet, arguments, fragments)).provide(runtime.Environment).mapError {
           case e: ExecutionError => e
           case other             => ExecutionError("Caught error during execution of effectful field", Some(other))
         }
