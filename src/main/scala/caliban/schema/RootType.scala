@@ -1,4 +1,4 @@
-package caliban
+package caliban.schema
 
 import caliban.schema.Types.{ collectTypes, Type }
 

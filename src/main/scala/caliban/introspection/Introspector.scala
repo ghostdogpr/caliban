@@ -1,7 +1,6 @@
 package caliban.introspection
 
-import caliban.RootType
-import caliban.schema.Schema
+import caliban.schema.{ RootType, Schema }
 import caliban.schema.Types.Type
 
 object Introspector {

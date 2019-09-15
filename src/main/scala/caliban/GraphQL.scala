@@ -8,8 +8,9 @@ import caliban.parsing.adt.ExecutableDefinition.OperationDefinition
 import caliban.parsing.adt.OperationType._
 import caliban.parsing.adt.Selection.Field
 import caliban.parsing.adt.{ Document, Selection, Value }
+import caliban.schema.RootSchema.Operation
 import caliban.schema.Types.Type
-import caliban.schema.{ ResponseValue, Schema }
+import caliban.schema.{ ResponseValue, RootSchema, RootType, Schema }
 import caliban.validation.Validator
 import zio.{ IO, Runtime, ZIO }
 

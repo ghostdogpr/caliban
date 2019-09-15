@@ -4,9 +4,9 @@ import caliban.CalibanError.ValidationError
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.{ Document, OperationType, Selection }
-import caliban.schema.Types
+import caliban.schema.{ RootType, Types }
 import caliban.schema.Types.{ Type, TypeKind }
-import caliban.{ Rendering, RootType }
+import caliban.Rendering
 import zio.IO
 
 object Validator {
