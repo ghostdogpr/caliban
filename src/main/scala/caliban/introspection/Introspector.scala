@@ -38,7 +38,7 @@ object Introspector {
     queryType: __Type,
     mutationType: Option[__Type],
     subscriptionType: Option[__Type],
-    types: Set[__Type],
+    types: List[__Type],
     directives: List[__Directive]
   )
   case class TypeArgs(name: String)
@@ -47,7 +47,7 @@ object Introspector {
   implicit lazy val typeSchema: Schema[__Type] = Schema.gen[__Type]
 
   def introspect(rootType: RootType): (Schema[Introspection], Introspection) = {
-    val types = rootType.types.values.toSet
+    val types = rootType.types.values.toList.sortBy(_.name.getOrElse(""))
     val resolver = Introspection(
       __Schema(rootType.queryType, rootType.mutationType, rootType.subscriptionType, types, Nil),
       args => types.find(_.name.contains(args.name)).get

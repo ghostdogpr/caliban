@@ -88,7 +88,7 @@ object Types {
         val map2 = embeddedTypes.foldLeft(map1) {
           case (types, f) =>
             val t = innerType(f())
-            t.name.fold(types)(name => if (types.contains(name)) types else collectTypes(t, types.updated(name, t)))
+            t.name.fold(types)(name => if (types.contains(name)) types else collectTypes(t, types))
         }
         t.possibleTypes.getOrElse(Nil).foldLeft(map2) { case (types, subtype) => collectTypes(subtype, types) }
     }
