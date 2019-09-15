@@ -22,10 +22,20 @@ object Types {
   def makeNonNull(underlying: Type) = Type(TypeKind.NON_NULL, ofType = Some(underlying))
 
   def makeEnum(name: Option[String], description: Option[String], values: List[EnumValue]) =
-    Type(TypeKind.ENUM, name, description, enumValues = values)
+    Type(
+      TypeKind.ENUM,
+      name,
+      description,
+      enumValues = args => values.filter(v => args.includeDeprecated.getOrElse(false) || !v.isDeprecated)
+    )
 
   def makeObject(name: Option[String], description: Option[String], fields: List[Field]) =
-    Type(TypeKind.OBJECT, name, description, fields)
+    Type(
+      TypeKind.OBJECT,
+      name,
+      description,
+      fields = args => fields.filter(v => args.includeDeprecated.getOrElse(false) || !v.isDeprecated)
+    )
 
   def makeInputObject(name: Option[String], description: Option[String], fields: List[InputValue]) =
     Type(TypeKind.INPUT_OBJECT, name, description, inputFields = fields)
@@ -37,13 +47,15 @@ object Types {
     kind: TypeKind,
     name: Option[String] = None,
     description: Option[String] = None,
-    fields: List[Field] = Nil, // TODO includeDeprecated
+    fields: DeprecatedArgs => List[Field] = _ => Nil, // TODO includeDeprecated
     interfaces: List[Type] = Nil,
     possibleTypes: List[Type] = Nil,
-    enumValues: List[EnumValue] = Nil, // TODO includeDeprecated
+    enumValues: DeprecatedArgs => List[EnumValue] = _ => Nil, // TODO includeDeprecated
     inputFields: List[InputValue] = Nil,
     ofType: Option[Type] = None
   )
+
+  case class DeprecatedArgs(includeDeprecated: Option[Boolean] = None)
 
   case class EnumValue(
     name: String,
@@ -71,7 +83,7 @@ object Types {
       case TypeKind.NON_NULL => t.ofType.fold(existingTypes)(collectTypes(_, existingTypes))
       case _ =>
         val map1          = t.name.fold(existingTypes)(name => existingTypes.updated(name, t))
-        val embeddedTypes = t.fields.flatMap(f => f.`type` :: f.args.map(_.`type`))
+        val embeddedTypes = t.fields(DeprecatedArgs(Some(true))).flatMap(f => f.`type` :: f.args.map(_.`type`))
         val map2 = embeddedTypes.foldLeft(map1) {
           case (types, f) =>
             val t = innerType(f())

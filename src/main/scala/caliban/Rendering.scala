@@ -1,6 +1,6 @@
 package caliban
 
-import caliban.schema.Types.{ EnumValue, Field, InputValue, Type, TypeKind }
+import caliban.schema.Types.{ DeprecatedArgs, EnumValue, Field, InputValue, Type, TypeKind }
 
 object Rendering {
 
@@ -18,7 +18,10 @@ object Rendering {
           case _ =>
             s"""
                |${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} {
-               |  ${t.fields.map(renderField).mkString("\n  ")}${t.enumValues.map(renderEnumValue).mkString("\n  ")}
+               |  ${t.fields(DeprecatedArgs()).map(renderField).mkString("\n  ")}${t
+                 .enumValues(DeprecatedArgs())
+                 .map(renderEnumValue)
+                 .mkString("\n  ")}
                |}""".stripMargin
         }
     }.mkString("\n")

@@ -194,8 +194,8 @@ object Schema {
     override def toType(isInput: Boolean = false): Type = {
       val subtypes = ctx.subtypes.map(s => s.typeclass.toType(isInput) -> s.annotations).toList
       val isEnum = subtypes.forall {
-        case (Type(TypeKind.OBJECT, _, _, Nil, Nil, Nil, Nil, Nil, _), _) => true
-        case _                                                            => false
+        case (t, _) if t.fields(DeprecatedArgs(Some(true))).isEmpty => true
+        case _                                                      => false
       }
       if (isEnum && subtypes.nonEmpty)
         makeEnum(
