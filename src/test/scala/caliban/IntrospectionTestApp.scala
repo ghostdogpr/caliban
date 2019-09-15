@@ -1,18 +1,14 @@
 package caliban
 
 import caliban.GraphQL._
-import caliban.TestUtils.QueryIO
-import caliban.schema.Types.Type
-import caliban.schema.{ Schema, Types }
+import caliban.TestUtils.{ resolverIO, QueryIO }
+import caliban.schema.Schema.Typeclass
+import caliban.schema.Schema
 import zio.console.putStrLn
 import zio.{ App, Runtime, UIO, ZIO }
 
 object IntrospectionTestApp extends App {
   implicit val runtime: Runtime[Environment] = this
-
-  case class __Schema(queryType: Type, types: Set[Type])
-  case class TypeArgs(name: String)
-  case class Introspection(__schema: __Schema, __type: TypeArgs => Type)
 
   val introspectionQuery =
     """
@@ -50,17 +46,12 @@ object IntrospectionTestApp extends App {
     }
     """
 
-  implicit lazy val typeSchema: Schema[Type] = Schema.gen[Type]
-
-  val schemaType: Type = Schema.gen[QueryIO].toType
-  val types: Set[Type] = Types.collectTypes(schemaType).values.toSet
-  val resolver         = Introspection(__Schema(schemaType, types), args => types.find(_.name.contains(args.name)).get)
-
-  val graph: GraphQL[Introspection] = graphQL[Introspection]
+  implicit val schema: Typeclass[QueryIO] = Schema.gen[QueryIO]
+  val graph: GraphQL[QueryIO]             = graphQL[QueryIO]
 
   override def run(args: List[String]): ZIO[Environment, Nothing, Int] =
     (for {
-      result <- graph.execute(introspectionQuery, resolver)
+      result <- graph.execute(introspectionQuery, resolverIO)
       _      <- putStrLn(result.mkString("\n"))
     } yield ()).foldM(ex => putStrLn(ex.toString).as(1), _ => UIO.succeed(0))
 

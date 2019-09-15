@@ -2,9 +2,11 @@ package caliban
 
 import caliban.CalibanError.ExecutionError
 import caliban.Rendering.renderTypes
+import caliban.introspection.Introspector
 import caliban.parsing.Parser
 import caliban.parsing.adt.ExecutableDefinition.OperationDefinition
-import caliban.parsing.adt.{ Selection, Value }
+import caliban.parsing.adt.Selection.Field
+import caliban.parsing.adt.{ Document, Selection, Value }
 import caliban.schema.Types.{ collectTypes, Type }
 import caliban.schema.{ ResponseValue, Schema }
 import caliban.validation.Validator
@@ -12,18 +14,32 @@ import zio.{ IO, Runtime, ZIO }
 
 class GraphQL[G](schema: Schema[G]) {
 
+  val (introspectionSchema, introspectionResolver) = Introspector.introspect(schema)
+
   def render: String = renderTypes(collectTypes(schema.toType))
 
   def execute(query: String, resolver: G): IO[CalibanError, List[ResponseValue]] =
     for {
       document <- Parser.parseQuery(query)
-      _        <- Validator.validate(document, schema)
+      intro    = isIntrospection(document)
+      _        <- if (intro) Validator.validate(document, introspectionSchema) else Validator.validate(document, schema)
       result <- IO.collectAll(document.definitions.flatMap {
-                 case OperationDefinition(_, _, _, _, selection) => Some(schema.exec(resolver, selection))
-                 case _                                          => None
+                 case OperationDefinition(_, _, _, _, selection) =>
+                   if (intro) Some(introspectionSchema.exec(introspectionResolver, selection))
+                   else Some(schema.exec(resolver, selection))
+                 case _ => None
                })
     } yield result
 
+  private def isIntrospection(document: Document): Boolean =
+    document.definitions.forall {
+      case OperationDefinition(_, _, _, _, selectionSet) =>
+        selectionSet.forall {
+          case Field(_, name, _, _, _) => name == "__schema" || name == "__type"
+          case _                       => false
+        }
+      case _ => false
+    }
 }
 
 object GraphQL {
