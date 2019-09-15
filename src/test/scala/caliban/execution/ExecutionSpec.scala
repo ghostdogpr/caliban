@@ -10,7 +10,7 @@ object ExecutionSpec
     extends DefaultRunnableSpec(
       suite("ExecutionSpec")(
         testM("simple query with fields") {
-          val schema = graphQL[Query]
+          val schema = graphQL(resolver)
           val query =
             """{
               |  characters {
@@ -18,7 +18,7 @@ object ExecutionSpec
               |  }
               |}""".stripMargin
 
-          val io = schema.execute(query, resolver).map(_.mkString).run
+          val io = schema.execute(query).map(_.mkString).run
           assertM(
             io,
             succeeds(
@@ -29,7 +29,7 @@ object ExecutionSpec
           )
         },
         testM("arguments") {
-          val schema = graphQL[Query]
+          val schema = graphQL(resolver)
           val query =
             """{
               |  characters(origin: MARS) {
@@ -38,7 +38,7 @@ object ExecutionSpec
               |  }
               |}""".stripMargin
 
-          val io = schema.execute(query, resolver).map(_.mkString).run
+          val io = schema.execute(query).map(_.mkString).run
           assertM(
             io,
             succeeds(
@@ -49,7 +49,7 @@ object ExecutionSpec
           )
         },
         testM("aliases") {
-          val schema = graphQL[Query]
+          val schema = graphQL(resolver)
           val query =
             """{
               |  amos: character(name: "Amos Burton") {
@@ -58,7 +58,7 @@ object ExecutionSpec
               |  }
               |}""".stripMargin
 
-          val io = schema.execute(query, resolver).map(_.mkString).run
+          val io = schema.execute(query).map(_.mkString).run
           assertM(
             io,
             succeeds(
@@ -70,7 +70,7 @@ object ExecutionSpec
         },
         testM("effectful query") {
           val io = Task.runtime.map { implicit rts =>
-            val schema = graphQL[Query]
+            val schema = graphQL(resolverIO)
             val query =
               """{
                 |  characters {
@@ -78,7 +78,7 @@ object ExecutionSpec
                 |  }
                 |}""".stripMargin
             (query, schema)
-          }.flatMap { case (query, schema) => schema.execute(query, resolver).map(_.mkString).run }
+          }.flatMap { case (query, schema) => schema.execute(query).map(_.mkString).run }
 
           assertM(
             io,

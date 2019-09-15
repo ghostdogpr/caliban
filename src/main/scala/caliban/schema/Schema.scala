@@ -22,6 +22,14 @@ trait Schema[T] {
 
 object Schema {
 
+  implicit val unitSchema: Schema[Unit] = new Schema[Unit] {
+    override def toType: Type = makeObject(None, None, Nil)
+    override def exec(
+      value: Unit,
+      selectionSet: List[Selection],
+      arguments: Map[String, Value]
+    ): IO[ExecutionError, ResponseValue] = UIO(ObjectValue(Nil))
+  }
   implicit val booleanSchema: Schema[Boolean] = new Schema[Boolean] {
     override def toType: Type = makeScalar("Boolean")
     override def exec(

@@ -51,13 +51,17 @@ object TestUtils {
     @GQLDescription("Find character by name") character: CharacterArgs => UIO[Option[Character]]
   )
 
-  val resolver = Query(
-    args => characters.filter(c => args.origin.forall(c.origin == _)),
-    args => characters.find(c => c.name == args.name)
+  val resolver = RootResolver(
+    Query(
+      args => characters.filter(c => args.origin.forall(c.origin == _)),
+      args => characters.find(c => c.name == args.name)
+    )
   )
-  val resolverIO = QueryIO(
-    args => UIO(characters.filter(c => args.origin.forall(c.origin == _))),
-    args => UIO(characters.find(c => c.name == args.name))
+  val resolverIO = RootResolver(
+    QueryIO(
+      args => UIO(characters.filter(c => args.origin.forall(c.origin == _))),
+      args => UIO(characters.find(c => c.name == args.name))
+    )
   )
 
 }

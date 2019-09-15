@@ -1,44 +1,53 @@
 package caliban.validation
 
 import caliban.CalibanError.ValidationError
-import caliban.Rendering
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.{ Document, OperationType, Selection }
+import caliban.schema.Types
 import caliban.schema.Types.{ Type, TypeKind }
-import caliban.schema.{ Schema, Types }
+import caliban.{ Rendering, RootType }
 import zio.IO
 
 object Validator {
 
-  def validate[G](document: Document, schema: Schema[G]): IO[ValidationError, Unit] = {
+  def validate(document: Document, rootType: RootType): IO[ValidationError, Unit] = {
     val operations = collectOperations(document)
-    val schemaType = schema.toType
     for {
       _                 <- validateOperationNameUniqueness(operations)
       _                 <- validateLoneAnonymousOperation(operations)
       _                 <- validateSubscriptionOperation(operations)
-      typesForFragments = collectTypesValidForFragments(schemaType)
-      _                 <- validateDocumentFields(document, schemaType, typesForFragments)
+      typesForFragments = collectTypesValidForFragments(rootType)
+      _                 <- validateDocumentFields(document, rootType, typesForFragments)
     } yield ()
   }
 
   private def collectOperations(document: Document): List[OperationDefinition] =
     document.definitions.collect { case o: OperationDefinition => o }
 
-  private def collectTypesValidForFragments(currentType: Type): Map[String, Type] =
-    Types
-      .collectTypes(currentType)
-      .filter { case (_, t) => t.kind == TypeKind.OBJECT || t.kind == TypeKind.INTERFACE || t.kind == TypeKind.UNION }
+  private def collectTypesValidForFragments(rootType: RootType): Map[String, Type] =
+    rootType.types.filter {
+      case (_, t) => t.kind == TypeKind.OBJECT || t.kind == TypeKind.INTERFACE || t.kind == TypeKind.UNION
+    }
 
   private def validateDocumentFields(
     document: Document,
-    schemaType: Type,
+    rootType: RootType,
     typesForFragments: Map[String, Type]
   ): IO[ValidationError, Unit] =
     IO.foreach(document.definitions) {
-        case OperationDefinition(_, _, _, _, selectionSet) =>
-          validateFields(selectionSet, schemaType)
+        case OperationDefinition(opType, _, _, _, selectionSet) =>
+          opType match {
+            case OperationType.Query => validateFields(selectionSet, rootType.queryType)
+            case OperationType.Mutation =>
+              rootType.mutationType.fold[IO[ValidationError, Unit]](
+                IO.fail(ValidationError("Mutation operations are not supported on this schema", ""))
+              )(validateFields(selectionSet, _))
+            case OperationType.Subscription =>
+              rootType.subscriptionType.fold[IO[ValidationError, Unit]](
+                IO.fail(ValidationError("Subscription operations are not supported on this schema", ""))
+              )(validateFields(selectionSet, _))
+          }
         case FragmentDefinition(name, typeCondition, _, selectionSet) =>
           typesForFragments
             .get(typeCondition.name)

@@ -47,11 +47,11 @@ object IntrospectionTestApp extends App {
     """
 
   implicit val schema: Typeclass[QueryIO] = Schema.gen[QueryIO]
-  val graph: GraphQL[QueryIO]             = graphQL[QueryIO]
+  val graph: GraphQL[QueryIO, Unit, Unit] = graphQL(resolverIO)
 
   override def run(args: List[String]): ZIO[Environment, Nothing, Int] =
     (for {
-      result <- graph.execute(introspectionQuery, resolverIO)
+      result <- graph.execute(introspectionQuery)
       _      <- putStrLn(result.mkString("\n"))
     } yield ()).foldM(ex => putStrLn(ex.toString).as(1), _ => UIO.succeed(0))
 
