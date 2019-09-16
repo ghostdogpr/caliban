@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.GraphQL._
-import caliban.TestUtils.resolver
+import caliban.ExampleData._
 import io.circe.Decoder
 import io.circe.magnolia.derivation.decoder.semiauto._
 import io.circe.parser.parse
@@ -22,16 +22,16 @@ object ExampleHttpService extends CatsApp {
   object dsl extends Http4sDsl[Task]
   import dsl._
 
-  case class Query(query: String, operationName: Option[String])
+  case class GraphQLRequest(query: String, operationName: Option[String])
 
-  implicit val queryDecoder: Decoder[Query] = deriveMagnoliaDecoder[Query]
+  implicit val queryDecoder: Decoder[GraphQLRequest] = deriveMagnoliaDecoder[GraphQLRequest]
 
-  val schema: GraphQL[TestUtils.Query, Unit, Unit] = graphQL(resolver)
+  val schema: GraphQL[Queries, Mutations, Unit] = graphQL(resolver)
 
   val graphQLService: HttpRoutes[Task] = HttpRoutes.of[Task] {
     case req @ POST -> Root / "graphql" =>
       for {
-        query <- req.attemptAs[Query].value.absolve
+        query <- req.attemptAs[GraphQLRequest].value.absolve
         result <- schema
                    .execute(query.query, query.operationName)
                    .fold(err => s"""{"errors":["${err.toString}"]}""", result => s"""{"data":$result}""")
