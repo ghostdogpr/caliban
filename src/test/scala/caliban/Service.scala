@@ -31,9 +31,11 @@ object Service extends CatsApp {
   val graphQLService: HttpRoutes[Task] = HttpRoutes.of[Task] {
     case req @ POST -> Root / "graphql" =>
       for {
-        query    <- req.attemptAs[Query].value.absolve
-        result   <- schema.execute(query.query)
-        json     <- Task.fromEither(parse(s"""{"data":${result.mkString}}"""))
+        query <- req.attemptAs[Query].value.absolve
+        result <- schema
+                   .execute(query.query)
+                   .fold(err => s"""{"errors":["${err.toString}"]}""", result => s"""{"data":${result.mkString}}""")
+        json     <- Task.fromEither(parse(result))
         response <- Ok(json)
       } yield response
   }
