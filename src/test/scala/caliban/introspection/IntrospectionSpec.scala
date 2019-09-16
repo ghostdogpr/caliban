@@ -106,7 +106,7 @@ object IntrospectionSpec
 
           val io = Task.runtime.map { implicit rts =>
             graphQL(resolverIO)
-          }.flatMap(schema => schema.execute(fullIntrospectionQuery).map(_.mkString).run)
+          }.flatMap(schema => schema.execute(fullIntrospectionQuery).map(_.toString).run)
 
           assertM(
             io,

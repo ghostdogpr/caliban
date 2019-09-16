@@ -24,7 +24,7 @@ object ValidationSpec
               |  }
               |}""".stripMargin
 
-          val io = schema.execute(query).map(_.mkString).run
+          val io = schema.execute(query).map(_.toString).run
           assertM(
             io,
             fails[CalibanError](
@@ -48,7 +48,7 @@ object ValidationSpec
               |  }
               |}""".stripMargin
 
-          val io = schema.execute(query).map(_.mkString).run
+          val io = schema.execute(query).map(_.toString).run
           assertM(
             io,
             fails[CalibanError](
@@ -69,7 +69,7 @@ object ValidationSpec
               |  }
               |}""".stripMargin
 
-          val io = schema.execute(query).map(_.mkString).run
+          val io = schema.execute(query).map(_.toString).run
           assertM(
             io,
             fails[CalibanError](
@@ -94,7 +94,7 @@ object ValidationSpec
               |  unknown
               |}""".stripMargin
 
-          val io = schema.execute(query).map(_.mkString).run
+          val io = schema.execute(query).map(_.toString).run
           assertM(
             io,
             fails[CalibanError](

@@ -22,7 +22,7 @@ object Service extends CatsApp {
   object dsl extends Http4sDsl[Task]
   import dsl._
 
-  case class Query(query: String)
+  case class Query(query: String, operationName: Option[String])
 
   implicit val queryDecoder: Decoder[Query] = deriveMagnoliaDecoder[Query]
 
@@ -33,8 +33,8 @@ object Service extends CatsApp {
       for {
         query <- req.attemptAs[Query].value.absolve
         result <- schema
-                   .execute(query.query)
-                   .fold(err => s"""{"errors":["${err.toString}"]}""", result => s"""{"data":${result.mkString}}""")
+                   .execute(query.query, query.operationName)
+                   .fold(err => s"""{"errors":["${err.toString}"]}""", result => s"""{"data":$result}""")
         json     <- Task.fromEither(parse(result))
         response <- Ok(json)
       } yield response

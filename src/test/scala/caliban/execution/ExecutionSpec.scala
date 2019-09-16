@@ -18,7 +18,7 @@ object ExecutionSpec
               |  }
               |}""".stripMargin
 
-          val io = schema.execute(query).map(_.mkString).run
+          val io = schema.execute(query).map(_.toString).run
           assertM(
             io,
             succeeds(
@@ -38,7 +38,7 @@ object ExecutionSpec
               |  }
               |}""".stripMargin
 
-          val io = schema.execute(query).map(_.mkString).run
+          val io = schema.execute(query).map(_.toString).run
           assertM(
             io,
             succeeds(
@@ -58,7 +58,7 @@ object ExecutionSpec
               |  }
               |}""".stripMargin
 
-          val io = schema.execute(query).map(_.mkString).run
+          val io = schema.execute(query).map(_.toString).run
           assertM(
             io,
             succeeds(
@@ -81,7 +81,7 @@ object ExecutionSpec
               |  name
               |}""".stripMargin
 
-          val io = schema.execute(query).map(_.mkString).run
+          val io = schema.execute(query).map(_.toString).run
           assertM(
             io,
             succeeds(
@@ -105,7 +105,7 @@ object ExecutionSpec
               |  }
               |}""".stripMargin
 
-          val io = schema.execute(query).map(_.mkString).run
+          val io = schema.execute(query).map(_.toString).run
           assertM(
             io,
             succeeds(
@@ -125,7 +125,7 @@ object ExecutionSpec
                 |  }
                 |}""".stripMargin
             (query, schema)
-          }.flatMap { case (query, schema) => schema.execute(query).map(_.mkString).run }
+          }.flatMap { case (query, schema) => schema.execute(query).map(_.toString).run }
 
           assertM(
             io,
@@ -144,7 +144,7 @@ object ExecutionSpec
                 |  deleteCharacter(name: "Amos Burton")
                 |}""".stripMargin
             (query, schema)
-          }.flatMap { case (query, schema) => schema.execute(query).map(_.mkString).run }
+          }.flatMap { case (query, schema) => schema.execute(query).map(_.toString).run }
 
           assertM(io, succeeds(equalTo("""{"deleteCharacter":{}}""")))
         }

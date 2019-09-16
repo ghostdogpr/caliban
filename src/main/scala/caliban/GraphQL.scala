@@ -27,14 +27,14 @@ class GraphQL[Q, M, S](schema: RootSchema[Q, M, S]) {
 
   def render: String = renderTypes(rootType.types)
 
-  def execute(query: String): IO[CalibanError, List[ResponseValue]] =
+  def execute(query: String, operationName: Option[String] = None): IO[CalibanError, ResponseValue] =
     for {
       document   <- Parser.parseQuery(query)
       intro      = isIntrospection(document)
       toValidate = if (intro) introspectionRootType else rootType
       _          <- Validator.validate(document, toValidate)
       toExecute  = if (intro) Right((introspectionSchema, introspectionResolver)) else Left(schema)
-      result     <- Executor.execute(document, toExecute)
+      result     <- Executor.execute(document, toExecute, operationName)
     } yield result
 
   private def isIntrospection(document: Document): Boolean =
