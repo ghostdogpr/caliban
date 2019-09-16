@@ -31,15 +31,14 @@ addCommandAlias("check", "all scalafmtSbtCheck scalafmtCheck test:scalafmtCheck"
 
 lazy val root = project
   .in(file("."))
-  .settings(
-    skip in publish := true
-  )
+  .settings(skip in publish := true)
   .aggregate(core)
 
 lazy val core = project
   .in(file("core"))
   .settings(commonSettings)
   .settings(
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "com.lihaoyi"    %% "fastparse"    % "2.1.3",
       "com.propensive" %% "magnolia"     % "0.11.0",
@@ -65,8 +64,6 @@ lazy val examples = project
     )
   )
   .dependsOn(core)
-
-testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework"))
 
 val commonSettings = Def.settings(
   scalacOptions ++= Seq(
