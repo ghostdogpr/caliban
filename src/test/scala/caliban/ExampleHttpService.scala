@@ -17,7 +17,7 @@ import zio.interop.catz._
 import zio.interop.catz.implicits._
 import zio.{ Task, UIO, ZIO }
 
-object Service extends CatsApp {
+object ExampleHttpService extends CatsApp {
 
   object dsl extends Http4sDsl[Task]
   import dsl._
