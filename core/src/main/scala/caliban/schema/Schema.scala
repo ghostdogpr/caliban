@@ -220,7 +220,7 @@ object Schema {
           Some(ctx.typeName.short),
           ctx.annotations.collectFirst { case GQLDescription(desc) => desc },
           subtypes.collect {
-            case (__Type(__TypeKind.OBJECT, Some(name), description, _, _, _, _, _, _), annotations) =>
+            case (__Type(_, Some(name), description, _, _, _, _, _, _), annotations) =>
               Types.__EnumValue(
                 name,
                 description,
