@@ -34,7 +34,8 @@ object Types {
       __TypeKind.OBJECT,
       name,
       description,
-      fields = args => Some(fields.filter(v => args.includeDeprecated.getOrElse(false) || !v.isDeprecated))
+      fields = args => Some(fields.filter(v => args.includeDeprecated.getOrElse(false) || !v.isDeprecated)),
+      interfaces = Some(Nil)
     )
 
   def makeInputObject(name: Option[String], description: Option[String], fields: List[__InputValue]) =
@@ -77,10 +78,8 @@ object Types {
 
   def collectTypes(t: __Type, existingTypes: Map[String, __Type] = Map()): Map[String, __Type] =
     t.kind match {
-      case __TypeKind.SCALAR   => existingTypes
-      case __TypeKind.ENUM     => t.name.fold(existingTypes)(name => existingTypes.updated(name, t))
-      case __TypeKind.LIST     => t.ofType.fold(existingTypes)(collectTypes(_, existingTypes))
-      case __TypeKind.NON_NULL => t.ofType.fold(existingTypes)(collectTypes(_, existingTypes))
+      case __TypeKind.SCALAR | __TypeKind.ENUM   => t.name.fold(existingTypes)(name => existingTypes.updated(name, t))
+      case __TypeKind.LIST | __TypeKind.NON_NULL => t.ofType.fold(existingTypes)(collectTypes(_, existingTypes))
       case _ =>
         val map1 = t.name.fold(existingTypes)(name => existingTypes.updated(name, t))
         val embeddedTypes =

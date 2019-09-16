@@ -24,14 +24,14 @@ object ValidationSpec
               |  }
               |}""".stripMargin
 
-          val io = schema.execute(query).map(_.mkString).run
+          val io = schema.execute(query).map(_.toString).run
           assertM(
             io,
             fails[CalibanError](
               hasField[CalibanError, String](
                 "msg",
                 _.msg,
-                equalTo("Multiple operations have the same name: a")
+                equalTo("Multiple operations have the same name: a.")
               )
             )
           )
@@ -48,14 +48,14 @@ object ValidationSpec
               |  }
               |}""".stripMargin
 
-          val io = schema.execute(query).map(_.mkString).run
+          val io = schema.execute(query).map(_.toString).run
           assertM(
             io,
             fails[CalibanError](
               hasField[CalibanError, String](
                 "msg",
                 _.msg,
-                equalTo("Subscription 's' has more than one root field")
+                equalTo("Subscription 's' has more than one root field.")
               )
             )
           )
@@ -69,14 +69,14 @@ object ValidationSpec
               |  }
               |}""".stripMargin
 
-          val io = schema.execute(query).map(_.mkString).run
+          val io = schema.execute(query).map(_.toString).run
           assertM(
             io,
             fails[CalibanError](
               hasField[CalibanError, String](
                 "msg",
                 _.msg,
-                equalTo("Field 'unknown' does not exist on type 'Character'")
+                equalTo("Field 'unknown' does not exist on type 'Character'.")
               )
             )
           )
@@ -94,14 +94,14 @@ object ValidationSpec
               |  unknown
               |}""".stripMargin
 
-          val io = schema.execute(query).map(_.mkString).run
+          val io = schema.execute(query).map(_.toString).run
           assertM(
             io,
             fails[CalibanError](
               hasField[CalibanError, String](
                 "msg",
                 _.msg,
-                equalTo("Field 'unknown' does not exist on type 'Character'")
+                equalTo("Field 'unknown' does not exist on type 'Character'.")
               )
             )
           )

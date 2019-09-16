@@ -41,11 +41,11 @@ object Validator {
             case OperationType.Query => validateFields(selectionSet, rootType.queryType)
             case OperationType.Mutation =>
               rootType.mutationType.fold[IO[ValidationError, Unit]](
-                IO.fail(ValidationError("Mutation operations are not supported on this schema", ""))
+                IO.fail(ValidationError("Mutation operations are not supported on this schema.", ""))
               )(validateFields(selectionSet, _))
             case OperationType.Subscription =>
               rootType.subscriptionType.fold[IO[ValidationError, Unit]](
-                IO.fail(ValidationError("Subscription operations are not supported on this schema", ""))
+                IO.fail(ValidationError("Subscription operations are not supported on this schema.", ""))
               )(validateFields(selectionSet, _))
           }
         case FragmentDefinition(name, typeCondition, _, selectionSet) =>
@@ -55,7 +55,7 @@ object Validator {
             .getOrElse(
               IO.fail(
                 ValidationError(
-                  s"Fragment '$name' targets an invalid type: '${typeCondition.name}'",
+                  s"Fragment '$name' targets an invalid type: '${typeCondition.name}'.",
                   "Fragments must be specified on types that exist in the schema. This applies for both named and inline fragments. If they are not defined in the schema, the query does not validate."
                 )
               )
@@ -82,7 +82,7 @@ object Validator {
       .mapError(
         _ =>
           ValidationError(
-            s"Field '${field.name}' does not exist on type '${Rendering.renderTypeName(currentType)}'",
+            s"Field '${field.name}' does not exist on type '${Rendering.renderTypeName(currentType)}'.",
             "The target field of a field selection must be defined on the scoped type of the selection set. There are no limitations on alias names."
           )
       )
@@ -94,7 +94,7 @@ object Validator {
     IO.when(repeatedNames.nonEmpty)(
       IO.fail(
         ValidationError(
-          s"Multiple operations have the same name: ${repeatedNames.mkString(", ")}",
+          s"Multiple operations have the same name: ${repeatedNames.mkString(", ")}.",
           "Each named operation definition must be unique within a document when referred to by its name."
         )
       )
@@ -106,7 +106,7 @@ object Validator {
     IO.when(operations.length > 1 && anonymous.nonEmpty)(
       IO.fail(
         ValidationError(
-          "Found both anonymous and named operations",
+          "Found both anonymous and named operations.",
           "GraphQL allows a short‐hand form for defining query operations when only that one operation exists in the document."
         )
       )
@@ -120,7 +120,7 @@ object Validator {
       .map(
         op =>
           ValidationError(
-            s"Subscription ${op.name.map(n => s"'$n'").getOrElse("")} has more than one root field",
+            s"Subscription ${op.name.map(n => s"'$n'").getOrElse("")} has more than one root field.",
             "Subscription operations must have exactly one root field."
           )
       )
