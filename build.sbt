@@ -24,15 +24,18 @@ developers := List(
 )
 
 libraryDependencies ++= Seq(
-  "com.lihaoyi"    %% "fastparse"           % "2.1.3",
-  "com.propensive" %% "magnolia"            % "0.11.0",
-  "dev.zio"        %% "zio"                 % "1.0.0-RC12-1",
-  "dev.zio"        %% "zio-test"            % "1.0.0-RC12-1" % "test",
-  "dev.zio"        %% "zio-test-sbt"        % "1.0.0-RC12-1" % "test",
-  "dev.zio"        %% "zio-interop-cats"    % "2.0.0.0-RC3" % "test",
-  "org.typelevel"  %% "cats-effect"         % "2.0.0" % "test",
-  "org.http4s"     %% "http4s-dsl"          % "0.21.0-M4" % "test",
-  "org.http4s"     %% "http4s-blaze-server" % "0.21.0-M4" % "test",
+  "com.lihaoyi"    %% "fastparse"                 % "2.1.3",
+  "com.propensive" %% "magnolia"                  % "0.11.0",
+  "dev.zio"        %% "zio"                       % "1.0.0-RC12-1",
+  "dev.zio"        %% "zio-test"                  % "1.0.0-RC12-1" % "test",
+  "dev.zio"        %% "zio-test-sbt"              % "1.0.0-RC12-1" % "test",
+  "dev.zio"        %% "zio-interop-cats"          % "2.0.0.0-RC3" % "test",
+  "org.typelevel"  %% "cats-effect"               % "2.0.0" % "test",
+  "org.http4s"     %% "http4s-dsl"                % "0.21.0-M4" % "test",
+  "org.http4s"     %% "http4s-circe"              % "0.21.0-M4" % "test",
+  "org.http4s"     %% "http4s-blaze-server"       % "0.21.0-M4" % "test",
+  "io.circe"       %% "circe-magnolia-derivation" % "0.4.0" % "test",
+  "io.circe"       %% "circe-parser"              % "0.12.1" % "test",
   compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.0")
 )
 

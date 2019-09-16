@@ -212,8 +212,8 @@ object Schema {
       val subtypes =
         ctx.subtypes.map(s => s.typeclass.toType(isInput) -> s.annotations).toList.sortBy(_._1.name.getOrElse(""))
       val isEnum = subtypes.forall {
-        case (t, _) if t.fields(DeprecatedArgs(Some(true))).isEmpty => true
-        case _                                                      => false
+        case (t, _) if t.fields(DeprecatedArgs(Some(true))).forall(_.isEmpty) && t.inputFields.forall(_.isEmpty) => true
+        case _                                                                                                   => false
       }
       if (isEnum && subtypes.nonEmpty)
         makeEnum(

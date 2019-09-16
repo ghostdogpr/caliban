@@ -34,7 +34,8 @@ object Types {
       __TypeKind.OBJECT,
       name,
       description,
-      fields = args => Some(fields.filter(v => args.includeDeprecated.getOrElse(false) || !v.isDeprecated))
+      fields = args => Some(fields.filter(v => args.includeDeprecated.getOrElse(false) || !v.isDeprecated)),
+      interfaces = Some(Nil)
     )
 
   def makeInputObject(name: Option[String], description: Option[String], fields: List[__InputValue]) =
