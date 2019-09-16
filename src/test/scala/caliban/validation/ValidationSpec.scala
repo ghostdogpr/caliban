@@ -31,7 +31,7 @@ object ValidationSpec
               hasField[CalibanError, String](
                 "msg",
                 _.msg,
-                equalTo("Multiple operations have the same name: a")
+                equalTo("Multiple operations have the same name: a.")
               )
             )
           )
@@ -55,7 +55,7 @@ object ValidationSpec
               hasField[CalibanError, String](
                 "msg",
                 _.msg,
-                equalTo("Subscription 's' has more than one root field")
+                equalTo("Subscription 's' has more than one root field.")
               )
             )
           )
@@ -76,7 +76,7 @@ object ValidationSpec
               hasField[CalibanError, String](
                 "msg",
                 _.msg,
-                equalTo("Field 'unknown' does not exist on type 'Character'")
+                equalTo("Field 'unknown' does not exist on type 'Character'.")
               )
             )
           )
@@ -101,7 +101,7 @@ object ValidationSpec
               hasField[CalibanError, String](
                 "msg",
                 _.msg,
-                equalTo("Field 'unknown' does not exist on type 'Character'")
+                equalTo("Field 'unknown' does not exist on type 'Character'.")
               )
             )
           )
