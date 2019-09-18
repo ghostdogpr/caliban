@@ -1,31 +1,34 @@
 val mainScala = "2.12.10"
 val allScala  = Seq("2.11.12", mainScala)
 
-organization := "com.github.ghostdogpr"
-homepage := Some(url("https://github.com/ghostdogpr/caliban"))
-name := "caliban"
-licenses := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0"))
-scalaVersion := mainScala
-parallelExecution in Test := false
-fork in Test := true
-fork in run := true
-pgpPublicRing := file("/tmp/public.asc")
-pgpSecretRing := file("/tmp/secret.asc")
-releaseEarlyWith := SonatypePublisher
-scmInfo := Some(
-  ScmInfo(url("https://github.com/ghostdogpr/caliban/"), "scm:git:git@github.com:ghostdogpr/caliban.git")
-)
-developers := List(
-  Developer(
-    "ghostdogpr",
-    "Pierre Ricadat",
-    "ghostdogpr@gmail.com",
-    url("https://github.com/ghostdogpr")
+inThisBuild(
+  List(
+    organization := "com.github.ghostdogpr",
+    homepage := Some(url("https://github.com/ghostdogpr/caliban")),
+    licenses := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0")),
+    scalaVersion := mainScala,
+    parallelExecution in Test := false,
+    fork in Test := true,
+    fork in run := true,
+    pgpPublicRing := file("/tmp/public.asc"),
+    pgpSecretRing := file("/tmp/secret.asc"),
+    releaseEarlyWith := SonatypePublisher,
+    scmInfo := Some(
+      ScmInfo(url("https://github.com/ghostdogpr/caliban/"), "scm:git:git@github.com:ghostdogpr/caliban.git")
+    ),
+    developers := List(
+      Developer(
+        "ghostdogpr",
+        "Pierre Ricadat",
+        "ghostdogpr@gmail.com",
+        url("https://github.com/ghostdogpr")
+      )
+    ),
+    crossScalaVersions := allScala
   )
 )
 
-crossScalaVersions := allScala
-
+name := "caliban"
 addCommandAlias("fmt", "all scalafmtSbt scalafmt test:scalafmt")
 addCommandAlias("check", "all scalafmtSbtCheck scalafmtCheck test:scalafmtCheck")
 
@@ -36,6 +39,7 @@ lazy val root = project
 
 lazy val core = project
   .in(file("core"))
+  .settings(name := "caliban")
   .settings(commonSettings)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
@@ -52,6 +56,7 @@ lazy val core = project
 lazy val examples = project
   .in(file("examples"))
   .settings(commonSettings)
+  .settings(skip in publish := true)
   .settings(
     libraryDependencies ++= Seq(
       "dev.zio"       %% "zio-interop-cats"          % "2.0.0.0-RC3",
