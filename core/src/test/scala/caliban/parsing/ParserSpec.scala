@@ -146,11 +146,7 @@ object ParserSpec
                   selectionSet = List(
                     simpleField(
                       "sendEmail",
-                      arguments = Map("message" -> StringValue("""Hello,
-                                                                 |  World!
-                                                                 |
-                                                                 |Yours,
-                                                                 |  GraphQL. """.stripMargin))
+                      arguments = Map("message" -> StringValue("Hello,\n  World!\n\nYours,\n  GraphQL. "))
                     )
                   )
                 )
@@ -432,7 +428,7 @@ object ParserSpec
                         |    name(
                         |  }
                         |}""".stripMargin
-          assertM(Parser.parseQuery(query).run, fails(equalTo(ParsingError("""Position 4:3, found "}\n}""""))))
+          assertM(Parser.parseQuery(query).run, fails(equalTo(ParsingError("Position 4:3, found \"}\\r\\n}\""))))
         }
       )
     )
