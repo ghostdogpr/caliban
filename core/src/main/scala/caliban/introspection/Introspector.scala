@@ -1,6 +1,7 @@
 package caliban.introspection
 
-import caliban.schema.{ RootType, Schema }
+import caliban.schema.RootSchema.Operation
+import caliban.schema.{ RootSchema, RootType, Schema }
 import caliban.schema.Types.{ __InputValue, __Type }
 
 object Introspector {
@@ -46,14 +47,13 @@ object Introspector {
 
   implicit lazy val typeSchema: Schema[__Type] = Schema.gen[__Type]
 
-  def introspect(rootType: RootType): (Schema[Introspection], Introspection) = {
+  def introspect(rootType: RootType): RootSchema[Introspection, Nothing, Nothing] = {
     val types = rootType.types.values.toList.sortBy(_.name.getOrElse(""))
     val resolver = Introspection(
       __Schema(rootType.queryType, rootType.mutationType, rootType.subscriptionType, types, Nil),
       args => types.find(_.name.contains(args.name)).get
     )
-
     val introspectionSchema = Schema.gen[Introspection]
-    (introspectionSchema, resolver)
+    RootSchema(Operation(introspectionSchema, resolver), None, None)
   }
 }

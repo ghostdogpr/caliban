@@ -1,19 +1,19 @@
 package caliban.execution
 
 import caliban.CalibanError.ExecutionError
-import caliban.introspection.Introspector.Introspection
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.OperationType.{ Mutation, Query, Subscription }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.{ Document, Selection }
-import caliban.schema.{ ResponseValue, RootSchema, Schema }
+import caliban.schema.RootSchema.Operation
+import caliban.schema.{ ResponseValue, RootSchema }
 import zio.IO
 
 object Executor {
 
   def execute[Q, M, S](
     document: Document,
-    schema: Either[RootSchema[Q, M, S], (Schema[Introspection], Introspection)],
+    schema: RootSchema[Q, M, S],
     operationName: Option[String]
   ): IO[ExecutionError, ResponseValue] = {
     val fragments = document.definitions.collect {
@@ -30,24 +30,20 @@ object Executor {
         }
     }
     IO.fromEither(operation).mapError(ExecutionError(_)).flatMap { op =>
-      schema match {
-        case Left(schema) =>
-          op.operationType match {
-            case Query => schema.query.schema.exec(schema.query.resolver, op.selectionSet, Map(), fragments)
-            case Mutation =>
-              schema.mutation match {
-                case Some(m) => m.schema.exec(m.resolver, op.selectionSet, Map(), fragments)
-                case None    => IO.fail(ExecutionError("Mutations are not supported on this schema"))
-              }
-            case Subscription =>
-              schema.subscription match {
-                case Some(m) => m.schema.exec(m.resolver, op.selectionSet, Map(), fragments)
-                case None    => IO.fail(ExecutionError("Subscriptions are not supported on this schema"))
-              }
+      def exec[A]: Operation[A] => IO[ExecutionError, ResponseValue] =
+        (x: Operation[A]) => x.schema.exec(x.resolver, op.selectionSet, Map(), fragments)
+      op.operationType match {
+        case Query => exec(schema.query)
+        case Mutation =>
+          schema.mutation match {
+            case Some(m) => exec(m)
+            case None    => IO.fail(ExecutionError("Mutations are not supported on this schema"))
           }
-        case Right((schema, resolver)) =>
-          // introspection
-          schema.exec(resolver, op.selectionSet, Map(), fragments)
+        case Subscription =>
+          schema.subscription match {
+            case Some(m) => exec(m)
+            case None    => IO.fail(ExecutionError("Subscriptions are not supported on this schema"))
+          }
       }
     }
   }

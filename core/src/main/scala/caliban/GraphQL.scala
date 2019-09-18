@@ -4,6 +4,7 @@ import caliban.CalibanError.ExecutionError
 import caliban.Rendering.renderTypes
 import caliban.execution.Executor
 import caliban.introspection.Introspector
+import caliban.introspection.Introspector.Introspection
 import caliban.parsing.Parser
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.Selection.Field
@@ -22,19 +23,17 @@ class GraphQL[Q, M, S](schema: RootSchema[Q, M, S]) {
       schema.mutation.map(_.schema.toType()),
       schema.subscription.map(_.schema.toType())
     )
-  val (introspectionSchema, introspectionResolver) = Introspector.introspect(rootType)
-  val introspectionRootType                        = RootType(introspectionSchema.toType(), None, None)
+  val introspectionRootSchema: RootSchema[Introspection, Nothing, Nothing] = Introspector.introspect(rootType)
+  val introspectionRootType                                                = RootType(introspectionRootSchema.query.schema.toType(), None, None)
 
   def render: String = renderTypes(rootType.types)
 
   def execute(query: String, operationName: Option[String] = None): IO[CalibanError, ResponseValue] =
     for {
-      document   <- Parser.parseQuery(query)
-      intro      = isIntrospection(document)
-      toValidate = if (intro) introspectionRootType else rootType
-      _          <- Validator.validate(document, toValidate)
-      toExecute  = if (intro) Right((introspectionSchema, introspectionResolver)) else Left(schema)
-      result     <- Executor.execute(document, toExecute, operationName)
+      document <- Parser.parseQuery(query)
+      intro    = isIntrospection(document)
+      _        <- Validator.validate(document, if (intro) introspectionRootType else rootType)
+      result   <- Executor.execute(document, if (intro) introspectionRootSchema else schema, operationName)
     } yield result
 
   private def isIntrospection(document: Document): Boolean =
