@@ -1,19 +1,8 @@
 package caliban.schema
 
+import caliban.introspection.adt._
+
 object Types {
-
-  sealed trait __TypeKind
-
-  object __TypeKind {
-    case object SCALAR       extends __TypeKind
-    case object OBJECT       extends __TypeKind
-    case object INTERFACE    extends __TypeKind
-    case object UNION        extends __TypeKind
-    case object ENUM         extends __TypeKind
-    case object INPUT_OBJECT extends __TypeKind
-    case object LIST         extends __TypeKind
-    case object NON_NULL     extends __TypeKind
-  }
 
   def makeScalar(name: String) = __Type(__TypeKind.SCALAR, Some(name))
 
@@ -44,38 +33,6 @@ object Types {
   def makeUnion(name: Option[String], description: Option[String], subTypes: List[__Type]) =
     __Type(__TypeKind.UNION, name, description, possibleTypes = Some(subTypes))
 
-  case class __Type(
-    kind: __TypeKind,
-    name: Option[String] = None,
-    description: Option[String] = None,
-    fields: DeprecatedArgs => Option[List[__Field]] = _ => None,
-    interfaces: Option[List[__Type]] = None,
-    possibleTypes: Option[List[__Type]] = None,
-    enumValues: DeprecatedArgs => Option[List[__EnumValue]] = _ => None,
-    inputFields: Option[List[__InputValue]] = None,
-    ofType: Option[__Type] = None
-  )
-
-  case class DeprecatedArgs(includeDeprecated: Option[Boolean] = None)
-
-  case class __EnumValue(
-    name: String,
-    description: Option[String],
-    isDeprecated: Boolean,
-    deprecationReason: Option[String]
-  )
-
-  case class __InputValue(name: String, description: Option[String], `type`: () => __Type, defaultValue: Option[String])
-
-  case class __Field(
-    name: String,
-    description: Option[String],
-    args: List[__InputValue],
-    `type`: () => __Type,
-    isDeprecated: Boolean,
-    deprecationReason: Option[String]
-  )
-
   def collectTypes(t: __Type, existingTypes: Map[String, __Type] = Map()): Map[String, __Type] =
     t.kind match {
       case __TypeKind.SCALAR | __TypeKind.ENUM   => t.name.fold(existingTypes)(name => existingTypes.updated(name, t))
@@ -83,7 +40,7 @@ object Types {
       case _ =>
         val map1 = t.name.fold(existingTypes)(name => existingTypes.updated(name, t))
         val embeddedTypes =
-          t.fields(DeprecatedArgs(Some(true))).getOrElse(Nil).flatMap(f => f.`type` :: f.args.map(_.`type`))
+          t.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).flatMap(f => f.`type` :: f.args.map(_.`type`))
         val map2 = embeddedTypes.foldLeft(map1) {
           case (types, f) =>
             val t = innerType(f())

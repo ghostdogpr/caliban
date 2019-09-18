@@ -4,13 +4,12 @@ import caliban.CalibanError.ExecutionError
 import caliban.Rendering.renderTypes
 import caliban.execution.Executor
 import caliban.introspection.Introspector
-import caliban.introspection.Introspector.Introspection
+import caliban.introspection.adt.{ __Introspection, __Type }
 import caliban.parsing.Parser
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.Selection.Field
 import caliban.parsing.adt.{ Document, Selection, Value }
 import caliban.schema.RootSchema.Operation
-import caliban.schema.Types.__Type
 import caliban.schema.{ ResponseValue, RootSchema, RootType, Schema }
 import caliban.validation.Validator
 import zio.{ IO, Runtime, ZIO }
@@ -23,8 +22,8 @@ class GraphQL[Q, M, S](schema: RootSchema[Q, M, S]) {
       schema.mutation.map(_.schema.toType()),
       schema.subscription.map(_.schema.toType())
     )
-  val introspectionRootSchema: RootSchema[Introspection, Nothing, Nothing] = Introspector.introspect(rootType)
-  val introspectionRootType                                                = RootType(introspectionRootSchema.query.schema.toType(), None, None)
+  val introspectionRootSchema: RootSchema[__Introspection, Nothing, Nothing] = Introspector.introspect(rootType)
+  val introspectionRootType                                                  = RootType(introspectionRootSchema.query.schema.toType(), None, None)
 
   def render: String = renderTypes(rootType.types)
 

@@ -5,8 +5,8 @@ import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationD
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.{ Document, OperationType, Selection }
 import caliban.schema.{ RootType, Types }
-import caliban.schema.Types.{ __Type, __TypeKind, DeprecatedArgs }
 import caliban.Rendering
+import caliban.introspection.adt._
 import zio.IO
 
 object Validator {
@@ -78,7 +78,7 @@ object Validator {
       .unit
 
   private def validateField(field: Field, currentType: __Type): IO[ValidationError, Unit] =
-    IO.fromOption(currentType.fields(DeprecatedArgs(Some(true))).getOrElse(Nil).find(_.name == field.name))
+    IO.fromOption(currentType.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).find(_.name == field.name))
       .mapError(
         _ =>
           ValidationError(

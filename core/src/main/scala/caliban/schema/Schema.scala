@@ -3,6 +3,7 @@ package caliban.schema
 import scala.language.experimental.macros
 import caliban.CalibanError.ExecutionError
 import caliban.execution.Executor.mergeSelectionSet
+import caliban.introspection.adt._
 import caliban.parsing.adt.ExecutableDefinition.FragmentDefinition
 import caliban.parsing.adt.{ Selection, Value }
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
@@ -212,8 +213,9 @@ object Schema {
       val subtypes =
         ctx.subtypes.map(s => s.typeclass.toType(isInput) -> s.annotations).toList.sortBy(_._1.name.getOrElse(""))
       val isEnum = subtypes.forall {
-        case (t, _) if t.fields(DeprecatedArgs(Some(true))).forall(_.isEmpty) && t.inputFields.forall(_.isEmpty) => true
-        case _                                                                                                   => false
+        case (t, _) if t.fields(__DeprecatedArgs(Some(true))).forall(_.isEmpty) && t.inputFields.forall(_.isEmpty) =>
+          true
+        case _ => false
       }
       if (isEnum && subtypes.nonEmpty)
         makeEnum(
@@ -221,7 +223,7 @@ object Schema {
           ctx.annotations.collectFirst { case GQLDescription(desc) => desc },
           subtypes.collect {
             case (__Type(_, Some(name), description, _, _, _, _, _, _), annotations) =>
-              Types.__EnumValue(
+              __EnumValue(
                 name,
                 description,
                 annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,

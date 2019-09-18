@@ -42,7 +42,7 @@ object ExampleHttpService extends CatsApp {
 
   val httpApp: HttpApp[Task] = Router("/api" -> CORS(graphQLService)).orNotFound
   val serverBuilder: BlazeServerBuilder[Task] =
-    BlazeServerBuilder[Task].bindHttp(8080, "localhost").withHttpApp(httpApp)
+    BlazeServerBuilder[Task].bindHttp(8088, "localhost").withHttpApp(httpApp)
 
   override def run(args: List[String]): ZIO[Environment, Nothing, Int] =
     serverBuilder.resource.toManaged[Any].useForever.foldM(err => putStrLn(err.toString).as(1), _ => UIO(0))
