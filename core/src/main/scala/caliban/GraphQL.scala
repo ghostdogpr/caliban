@@ -6,9 +6,8 @@ import caliban.execution.Executor
 import caliban.introspection.Introspector
 import caliban.introspection.adt.{ __Introspection, __Type }
 import caliban.parsing.Parser
-import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
-import caliban.parsing.adt.Selection.Field
-import caliban.parsing.adt.{ Document, Selection, Value }
+import caliban.parsing.adt.ExecutableDefinition.FragmentDefinition
+import caliban.parsing.adt.{ Selection, Value }
 import caliban.schema.RootSchema.Operation
 import caliban.schema.{ ResponseValue, RootSchema, RootType, Schema }
 import caliban.validation.Validator
@@ -16,34 +15,24 @@ import zio.{ IO, Runtime, ZIO }
 
 class GraphQL[Q, M, S](schema: RootSchema[Q, M, S]) {
 
-  val rootType =
+  private val rootType =
     RootType(
       schema.query.schema.toType(),
       schema.mutation.map(_.schema.toType()),
       schema.subscription.map(_.schema.toType())
     )
-  val introspectionRootSchema: RootSchema[__Introspection, Nothing, Nothing] = Introspector.introspect(rootType)
-  val introspectionRootType                                                  = RootType(introspectionRootSchema.query.schema.toType(), None, None)
+  private val introspectionRootSchema: RootSchema[__Introspection, Nothing, Nothing] = Introspector.introspect(rootType)
+  private val introspectionRootType                                                  = RootType(introspectionRootSchema.query.schema.toType(), None, None)
 
   def render: String = renderTypes(rootType.types)
 
   def execute(query: String, operationName: Option[String] = None): IO[CalibanError, ResponseValue] =
     for {
       document <- Parser.parseQuery(query)
-      intro    = isIntrospection(document)
+      intro    = Introspector.isIntrospection(document)
       _        <- Validator.validate(document, if (intro) introspectionRootType else rootType)
       result   <- Executor.execute(document, if (intro) introspectionRootSchema else schema, operationName)
     } yield result
-
-  private def isIntrospection(document: Document): Boolean =
-    document.definitions.forall {
-      case OperationDefinition(_, _, _, _, selectionSet) =>
-        selectionSet.forall {
-          case Field(_, name, _, _, _) => name == "__schema" || name == "__type"
-          case _                       => true
-        }
-      case _ => true
-    }
 }
 
 object GraphQL {

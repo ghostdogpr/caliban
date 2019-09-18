@@ -10,7 +10,7 @@ object ValidationSpec
     extends DefaultRunnableSpec(
       suite("ValidationSpec")(
         testM("operation name uniqueness") {
-          val schema = graphQL(resolver)
+          val interpreter = graphQL(resolver)
           val query =
             """query a {
               |  characters {
@@ -24,7 +24,7 @@ object ValidationSpec
               |  }
               |}""".stripMargin
 
-          val io = schema.execute(query).map(_.toString).run
+          val io = interpreter.execute(query).map(_.toString).run
           assertM(
             io,
             fails[CalibanError](
@@ -37,7 +37,7 @@ object ValidationSpec
           )
         },
         testM("subscription has only one root") {
-          val schema = graphQL(resolver)
+          val interpreter = graphQL(resolver)
           val query =
             """subscription s {
               |  characters {
@@ -48,7 +48,7 @@ object ValidationSpec
               |  }
               |}""".stripMargin
 
-          val io = schema.execute(query).map(_.toString).run
+          val io = interpreter.execute(query).map(_.toString).run
           assertM(
             io,
             fails[CalibanError](
@@ -61,7 +61,7 @@ object ValidationSpec
           )
         },
         testM("invalid field") {
-          val schema = graphQL(resolver)
+          val interpreter = graphQL(resolver)
           val query =
             """{
               |  characters {
@@ -69,7 +69,7 @@ object ValidationSpec
               |  }
               |}""".stripMargin
 
-          val io = schema.execute(query).map(_.toString).run
+          val io = interpreter.execute(query).map(_.toString).run
           assertM(
             io,
             fails[CalibanError](
@@ -82,7 +82,7 @@ object ValidationSpec
           )
         },
         testM("invalid field in fragment") {
-          val schema = graphQL(resolver)
+          val interpreter = graphQL(resolver)
           val query =
             """query {
               |  characters {
@@ -94,7 +94,7 @@ object ValidationSpec
               |  unknown
               |}""".stripMargin
 
-          val io = schema.execute(query).map(_.toString).run
+          val io = interpreter.execute(query).map(_.toString).run
           assertM(
             io,
             fails[CalibanError](

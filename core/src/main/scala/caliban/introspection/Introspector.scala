@@ -1,6 +1,9 @@
 package caliban.introspection
 
 import caliban.introspection.adt._
+import caliban.parsing.adt.Document
+import caliban.parsing.adt.ExecutableDefinition.OperationDefinition
+import caliban.parsing.adt.Selection.Field
 import caliban.schema.RootSchema.Operation
 import caliban.schema.{ RootSchema, RootType, Schema }
 
@@ -17,4 +20,14 @@ object Introspector {
     val introspectionSchema = Schema.gen[__Introspection]
     RootSchema(Operation(introspectionSchema, resolver), None, None)
   }
+
+  def isIntrospection(document: Document): Boolean =
+    document.definitions.forall {
+      case OperationDefinition(_, _, _, _, selectionSet) =>
+        selectionSet.forall {
+          case Field(_, name, _, _, _) => name == "__schema" || name == "__type"
+          case _                       => true
+        }
+      case _ => true
+    }
 }

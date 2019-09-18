@@ -10,7 +10,7 @@ object ExecutionSpec
     extends DefaultRunnableSpec(
       suite("ExecutionSpec")(
         testM("simple query with fields") {
-          val schema = graphQL(resolver)
+          val interpreter = graphQL(resolver)
           val query =
             """{
               |  characters {
@@ -18,7 +18,7 @@ object ExecutionSpec
               |  }
               |}""".stripMargin
 
-          val io = schema.execute(query).map(_.toString).run
+          val io = interpreter.execute(query).map(_.toString).run
           assertM(
             io,
             succeeds(
@@ -29,7 +29,7 @@ object ExecutionSpec
           )
         },
         testM("arguments") {
-          val schema = graphQL(resolver)
+          val interpreter = graphQL(resolver)
           val query =
             """{
               |  characters(origin: MARS) {
@@ -38,7 +38,7 @@ object ExecutionSpec
               |  }
               |}""".stripMargin
 
-          val io = schema.execute(query).map(_.toString).run
+          val io = interpreter.execute(query).map(_.toString).run
           assertM(
             io,
             succeeds(
@@ -49,7 +49,7 @@ object ExecutionSpec
           )
         },
         testM("aliases") {
-          val schema = graphQL(resolver)
+          val interpreter = graphQL(resolver)
           val query =
             """{
               |  amos: character(name: "Amos Burton") {
@@ -58,7 +58,7 @@ object ExecutionSpec
               |  }
               |}""".stripMargin
 
-          val io = schema.execute(query).map(_.toString).run
+          val io = interpreter.execute(query).map(_.toString).run
           assertM(
             io,
             succeeds(
@@ -69,7 +69,7 @@ object ExecutionSpec
           )
         },
         testM("fragment") {
-          val schema = graphQL(resolver)
+          val interpreter = graphQL(resolver)
           val query =
             """{
               |  amos: character(name: "Amos Burton") {
@@ -81,7 +81,7 @@ object ExecutionSpec
               |  name
               |}""".stripMargin
 
-          val io = schema.execute(query).map(_.toString).run
+          val io = interpreter.execute(query).map(_.toString).run
           assertM(
             io,
             succeeds(
@@ -92,7 +92,7 @@ object ExecutionSpec
           )
         },
         testM("inline fragment") {
-          val schema = graphQL(resolver)
+          val interpreter = graphQL(resolver)
           val query =
             """{
               |  amos: character(name: "Amos Burton") {
@@ -105,7 +105,7 @@ object ExecutionSpec
               |  }
               |}""".stripMargin
 
-          val io = schema.execute(query).map(_.toString).run
+          val io = interpreter.execute(query).map(_.toString).run
           assertM(
             io,
             succeeds(
@@ -117,15 +117,15 @@ object ExecutionSpec
         },
         testM("effectful query") {
           val io = Task.runtime.map { implicit rts =>
-            val schema = graphQL(resolverIO)
+            val interpreter = graphQL(resolverIO)
             val query =
               """{
                 |  characters {
                 |    name
                 |  }
                 |}""".stripMargin
-            (query, schema)
-          }.flatMap { case (query, schema) => schema.execute(query).map(_.toString).run }
+            (query, interpreter)
+          }.flatMap { case (query, interpreter) => interpreter.execute(query).map(_.toString).run }
 
           assertM(
             io,
@@ -138,13 +138,13 @@ object ExecutionSpec
         },
         testM("mutation") {
           val io = Task.runtime.map { implicit rts =>
-            val schema = graphQL(resolverWithMutation)
+            val interpreter = graphQL(resolverWithMutation)
             val query =
               """mutation {
                 |  deleteCharacter(name: "Amos Burton")
                 |}""".stripMargin
-            (query, schema)
-          }.flatMap { case (query, schema) => schema.execute(query).map(_.toString).run }
+            (query, interpreter)
+          }.flatMap { case (query, interpreter) => interpreter.execute(query).map(_.toString).run }
 
           assertM(io, succeeds(equalTo("""{"deleteCharacter":{}}""")))
         }

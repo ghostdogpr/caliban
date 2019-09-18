@@ -26,13 +26,13 @@ object ExampleHttpService extends CatsApp {
 
   implicit val queryDecoder: Decoder[GraphQLRequest] = deriveMagnoliaDecoder[GraphQLRequest]
 
-  val schema: GraphQL[Queries, Mutations, Unit] = graphQL(resolver)
+  val interpreter: GraphQL[Queries, Mutations, Unit] = graphQL(resolver)
 
   val graphQLService: HttpRoutes[Task] = HttpRoutes.of[Task] {
     case req @ POST -> Root / "graphql" =>
       for {
         query <- req.attemptAs[GraphQLRequest].value.absolve
-        result <- schema
+        result <- interpreter
                    .execute(query.query, query.operationName)
                    .fold(err => s"""{"errors":["${err.toString}"]}""", result => s"""{"data":$result}""")
         json     <- Task.fromEither(parse(result))
