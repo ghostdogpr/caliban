@@ -136,10 +136,11 @@ object Schema {
         selectionSet: List[Selection],
         arguments: Map[String, Value],
         fragments: Map[String, FragmentDefinition]
-      ): IO[ExecutionError, ResponseValue] = {
-        val argValue: A = arg1.build(Right(arguments))
-        ev2.exec(value(argValue), selectionSet, Map(), fragments)
-      }
+      ): IO[ExecutionError, ResponseValue] =
+        arg1.build(Right(arguments)) match {
+          case Some(argValue) => ev2.exec(value(argValue), selectionSet, Map(), fragments)
+          case None           => IO.fail(ExecutionError(s"Failed to generate arguments from $arguments"))
+        }
     }
 
   type Typeclass[T] = Schema[T]
