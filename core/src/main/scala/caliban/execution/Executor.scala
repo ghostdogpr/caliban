@@ -52,8 +52,8 @@ object Executor {
     selectionSet: List[Selection],
     name: String,
     fragments: Map[String, FragmentDefinition]
-  ): List[Field] =
-    selectionSet.flatMap {
+  ): List[Field] = {
+    val fields = selectionSet.flatMap {
       case f: Field => List(f)
       case InlineFragment(typeCondition, _, sel) =>
         val matching = typeCondition.fold(true)(_.name == name)
@@ -65,5 +65,13 @@ object Executor {
           case _ => Nil
         }
     }
+    fields
+      .groupBy(_.name)
+      .toList
+      .flatMap {
+        case (_, head :: fields) => Some(head.copy(selectionSet = head.selectionSet ++ fields.flatMap(_.selectionSet)))
+        case _                   => None
+      }
+  }
 
 }
