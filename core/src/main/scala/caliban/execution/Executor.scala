@@ -30,18 +30,18 @@ object Executor {
         }
     }
     IO.fromEither(operation).mapError(ExecutionError(_)).flatMap { op =>
-      def exec[A]: Operation[A] => IO[ExecutionError, ResponseValue] =
-        (x: Operation[A]) => x.schema.exec(x.resolver, op.selectionSet, Map(), fragments)
+      def exec[A](x: Operation[A], parallel: Boolean): IO[ExecutionError, ResponseValue] =
+        x.schema.exec(x.resolver, op.selectionSet, Map(), fragments, parallel)
       op.operationType match {
-        case Query => exec(schema.query)
+        case Query => exec(schema.query, parallel = true)
         case Mutation =>
           schema.mutation match {
-            case Some(m) => exec(m)
+            case Some(m) => exec(m, parallel = false)
             case None    => IO.fail(ExecutionError("Mutations are not supported on this schema"))
           }
         case Subscription =>
           schema.subscription match {
-            case Some(m) => exec(m)
+            case Some(_) => ??? // TODO
             case None    => IO.fail(ExecutionError("Subscriptions are not supported on this schema"))
           }
       }

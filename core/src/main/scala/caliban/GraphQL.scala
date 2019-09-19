@@ -55,9 +55,10 @@ object GraphQL {
         value: ZIO[R, E, A],
         selectionSet: List[Selection],
         arguments: Map[String, Value],
-        fragments: Map[String, FragmentDefinition]
+        fragments: Map[String, FragmentDefinition],
+        parallel: Boolean = false
       ): IO[ExecutionError, ResponseValue] =
-        value.flatMap(ev.exec(_, selectionSet, arguments, fragments)).provide(runtime.Environment).mapError {
+        value.flatMap(ev.exec(_, selectionSet, arguments, fragments, parallel)).provide(runtime.Environment).mapError {
           case e: ExecutionError => e
           case other             => ExecutionError("Caught error during execution of effectful field", Some(other))
         }
