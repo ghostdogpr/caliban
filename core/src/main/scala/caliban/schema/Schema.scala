@@ -10,9 +10,9 @@ import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.ResponseValue._
 import caliban.schema.Types._
 import magnolia._
-import zio.{ IO, UIO }
+import zio.{ IO, UIO, ZIO }
 
-trait Schema[T] {
+trait Schema[T] { self =>
   def optional: Boolean             = false
   def arguments: List[__InputValue] = Nil
   def toType(isInput: Boolean = false): __Type
@@ -21,11 +21,35 @@ trait Schema[T] {
     selectionSet: List[Selection],
     arguments: Map[String, Value],
     fragments: Map[String, FragmentDefinition],
-    parallel: Boolean = true
+    parallel: Boolean
   ): IO[ExecutionError, ResponseValue]
+
+  def contramap[A](f: A => T): Schema[A] = new Schema[A] {
+    override def toType(isInput: Boolean): __Type = self.toType(isInput)
+    override def exec(
+      value: A,
+      selectionSet: List[Selection],
+      arguments: Map[String, Value],
+      fragments: Map[String, FragmentDefinition],
+      parallel: Boolean
+    ): IO[ExecutionError, ResponseValue] = self.exec(f(value), selectionSet, arguments, fragments, parallel)
+  }
 }
 
 object Schema {
+
+  def scalarSchema[A](name: String, description: Option[String], makeResponse: A => ResponseValue): Schema[A] =
+    new Schema[A] {
+      override def toType(isInput: Boolean): __Type = makeScalar(name, description)
+
+      override def exec(
+        value: A,
+        selectionSet: List[Selection],
+        arguments: Map[String, Value],
+        fragments: Map[String, FragmentDefinition],
+        parallel: Boolean
+      ): IO[ExecutionError, ResponseValue] = IO.succeed(makeResponse(value))
+    }
 
   implicit val unitSchema: Schema[Unit] = new Schema[Unit] {
     override def toType(isInput: Boolean = false): __Type = makeObject(None, None, Nil)
@@ -34,7 +58,7 @@ object Schema {
       selectionSet: List[Selection],
       arguments: Map[String, Value],
       fragments: Map[String, FragmentDefinition],
-      parallel: Boolean = true
+      parallel: Boolean
     ): IO[ExecutionError, ResponseValue] = UIO(ObjectValue(Nil))
   }
   implicit val booleanSchema: Schema[Boolean] = new Schema[Boolean] {
@@ -44,7 +68,7 @@ object Schema {
       selectionSet: List[Selection],
       arguments: Map[String, Value],
       fragments: Map[String, FragmentDefinition],
-      parallel: Boolean = true
+      parallel: Boolean
     ): IO[ExecutionError, ResponseValue] =
       UIO(BooleanValue(value))
   }
@@ -55,7 +79,7 @@ object Schema {
       selectionSet: List[Selection],
       arguments: Map[String, Value],
       fragments: Map[String, FragmentDefinition],
-      parallel: Boolean = true
+      parallel: Boolean
     ): IO[ExecutionError, ResponseValue] =
       UIO(IntValue(value))
   }
@@ -66,7 +90,7 @@ object Schema {
       selectionSet: List[Selection],
       arguments: Map[String, Value],
       fragments: Map[String, FragmentDefinition],
-      parallel: Boolean = true
+      parallel: Boolean
     ): IO[ExecutionError, ResponseValue] =
       UIO(FloatValue(value))
   }
@@ -77,7 +101,7 @@ object Schema {
       selectionSet: List[Selection],
       arguments: Map[String, Value],
       fragments: Map[String, FragmentDefinition],
-      parallel: Boolean = true
+      parallel: Boolean
     ): IO[ExecutionError, ResponseValue] = UIO(FloatValue(value.toFloat))
   }
   implicit val stringSchema: Schema[String] = new Schema[String] {
@@ -87,7 +111,7 @@ object Schema {
       selectionSet: List[Selection],
       arguments: Map[String, Value],
       fragments: Map[String, FragmentDefinition],
-      parallel: Boolean = true
+      parallel: Boolean
     ): IO[ExecutionError, ResponseValue] = UIO(StringValue(value))
   }
   implicit def optionSchema[A](implicit ev: Schema[A]): Schema[Option[A]] = new Typeclass[Option[A]] {
@@ -98,7 +122,7 @@ object Schema {
       selectionSet: List[Selection],
       arguments: Map[String, Value],
       fragments: Map[String, FragmentDefinition],
-      parallel: Boolean = true
+      parallel: Boolean
     ): IO[ExecutionError, ResponseValue] = value match {
       case Some(value) => ev.exec(value, selectionSet, arguments, fragments, parallel)
       case None        => UIO(NullValue)
@@ -111,7 +135,7 @@ object Schema {
       selectionSet: List[Selection],
       arguments: Map[String, Value],
       fragments: Map[String, FragmentDefinition],
-      parallel: Boolean = true
+      parallel: Boolean
     ): IO[ExecutionError, ResponseValue] =
       IO.collectAllPar(value.map(ev.exec(_, selectionSet, arguments, fragments, parallel))).map(ListValue)
   }
@@ -122,7 +146,7 @@ object Schema {
       selectionSet: List[Selection],
       arguments: Map[String, Value],
       fragments: Map[String, FragmentDefinition],
-      parallel: Boolean = true
+      parallel: Boolean
     ): IO[ExecutionError, ResponseValue] =
       IO.collectAllPar(value.map(ev.exec(_, selectionSet, arguments, fragments, parallel))).map(ListValue)
   }
@@ -134,9 +158,48 @@ object Schema {
       selectionSet: List[Selection],
       arguments: Map[String, Value],
       fragments: Map[String, FragmentDefinition],
-      parallel: Boolean = true
+      parallel: Boolean
     ): IO[ExecutionError, ResponseValue] = ev.exec(value(), selectionSet, Map(), fragments, parallel)
   }
+  implicit def tupleSchema[A, B](implicit ev1: Schema[A], ev2: Schema[B]): Schema[(A, B)] =
+    new Typeclass[(A, B)] {
+      override def toType(isInput: Boolean = false): __Type = {
+        val typeA     = ev1.toType(isInput)
+        val typeB     = ev2.toType(isInput)
+        val typeAName = typeA.name.getOrElse("")
+        val typeBName = typeB.name.getOrElse("")
+        makeObject(
+          Some(s"Tuple$typeAName$typeBName"),
+          Some(s"A tuple of $typeAName and $typeBName"),
+          List(
+            __Field("_1", Some("First element of the tuple"), Nil, () => typeA, isDeprecated = false, None),
+            __Field("_2", Some("Second element of the tuple"), Nil, () => typeB, isDeprecated = false, None)
+          )
+        )
+      }
+
+      override def exec(
+        value: (A, B),
+        selectionSet: List[Selection],
+        arguments: Map[String, Value],
+        fragments: Map[String, FragmentDefinition],
+        parallel: Boolean
+      ): IO[ExecutionError, ResponseValue] = {
+        val mergedSelectionSet = mergeSelectionSet(selectionSet, "", fragments)
+        ZIO
+          .foldLeft(mergedSelectionSet)(Vector.empty[(String, ResponseValue)]) {
+            case (result, field) =>
+              field.name match {
+                case "_1" =>
+                  ev1.exec(value._1, selectionSet, arguments, fragments, parallel).map(a => result :+ (field.name -> a))
+                case "_2" =>
+                  ev2.exec(value._2, selectionSet, arguments, fragments, parallel).map(a => result :+ (field.name -> a))
+                case _ => IO.succeed(result)
+              }
+          }
+          .map(fields => ObjectValue(fields.toList))
+      }
+    }
   implicit def functionSchema[A, B](implicit arg1: ArgBuilder[A], ev1: Schema[A], ev2: Schema[B]): Schema[A => B] =
     new Typeclass[A => B] {
       override def arguments: List[__InputValue]            = ev1.toType(true).inputFields.getOrElse(Nil)
@@ -147,7 +210,7 @@ object Schema {
         selectionSet: List[Selection],
         arguments: Map[String, Value],
         fragments: Map[String, FragmentDefinition],
-        parallel: Boolean = true
+        parallel: Boolean
       ): IO[ExecutionError, ResponseValue] =
         arg1.build(Right(arguments)) match {
           case Some(argValue) => ev2.exec(value(argValue), selectionSet, Map(), fragments, parallel)
@@ -204,7 +267,7 @@ object Schema {
       selectionSet: List[Selection],
       arguments: Map[String, Value],
       fragments: Map[String, FragmentDefinition],
-      parallel: Boolean = true
+      parallel: Boolean
     ): IO[ExecutionError, ResponseValue] =
       if (ctx.isObject) {
         UIO(ResponseValue.EnumValue(ctx.typeName.short))
@@ -258,7 +321,7 @@ object Schema {
       selectionSet: List[Selection],
       arguments: Map[String, Value],
       fragments: Map[String, FragmentDefinition],
-      parallel: Boolean = true
+      parallel: Boolean
     ): IO[ExecutionError, ResponseValue] =
       ctx.dispatch(value)(
         subType => subType.typeclass.exec(subType.cast(value), selectionSet, arguments, fragments, parallel)

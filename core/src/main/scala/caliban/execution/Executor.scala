@@ -1,5 +1,6 @@
 package caliban.execution
 
+import scala.collection.immutable.ListMap
 import caliban.CalibanError.ExecutionError
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.OperationType.{ Mutation, Query, Subscription }
@@ -66,12 +67,17 @@ object Executor {
         }
     }
     fields
-      .groupBy(_.name)
-      .toList
-      .flatMap {
-        case (_, head :: fields) => Some(head.copy(selectionSet = head.selectionSet ++ fields.flatMap(_.selectionSet)))
-        case _                   => None
+      .foldLeft(ListMap.empty[String, Field]) {
+        case (result, field) =>
+          result.updated(
+            field.name,
+            result
+              .get(field.name)
+              .fold(field)(f => f.copy(selectionSet = f.selectionSet ++ field.selectionSet))
+          )
       }
+      .values
+      .toList
   }
 
 }

@@ -4,7 +4,7 @@ import caliban.introspection.adt._
 
 object Types {
 
-  def makeScalar(name: String) = __Type(__TypeKind.SCALAR, Some(name))
+  def makeScalar(name: String, description: Option[String] = None) = __Type(__TypeKind.SCALAR, Some(name), description)
 
   def makeList(underlying: __Type) = __Type(__TypeKind.LIST, ofType = Some(underlying))
 

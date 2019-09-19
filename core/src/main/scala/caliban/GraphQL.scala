@@ -56,7 +56,7 @@ object GraphQL {
         selectionSet: List[Selection],
         arguments: Map[String, Value],
         fragments: Map[String, FragmentDefinition],
-        parallel: Boolean = false
+        parallel: Boolean
       ): IO[ExecutionError, ResponseValue] =
         value.flatMap(ev.exec(_, selectionSet, arguments, fragments, parallel)).provide(runtime.Environment).mapError {
           case e: ExecutionError => e
