@@ -78,15 +78,17 @@ object Validator {
       .unit
 
   private def validateField(field: Field, currentType: __Type): IO[ValidationError, Unit] =
-    IO.fromOption(currentType.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).find(_.name == field.name))
-      .mapError(
-        _ =>
-          ValidationError(
-            s"Field '${field.name}' does not exist on type '${Rendering.renderTypeName(currentType)}'.",
-            "The target field of a field selection must be defined on the scoped type of the selection set. There are no limitations on alias names."
-          )
-      )
-      .flatMap(f => validateFields(field.selectionSet, Types.innerType(f.`type`())))
+    IO.when(field.name != "__typename") {
+      IO.fromOption(currentType.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).find(_.name == field.name))
+        .mapError(
+          _ =>
+            ValidationError(
+              s"Field '${field.name}' does not exist on type '${Rendering.renderTypeName(currentType)}'.",
+              "The target field of a field selection must be defined on the scoped type of the selection set. There are no limitations on alias names."
+            )
+        )
+        .flatMap(f => validateFields(field.selectionSet, Types.innerType(f.`type`())))
+    }
 
   private def validateOperationNameUniqueness(operations: List[OperationDefinition]): IO[ValidationError, Unit] = {
     val names         = operations.flatMap(_.name).groupBy(identity)

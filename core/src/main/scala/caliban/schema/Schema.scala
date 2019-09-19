@@ -277,6 +277,10 @@ object Schema {
           case GQLName(name) => name
         }.getOrElse(ctx.typeName.short), fragments)
         val resolveFields = mergedSelectionSet.map {
+          case Selection.Field(alias, name @ "__typename", _, _, _) =>
+            UIO(alias.getOrElse(name) -> ResponseValue.StringValue(ctx.annotations.collectFirst {
+              case GQLName(name) => name
+            }.getOrElse(ctx.typeName.short)))
           case Selection.Field(alias, name, args, _, selectionSet) =>
             ctx.parameters
               .find(_.label == name)
