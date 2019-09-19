@@ -6,7 +6,7 @@ import caliban.execution.Executor.mergeSelectionSet
 import caliban.introspection.adt._
 import caliban.parsing.adt.ExecutableDefinition.FragmentDefinition
 import caliban.parsing.adt.{ Selection, Value }
-import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
+import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLName }
 import caliban.schema.ResponseValue._
 import caliban.schema.Types._
 import magnolia._
@@ -222,7 +222,7 @@ object Schema {
 
   def combine[T](ctx: CaseClass[Schema, T]): Schema[T] = new Schema[T] {
     override def toType(isInput: Boolean = false): __Type = {
-      val name        = ctx.typeName.short
+      val name        = ctx.annotations.collectFirst { case GQLName(name) => name }.getOrElse(ctx.typeName.short)
       val description = ctx.annotations.collectFirst { case GQLDescription(desc) => desc }
       if (isInput)
         makeInputObject(
@@ -270,9 +270,12 @@ object Schema {
       parallel: Boolean
     ): IO[ExecutionError, ResponseValue] =
       if (ctx.isObject) {
-        UIO(ResponseValue.EnumValue(ctx.typeName.short))
+        UIO(ResponseValue.EnumValue(ctx.annotations.collectFirst { case GQLName(name) => name }
+          .getOrElse(ctx.typeName.short)))
       } else {
-        val mergedSelectionSet = mergeSelectionSet(selectionSet, ctx.typeName.short, fragments)
+        val mergedSelectionSet = mergeSelectionSet(selectionSet, ctx.annotations.collectFirst {
+          case GQLName(name) => name
+        }.getOrElse(ctx.typeName.short), fragments)
         val resolveFields = mergedSelectionSet.map {
           case Selection.Field(alias, name, args, _, selectionSet) =>
             ctx.parameters
@@ -296,7 +299,7 @@ object Schema {
       }
       if (isEnum && subtypes.nonEmpty)
         makeEnum(
-          Some(ctx.typeName.short),
+          Some(ctx.annotations.collectFirst { case GQLName(name) => name }.getOrElse(ctx.typeName.short)),
           ctx.annotations.collectFirst { case GQLDescription(desc) => desc },
           subtypes.collect {
             case (__Type(_, Some(name), description, _, _, _, _, _, _), annotations) =>
@@ -310,7 +313,7 @@ object Schema {
         )
       else
         makeUnion(
-          Some(ctx.typeName.short),
+          Some(ctx.annotations.collectFirst { case GQLName(name) => name }.getOrElse(ctx.typeName.short)),
           ctx.annotations.collectFirst { case GQLDescription(desc) => desc },
           subtypes.map(_._1)
         )
