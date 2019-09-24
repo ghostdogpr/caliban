@@ -25,6 +25,8 @@ trait Schema[T] { self =>
   ): IO[ExecutionError, ResponseValue]
 
   def contramap[A](f: A => T): Schema[A] = new Schema[A] {
+    override def optional: Boolean                = self.optional
+    override def arguments: List[__InputValue]    = self.arguments
     override def toType(isInput: Boolean): __Type = self.toType(isInput)
     override def exec(
       value: A,
@@ -52,7 +54,7 @@ object Schema {
     }
 
   implicit val unitSchema: Schema[Unit] = new Schema[Unit] {
-    override def toType(isInput: Boolean = false): __Type = makeObject(None, None, Nil)
+    override def toType(isInput: Boolean = false): __Type = makeScalar("Unit", None)
     override def exec(
       value: Unit,
       selectionSet: List[Selection],
@@ -129,7 +131,10 @@ object Schema {
     }
   }
   implicit def listSchema[A](implicit ev: Schema[A]): Schema[List[A]] = new Typeclass[List[A]] {
-    override def toType(isInput: Boolean = false): __Type = makeList(ev.toType(isInput))
+    override def toType(isInput: Boolean = false): __Type = {
+      val t = ev.toType(isInput)
+      makeList(if (ev.optional) t else makeNonNull(t))
+    }
     override def exec(
       value: List[A],
       selectionSet: List[Selection],
@@ -140,7 +145,10 @@ object Schema {
       IO.collectAllPar(value.map(ev.exec(_, selectionSet, arguments, fragments, parallel))).map(ListValue)
   }
   implicit def setSchema[A](implicit ev: Schema[A]): Schema[Set[A]] = new Typeclass[Set[A]] {
-    override def toType(isInput: Boolean = false): __Type = makeList(ev.toType(isInput))
+    override def toType(isInput: Boolean = false): __Type = {
+      val t = ev.toType(isInput)
+      makeList(if (ev.optional) t else makeNonNull(t))
+    }
     override def exec(
       value: Set[A],
       selectionSet: List[Selection],
@@ -172,8 +180,22 @@ object Schema {
           Some(s"Tuple$typeAName$typeBName"),
           Some(s"A tuple of $typeAName and $typeBName"),
           List(
-            __Field("_1", Some("First element of the tuple"), Nil, () => typeA, isDeprecated = false, None),
-            __Field("_2", Some("Second element of the tuple"), Nil, () => typeB, isDeprecated = false, None)
+            __Field(
+              "_1",
+              Some("First element of the tuple"),
+              Nil,
+              () => if (ev1.optional) typeA else makeNonNull(typeA),
+              isDeprecated = false,
+              None
+            ),
+            __Field(
+              "_2",
+              Some("Second element of the tuple"),
+              Nil,
+              () => if (ev1.optional) typeB else makeNonNull(typeB),
+              isDeprecated = false,
+              None
+            )
           )
         )
       }
