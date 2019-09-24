@@ -18,13 +18,11 @@ object ExecutionSpec
               |  }
               |}""".stripMargin
 
-          val io = interpreter.execute(query).map(_.toString).run
+          val io = interpreter.execute(query).map(_.toString)
           assertM(
             io,
-            succeeds(
-              equalTo(
-                """{"characters":[{"name":"James Holden"},{"name":"Naomi Nagata"},{"name":"Amos Burton"},{"name":"Alex Kamal"},{"name":"Chrisjen Avasarala"},{"name":"Josephus Miller"},{"name":"Roberta Draper"}]}"""
-              )
+            equalTo(
+              """{"characters":[{"name":"James Holden"},{"name":"Naomi Nagata"},{"name":"Amos Burton"},{"name":"Alex Kamal"},{"name":"Chrisjen Avasarala"},{"name":"Josephus Miller"},{"name":"Roberta Draper"}]}"""
             )
           )
         },
@@ -38,13 +36,11 @@ object ExecutionSpec
               |  }
               |}""".stripMargin
 
-          val io = interpreter.execute(query).map(_.toString).run
+          val io = interpreter.execute(query).map(_.toString)
           assertM(
             io,
-            succeeds(
-              equalTo(
-                """{"characters":[{"name":"Alex Kamal","nicknames":[]},{"name":"Roberta Draper","nicknames":["Bobbie","Gunny"]}]}"""
-              )
+            equalTo(
+              """{"characters":[{"name":"Alex Kamal","nicknames":[]},{"name":"Roberta Draper","nicknames":["Bobbie","Gunny"]}]}"""
             )
           )
         },
@@ -58,13 +54,11 @@ object ExecutionSpec
               |  }
               |}""".stripMargin
 
-          val io = interpreter.execute(query).map(_.toString).run
+          val io = interpreter.execute(query).map(_.toString)
           assertM(
             io,
-            succeeds(
-              equalTo(
-                """{"amos":{"name":"Amos Burton","nicknames":[]}}"""
-              )
+            equalTo(
+              """{"amos":{"name":"Amos Burton","nicknames":[]}}"""
             )
           )
         },
@@ -81,13 +75,11 @@ object ExecutionSpec
               |  name
               |}""".stripMargin
 
-          val io = interpreter.execute(query).map(_.toString).run
+          val io = interpreter.execute(query).map(_.toString)
           assertM(
             io,
-            succeeds(
-              equalTo(
-                """{"amos":{"name":"Amos Burton"}}"""
-              )
+            equalTo(
+              """{"amos":{"name":"Amos Burton"}}"""
             )
           )
         },
@@ -105,13 +97,11 @@ object ExecutionSpec
               |  }
               |}""".stripMargin
 
-          val io = interpreter.execute(query).map(_.toString).run
+          val io = interpreter.execute(query).map(_.toString)
           assertM(
             io,
-            succeeds(
-              equalTo(
-                """{"amos":{"name":"Amos Burton","role":{"shipName":"Rocinante"}}}"""
-              )
+            equalTo(
+              """{"amos":{"name":"Amos Burton","role":{"shipName":"Rocinante"}}}"""
             )
           )
         },
@@ -125,14 +115,12 @@ object ExecutionSpec
                 |  }
                 |}""".stripMargin
             (query, interpreter)
-          }.flatMap { case (query, interpreter) => interpreter.execute(query).map(_.toString).run }
+          }.flatMap { case (query, interpreter) => interpreter.execute(query).map(_.toString) }
 
           assertM(
             io,
-            succeeds(
-              equalTo(
-                """{"characters":[{"name":"James Holden"},{"name":"Naomi Nagata"},{"name":"Amos Burton"},{"name":"Alex Kamal"},{"name":"Chrisjen Avasarala"},{"name":"Josephus Miller"},{"name":"Roberta Draper"}]}"""
-              )
+            equalTo(
+              """{"characters":[{"name":"James Holden"},{"name":"Naomi Nagata"},{"name":"Amos Burton"},{"name":"Alex Kamal"},{"name":"Chrisjen Avasarala"},{"name":"Josephus Miller"},{"name":"Roberta Draper"}]}"""
             )
           )
         },
@@ -144,9 +132,9 @@ object ExecutionSpec
                 |  deleteCharacter(name: "Amos Burton")
                 |}""".stripMargin
             (query, interpreter)
-          }.flatMap { case (query, interpreter) => interpreter.execute(query).map(_.toString).run }
+          }.flatMap { case (query, interpreter) => interpreter.execute(query).map(_.toString) }
 
-          assertM(io, succeeds(equalTo("""{"deleteCharacter":{}}""")))
+          assertM(io, equalTo("""{"deleteCharacter":{}}"""))
         }
       )
     )
