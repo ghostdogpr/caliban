@@ -28,7 +28,7 @@ object Types {
     )
 
   def makeInputObject(name: Option[String], description: Option[String], fields: List[__InputValue]) =
-    __Type(__TypeKind.INPUT_OBJECT, name, description, inputFields = Some(fields))
+    __Type(__TypeKind.INPUT_OBJECT, name.map(_ + "Input"), description, inputFields = Some(fields))
 
   def makeUnion(name: Option[String], description: Option[String], subTypes: List[__Type]) =
     __Type(__TypeKind.UNION, name, description, possibleTypes = Some(subTypes))

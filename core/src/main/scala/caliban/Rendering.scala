@@ -19,7 +19,10 @@ object Rendering {
           case _ =>
             s"""
                |${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} {
-               |  ${t.fields(__DeprecatedArgs()).getOrElse(Nil).map(renderField).mkString("\n  ")}${t
+               |  ${t.fields(__DeprecatedArgs()).getOrElse(Nil).map(renderField).mkString("\n  ")}${t.inputFields
+                 .getOrElse(Nil)
+                 .map(renderInputValue)
+                 .mkString("\n  ")}${t
                  .enumValues(__DeprecatedArgs())
                  .getOrElse(Nil)
                  .map(renderEnumValue)
@@ -46,6 +49,9 @@ object Rendering {
     s"${field.name}${renderArguments(field.args)}: ${renderTypeName(field.`type`())}${if (field.isDeprecated)
       s" @deprecated${field.deprecationReason.fold("")(reason => s"""(reason: "$reason")""")}"
     else ""}"
+
+  def renderInputValue(inputValue: __InputValue): String =
+    s"${inputValue.name}: ${renderTypeName(inputValue.`type`())}${inputValue.defaultValue.fold("")(d => s" = $d")}"
 
   def renderEnumValue(v: __EnumValue): String =
     s"${renderDescription(v.description)}${v.name}${if (v.isDeprecated)
