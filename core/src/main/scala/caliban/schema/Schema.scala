@@ -43,7 +43,6 @@ object Schema {
   def scalarSchema[A](name: String, description: Option[String], makeResponse: A => ResponseValue): Schema[A] =
     new Schema[A] {
       override def toType(isInput: Boolean): __Type = makeScalar(name, description)
-
       override def exec(
         value: A,
         selectionSet: List[Selection],
@@ -53,60 +52,12 @@ object Schema {
       ): IO[ExecutionError, ResponseValue] = IO.succeed(makeResponse(value))
     }
 
-  implicit val unitSchema: Schema[Unit] = new Schema[Unit] {
-    override def toType(isInput: Boolean = false): __Type = makeScalar("Unit", None)
-    override def exec(
-      value: Unit,
-      selectionSet: List[Selection],
-      arguments: Map[String, Value],
-      fragments: Map[String, FragmentDefinition],
-      parallel: Boolean
-    ): IO[ExecutionError, ResponseValue] = UIO(ObjectValue(Nil))
-  }
-  implicit val booleanSchema: Schema[Boolean] = new Schema[Boolean] {
-    override def toType(isInput: Boolean = false): __Type = makeScalar("Boolean")
-    override def exec(
-      value: Boolean,
-      selectionSet: List[Selection],
-      arguments: Map[String, Value],
-      fragments: Map[String, FragmentDefinition],
-      parallel: Boolean
-    ): IO[ExecutionError, ResponseValue] =
-      UIO(BooleanValue(value))
-  }
-  implicit val intSchema: Schema[Int] = new Schema[Int] {
-    override def toType(isInput: Boolean = false): __Type = makeScalar("Int")
-    override def exec(
-      value: Int,
-      selectionSet: List[Selection],
-      arguments: Map[String, Value],
-      fragments: Map[String, FragmentDefinition],
-      parallel: Boolean
-    ): IO[ExecutionError, ResponseValue] =
-      UIO(IntValue(value))
-  }
-  implicit val floatSchema: Schema[Float] = new Schema[Float] {
-    override def toType(isInput: Boolean = false): __Type = makeScalar("Float")
-    override def exec(
-      value: Float,
-      selectionSet: List[Selection],
-      arguments: Map[String, Value],
-      fragments: Map[String, FragmentDefinition],
-      parallel: Boolean
-    ): IO[ExecutionError, ResponseValue] =
-      UIO(FloatValue(value))
-  }
-  implicit val doubleSchema: Schema[Double] = floatSchema.contramap(_.toFloat)
-  implicit val stringSchema: Schema[String] = new Schema[String] {
-    override def toType(isInput: Boolean = false): __Type = makeScalar("String")
-    override def exec(
-      value: String,
-      selectionSet: List[Selection],
-      arguments: Map[String, Value],
-      fragments: Map[String, FragmentDefinition],
-      parallel: Boolean
-    ): IO[ExecutionError, ResponseValue] = UIO(StringValue(value))
-  }
+  implicit val unitSchema: Schema[Unit]       = scalarSchema("Unit", None, _ => ObjectValue(Nil))
+  implicit val booleanSchema: Schema[Boolean] = scalarSchema("Boolean", None, BooleanValue)
+  implicit val stringSchema: Schema[String]   = scalarSchema("String", None, StringValue)
+  implicit val intSchema: Schema[Int]         = scalarSchema("Int", None, IntValue)
+  implicit val floatSchema: Schema[Float]     = scalarSchema("Float", None, FloatValue)
+  implicit val doubleSchema: Schema[Double]   = floatSchema.contramap(_.toFloat)
   implicit def optionSchema[A](implicit ev: Schema[A]): Schema[Option[A]] = new Typeclass[Option[A]] {
     override def optional: Boolean                        = true
     override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
