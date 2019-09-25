@@ -96,16 +96,7 @@ object Schema {
     ): IO[ExecutionError, ResponseValue] =
       UIO(FloatValue(value))
   }
-  implicit val doubleSchema: Schema[Double] = new Schema[Double] {
-    override def toType(isInput: Boolean = false): __Type = makeScalar("Float")
-    override def exec(
-      value: Double,
-      selectionSet: List[Selection],
-      arguments: Map[String, Value],
-      fragments: Map[String, FragmentDefinition],
-      parallel: Boolean
-    ): IO[ExecutionError, ResponseValue] = UIO(FloatValue(value.toFloat))
-  }
+  implicit val doubleSchema: Schema[Double] = floatSchema.contramap(_.toFloat)
   implicit val stringSchema: Schema[String] = new Schema[String] {
     override def toType(isInput: Boolean = false): __Type = makeScalar("String")
     override def exec(
@@ -144,20 +135,7 @@ object Schema {
     ): IO[ExecutionError, ResponseValue] =
       IO.collectAllPar(value.map(ev.exec(_, selectionSet, arguments, fragments, parallel))).map(ListValue)
   }
-  implicit def setSchema[A](implicit ev: Schema[A]): Schema[Set[A]] = new Typeclass[Set[A]] {
-    override def toType(isInput: Boolean = false): __Type = {
-      val t = ev.toType(isInput)
-      makeList(if (ev.optional) t else makeNonNull(t))
-    }
-    override def exec(
-      value: Set[A],
-      selectionSet: List[Selection],
-      arguments: Map[String, Value],
-      fragments: Map[String, FragmentDefinition],
-      parallel: Boolean
-    ): IO[ExecutionError, ResponseValue] =
-      IO.collectAllPar(value.map(ev.exec(_, selectionSet, arguments, fragments, parallel))).map(ListValue)
-  }
+  implicit def setSchema[A](implicit ev: Schema[A]): Schema[Set[A]] = listSchema[A].contramap(_.toList)
   implicit def functionUnitSchema[A](implicit ev: Schema[A]): Schema[() => A] = new Typeclass[() => A] {
     override def optional: Boolean                        = ev.optional
     override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
@@ -243,19 +221,17 @@ object Schema {
   type Typeclass[T] = Schema[T]
 
   def combine[T](ctx: CaseClass[Schema, T]): Schema[T] = new Schema[T] {
-    override def toType(isInput: Boolean = false): __Type = {
-      val name        = ctx.annotations.collectFirst { case GQLName(name) => name }.getOrElse(ctx.typeName.short)
-      val description = ctx.annotations.collectFirst { case GQLDescription(desc) => desc }
+    override def toType(isInput: Boolean = false): __Type =
       if (isInput)
         makeInputObject(
-          Some(name),
-          description,
+          Some(getName(ctx)),
+          getDescription(ctx),
           ctx.parameters
             .map(
               p =>
                 __InputValue(
                   p.label,
-                  p.annotations.collectFirst { case GQLDescription(desc) => desc },
+                  getDescription(p),
                   () =>
                     if (p.typeclass.optional) p.typeclass.toType(isInput) else makeNonNull(p.typeclass.toType(isInput)),
                   None
@@ -265,14 +241,14 @@ object Schema {
         )
       else
         makeObject(
-          Some(name),
-          description,
+          Some(getName(ctx)),
+          getDescription(ctx),
           ctx.parameters
             .map(
               p =>
                 __Field(
                   p.label,
-                  p.annotations.collectFirst { case GQLDescription(desc) => desc },
+                  getDescription(p),
                   p.typeclass.arguments,
                   () =>
                     if (p.typeclass.optional) p.typeclass.toType(isInput) else makeNonNull(p.typeclass.toType(isInput)),
@@ -282,7 +258,6 @@ object Schema {
             )
             .toList
         )
-    }
 
     override def exec(
       value: T,
@@ -292,17 +267,12 @@ object Schema {
       parallel: Boolean
     ): IO[ExecutionError, ResponseValue] =
       if (ctx.isObject) {
-        UIO(ResponseValue.EnumValue(ctx.annotations.collectFirst { case GQLName(name) => name }
-          .getOrElse(ctx.typeName.short)))
+        UIO(ResponseValue.EnumValue(getName(ctx)))
       } else {
-        val mergedSelectionSet = mergeSelectionSet(selectionSet, ctx.annotations.collectFirst {
-          case GQLName(name) => name
-        }.getOrElse(ctx.typeName.short), fragments)
+        val mergedSelectionSet = mergeSelectionSet(selectionSet, getName(ctx), fragments)
         val resolveFields = mergedSelectionSet.map {
           case Selection.Field(alias, name @ "__typename", _, _, _) =>
-            UIO(alias.getOrElse(name) -> ResponseValue.StringValue(ctx.annotations.collectFirst {
-              case GQLName(name) => name
-            }.getOrElse(ctx.typeName.short)))
+            UIO(alias.getOrElse(name) -> ResponseValue.StringValue(getName(ctx)))
           case Selection.Field(alias, name, args, _, selectionSet) =>
             ctx.parameters
               .find(_.label == name)
@@ -325,8 +295,8 @@ object Schema {
       }
       if (isEnum && subtypes.nonEmpty)
         makeEnum(
-          Some(ctx.annotations.collectFirst { case GQLName(name) => name }.getOrElse(ctx.typeName.short)),
-          ctx.annotations.collectFirst { case GQLDescription(desc) => desc },
+          Some(getName(ctx)),
+          getDescription(ctx),
           subtypes.collect {
             case (__Type(_, Some(name), description, _, _, _, _, _, _), annotations) =>
               __EnumValue(
@@ -337,12 +307,7 @@ object Schema {
               )
           }
         )
-      else
-        makeUnion(
-          Some(ctx.annotations.collectFirst { case GQLName(name) => name }.getOrElse(ctx.typeName.short)),
-          ctx.annotations.collectFirst { case GQLDescription(desc) => desc },
-          subtypes.map(_._1)
-        )
+      else makeUnion(Some(getName(ctx)), getDescription(ctx), subtypes.map(_._1))
     }
 
     override def exec(
@@ -356,6 +321,27 @@ object Schema {
         subType => subType.typeclass.exec(subType.cast(value), selectionSet, arguments, fragments, parallel)
       )
   }
+
+  private def getName(annotations: Seq[Any], typeName: TypeName): String =
+    annotations.collectFirst { case GQLName(name) => name }.getOrElse(typeName.short)
+
+  private def getName[Typeclass[_], Type](ctx: CaseClass[Typeclass, Type]): String =
+    getName(ctx.annotations, ctx.typeName)
+
+  private def getName[Typeclass[_], Type](ctx: SealedTrait[Typeclass, Type]): String =
+    getName(ctx.annotations, ctx.typeName)
+
+  private def getDescription(annotations: Seq[Any]): Option[String] =
+    annotations.collectFirst { case GQLDescription(desc) => desc }
+
+  private def getDescription[Typeclass[_], Type](ctx: CaseClass[Typeclass, Type]): Option[String] =
+    getDescription(ctx.annotations)
+
+  private def getDescription[Typeclass[_], Type](ctx: SealedTrait[Typeclass, Type]): Option[String] =
+    getDescription(ctx.annotations)
+
+  private def getDescription[Typeclass[_], Type](ctx: Param[Typeclass, Type]): Option[String] =
+    getDescription(ctx.annotations)
 
   implicit def gen[T]: Typeclass[T] = macro Magnolia.gen[T]
 
