@@ -47,15 +47,4 @@ object ExampleService {
       state       <- Ref.make(initial)
       subscribers <- Ref.make(List.empty[Queue[String]])
     } yield new ExampleService(state, subscribers)
-
-  val resolver: UIO[RootResolver[Queries, Mutations, Subscriptions]] =
-    make(sampleCharacters)
-      .map(
-        service =>
-          RootResolver(
-            Queries(args => service.getCharacters(args.origin), args => service.findCharacter(args.name)),
-            Mutations(args => service.deleteCharacter(args.name)),
-            Subscriptions(service.deletedEvents)
-          )
-      )
 }

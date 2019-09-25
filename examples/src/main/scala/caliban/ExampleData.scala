@@ -2,9 +2,6 @@ package caliban
 
 import caliban.ExampleData.Origin.{ BELT, EARTH, MARS }
 import caliban.ExampleData.Role.{ Captain, Engineer, Mechanic, Pilot }
-import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
-import zio.UIO
-import zio.stream.ZStream
 
 object ExampleData {
 
@@ -29,18 +26,6 @@ object ExampleData {
 
   case class CharactersArgs(origin: Option[Origin])
   case class CharacterArgs(name: String)
-
-  @GQLDescription("Queries")
-  case class Queries(
-    @GQLDescription("Return all characters from a given origin") characters: CharactersArgs => UIO[List[Character]],
-    @GQLDeprecated("Use `characters`") character: CharacterArgs => UIO[Option[Character]]
-  )
-
-  @GQLDescription("Mutations")
-  case class Mutations(deleteCharacter: CharacterArgs => UIO[Boolean])
-
-  @GQLDescription("Subscriptions")
-  case class Subscriptions(characterDeleted: ZStream[Any, Nothing, String])
 
   val sampleCharacters = List(
     Character("James Holden", List("Jim", "Hoss"), EARTH, Some(Captain("Rocinante"))),
