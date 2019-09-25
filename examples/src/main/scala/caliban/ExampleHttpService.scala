@@ -32,7 +32,9 @@ object ExampleHttpService extends CatsApp {
 
   implicit val queryDecoder: Decoder[GraphQLRequest] = deriveMagnoliaDecoder[GraphQLRequest]
 
-  val interpreter: GraphQL[Queries, Mutations, Subscriptions] = graphQL(resolver)
+  val interpreter: GraphQL[Queries, Mutations, Subscriptions] = graphQL(unsafeRun(resolver)) // TODO replace
+
+//  println(interpreter.render)
 
   def execute(query: GraphQLRequest): IO[CalibanError, ResponseValue] =
     interpreter.execute(query.query, query.operationName)

@@ -3,8 +3,8 @@ package caliban
 import caliban.ExampleData.Origin._
 import caliban.ExampleData.Role._
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
-import zio.UIO
 import zio.stream.ZStream
+import zio.{ Queue, Ref, UIO }
 
 object ExampleData {
 
@@ -40,25 +40,43 @@ object ExampleData {
   case class CharactersArgs(origin: Option[Origin])
   case class CharacterArgs(name: String)
 
+  case class Test(name: String)
+  case class TestArgs(test: Test)
+
   @GQLDescription("Queries")
   case class Queries(
     @GQLDescription("Return all characters from a given origin") characters: CharactersArgs => UIO[List[Character]],
-    @GQLDeprecated("Use `characters`") character: CharacterArgs => UIO[Option[Character]]
+    @GQLDeprecated("Use `characters`") character: CharacterArgs => UIO[Option[Character]],
+    test: TestArgs => Test
   )
 
   @GQLDescription("Mutations")
-  case class Mutations(deleteCharacter: CharactersArgs => UIO[Boolean])
+  case class Mutations(deleteCharacter: CharacterArgs => UIO[Boolean])
 
   @GQLDescription("Subscriptions")
-  case class Subscriptions(characterDeleted: ZStream[Any, Nothing, Character])
+  case class Subscriptions(characterDeleted: ZStream[Any, Nothing, String])
 
-  val resolver = RootResolver(
-    Queries(
-      args => UIO(characters.filter(c => args.origin.forall(c.origin == _))),
-      args => UIO(characters.find(c => c.name == args.name))
-    ),
-    Mutations(_ => UIO(true)),
-    Subscriptions(ZStream.fromIterable(characters))
-  )
+  val resolver: UIO[RootResolver[Queries, Mutations, Subscriptions]] =
+    for {
+      state <- Ref.make(characters)
+      queue <- Queue.unbounded[String]
+    } yield RootResolver(
+      Queries(
+        args => state.get.map(_.filter(c => args.origin.forall(c.origin == _))),
+        args => state.get.map(_.find(c => c.name == args.name)),
+        args => args.test
+      ),
+      Mutations(
+        args =>
+          state
+            .modify(
+              list =>
+                if (list.exists(_.name == args.name)) (true, list.filterNot(_.name == args.name))
+                else (false, list)
+            )
+            .tap(deleted => UIO.when(deleted)(queue.offer(args.name)))
+      ),
+      Subscriptions(ZStream.fromQueue(queue))
+    )
 
 }
