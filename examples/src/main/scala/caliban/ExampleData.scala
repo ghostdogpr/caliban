@@ -4,6 +4,7 @@ import caliban.ExampleData.Origin._
 import caliban.ExampleData.Role._
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import zio.UIO
+import zio.stream.ZStream
 
 object ExampleData {
 
@@ -48,12 +49,16 @@ object ExampleData {
   @GQLDescription("Mutations")
   case class Mutations(deleteCharacter: CharactersArgs => UIO[Boolean])
 
+  @GQLDescription("Subscriptions")
+  case class Subscriptions(characterDeleted: ZStream[Any, Nothing, Character])
+
   val resolver = RootResolver(
     Queries(
       args => UIO(characters.filter(c => args.origin.forall(c.origin == _))),
       args => UIO(characters.find(c => c.name == args.name))
     ),
-    Mutations(_ => UIO(true))
+    Mutations(_ => UIO(true)),
+    Subscriptions(ZStream.fromIterable(characters))
   )
 
 }

@@ -42,7 +42,7 @@ object Executor {
           }
         case Subscription =>
           schema.subscription match {
-            case Some(_) => ??? // TODO
+            case Some(m) => exec(m, parallel = true)
             case None    => IO.fail(ExecutionError("Subscriptions are not supported on this schema"))
           }
       }

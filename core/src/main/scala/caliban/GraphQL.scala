@@ -11,6 +11,7 @@ import caliban.parsing.adt.{ Selection, Value }
 import caliban.schema.RootSchema.Operation
 import caliban.schema.{ ResponseValue, RootSchema, RootType, Schema }
 import caliban.validation.Validator
+import zio.stream.ZStream
 import zio.{ IO, Runtime, ZIO }
 
 class GraphQL[Q, M, S](schema: RootSchema[Q, M, S]) {
@@ -62,6 +63,26 @@ object GraphQL {
           case e: ExecutionError => e
           case other             => ExecutionError("Caught error during execution of effectful field", Some(other))
         }
+    }
+
+  implicit def streamSchema[R, E <: Throwable, A](
+    implicit ev: Schema[A],
+    runtime: Runtime[R]
+  ): Schema[ZStream[R, E, A]] =
+    new Schema[ZStream[R, E, A]] {
+      override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
+      override def exec(
+        stream: ZStream[R, E, A],
+        selectionSet: List[Selection],
+        arguments: Map[String, Value],
+        fragments: Map[String, FragmentDefinition],
+        parallel: Boolean
+      ): IO[ExecutionError, ResponseValue] =
+        IO.succeed(
+          ResponseValue.StreamValue(
+            stream.mapM(ev.exec(_, selectionSet, arguments, fragments, parallel)).provide(runtime.Environment)
+          )
+        )
     }
 
 }

@@ -47,6 +47,7 @@ lazy val core = project
       "com.lihaoyi"    %% "fastparse"    % "2.1.3",
       "com.propensive" %% "magnolia"     % "0.11.0",
       "dev.zio"        %% "zio"          % "1.0.0-RC13",
+      "dev.zio"        %% "zio-streams"  % "1.0.0-RC13",
       "dev.zio"        %% "zio-test"     % "1.0.0-RC13" % "test",
       "dev.zio"        %% "zio-test-sbt" % "1.0.0-RC13" % "test",
       compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.0")

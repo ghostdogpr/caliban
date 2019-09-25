@@ -1,5 +1,7 @@
 package caliban.schema
 
+import zio.stream.ZStream
+
 sealed trait ResponseValue
 
 object ResponseValue {
@@ -27,5 +29,8 @@ object ResponseValue {
   case class ObjectValue(fields: List[(String, ResponseValue)]) extends ResponseValue {
     override def toString: String =
       fields.map { case (name, value) => s""""$name":${value.toString}""" }.mkString("{", ",", "}")
+  }
+  case class StreamValue(stream: ZStream[Any, Throwable, ResponseValue]) extends ResponseValue {
+    override def toString: String = ""
   }
 }
