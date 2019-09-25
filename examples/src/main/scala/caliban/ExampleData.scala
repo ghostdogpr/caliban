@@ -40,14 +40,10 @@ object ExampleData {
   case class CharactersArgs(origin: Option[Origin])
   case class CharacterArgs(name: String)
 
-  case class Test(name: String)
-  case class TestArgs(test: Test)
-
   @GQLDescription("Queries")
   case class Queries(
     @GQLDescription("Return all characters from a given origin") characters: CharactersArgs => UIO[List[Character]],
-    @GQLDeprecated("Use `characters`") character: CharacterArgs => UIO[Option[Character]],
-    test: TestArgs => Test
+    @GQLDeprecated("Use `characters`") character: CharacterArgs => UIO[Option[Character]]
   )
 
   @GQLDescription("Mutations")
@@ -63,8 +59,7 @@ object ExampleData {
     } yield RootResolver(
       Queries(
         args => state.get.map(_.filter(c => args.origin.forall(c.origin == _))),
-        args => state.get.map(_.find(c => c.name == args.name)),
-        args => args.test
+        args => state.get.map(_.find(c => c.name == args.name))
       ),
       Mutations(
         args =>
