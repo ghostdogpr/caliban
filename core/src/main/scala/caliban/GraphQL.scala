@@ -9,7 +9,7 @@ import caliban.parsing.Parser
 import caliban.parsing.adt.ExecutableDefinition.FragmentDefinition
 import caliban.parsing.adt.{ Selection, Value }
 import caliban.schema.RootSchema.Operation
-import caliban.schema.{ ResponseValue, RootSchema, RootType, Schema }
+import caliban.schema.{ ResponseValue, RootSchema, RootType, Schema, SubscriptionSchema }
 import caliban.validation.Validator
 import zio.stream.ZStream
 import zio.{ IO, Runtime, ZIO }
@@ -38,7 +38,7 @@ class GraphQL[Q, M, S](schema: RootSchema[Q, M, S]) {
 
 object GraphQL {
 
-  def graphQL[Q, M, S](
+  def graphQL[Q, M, S: SubscriptionSchema](
     resolver: RootResolver[Q, M, S]
   )(implicit querySchema: Schema[Q], mutationSchema: Schema[M], subscriptionSchema: Schema[S]): GraphQL[Q, M, S] =
     new GraphQL[Q, M, S](
