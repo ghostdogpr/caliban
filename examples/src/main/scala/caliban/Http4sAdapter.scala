@@ -44,6 +44,9 @@ object Http4sAdapter {
         } yield response
     }
 
+    def sendMessage(sendQueue: fs2.concurrent.Queue[Task, WebSocketFrame], id: String, data: String) =
+      sendQueue.enqueue1(WebSocketFrame.Text(s"""{"id":"$id","type":"data","payload":{"data":$data}}"""))
+
     def processMessage(sendQueue: fs2.concurrent.Queue[Task, WebSocketFrame]): Pipe[Task, WebSocketFrame, Unit] =
       _.collect { case Text(text, _) => text }.flatMap { text =>
         Stream.eval {
@@ -53,21 +56,15 @@ object Http4sAdapter {
             id      = msg.hcursor.downField("id").success.flatMap(_.value.asString).getOrElse("")
             _ <- Task.whenCase(payload.downField("query").success.flatMap(_.value.asString)) {
                   case Some(query) =>
+                    val operationName = payload.downField("operationName").success.flatMap(_.value.asString)
                     for {
-                      result <- execute(
-                                 GraphQLRequest(
-                                   query,
-                                   payload.downField("operationName").success.flatMap(_.value.asString)
-                                 )
-                               )
-                      _ <- Task.whenCase(result) {
+                      result <- execute(GraphQLRequest(query, operationName))
+                      _ <- result match {
                             case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
                               stream.foreach { item =>
-                                val res = ObjectValue(List(fieldName -> item)).toString
-                                sendQueue.enqueue1(
-                                  WebSocketFrame.Text(s"""{"id":"$id","type":"data","payload":{"data":$res}}""")
-                                )
+                                sendMessage(sendQueue, id, ObjectValue(List(fieldName -> item)).toString)
                               }.fork
+                            case other => sendMessage(sendQueue, id, other.toString)
                           }
                     } yield ()
                 }
