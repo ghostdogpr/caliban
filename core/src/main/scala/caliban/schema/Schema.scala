@@ -86,18 +86,8 @@ object Schema {
     ): IO[ExecutionError, ResponseValue] =
       IO.collectAllPar(value.map(ev.exec(_, selectionSet, arguments, fragments, parallel))).map(ListValue)
   }
-  implicit def setSchema[A](implicit ev: Schema[A]): Schema[Set[A]] = listSchema[A].contramap(_.toList)
-  implicit def functionUnitSchema[A](implicit ev: Schema[A]): Schema[() => A] = new Typeclass[() => A] {
-    override def optional: Boolean                        = ev.optional
-    override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
-    override def exec(
-      value: () => A,
-      selectionSet: List[Selection],
-      arguments: Map[String, Value],
-      fragments: Map[String, FragmentDefinition],
-      parallel: Boolean
-    ): IO[ExecutionError, ResponseValue] = ev.exec(value(), selectionSet, Map(), fragments, parallel)
-  }
+  implicit def setSchema[A](implicit ev: Schema[A]): Schema[Set[A]]           = listSchema[A].contramap(_.toList)
+  implicit def functionUnitSchema[A](implicit ev: Schema[A]): Schema[() => A] = ev.contramap(_())
   implicit def tupleSchema[A, B](implicit ev1: Schema[A], ev2: Schema[B]): Schema[(A, B)] =
     new Typeclass[(A, B)] {
       override def toType(isInput: Boolean = false): __Type = {
