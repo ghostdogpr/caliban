@@ -5,29 +5,29 @@ import caliban.introspection.adt._
 object Rendering {
 
   def renderTypes(types: Map[String, __Type]): String =
-    types.map {
+    types.flatMap {
       case (_, t) =>
         t.kind match {
-          case __TypeKind.SCALAR   => ""
-          case __TypeKind.NON_NULL => ""
-          case __TypeKind.LIST     => ""
+          case __TypeKind.SCALAR   => None
+          case __TypeKind.NON_NULL => None
+          case __TypeKind.LIST     => None
           case __TypeKind.UNION =>
-            s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} = ${t.possibleTypes
+            Some(s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} = ${t.possibleTypes
               .getOrElse(Nil)
               .flatMap(_.name)
-              .mkString(" | ")}"""
+              .mkString(" | ")}""")
           case _ =>
-            s"""
-               |${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} {
-               |  ${t.fields(__DeprecatedArgs()).getOrElse(Nil).map(renderField).mkString("\n  ")}${t.inputFields
-                 .getOrElse(Nil)
-                 .map(renderInputValue)
-                 .mkString("\n  ")}${t
-                 .enumValues(__DeprecatedArgs())
-                 .getOrElse(Nil)
-                 .map(renderEnumValue)
-                 .mkString("\n  ")}
-               |}""".stripMargin
+            Some(s"""
+                    |${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} {
+                    |  ${t.fields(__DeprecatedArgs()).getOrElse(Nil).map(renderField).mkString("\n  ")}${t.inputFields
+                      .getOrElse(Nil)
+                      .map(renderInputValue)
+                      .mkString("\n  ")}${t
+                      .enumValues(__DeprecatedArgs())
+                      .getOrElse(Nil)
+                      .map(renderEnumValue)
+                      .mkString("\n  ")}
+                    |}""".stripMargin)
         }
     }.mkString("\n")
 
