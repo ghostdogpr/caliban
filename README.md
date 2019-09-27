@@ -21,7 +21,7 @@ case class Character(name: String)
 def getCharacters: List[Character] = ???
 ```
 
-Let's create a case class named `Query` that will represent our API, with one field named `characters` that returns a list of `Character`. We then create a value of this class that calls our `getCharacters` function. 
+Let's create a case class named `Queries` that will represent our API, with one field named `characters` that returns a list of `Character`. We then create a value of this class that calls our `getCharacters` function. 
 
 ```scala
 case class Queries(characters: List[Character])
@@ -42,7 +42,7 @@ type Character {
   name: String!
 }
 
-type Query {
+type Queries {
   characters: [Character!]!
 }
 ```
@@ -98,14 +98,14 @@ enum Origin {
 To declare a field that take arguments, create a dedicated case class representing the arguments and make the field a *function* from this class to the result type.
 ```scala
 case class FilterArgs(origin: Option[Origin])
-case class Query(characters: FilterArgs => List[Character])
+case class Queries(characters: FilterArgs => List[Character])
 ```
 The snippet above will produce the following GraphQL type:
 ```graphql
 input FilterArgs {
   origin: Origin
 }
-type Query {
+type Queries {
   characters(origin: Origin): [Character!]!
 } 
 ```
