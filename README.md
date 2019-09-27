@@ -49,8 +49,6 @@ type Queries {
 
 Now you can call `interpreter.execute` with a given GraphQL query, and you will get an `IO[CalibanError, ResponseValue]` as a response. Use `ResponseValue#toString` to get the JSON representation of the result.
 
-Caliban itself is not tied to any web framework, you are free to expose this function using the protocol and library of your choice. The [examples](https://github.com/ghostdogpr/caliban/tree/master/examples/) project provides an `Http4sAdapter` that exposes an interpreter over HTTP and WebSocket using http4s.
-
 ```scala
 val query = """
   { 
@@ -70,12 +68,14 @@ The `CalibanError` can be:
 - a `ValidationError`: the query was parsed but does not match the schema
 - an `ExecutionError`: an error happened while executing the query
 
+Caliban itself is not tied to any web framework, you are free to expose this function using the protocol and library of your choice. The [examples](https://github.com/ghostdogpr/caliban/tree/master/examples/) project provides an `Http4sAdapter` that exposes an interpreter over HTTP and WebSocket using http4s.
+
 ### Enum and union
 A sealed trait will be converted to a different GraphQL type depending on its content:
 - a sealed trait with only case objects will be converted to an `ENUM`
 - a sealed trait with only case classes will be converted to a `UNION`
 
-Sealed traits containing both case objects and case classes are not supported, because GraphQL does not have a corresponding type.
+**Important:** sealed traits containing both case objects and case classes are not supported, because GraphQL does not have a corresponding type. Also, union types are not supported as arguments.
 
 ```scala
 sealed trait ORIGIN
@@ -91,6 +91,27 @@ enum Origin {
   BELT
   EARTH
   MARS
+}
+```
+
+Here's an example of union:
+```scala
+sealed trait Role
+object Role {
+  case class Captain(shipName: String) extends Role
+  case class Engineer(specialty: String) extends Role
+}
+```
+The snippet above will produce the following GraphQL type:
+```graphql
+union Role = Captain | Engineer
+
+type Captain {
+  shipName: String!
+}
+
+type Engineer {
+  specialty: String!
 }
 ```
 
@@ -137,14 +158,14 @@ Caliban supports a few annotation to enrich data types:
 - `@GQLDeprecated("reason")` allows deprecating a field or an enum value.
 
 ### Custom types
-Caliban provides auto-derivation for common types such as `Int`, `String`, `List`, etc. but you can also support your own types by providing an implicit instance of `caliban.schema.Schema`.
+Caliban provides auto-derivation for common types such as `Int`, `String`, `List`, `Option`, etc. but you can also support your own types by providing an implicit instance of `caliban.schema.Schema`.
 
 An easy way to do this is to reuse existing instances and use `contramap` to map from your type to the original type. Here's an example of creating an instance for [refined](https://github.com/fthomas/refined)'s `NonEmptyString` reusing existing instance for `String`:
 ```scala
 import caliban.schema._
 implicit val nonEmptyStringSchema: Schema[NonEmptyString] = Schema.stringSchema.contramap(_.value)
 ```
-You can also use `scalarSchema` to create your own scalar types, providing a name, an optional description, and a function from your type to a `ResponseValue`:
+You can also use the `scalarSchema` helper to create your own scalar types, providing a name, an optional description, and a function from your type to a `ResponseValue`:
 ```scala
 import caliban.schema._
 implicit val unitSchema: Schema[Unit] = scalarSchema("Unit", None, _ => ObjectValue(Nil))
