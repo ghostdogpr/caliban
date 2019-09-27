@@ -6,10 +6,9 @@ import caliban.execution.Executor
 import caliban.introspection.Introspector
 import caliban.introspection.adt.{ __Introspection, __Type }
 import caliban.parsing.Parser
-import caliban.parsing.adt.ExecutableDefinition.FragmentDefinition
-import caliban.parsing.adt.{ Selection, Value }
+import caliban.parsing.adt.Value
 import caliban.schema.RootSchema.Operation
-import caliban.schema.{ ResponseValue, RootSchema, RootType, Schema, SubscriptionSchema }
+import caliban.schema._
 import caliban.validation.Validator
 import zio.stream.ZStream
 import zio.{ IO, Runtime, ZIO }
@@ -32,7 +31,7 @@ class GraphQL[Q, M, S](schema: RootSchema[Q, M, S]) {
       document <- Parser.parseQuery(query)
       intro    = Introspector.isIntrospection(document)
       _        <- Validator.validate(document, if (intro) introspectionRootType else rootType)
-      result   <- Executor.execute(document, if (intro) introspectionRootSchema else schema, operationName)
+      result   <- Executor.executeRequest(document, if (intro) introspectionRootSchema else schema, operationName)
     } yield result
 }
 
@@ -52,14 +51,8 @@ object GraphQL {
   implicit def effectSchema[R, E <: Throwable, A](implicit ev: Schema[A], runtime: Runtime[R]): Schema[ZIO[R, E, A]] =
     new Schema[ZIO[R, E, A]] {
       override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
-      override def exec(
-        value: ZIO[R, E, A],
-        selectionSet: List[Selection],
-        arguments: Map[String, Value],
-        fragments: Map[String, FragmentDefinition],
-        parallel: Boolean
-      ): IO[ExecutionError, ResponseValue] =
-        value.flatMap(ev.exec(_, selectionSet, arguments, fragments, parallel)).provide(runtime.Environment).mapError {
+      override def resolve(value: ZIO[R, E, A], arguments: Map[String, Value]): IO[ExecutionError, ResolvedValue] =
+        value.flatMap(ev.resolve(_, arguments)).provide(runtime.Environment).mapError {
           case e: ExecutionError => e
           case other             => ExecutionError("Caught error during execution of effectful field", Some(other))
         }
@@ -71,17 +64,12 @@ object GraphQL {
   ): Schema[ZStream[R, E, A]] =
     new Schema[ZStream[R, E, A]] {
       override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
-      override def exec(
+      override def resolve(
         stream: ZStream[R, E, A],
-        selectionSet: List[Selection],
-        arguments: Map[String, Value],
-        fragments: Map[String, FragmentDefinition],
-        parallel: Boolean
-      ): IO[ExecutionError, ResponseValue] =
+        arguments: Map[String, Value]
+      ): IO[ExecutionError, ResolvedValue] =
         IO.succeed(
-          ResponseValue.StreamValue(
-            stream.mapM(ev.exec(_, selectionSet, arguments, fragments, parallel)).provide(runtime.Environment)
-          )
+          ResolvedValue.ResolvedStreamValue(stream.mapM(ev.resolve(_, arguments)).provide(runtime.Environment))
         )
     }
 

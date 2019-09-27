@@ -2,39 +2,27 @@ package caliban.schema
 
 import scala.language.experimental.macros
 import caliban.CalibanError.ExecutionError
-import caliban.execution.Executor.mergeSelectionSet
 import caliban.introspection.adt._
-import caliban.parsing.adt.ExecutableDefinition.FragmentDefinition
-import caliban.parsing.adt.{ Selection, Value }
+import caliban.parsing.adt.Value
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLName }
+import caliban.schema.ResolvedValue.{ ResolvedListValue, ResolvedObjectValue }
 import caliban.schema.ResponseValue._
 import caliban.schema.Types._
 import magnolia._
-import zio.{ IO, UIO, ZIO }
+import zio.{ IO, UIO }
 
 trait Schema[T] { self =>
   def optional: Boolean             = false
   def arguments: List[__InputValue] = Nil
   def toType(isInput: Boolean = false): __Type
-  def exec(
-    value: T,
-    selectionSet: List[Selection],
-    arguments: Map[String, Value],
-    fragments: Map[String, FragmentDefinition],
-    parallel: Boolean
-  ): IO[ExecutionError, ResponseValue]
+  def resolve(value: T, arguments: Map[String, Value]): IO[ExecutionError, ResolvedValue]
 
   def contramap[A](f: A => T): Schema[A] = new Schema[A] {
     override def optional: Boolean                = self.optional
     override def arguments: List[__InputValue]    = self.arguments
     override def toType(isInput: Boolean): __Type = self.toType(isInput)
-    override def exec(
-      value: A,
-      selectionSet: List[Selection],
-      arguments: Map[String, Value],
-      fragments: Map[String, FragmentDefinition],
-      parallel: Boolean
-    ): IO[ExecutionError, ResponseValue] = self.exec(f(value), selectionSet, arguments, fragments, parallel)
+    override def resolve(value: A, arguments: Map[String, Value]): IO[ExecutionError, ResolvedValue] =
+      self.resolve(f(value), arguments)
   }
 }
 
@@ -43,13 +31,8 @@ object Schema {
   def scalarSchema[A](name: String, description: Option[String], makeResponse: A => ResponseValue): Schema[A] =
     new Schema[A] {
       override def toType(isInput: Boolean): __Type = makeScalar(name, description)
-      override def exec(
-        value: A,
-        selectionSet: List[Selection],
-        arguments: Map[String, Value],
-        fragments: Map[String, FragmentDefinition],
-        parallel: Boolean
-      ): IO[ExecutionError, ResponseValue] = IO.succeed(makeResponse(value))
+      override def resolve(value: A, arguments: Map[String, Value]): IO[ExecutionError, ResponseValue] =
+        IO.succeed(makeResponse(value))
     }
 
   implicit val unitSchema: Schema[Unit]       = scalarSchema("Unit", None, _ => ObjectValue(Nil))
@@ -61,30 +44,19 @@ object Schema {
   implicit def optionSchema[A](implicit ev: Schema[A]): Schema[Option[A]] = new Typeclass[Option[A]] {
     override def optional: Boolean                        = true
     override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
-    override def exec(
-      value: Option[A],
-      selectionSet: List[Selection],
-      arguments: Map[String, Value],
-      fragments: Map[String, FragmentDefinition],
-      parallel: Boolean
-    ): IO[ExecutionError, ResponseValue] = value match {
-      case Some(value) => ev.exec(value, selectionSet, arguments, fragments, parallel)
-      case None        => UIO(NullValue)
-    }
+    override def resolve(value: Option[A], arguments: Map[String, Value]): IO[ExecutionError, ResolvedValue] =
+      value match {
+        case Some(value) => ev.resolve(value, arguments)
+        case None        => UIO(NullValue)
+      }
   }
   implicit def listSchema[A](implicit ev: Schema[A]): Schema[List[A]] = new Typeclass[List[A]] {
     override def toType(isInput: Boolean = false): __Type = {
       val t = ev.toType(isInput)
       makeList(if (ev.optional) t else makeNonNull(t))
     }
-    override def exec(
-      value: List[A],
-      selectionSet: List[Selection],
-      arguments: Map[String, Value],
-      fragments: Map[String, FragmentDefinition],
-      parallel: Boolean
-    ): IO[ExecutionError, ResponseValue] =
-      IO.collectAllPar(value.map(ev.exec(_, selectionSet, arguments, fragments, parallel))).map(ListValue)
+    override def resolve(value: List[A], arguments: Map[String, Value]): IO[ExecutionError, ResolvedValue] =
+      UIO(ResolvedListValue(value.map(ev.resolve(_, arguments))))
   }
   implicit def setSchema[A](implicit ev: Schema[A]): Schema[Set[A]]           = listSchema[A].contramap(_.toList)
   implicit def functionUnitSchema[A](implicit ev: Schema[A]): Schema[() => A] = ev.contramap(_())
@@ -119,42 +91,22 @@ object Schema {
         )
       }
 
-      override def exec(
-        value: (A, B),
-        selectionSet: List[Selection],
-        arguments: Map[String, Value],
-        fragments: Map[String, FragmentDefinition],
-        parallel: Boolean
-      ): IO[ExecutionError, ResponseValue] = {
-        val mergedSelectionSet = mergeSelectionSet(selectionSet, "", fragments)
-        ZIO
-          .foldLeft(mergedSelectionSet)(Vector.empty[(String, ResponseValue)]) {
-            case (result, field) =>
-              field.name match {
-                case "_1" =>
-                  ev1.exec(value._1, selectionSet, arguments, fragments, parallel).map(a => result :+ (field.name -> a))
-                case "_2" =>
-                  ev2.exec(value._2, selectionSet, arguments, fragments, parallel).map(a => result :+ (field.name -> a))
-                case _ => IO.succeed(result)
-              }
-          }
-          .map(fields => ObjectValue(fields.toList))
-      }
+      override def resolve(value: (A, B), arguments: Map[String, Value]): IO[ExecutionError, ResolvedValue] =
+        UIO(
+          ResolvedObjectValue(
+            "",
+            Map("_1" -> (_ => ev1.resolve(value._1, Map())), "_2" -> (_ => ev2.resolve(value._2, Map())))
+          )
+        )
     }
   implicit def functionSchema[A, B](implicit arg1: ArgBuilder[A], ev1: Schema[A], ev2: Schema[B]): Schema[A => B] =
     new Typeclass[A => B] {
       override def arguments: List[__InputValue]            = ev1.toType(true).inputFields.getOrElse(Nil)
       override def optional: Boolean                        = ev2.optional
       override def toType(isInput: Boolean = false): __Type = ev2.toType(isInput)
-      override def exec(
-        value: A => B,
-        selectionSet: List[Selection],
-        arguments: Map[String, Value],
-        fragments: Map[String, FragmentDefinition],
-        parallel: Boolean
-      ): IO[ExecutionError, ResponseValue] =
+      override def resolve(value: A => B, arguments: Map[String, Value]): IO[ExecutionError, ResolvedValue] =
         arg1.build(Right(arguments)) match {
-          case Some(argValue) => ev2.exec(value(argValue), selectionSet, Map(), fragments, parallel)
+          case Some(argValue) => ev2.resolve(value(argValue), Map())
           case None           => IO.fail(ExecutionError(s"Failed to generate arguments from $arguments"))
         }
     }
@@ -200,28 +152,18 @@ object Schema {
             .toList
         )
 
-    override def exec(
-      value: T,
-      selectionSet: List[Selection],
-      arguments: Map[String, Value],
-      fragments: Map[String, FragmentDefinition],
-      parallel: Boolean
-    ): IO[ExecutionError, ResponseValue] =
+    override def resolve(value: T, arguments: Map[String, Value]): IO[ExecutionError, ResolvedValue] =
       if (ctx.isObject) {
         UIO(ResponseValue.EnumValue(getName(ctx)))
       } else {
-        val mergedSelectionSet = mergeSelectionSet(selectionSet, getName(ctx), fragments)
-        val resolveFields = mergedSelectionSet.map {
-          case Selection.Field(alias, name @ "__typename", _, _, _) =>
-            UIO(alias.getOrElse(name) -> ResponseValue.StringValue(getName(ctx)))
-          case Selection.Field(alias, name, args, _, selectionSet) =>
+        UIO(
+          ResolvedObjectValue(
+            getName(ctx),
             ctx.parameters
-              .find(_.label == name)
-              .map(p => p.typeclass.exec(p.dereference(value), selectionSet, args, fragments, parallel))
-              .getOrElse(UIO.succeed(NullValue))
-              .map((alias.getOrElse(name), _))
-        }
-        (if (parallel) IO.collectAllPar(resolveFields) else IO.collectAll(resolveFields)).map(ObjectValue)
+              .map(p => p.label -> ((args: Map[String, Value]) => p.typeclass.resolve(p.dereference(value), args)))
+              .toMap
+          )
+        )
       }
   }
 
@@ -251,15 +193,9 @@ object Schema {
       else makeUnion(Some(getName(ctx)), getDescription(ctx), subtypes.map(_._1))
     }
 
-    override def exec(
-      value: T,
-      selectionSet: List[Selection],
-      arguments: Map[String, Value],
-      fragments: Map[String, FragmentDefinition],
-      parallel: Boolean
-    ): IO[ExecutionError, ResponseValue] =
+    override def resolve(value: T, arguments: Map[String, Value]): IO[ExecutionError, ResolvedValue] =
       ctx.dispatch(value)(
-        subType => subType.typeclass.exec(subType.cast(value), selectionSet, arguments, fragments, parallel)
+        subType => subType.typeclass.resolve(subType.cast(value), arguments)
       )
   }
 
