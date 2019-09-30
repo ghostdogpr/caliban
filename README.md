@@ -66,7 +66,7 @@ The `CalibanError` can be:
 - a `ValidationError`: the query was parsed but does not match the schema
 - an `ExecutionError`: an error happened while executing the query
 
-Caliban itself is not tied to any web framework, you are free to expose this function using the protocol and library of your choice. The [examples](https://github.com/ghostdogpr/caliban/tree/master/examples/) project provides an `Http4sAdapter` that exposes an interpreter over HTTP and WebSocket using http4s.
+Caliban itself is not tied to any web framework, you are free to expose this function using the protocol and library of your choice. The [caliban-http4s](https://github.com/ghostdogpr/caliban/tree/master/http4s) module provides an `Http4sAdapter` that exposes an interpreter over HTTP and WebSocket using http4s.
 
 ### Enum and union
 A sealed trait will be converted to a different GraphQL type depending on its content:
