@@ -5,7 +5,7 @@ import caliban.CalibanError.ExecutionError
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.OperationType.{ Mutation, Query, Subscription }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
-import caliban.parsing.adt.{ Document, Selection }
+import caliban.parsing.adt.{ Document, Selection, Value, VariableDefinition }
 import caliban.schema.ResolvedValue.{ ResolvedListValue, ResolvedObjectValue, ResolvedStreamValue }
 import caliban.schema.ResponseValue.{ ListValue, NullValue, ObjectValue, StringValue }
 import caliban.schema.RootSchema.Operation
@@ -17,7 +17,8 @@ object Executor {
   def executeRequest[Q, M, S](
     document: Document,
     schema: RootSchema[Q, M, S],
-    operationName: Option[String]
+    operationName: Option[String] = None,
+    variables: Map[String, Value] = Map()
   ): IO[ExecutionError, ResponseValue] = {
     val fragments = document.definitions.collect {
       case fragment: FragmentDefinition => fragment.name -> fragment
@@ -34,7 +35,14 @@ object Executor {
     }
     IO.fromEither(operation).mapError(ExecutionError(_)).flatMap { op =>
       def executeOperation[A](x: Operation[A], parallel: Boolean): IO[ExecutionError, ResponseValue] =
-        executeSelectionSet(x.schema.resolve(x.resolver, Map()), op.selectionSet, fragments, parallel)
+        executeSelectionSet(
+          x.schema.resolve(x.resolver, Map()),
+          op.selectionSet,
+          fragments,
+          op.variableDefinitions,
+          variables,
+          parallel
+        )
       op.operationType match {
         case Query => executeOperation(schema.query, parallel = true)
         case Mutation =>
@@ -55,30 +63,52 @@ object Executor {
     resolve: IO[ExecutionError, ResolvedValue],
     selectionSet: List[Selection],
     fragments: Map[String, FragmentDefinition],
+    variableDefinitions: List[VariableDefinition],
+    variableValues: Map[String, Value],
     parallel: Boolean
-  ): IO[ExecutionError, ResponseValue] =
-    resolve.flatMap {
-      case ResolvedObjectValue(objectName, fields) =>
-        val mergedSelectionSet = mergeSelectionSet(selectionSet, objectName, fragments)
-        val resolveFields = mergedSelectionSet.map {
-          case Selection.Field(alias, name @ "__typename", _, _, _) =>
-            UIO(alias.getOrElse(name) -> StringValue(objectName))
-          case Selection.Field(alias, name, args, _, selectionSet) =>
-            fields
-              .get(name)
-              .map(res => executeSelectionSet(res(args), selectionSet, fragments, parallel))
-              .getOrElse(UIO.succeed(NullValue))
-              .map((alias.getOrElse(name), _))
-        }
-        (if (parallel) IO.collectAllPar(resolveFields) else IO.collectAll(resolveFields)).map(ObjectValue)
-      case ResolvedListValue(values) =>
-        IO.collectAllPar(values.map(executeSelectionSet(_, selectionSet, fragments, parallel))).map(ListValue)
-      case ResolvedStreamValue(stream) =>
-        UIO(
-          ResponseValue
-            .StreamValue(stream.mapM(res => executeSelectionSet(UIO(res), selectionSet, fragments, parallel)))
-        )
-      case other: ResponseValue => UIO(other)
+  ): IO[ExecutionError, ResponseValue] = {
+
+    def executeSelectionSetLoop(
+      resolve: IO[ExecutionError, ResolvedValue],
+      selectionSet: List[Selection]
+    ): IO[ExecutionError, ResponseValue] =
+      resolve.flatMap {
+        case ResolvedObjectValue(objectName, fields) =>
+          val mergedSelectionSet = mergeSelectionSet(selectionSet, objectName, fragments)
+          val resolveFields = mergedSelectionSet.map {
+            case Selection.Field(alias, name @ "__typename", _, _, _) =>
+              UIO(alias.getOrElse(name) -> StringValue(objectName))
+            case Selection.Field(alias, name, args, _, selectionSet) =>
+              val arguments = resolveVariables(args, variableDefinitions, variableValues)
+              fields
+                .get(name)
+                .map(res => executeSelectionSetLoop(res(arguments), selectionSet))
+                .getOrElse(UIO.succeed(NullValue))
+                .map((alias.getOrElse(name), _))
+          }
+          (if (parallel) IO.collectAllPar(resolveFields) else IO.collectAll(resolveFields)).map(ObjectValue)
+        case ResolvedListValue(values) =>
+          IO.collectAllPar(values.map(executeSelectionSetLoop(_, selectionSet))).map(ListValue)
+        case ResolvedStreamValue(stream) =>
+          UIO(ResponseValue.StreamValue(stream.mapM(res => executeSelectionSetLoop(UIO(res), selectionSet))))
+        case other: ResponseValue => UIO(other)
+      }
+
+    executeSelectionSetLoop(resolve, selectionSet)
+  }
+
+  private def resolveVariables(
+    arguments: Map[String, Value],
+    variableDefinitions: List[VariableDefinition],
+    variableValues: Map[String, Value]
+  ): Map[String, Value] =
+    arguments.map {
+      case (k, v) =>
+        k -> (v match {
+          case Value.VariableValue(name) =>
+            variableValues.get(name) orElse variableDefinitions.find(_.name == name).flatMap(_.defaultValue) getOrElse v
+          case value => value
+        })
     }
 
   private def mergeSelectionSet(

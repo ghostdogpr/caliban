@@ -52,6 +52,8 @@ object ArgBuilder {
   def dispatch[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] = {
     case Left(Value.EnumValue(value)) =>
       ctx.subtypes.find(_.typeName.short == value).get.typeclass.build(Right(Map()))
+    case Left(Value.StringValue(value)) =>
+      ctx.subtypes.find(_.typeName.short == value).get.typeclass.build(Right(Map()))
     case _ => None
   }
 

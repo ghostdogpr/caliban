@@ -5,6 +5,7 @@ import caliban.execution.Executor
 import caliban.introspection.Introspector
 import caliban.introspection.adt.__Introspection
 import caliban.parsing.Parser
+import caliban.parsing.adt.Value
 import caliban.schema.RootSchema.Operation
 import caliban.schema._
 import caliban.validation.Validator
@@ -23,12 +24,18 @@ class GraphQL[Q, M, S](schema: RootSchema[Q, M, S]) {
 
   def render: String = renderTypes(rootType.types)
 
-  def execute(query: String, operationName: Option[String] = None): IO[CalibanError, ResponseValue] =
+  def execute(
+    query: String,
+    operationName: Option[String] = None,
+    variables: Map[String, Value] = Map()
+  ): IO[CalibanError, ResponseValue] =
     for {
-      document <- Parser.parseQuery(query)
-      intro    = Introspector.isIntrospection(document)
-      _        <- Validator.validate(document, if (intro) introspectionRootType else rootType)
-      result   <- Executor.executeRequest(document, if (intro) introspectionRootSchema else schema, operationName)
+      document        <- Parser.parseQuery(query)
+      intro           = Introspector.isIntrospection(document)
+      typeToValidate  = if (intro) introspectionRootType else rootType
+      _               <- Validator.validate(document, typeToValidate)
+      schemaToExecute = if (intro) introspectionRootSchema else schema
+      result          <- Executor.executeRequest(document, schemaToExecute, operationName, variables)
     } yield result
 }
 

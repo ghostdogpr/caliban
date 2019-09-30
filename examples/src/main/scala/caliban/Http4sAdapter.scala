@@ -1,5 +1,6 @@
 package caliban
 
+import caliban.parsing.adt.Value
 import caliban.schema.ResponseValue
 import caliban.schema.ResponseValue.{ ObjectValue, StreamValue }
 import fs2.{ Pipe, Stream }
@@ -22,7 +23,7 @@ import zio.{ Fiber, IO, Managed, Ref, Runtime, Task }
 
 object Http4sAdapter {
 
-  case class GraphQLRequest(query: String, operationName: Option[String])
+  case class GraphQLRequest(query: String, operationName: Option[String], variables: Option[Json] = None)
 
   implicit val queryDecoder: Decoder[GraphQLRequest] = deriveMagnoliaDecoder[GraphQLRequest]
 
@@ -31,8 +32,23 @@ object Http4sAdapter {
     object dsl extends Http4sDsl[Task]
     import dsl._
 
+    def jsonToValue(json: Json): Value =
+      json.fold(
+        Value.NullValue,
+        Value.BooleanValue,
+        number => number.toInt.map(Value.IntValue) getOrElse Value.FloatValue(number.toFloat),
+        Value.StringValue,
+        array => Value.ListValue(array.toList.map(jsonToValue)),
+        obj => Value.ObjectValue(obj.toMap.map { case (k, v) => k -> jsonToValue(v) })
+      )
+
+    def jsonToVariables(json: Json): Map[String, Value] = jsonToValue(json) match {
+      case Value.ObjectValue(fields) => fields
+      case _                         => Map()
+    }
+
     def execute(query: GraphQLRequest): IO[CalibanError, ResponseValue] =
-      interpreter.execute(query.query, query.operationName)
+      interpreter.execute(query.query, query.operationName, query.variables.map(jsonToVariables).getOrElse(Map()))
 
     val restService: HttpRoutes[Task] = HttpRoutes.of[Task] {
       case req @ POST -> Root / "graphql" =>
@@ -44,7 +60,7 @@ object Http4sAdapter {
         } yield response
     }
 
-    def sendMessage(sendQueue: fs2.concurrent.Queue[Task, WebSocketFrame], id: String, data: String) =
+    def sendMessage(sendQueue: fs2.concurrent.Queue[Task, WebSocketFrame], id: String, data: String): Task[Unit] =
       sendQueue.enqueue1(WebSocketFrame.Text(s"""{"id":"$id","type":"data","payload":{"data":$data}}"""))
 
     def processMessage(
