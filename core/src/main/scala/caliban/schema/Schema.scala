@@ -9,7 +9,8 @@ import caliban.schema.ResolvedValue.{ ResolvedListValue, ResolvedObjectValue }
 import caliban.schema.ResponseValue._
 import caliban.schema.Types._
 import magnolia._
-import zio.{ IO, UIO }
+import zio.stream.ZStream
+import zio.{ IO, Runtime, UIO, ZIO }
 
 trait Schema[T] { self =>
   def optional: Boolean             = false
@@ -109,6 +110,31 @@ object Schema {
           case Some(argValue) => ev2.resolve(value(argValue), Map())
           case None           => IO.fail(ExecutionError(s"Failed to generate arguments from $arguments"))
         }
+    }
+
+  implicit def effectSchema[R, E <: Throwable, A](implicit ev: Schema[A], runtime: Runtime[R]): Schema[ZIO[R, E, A]] =
+    new Schema[ZIO[R, E, A]] {
+      override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
+      override def resolve(value: ZIO[R, E, A], arguments: Map[String, Value]): IO[ExecutionError, ResolvedValue] =
+        value.flatMap(ev.resolve(_, arguments)).provide(runtime.Environment).mapError {
+          case e: ExecutionError => e
+          case other             => ExecutionError("Caught error during execution of effectful field", Some(other))
+        }
+    }
+
+  implicit def streamSchema[R, E <: Throwable, A](
+    implicit ev: Schema[A],
+    runtime: Runtime[R]
+  ): Schema[ZStream[R, E, A]] =
+    new Schema[ZStream[R, E, A]] {
+      override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
+      override def resolve(
+        stream: ZStream[R, E, A],
+        arguments: Map[String, Value]
+      ): IO[ExecutionError, ResolvedValue] =
+        IO.succeed(
+          ResolvedValue.ResolvedStreamValue(stream.mapM(ev.resolve(_, arguments)).provide(runtime.Environment))
+        )
     }
 
   type Typeclass[T] = Schema[T]
