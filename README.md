@@ -142,7 +142,7 @@ val interpreter = graphQL(RootResolver(queries, mutations))
 ### Subscriptions
 Similarly, subscriptions are passed as the third argument to `RootResolver`:
 ```scala
-case class Subscriptions(deleteCharacters: ZStream[Any, Nothing, Character])
+case class Subscriptions(deletedCharacter: ZStream[Any, Nothing, Character])
 val subscriptions = Subscriptions(???)
 val interpreter = graphQL(RootResolver(queries, mutations, subscriptions))
 ```
