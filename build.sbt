@@ -54,22 +54,28 @@ lazy val core = project
     )
   )
 
-lazy val examples = project
-  .in(file("examples"))
+lazy val http4s = project
+  .in(file("http4s"))
+  .settings(name := "caliban-http4s")
   .settings(commonSettings)
-  .settings(skip in publish := true)
   .settings(
     libraryDependencies ++= Seq(
-      "dev.zio"       %% "zio-interop-cats"          % "2.0.0.0-RC3",
+      "dev.zio"       %% "zio-interop-cats"          % "2.0.0.0-RC4",
       "org.typelevel" %% "cats-effect"               % "2.0.0",
-      "org.http4s"    %% "http4s-dsl"                % "0.21.0-M4",
-      "org.http4s"    %% "http4s-circe"              % "0.21.0-M4",
-      "org.http4s"    %% "http4s-blaze-server"       % "0.21.0-M4",
+      "org.http4s"    %% "http4s-dsl"                % "0.21.0-M5",
+      "org.http4s"    %% "http4s-circe"              % "0.21.0-M5",
+      "org.http4s"    %% "http4s-blaze-server"       % "0.21.0-M5",
       "io.circe"      %% "circe-magnolia-derivation" % "0.4.0",
       "io.circe"      %% "circe-parser"              % "0.12.1"
     )
   )
   .dependsOn(core)
+
+lazy val examples = project
+  .in(file("examples"))
+  .settings(commonSettings)
+  .settings(skip in publish := true)
+  .dependsOn(http4s)
 
 val commonSettings = Def.settings(
   scalacOptions ++= Seq(

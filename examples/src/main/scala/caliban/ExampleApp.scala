@@ -3,10 +3,15 @@ package caliban
 import caliban.ExampleData._
 import caliban.GraphQL._
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
-import zio.{ UIO, ZIO }
+import org.http4s.implicits._
+import org.http4s.server.Router
+import org.http4s.server.blaze.BlazeServerBuilder
+import org.http4s.server.middleware.CORS
 import zio.console.putStrLn
 import zio.interop.catz._
+import zio.interop.catz.implicits._
 import zio.stream.ZStream
+import zio.{ Task, UIO, ZIO }
 
 object ExampleApp extends CatsApp {
 
@@ -27,6 +32,16 @@ object ExampleApp extends CatsApp {
           Subscriptions(service.deletedEvents)
         )
       )
-      _ <- Http4sAdapter.make(interpreter).useForever
+      _ <- BlazeServerBuilder[Task]
+            .bindHttp(8088, "localhost")
+            .withHttpApp(
+              Router(
+                "/api/graphql" -> CORS(Http4sAdapter.makeRestService(interpreter)),
+                "/ws/graphql"  -> CORS(Http4sAdapter.makeWebSocketService(interpreter))
+              ).orNotFound
+            )
+            .resource
+            .toManaged
+            .useForever
     } yield 0).catchAll(err => putStrLn(err.toString).as(1))
 }

@@ -10,55 +10,52 @@ import io.circe.{ Decoder, Json }
 import org.http4s._
 import org.http4s.circe.CirceEntityCodec._
 import org.http4s.dsl.Http4sDsl
-import org.http4s.implicits._
-import org.http4s.server.blaze.BlazeServerBuilder
-import org.http4s.server.middleware.{ CORS, Logger }
 import org.http4s.server.websocket.WebSocketBuilder
-import org.http4s.server.{ Router, Server }
 import org.http4s.websocket.WebSocketFrame
 import org.http4s.websocket.WebSocketFrame.Text
 import zio.interop.catz._
-import zio.interop.catz.implicits._
-import zio.{ Fiber, IO, Managed, Ref, Runtime, Task }
+import zio.{ Fiber, IO, Ref, Runtime, Task }
 
 object Http4sAdapter {
+
+  object dsl extends Http4sDsl[Task]
+  import dsl._
 
   case class GraphQLRequest(query: String, operationName: Option[String], variables: Option[Json] = None)
 
   implicit val queryDecoder: Decoder[GraphQLRequest] = deriveMagnoliaDecoder[GraphQLRequest]
 
-  def make[Q, M, S](interpreter: GraphQL[Q, M, S])(implicit runtime: Runtime[Any]): Managed[Throwable, Server[Task]] = {
+  private def jsonToValue(json: Json): Value =
+    json.fold(
+      Value.NullValue,
+      Value.BooleanValue,
+      number => number.toInt.map(Value.IntValue) getOrElse Value.FloatValue(number.toFloat),
+      Value.StringValue,
+      array => Value.ListValue(array.toList.map(jsonToValue)),
+      obj => Value.ObjectValue(obj.toMap.map { case (k, v) => k -> jsonToValue(v) })
+    )
 
-    object dsl extends Http4sDsl[Task]
-    import dsl._
+  private def jsonToVariables(json: Json): Map[String, Value] = jsonToValue(json) match {
+    case Value.ObjectValue(fields) => fields
+    case _                         => Map()
+  }
 
-    def jsonToValue(json: Json): Value =
-      json.fold(
-        Value.NullValue,
-        Value.BooleanValue,
-        number => number.toInt.map(Value.IntValue) getOrElse Value.FloatValue(number.toFloat),
-        Value.StringValue,
-        array => Value.ListValue(array.toList.map(jsonToValue)),
-        obj => Value.ObjectValue(obj.toMap.map { case (k, v) => k -> jsonToValue(v) })
-      )
+  private def execute[Q, M, S](interpreter: GraphQL[Q, M, S], query: GraphQLRequest): IO[CalibanError, ResponseValue] =
+    interpreter.execute(query.query, query.operationName, query.variables.map(jsonToVariables).getOrElse(Map()))
 
-    def jsonToVariables(json: Json): Map[String, Value] = jsonToValue(json) match {
-      case Value.ObjectValue(fields) => fields
-      case _                         => Map()
-    }
-
-    def execute(query: GraphQLRequest): IO[CalibanError, ResponseValue] =
-      interpreter.execute(query.query, query.operationName, query.variables.map(jsonToVariables).getOrElse(Map()))
-
-    val restService: HttpRoutes[Task] = HttpRoutes.of[Task] {
-      case req @ POST -> Root / "graphql" =>
+  def makeRestService[Q, M, S](interpreter: GraphQL[Q, M, S])(implicit runtime: Runtime[Any]): HttpRoutes[Task] =
+    HttpRoutes.of[Task] {
+      case req @ POST -> Root =>
         for {
-          query    <- req.attemptAs[GraphQLRequest].value.absolve
-          result   <- execute(query).fold(err => s"""{"errors":["${err.toString}"]}""", result => s"""{"data":$result}""")
+          query <- req.attemptAs[GraphQLRequest].value.absolve
+          result <- execute(interpreter, query)
+                     .fold(err => s"""{"errors":["${err.toString}"]}""", result => s"""{"data":$result}""")
           json     <- Task.fromEither(parse(result))
           response <- Ok(json)
         } yield response
     }
+
+  def makeWebSocketService[Q, M, S](interpreter: GraphQL[Q, M, S])(implicit runtime: Runtime[Any]): HttpRoutes[Task] = {
 
     def sendMessage(sendQueue: fs2.concurrent.Queue[Task, WebSocketFrame], id: String, data: String): Task[Unit] =
       sendQueue.enqueue1(WebSocketFrame.Text(s"""{"id":"$id","type":"data","payload":{"data":$data}}"""))
@@ -82,7 +79,7 @@ object Http4sAdapter {
                       case Some(query) =>
                         val operationName = payload.downField("operationName").success.flatMap(_.value.asString)
                         (for {
-                          result <- execute(GraphQLRequest(query, operationName))
+                          result <- execute(interpreter, GraphQLRequest(query, operationName))
                           _ <- result match {
                                 case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
                                   stream.foreach { item =>
@@ -108,8 +105,8 @@ object Http4sAdapter {
         }
       }
 
-    val wsService: HttpRoutes[Task] = HttpRoutes.of[Task] {
-      case GET -> Root / "graphql" =>
+    HttpRoutes.of[Task] {
+      case GET -> Root =>
         for {
           sendQueue     <- fs2.concurrent.Queue.unbounded[Task, WebSocketFrame]
           subscriptions <- Ref.make(Map.empty[String, Fiber[Throwable, Unit]])
@@ -121,12 +118,5 @@ object Http4sAdapter {
                     )
         } yield builder
     }
-
-    val httpApp: HttpApp[Task] = Router(
-      "/api" -> Logger.httpRoutes(logHeaders = true, logBody = false)(CORS(restService)),
-      "/ws"  -> Logger.httpRoutes(logHeaders = true, logBody = false)(CORS(wsService))
-    ).orNotFound
-
-    BlazeServerBuilder[Task].bindHttp(8088, "localhost").withHttpApp(httpApp).resource.toManaged[Any]
   }
 }
