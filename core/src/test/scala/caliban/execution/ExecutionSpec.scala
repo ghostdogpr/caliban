@@ -2,6 +2,7 @@ package caliban.execution
 
 import caliban.GraphQL._
 import caliban.TestUtils._
+import caliban.parsing.adt.Value.StringValue
 import zio.Task
 import zio.test.Assertion._
 import zio.test._
@@ -135,6 +136,23 @@ object ExecutionSpec
           }.flatMap { case (query, interpreter) => interpreter.execute(query).map(_.toString) }
 
           assertM(io, equalTo("""{"deleteCharacter":{}}"""))
+        },
+        testM("variable") {
+          val interpreter = graphQL(resolver)
+          val query =
+            """query test($name: String!){
+              |  amos: character(name: $name) {
+              |    name
+              |  }
+              |}""".stripMargin
+
+          val io = interpreter.execute(query, None, Map("name" -> StringValue("Amos Burton"))).map(_.toString)
+          assertM(
+            io,
+            equalTo(
+              """{"amos":{"name":"Amos Burton"}}"""
+            )
+          )
         }
       )
     )
