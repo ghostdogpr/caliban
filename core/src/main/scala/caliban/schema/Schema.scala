@@ -106,7 +106,7 @@ object Schema {
       override def optional: Boolean                        = ev2.optional
       override def toType(isInput: Boolean = false): __Type = ev2.toType(isInput)
       override def resolve(value: A => B, arguments: Map[String, Value]): IO[ExecutionError, ResolvedValue] =
-        arg1.build(Right(arguments)) match {
+        arg1.build(Value.ObjectValue(arguments)) match {
           case Some(argValue) => ev2.resolve(value(argValue), Map())
           case None           => IO.fail(ExecutionError(s"Failed to generate arguments from $arguments"))
         }
