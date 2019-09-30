@@ -2,8 +2,6 @@
 Caliban is a purely functional library for creating GraphQL backends in Scala.
 It relies on [Magnolia](https://github.com/propensive/magnolia) to automatically derives GraphQL schemas from your data types, [Fastparse](https://github.com/lihaoyi/fastparse) to parse queries and [ZIO](https://github.com/zio/zio) to handle various effects.
 
-**Current state:** most of the [GraphQL spec](https://graphql.github.io/graphql-spec/June2018/) is implemented, but a few items are still missing, in particular **variables** and **directives**.
-
 ## Getting Started
 To use `caliban`, add the following line in your `build.sbt` file:
 
