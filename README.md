@@ -123,9 +123,6 @@ case class Queries(characters: FilterArgs => List[Character])
 ```
 The snippet above will produce the following GraphQL type:
 ```graphql
-input FilterArgs {
-  origin: Origin
-}
 type Queries {
   characters(origin: Origin): [Character!]!
 } 
