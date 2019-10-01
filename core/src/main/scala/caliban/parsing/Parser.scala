@@ -185,6 +185,9 @@ object Parser {
   private def document[_: P]: P[Document] =
     P(Start ~ ignored ~ definition.rep ~ ignored ~ End).map(seq => Document(seq.toList))
 
+  /**
+   * Parses the given string into a [[caliban.parsing.adt.Document]] object or fails with a [[caliban.CalibanError.ParsingError]].
+   */
   def parseQuery(query: String): IO[ParsingError, Document] =
     Task(parse(query, document(_))).mapError(ex => ParsingError(s"Internal parsing error", Some(ex))).flatMap {
       case Parsed.Success(value, _) => IO.succeed(value)

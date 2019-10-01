@@ -5,19 +5,46 @@ import caliban.CalibanError.ExecutionError
 import caliban.introspection.adt._
 import caliban.parsing.adt.Value
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLName }
-import caliban.schema.ResolvedValue.{ ResolvedListValue, ResolvedObjectValue }
-import caliban.schema.ResponseValue._
+import caliban.ResolvedValue.{ ResolvedListValue, ResolvedObjectValue }
+import caliban.{ ResolvedValue, ResponseValue }
+import caliban.ResponseValue._
 import caliban.schema.Types._
 import magnolia._
 import zio.stream.ZStream
 import zio.{ IO, Runtime, UIO, ZIO }
 
+/**
+ * Typeclass that defines how to map the type `T` to the according GraphQL concepts: how to introspect it and how to resolve it.
+ */
 trait Schema[T] { self =>
-  def optional: Boolean             = false
-  def arguments: List[__InputValue] = Nil
+
+  /**
+   * Generates a GraphQL type object from `T`.
+   * @param isInput indicates if the type is passed as an argument. This is needed because GraphQL differentiates `InputType` from `ObjectType`.
+   */
   def toType(isInput: Boolean = false): __Type
+
+  /**
+   * Resolves `T` by turning a value of type `T` into a valid GraphQL result of type [[ResolvedValue]].
+   * @param value a value of type `T`
+   * @param arguments argument values that might be required to resolve `T`
+   */
   def resolve(value: T, arguments: Map[String, Value]): IO[ExecutionError, ResolvedValue]
 
+  /**
+   * Defines if the type is considered optional or non-null. Should be false except for `Option`.
+   */
+  def optional: Boolean = false
+
+  /**
+   * Defined the arguments of the given type. Should be empty except for `Function`.
+   */
+  def arguments: List[__InputValue] = Nil
+
+  /**
+   * Builds a new `Schema` of `A` from an existing `Schema` of `T` and a function from `A` to `T`.
+   * @param f a function from `A` to `T`.
+   */
   def contramap[A](f: A => T): Schema[A] = new Schema[A] {
     override def optional: Boolean                = self.optional
     override def arguments: List[__InputValue]    = self.arguments
@@ -29,6 +56,12 @@ trait Schema[T] { self =>
 
 object Schema {
 
+  /**
+   * Creates a scalar schema for a type `A`
+   * @param name name of the scalar type
+   * @param description description of the scalar type
+   * @param makeResponse function from `A` to [[ResponseValue]] that defines how to resolve `A`
+   */
   def scalarSchema[A](name: String, description: Option[String], makeResponse: A => ResponseValue): Schema[A] =
     new Schema[A] {
       override def toType(isInput: Boolean): __Type = makeScalar(name, description)

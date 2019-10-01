@@ -1,8 +1,7 @@
 package caliban
 
 import caliban.parsing.adt.Value
-import caliban.schema.ResponseValue
-import caliban.schema.ResponseValue.{ ObjectValue, StreamValue }
+import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import fs2.{ Pipe, Stream }
 import io.circe.magnolia.derivation.decoder.semiauto._
 import io.circe.parser.{ decode, parse }

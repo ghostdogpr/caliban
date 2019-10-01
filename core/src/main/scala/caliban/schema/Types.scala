@@ -4,6 +4,9 @@ import caliban.introspection.adt._
 
 object Types {
 
+  /**
+   * Creates a new scalar type with the given name.
+   */
   def makeScalar(name: String, description: Option[String] = None) = __Type(__TypeKind.SCALAR, Some(name), description)
 
   def makeList(underlying: __Type) = __Type(__TypeKind.LIST, ofType = Some(underlying))
@@ -33,6 +36,9 @@ object Types {
   def makeUnion(name: Option[String], description: Option[String], subTypes: List[__Type]) =
     __Type(__TypeKind.UNION, name, description, possibleTypes = Some(subTypes))
 
+  /**
+   * Returns a map of all the types nested within the given root type.
+   */
   def collectTypes(t: __Type, existingTypes: Map[String, __Type] = Map()): Map[String, __Type] =
     t.kind match {
       case __TypeKind.SCALAR | __TypeKind.ENUM   => t.name.fold(existingTypes)(name => existingTypes.updated(name, t))

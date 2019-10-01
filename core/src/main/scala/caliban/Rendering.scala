@@ -4,6 +4,9 @@ import caliban.introspection.adt._
 
 object Rendering {
 
+  /**
+   * Returns a string that renders the provided types into the GraphQL format.
+   */
   def renderTypes(types: Map[String, __Type]): String =
     types.flatMap {
       case (_, t) =>
@@ -31,7 +34,7 @@ object Rendering {
         }
     }.mkString("\n")
 
-  def renderKind(kind: __TypeKind): String =
+  private def renderKind(kind: __TypeKind): String =
     kind match {
       case __TypeKind.OBJECT       => "type"
       case __TypeKind.UNION        => "union"
@@ -40,30 +43,30 @@ object Rendering {
       case _                       => ""
     }
 
-  def renderDescription(description: Option[String]): String = description match {
+  private def renderDescription(description: Option[String]): String = description match {
     case None        => ""
     case Some(value) => if (value.contains("\n")) s"""\"\"\"\n$value\"\"\"\n""" else s""""$value"\n"""
   }
 
-  def renderField(field: __Field): String =
+  private def renderField(field: __Field): String =
     s"${field.name}${renderArguments(field.args)}: ${renderTypeName(field.`type`())}${if (field.isDeprecated)
       s" @deprecated${field.deprecationReason.fold("")(reason => s"""(reason: "$reason")""")}"
     else ""}"
 
-  def renderInputValue(inputValue: __InputValue): String =
+  private def renderInputValue(inputValue: __InputValue): String =
     s"${inputValue.name}: ${renderTypeName(inputValue.`type`())}${inputValue.defaultValue.fold("")(d => s" = $d")}"
 
-  def renderEnumValue(v: __EnumValue): String =
+  private def renderEnumValue(v: __EnumValue): String =
     s"${renderDescription(v.description)}${v.name}${if (v.isDeprecated)
       s" @deprecated${v.deprecationReason.fold("")(reason => s"""(reason: "$reason")""")}"
     else ""}"
 
-  def renderArguments(arguments: List[__InputValue]): String = arguments match {
+  private def renderArguments(arguments: List[__InputValue]): String = arguments match {
     case Nil  => ""
     case list => s"(${list.map(a => s"${a.name}: ${renderTypeName(a.`type`())}").mkString(", ")})"
   }
 
-  def renderTypeName(fieldType: __Type): String =
+  private[caliban] def renderTypeName(fieldType: __Type): String =
     fieldType.kind match {
       case __TypeKind.NON_NULL => s"${fieldType.ofType.map(renderTypeName).getOrElse("null")}!"
       case __TypeKind.LIST     => s"[${fieldType.ofType.map(renderTypeName).getOrElse("null")}]"

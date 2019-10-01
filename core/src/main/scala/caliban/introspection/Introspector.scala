@@ -11,7 +11,7 @@ object Introspector {
 
   implicit lazy val typeSchema: Schema[__Type] = Schema.gen[__Type]
 
-  val directives = List(
+  private val directives = List(
     __Directive(
       "skip",
       Some(
@@ -30,6 +30,9 @@ object Introspector {
     )
   )
 
+  /**
+   * Generates a schema for introspecting the given type.
+   */
   def introspect(rootType: RootType): RootSchema[__Introspection, Nothing, Nothing] = {
     val types = rootType.types.values.toList.sortBy(_.name.getOrElse(""))
     val resolver = __Introspection(
@@ -40,7 +43,7 @@ object Introspector {
     RootSchema(Operation(introspectionSchema, resolver), None, None)
   }
 
-  def isIntrospection(document: Document): Boolean =
+  private[caliban] def isIntrospection(document: Document): Boolean =
     document.definitions.forall {
       case OperationDefinition(_, _, _, _, selectionSet) =>
         selectionSet.forall {

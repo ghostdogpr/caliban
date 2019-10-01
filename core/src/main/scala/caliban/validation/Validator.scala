@@ -11,6 +11,9 @@ import zio.IO
 
 object Validator {
 
+  /**
+   * Verifies that the given document is valid for this type. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
+   */
   def validate(document: Document, rootType: RootType): IO[ValidationError, Unit] = {
     val operations = collectOperations(document)
     for {

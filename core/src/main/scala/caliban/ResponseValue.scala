@@ -1,4 +1,4 @@
-package caliban.schema
+package caliban
 
 import caliban.CalibanError.ExecutionError
 import caliban.parsing.adt.Value

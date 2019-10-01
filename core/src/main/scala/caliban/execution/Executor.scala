@@ -6,14 +6,22 @@ import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationD
 import caliban.parsing.adt.OperationType.{ Mutation, Query, Subscription }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.{ Directive, Document, Selection, Value, VariableDefinition }
-import caliban.schema.ResolvedValue.{ ResolvedListValue, ResolvedObjectValue, ResolvedStreamValue }
-import caliban.schema.ResponseValue.{ ListValue, NullValue, ObjectValue, StringValue }
+import caliban.ResolvedValue.{ ResolvedListValue, ResolvedObjectValue, ResolvedStreamValue }
+import caliban.{ ResolvedValue, ResponseValue }
+import caliban.ResponseValue.{ ListValue, NullValue, ObjectValue, StringValue }
 import caliban.schema.RootSchema.Operation
-import caliban.schema.{ ResolvedValue, ResponseValue, RootSchema }
+import caliban.schema.RootSchema
 import zio.{ IO, UIO }
 
 object Executor {
 
+  /**
+   * Executes the given query against a schema. It returns either an [[caliban.CalibanError.ExecutionError]] or a [[ResponseValue]].
+   * @param document the parsed query
+   * @param schema the schema to use to run the query
+   * @param operationName the operation to run in case the query contains multiple operations.
+   * @param variables a list of variables.
+   */
   def executeRequest[Q, M, S](
     document: Document,
     schema: RootSchema[Q, M, S],

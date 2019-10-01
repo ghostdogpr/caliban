@@ -6,8 +6,16 @@ import caliban.CalibanError.ExecutionError
 import caliban.parsing.adt.Value
 import magnolia._
 
+/**
+ * Typeclass that defines how to build an argument of type `T` from an input [[caliban.parsing.adt.Value]].
+ * Every type that can be passed as an argument needs an instance of `ArgBuilder`.
+ */
 trait ArgBuilder[T] {
 
+  /**
+   * Build a value of type `T` from an input [[caliban.parsing.adt.Value]].
+   * Returns `None` if it was impossible to build the value.
+   */
   def build(input: Value): Option[T]
 
 }
