@@ -2,7 +2,7 @@ package caliban.execution
 
 import caliban.GraphQL._
 import caliban.TestUtils._
-import caliban.parsing.adt.Value.StringValue
+import caliban.parsing.adt.Value.{ BooleanValue, StringValue }
 import zio.Task
 import zio.test.Assertion._
 import zio.test._
@@ -10,6 +10,24 @@ import zio.test._
 object ExecutionSpec
     extends DefaultRunnableSpec(
       suite("ExecutionSpec")(
+        testM("skip directive") {
+          val interpreter = graphQL(resolver)
+          val query =
+            """query test{
+              |  amos: character(name: "Amos Burton") {
+              |    name
+              |    nicknames @skip(if: true)
+              |  }
+              |}""".stripMargin
+
+          val io = interpreter.execute(query).map(_.toString)
+          assertM(
+            io,
+            equalTo(
+              """{"amos":{"name":"Amos Burton"}}"""
+            )
+          )
+        },
         testM("simple query with fields") {
           val interpreter = graphQL(resolver)
           val query =
@@ -147,6 +165,42 @@ object ExecutionSpec
               |}""".stripMargin
 
           val io = interpreter.execute(query, None, Map("name" -> StringValue("Amos Burton"))).map(_.toString)
+          assertM(
+            io,
+            equalTo(
+              """{"amos":{"name":"Amos Burton"}}"""
+            )
+          )
+        },
+        testM("skip directive") {
+          val interpreter = graphQL(resolver)
+          val query =
+            """query test{
+              |  amos: character(name: "Amos Burton") {
+              |    name
+              |    nicknames @skip(if: true)
+              |  }
+              |}""".stripMargin
+
+          val io = interpreter.execute(query).map(_.toString)
+          assertM(
+            io,
+            equalTo(
+              """{"amos":{"name":"Amos Burton"}}"""
+            )
+          )
+        },
+        testM("include directive") {
+          val interpreter = graphQL(resolver)
+          val query =
+            """query test($included: Boolean!){
+              |  amos: character(name: "Amos Burton") {
+              |    name
+              |    nicknames @include(if: $included)
+              |  }
+              |}""".stripMargin
+
+          val io = interpreter.execute(query, None, Map("included" -> BooleanValue(false))).map(_.toString)
           assertM(
             io,
             equalTo(

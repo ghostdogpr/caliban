@@ -5,16 +5,35 @@ import caliban.parsing.adt.Document
 import caliban.parsing.adt.ExecutableDefinition.OperationDefinition
 import caliban.parsing.adt.Selection.Field
 import caliban.schema.RootSchema.Operation
-import caliban.schema.{ RootSchema, RootType, Schema }
+import caliban.schema.{ RootSchema, RootType, Schema, Types }
 
 object Introspector {
 
   implicit lazy val typeSchema: Schema[__Type] = Schema.gen[__Type]
 
+  val directives = List(
+    __Directive(
+      "skip",
+      Some(
+        "The @skip directive may be provided for fields, fragment spreads, and inline fragments, and allows for conditional exclusion during execution as described by the if argument."
+      ),
+      Set(__DirectiveLocation.FIELD, __DirectiveLocation.FRAGMENT_SPREAD, __DirectiveLocation.INLINE_FRAGMENT),
+      List(__InputValue("if", None, () => Types.makeScalar("Boolean", None), None))
+    ),
+    __Directive(
+      "include",
+      Some(
+        "The @include directive may be provided for fields, fragment spreads, and inline fragments, and allows for conditional inclusion during execution as described by the if argument."
+      ),
+      Set(__DirectiveLocation.FIELD, __DirectiveLocation.FRAGMENT_SPREAD, __DirectiveLocation.INLINE_FRAGMENT),
+      List(__InputValue("if", None, () => Types.makeScalar("Boolean", None), None))
+    )
+  )
+
   def introspect(rootType: RootType): RootSchema[__Introspection, Nothing, Nothing] = {
     val types = rootType.types.values.toList.sortBy(_.name.getOrElse(""))
     val resolver = __Introspection(
-      __Schema(rootType.queryType, rootType.mutationType, rootType.subscriptionType, types, Nil),
+      __Schema(rootType.queryType, rootType.mutationType, rootType.subscriptionType, types, directives),
       args => types.find(_.name.contains(args.name)).get
     )
     val introspectionSchema = Schema.gen[__Introspection]

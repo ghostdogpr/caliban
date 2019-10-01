@@ -5,7 +5,7 @@ import caliban.CalibanError.ExecutionError
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.OperationType.{ Mutation, Query, Subscription }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
-import caliban.parsing.adt.{ Document, Selection, Value, VariableDefinition }
+import caliban.parsing.adt.{ Directive, Document, Selection, Value, VariableDefinition }
 import caliban.schema.ResolvedValue.{ ResolvedListValue, ResolvedObjectValue, ResolvedStreamValue }
 import caliban.schema.ResponseValue.{ ListValue, NullValue, ObjectValue, StringValue }
 import caliban.schema.RootSchema.Operation
@@ -74,7 +74,7 @@ object Executor {
     ): IO[ExecutionError, ResponseValue] =
       resolve.flatMap {
         case ResolvedObjectValue(objectName, fields) =>
-          val mergedSelectionSet = mergeSelectionSet(selectionSet, objectName, fragments)
+          val mergedSelectionSet = mergeSelectionSet(selectionSet, objectName, fragments, variableValues)
           val resolveFields = mergedSelectionSet.map {
             case Selection.Field(alias, name @ "__typename", _, _, _) =>
               UIO(alias.getOrElse(name) -> StringValue(objectName))
@@ -114,19 +114,21 @@ object Executor {
   private def mergeSelectionSet(
     selectionSet: List[Selection],
     name: String,
-    fragments: Map[String, FragmentDefinition]
+    fragments: Map[String, FragmentDefinition],
+    variableValues: Map[String, Value]
   ): List[Field] = {
     val fields = selectionSet.flatMap {
-      case f: Field => List(f)
-      case InlineFragment(typeCondition, _, sel) =>
+      case f: Field if checkDirectives(f.directives, variableValues) => List(f)
+      case InlineFragment(typeCondition, directives, sel) if checkDirectives(directives, variableValues) =>
         val matching = typeCondition.fold(true)(_.name == name)
-        if (matching) mergeSelectionSet(sel, name, fragments) else Nil
-      case FragmentSpread(spreadName, _) =>
+        if (matching) mergeSelectionSet(sel, name, fragments, variableValues) else Nil
+      case FragmentSpread(spreadName, directives) if checkDirectives(directives, variableValues) =>
         fragments.get(spreadName) match {
           case Some(fragment) if fragment.typeCondition.name == name =>
-            mergeSelectionSet(fragment.selectionSet, name, fragments)
+            mergeSelectionSet(fragment.selectionSet, name, fragments, variableValues)
           case _ => Nil
         }
+      case _ => Nil
     }
     fields
       .foldLeft(ListMap.empty[String, Field]) {
@@ -141,5 +143,28 @@ object Executor {
       .values
       .toList
   }
+
+  private def checkDirectives(directives: List[Directive], variableValues: Map[String, Value]): Boolean =
+    !checkDirective("skip", default = false, directives, variableValues) &&
+      checkDirective("include", default = true, directives, variableValues)
+
+  private def checkDirective(
+    name: String,
+    default: Boolean,
+    directives: List[Directive],
+    variableValues: Map[String, Value]
+  ): Boolean =
+    directives
+      .find(_.name == name)
+      .flatMap(_.arguments.get("if")) match {
+      case Some(Value.BooleanValue(value)) => value
+      case Some(Value.VariableValue(name)) =>
+        variableValues
+          .get(name) match {
+          case Some(Value.BooleanValue(value)) => value
+          case _                               => default
+        }
+      case _ => default
+    }
 
 }

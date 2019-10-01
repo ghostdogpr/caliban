@@ -49,7 +49,10 @@ object Http4sAdapter {
         for {
           query <- req.attemptAs[GraphQLRequest].value.absolve
           result <- execute(interpreter, query)
-                     .fold(err => s"""{"errors":["${err.toString}"]}""", result => s"""{"data":$result}""")
+                     .fold(
+                       err => s"""{"errors":["${err.toString.replace("\"", "'")}"]}""",
+                       result => s"""{"data":$result}"""
+                     )
           json     <- Task.fromEither(parse(result))
           response <- Ok(json)
         } yield response
