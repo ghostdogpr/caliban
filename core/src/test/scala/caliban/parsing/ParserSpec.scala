@@ -404,7 +404,7 @@ object ParserSpec
                         |    name(
                         |  }
                         |}""".stripMargin
-          assertM(Parser.parseQuery(query).run, fails(equalTo(ParsingError("Position 4:3, found \"}\\r\\n}\""))))
+          assertM(Parser.parseQuery(query).run, fails(equalTo(ParsingError("Position 4:3, found \"}\\n}\""))))
         }
       )
     )
