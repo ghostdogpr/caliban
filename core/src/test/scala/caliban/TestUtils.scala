@@ -38,11 +38,13 @@ object TestUtils {
 
   case class CharactersArgs(origin: Option[Origin])
   case class CharacterArgs(name: String)
+  case class CharacterInArgs(names: List[String])
 
   @GQLDescription("Queries")
   case class Query(
     @GQLDescription("Return all characters from a given origin") characters: CharactersArgs => List[Character],
-    @GQLDeprecated("Use `characters`") character: CharacterArgs => Option[Character]
+    @GQLDeprecated("Use `characters`") character: CharacterArgs => Option[Character],
+    charactersIn: CharacterInArgs => List[Character]
   )
 
   @GQLDescription("Queries")
@@ -57,7 +59,8 @@ object TestUtils {
   val resolver = RootResolver(
     Query(
       args => characters.filter(c => args.origin.forall(c.origin == _)),
-      args => characters.find(c => c.name == args.name)
+      args => characters.find(c => c.name == args.name),
+      args => characters.filter(c => args.names.contains(c.name))
     )
   )
   val resolverIO = RootResolver(

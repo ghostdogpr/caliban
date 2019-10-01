@@ -63,6 +63,23 @@ object ExecutionSpec
             )
           )
         },
+        testM("arguments with list coercion") {
+          val interpreter = graphQL(resolver)
+          val query =
+            """{
+              |  charactersIn(names: "Alex Kamal") {
+              |    name
+              |  }
+              |}""".stripMargin
+
+          val io = interpreter.execute(query).map(_.toString)
+          assertM(
+            io,
+            equalTo(
+              """{"charactersIn":[{"name":"Alex Kamal"}]}"""
+            )
+          )
+        },
         testM("aliases") {
           val interpreter = graphQL(resolver)
           val query =
