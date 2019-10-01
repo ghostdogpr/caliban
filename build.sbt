@@ -1,5 +1,5 @@
 val mainScala = "2.12.10"
-val allScala  = Seq("2.11.12", mainScala)
+val allScala  = Seq("2.13.1", mainScala)
 
 inThisBuild(
   List(
@@ -85,7 +85,6 @@ val commonSettings = Def.settings(
     "-explaintypes",
     "-Yrangepos",
     "-feature",
-    "-Xfuture",
     "-language:higherKinds",
     "-language:existentials",
     "-unchecked",
@@ -94,15 +93,6 @@ val commonSettings = Def.settings(
     "-Ywarn-unused:patvars,-implicits",
     "-Ywarn-value-discard"
   ) ++ (CrossVersion.partialVersion(scalaVersion.value) match {
-    case Some((2, 11)) =>
-      Seq(
-        "-Yno-adapted-args",
-        "-Ypartial-unification",
-        "-Ywarn-inaccessible",
-        "-Ywarn-infer-any",
-        "-Ywarn-nullary-override",
-        "-Ywarn-nullary-unit"
-      )
     case Some((2, 12)) =>
       Seq(
         "-Xsource:2.13",
