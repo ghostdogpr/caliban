@@ -10,9 +10,9 @@ inThisBuild(
     parallelExecution in Test := false,
     fork in Test := true,
     fork in run := true,
+    pgpPassphrase := sys.env.get("PGP_PASSWORD").map(_.toArray),
     pgpPublicRing := file("/tmp/public.asc"),
     pgpSecretRing := file("/tmp/secret.asc"),
-    releaseEarlyWith := SonatypePublisher,
     scmInfo := Some(
       ScmInfo(url("https://github.com/ghostdogpr/caliban/"), "scm:git:git@github.com:ghostdogpr/caliban.git")
     ),
@@ -27,6 +27,8 @@ inThisBuild(
     crossScalaVersions := allScala
   )
 )
+
+publishTo := sonatypePublishToBundle.value
 
 name := "caliban"
 addCommandAlias("fmt", "all scalafmtSbt scalafmt test:scalafmt")
