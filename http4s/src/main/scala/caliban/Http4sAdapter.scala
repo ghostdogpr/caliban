@@ -3,7 +3,7 @@ package caliban
 import caliban.parsing.adt.Value
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import fs2.{ Pipe, Stream }
-import io.circe.magnolia.derivation.decoder.semiauto._
+import io.circe.derivation.deriveDecoder
 import io.circe.parser.{ decode, parse }
 import io.circe.{ Decoder, Json }
 import org.http4s._
@@ -22,7 +22,7 @@ object Http4sAdapter {
 
   case class GraphQLRequest(query: String, operationName: Option[String], variables: Option[Json] = None)
 
-  implicit val queryDecoder: Decoder[GraphQLRequest] = deriveMagnoliaDecoder[GraphQLRequest]
+  implicit val queryDecoder: Decoder[GraphQLRequest] = deriveDecoder[GraphQLRequest]
 
   private def jsonToValue(json: Json): Value =
     json.fold(
