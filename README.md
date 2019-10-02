@@ -6,7 +6,7 @@ It relies on [Magnolia](https://github.com/propensive/magnolia) to automatically
 To use `caliban`, add the following line in your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "TODO"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "0.0.5"
 ```
 
 ### Simple query
