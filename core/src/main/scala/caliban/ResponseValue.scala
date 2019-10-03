@@ -6,7 +6,15 @@ import zio.IO
 import zio.stream.ZStream
 
 sealed trait ResolvedValue
-sealed trait ResponseValue extends ResolvedValue
+sealed trait ResponseValue extends ResolvedValue {
+  def asInt: Option[Int]                                       = None
+  def asFloat: Option[Float]                                   = None
+  def asString: Option[String]                                 = None
+  def asBoolean: Option[Boolean]                               = None
+  def asList: Option[List[ResponseValue]]                      = None
+  def asMap: Option[Map[String, ResponseValue]]                = None
+  def asStream: Option[ZStream[Any, Throwable, ResponseValue]] = None
+}
 
 /**
  * Resolved values that require more processing
@@ -28,28 +36,36 @@ object ResponseValue {
     override def toString: String = "null"
   }
   case class IntValue(value: Int) extends ResponseValue {
-    override def toString: String = value.toString
+    override def toString: String   = value.toString
+    override def asInt: Option[Int] = Some(value)
   }
   case class FloatValue(value: Float) extends ResponseValue {
-    override def toString: String = value.toString
+    override def toString: String       = value.toString
+    override def asFloat: Option[Float] = Some(value)
   }
   case class StringValue(value: String) extends ResponseValue {
-    override def toString: String = s""""$value""""
+    override def toString: String         = s""""$value""""
+    override def asString: Option[String] = Some(value)
   }
   case class BooleanValue(value: Boolean) extends ResponseValue {
-    override def toString: String = if (value) "true" else "false"
+    override def toString: String           = if (value) "true" else "false"
+    override def asBoolean: Option[Boolean] = Some(value)
   }
   case class EnumValue(value: String) extends ResponseValue {
-    override def toString: String = s""""$value""""
+    override def toString: String         = s""""$value""""
+    override def asString: Option[String] = Some(value)
   }
   case class ListValue(values: List[ResponseValue]) extends ResponseValue {
-    override def toString: String = values.mkString("[", ",", "]")
+    override def toString: String                    = values.mkString("[", ",", "]")
+    override def asList: Option[List[ResponseValue]] = Some(values)
   }
   case class ObjectValue(fields: List[(String, ResponseValue)]) extends ResponseValue {
     override def toString: String =
       fields.map { case (name, value) => s""""$name":${value.toString}""" }.mkString("{", ",", "}")
+    override def asMap: Option[Map[String, ResponseValue]] = Some(fields.toMap)
   }
   case class StreamValue(stream: ZStream[Any, Throwable, ResponseValue]) extends ResponseValue {
-    override def toString: String = ""
+    override def toString: String                                         = "<stream>"
+    override def asStream: Option[ZStream[Any, Throwable, ResponseValue]] = Some(stream)
   }
 }
