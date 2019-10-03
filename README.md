@@ -171,6 +171,20 @@ import caliban.schema._
 implicit val unitSchema: Schema[Unit] = scalarSchema("Unit", None, _ => ObjectValue(Nil))
 ```
 
+### Compile-time query validation
+If you write queries from your Scala code, you can verify that they're valid at compile-time by using the `query` string interpolator.
+
+```scala
+import caliban.parsing.QueryInterpolator._
+
+val query = query"""{
+                      charactername: "Amos Burton) {
+                        name
+                      }
+                    }"""
+```
+This will trigger a compilation error: `Not a valid GraphQL query: Position 2:23, found "charactern"`.
+
 ## Introspection
 Introspection queries are fully supported, which means you can use your favorite tool to inspect your schema and generate documentation for free.
 

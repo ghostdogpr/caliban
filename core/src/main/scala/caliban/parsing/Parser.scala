@@ -193,4 +193,13 @@ object Parser {
       case Parsed.Success(value, _) => IO.succeed(value)
       case f: Parsed.Failure        => IO.fail(ParsingError(f.msg))
     }
+
+  /**
+   * Checks if the query is valid, if not returns an error string.
+   */
+  def check(query: String): Option[String] = parse(query, document(_)) match {
+    case Parsed.Success(_, _) => None
+    case f: Parsed.Failure    => Some(f.msg)
+  }
+
 }
