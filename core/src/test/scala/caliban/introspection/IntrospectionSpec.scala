@@ -2,7 +2,6 @@ package caliban.introspection
 
 import caliban.GraphQL._
 import caliban.TestUtils._
-import caliban.parsing.QueryInterpolator._
 import zio.Task
 import zio.test.Assertion._
 import zio.test._
@@ -11,7 +10,7 @@ object IntrospectionSpec
     extends DefaultRunnableSpec(
       suite("IntrospectionSpec")(
         testM("introspect schema") {
-          val fullIntrospectionQuery = query"""
+          val fullIntrospectionQuery = """
               query IntrospectionQuery {
                 __schema {
                   queryType { name }

@@ -1,9 +1,7 @@
 package caliban.parsing
 
 import caliban.CalibanError.ParsingError
-
 import caliban.parsing.ParserSpecUtils._
-import caliban.parsing.QueryInterpolator._
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.OperationType.{ Mutation, Query }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
@@ -17,15 +15,15 @@ object ParserSpec
     extends DefaultRunnableSpec(
       suite("ParserSpec")(
         testM("simple query with fields") {
-          val query = query"""{
-                                hero {
-                                  name
-                                  # Queries can have comments!
-                                  friends {
-                                    name
-                                  }
-                                }
-                              }"""
+          val query = """{
+                        |  hero {
+                        |    name
+                        |    # Queries can have comments!
+                        |    friends {
+                        |      name
+                        |    }
+                        |  }
+                        |}""".stripMargin
           assertM(
             Parser.parseQuery(query),
             equalTo(
@@ -44,12 +42,12 @@ object ParserSpec
           )
         },
         testM("arguments") {
-          val query = query"""{
-                                human(id: "1000") {
-                                  name
-                                  height(unit: FOOT)
-                                }
-                              }"""
+          val query = """{
+                        |  human(id: "1000") {
+                        |    name
+                        |    height(unit: FOOT)
+                        |  }
+                        |}""".stripMargin
           assertM(
             Parser.parseQuery(query),
             equalTo(
@@ -67,14 +65,14 @@ object ParserSpec
           )
         },
         testM("aliases") {
-          val query = query"""{
-                                 empireHero: hero(episode: EMPIRE) {
-                                   name
-                                 }
-                                 jediHero: hero(episode: JEDI) {
-                                   name
-                                 }
-                               }"""
+          val query = """{
+                        |  empireHero: hero(episode: EMPIRE) {
+                        |    name
+                        |  }
+                        |  jediHero: hero(episode: JEDI) {
+                        |    name
+                        |  }
+                        |}""".stripMargin
           assertM(
             Parser.parseQuery(query),
             equalTo(
@@ -98,14 +96,14 @@ object ParserSpec
           )
         },
         testM("input values") {
-          val query = query"""{
-                                human(id: "1000", int: 3, float: 3.14, bool: true, nope: null, enum: YES, list: [1,2,3], obj: {
-                                 name: "name"
-                                 }
-                                ) {
-                                  name
-                                }
-                              }"""
+          val query = """{
+                        |  human(id: "1000", int: 3, float: 3.14, bool: true, nope: null, enum: YES, list: [1,2,3], obj: {
+                        |   name: "name"
+                        |   }
+                        |  ) {
+                        |    name
+                        |  }
+                        |}""".stripMargin
           assertM(
             Parser.parseQuery(query),
             equalTo(
@@ -147,13 +145,13 @@ object ParserSpec
           )
         },
         testM("variables") {
-          val query = query"""query getZuckProfile($$devicePicSize: Int = 60) {
-                                user(id: 4) {
-                                  id
-                                  name
-                                  profilePic(size: $$devicePicSize)
-                                }
-                              }"""
+          val query = """query getZuckProfile($devicePicSize: Int = 60) {
+                        |  user(id: 4) {
+                        |    id
+                        |    name
+                        |    profilePic(size: $devicePicSize)
+                        |  }
+                        |}""".stripMargin
           assertM(
             Parser.parseQuery(query),
             equalTo(
@@ -178,9 +176,9 @@ object ParserSpec
           )
         },
         testM("directives") {
-          val query = query"""query myQuery($$someTestM: Boolean) {
-                                experimentalField @skip(if: $$someTestM)
-                              }"""
+          val query = """query myQuery($someTestM: Boolean) {
+                        |  experimentalField @skip(if: $someTestM)
+                        |}""".stripMargin
           assertM(
             Parser.parseQuery(query),
             equalTo(
@@ -199,9 +197,9 @@ object ParserSpec
           )
         },
         testM("list and non-null types") {
-          val query = query"""query getZuckProfile($$devicePicSize: [Int!]!) {
-                                nothing
-                              }"""
+          val query = """query getZuckProfile($devicePicSize: [Int!]!) {
+                        |  nothing
+                        |}""".stripMargin
           assertM(
             Parser.parseQuery(query),
             equalTo(
@@ -221,22 +219,22 @@ object ParserSpec
           )
         },
         testM("fragments") {
-          val query = query"""query withFragments {
-                                user(id: 4) {
-                                  friends(first: 10) {
-                                    ...friendFields
-                                  }
-                                  mutualFriends(first: 10) {
-                                    ...friendFields
-                                  }
-                                }
-                              }
-                              
-                              fragment friendFields on User {
-                                id
-                                name
-                                profilePic(size: 50)
-                              }"""
+          val query = """query withFragments {
+                        |  user(id: 4) {
+                        |    friends(first: 10) {
+                        |      ...friendFields
+                        |    }
+                        |    mutualFriends(first: 10) {
+                        |      ...friendFields
+                        |    }
+                        |  }
+                        |}
+                        |
+                        |fragment friendFields on User {
+                        |  id
+                        |  name
+                        |  profilePic(size: 50)
+                        |}""".stripMargin
           assertM(
             Parser.parseQuery(query),
             equalTo(
@@ -282,21 +280,21 @@ object ParserSpec
           )
         },
         testM("inline fragments") {
-          val query = query"""query inlineFragmentTyping {
-                                profiles(handles: ["zuck", "cocacola"]) {
-                                  handle
-                                  ... on User {
-                                    friends {
-                                      count
-                                    }
-                                  }
-                                  ... on Page {
-                                    likers {
-                                      count
-                                    }
-                                  }
-                                }
-                              }"""
+          val query = """query inlineFragmentTyping {
+                        |  profiles(handles: ["zuck", "cocacola"]) {
+                        |    handle
+                        |    ... on User {
+                        |      friends {
+                        |        count
+                        |      }
+                        |    }
+                        |    ... on Page {
+                        |      likers {
+                        |        count
+                        |      }
+                        |    }
+                        |  }
+                        |}""".stripMargin
           assertM(
             Parser.parseQuery(query),
             equalTo(
@@ -326,17 +324,17 @@ object ParserSpec
           )
         },
         testM("inline fragments with directives") {
-          val query = query"""query inlineFragmentNoType($$expandedInfo: Boolean) {
-                                user(handle: "zuck") {
-                                  id
-                                  name
-                                  ... @include(if: $$expandedInfo) {
-                                    firstName
-                                    lastName
-                                    birthday
-                                  }
-                                }
-                              }"""
+          val query = """query inlineFragmentNoType($expandedInfo: Boolean) {
+                        |  user(handle: "zuck") {
+                        |    id
+                        |    name
+                        |    ... @include(if: $expandedInfo) {
+                        |      firstName
+                        |      lastName
+                        |      birthday
+                        |    }
+                        |  }
+                        |}""".stripMargin
           assertM(
             Parser.parseQuery(query),
             equalTo(
@@ -368,13 +366,13 @@ object ParserSpec
           )
         },
         testM("mutation") {
-          val query = query"""mutation {
-                                likeStory(storyID: 12345) {
-                                  story {
-                                    likeCount
-                                  }
-                                }
-                              }"""
+          val query = """mutation {
+                        |  likeStory(storyID: 12345) {
+                        |    story {
+                        |      likeCount
+                        |    }
+                        |  }
+                        |}""".stripMargin
           assertM(
             Parser.parseQuery(query),
             equalTo(

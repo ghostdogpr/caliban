@@ -3,7 +3,6 @@ package caliban.execution
 import caliban.GraphQL._
 import caliban.TestUtils._
 import caliban.parsing.adt.Value.{ BooleanValue, StringValue }
-import caliban.parsing.QueryInterpolator._
 import zio.Task
 import zio.test.Assertion._
 import zio.test._
@@ -14,12 +13,12 @@ object ExecutionSpec
         testM("skip directive") {
           val interpreter = graphQL(resolver)
           val query =
-            query"""query test{
-                      amos: character(name: "Amos Burton") {
-                        name
-                        nicknames @skip(if: true)
-                      }
-                    }"""
+            """query test{
+              |  amos: character(name: "Amos Burton") {
+              |    name
+              |    nicknames @skip(if: true)
+              |  }
+              |}""".stripMargin
 
           val io = interpreter.execute(query).map(_.toString)
           assertM(
@@ -32,11 +31,11 @@ object ExecutionSpec
         testM("simple query with fields") {
           val interpreter = graphQL(resolver)
           val query =
-            query"""{
-                      characters {
-                        name
-                      }
-                    }"""
+            """{
+              |  characters {
+              |    name
+              |  }
+              |}""".stripMargin
 
           val io = interpreter.execute(query).map(_.toString)
           assertM(
@@ -49,12 +48,12 @@ object ExecutionSpec
         testM("arguments") {
           val interpreter = graphQL(resolver)
           val query =
-            query"""{
-                      characters(origin: MARS) {
-                        name
-                        nicknames
-                      }
-                    }"""
+            """{
+              |  characters(origin: MARS) {
+              |    name
+              |    nicknames
+              |  }
+              |}""".stripMargin
 
           val io = interpreter.execute(query).map(_.toString)
           assertM(
@@ -67,11 +66,11 @@ object ExecutionSpec
         testM("arguments with list coercion") {
           val interpreter = graphQL(resolver)
           val query =
-            query"""{
-                      charactersIn(names: "Alex Kamal") {
-                        name
-                      }
-                    }"""
+            """{
+              |  charactersIn(names: "Alex Kamal") {
+              |    name
+              |  }
+              |}""".stripMargin
 
           val io = interpreter.execute(query).map(_.toString)
           assertM(
@@ -84,12 +83,12 @@ object ExecutionSpec
         testM("aliases") {
           val interpreter = graphQL(resolver)
           val query =
-            query"""{
-                      amos: character(name: "Amos Burton") {
-                        name
-                        nicknames
-                      }
-                    }"""
+            """{
+              |  amos: character(name: "Amos Burton") {
+              |    name
+              |    nicknames
+              |  }
+              |}""".stripMargin
 
           val io = interpreter.execute(query).map(_.toString)
           assertM(
@@ -102,15 +101,15 @@ object ExecutionSpec
         testM("fragment") {
           val interpreter = graphQL(resolver)
           val query =
-            query"""{
-                      amos: character(name: "Amos Burton") {
-                        ...info
-                      }
-                    }
-                    
-                    fragment info on Character {
-                      name
-                    }"""
+            """{
+              |  amos: character(name: "Amos Burton") {
+              |    ...info
+              |  }
+              |}
+              |
+              |fragment info on Character {
+              |  name
+              |}""".stripMargin
 
           val io = interpreter.execute(query).map(_.toString)
           assertM(
@@ -123,16 +122,16 @@ object ExecutionSpec
         testM("inline fragment") {
           val interpreter = graphQL(resolver)
           val query =
-            query"""{
-                      amos: character(name: "Amos Burton") {
-                        name
-                        role {
-                          ... on Mechanic {
-                            shipName
-                          }
-                        }
-                      }
-                    }"""
+            """{
+              |  amos: character(name: "Amos Burton") {
+              |    name
+              |    role {
+              |      ... on Mechanic {
+              |        shipName
+              |      }
+              |    }
+              |  }
+              |}""".stripMargin
 
           val io = interpreter.execute(query).map(_.toString)
           assertM(
@@ -146,11 +145,11 @@ object ExecutionSpec
           val io = Task.runtime.map { implicit rts =>
             val interpreter = graphQL(resolverIO)
             val query =
-              query"""{
-                        characters {
-                          name
-                        }
-                      }"""
+              """{
+                |  characters {
+                |    name
+                |  }
+                |}""".stripMargin
             (query, interpreter)
           }.flatMap { case (query, interpreter) => interpreter.execute(query).map(_.toString) }
 
@@ -165,9 +164,9 @@ object ExecutionSpec
           val io = Task.runtime.map { implicit rts =>
             val interpreter = graphQL(resolverWithMutation)
             val query =
-              query"""mutation {
-                        deleteCharacter(name: "Amos Burton")
-                      }"""
+              """mutation {
+                |  deleteCharacter(name: "Amos Burton")
+                |}""".stripMargin
             (query, interpreter)
           }.flatMap { case (query, interpreter) => interpreter.execute(query).map(_.toString) }
 
@@ -176,11 +175,11 @@ object ExecutionSpec
         testM("variable") {
           val interpreter = graphQL(resolver)
           val query =
-            query"""query test($$name: String!){
-                      amos: character(name: $$name) {
-                        name
-                      }
-                    }"""
+            """query test($name: String!){
+              |  amos: character(name: $name) {
+              |    name
+              |  }
+              |}""".stripMargin
 
           val io = interpreter.execute(query, None, Map("name" -> StringValue("Amos Burton"))).map(_.toString)
           assertM(
@@ -193,12 +192,12 @@ object ExecutionSpec
         testM("skip directive") {
           val interpreter = graphQL(resolver)
           val query =
-            query"""query test{
-                      amos: character(name: "Amos Burton") {
-                        name
-                        nicknames @skip(if: true)
-                      }
-                    }"""
+            """query test{
+              |  amos: character(name: "Amos Burton") {
+              |    name
+              |    nicknames @skip(if: true)
+              |  }
+              |}""".stripMargin
 
           val io = interpreter.execute(query).map(_.toString)
           assertM(
@@ -211,12 +210,12 @@ object ExecutionSpec
         testM("include directive") {
           val interpreter = graphQL(resolver)
           val query =
-            query"""query test($$included: Boolean!){
-                      amos: character(name: "Amos Burton") {
-                        name
-                        nicknames @include(if: $$included)
-                      }
-                    }"""
+            """query test($included: Boolean!){
+              |  amos: character(name: "Amos Burton") {
+              |    name
+              |    nicknames @include(if: $included)
+              |  }
+              |}""".stripMargin
 
           val io = interpreter.execute(query, None, Map("included" -> BooleanValue(false))).map(_.toString)
           assertM(
