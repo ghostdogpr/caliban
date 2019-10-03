@@ -73,7 +73,7 @@ A sealed trait will be converted to a different GraphQL type depending on its co
 - a sealed trait with only case objects will be converted to an `ENUM`
 - a sealed trait with only case classes will be converted to a `UNION`
 
-**Important:** sealed traits containing both case objects and case classes are not supported, because GraphQL does not have a corresponding type. Also, union types are not supported as arguments.
+GraphQL does not support empty objects, so in case a sealed trait mixes case classes and case objects, a union type will be created and the case objects will have a "fake" field named `_` which is not queryable.
 
 ```scala
 sealed trait ORIGIN
@@ -98,11 +98,12 @@ sealed trait Role
 object Role {
   case class Captain(shipName: String) extends Role
   case class Engineer(specialty: String) extends Role
+  case object Mechanic extends Role
 }
 ```
 The snippet above will produce the following GraphQL type:
 ```graphql
-union Role = Captain | Engineer
+union Role = Captain | Engineer | Mechanic
 
 type Captain {
   shipName: String!
@@ -110,6 +111,10 @@ type Captain {
 
 type Engineer {
   specialty: String!
+}
+
+type Mechanic {
+  _: Boolean!
 }
 ```
 

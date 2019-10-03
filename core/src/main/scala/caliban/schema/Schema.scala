@@ -246,8 +246,37 @@ object Schema {
               )
           }
         )
-      else makeUnion(Some(getName(ctx)), getDescription(ctx), subtypes.map(_._1))
+      else
+        makeUnion(
+          Some(getName(ctx)),
+          getDescription(ctx),
+          subtypes.map { case (t, _) => fixEmptyUnionObject(t) }
+        )
     }
+
+    // see https://github.com/graphql/graphql-spec/issues/568
+    private def fixEmptyUnionObject(t: __Type): __Type =
+      t.fields(__DeprecatedArgs(Some(true))) match {
+        case Some(Nil) =>
+          t.copy(
+            fields = (_: __DeprecatedArgs) =>
+              Some(
+                List(
+                  __Field(
+                    "_",
+                    Some(
+                      "Fake field because GraphQL does not support empty objects. Do not query, use __typename instead."
+                    ),
+                    Nil,
+                    () => makeScalar("Boolean"),
+                    isDeprecated = false,
+                    None
+                  )
+                )
+              )
+          )
+        case _ => t
+      }
 
     override def resolve(value: T, arguments: Map[String, Value]): IO[ExecutionError, ResolvedValue] =
       ctx.dispatch(value)(
