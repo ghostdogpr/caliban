@@ -11,7 +11,7 @@ import caliban.{ ResolvedValue, ResponseValue }
 import caliban.ResponseValue.{ ListValue, NullValue, ObjectValue, StringValue }
 import caliban.schema.RootSchema.Operation
 import caliban.schema.RootSchema
-import zio.{ IO, UIO }
+import zio.{ IO, UIO, ZIO }
 
 object Executor {
 
@@ -22,12 +22,12 @@ object Executor {
    * @param operationName the operation to run in case the query contains multiple operations.
    * @param variables a list of variables.
    */
-  def executeRequest[Q, M, S](
+  def executeRequest[R, Q, M, S](
     document: Document,
-    schema: RootSchema[Q, M, S],
+    schema: RootSchema[R, Q, M, S],
     operationName: Option[String] = None,
     variables: Map[String, Value] = Map()
-  ): IO[ExecutionError, ResponseValue] = {
+  ): ZIO[R, ExecutionError, ResponseValue] = {
     val fragments = document.definitions.collect {
       case fragment: FragmentDefinition => fragment.name -> fragment
     }.toMap
@@ -42,7 +42,7 @@ object Executor {
         }
     }
     IO.fromEither(operation).mapError(ExecutionError(_)).flatMap { op =>
-      def executeOperation[A](x: Operation[A], parallel: Boolean): IO[ExecutionError, ResponseValue] =
+      def executeOperation[A](x: Operation[R, A], parallel: Boolean): ZIO[R, ExecutionError, ResponseValue] =
         executeSelectionSet(
           x.schema.resolve(x.resolver, Map()),
           op.selectionSet,
@@ -67,19 +67,19 @@ object Executor {
     }
   }
 
-  private def executeSelectionSet(
-    resolve: IO[ExecutionError, ResolvedValue],
+  private def executeSelectionSet[R](
+    resolve: ZIO[R, ExecutionError, ResolvedValue],
     selectionSet: List[Selection],
     fragments: Map[String, FragmentDefinition],
     variableDefinitions: List[VariableDefinition],
     variableValues: Map[String, Value],
     parallel: Boolean
-  ): IO[ExecutionError, ResponseValue] = {
+  ): ZIO[R, ExecutionError, ResponseValue] = {
 
     def executeSelectionSetLoop(
-      resolve: IO[ExecutionError, ResolvedValue],
+      resolve: ZIO[R, ExecutionError, ResolvedValue],
       selectionSet: List[Selection]
-    ): IO[ExecutionError, ResponseValue] =
+    ): ZIO[R, ExecutionError, ResponseValue] =
       resolve.flatMap {
         case ResolvedObjectValue(objectName, fields) =>
           val mergedSelectionSet = mergeSelectionSet(selectionSet, objectName, fragments, variableValues)
@@ -94,11 +94,17 @@ object Executor {
                 .getOrElse(UIO.succeed(NullValue))
                 .map((alias.getOrElse(name), _))
           }
-          (if (parallel) IO.collectAllPar(resolveFields) else IO.collectAll(resolveFields)).map(ObjectValue)
+          (if (parallel) ZIO.collectAllPar(resolveFields) else ZIO.collectAll(resolveFields)).map(ObjectValue)
         case ResolvedListValue(values) =>
-          IO.collectAllPar(values.map(executeSelectionSetLoop(_, selectionSet))).map(ListValue)
+          ZIO.collectAllPar(values.map(executeSelectionSetLoop(_, selectionSet))).map(ListValue)
         case ResolvedStreamValue(stream) =>
-          UIO(ResponseValue.StreamValue(stream.mapM(res => executeSelectionSetLoop(UIO(res), selectionSet))))
+          ZIO
+            .environment[R]
+            .map(
+              env =>
+                ResponseValue
+                  .StreamValue(stream.mapM(res => executeSelectionSetLoop(UIO(res), selectionSet)).provide(env))
+            )
         case other: ResponseValue => UIO(other)
       }
 

@@ -78,11 +78,6 @@ lazy val examples = project
   .in(file("examples"))
   .settings(commonSettings)
   .settings(skip in publish := true)
-  .settings(
-    libraryDependencies ++= Seq(
-      compilerPlugin("org.typelevel" %% "kind-projector" % "0.10.3")
-    )
-  )
   .dependsOn(http4s)
 
 val commonSettings = Def.settings(

@@ -3,17 +3,17 @@ package caliban
 import caliban.CalibanError.ExecutionError
 import caliban.parsing.adt.Value
 import zio.IO
-import zio.stream.ZStream
+import zio.stream.Stream
 
 sealed trait ResolvedValue
 sealed trait ResponseValue extends ResolvedValue {
-  def asInt: Option[Int]                                       = None
-  def asFloat: Option[Float]                                   = None
-  def asString: Option[String]                                 = None
-  def asBoolean: Option[Boolean]                               = None
-  def asList: Option[List[ResponseValue]]                      = None
-  def asMap: Option[Map[String, ResponseValue]]                = None
-  def asStream: Option[ZStream[Any, Throwable, ResponseValue]] = None
+  def asInt: Option[Int]                                 = None
+  def asFloat: Option[Float]                             = None
+  def asString: Option[String]                           = None
+  def asBoolean: Option[Boolean]                         = None
+  def asList: Option[List[ResponseValue]]                = None
+  def asMap: Option[Map[String, ResponseValue]]          = None
+  def asStream: Option[Stream[Throwable, ResponseValue]] = None
 }
 
 /**
@@ -24,8 +24,8 @@ object ResolvedValue {
     name: String,
     fields: Map[String, Map[String, Value] => IO[ExecutionError, ResolvedValue]]
   ) extends ResolvedValue
-  case class ResolvedListValue(values: List[IO[ExecutionError, ResolvedValue]])  extends ResolvedValue
-  case class ResolvedStreamValue(stream: ZStream[Any, Throwable, ResolvedValue]) extends ResolvedValue
+  case class ResolvedListValue(values: List[IO[ExecutionError, ResolvedValue]]) extends ResolvedValue
+  case class ResolvedStreamValue(stream: Stream[Throwable, ResolvedValue])      extends ResolvedValue
 }
 
 /**
@@ -64,8 +64,8 @@ object ResponseValue {
       fields.map { case (name, value) => s""""$name":${value.toString}""" }.mkString("{", ",", "}")
     override def asMap: Option[Map[String, ResponseValue]] = Some(fields.toMap)
   }
-  case class StreamValue(stream: ZStream[Any, Throwable, ResponseValue]) extends ResponseValue {
-    override def toString: String                                         = "<stream>"
-    override def asStream: Option[ZStream[Any, Throwable, ResponseValue]] = Some(stream)
+  case class StreamValue(stream: Stream[Throwable, ResponseValue]) extends ResponseValue {
+    override def toString: String                                   = "<stream>"
+    override def asStream: Option[Stream[Throwable, ResponseValue]] = Some(stream)
   }
 }

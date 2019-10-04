@@ -45,7 +45,7 @@ type Queries {
 }
 ```
 
-Now you can call `interpreter.execute` with a given GraphQL query, and you will get an `IO[CalibanError, ResponseValue]` as a response. Use `ResponseValue#toString` to get the JSON representation of the result.
+Now you can call `interpreter.execute` with a given GraphQL query, and you will get an `ZIO[R, CalibanError, ResponseValue]` as a response. Use `ResponseValue#toString` to get the JSON representation of the result.
 
 ```scala
 val query = """
@@ -131,7 +131,15 @@ type Queries {
 } 
 ```
 ### Effects
-Fields can return ZIO effects. The only thing you need is an `implicit Runtime[R]` in scope when you call `graphQL(...)`. The effect will be run every time a query is executed. This allows you to leverage all the features provided by ZIO: timeouts, retries, access to ZIO environment, memoizing, etc.
+Fields can return ZIO effects. This allows you to leverage all the features provided by ZIO: timeouts, retries, access to ZIO environment, memoizing, etc. An effect will be ran every time a query requiring the corresponding field is executed.
+
+If you don't use ZIO environment (`R` = `Any`), there is nothing special to do to get it working.
+
+If you require a ZIO environment, you will need to have the content of `caliban.schema.GenericSchema[R]` for your custom `R` in scope when you call `graphQL(...)`.
+```scala
+object schema extends GenericSchema[MyEnv]
+import schema._
+```
 
 ### Mutations
 Creating mutations is the same as queries, except you pass them as the second argument to `RootResolver`:

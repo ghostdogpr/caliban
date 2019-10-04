@@ -11,12 +11,13 @@ import caliban.ResponseValue._
 import caliban.schema.Types._
 import magnolia._
 import zio.stream.ZStream
-import zio.{ IO, Runtime, UIO, ZIO }
+import zio.{ IO, UIO, ZIO }
 
 /**
  * Typeclass that defines how to map the type `T` to the according GraphQL concepts: how to introspect it and how to resolve it.
+ * `R` is the ZIO environment required by the effects in the schema (`Any` if nothing required).
  */
-trait Schema[T] { self =>
+trait Schema[-R, T] { self =>
 
   /**
    * Generates a GraphQL type object from `T`.
@@ -29,7 +30,7 @@ trait Schema[T] { self =>
    * @param value a value of type `T`
    * @param arguments argument values that might be required to resolve `T`
    */
-  def resolve(value: T, arguments: Map[String, Value]): IO[ExecutionError, ResolvedValue]
+  def resolve(value: T, arguments: Map[String, Value]): ZIO[R, ExecutionError, ResolvedValue]
 
   /**
    * Defines if the type is considered optional or non-null. Should be false except for `Option`.
@@ -45,16 +46,16 @@ trait Schema[T] { self =>
    * Builds a new `Schema` of `A` from an existing `Schema` of `T` and a function from `A` to `T`.
    * @param f a function from `A` to `T`.
    */
-  def contramap[A](f: A => T): Schema[A] = new Schema[A] {
+  def contramap[A](f: A => T): Schema[R, A] = new Schema[R, A] {
     override def optional: Boolean                = self.optional
     override def arguments: List[__InputValue]    = self.arguments
     override def toType(isInput: Boolean): __Type = self.toType(isInput)
-    override def resolve(value: A, arguments: Map[String, Value]): IO[ExecutionError, ResolvedValue] =
+    override def resolve(value: A, arguments: Map[String, Value]): ZIO[R, ExecutionError, ResolvedValue] =
       self.resolve(f(value), arguments)
   }
 }
 
-object Schema {
+object Schema extends GenericSchema[Any] {
 
   /**
    * Creates a scalar schema for a type `A`
@@ -62,40 +63,40 @@ object Schema {
    * @param description description of the scalar type
    * @param makeResponse function from `A` to [[ResponseValue]] that defines how to resolve `A`
    */
-  def scalarSchema[A](name: String, description: Option[String], makeResponse: A => ResponseValue): Schema[A] =
-    new Schema[A] {
+  def scalarSchema[A](name: String, description: Option[String], makeResponse: A => ResponseValue): Schema[Any, A] =
+    new Schema[Any, A] {
       override def toType(isInput: Boolean): __Type = makeScalar(name, description)
       override def resolve(value: A, arguments: Map[String, Value]): IO[ExecutionError, ResponseValue] =
         IO.succeed(makeResponse(value))
     }
 
-  implicit val unitSchema: Schema[Unit]       = scalarSchema("Unit", None, _ => ObjectValue(Nil))
-  implicit val booleanSchema: Schema[Boolean] = scalarSchema("Boolean", None, BooleanValue)
-  implicit val stringSchema: Schema[String]   = scalarSchema("String", None, StringValue)
-  implicit val intSchema: Schema[Int]         = scalarSchema("Int", None, IntValue)
-  implicit val floatSchema: Schema[Float]     = scalarSchema("Float", None, FloatValue)
-  implicit val doubleSchema: Schema[Double]   = floatSchema.contramap(_.toFloat)
-  implicit def optionSchema[A](implicit ev: Schema[A]): Schema[Option[A]] = new Typeclass[Option[A]] {
+  implicit val unitSchema: Schema[Any, Unit]       = scalarSchema("Unit", None, _ => ObjectValue(Nil))
+  implicit val booleanSchema: Schema[Any, Boolean] = scalarSchema("Boolean", None, BooleanValue)
+  implicit val stringSchema: Schema[Any, String]   = scalarSchema("String", None, StringValue)
+  implicit val intSchema: Schema[Any, Int]         = scalarSchema("Int", None, IntValue)
+  implicit val floatSchema: Schema[Any, Float]     = scalarSchema("Float", None, FloatValue)
+  implicit val doubleSchema: Schema[Any, Double]   = floatSchema.contramap(_.toFloat)
+  implicit def optionSchema[R, A](implicit ev: Schema[R, A]): Schema[R, Option[A]] = new Schema[R, Option[A]] {
     override def optional: Boolean                        = true
     override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
-    override def resolve(value: Option[A], arguments: Map[String, Value]): IO[ExecutionError, ResolvedValue] =
+    override def resolve(value: Option[A], arguments: Map[String, Value]): ZIO[R, ExecutionError, ResolvedValue] =
       value match {
         case Some(value) => ev.resolve(value, arguments)
         case None        => UIO(NullValue)
       }
   }
-  implicit def listSchema[A](implicit ev: Schema[A]): Schema[List[A]] = new Typeclass[List[A]] {
+  implicit def listSchema[R, A](implicit ev: Schema[R, A]): Schema[R, List[A]] = new Schema[R, List[A]] {
     override def toType(isInput: Boolean = false): __Type = {
       val t = ev.toType(isInput)
       makeList(if (ev.optional) t else makeNonNull(t))
     }
-    override def resolve(value: List[A], arguments: Map[String, Value]): IO[ExecutionError, ResolvedValue] =
-      UIO(ResolvedListValue(value.map(ev.resolve(_, arguments))))
+    override def resolve(value: List[A], arguments: Map[String, Value]): ZIO[R, ExecutionError, ResolvedValue] =
+      ZIO.environment[R].map(env => ResolvedListValue(value.map(ev.resolve(_, arguments).provide(env))))
   }
-  implicit def setSchema[A](implicit ev: Schema[A]): Schema[Set[A]]           = listSchema[A].contramap(_.toList)
-  implicit def functionUnitSchema[A](implicit ev: Schema[A]): Schema[() => A] = ev.contramap(_())
-  implicit def tupleSchema[A, B](implicit ev1: Schema[A], ev2: Schema[B]): Schema[(A, B)] =
-    new Typeclass[(A, B)] {
+  implicit def setSchema[R, A](implicit ev: Schema[R, A]): Schema[R, Set[A]]           = listSchema[R, A].contramap(_.toList)
+  implicit def functionUnitSchema[R, A](implicit ev: Schema[R, A]): Schema[R, () => A] = ev.contramap(_())
+  implicit def tupleSchema[RA, RB, A, B](implicit ev1: Schema[RA, A], ev2: Schema[RB, B]): Schema[RA with RB, (A, B)] =
+    new Schema[RA with RB, (A, B)] {
       override def toType(isInput: Boolean = false): __Type = {
         val typeA     = ev1.toType(isInput)
         val typeB     = ev2.toType(isInput)
@@ -125,51 +126,65 @@ object Schema {
         )
       }
 
-      override def resolve(value: (A, B), arguments: Map[String, Value]): IO[ExecutionError, ResolvedValue] =
-        UIO(
-          ResolvedObjectValue(
-            "",
-            Map("_1" -> (_ => ev1.resolve(value._1, Map())), "_2" -> (_ => ev2.resolve(value._2, Map())))
+      override def resolve(
+        value: (A, B),
+        arguments: Map[String, Value]
+      ): ZIO[RA with RB, ExecutionError, ResolvedValue] =
+        for {
+          envA <- ZIO.environment[RA]
+          envB <- ZIO.environment[RB]
+        } yield ResolvedObjectValue(
+          "",
+          Map(
+            "_1" -> (_ => ev1.resolve(value._1, Map()).provide(envA)),
+            "_2" -> (_ => ev2.resolve(value._2, Map()).provide(envB))
           )
         )
     }
-  implicit def functionSchema[A, B](implicit arg1: ArgBuilder[A], ev1: Schema[A], ev2: Schema[B]): Schema[A => B] =
-    new Typeclass[A => B] {
+  implicit def functionSchema[RA, RB, A, B](
+    implicit arg1: ArgBuilder[A],
+    ev1: Schema[RA, A],
+    ev2: Schema[RB, B]
+  ): Schema[RA with RB, A => B] =
+    new Schema[RA with RB, A => B] {
       override def arguments: List[__InputValue]            = ev1.toType(true).inputFields.getOrElse(Nil)
       override def optional: Boolean                        = ev2.optional
       override def toType(isInput: Boolean = false): __Type = ev2.toType(isInput)
-      override def resolve(value: A => B, arguments: Map[String, Value]): IO[ExecutionError, ResolvedValue] =
+      override def resolve(
+        value: A => B,
+        arguments: Map[String, Value]
+      ): ZIO[RA with RB, ExecutionError, ResolvedValue] =
         arg1.build(Value.ObjectValue(arguments)).flatMap(argValue => ev2.resolve(value(argValue), Map()))
     }
 
-  implicit def effectSchema[R, E <: Throwable, A](implicit ev: Schema[A], runtime: Runtime[R]): Schema[ZIO[R, E, A]] =
-    new Schema[ZIO[R, E, A]] {
+  implicit def effectSchema[R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R, ZIO[R, E, A]] =
+    new Schema[R, ZIO[R, E, A]] {
       override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
-      override def resolve(value: ZIO[R, E, A], arguments: Map[String, Value]): IO[ExecutionError, ResolvedValue] =
-        value.flatMap(ev.resolve(_, arguments)).provide(runtime.Environment).mapError {
+      override def resolve(value: ZIO[R, E, A], arguments: Map[String, Value]): ZIO[R, ExecutionError, ResolvedValue] =
+        value.flatMap(ev.resolve(_, arguments)).mapError {
           case e: ExecutionError => e
           case other             => ExecutionError("Caught error during execution of effectful field", Some(other))
         }
     }
 
-  implicit def streamSchema[R, E <: Throwable, A](
-    implicit ev: Schema[A],
-    runtime: Runtime[R]
-  ): Schema[ZStream[R, E, A]] =
-    new Schema[ZStream[R, E, A]] {
+  implicit def streamSchema[R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R, ZStream[R, E, A]] =
+    new Schema[R, ZStream[R, E, A]] {
       override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
       override def resolve(
         stream: ZStream[R, E, A],
         arguments: Map[String, Value]
-      ): IO[ExecutionError, ResolvedValue] =
-        IO.succeed(
-          ResolvedValue.ResolvedStreamValue(stream.mapM(ev.resolve(_, arguments)).provide(runtime.Environment))
-        )
+      ): ZIO[R, ExecutionError, ResolvedValue] =
+        ZIO
+          .environment[R]
+          .map(env => ResolvedValue.ResolvedStreamValue(stream.mapM(ev.resolve(_, arguments)).provide(env)))
     }
+}
 
-  type Typeclass[T] = Schema[T]
+trait GenericSchema[R] {
 
-  def combine[T](ctx: CaseClass[Schema, T]): Schema[T] = new Schema[T] {
+  type Typeclass[T] = Schema[R, T]
+
+  def combine[T](ctx: CaseClass[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
     override def toType(isInput: Boolean = false): __Type =
       if (isInput)
         makeInputObject(
@@ -208,22 +223,30 @@ object Schema {
             .toList
         )
 
-    override def resolve(value: T, arguments: Map[String, Value]): IO[ExecutionError, ResolvedValue] =
+    override def resolve(value: T, arguments: Map[String, Value]): ZIO[R, ExecutionError, ResolvedValue] =
       if (ctx.isObject) {
         UIO(ResponseValue.EnumValue(getName(ctx)))
       } else {
-        UIO(
-          ResolvedObjectValue(
-            getName(ctx),
-            ctx.parameters
-              .map(p => p.label -> ((args: Map[String, Value]) => p.typeclass.resolve(p.dereference(value), args)))
-              .toMap
+        ZIO
+          .environment[R]
+          .map(
+            env =>
+              ResolvedObjectValue(
+                getName(ctx),
+                ctx.parameters
+                  .map(
+                    p =>
+                      p.label -> (
+                        (args: Map[String, Value]) => p.typeclass.resolve(p.dereference(value), args).provide(env)
+                      )
+                  )
+                  .toMap
+              )
           )
-        )
       }
   }
 
-  def dispatch[T](ctx: SealedTrait[Schema, T]): Schema[T] = new Typeclass[T] {
+  def dispatch[T](ctx: SealedTrait[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
     override def toType(isInput: Boolean = false): __Type = {
       val subtypes =
         ctx.subtypes.map(s => s.typeclass.toType(isInput) -> s.annotations).toList.sortBy(_._1.name.getOrElse(""))
@@ -278,7 +301,7 @@ object Schema {
         case _ => t
       }
 
-    override def resolve(value: T, arguments: Map[String, Value]): IO[ExecutionError, ResolvedValue] =
+    override def resolve(value: T, arguments: Map[String, Value]): ZIO[R, ExecutionError, ResolvedValue] =
       ctx.dispatch(value)(
         subType => subType.typeclass.resolve(subType.cast(value), arguments)
       )

@@ -9,8 +9,9 @@ import org.http4s.server.blaze.BlazeServerBuilder
 import org.http4s.server.middleware.CORS
 import zio.console.putStrLn
 import zio.interop.catz._
+import zio.interop.catz.implicits._
 import zio.stream.ZStream
-import zio.{ RIO, UIO, ZIO }
+import zio.{ Task, UIO, ZIO }
 
 object ExampleApp extends CatsApp {
 
@@ -31,7 +32,7 @@ object ExampleApp extends CatsApp {
           Subscriptions(service.deletedEvents)
         )
       )
-      _ <- BlazeServerBuilder[RIO[Environment, *]]
+      _ <- BlazeServerBuilder[Task]
             .bindHttp(8088, "localhost")
             .withHttpApp(
               Router(
