@@ -31,7 +31,7 @@ object ExampleApp extends CatsApp {
           Subscriptions(service.deletedEvents)
         )
       )
-      _ <- BlazeServerBuilder[RIO[Environment, ?]]
+      _ <- BlazeServerBuilder[RIO[Environment, *]]
             .bindHttp(8088, "localhost")
             .withHttpApp(
               Router(

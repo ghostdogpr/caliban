@@ -41,11 +41,11 @@ object Http4sAdapter {
 
   def makeRestService[R, Q, M, S](
     interpreter: GraphQL[Q, M, S]
-  )(implicit runtime: Runtime[R]): HttpRoutes[RIO[R, ?]] = {
-    object dsl extends Http4sDsl[RIO[R, ?]]
+  )(implicit runtime: Runtime[R]): HttpRoutes[RIO[R, *]] = {
+    object dsl extends Http4sDsl[RIO[R, *]]
     import dsl._
 
-    HttpRoutes.of[RIO[R, ?]] {
+    HttpRoutes.of[RIO[R, *]] {
       case req @ POST -> Root =>
         for {
           query <- req.attemptAs[GraphQLRequest].value.absolve
@@ -62,22 +62,22 @@ object Http4sAdapter {
 
   def makeWebSocketService[R, Q, M, S](
     interpreter: GraphQL[Q, M, S]
-  )(implicit runtime: Runtime[R]): HttpRoutes[RIO[R, ?]] = {
+  )(implicit runtime: Runtime[R]): HttpRoutes[RIO[R, *]] = {
 
-    object dsl extends Http4sDsl[RIO[R, ?]]
+    object dsl extends Http4sDsl[RIO[R, *]]
     import dsl._
 
     def sendMessage(
-      sendQueue: fs2.concurrent.Queue[RIO[R, ?], WebSocketFrame],
+      sendQueue: fs2.concurrent.Queue[RIO[R, *], WebSocketFrame],
       id: String,
       data: String
     ): RIO[R, Unit] =
       sendQueue.enqueue1(WebSocketFrame.Text(s"""{"id":"$id","type":"data","payload":{"data":$data}}"""))
 
     def processMessage(
-      sendQueue: fs2.concurrent.Queue[RIO[R, ?], WebSocketFrame],
+      sendQueue: fs2.concurrent.Queue[RIO[R, *], WebSocketFrame],
       subscriptions: Ref[Map[String, Fiber[Throwable, Unit]]]
-    ): Pipe[RIO[R, ?], WebSocketFrame, Unit] =
+    ): Pipe[RIO[R, *], WebSocketFrame, Unit] =
       _.collect { case Text(text, _) => text }.flatMap { text =>
         Stream.eval {
           for {
@@ -119,12 +119,12 @@ object Http4sAdapter {
         }
       }
 
-    HttpRoutes.of[RIO[R, ?]] {
+    HttpRoutes.of[RIO[R, *]] {
       case GET -> Root =>
         for {
-          sendQueue     <- fs2.concurrent.Queue.unbounded[RIO[R, ?], WebSocketFrame]
+          sendQueue     <- fs2.concurrent.Queue.unbounded[RIO[R, *], WebSocketFrame]
           subscriptions <- Ref.make(Map.empty[String, Fiber[Throwable, Unit]])
-          builder <- WebSocketBuilder[RIO[R, ?]].build(
+          builder <- WebSocketBuilder[RIO[R, *]].build(
                       sendQueue.dequeue,
                       processMessage(sendQueue, subscriptions),
                       headers = Headers.of(Header("Sec-WebSocket-Protocol", "graphql-ws")),
