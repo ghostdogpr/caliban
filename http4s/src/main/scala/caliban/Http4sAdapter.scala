@@ -13,12 +13,9 @@ import org.http4s.server.websocket.WebSocketBuilder
 import org.http4s.websocket.WebSocketFrame
 import org.http4s.websocket.WebSocketFrame.Text
 import zio.interop.catz._
-import zio.{ Fiber, IO, Ref, Runtime, Task }
+import zio.{ Fiber, IO, RIO, Ref, Runtime, Task }
 
 object Http4sAdapter {
-
-  object dsl extends Http4sDsl[Task]
-  import dsl._
 
   case class GraphQLRequest(query: String, operationName: Option[String], variables: Option[Json] = None)
 
@@ -42,8 +39,13 @@ object Http4sAdapter {
   private def execute[Q, M, S](interpreter: GraphQL[Q, M, S], query: GraphQLRequest): IO[CalibanError, ResponseValue] =
     interpreter.execute(query.query, query.operationName, query.variables.map(jsonToVariables).getOrElse(Map()))
 
-  def makeRestService[Q, M, S](interpreter: GraphQL[Q, M, S])(implicit runtime: Runtime[Any]): HttpRoutes[Task] =
-    HttpRoutes.of[Task] {
+  def makeRestService[R, Q, M, S](
+    interpreter: GraphQL[Q, M, S]
+  )(implicit runtime: Runtime[R]): HttpRoutes[RIO[R, ?]] = {
+    object dsl extends Http4sDsl[RIO[R, ?]]
+    import dsl._
+
+    HttpRoutes.of[RIO[R, ?]] {
       case req @ POST -> Root =>
         for {
           query <- req.attemptAs[GraphQLRequest].value.absolve
@@ -56,16 +58,26 @@ object Http4sAdapter {
           response <- Ok(json)
         } yield response
     }
+  }
 
-  def makeWebSocketService[Q, M, S](interpreter: GraphQL[Q, M, S])(implicit runtime: Runtime[Any]): HttpRoutes[Task] = {
+  def makeWebSocketService[R, Q, M, S](
+    interpreter: GraphQL[Q, M, S]
+  )(implicit runtime: Runtime[R]): HttpRoutes[RIO[R, ?]] = {
 
-    def sendMessage(sendQueue: fs2.concurrent.Queue[Task, WebSocketFrame], id: String, data: String): Task[Unit] =
+    object dsl extends Http4sDsl[RIO[R, ?]]
+    import dsl._
+
+    def sendMessage(
+      sendQueue: fs2.concurrent.Queue[RIO[R, ?], WebSocketFrame],
+      id: String,
+      data: String
+    ): RIO[R, Unit] =
       sendQueue.enqueue1(WebSocketFrame.Text(s"""{"id":"$id","type":"data","payload":{"data":$data}}"""))
 
     def processMessage(
-      sendQueue: fs2.concurrent.Queue[Task, WebSocketFrame],
+      sendQueue: fs2.concurrent.Queue[RIO[R, ?], WebSocketFrame],
       subscriptions: Ref[Map[String, Fiber[Throwable, Unit]]]
-    ): Pipe[Task, WebSocketFrame, Unit] =
+    ): Pipe[RIO[R, ?], WebSocketFrame, Unit] =
       _.collect { case Text(text, _) => text }.flatMap { text =>
         Stream.eval {
           for {
@@ -107,12 +119,12 @@ object Http4sAdapter {
         }
       }
 
-    HttpRoutes.of[Task] {
+    HttpRoutes.of[RIO[R, ?]] {
       case GET -> Root =>
         for {
-          sendQueue     <- fs2.concurrent.Queue.unbounded[Task, WebSocketFrame]
+          sendQueue     <- fs2.concurrent.Queue.unbounded[RIO[R, ?], WebSocketFrame]
           subscriptions <- Ref.make(Map.empty[String, Fiber[Throwable, Unit]])
-          builder <- WebSocketBuilder[Task].build(
+          builder <- WebSocketBuilder[RIO[R, ?]].build(
                       sendQueue.dequeue,
                       processMessage(sendQueue, subscriptions),
                       headers = Headers.of(Header("Sec-WebSocket-Protocol", "graphql-ws")),

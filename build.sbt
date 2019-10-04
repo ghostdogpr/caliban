@@ -68,7 +68,8 @@ lazy val http4s = project
       "org.http4s"    %% "http4s-circe"        % "0.21.0-M5",
       "org.http4s"    %% "http4s-blaze-server" % "0.21.0-M5",
       "io.circe"      %% "circe-parser"        % "0.12.1",
-      "io.circe"      %% "circe-derivation"    % "0.12.0-M7"
+      "io.circe"      %% "circe-derivation"    % "0.12.0-M7",
+      compilerPlugin("org.typelevel" %% "kind-projector" % "0.10.3")
     )
   )
   .dependsOn(core)
@@ -77,6 +78,11 @@ lazy val examples = project
   .in(file("examples"))
   .settings(commonSettings)
   .settings(skip in publish := true)
+  .settings(
+    libraryDependencies ++= Seq(
+      compilerPlugin("org.typelevel" %% "kind-projector" % "0.10.3")
+    )
+  )
   .dependsOn(http4s)
 
 val commonSettings = Def.settings(
