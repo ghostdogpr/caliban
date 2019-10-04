@@ -1,7 +1,7 @@
 package caliban
 
-import caliban.parsing.adt.Value
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
+import caliban.parsing.adt.Value
 import fs2.{ Pipe, Stream }
 import io.circe.derivation.deriveDecoder
 import io.circe.parser.{ decode, parse }
@@ -13,7 +13,7 @@ import org.http4s.server.websocket.WebSocketBuilder
 import org.http4s.websocket.WebSocketFrame
 import org.http4s.websocket.WebSocketFrame.Text
 import zio.interop.catz._
-import zio.{ Fiber, IO, RIO, Ref, Runtime, Task }
+import zio._
 
 object Http4sAdapter {
 
@@ -36,12 +36,13 @@ object Http4sAdapter {
     case _                         => Map()
   }
 
-  private def execute[Q, M, S](interpreter: GraphQL[Q, M, S], query: GraphQLRequest): IO[CalibanError, ResponseValue] =
+  private def execute[R, Q, M, S](
+    interpreter: GraphQL[R, Q, M, S],
+    query: GraphQLRequest
+  ): ZIO[R, CalibanError, ResponseValue] =
     interpreter.execute(query.query, query.operationName, query.variables.map(jsonToVariables).getOrElse(Map()))
 
-  def makeRestService[R, Q, M, S](
-    interpreter: GraphQL[Q, M, S]
-  )(implicit runtime: Runtime[R]): HttpRoutes[RIO[R, *]] = {
+  def makeRestService[R, Q, M, S](interpreter: GraphQL[R, Q, M, S]): HttpRoutes[RIO[R, *]] = {
     object dsl extends Http4sDsl[RIO[R, *]]
     import dsl._
 
@@ -60,9 +61,7 @@ object Http4sAdapter {
     }
   }
 
-  def makeWebSocketService[R, Q, M, S](
-    interpreter: GraphQL[Q, M, S]
-  )(implicit runtime: Runtime[R]): HttpRoutes[RIO[R, *]] = {
+  def makeWebSocketService[R, Q, M, S](interpreter: GraphQL[R, Q, M, S]): HttpRoutes[RIO[R, *]] = {
 
     object dsl extends Http4sDsl[RIO[R, *]]
     import dsl._

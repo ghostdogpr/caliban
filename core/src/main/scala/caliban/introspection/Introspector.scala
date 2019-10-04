@@ -9,7 +9,7 @@ import caliban.schema.{ RootSchema, RootType, Schema, Types }
 
 object Introspector {
 
-  implicit lazy val typeSchema: Schema[__Type] = Schema.gen[__Type]
+  implicit lazy val typeSchema: Schema[Any, __Type] = Schema.gen[__Type]
 
   private val booleanScalar = Types.makeScalar("Boolean", None)
 
@@ -35,7 +35,7 @@ object Introspector {
   /**
    * Generates a schema for introspecting the given type.
    */
-  def introspect(rootType: RootType): RootSchema[__Introspection, Nothing, Nothing] = {
+  def introspect(rootType: RootType): RootSchema[Any, __Introspection, Nothing, Nothing] = {
     val types = rootType.types.updated("Boolean", booleanScalar).values.toList.sortBy(_.name.getOrElse(""))
     val resolver = __Introspection(
       __Schema(rootType.queryType, rootType.mutationType, rootType.subscriptionType, types, directives),

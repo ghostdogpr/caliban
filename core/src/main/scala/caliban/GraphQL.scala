@@ -9,15 +9,16 @@ import caliban.parsing.adt.Value
 import caliban.schema.RootSchema.Operation
 import caliban.schema._
 import caliban.validation.Validator
-import zio.IO
+import zio.ZIO
 
 /**
- * A `GraphQL[Q, M, S]` represents a GraphQL interpreter for a query type `Q`, a mutation type `M` and a subscription type `S`.
+ * A `GraphQL[R, Q, M, S]` represents a GraphQL interpreter for a query type `Q`, a mutation type `M`
+ * and a subscription type `S`, requiring a ZIO environment of type `R` to be ran.
  *
  * It is intended to be created only once, typically when you start your server.
  * The introspection schema will be generated when this class is instantiated.
  */
-class GraphQL[Q, M, S](schema: RootSchema[Q, M, S]) {
+class GraphQL[R, Q, M, S](schema: RootSchema[R, Q, M, S]) {
 
   private val rootType =
     RootType(
@@ -25,8 +26,9 @@ class GraphQL[Q, M, S](schema: RootSchema[Q, M, S]) {
       schema.mutation.map(_.schema.toType()),
       schema.subscription.map(_.schema.toType())
     )
-  private val introspectionRootSchema: RootSchema[__Introspection, Nothing, Nothing] = Introspector.introspect(rootType)
-  private val introspectionRootType                                                  = RootType(introspectionRootSchema.query.schema.toType(), None, None)
+  private val introspectionRootSchema: RootSchema[Any, __Introspection, Nothing, Nothing] =
+    Introspector.introspect(rootType)
+  private val introspectionRootType = RootType(introspectionRootSchema.query.schema.toType(), None, None)
 
   /**
    * Returns a string that renders the interpreter types into the GraphQL format.
@@ -44,7 +46,7 @@ class GraphQL[Q, M, S](schema: RootSchema[Q, M, S]) {
     query: String,
     operationName: Option[String] = None,
     variables: Map[String, Value] = Map()
-  ): IO[CalibanError, ResponseValue] =
+  ): ZIO[R, CalibanError, ResponseValue] =
     for {
       document        <- Parser.parseQuery(query)
       intro           = Introspector.isIntrospection(document)
@@ -63,10 +65,12 @@ object GraphQL {
    * It requires an instance of [[caliban.schema.Schema]] for each operation type.
    * This schema will be derived by Magnolia automatically.
    */
-  def graphQL[Q, M, S: SubscriptionSchema](
-    resolver: RootResolver[Q, M, S]
-  )(implicit querySchema: Schema[Q], mutationSchema: Schema[M], subscriptionSchema: Schema[S]): GraphQL[Q, M, S] =
-    new GraphQL[Q, M, S](
+  def graphQL[R, Q, M, S: SubscriptionSchema](resolver: RootResolver[Q, M, S])(
+    implicit querySchema: Schema[R, Q],
+    mutationSchema: Schema[R, M],
+    subscriptionSchema: Schema[R, S]
+  ): GraphQL[R, Q, M, S] =
+    new GraphQL[R, Q, M, S](
       RootSchema(
         Operation(querySchema, resolver.queryResolver),
         resolver.mutationResolver.map(Operation(mutationSchema, _)),
