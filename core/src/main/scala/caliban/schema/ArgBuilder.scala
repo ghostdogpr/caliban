@@ -10,14 +10,19 @@ import zio.IO
  * Typeclass that defines how to build an argument of type `T` from an input [[caliban.parsing.adt.Value]].
  * Every type that can be passed as an argument needs an instance of `ArgBuilder`.
  */
-trait ArgBuilder[T] {
+trait ArgBuilder[T] { self =>
 
   /**
-   * Build a value of type `T` from an input [[caliban.parsing.adt.Value]].
+   * Builds a value of type `T` from an input [[caliban.parsing.adt.Value]].
    * Fails with an [[caliban.CalibanError.ExecutionError]] if it was impossible to build the value.
    */
   def build(input: Value): IO[ExecutionError, T]
 
+  /**
+   * Builds a new `ArgBuilder` of `A` from an existing `ArgBuilder` of `T` and a function from `T` to `A`.
+   * @param f a function from `T` to `A`.
+   */
+  def map[A](f: T => A): ArgBuilder[A] = (input: Value) => self.build(input).map(f)
 }
 
 object ArgBuilder {

@@ -3,24 +3,29 @@ package caliban
 import caliban.ExampleData._
 import caliban.GraphQL._
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
+import caliban.schema.GenericSchema
 import org.http4s.implicits._
 import org.http4s.server.Router
 import org.http4s.server.blaze.BlazeServerBuilder
 import org.http4s.server.middleware.CORS
-import zio.console.putStrLn
+import zio.clock.Clock
+import zio.console.{ putStrLn, Console }
 import zio.interop.catz._
-import zio.interop.catz.implicits._
 import zio.stream.ZStream
-import zio.{ Task, UIO, ZIO }
+import zio.{ RIO, URIO, ZIO }
 
-object ExampleApp extends CatsApp {
+object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
 
   case class Queries(
-    @GQLDescription("Return all characters from a given origin") characters: CharactersArgs => UIO[List[Character]],
-    @GQLDeprecated("Use `characters`") character: CharacterArgs => UIO[Option[Character]]
+    @GQLDescription("Return all characters from a given origin")
+    characters: CharactersArgs => URIO[Console, List[Character]],
+    @GQLDeprecated("Use `characters`")
+    character: CharacterArgs => URIO[Console, Option[Character]]
   )
-  case class Mutations(deleteCharacter: CharacterArgs => UIO[Boolean])
-  case class Subscriptions(characterDeleted: ZStream[Any, Nothing, String])
+  case class Mutations(deleteCharacter: CharacterArgs => URIO[Console, Boolean])
+  case class Subscriptions(characterDeleted: ZStream[Console, Nothing, String])
+
+  type ExampleTask[A] = RIO[Console with Clock, A]
 
   override def run(args: List[String]): ZIO[Environment, Nothing, Int] =
     (for {
@@ -32,7 +37,7 @@ object ExampleApp extends CatsApp {
           Subscriptions(service.deletedEvents)
         )
       )
-      _ <- BlazeServerBuilder[Task]
+      _ <- BlazeServerBuilder[ExampleTask]
             .bindHttp(8088, "localhost")
             .withHttpApp(
               Router(
