@@ -55,7 +55,9 @@ trait Schema[-R, T] { self =>
   }
 }
 
-object Schema extends GenericSchema[Any] {
+object Schema extends GenericSchema[Any]
+
+trait GenericSchema[R] {
 
   /**
    * Creates a scalar schema for a type `A`
@@ -76,7 +78,8 @@ object Schema extends GenericSchema[Any] {
   implicit val intSchema: Schema[Any, Int]         = scalarSchema("Int", None, IntValue)
   implicit val floatSchema: Schema[Any, Float]     = scalarSchema("Float", None, FloatValue)
   implicit val doubleSchema: Schema[Any, Double]   = floatSchema.contramap(_.toFloat)
-  implicit def optionSchema[R, A](implicit ev: Schema[R, A]): Schema[R, Option[A]] = new Schema[R, Option[A]] {
+
+  implicit def optionSchema[A](implicit ev: Schema[R, A]): Schema[R, Option[A]] = new Schema[R, Option[A]] {
     override def optional: Boolean                        = true
     override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
     override def resolve(value: Option[A], arguments: Map[String, Value]): ZIO[R, ExecutionError, ResolvedValue] =
@@ -85,7 +88,7 @@ object Schema extends GenericSchema[Any] {
         case None        => UIO(NullValue)
       }
   }
-  implicit def listSchema[R, A](implicit ev: Schema[R, A]): Schema[R, List[A]] = new Schema[R, List[A]] {
+  implicit def listSchema[A](implicit ev: Schema[R, A]): Schema[R, List[A]] = new Schema[R, List[A]] {
     override def toType(isInput: Boolean = false): __Type = {
       val t = ev.toType(isInput)
       makeList(if (ev.optional) t else makeNonNull(t))
@@ -93,34 +96,78 @@ object Schema extends GenericSchema[Any] {
     override def resolve(value: List[A], arguments: Map[String, Value]): ZIO[R, ExecutionError, ResolvedValue] =
       ZIO.environment[R].map(env => ResolvedListValue(value.map(ev.resolve(_, arguments).provide(env))))
   }
-  implicit def setSchema[R, A](implicit ev: Schema[R, A]): Schema[R, Set[A]]           = listSchema[R, A].contramap(_.toList)
-  implicit def functionUnitSchema[R, A](implicit ev: Schema[R, A]): Schema[R, () => A] = ev.contramap(_())
+  implicit def setSchema[A](implicit ev: Schema[R, A]): Schema[R, Set[A]]           = listSchema[A].contramap(_.toList)
+  implicit def functionUnitSchema[A](implicit ev: Schema[R, A]): Schema[R, () => A] = ev.contramap(_())
+  implicit def eitherSchema[RA, RB, A, B](
+    implicit evA: Schema[RA, A],
+    evB: Schema[RB, B]
+  ): Schema[RA with RB, Either[A, B]] =
+    new Schema[RA with RB, Either[A, B]] {
+      override def toType(isInput: Boolean = false): __Type = {
+        val typeA     = evA.toType(isInput)
+        val typeB     = evB.toType(isInput)
+        val typeAName = Types.name(typeA)
+        val typeBName = Types.name(typeB)
+        makeObject(
+          Some(s"Either${typeAName}Or$typeBName"),
+          Some(s"Either $typeAName or $typeBName"),
+          List(
+            __Field("left", Some("Left element of the Either"), Nil, () => typeA),
+            __Field("right", Some("Right element of the Either"), Nil, () => typeB)
+          )
+        )
+      }
+
+      override def resolve(
+        value: Either[A, B],
+        arguments: Map[String, Value]
+      ): ZIO[RA with RB, ExecutionError, ResolvedValue] =
+        ZIO
+          .environment[RA with RB]
+          .map(
+            env =>
+              value match {
+                case Left(value) =>
+                  ResolvedObjectValue(
+                    "",
+                    Map(
+                      "left"  -> (_ => evA.resolve(value, Map()).provide(env)),
+                      "right" -> (_ => UIO(NullValue))
+                    )
+                  )
+                case Right(value) =>
+                  ResolvedObjectValue(
+                    "",
+                    Map(
+                      "left"  -> (_ => UIO(NullValue)),
+                      "right" -> (_ => evB.resolve(value, Map()).provide(env))
+                    )
+                  )
+              }
+          )
+    }
   implicit def tupleSchema[RA, RB, A, B](implicit evA: Schema[RA, A], evB: Schema[RB, B]): Schema[RA with RB, (A, B)] =
     new Schema[RA with RB, (A, B)] {
       override def toType(isInput: Boolean = false): __Type = {
         val typeA     = evA.toType(isInput)
         val typeB     = evB.toType(isInput)
-        val typeAName = typeA.name.getOrElse("")
-        val typeBName = typeB.name.getOrElse("")
+        val typeAName = Types.name(typeA)
+        val typeBName = Types.name(typeB)
         makeObject(
-          Some(s"Tuple$typeAName$typeBName"),
+          Some(s"Tuple${typeAName}And$typeBName"),
           Some(s"A tuple of $typeAName and $typeBName"),
           List(
             __Field(
               "_1",
               Some("First element of the tuple"),
               Nil,
-              () => if (evA.optional) typeA else makeNonNull(typeA),
-              isDeprecated = false,
-              None
+              () => if (evA.optional) typeA else makeNonNull(typeA)
             ),
             __Field(
               "_2",
               Some("Second element of the tuple"),
               Nil,
-              () => if (evB.optional) typeB else makeNonNull(typeB),
-              isDeprecated = false,
-              None
+              () => if (evB.optional) typeB else makeNonNull(typeB)
             )
           )
         )
@@ -148,28 +195,14 @@ object Schema extends GenericSchema[Any] {
       override def toType(isInput: Boolean = false): __Type = {
         val typeA     = evA.toType(isInput)
         val typeB     = evB.toType(isInput)
-        val typeAName = typeA.name.getOrElse("")
-        val typeBName = typeB.name.getOrElse("")
+        val typeAName = Types.name(typeA)
+        val typeBName = Types.name(typeB)
         val kvType = makeObject(
           Some(s"KV$typeAName$typeBName"),
           Some(s"A key-value pair of $typeAName and $typeBName"),
           List(
-            __Field(
-              "key",
-              Some("Key"),
-              Nil,
-              () => if (evA.optional) typeA else makeNonNull(typeA),
-              isDeprecated = false,
-              None
-            ),
-            __Field(
-              "value",
-              Some("Value"),
-              Nil,
-              () => if (evB.optional) typeB else makeNonNull(typeB),
-              isDeprecated = false,
-              None
-            )
+            __Field("key", Some("Key"), Nil, () => if (evA.optional) typeA else makeNonNull(typeA)),
+            __Field("value", Some("Value"), Nil, () => if (evB.optional) typeB else makeNonNull(typeB))
           )
         )
         makeList(makeNonNull(kvType))
@@ -212,31 +245,29 @@ object Schema extends GenericSchema[Any] {
       ): ZIO[RA with RB, ExecutionError, ResolvedValue] =
         arg1.build(Value.ObjectValue(arguments)).flatMap(argValue => ev2.resolve(value(argValue), Map()))
     }
-
-  implicit def effectSchema[R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R, ZIO[R, E, A]] =
-    new Schema[R, ZIO[R, E, A]] {
+  implicit def effectSchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZIO[R1, E, A]] =
+    new Schema[R1, ZIO[R1, E, A]] {
       override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
-      override def resolve(value: ZIO[R, E, A], arguments: Map[String, Value]): ZIO[R, ExecutionError, ResolvedValue] =
+      override def resolve(
+        value: ZIO[R1, E, A],
+        arguments: Map[String, Value]
+      ): ZIO[R1, ExecutionError, ResolvedValue] =
         value.flatMap(ev.resolve(_, arguments)).mapError {
           case e: ExecutionError => e
           case other             => ExecutionError("Caught error during execution of effectful field", Some(other))
         }
     }
-
-  implicit def streamSchema[R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R, ZStream[R, E, A]] =
-    new Schema[R, ZStream[R, E, A]] {
+  implicit def streamSchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZStream[R1, E, A]] =
+    new Schema[R1, ZStream[R1, E, A]] {
       override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
       override def resolve(
-        stream: ZStream[R, E, A],
+        stream: ZStream[R1, E, A],
         arguments: Map[String, Value]
-      ): ZIO[R, ExecutionError, ResolvedValue] =
+      ): ZIO[R1, ExecutionError, ResolvedValue] =
         ZIO
-          .environment[R]
+          .environment[R1]
           .map(env => ResolvedValue.ResolvedStreamValue(stream.mapM(ev.resolve(_, arguments)).provide(env)))
     }
-}
-
-trait GenericSchema[R] {
 
   type Typeclass[T] = Schema[R, T]
 
@@ -347,9 +378,7 @@ trait GenericSchema[R] {
                       "Fake field because GraphQL does not support empty objects. Do not query, use __typename instead."
                     ),
                     Nil,
-                    () => makeScalar("Boolean"),
-                    isDeprecated = false,
-                    None
+                    () => makeScalar("Boolean")
                   )
                 )
               )

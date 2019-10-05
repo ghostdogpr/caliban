@@ -183,12 +183,7 @@ object ExecutionSpec
               |}""".stripMargin
 
           val io = interpreter.execute(query, None, Map("name" -> StringValue("Amos Burton"))).map(_.toString)
-          assertM(
-            io,
-            equalTo(
-              """{"amos":{"name":"Amos Burton"}}"""
-            )
-          )
+          assertM(io, equalTo("""{"amos":{"name":"Amos Burton"}}"""))
         },
         testM("skip directive") {
           val interpreter = graphQL(resolver)
@@ -201,12 +196,7 @@ object ExecutionSpec
               |}""".stripMargin
 
           val io = interpreter.execute(query).map(_.toString)
-          assertM(
-            io,
-            equalTo(
-              """{"amos":{"name":"Amos Burton"}}"""
-            )
-          )
+          assertM(io, equalTo("""{"amos":{"name":"Amos Burton"}}"""))
         },
         testM("include directive") {
           val interpreter = graphQL(resolver)
@@ -219,12 +209,7 @@ object ExecutionSpec
               |}""".stripMargin
 
           val io = interpreter.execute(query, None, Map("included" -> BooleanValue(false))).map(_.toString)
-          assertM(
-            io,
-            equalTo(
-              """{"amos":{"name":"Amos Burton"}}"""
-            )
-          )
+          assertM(io, equalTo("""{"amos":{"name":"Amos Burton"}}"""))
         },
         testM("test Map") {
           case class Test(map: Map[Int, String])
@@ -238,12 +223,21 @@ object ExecutionSpec
               |}""".stripMargin
 
           val io = interpreter.execute(query).map(_.toString)
-          assertM(
-            io,
-            equalTo(
-              """{"map":[{"key":3,"value":"ok"}]}"""
-            )
-          )
+          assertM(io, equalTo("""{"map":[{"key":3,"value":"ok"}]}"""))
+        },
+        testM("test Either") {
+          case class Test(either: Either[Int, String])
+          val interpreter = graphQL(RootResolver(Test(Right("ok"))))
+          val query =
+            """{
+              |  either {
+              |    left
+              |    right
+              |  }
+              |}""".stripMargin
+
+          val io = interpreter.execute(query).map(_.toString)
+          assertM(io, equalTo("""{"either":{"left":null,"right":"ok"}}"""))
         }
       )
     )

@@ -56,4 +56,11 @@ object Types {
     }
 
   def innerType(t: __Type): __Type = t.ofType.map(innerType).getOrElse(t)
+
+  def name(t: __Type): String =
+    (t.kind match {
+      case __TypeKind.LIST     => t.ofType.map("ListOf" + name(_))
+      case __TypeKind.NON_NULL => t.ofType.map(name)
+      case _                   => t.name
+    }).getOrElse("")
 }

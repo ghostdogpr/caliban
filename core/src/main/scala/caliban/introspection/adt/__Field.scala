@@ -5,6 +5,6 @@ case class __Field(
   description: Option[String],
   args: List[__InputValue],
   `type`: () => __Type,
-  isDeprecated: Boolean,
-  deprecationReason: Option[String]
+  isDeprecated: Boolean = false,
+  deprecationReason: Option[String] = None
 )
