@@ -95,11 +95,11 @@ object Schema extends GenericSchema[Any] {
   }
   implicit def setSchema[R, A](implicit ev: Schema[R, A]): Schema[R, Set[A]]           = listSchema[R, A].contramap(_.toList)
   implicit def functionUnitSchema[R, A](implicit ev: Schema[R, A]): Schema[R, () => A] = ev.contramap(_())
-  implicit def tupleSchema[RA, RB, A, B](implicit ev1: Schema[RA, A], ev2: Schema[RB, B]): Schema[RA with RB, (A, B)] =
+  implicit def tupleSchema[RA, RB, A, B](implicit evA: Schema[RA, A], evB: Schema[RB, B]): Schema[RA with RB, (A, B)] =
     new Schema[RA with RB, (A, B)] {
       override def toType(isInput: Boolean = false): __Type = {
-        val typeA     = ev1.toType(isInput)
-        val typeB     = ev2.toType(isInput)
+        val typeA     = evA.toType(isInput)
+        val typeB     = evB.toType(isInput)
         val typeAName = typeA.name.getOrElse("")
         val typeBName = typeB.name.getOrElse("")
         makeObject(
@@ -110,7 +110,7 @@ object Schema extends GenericSchema[Any] {
               "_1",
               Some("First element of the tuple"),
               Nil,
-              () => if (ev1.optional) typeA else makeNonNull(typeA),
+              () => if (evA.optional) typeA else makeNonNull(typeA),
               isDeprecated = false,
               None
             ),
@@ -118,7 +118,7 @@ object Schema extends GenericSchema[Any] {
               "_2",
               Some("Second element of the tuple"),
               Nil,
-              () => if (ev1.optional) typeB else makeNonNull(typeB),
+              () => if (evB.optional) typeB else makeNonNull(typeB),
               isDeprecated = false,
               None
             )
@@ -130,16 +130,72 @@ object Schema extends GenericSchema[Any] {
         value: (A, B),
         arguments: Map[String, Value]
       ): ZIO[RA with RB, ExecutionError, ResolvedValue] =
-        for {
-          envA <- ZIO.environment[RA]
-          envB <- ZIO.environment[RB]
-        } yield ResolvedObjectValue(
-          "",
-          Map(
-            "_1" -> (_ => ev1.resolve(value._1, Map()).provide(envA)),
-            "_2" -> (_ => ev2.resolve(value._2, Map()).provide(envB))
+        ZIO
+          .environment[RA with RB]
+          .map(
+            env =>
+              ResolvedObjectValue(
+                "",
+                Map(
+                  "_1" -> (_ => evA.resolve(value._1, Map()).provide(env)),
+                  "_2" -> (_ => evB.resolve(value._2, Map()).provide(env))
+                )
+              )
+          )
+    }
+  implicit def mapSchema[RA, RB, A, B](implicit evA: Schema[RA, A], evB: Schema[RB, B]): Schema[RA with RB, Map[A, B]] =
+    new Schema[RA with RB, Map[A, B]] {
+      override def toType(isInput: Boolean = false): __Type = {
+        val typeA     = evA.toType(isInput)
+        val typeB     = evB.toType(isInput)
+        val typeAName = typeA.name.getOrElse("")
+        val typeBName = typeB.name.getOrElse("")
+        val kvType = makeObject(
+          Some(s"KV$typeAName$typeBName"),
+          Some(s"A key-value pair of $typeAName and $typeBName"),
+          List(
+            __Field(
+              "key",
+              Some("Key"),
+              Nil,
+              () => if (evA.optional) typeA else makeNonNull(typeA),
+              isDeprecated = false,
+              None
+            ),
+            __Field(
+              "value",
+              Some("Value"),
+              Nil,
+              () => if (evB.optional) typeB else makeNonNull(typeB),
+              isDeprecated = false,
+              None
+            )
           )
         )
+        makeList(makeNonNull(kvType))
+      }
+
+      override def resolve(
+        value: Map[A, B],
+        arguments: Map[String, Value]
+      ): ZIO[RA with RB, ExecutionError, ResolvedValue] =
+        ZIO
+          .environment[RA with RB]
+          .map(
+            env =>
+              ResolvedListValue(value.map {
+                case (key, value) =>
+                  ZIO.succeed(
+                    ResolvedObjectValue(
+                      "",
+                      Map(
+                        "key"   -> (_ => evA.resolve(key, Map()).provide(env)),
+                        "value" -> (_ => evB.resolve(value, Map()).provide(env))
+                      )
+                    )
+                  )
+              }.toList)
+          )
     }
   implicit def functionSchema[RA, RB, A, B](
     implicit arg1: ArgBuilder[A],

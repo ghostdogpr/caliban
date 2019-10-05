@@ -1,6 +1,7 @@
 package caliban.execution
 
 import caliban.GraphQL._
+import caliban.RootResolver
 import caliban.TestUtils._
 import caliban.parsing.adt.Value.{ BooleanValue, StringValue }
 import zio.Task
@@ -222,6 +223,25 @@ object ExecutionSpec
             io,
             equalTo(
               """{"amos":{"name":"Amos Burton"}}"""
+            )
+          )
+        },
+        testM("test Map") {
+          case class Test(map: Map[Int, String])
+          val interpreter = graphQL(RootResolver(Test(Map(3 -> "ok"))))
+          val query =
+            """{
+              |  map {
+              |    key
+              |    value
+              |  }
+              |}""".stripMargin
+
+          val io = interpreter.execute(query).map(_.toString)
+          assertM(
+            io,
+            equalTo(
+              """{"map":[{"key":3,"value":"ok"}]}"""
             )
           )
         }
