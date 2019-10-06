@@ -28,10 +28,11 @@ def getCharacter(name: String): Option[Character] = ???
 Let's create a case class named `Queries` that will represent our API, with 2 fields named and modeled after the functions we want to expose (a _record of functions_). We then create a value of this class that calls our actual functions. This is our resolver.
 
 ```scala
+// schema
 case class CharacterName(name: String)
 case class Queries(characters: List[Character],
                    character: CharacterName => Option[Character])
-
+// resolver
 val queries = Queries(getCharacters, args => getCharacter(args.name))
 ```
 
