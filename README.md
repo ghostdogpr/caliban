@@ -2,6 +2,11 @@
 Caliban is a purely functional library for creating GraphQL backends in Scala.
 It relies on [Magnolia](https://github.com/propensive/magnolia) to automatically derives GraphQL schemas from your data types, [Fastparse](https://github.com/lihaoyi/fastparse) to parse queries and [ZIO](https://github.com/zio/zio) to handle various effects.
 
+The design principles behind the library are the following:
+- pure interface: errors and effects are returned explicitly (no exceptions thrown), all returned types are referentially transparent (no `Future`).
+- clean separation between schema definition and implementation: schema is defined and validated at compile time using Scala standard types, resolver is a simple value provided at runtime.
+- minimal amount of boilerplate: no need to manually define a schema for every type in your API.
+
 ## Getting Started
 To use `caliban`, add the following line in your `build.sbt` file:
 
@@ -10,26 +15,29 @@ libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "0.0.5"
 ```
 
 ### Simple query
-Creating a GraphQL API with Caliban is as simple as creating a case class. The whole GraphQL schema will be derived from the case class structure (its fields and the other types it references), and the resolver is just an instance of that case class.
+Creating a GraphQL API with Caliban is as simple as creating a case class. Indeed, the whole GraphQL schema will be derived from a case class structure (its fields and the other types it references), and the resolver is just an instance of that case class.
 
-Let's say we have a class `Character` and a function `getCharacters`:
+Let's say we have a class `Character` and 2 functions: `getCharacters` and `getCharacter`:
 ```scala
 case class Character(name: String)
 
 def getCharacters: List[Character] = ???
+def getCharacter(name: String): Option[Character] = ???
 ```
 
-Let's create a case class named `Queries` that will represent our API, with one field named `characters` that returns a list of `Character`. We then create a value of this class that calls our `getCharacters` function. 
+Let's create a case class named `Queries` that will represent our API, with 2 fields named and modeled after the functions we want to expose (a _record of functions_). We then create a value of this class that calls our actual functions. This is our resolver.
 
 ```scala
-case class Queries(characters: List[Character])
+case class CharacterName(name: String)
+case class Queries(characters: List[Character],
+                   character: CharacterName => Option[Character])
 
-val queries = Queries(getCharacters)
+val queries = Queries(getCharacters, args => getCharacter(args.name))
 ```
 
-The next step is creating our graphql interpreter. First, we wrap our query resolver inside a `RootResolver`, the root object that contains queries, mutations and subscriptions. Only queries are mandatory. Then we can call the `graphQL` function which will turn our simple value into an interpreter. The whole schema will be derived at compile time, meaning that if it compiles, it will be able to serve it.
+The next step is creating our graphql interpreter. First, we wrap our query resolver inside a `RootResolver`, the root object that contains queries, mutations and subscriptions. Only queries are mandatory. Then we can call the `graphQL` function which will turn our simple resolver value into an interpreter. The whole schema will be derived at compile time, meaning that if it compiles, it will be able to serve it.
 ```scala
-import caliban.GraphQL._
+import caliban.GraphQL.graphQL
 import caliban.RootResolver
 
 val interpreter = graphQL(RootResolver(queries))
