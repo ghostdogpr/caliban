@@ -8,7 +8,7 @@ import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.{ Directive, Document, Selection, Value, VariableDefinition }
 import caliban.ResolvedValue.{ ResolvedListValue, ResolvedObjectValue, ResolvedStreamValue }
 import caliban.{ ResolvedValue, ResponseValue }
-import caliban.ResponseValue.{ ListValue, NullValue, ObjectValue, StringValue }
+import caliban.ResponseValue.{ EnumValue, ListValue, NullValue, ObjectValue, StringValue }
 import caliban.schema.RootSchema.Operation
 import caliban.schema.RootSchema
 import zio.{ IO, UIO, ZIO }
@@ -105,6 +105,15 @@ object Executor {
                 ResponseValue
                   .StreamValue(stream.mapM(res => executeSelectionSetLoop(UIO(res), selectionSet)).provide(env))
             )
+        case EnumValue(value)
+            if selectionSet.collectFirst { case Selection.Field(_, "__typename", _, _, _) => true }.nonEmpty =>
+          // special case of an hybrid union containing case objects, those should return an object instead of a string
+          val mergedSelectionSet = mergeSelectionSet(selectionSet, value, fragments, variableValues)
+          val resolveFields = mergedSelectionSet.collectFirst {
+            case Selection.Field(alias, name @ "__typename", _, _, _) =>
+              UIO(alias.getOrElse(name) -> StringValue(value))
+          }
+          ZIO.collectAll(resolveFields).map(ObjectValue)
         case other: ResponseValue => UIO(other)
       }
 
