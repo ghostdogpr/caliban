@@ -53,6 +53,18 @@ trait Schema[-R, T] { self =>
     override def resolve(value: A, arguments: Map[String, Value]): ZIO[R, ExecutionError, ResolvedValue] =
       self.resolve(f(value), arguments)
   }
+
+  /**
+   * Builds a new `Schema` from an existing one by only modifying the type definition.
+   * @param f a function from [[caliban.introspection.adt.__Type]] to [[caliban.introspection.adt.__Type]]
+   */
+  def mapType(f: __Type => __Type): Schema[R, T] = new Schema[R, T] {
+    override def optional: Boolean                = self.optional
+    override def arguments: List[__InputValue]    = self.arguments
+    override def toType(isInput: Boolean): __Type = f(self.toType(isInput))
+    override def resolve(value: T, arguments: Map[String, Value]): ZIO[R, ExecutionError, ResolvedValue] =
+      self.resolve(value, arguments)
+  }
 }
 
 object Schema extends GenericSchema[Any]
@@ -394,7 +406,8 @@ trait GenericSchema[R] {
   }
 
   private def getName(annotations: Seq[Any], typeName: TypeName): String =
-    annotations.collectFirst { case GQLName(name) => name }.getOrElse(typeName.short)
+    annotations.collectFirst { case GQLName(name) => name }
+      .getOrElse(typeName.short + typeName.typeArguments.map(_.short).mkString)
 
   private def getName[Typeclass[_], Type](ctx: CaseClass[Typeclass, Type]): String =
     getName(ctx.annotations, ctx.typeName)
