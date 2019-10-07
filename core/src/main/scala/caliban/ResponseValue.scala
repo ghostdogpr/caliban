@@ -8,7 +8,9 @@ import zio.stream.Stream
 sealed trait ResolvedValue
 sealed trait ResponseValue extends ResolvedValue {
   def asInt: Option[Int]                                 = None
+  def asLong: Option[Long]                               = None
   def asFloat: Option[Float]                             = None
+  def asDouble: Option[Double]                           = None
   def asString: Option[String]                           = None
   def asBoolean: Option[Boolean]                         = None
   def asList: Option[List[ResponseValue]]                = None
@@ -39,12 +41,20 @@ object ResponseValue {
     override def toString: String   = value.toString
     override def asInt: Option[Int] = Some(value)
   }
+  case class LongValue(value: Long) extends ResponseValue {
+    override def toString: String     = value.toString
+    override def asLong: Option[Long] = Some(value)
+  }
   case class FloatValue(value: Float) extends ResponseValue {
     override def toString: String       = value.toString
     override def asFloat: Option[Float] = Some(value)
   }
+  case class DoubleValue(value: Double) extends ResponseValue {
+    override def toString: String         = value.toString
+    override def asDouble: Option[Double] = Some(value)
+  }
   case class StringValue(value: String) extends ResponseValue {
-    override def toString: String         = s""""$value""""
+    override def toString: String         = s""""${value.replace("\"", "\\\"")}""""
     override def asString: Option[String] = Some(value)
   }
   case class BooleanValue(value: Boolean) extends ResponseValue {
@@ -52,7 +62,7 @@ object ResponseValue {
     override def asBoolean: Option[Boolean] = Some(value)
   }
   case class EnumValue(value: String) extends ResponseValue {
-    override def toString: String         = s""""$value""""
+    override def toString: String         = s""""${value.replace("\"", "\\\"")}""""
     override def asString: Option[String] = Some(value)
   }
   case class ListValue(values: List[ResponseValue]) extends ResponseValue {

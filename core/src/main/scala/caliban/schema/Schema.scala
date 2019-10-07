@@ -76,8 +76,9 @@ trait GenericSchema[R] {
   implicit val booleanSchema: Schema[Any, Boolean] = scalarSchema("Boolean", None, BooleanValue)
   implicit val stringSchema: Schema[Any, String]   = scalarSchema("String", None, StringValue)
   implicit val intSchema: Schema[Any, Int]         = scalarSchema("Int", None, IntValue)
+  implicit val longSchema: Schema[Any, Long]       = scalarSchema("Long", None, LongValue)
   implicit val floatSchema: Schema[Any, Float]     = scalarSchema("Float", None, FloatValue)
-  implicit val doubleSchema: Schema[Any, Double]   = floatSchema.contramap(_.toFloat)
+  implicit val doubleSchema: Schema[Any, Double]   = scalarSchema("Double", None, DoubleValue)
 
   implicit def optionSchema[A](implicit ev: Schema[R, A]): Schema[R, Option[A]] = new Schema[R, Option[A]] {
     override def optional: Boolean                        = true
