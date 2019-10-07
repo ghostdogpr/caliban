@@ -37,20 +37,14 @@ object ResponseValue {
   case object NullValue extends ResponseValue {
     override def toString: String = "null"
   }
-  case class IntValue(value: Int) extends ResponseValue {
-    override def toString: String   = value.toString
-    override def asInt: Option[Int] = Some(value)
-  }
-  case class LongValue(value: Long) extends ResponseValue {
+  case class IntValue(value: Long) extends ResponseValue {
     override def toString: String     = value.toString
+    override def asInt: Option[Int]   = Some(value.toInt)
     override def asLong: Option[Long] = Some(value)
   }
-  case class FloatValue(value: Float) extends ResponseValue {
-    override def toString: String       = value.toString
-    override def asFloat: Option[Float] = Some(value)
-  }
-  case class DoubleValue(value: Double) extends ResponseValue {
+  case class FloatValue(value: Double) extends ResponseValue {
     override def toString: String         = value.toString
+    override def asFloat: Option[Float]   = Some(value.toFloat)
     override def asDouble: Option[Double] = Some(value)
   }
   case class StringValue(value: String) extends ResponseValue {

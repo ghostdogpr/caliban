@@ -35,7 +35,7 @@ object Parser {
   private def nonZeroDigit[_: P]: P[Unit] = P(CharIn("1-9"))
   private def digit[_: P]: P[Unit]        = P("0" | nonZeroDigit)
   private def integerPart[_: P]: P[Unit]  = P((negativeSign.? ~~ "0") | (negativeSign.? ~~ nonZeroDigit ~~ digit.repX))
-  private def intValue[_: P]: P[IntValue] = integerPart.!.map(v => IntValue(v.toInt))
+  private def intValue[_: P]: P[IntValue] = integerPart.!.map(v => IntValue(v.toLong))
 
   private def sign[_: P]: P[Unit]              = P("-" | "+")
   private def exponentIndicator[_: P]: P[Unit] = P(CharIn("eE"))
@@ -44,7 +44,7 @@ object Parser {
 
   private def floatValue[_: P]: P[FloatValue] =
     P((integerPart ~~ fractionalPart) | (integerPart ~~ exponentPart) | (integerPart ~~ fractionalPart ~~ exponentPart)).!.map(
-      v => FloatValue(v.toFloat)
+      v => FloatValue(v.toDouble)
     )
 
   private def hexDigit[_: P]: P[Unit] = P(CharIn("0-9a-fA-F"))

@@ -25,7 +25,7 @@ object Http4sAdapter {
     json.fold(
       Value.NullValue,
       Value.BooleanValue,
-      number => number.toInt.map(Value.IntValue) getOrElse Value.FloatValue(number.toFloat),
+      number => number.toLong.map(Value.IntValue) getOrElse Value.FloatValue(number.toDouble),
       Value.StringValue,
       array => Value.ListValue(array.toList.map(jsonToValue)),
       obj => Value.ObjectValue(obj.toMap.map { case (k, v) => k -> jsonToValue(v) })

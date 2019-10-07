@@ -30,15 +30,17 @@ object ArgBuilder {
   type Typeclass[T] = ArgBuilder[T]
 
   implicit val unit: ArgBuilder[Unit] = _ => IO.succeed(())
-  implicit val int: ArgBuilder[Int] = {
+  implicit val long: ArgBuilder[Long] = {
     case Value.IntValue(value) => IO.succeed(value)
-    case other                 => IO.fail(ExecutionError(s"Can't build an Int from input $other"))
+    case other                 => IO.fail(ExecutionError(s"Can't build an Long from input $other"))
   }
-  implicit val float: ArgBuilder[Float] = {
-    case Value.IntValue(value)   => IO.succeed(value.toFloat)
+  implicit val int: ArgBuilder[Int] = long.map(_.toInt)
+  implicit val double: ArgBuilder[Double] = {
+    case Value.IntValue(value)   => IO.succeed(value.toDouble)
     case Value.FloatValue(value) => IO.succeed(value)
-    case other                   => IO.fail(ExecutionError(s"Can't build a Float from input $other"))
+    case other                   => IO.fail(ExecutionError(s"Can't build a Double from input $other"))
   }
+  implicit val float: ArgBuilder[Float] = double.map(_.toFloat)
   implicit val string: ArgBuilder[String] = {
     case Value.StringValue(value) => IO.succeed(value)
     case other                    => IO.fail(ExecutionError(s"Can't build a String from input $other"))
