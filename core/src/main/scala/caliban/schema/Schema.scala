@@ -53,18 +53,6 @@ trait Schema[-R, T] { self =>
     override def resolve(value: A, arguments: Map[String, Value]): ZIO[R, ExecutionError, ResolvedValue] =
       self.resolve(f(value), arguments)
   }
-
-  /**
-   * Builds a new `Schema` from an existing one by only modifying the type definition.
-   * @param f a function from [[caliban.introspection.adt.__Type]] to [[caliban.introspection.adt.__Type]]
-   */
-  def mapType(f: __Type => __Type): Schema[R, T] = new Schema[R, T] {
-    override def optional: Boolean                = self.optional
-    override def arguments: List[__InputValue]    = self.arguments
-    override def toType(isInput: Boolean): __Type = f(self.toType(isInput))
-    override def resolve(value: T, arguments: Map[String, Value]): ZIO[R, ExecutionError, ResolvedValue] =
-      self.resolve(value, arguments)
-  }
 }
 
 object Schema extends GenericSchema[Any]
@@ -116,20 +104,22 @@ trait GenericSchema[R] {
     evB: Schema[RB, B]
   ): Schema[RA with RB, Either[A, B]] =
     new Schema[RA with RB, Either[A, B]] {
-      override def toType(isInput: Boolean = false): __Type = {
-        val typeA     = evA.toType(isInput)
-        val typeB     = evB.toType(isInput)
-        val typeAName = Types.name(typeA)
-        val typeBName = Types.name(typeB)
+      val typeA: __Type       = evA.toType()
+      val typeB: __Type       = evB.toType()
+      val typeAName: String   = Types.name(typeA)
+      val typeBName: String   = Types.name(typeB)
+      val name: String        = s"Either${typeAName}Or$typeBName"
+      val description: String = s"Either $typeAName or $typeBName"
+
+      override def toType(isInput: Boolean = false): __Type =
         makeObject(
-          Some(s"Either${typeAName}Or$typeBName"),
-          Some(s"Either $typeAName or $typeBName"),
+          Some(name),
+          Some(description),
           List(
             __Field("left", Some("Left element of the Either"), Nil, () => typeA),
             __Field("right", Some("Right element of the Either"), Nil, () => typeB)
           )
         )
-      }
 
       override def resolve(
         value: Either[A, B],
@@ -142,7 +132,7 @@ trait GenericSchema[R] {
               value match {
                 case Left(value) =>
                   ResolvedObjectValue(
-                    "",
+                    name,
                     Map(
                       "left"  -> (_ => evA.resolve(value, Map()).provide(env)),
                       "right" -> (_ => UIO(NullValue))
@@ -150,7 +140,7 @@ trait GenericSchema[R] {
                   )
                 case Right(value) =>
                   ResolvedObjectValue(
-                    "",
+                    name,
                     Map(
                       "left"  -> (_ => UIO(NullValue)),
                       "right" -> (_ => evB.resolve(value, Map()).provide(env))
@@ -161,14 +151,17 @@ trait GenericSchema[R] {
     }
   implicit def tupleSchema[RA, RB, A, B](implicit evA: Schema[RA, A], evB: Schema[RB, B]): Schema[RA with RB, (A, B)] =
     new Schema[RA with RB, (A, B)] {
-      override def toType(isInput: Boolean = false): __Type = {
-        val typeA     = evA.toType(isInput)
-        val typeB     = evB.toType(isInput)
-        val typeAName = Types.name(typeA)
-        val typeBName = Types.name(typeB)
+      val typeA: __Type       = evA.toType()
+      val typeB: __Type       = evB.toType()
+      val typeAName: String   = Types.name(typeA)
+      val typeBName: String   = Types.name(typeB)
+      val name: String        = s"Tuple${typeAName}And$typeBName"
+      val description: String = s"A tuple of $typeAName and $typeBName"
+
+      override def toType(isInput: Boolean = false): __Type =
         makeObject(
-          Some(s"Tuple${typeAName}And$typeBName"),
-          Some(s"A tuple of $typeAName and $typeBName"),
+          Some(name),
+          Some(description),
           List(
             __Field(
               "_1",
@@ -184,7 +177,6 @@ trait GenericSchema[R] {
             )
           )
         )
-      }
 
       override def resolve(
         value: (A, B),
@@ -195,7 +187,7 @@ trait GenericSchema[R] {
           .map(
             env =>
               ResolvedObjectValue(
-                "",
+                name,
                 Map(
                   "_1" -> (_ => evA.resolve(value._1, Map()).provide(env)),
                   "_2" -> (_ => evB.resolve(value._2, Map()).provide(env))
@@ -205,14 +197,17 @@ trait GenericSchema[R] {
     }
   implicit def mapSchema[RA, RB, A, B](implicit evA: Schema[RA, A], evB: Schema[RB, B]): Schema[RA with RB, Map[A, B]] =
     new Schema[RA with RB, Map[A, B]] {
+      val typeA: __Type       = evA.toType()
+      val typeB: __Type       = evB.toType()
+      val typeAName: String   = Types.name(typeA)
+      val typeBName: String   = Types.name(typeB)
+      val name: String        = s"KV$typeAName$typeBName"
+      val description: String = s"A key-value pair of $typeAName and $typeBName"
+
       override def toType(isInput: Boolean = false): __Type = {
-        val typeA     = evA.toType(isInput)
-        val typeB     = evB.toType(isInput)
-        val typeAName = Types.name(typeA)
-        val typeBName = Types.name(typeB)
         val kvType = makeObject(
-          Some(s"KV$typeAName$typeBName"),
-          Some(s"A key-value pair of $typeAName and $typeBName"),
+          Some(name),
+          Some(description),
           List(
             __Field("key", Some("Key"), Nil, () => if (evA.optional) typeA else makeNonNull(typeA)),
             __Field("value", Some("Value"), Nil, () => if (evB.optional) typeB else makeNonNull(typeB))
@@ -233,7 +228,7 @@ trait GenericSchema[R] {
                 case (key, value) =>
                   ZIO.succeed(
                     ResolvedObjectValue(
-                      "",
+                      name,
                       Map(
                         "key"   -> (_ => evA.resolve(key, Map()).provide(env)),
                         "value" -> (_ => evB.resolve(value, Map()).provide(env))
