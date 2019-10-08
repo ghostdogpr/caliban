@@ -9,6 +9,13 @@ object Types {
    */
   def makeScalar(name: String, description: Option[String] = None) = __Type(__TypeKind.SCALAR, Some(name), description)
 
+  val boolean: __Type = makeScalar("Boolean")
+  val string: __Type  = makeScalar("String")
+  val int: __Type     = makeScalar("Int")
+  val long: __Type    = makeScalar("Long")
+  val float: __Type   = makeScalar("Float")
+  val double: __Type  = makeScalar("Double")
+
   def makeList(underlying: __Type) = __Type(__TypeKind.LIST, ofType = Some(underlying))
 
   def makeNonNull(underlying: __Type) = __Type(__TypeKind.NON_NULL, ofType = Some(underlying))

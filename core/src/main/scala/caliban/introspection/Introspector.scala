@@ -11,8 +11,6 @@ object Introspector {
 
   implicit lazy val typeSchema: Schema[Any, __Type] = Schema.gen[__Type]
 
-  private val booleanScalar = Types.makeScalar("Boolean", None)
-
   private val directives = List(
     __Directive(
       "skip",
@@ -20,7 +18,7 @@ object Introspector {
         "The @skip directive may be provided for fields, fragment spreads, and inline fragments, and allows for conditional exclusion during execution as described by the if argument."
       ),
       Set(__DirectiveLocation.FIELD, __DirectiveLocation.FRAGMENT_SPREAD, __DirectiveLocation.INLINE_FRAGMENT),
-      List(__InputValue("if", None, () => booleanScalar, None))
+      List(__InputValue("if", None, () => Types.boolean, None))
     ),
     __Directive(
       "include",
@@ -28,7 +26,7 @@ object Introspector {
         "The @include directive may be provided for fields, fragment spreads, and inline fragments, and allows for conditional inclusion during execution as described by the if argument."
       ),
       Set(__DirectiveLocation.FIELD, __DirectiveLocation.FRAGMENT_SPREAD, __DirectiveLocation.INLINE_FRAGMENT),
-      List(__InputValue("if", None, () => booleanScalar, None))
+      List(__InputValue("if", None, () => Types.boolean, None))
     )
   )
 
@@ -36,7 +34,7 @@ object Introspector {
    * Generates a schema for introspecting the given type.
    */
   def introspect(rootType: RootType): RootSchema[Any, __Introspection, Nothing, Nothing] = {
-    val types = rootType.types.updated("Boolean", booleanScalar).values.toList.sortBy(_.name.getOrElse(""))
+    val types = rootType.types.updated("Boolean", Types.boolean).values.toList.sortBy(_.name.getOrElse(""))
     val resolver = __Introspection(
       __Schema(rootType.queryType, rootType.mutationType, rootType.subscriptionType, types, directives),
       args => types.find(_.name.contains(args.name)).get
