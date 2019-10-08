@@ -1,6 +1,7 @@
 # Caliban
 
-[![Build Status][Badge-Circle]][Link-Circle] [![Release Artifacts][Badge-SonatypeReleases]][Link-SonatypeReleases]
+<!---[![Build Status][Badge-Circle]][Link-Circle]-->
+[![Release Artifacts][Badge-SonatypeReleases]][Link-SonatypeReleases]
 
 [Link-Circle]: https://circleci.com/gh/ghostdogpr/caliban "circleci"
 [Badge-Circle]: https://circleci.com/gh/ghostdogpr/caliban.svg?style=svg "circleci"
