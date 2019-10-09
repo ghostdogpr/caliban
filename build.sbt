@@ -38,6 +38,7 @@ lazy val root = project
   .in(file("."))
   .enablePlugins(ScalaJSPlugin)
   .settings(skip in publish := true)
+  .settings(historyPath := None)
   .aggregate(coreJVM, coreJS, http4s)
 
 lazy val core = crossProject(JSPlatform, JVMPlatform)
