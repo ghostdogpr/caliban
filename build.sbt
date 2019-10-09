@@ -1,3 +1,5 @@
+import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
+
 val mainScala = "2.12.10"
 val allScala  = Seq("2.13.1", mainScala)
 
@@ -8,8 +10,6 @@ inThisBuild(
     licenses := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0")),
     scalaVersion := mainScala,
     parallelExecution in Test := false,
-    fork in Test := true,
-    fork in run := true,
     pgpPassphrase := sys.env.get("PGP_PASSWORD").map(_.toArray),
     pgpPublicRing := file("/tmp/public.asc"),
     pgpSecretRing := file("/tmp/secret.asc"),
@@ -36,25 +36,35 @@ addCommandAlias("check", "all scalafmtSbtCheck scalafmtCheck test:scalafmtCheck"
 
 lazy val root = project
   .in(file("."))
+  .enablePlugins(ScalaJSPlugin)
   .settings(skip in publish := true)
-  .aggregate(core, http4s)
+  .aggregate(coreJVM, coreJS, http4s)
 
-lazy val core = project
+lazy val core = crossProject(JSPlatform, JVMPlatform)
+  .crossType(CrossType.Pure)
   .in(file("core"))
   .settings(name := "caliban")
   .settings(commonSettings)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "com.lihaoyi"    %% "fastparse"    % "2.1.3",
-      "com.propensive" %% "magnolia"     % "0.12.0",
-      "dev.zio"        %% "zio"          % "1.0.0-RC13",
-      "dev.zio"        %% "zio-streams"  % "1.0.0-RC13",
-      "dev.zio"        %% "zio-test"     % "1.0.0-RC13" % "test",
-      "dev.zio"        %% "zio-test-sbt" % "1.0.0-RC13" % "test",
+      "com.lihaoyi"    %%% "fastparse"    % "2.1.3",
+      "com.propensive" %%% "magnolia"     % "0.12.0",
+      "dev.zio"        %%% "zio"          % "1.0.0-RC13",
+      "dev.zio"        %%% "zio-streams"  % "1.0.0-RC13",
+      "dev.zio"        %%% "zio-test"     % "1.0.0-RC13" % "test",
+      "dev.zio"        %%% "zio-test-sbt" % "1.0.0-RC13" % "test",
       compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.0")
     )
   )
+  .jvmSettings(
+    fork in Test := true,
+    fork in run := true
+  )
+lazy val coreJVM = core.jvm
+lazy val coreJS = core.js.settings(
+  libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.0.0-RC3" % Test
+)
 
 lazy val http4s = project
   .in(file("http4s"))
@@ -72,7 +82,7 @@ lazy val http4s = project
       compilerPlugin("org.typelevel" %% "kind-projector" % "0.10.3")
     )
   )
-  .dependsOn(core)
+  .dependsOn(coreJVM)
 
 lazy val examples = project
   .in(file("examples"))
