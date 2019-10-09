@@ -48,12 +48,12 @@ lazy val core = crossProject(JSPlatform, JVMPlatform)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "com.lihaoyi"    %% "fastparse"    % "2.1.3",
-      "com.propensive" %% "magnolia"     % "0.12.0",
-      "dev.zio"        %% "zio"          % "1.0.0-RC13",
-      "dev.zio"        %% "zio-streams"  % "1.0.0-RC13",
-      "dev.zio"        %% "zio-test"     % "1.0.0-RC13" % "test",
-      "dev.zio"        %% "zio-test-sbt" % "1.0.0-RC13" % "test",
+      "com.lihaoyi"    %%% "fastparse"    % "2.1.3",
+      "com.propensive" %%% "magnolia"     % "0.12.0",
+      "dev.zio"        %%% "zio"          % "1.0.0-RC13",
+      "dev.zio"        %%% "zio-streams"  % "1.0.0-RC13",
+      "dev.zio"        %%% "zio-test"     % "1.0.0-RC13" % "test",
+      "dev.zio"        %%% "zio-test-sbt" % "1.0.0-RC13" % "test",
       compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.0")
     )
   )
@@ -62,7 +62,9 @@ lazy val core = crossProject(JSPlatform, JVMPlatform)
     fork in run := true
   )
 lazy val coreJVM = core.jvm
-lazy val coreJS  = core.js
+lazy val coreJS = core.js.settings(
+  libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.0.0-RC3" % Test
+)
 
 lazy val http4s = project
   .in(file("http4s"))
