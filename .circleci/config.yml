@@ -28,20 +28,6 @@ jobs:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
-  test212_js:
-    docker:
-      - image: circleci/openjdk:8-jdk
-    steps:
-      - checkout
-      - restore_cache:
-          key: sbt-cache-js
-      - run: sbt ++2.12.10! coreJS/test
-      - save_cache:
-          key: sbt-cache-js
-          paths:
-            - "~/.ivy2/cache"
-            - "~/.sbt"
-            - "~/.m2"
   test213_jdk11:
     docker:
       - image: hseeberger/scala-sbt:11.0.3_1.2.8_2.13.0
@@ -52,6 +38,20 @@ jobs:
       - run: sbt ++2.13.1! coreJVM/test
       - save_cache:
           key: sbt-cache
+          paths:
+            - "~/.ivy2/cache"
+            - "~/.sbt"
+            - "~/.m2"
+  test212_js:
+    docker:
+      - image: circleci/openjdk:8-jdk-node
+    steps:
+      - checkout
+      - restore_cache:
+          key: sbt-cache-js
+      - run: sbt ++2.12.10! coreJS/test
+      - save_cache:
+          key: sbt-cache-js
           paths:
             - "~/.ivy2/cache"
             - "~/.sbt"
@@ -100,6 +100,7 @@ workflows:
           requires:
             - test212_jdk8
             - test213_jdk11
+            - test212_js
           filters:
             branches:
               ignore: /.*/
