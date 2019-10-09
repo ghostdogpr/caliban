@@ -21,7 +21,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.12.10! ;coreJVM/test;http4s/compile;examples/compile
+      - run: sbt ++2.12.10! coreJVM/test http4s/compile examples/compile
       - save_cache:
           key: sbtcache
           paths:
@@ -35,7 +35,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.1! ;coreJVM/test;http4s/compile;examples/compile
+      - run: sbt ++2.13.1! coreJVM/test http4s/compile examples/compile
       - save_cache:
           key: sbtcache
           paths:
@@ -49,7 +49,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.12.10! ;coreJS/test
+      - run: sbt ++2.12.10! coreJS/test
       - save_cache:
           key: sbtcache
           paths:
