@@ -20,7 +20,7 @@ The design principles behind the library are the following:
 To use `caliban`, add the following line in your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "0.0.5"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "0.0.6"
 ```
 
 ### Simple query
