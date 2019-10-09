@@ -2,42 +2,42 @@ version: 2.1
 jobs:
   lint:
     docker:
-      - image: hseeberger/scala-sbt:8u212_1.2.8_2.12.9
+      - image: circleci/openjdk:8-jdk-node
     steps:
       - checkout
       - restore_cache:
-          key: sbt-cache
+          key: sbtcache
       - run: sbt ++2.12.10! check
       - save_cache:
-          key: sbt-cache
+          key: sbtcache
           paths:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
   test212_jdk8:
     docker:
-      - image: hseeberger/scala-sbt:8u212_1.2.8_2.12.9
+      - image: circleci/openjdk:8-jdk-node
     steps:
       - checkout
       - restore_cache:
-          key: sbt-cache
-      - run: sbt ++2.12.10! coreJVM/test
+          key: sbtcache
+      - run: sbt ++2.12.10! ;coreJVM/test;http4s/compile;examples/compile
       - save_cache:
-          key: sbt-cache
+          key: sbtcache
           paths:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
   test213_jdk11:
     docker:
-      - image: hseeberger/scala-sbt:11.0.3_1.2.8_2.13.0
+      - image: circleci/openjdk:11-jdk-node
     steps:
       - checkout
       - restore_cache:
-          key: sbt-cache
-      - run: sbt ++2.13.1! coreJVM/test
+          key: sbtcache
+      - run: sbt ++2.13.1! ;coreJVM/test;http4s/compile;examples/compile
       - save_cache:
-          key: sbt-cache
+          key: sbtcache
           paths:
             - "~/.ivy2/cache"
             - "~/.sbt"
@@ -48,22 +48,22 @@ jobs:
     steps:
       - checkout
       - restore_cache:
-          key: sbt-cache-js
-      - run: sbt ++2.12.10! coreJS/test
+          key: sbtcache
+      - run: sbt ++2.12.10! ;coreJS/test
       - save_cache:
-          key: sbt-cache-js
+          key: sbtcache
           paths:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
   release:
     docker:
-      - image: hseeberger/scala-sbt:8u212_1.2.8_2.12.9
+      - image: circleci/openjdk:8-jdk-node
     steps:
       - checkout
       - run: git fetch --tags
       - restore_cache:
-          key: sbt-cache
+          key: sbtcache
       - run: echo "credentials += Credentials(\"Sonatype Nexus Repository Manager\", \"oss.sonatype.org\", \"$SONATYPE_USER\", \"$SONATYPE_PASSWORD\")" > ~/.sbt/1.0/sonatype.sbt
       - run: echo -n "${PGP_PUBLIC}" | base64 -d > /tmp/public.asc
       - run: echo -n "${PGP_SECRET}" | base64 -d > /tmp/secret.asc
