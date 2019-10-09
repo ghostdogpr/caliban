@@ -34,10 +34,10 @@ jobs:
     steps:
       - checkout
       - restore_cache:
-          key: sbt-cache
+          key: sbt-cache-js
       - run: sbt ++2.12.10! coreJS/test
       - save_cache:
-          key: sbt-cache
+          key: sbt-cache-js
           paths:
             - "~/.ivy2/cache"
             - "~/.sbt"
