@@ -21,7 +21,21 @@ jobs:
       - checkout
       - restore_cache:
           key: sbt-cache
-      - run: sbt ++2.12.10! test
+      - run: sbt ++2.12.10! coreJVM/test
+      - save_cache:
+          key: sbt-cache
+          paths:
+            - "~/.ivy2/cache"
+            - "~/.sbt"
+            - "~/.m2"
+  test212_js:
+    docker:
+      - image: circleci/openjdk:8-jdk
+    steps:
+      - checkout
+      - restore_cache:
+          key: sbt-cache
+      - run: sbt ++2.12.10! coreJS/test
       - save_cache:
           key: sbt-cache
           paths:
@@ -35,7 +49,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbt-cache
-      - run: sbt ++2.13.1! test
+      - run: sbt ++2.13.1! coreJVM/test
       - save_cache:
           key: sbt-cache
           paths:
@@ -64,6 +78,12 @@ workflows:
             tags:
               only: /^v[0-9]+(\.[0-9]+)*$/
       - test212_jdk8:
+          requires:
+            - lint
+          filters:
+            tags:
+              only: /^v[0-9]+(\.[0-9]+)*$/
+      - test212_js:
           requires:
             - lint
           filters:
