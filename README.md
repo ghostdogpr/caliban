@@ -23,6 +23,8 @@ To use `caliban`, add the following line in your `build.sbt` file:
 libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "0.0.6"
 ```
 
+Note that caliban is also available for ScalaJS.
+
 ### Simple query
 Creating a GraphQL API with Caliban is as simple as creating a case class. Indeed, the whole GraphQL schema will be derived from a case class structure (its fields and the other types it references), and the resolver is just an instance of that case class.
 
@@ -196,6 +198,11 @@ You can also use the `scalarSchema` helper to create your own scalar types, prov
 import caliban.schema._
 implicit val unitSchema: Schema[Unit] = scalarSchema("Unit", None, _ => ObjectValue(Nil))
 ```
+
+## Validation
+It is possible to validate a query without running by calling the method `check` on your interpreter.
+
+It is also possible to skip validation when executing a query by passing `skipValidation = true` when calling `execute`. This will slightly improve performance.
 
 ## Introspection
 Introspection queries are fully supported, which means you can use your favorite tool to inspect your schema and generate documentation for free.
