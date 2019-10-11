@@ -10,3 +10,6 @@ tags
 .metals
 *.class
 *.log
+
+vuepress/node_modules/*
+*.lock

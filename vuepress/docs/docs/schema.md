@@ -1,0 +1,112 @@
+# Schema Definition
+
+## Enum and union
+A sealed trait will be converted to a different GraphQL type depending on its content:
+- a sealed trait with only case objects will be converted to an `ENUM`
+- a sealed trait with only case classes will be converted to a `UNION`
+
+GraphQL does not support empty objects, so in case a sealed trait mixes case classes and case objects, a union type will be created and the case objects will have a "fake" field named `_` which is not queryable.
+
+```scala
+sealed trait ORIGIN
+object ORIGIN {
+  case object EARTH extends ORIGIN
+  case object MARS  extends ORIGIN
+  case object BELT  extends ORIGIN
+}
+```
+The snippet above will produce the following GraphQL type:
+```graphql
+enum Origin {
+  BELT
+  EARTH
+  MARS
+}
+```
+
+Here's an example of union:
+```scala
+sealed trait Role
+object Role {
+  case class Captain(shipName: String) extends Role
+  case class Engineer(specialty: String) extends Role
+  case object Mechanic extends Role
+}
+```
+The snippet above will produce the following GraphQL type:
+```graphql
+union Role = Captain | Engineer | Mechanic
+
+type Captain {
+  shipName: String!
+}
+
+type Engineer {
+  specialty: String!
+}
+
+type Mechanic {
+  _: Boolean!
+}
+```
+
+## Arguments
+To declare a field that take arguments, create a dedicated case class representing the arguments and make the field a *function* from this class to the result type.
+```scala
+case class FilterArgs(origin: Option[Origin])
+case class Queries(characters: FilterArgs => List[Character])
+```
+The snippet above will produce the following GraphQL type:
+```graphql
+type Queries {
+  characters(origin: Origin): [Character!]!
+} 
+```
+## Effects
+Fields can return ZIO effects. This allows you to leverage all the features provided by ZIO: timeouts, retries, access to ZIO environment, memoizing, etc. An effect will be ran every time a query requiring the corresponding field is executed.
+
+If you don't use ZIO environment (`R` = `Any`), there is nothing special to do to get it working.
+
+If you require a ZIO environment, you will need to have the content of `caliban.schema.GenericSchema[R]` for your custom `R` in scope when you call `graphQL(...)`.
+```scala
+object schema extends GenericSchema[MyEnv]
+import schema._
+```
+
+## Mutations
+Creating mutations is the same as queries, except you pass them as the second argument to `RootResolver`:
+```scala
+case class CharacterArgs(name: String)
+case class Mutations(deleteCharacter: CharacterArgs => Task[Boolean])
+val mutations = Mutations(???)
+val interpreter = graphQL(RootResolver(queries, mutations))
+```
+
+## Subscriptions
+Similarly, subscriptions are passed as the third argument to `RootResolver`:
+```scala
+case class Subscriptions(deletedCharacter: ZStream[Any, Nothing, Character])
+val subscriptions = Subscriptions(???)
+val interpreter = graphQL(RootResolver(queries, mutations, subscriptions))
+```
+All the fields of the subscription root case class MUST return `ZStream` objects. When a subscription request is received, an output stream of `ResponseValue` will be returned wrapped in an `ObjectValue`.
+
+## Annotations
+Caliban supports a few annotation to enrich data types:
+- `@GQLName("name")` allows you to specify a different name for a data type or a field.
+- `@GQLDescription("description")` lets you provide a description for a data type or field. This description will be visible when your schema is introspected.
+- `@GQLDeprecated("reason")` allows deprecating a field or an enum value.
+
+## Custom types
+Caliban provides auto-derivation for common types such as `Int`, `String`, `List`, `Option`, etc. but you can also support your own types by providing an implicit instance of `caliban.schema.Schema`.
+
+An easy way to do this is to reuse existing instances and use `contramap` to map from your type to the original type. Here's an example of creating an instance for [refined](https://github.com/fthomas/refined)'s `NonEmptyString` reusing existing instance for `String`:
+```scala
+import caliban.schema._
+implicit val nonEmptyStringSchema: Schema[NonEmptyString] = Schema.stringSchema.contramap(_.value)
+```
+You can also use the `scalarSchema` helper to create your own scalar types, providing a name, an optional description, and a function from your type to a `ResponseValue`:
+```scala
+import caliban.schema._
+implicit val unitSchema: Schema[Unit] = scalarSchema("Unit", None, _ => ObjectValue(Nil))
+```
