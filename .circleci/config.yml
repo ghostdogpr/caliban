@@ -81,10 +81,10 @@ jobs:
           cd ..
           rm -rf docs
           cp -r vuepress/docs/.vuepress/dist docs
-          git add .
+          git add docs
           git config user.name "Pierre Ricadat"
           git config user.email "ghostdogpr@gmail.com"
-          git commit -m "[CI] update docs"
+          git commit -m "[ci skip] update docs"
           git push
 
 workflows:
