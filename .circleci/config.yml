@@ -74,16 +74,17 @@ jobs:
       - image: circleci/node
     steps:
       - checkout
-      - run: cd vuepress
-      - run: npm run docs:build
-      - run: cd ..
-      - run: rm -rf docs
-      - run: cp -r vuepress/docs/.vuepress/dist docs
-      - run: git add .
-      - run: git configure user.name "Pierre Ricadat"
-      - run: git configure user.email "ghostdogpr@gmail.com"
-      - run: git commit -m "[CI] update docs"
-      - run: git push
+      - run: |
+        cd vuepress
+        npm run docs:build
+        cd ..
+        rm -rf docs
+        cp -r vuepress/docs/.vuepress/dist docs
+        git add .
+        git configure user.name "Pierre Ricadat"
+        git configure user.email "ghostdogpr@gmail.com"
+        git commit -m "[CI] update docs"
+        git push
 
 workflows:
   version: 2
