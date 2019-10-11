@@ -1,4 +1,30 @@
-# Schema Definition
+# Schemas
+A GraphQL schema will be derived automatically from the types present in your resolver.
+The table below shows how common Scala types are converted to GraphQL types.
+
+Scala Type|GraphQL Type
+--- | ---
+Boolean|Boolean
+Int|Int
+Float|Float
+String|String
+Unit|Unit (custom scalar)
+Long|Long (custom scalar)
+Double|Double (custom scalar)
+Case Class|Object
+Sealed Trait|Enum or Union
+Option[A]|Nullable A
+List[A]|List of A
+Set[A]|List of A
+A => B|A and B
+(A, B)|Object with 2 fields `_1` and `_2`
+Either[A, B]|Object with 2 nullable fields `left` and `right`
+Map[A, B]| List of Object with 2 fields `key` and `value`
+ZIO[R, E, A]|A
+ZStream[R, E, A]|A
+
+
+See the [Custom Types](#custom-types) section to find out how to support your own types.
 
 ## Enum and union
 A sealed trait will be converted to a different GraphQL type depending on its content:
@@ -72,24 +98,6 @@ If you require a ZIO environment, you will need to have the content of `caliban.
 object schema extends GenericSchema[MyEnv]
 import schema._
 ```
-
-## Mutations
-Creating mutations is the same as queries, except you pass them as the second argument to `RootResolver`:
-```scala
-case class CharacterArgs(name: String)
-case class Mutations(deleteCharacter: CharacterArgs => Task[Boolean])
-val mutations = Mutations(???)
-val interpreter = graphQL(RootResolver(queries, mutations))
-```
-
-## Subscriptions
-Similarly, subscriptions are passed as the third argument to `RootResolver`:
-```scala
-case class Subscriptions(deletedCharacter: ZStream[Any, Nothing, Character])
-val subscriptions = Subscriptions(???)
-val interpreter = graphQL(RootResolver(queries, mutations, subscriptions))
-```
-All the fields of the subscription root case class MUST return `ZStream` objects. When a subscription request is received, an output stream of `ResponseValue` will be returned wrapped in an `ObjectValue`.
 
 ## Annotations
 Caliban supports a few annotation to enrich data types:

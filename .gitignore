@@ -13,3 +13,4 @@ tags
 
 vuepress/node_modules/*
 *.lock
+vuepress/package-lock.json

@@ -79,3 +79,21 @@ The `CalibanError` can be:
 - an `ExecutionError`: an error happened while executing the query
 
 Caliban itself is not tied to any web framework, you are free to expose this function using the protocol and library of your choice. The [caliban-http4s](https://github.com/ghostdogpr/caliban/tree/master/http4s) module provides an `Http4sAdapter` that exposes an interpreter over HTTP and WebSocket using http4s.
+
+## Mutations
+Creating mutations is the same as queries, except you pass them as the second argument to `RootResolver`:
+```scala
+case class CharacterArgs(name: String)
+case class Mutations(deleteCharacter: CharacterArgs => Task[Boolean])
+val mutations = Mutations(???)
+val interpreter = graphQL(RootResolver(queries, mutations))
+```
+
+## Subscriptions
+Similarly, subscriptions are passed as the third argument to `RootResolver`:
+```scala
+case class Subscriptions(deletedCharacter: ZStream[Any, Nothing, Character])
+val subscriptions = Subscriptions(???)
+val interpreter = graphQL(RootResolver(queries, mutations, subscriptions))
+```
+All the fields of the subscription root case class MUST return `ZStream` objects. When a subscription request is received, an output stream of `ResponseValue` will be returned wrapped in an `ObjectValue`.
