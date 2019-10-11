@@ -75,7 +75,7 @@ jobs:
     steps:
       - checkout
       - run: |
-          if [ "$(git diff --numstat HEAD^ -- docs)" ]; then
+          if [ "$(git diff --numstat HEAD^ -- vuepress)" ]; then
             cd vuepress
             npm install
             npm run docs:build

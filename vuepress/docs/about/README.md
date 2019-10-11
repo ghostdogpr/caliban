@@ -6,5 +6,5 @@ The name is inspired by the SF novel and tv series [The Expanse](https://en.wiki
 
 **Thanks**:
 - [@deckerst](https://github.com/deckerst) for the logo
-- [@yoohaemin](https://github.com/yoohaemin) and [@adamgfraser](https://github.com/adamgfraser) for the feedback
+- [@yoohaemin](https://github.com/yoohaemin) and [@adamgfraser](https://github.com/adamgfraser) for the early feedback
 - the [Morpheus](https://morpheusgraphql.com/) library in Haskell for the inspiration
