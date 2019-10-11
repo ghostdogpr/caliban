@@ -19,6 +19,7 @@ module.exports = {
         nav: [
           { text: 'Docs', link: '/docs/' },
           { text: 'About', link: '/about/' },
+          { text: 'Github', link: 'https://github.com/ghostdogpr/caliban' },
           { text: 'Scaladoc', link: 'https://javadoc.io/doc/com.github.ghostdogpr/caliban_2.12/' },
         ],
         sidebar: {
