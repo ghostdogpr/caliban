@@ -1,7 +1,7 @@
 # Caliban
 
 <!---[![Build Status][Badge-Circle]][Link-Circle]-->
-[![Release Artifacts][Badge-SonatypeReleases]][Link-SonatypeReleases]
+<img src="https://github.com/ghostdogpr/caliban/blob/master/vuepress/docs/.vuepress/public/caliban.png" width="100px" /> [![Release Artifacts][Badge-SonatypeReleases]][Link-SonatypeReleases]
 
 [Link-Circle]: https://circleci.com/gh/ghostdogpr/caliban "circleci"
 [Badge-Circle]: https://circleci.com/gh/ghostdogpr/caliban.svg?style=svg "circleci"
