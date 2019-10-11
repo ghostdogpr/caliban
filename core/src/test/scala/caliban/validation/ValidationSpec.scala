@@ -105,6 +105,142 @@ object ValidationSpec
               )
             )
           )
+        },
+        testM("field on enum") {
+          val interpreter = graphQL(resolver)
+          val query =
+            """{
+              |  characters {
+              |    origin {
+              |      __typename
+              |    }
+              |  }
+              |}""".stripMargin
+
+          val io = interpreter.execute(query).map(_.toString).run
+          assertM(
+            io,
+            fails[CalibanError](
+              hasField[CalibanError, String](
+                "msg",
+                _.msg,
+                equalTo("Field selection is impossible on type 'Origin'.")
+              )
+            )
+          )
+        },
+        testM("missing field on object") {
+          val interpreter = graphQL(resolver)
+          val query =
+            """{
+              |  characters
+              |}""".stripMargin
+
+          val io = interpreter.execute(query).map(_.toString).run
+          assertM(
+            io,
+            fails[CalibanError](
+              hasField[CalibanError, String](
+                "msg",
+                _.msg,
+                equalTo("Field selection is mandatory on type 'Character'.")
+              )
+            )
+          )
+        },
+        testM("invalid argument") {
+          val interpreter = graphQL(resolver)
+          val query =
+            """{
+              |  characters(arg: 1) {
+              |    name
+              |  }
+              |}""".stripMargin
+
+          val io = interpreter.execute(query).map(_.toString).run
+          assertM(
+            io,
+            fails[CalibanError](
+              hasField[CalibanError, String](
+                "msg",
+                _.msg,
+                equalTo("Argument 'arg' is not defined on field 'characters' of type 'Query'.")
+              )
+            )
+          )
+        },
+        testM("missing argument") {
+          val interpreter = graphQL(resolver)
+          val query =
+            """{
+              |  character(name: null) {
+              |    name
+              |  }
+              |}""".stripMargin
+
+          val io = interpreter.execute(query).map(_.toString).run
+          assertM(
+            io,
+            fails[CalibanError](
+              hasField[CalibanError, String](
+                "msg",
+                _.msg,
+                equalTo("Required argument 'name' is null or missing on field 'character' of type 'Query'.")
+              )
+            )
+          )
+        },
+        testM("duplicated fragment name") {
+          val interpreter = graphQL(resolver)
+          val query =
+            """query {
+              |  characters {
+              |    f
+              |  }
+              |}
+              |
+              |fragment f on Character {
+              |  name
+              |}
+              |fragment f on Character {
+              |  name
+              |}""".stripMargin
+
+          val io = interpreter.execute(query).map(_.toString).run
+          assertM(
+            io,
+            fails[CalibanError](
+              hasField[CalibanError, String](
+                "msg",
+                _.msg,
+                equalTo("Fragment 'f' is defined more than once.")
+              )
+            )
+          )
+        },
+        testM("fragment on invalid type") {
+          val interpreter = graphQL(resolver)
+          val query =
+            """query {
+              |  characters {
+              |    name
+              |    ... on Boolean {
+              |       name
+              |    }
+              |  }
+              |}""".stripMargin
+
+          val io = interpreter.execute(query).map(_.toString).run
+          assertM(
+            io,
+            fails[CalibanError](
+              hasField[CalibanError, String](
+                "msg",
+                _.msg,
+                equalTo("Inline Fragment on invalid type 'Boolean'")
+              )
+            )
+          )
         }
       )
     )

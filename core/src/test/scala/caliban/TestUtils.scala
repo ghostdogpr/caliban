@@ -54,7 +54,7 @@ object TestUtils {
   )
 
   @GQLDescription("Mutations")
-  case class MutationIO(deleteCharacter: CharactersArgs => UIO[Unit])
+  case class MutationIO(deleteCharacter: CharacterArgs => UIO[Unit])
 
   val resolver = RootResolver(
     Query(

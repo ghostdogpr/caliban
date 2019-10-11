@@ -1,12 +1,14 @@
 package caliban.validation
 
 import caliban.CalibanError.ValidationError
+import caliban.Rendering
+import caliban.execution.Executor
+import caliban.introspection.adt._
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
+import caliban.parsing.adt.Value.NullValue
 import caliban.parsing.adt.{ Document, OperationType, Selection }
 import caliban.schema.{ RootType, Types }
-import caliban.Rendering
-import caliban.introspection.adt._
 import zio.IO
 
 object Validator {
@@ -15,18 +17,24 @@ object Validator {
    * Verifies that the given document is valid for this type. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
   def validate(document: Document, rootType: RootType): IO[ValidationError, Unit] = {
-    val operations = collectOperations(document)
+    val (operations, fragments) = collectOperationsAndFragments(document)
     for {
       _                 <- validateOperationNameUniqueness(operations)
       _                 <- validateLoneAnonymousOperation(operations)
-      _                 <- validateSubscriptionOperation(operations)
+      fragmentMap       <- validateFragments(fragments)
+      _                 <- validateSubscriptionOperation(operations, fragmentMap)
       typesForFragments = collectTypesValidForFragments(rootType)
       _                 <- validateDocumentFields(document, rootType, typesForFragments)
     } yield ()
   }
 
-  private def collectOperations(document: Document): List[OperationDefinition] =
-    document.definitions.collect { case o: OperationDefinition => o }
+  private def collectOperationsAndFragments(
+    document: Document
+  ): (List[OperationDefinition], List[FragmentDefinition]) =
+    document.definitions.foldLeft((List.empty[OperationDefinition], List.empty[FragmentDefinition])) {
+      case ((operations, fragments), o: OperationDefinition) => (o :: operations, fragments)
+      case ((operations, fragments), f: FragmentDefinition)  => (operations, f :: fragments)
+    }
 
   private def collectTypesValidForFragments(rootType: RootType): Map[String, __Type] =
     rootType.types.filter {
@@ -52,33 +60,30 @@ object Validator {
               )(validateFields(selectionSet, _))
           }
         case FragmentDefinition(name, typeCondition, _, selectionSet) =>
-          typesForFragments
-            .get(typeCondition.name)
-            .map(validateFields(selectionSet, _))
-            .getOrElse(
-              IO.fail(
+          IO.fromOption(typesForFragments.get(typeCondition.name))
+            .mapError(
+              _ =>
                 ValidationError(
                   s"Fragment '$name' targets an invalid type: '${typeCondition.name}'.",
                   "Fragments must be specified on types that exist in the schema. This applies for both named and inline fragments. If they are not defined in the schema, the query does not validate."
                 )
-              )
             )
+            .flatMap(t => validateFields(selectionSet, t) *> validateFragmentType(Some(name), t))
       }
       .unit
 
   private def validateFields(selectionSet: List[Selection], currentType: __Type): IO[ValidationError, Unit] =
     IO.foreach(selectionSet) {
-        case f: Field          => validateField(f, currentType)
-        case _: FragmentSpread => IO.unit
-        case InlineFragment(typeCondition, _, selectionSet) =>
-          validateFields(
-            selectionSet,
-            typeCondition
-              .flatMap(onType => currentType.possibleTypes.getOrElse(Nil).find(_.name.contains(onType.name)))
-              .getOrElse(currentType)
-          )
-      }
-      .unit
+      case f: Field          => validateField(f, currentType)
+      case _: FragmentSpread => IO.unit
+      case InlineFragment(typeCondition, _, selectionSet) =>
+        (typeCondition match {
+          case Some(onType) =>
+            IO.fromOption(currentType.possibleTypes.getOrElse(Nil).find(_.name.contains(onType.name)))
+              .mapError(_ => ValidationError(s"Inline Fragment on invalid type '${onType.name}'", ""))
+          case None => IO.succeed(currentType)
+        }).flatMap(t => validateFields(selectionSet, t) *> validateFragmentType(None, t))
+    } *> validateLeafFieldSelection(selectionSet, currentType)
 
   private def validateField(field: Field, currentType: __Type): IO[ValidationError, Unit] =
     IO.when(field.name != "__typename") {
@@ -90,7 +95,53 @@ object Validator {
               "The target field of a field selection must be defined on the scoped type of the selection set. There are no limitations on alias names."
             )
         )
-        .flatMap(f => validateFields(field.selectionSet, Types.innerType(f.`type`())))
+        .flatMap { f =>
+          validateFields(field.selectionSet, Types.innerType(f.`type`())) *>
+            validateArguments(field, f, currentType)
+        }
+    }
+
+  private def validateArguments(field: Field, f: __Field, currentType: __Type): IO[ValidationError, List[Unit]] =
+    IO.foreach(field.arguments.keys)(
+      arg =>
+        IO.when(!f.args.exists(_.name == arg))(
+          IO.fail(
+            ValidationError(
+              s"Argument '$arg' is not defined on field '${field.name}' of type '${currentType.name.getOrElse("")}'.",
+              "Every argument provided to a field or directive must be defined in the set of possible arguments of that field or directive."
+            )
+          )
+        )
+    ) *>
+      IO.foreach(f.args.filter(a => a.`type`().kind == __TypeKind.NON_NULL && a.defaultValue.isEmpty))(
+        arg =>
+          IO.when(field.arguments.get(arg.name).forall(_ == NullValue))(
+            IO.fail(
+              ValidationError(
+                s"Required argument '${arg.name}' is null or missing on field '${field.name}' of type '${currentType.name
+                  .getOrElse("")}'.",
+                "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
+              )
+            )
+          )
+      )
+
+  private def validateLeafFieldSelection(selections: List[Selection], currentType: __Type): IO[ValidationError, Unit] =
+    IO.whenCase(currentType.kind) {
+      case __TypeKind.SCALAR | __TypeKind.ENUM if selections.nonEmpty =>
+        IO.fail(
+          ValidationError(
+            s"Field selection is impossible on type '${currentType.name.getOrElse("")}'.",
+            "Field selections on scalars or enums are never allowed, because they are the leaf nodes of any GraphQL query."
+          )
+        )
+      case __TypeKind.INTERFACE | __TypeKind.UNION | __TypeKind.OBJECT if selections.isEmpty =>
+        IO.fail(
+          ValidationError(
+            s"Field selection is mandatory on type '${currentType.name.getOrElse("")}'.",
+            "Leaf selections on objects, interfaces, and unions without subfields are disallowed."
+          )
+        )
     }
 
   private def validateOperationNameUniqueness(operations: List[OperationDefinition]): IO[ValidationError, Unit] = {
@@ -118,10 +169,30 @@ object Validator {
     )
   }
 
-  private def validateSubscriptionOperation(operations: List[OperationDefinition]): IO[ValidationError, Unit] = {
-    val subscriptions = operations.filter(_.operationType == OperationType.Subscription)
-    // TODO handle fragments
-    IO.fromOption(subscriptions.find(_.selectionSet.length > 1))
+  private def validateFragments(
+    fragments: List[FragmentDefinition]
+  ): IO[ValidationError, Map[String, FragmentDefinition]] =
+    IO.foldLeft(fragments)(Map.empty[String, FragmentDefinition]) {
+      case (fragmentMap, fragment) =>
+        if (fragmentMap.contains(fragment.name)) {
+          IO.fail(
+            ValidationError(
+              s"Fragment '${fragment.name}' is defined more than once.",
+              "Fragment definitions are referenced in fragment spreads by name. To avoid ambiguity, each fragment’s name must be unique within a document."
+            )
+          )
+        } else IO.succeed(fragmentMap.updated(fragment.name, fragment))
+    }
+
+  private def validateSubscriptionOperation(
+    operations: List[OperationDefinition],
+    fragments: Map[String, FragmentDefinition]
+  ): IO[ValidationError, Unit] =
+    IO.fromOption(
+        operations
+          .filter(_.operationType == OperationType.Subscription)
+          .find(op => Executor.mergeSelectionSet(op.selectionSet, "", fragments, Map()).length > 1)
+      )
       .map(
         op =>
           ValidationError(
@@ -130,6 +201,17 @@ object Validator {
           )
       )
       .flip
-  }
+
+  private def validateFragmentType(name: Option[String], targetType: __Type): IO[ValidationError, Unit] =
+    targetType.kind match {
+      case __TypeKind.UNION | __TypeKind.INTERFACE | __TypeKind.OBJECT => IO.unit
+      case _ =>
+        IO.fail(
+          ValidationError(
+            s"Fragment '${name.getOrElse("inline")}' is defined on invalid type '${targetType.name.getOrElse("")}'",
+            "Fragments can only be declared on unions, interfaces, and objects. They are invalid on scalars. They can only be applied on non‐leaf fields. This rule applies to both inline and named fragments."
+          )
+        )
+    }
 
 }

@@ -134,7 +134,7 @@ object Executor {
         })
     }
 
-  private def mergeSelectionSet(
+  private[caliban] def mergeSelectionSet(
     selectionSet: List[Selection],
     name: String,
     fragments: Map[String, FragmentDefinition],
