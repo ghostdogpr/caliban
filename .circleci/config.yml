@@ -69,6 +69,22 @@ jobs:
       - run: echo -n "${PGP_SECRET}" | base64 -d > /tmp/secret.asc
       - run: sbt ++${SCALA_VERSION}! clean sonatypeBundleClean +publishSigned sonatypeBundleRelease
 
+  microsite:
+    docker:
+      - image: circleci/node
+    steps:
+      - checkout
+      - run: cd vuepress
+      - run: npm run docs:build
+      - run: cd ..
+      - run: rm -rf docs
+      - run: cp -r vuepress/docs/.vuepress/dist docs
+      - run: git add .
+      - run: git configure user.name "Pierre Ricadat"
+      - run: git configure user.email "ghostdogpr@gmail.com"
+      - run: git commit -m "[CI] update docs"
+      - run: git push
+
 workflows:
   version: 2
   build:
@@ -106,3 +122,9 @@ workflows:
               ignore: /.*/
             tags:
               only: /^v[0-9]+(\.[0-9]+)*$/
+      - microsite:
+          filters:
+            branches:
+              only:
+                - master
+            
