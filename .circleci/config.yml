@@ -75,16 +75,16 @@ jobs:
     steps:
       - checkout
       - run: |
-        cd vuepress
-        npm run docs:build
-        cd ..
-        rm -rf docs
-        cp -r vuepress/docs/.vuepress/dist docs
-        git add .
-        git configure user.name "Pierre Ricadat"
-        git configure user.email "ghostdogpr@gmail.com"
-        git commit -m "[CI] update docs"
-        git push
+          cd vuepress
+          npm run docs:build
+          cd ..
+          rm -rf docs
+          cp -r vuepress/docs/.vuepress/dist docs
+          git add .
+          git configure user.name "Pierre Ricadat"
+          git configure user.email "ghostdogpr@gmail.com"
+          git commit -m "[CI] update docs"
+          git push
 
 workflows:
   version: 2
