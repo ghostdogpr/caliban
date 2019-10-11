@@ -82,8 +82,8 @@ jobs:
           rm -rf docs
           cp -r vuepress/docs/.vuepress/dist docs
           git add .
-          git configure user.name "Pierre Ricadat"
-          git configure user.email "ghostdogpr@gmail.com"
+          git config user.name "Pierre Ricadat"
+          git config user.email "ghostdogpr@gmail.com"
           git commit -m "[CI] update docs"
           git push
 
