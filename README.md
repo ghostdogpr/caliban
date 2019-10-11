@@ -16,4 +16,4 @@ The design principles behind the library are the following:
 - clean separation between schema definition and implementation: schema is defined and validated at compile time using Scala standard types, resolver is a simple value provided at runtime.
 - minimal amount of boilerplate: no need to manually define a schema for every type in your API.
 
-### Consult the [Documentation](https://ghostdogpr.github.io/caliban/docs/) to learn how to use caliban.
+### Consult the [Documentation](https://ghostdogpr.github.io/caliban/docs/) to learn how to use Caliban.
