@@ -91,6 +91,19 @@ lazy val examples = project
   .settings(skip in publish := true)
   .dependsOn(http4s)
 
+lazy val benchmarks = project
+  .in(file("benchmarks"))
+  .settings(commonSettings)
+  .settings(skip in publish := true)
+  .dependsOn(coreJVM)
+  .enablePlugins(JmhPlugin)
+  .settings(
+    libraryDependencies ++= Seq(
+      "org.sangria-graphql" %% "sangria"       % "1.4.2",
+      "org.sangria-graphql" %% "sangria-circe" % "1.2.1"
+    )
+  )
+
 val commonSettings = Def.settings(
   scalacOptions ++= Seq(
     "-deprecation",

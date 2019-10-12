@@ -26,7 +26,8 @@ object Executor {
     document: Document,
     schema: RootSchema[R, Q, M, S],
     operationName: Option[String] = None,
-    variables: Map[String, Value] = Map()
+    variables: Map[String, Value] = Map(),
+    parallelism: Int = 1
   ): ZIO[R, ExecutionError, ResponseValue] = {
     val fragments = document.definitions.collect {
       case fragment: FragmentDefinition => fragment.name -> fragment
@@ -42,25 +43,24 @@ object Executor {
         }
     }
     IO.fromEither(operation).mapError(ExecutionError(_)).flatMap { op =>
-      def executeOperation[A](x: Operation[R, A], parallel: Boolean): ZIO[R, ExecutionError, ResponseValue] =
+      def executeOperation[A](x: Operation[R, A]): ZIO[R, ExecutionError, ResponseValue] =
         executeSelectionSet(
           x.schema.resolve(x.resolver, Map()),
           op.selectionSet,
           fragments,
           op.variableDefinitions,
-          variables,
-          parallel
+          variables
         )
       op.operationType match {
-        case Query => executeOperation(schema.query, parallel = true)
+        case Query => executeOperation(schema.query)
         case Mutation =>
           schema.mutation match {
-            case Some(m) => executeOperation(m, parallel = false)
+            case Some(m) => executeOperation(m)
             case None    => IO.fail(ExecutionError("Mutations are not supported on this schema"))
           }
         case Subscription =>
           schema.subscription match {
-            case Some(m) => executeOperation(m, parallel = true)
+            case Some(m) => executeOperation(m)
             case None    => IO.fail(ExecutionError("Subscriptions are not supported on this schema"))
           }
       }
@@ -72,8 +72,7 @@ object Executor {
     selectionSet: List[Selection],
     fragments: Map[String, FragmentDefinition],
     variableDefinitions: List[VariableDefinition],
-    variableValues: Map[String, Value],
-    parallel: Boolean
+    variableValues: Map[String, Value]
   ): ZIO[R, ExecutionError, ResponseValue] = {
 
     def executeSelectionSetLoop(
@@ -94,9 +93,9 @@ object Executor {
                 .getOrElse(UIO.succeed(NullValue))
                 .map((alias.getOrElse(name), _))
           }
-          (if (parallel) ZIO.collectAllPar(resolveFields) else ZIO.collectAll(resolveFields)).map(ObjectValue)
+          ZIO.collectAll(resolveFields).map(ObjectValue)
         case ResolvedListValue(values) =>
-          ZIO.collectAllPar(values.map(executeSelectionSetLoop(_, selectionSet))).map(ListValue)
+          ZIO.collectAll(values.map(executeSelectionSetLoop(_, selectionSet))).map(ListValue)
         case ResolvedStreamValue(stream) =>
           ZIO
             .environment[R]

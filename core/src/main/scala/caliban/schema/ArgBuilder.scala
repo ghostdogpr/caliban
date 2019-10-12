@@ -54,7 +54,7 @@ object ArgBuilder {
     case value           => ev.build(value).map(Some(_))
   }
   implicit def list[A](implicit ev: ArgBuilder[A]): ArgBuilder[List[A]] = {
-    case Value.ListValue(items) => IO.foreachPar(items)(ev.build)
+    case Value.ListValue(items) => IO.foreach(items)(ev.build)
     case other                  => ev.build(other).map(List(_))
   }
 
