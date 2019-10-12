@@ -3,11 +3,12 @@ package caliban.validation
 import caliban.CalibanError.ValidationError
 import caliban.Rendering
 import caliban.execution.Executor
+import caliban.introspection.Introspector
 import caliban.introspection.adt._
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Value.NullValue
-import caliban.parsing.adt.{ Document, OperationType, Selection }
+import caliban.parsing.adt.{ Directive, Document, OperationType, Selection }
 import caliban.schema.{ RootType, Types }
 import zio.IO
 
@@ -22,7 +23,10 @@ object Validator {
       _                 <- validateOperationNameUniqueness(operations)
       _                 <- validateLoneAnonymousOperation(operations)
       fragmentMap       <- validateFragments(fragments)
-      _                 <- validateFragmentSpreads(operations, fragments)
+      selectionSets     = collectSelectionSets(operations.flatMap(_.selectionSet) ++ fragments.flatMap(_.selectionSet))
+      _                 <- validateDirectives(selectionSets)
+      _                 <- validateVariables(operations)
+      _                 <- validateFragmentSpreads(selectionSets, fragments)
       _                 <- validateSubscriptionOperation(operations, fragmentMap)
       typesForFragments = collectTypesValidForFragments(rootType)
       _                 <- validateDocumentFields(document, rootType, typesForFragments)
@@ -42,26 +46,63 @@ object Validator {
       case (_, t) => t.kind == __TypeKind.OBJECT || t.kind == __TypeKind.INTERFACE || t.kind == __TypeKind.UNION
     }
 
-  private def collectFragmentSpreads(selectionSet: List[Selection]): List[FragmentSpread] =
-    selectionSet.flatMap {
-      case f: FragmentSpread                  => List(f)
-      case Field(_, _, _, _, selectionSet)    => collectFragmentSpreads(selectionSet)
-      case InlineFragment(_, _, selectionSet) => collectFragmentSpreads(selectionSet)
+  private def collectSelectionSets(selectionSet: List[Selection]): List[Selection] =
+    selectionSet ++ selectionSet.flatMap {
+      case _: FragmentSpread                  => Nil
+      case Field(_, _, _, _, selectionSet)    => collectSelectionSets(selectionSet)
+      case InlineFragment(_, _, selectionSet) => collectSelectionSets(selectionSet)
     }
 
-  private def collectFragmentSpreads(
-    operations: List[OperationDefinition],
-    fragments: List[FragmentDefinition]
-  ): List[FragmentSpread] = {
-    val selectionSets = operations.flatMap(_.selectionSet) ++ fragments.flatMap(_.selectionSet)
-    collectFragmentSpreads(selectionSets)
+  private def collectDirectives(selectionSet: List[Selection]): List[Directive] =
+    selectionSet.flatMap {
+      case FragmentSpread(_, directives)    => directives
+      case Field(_, _, _, directives, _)    => directives
+      case InlineFragment(_, directives, _) => directives
+    }
+
+  private def validateDirectives(selectionSet: List[Selection]): IO[ValidationError, Unit] = {
+    val directives          = collectDirectives(selectionSet)
+    val supportedDirectives = Introspector.directives.map(_.name).toSet
+    IO.foreach(directives)(
+        d =>
+          IO.when(!supportedDirectives.contains(d.name))(
+            IO.fail(
+              ValidationError(
+                s"Directive '${d.name}' is not supported.",
+                "GraphQL servers define what directives they support. For each usage of a directive, the directive must be available on that server."
+              )
+            )
+          )
+      )
+      .unit
+
   }
 
+  private def validateVariables(definitions: List[OperationDefinition]): IO[ValidationError, Unit] =
+    IO.foreach(definitions)(
+        op =>
+          IO.foreach(op.variableDefinitions.groupBy(_.name)) {
+            case (name, variables) =>
+              IO.when(variables.length > 1)(
+                IO.fail(
+                  ValidationError(
+                    s"Variable '$name' is defined more than once.",
+                    "If any operation defines more than one variable with the same name, it is ambiguous and invalid. It is invalid even if the type of the duplicate variable is the same."
+                  )
+                )
+              )
+          }
+      )
+      .unit
+
+  private def collectFragmentSpreads(selectionSet: List[Selection]): List[FragmentSpread] =
+    selectionSet.collect { case f: FragmentSpread => f }
+
   private def validateFragmentSpreads(
-    operations: List[OperationDefinition],
+    selectionSets: List[Selection],
     fragments: List[FragmentDefinition]
   ): IO[ValidationError, Unit] = {
-    val spreads       = collectFragmentSpreads(operations, fragments)
+    val spreads       = collectFragmentSpreads(selectionSets)
     val spreadNames   = spreads.map(_.name).toSet
     val fragmentNames = fragments.map(_.name).toSet
     IO.foreach(fragments)(
@@ -84,14 +125,14 @@ object Validator {
     ) *> IO
       .foreach(spreadNames)(
         spread =>
-          if (!fragmentNames.contains(spread))
+          IO.when(!fragmentNames.contains(spread))(
             IO.fail(
               ValidationError(
                 s"Fragment spread '$spread' is not defined.",
                 "Named fragment spreads must refer to fragments defined within the document. It is a validation error if the target of a spread is not defined."
               )
             )
-          else IO.unit
+          )
       )
       .unit
   }
@@ -101,7 +142,8 @@ object Validator {
     fragments: List[FragmentDefinition],
     visited: Set[String] = Set()
   ): Boolean = {
-    val descendantSpreads = collectFragmentSpreads(fragment.selectionSet)
+    val selectionSets     = collectSelectionSets(fragment.selectionSet)
+    val descendantSpreads = collectFragmentSpreads(selectionSets)
     descendantSpreads.exists(
       s =>
         visited.contains(s.name) ||
