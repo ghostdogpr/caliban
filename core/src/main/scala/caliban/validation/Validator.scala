@@ -7,8 +7,8 @@ import caliban.introspection.Introspector
 import caliban.introspection.adt._
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
-import caliban.parsing.adt.Value.NullValue
-import caliban.parsing.adt.{ Directive, Document, OperationType, Selection }
+import caliban.parsing.adt.Value.{ NullValue, VariableValue }
+import caliban.parsing.adt.{ Directive, Document, OperationType, Selection, Type, Value }
 import caliban.schema.{ RootType, Types }
 import zio.IO
 
@@ -25,8 +25,8 @@ object Validator {
       fragmentMap       <- validateFragments(fragments)
       selectionSets     = collectSelectionSets(operations.flatMap(_.selectionSet) ++ fragments.flatMap(_.selectionSet))
       _                 <- validateDirectives(selectionSets)
-      _                 <- validateVariables(operations)
       _                 <- validateFragmentSpreads(selectionSets, fragments)
+      _                 <- validateVariables(operations, fragments, rootType)
       _                 <- validateSubscriptionOperation(operations, fragmentMap)
       typesForFragments = collectTypesValidForFragments(rootType)
       _                 <- validateDocumentFields(document, rootType, typesForFragments)
@@ -45,6 +45,24 @@ object Validator {
     rootType.types.filter {
       case (_, t) => t.kind == __TypeKind.OBJECT || t.kind == __TypeKind.INTERFACE || t.kind == __TypeKind.UNION
     }
+
+  private def collectVariablesUsed(selectionSet: List[Selection], fragments: List[FragmentDefinition]): Set[String] = {
+    def collectValues(selectionSet: List[Selection]): List[Value] =
+      selectionSet.flatMap {
+        case FragmentSpread(name, directives) =>
+          directives.flatMap(_.arguments.values) ++ fragments
+            .find(_.name == name)
+            .map(f => f.directives.flatMap(_.arguments.values) ++ collectValues(f.selectionSet))
+            .getOrElse(Nil)
+        case Field(_, _, arguments, directives, selectionSet) =>
+          arguments.values ++ directives.flatMap(_.arguments.values) ++ collectValues(selectionSet)
+        case InlineFragment(_, directives, selectionSet) =>
+          directives.flatMap(_.arguments.values) ++ collectValues(selectionSet)
+      }
+    collectValues(selectionSet).collect {
+      case VariableValue(name) => name
+    }.toSet
+  }
 
   private def collectSelectionSets(selectionSet: List[Selection]): List[Selection] =
     selectionSet ++ selectionSet.flatMap {
@@ -78,7 +96,11 @@ object Validator {
 
   }
 
-  private def validateVariables(definitions: List[OperationDefinition]): IO[ValidationError, Unit] =
+  private def validateVariables(
+    definitions: List[OperationDefinition],
+    fragments: List[FragmentDefinition],
+    rootType: RootType
+  ): IO[ValidationError, Unit] =
     IO.foreach(definitions)(
         op =>
           IO.foreach(op.variableDefinitions.groupBy(_.name)) {
@@ -91,6 +113,40 @@ object Validator {
                   )
                 )
               )
+          } *> IO.foreach(op.variableDefinitions) { v =>
+            val t = Type.innerType(v.variableType)
+            IO.whenCase(rootType.types.get(t).map(_.kind)) {
+              case Some(__TypeKind.OBJECT) | Some(__TypeKind.UNION) | Some(__TypeKind.INTERFACE) =>
+                IO.fail(
+                  ValidationError(
+                    s"Type of variable '${v.name}' is not a valid input type.",
+                    "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
+                  )
+                )
+            }
+          } *> {
+            val variableUsages = collectVariablesUsed(op.selectionSet, fragments)
+            IO.foreach(variableUsages)(
+              v =>
+                IO.when(!op.variableDefinitions.exists(_.name == v))(
+                  IO.fail(
+                    ValidationError(
+                      s"Variable '$v' is not defined.",
+                      "Variables are scoped on a per‐operation basis. That means that any variable used within the context of an operation must be defined at the top level of that operation"
+                    )
+                  )
+                )
+            ) *> IO.foreach(op.variableDefinitions)(
+              v =>
+                IO.when(!variableUsages.contains(v.name))(
+                  IO.fail(
+                    ValidationError(
+                      s"Variable '${v.name}' is not used.",
+                      "All variables defined by an operation must be used in that operation or a fragment transitively included by that operation. Unused variables cause a validation error."
+                    )
+                  )
+                )
+            )
           }
       )
       .unit

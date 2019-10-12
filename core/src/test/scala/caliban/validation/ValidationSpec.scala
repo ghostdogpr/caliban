@@ -184,6 +184,33 @@ object ValidationSpec
               |  }
               |}""".stripMargin
           check(query, "Variable 'name' is defined more than once.")
+        },
+        testM("invalid variable") {
+          val query =
+            """query($x: Character) {
+              |  characters {
+              |    name
+              |  }
+              |}""".stripMargin
+          check(query, "Type of variable 'x' is not a valid input type.")
+        },
+        testM("variable not defined") {
+          val query =
+            """query {
+              |  character(name: $x) {
+              |    name
+              |  }
+              |}""".stripMargin
+          check(query, "Variable 'x' is not defined.")
+        },
+        testM("variable not used") {
+          val query =
+            """query($x: String) {
+              |  characters {
+              |    name
+              |  }
+              |}""".stripMargin
+          check(query, "Variable 'x' is not used.")
         }
       )
     })
