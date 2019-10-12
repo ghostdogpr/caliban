@@ -11,7 +11,7 @@ object Introspector {
 
   implicit lazy val typeSchema: Schema[Any, __Type] = Schema.gen[__Type]
 
-  private val directives = List(
+  private[caliban] val directives = List(
     __Directive(
       "skip",
       Some(
