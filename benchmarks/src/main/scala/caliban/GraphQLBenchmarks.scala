@@ -22,7 +22,7 @@ import zio.{ DefaultRuntime, UIO }
 @Warmup(iterations = 5, time = 3, timeUnit = TimeUnit.SECONDS)
 @Measurement(iterations = 5, time = 3, timeUnit = TimeUnit.SECONDS)
 @Fork(1)
-class IntrospectionBenchmark {
+class GraphQLBenchmarks {
 
   val simpleQuery: String =
     """{
