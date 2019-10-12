@@ -7,7 +7,7 @@ package caliban
  *
  * It's mandatory to have a query resolver, the 2 others are optional.
  */
-case class RootResolver[Query, Mutation, Subscription](
+case class RootResolver[+Query, +Mutation, +Subscription](
   queryResolver: Query,
   mutationResolver: Option[Mutation],
   subscriptionResolver: Option[Subscription]

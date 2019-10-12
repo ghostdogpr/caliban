@@ -18,7 +18,7 @@ import zio.{ IO, ZIO }
  * It is intended to be created only once, typically when you start your server.
  * The introspection schema will be generated when this class is instantiated.
  */
-class GraphQL[-R, Q, M, S](schema: RootSchema[R, Q, M, S]) {
+class GraphQL[-R, -Q, -M, -S](schema: RootSchema[R, Q, M, S]) {
 
   private val rootType =
     RootType(
