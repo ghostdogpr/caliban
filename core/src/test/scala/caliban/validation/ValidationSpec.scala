@@ -86,7 +86,7 @@ object ValidationSpec
           val query =
             """query {
               |  characters {
-              |    name
+              |    ...f
               |  }
               |}
               |
@@ -195,7 +195,7 @@ object ValidationSpec
           val query =
             """query {
               |  characters {
-              |    f
+              |    ...f
               |  }
               |}
               |
@@ -237,7 +237,81 @@ object ValidationSpec
               hasField[CalibanError, String](
                 "msg",
                 _.msg,
-                equalTo("Inline Fragment on invalid type 'Boolean'")
+                equalTo("Inline Fragment on invalid type 'Boolean'.")
+              )
+            )
+          )
+        },
+        testM("fragment unused") {
+          val interpreter = graphQL(resolver)
+          val query =
+            """query {
+              |  characters {
+              |    name
+              |  }
+              |}
+              |
+              |fragment f on Character {
+              |  name
+              |}""".stripMargin
+
+          val io = interpreter.execute(query).map(_.toString).run
+          assertM(
+            io,
+            fails[CalibanError](
+              hasField[CalibanError, String](
+                "msg",
+                _.msg,
+                equalTo("Fragment 'f' is not used in any spread.")
+              )
+            )
+          )
+        },
+        testM("fragment spreads not defined") {
+          val interpreter = graphQL(resolver)
+          val query =
+            """query {
+              |  characters {
+              |    ...f
+              |  }
+              |}""".stripMargin
+
+          val io = interpreter.execute(query).map(_.toString).run
+          assertM(
+            io,
+            fails[CalibanError](
+              hasField[CalibanError, String](
+                "msg",
+                _.msg,
+                equalTo("Fragment spread 'f' is not defined.")
+              )
+            )
+          )
+        },
+        testM("fragment cycle") {
+          val interpreter = graphQL(resolver)
+          val query =
+            """query {
+              |  characters {
+              |    ...f1
+              |  }
+              |}
+              |
+              |fragment f1 on Character {
+              |  ...f2
+              |}
+              |fragment f2 on Character {
+              |  ...f1
+              |}""".stripMargin
+
+          val io = interpreter.execute(query).map(_.toString).run
+          assertM(
+            io,
+            fails[CalibanError](
+              hasField[CalibanError, String](
+                "msg",
+                _.msg,
+                equalTo("Fragment 'f2' forms a cycle.")
               )
             )
           )

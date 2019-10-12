@@ -22,6 +22,7 @@ object Validator {
       _                 <- validateOperationNameUniqueness(operations)
       _                 <- validateLoneAnonymousOperation(operations)
       fragmentMap       <- validateFragments(fragments)
+      _                 <- validateFragmentSpreads(operations, fragments)
       _                 <- validateSubscriptionOperation(operations, fragmentMap)
       typesForFragments = collectTypesValidForFragments(rootType)
       _                 <- validateDocumentFields(document, rootType, typesForFragments)
@@ -40,6 +41,73 @@ object Validator {
     rootType.types.filter {
       case (_, t) => t.kind == __TypeKind.OBJECT || t.kind == __TypeKind.INTERFACE || t.kind == __TypeKind.UNION
     }
+
+  private def collectFragmentSpreads(selectionSet: List[Selection]): List[FragmentSpread] =
+    selectionSet.flatMap {
+      case f: FragmentSpread                  => List(f)
+      case Field(_, _, _, _, selectionSet)    => collectFragmentSpreads(selectionSet)
+      case InlineFragment(_, _, selectionSet) => collectFragmentSpreads(selectionSet)
+    }
+
+  private def collectFragmentSpreads(
+    operations: List[OperationDefinition],
+    fragments: List[FragmentDefinition]
+  ): List[FragmentSpread] = {
+    val selectionSets = operations.flatMap(_.selectionSet) ++ fragments.flatMap(_.selectionSet)
+    collectFragmentSpreads(selectionSets)
+  }
+
+  private def validateFragmentSpreads(
+    operations: List[OperationDefinition],
+    fragments: List[FragmentDefinition]
+  ): IO[ValidationError, Unit] = {
+    val spreads       = collectFragmentSpreads(operations, fragments)
+    val spreadNames   = spreads.map(_.name).toSet
+    val fragmentNames = fragments.map(_.name).toSet
+    IO.foreach(fragments)(
+      f =>
+        if (!spreadNames.contains(f.name))
+          IO.fail(
+            ValidationError(
+              s"Fragment '${f.name}' is not used in any spread.",
+              "Defined fragments must be used within a document."
+            )
+          )
+        else if (detectCycles(f, fragments))
+          IO.fail(
+            ValidationError(
+              s"Fragment '${f.name}' forms a cycle.",
+              "The graph of fragment spreads must not form any cycles including spreading itself. Otherwise an operation could infinitely spread or infinitely execute on cycles in the underlying data."
+            )
+          )
+        else IO.unit
+    ) *> IO
+      .foreach(spreadNames)(
+        spread =>
+          if (!fragmentNames.contains(spread))
+            IO.fail(
+              ValidationError(
+                s"Fragment spread '$spread' is not defined.",
+                "Named fragment spreads must refer to fragments defined within the document. It is a validation error if the target of a spread is not defined."
+              )
+            )
+          else IO.unit
+      )
+      .unit
+  }
+
+  private def detectCycles(
+    fragment: FragmentDefinition,
+    fragments: List[FragmentDefinition],
+    visited: Set[String] = Set()
+  ): Boolean = {
+    val descendantSpreads = collectFragmentSpreads(fragment.selectionSet)
+    descendantSpreads.exists(
+      s =>
+        visited.contains(s.name) ||
+          fragments.find(_.name == s.name).fold(false)(f => detectCycles(f, fragments, visited + s.name))
+    )
+  }
 
   private def validateDocumentFields(
     document: Document,
@@ -80,7 +148,7 @@ object Validator {
         (typeCondition match {
           case Some(onType) =>
             IO.fromOption(currentType.possibleTypes.getOrElse(Nil).find(_.name.contains(onType.name)))
-              .mapError(_ => ValidationError(s"Inline Fragment on invalid type '${onType.name}'", ""))
+              .mapError(_ => ValidationError(s"Inline Fragment on invalid type '${onType.name}'.", ""))
           case None => IO.succeed(currentType)
         }).flatMap(t => validateFields(selectionSet, t) *> validateFragmentType(None, t))
     } *> validateLeafFieldSelection(selectionSet, currentType)
