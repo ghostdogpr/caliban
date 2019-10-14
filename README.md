@@ -17,3 +17,5 @@ The design principles behind the library are the following:
 - minimal amount of boilerplate: no need to manually define a schema for every type in your API.
 
 ### Consult the [Documentation](https://ghostdogpr.github.io/caliban/docs/) to learn how to use Caliban.
+
+### Any questions? Head up to the [#caliban](https://discordapp.com/channels/629491597070827530/633200096393166868) channel on [ZIO Discord](https://discord.gg/EYpumuv).
