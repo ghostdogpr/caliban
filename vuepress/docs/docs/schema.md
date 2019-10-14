@@ -1,5 +1,5 @@
 # Schemas
-A GraphQL schema will be derived automatically from the types present in your resolver.
+A GraphQL schema will be derived automatically at compile-time (no reflection) from the types present in your resolver.
 The table below shows how common Scala types are converted to GraphQL types.
 
 Scala Type|GraphQL Type
@@ -23,8 +23,9 @@ Map[A, B]| List of Object with 2 fields `key` and `value`
 ZIO[R, E, A]|A
 ZStream[R, E, A]|A
 
-
 See the [Custom Types](#custom-types) section to find out how to support your own types.
+
+If you want Caliban to support other standard types, feel free to [file an issue](https://github.com/ghostdogpr/caliban/issues) or even a PR.
 
 ## Enum and union
 A sealed trait will be converted to a different GraphQL type depending on its content:
@@ -88,6 +89,9 @@ type Queries {
   characters(origin: Origin): [Character!]!
 } 
 ```
+
+Caliban provides auto-derivation for common types such as `Int`, `String`, `List`, `Option`, etc. but you can also support your own types by providing an implicit instance of `caliban.schema.ArgBuilder`.
+
 ## Effects
 Fields can return ZIO effects. This allows you to leverage all the features provided by ZIO: timeouts, retries, access to ZIO environment, memoizing, etc. An effect will be ran every time a query requiring the corresponding field is executed.
 

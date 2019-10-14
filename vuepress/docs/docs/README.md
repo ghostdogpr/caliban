@@ -5,7 +5,7 @@ It relies on [Magnolia](https://github.com/propensive/magnolia) to automatically
 
 The design principles behind the library are the following:
 - pure interface: errors and effects are returned explicitly (no exceptions thrown), all returned types are referentially transparent (no `Future`).
-- clean separation between schema definition and implementation: schema is defined and validated at compile time using Scala standard types, resolver is a simple value provided at runtime.
+- clean separation between schema definition and implementation: schema is defined and validated at compile-time (no reflection) using Scala standard types, resolver is a simple value provided at runtime.
 - minimal amount of boilerplate: no need to manually define a schema for every type in your API.
 
 ## Dependencies
@@ -15,7 +15,7 @@ To use `caliban`, add the following line in your `build.sbt` file:
 libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "0.0.6"
 ```
 
-Note that caliban is also available for ScalaJS.
+Note that Caliban is also available for ScalaJS.
 
 ## A simple example
 Creating a GraphQL API with Caliban is as simple as creating a case class. Indeed, the whole GraphQL schema will be derived from a case class structure (its fields and the other types it references), and the resolver is just an instance of that case class.
