@@ -51,10 +51,10 @@ lazy val core = crossProject(JSPlatform, JVMPlatform)
     libraryDependencies ++= Seq(
       "com.lihaoyi"    %%% "fastparse"    % "2.1.3",
       "com.propensive" %%% "magnolia"     % "0.12.0",
-      "dev.zio"        %%% "zio"          % "1.0.0-RC14",
-      "dev.zio"        %%% "zio-streams"  % "1.0.0-RC14",
-      "dev.zio"        %%% "zio-test"     % "1.0.0-RC14" % "test",
-      "dev.zio"        %%% "zio-test-sbt" % "1.0.0-RC14" % "test",
+      "dev.zio"        %%% "zio"          % "1.0.0-RC15",
+      "dev.zio"        %%% "zio-streams"  % "1.0.0-RC15",
+      "dev.zio"        %%% "zio-test"     % "1.0.0-RC15" % "test",
+      "dev.zio"        %%% "zio-test-sbt" % "1.0.0-RC15" % "test",
       compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
     )
   )
