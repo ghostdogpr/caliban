@@ -51,11 +51,11 @@ lazy val core = crossProject(JSPlatform, JVMPlatform)
     libraryDependencies ++= Seq(
       "com.lihaoyi"    %%% "fastparse"    % "2.1.3",
       "com.propensive" %%% "magnolia"     % "0.12.0",
-      "dev.zio"        %%% "zio"          % "1.0.0-RC13",
-      "dev.zio"        %%% "zio-streams"  % "1.0.0-RC13",
-      "dev.zio"        %%% "zio-test"     % "1.0.0-RC13" % "test",
-      "dev.zio"        %%% "zio-test-sbt" % "1.0.0-RC13" % "test",
-      compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.0")
+      "dev.zio"        %%% "zio"          % "1.0.0-RC14",
+      "dev.zio"        %%% "zio-streams"  % "1.0.0-RC14",
+      "dev.zio"        %%% "zio-test"     % "1.0.0-RC14" % "test",
+      "dev.zio"        %%% "zio-test-sbt" % "1.0.0-RC14" % "test",
+      compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
     )
   )
   .jvmSettings(
@@ -73,14 +73,14 @@ lazy val http4s = project
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "dev.zio"       %% "zio-interop-cats"    % "2.0.0.0-RC4",
+      "dev.zio"       %% "zio-interop-cats"    % "2.0.0.0-RC5",
       "org.typelevel" %% "cats-effect"         % "2.0.0",
       "org.http4s"    %% "http4s-dsl"          % "0.21.0-M5",
       "org.http4s"    %% "http4s-circe"        % "0.21.0-M5",
       "org.http4s"    %% "http4s-blaze-server" % "0.21.0-M5",
-      "io.circe"      %% "circe-parser"        % "0.12.1",
+      "io.circe"      %% "circe-parser"        % "0.12.2",
       "io.circe"      %% "circe-derivation"    % "0.12.0-M7",
-      compilerPlugin("org.typelevel" %% "kind-projector" % "0.10.3")
+      compilerPlugin(("org.typelevel" %% "kind-projector" % "0.11.0").cross(CrossVersion.full))
     )
   )
   .dependsOn(coreJVM)
