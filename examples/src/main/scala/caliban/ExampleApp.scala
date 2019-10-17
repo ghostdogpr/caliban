@@ -12,7 +12,7 @@ import zio.clock.Clock
 import zio.console.{ putStrLn, Console }
 import zio.interop.catz._
 import zio.stream.ZStream
-import zio.{ RIO, URIO, ZIO }
+import zio.{ RIO, URIO, ZEnv, ZIO }
 
 object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
 
@@ -27,7 +27,7 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
 
   type ExampleTask[A] = RIO[Console with Clock, A]
 
-  override def run(args: List[String]): ZIO[Environment, Nothing, Int] =
+  override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] =
     (for {
       service <- ExampleService.make(sampleCharacters)
       interpreter = graphQL(
