@@ -1,12 +1,8 @@
 package caliban
 
-import caliban.CalibanError.ExecutionError
-import caliban.parsing.adt.Value
-import zio.IO
 import zio.stream.Stream
 
-sealed trait ResolvedValue
-sealed trait ResponseValue extends ResolvedValue {
+sealed trait ResponseValue {
   def asInt: Option[Int]                                 = None
   def asLong: Option[Long]                               = None
   def asFloat: Option[Float]                             = None
@@ -18,21 +14,6 @@ sealed trait ResponseValue extends ResolvedValue {
   def asStream: Option[Stream[Throwable, ResponseValue]] = None
 }
 
-/**
- * Resolved values that require more processing
- */
-object ResolvedValue {
-  case class ResolvedObjectValue(
-    name: String,
-    fields: Map[String, Map[String, Value] => IO[ExecutionError, ResolvedValue]]
-  ) extends ResolvedValue
-  case class ResolvedListValue(values: List[IO[ExecutionError, ResolvedValue]]) extends ResolvedValue
-  case class ResolvedStreamValue(stream: Stream[Throwable, ResolvedValue])      extends ResolvedValue
-}
-
-/**
- * Resolved values fully processed, can be returned to client
- */
 object ResponseValue {
   case object NullValue extends ResponseValue {
     override def toString: String = "null"
