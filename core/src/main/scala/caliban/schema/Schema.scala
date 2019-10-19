@@ -55,7 +55,7 @@ trait Schema[-R, T] { self =>
 
 object Schema extends GenericSchema[Any]
 
-trait GenericSchema[R] {
+trait GenericSchema[R] extends DerivationSchema[R] {
 
   /**
    * Creates a scalar schema for a type `A`
@@ -208,14 +208,14 @@ trait GenericSchema[R] {
 
       override def resolve(value: A => B): Step[RA with RB] =
         FunctionStep(
-          args => DeferredStep(arg1.build(Value.ObjectValue(args)).map(argValue => ev2.resolve(value(argValue))))
+          args => EffectStep(arg1.build(Value.ObjectValue(args)).map(argValue => ev2.resolve(value(argValue))))
         )
     }
   implicit def effectSchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZIO[R1, E, A]] =
     new Schema[R1, ZIO[R1, E, A]] {
       override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
       override def resolve(value: ZIO[R1, E, A]): Step[R1] =
-        DeferredStep(
+        EffectStep(
           value.bimap(
             {
               case e: ExecutionError => e
@@ -224,6 +224,11 @@ trait GenericSchema[R] {
             ev.resolve
           )
         )
+    }
+  implicit def fetchSchema[A](implicit ev: Schema[R, A]): Schema[R, Fetch[A]] =
+    new Schema[R, Fetch[A]] {
+      override def toType(isInput: Boolean): __Type  = ev.toType(isInput)
+      override def resolve(value: Fetch[A]): Step[R] = FetchStep(value.map(ev.resolve))
     }
   implicit def streamSchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZStream[R1, E, A]] =
     new Schema[R1, ZStream[R1, E, A]] {
@@ -239,6 +244,10 @@ trait GenericSchema[R] {
           )
         )
     }
+
+}
+
+trait DerivationSchema[R] {
 
   type Typeclass[T] = Schema[R, T]
 

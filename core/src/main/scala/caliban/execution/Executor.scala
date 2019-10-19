@@ -10,7 +10,7 @@ import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt._
 import caliban.schema.RootSchema.Operation
 import caliban.schema.Step._
-import caliban.schema.{ ReducedStep, RootSchema, Step }
+import caliban.schema.{ Fetch, ReducedStep, RootSchema, Step }
 import zio.{ IO, UIO, ZIO }
 
 object Executor {
@@ -109,8 +109,9 @@ object Executor {
                 .getOrElse(NullStep)
           }
           reduceObject(items)
-        case DeferredStep(inner) => ReducedStep.DeferredStep(inner.map(reduceStep(_, selectionSet, arguments)))
-        case StreamStep(stream)  => ReducedStep.StreamStep(stream.map(reduceStep(_, selectionSet, arguments)))
+        case EffectStep(inner)  => ReducedStep.EffectStep(inner.map(reduceStep(_, selectionSet, arguments)))
+        case FetchStep(inner)   => ReducedStep.FetchStep(inner.map(reduceStep(_, selectionSet, arguments)))
+        case StreamStep(stream) => ReducedStep.StreamStep(stream.map(reduceStep(_, selectionSet, arguments)))
       }
 
     def executeStep(step: ReducedStep[R]): ZIO[R, ExecutionError, ResponseValue] =
@@ -120,10 +121,18 @@ object Executor {
           ZIO.environment[R].map(env => ResponseValue.StreamValue(inner.mapM(executeStep).provide(env)))
         case _ =>
           val ioList = collectIO(step)
-          for {
-            ioResults <- if (allowParallelism) ZIO.collectAllPar(ioList) else ZIO.collectAll(ioList)
-            result    <- executeStep(replaceIO(step, ioResults))
-          } yield result
+          if (ioList.nonEmpty) {
+            for {
+              ioResults <- if (allowParallelism) ZIO.collectAllPar(ioList) else ZIO.collectAll(ioList)
+              result    <- executeStep(replaceIO(step, ioResults))
+            } yield result
+          } else {
+            val fetches = collectFetch(step).map(_.run)
+            for {
+              fetchResults <- ZIO.collectAllPar(fetches)
+              result       <- executeStep(replaceFetch(step, fetchResults.map(_.getOrElse(NullStep))))
+            } yield result
+          }
       }
 
     executeStep(reduceStep(plan, selectionSet, Map()))
@@ -211,27 +220,47 @@ object Executor {
       }))
     else ReducedStep.ObjectStep(items)
 
-  private def collectIO[R](step: ReducedStep[R]): List[ZIO[R, ExecutionError, ReducedStep[R]]] =
-    step match {
-      case ReducedStep.ListStep(steps)     => steps.flatMap(collectIO[R])
-      case ReducedStep.ObjectStep(fields)  => fields.flatMap { case (_, v) => collectIO(v) }
-      case ReducedStep.DeferredStep(inner) => List(inner)
-      case _                               => Nil
-    }
+  private def collect[R, A](step: ReducedStep[R], pf: PartialFunction[ReducedStep[R], List[A]]): List[A] =
+    pf.applyOrElse(
+      step, {
+        case ReducedStep.ListStep(steps)    => steps.flatMap(collect(_, pf))
+        case ReducedStep.ObjectStep(fields) => fields.flatMap { case (_, v) => collect(v, pf) }
+        case _                              => Nil
+      }
+    )
 
-  private def replaceIO[R](step: ReducedStep[R], list: List[ReducedStep[R]]): ReducedStep[R] = {
+  private def collectIO[R](step: ReducedStep[R]): List[ZIO[R, ExecutionError, ReducedStep[R]]] =
+    collect[R, ZIO[R, ExecutionError, ReducedStep[R]]](step, { case ReducedStep.EffectStep(inner) => List(inner) })
+
+  private def collectFetch[R](step: ReducedStep[R]): List[Fetch[ReducedStep[R]]] =
+    collect[R, Fetch[ReducedStep[R]]](step, { case ReducedStep.FetchStep(inner) => List(inner) })
+
+  private def replace[R, A](
+    step: ReducedStep[R],
+    list: List[ReducedStep[R]],
+    pf: PartialFunction[ReducedStep[R], Unit]
+  ): ReducedStep[R] = {
     var l = list // use var for better performance
-    def replaceIOLoop(step: ReducedStep[R]): ReducedStep[R] =
-      step match {
-        case ReducedStep.ListStep(steps)    => reduceList(steps.map(replaceIOLoop))
-        case ReducedStep.ObjectStep(fields) => reduceObject(fields.map { case (k, v) => k -> replaceIOLoop(v) })
-        case ReducedStep.DeferredStep(_) if l.nonEmpty =>
+    def replaceLoop(step: ReducedStep[R]): ReducedStep[R] =
+      pf.lift(step) match {
+        case Some(_) if l.nonEmpty =>
           val head = l.head
           l = l.tail
           head
-        case other => other
+        case _ =>
+          step match {
+            case ReducedStep.ListStep(steps)    => reduceList(steps.map(replaceLoop))
+            case ReducedStep.ObjectStep(fields) => reduceObject(fields.map { case (k, v) => k -> replaceLoop(v) })
+            case other                          => other
+          }
       }
-    replaceIOLoop(step)
+    replaceLoop(step)
   }
+
+  private def replaceIO[R](step: ReducedStep[R], list: List[ReducedStep[R]]): ReducedStep[R] =
+    replace(step, list, { case ReducedStep.EffectStep(_) => () })
+
+  private def replaceFetch[R](step: ReducedStep[R], list: List[ReducedStep[R]]): ReducedStep[R] =
+    replace(step, list, { case ReducedStep.FetchStep(_) => () })
 
 }
