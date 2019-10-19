@@ -27,6 +27,17 @@ See the [Custom Types](#custom-types) section to find out how to support your ow
 
 If you want Caliban to support other standard types, feel free to [file an issue](https://github.com/ghostdogpr/caliban/issues) or even a PR.
 
+::: warning
+Magnolia (the library used to derive the schema at compile-time) sometimes has some trouble generating schemas with a lot of nested types, or types reused in multiple places.
+to deal with this, you can declare schemas for your case classes and sealed traits explicitly:
+```scala
+implicit val roleSchema      = Schema.gen[Role]
+implicit val characterSchema = Schema.gen[Character]
+```
+Make sure those implicits are in scope when you call `graphQL(...)`. This will make Magnolia's job easier by pre-generating schemas for those classes and re-using them when needed.
+This will also improve compilation times and generate less bytecode.
+:::
+
 ## Enum and union
 A sealed trait will be converted to a different GraphQL type depending on its content:
 - a sealed trait with only case objects will be converted to an `ENUM`
