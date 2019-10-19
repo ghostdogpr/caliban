@@ -221,13 +221,15 @@ object Executor {
     else ReducedStep.ObjectStep(items)
 
   private def collect[R, A](step: ReducedStep[R], pf: PartialFunction[ReducedStep[R], List[A]]): List[A] =
-    pf.applyOrElse(
-      step, {
-        case ReducedStep.ListStep(steps)    => steps.flatMap(collect(_, pf))
-        case ReducedStep.ObjectStep(fields) => fields.flatMap { case (_, v) => collect(v, pf) }
-        case _                              => Nil
-      }
-    )
+    pf.lift(step) match {
+      case Some(value) => value
+      case None =>
+        step match {
+          case ReducedStep.ListStep(steps)    => steps.flatMap(collect(_, pf))
+          case ReducedStep.ObjectStep(fields) => fields.flatMap { case (_, v) => collect(v, pf) }
+          case _                              => Nil
+        }
+    }
 
   private def collectIO[R](step: ReducedStep[R]): List[ZIO[R, ExecutionError, ReducedStep[R]]] =
     collect[R, ZIO[R, ExecutionError, ReducedStep[R]]](step, { case ReducedStep.EffectStep(inner) => List(inner) })
@@ -235,7 +237,7 @@ object Executor {
   private def collectFetch[R](step: ReducedStep[R]): List[Fetch[ReducedStep[R]]] =
     collect[R, Fetch[ReducedStep[R]]](step, { case ReducedStep.FetchStep(inner) => List(inner) })
 
-  private def replace[R, A](
+  private def replace[R](
     step: ReducedStep[R],
     list: List[ReducedStep[R]],
     pf: PartialFunction[ReducedStep[R], Unit]
@@ -258,9 +260,9 @@ object Executor {
   }
 
   private def replaceIO[R](step: ReducedStep[R], list: List[ReducedStep[R]]): ReducedStep[R] =
-    replace(step, list, { case ReducedStep.EffectStep(_) => () })
+    replace[R](step, list, { case ReducedStep.EffectStep(_) => () })
 
   private def replaceFetch[R](step: ReducedStep[R], list: List[ReducedStep[R]]): ReducedStep[R] =
-    replace(step, list, { case ReducedStep.FetchStep(_) => () })
+    replace[R](step, list, { case ReducedStep.FetchStep(_) => () })
 
 }

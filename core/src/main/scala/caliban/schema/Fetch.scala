@@ -1,6 +1,5 @@
 package caliban.schema
 
-import caliban.schema.Fetch.FetchData
 import zio.UIO
 
 trait DataSource[I, +A] { self =>
