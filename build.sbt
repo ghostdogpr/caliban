@@ -78,7 +78,7 @@ lazy val http4s = project
       "org.http4s"    %% "http4s-dsl"          % "0.21.0-M5",
       "org.http4s"    %% "http4s-circe"        % "0.21.0-M5",
       "org.http4s"    %% "http4s-blaze-server" % "0.21.0-M5",
-      "io.circe"      %% "circe-parser"        % "0.12.2",
+      "io.circe"      %% "circe-parser"        % "0.12.3",
       "io.circe"      %% "circe-derivation"    % "0.12.0-M7",
       compilerPlugin(("org.typelevel" %% "kind-projector" % "0.11.0").cross(CrossVersion.full))
     )
