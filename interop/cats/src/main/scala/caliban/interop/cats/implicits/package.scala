@@ -23,5 +23,10 @@ package object implicits {
         variables,
         skipValidation
       )
+
+    def checkAsync[F[_]: Async](
+      query: String
+    )(implicit runtime: Runtime[R]): F[Unit] =
+      CatsInterop.checkAsync(underlying)(query)
   }
 }

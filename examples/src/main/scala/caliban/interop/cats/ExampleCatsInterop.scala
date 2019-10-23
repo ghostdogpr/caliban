@@ -9,7 +9,7 @@ object ExampleCatsInterop extends IOApp {
 
   import caliban.interop.cats.implicits._
 
-  implicit val runtime = new DefaultRuntime {}
+  implicit val runtime = CatsInterop.defaultZioRuntime
 
   case class Number(value: Int)
 

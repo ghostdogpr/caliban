@@ -3,9 +3,11 @@ package caliban.interop.cats
 import caliban.parsing.adt.Value
 import caliban.{GraphQL, ResponseValue}
 import cats.effect.Async
-import zio.Runtime
+import zio.{DefaultRuntime, Runtime}
 
 object CatsInterop {
+
+  val defaultZioRuntime = new DefaultRuntime {}
 
   def executeAsync[F[_]: Async, R, Q, M, S](graphQL: GraphQL[R, Q, M, S])(
     query: String,
@@ -18,5 +20,12 @@ object CatsInterop {
         graphQL.execute(query, operationName, variables, skipValidation)
 
       runtime.unsafeRunAsync(execution)(exit => cb(exit.toEither))
+    }
+
+  def checkAsync[F[_]: Async, R, Q, M, S](
+    graphQL: GraphQL[R, Q, M, S]
+  )(query: String)(implicit runtime: Runtime[R]): F[Unit] =
+    Async[F].async { cb =>
+      runtime.unsafeRunAsync(graphQL.execute(query))(exit => cb(exit.toEither))
     }
 }
