@@ -72,6 +72,18 @@ lazy val coreJS = core.js.settings(
   libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.0.0-RC3" % Test
 )
 
+lazy val catsInterop = crossProject(JSPlatform, JVMPlatform)
+  .in(file("interop/cats"))
+  .settings(name := "caliban-cats")
+  .settings(commonSettings)
+  .settings(
+    libraryDependencies ++= Seq("org.typelevel" %%% "cats-effect" % "2.0.0")
+  )
+  .jsConfigure(_.dependsOn(coreJS))
+  .jvmConfigure(_.dependsOn(coreJVM))
+lazy val catsInteropJVM = catsInterop.jvm
+lazy val catsInteropJS  = catsInterop.js
+
 lazy val http4s = project
   .in(file("http4s"))
   .settings(name := "caliban-http4s")
@@ -93,23 +105,11 @@ lazy val http4s = project
   )
   .dependsOn(coreJVM)
 
-lazy val catsInterop = project
-  .in(file("interop/cats"))
-  .settings(name := "caliban-cats")
-  .settings(commonSettings)
-  .settings(
-    libraryDependencies ++= Seq(
-      "dev.zio"       %% "zio"         % "1.0.0-RC15",
-      "org.typelevel" %% "cats-effect" % "2.0.0"
-    )
-  )
-  .dependsOn(coreJVM)
-
 lazy val examples = project
   .in(file("examples"))
   .settings(commonSettings)
   .settings(skip in publish := true)
-  .dependsOn(http4s, catsInterop)
+  .dependsOn(http4s, catsInteropJVM)
 
 lazy val benchmarks = project
   .in(file("benchmarks"))
