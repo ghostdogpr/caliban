@@ -7,14 +7,19 @@ inThisBuild(
   List(
     organization := "com.github.ghostdogpr",
     homepage := Some(url("https://github.com/ghostdogpr/caliban")),
-    licenses := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0")),
+    licenses := List(
+      "Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0")
+    ),
     scalaVersion := mainScala,
     parallelExecution in Test := false,
     pgpPassphrase := sys.env.get("PGP_PASSWORD").map(_.toArray),
     pgpPublicRing := file("/tmp/public.asc"),
     pgpSecretRing := file("/tmp/secret.asc"),
     scmInfo := Some(
-      ScmInfo(url("https://github.com/ghostdogpr/caliban/"), "scm:git:git@github.com:ghostdogpr/caliban.git")
+      ScmInfo(
+        url("https://github.com/ghostdogpr/caliban/"),
+        "scm:git:git@github.com:ghostdogpr/caliban.git"
+      )
     ),
     developers := List(
       Developer(
@@ -32,14 +37,17 @@ ThisBuild / publishTo := sonatypePublishToBundle.value
 
 name := "caliban"
 addCommandAlias("fmt", "all scalafmtSbt scalafmt test:scalafmt")
-addCommandAlias("check", "all scalafmtSbtCheck scalafmtCheck test:scalafmtCheck")
+addCommandAlias(
+  "check",
+  "all scalafmtSbtCheck scalafmtCheck test:scalafmtCheck"
+)
 
 lazy val root = project
   .in(file("."))
   .enablePlugins(ScalaJSPlugin)
   .settings(skip in publish := true)
   .settings(historyPath := None)
-  .aggregate(coreJVM, coreJS, http4s)
+  .aggregate(coreJVM, coreJS, http4s, catsInteropJVM, catsInteropJS)
 
 lazy val core = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)
@@ -58,14 +66,23 @@ lazy val core = crossProject(JSPlatform, JVMPlatform)
       compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
     )
   )
-  .jvmSettings(
-    fork in Test := true,
-    fork in run := true
-  )
+  .jvmSettings(fork in Test := true, fork in run := true)
 lazy val coreJVM = core.jvm
 lazy val coreJS = core.js.settings(
   libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.0.0-RC3" % Test
 )
+
+lazy val catsInterop = crossProject(JSPlatform, JVMPlatform)
+  .crossType(CrossType.Pure)
+  .in(file("interop/cats"))
+  .settings(name := "caliban-cats")
+  .settings(commonSettings)
+  .settings(
+    libraryDependencies ++= Seq("org.typelevel" %%% "cats-effect" % "2.0.0")
+  )
+  .dependsOn(core)
+lazy val catsInteropJVM = catsInterop.jvm
+lazy val catsInteropJS  = catsInterop.js
 
 lazy val http4s = project
   .in(file("http4s"))
@@ -80,16 +97,19 @@ lazy val http4s = project
       "org.http4s"    %% "http4s-blaze-server" % "0.21.0-M5",
       "io.circe"      %% "circe-parser"        % "0.12.3",
       "io.circe"      %% "circe-derivation"    % "0.12.0-M7",
-      compilerPlugin(("org.typelevel" %% "kind-projector" % "0.11.0").cross(CrossVersion.full))
+      compilerPlugin(
+        ("org.typelevel" %% "kind-projector" % "0.11.0")
+          .cross(CrossVersion.full)
+      )
     )
   )
-  .dependsOn(coreJVM)
+  .dependsOn(coreJVM, catsInteropJVM)
 
 lazy val examples = project
   .in(file("examples"))
   .settings(commonSettings)
   .settings(skip in publish := true)
-  .dependsOn(http4s)
+  .dependsOn(http4s, catsInteropJVM)
 
 lazy val benchmarks = project
   .in(file("benchmarks"))
