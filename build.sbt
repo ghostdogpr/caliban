@@ -47,7 +47,7 @@ lazy val root = project
   .enablePlugins(ScalaJSPlugin)
   .settings(skip in publish := true)
   .settings(historyPath := None)
-  .aggregate(coreJVM, coreJS, http4s)
+  .aggregate(coreJVM, coreJS, http4s, catsInteropJVM, catsInteropJS)
 
 lazy val core = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)
@@ -73,14 +73,14 @@ lazy val coreJS = core.js.settings(
 )
 
 lazy val catsInterop = crossProject(JSPlatform, JVMPlatform)
+  .crossType(CrossType.Pure)
   .in(file("interop/cats"))
   .settings(name := "caliban-cats")
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq("org.typelevel" %%% "cats-effect" % "2.0.0")
   )
-  .jsConfigure(_.dependsOn(coreJS))
-  .jvmConfigure(_.dependsOn(coreJVM))
+  .dependsOn(core)
 lazy val catsInteropJVM = catsInterop.jvm
 lazy val catsInteropJS  = catsInterop.js
 
@@ -103,7 +103,7 @@ lazy val http4s = project
       )
     )
   )
-  .dependsOn(coreJVM)
+  .dependsOn(coreJVM, catsInteropJVM)
 
 lazy val examples = project
   .in(file("examples"))

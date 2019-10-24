@@ -1,5 +1,7 @@
 package caliban.interop.cats
 
+import cats.instances.either._
+import cats.syntax.functor._
 import caliban.parsing.adt.Value
 import caliban.{GraphQL, ResponseValue}
 import cats.effect.Async
@@ -26,6 +28,6 @@ object CatsInterop {
     graphQL: GraphQL[R, Q, M, S]
   )(query: String)(implicit runtime: Runtime[R]): F[Unit] =
     Async[F].async { cb =>
-      runtime.unsafeRunAsync(graphQL.execute(query))(exit => cb(exit.toEither))
+      runtime.unsafeRunAsync(graphQL.execute(query))(exit => cb(exit.toEither.void))
     }
 }
