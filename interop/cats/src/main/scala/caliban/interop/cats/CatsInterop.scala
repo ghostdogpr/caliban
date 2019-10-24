@@ -9,8 +9,6 @@ import zio.{ DefaultRuntime, Runtime }
 
 object CatsInterop {
 
-  val defaultZioRuntime = new DefaultRuntime {}
-
   def executeAsync[F[_]: Async, R, Q, M, S](graphQL: GraphQL[R, Q, M, S])(
     query: String,
     operationName: Option[String] = None,
