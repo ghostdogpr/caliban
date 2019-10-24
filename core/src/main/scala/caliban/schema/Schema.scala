@@ -224,6 +224,7 @@ trait GenericSchema[R] {
     }
   implicit def effectSchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZIO[R1, E, A]] =
     new Schema[R1, ZIO[R1, E, A]] {
+      override def optional: Boolean                        = ev.optional
       override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
       override def resolve(
         value: ZIO[R1, E, A],
@@ -236,6 +237,7 @@ trait GenericSchema[R] {
     }
   implicit def streamSchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZStream[R1, E, A]] =
     new Schema[R1, ZStream[R1, E, A]] {
+      override def optional: Boolean                        = ev.optional
       override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
       override def resolve(
         stream: ZStream[R1, E, A],
