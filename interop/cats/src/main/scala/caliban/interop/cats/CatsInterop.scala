@@ -1,11 +1,11 @@
 package caliban.interop.cats
 
-import cats.instances.either._
-import cats.syntax.functor._
 import caliban.parsing.adt.Value
 import caliban.{ GraphQL, ResponseValue }
 import cats.effect.Async
-import zio.{ DefaultRuntime, Runtime }
+import cats.instances.either._
+import cats.syntax.functor._
+import zio.Runtime
 
 object CatsInterop {
 
