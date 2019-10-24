@@ -47,6 +47,17 @@ object DataSource {
       }
 
     /**
+     * Returns a new data source that executes requests of type `B` using the
+     * specified effectual function to transform `B` requests into requests
+     * that this data source can execute.
+     */
+    final def contramapM[R1 <: R, E1 >: E, B](f: B => ZIO[R1, E1, A]): DataSource.Service[R1, E1, B] =
+      new DataSource.Service[R1, E1, B] {
+        def run(requests: Iterable[B]): ZIO[R1, E1, CompletedRequestMap] =
+          ZIO.foreach(requests)(f).flatMap(self.run)
+      }
+
+    /**
      * Returns a new data source that executes requests of type `C` using the
      * specified function to transform `C` requests into requests that either
      * this data source or that data source can execute.
@@ -65,6 +76,31 @@ object DataSource {
           }
           self.run(as).zipWithPar(that.run(bs))(_ ++ _)
         }
+      }
+
+    /**
+     * Returns a new data source with failures mapped using the specified
+     * function.
+     */
+    final def mapError[E1](f: E => E1): DataSource.Service[R, E1, A] =
+      new DataSource.Service[R, E1, A] {
+        def run(requests: Iterable[A]): ZIO[R, E1, CompletedRequestMap] =
+          self.run(requests).mapError(f)
+      }
+
+    /**
+     * Provides this data source with its required environment.
+     */
+    final def provide(r: R): DataSource.Service[Any, E, A] =
+      provideSome(_ => r)
+
+    /**
+     * Provides this data source with part of its required environment.
+     */
+    final def provideSome[R0](f: R0 => R): DataSource.Service[R0, E, A] =
+      new DataSource.Service[R0, E, A] {
+        def run(requests: Iterable[A]): ZIO[R0, E, CompletedRequestMap] =
+          self.run(requests).provideSome(f)
       }
   }
 }

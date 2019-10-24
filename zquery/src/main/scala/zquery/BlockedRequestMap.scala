@@ -20,6 +20,14 @@ private[zquery] final class BlockedRequestMap[-R, +E](
     )
 
   /**
+   * Transforms all data sources with the specified data source function, which
+   * can change the environment and error types of data sources but must
+   * preserve the request type of each data source.
+   */
+  final def mapDataSources[R1, E1](f: DataSourceFunction[R, E, R1, E1]): BlockedRequestMap[R1, E1] =
+    new BlockedRequestMap(self.map.map { case (k, v) => (f(k).asInstanceOf[DataSource.Service[Any, Nothing, Any]], v) })
+
+  /**
    * Executes all requests, submitting batched requests to each data source in
    * parallel.
    */

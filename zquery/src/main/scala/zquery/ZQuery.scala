@@ -64,10 +64,37 @@ sealed trait ZQuery[-R, +E, +A] { self =>
     }
 
   /**
-   * Maps the specified function over the result of this query.
+   * Maps the specified function over the successful result of this query.
    */
   final def map[B](f: A => B): ZQuery[R, E, B] =
-    flatMap(f andThen ZQuery.succeed)
+    new ZQuery[R, E, B] {
+      def step(cache: Cache): ZIO[R, E, Result[R, E, B]] =
+        self.step(cache).map(_.map(f))
+    }
+
+  /**
+   * Maps the specified function over the failed result of this query.
+   */
+  final def mapError[E1](f: E => E1): ZQuery[R, E1, A] =
+    new ZQuery[R, E1, A] {
+      def step(cache: Cache): ZIO[R, E1, Result[R, E1, A]] =
+        self.step(cache).bimap(f, _.mapError(f))
+    }
+
+  /**
+   * Provides this query with its required environment.
+   */
+  final def provide(r: R): ZQuery[Any, E, A] =
+    provideSome(_ => r)
+
+  /**
+   * Provides this query with part of its required environment.
+   */
+  final def provideSome[R0](f: R0 => R): ZQuery[R0, E, A] =
+    new ZQuery[R0, E, A] {
+      def step(cache: Cache): ZIO[R0, E, Result[R0, E, A]] =
+        self.step(cache).provideSome(f).map(_.provideSome(f))
+    }
 
   /**
    * Returns an effect that models executing this query.
