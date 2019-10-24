@@ -2,6 +2,10 @@ package caliban
 
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.parsing.adt.Value
+import cats.data.OptionT
+import cats.effect.Effect
+import cats.effect.syntax.all._
+import cats.~>
 import fs2.{ Pipe, Stream }
 import io.circe.derivation.deriveDecoder
 import io.circe.parser.{ decode, parse }
@@ -132,4 +136,24 @@ object Http4sAdapter {
         } yield builder
     }
   }
+
+  private def wrapRoute[F[_]: Effect](route: HttpRoutes[Task])(implicit runtime: Runtime[Any]): HttpRoutes[F] = {
+    val toF: Task ~> F    = λ[Task ~> F](_.toIO.to[F])
+    val toTask: F ~> Task = λ[F ~> Task](_.toIO.to[Task])
+
+    route
+      .mapK(λ[OptionT[Task, *] ~> OptionT[F, *]](_.mapK(toF)))
+      .dimap((req: Request[F]) => req.mapK(toTask))((res: Response[Task]) => res.mapK(toF))
+  }
+
+  def makeWebSocketServiceF[F[_], Q, M, S](
+    interpreter: GraphQL[Any, Q, M, S]
+  )(implicit F: Effect[F], runtime: Runtime[Any]): HttpRoutes[F] =
+    wrapRoute(makeWebSocketService[Any, Q, M, S](interpreter))
+
+  def makeRestServiceF[F[_], Q, M, S](
+    interpreter: GraphQL[Any, Q, M, S]
+  )(implicit F: Effect[F], runtime: Runtime[Any]): HttpRoutes[F] =
+    wrapRoute(makeRestService[Any, Q, M, S](interpreter))
+
 }
