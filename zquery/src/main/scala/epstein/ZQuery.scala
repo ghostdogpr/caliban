@@ -188,7 +188,7 @@ object ZQuery {
             )
           case Some(ref) =>
             ref.get.map {
-              case Some(b) => Result.Done(b)
+              case Some(b) => Result.done(b)
               case None    => Result.blocked(BlockedRequestMap.empty, ZQuery.fromEffect(ref.get.map(_.get)))
             }
         }
