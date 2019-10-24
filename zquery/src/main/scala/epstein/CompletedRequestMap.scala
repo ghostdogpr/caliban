@@ -1,4 +1,4 @@
-package epstein
+package zquery
 
 /**
  * A `CompletedRequestMap` is a universally quantified mapping from requests

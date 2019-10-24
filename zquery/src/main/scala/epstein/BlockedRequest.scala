@@ -1,4 +1,4 @@
-package epstein
+package zquery
 
 import zio.Ref
 
@@ -9,7 +9,7 @@ import zio.Ref
  * return different result types for different requests while guaranteeing that
  * results will be of the type requested.
  */
-private[epstein] sealed trait BlockedRequest[+A] {
+private[zquery] sealed trait BlockedRequest[+A] {
   type Value
 
   def request: Request[Value]
@@ -17,7 +17,7 @@ private[epstein] sealed trait BlockedRequest[+A] {
   def result: Ref[Option[Value]]
 }
 
-private[epstein] object BlockedRequest {
+private[zquery] object BlockedRequest {
 
   def apply[A, B](request0: A, result0: Ref[Option[B]])(
     implicit ev: A <:< Request[B]

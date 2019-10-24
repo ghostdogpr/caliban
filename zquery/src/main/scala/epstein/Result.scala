@@ -1,4 +1,4 @@
-package epstein
+package zquery
 
 /**
  * A `Result[R, E, A]` is the result of running one step of a `ZQuery`. A
@@ -6,9 +6,9 @@ package epstein
  * to data sources that require an environment `R`, may fail with an `E`, and
  * may succeed with an `A`.
  */
-private[epstein] sealed trait Result[-R, +E, +A]
+private[zquery] sealed trait Result[-R, +E, +A]
 
-private[epstein] object Result {
+private[zquery] object Result {
 
   /**
    * Constructs a result that is blocked on the specified requests with the

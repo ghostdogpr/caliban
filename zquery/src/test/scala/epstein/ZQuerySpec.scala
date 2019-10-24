@@ -1,4 +1,4 @@
-package epstein
+package zquery
 
 import zio.{ console, ZIO }
 import zio.console.Console
@@ -6,7 +6,7 @@ import zio.test._
 import zio.test.environment.TestConsole
 import zio.test.Assertion._
 
-import epstein.ZQuerySpecUtil._
+import zquery.ZQuerySpecUtil._
 
 object ZQuerySpec
     extends ZIOBaseSpec(

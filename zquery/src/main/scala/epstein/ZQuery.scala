@@ -1,4 +1,4 @@
-package epstein
+package zquery
 
 import zio.{ Ref, ZIO }
 

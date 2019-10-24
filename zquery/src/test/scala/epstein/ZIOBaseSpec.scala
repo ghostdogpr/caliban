@@ -1,4 +1,4 @@
-package epstein
+package zquery
 
 import zio.duration._
 import zio.test._

@@ -1,4 +1,4 @@
-package epstein
+package zquery
 
 import zio.ZIO
 
@@ -6,7 +6,7 @@ import zio.ZIO
  * A `BlockedRequestMap[R, E]` maintains a mapping from data sources to
  * requests from those data sources.
  */
-private[epstein] final class BlockedRequestMap[-R, +E](
+private[zquery] final class BlockedRequestMap[-R, +E](
   private val map: Map[DataSource.Service[Any, Nothing, Any], Vector[BlockedRequest[Any]]]
 ) { self =>
 

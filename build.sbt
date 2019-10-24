@@ -47,7 +47,7 @@ lazy val root = project
   .enablePlugins(ScalaJSPlugin)
   .settings(skip in publish := true)
   .settings(historyPath := None)
-  .aggregate(coreJVM, coreJS, epsteinJVM, epsteinJS, http4s, catsInteropJVM, catsInteropJS)
+  .aggregate(coreJVM, coreJS, zqueryJVM, zqueryJS, http4s, catsInteropJVM, catsInteropJS)
 
 lazy val core = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)
@@ -72,10 +72,10 @@ lazy val coreJS = core.js.settings(
   libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.0.0-RC3" % Test
 )
 
-lazy val epstein = crossProject(JSPlatform, JVMPlatform)
+lazy val zquery = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)
-  .in(file("epstein"))
-  .settings(name := "epstein")
+  .in(file("zquery"))
+  .settings(name := "zquery")
   .settings(commonSettings)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
@@ -90,8 +90,8 @@ lazy val epstein = crossProject(JSPlatform, JVMPlatform)
     fork in Test := true,
     fork in run := true
   )
-lazy val epsteinJVM = epstein.jvm
-lazy val epsteinJS = epstein.js.settings(
+lazy val zqueryJVM = zquery.jvm
+lazy val zqueryJS = zquery.js.settings(
   libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.0.0-RC3" % Test
 )
 
