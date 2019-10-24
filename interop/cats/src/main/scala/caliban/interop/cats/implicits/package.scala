@@ -1,7 +1,7 @@
 package caliban.interop.cats
 
 import caliban.parsing.adt.Value
-import caliban.{GraphQL, ResponseValue}
+import caliban.{ GraphQL, ResponseValue }
 import cats.effect.Async
 import zio.Runtime
 
