@@ -111,25 +111,25 @@ sealed trait ZQuery[-R, +E, +A] { self =>
   /**
    * Maps the specified function over the failed result of this query.
    */
-  final def mapError[E1](f: E => E1): ZQuery[R, E1, A] =
+  final def mapError[E1](name: String)(f: E => E1): ZQuery[R, E1, A] =
     new ZQuery[R, E1, A] {
       def step(cache: Cache): ZIO[R, E1, Result[R, E1, A]] =
-        self.step(cache).bimap(f, _.mapError(f))
+        self.step(cache).bimap(f, _.mapError(name)(f))
     }
 
   /**
    * Provides this query with its required environment.
    */
-  final def provide(r: R): ZQuery[Any, E, A] =
-    provideSome(_ => r)
+  final def provide(name: String)(r: R): ZQuery[Any, E, A] =
+    provideSome(s"_ => $name")(_ => r)
 
   /**
    * Provides this query with part of its required environment.
    */
-  final def provideSome[R0](f: R0 => R): ZQuery[R0, E, A] =
+  final def provideSome[R0](name: String)(f: R0 => R): ZQuery[R0, E, A] =
     new ZQuery[R0, E, A] {
       def step(cache: Cache): ZIO[R0, E, Result[R0, E, A]] =
-        self.step(cache).provideSome(f).map(_.provideSome(f))
+        self.step(cache).provideSome(f).map(_.provideSome(name)(f))
     }
 
   /**

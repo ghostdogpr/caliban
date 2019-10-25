@@ -50,26 +50,26 @@ object DataSourceFunction {
    * A data source function that maps failures produced by a data source using
    * the specified function.
    */
-  final def mapError[R, E, E1](f: E => E1): DataSourceFunction[R, E, R, E1] =
+  final def mapError[R, E, E1](name: String)(f: E => E1): DataSourceFunction[R, E, R, E1] =
     new DataSourceFunction[R, E, R, E1] {
       def apply[A](dataSource: DataSource.Service[R, E, A]): DataSource.Service[R, E1, A] =
-        dataSource.mapError(f)
+        dataSource.mapError(name)(f)
     }
 
   /**
    * A data source function that provides a data source with its required
    * environment.
    */
-  final def provide[R, E](r: R): DataSourceFunction[R, E, Any, E] =
-    provideSome(_ => r)
+  final def provide[R, E](name: String)(r: R): DataSourceFunction[R, E, Any, E] =
+    provideSome(s"_ => $name")(_ => r)
 
   /**
    * A data source function that provides a data sources with part of its
    * required environment.
    */
-  final def provideSome[R, R1, E](f: R1 => R): DataSourceFunction[R, E, R1, E] =
+  final def provideSome[R, R1, E](name: String)(f: R1 => R): DataSourceFunction[R, E, R1, E] =
     new DataSourceFunction[R, E, R1, E] {
       def apply[A](dataSource: DataSource.Service[R, E, A]): DataSource.Service[R1, E, A] =
-        dataSource.provideSome(f)
+        dataSource.provideSome(name)(f)
     }
 }

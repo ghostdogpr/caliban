@@ -21,22 +21,22 @@ private[zquery] sealed trait Result[-R, +E, +A] {
   /**
    * Maps the specified function over the failed value of this result.
    */
-  final def mapError[E1](f: E => E1): Result[R, E1, A] = this match {
-    case Blocked(br, c) => blocked(br.mapDataSources(DataSourceFunction.mapError(f)), c.mapError(f))
+  final def mapError[E1](name: String)(f: E => E1): Result[R, E1, A] = this match {
+    case Blocked(br, c) => blocked(br.mapDataSources(DataSourceFunction.mapError(name)(f)), c.mapError(name)(f))
     case Done(a)        => done(a)
   }
 
   /**
    * Provides this result with its required environment.
    */
-  final def provide(r: R): Result[Any, E, A] =
-    provideSome(_ => r)
+  final def provide(name: String)(r: R): Result[Any, E, A] =
+    provideSome(s"_ => $name")(_ => r)
 
   /**
    * Provides this result with part of its required environment.
    */
-  final def provideSome[R0](f: R0 => R): Result[R0, E, A] = this match {
-    case Blocked(br, c) => blocked(br.mapDataSources(DataSourceFunction.provideSome(f)), c.provideSome(f))
+  final def provideSome[R0](name: String)(f: R0 => R): Result[R0, E, A] = this match {
+    case Blocked(br, c) => blocked(br.mapDataSources(DataSourceFunction.provideSome(name)(f)), c.provideSome(name)(f))
     case Done(a)        => done(a)
   }
 }

@@ -33,6 +33,8 @@ object DataSource {
 
   trait Service[-R, +E, -A] { self =>
 
+    val identifier: String
+
     def run(requests: Iterable[A]): ZIO[R, E, CompletedRequestMap]
 
     /**
@@ -40,8 +42,9 @@ object DataSource {
      * specified function to transform `B` requests into requests that this
      * data source can execute.
      */
-    final def contramap[B](f: B => A): DataSource.Service[R, E, B] =
+    final def contramap[B](f: B => A)(name: String): DataSource.Service[R, E, B] =
       new DataSource.Service[R, E, B] {
+        val identifier = s"${self.identifier}.contramap($name)"
         def run(requests: Iterable[B]): ZIO[R, E, CompletedRequestMap] =
           self.run(requests.map(f))
       }
@@ -51,8 +54,9 @@ object DataSource {
      * specified effectual function to transform `B` requests into requests
      * that this data source can execute.
      */
-    final def contramapM[R1 <: R, E1 >: E, B](f: B => ZIO[R1, E1, A]): DataSource.Service[R1, E1, B] =
+    final def contramapM[R1 <: R, E1 >: E, B](name: String)(f: B => ZIO[R1, E1, A]): DataSource.Service[R1, E1, B] =
       new DataSource.Service[R1, E1, B] {
+        val identifier = s"${self.identifier}.contramapM($name)"
         def run(requests: Iterable[B]): ZIO[R1, E1, CompletedRequestMap] =
           ZIO.foreach(requests)(f).flatMap(self.run)
       }
@@ -62,10 +66,11 @@ object DataSource {
      * specified function to transform `C` requests into requests that either
      * this data source or that data source can execute.
      */
-    final def combineWith[R1 <: R, E1 >: E, B, C](
+    final def eitherWith[R1 <: R, E1 >: E, B, C](
       that: DataSource.Service[R1, E1, B]
-    )(f: C => Either[A, B]): DataSource.Service[R1, E1, C] =
+    )(name: String)(f: C => Either[A, B]): DataSource.Service[R1, E1, C] =
       new DataSource.Service[R1, E1, C] {
+        val identifier = s"${self.identifier}.eitherWith(${that.identifier})($name)"
         def run(requests: Iterable[C]): ZIO[R1, E1, CompletedRequestMap] = {
           val (as, bs) = requests.foldLeft((List.empty[A], List.empty[B])) {
             case ((as, bs), c) =>
@@ -78,12 +83,20 @@ object DataSource {
         }
       }
 
+    override final def equals(that: Any): Boolean = that match {
+      case that: DataSource.Service[_, _, _] => this.identifier == that.identifier
+    }
+
+    override final def hashCode: Int =
+      identifier.hashCode
+
     /**
      * Returns a new data source with failures mapped using the specified
      * function.
      */
-    final def mapError[E1](f: E => E1): DataSource.Service[R, E1, A] =
+    final def mapError[E1](name: String)(f: E => E1): DataSource.Service[R, E1, A] =
       new DataSource.Service[R, E1, A] {
+        val identifier = s"${self.identifier}.mapError($name)"
         def run(requests: Iterable[A]): ZIO[R, E1, CompletedRequestMap] =
           self.run(requests).mapError(f)
       }
@@ -91,16 +104,20 @@ object DataSource {
     /**
      * Provides this data source with its required environment.
      */
-    final def provide(r: R): DataSource.Service[Any, E, A] =
-      provideSome(_ => r)
+    final def provide(name: String)(r: R): DataSource.Service[Any, E, A] =
+      provideSome(s"_ => $name")(_ => r)
 
     /**
      * Provides this data source with part of its required environment.
      */
-    final def provideSome[R0](f: R0 => R): DataSource.Service[R0, E, A] =
+    final def provideSome[R0](name: String)(f: R0 => R): DataSource.Service[R0, E, A] =
       new DataSource.Service[R0, E, A] {
+        val identifier = s"${self.identifier}.provideSome($name)"
         def run(requests: Iterable[A]): ZIO[R0, E, CompletedRequestMap] =
           self.run(requests).provideSome(f)
       }
+
+    override final def toString: String =
+      identifier
   }
 }

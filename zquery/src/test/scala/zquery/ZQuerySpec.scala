@@ -16,6 +16,14 @@ object ZQuerySpec
             result <- getAllUserNames.run
             log    <- TestConsole.output
           } yield assert(log, hasSize(equalTo(2)))
+        },
+        testM("mapError does not prevent batching") {
+          val a = getUserNameById(1).zip(getUserNameById(2)).mapError("identity")(identity)
+          val b = getUserNameById(3).zip(getUserNameById(4)).mapError("identity")(identity)
+          for {
+            result <- ZQuery.collectAllPar(List(a, b)).run
+            log    <- TestConsole.output
+          } yield assert(log, hasSize(equalTo(2)))
         }
       )
     )
@@ -32,6 +40,7 @@ object ZQuerySpecUtil {
 
   object UserRequestDataSource extends DataSource[Console, Nothing, UserRequest[Any]] {
     val dataSource = new DataSource.Service[Console, Nothing, UserRequest[Any]] {
+      val identifier = "UserRequestDataSource"
       def run(requests: Iterable[UserRequest[Any]]): ZIO[Console, Nothing, CompletedRequestMap] =
         console.putStrLn("Running query") *>
           ZIO.succeed {
