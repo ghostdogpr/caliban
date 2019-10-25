@@ -1,6 +1,5 @@
 package caliban.interop.cats
 
-import caliban.CalibanError.ExecutionError
 import caliban.introspection.adt.__Type
 import caliban.parsing.adt.Value
 import caliban.schema.{ GenericSchema, Schema }
