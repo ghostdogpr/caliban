@@ -230,10 +230,7 @@ trait GenericSchema[R] {
         value: ZIO[R1, E, A],
         arguments: Map[String, Value]
       ): ZIO[R1, ExecutionError, ResolvedValue] =
-        value.flatMap(ev.resolve(_, arguments)).mapError {
-          case e: ExecutionError => e
-          case other             => ExecutionError("Caught error during execution of effectful field", Some(other))
-        }
+        value.flatMap(ev.resolve(_, arguments)).mapError(GenericSchema.effectfulExecutionError)
     }
   implicit def streamSchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZStream[R1, E, A]] =
     new Schema[R1, ZStream[R1, E, A]] {
@@ -395,4 +392,12 @@ trait GenericSchema[R] {
 
   implicit def gen[T]: Typeclass[T] = macro Magnolia.gen[T]
 
+}
+
+object GenericSchema {
+
+  def effectfulExecutionError(e: Throwable): ExecutionError = e match {
+    case e: ExecutionError => e
+    case other             => ExecutionError("Caught error during execution of effectful field", Some(other))
+  }
 }

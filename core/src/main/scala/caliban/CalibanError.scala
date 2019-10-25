@@ -29,5 +29,4 @@ object CalibanError {
   case class ExecutionError(msg: String, innerThrowable: Option[Throwable] = None) extends CalibanError {
     override def toString: String = s"""Execution error: $msg ${innerThrowable.map(_.toString).getOrElse("")}"""
   }
-
 }

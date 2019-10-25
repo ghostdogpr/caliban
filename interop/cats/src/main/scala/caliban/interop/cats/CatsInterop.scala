@@ -1,8 +1,9 @@
 package caliban.interop.cats
 
+import caliban.CalibanError.ExecutionError
 import caliban.introspection.adt.__Type
 import caliban.parsing.adt.Value
-import caliban.schema.Schema
+import caliban.schema.{ GenericSchema, Schema }
 import caliban.{ CalibanError, GraphQL, ResolvedValue, ResponseValue }
 import cats.effect.implicits._
 import cats.effect.{ Async, Effect }
@@ -38,6 +39,9 @@ object CatsInterop {
       override def toType(isInput: Boolean): __Type =
         ev.toType(isInput)
 
+      override def optional: Boolean =
+        ev.optional
+
       override def resolve(
         value: F[A],
         arguments: Map[String, Value]
@@ -46,6 +50,6 @@ object CatsInterop {
           .map(a => ev.resolve(a, arguments))
           .to[Task]
           .flatten
-          .refineToOrDie[CalibanError.ExecutionError]
+          .mapError(GenericSchema.effectfulExecutionError)
     }
 }
