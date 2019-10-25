@@ -42,10 +42,46 @@ sealed trait ZQuery[-R, +E, +A] { self =>
   protected def step(cache: Cache): ZIO[R, E, Result[R, E, A]]
 
   /**
+   * A symbolic alias for `zipParRight`.
+   */
+  final def &>[R1 <: R, E1 >: E, B](that: ZQuery[R1, E1, B]): ZQuery[R1, E1, B] =
+    zipParRight(that)
+
+  /**
+   * A symbolic alias for `zipRight`.
+   */
+  final def *>[R1 <: R, E1 >: E, B](that: ZQuery[R1, E1, B]): ZQuery[R1, E1, B] =
+    zipRight(that)
+
+  /**
+   * A symbolic alias for `zipParLeft`.
+   */
+  final def <&[R1 <: R, E1 >: E, B](that: ZQuery[R1, E1, B]): ZQuery[R1, E1, A] =
+    zipParLeft(that)
+
+  /**
    * A symbolic alias for `zipPar`.
    */
   final def <&>[R1 <: R, E1 >: E, B](that: ZQuery[R1, E1, B]): ZQuery[R1, E1, (A, B)] =
     zipPar(that)
+
+  /**
+   * A symbolic alias for `zipLeft`.
+   */
+  final def <*[R1 <: R, E1 >: E, B](that: ZQuery[R1, E1, B]): ZQuery[R1, E1, A] =
+    zipLeft(that)
+
+  /**
+   * A symbolic alias for `zip`.
+   */
+  final def <*>[R1 <: R, E1 >: E, B](that: ZQuery[R1, E1, B]): ZQuery[R1, E1, (A, B)] =
+    zip(that)
+
+  /**
+   * A symbolic alias for `flatMap`.
+   */
+  final def >>=[R1 <: R, E1 >: E, B](f: A => ZQuery[R1, E1, B]): ZQuery[R1, E1, B] =
+    flatMap(f)
 
   /**
    * Returns a query that models execution of this query, followed by passing
@@ -127,18 +163,58 @@ sealed trait ZQuery[-R, +E, +A] { self =>
 
   /**
    * Returns a query that models the execution of this query and the specified
-   * query in parallel, combining their results into a tuple. All requests that
-   * can potentially be executed in parallel will be batched and deduplication
-   * and caching will be applied.
+   * query sequentially, combining their results into a tuple.
+   */
+  final def zip[R1 <: R, E1 >: E, B](that: ZQuery[R1, E1, B]): ZQuery[R1, E1, (A, B)] =
+    zipWith(that)((_, _))
+
+  /**
+   * Returns a query that models the execution of this query and the specified
+   * query sequentially, returning the result of this query.
+   */
+  final def zipLeft[R1 <: R, E1 >: E, B](that: ZQuery[R1, E1, B]): ZQuery[R1, E1, A] =
+    zipWith(that)((a, _) => a)
+
+  /**
+   * Returns a query that models the execution of this query and the specified
+   * query sequentially, returning the result of the specified query.
+   */
+  final def zipRight[R1 <: R, E1 >: E, B](that: ZQuery[R1, E1, B]): ZQuery[R1, E1, B] =
+    zipWith(that)((_, b) => b)
+
+  /**
+   * Returns a query that models the execution of this query and the specified
+   * query in parallel, combining their results into a tuple.
    */
   final def zipPar[R1 <: R, E1 >: E, B](that: ZQuery[R1, E1, B]): ZQuery[R1, E1, (A, B)] =
     zipWithPar(that)((_, _))
 
   /**
    * Returns a query that models the execution of this query and the specified
+   * query in parallel, returning the result of this query.
+   */
+  final def zipParLeft[R1 <: R, E1 >: E, B](that: ZQuery[R1, E1, B]): ZQuery[R1, E1, A] =
+    zipWithPar(that)((a, _) => a)
+
+  /**
+   * Returns a query that models the execution of this query and the specified
+   * query in parallel, returning the result of the specified query.
+   */
+  final def zipParRight[R1 <: R, E1 >: E, B](that: ZQuery[R1, E1, B]): ZQuery[R1, E1, B] =
+    zipWithPar(that)((_, b) => b)
+
+  /**
+   * Returns a query that models the execution of this query and the specified
+   * query sequentially, combining their results with the specified function.
+   */
+  final def zipWith[R1 <: R, E1 >: E, B, C](that: ZQuery[R1, E1, B])(f: (A, B) => C): ZQuery[R1, E1, C] =
+    flatMap(a => that.map(b => f(a, b)))
+
+  /**
+   * Returns a query that models the execution of this query and the specified
    * query in parallel, combining their results with the specified function.
-   * All requests that can potentially be executed in parallel will be batched
-   * and deduplication and caching will be applied.
+   * Requests composed with `zipWithPar` or combinators derived from it will
+   * be batched and deduplication and caching of requests will be applied.
    */
   final def zipWithPar[R1 <: R, E1 >: E, B, C](that: ZQuery[R1, E1, B])(f: (A, B) => C): ZQuery[R1, E1, C] =
     new ZQuery[R1, E1, C] {
@@ -156,8 +232,15 @@ object ZQuery {
 
   /**
    * Collects a collection of queries into a query returning a collection of
-   * their results. All requests will be batched and deduplication and caching
-   * will be applied.
+   * their results. Requests will be executed sequentially and will not be
+   * batched.
+   */
+  final def collectAll[R, E, A](as: Iterable[ZQuery[R, E, A]]): ZQuery[R, E, List[A]] =
+    foreach(as)(identity)
+
+  /**
+   * Collects a collection of queries into a query returning a collection of
+   * their results. All requests will be batched.
    */
   final def collectAllPar[R, E, A](as: Iterable[ZQuery[R, E, A]]): ZQuery[R, E, List[A]] =
     foreachPar(as)(identity)
@@ -170,8 +253,16 @@ object ZQuery {
 
   /**
    * Performs a query for each element in a collection, collecting the results
+   * into a query returning a collection of their results. Requests will be
+   * executed sequentially and will not be batched.
+   */
+  final def foreach[R, E, A, B](as: Iterable[A])(f: A => ZQuery[R, E, B]): ZQuery[R, E, List[B]] =
+    as.foldRight[ZQuery[R, E, List[B]]](ZQuery.succeed(Nil))((a, bs) => f(a).zipWith(bs)(_ :: _))
+
+  /**
+   * Performs a query for each element in a collection, collecting the results
    * into a query returning a collection of their results. All requests will be
-   * batched and caching and deduplication will be applied.
+   * batched.
    */
   final def foreachPar[R, E, A, B](as: Iterable[A])(f: A => ZQuery[R, E, B]): ZQuery[R, E, List[B]] =
     as.foldRight[ZQuery[R, E, List[B]]](ZQuery.succeed(Nil))((a, bs) => f(a).zipWithPar(bs)(_ :: _))
