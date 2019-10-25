@@ -46,9 +46,8 @@ object CatsInterop {
         arguments: Map[String, Value]
       ): ZIO[R, CalibanError.ExecutionError, ResolvedValue] =
         value.toIO
-          .map(a => ev.resolve(a, arguments))
           .to[Task]
-          .flatten
+          .flatMap(a => ev.resolve(a, arguments))
           .mapError(GenericSchema.effectfulExecutionError)
     }
 }
