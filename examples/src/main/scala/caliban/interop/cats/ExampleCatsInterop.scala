@@ -13,22 +13,28 @@ object ExampleCatsInterop extends IOApp {
 
   case class Number(value: Int)
 
-  case class Queries(numbers: List[Number])
+  case class Queries(numbers: List[Number], randomNumber: IO[Number])
+
+  val numbers = List(1, 2, 3, 4).map(Number)
+  val randomNumber = IO(scala.util.Random.nextInt()).map(Number)
+
+  val queries = Queries(numbers, randomNumber)
+  val interpreter = graphQL(RootResolver(queries))
 
   val query = """
   {
     numbers {
       value
     }
+
+    randomNumber {
+      value
+    }
   }"""
 
-  override def run(args: List[String]): IO[ExitCode] = {
-    val queries = Queries(List(1, 2, 3, 4).map(Number))
-    val interpreter = graphQL(RootResolver(queries))
-
+  override def run(args: List[String]): IO[ExitCode] =
     for {
       result <- interpreter.executeAsync[IO](query)
       _ <- IO(println(result))
     } yield ExitCode.Success
-  }
 }
