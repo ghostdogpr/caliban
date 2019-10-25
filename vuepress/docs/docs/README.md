@@ -12,7 +12,7 @@ The design principles behind the library are the following:
 To use `caliban`, add the following line in your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "0.0.6"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "0.1.0"
 ```
 
 Note that Caliban is also available for ScalaJS.
