@@ -77,6 +77,7 @@ lazy val zquery = crossProject(JSPlatform, JVMPlatform)
   .in(file("zquery"))
   .settings(name := "zquery")
   .settings(commonSettings)
+  .settings(skip in publish := true)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
