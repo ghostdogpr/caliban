@@ -78,7 +78,10 @@ lazy val catsInterop = crossProject(JSPlatform, JVMPlatform)
   .settings(name := "caliban-cats")
   .settings(commonSettings)
   .settings(
-    libraryDependencies ++= Seq("org.typelevel" %%% "cats-effect" % "2.0.0")
+    libraryDependencies ++= Seq(
+      "dev.zio"       %%% "zio-interop-cats" % "2.0.0.0-RC6",
+      "org.typelevel" %%% "cats-effect"      % "2.0.0"
+    )
   )
   .dependsOn(core)
 lazy val catsInteropJVM = catsInterop.jvm
