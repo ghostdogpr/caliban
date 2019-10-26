@@ -47,7 +47,7 @@ lazy val root = project
   .enablePlugins(ScalaJSPlugin)
   .settings(skip in publish := true)
   .settings(historyPath := None)
-  .aggregate(coreJVM, coreJS, zqueryJVM, zqueryJS, http4s, catsInteropJVM, catsInteropJS)
+  .aggregate(coreJVM, coreJS, http4s, catsInteropJVM, catsInteropJS)
 
 lazy val core = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)
@@ -69,30 +69,6 @@ lazy val core = crossProject(JSPlatform, JVMPlatform)
   .jvmSettings(fork in Test := true, fork in run := true)
 lazy val coreJVM = core.jvm
 lazy val coreJS = core.js.settings(
-  libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.0.0-RC3" % Test
-)
-
-lazy val zquery = crossProject(JSPlatform, JVMPlatform)
-  .crossType(CrossType.Pure)
-  .in(file("zquery"))
-  .settings(name := "zquery")
-  .settings(commonSettings)
-  .settings(skip in publish := true)
-  .settings(
-    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
-    libraryDependencies ++= Seq(
-      "dev.zio" %%% "zio"          % "1.0.0-RC15",
-      "dev.zio" %%% "zio-streams"  % "1.0.0-RC15",
-      "dev.zio" %%% "zio-test"     % "1.0.0-RC15" % "test",
-      "dev.zio" %%% "zio-test-sbt" % "1.0.0-RC15" % "test"
-    )
-  )
-  .jvmSettings(
-    fork in Test := true,
-    fork in run := true
-  )
-lazy val zqueryJVM = zquery.jvm
-lazy val zqueryJS = zquery.js.settings(
   libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.0.0-RC3" % Test
 )
 
