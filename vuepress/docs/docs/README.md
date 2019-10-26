@@ -15,6 +15,12 @@ To use `caliban`, add the following line in your `build.sbt` file:
 libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "0.1.0"
 ```
 
+The following modules are optional:
+``` 
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-http4s" % "0.1.0" // routes for http4s
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-cats"   % "TODO"  // interop with cats effect
+```
+
 Note that Caliban is also available for ScalaJS.
 
 ## A simple example
