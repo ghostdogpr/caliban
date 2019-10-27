@@ -33,6 +33,7 @@ module.exports = {
                 'schema',
                 'validation',
                 'introspection',
+                'interop',
                 'examples'
               ]
             }
