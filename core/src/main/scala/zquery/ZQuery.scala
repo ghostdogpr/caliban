@@ -280,10 +280,10 @@ object ZQuery {
    * committing to a particular implementation of the data source too early,
    * allowing, for example, for live and test implementations.
    */
-  final def fromRequest[A, B](
+  final def fromRequest[R, E, A, B](
     request: A
-  )(implicit ev: A <:< Request[B]): ZQuery[DataSource[Any, Nothing, A], Nothing, B] =
-    ZQuery.fromEffect(ZIO.access[DataSource[Any, Nothing, A]](identity)).flatMap(fromRequestWith(request)(_))
+  )(implicit ev: A <:< Request[B]): ZQuery[R with DataSource[R, E, A], E, B] =
+    ZQuery.fromEffect(ZIO.environment[DataSource[R, E, A]]).flatMap(r => fromRequestWith(request)(r.dataSource))
 
   /**
    * Constructs a query from a request and a data source. Queries must be
@@ -292,7 +292,7 @@ object ZQuery {
    */
   final def fromRequestWith[R, E, A, B](
     request: A
-  )(dataSource: DataSource[R, E, A])(implicit ev: A <:< Request[B]): ZQuery[R, E, B] =
+  )(dataSource: DataSource.Service[R, E, A])(implicit ev: A <:< Request[B]): ZQuery[R, E, B] =
     new ZQuery[R, E, B] {
       def step(cache: Cache): ZIO[R, E, Result[R, E, B]] =
         cache.lookup(request).flatMap {

@@ -50,11 +50,11 @@ object BlockedRequestMap {
    * specified data source to the specified request.
    */
   def apply[R, E, K](
-    dataSource: DataSource[R, E, K],
+    dataSource: DataSource.Service[R, E, K],
     blockedRequest: BlockedRequest[K]
   ): BlockedRequestMap[R, E] =
     new BlockedRequestMap(
-      Map(dataSource.dataSource.asInstanceOf[DataSource.Service[Any, Nothing, Any]] -> Vector(blockedRequest))
+      Map(dataSource.asInstanceOf[DataSource.Service[Any, Nothing, Any]] -> Vector(blockedRequest))
     )
 
   /**

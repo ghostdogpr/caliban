@@ -38,18 +38,16 @@ object ZQuerySpecUtil {
   case object GetAllIds                 extends UserRequest[List[Int]]
   final case class GetNameById(id: Int) extends UserRequest[String]
 
-  object UserRequestDataSource extends DataSource[Console, Nothing, UserRequest[Any]] {
-    val dataSource = new DataSource.Service[Console, Nothing, UserRequest[Any]] {
-      val identifier = "UserRequestDataSource"
-      def run(requests: Iterable[UserRequest[Any]]): ZIO[Console, Nothing, CompletedRequestMap] =
-        console.putStrLn("Running query") *>
-          ZIO.succeed {
-            requests.foldLeft(CompletedRequestMap.empty) {
-              case (completedRequests, GetAllIds)       => completedRequests.insert(GetAllIds)(userIds)
-              case (completedRequests, GetNameById(id)) => completedRequests.insert(GetNameById(id))(userNames(id))
-            }
+  object UserRequestDataSource extends DataSource.Service[Console, Nothing, UserRequest[Any]] {
+    val identifier = "UserRequestDataSource"
+    def run(requests: Iterable[UserRequest[Any]]): ZIO[Console, Nothing, CompletedRequestMap] =
+      console.putStrLn("Running query") *>
+        ZIO.succeed {
+          requests.foldLeft(CompletedRequestMap.empty) {
+            case (completedRequests, GetAllIds)       => completedRequests.insert(GetAllIds)(userIds)
+            case (completedRequests, GetNameById(id)) => completedRequests.insert(GetNameById(id))(userNames(id))
           }
-    }
+        }
   }
 
   val getAllUserIds: ZQuery[Console, Nothing, List[Int]] =
