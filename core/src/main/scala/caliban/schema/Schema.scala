@@ -216,15 +216,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
       override def optional: Boolean                        = ev.optional
       override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
       override def resolve(value: ZIO[R1, E, A]): Step[R1] =
-        EffectStep(
-          value.bimap(
-            {
-              case e: ExecutionError => e
-              case other             => ExecutionError("Caught error during execution of effectful field", Some(other))
-            },
-            ev.resolve
-          )
-        )
+        EffectStep(value.bimap(GenericSchema.effectfulExecutionError, ev.resolve))
     }
   implicit def fetchSchema[A](implicit ev: Schema[R, A]): Schema[R, Fetch[A]] =
     new Schema[R, Fetch[A]] {
@@ -237,15 +229,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
       override def optional: Boolean                        = ev.optional
       override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
       override def resolve(value: ZStream[R1, E, A]): Step[R1] =
-        StreamStep(
-          value.bimap(
-            {
-              case e: ExecutionError => e
-              case other             => ExecutionError("Caught error during execution of stream", Some(other))
-            },
-            ev.resolve
-          )
-        )
+        StreamStep(value.bimap(GenericSchema.effectfulExecutionError, ev.resolve))
     }
 
 }
@@ -379,4 +363,12 @@ trait DerivationSchema[R] {
 
   implicit def gen[T]: Typeclass[T] = macro Magnolia.gen[T]
 
+}
+
+object GenericSchema {
+
+  def effectfulExecutionError(e: Throwable): ExecutionError = e match {
+    case e: ExecutionError => e
+    case other             => ExecutionError("Caught error during execution of effectful field", Some(other))
+  }
 }
