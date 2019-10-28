@@ -24,6 +24,18 @@ object ZQuerySpec
             result <- ZQuery.collectAllPar(List(a, b)).run
             log    <- TestConsole.output
           } yield assert(log, hasSize(equalTo(2)))
+        },
+        testM("failure to complete request is query failure") {
+          for {
+            result <- getUserNameById(27).run.run
+          } yield assert(result, dies(equalTo(QueryFailure(UserRequestDataSource, GetNameById(27)))))
+        },
+        test("query failure is correctly reported") {
+          val failure = QueryFailure(UserRequestDataSource, GetNameById(27))
+          assert(
+            failure.getMessage,
+            equalTo("Data source UserRequestDataSource did not complete request GetNameById(27).")
+          )
         }
       )
     )
@@ -44,8 +56,9 @@ object ZQuerySpecUtil {
       console.putStrLn("Running query") *>
         ZIO.succeed {
           requests.foldLeft(CompletedRequestMap.empty) {
-            case (completedRequests, GetAllIds)       => completedRequests.insert(GetAllIds)(userIds)
-            case (completedRequests, GetNameById(id)) => completedRequests.insert(GetNameById(id))(userNames(id))
+            case (completedRequests, GetAllIds) => completedRequests.insert(GetAllIds)(userIds)
+            case (completedRequests, GetNameById(id)) =>
+              userNames.get(id).fold(completedRequests)(completedRequests.insert(GetNameById(id)))
           }
         }
   }

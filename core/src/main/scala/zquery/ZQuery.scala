@@ -302,12 +302,26 @@ object ZQuery {
               _   <- cache.insert(request, ref)
             } yield Result.blocked(
               BlockedRequestMap(dataSource, BlockedRequest(request, ref)),
-              ZQuery(ref.get.map(ob => Result.done(ob.get)))
+              ZQuery {
+                ref.get.flatMap {
+                  case None    => ZIO.die(QueryFailure(dataSource, request))
+                  case Some(b) => ZIO.succeed(Result.done(b))
+                }
+              }
             )
           case Some(ref) =>
             ref.get.map {
               case Some(b) => Result.done(b)
-              case None    => Result.blocked(BlockedRequestMap.empty, ZQuery.fromEffect(ref.get.map(_.get)))
+              case None =>
+                Result.blocked(
+                  BlockedRequestMap.empty,
+                  ZQuery {
+                    ref.get.flatMap {
+                      case None    => ZIO.die(QueryFailure(dataSource, request))
+                      case Some(b) => ZIO.succeed(Result.done(b))
+                    }
+                  }
+                )
             }
         }
     }
