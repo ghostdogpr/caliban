@@ -12,6 +12,7 @@ import caliban.schema.Types._
 import magnolia._
 import zio.ZIO
 import zio.stream.ZStream
+import zquery.ZQuery
 
 /**
  * Typeclass that defines how to map the type `T` to the according GraphQL concepts: how to introspect it and how to resolve it.
@@ -208,7 +209,10 @@ trait GenericSchema[R] extends DerivationSchema[R] {
 
       override def resolve(value: A => B): Step[RA with RB] =
         FunctionStep(
-          args => EffectStep(arg1.build(Value.ObjectValue(args)).map(argValue => ev2.resolve(value(argValue))))
+          args =>
+            QueryStep(
+              ZQuery.fromEffect(arg1.build(Value.ObjectValue(args)).map(argValue => ev2.resolve(value(argValue))))
+            )
         )
     }
   implicit def effectSchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZIO[R1, E, A]] =
@@ -216,13 +220,16 @@ trait GenericSchema[R] extends DerivationSchema[R] {
       override def optional: Boolean                        = ev.optional
       override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
       override def resolve(value: ZIO[R1, E, A]): Step[R1] =
-        EffectStep(value.bimap(GenericSchema.effectfulExecutionError, ev.resolve))
+        QueryStep(
+          ZQuery.fromEffect(value.bimap(GenericSchema.effectfulExecutionError, ev.resolve))
+        )
     }
-  implicit def fetchSchema[A](implicit ev: Schema[R, A]): Schema[R, Fetch[A]] =
-    new Schema[R, Fetch[A]] {
-      override def optional: Boolean                 = true
-      override def toType(isInput: Boolean): __Type  = ev.toType(isInput)
-      override def resolve(value: Fetch[A]): Step[R] = FetchStep(value.map(ev.resolve))
+  implicit def querySchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZQuery[R1, E, A]] =
+    new Schema[R1, ZQuery[R1, E, A]] {
+      override def optional: Boolean                = ev.optional
+      override def toType(isInput: Boolean): __Type = ev.toType(isInput)
+      override def resolve(value: ZQuery[R1, E, A]): Step[R1] =
+        QueryStep(value.map(ev.resolve).mapError("CalibanExecutionError")(GenericSchema.effectfulExecutionError))
     }
   implicit def streamSchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZStream[R1, E, A]] =
     new Schema[R1, ZStream[R1, E, A]] {

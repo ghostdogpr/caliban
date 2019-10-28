@@ -66,7 +66,11 @@ lazy val core = crossProject(JSPlatform, JVMPlatform)
       compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
     )
   )
-  .jvmSettings(fork in Test := true, fork in run := true)
+  .jvmSettings(
+    fork in Test := true,
+    fork in run := true
+  )
+  .dependsOn(zquery)
 lazy val coreJVM = core.jvm
 lazy val coreJS = core.js.settings(
   libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.0.0-RC3" % Test

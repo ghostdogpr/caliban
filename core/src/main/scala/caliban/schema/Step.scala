@@ -4,8 +4,8 @@ import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue
 import caliban.ResponseValue.NullValue
 import caliban.parsing.adt.Value
-import zio.ZIO
 import zio.stream.ZStream
+import zquery.ZQuery
 
 sealed trait Step[-R]
 
@@ -13,8 +13,7 @@ object Step {
   case class ListStep[-R](steps: List[Step[R]])                         extends Step[R]
   case class FunctionStep[-R](step: Map[String, Value] => Step[R])      extends Step[R]
   case class ObjectStep[-R](name: String, fields: Map[String, Step[R]]) extends Step[R]
-  case class EffectStep[-R](inner: ZIO[R, ExecutionError, Step[R]])     extends Step[R]
-  case class FetchStep[-R](fetch: Fetch[Step[R]])                       extends Step[R]
+  case class QueryStep[-R](query: ZQuery[R, ExecutionError, Step[R]])   extends Step[R]
   case class StreamStep[-R](inner: ZStream[R, ExecutionError, Step[R]]) extends Step[R]
 
   // PureStep is both a Step and a ReducedStep so it is defined outside this object
@@ -30,8 +29,7 @@ sealed trait ReducedStep[-R]
 object ReducedStep {
   case class ListStep[-R](steps: List[ReducedStep[R]])                         extends ReducedStep[R]
   case class ObjectStep[-R](fields: List[(String, ReducedStep[R])])            extends ReducedStep[R]
-  case class EffectStep[-R](inner: ZIO[R, ExecutionError, ReducedStep[R]])     extends ReducedStep[R]
-  case class FetchStep[-R](fetch: Fetch[ReducedStep[R]])                       extends ReducedStep[R]
+  case class QueryStep[-R](query: ZQuery[R, ExecutionError, ReducedStep[R]])   extends ReducedStep[R]
   case class StreamStep[-R](inner: ZStream[R, ExecutionError, ReducedStep[R]]) extends ReducedStep[R]
 
   // PureStep is both a Step and a ReducedStep so it is defined outside this object

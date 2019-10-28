@@ -10,8 +10,9 @@ import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt._
 import caliban.schema.RootSchema.Operation
 import caliban.schema.Step._
-import caliban.schema.{ Fetch, ReducedStep, RootSchema, Step }
-import zio.{ IO, UIO, ZIO }
+import caliban.schema.{ ReducedStep, RootSchema, Step }
+import zio.{ IO, ZIO }
+import zquery.ZQuery
 
 object Executor {
 
@@ -26,8 +27,7 @@ object Executor {
     document: Document,
     schema: RootSchema[R, Q, M, S],
     operationName: Option[String] = None,
-    variables: Map[String, Value] = Map(),
-    parallelism: Int = 1
+    variables: Map[String, Value] = Map()
   ): ZIO[R, ExecutionError, ResponseValue] = {
     val fragments = document.definitions.collect {
       case fragment: FragmentDefinition => fragment.name -> fragment
@@ -109,33 +109,29 @@ object Executor {
                 .getOrElse(NullStep)
           }
           reduceObject(items)
-        case EffectStep(inner)  => ReducedStep.EffectStep(inner.map(reduceStep(_, selectionSet, arguments)))
-        case FetchStep(inner)   => ReducedStep.FetchStep(inner.map(reduceStep(_, selectionSet, arguments)))
+        case QueryStep(inner)   => ReducedStep.QueryStep(inner.map(reduceStep(_, selectionSet, arguments)))
         case StreamStep(stream) => ReducedStep.StreamStep(stream.map(reduceStep(_, selectionSet, arguments)))
       }
 
-    def executeStep(step: ReducedStep[R]): ZIO[R, ExecutionError, ResponseValue] =
+    def makeQuery(step: ReducedStep[R]): ZQuery[R, ExecutionError, ResponseValue] =
       step match {
-        case PureStep(value) => UIO(value)
-        case ReducedStep.StreamStep(inner) =>
-          ZIO.environment[R].map(env => ResponseValue.StreamValue(inner.mapM(executeStep).provide(env)))
-        case _ =>
-          val ioList = collectIO(step)
-          if (ioList.nonEmpty) {
-            for {
-              ioResults <- if (allowParallelism) ZIO.collectAllPar(ioList) else ZIO.collectAll(ioList)
-              result    <- executeStep(replaceIO(step, ioResults))
-            } yield result
-          } else {
-            val fetches = collectFetch(step).map(_.run)
-            for {
-              fetchResults <- ZIO.collectAllPar(fetches)
-              result       <- executeStep(replaceFetch(step, fetchResults.map(_.getOrElse(NullStep))))
-            } yield result
-          }
+        case PureStep(value) => ZQuery.succeed(value)
+        case ReducedStep.ListStep(steps) =>
+          val queries = steps.map(makeQuery)
+          (if (allowParallelism) ZQuery.collectAllPar(queries) else ZQuery.collectAll(queries)).map(ListValue)
+        case ReducedStep.ObjectStep(steps) =>
+          val queries = steps.map { case (name, field) => makeQuery(field).map(name -> _) }
+          (if (allowParallelism) ZQuery.collectAllPar(queries) else ZQuery.collectAll(queries)).map(ObjectValue)
+        case ReducedStep.QueryStep(step) => step.flatMap(makeQuery)
+        case ReducedStep.StreamStep(stream) =>
+          ZQuery
+            .fromEffect(ZIO.environment[R])
+            .map(env => ResponseValue.StreamValue(stream.mapM(makeQuery(_).run).provide(env)))
       }
 
-    executeStep(reduceStep(plan, selectionSet, Map()))
+    val reduced: ReducedStep[R] = reduceStep(plan, selectionSet, Map())
+    val query                   = makeQuery(reduced)
+    query.run
   }
 
   private def resolveVariables(
@@ -219,50 +215,5 @@ object Executor {
         case (k, v) => k -> v.value
       }))
     else ReducedStep.ObjectStep(items)
-
-  private def collect[R, A](step: ReducedStep[R], pf: PartialFunction[ReducedStep[R], List[A]]): List[A] =
-    pf.lift(step) match {
-      case Some(value) => value
-      case None =>
-        step match {
-          case ReducedStep.ListStep(steps)    => steps.flatMap(collect(_, pf))
-          case ReducedStep.ObjectStep(fields) => fields.flatMap { case (_, v) => collect(v, pf) }
-          case _                              => Nil
-        }
-    }
-
-  private def collectIO[R](step: ReducedStep[R]): List[ZIO[R, ExecutionError, ReducedStep[R]]] =
-    collect[R, ZIO[R, ExecutionError, ReducedStep[R]]](step, { case ReducedStep.EffectStep(inner) => List(inner) })
-
-  private def collectFetch[R](step: ReducedStep[R]): List[Fetch[ReducedStep[R]]] =
-    collect[R, Fetch[ReducedStep[R]]](step, { case ReducedStep.FetchStep(inner) => List(inner) })
-
-  private def replace[R](
-    step: ReducedStep[R],
-    list: List[ReducedStep[R]],
-    pf: PartialFunction[ReducedStep[R], Unit]
-  ): ReducedStep[R] = {
-    var l = list // use var for better performance
-    def replaceLoop(step: ReducedStep[R]): ReducedStep[R] =
-      pf.lift(step) match {
-        case Some(_) if l.nonEmpty =>
-          val head = l.head
-          l = l.tail
-          head
-        case _ =>
-          step match {
-            case ReducedStep.ListStep(steps)    => reduceList(steps.map(replaceLoop))
-            case ReducedStep.ObjectStep(fields) => reduceObject(fields.map { case (k, v) => k -> replaceLoop(v) })
-            case other                          => other
-          }
-      }
-    replaceLoop(step)
-  }
-
-  private def replaceIO[R](step: ReducedStep[R], list: List[ReducedStep[R]]): ReducedStep[R] =
-    replace[R](step, list, { case ReducedStep.EffectStep(_) => () })
-
-  private def replaceFetch[R](step: ReducedStep[R], list: List[ReducedStep[R]]): ReducedStep[R] =
-    replace[R](step, list, { case ReducedStep.FetchStep(_) => () })
 
 }
