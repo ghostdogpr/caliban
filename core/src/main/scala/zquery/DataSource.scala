@@ -126,29 +126,43 @@ object DataSource {
       identifier
   }
 
-  /**
-   * Constructs a data source from a pure function.
-   */
-  final def fromFunction[A, B](
-    name: String
-  )(f: A => B)(implicit ev: A <:< Request[B]): DataSource.Service[Any, Nothing, A] =
-    new DataSource.Service[Any, Nothing, A] {
-      val identifier = name
-      def run(requests: Iterable[A]): ZIO[Any, Nothing, CompletedRequestMap] =
-        ZIO.succeed(requests.foldLeft(CompletedRequestMap.empty)((map, k) => map.insert(k)(f(k))))
-    }
+  object Service {
 
-  /**
-   * Constructs a data source from an effectual function.
-   */
-  final def fromFunctionM[R, E, A, B](
-    name: String
-  )(f: A => ZIO[R, E, B])(implicit ev: A <:< Request[B]): DataSource.Service[R, E, A] =
-    new DataSource.Service[R, E, A] {
-      val identifier = name
-      def run(requests: Iterable[A]): ZIO[R, E, CompletedRequestMap] =
-        ZIO
-          .foreachPar(requests)(k => ZIO.succeed(k).zip(f(k)))
-          .map(_.foldLeft(CompletedRequestMap.empty) { case (map, (k, v)) => map.insert(k)(v) })
-    }
+    /**
+     * Constructs a data source from a function taking a collection of
+     * requests and returning a `CompletedRequestMap`.
+     */
+    def apply[R, E, A](name: String)(f: Iterable[A] => ZIO[R, E, CompletedRequestMap]): DataSource.Service[R, E, A] =
+      new DataSource.Service[R, E, A] {
+        val identifier = name
+        def run(requests: Iterable[A]): ZIO[R, E, CompletedRequestMap] =
+          f(requests)
+      }
+
+    /**
+     * Constructs a data source from a pure function.
+     */
+    final def fromFunction[A, B](
+      name: String
+    )(f: A => B)(implicit ev: A <:< Request[B]): DataSource.Service[Any, Nothing, A] =
+      new DataSource.Service[Any, Nothing, A] {
+        val identifier = name
+        def run(requests: Iterable[A]): ZIO[Any, Nothing, CompletedRequestMap] =
+          ZIO.succeed(requests.foldLeft(CompletedRequestMap.empty)((map, k) => map.insert(k)(f(k))))
+      }
+
+    /**
+     * Constructs a data source from an effectual function.
+     */
+    final def fromFunctionM[R, E, A, B](
+      name: String
+    )(f: A => ZIO[R, E, B])(implicit ev: A <:< Request[B]): DataSource.Service[R, E, A] =
+      new DataSource.Service[R, E, A] {
+        val identifier = name
+        def run(requests: Iterable[A]): ZIO[R, E, CompletedRequestMap] =
+          ZIO
+            .foreachPar(requests)(k => ZIO.succeed(k).zip(f(k)))
+            .map(_.foldLeft(CompletedRequestMap.empty) { case (map, (k, v)) => map.insert(k)(v) })
+      }
+  }
 }
