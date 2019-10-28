@@ -20,10 +20,7 @@ import zio.ZIO
  * the query, and place the results into the `CompletedRequestsMap` using
  * [[CompletedRequestMap.empty]] and [[CompletedRequestMap.insert]]. Data
  * sources must provide requests for all results received or fail with an `E`.
- * Failure to do so will result in a query dieing with a `QueryFailure`.
- *
- * Data sources are guaranteed that all requests will be unique when they are
- * called by `ZQuery`.
+ * Failure to do so will cause a query to die with a `QueryFailure` when run.
  */
 trait DataSource[-R, +E, -A] {
   def dataSource: DataSource.Service[R, E, A]
@@ -33,8 +30,16 @@ object DataSource {
 
   trait Service[-R, +E, -A] { self =>
 
+    /**
+     * The data source's identifier.
+     */
     val identifier: String
 
+    /**
+     * Execute a collection of requests. Data sources are guaranteed that the
+     * collection will contain at least one request and that all requests will
+     * be unique when they are called by `ZQuery`.
+     */
     def run(requests: Iterable[A]): ZIO[R, E, CompletedRequestMap]
 
     /**
