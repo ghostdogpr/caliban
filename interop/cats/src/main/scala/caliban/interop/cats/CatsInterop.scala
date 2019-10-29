@@ -2,14 +2,16 @@ package caliban.interop.cats
 
 import caliban.introspection.adt.__Type
 import caliban.parsing.adt.Value
-import caliban.schema.{ GenericSchema, Schema }
-import caliban.{ CalibanError, GraphQL, ResolvedValue, ResponseValue }
+import caliban.schema.Step.QueryStep
+import caliban.schema.{ GenericSchema, Schema, Step }
+import caliban.{ GraphQL, ResponseValue }
 import cats.effect.implicits._
 import cats.effect.{ Async, Effect }
 import cats.instances.either._
 import cats.syntax.functor._
 import zio.interop.catz._
-import zio.{ Runtime, ZIO, _ }
+import zio.{ Runtime, _ }
+import zquery.ZQuery
 
 object CatsInterop {
 
@@ -41,13 +43,13 @@ object CatsInterop {
       override def optional: Boolean =
         ev.optional
 
-      override def resolve(
-        value: F[A],
-        arguments: Map[String, Value]
-      ): ZIO[R, CalibanError.ExecutionError, ResolvedValue] =
-        value.toIO
-          .to[Task]
-          .flatMap(a => ev.resolve(a, arguments))
-          .mapError(GenericSchema.effectfulExecutionError)
+      override def resolve(value: F[A]): Step[R] =
+        QueryStep(
+          ZQuery.fromEffect(
+            value.toIO
+              .to[Task]
+              .bimap(GenericSchema.effectfulExecutionError, ev.resolve)
+          )
+        )
     }
 }

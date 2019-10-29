@@ -2,16 +2,17 @@ package caliban.execution
 
 import scala.collection.immutable.ListMap
 import caliban.CalibanError.ExecutionError
+import caliban.ResponseValue
+import caliban.ResponseValue._
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.OperationType.{ Mutation, Query, Subscription }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
-import caliban.parsing.adt.{ Directive, Document, Selection, Value, VariableDefinition }
-import caliban.ResolvedValue.{ ResolvedListValue, ResolvedObjectValue, ResolvedStreamValue }
-import caliban.{ ResolvedValue, ResponseValue }
-import caliban.ResponseValue.{ EnumValue, ListValue, NullValue, ObjectValue, StringValue }
+import caliban.parsing.adt._
 import caliban.schema.RootSchema.Operation
-import caliban.schema.RootSchema
-import zio.{ IO, UIO, ZIO }
+import caliban.schema.Step._
+import caliban.schema.{ ReducedStep, RootSchema, Step }
+import zio.{ IO, ZIO }
+import zquery.ZQuery
 
 object Executor {
 
@@ -26,8 +27,7 @@ object Executor {
     document: Document,
     schema: RootSchema[R, Q, M, S],
     operationName: Option[String] = None,
-    variables: Map[String, Value] = Map(),
-    parallelism: Int = 1
+    variables: Map[String, Value] = Map()
   ): ZIO[R, ExecutionError, ResponseValue] = {
     val fragments = document.definitions.collect {
       case fragment: FragmentDefinition => fragment.name -> fragment
@@ -43,80 +43,95 @@ object Executor {
         }
     }
     IO.fromEither(operation).mapError(ExecutionError(_)).flatMap { op =>
-      def executeOperation[A](x: Operation[R, A]): ZIO[R, ExecutionError, ResponseValue] =
-        executeSelectionSet(
-          x.schema.resolve(x.resolver, Map()),
+      def executeOperation[A](x: Operation[R, A], allowParallelism: Boolean): ZIO[R, ExecutionError, ResponseValue] =
+        executePlan(
+          x.schema.resolve(x.resolver),
           op.selectionSet,
           fragments,
           op.variableDefinitions,
-          variables
+          variables,
+          allowParallelism
         )
+
       op.operationType match {
-        case Query => executeOperation(schema.query)
+        case Query => executeOperation(schema.query, allowParallelism = true)
         case Mutation =>
           schema.mutation match {
-            case Some(m) => executeOperation(m)
+            case Some(m) => executeOperation(m, allowParallelism = false)
             case None    => IO.fail(ExecutionError("Mutations are not supported on this schema"))
           }
         case Subscription =>
           schema.subscription match {
-            case Some(m) => executeOperation(m)
+            case Some(m) => executeOperation(m, allowParallelism = true)
             case None    => IO.fail(ExecutionError("Subscriptions are not supported on this schema"))
           }
       }
     }
   }
 
-  private def executeSelectionSet[R](
-    resolve: ZIO[R, ExecutionError, ResolvedValue],
+  private def executePlan[R](
+    plan: Step[R],
     selectionSet: List[Selection],
     fragments: Map[String, FragmentDefinition],
     variableDefinitions: List[VariableDefinition],
-    variableValues: Map[String, Value]
+    variableValues: Map[String, Value],
+    allowParallelism: Boolean
   ): ZIO[R, ExecutionError, ResponseValue] = {
 
-    def executeSelectionSetLoop(
-      resolve: ZIO[R, ExecutionError, ResolvedValue],
-      selectionSet: List[Selection]
-    ): ZIO[R, ExecutionError, ResponseValue] =
-      resolve.flatMap {
-        case ResolvedObjectValue(objectName, fields) =>
+    def reduceStep(step: Step[R], selectionSet: List[Selection], arguments: Map[String, Value]): ReducedStep[R] =
+      step match {
+        case s @ PureStep(value) =>
+          value match {
+            case EnumValue(v) if selectionSet.collectFirst {
+                  case Selection.Field(_, "__typename", _, _, _) => true
+                }.nonEmpty =>
+              // special case of an hybrid union containing case objects, those should return an object instead of a string
+              val mergedSelectionSet = mergeSelectionSet(selectionSet, v, fragments, variableValues)
+              val obj = mergedSelectionSet.collectFirst {
+                case Selection.Field(alias, name @ "__typename", _, _, _) =>
+                  ObjectValue(List(alias.getOrElse(name) -> StringValue(v)))
+              }
+              obj.fold(s)(PureStep(_))
+            case _ => s
+          }
+        case FunctionStep(step) => reduceStep(step(arguments), selectionSet, Map())
+        case ListStep(steps)    => reduceList(steps.map(reduceStep(_, selectionSet, arguments)))
+        case ObjectStep(objectName, fields) =>
           val mergedSelectionSet = mergeSelectionSet(selectionSet, objectName, fragments, variableValues)
-          val resolveFields = mergedSelectionSet.map {
+          val items = mergedSelectionSet.map {
             case Selection.Field(alias, name @ "__typename", _, _, _) =>
-              UIO(alias.getOrElse(name) -> StringValue(objectName))
+              alias.getOrElse(name) -> PureStep(StringValue(objectName))
             case Selection.Field(alias, name, args, _, selectionSet) =>
               val arguments = resolveVariables(args, variableDefinitions, variableValues)
-              fields
+              alias.getOrElse(name) -> fields
                 .get(name)
-                .map(res => executeSelectionSetLoop(res(arguments), selectionSet))
-                .getOrElse(UIO.succeed(NullValue))
-                .map((alias.getOrElse(name), _))
+                .map(reduceStep(_, selectionSet, arguments))
+                .getOrElse(NullStep)
           }
-          ZIO.collectAll(resolveFields).map(ObjectValue)
-        case ResolvedListValue(values) =>
-          ZIO.collectAll(values.map(executeSelectionSetLoop(_, selectionSet))).map(ListValue)
-        case ResolvedStreamValue(stream) =>
-          ZIO
-            .environment[R]
-            .map(
-              env =>
-                ResponseValue
-                  .StreamValue(stream.mapM(res => executeSelectionSetLoop(UIO(res), selectionSet)).provide(env))
-            )
-        case EnumValue(value)
-            if selectionSet.collectFirst { case Selection.Field(_, "__typename", _, _, _) => true }.nonEmpty =>
-          // special case of an hybrid union containing case objects, those should return an object instead of a string
-          val mergedSelectionSet = mergeSelectionSet(selectionSet, value, fragments, variableValues)
-          val resolveFields = mergedSelectionSet.collectFirst {
-            case Selection.Field(alias, name @ "__typename", _, _, _) =>
-              UIO(alias.getOrElse(name) -> StringValue(value))
-          }
-          ZIO.collectAll(resolveFields).map(ObjectValue)
-        case other: ResponseValue => UIO(other)
+          reduceObject(items)
+        case QueryStep(inner)   => ReducedStep.QueryStep(inner.map(reduceStep(_, selectionSet, arguments)))
+        case StreamStep(stream) => ReducedStep.StreamStep(stream.map(reduceStep(_, selectionSet, arguments)))
       }
 
-    executeSelectionSetLoop(resolve, selectionSet)
+    def makeQuery(step: ReducedStep[R]): ZQuery[R, ExecutionError, ResponseValue] =
+      step match {
+        case PureStep(value) => ZQuery.succeed(value)
+        case ReducedStep.ListStep(steps) =>
+          val queries = steps.map(makeQuery)
+          (if (allowParallelism) ZQuery.collectAllPar(queries) else ZQuery.collectAll(queries)).map(ListValue)
+        case ReducedStep.ObjectStep(steps) =>
+          val queries = steps.map { case (name, field) => makeQuery(field).map(name -> _) }
+          (if (allowParallelism) ZQuery.collectAllPar(queries) else ZQuery.collectAll(queries)).map(ObjectValue)
+        case ReducedStep.QueryStep(step) => step.flatMap(makeQuery)
+        case ReducedStep.StreamStep(stream) =>
+          ZQuery
+            .fromEffect(ZIO.environment[R])
+            .map(env => ResponseValue.StreamValue(stream.mapM(makeQuery(_).run).provide(env)))
+      }
+
+    val reduced: ReducedStep[R] = reduceStep(plan, selectionSet, Map())
+    val query                   = makeQuery(reduced)
+    query.run
   }
 
   private def resolveVariables(
@@ -188,5 +203,17 @@ object Executor {
         }
       case _ => default
     }
+
+  private def reduceList[R](list: List[ReducedStep[R]]): ReducedStep[R] =
+    if (list.forall(_.isInstanceOf[PureStep]))
+      PureStep(ListValue(list.asInstanceOf[List[PureStep]].map(_.value)))
+    else ReducedStep.ListStep(list)
+
+  private def reduceObject[R](items: List[(String, ReducedStep[R])]): ReducedStep[R] =
+    if (items.map(_._2).forall(_.isInstanceOf[PureStep]))
+      PureStep(ObjectValue(items.asInstanceOf[List[(String, PureStep)]].map {
+        case (k, v) => k -> v.value
+      }))
+    else ReducedStep.ObjectStep(items)
 
 }

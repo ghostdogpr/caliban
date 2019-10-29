@@ -8,11 +8,11 @@ import org.http4s.implicits._
 import org.http4s.server.Router
 import org.http4s.server.blaze.BlazeServerBuilder
 import org.http4s.server.middleware.CORS
+import zio._
 import zio.clock.Clock
 import zio.console.{ putStrLn, Console }
 import zio.interop.catz._
 import zio.stream.ZStream
-import zio.{ RIO, URIO, ZEnv, ZIO }
 
 object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
 
@@ -27,12 +27,20 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
 
   type ExampleTask[A] = RIO[Console with Clock, A]
 
+  implicit val roleSchema           = gen[Role]
+  implicit val characterSchema      = gen[Character]
+  implicit val characterArgsSchema  = gen[CharacterArgs]
+  implicit val charactersArgsSchema = gen[CharactersArgs]
+
   override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] =
     (for {
       service <- ExampleService.make(sampleCharacters)
       interpreter = graphQL(
         RootResolver(
-          Queries(args => service.getCharacters(args.origin), args => service.findCharacter(args.name)),
+          Queries(
+            args => service.getCharacters(args.origin),
+            args => service.findCharacter(args.name)
+          ),
           Mutations(args => service.deleteCharacter(args.name)),
           Subscriptions(service.deletedEvents)
         )

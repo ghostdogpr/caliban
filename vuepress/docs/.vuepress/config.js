@@ -31,6 +31,7 @@ module.exports = {
               children: [
                 '',
                 'schema',
+                // 'optimization', uncomment when ready to be published
                 'validation',
                 'introspection',
                 'interop',
