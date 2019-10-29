@@ -1,5 +1,5 @@
 # Query optimization
-A GraphQL query may request multiple fields that are using the same resolver. It's not a problem if the resolver is a simple value, but it can be less than optimal when the field runs an effect (such as reading from a database).
+A GraphQL query may request multiple fields that are using the same resolver. It's not a problem if the resolver is a simple value, but it can be less than optimal when the resolver runs an effect (such as reading from a database).
 
 We might want to:
 - **cache** identical queries (deduplication)
@@ -8,7 +8,7 @@ We might want to:
 This is possible in Caliban using the `ZQuery` data type. 
 
 ## Introducing ZQuery
-A `ZQuery[R, E, A]` is a purely functional description of an effectual query that may contain requests from one or more data sources. Similarly to `ZIO[R, E, A]`, it requires an environment `R`, may fail with an `E` or succeed with an `A`. All requests that do not need to be performed sequentially will automatically be batched, allowing for aggressive data source specific optimizations. Requests will also automatically be deduplicated and cached.
+A `ZQuery[R, E, A]` is a purely functional description of an effectual query that may contain requests to one or more data sources. Similarly to `ZIO[R, E, A]`, it requires an environment `R`, may fail with an `E` or succeed with an `A`. All requests that do not need to be performed sequentially will automatically be batched, allowing for aggressive data source specific optimizations. Requests will also automatically be deduplicated and cached.
 
 This allows for writing queries in a high level, compositional style, with confidence that they will automatically be optimized. For example, consider the following query from a user service.
 
@@ -25,11 +25,11 @@ for {
 This would normally require N + 1 queries, one for `getAllUserIds` and one for each call to `getUserNameById`. In contrast, `ZQuery` will automatically optimize this to two queries, one for `userIds` and one for `userNames`, assuming an implementation of the user service that supports batching.
 
 ## Building a DataSource
-To build a `ZQuery` that actually execute a request, you first need to build a `DataSource`. A `DataSource[R, E, A]` defines how to execute requests of type `A` and require 2 things:
-- an `identifier` that uniquely identifies the data source (requests from different data sources will not be batched together)
+To build a `ZQuery` that executes a request, you first need to build a `DataSource`. A `DataSource[R, E, A]` defines how to execute requests of type `A` and require 2 things:
+- an `identifier` that uniquely identifies the data source (requests from *different* data sources will *not* be batched together)
 - a effectful function `run` from a list of requests to a `Map` of requests and results
 
-Let's consider `getUserNameById` from the previous example. We need to define a corresponding request type:
+Let's consider `getUserNameById` from the previous example. We need to define a corresponding request type that extends `zquery.Request` for a given response type:
 ```scala
 case class GetUserName(id: Int) extends Request[String]
 ```
@@ -42,7 +42,7 @@ val UserDataSource = new DataSource.Service[Any, Throwable, GetUserName] {
 }
 ```
 
-We will use "UserDataSource" as our identifier:
+We will use "UserDataSource" as our identifier. This name should not be reused for other data sources.
 ```scala
 override val identifier: String = "UserDataSource"
 ```
@@ -74,9 +74,9 @@ To run a `ZQuery`, simply use `ZQuery#run` which will return a `ZIO[R, E, A]`.
 
 ## ZQuery constructors and operators
 There are several ways to create a `ZQuery`. We've seen `ZQuery.fromRequestWith`, but you can also:
-- create a `ZQuery` from a pure value with `ZQuery.succeed`
-- create a `ZQuery` from an effect value with `ZQuery.fromEffect`
-- create a `ZQuery` from multiple queries with `ZQuery.collectAllPar` and `ZQuery.foreachPar` and their sequential equivalents `ZQuery.collectAll` and `ZQuery.foreach`
+- create from a pure value with `ZQuery.succeed`
+- create from an effect value with `ZQuery.fromEffect`
+- create from multiple queries with `ZQuery.collectAllPar` and `ZQuery.foreachPar` and their sequential equivalents `ZQuery.collectAll` and `ZQuery.foreach`
 
 If you have a `ZQuery` object, you can use:
 - `map` and `mapError` to modify the returned result or error
@@ -89,13 +89,13 @@ There are several ways to run a `ZQuery`:
 - `run` runs the query and returns its result.
 
 ## Using ZQuery with Caliban
-To use ZQuery with Caliban, you can simply include fields of type `ZQuery` in your API definition.
+To use `ZQuery` with Caliban, you can simply include fields of type `ZQuery` in your API definition.
 ```scala
 case class Queries(
   users: ZQuery[Any, Nothing, List[User]],
   user: UserArgs => ZQuery[Any, Nothing, User])
 ```
-During a query execution, Caliban will merge all the requested fields that return a `ZQuery` into a single `ZQuery` and run it, so that all the possible optimizations are applied.
+During the query execution, Caliban will merge all the requested fields that return a `ZQuery` into a single `ZQuery` and run it, so that all the possible optimizations are applied.
 
 The [examples](https://github.com/ghostdogpr/caliban/tree/master/examples) project provides 2 versions of the problem described in [this article about GraphQL query optimization](https://blog.apollographql.com/optimizing-your-graphql-request-waterfalls-7c3f3360b051):
 - a [naive](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/caliban/optimizations/NaiveTest.scala) version where fields are just returning `IO`, resulting in 47 requests
