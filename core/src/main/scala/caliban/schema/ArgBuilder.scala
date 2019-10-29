@@ -24,6 +24,12 @@ trait ArgBuilder[T] { self =>
    * @param f a function from `T` to `A`.
    */
   def map[A](f: T => A): ArgBuilder[A] = (input: Value) => self.build(input).map(f)
+
+  /**
+   * Builds a new `ArgBuilder` of A from an existing `ArgBuilder` of `T` and a function from `T` to `IO[ExecutionError, A]`.
+   * @param f a function from `T` to IO[ExecutionError, A]
+   */
+  def mapM[A](f: T => IO[ExecutionError, A]): ArgBuilder[A] = (input: Value) => self.build(input).flatMap(f)
 }
 
 object ArgBuilder {
