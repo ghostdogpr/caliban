@@ -3,8 +3,9 @@ package caliban.schema
 import scala.language.experimental.macros
 import caliban.CalibanError.ExecutionError
 import caliban.parsing.adt.Value
+import caliban.schema.Annotations.GQLName
 import magnolia._
-import zio.IO
+import zio.{ FiberFailure, IO }
 
 /**
  * Typeclass that defines how to build an argument of type `T` from an input [[caliban.parsing.adt.Value]].
@@ -64,12 +65,18 @@ object ArgBuilder {
         rts =>
           IO.effect(
               ctx.construct { p =>
-                input match {
+                (input match {
                   case Value.ObjectValue(fields) =>
-                    rts.unsafeRun(p.typeclass.build(fields.getOrElse(p.label, Value.NullValue)))
+                    rts.unsafeRunSync(p.typeclass.build(fields.getOrElse(p.label, Value.NullValue)))
                   case value =>
-                    rts.unsafeRun(p.typeclass.build(value))
-                }
+                    rts.unsafeRunSync(p.typeclass.build(value))
+                }).getOrElse(
+                  c =>
+                    c.failures match {
+                      case ex :: Nil => throw ex
+                      case _         => throw FiberFailure(c)
+                    }
+                )
               }
             )
             .mapError {
@@ -78,13 +85,22 @@ object ArgBuilder {
             }
       )
 
-  def dispatch[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] = {
-    case Value.EnumValue(value) =>
-      ctx.subtypes.find(_.typeName.short == value).get.typeclass.build(Value.ObjectValue(Map()))
-    case Value.StringValue(value) =>
-      ctx.subtypes.find(_.typeName.short == value).get.typeclass.build(Value.ObjectValue(Map()))
-    case other =>
-      IO.fail(ExecutionError(s"Can't build an trait from input $other"))
+  def dispatch[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] = input => {
+    (input match {
+      case Value.StringValue(value) => Some(value)
+      case Value.EnumValue(value)   => Some(value)
+      case _                        => None
+    }) match {
+      case Some(value) =>
+        ctx.subtypes
+          .find(
+            t => t.annotations.collectFirst { case GQLName(name) => name }.contains(value) || t.typeName.short == value
+          ) match {
+          case Some(subtype) => subtype.typeclass.build(Value.ObjectValue(Map()))
+          case None          => IO.fail(ExecutionError(s"Invalid value $value for trait ${ctx.typeName.short}"))
+        }
+      case None => IO.fail(ExecutionError(s"Can't build an trait from input $input"))
+    }
   }
 
   implicit def gen[T]: Typeclass[T] = macro Magnolia.gen[T]
