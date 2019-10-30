@@ -1,23 +1,26 @@
 package caliban.optimizations
 
 import caliban.optimizations.CommonData._
-import caliban.schema.Schema
+import caliban.schema.{ GenericSchema, Schema }
 import caliban.{ GraphQL, RootResolver }
-import zio.{ App, UIO, ZIO }
+import zio.console.{ putStrLn, Console }
+import zio.{ App, ZIO }
 
 /**
  * Naive implementation of https://blog.apollographql.com/optimizing-your-graphql-request-waterfalls-7c3f3360b051
  * Will result in 47 requests.
  */
-object NaiveTest extends App {
+object NaiveTest extends App with GenericSchema[Console] {
 
-  case class Queries(user: UserArgs => UIO[User])
+  type MyIO[A] = ZIO[Console, Nothing, A]
+
+  case class Queries(user: UserArgs => MyIO[User])
 
   case class User(
     fullName: String,
     username: String,
     picture: SizeArgs => String,
-    upcomingEvents: FirstArgs => UIO[List[Event]]
+    upcomingEvents: FirstArgs => MyIO[List[Event]]
   )
 
   case class Event(
@@ -26,27 +29,27 @@ object NaiveTest extends App {
     date: String,
     startTime: String,
     endTime: String,
-    viewerRsvp: UIO[ViewerMetadata],
-    tags: UIO[List[Tag]],
-    venue: UIO[Venue],
-    attendingFriendsOfViewer: FirstArgs => UIO[List[User]]
+    viewerRsvp: MyIO[ViewerMetadata],
+    tags: MyIO[List[Tag]],
+    venue: MyIO[Venue],
+    attendingFriendsOfViewer: FirstArgs => MyIO[List[User]]
   )
 
-  def getUpcomingEventIdsForUser(id: Int, first: Int): UIO[List[Int]] =
-    UIO(println("getUpcomingEventIdsForUser")).as((1 to first).toList)
+  def getUpcomingEventIdsForUser(id: Int, first: Int): MyIO[List[Int]] =
+    putStrLn("getUpcomingEventIdsForUser").as((1 to first).toList)
 
-  def getViewerMetadataForEvent(id: Int): UIO[ViewerMetadata] =
-    UIO(println("getViewerMetadataForEvent")).as(ViewerMetadata(""))
+  def getViewerMetadataForEvent(id: Int): MyIO[ViewerMetadata] =
+    putStrLn("getViewerMetadataForEvent").as(ViewerMetadata(""))
 
-  def getVenue(id: Int): UIO[Venue] = UIO(println("getVenue")).as(Venue("venue"))
+  def getVenue(id: Int): MyIO[Venue] = putStrLn("getVenue").as(Venue("venue"))
 
-  def getTags(ids: List[Int]): UIO[List[Tag]] = UIO(println("getTags")).as(ids.map(id => Tag(id.toString)))
+  def getTags(ids: List[Int]): MyIO[List[Tag]] = putStrLn("getTags").as(ids.map(id => Tag(id.toString)))
 
-  def getViewerFriendIdsAttendingEvent(id: Int, first: Int): UIO[List[Int]] =
-    UIO(println("getViewerFriendIdsAttendingEvent")).as((1 to first).toList)
+  def getViewerFriendIdsAttendingEvent(id: Int, first: Int): MyIO[List[Int]] =
+    putStrLn("getViewerFriendIdsAttendingEvent").as((1 to first).toList)
 
-  def getEvent(id: Int): UIO[Event] =
-    UIO(println("getEvent")).as(
+  def getEvent(id: Int): MyIO[Event] =
+    putStrLn("getEvent").as(
       Event(
         id,
         "name",
@@ -60,8 +63,8 @@ object NaiveTest extends App {
       )
     )
 
-  def getUser(id: Int): UIO[User] =
-    UIO(println("getUser")).as(
+  def getUser(id: Int): MyIO[User] =
+    putStrLn("getUser").as(
       User(
         "name",
         "name",
@@ -70,11 +73,17 @@ object NaiveTest extends App {
       )
     )
 
-  implicit lazy val user: Schema[Any, User] = Schema.gen[User]
+  implicit val viewerMetadataSchema: Schema[Any, ViewerMetadata] = Schema.gen[ViewerMetadata]
+  implicit val tagSchema: Schema[Any, Tag]                       = Schema.gen[Tag]
+  implicit val venueSchema: Schema[Any, Venue]                   = Schema.gen[Venue]
+  implicit val userArgsSchema: Schema[Any, UserArgs]             = Schema.gen[UserArgs]
+  implicit val sizeArgsSchema: Schema[Any, SizeArgs]             = Schema.gen[SizeArgs]
+  implicit val firstArgsSchema: Schema[Any, FirstArgs]           = Schema.gen[FirstArgs]
+  implicit lazy val user: Schema[Console, User]                  = gen[User]
 
-  val resolver                                       = Queries(args => getUser(args.id))
-  val interpreter: GraphQL[Any, Queries, Unit, Unit] = GraphQL.graphQL(RootResolver(resolver))
+  val resolver                                           = Queries(args => getUser(args.id))
+  val interpreter: GraphQL[Console, Queries, Unit, Unit] = GraphQL.graphQL(RootResolver(resolver))
 
   override def run(args: List[String]): ZIO[zio.ZEnv, Nothing, Int] =
-    interpreter.execute(query).catchAll(err => UIO(println(err))).as(0)
+    interpreter.execute(query).catchAll(err => putStrLn(err.toString)).as(0)
 }
