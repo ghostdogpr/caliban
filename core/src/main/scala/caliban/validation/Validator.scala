@@ -34,7 +34,7 @@ object Validator {
       context       = Context(document, rootType, operations, fragmentMap, selectionSets)
       _             <- validateOperationNameUniqueness(operations)
       _             <- validateLoneAnonymousOperation(operations)
-      _             <- validateDirectives(selectionSets)
+      _             <- validateDirectives(context)
       _             <- validateFragmentSpreads(context)
       _             <- validateVariables(context)
       _             <- validateSubscriptionOperation(context)
@@ -73,30 +73,76 @@ object Validator {
       case InlineFragment(_, _, selectionSet) => collectSelectionSets(selectionSet)
     }
 
-  private def collectDirectives(selectionSet: List[Selection]): List[Directive] =
-    selectionSet.flatMap {
-      case FragmentSpread(_, directives)    => directives
-      case Field(_, _, _, directives, _)    => directives
-      case InlineFragment(_, directives, _) => directives
+  private def collectAllDirectives(context: Context): IO[ValidationError, List[(Directive, __DirectiveLocation)]] =
+    for {
+      opDirectives <- IO.foreach(context.operations)(
+                       op =>
+                         checkDirectivesUniqueness(op.directives).as(op.operationType match {
+                           case OperationType.Query    => op.directives.map((_, __DirectiveLocation.QUERY))
+                           case OperationType.Mutation => op.directives.map((_, __DirectiveLocation.MUTATION))
+                           case OperationType.Subscription =>
+                             op.directives.map((_, __DirectiveLocation.SUBSCRIPTION))
+                         })
+                     )
+      fragmentDirectives <- IO.foreach(context.fragments.values)(
+                             fragment =>
+                               checkDirectivesUniqueness(fragment.directives)
+                                 .as(fragment.directives.map((_, __DirectiveLocation.FRAGMENT_DEFINITION)))
+                           )
+      selectionDirectives <- collectDirectives(context.selectionSets)
+    } yield opDirectives.flatten ++ fragmentDirectives.flatten ++ selectionDirectives
+
+  private def collectDirectives(
+    selectionSet: List[Selection]
+  ): IO[ValidationError, List[(Directive, __DirectiveLocation)]] =
+    IO.foreach(selectionSet) {
+        case FragmentSpread(_, directives) =>
+          checkDirectivesUniqueness(directives).as(directives.map((_, __DirectiveLocation.FRAGMENT_SPREAD)))
+        case Field(_, _, _, directives, selectionSet) =>
+          checkDirectivesUniqueness(directives) *>
+            collectDirectives(selectionSet).map(directives.map((_, __DirectiveLocation.FIELD)) ++ _)
+        case InlineFragment(_, directives, selectionSet) =>
+          checkDirectivesUniqueness(directives) *>
+            collectDirectives(selectionSet).map(directives.map((_, __DirectiveLocation.INLINE_FRAGMENT)) ++ _)
+      }
+      .map(_.flatten)
+
+  private def checkDirectivesUniqueness(directives: List[Directive]): IO[ValidationError, Unit] =
+    IO.whenCase(directives.groupBy(_.name).find { case (_, v) => v.length > 1 }) {
+      case Some((name, _)) =>
+        IO.fail(
+          ValidationError(
+            s"Directive '$name' is defined twice.",
+            "Directives are used to describe some metadata or behavioral change on the definition they apply to. When more than one directive of the same name is used, the expected metadata or behavior becomes ambiguous, therefore only one of each directive is allowed per location."
+          )
+        )
     }
 
-  private def validateDirectives(selectionSet: List[Selection]): IO[ValidationError, Unit] = {
-    val directives          = collectDirectives(selectionSet)
-    val supportedDirectives = Introspector.directives.map(_.name).toSet
-    IO.foreach(directives)(
-        d =>
-          IO.when(!supportedDirectives.contains(d.name))(
-            IO.fail(
-              ValidationError(
-                s"Directive '${d.name}' is not supported.",
-                "GraphQL servers define what directives they support. For each usage of a directive, the directive must be available on that server."
-              )
-            )
-          )
-      )
-      .unit
-
-  }
+  private def validateDirectives(context: Context): IO[ValidationError, Unit] =
+    for {
+      directives <- collectAllDirectives(context)
+      _ <- IO.foreach(directives) {
+            case (d, location) =>
+              Introspector.directives.find(_.name == d.name) match {
+                case None =>
+                  IO.fail(
+                    ValidationError(
+                      s"Directive '${d.name}' is not supported.",
+                      "GraphQL servers define what directives they support. For each usage of a directive, the directive must be available on that server."
+                    )
+                  )
+                case Some(directive) =>
+                  IO.when(!directive.locations.contains(location))(
+                    IO.fail(
+                      ValidationError(
+                        s"Directive '${d.name}' is used in invalid location '$location'.",
+                        "GraphQL servers define what directives they support and where they support them. For each usage of a directive, the directive must be used in a location that the server has declared support for."
+                      )
+                    )
+                  )
+              }
+          }
+    } yield ()
 
   private def validateVariables(context: Context): IO[ValidationError, Unit] =
     IO.foreach(context.operations)(

@@ -244,6 +244,24 @@ object ValidationSpec
                exists(character: { name: "name" })
              }""")
           check(query, "Required field 'nicknames' on object 'CharacterInput' was not provided.")
+        },
+        testM("directive used in wrong location") {
+          val query = gqldoc("""
+             query @skip(if: true) {
+               characters {
+                 name
+               }
+             }""")
+          check(query, "Directive 'skip' is used in invalid location 'QUERY'.")
+        },
+        testM("directive used twice") {
+          val query = gqldoc("""
+             query {
+               characters {
+                 name @skip(if: true) @skip(if: true)
+               }
+             }""")
+          check(query, "Directive 'skip' is defined twice.")
         }
       )
     })
