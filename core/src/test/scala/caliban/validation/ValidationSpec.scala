@@ -128,7 +128,25 @@ object ValidationSpec
                  }
                }
               }""")
-          check(query, "Inline Fragment on invalid type 'Boolean'.")
+          check(
+            query,
+            "Inline fragment is defined on invalid type 'Boolean'"
+          )
+        },
+        testM("fragment on impossible type") {
+          val query = gqldoc("""
+             query {
+               characters {
+                 name
+                 ... on Role {
+                    name
+                 }
+               }
+              }""")
+          check(
+            query,
+            "Inline fragment spread is not possible: possible types are 'Character' and possible fragment types are 'Captain, Engineer, Mechanic, Pilot'."
+          )
         },
         testM("fragment unused") {
           val query = gqldoc("""
@@ -212,6 +230,38 @@ object ValidationSpec
                }
               }""")
           check(query, "Variable 'x' is not used.")
+        },
+        testM("invalid input field") {
+          val query = gqldoc("""
+             query {
+               exists(character: { unknown: "" })
+             }""")
+          check(query, "Input field 'unknown' is not defined on type 'CharacterInput'.")
+        },
+        testM("required input field not defined") {
+          val query = gqldoc("""
+             query {
+               exists(character: { name: "name" })
+             }""")
+          check(query, "Required field 'nicknames' on object 'CharacterInput' was not provided.")
+        },
+        testM("directive used in wrong location") {
+          val query = gqldoc("""
+             query @skip(if: true) {
+               characters {
+                 name
+               }
+             }""")
+          check(query, "Directive 'skip' is used in invalid location 'QUERY'.")
+        },
+        testM("directive used twice") {
+          val query = gqldoc("""
+             query {
+               characters {
+                 name @skip(if: true) @skip(if: true)
+               }
+             }""")
+          check(query, "Directive 'skip' is defined twice.")
         }
       )
     })

@@ -7,6 +7,7 @@ import caliban.introspection.Introspector
 import caliban.introspection.adt._
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
+import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt.Value.{ NullValue, VariableValue }
 import caliban.parsing.adt.{ Directive, Document, OperationType, Selection, Type, Value }
 import caliban.schema.{ RootType, Types }
@@ -14,44 +15,45 @@ import zio.IO
 
 object Validator {
 
+  case class Context(
+    document: Document,
+    rootType: RootType,
+    operations: List[OperationDefinition],
+    fragments: Map[String, FragmentDefinition],
+    selectionSets: List[Selection]
+  )
+
   /**
    * Verifies that the given document is valid for this type. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
   def validate(document: Document, rootType: RootType): IO[ValidationError, Unit] = {
     val (operations, fragments) = collectOperationsAndFragments(document)
     for {
-      _                 <- validateOperationNameUniqueness(operations)
-      _                 <- validateLoneAnonymousOperation(operations)
-      fragmentMap       <- validateFragments(fragments)
-      selectionSets     = collectSelectionSets(operations.flatMap(_.selectionSet) ++ fragments.flatMap(_.selectionSet))
-      _                 <- validateDirectives(selectionSets)
-      _                 <- validateFragmentSpreads(selectionSets, fragments)
-      _                 <- validateVariables(operations, fragments, rootType)
-      _                 <- validateSubscriptionOperation(operations, fragmentMap)
-      typesForFragments = collectTypesValidForFragments(rootType)
-      _                 <- validateDocumentFields(document, rootType, typesForFragments)
+      fragmentMap   <- validateFragments(fragments)
+      selectionSets = collectSelectionSets(operations.flatMap(_.selectionSet) ++ fragments.flatMap(_.selectionSet))
+      context       = Context(document, rootType, operations, fragmentMap, selectionSets)
+      _             <- validateOperationNameUniqueness(operations)
+      _             <- validateLoneAnonymousOperation(operations)
+      _             <- validateDirectives(context)
+      _             <- validateFragmentSpreads(context)
+      _             <- validateVariables(context)
+      _             <- validateSubscriptionOperation(context)
+      _             <- validateDocumentFields(context)
     } yield ()
   }
 
-  private def collectOperationsAndFragments(
-    document: Document
-  ): (List[OperationDefinition], List[FragmentDefinition]) =
+  private def collectOperationsAndFragments(document: Document): (List[OperationDefinition], List[FragmentDefinition]) =
     document.definitions.foldLeft((List.empty[OperationDefinition], List.empty[FragmentDefinition])) {
       case ((operations, fragments), o: OperationDefinition) => (o :: operations, fragments)
       case ((operations, fragments), f: FragmentDefinition)  => (operations, f :: fragments)
     }
 
-  private def collectTypesValidForFragments(rootType: RootType): Map[String, __Type] =
-    rootType.types.filter {
-      case (_, t) => t.kind == __TypeKind.OBJECT || t.kind == __TypeKind.INTERFACE || t.kind == __TypeKind.UNION
-    }
-
-  private def collectVariablesUsed(selectionSet: List[Selection], fragments: List[FragmentDefinition]): Set[String] = {
+  private def collectVariablesUsed(context: Context, selectionSet: List[Selection]): Set[String] = {
     def collectValues(selectionSet: List[Selection]): List[Value] =
       selectionSet.flatMap {
         case FragmentSpread(name, directives) =>
-          directives.flatMap(_.arguments.values) ++ fragments
-            .find(_.name == name)
+          directives.flatMap(_.arguments.values) ++ context.fragments
+            .get(name)
             .map(f => f.directives.flatMap(_.arguments.values) ++ collectValues(f.selectionSet))
             .getOrElse(Nil)
         case Field(_, _, arguments, directives, selectionSet) =>
@@ -71,37 +73,79 @@ object Validator {
       case InlineFragment(_, _, selectionSet) => collectSelectionSets(selectionSet)
     }
 
-  private def collectDirectives(selectionSet: List[Selection]): List[Directive] =
-    selectionSet.flatMap {
-      case FragmentSpread(_, directives)    => directives
-      case Field(_, _, _, directives, _)    => directives
-      case InlineFragment(_, directives, _) => directives
+  private def collectAllDirectives(context: Context): IO[ValidationError, List[(Directive, __DirectiveLocation)]] =
+    for {
+      opDirectives <- IO.foreach(context.operations)(
+                       op =>
+                         checkDirectivesUniqueness(op.directives).as(op.operationType match {
+                           case OperationType.Query    => op.directives.map((_, __DirectiveLocation.QUERY))
+                           case OperationType.Mutation => op.directives.map((_, __DirectiveLocation.MUTATION))
+                           case OperationType.Subscription =>
+                             op.directives.map((_, __DirectiveLocation.SUBSCRIPTION))
+                         })
+                     )
+      fragmentDirectives <- IO.foreach(context.fragments.values)(
+                             fragment =>
+                               checkDirectivesUniqueness(fragment.directives)
+                                 .as(fragment.directives.map((_, __DirectiveLocation.FRAGMENT_DEFINITION)))
+                           )
+      selectionDirectives <- collectDirectives(context.selectionSets)
+    } yield opDirectives.flatten ++ fragmentDirectives.flatten ++ selectionDirectives
+
+  private def collectDirectives(
+    selectionSet: List[Selection]
+  ): IO[ValidationError, List[(Directive, __DirectiveLocation)]] =
+    IO.foreach(selectionSet) {
+        case FragmentSpread(_, directives) =>
+          checkDirectivesUniqueness(directives).as(directives.map((_, __DirectiveLocation.FRAGMENT_SPREAD)))
+        case Field(_, _, _, directives, selectionSet) =>
+          checkDirectivesUniqueness(directives) *>
+            collectDirectives(selectionSet).map(directives.map((_, __DirectiveLocation.FIELD)) ++ _)
+        case InlineFragment(_, directives, selectionSet) =>
+          checkDirectivesUniqueness(directives) *>
+            collectDirectives(selectionSet).map(directives.map((_, __DirectiveLocation.INLINE_FRAGMENT)) ++ _)
+      }
+      .map(_.flatten)
+
+  private def checkDirectivesUniqueness(directives: List[Directive]): IO[ValidationError, Unit] =
+    IO.whenCase(directives.groupBy(_.name).find { case (_, v) => v.length > 1 }) {
+      case Some((name, _)) =>
+        IO.fail(
+          ValidationError(
+            s"Directive '$name' is defined twice.",
+            "Directives are used to describe some metadata or behavioral change on the definition they apply to. When more than one directive of the same name is used, the expected metadata or behavior becomes ambiguous, therefore only one of each directive is allowed per location."
+          )
+        )
     }
 
-  private def validateDirectives(selectionSet: List[Selection]): IO[ValidationError, Unit] = {
-    val directives          = collectDirectives(selectionSet)
-    val supportedDirectives = Introspector.directives.map(_.name).toSet
-    IO.foreach(directives)(
-        d =>
-          IO.when(!supportedDirectives.contains(d.name))(
-            IO.fail(
-              ValidationError(
-                s"Directive '${d.name}' is not supported.",
-                "GraphQL servers define what directives they support. For each usage of a directive, the directive must be available on that server."
-              )
-            )
-          )
-      )
-      .unit
+  private def validateDirectives(context: Context): IO[ValidationError, Unit] =
+    for {
+      directives <- collectAllDirectives(context)
+      _ <- IO.foreach(directives) {
+            case (d, location) =>
+              Introspector.directives.find(_.name == d.name) match {
+                case None =>
+                  IO.fail(
+                    ValidationError(
+                      s"Directive '${d.name}' is not supported.",
+                      "GraphQL servers define what directives they support. For each usage of a directive, the directive must be available on that server."
+                    )
+                  )
+                case Some(directive) =>
+                  IO.when(!directive.locations.contains(location))(
+                    IO.fail(
+                      ValidationError(
+                        s"Directive '${d.name}' is used in invalid location '$location'.",
+                        "GraphQL servers define what directives they support and where they support them. For each usage of a directive, the directive must be used in a location that the server has declared support for."
+                      )
+                    )
+                  )
+              }
+          }
+    } yield ()
 
-  }
-
-  private def validateVariables(
-    definitions: List[OperationDefinition],
-    fragments: List[FragmentDefinition],
-    rootType: RootType
-  ): IO[ValidationError, Unit] =
-    IO.foreach(definitions)(
+  private def validateVariables(context: Context): IO[ValidationError, Unit] =
+    IO.foreach(context.operations)(
         op =>
           IO.foreach(op.variableDefinitions.groupBy(_.name)) {
             case (name, variables) =>
@@ -115,7 +159,7 @@ object Validator {
               )
           } *> IO.foreach(op.variableDefinitions) { v =>
             val t = Type.innerType(v.variableType)
-            IO.whenCase(rootType.types.get(t).map(_.kind)) {
+            IO.whenCase(context.rootType.types.get(t).map(_.kind)) {
               case Some(__TypeKind.OBJECT) | Some(__TypeKind.UNION) | Some(__TypeKind.INTERFACE) =>
                 IO.fail(
                   ValidationError(
@@ -125,7 +169,7 @@ object Validator {
                 )
             }
           } *> {
-            val variableUsages = collectVariablesUsed(op.selectionSet, fragments)
+            val variableUsages = collectVariablesUsed(context, op.selectionSet)
             IO.foreach(variableUsages)(
               v =>
                 IO.when(!op.variableDefinitions.exists(_.name == v))(
@@ -154,104 +198,121 @@ object Validator {
   private def collectFragmentSpreads(selectionSet: List[Selection]): List[FragmentSpread] =
     selectionSet.collect { case f: FragmentSpread => f }
 
-  private def validateFragmentSpreads(
-    selectionSets: List[Selection],
-    fragments: List[FragmentDefinition]
-  ): IO[ValidationError, Unit] = {
-    val spreads       = collectFragmentSpreads(selectionSets)
-    val spreadNames   = spreads.map(_.name).toSet
-    val fragmentNames = fragments.map(_.name).toSet
-    IO.foreach(fragments)(
-      f =>
-        if (!spreadNames.contains(f.name))
-          IO.fail(
-            ValidationError(
-              s"Fragment '${f.name}' is not used in any spread.",
-              "Defined fragments must be used within a document."
-            )
-          )
-        else if (detectCycles(f, fragments))
-          IO.fail(
-            ValidationError(
-              s"Fragment '${f.name}' forms a cycle.",
-              "The graph of fragment spreads must not form any cycles including spreading itself. Otherwise an operation could infinitely spread or infinitely execute on cycles in the underlying data."
-            )
-          )
-        else IO.unit
-    ) *> IO
-      .foreach(spreadNames)(
-        spread =>
-          IO.when(!fragmentNames.contains(spread))(
+  private def validateFragmentSpreads(context: Context): IO[ValidationError, Unit] = {
+    val spreads     = collectFragmentSpreads(context.selectionSets)
+    val spreadNames = spreads.map(_.name).toSet
+    IO.foreach(context.fragments.values)(
+        f =>
+          if (!spreadNames.contains(f.name))
             IO.fail(
               ValidationError(
-                s"Fragment spread '$spread' is not defined.",
-                "Named fragment spreads must refer to fragments defined within the document. It is a validation error if the target of a spread is not defined."
+                s"Fragment '${f.name}' is not used in any spread.",
+                "Defined fragments must be used within a document."
               )
             )
-          )
+          else if (detectCycles(context, f))
+            IO.fail(
+              ValidationError(
+                s"Fragment '${f.name}' forms a cycle.",
+                "The graph of fragment spreads must not form any cycles including spreading itself. Otherwise an operation could infinitely spread or infinitely execute on cycles in the underlying data."
+              )
+            )
+          else IO.unit
       )
       .unit
   }
 
-  private def detectCycles(
-    fragment: FragmentDefinition,
-    fragments: List[FragmentDefinition],
-    visited: Set[String] = Set()
-  ): Boolean = {
+  private def detectCycles(context: Context, fragment: FragmentDefinition, visited: Set[String] = Set()): Boolean = {
     val selectionSets     = collectSelectionSets(fragment.selectionSet)
     val descendantSpreads = collectFragmentSpreads(selectionSets)
     descendantSpreads.exists(
       s =>
         visited.contains(s.name) ||
-          fragments.find(_.name == s.name).fold(false)(f => detectCycles(f, fragments, visited + s.name))
+          context.fragments.get(s.name).fold(false)(f => detectCycles(context, f, visited + s.name))
     )
   }
 
-  private def validateDocumentFields(
-    document: Document,
-    rootType: RootType,
-    typesForFragments: Map[String, __Type]
-  ): IO[ValidationError, Unit] =
-    IO.foreach(document.definitions) {
+  private def validateDocumentFields(context: Context): IO[ValidationError, Unit] =
+    IO.foreach(context.document.definitions) {
         case OperationDefinition(opType, _, _, _, selectionSet) =>
           opType match {
-            case OperationType.Query => validateFields(selectionSet, rootType.queryType)
+            case OperationType.Query => validateFields(context, selectionSet, context.rootType.queryType)
             case OperationType.Mutation =>
-              rootType.mutationType.fold[IO[ValidationError, Unit]](
+              context.rootType.mutationType.fold[IO[ValidationError, Unit]](
                 IO.fail(ValidationError("Mutation operations are not supported on this schema.", ""))
-              )(validateFields(selectionSet, _))
+              )(validateFields(context, selectionSet, _))
             case OperationType.Subscription =>
-              rootType.subscriptionType.fold[IO[ValidationError, Unit]](
+              context.rootType.subscriptionType.fold[IO[ValidationError, Unit]](
                 IO.fail(ValidationError("Subscription operations are not supported on this schema.", ""))
-              )(validateFields(selectionSet, _))
+              )(validateFields(context, selectionSet, _))
           }
-        case FragmentDefinition(name, typeCondition, _, selectionSet) =>
-          IO.fromOption(typesForFragments.get(typeCondition.name))
-            .mapError(
-              _ =>
-                ValidationError(
-                  s"Fragment '$name' targets an invalid type: '${typeCondition.name}'.",
-                  "Fragments must be specified on types that exist in the schema. This applies for both named and inline fragments. If they are not defined in the schema, the query does not validate."
-                )
-            )
-            .flatMap(t => validateFields(selectionSet, t) *> validateFragmentType(Some(name), t))
+        case _: FragmentDefinition => IO.unit
       }
       .unit
 
-  private def validateFields(selectionSet: List[Selection], currentType: __Type): IO[ValidationError, Unit] =
+  private def validateFields(
+    context: Context,
+    selectionSet: List[Selection],
+    currentType: __Type
+  ): IO[ValidationError, Unit] =
     IO.foreach(selectionSet) {
-      case f: Field          => validateField(f, currentType)
-      case _: FragmentSpread => IO.unit
+      case f: Field => validateField(context, f, currentType)
+      case FragmentSpread(name, _) =>
+        context.fragments.get(name) match {
+          case None =>
+            IO.fail(
+              ValidationError(
+                s"Fragment spread '$name' is not defined.",
+                "Named fragment spreads must refer to fragments defined within the document. It is a validation error if the target of a spread is not defined."
+              )
+            )
+          case Some(fragment) =>
+            validateSpread(context, Some(name), currentType, Some(fragment.typeCondition), fragment.selectionSet)
+        }
       case InlineFragment(typeCondition, _, selectionSet) =>
-        (typeCondition match {
-          case Some(onType) =>
-            IO.fromOption(currentType.possibleTypes.getOrElse(Nil).find(_.name.contains(onType.name)))
-              .mapError(_ => ValidationError(s"Inline Fragment on invalid type '${onType.name}'.", ""))
-          case None => IO.succeed(currentType)
-        }).flatMap(t => validateFields(selectionSet, t) *> validateFragmentType(None, t))
+        validateSpread(context, None, currentType, typeCondition, selectionSet)
     } *> validateLeafFieldSelection(selectionSet, currentType)
 
-  private def validateField(field: Field, currentType: __Type): IO[ValidationError, Unit] =
+  private def validateSpread(
+    context: Context,
+    name: Option[String],
+    currentType: __Type,
+    typeCondition: Option[NamedType],
+    selectionSet: List[Selection]
+  ): IO[ValidationError, Unit] =
+    typeCondition.fold[Option[__Type]](Some(currentType))(t => context.rootType.types.get(t.name)) match {
+      case Some(fragmentType) =>
+        validateFragmentType(name, fragmentType) *> {
+          val possibleTypes         = getPossibleTypes(currentType).flatMap(_.name)
+          val possibleFragmentTypes = getPossibleTypes(fragmentType).flatMap(_.name)
+          val applicableTypes       = possibleTypes intersect possibleFragmentTypes
+          IO.when(applicableTypes.isEmpty)(
+            IO.fail(
+              ValidationError(
+                s"${name.fold("Inline fragment spread")(n => s"Fragment spread '$n'")} is not possible: possible types are '${possibleTypes
+                  .mkString(", ")}' and possible fragment types are '${possibleFragmentTypes.mkString(", ")}'.",
+                "Fragments are declared on a type and will only apply when the runtime object type matches the type condition. They also are spread within the context of a parent type. A fragment spread is only valid if its type condition could ever apply within the parent type."
+              )
+            )
+          ) *> validateFields(context, selectionSet, fragmentType)
+        }
+      case None =>
+        IO.fail(
+          ValidationError(
+            s"${name.fold("Inline fragment spread")(n => s"Fragment spread '$n'")} targets an invalid type: '${typeCondition.map(_.name).getOrElse("?")}'.",
+            "Fragments must be specified on types that exist in the schema. This applies for both named and inline fragments. If they are not defined in the schema, the query does not validate."
+          )
+        )
+    }
+
+  private def getPossibleTypes(t: __Type): List[__Type] =
+    t.kind match {
+      case __TypeKind.OBJECT                       => List(t)
+      case __TypeKind.INTERFACE | __TypeKind.UNION => t.possibleTypes.getOrElse(Nil)
+      case _                                       => Nil
+    }
+
+  private def validateField(context: Context, field: Field, currentType: __Type): IO[ValidationError, Unit] =
     IO.when(field.name != "__typename") {
       IO.fromOption(currentType.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).find(_.name == field.name))
         .mapError(
@@ -262,23 +323,25 @@ object Validator {
             )
         )
         .flatMap { f =>
-          validateFields(field.selectionSet, Types.innerType(f.`type`())) *>
+          validateFields(context, field.selectionSet, Types.innerType(f.`type`())) *>
             validateArguments(field, f, currentType)
         }
     }
 
   private def validateArguments(field: Field, f: __Field, currentType: __Type): IO[ValidationError, List[Unit]] =
-    IO.foreach(field.arguments.keys)(
-      arg =>
-        IO.when(!f.args.exists(_.name == arg))(
-          IO.fail(
-            ValidationError(
-              s"Argument '$arg' is not defined on field '${field.name}' of type '${currentType.name.getOrElse("")}'.",
-              "Every argument provided to a field or directive must be defined in the set of possible arguments of that field or directive."
+    IO.foreach(field.arguments) {
+      case (arg, argValue) =>
+        f.args.find(_.name == arg) match {
+          case None =>
+            IO.fail(
+              ValidationError(
+                s"Argument '$arg' is not defined on field '${field.name}' of type '${currentType.name.getOrElse("")}'.",
+                "Every argument provided to a field or directive must be defined in the set of possible arguments of that field or directive."
+              )
             )
-          )
-        )
-    ) *>
+          case Some(inputValue) => validateInputValues(inputValue, argValue)
+        }
+    } *>
       IO.foreach(f.args.filter(a => a.`type`().kind == __TypeKind.NON_NULL && a.defaultValue.isEmpty))(
         arg =>
           IO.when(field.arguments.get(arg.name).forall(_ == NullValue))(
@@ -291,6 +354,45 @@ object Validator {
             )
           )
       )
+
+  private def validateInputValues(inputValue: __InputValue, argValue: Value): IO[ValidationError, Unit] = {
+    val t           = inputValue.`type`()
+    val inputType   = if (t.kind == __TypeKind.NON_NULL) t.ofType.getOrElse(t) else t
+    val inputFields = inputType.inputFields.getOrElse(Nil)
+    argValue match {
+      case Value.ObjectValue(fields) =>
+        IO.foreach(fields) {
+          case (k, v) =>
+            inputFields.find(_.name == k) match {
+              case None =>
+                IO.fail(
+                  ValidationError(
+                    s"Input field '$k' is not defined on type '${inputType.name.getOrElse("?")}'.",
+                    "Every input field provided in an input object value must be defined in the set of possible fields of that input object’s expected type."
+                  )
+                )
+              case Some(value) => validateInputValues(value, v)
+            }
+        } *> IO
+          .foreach(inputFields)(
+            inputField =>
+              IO.when(
+                inputField.defaultValue.isEmpty &&
+                  inputField.`type`().kind == __TypeKind.NON_NULL &&
+                  !fields.contains(inputField.name)
+              )(
+                IO.fail(
+                  ValidationError(
+                    s"Required field '${inputField.name}' on object '${inputType.name.getOrElse("?")}' was not provided.",
+                    "Input object fields may be required. Much like a field may have required arguments, an input object may have required fields. An input field is required if it has a non‐null type and does not have a default value. Otherwise, the input object field is optional."
+                  )
+                )
+              )
+          )
+          .unit
+      case _ => IO.unit
+    }
+  }
 
   private def validateLeafFieldSelection(selections: List[Selection], currentType: __Type): IO[ValidationError, Unit] =
     IO.whenCase(currentType.kind) {
@@ -350,14 +452,11 @@ object Validator {
         } else IO.succeed(fragmentMap.updated(fragment.name, fragment))
     }
 
-  private def validateSubscriptionOperation(
-    operations: List[OperationDefinition],
-    fragments: Map[String, FragmentDefinition]
-  ): IO[ValidationError, Unit] =
+  private def validateSubscriptionOperation(context: Context): IO[ValidationError, Unit] =
     IO.fromOption(
-        operations
+        context.operations
           .filter(_.operationType == OperationType.Subscription)
-          .find(op => Executor.mergeSelectionSet(op.selectionSet, "", fragments, Map()).length > 1)
+          .find(op => Executor.mergeSelectionSet(op.selectionSet, "", context.fragments, Map()).length > 1)
       )
       .map(
         op =>
@@ -374,7 +473,8 @@ object Validator {
       case _ =>
         IO.fail(
           ValidationError(
-            s"Fragment '${name.getOrElse("inline")}' is defined on invalid type '${targetType.name.getOrElse("")}'",
+            s"${name.fold("Inline fragment")(n => s"Fragment '$n'")} is defined on invalid type '${targetType.name
+              .getOrElse("")}'",
             "Fragments can only be declared on unions, interfaces, and objects. They are invalid on scalars. They can only be applied on non‐leaf fields. This rule applies to both inline and named fragments."
           )
         )
