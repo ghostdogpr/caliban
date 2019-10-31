@@ -158,13 +158,7 @@ object DataSource {
     final def fromFunctionBatched[A, B](
       name: String
     )(f: Iterable[A] => Iterable[B])(implicit ev: A <:< Request[B]): DataSource.Service[Any, Nothing, A] =
-      new DataSource.Service[Any, Nothing, A] {
-        val identifier = name
-        def run(requests: Iterable[A]): ZIO[Any, Nothing, CompletedRequestMap] =
-          ZIO.succeed((requests zip f(requests)).foldLeft(CompletedRequestMap.empty) {
-            case (map, (k, v)) => map.insert(k)(v)
-          })
-      }
+      fromFunctionBatchedM(name)(f andThen ZIO.succeed)
 
     /**
      * Constructs a data source from an effectual function that takes a list of requests and returns a list of results of the same size.
