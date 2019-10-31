@@ -152,6 +152,33 @@ object DataSource {
       }
 
     /**
+     * Constructs a data source from a pure function that takes a list of requests and returns a list of results of the same size.
+     * Each item in the result list must correspond to the item at the same index in the request list.
+     */
+    final def fromFunctionBatched[A, B](
+      name: String
+    )(f: Iterable[A] => Iterable[B])(implicit ev: A <:< Request[B]): DataSource.Service[Any, Nothing, A] =
+      fromFunctionBatchedM(name)(f andThen ZIO.succeed)
+
+    /**
+     * Constructs a data source from an effectual function that takes a list of requests and returns a list of results of the same size.
+     * Each item in the result list must correspond to the item at the same index in the request list.
+     */
+    final def fromFunctionBatchedM[R, E, A, B](
+      name: String
+    )(f: Iterable[A] => ZIO[R, E, Iterable[B]])(implicit ev: A <:< Request[B]): DataSource.Service[R, E, A] =
+      new DataSource.Service[R, E, A] {
+        val identifier = name
+        def run(requests: Iterable[A]): ZIO[R, E, CompletedRequestMap] =
+          f(requests).map(
+            results =>
+              (requests zip results).foldLeft(CompletedRequestMap.empty) {
+                case (map, (k, v)) => map.insert(k)(v)
+              }
+          )
+      }
+
+    /**
      * Constructs a data source from an effectual function.
      */
     final def fromFunctionM[R, E, A, B](

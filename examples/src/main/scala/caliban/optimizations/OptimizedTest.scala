@@ -1,18 +1,20 @@
 package caliban.optimizations
 
 import caliban.optimizations.CommonData._
-import caliban.schema.Schema
+import caliban.schema.{ GenericSchema, Schema }
 import caliban.{ GraphQL, RootResolver }
-import zio.{ App, UIO, ZIO }
+import zio.console.{ putStrLn, Console }
+import zio.{ App, ZIO }
+import zquery.DataSource.Service.fromFunctionBatchedM
 import zquery.{ CompletedRequestMap, DataSource, Request, ZQuery }
 
 /**
  * Optimized implementation of https://blog.apollographql.com/optimizing-your-graphql-request-waterfalls-7c3f3360b051
  * Will result in 8 requests.
  */
-object OptimizedTest extends App {
+object OptimizedTest extends App with GenericSchema[Console] {
 
-  type Query[A] = ZQuery[Any, Nothing, A]
+  type Query[A] = ZQuery[Console, Nothing, A]
 
   case class Queries(user: UserArgs => Query[User])
 
@@ -55,59 +57,50 @@ object OptimizedTest extends App {
   )
 
   case class GetUser(id: Int) extends Request[User]
-  val UserDataSource: DataSource.Service[Any, Nothing, GetUser] = DataSource.Service("UserDataSource") { requests =>
+  val UserDataSource: DataSource.Service[Console, Nothing, GetUser] = DataSource.Service("UserDataSource") { requests =>
     requests.toList match {
-      case head :: Nil => UIO(println("getUser")).as(CompletedRequestMap.empty.insert(head)(fakeUser(head.id)))
+      case head :: Nil => putStrLn("getUser").as(CompletedRequestMap.empty.insert(head)(fakeUser(head.id)))
       case list =>
-        UIO(println("getUsers")).as(list.foldLeft(CompletedRequestMap.empty) {
+        putStrLn("getUsers").as(list.foldLeft(CompletedRequestMap.empty) {
           case (map, req) => map.insert(req)(fakeUser(req.id))
         })
     }
   }
 
   case class GetEvent(id: Int) extends Request[Event]
-  val EventDataSource: DataSource.Service[Any, Nothing, GetEvent] = DataSource.Service("EventDataSource") { requests =>
-    UIO(println("getEvents")).as(requests.foldLeft(CompletedRequestMap.empty) {
-      case (map, req) => map.insert(req)(fakeEvent(req.id))
-    })
-  }
+  val EventDataSource: DataSource.Service[Console, Nothing, GetEvent] =
+    fromFunctionBatchedM("EventDataSource") { requests =>
+      putStrLn("getEvents").as(requests.map(r => fakeEvent(r.id)))
+    }
 
   case class GetViewerMetadataForEvents(id: Int) extends Request[ViewerMetadata]
-  val ViewerMetadataDataSource: DataSource.Service[Any, Nothing, GetViewerMetadataForEvents] =
-    DataSource.Service("ViewerMetadataDataSource") { requests =>
-      UIO(println("getViewerMetadataForEvents")).as(requests.foldLeft(CompletedRequestMap.empty) {
-        case (map, req) => map.insert(req)(ViewerMetadata(""))
-      })
+  val ViewerMetadataDataSource: DataSource.Service[Console, Nothing, GetViewerMetadataForEvents] =
+    fromFunctionBatchedM("ViewerMetadataDataSource") { requests =>
+      putStrLn("getViewerMetadataForEvents").as(requests.map(_ => ViewerMetadata("")))
     }
 
   case class GetVenue(id: Int) extends Request[Venue]
-  val VenueDataSource: DataSource.Service[Any, Nothing, GetVenue] = DataSource.Service("VenueDataSource") { requests =>
-    UIO(println("getVenues")).as(requests.foldLeft(CompletedRequestMap.empty) {
-      case (map, req) => map.insert(req)(Venue("venue"))
-    })
-  }
+  val VenueDataSource: DataSource.Service[Console, Nothing, GetVenue] =
+    fromFunctionBatchedM("VenueDataSource") { requests =>
+      putStrLn("getVenues").as(requests.map(_ => Venue("venue")))
+    }
 
   case class GetTags(ids: List[Int]) extends Request[List[Tag]]
-  val TagsDataSource: DataSource.Service[Any, Nothing, GetTags] = DataSource.Service("TagsDataSource") { requests =>
-    UIO(println("getTags")).as(requests.foldLeft(CompletedRequestMap.empty) {
-      case (map, req) => map.insert(req)(req.ids.map(id => Tag(id.toString)))
-    })
-  }
+  val TagsDataSource: DataSource.Service[Console, Nothing, GetTags] =
+    fromFunctionBatchedM("TagsDataSource") { requests =>
+      putStrLn("getTags").as(requests.map(_.ids.map(id => Tag(id.toString))))
+    }
 
   case class GetViewerFriendIdsAttendingEvent(id: Int, first: Int) extends Request[List[Int]]
-  val ViewerFriendDataSource: DataSource.Service[Any, Nothing, GetViewerFriendIdsAttendingEvent] =
-    DataSource.Service("ViewerFriendDataSource") { requests =>
-      UIO(println("getViewerFriendIdsAttendingEvent")).as(requests.foldLeft(CompletedRequestMap.empty) {
-        case (map, req) => map.insert(req)((1 to req.first).toList)
-      })
+  val ViewerFriendDataSource: DataSource.Service[Console, Nothing, GetViewerFriendIdsAttendingEvent] =
+    fromFunctionBatchedM("ViewerFriendDataSource") { requests =>
+      putStrLn("getViewerFriendIdsAttendingEvent").as(requests.map(r => (1 to r.first).toList))
     }
 
   case class GetUpcomingEventIdsForUser(id: Int, first: Int) extends Request[List[Int]]
-  val UpcomingEventDataSource: DataSource.Service[Any, Nothing, GetUpcomingEventIdsForUser] =
-    DataSource.Service("UpcomingEventDataSource") { requests =>
-      UIO(println("getUpcomingEventIdsForUser")).as(requests.foldLeft(CompletedRequestMap.empty) {
-        case (map, req) => map.insert(req)((1 to req.first).toList)
-      })
+  val UpcomingEventDataSource: DataSource.Service[Console, Nothing, GetUpcomingEventIdsForUser] =
+    fromFunctionBatchedM("UpcomingEventDataSource") { requests =>
+      putStrLn("getUpcomingEventIdsForUser").as(requests.map(r => (1 to r.first).toList))
     }
 
   def getUser(id: Int): Query[User]             = ZQuery.fromRequestWith(GetUser(id))(UserDataSource)
@@ -121,11 +114,17 @@ object OptimizedTest extends App {
   def getUpcomingEventIdsForUser(id: Int, first: Int): Query[List[Int]] =
     ZQuery.fromRequestWith(GetUpcomingEventIdsForUser(id, first))(UpcomingEventDataSource)
 
-  implicit lazy val user: Schema[Any, User] = Schema.gen[User]
+  implicit val viewerMetadataSchema: Schema[Any, ViewerMetadata] = Schema.gen[ViewerMetadata]
+  implicit val tagSchema: Schema[Any, Tag]                       = Schema.gen[Tag]
+  implicit val venueSchema: Schema[Any, Venue]                   = Schema.gen[Venue]
+  implicit val userArgsSchema: Schema[Any, UserArgs]             = Schema.gen[UserArgs]
+  implicit val sizeArgsSchema: Schema[Any, SizeArgs]             = Schema.gen[SizeArgs]
+  implicit val firstArgsSchema: Schema[Any, FirstArgs]           = Schema.gen[FirstArgs]
+  implicit lazy val user: Schema[Console, User]                  = gen[User]
 
-  val resolver                                       = Queries(args => getUser(args.id))
-  val interpreter: GraphQL[Any, Queries, Unit, Unit] = GraphQL.graphQL(RootResolver(resolver))
+  val resolver                                           = Queries(args => getUser(args.id))
+  val interpreter: GraphQL[Console, Queries, Unit, Unit] = GraphQL.graphQL(RootResolver(resolver))
 
   override def run(args: List[String]): ZIO[zio.ZEnv, Nothing, Int] =
-    interpreter.execute(query).catchAll(err => UIO(println(err))).as(0)
+    interpreter.execute(query).catchAll(err => putStrLn(err.toString)).as(0)
 }
