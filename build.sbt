@@ -82,7 +82,7 @@ lazy val catsInterop = crossProject(JSPlatform, JVMPlatform)
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "dev.zio"       %%% "zio-interop-cats" % "2.0.0.0-RC6",
+      "dev.zio"       %%% "zio-interop-cats" % "2.0.0.0-RC7",
       "org.typelevel" %%% "cats-effect"      % "2.0.0"
     )
   )
@@ -96,7 +96,7 @@ lazy val http4s = project
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "dev.zio"       %% "zio-interop-cats"    % "2.0.0.0-RC6",
+      "dev.zio"       %% "zio-interop-cats"    % "2.0.0.0-RC7",
       "org.typelevel" %% "cats-effect"         % "2.0.0",
       "org.http4s"    %% "http4s-dsl"          % "0.21.0-M5",
       "org.http4s"    %% "http4s-circe"        % "0.21.0-M5",
@@ -109,7 +109,7 @@ lazy val http4s = project
       )
     )
   )
-  .dependsOn(coreJVM, catsInteropJVM)
+  .dependsOn(coreJVM)
 
 lazy val examples = project
   .in(file("examples"))
