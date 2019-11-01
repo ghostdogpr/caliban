@@ -2,12 +2,12 @@ package caliban.parsing
 
 import caliban.CalibanError.ParsingError
 import caliban.parsing.ParserSpecUtils._
-import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
-import caliban.parsing.adt.OperationType.{ Mutation, Query }
-import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
-import caliban.parsing.adt.Type.{ ListType, NamedType }
+import caliban.parsing.adt.ExecutableDefinition.{FragmentDefinition, OperationDefinition, TypeDefinition}
+import caliban.parsing.adt.OperationType.{Mutation, Query}
+import caliban.parsing.adt.Selection.{Field, FragmentSpread, InlineFragment}
+import caliban.parsing.adt.Type.{FieldDefinition, ListType, NamedType}
 import caliban.parsing.adt.Value._
-import caliban.parsing.adt.{ Directive, Document, Selection, Value, VariableDefinition }
+import caliban.parsing.adt.{Directive, Document, Selection, Value, VariableDefinition}
 import zio.test.Assertion._
 import zio.test._
 
@@ -405,7 +405,31 @@ object ParserSpec
                         |  }
                         |}""".stripMargin
           assertM(Parser.parseQuery(query).run, fails(equalTo(ParsingError("Position 4:3, found \"}\\n}\""))))
-        }
+        },
+        testM("simple type") {
+          val query =
+            """type Hero {
+              |"name desc" name(pad: Int!): String! @skip(if: $someTestM)
+              |"nick desc" nick: String!
+              |bday: Int
+              |}""".stripMargin
+          assertM(
+            Parser.parseQuery(query), equalTo(
+              Document(
+                List(
+                  TypeDefinition("Hero",
+                    List(
+                      FieldDefinition(Some("name desc"), "name", List("pad" -> NamedType("Int", true)), NamedType("String", true), List(Directive("skip", Map("if" -> VariableValue("someTestM"))))),
+                      FieldDefinition(Some("nick desc"), "nick", List(), NamedType("String", true), List()),
+                      FieldDefinition(None, "bday", List(), NamedType("Int", false), List()),
+                    )
+
+                  )
+                )
+              )
+            )
+          )
+        },
       )
     )
 
