@@ -407,14 +407,14 @@ object ParserSpec
           assertM(Parser.parseQuery(query).run, fails(equalTo(ParsingError("Position 4:3, found \"}\\n}\""))))
         },
         testM("simple type") {
-          val query =
+          val gqltype =
             """type Hero {
               |"name desc" name(pad: Int!): String! @skip(if: $someTestM)
               |"nick desc" nick: String!
               |bday: Int
               |}""".stripMargin
           assertM(
-            Parser.parseQuery(query), equalTo(
+            Parser.parseQuery(gqltype), equalTo(
               Document(
                 List(
                   TypeDefinition("Hero",

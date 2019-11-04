@@ -5,7 +5,7 @@ import caliban.Rendering
 import caliban.execution.Executor
 import caliban.introspection.Introspector
 import caliban.introspection.adt._
-import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
+import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition, TypeDefinition }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt.Value.{ NullValue, VariableValue }
@@ -15,20 +15,13 @@ import zio.IO
 
 object Validator {
 
-  case class Context(
-    document: Document,
-    rootType: RootType,
-    operations: List[OperationDefinition],
-    fragments: Map[String, FragmentDefinition],
-    selectionSets: List[Selection]
-  )
-
   /**
    * Verifies that the given document is valid for this type. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
   def validate(document: Document, rootType: RootType): IO[ValidationError, Unit] = {
-    val (operations, fragments) = collectOperationsAndFragments(document)
+    val (operations, fragments, types) = collectDefinitions(document)
     for {
+      typeMap       <- validateTypes(types)
       fragmentMap   <- validateFragments(fragments)
       selectionSets = collectSelectionSets(operations.flatMap(_.selectionSet) ++ fragments.flatMap(_.selectionSet))
       context       = Context(document, rootType, operations, fragmentMap, selectionSets)
@@ -42,10 +35,15 @@ object Validator {
     } yield ()
   }
 
-  private def collectOperationsAndFragments(document: Document): (List[OperationDefinition], List[FragmentDefinition]) =
-    document.definitions.foldLeft((List.empty[OperationDefinition], List.empty[FragmentDefinition])) {
-      case ((operations, fragments), o: OperationDefinition) => (o :: operations, fragments)
-      case ((operations, fragments), f: FragmentDefinition)  => (operations, f :: fragments)
+  private def collectDefinitions(
+    document: Document
+  ): (List[OperationDefinition], List[FragmentDefinition], List[TypeDefinition]) =
+    document.definitions.foldLeft(
+      (List.empty[OperationDefinition], List.empty[FragmentDefinition], List.empty[TypeDefinition])
+    ) {
+      case ((operations, fragments, types), o: OperationDefinition) => (o :: operations, fragments, types)
+      case ((operations, fragments, types), f: FragmentDefinition)  => (operations, f :: fragments, types)
+      case ((operations, fragments, types), t: TypeDefinition)      => (operations, fragments, t :: types)
     }
 
   private def collectVariablesUsed(context: Context, selectionSet: List[Selection]): Set[String] = {
@@ -437,6 +435,31 @@ object Validator {
     )
   }
 
+  //TODO: maybe eliminate bolierplate in uniqueness checks across validations
+  private def validateTypes(
+    types: List[TypeDefinition]
+  ): IO[ValidationError, Map[String, TypeDefinition]] =
+    IO.foldLeft(types)(Map.empty[String, TypeDefinition]) {
+      case (typeMap, gqltype) =>
+        if (typeMap.contains(gqltype.name)) {
+          IO.fail(
+            ValidationError(
+              s"Type '${gqltype.name}' is defined more than once.",
+              "Type definitions name must be unique within a document."
+            )
+          )
+        } else if (gqltype.children.map(_.name).groupBy(identity).size != gqltype.children.size) {
+          IO.fail(
+            ValidationError(
+              s"Type '${gqltype.name}' has duplicate fields.",
+              "Fields names on a type definition must be unique."
+            )
+          )
+        } else
+          IO.succeed(typeMap.updated(gqltype.name, gqltype))
+
+    }
+
   private def validateFragments(
     fragments: List[FragmentDefinition]
   ): IO[ValidationError, Map[String, FragmentDefinition]] =
@@ -479,5 +502,13 @@ object Validator {
           )
         )
     }
+
+  case class Context(
+    document: Document,
+    rootType: RootType,
+    operations: List[OperationDefinition],
+    fragments: Map[String, FragmentDefinition],
+    selectionSets: List[Selection]
+  )
 
 }
