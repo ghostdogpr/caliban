@@ -1,5 +1,6 @@
 package caliban.schema
 
+import caliban.introspection.adt.__Type
 import caliban.schema.RootSchema.Operation
 
 case class RootSchema[-R, Query, Mutation, Subscription](
@@ -10,6 +11,6 @@ case class RootSchema[-R, Query, Mutation, Subscription](
 
 object RootSchema {
 
-  case class Operation[-R, T](schema: Schema[R, T], resolver: T)
+  case class Operation[-R, T](opType: __Type, plan: Step[R])
 
 }

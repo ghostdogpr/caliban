@@ -8,7 +8,6 @@ import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationD
 import caliban.parsing.adt.OperationType.{ Mutation, Query, Subscription }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt._
-import caliban.schema.RootSchema.Operation
 import caliban.schema.Step._
 import caliban.schema.{ ReducedStep, RootSchema, Step }
 import zio.{ IO, ZIO }
@@ -43,9 +42,9 @@ object Executor {
         }
     }
     IO.fromEither(operation).mapError(ExecutionError(_)).flatMap { op =>
-      def executeOperation[A](x: Operation[R, A], allowParallelism: Boolean): ZIO[R, ExecutionError, ResponseValue] =
+      def executeOperation[A](plan: Step[R], allowParallelism: Boolean): ZIO[R, ExecutionError, ResponseValue] =
         executePlan(
-          x.schema.resolve(x.resolver),
+          plan,
           op.selectionSet,
           fragments,
           op.variableDefinitions,
@@ -54,15 +53,15 @@ object Executor {
         )
 
       op.operationType match {
-        case Query => executeOperation(schema.query, allowParallelism = true)
+        case Query => executeOperation(schema.query.plan, allowParallelism = true)
         case Mutation =>
           schema.mutation match {
-            case Some(m) => executeOperation(m, allowParallelism = false)
+            case Some(m) => executeOperation(m.plan, allowParallelism = false)
             case None    => IO.fail(ExecutionError("Mutations are not supported on this schema"))
           }
         case Subscription =>
           schema.subscription match {
-            case Some(m) => executeOperation(m, allowParallelism = true)
+            case Some(m) => executeOperation(m.plan, allowParallelism = true)
             case None    => IO.fail(ExecutionError("Subscriptions are not supported on this schema"))
           }
       }

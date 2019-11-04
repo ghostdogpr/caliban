@@ -20,15 +20,10 @@ import zio.{ IO, ZIO }
  */
 class GraphQL[-R, -Q, -M, -S](schema: RootSchema[R, Q, M, S]) {
 
-  private val rootType =
-    RootType(
-      schema.query.schema.toType(),
-      schema.mutation.map(_.schema.toType()),
-      schema.subscription.map(_.schema.toType())
-    )
+  private val rootType = RootType(schema.query.opType, schema.mutation.map(_.opType), schema.subscription.map(_.opType))
   private val introspectionRootSchema: RootSchema[Any, __Introspection, Nothing, Nothing] =
     Introspector.introspect(rootType)
-  private val introspectionRootType = RootType(introspectionRootSchema.query.schema.toType(), None, None)
+  private val introspectionRootType = RootType(introspectionRootSchema.query.opType, None, None)
 
   /**
    * Parses and validates the provided query against this interpreter.
@@ -87,9 +82,9 @@ object GraphQL {
   ): GraphQL[R, Q, M, S] =
     new GraphQL[R, Q, M, S](
       RootSchema(
-        Operation(querySchema, resolver.queryResolver),
-        resolver.mutationResolver.map(Operation(mutationSchema, _)),
-        resolver.subscriptionResolver.map(Operation(subscriptionSchema, _))
+        Operation(querySchema.toType(), querySchema.resolve(resolver.queryResolver)),
+        resolver.mutationResolver.map(r => Operation(mutationSchema.toType(), mutationSchema.resolve(r))),
+        resolver.subscriptionResolver.map(r => Operation(subscriptionSchema.toType(), subscriptionSchema.resolve(r)))
       )
     )
 
