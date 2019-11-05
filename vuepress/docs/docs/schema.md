@@ -106,6 +106,11 @@ Caliban provides auto-derivation for common types such as `Int`, `String`, `List
 ## Effects
 Fields can return ZIO effects. This allows you to leverage all the features provided by ZIO: timeouts, retries, access to ZIO environment, memoizing, etc. An effect will be ran every time a query requiring the corresponding field is executed.
 
+```scala
+case class Queries(characters: Task[List[Character]],
+                   character: CharacterName => RIO[Console, Character])
+```
+
 If you don't use ZIO environment (`R` = `Any`), there is nothing special to do to get it working.
 
 If you require a ZIO environment, you will need to have the content of `caliban.schema.GenericSchema[R]` for your custom `R` in scope when you call `graphQL(...)`.
