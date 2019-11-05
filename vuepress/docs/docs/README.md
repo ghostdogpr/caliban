@@ -60,6 +60,7 @@ type Character {
 
 type Queries {
   characters: [Character!]!
+  character(name: String!): Character
 }
 ```
 
