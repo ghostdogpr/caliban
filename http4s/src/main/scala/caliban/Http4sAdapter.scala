@@ -8,8 +8,9 @@ import cats.effect.syntax.all._
 import cats.~>
 import fs2.{ Pipe, Stream }
 import io.circe.derivation.deriveDecoder
-import io.circe.parser.{ decode, parse }
-import io.circe.{ Decoder, Json }
+import io.circe._
+import io.circe.parser._
+import io.circe.syntax._
 import org.http4s._
 import org.http4s.circe.CirceEntityCodec._
 import org.http4s.dsl.Http4sDsl
@@ -24,6 +25,24 @@ object Http4sAdapter {
   case class GraphQLRequest(query: String, operationName: Option[String], variables: Option[Json] = None)
 
   implicit val queryDecoder: Decoder[GraphQLRequest] = deriveDecoder[GraphQLRequest]
+
+  private def responseToJson(responseValue: ResponseValue): Json =
+    responseValue match {
+      case ResponseValue.NullValue           => Json.Null
+      case ResponseValue.IntValue(value)     => Json.fromLong(value)
+      case ResponseValue.FloatValue(value)   => Json.fromDoubleOrString(value)
+      case ResponseValue.StringValue(value)  => Json.fromString(value)
+      case ResponseValue.BooleanValue(value) => Json.fromBoolean(value)
+      case ResponseValue.EnumValue(value)    => Json.fromString(value)
+      case ResponseValue.ListValue(values)   => Json.arr(values.map(responseToJson): _*)
+      case ObjectValue(fields)               => Json.obj(fields.map { case (k, v) => k -> responseToJson(v) }: _*)
+      case s: StreamValue                    => Json.fromString(s.toString)
+    }
+
+  implicit val resultEncoder: Encoder[ResponseValue] = (response: ResponseValue) =>
+    Json.obj("data" -> responseToJson(response))
+  implicit val errorEncoder: Encoder[CalibanError] = (err: CalibanError) =>
+    Json.obj("errors" -> Json.arr(Json.fromString(err.toString)))
 
   private def jsonToValue(json: Json): Value =
     json.fold(
@@ -53,14 +72,9 @@ object Http4sAdapter {
     HttpRoutes.of[RIO[R, *]] {
       case req @ POST -> Root =>
         for {
-          query <- req.attemptAs[GraphQLRequest].value.absolve
-          result <- execute(interpreter, query)
-                     .fold(
-                       err => s"""{"errors":["${err.toString.replace("\"", "'")}"]}""",
-                       result => s"""{"data":$result}"""
-                     )
-          json     <- Task.fromEither(parse(result))
-          response <- Ok(json)
+          query    <- req.attemptAs[GraphQLRequest].value.absolve
+          result   <- execute(interpreter, query).fold(_.asJson, _.asJson)
+          response <- Ok(result)
         } yield response
     }
   }
@@ -73,9 +87,19 @@ object Http4sAdapter {
     def sendMessage(
       sendQueue: fs2.concurrent.Queue[RIO[R, *], WebSocketFrame],
       id: String,
-      data: String
+      data: ResponseValue
     ): RIO[R, Unit] =
-      sendQueue.enqueue1(WebSocketFrame.Text(s"""{"id":"$id","type":"data","payload":{"data":$data}}"""))
+      sendQueue.enqueue1(
+        WebSocketFrame.Text(
+          Json
+            .obj(
+              "id"      -> Json.fromString(id),
+              "type"    -> Json.fromString("data"),
+              "payload" -> Json.obj("data" -> responseToJson(data))
+            )
+            .noSpaces
+        )
+      )
 
     def processMessage(
       sendQueue: fs2.concurrent.Queue[RIO[R, *], WebSocketFrame],
@@ -100,17 +124,25 @@ object Http4sAdapter {
                           _ <- result match {
                                 case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
                                   stream.foreach { item =>
-                                    sendMessage(sendQueue, id, ObjectValue(List(fieldName -> item)).toString)
+                                    sendMessage(sendQueue, id, ObjectValue(List(fieldName -> item)))
                                   }.fork.flatMap(fiber => subscriptions.update(_.updated(id, fiber)))
                                 case other =>
-                                  sendMessage(sendQueue, id, other.toString) *> sendQueue.enqueue1(
+                                  sendMessage(sendQueue, id, other) *> sendQueue.enqueue1(
                                     WebSocketFrame.Text(s"""{"type":"complete","id":"$id"}""")
                                   )
                               }
                         } yield ()).catchAll(
                           error =>
                             sendQueue.enqueue1(
-                              WebSocketFrame.Text(s"""{"type":"complete","id":"$id","payload":"${error.toString}"}""")
+                              WebSocketFrame.Text(
+                                Json
+                                  .obj(
+                                    "id"      -> Json.fromString(id),
+                                    "type"    -> Json.fromString("complete"),
+                                    "payload" -> Json.fromString(error.toString)
+                                  )
+                                  .noSpaces
+                              )
                             )
                         )
                     }
