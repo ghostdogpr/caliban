@@ -1,15 +1,43 @@
 package caliban.modelgen
 
-import caliban.parsing.adt.{ Document, Type }
+import caliban.parsing.adt.{Document, Type}
+import caliban.parsing.adt.Document._
 import caliban.parsing.adt.ExecutableDefinition.TypeDefinition
-import caliban.parsing.adt.Type.{ FieldDefinition, ListType, NamedType }
+import caliban.parsing.adt.Type.{FieldDefinition, ListType, NamedType}
+import zio.IO
 
 object Generator {
-  def typeDefinitions(doc: Document): List[TypeDefinition] =
+  def generate(doc: Document): String =
+  s"""
+  object Types {
+    ${typeDefinitions(doc).map(caseClassFromType(_)).mkString("\n\n")}
+  }
+
+  object Queries {
+
+  }
+
+  object Mutations {
+
+  }
+
+  object Subscriptions {
+
+  }
+
+  object Fragments {
+
+  }
+  """
+
+
+
+  def definitions[T](doc: Document): List[T] =
     doc.definitions.flatMap {
-      case t: TypeDefinition => List(t)
+      case t: T => List(t)
       case _                 => List()
     }
+
 
   def caseClassFromType(t: TypeDefinition): String =
     s"""case class ${t.name}(${t.children.map(fieldToParameter(_)).mkString(", ")})"""
@@ -27,4 +55,9 @@ object Generator {
   def typeByName(name: String): String = name match {
     case _ => name
   }
+
+
+
+  //gen fields
+
 }

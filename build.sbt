@@ -41,6 +41,7 @@ addCommandAlias(
   "check",
   "all scalafmtSbtCheck scalafmtCheck test:scalafmtCheck"
 )
+addCommandAlias("gen", "coreJVM/runMain caliban.Cli")
 
 lazy val root = project
   .in(file("."))

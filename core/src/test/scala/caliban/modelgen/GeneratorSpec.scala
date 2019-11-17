@@ -1,5 +1,6 @@
 package caliban.modelgen
 import caliban.parsing.Parser
+import caliban.parsing.adt.Document
 import caliban.parsing.adt.ExecutableDefinition.TypeDefinition
 import zio.test.Assertion._
 import zio.test._
@@ -17,7 +18,7 @@ object GeneratorSpec extends DefaultRunnableSpec(
           |""".stripMargin
 
       val caseclassstrdef = Parser.parseQuery(gqltype).map(doc => {
-        Generator.typeDefinitions(doc).map(Generator.caseClassFromType(_)).mkString("\n")
+        Document.typeDefinitions(doc).map(Generator.caseClassFromType(_)).mkString("\n")
       })
 
       assertM(
