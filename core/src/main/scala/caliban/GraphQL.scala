@@ -23,7 +23,7 @@ trait GraphQL[-R, -Q, -M, -S, +E] { self =>
   /**
    * Parses and validates the provided query against this interpreter.
    * @param query a string containing the GraphQL query.
-   * @return an effect that either fails with an `E` or succeeds with `Unit`
+   * @return an effect that either fails with a [[CalibanError]] or succeeds with `Unit`
    */
   def check(query: String): IO[CalibanError, Unit]
 

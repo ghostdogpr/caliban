@@ -41,7 +41,6 @@ object Http4sAdapter {
 
   implicit val resultEncoder: Encoder[ResponseValue] = (response: ResponseValue) =>
     Json.obj("data" -> responseToJson(response))
-  def errorEncoder[E]: Encoder[E] = (err: E) => Json.obj("errors" -> Json.arr(Json.fromString(err.toString)))
 
   private def jsonToValue(json: Json): Value =
     json.fold(
@@ -68,11 +67,13 @@ object Http4sAdapter {
     object dsl extends Http4sDsl[RIO[R, *]]
     import dsl._
 
+    implicit val eEncoder: Encoder[E] = (err: E) => Json.obj("errors" -> Json.arr(Json.fromString(err.toString)))
+
     HttpRoutes.of[RIO[R, *]] {
       case req @ POST -> Root =>
         for {
           query    <- req.attemptAs[GraphQLRequest].value.absolve
-          result   <- execute(interpreter, query).fold(_.asJson(errorEncoder[E]), _.asJson)
+          result   <- execute(interpreter, query).fold(_.asJson, _.asJson)
           response <- Ok(result)
         } yield response
     }
