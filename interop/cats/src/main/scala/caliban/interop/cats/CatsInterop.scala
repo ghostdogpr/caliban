@@ -15,7 +15,7 @@ import zquery.ZQuery
 
 object CatsInterop {
 
-  def executeAsync[F[_]: Async, R, Q, M, S](graphQL: GraphQL[R, Q, M, S])(
+  def executeAsync[F[_]: Async, R, Q, M, S, E](graphQL: GraphQL[R, Q, M, S, E])(
     query: String,
     operationName: Option[String] = None,
     variables: Map[String, Value] = Map(),
@@ -28,8 +28,8 @@ object CatsInterop {
       runtime.unsafeRunAsync(execution)(exit => cb(exit.toEither))
     }
 
-  def checkAsync[F[_]: Async, R, Q, M, S](
-    graphQL: GraphQL[R, Q, M, S]
+  def checkAsync[F[_]: Async, R, Q, M, S, E](
+    graphQL: GraphQL[R, Q, M, S, E]
   )(query: String)(implicit runtime: Runtime[R]): F[Unit] =
     Async[F].async { cb =>
       runtime.unsafeRunAsync(graphQL.execute(query))(exit => cb(exit.toEither.void))

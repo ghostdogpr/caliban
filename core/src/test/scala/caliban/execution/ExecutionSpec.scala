@@ -216,6 +216,12 @@ object ExecutionSpec
              }""")
 
           assertM(interpreter.execute(query).map(_.toString), equalTo("""{"either":{"left":null,"right":"ok"}}"""))
+        },
+        testM("mapError") {
+          case class Test(either: Either[Int, String])
+          val interpreter = graphQL(RootResolver(Test(Right("ok")))).mapError(_ => "my custom error")
+          val query       = """query{}"""
+          assertM(interpreter.execute(query).run, fails(equalTo("my custom error")))
         }
       )
     )

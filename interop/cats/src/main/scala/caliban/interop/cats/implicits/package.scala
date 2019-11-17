@@ -8,8 +8,8 @@ import zio.Runtime
 
 package object implicits {
 
-  implicit class CatsEffectGraphQL[R, Q, M, S](
-    underlying: GraphQL[R, Q, M, S]
+  implicit class CatsEffectGraphQL[R, Q, M, S, E](
+    underlying: GraphQL[R, Q, M, S, E]
   ) {
 
     def executeAsync[F[_]: Async](
