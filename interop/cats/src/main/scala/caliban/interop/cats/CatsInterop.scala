@@ -3,7 +3,7 @@ package caliban.interop.cats
 import caliban.introspection.adt.__Type
 import caliban.parsing.adt.Value
 import caliban.schema.Step.QueryStep
-import caliban.schema.{ GenericSchema, Schema, Step }
+import caliban.schema.{ Schema, Step }
 import caliban.{ GraphQL, ResponseValue }
 import cats.effect.implicits._
 import cats.effect.{ Async, Effect }
@@ -44,12 +44,6 @@ object CatsInterop {
         ev.optional
 
       override def resolve(value: F[A]): Step[R] =
-        QueryStep(
-          ZQuery.fromEffect(
-            value.toIO
-              .to[Task]
-              .bimap(GenericSchema.effectfulExecutionError, ev.resolve)
-          )
-        )
+        QueryStep(ZQuery.fromEffect(value.toIO.to[Task].map(ev.resolve)))
     }
 }

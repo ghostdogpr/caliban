@@ -13,8 +13,8 @@ object Step {
   case class ListStep[-R](steps: List[Step[R]])                         extends Step[R]
   case class FunctionStep[-R](step: Map[String, Value] => Step[R])      extends Step[R]
   case class ObjectStep[-R](name: String, fields: Map[String, Step[R]]) extends Step[R]
-  case class QueryStep[-R](query: ZQuery[R, ExecutionError, Step[R]])   extends Step[R]
-  case class StreamStep[-R](inner: ZStream[R, ExecutionError, Step[R]]) extends Step[R]
+  case class QueryStep[-R](query: ZQuery[R, Throwable, Step[R]])        extends Step[R]
+  case class StreamStep[-R](inner: ZStream[R, Throwable, Step[R]])      extends Step[R]
 
   // PureStep is both a Step and a ReducedStep so it is defined outside this object
   // This is to avoid boxing/unboxing pure values during step reduction

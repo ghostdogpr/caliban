@@ -220,23 +220,20 @@ trait GenericSchema[R] extends DerivationSchema[R] {
       override def optional: Boolean                        = ev.optional
       override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
       override def resolve(value: ZIO[R1, E, A]): Step[R1] =
-        QueryStep(
-          ZQuery.fromEffect(value.bimap(GenericSchema.effectfulExecutionError, ev.resolve))
-        )
+        QueryStep(ZQuery.fromEffect(value).map(ev.resolve))
     }
   implicit def querySchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZQuery[R1, E, A]] =
     new Schema[R1, ZQuery[R1, E, A]] {
       override def optional: Boolean                = ev.optional
       override def toType(isInput: Boolean): __Type = ev.toType(isInput)
       override def resolve(value: ZQuery[R1, E, A]): Step[R1] =
-        QueryStep(value.map(ev.resolve).mapError("CalibanExecutionError")(GenericSchema.effectfulExecutionError))
+        QueryStep(value.map(ev.resolve))
     }
   implicit def streamSchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZStream[R1, E, A]] =
     new Schema[R1, ZStream[R1, E, A]] {
-      override def optional: Boolean                        = ev.optional
-      override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
-      override def resolve(value: ZStream[R1, E, A]): Step[R1] =
-        StreamStep(value.bimap(GenericSchema.effectfulExecutionError, ev.resolve))
+      override def optional: Boolean                           = ev.optional
+      override def toType(isInput: Boolean = false): __Type    = ev.toType(isInput)
+      override def resolve(value: ZStream[R1, E, A]): Step[R1] = StreamStep(value.map(ev.resolve))
     }
 
 }
@@ -374,8 +371,8 @@ trait DerivationSchema[R] {
 
 object GenericSchema {
 
-  def effectfulExecutionError(e: Throwable): ExecutionError = e match {
+  def effectfulExecutionError(fieldName: String, e: Throwable): ExecutionError = e match {
     case e: ExecutionError => e
-    case other             => ExecutionError("Caught error during execution of effectful field", Some(other))
+    case other             => ExecutionError("Effect failure", Some(fieldName), Some(other))
   }
 }
