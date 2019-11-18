@@ -126,7 +126,7 @@ class GraphQLBenchmarks {
                 """
 
   val zioRuntime: DefaultRuntime = new DefaultRuntime {
-    override val Platform: Platform = PlatformLive.Benchmark
+    override val platform: Platform = PlatformLive.Benchmark
   }
 
   case class CharactersArgs(origin: Option[Origin])
