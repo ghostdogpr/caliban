@@ -144,7 +144,7 @@ class GraphQLBenchmarks {
     )
   )
 
-  val interpreter: GraphQL[Any, Query, Unit, Unit] = graphQL(resolver)
+  val interpreter: GraphQL[Any, Query, Unit, Unit, CalibanError] = graphQL(resolver)
 
   @Benchmark
   def simpleCaliban(): Unit = {

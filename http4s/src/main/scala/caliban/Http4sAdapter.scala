@@ -41,8 +41,6 @@ object Http4sAdapter {
 
   implicit val resultEncoder: Encoder[ResponseValue] = (response: ResponseValue) =>
     Json.obj("data" -> responseToJson(response))
-  implicit val errorEncoder: Encoder[CalibanError] = (err: CalibanError) =>
-    Json.obj("errors" -> Json.arr(Json.fromString(err.toString)))
 
   private def jsonToValue(json: Json): Value =
     json.fold(
@@ -59,15 +57,17 @@ object Http4sAdapter {
     case _                         => Map()
   }
 
-  private def execute[R, Q, M, S](
-    interpreter: GraphQL[R, Q, M, S],
+  private def execute[R, Q, M, S, E](
+    interpreter: GraphQL[R, Q, M, S, E],
     query: GraphQLRequest
-  ): ZIO[R, CalibanError, ResponseValue] =
+  ): ZIO[R, E, ResponseValue] =
     interpreter.execute(query.query, query.operationName, query.variables.map(jsonToVariables).getOrElse(Map()))
 
-  def makeRestService[R, Q, M, S](interpreter: GraphQL[R, Q, M, S]): HttpRoutes[RIO[R, *]] = {
+  def makeRestService[R, Q, M, S, E](interpreter: GraphQL[R, Q, M, S, E]): HttpRoutes[RIO[R, *]] = {
     object dsl extends Http4sDsl[RIO[R, *]]
     import dsl._
+
+    implicit val eEncoder: Encoder[E] = (err: E) => Json.obj("errors" -> Json.arr(Json.fromString(err.toString)))
 
     HttpRoutes.of[RIO[R, *]] {
       case req @ POST -> Root =>
@@ -79,7 +79,7 @@ object Http4sAdapter {
     }
   }
 
-  def makeWebSocketService[R, Q, M, S](interpreter: GraphQL[R, Q, M, S]): HttpRoutes[RIO[R, *]] = {
+  def makeWebSocketService[R, Q, M, S, E](interpreter: GraphQL[R, Q, M, S, E]): HttpRoutes[RIO[R, *]] = {
 
     object dsl extends Http4sDsl[RIO[R, *]]
     import dsl._
@@ -178,14 +178,14 @@ object Http4sAdapter {
       .dimap((req: Request[F]) => req.mapK(toTask))((res: Response[Task]) => res.mapK(toF))
   }
 
-  def makeWebSocketServiceF[F[_], Q, M, S](
-    interpreter: GraphQL[Any, Q, M, S]
+  def makeWebSocketServiceF[F[_], Q, M, S, E](
+    interpreter: GraphQL[Any, Q, M, S, E]
   )(implicit F: Effect[F], runtime: Runtime[Any]): HttpRoutes[F] =
-    wrapRoute(makeWebSocketService[Any, Q, M, S](interpreter))
+    wrapRoute(makeWebSocketService[Any, Q, M, S, E](interpreter))
 
-  def makeRestServiceF[F[_], Q, M, S](
-    interpreter: GraphQL[Any, Q, M, S]
+  def makeRestServiceF[F[_], Q, M, S, E](
+    interpreter: GraphQL[Any, Q, M, S, E]
   )(implicit F: Effect[F], runtime: Runtime[Any]): HttpRoutes[F] =
-    wrapRoute(makeRestService[Any, Q, M, S](interpreter))
+    wrapRoute(makeRestService[Any, Q, M, S, E](interpreter))
 
 }

@@ -87,7 +87,7 @@ object ArgBuilder {
             )
             .mapError {
               case e: ExecutionError => e
-              case e                 => ExecutionError("Exception during argument building", Some(e))
+              case e                 => ExecutionError("Exception during argument building", None, Some(e))
             }
       )
 

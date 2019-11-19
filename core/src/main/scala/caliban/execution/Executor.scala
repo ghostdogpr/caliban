@@ -9,7 +9,7 @@ import caliban.parsing.adt.OperationType.{ Mutation, Query, Subscription }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt._
 import caliban.schema.Step._
-import caliban.schema.{ ReducedStep, RootSchema, Step }
+import caliban.schema.{ GenericSchema, ReducedStep, RootSchema, Step }
 import zio.{ IO, ZIO }
 import zquery.ZQuery
 
@@ -77,7 +77,12 @@ object Executor {
     allowParallelism: Boolean
   ): ZIO[R, ExecutionError, ResponseValue] = {
 
-    def reduceStep(step: Step[R], selectionSet: List[Selection], arguments: Map[String, Value]): ReducedStep[R] =
+    def reduceStep(
+      step: Step[R],
+      selectionSet: List[Selection],
+      arguments: Map[String, Value],
+      fieldName: String
+    ): ReducedStep[R] =
       step match {
         case s @ PureStep(value) =>
           value match {
@@ -93,8 +98,8 @@ object Executor {
               obj.fold(s)(PureStep(_))
             case _ => s
           }
-        case FunctionStep(step) => reduceStep(step(arguments), selectionSet, Map())
-        case ListStep(steps)    => reduceList(steps.map(reduceStep(_, selectionSet, arguments)))
+        case FunctionStep(step) => reduceStep(step(arguments), selectionSet, Map(), fieldName)
+        case ListStep(steps)    => reduceList(steps.map(reduceStep(_, selectionSet, arguments, fieldName)))
         case ObjectStep(objectName, fields) =>
           val mergedSelectionSet = mergeSelectionSet(selectionSet, objectName, fragments, variableValues)
           val items = mergedSelectionSet.map {
@@ -104,12 +109,23 @@ object Executor {
               val arguments = resolveVariables(args, variableDefinitions, variableValues)
               alias.getOrElse(name) -> fields
                 .get(name)
-                .map(reduceStep(_, selectionSet, arguments))
+                .map(reduceStep(_, selectionSet, arguments, name))
                 .getOrElse(NullStep)
           }
           reduceObject(items)
-        case QueryStep(inner)   => ReducedStep.QueryStep(inner.map(reduceStep(_, selectionSet, arguments)))
-        case StreamStep(stream) => ReducedStep.StreamStep(stream.map(reduceStep(_, selectionSet, arguments)))
+        case QueryStep(inner) =>
+          ReducedStep.QueryStep(
+            inner
+              .map(reduceStep(_, selectionSet, arguments, fieldName))
+              .mapError("CalibanExecutionError")(GenericSchema.effectfulExecutionError(fieldName, _))
+          )
+        case StreamStep(stream) =>
+          ReducedStep.StreamStep(
+            stream.bimap(
+              GenericSchema.effectfulExecutionError(fieldName, _),
+              reduceStep(_, selectionSet, arguments, fieldName)
+            )
+          )
       }
 
     def makeQuery(step: ReducedStep[R]): ZQuery[R, ExecutionError, ResponseValue] =
@@ -128,7 +144,7 @@ object Executor {
             .map(env => ResponseValue.StreamValue(stream.mapM(makeQuery(_).run).provide(env)))
       }
 
-    val reduced: ReducedStep[R] = reduceStep(plan, selectionSet, Map())
+    val reduced: ReducedStep[R] = reduceStep(plan, selectionSet, Map(), "")
     val query                   = makeQuery(reduced)
     query.run
   }
