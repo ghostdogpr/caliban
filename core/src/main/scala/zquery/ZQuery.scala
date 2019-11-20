@@ -287,7 +287,7 @@ object ZQuery {
    * Constructs a query from an effect.
    */
   final def fromEffect[R, E, A](effect: ZIO[R, E, A]): ZQuery[R, E, A] =
-    ZQuery(effect.fold(e => Result.fail(Cause.fail(e)), a => Result.done(a)))
+    ZQuery(effect.foldCause(Result.fail, Result.done))
 
   /**
    * Constructs a query from a request, requiring an environment containing a
