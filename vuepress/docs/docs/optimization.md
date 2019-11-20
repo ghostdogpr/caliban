@@ -56,6 +56,7 @@ override val identifier: String = "UserDataSource"
 ```
 
 We will define two different behaviors depending on whether we receive a single request or multiple requests at once.
+For each request, we need to insert into the result map a value of type `Either` (`Left` for an error and `Right` for a success).
 
 ```scala
 override def run(requests: Iterable[GetUserName]): ZIO[Any, Nothing, CompletedRequestMap] = {
