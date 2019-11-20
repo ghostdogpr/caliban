@@ -14,7 +14,7 @@ class Cache private (private val state: Ref[Map[Any, Any]]) {
    * Inserts a request and a `Ref` that will contain the result of the request
    * when it is executed into the cache.
    */
-  final def insert[A](request: Request[A], result: Ref[Option[A]]): UIO[Unit] =
+  final def insert[E, A](request: Request[E, A], result: Ref[Option[Either[E, A]]]): UIO[Unit] =
     state.update(_ + (request -> result)).unit
 
   /**
@@ -23,8 +23,8 @@ class Cache private (private val state: Ref[Map[Any, Any]]) {
    * been executed yet, or `Some(Ref(Some(value)))` if the request has been
    * executed.
    */
-  final def lookup[A](request: Request[A]): UIO[Option[Ref[Option[A]]]] =
-    state.get.map(_.get(request).asInstanceOf[Option[Ref[Option[A]]]])
+  final def lookup[E, A](request: Request[E, A]): UIO[Option[Ref[Option[Either[E, A]]]]] =
+    state.get.map(_.get(request).asInstanceOf[Option[Ref[Option[Either[E, A]]]]])
 }
 
 object Cache {
