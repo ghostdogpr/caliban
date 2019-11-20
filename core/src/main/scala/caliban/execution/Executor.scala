@@ -165,7 +165,7 @@ object Executor {
       query        = makeQuery(reduced, errors)
       result       <- query.run
       resultErrors <- errors.get
-    } yield GraphQLResponse(result, resultErrors)
+    } yield GraphQLResponse(result, resultErrors.reverse)
   }
 
   private def resolveVariables(
