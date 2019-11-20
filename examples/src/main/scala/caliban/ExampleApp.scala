@@ -18,7 +18,7 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
 
   case class Queries(
     @GQLDescription("Return all characters from a given origin")
-    characters: CharactersArgs => URIO[Console, List[Character]],
+    characters: CharactersArgs => RIO[Console, List[Character]],
     @GQLDeprecated("Use `characters`")
     character: CharacterArgs => URIO[Console, Option[Character]]
   )
@@ -38,7 +38,7 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
       interpreter = graphQL(
         RootResolver(
           Queries(
-            args => service.getCharacters(args.origin),
+            args => ZIO.fail(new Exception("boom")) *> service.getCharacters(args.origin),
             args => service.findCharacter(args.name)
           ),
           Mutations(args => service.deleteCharacter(args.name)),

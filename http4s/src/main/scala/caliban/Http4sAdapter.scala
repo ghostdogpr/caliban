@@ -39,8 +39,12 @@ object Http4sAdapter {
       case s: StreamValue                    => Json.fromString(s.toString)
     }
 
-  implicit val resultEncoder: Encoder[ResponseValue] = (response: ResponseValue) =>
-    Json.obj("data" -> responseToJson(response))
+  implicit def responseEncoder[E]: Encoder[GraphQLResponse[E]] =
+    (response: GraphQLResponse[E]) =>
+      Json.obj(
+        "data"   -> responseToJson(response.data),
+        "errors" -> Json.fromValues(response.errors.map(err => Json.fromString(err.toString)))
+      )
 
   private def jsonToValue(json: Json): Value =
     json.fold(
@@ -60,21 +64,19 @@ object Http4sAdapter {
   private def execute[R, Q, M, S, E](
     interpreter: GraphQL[R, Q, M, S, E],
     query: GraphQLRequest
-  ): ZIO[R, E, ResponseValue] =
+  ): URIO[R, GraphQLResponse[E]] =
     interpreter.execute(query.query, query.operationName, query.variables.map(jsonToVariables).getOrElse(Map()))
 
   def makeRestService[R, Q, M, S, E](interpreter: GraphQL[R, Q, M, S, E]): HttpRoutes[RIO[R, *]] = {
     object dsl extends Http4sDsl[RIO[R, *]]
     import dsl._
 
-    implicit val eEncoder: Encoder[E] = (err: E) => Json.obj("errors" -> Json.arr(Json.fromString(err.toString)))
-
     HttpRoutes.of[RIO[R, *]] {
       case req @ POST -> Root =>
         for {
           query    <- req.attemptAs[GraphQLRequest].value.absolve
-          result   <- execute(interpreter, query).fold(_.asJson, _.asJson)
-          response <- Ok(result)
+          result   <- execute(interpreter, query)
+          response <- Ok(result.asJson)
         } yield response
     }
   }
@@ -87,7 +89,8 @@ object Http4sAdapter {
     def sendMessage(
       sendQueue: fs2.concurrent.Queue[RIO[R, *], WebSocketFrame],
       id: String,
-      data: ResponseValue
+      data: ResponseValue,
+      errors: List[E]
     ): RIO[R, Unit] =
       sendQueue.enqueue1(
         WebSocketFrame.Text(
@@ -95,7 +98,7 @@ object Http4sAdapter {
             .obj(
               "id"      -> Json.fromString(id),
               "type"    -> Json.fromString("data"),
-              "payload" -> Json.obj("data" -> responseToJson(data))
+              "payload" -> GraphQLResponse(data, errors).asJson
             )
             .noSpaces
         )
@@ -121,13 +124,13 @@ object Http4sAdapter {
                         val operationName = payload.downField("operationName").success.flatMap(_.value.asString)
                         (for {
                           result <- execute(interpreter, GraphQLRequest(query, operationName))
-                          _ <- result match {
+                          _ <- result.data match {
                                 case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
                                   stream.foreach { item =>
-                                    sendMessage(sendQueue, id, ObjectValue(List(fieldName -> item)))
+                                    sendMessage(sendQueue, id, ObjectValue(List(fieldName -> item)), result.errors)
                                   }.fork.flatMap(fiber => subscriptions.update(_.updated(id, fiber)))
                                 case other =>
-                                  sendMessage(sendQueue, id, other) *> sendQueue.enqueue1(
+                                  sendMessage(sendQueue, id, other, result.errors) *> sendQueue.enqueue1(
                                     WebSocketFrame.Text(s"""{"type":"complete","id":"$id"}""")
                                   )
                               }
