@@ -117,7 +117,7 @@ object Executor {
           ReducedStep.QueryStep(
             inner
               .map(reduceStep(_, selectionSet, arguments, fieldName))
-              .mapError("CalibanExecutionError")(GenericSchema.effectfulExecutionError(fieldName, _))
+              .mapError(GenericSchema.effectfulExecutionError(fieldName, _))
           )
         case StreamStep(stream) =>
           ReducedStep.StreamStep(
