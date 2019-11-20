@@ -1,6 +1,6 @@
 package caliban
 
-import caliban.ResponseValue.{ ObjectValue, StreamValue }
+import caliban.ResponseValue.{ NullValue, ObjectValue, StreamValue }
 import caliban.parsing.adt.Value
 import cats.data.OptionT
 import cats.effect.Effect
@@ -74,9 +74,10 @@ object Http4sAdapter {
     HttpRoutes.of[RIO[R, *]] {
       case req @ POST -> Root =>
         for {
-          query    <- req.attemptAs[GraphQLRequest].value.absolve
-          result   <- execute(interpreter, query)
-          response <- Ok(result.asJson)
+          query <- req.attemptAs[GraphQLRequest].value.absolve
+          result <- execute(interpreter, query)
+                     .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
+          response <- Ok(result)
         } yield response
     }
   }
