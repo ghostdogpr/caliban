@@ -1,16 +1,15 @@
 package caliban.validation
 
 import caliban.CalibanError.ValidationError
-import caliban.{ InputValue, Rendering }
+import caliban.Rendering
 import caliban.execution.Executor
 import caliban.introspection.Introspector
 import caliban.introspection.adt._
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.NamedType
-import caliban.InputValue.VariableValue
-import caliban.Value.NullValue
-import caliban.parsing.adt.{ Directive, Document, OperationType, Selection, Type }
+import caliban.parsing.adt.Value.{ NullValue, VariableValue }
+import caliban.parsing.adt.{ Directive, Document, OperationType, Selection, Type, Value }
 import caliban.schema.{ RootType, Types }
 import zio.IO
 
@@ -50,7 +49,7 @@ object Validator {
     }
 
   private def collectVariablesUsed(context: Context, selectionSet: List[Selection]): Set[String] = {
-    def collectValues(selectionSet: List[Selection]): List[InputValue] =
+    def collectValues(selectionSet: List[Selection]): List[Value] =
       selectionSet.flatMap {
         case FragmentSpread(name, directives) =>
           directives.flatMap(_.arguments.values) ++ context.fragments
@@ -356,12 +355,12 @@ object Validator {
           )
       )
 
-  private def validateInputValues(inputValue: __InputValue, argValue: InputValue): IO[ValidationError, Unit] = {
+  private def validateInputValues(inputValue: __InputValue, argValue: Value): IO[ValidationError, Unit] = {
     val t           = inputValue.`type`()
     val inputType   = if (t.kind == __TypeKind.NON_NULL) t.ofType.getOrElse(t) else t
     val inputFields = inputType.inputFields.getOrElse(Nil)
     argValue match {
-      case InputValue.ObjectValue(fields) =>
+      case Value.ObjectValue(fields) =>
         IO.foreach(fields) {
           case (k, v) =>
             inputFields.find(_.name == k) match {

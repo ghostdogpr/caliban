@@ -2,28 +2,26 @@
 A GraphQL schema will be derived automatically at compile-time (no reflection) from the types present in your resolver.
 The table below shows how common Scala types are converted to GraphQL types.
 
-| Scala Type       | GraphQL Type                                     |
-| ---------------- | ------------------------------------------------ |
-| Boolean          | Boolean                                          |
-| Int              | Int                                              |
-| Float            | Float                                            |
-| Double           | Float                                            |
-| String           | String                                           |
-| Unit             | Unit (custom scalar)                             |
-| Long             | Long (custom scalar)                             |
-| BigInt           | BigInt (custom scalar)                           |
-| BigDecimal       | BigDecimal (custom scalar)                       |
-| Case Class       | Object                                           |
-| Sealed Trait     | Enum or Union                                    |
-| Option[A]        | Nullable A                                       |
-| List[A]          | List of A                                        |
-| Set[A]           | List of A                                        |
-| A => B           | A and B                                          |
-| (A, B)           | Object with 2 fields `_1` and `_2`               |
-| Either[A, B]     | Object with 2 nullable fields `left` and `right` |
-| Map[A, B]        | List of Object with 2 fields `key` and `value`   |
-| ZIO[R, E, A]     | A                                                |
-| ZStream[R, E, A] | A                                                |
+Scala Type|GraphQL Type
+--- | ---
+Boolean|Boolean
+Int|Int
+Float|Float
+String|String
+Unit|Unit (custom scalar)
+Long|Long (custom scalar)
+Double|Double (custom scalar)
+Case Class|Object
+Sealed Trait|Enum or Union
+Option[A]|Nullable A
+List[A]|List of A
+Set[A]|List of A
+A => B|A and B
+(A, B)|Object with 2 fields `_1` and `_2`
+Either[A, B]|Object with 2 nullable fields `left` and `right`
+Map[A, B]| List of Object with 2 fields `key` and `value`
+ZIO[R, E, A]|A
+ZStream[R, E, A]|A
 
 See the [Custom Types](#custom-types) section to find out how to support your own types.
 

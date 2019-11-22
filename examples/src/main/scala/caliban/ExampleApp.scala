@@ -16,18 +16,11 @@ import zio.stream.ZStream
 
 object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
 
-  case class FloatArgs(v: Float)
-  case class DoubleArgs(v: Double)
-  case class BigDecimalArgs(v: BigDecimal)
-
   case class Queries(
     @GQLDescription("Return all characters from a given origin")
     characters: CharactersArgs => URIO[Console, List[Character]],
     @GQLDeprecated("Use `characters`")
-    character: CharacterArgs => URIO[Console, Option[Character]],
-    float: FloatArgs => Float,
-    double: DoubleArgs => Double,
-    big: BigDecimalArgs => BigDecimal
+    character: CharacterArgs => URIO[Console, Option[Character]]
   )
   case class Mutations(deleteCharacter: CharacterArgs => URIO[Console, Boolean])
   case class Subscriptions(characterDeleted: ZStream[Console, Nothing, String])
@@ -46,10 +39,7 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
         RootResolver(
           Queries(
             args => service.getCharacters(args.origin),
-            args => service.findCharacter(args.name),
-            _.v,
-            _.v,
-            _.v
+            args => service.findCharacter(args.name)
           ),
           Mutations(args => service.deleteCharacter(args.name)),
           Subscriptions(service.deletedEvents)

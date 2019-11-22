@@ -1,8 +1,9 @@
 package caliban.schema
 
 import caliban.CalibanError.ExecutionError
-import caliban.{ InputValue, ResponseValue }
-import caliban.Value.NullValue
+import caliban.ResponseValue
+import caliban.ResponseValue.NullValue
+import caliban.parsing.adt.Value
 import zio.stream.ZStream
 import zquery.ZQuery
 
@@ -10,7 +11,7 @@ sealed trait Step[-R]
 
 object Step {
   case class ListStep[-R](steps: List[Step[R]])                         extends Step[R]
-  case class FunctionStep[-R](step: Map[String, InputValue] => Step[R]) extends Step[R]
+  case class FunctionStep[-R](step: Map[String, Value] => Step[R])      extends Step[R]
   case class ObjectStep[-R](name: String, fields: Map[String, Step[R]]) extends Step[R]
   case class QueryStep[-R](query: ZQuery[R, Throwable, Step[R]])        extends Step[R]
   case class StreamStep[-R](inner: ZStream[R, Throwable, Step[R]])      extends Step[R]

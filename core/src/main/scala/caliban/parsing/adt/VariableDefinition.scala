@@ -1,10 +1,8 @@
 package caliban.parsing.adt
 
-import caliban.InputValue
-
 case class VariableDefinition(
   name: String,
   variableType: Type,
-  defaultValue: Option[InputValue],
+  defaultValue: Option[Value],
   directives: List[Directive]
 )
