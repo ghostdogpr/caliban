@@ -207,12 +207,13 @@ trait GenericSchema[R] extends DerivationSchema[R] {
       override def optional: Boolean                        = ev2.optional
       override def toType(isInput: Boolean = false): __Type = ev2.toType(isInput)
 
-      override def resolve(value: A => B): Step[RA with RB] =
+      override def resolve(f: A => B): Step[RA with RB] =
         FunctionStep(
           args =>
-            QueryStep(
-              ZQuery.fromEffect(arg1.build(Value.ObjectValue(args)).map(argValue => ev2.resolve(value(argValue))))
-            )
+            arg1.build(Value.ObjectValue(args)) match {
+              case Left(error)  => QueryStep(ZQuery.fail(error))
+              case Right(value) => ev2.resolve(f(value))
+            }
         )
     }
   implicit def effectSchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZIO[R1, E, A]] =
