@@ -5,7 +5,6 @@ import caliban.execution.Executor
 import caliban.introspection.Introspector
 import caliban.introspection.adt.__Introspection
 import caliban.parsing.Parser
-import caliban.parsing.adt.Value
 import caliban.schema.RootSchema.Operation
 import caliban.schema._
 import caliban.validation.Validator
@@ -38,7 +37,7 @@ trait GraphQL[-R, -Q, -M, -S, +E] { self =>
   def execute(
     query: String,
     operationName: Option[String] = None,
-    variables: Map[String, Value] = Map(),
+    variables: Map[String, InputValue] = Map(),
     skipValidation: Boolean = false
   ): ZIO[R, E, ResponseValue]
 
@@ -74,7 +73,7 @@ trait GraphQL[-R, -Q, -M, -S, +E] { self =>
       override def execute(
         query: String,
         operationName: Option[String],
-        variables: Map[String, Value],
+        variables: Map[String, InputValue],
         skipValidation: Boolean
       ): ZIO[R2, E2, ResponseValue] = f(self.execute(query, operationName, variables, skipValidation))
       override def render: String   = self.render
@@ -116,7 +115,7 @@ object GraphQL {
       def execute(
         query: String,
         operationName: Option[String] = None,
-        variables: Map[String, Value] = Map(),
+        variables: Map[String, InputValue] = Map(),
         skipValidation: Boolean = false
       ): ZIO[R, CalibanError, ResponseValue] =
         for {

@@ -2,10 +2,10 @@ package caliban.schema
 
 import scala.language.experimental.macros
 import caliban.CalibanError.ExecutionError
-import caliban.ResponseValue
+import caliban.{ InputValue, ResponseValue }
 import caliban.ResponseValue._
+import caliban.Value._
 import caliban.introspection.adt._
-import caliban.parsing.adt.Value
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLName }
 import caliban.schema.Step._
 import caliban.schema.Types._
@@ -94,13 +94,15 @@ trait GenericSchema[R] extends DerivationSchema[R] {
         ObjectStep(name, fields.map { case (f, plan) => f.name -> plan(value) }.toMap)
     }
 
-  implicit val unitSchema: Schema[Any, Unit]       = scalarSchema("Unit", None, _ => ObjectValue(Nil))
-  implicit val booleanSchema: Schema[Any, Boolean] = scalarSchema("Boolean", None, BooleanValue)
-  implicit val stringSchema: Schema[Any, String]   = scalarSchema("String", None, StringValue)
-  implicit val intSchema: Schema[Any, Int]         = scalarSchema("Int", None, i => IntValue(i.toLong))
-  implicit val longSchema: Schema[Any, Long]       = scalarSchema("Long", None, IntValue)
-  implicit val floatSchema: Schema[Any, Float]     = scalarSchema("Float", None, i => FloatValue(i.toDouble))
-  implicit val doubleSchema: Schema[Any, Double]   = scalarSchema("Double", None, FloatValue)
+  implicit val unitSchema: Schema[Any, Unit]             = scalarSchema("Unit", None, _ => ObjectValue(Nil))
+  implicit val booleanSchema: Schema[Any, Boolean]       = scalarSchema("Boolean", None, BooleanValue)
+  implicit val stringSchema: Schema[Any, String]         = scalarSchema("String", None, StringValue)
+  implicit val intSchema: Schema[Any, Int]               = scalarSchema("Int", None, IntValue(_))
+  implicit val longSchema: Schema[Any, Long]             = scalarSchema("Long", None, IntValue(_))
+  implicit val bigIntSchema: Schema[Any, BigInt]         = scalarSchema("BigInt", None, IntValue(_))
+  implicit val doubleSchema: Schema[Any, Double]         = scalarSchema("Float", None, FloatValue(_))
+  implicit val floatSchema: Schema[Any, Float]           = scalarSchema("Float", None, FloatValue(_))
+  implicit val bigDecimalSchema: Schema[Any, BigDecimal] = scalarSchema("BigDecimal", None, FloatValue(_))
 
   implicit def optionSchema[A](implicit ev: Schema[R, A]): Schema[R, Option[A]] = new Schema[R, Option[A]] {
     override def optional: Boolean                        = true
@@ -210,7 +212,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
       override def resolve(f: A => B): Step[RA with RB] =
         FunctionStep(
           args =>
-            arg1.build(Value.ObjectValue(args)) match {
+            arg1.build(InputValue.ObjectValue(args)) match {
               case Left(error)  => QueryStep(ZQuery.fail(error))
               case Right(value) => ev2.resolve(f(value))
             }
@@ -283,7 +285,7 @@ trait DerivationSchema[R] {
         )
 
     override def resolve(value: T): Step[R] =
-      if (ctx.isObject) PureStep(ResponseValue.EnumValue(getName(ctx)))
+      if (ctx.isObject) PureStep(EnumValue(getName(ctx)))
       else ObjectStep(getName(ctx), ctx.parameters.map(p => p.label -> p.typeclass.resolve(p.dereference(value))).toMap)
   }
 

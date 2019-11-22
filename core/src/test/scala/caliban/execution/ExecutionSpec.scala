@@ -4,7 +4,7 @@ import caliban.GraphQL._
 import caliban.Macros.gqldoc
 import caliban.RootResolver
 import caliban.TestUtils._
-import caliban.parsing.adt.Value.{ BooleanValue, StringValue }
+import caliban.Value.{ BooleanValue, StringValue }
 import zio.test.Assertion._
 import zio.test._
 

@@ -1,13 +1,15 @@
 package caliban.parsing
 
 import caliban.CalibanError.ParsingError
+import caliban.InputValue
+import caliban.InputValue._
+import caliban.Value._
 import caliban.parsing.ParserSpecUtils._
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.OperationType.{ Mutation, Query }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.{ ListType, NamedType }
-import caliban.parsing.adt.Value._
-import caliban.parsing.adt.{ Directive, Document, Selection, Value, VariableDefinition }
+import caliban.parsing.adt.{ Directive, Document, Selection, VariableDefinition }
 import zio.test.Assertion._
 import zio.test._
 
@@ -114,7 +116,7 @@ object ParserSpec
                     arguments = Map(
                       "id"    -> StringValue("1000"),
                       "int"   -> IntValue(3),
-                      "float" -> FloatValue(3.14d),
+                      "float" -> FloatValue("3.14"),
                       "bool"  -> BooleanValue(true),
                       "nope"  -> NullValue,
                       "enum"  -> EnumValue("YES"),
@@ -421,7 +423,7 @@ object ParserSpecUtils {
   def simpleField(
     name: String,
     alias: Option[String] = None,
-    arguments: Map[String, Value] = Map(),
+    arguments: Map[String, InputValue] = Map(),
     directives: List[Directive] = Nil,
     selectionSet: List[Selection] = Nil
   ) = Field(alias, name, arguments, directives, selectionSet)
