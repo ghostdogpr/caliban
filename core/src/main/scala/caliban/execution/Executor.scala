@@ -2,8 +2,9 @@ package caliban.execution
 
 import scala.collection.immutable.ListMap
 import caliban.CalibanError.ExecutionError
-import caliban.ResponseValue
+import caliban.{ InputValue, ResponseValue }
 import caliban.ResponseValue._
+import caliban.Value._
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.OperationType.{ Mutation, Query, Subscription }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
@@ -26,7 +27,7 @@ object Executor {
     document: Document,
     schema: RootSchema[R, Q, M, S],
     operationName: Option[String] = None,
-    variables: Map[String, Value] = Map()
+    variables: Map[String, InputValue] = Map()
   ): ZIO[R, ExecutionError, ResponseValue] = {
     val fragments = document.definitions.collect {
       case fragment: FragmentDefinition => fragment.name -> fragment
@@ -73,14 +74,14 @@ object Executor {
     selectionSet: List[Selection],
     fragments: Map[String, FragmentDefinition],
     variableDefinitions: List[VariableDefinition],
-    variableValues: Map[String, Value],
+    variableValues: Map[String, InputValue],
     allowParallelism: Boolean
   ): ZIO[R, ExecutionError, ResponseValue] = {
 
     def reduceStep(
       step: Step[R],
       selectionSet: List[Selection],
-      arguments: Map[String, Value],
+      arguments: Map[String, InputValue],
       fieldName: String
     ): ReducedStep[R] =
       step match {
@@ -150,14 +151,14 @@ object Executor {
   }
 
   private def resolveVariables(
-    arguments: Map[String, Value],
+    arguments: Map[String, InputValue],
     variableDefinitions: List[VariableDefinition],
-    variableValues: Map[String, Value]
-  ): Map[String, Value] =
+    variableValues: Map[String, InputValue]
+  ): Map[String, InputValue] =
     arguments.map {
       case (k, v) =>
         k -> (v match {
-          case Value.VariableValue(name) =>
+          case InputValue.VariableValue(name) =>
             variableValues.get(name) orElse variableDefinitions.find(_.name == name).flatMap(_.defaultValue) getOrElse v
           case value => value
         })
@@ -167,7 +168,7 @@ object Executor {
     selectionSet: List[Selection],
     name: String,
     fragments: Map[String, FragmentDefinition],
-    variableValues: Map[String, Value]
+    variableValues: Map[String, InputValue]
   ): List[Field] = {
     val fields = selectionSet.flatMap {
       case f: Field if checkDirectives(f.directives, variableValues) => List(f)
@@ -196,7 +197,7 @@ object Executor {
       .toList
   }
 
-  private def checkDirectives(directives: List[Directive], variableValues: Map[String, Value]): Boolean =
+  private def checkDirectives(directives: List[Directive], variableValues: Map[String, InputValue]): Boolean =
     !checkDirective("skip", default = false, directives, variableValues) &&
       checkDirective("include", default = true, directives, variableValues)
 
@@ -204,17 +205,17 @@ object Executor {
     name: String,
     default: Boolean,
     directives: List[Directive],
-    variableValues: Map[String, Value]
+    variableValues: Map[String, InputValue]
   ): Boolean =
     directives
       .find(_.name == name)
       .flatMap(_.arguments.get("if")) match {
-      case Some(Value.BooleanValue(value)) => value
-      case Some(Value.VariableValue(name)) =>
+      case Some(BooleanValue(value)) => value
+      case Some(InputValue.VariableValue(name)) =>
         variableValues
           .get(name) match {
-          case Some(Value.BooleanValue(value)) => value
-          case _                               => default
+          case Some(BooleanValue(value)) => value
+          case _                         => default
         }
       case _ => default
     }

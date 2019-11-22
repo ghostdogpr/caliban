@@ -1,5 +1,6 @@
 package caliban.parsing.adt
 
+import caliban.InputValue
 import caliban.parsing.adt.Type.NamedType
 
 sealed trait Selection
@@ -9,7 +10,7 @@ object Selection {
   case class Field(
     alias: Option[String],
     name: String,
-    arguments: Map[String, Value],
+    arguments: Map[String, InputValue],
     directives: List[Directive],
     selectionSet: List[Selection]
   ) extends Selection
