@@ -6,7 +6,7 @@ import caliban.ResponseValue
 import caliban.ResponseValue._
 import caliban.introspection.adt._
 import caliban.parsing.adt.Value
-import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLName }
+import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLInputName, GQLName }
 import caliban.schema.Step._
 import caliban.schema.Types._
 import magnolia._
@@ -85,7 +85,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
 
       override def toType(isInput: Boolean): __Type =
         if (isInput) {
-          makeInputObject(Some(name), description, fields.map {
+          makeInputObject(Some(customizeInputTypeName(name)), description, fields.map {
             case (f, _) => __InputValue(f.name, f.description, f.`type`, None)
           })
         } else makeObject(Some(name), description, fields.map(_._1))
@@ -241,13 +241,22 @@ trait GenericSchema[R] extends DerivationSchema[R] {
 
 trait DerivationSchema[R] {
 
+  /**
+   * Default naming logic for input types.
+   * This is needed to avoid a name clash between a type used as an input and the same type used as an output.
+   * GraphQL needs 2 different types, and they can't have the same name.
+   * By default, we add the "Input" suffix after the type name.
+   */
+  def customizeInputTypeName(name: String): String = s"${name}Input"
+
   type Typeclass[T] = Schema[R, T]
 
   def combine[T](ctx: CaseClass[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
     override def toType(isInput: Boolean = false): __Type =
       if (isInput)
         makeInputObject(
-          Some(getName(ctx)),
+          Some(ctx.annotations.collectFirst { case GQLInputName(suffix) => suffix }
+            .getOrElse(customizeInputTypeName(getName(ctx)))),
           getDescription(ctx),
           ctx.parameters
             .map(
