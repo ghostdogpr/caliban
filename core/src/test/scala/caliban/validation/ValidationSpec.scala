@@ -12,8 +12,8 @@ object ValidationSpec
     extends DefaultRunnableSpec({
       val interpreter = graphQL(resolver)
       def check(query: String, expectedMessage: String): UIO[TestResult] = {
-        val io = interpreter.execute(query).map(_.toString).run
-        assertM(io, fails[CalibanError](hasField[CalibanError, String]("msg", _.msg, equalTo(expectedMessage))))
+        val io = interpreter.execute(query).map(_.errors.headOption)
+        assertM(io, isSome(hasField[CalibanError, String]("msg", _.msg, equalTo(expectedMessage))))
       }
 
       suite("ValidationSpec")(

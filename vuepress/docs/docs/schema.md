@@ -21,7 +21,7 @@ The table below shows how common Scala types are converted to GraphQL types.
 | (A, B)           | Object with 2 fields `_1` and `_2`               |
 | Either[A, B]     | Object with 2 nullable fields `left` and `right` |
 | Map[A, B]        | List of Object with 2 fields `key` and `value`   |
-| ZIO[R, E, A]     | A                                                |
+| ZIO[R, E, A]     | Nullable A                                       |
 | ZStream[R, E, A] | A                                                |
 
 See the [Custom Types](#custom-types) section to find out how to support your own types.

@@ -85,5 +85,5 @@ object NaiveTest extends App with GenericSchema[Console] {
   val interpreter = GraphQL.graphQL(RootResolver(resolver))
 
   override def run(args: List[String]): ZIO[zio.ZEnv, Nothing, Int] =
-    interpreter.execute(query).catchAll(err => putStrLn(err.toString)).as(0)
+    interpreter.execute(query).map(_.errors.length)
 }

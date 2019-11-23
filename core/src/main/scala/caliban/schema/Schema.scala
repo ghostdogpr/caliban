@@ -216,16 +216,30 @@ trait GenericSchema[R] extends DerivationSchema[R] {
             }
         )
     }
-  implicit def effectSchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZIO[R1, E, A]] =
-    new Schema[R1, ZIO[R1, E, A]] {
+  implicit def infallibleEffectSchema[R1 <: R, A](implicit ev: Schema[R, A]): Schema[R1, ZIO[R1, Nothing, A]] =
+    new Schema[R1, ZIO[R1, Nothing, A]] {
       override def optional: Boolean                        = ev.optional
       override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
+      override def resolve(value: ZIO[R1, Nothing, A]): Step[R1] =
+        QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
+    }
+  implicit def effectSchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZIO[R1, E, A]] =
+    new Schema[R1, ZIO[R1, E, A]] {
+      override def optional: Boolean                        = true
+      override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
       override def resolve(value: ZIO[R1, E, A]): Step[R1] =
-        QueryStep(ZQuery.fromEffect(value).map(ev.resolve))
+        QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
+    }
+  implicit def infallibleQuerySchema[R1 <: R, A](implicit ev: Schema[R, A]): Schema[R1, ZQuery[R1, Nothing, A]] =
+    new Schema[R1, ZQuery[R1, Nothing, A]] {
+      override def optional: Boolean                        = ev.optional
+      override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
+      override def resolve(value: ZQuery[R1, Nothing, A]): Step[R1] =
+        QueryStep(value.map(ev.resolve))
     }
   implicit def querySchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZQuery[R1, E, A]] =
     new Schema[R1, ZQuery[R1, E, A]] {
-      override def optional: Boolean                = ev.optional
+      override def optional: Boolean                = true
       override def toType(isInput: Boolean): __Type = ev.toType(isInput)
       override def resolve(value: ZQuery[R1, E, A]): Step[R1] =
         QueryStep(value.map(ev.resolve))
