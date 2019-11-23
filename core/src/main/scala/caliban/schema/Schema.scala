@@ -207,20 +207,37 @@ trait GenericSchema[R] extends DerivationSchema[R] {
       override def optional: Boolean                        = ev2.optional
       override def toType(isInput: Boolean = false): __Type = ev2.toType(isInput)
 
-      override def resolve(value: A => B): Step[RA with RB] =
+      override def resolve(f: A => B): Step[RA with RB] =
         FunctionStep(
           args =>
-            QueryStep(
-              ZQuery.fromEffect(arg1.build(Value.ObjectValue(args)).map(argValue => ev2.resolve(value(argValue))))
-            )
+            arg1.build(Value.ObjectValue(args)) match {
+              case Left(error)  => QueryStep(ZQuery.fail(error))
+              case Right(value) => ev2.resolve(f(value))
+            }
+        )
+    }
+  implicit def infallibleEffectSchema[R1 <: R, A](implicit ev: Schema[R, A]): Schema[R1, ZIO[R1, Nothing, A]] =
+    new Schema[R1, ZIO[R1, Nothing, A]] {
+      override def optional: Boolean                        = ev.optional
+      override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
+      override def resolve(value: ZIO[R1, Nothing, A]): Step[R1] =
+        QueryStep(
+          ZQuery.fromEffect(value.map(ev.resolve))
         )
     }
   implicit def effectSchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZIO[R1, E, A]] =
     new Schema[R1, ZIO[R1, E, A]] {
-      override def optional: Boolean                        = ev.optional
+      override def optional: Boolean                        = true
       override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
       override def resolve(value: ZIO[R1, E, A]): Step[R1] =
-        QueryStep(ZQuery.fromEffect(value).map(ev.resolve))
+        QueryStep(
+          ZQuery.fromEffect(
+            value
+              .map(ev.resolve)
+              // TODO: This ignores the error, while ideally it should be returned together with the result
+              .catchAll(_ => ZIO.succeed(NullStep))
+          )
+        )
     }
   implicit def querySchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZQuery[R1, E, A]] =
     new Schema[R1, ZQuery[R1, E, A]] {
@@ -289,7 +306,7 @@ trait DerivationSchema[R] {
   def dispatch[T](ctx: SealedTrait[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
     override def toType(isInput: Boolean = false): __Type = {
       val subtypes =
-        ctx.subtypes.map(s => s.typeclass.toType(isInput) -> s.annotations).toList.sortBy(_._1.name.getOrElse(""))
+        ctx.subtypes.map(s => s.typeclass.toType() -> s.annotations).toList.sortBy(_._1.name.getOrElse(""))
       val isEnum = subtypes.forall {
         case (t, _) if t.fields(__DeprecatedArgs(Some(true))).forall(_.isEmpty) && t.inputFields.forall(_.isEmpty) =>
           true
