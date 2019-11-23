@@ -2,7 +2,6 @@ package caliban.execution
 
 import scala.collection.immutable.ListMap
 import caliban.CalibanError.ExecutionError
-import caliban.{ InputValue, ResponseValue }
 import caliban.ResponseValue._
 import caliban.Value._
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
@@ -11,7 +10,8 @@ import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt._
 import caliban.schema.Step._
 import caliban.schema.{ GenericSchema, ReducedStep, RootSchema, Step }
-import zio.{ IO, ZIO }
+import caliban.{ CalibanError, GraphQLResponse, InputValue, ResponseValue }
+import zio.{ IO, Ref, UIO, URIO, ZIO }
 import zquery.ZQuery
 
 object Executor {
@@ -28,7 +28,7 @@ object Executor {
     schema: RootSchema[R, Q, M, S],
     operationName: Option[String] = None,
     variables: Map[String, InputValue] = Map()
-  ): ZIO[R, ExecutionError, ResponseValue] = {
+  ): URIO[R, GraphQLResponse[CalibanError]] = {
     val fragments = document.definitions.collect {
       case fragment: FragmentDefinition => fragment.name -> fragment
     }.toMap
@@ -42,32 +42,40 @@ object Executor {
           case _           => Left("Operation name is required.")
         }
     }
-    IO.fromEither(operation).mapError(ExecutionError(_)).flatMap { op =>
-      def executeOperation[A](plan: Step[R], allowParallelism: Boolean): ZIO[R, ExecutionError, ResponseValue] =
-        executePlan(
-          plan,
-          op.selectionSet,
-          fragments,
-          op.variableDefinitions,
-          variables,
-          allowParallelism
-        )
+    operation match {
+      case Left(error) => fail(ExecutionError(error))
+      case Right(op) =>
+        def executeOperation[A](
+          plan: Step[R],
+          allowParallelism: Boolean
+        ): URIO[R, GraphQLResponse[CalibanError]] =
+          executePlan(
+            plan,
+            op.selectionSet,
+            fragments,
+            op.variableDefinitions,
+            variables,
+            allowParallelism
+          )
 
-      op.operationType match {
-        case Query => executeOperation(schema.query.plan, allowParallelism = true)
-        case Mutation =>
-          schema.mutation match {
-            case Some(m) => executeOperation(m.plan, allowParallelism = false)
-            case None    => IO.fail(ExecutionError("Mutations are not supported on this schema"))
-          }
-        case Subscription =>
-          schema.subscription match {
-            case Some(m) => executeOperation(m.plan, allowParallelism = true)
-            case None    => IO.fail(ExecutionError("Subscriptions are not supported on this schema"))
-          }
-      }
+        op.operationType match {
+          case Query => executeOperation(schema.query.plan, allowParallelism = true)
+          case Mutation =>
+            schema.mutation match {
+              case Some(m) => executeOperation(m.plan, allowParallelism = false)
+              case None    => fail(ExecutionError("Mutations are not supported on this schema"))
+            }
+          case Subscription =>
+            schema.subscription match {
+              case Some(m) => executeOperation(m.plan, allowParallelism = true)
+              case None    => fail(ExecutionError("Subscriptions are not supported on this schema"))
+            }
+        }
     }
   }
+
+  private[caliban] def fail(error: CalibanError): UIO[GraphQLResponse[CalibanError]] =
+    IO.succeed(GraphQLResponse(NullValue, List(error)))
 
   private def executePlan[R](
     plan: Step[R],
@@ -76,7 +84,7 @@ object Executor {
     variableDefinitions: List[VariableDefinition],
     variableValues: Map[String, InputValue],
     allowParallelism: Boolean
-  ): ZIO[R, ExecutionError, ResponseValue] = {
+  ): URIO[R, GraphQLResponse[CalibanError]] = {
 
     def reduceStep(
       step: Step[R],
@@ -129,25 +137,36 @@ object Executor {
           )
       }
 
-    def makeQuery(step: ReducedStep[R]): ZQuery[R, ExecutionError, ResponseValue] =
-      step match {
-        case PureStep(value) => ZQuery.succeed(value)
-        case ReducedStep.ListStep(steps) =>
-          val queries = steps.map(makeQuery)
-          (if (allowParallelism) ZQuery.collectAllPar(queries) else ZQuery.collectAll(queries)).map(ListValue)
-        case ReducedStep.ObjectStep(steps) =>
-          val queries = steps.map { case (name, field) => makeQuery(field).map(name -> _) }
-          (if (allowParallelism) ZQuery.collectAllPar(queries) else ZQuery.collectAll(queries)).map(ObjectValue)
-        case ReducedStep.QueryStep(step) => step.flatMap(makeQuery)
-        case ReducedStep.StreamStep(stream) =>
-          ZQuery
-            .fromEffect(ZIO.environment[R])
-            .map(env => ResponseValue.StreamValue(stream.mapM(makeQuery(_).run).provide(env)))
-      }
+    def makeQuery(step: ReducedStep[R], errors: Ref[List[CalibanError]]): ZQuery[R, Nothing, ResponseValue] = {
+      def loop(step: ReducedStep[R]): ZQuery[R, Nothing, ResponseValue] =
+        step match {
+          case PureStep(value) => ZQuery.succeed(value)
+          case ReducedStep.ListStep(steps) =>
+            val queries = steps.map(loop)
+            (if (allowParallelism) ZQuery.collectAllPar(queries) else ZQuery.collectAll(queries)).map(ListValue)
+          case ReducedStep.ObjectStep(steps) =>
+            val queries = steps.map { case (name, field) => loop(field).map(name -> _) }
+            (if (allowParallelism) ZQuery.collectAllPar(queries) else ZQuery.collectAll(queries)).map(ObjectValue)
+          case ReducedStep.QueryStep(step) =>
+            step.fold(Left(_), Right(_)).flatMap {
+              case Left(error)  => ZQuery.fromEffect(errors.update(error :: _)).map(_ => NullValue)
+              case Right(query) => loop(query)
+            }
+          case ReducedStep.StreamStep(stream) =>
+            ZQuery
+              .fromEffect(ZIO.environment[R])
+              .map(env => ResponseValue.StreamValue(stream.mapM(loop(_).run).provide(env)))
+        }
+      loop(step)
+    }
 
-    val reduced: ReducedStep[R] = reduceStep(plan, selectionSet, Map(), "")
-    val query                   = makeQuery(reduced)
-    query.run
+    for {
+      errors       <- Ref.make(List.empty[CalibanError])
+      reduced      = reduceStep(plan, selectionSet, Map(), "")
+      query        = makeQuery(reduced, errors)
+      result       <- query.run
+      resultErrors <- errors.get
+    } yield GraphQLResponse(result, resultErrors.reverse)
   }
 
   private def resolveVariables(

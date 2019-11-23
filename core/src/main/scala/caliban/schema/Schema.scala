@@ -6,7 +6,7 @@ import caliban.{ InputValue, ResponseValue }
 import caliban.ResponseValue._
 import caliban.Value._
 import caliban.introspection.adt._
-import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLName }
+import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLInputName, GQLName }
 import caliban.schema.Step._
 import caliban.schema.Types._
 import magnolia._
@@ -85,7 +85,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
 
       override def toType(isInput: Boolean): __Type =
         if (isInput) {
-          makeInputObject(Some(name), description, fields.map {
+          makeInputObject(Some(customizeInputTypeName(name)), description, fields.map {
             case (f, _) => __InputValue(f.name, f.description, f.`type`, None)
           })
         } else makeObject(Some(name), description, fields.map(_._1))
@@ -218,16 +218,30 @@ trait GenericSchema[R] extends DerivationSchema[R] {
             }
         )
     }
-  implicit def effectSchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZIO[R1, E, A]] =
-    new Schema[R1, ZIO[R1, E, A]] {
+  implicit def infallibleEffectSchema[R1 <: R, A](implicit ev: Schema[R, A]): Schema[R1, ZIO[R1, Nothing, A]] =
+    new Schema[R1, ZIO[R1, Nothing, A]] {
       override def optional: Boolean                        = ev.optional
       override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
+      override def resolve(value: ZIO[R1, Nothing, A]): Step[R1] =
+        QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
+    }
+  implicit def effectSchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZIO[R1, E, A]] =
+    new Schema[R1, ZIO[R1, E, A]] {
+      override def optional: Boolean                        = true
+      override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
       override def resolve(value: ZIO[R1, E, A]): Step[R1] =
-        QueryStep(ZQuery.fromEffect(value).map(ev.resolve))
+        QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
+    }
+  implicit def infallibleQuerySchema[R1 <: R, A](implicit ev: Schema[R, A]): Schema[R1, ZQuery[R1, Nothing, A]] =
+    new Schema[R1, ZQuery[R1, Nothing, A]] {
+      override def optional: Boolean                        = ev.optional
+      override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
+      override def resolve(value: ZQuery[R1, Nothing, A]): Step[R1] =
+        QueryStep(value.map(ev.resolve))
     }
   implicit def querySchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZQuery[R1, E, A]] =
     new Schema[R1, ZQuery[R1, E, A]] {
-      override def optional: Boolean                = ev.optional
+      override def optional: Boolean                = true
       override def toType(isInput: Boolean): __Type = ev.toType(isInput)
       override def resolve(value: ZQuery[R1, E, A]): Step[R1] =
         QueryStep(value.map(ev.resolve))
@@ -243,13 +257,22 @@ trait GenericSchema[R] extends DerivationSchema[R] {
 
 trait DerivationSchema[R] {
 
+  /**
+   * Default naming logic for input types.
+   * This is needed to avoid a name clash between a type used as an input and the same type used as an output.
+   * GraphQL needs 2 different types, and they can't have the same name.
+   * By default, we add the "Input" suffix after the type name.
+   */
+  def customizeInputTypeName(name: String): String = s"${name}Input"
+
   type Typeclass[T] = Schema[R, T]
 
   def combine[T](ctx: CaseClass[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
     override def toType(isInput: Boolean = false): __Type =
       if (isInput)
         makeInputObject(
-          Some(getName(ctx)),
+          Some(ctx.annotations.collectFirst { case GQLInputName(suffix) => suffix }
+            .getOrElse(customizeInputTypeName(getName(ctx)))),
           getDescription(ctx),
           ctx.parameters
             .map(

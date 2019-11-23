@@ -30,7 +30,7 @@ object CalibanError {
       extends CalibanError {
     override def toString: String = {
       val field = fieldName.fold("")(f => s" on field '$f'")
-      val inner = innerThrowable.fold("")(e => s"\n${e.toString}")
+      val inner = innerThrowable.fold("")(e => s" with ${e.toString}")
       s"Execution error$field: $msg$inner"
     }
   }
