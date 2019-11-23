@@ -8,10 +8,12 @@ The table below shows how common Scala types are converted to GraphQL types.
 | Boolean          | Boolean                                          |
 | Int              | Int                                              |
 | Float            | Float                                            |
+| Double           | Float                                            |
 | String           | String                                           |
 | Unit             | Unit (custom scalar)                             |
 | Long             | Long (custom scalar)                             |
-| Double           | Double (custom scalar)                           |
+| BigInt           | BigInt (custom scalar)                           |
+| BigDecimal       | BigDecimal (custom scalar)                       |
 | Case Class       | Object                                           |
 | Sealed Trait     | Enum or Union                                    |
 | Option[A]        | Nullable A                                       |

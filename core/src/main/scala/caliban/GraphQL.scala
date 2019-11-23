@@ -5,7 +5,6 @@ import caliban.execution.Executor
 import caliban.introspection.Introspector
 import caliban.introspection.adt.__Introspection
 import caliban.parsing.Parser
-import caliban.parsing.adt.Value
 import caliban.schema.RootSchema.Operation
 import caliban.schema._
 import caliban.validation.Validator
@@ -38,7 +37,7 @@ trait GraphQL[-R, -Q, -M, -S, +E] { self =>
   def execute(
     query: String,
     operationName: Option[String] = None,
-    variables: Map[String, Value] = Map(),
+    variables: Map[String, InputValue] = Map(),
     skipValidation: Boolean = false
   ): URIO[R, GraphQLResponse[E]]
 
@@ -77,7 +76,7 @@ trait GraphQL[-R, -Q, -M, -S, +E] { self =>
       override def execute(
         query: String,
         operationName: Option[String],
-        variables: Map[String, Value],
+        variables: Map[String, InputValue],
         skipValidation: Boolean
       ): URIO[R2, GraphQLResponse[E2]] = f(self.execute(query, operationName, variables, skipValidation))
       override def render: String      = self.render
@@ -119,7 +118,7 @@ object GraphQL {
       def execute(
         query: String,
         operationName: Option[String] = None,
-        variables: Map[String, Value] = Map(),
+        variables: Map[String, InputValue] = Map(),
         skipValidation: Boolean = false
       ): URIO[R, GraphQLResponse[CalibanError]] = {
 

@@ -1,7 +1,7 @@
 package caliban
 
-import caliban.ResponseValue.{ NullValue, ObjectValue, StreamValue }
-import caliban.parsing.adt.Value
+import caliban.ResponseValue._
+import caliban.Value._
 import cats.data.OptionT
 import cats.effect.Effect
 import cats.effect.syntax.all._
@@ -28,15 +28,25 @@ object Http4sAdapter {
 
   private def responseToJson(responseValue: ResponseValue): Json =
     responseValue match {
-      case ResponseValue.NullValue           => Json.Null
-      case ResponseValue.IntValue(value)     => Json.fromLong(value)
-      case ResponseValue.FloatValue(value)   => Json.fromDoubleOrString(value)
-      case ResponseValue.StringValue(value)  => Json.fromString(value)
-      case ResponseValue.BooleanValue(value) => Json.fromBoolean(value)
-      case ResponseValue.EnumValue(value)    => Json.fromString(value)
-      case ResponseValue.ListValue(values)   => Json.arr(values.map(responseToJson): _*)
-      case ObjectValue(fields)               => Json.obj(fields.map { case (k, v) => k -> responseToJson(v) }: _*)
-      case s: StreamValue                    => Json.fromString(s.toString)
+      case NullValue => Json.Null
+      case v: IntValue =>
+        v match {
+          case IntValue.IntNumber(value)    => Json.fromInt(value)
+          case IntValue.LongNumber(value)   => Json.fromLong(value)
+          case IntValue.BigIntNumber(value) => Json.fromBigInt(value)
+        }
+      case v: FloatValue =>
+        v match {
+          case FloatValue.FloatNumber(value)      => Json.fromFloatOrNull(value)
+          case FloatValue.DoubleNumber(value)     => Json.fromDoubleOrNull(value)
+          case FloatValue.BigDecimalNumber(value) => Json.fromBigDecimal(value)
+        }
+      case StringValue(value)  => Json.fromString(value)
+      case BooleanValue(value) => Json.fromBoolean(value)
+      case EnumValue(value)    => Json.fromString(value)
+      case ListValue(values)   => Json.arr(values.map(responseToJson): _*)
+      case ObjectValue(fields) => Json.obj(fields.map { case (k, v) => k -> responseToJson(v) }: _*)
+      case s: StreamValue      => Json.fromString(s.toString)
     }
 
   implicit def responseEncoder[E]: Encoder[GraphQLResponse[E]] =
@@ -46,19 +56,22 @@ object Http4sAdapter {
         "errors" -> Json.fromValues(response.errors.map(err => Json.fromString(err.toString)))
       )
 
-  private def jsonToValue(json: Json): Value =
+  private def jsonToValue(json: Json): InputValue =
     json.fold(
-      Value.NullValue,
-      Value.BooleanValue,
-      number => number.toLong.map(Value.IntValue) getOrElse Value.FloatValue(number.toDouble),
-      Value.StringValue,
-      array => Value.ListValue(array.toList.map(jsonToValue)),
-      obj => Value.ObjectValue(obj.toMap.map { case (k, v) => k -> jsonToValue(v) })
+      NullValue,
+      BooleanValue,
+      number =>
+        number.toBigInt.map(IntValue.apply) orElse
+          number.toBigDecimal.map(FloatValue.apply) getOrElse
+          FloatValue(number.toDouble),
+      StringValue,
+      array => InputValue.ListValue(array.toList.map(jsonToValue)),
+      obj => InputValue.ObjectValue(obj.toMap.map { case (k, v) => k -> jsonToValue(v) })
     )
 
-  private def jsonToVariables(json: Json): Map[String, Value] = jsonToValue(json) match {
-    case Value.ObjectValue(fields) => fields
-    case _                         => Map()
+  private def jsonToVariables(json: Json): Map[String, InputValue] = jsonToValue(json) match {
+    case InputValue.ObjectValue(fields) => fields
+    case _                              => Map()
   }
 
   private def execute[R, Q, M, S, E](

@@ -1,10 +1,9 @@
 package caliban.interop.cats
 
 import caliban.introspection.adt.__Type
-import caliban.parsing.adt.Value
 import caliban.schema.Step.QueryStep
 import caliban.schema.{ Schema, Step }
-import caliban.{ GraphQL, GraphQLResponse }
+import caliban.{ GraphQL, GraphQLResponse, InputValue }
 import cats.effect.implicits._
 import cats.effect.{ Async, Effect }
 import cats.instances.either._
@@ -18,7 +17,7 @@ object CatsInterop {
   def executeAsync[F[_]: Async, R, Q, M, S, E](graphQL: GraphQL[R, Q, M, S, E])(
     query: String,
     operationName: Option[String] = None,
-    variables: Map[String, Value] = Map(),
+    variables: Map[String, InputValue] = Map(),
     skipValidation: Boolean = false
   )(implicit runtime: Runtime[R]): F[GraphQLResponse[E]] =
     Async[F].async { cb =>
