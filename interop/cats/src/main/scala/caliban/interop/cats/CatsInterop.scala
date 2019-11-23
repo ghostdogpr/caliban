@@ -4,7 +4,7 @@ import caliban.introspection.adt.__Type
 import caliban.parsing.adt.Value
 import caliban.schema.Step.QueryStep
 import caliban.schema.{ Schema, Step }
-import caliban.{ GraphQL, ResponseValue }
+import caliban.{ GraphQL, GraphQLResponse }
 import cats.effect.implicits._
 import cats.effect.{ Async, Effect }
 import cats.instances.either._
@@ -20,7 +20,7 @@ object CatsInterop {
     operationName: Option[String] = None,
     variables: Map[String, Value] = Map(),
     skipValidation: Boolean = false
-  )(implicit runtime: Runtime[R]): F[ResponseValue] =
+  )(implicit runtime: Runtime[R]): F[GraphQLResponse[E]] =
     Async[F].async { cb =>
       val execution =
         graphQL.execute(query, operationName, variables, skipValidation)

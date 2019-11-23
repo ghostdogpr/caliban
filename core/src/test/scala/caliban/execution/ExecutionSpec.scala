@@ -22,7 +22,7 @@ object ExecutionSpec
             }""")
 
           assertM(
-            interpreter.execute(query).map(_.toString),
+            interpreter.execute(query).map(_.data.toString),
             equalTo("""{"amos":{"name":"Amos Burton"}}""")
           )
         },
@@ -36,7 +36,7 @@ object ExecutionSpec
             }""")
 
           assertM(
-            interpreter.execute(query).map(_.toString),
+            interpreter.execute(query).map(_.data.toString),
             equalTo(
               """{"characters":[{"name":"James Holden"},{"name":"Naomi Nagata"},{"name":"Amos Burton"},{"name":"Alex Kamal"},{"name":"Chrisjen Avasarala"},{"name":"Josephus Miller"},{"name":"Roberta Draper"}]}"""
             )
@@ -53,7 +53,7 @@ object ExecutionSpec
             }""")
 
           assertM(
-            interpreter.execute(query).map(_.toString),
+            interpreter.execute(query).map(_.data.toString),
             equalTo(
               """{"characters":[{"name":"Alex Kamal","nicknames":[]},{"name":"Roberta Draper","nicknames":["Bobbie","Gunny"]}]}"""
             )
@@ -69,7 +69,7 @@ object ExecutionSpec
             }""")
 
           assertM(
-            interpreter.execute(query).map(_.toString),
+            interpreter.execute(query).map(_.data.toString),
             equalTo("""{"charactersIn":[{"name":"Alex Kamal"}]}""")
           )
         },
@@ -84,7 +84,7 @@ object ExecutionSpec
              }""")
 
           assertM(
-            interpreter.execute(query).map(_.toString),
+            interpreter.execute(query).map(_.data.toString),
             equalTo("""{"amos":{"name":"Amos Burton","nicknames":[]}}""")
           )
         },
@@ -102,7 +102,7 @@ object ExecutionSpec
              }""")
 
           assertM(
-            interpreter.execute(query).map(_.toString),
+            interpreter.execute(query).map(_.data.toString),
             equalTo("""{"amos":{"name":"Amos Burton"}}""")
           )
         },
@@ -121,7 +121,7 @@ object ExecutionSpec
              }""")
 
           assertM(
-            interpreter.execute(query).map(_.toString),
+            interpreter.execute(query).map(_.data.toString),
             equalTo("""{"amos":{"name":"Amos Burton","role":{"shipName":"Rocinante"}}}""")
           )
         },
@@ -135,7 +135,7 @@ object ExecutionSpec
                }""")
 
           assertM(
-            interpreter.execute(query).map(_.toString),
+            interpreter.execute(query).map(_.data.toString),
             equalTo(
               """{"characters":[{"name":"James Holden"},{"name":"Naomi Nagata"},{"name":"Amos Burton"},{"name":"Alex Kamal"},{"name":"Chrisjen Avasarala"},{"name":"Josephus Miller"},{"name":"Roberta Draper"}]}"""
             )
@@ -148,7 +148,7 @@ object ExecutionSpec
                  deleteCharacter(name: "Amos Burton")
                }""")
 
-          assertM(interpreter.execute(query).map(_.toString), equalTo("""{"deleteCharacter":{}}"""))
+          assertM(interpreter.execute(query).map(_.data.toString), equalTo("""{"deleteCharacter":{}}"""))
         },
         testM("variable") {
           val interpreter = graphQL(resolver)
@@ -160,7 +160,7 @@ object ExecutionSpec
              }""")
 
           assertM(
-            interpreter.execute(query, None, Map("name" -> StringValue("Amos Burton"))).map(_.toString),
+            interpreter.execute(query, None, Map("name" -> StringValue("Amos Burton"))).map(_.data.toString),
             equalTo("""{"amos":{"name":"Amos Burton"}}""")
           )
         },
@@ -174,7 +174,7 @@ object ExecutionSpec
                }
              }""")
 
-          assertM(interpreter.execute(query).map(_.toString), equalTo("""{"amos":{"name":"Amos Burton"}}"""))
+          assertM(interpreter.execute(query).map(_.data.toString), equalTo("""{"amos":{"name":"Amos Burton"}}"""))
         },
         testM("include directive") {
           val interpreter = graphQL(resolver)
@@ -187,7 +187,7 @@ object ExecutionSpec
              }""")
 
           assertM(
-            interpreter.execute(query, None, Map("included" -> BooleanValue(false))).map(_.toString),
+            interpreter.execute(query, None, Map("included" -> BooleanValue(false))).map(_.data.toString),
             equalTo("""{"amos":{"name":"Amos Burton"}}""")
           )
         },
@@ -202,7 +202,7 @@ object ExecutionSpec
                }
              }""")
 
-          assertM(interpreter.execute(query).map(_.toString), equalTo("""{"map":[{"key":3,"value":"ok"}]}"""))
+          assertM(interpreter.execute(query).map(_.data.toString), equalTo("""{"map":[{"key":3,"value":"ok"}]}"""))
         },
         testM("test Either") {
           case class Test(either: Either[Int, String])
@@ -215,13 +215,13 @@ object ExecutionSpec
                }
              }""")
 
-          assertM(interpreter.execute(query).map(_.toString), equalTo("""{"either":{"left":null,"right":"ok"}}"""))
+          assertM(interpreter.execute(query).map(_.data.toString), equalTo("""{"either":{"left":null,"right":"ok"}}"""))
         },
         testM("mapError") {
           case class Test(either: Either[Int, String])
           val interpreter = graphQL(RootResolver(Test(Right("ok")))).mapError(_ => "my custom error")
           val query       = """query{}"""
-          assertM(interpreter.execute(query).run, fails(equalTo("my custom error")))
+          assertM(interpreter.execute(query).map(_.errors), equalTo(List("my custom error")))
         }
       )
     )

@@ -9,7 +9,7 @@ import caliban.parsing.adt.Value
 import caliban.schema.RootSchema.Operation
 import caliban.schema._
 import caliban.validation.Validator
-import zio.{ IO, ZIO }
+import zio.{ IO, URIO }
 
 /**
  * A `GraphQL[R, Q, M, S, E]` represents a GraphQL interpreter for a query type `Q`, a mutation type `M`
@@ -40,7 +40,7 @@ trait GraphQL[-R, -Q, -M, -S, +E] { self =>
     operationName: Option[String] = None,
     variables: Map[String, Value] = Map(),
     skipValidation: Boolean = false
-  ): ZIO[R, E, ResponseValue]
+  ): URIO[R, GraphQLResponse[E]]
 
   /**
    * Returns a string that renders the interpreter types into the GraphQL format.
@@ -53,7 +53,8 @@ trait GraphQL[-R, -Q, -M, -S, +E] { self =>
    * @param f a function from the current error type `E` to another type `E2`
    * @return a new GraphQL interpreter with error type `E2`
    */
-  def mapError[E2](f: E => E2): GraphQL[R, Q, M, S, E2] = wrapExecutionWith(_.mapError(f))
+  def mapError[E2](f: E => E2): GraphQL[R, Q, M, S, E2] =
+    wrapExecutionWith(_.map(res => GraphQLResponse(res.data, res.errors.map(f))))
 
   /**
    * Eliminates the ZIO environment R requirement of the interpreter.
@@ -65,10 +66,12 @@ trait GraphQL[-R, -Q, -M, -S, +E] { self =>
   /**
    * Wraps the `execute` method of the interpreter with the given function.
    * This can be used to customize errors, add global timeouts or logging functions.
-   * @param f a function from `ZIO[R, E, ResponseValue]` to `ZIO[R2, E2, ResponseValue]`
+   * @param f a function from `URIO[R, GraphQLResponse[E]]` to `URIO[R2, GraphQLResponse[E2]]`
    * @return a new GraphQL interpreter
    */
-  def wrapExecutionWith[R2, E2](f: ZIO[R, E, ResponseValue] => ZIO[R2, E2, ResponseValue]): GraphQL[R2, Q, M, S, E2] =
+  def wrapExecutionWith[R2, E2](
+    f: URIO[R, GraphQLResponse[E]] => URIO[R2, GraphQLResponse[E2]]
+  ): GraphQL[R2, Q, M, S, E2] =
     new GraphQL[R2, Q, M, S, E2] {
       override def check(query: String): IO[CalibanError, Unit] = self.check(query)
       override def execute(
@@ -76,8 +79,8 @@ trait GraphQL[-R, -Q, -M, -S, +E] { self =>
         operationName: Option[String],
         variables: Map[String, Value],
         skipValidation: Boolean
-      ): ZIO[R2, E2, ResponseValue] = f(self.execute(query, operationName, variables, skipValidation))
-      override def render: String   = self.render
+      ): URIO[R2, GraphQLResponse[E2]] = f(self.execute(query, operationName, variables, skipValidation))
+      override def render: String      = self.render
     }
 }
 
@@ -118,15 +121,21 @@ object GraphQL {
         operationName: Option[String] = None,
         variables: Map[String, Value] = Map(),
         skipValidation: Boolean = false
-      ): ZIO[R, CalibanError, ResponseValue] =
-        for {
+      ): URIO[R, GraphQLResponse[CalibanError]] = {
+
+        val prepare = for {
           document        <- Parser.parseQuery(query)
           intro           = Introspector.isIntrospection(document)
           typeToValidate  = if (intro) introspectionRootType else rootType
           schemaToExecute = if (intro) introspectionRootSchema else schema
           _               <- IO.when(!skipValidation)(Validator.validate(document, typeToValidate))
-          result          <- Executor.executeRequest(document, schemaToExecute, operationName, variables)
-        } yield result
+        } yield (document, schemaToExecute)
+
+        prepare.foldM(
+          Executor.fail,
+          req => Executor.executeRequest(req._1, req._2, operationName, variables)
+        )
+      }
 
       def render: String = renderTypes(rootType.types)
     }

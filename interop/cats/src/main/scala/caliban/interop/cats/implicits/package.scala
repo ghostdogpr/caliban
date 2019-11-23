@@ -2,7 +2,7 @@ package caliban.interop.cats
 
 import caliban.parsing.adt.Value
 import caliban.schema.Schema
-import caliban.{ GraphQL, ResponseValue }
+import caliban.{ GraphQL, GraphQLResponse }
 import cats.effect.{ Async, Effect }
 import zio.Runtime
 
@@ -17,7 +17,7 @@ package object implicits {
       operationName: Option[String] = None,
       variables: Map[String, Value] = Map(),
       skipValidation: Boolean = false
-    )(implicit runtime: Runtime[R]): F[ResponseValue] =
+    )(implicit runtime: Runtime[R]): F[GraphQLResponse[E]] =
       CatsInterop.executeAsync(underlying)(
         query,
         operationName,
