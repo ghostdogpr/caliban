@@ -17,8 +17,10 @@ object GeneratorSpec extends DefaultRunnableSpec(
               }
           |""".stripMargin
 
+      import ScalaWriter.DefaultGQLWriter
+
       val caseclassstrdef = Parser.parseQuery(gqltype).map(doc => {
-        Document.typeDefinitions(doc).map(Generator.caseClassFromType(_)).mkString("\n")
+        Document.typeDefinitions(doc).map(ScalaWriter.TypeDefinitionWriter.write(_)).mkString("\n")
       })
 
       assertM(

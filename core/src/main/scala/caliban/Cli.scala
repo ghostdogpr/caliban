@@ -1,13 +1,15 @@
 package caliban
 
-import java.io.{ File, IOException }
+import java.io.{File, IOException}
 
 import scala.util.Try
 
 import caliban.Macros.gqldoc
-import caliban.modelgen.Generator
+import caliban.modelgen.{Generator, ScalaWriter}
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document
+import caliban.parsing.adt.Document.definitions
+import caliban.parsing.adt.ExecutableDefinition.OperationDefinition
 import zio._
 import zio.console._
 
@@ -21,6 +23,7 @@ object Cli extends App {
   def run(args: List[String]) =
     execCommand(args).fold(q => {
       println(q)
+      println(q.getStackTrace.mkString("\n"))
       1
     }, _ => 0)
 
@@ -33,7 +36,7 @@ object Cli extends App {
     for {
       schema_string <- Task(scala.io.Source.fromFile(schema_path).mkString)
       schema        <- Parser.parseQuery(schema_string)
-      code          <- Task(Generator.generate(schema))
+      code          <- Task(Generator.generate(schema)(ScalaWriter.DefaultGQLWriter))
       file          <- Task(new File(to_path))
       _ <- Task {
             val pw = new java.io.PrintWriter(file)
