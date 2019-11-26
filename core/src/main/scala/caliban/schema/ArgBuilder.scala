@@ -1,5 +1,6 @@
 package caliban.schema
 
+import scala.annotation.implicitNotFound
 import scala.language.experimental.macros
 import caliban.CalibanError.ExecutionError
 import caliban.InputValue
@@ -11,6 +12,13 @@ import magnolia._
  * Typeclass that defines how to build an argument of type `T` from an input [[caliban.InputValue]].
  * Every type that can be passed as an argument needs an instance of `ArgBuilder`.
  */
+@implicitNotFound(
+  """Cannot find an ArgBuilder for type ${T}.
+     Caliban derives an ArgBuilder automatically for basic Scala types, case classes and sealed traits, but
+     you need to manually provide an implicit ArgBuilder for other types that could be nested in ${T}.
+     See https://ghostdogpr.github.io/caliban/docs/schema.html for more information.
+"""
+)
 trait ArgBuilder[T] { self =>
 
   /**

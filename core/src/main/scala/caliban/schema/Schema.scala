@@ -1,5 +1,6 @@
 package caliban.schema
 
+import scala.annotation.implicitNotFound
 import scala.language.experimental.macros
 import caliban.CalibanError.ExecutionError
 import caliban.{ InputValue, ResponseValue }
@@ -18,6 +19,14 @@ import zquery.ZQuery
  * Typeclass that defines how to map the type `T` to the according GraphQL concepts: how to introspect it and how to resolve it.
  * `R` is the ZIO environment required by the effects in the schema (`Any` if nothing required).
  */
+@implicitNotFound(
+  """Cannot find a Schema for type ${T}.
+     Caliban derives a Schema automatically for basic Scala types, case classes and sealed traits, but
+     you need to manually provide an implicit Schema for other types that could be nested in ${T}.
+     If you use a custom type as an argument, you also need to provide an implicit ArgBuilder for that type.
+     See https://ghostdogpr.github.io/caliban/docs/schema.html for more information.
+"""
+)
 trait Schema[-R, T] { self =>
 
   /**
