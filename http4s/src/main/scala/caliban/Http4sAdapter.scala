@@ -2,11 +2,11 @@ package caliban
 
 import caliban.ResponseValue._
 import caliban.Value._
-import cats.data.OptionT
+import cats.data.{Kleisli, OptionT}
 import cats.effect.Effect
 import cats.effect.syntax.all._
 import cats.~>
-import fs2.{ Pipe, Stream }
+import fs2.{Pipe, Stream}
 import io.circe.derivation.deriveDecoder
 import io.circe._
 import io.circe.parser._
@@ -93,6 +93,18 @@ object Http4sAdapter {
           response <- Ok(result)
         } yield response
     }
+  }
+
+  def executeRequest[R0, R, Q, M, S, E](interpreter: GraphQL[R, Q, M, S, E], provideEnv: R0 => R): HttpApp[RIO[R0, *]] = Kleisli {
+    req =>
+      object dsl extends Http4sDsl[RIO[R0, *]]
+      import dsl._
+      for {
+        query <- req.attemptAs[GraphQLRequest].value.absolve
+        result <- execute(interpreter, query).provideSome[R0](provideEnv)
+          .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
+        response <- Ok(result)
+      } yield response
   }
 
   def makeWebSocketService[R, Q, M, S, E](interpreter: GraphQL[R, Q, M, S, E]): HttpRoutes[RIO[R, *]] = {
