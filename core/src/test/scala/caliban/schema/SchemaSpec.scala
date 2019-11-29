@@ -20,6 +20,16 @@ object SchemaSpec
             introspect[InfallibleFieldSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()),
             isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.NON_NULL)))
           )
+        },
+        test("nested input fields") {
+          case class Queries(a: A => Unit)
+          case class A(b: B)
+          case class B(c: C)
+          case class C(d: Int)
+          assert(
+            Types.collectTypes(introspect[Queries]).keys,
+            contains("BInput") && contains("CInput")
+          )
         }
       )
     )
