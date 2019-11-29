@@ -53,7 +53,8 @@ object Types {
       case _ =>
         val map1 = t.name.fold(existingTypes)(name => existingTypes.updated(name, t))
         val embeddedTypes =
-          t.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).flatMap(f => f.`type` :: f.args.map(_.`type`))
+          t.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).flatMap(f => f.`type` :: f.args.map(_.`type`)) ++
+            t.inputFields.getOrElse(Nil).map(_.`type`)
         val map2 = embeddedTypes.foldLeft(map1) {
           case (types, f) =>
             val t = innerType(f())
