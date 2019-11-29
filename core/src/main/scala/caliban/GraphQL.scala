@@ -2,6 +2,7 @@ package caliban
 
 import caliban.Rendering.renderTypes
 import caliban.execution.Executor
+import caliban.execution.QueryAnalyzer.QueryAnalyzer
 import caliban.introspection.Introspector
 import caliban.introspection.adt.__Introspection
 import caliban.parsing.Parser
@@ -38,7 +39,8 @@ trait GraphQL[-R, -Q, -M, -S, +E] { self =>
     query: String,
     operationName: Option[String] = None,
     variables: Map[String, InputValue] = Map(),
-    skipValidation: Boolean = false
+    skipValidation: Boolean = false,
+    queryAnalyzers: List[QueryAnalyzer] = Nil
   ): URIO[R, GraphQLResponse[E]]
 
   /**
@@ -77,10 +79,24 @@ trait GraphQL[-R, -Q, -M, -S, +E] { self =>
         query: String,
         operationName: Option[String],
         variables: Map[String, InputValue],
-        skipValidation: Boolean
+        skipValidation: Boolean,
+        queryAnalyzers: List[QueryAnalyzer] = Nil
       ): URIO[R2, GraphQLResponse[E2]] = f(self.execute(query, operationName, variables, skipValidation))
       override def render: String      = self.render
     }
+
+  def withQueryAnalyzer(queryAnalyzer: QueryAnalyzer): GraphQL[R, Q, M, S, E] = new GraphQL[R, Q, M, S, E] {
+    override def check(query: String): IO[CalibanError, Unit] = self.check(query)
+    override def execute(
+      query: String,
+      operationName: Option[String],
+      variables: Map[String, InputValue],
+      skipValidation: Boolean,
+      queryAnalyzers: List[QueryAnalyzer]
+    ): URIO[R, GraphQLResponse[E]] =
+      self.execute(query, operationName, variables, skipValidation, queryAnalyzer :: queryAnalyzers)
+    override def render: String = self.render
+  }
 }
 
 object GraphQL {
@@ -102,10 +118,11 @@ object GraphQL {
         resolver.mutationResolver.map(r => Operation(mutationSchema.toType(), mutationSchema.resolve(r))),
         resolver.subscriptionResolver.map(r => Operation(subscriptionSchema.toType(), subscriptionSchema.resolve(r)))
       )
-      val rootType = RootType(schema.query.opType, schema.mutation.map(_.opType), schema.subscription.map(_.opType))
+      val rootType: RootType =
+        RootType(schema.query.opType, schema.mutation.map(_.opType), schema.subscription.map(_.opType))
       val introspectionRootSchema: RootSchema[Any, __Introspection, Nothing, Nothing] =
         Introspector.introspect(rootType)
-      val introspectionRootType = RootType(introspectionRootSchema.query.opType, None, None)
+      val introspectionRootType: RootType = RootType(introspectionRootSchema.query.opType, None, None)
 
       def check(query: String): IO[CalibanError, Unit] =
         for {
@@ -119,7 +136,8 @@ object GraphQL {
         query: String,
         operationName: Option[String] = None,
         variables: Map[String, InputValue] = Map(),
-        skipValidation: Boolean = false
+        skipValidation: Boolean = false,
+        queryAnalyzers: List[QueryAnalyzer] = Nil
       ): URIO[R, GraphQLResponse[CalibanError]] = {
 
         val prepare = for {
@@ -132,7 +150,7 @@ object GraphQL {
 
         prepare.foldM(
           Executor.fail,
-          req => Executor.executeRequest(req._1, req._2, operationName, variables)
+          req => Executor.executeRequest(req._1, req._2, operationName, variables, queryAnalyzers)
         )
       }
 

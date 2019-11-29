@@ -2,6 +2,7 @@ package caliban
 
 import caliban.ExampleData._
 import caliban.GraphQL._
+import caliban.execution.QueryAnalyzer._
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.GenericSchema
 import org.http4s.implicits._
@@ -35,14 +36,18 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
   override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] =
     (for {
       service <- ExampleService.make(sampleCharacters)
-      interpreter = graphQL(
-        RootResolver(
-          Queries(
-            args => service.getCharacters(args.origin),
-            args => service.findCharacter(args.name)
-          ),
-          Mutations(args => service.deleteCharacter(args.name)),
-          Subscriptions(service.deletedEvents)
+      interpreter = maxDepth(2)(
+        maxFields(5)(
+          graphQL(
+            RootResolver(
+              Queries(
+                args => service.getCharacters(args.origin),
+                args => service.findCharacter(args.name)
+              ),
+              Mutations(args => service.deleteCharacter(args.name)),
+              Subscriptions(service.deletedEvents)
+            )
+          )
         )
       )
       _ <- BlazeServerBuilder[ExampleTask]
