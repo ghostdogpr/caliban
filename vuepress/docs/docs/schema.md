@@ -10,6 +10,7 @@ The table below shows how common Scala types are converted to GraphQL types.
 | Float            | Float                                            |
 | Double           | Float                                            |
 | String           | String                                           |
+| java.util.UUID   | String                                           |
 | Unit             | Unit (custom scalar)                             |
 | Long             | Long (custom scalar)                             |
 | BigInt           | BigInt (custom scalar)                           |
