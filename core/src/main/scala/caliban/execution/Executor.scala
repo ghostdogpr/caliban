@@ -28,7 +28,7 @@ object Executor {
     schema: RootSchema[R, Q, M, S],
     operationName: Option[String] = None,
     variables: Map[String, InputValue] = Map(),
-    queryAnalyzers: List[QueryAnalyzer] = Nil
+    queryAnalyzers: List[QueryAnalyzer[R]] = Nil
   ): URIO[R, GraphQLResponse[CalibanError]] = {
     val fragments = document.definitions.collect {
       case fragment: FragmentDefinition => fragment.name -> fragment
@@ -67,7 +67,8 @@ object Executor {
 
         }
 
-        IO.foldLeft(queryAnalyzers)(Field(op.selectionSet, fragments, variables)) {
+        ZIO
+          .foldLeft(queryAnalyzers)(Field(op.selectionSet, fragments, variables)) {
             case (field, analyzer) => analyzer(field)
           }
           .foldM(fail, executeOperation)

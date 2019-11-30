@@ -35,13 +35,13 @@ trait GraphQL[-R, -Q, -M, -S, +E] { self =>
    * @param skipValidation skips the validation step if true
    * @return an effect that either fails with an `E` or succeeds with a [[ResponseValue]]
    */
-  def execute(
+  def execute[R1 <: R](
     query: String,
     operationName: Option[String] = None,
     variables: Map[String, InputValue] = Map(),
     skipValidation: Boolean = false,
-    queryAnalyzers: List[QueryAnalyzer] = Nil
-  ): URIO[R, GraphQLResponse[E]]
+    queryAnalyzers: List[QueryAnalyzer[R1]] = Nil
+  ): URIO[R1, GraphQLResponse[E]]
 
   /**
    * Returns a string that renders the interpreter types into the GraphQL format.
@@ -75,28 +75,29 @@ trait GraphQL[-R, -Q, -M, -S, +E] { self =>
   ): GraphQL[R2, Q, M, S, E2] =
     new GraphQL[R2, Q, M, S, E2] {
       override def check(query: String): IO[CalibanError, Unit] = self.check(query)
-      override def execute(
+      override def execute[R1 <: R2](
         query: String,
         operationName: Option[String],
         variables: Map[String, InputValue],
         skipValidation: Boolean,
-        queryAnalyzers: List[QueryAnalyzer] = Nil
+        queryAnalyzers: List[QueryAnalyzer[R1]] = Nil
       ): URIO[R2, GraphQLResponse[E2]] = f(self.execute(query, operationName, variables, skipValidation))
       override def render: String      = self.render
     }
 
-  def withQueryAnalyzer(queryAnalyzer: QueryAnalyzer): GraphQL[R, Q, M, S, E] = new GraphQL[R, Q, M, S, E] {
-    override def check(query: String): IO[CalibanError, Unit] = self.check(query)
-    override def execute(
-      query: String,
-      operationName: Option[String],
-      variables: Map[String, InputValue],
-      skipValidation: Boolean,
-      queryAnalyzers: List[QueryAnalyzer]
-    ): URIO[R, GraphQLResponse[E]] =
-      self.execute(query, operationName, variables, skipValidation, queryAnalyzer :: queryAnalyzers)
-    override def render: String = self.render
-  }
+  def withQueryAnalyzer[R2 <: R](queryAnalyzer: QueryAnalyzer[R2]): GraphQL[R2, Q, M, S, E] =
+    new GraphQL[R2, Q, M, S, E] {
+      override def check(query: String): IO[CalibanError, Unit] = self.check(query)
+      override def execute[R1 <: R2](
+        query: String,
+        operationName: Option[String],
+        variables: Map[String, InputValue],
+        skipValidation: Boolean,
+        queryAnalyzers: List[QueryAnalyzer[R1]]
+      ): URIO[R1, GraphQLResponse[E]] =
+        self.execute(query, operationName, variables, skipValidation, queryAnalyzer :: queryAnalyzers)
+      override def render: String = self.render
+    }
 }
 
 object GraphQL {
@@ -132,13 +133,13 @@ object GraphQL {
           _              <- Validator.validate(document, typeToValidate)
         } yield ()
 
-      def execute(
+      def execute[R1 <: R](
         query: String,
         operationName: Option[String] = None,
         variables: Map[String, InputValue] = Map(),
         skipValidation: Boolean = false,
-        queryAnalyzers: List[QueryAnalyzer] = Nil
-      ): URIO[R, GraphQLResponse[CalibanError]] = {
+        queryAnalyzers: List[QueryAnalyzer[R1]] = Nil
+      ): URIO[R1, GraphQLResponse[CalibanError]] = {
 
         val prepare = for {
           document        <- Parser.parseQuery(query)
