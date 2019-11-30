@@ -1,5 +1,6 @@
 package caliban.execution
 
+import java.util.UUID
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
 import caliban.RootResolver
@@ -216,6 +217,20 @@ object ExecutionSpec
              }""")
 
           assertM(interpreter.execute(query).map(_.data.toString), equalTo("""{"either":{"left":null,"right":"ok"}}"""))
+        },
+        testM("test UUID") {
+          case class IdArgs(id: UUID)
+          case class Queries(test: IdArgs => UUID)
+          val interpreter = graphQL(RootResolver(Queries(_.id)))
+          val query       = gqldoc("""
+             {
+               test(id: "be722453-d97d-48c2-b535-9badd1b5d4c9")
+             }""")
+
+          assertM(
+            interpreter.execute(query).map(_.data.toString),
+            equalTo("""{"test":"be722453-d97d-48c2-b535-9badd1b5d4c9"}""")
+          )
         },
         testM("mapError") {
           case class Test(either: Either[Int, String])

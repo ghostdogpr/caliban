@@ -2,6 +2,8 @@ package caliban.schema
 
 import scala.annotation.implicitNotFound
 import scala.language.experimental.macros
+import scala.util.Try
+import java.util.UUID
 import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.Value._
@@ -75,6 +77,12 @@ object ArgBuilder {
   implicit val string: ArgBuilder[String] = {
     case StringValue(value) => Right(value)
     case other              => Left(ExecutionError(s"Can't build a String from input $other"))
+  }
+  implicit val uuid: ArgBuilder[UUID] = {
+    case StringValue(value) =>
+      Try(UUID.fromString(value))
+        .fold(ex => Left(ExecutionError(s"Can't parse $value into a UUID", innerThrowable = Some(ex))), Right(_))
+    case other => Left(ExecutionError(s"Can't build a UUID from input $other"))
   }
   implicit val boolean: ArgBuilder[Boolean] = {
     case BooleanValue(value) => Right(value)

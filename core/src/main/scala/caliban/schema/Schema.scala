@@ -2,6 +2,7 @@ package caliban.schema
 
 import scala.annotation.implicitNotFound
 import scala.language.experimental.macros
+import java.util.UUID
 import caliban.CalibanError.ExecutionError
 import caliban.{ InputValue, ResponseValue }
 import caliban.ResponseValue._
@@ -106,6 +107,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
   implicit val unitSchema: Schema[Any, Unit]             = scalarSchema("Unit", None, _ => ObjectValue(Nil))
   implicit val booleanSchema: Schema[Any, Boolean]       = scalarSchema("Boolean", None, BooleanValue)
   implicit val stringSchema: Schema[Any, String]         = scalarSchema("String", None, StringValue)
+  implicit val uuidSchema: Schema[Any, UUID]             = stringSchema.contramap(_.toString)
   implicit val intSchema: Schema[Any, Int]               = scalarSchema("Int", None, IntValue(_))
   implicit val longSchema: Schema[Any, Long]             = scalarSchema("Long", None, IntValue(_))
   implicit val bigIntSchema: Schema[Any, BigInt]         = scalarSchema("BigInt", None, IntValue(_))
