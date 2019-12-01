@@ -208,6 +208,15 @@ object Http4sAdapter {
       .dimap((req: Request[F]) => req.mapK(toTask))((res: Response[Task]) => res.mapK(toF))
   }
 
+  private def wrapApp[F[_]: Effect](app: HttpApp[Task])(implicit runtime: Runtime[Any]): HttpApp[F] = {
+    val toF: Task ~> F    = λ[Task ~> F](_.toIO.to[F])
+    val toTask: F ~> Task = λ[F ~> Task](_.toIO.to[Task])
+
+    app
+      .mapK(toF)
+      .dimap((req: Request[F]) => req.mapK(toTask))((res: Response[Task]) => res.mapK(toF))
+  }
+
   def makeWebSocketServiceF[F[_], Q, M, S, E](
     interpreter: GraphQL[Any, Q, M, S, E]
   )(implicit F: Effect[F], runtime: Runtime[Any]): HttpRoutes[F] =
@@ -218,4 +227,8 @@ object Http4sAdapter {
   )(implicit F: Effect[F], runtime: Runtime[Any]): HttpRoutes[F] =
     wrapRoute(makeRestService[Any, Q, M, S, E](interpreter))
 
+  def executeRequestF[F[_], Q, M, S, E](
+    interpreter: GraphQL[Any, Q, M, S, E]
+  )(implicit F: Effect[F], runtime: Runtime[Any]): HttpApp[F] =
+    wrapApp(executeRequest[Any, Any, Q, M, S, E](interpreter, identity))
 }
