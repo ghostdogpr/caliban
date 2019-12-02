@@ -455,9 +455,12 @@ object Validator {
 
   private def validateSubscriptionOperation(context: Context): IO[ValidationError, Unit] =
     IO.fromOption(
-        context.operations
-          .filter(_.operationType == OperationType.Subscription)
-          .find(op => F(op.selectionSet, context.fragments, Map.empty[String, InputValue]).fields.length > 1)
+        for {
+          t <- context.rootType.subscriptionType
+          op <- context.operations
+                 .filter(_.operationType == OperationType.Subscription)
+                 .find(op => F(op.selectionSet, context.fragments, Map.empty[String, InputValue], t).fields.length > 1)
+        } yield op
       )
       .map(
         op =>

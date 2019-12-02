@@ -2,12 +2,15 @@ package caliban.execution
 
 import caliban.InputValue
 import caliban.Value.BooleanValue
+import caliban.introspection.adt.{ __DeprecatedArgs, __Type }
 import caliban.parsing.adt.ExecutableDefinition.FragmentDefinition
+import caliban.parsing.adt.Selection.{ FragmentSpread, InlineFragment, Field => F }
 import caliban.parsing.adt.{ Directive, Selection }
-import caliban.parsing.adt.Selection.{ Field => F, FragmentSpread, InlineFragment }
+import caliban.schema.Types
 
 case class Field(
   name: String,
+  fieldType: __Type,
   alias: Option[String] = None,
   fields: List[Field] = Nil,
   conditionalFields: Map[String, List[Field]] = Map(),
@@ -18,37 +21,49 @@ object Field {
   def apply(
     selectionSet: List[Selection],
     fragments: Map[String, FragmentDefinition],
-    variableValues: Map[String, InputValue]
+    variableValues: Map[String, InputValue],
+    fieldType: __Type
   ): Field = {
 
-    def loop(selectionSet: List[Selection]): Field = {
+    def loop(selectionSet: List[Selection], fieldType: __Type): Field = {
       val (fields, cFields) = selectionSet.map {
         case f @ F(alias, name, arguments, _, selectionSet) if checkDirectives(f.directives, variableValues) =>
-          val field = loop(selectionSet)
+          val t = fieldType
+            .fields(__DeprecatedArgs(Some(true)))
+            .flatMap(_.find(_.name == name))
+            .map(_.`type`())
+            .map(Types.innerType)
+            .getOrElse(Types.string) // only case where it's not found is __typename
+          val field = loop(selectionSet, t)
           (
-            List(Field(name, alias, field.fields, field.conditionalFields, arguments)),
+            List(Field(name, t, alias, field.fields, field.conditionalFields, arguments)),
             Map.empty[String, List[Field]]
           )
         case FragmentSpread(name, directives) if checkDirectives(directives, variableValues) =>
           fragments
             .get(name)
             .map { f =>
-              val field = loop(f.selectionSet)
+              val t =
+                fieldType.possibleTypes.flatMap(_.find(_.name.contains(f.typeCondition.name))).getOrElse(fieldType)
+              val field = loop(f.selectionSet, t)
               (Nil, combineMaps(List(field.conditionalFields, Map(f.typeCondition.name -> field.fields))))
             }
             .getOrElse((Nil, Map.empty[String, List[Field]]))
         case InlineFragment(typeCondition, directives, selectionSet) if checkDirectives(directives, variableValues) =>
-          val field = loop(selectionSet)
+          val t = fieldType.possibleTypes
+            .flatMap(_.find(_.name.exists(typeCondition.map(_.name).contains)))
+            .getOrElse(fieldType)
+          val field = loop(selectionSet, t)
           typeCondition match {
             case None           => (field.fields, field.conditionalFields)
             case Some(typeName) => (Nil, combineMaps(List(field.conditionalFields, Map(typeName.name -> field.fields))))
           }
         case _ => (Nil, Map.empty[String, List[Field]])
       }.unzip
-      Field("", fields = fields.flatten, conditionalFields = combineMaps(cFields))
+      Field("", fieldType, fields = fields.flatten, conditionalFields = combineMaps(cFields))
     }
 
-    loop(selectionSet)
+    loop(selectionSet, fieldType)
   }
 
   private def combineMaps[A, B](maps: List[Map[A, List[B]]]): Map[A, List[B]] =

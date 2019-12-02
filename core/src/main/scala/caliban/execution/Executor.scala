@@ -46,32 +46,28 @@ object Executor {
     operation match {
       case Left(error) => fail(ExecutionError(error))
       case Right(op) =>
-        def executeOperation(root: Field): URIO[R, GraphQLResponse[CalibanError]] = {
-
-          def exec[A](plan: Step[R], allowParallelism: Boolean): URIO[R, GraphQLResponse[CalibanError]] =
-            executePlan(plan, root, op.variableDefinitions, variables, allowParallelism)
-
-          op.operationType match {
-            case Query => exec(schema.query.plan, allowParallelism = true)
-            case Mutation =>
-              schema.mutation match {
-                case Some(m) => exec(m.plan, allowParallelism = false)
-                case None    => fail(ExecutionError("Mutations are not supported on this schema"))
-              }
-            case Subscription =>
-              schema.subscription match {
-                case Some(m) => exec(m.plan, allowParallelism = true)
-                case None    => fail(ExecutionError("Subscriptions are not supported on this schema"))
-              }
-          }
-
+        val getOperationType = op.operationType match {
+          case Query => IO.succeed((schema.query, true))
+          case Mutation =>
+            schema.mutation match {
+              case Some(m) => IO.succeed((m, false))
+              case None    => IO.fail(ExecutionError("Mutations are not supported on this schema"))
+            }
+          case Subscription =>
+            schema.subscription match {
+              case Some(m) => IO.succeed((m, false))
+              case None    => IO.fail(ExecutionError("Subscriptions are not supported on this schema"))
+            }
         }
 
-        ZIO
-          .foldLeft(queryAnalyzers)(Field(op.selectionSet, fragments, variables)) {
-            case (field, analyzer) => analyzer(field)
-          }
-          .foldM(fail, executeOperation)
+        (for {
+          (operationType, allowParallelism) <- getOperationType
+          root <- ZIO
+                   .foldLeft(queryAnalyzers)(Field(op.selectionSet, fragments, variables, operationType.opType)) {
+                     case (field, analyzer) => analyzer(field)
+                   }
+          result <- executePlan(operationType.plan, root, op.variableDefinitions, variables, allowParallelism)
+        } yield result).catchAll(fail)
     }
   }
 
@@ -95,11 +91,11 @@ object Executor {
         case s @ PureStep(value) =>
           value match {
             case EnumValue(v) if mergeFields(currentField, v).collectFirst {
-                  case Field("__typename", _, _, _, _) => true
+                  case Field("__typename", _, _, _, _, _) => true
                 }.nonEmpty =>
               // special case of an hybrid union containing case objects, those should return an object instead of a string
               val obj = mergeFields(currentField, v).collectFirst {
-                case Field(name @ "__typename", alias, _, _, _) =>
+                case Field(name @ "__typename", _, alias, _, _, _) =>
                   ObjectValue(List(alias.getOrElse(name) -> StringValue(v)))
               }
               obj.fold(s)(PureStep(_))
@@ -110,9 +106,9 @@ object Executor {
         case ObjectStep(objectName, fields) =>
           val mergedFields = mergeFields(currentField, objectName)
           val items = mergedFields.map {
-            case Field(name @ "__typename", alias, _, _, _) =>
+            case Field(name @ "__typename", _, alias, _, _, _) =>
               alias.getOrElse(name) -> PureStep(StringValue(objectName))
-            case f @ Field(name, alias, _, _, args) =>
+            case f @ Field(name, _, alias, _, _, args) =>
               val arguments = resolveVariables(args, variableDefinitions, variableValues)
               alias.getOrElse(name) ->
                 fields
