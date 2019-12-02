@@ -80,6 +80,13 @@ object Http4sAdapter {
   ): URIO[R, GraphQLResponse[E]] =
     interpreter.execute(query.query, query.operationName, query.variables.map(jsonToVariables).getOrElse(Map()))
 
+  private def executeToJson[R, Q, M, S, E](
+    interpreter: GraphQL[R, Q, M, S, E],
+    query: GraphQLRequest
+  ): URIO[R, Json] =
+    execute(interpreter, query)
+      .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
+
   def makeRestService[R, Q, M, S, E](interpreter: GraphQL[R, Q, M, S, E]): HttpRoutes[RIO[R, *]] = {
     object dsl extends Http4sDsl[RIO[R, *]]
     import dsl._
@@ -87,9 +94,8 @@ object Http4sAdapter {
     HttpRoutes.of[RIO[R, *]] {
       case req @ POST -> Root =>
         for {
-          query <- req.attemptAs[GraphQLRequest].value.absolve
-          result <- execute(interpreter, query)
-                     .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
+          query    <- req.attemptAs[GraphQLRequest].value.absolve
+          result   <- executeToJson(interpreter, query)
           response <- Ok(result)
         } yield response
     }
@@ -100,10 +106,8 @@ object Http4sAdapter {
       object dsl extends Http4sDsl[RIO[R0, *]]
       import dsl._
       for {
-        query <- req.attemptAs[GraphQLRequest].value.absolve
-        result <- execute(interpreter, query)
-                   .provideSome[R0](provideEnv)
-                   .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
+        query    <- req.attemptAs[GraphQLRequest].value.absolve
+        result   <- executeToJson(interpreter, query).provideSome[R0](provideEnv)
         response <- Ok(result)
       } yield response
     }
