@@ -85,6 +85,11 @@ trait GraphQL[-R, -Q, -M, -S, +E] { self =>
       override def render: String      = self.render
     }
 
+  /**
+   * Attaches a function that will analyze each query before execution, possibly modify or reject it.
+   * @param queryAnalyzer a function from `Field` to `ZIO[R, CalibanError, Field]`
+   * @return  a new GraphQL interpreter
+   */
   def withQueryAnalyzer[R2 <: R](queryAnalyzer: QueryAnalyzer[R2]): GraphQL[R2, Q, M, S, E] =
     new GraphQL[R2, Q, M, S, E] {
       override def check(query: String): IO[CalibanError, Unit] = self.check(query)

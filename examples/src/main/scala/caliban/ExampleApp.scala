@@ -41,6 +41,28 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock with Con
   implicit val characterArgsSchema  = gen[CharacterArgs]
   implicit val charactersArgsSchema = gen[CharactersArgs]
 
+  def makeInterpreter(
+    service: ExampleService
+  ): GraphQL[Console with Clock with Context, Queries, Mutations, Subscriptions, CalibanError] =
+    maxDepth(30)(
+      maxFields(200)(
+        graphQL(
+          RootResolver(
+            Queries(
+              args => service.getCharacters(args.origin),
+              args => service.findCharacter(args.name),
+              ZIO.accessM[Context](_.context.get.map(_.cost))
+            ),
+            Mutations(args => service.deleteCharacter(args.name)),
+            Subscriptions(service.deletedEvents)
+          )
+        )
+      )
+    ).withQueryAnalyzer { root =>
+      val cost = QueryAnalyzer.countFields(root)
+      ZIO.accessM[Context](_.context.update(_.copy(cost = cost))).as(root)
+    }
+
   override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] =
     Ref
       .make[ContextData](ContextData(0))
@@ -48,26 +70,9 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock with Con
         ZIO
           .runtime[Console with Clock with Context]
           .flatMap { implicit runtime =>
-            (for {
-              service <- ExampleService.make(sampleCharacters)
-              interpreter = maxDepth(30)(
-                maxFields(200)(
-                  graphQL(
-                    RootResolver(
-                      Queries(
-                        args => service.getCharacters(args.origin),
-                        args => service.findCharacter(args.name),
-                        ZIO.accessM[Context](_.context.get.map(_.cost))
-                      ),
-                      Mutations(args => service.deleteCharacter(args.name)),
-                      Subscriptions(service.deletedEvents)
-                    )
-                  )
-                )
-              ).withQueryAnalyzer { root =>
-                val cost = QueryAnalyzer.countFields(root)
-                ZIO.accessM[Context](_.context.update(_.copy(cost = cost))).as(root)
-              }
+            for {
+              service     <- ExampleService.make(sampleCharacters)
+              interpreter = makeInterpreter(service)
               _ <- BlazeServerBuilder[ExampleTask]
                     .bindHttp(8088, "localhost")
                     .withHttpApp(
@@ -79,9 +84,9 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock with Con
                     .resource
                     .toManaged
                     .useForever
-            } yield 0)
-              .catchAll(err => putStrLn(err.toString).as(1))
+            } yield 0
           }
+          .catchAll(err => putStrLn(err.toString).as(1))
           .provideSome[Console with Clock](
             env =>
               new Context with Console with Clock {
