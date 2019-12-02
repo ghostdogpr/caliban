@@ -2,7 +2,7 @@ package caliban
 
 import caliban.ResponseValue._
 import caliban.Value._
-import cats.data.OptionT
+import cats.data.{ Kleisli, OptionT }
 import cats.effect.Effect
 import cats.effect.syntax.all._
 import cats.~>
@@ -27,6 +27,13 @@ object Http4sAdapter {
   ): URIO[R, GraphQLResponse[E]] =
     interpreter.execute(query.query, query.operationName, query.variables.getOrElse(Map()))
 
+  private def executeToJson[R, Q, M, S, E](
+    interpreter: GraphQL[R, Q, M, S, E],
+    query: GraphQLRequest
+  ): URIO[R, Json] =
+    execute(interpreter, query)
+      .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
+
   def makeRestService[R, Q, M, S, E](interpreter: GraphQL[R, Q, M, S, E]): HttpRoutes[RIO[R, *]] = {
     object dsl extends Http4sDsl[RIO[R, *]]
     import dsl._
@@ -34,13 +41,23 @@ object Http4sAdapter {
     HttpRoutes.of[RIO[R, *]] {
       case req @ POST -> Root =>
         for {
-          query <- req.attemptAs[GraphQLRequest].value.absolve
-          result <- execute(interpreter, query)
-                     .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
+          query    <- req.attemptAs[GraphQLRequest].value.absolve
+          result   <- executeToJson(interpreter, query)
           response <- Ok(result)
         } yield response
     }
   }
+
+  def executeRequest[R0, R, Q, M, S, E](interpreter: GraphQL[R, Q, M, S, E], provideEnv: R0 => R): HttpApp[RIO[R0, *]] =
+    Kleisli { req =>
+      object dsl extends Http4sDsl[RIO[R0, *]]
+      import dsl._
+      for {
+        query    <- req.attemptAs[GraphQLRequest].value.absolve
+        result   <- executeToJson(interpreter, query).provideSome[R0](provideEnv)
+        response <- Ok(result)
+      } yield response
+    }
 
   def makeWebSocketService[R, Q, M, S, E](interpreter: GraphQL[R, Q, M, S, E]): HttpRoutes[RIO[R, *]] = {
 
@@ -142,6 +159,15 @@ object Http4sAdapter {
       .dimap((req: Request[F]) => req.mapK(toTask))((res: Response[Task]) => res.mapK(toF))
   }
 
+  private def wrapApp[F[_]: Effect](app: HttpApp[Task])(implicit runtime: Runtime[Any]): HttpApp[F] = {
+    val toF: Task ~> F    = λ[Task ~> F](_.toIO.to[F])
+    val toTask: F ~> Task = λ[F ~> Task](_.toIO.to[Task])
+
+    app
+      .mapK(toF)
+      .dimap((req: Request[F]) => req.mapK(toTask))((res: Response[Task]) => res.mapK(toF))
+  }
+
   def makeWebSocketServiceF[F[_], Q, M, S, E](
     interpreter: GraphQL[Any, Q, M, S, E]
   )(implicit F: Effect[F], runtime: Runtime[Any]): HttpRoutes[F] =
@@ -152,4 +178,8 @@ object Http4sAdapter {
   )(implicit F: Effect[F], runtime: Runtime[Any]): HttpRoutes[F] =
     wrapRoute(makeRestService[Any, Q, M, S, E](interpreter))
 
+  def executeRequestF[F[_], Q, M, S, E](
+    interpreter: GraphQL[Any, Q, M, S, E]
+  )(implicit F: Effect[F], runtime: Runtime[Any]): HttpApp[F] =
+    wrapApp(executeRequest[Any, Any, Q, M, S, E](interpreter, identity))
 }
