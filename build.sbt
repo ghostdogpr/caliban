@@ -57,13 +57,14 @@ lazy val core = crossProject(JSPlatform, JVMPlatform)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "com.lihaoyi"    %%% "fastparse"    % "2.1.3",
-      "com.propensive" %%% "magnolia"     % "0.12.2",
-      "com.propensive" %%% "mercator"     % "0.2.1",
-      "dev.zio"        %%% "zio"          % "1.0.0-RC17",
-      "dev.zio"        %%% "zio-streams"  % "1.0.0-RC17",
-      "dev.zio"        %%% "zio-test"     % "1.0.0-RC17" % "test",
-      "dev.zio"        %%% "zio-test-sbt" % "1.0.0-RC17" % "test",
+      "com.lihaoyi"    %%% "fastparse"        % "2.1.3",
+      "com.propensive" %%% "magnolia"         % "0.12.2",
+      "com.propensive" %%% "mercator"         % "0.2.1",
+      "dev.zio"        %%% "zio"              % "1.0.0-RC17",
+      "dev.zio"        %%% "zio-streams"      % "1.0.0-RC17",
+      "dev.zio"        %%% "zio-test"         % "1.0.0-RC17" % "test",
+      "dev.zio"        %%% "zio-test-sbt"     % "1.0.0-RC17" % "test",
+      "io.circe"       %%% "circe-derivation" % "0.12.0-M7" % Optional,
       compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
     )
   )
@@ -99,11 +100,10 @@ lazy val http4s = project
     libraryDependencies ++= Seq(
       "dev.zio"       %% "zio-interop-cats"    % "2.0.0.0-RC10",
       "org.typelevel" %% "cats-effect"         % "2.0.0",
-      "org.http4s"    %% "http4s-dsl"          % "0.21.0-M5",
-      "org.http4s"    %% "http4s-circe"        % "0.21.0-M5",
-      "org.http4s"    %% "http4s-blaze-server" % "0.21.0-M5",
+      "org.http4s"    %% "http4s-dsl"          % "0.21.0-M6",
+      "org.http4s"    %% "http4s-circe"        % "0.21.0-M6",
+      "org.http4s"    %% "http4s-blaze-server" % "0.21.0-M6",
       "io.circe"      %% "circe-parser"        % "0.12.3",
-      "io.circe"      %% "circe-derivation"    % "0.12.0-M7",
       compilerPlugin(
         ("org.typelevel" %% "kind-projector" % "0.11.0")
           .cross(CrossVersion.full)

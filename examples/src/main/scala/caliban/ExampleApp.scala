@@ -6,11 +6,15 @@ import caliban.execution.QueryAnalyzer
 import caliban.execution.QueryAnalyzer._
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.GenericSchema
+import cats.data.Kleisli
+import cats.effect.Blocker
+import org.http4s.StaticFile
 import org.http4s.implicits._
 import org.http4s.server.Router
 import org.http4s.server.blaze.BlazeServerBuilder
 import org.http4s.server.middleware.CORS
 import zio._
+import zio.blocking.Blocking
 import zio.clock.Clock
 import zio.console.{ putStrLn, Console }
 import zio.interop.catz._
@@ -71,14 +75,18 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock with Con
           .runtime[Console with Clock with Context]
           .flatMap { implicit runtime =>
             for {
+              blocker <- ZIO
+                          .accessM[Blocking](_.blocking.blockingExecutor.map(_.asEC))
+                          .map(Blocker.liftExecutionContext)
               service     <- ExampleService.make(sampleCharacters)
               interpreter = makeInterpreter(service)
               _ <- BlazeServerBuilder[ExampleTask]
                     .bindHttp(8088, "localhost")
                     .withHttpApp(
-                      Router(
+                      Router[ExampleTask](
                         "/api/graphql" -> CORS(Http4sAdapter.makeRestService(interpreter)),
-                        "/ws/graphql"  -> CORS(Http4sAdapter.makeWebSocketService(interpreter))
+                        "/ws/graphql"  -> CORS(Http4sAdapter.makeWebSocketService(interpreter)),
+                        "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", blocker, None))
                       ).orNotFound
                     )
                     .resource
@@ -87,12 +95,13 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock with Con
             } yield 0
           }
           .catchAll(err => putStrLn(err.toString).as(1))
-          .provideSome[Console with Clock](
+          .provideSome[Console with Clock with Blocking](
             env =>
-              new Context with Console with Clock {
-                override def context: Ref[ContextData]     = contextRef
-                override val console: Console.Service[Any] = env.console
-                override val clock: Clock.Service[Any]     = env.clock
+              new Context with Console with Clock with Blocking {
+                override def context: Ref[ContextData]       = contextRef
+                override val console: Console.Service[Any]   = env.console
+                override val clock: Clock.Service[Any]       = env.clock
+                override val blocking: Blocking.Service[Any] = env.blocking
               }
           )
       }

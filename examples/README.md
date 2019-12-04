@@ -9,3 +9,5 @@ libraryDependencies ++= Seq(
   "com.github.ghostdogpr" %% "caliban-cats" % "0.3.0"
 )
 ```
+
+Run `ExampleApp` and open [http://localhost:8088/graphiql](http://localhost:8088/graphiql)
