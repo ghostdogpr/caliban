@@ -112,11 +112,32 @@ lazy val http4s = project
   )
   .dependsOn(coreJVM)
 
+lazy val akkaHttp = project
+  .in(file("akka-http"))
+  .settings(name := "caliban-akka-http")
+  .settings(commonSettings)
+  .settings(
+    libraryDependencies ++= Seq(
+      "dev.zio"           %% "zio-interop-cats" % "2.0.0.0-RC10",
+      "org.typelevel"     %% "cats-effect"      % "2.0.0",
+      "com.typesafe.akka" %% "akka-http"        % "10.1.11",
+      "com.typesafe.akka" %% "akka-stream"      % "2.5.26",
+      "de.heikoseeberger" %% "akka-http-circe"  % "1.29.1",
+      "io.circe"          %% "circe-parser"     % "0.12.3",
+      "io.circe"          %% "circe-generic"    % "0.12.3",
+      compilerPlugin(
+        ("org.typelevel" %% "kind-projector" % "0.11.0")
+          .cross(CrossVersion.full)
+      )
+    )
+  )
+  .dependsOn(coreJVM)
+
 lazy val examples = project
   .in(file("examples"))
   .settings(commonSettings)
   .settings(skip in publish := true)
-  .dependsOn(http4s, catsInteropJVM)
+  .dependsOn(akkaHttp, http4s, catsInteropJVM)
 
 lazy val benchmarks = project
   .in(file("benchmarks"))
