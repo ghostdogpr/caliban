@@ -16,26 +16,20 @@ object ExampleApp extends App {
 
   implicit val system = ActorSystem()
   implicit val materializer = ActorMaterializer()
-  // needed for the future flatMap/onComplete in the end
   implicit val executionContext = system.dispatcher
+  implicit val defaultRuntime = new DefaultRuntime {}
 
   case class Character(name: String)
-
   def getCharacters: List[Character] = List(Character("Tobias"), Character("Jonas"), Character("Caliban"))
-
   def getCharacter(name: String): Option[Character] = getCharacters.find(_.name == name)
 
-  // schema
   case class CharacterName(name: String)
-
   case class Queries(characters: List[Character],
                      character: CharacterName => Option[Character])
 
-  // resolver
   val queries = Queries(getCharacters, args => getCharacter(args.name))
   val interpreter = graphQL(RootResolver(queries))
 
-  implicit val gatewayZIORuntime = new DefaultRuntime {}
 
   /**
    * curl -X POST \
@@ -48,20 +42,15 @@ object ExampleApp extends App {
    */
 
   val route =
-    concat(
       path("api" / "graphql") {
         AkkaHttpAdapter.makeRestService(interpreter)
-      },
-      path("ws" / "graphql") {
-        AkkaHttpAdapter.makeWebSocketService(interpreter)
       }
-    )
 
   val bindingFuture = Http().bindAndHandle(route, "localhost", 8080)
   println(s"Server online at http://localhost:8080/\nPress RETURN to stop...")
-  StdIn.readLine() // let it run until user presses return
+  StdIn.readLine()
   bindingFuture
-    .flatMap(_.unbind()) // trigger unbinding from the port
-    .onComplete(_ => system.terminate()) // and shutdown when done
+    .flatMap(_.unbind())
+    .onComplete(_ => system.terminate())
 
 }
