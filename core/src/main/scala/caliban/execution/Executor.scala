@@ -91,11 +91,11 @@ object Executor {
         case s @ PureStep(value) =>
           value match {
             case EnumValue(v) if mergeFields(currentField, v).collectFirst {
-                  case Field("__typename", _, _, _, _, _) => true
+                  case Field("__typename", _, _, _, _, _, _) => true
                 }.nonEmpty =>
               // special case of an hybrid union containing case objects, those should return an object instead of a string
               val obj = mergeFields(currentField, v).collectFirst {
-                case Field(name @ "__typename", _, alias, _, _, _) =>
+                case Field(name @ "__typename", _, _, alias, _, _, _) =>
                   ObjectValue(List(alias.getOrElse(name) -> StringValue(v)))
               }
               obj.fold(s)(PureStep(_))
@@ -106,9 +106,9 @@ object Executor {
         case ObjectStep(objectName, fields) =>
           val mergedFields = mergeFields(currentField, objectName)
           val items = mergedFields.map {
-            case Field(name @ "__typename", _, alias, _, _, _) =>
+            case Field(name @ "__typename", _, _, alias, _, _, _) =>
               alias.getOrElse(name) -> PureStep(StringValue(objectName))
-            case f @ Field(name, _, alias, _, _, args) =>
+            case f @ Field(name, _, _, alias, _, _, args) =>
               val arguments = resolveVariables(args, variableDefinitions, variableValues)
               alias.getOrElse(name) ->
                 fields

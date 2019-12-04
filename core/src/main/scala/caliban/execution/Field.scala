@@ -11,6 +11,7 @@ import caliban.schema.Types
 case class Field(
   name: String,
   fieldType: __Type,
+  parentType: Option[__Type],
   alias: Option[String] = None,
   fields: List[Field] = Nil,
   conditionalFields: Map[String, List[Field]] = Map(),
@@ -36,7 +37,7 @@ object Field {
             .getOrElse(Types.string) // only case where it's not found is __typename
           val field = loop(selectionSet, t)
           (
-            List(Field(name, t, alias, field.fields, field.conditionalFields, arguments)),
+            List(Field(name, t, Some(fieldType), alias, field.fields, field.conditionalFields, arguments)),
             Map.empty[String, List[Field]]
           )
         case FragmentSpread(name, directives) if checkDirectives(directives, variableValues) =>
@@ -60,7 +61,7 @@ object Field {
           }
         case _ => (Nil, Map.empty[String, List[Field]])
       }.unzip
-      Field("", fieldType, fields = fields.flatten, conditionalFields = combineMaps(cFields))
+      Field("", fieldType, None, fields = fields.flatten, conditionalFields = combineMaps(cFields))
     }
 
     loop(selectionSet, fieldType)
