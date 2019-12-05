@@ -1,16 +1,16 @@
 package caliban.modelgen
 
-import caliban.parsing.adt.{ Document, Type }
+import caliban.parsing.adt.{Document, Selection, Type}
 import caliban.parsing.adt.Document._
-import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition, TypeDefinition }
-import caliban.parsing.adt.Type.{ FieldDefinition, ListType, NamedType }
+import caliban.parsing.adt.ExecutableDefinition.{FragmentDefinition, OperationDefinition, TypeDefinition}
+import caliban.parsing.adt.Type.{FieldDefinition, ListType, NamedType}
 import zio.IO
 
 object Generator {
-  def generate(doc: Document)(implicit writerContext: GQLWriterContext): String = writerContext.docWriter.write(doc)
+  def generate(doc: Document)(implicit writerContext: GQLWriterContext): String = writerContext.docWriter.write(doc)(schema = doc)
 
   trait GQLWriter[A] {
-    def write(a: A)(implicit context: GQLWriterContext): String
+    def write(a: A)(schema: Document)(implicit context: GQLWriterContext): String
   }
 
   trait GQLWriterContext {
@@ -22,6 +22,7 @@ object Generator {
     implicit val mutationWriter: GQLWriter[MutationDefinition]
     implicit val subscriptionWriter: GQLWriter[SubscriptionDefinition]
     implicit val fragmentWriter: GQLWriter[FragmentDefinition]
+    implicit val selectionWriter: GQLWriter[Selection]
   }
 
   case class QueryDefinition(op: OperationDefinition)

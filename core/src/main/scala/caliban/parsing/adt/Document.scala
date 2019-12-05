@@ -17,6 +17,9 @@ object Document {
   def subscriptionDefinitions =
     definitions[OperationDefinition](_: Document)
       .filter(q => q.operationType == Subscription)
+  def typeDefinition(name: String) =
+    definitions[TypeDefinition](_: Document)
+      .find(t => t.name == name)
 
   def definitions[T <: ExecutableDefinition](doc: Document)(implicit tag: ClassTag[T]): List[T] =
     doc.definitions.flatMap {
