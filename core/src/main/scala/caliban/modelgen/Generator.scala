@@ -21,8 +21,12 @@ object Generator {
     implicit val rootQueryWriter: GQLWriter[RootQueryDef]
     implicit val queryWriter: GQLWriter[QueryDef]
     implicit val queryArgsWriter: GQLWriter[QueryArgs]
-    implicit val mutationWriter: GQLWriter[MutationDefinition]
-    implicit val subscriptionWriter: GQLWriter[SubscriptionDefinition]
+    implicit val rootMutationWriter: GQLWriter[RootMutationDef]
+    implicit val mutationWriter: GQLWriter[MutationDef]
+    implicit val mutationArgsWriter: GQLWriter[MutationArgs]
+    implicit val rootSubscriptionWriter: GQLWriter[RootSubscriptionDef]
+    implicit val subscriptionWriter: GQLWriter[SubscriptionDef]
+    implicit val subscriptionArgsWriter: GQLWriter[SubscriptionArgs]
     implicit val fragmentWriter: GQLWriter[FragmentDefinition]
     implicit val selectionWriter: GQLWriter[Selection]
   }
@@ -31,7 +35,13 @@ object Generator {
   case class QueryDef(op: FieldDefinition)
   case class QueryArgs(op: FieldDefinition)
 
-  case class MutationDefinition(op: OperationDefinition)
+  case class RootMutationDef(op: TypeDefinition)
+  case class MutationDef(op: FieldDefinition)
+  case class MutationArgs(op: FieldDefinition)
+
+  case class RootSubscriptionDef(op: TypeDefinition)
+  case class SubscriptionDef(op: FieldDefinition)
+  case class SubscriptionArgs(op: FieldDefinition)
 
   case class SubscriptionDefinition(op: OperationDefinition)
 

@@ -1,5 +1,5 @@
 package caliban.modelgen
-import caliban.modelgen.Generator.RootQueryDef
+import caliban.modelgen.Generator.{RootMutationDef, RootQueryDef, RootSubscriptionDef}
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document
 import caliban.parsing.adt.ExecutableDefinition.{FragmentDefinition, TypeDefinition}
@@ -82,6 +82,54 @@ object GeneratorSpec extends DefaultRunnableSpec(
             |case class userArgs(id: Option[Int])
             |case class Queries(
             |user: userArgs => Option[User]
+            |)""".stripMargin
+        )
+      )
+    },
+    testM("simple mutation") {
+      val query =
+        """
+         type Mutation {
+           setMessage(message: String): String
+         }
+         """
+      implicit val writer = ScalaWriter.DefaultGQLWriter
+
+      val caseclassstrdef = Parser.parseQuery(query).map(doc => {
+        Document.typeDefinition("Mutation")(doc).map( d => ScalaWriter.RootMutationDefWriter.write(RootMutationDef(d))(doc)).mkString("\n")
+      })
+
+      assertM(
+        caseclassstrdef,
+        equalTo(
+          """
+            |case class setMessageArgs(message: Option[String])
+            |case class Mutations(
+            |setMessage: setMessageArgs => Option[String]
+            |)""".stripMargin
+        )
+      )
+    },
+    testM("simple subscription") {
+      val query =
+        """
+         type Subscription {
+           UserWatch(id: Int!): String!
+         }
+         """
+      implicit val writer = ScalaWriter.DefaultGQLWriter
+
+      val caseclassstrdef = Parser.parseQuery(query).map(doc => {
+        Document.typeDefinition("Subscription")(doc).map( d => ScalaWriter.RootSubscriptionDefWriter.write(RootSubscriptionDef(d))(doc)).mkString("\n")
+      })
+
+      assertM(
+        caseclassstrdef,
+        equalTo(
+          """
+            |case class UserWatchArgs(id: Int)
+            |case class Subscriptions(
+            |UserWatch: UserWatchArgs => ZStream[Console, Nothing, String]
             |)""".stripMargin
         )
       )
