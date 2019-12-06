@@ -183,10 +183,11 @@ object Executor {
     allFields
       .foldLeft(ListMap.empty[String, Field]) {
         case (result, field) =>
+          val name = field.alias.getOrElse(field.name)
           result.updated(
-            field.name,
+            name,
             result
-              .get(field.name)
+              .get(name)
               .fold(field)(f => f.copy(fields = f.fields ++ field.fields))
           )
       }

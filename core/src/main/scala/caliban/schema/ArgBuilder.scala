@@ -9,6 +9,7 @@ import caliban.InputValue
 import caliban.Value._
 import caliban.schema.Annotations.GQLName
 import magnolia._
+import mercator.Monadic
 
 /**
  * Typeclass that defines how to build an argument of type `T` from an input [[caliban.InputValue]].
@@ -105,6 +106,18 @@ object ArgBuilder {
         }
         .map(_.reverse)
     case other => ev.build(other).map(List(_))
+  }
+
+  type EitherExecutionError[A] = Either[ExecutionError, A]
+
+  implicit val eitherMonadic: Monadic[EitherExecutionError] = new Monadic[EitherExecutionError] {
+    override def flatMap[A, B](from: EitherExecutionError[A])(
+      fn: A => EitherExecutionError[B]
+    ): EitherExecutionError[B] = from.flatMap(fn)
+
+    override def point[A](value: A): EitherExecutionError[A] = Right(value)
+
+    override def map[A, B](from: EitherExecutionError[A])(fn: A => B): EitherExecutionError[B] = from.map(fn)
   }
 
   def combine[T](ctx: CaseClass[ArgBuilder, T]): ArgBuilder[T] =
