@@ -81,12 +81,16 @@ object ExecutionSpec
                amos: character(name: "Amos Burton") {
                  name
                  nicknames
-               }
+               },
+               naomi: character(name: "Naomi Nagata") {
+                 name
+                 nicknames
+               },
              }""")
 
           assertM(
             interpreter.execute(query).map(_.data.toString),
-            equalTo("""{"amos":{"name":"Amos Burton","nicknames":[]}}""")
+            equalTo("""{"amos":{"name":"Amos Burton","nicknames":[]},"naomi":{"name":"Naomi Nagata","nicknames":[]}}""")
           )
         },
         testM("fragment") {
