@@ -2,7 +2,6 @@ package caliban
 
 import caliban.ExampleData._
 import caliban.GraphQL._
-import caliban.execution.QueryAnalyzer
 import caliban.execution.QueryAnalyzer._
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.GenericSchema
@@ -20,25 +19,18 @@ import zio.console.{ putStrLn, Console }
 import zio.interop.catz._
 import zio.stream.ZStream
 
-case class ContextData(cost: Int)
-
-trait Context {
-  def context: Ref[ContextData]
-}
-
-object ExampleApp extends CatsApp with GenericSchema[Console with Clock with Context] {
+object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
 
   case class Queries(
     @GQLDescription("Return all characters from a given origin")
     characters: CharactersArgs => URIO[Console, List[Character]],
     @GQLDeprecated("Use `characters`")
-    character: CharacterArgs => URIO[Console, Option[Character]],
-    cost: ZIO[Context, Nothing, Int]
+    character: CharacterArgs => URIO[Console, Option[Character]]
   )
   case class Mutations(deleteCharacter: CharacterArgs => URIO[Console, Boolean])
   case class Subscriptions(characterDeleted: ZStream[Console, Nothing, String])
 
-  type ExampleTask[A] = RIO[Console with Clock with Context, A]
+  type ExampleTask[A] = RIO[Console with Clock, A]
 
   implicit val roleSchema           = gen[Role]
   implicit val characterSchema      = gen[Character]
@@ -47,62 +39,41 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock with Con
 
   def makeInterpreter(
     service: ExampleService
-  ): GraphQL[Console with Clock with Context, Queries, Mutations, Subscriptions, CalibanError] =
+  ): GraphQL[Console with Clock, Queries, Mutations, Subscriptions, CalibanError] =
     maxDepth(30)(
       maxFields(200)(
         graphQL(
           RootResolver(
             Queries(
               args => service.getCharacters(args.origin),
-              args => service.findCharacter(args.name),
-              ZIO.accessM[Context](_.context.get.map(_.cost))
+              args => service.findCharacter(args.name)
             ),
             Mutations(args => service.deleteCharacter(args.name)),
             Subscriptions(service.deletedEvents)
           )
         )
       )
-    ).withQueryAnalyzer { root =>
-      val cost = QueryAnalyzer.countFields(root)
-      ZIO.accessM[Context](_.context.update(_.copy(cost = cost))).as(root)
-    }
+    )
 
   override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] =
-    Ref
-      .make[ContextData](ContextData(0))
-      .flatMap { contextRef =>
-        ZIO
-          .runtime[Console with Clock with Context]
-          .flatMap { implicit runtime =>
-            for {
-              blocker <- ZIO
-                          .accessM[Blocking](_.blocking.blockingExecutor.map(_.asEC))
-                          .map(Blocker.liftExecutionContext)
-              service     <- ExampleService.make(sampleCharacters)
-              interpreter = makeInterpreter(service)
-              _ <- BlazeServerBuilder[ExampleTask]
-                    .bindHttp(8088, "localhost")
-                    .withHttpApp(
-                      Router[ExampleTask](
-                        "/api/graphql" -> CORS(Http4sAdapter.makeRestService(interpreter)),
-                        "/ws/graphql"  -> CORS(Http4sAdapter.makeWebSocketService(interpreter)),
-                        "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", blocker, None))
-                      ).orNotFound
-                    )
-                    .resource
-                    .toManaged
-                    .useForever
-            } yield 0
-          }
-          .catchAll(err => putStrLn(err.toString).as(1))
-          .provideSome[Console with Clock with Blocking](
-            env =>
-              new Context with Console with Clock with Blocking {
-                override def context: Ref[ContextData]       = contextRef
-                override val console: Console.Service[Any]   = env.console
-                override val clock: Clock.Service[Any]       = env.clock
-                override val blocking: Blocking.Service[Any] = env.blocking
-              }
-          )
-      }
+    (for {
+      blocker <- ZIO
+                  .accessM[Blocking](_.blocking.blockingExecutor.map(_.asEC))
+                  .map(Blocker.liftExecutionContext)
+      service     <- ExampleService.make(sampleCharacters)
+      interpreter = makeInterpreter(service)
+      _ <- BlazeServerBuilder[ExampleTask]
+            .bindHttp(8088, "localhost")
+            .withHttpApp(
+              Router[ExampleTask](
+                "/api/graphql" -> CORS(Http4sAdapter.makeRestService(interpreter)),
+                "/ws/graphql"  -> CORS(Http4sAdapter.makeWebSocketService(interpreter)),
+                "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", blocker, None))
+              ).orNotFound
+            )
+            .resource
+            .toManaged
+            .useForever
+    } yield 0)
+      .catchAll(err => putStrLn(err.toString).as(1))
 }
