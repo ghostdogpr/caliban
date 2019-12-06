@@ -1,5 +1,5 @@
 package caliban.modelgen
-import caliban.modelgen.Generator.QueryDefinition
+import caliban.modelgen.Generator.RootQueryDef
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document
 import caliban.parsing.adt.ExecutableDefinition.{FragmentDefinition, TypeDefinition}
@@ -54,12 +54,37 @@ object GeneratorSpec extends DefaultRunnableSpec(
       assertM(
         caseclassstrdef,
         equalTo(
-          """case class Queries(
-            |getZuckProfile: (Int) => List[(Int, String, String)]
+          """case class friendFields(id: Option[Int], name: Option[String], profilePic: Option[String])""".stripMargin
+        )
+      )
+    },
+    testM("simple query") {
+      val query =
+        """
+         type Query {
+           user(id: Int): User
+         }
+         type User {
+           id: Int
+           name: String
+           profilePic: String
+         }"""
+      implicit val writer = ScalaWriter.DefaultGQLWriter
+
+      val caseclassstrdef = Parser.parseQuery(query).map(doc => {
+        Document.typeDefinition("Query")(doc).map( d => ScalaWriter.RootQueryDefWriter.write(RootQueryDef(d))(doc)).mkString("\n")
+      })
+
+      assertM(
+        caseclassstrdef,
+        equalTo(
+          """
+            |case class userArgs(id: Option[Int])
+            |case class Queries(
+            |user: userArgs => Option[User]
             |)""".stripMargin
         )
       )
     },
-
   )
 )

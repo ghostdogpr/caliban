@@ -2,11 +2,7 @@ package caliban.modelgen
 
 import caliban.parsing.adt.{Document, ExecutableDefinition, Selection, Type}
 import caliban.parsing.adt.Type.{FieldDefinition, ListType, NamedType}
-import Generator.GQLWriter
-import Generator.GQLWriterContext
-import Generator.QueryDefinition
-import Generator.MutationDefinition
-import Generator.SubscriptionDefinition
+import Generator.{GQLWriter, GQLWriterContext, MutationDefinition, QueryArgs, QueryDef, RootQueryDef, SubscriptionDefinition}
 import caliban.parsing.adt.ExecutableDefinition.{FragmentDefinition, OperationDefinition, TypeDefinition}
 import caliban.parsing.adt.Selection.{Field, FragmentSpread, InlineFragment}
 
@@ -17,7 +13,9 @@ object ScalaWriter {
     implicit val typeWriter         = TypeWriter
     implicit val typeDefWriter      = TypeDefinitionWriter
     implicit val docWriter          = DocumentWriter
-    implicit val queryWriter        = QueryWriter
+    implicit val rootQueryWriter    = RootQueryDefWriter
+    implicit val queryWriter        = QueryDefWriter
+    implicit val queryArgsWriter    = QueryArgsWriter
     implicit val mutationWriter     = MutationWriter
     implicit val subscriptionWriter = SubscriptionWriter
     implicit val fragmentWriter     = FragmentWriter
@@ -36,13 +34,7 @@ object ScalaWriter {
         .mkString("\n\n")}
       }
 
-      case class Queries(
-        ${Document
-        .queryDefinitions(doc)
-        .map(QueryDefinition(_))
-        .map(GQLWriter[QueryDefinition].write(_)(schema))
-        .mkString("\n\n")}
-      )
+      ${Document.typeDefinition("Query")(schema).map(t => GQLWriter[RootQueryDef].write(RootQueryDef(t))(schema))}
 
       object Mutations {
         ${Document
@@ -72,7 +64,6 @@ object ScalaWriter {
   }
 
   object SelectionTypeWriter extends GQLWriter[Selection] {
-    def dick: String = ""
     override def write(s: Selection)(schema: Document)(implicit context: GQLWriterContext): String = {
       import context._
 
@@ -88,9 +79,15 @@ object ScalaWriter {
     override def write(a: FragmentDefinition)(schema: Document)(implicit context: GQLWriterContext): String = {
       import context._
 
-      val gqlType = Document.typeDefinition(a.name)(schema)
-      val selection = a.selectionSet.zip(a.selectionSet.map(GQLWriter[Selection].write(_)(schema))).map(_._2)
-      s"""case class ${a.name}(${selection.mkString(",")})"""
+      val gqlType = Document.typeDefinition(a.typeCondition.name)(schema) //maybe as second parameter???
+
+      val fields = for {
+        selection <- a.selectionSet
+        fieldName = GQLWriter[Selection].write(selection)(schema)
+        field = gqlType.flatMap(_.children.find(_.name == fieldName)).map(GQLWriter[FieldDefinition].write(_)(schema)).getOrElse("Nothing")
+      } yield s"$field"
+
+      s"""case class ${a.name}(${fields.mkString(", ")})"""
     }
   }
 
@@ -102,14 +99,32 @@ object ScalaWriter {
     override def write(a: MutationDefinition)(schema: Document)(implicit context: GQLWriterContext): String = ???
   }
 
-  object QueryWriter extends GQLWriter[QueryDefinition] {
-    override def write(queryDef: QueryDefinition)(schema: Document)(implicit context: GQLWriterContext): String = {
+  object QueryArgsWriter extends GQLWriter[QueryArgs] {
+    override def write(queryDef: QueryArgs)(schema: Document)(implicit context: GQLWriterContext): String = {
       import context._
-      val query = queryDef.op
-      val queryName = query.name.getOrElse(s"UnnamedQuery")
-      val queryArgs = query.variableDefinitions.map( v => GQLWriter[Type].write(v.variableType)(schema))
-      val returnType = query.selectionSet.map( s => s )
-      s"""${queryName}: (${queryArgs}) => """
+
+
+      s"case class ${queryDef.op.name}Args(${queryDef.op.args.map(arg => s"${arg._1}: ${GQLWriter[Type].write(arg._2)(schema)}").mkString(", ")})"
+    }
+  }
+
+  object QueryDefWriter extends GQLWriter[QueryDef] {
+    override def write(queryDef: QueryDef)(schema: Document)(implicit context: GQLWriterContext): String = {
+      import context._
+
+      s"${queryDef.op.name}: ${queryDef.op.name}Args => ${GQLWriter[Type].write(queryDef.op.ofType)(schema)}"
+    }
+  }
+
+  object RootQueryDefWriter extends GQLWriter[RootQueryDef] {
+    override def write(queryDef: RootQueryDef)(schema: Document)(implicit context: GQLWriterContext): String = {
+      import context._
+
+      s"""
+        |${queryDef.op.children.map(c => GQLWriter[QueryArgs].write(QueryArgs(c))(schema)).mkString(",\n")}
+        |case class Queries(
+        |${queryDef.op.children.map(c => GQLWriter[QueryDef].write(QueryDef(c))(schema)).mkString(",\n")}
+        |)""".stripMargin
     }
   }
 

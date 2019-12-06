@@ -21,6 +21,13 @@ object Document {
     definitions[TypeDefinition](_: Document)
       .find(t => t.name == name)
 
+  /**
+   * Will find ExecutableDefinition of type T in provided doc
+   * @param doc
+   * @param tag
+   * @tparam T
+   * @return
+   */
   def definitions[T <: ExecutableDefinition](doc: Document)(implicit tag: ClassTag[T]): List[T] =
     doc.definitions.flatMap {
       case t: T => List(t)

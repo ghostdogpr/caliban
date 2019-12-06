@@ -18,14 +18,18 @@ object Generator {
     implicit val typeWriter: GQLWriter[Type]
     implicit val typeDefWriter: GQLWriter[TypeDefinition]
     implicit val docWriter: GQLWriter[Document]
-    implicit val queryWriter: GQLWriter[QueryDefinition]
+    implicit val rootQueryWriter: GQLWriter[RootQueryDef]
+    implicit val queryWriter: GQLWriter[QueryDef]
+    implicit val queryArgsWriter: GQLWriter[QueryArgs]
     implicit val mutationWriter: GQLWriter[MutationDefinition]
     implicit val subscriptionWriter: GQLWriter[SubscriptionDefinition]
     implicit val fragmentWriter: GQLWriter[FragmentDefinition]
     implicit val selectionWriter: GQLWriter[Selection]
   }
 
-  case class QueryDefinition(op: OperationDefinition)
+  case class RootQueryDef(op: TypeDefinition)
+  case class QueryDef(op: FieldDefinition)
+  case class QueryArgs(op: FieldDefinition)
 
   case class MutationDefinition(op: OperationDefinition)
 
