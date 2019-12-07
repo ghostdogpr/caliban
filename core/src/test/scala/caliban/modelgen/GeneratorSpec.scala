@@ -1,5 +1,5 @@
 package caliban.modelgen
-import caliban.modelgen.Generator.{RootMutationDef, RootQueryDef, RootSubscriptionDef}
+import caliban.modelgen.Generator.{Args, RootMutationDef, RootQueryDef, RootSubscriptionDef}
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document
 import caliban.parsing.adt.ExecutableDefinition.{FragmentDefinition, TypeDefinition}
@@ -8,11 +8,11 @@ import zio.test._
 import zio._
 object GeneratorSpec extends DefaultRunnableSpec(
   suite("Generator single values")(
-    testM("simple type") {
+    testM("type with field parameter") {
       val gqltype =
         """
           type Hero {
-                name(pad: Int!): String! @skip(if: $someTestM)
+                name(pad: Int!): String!
                 nick: String!
                 bday: Int
               }
@@ -20,14 +20,28 @@ object GeneratorSpec extends DefaultRunnableSpec(
 
       implicit val writer = ScalaWriter.DefaultGQLWriter
 
-      val caseclassstrdef = Parser.parseQuery(gqltype).map(doc => {
+      val typeCaseClass = Parser.parseQuery(gqltype).map(doc => {
         Document.typeDefinitions(doc).map(ScalaWriter.TypeDefinitionWriter.write(_)(doc)).mkString("\n")
       })
 
+      val typeCaseClassArgs = Parser.parseQuery(gqltype).map(doc => {
+        (for {
+          typeDef <- Document.typeDefinitions(doc)
+          typeDefField <- typeDef.children
+          argClass = ScalaWriter.ArgsWriter.write(Args(typeDefField))("Hero")
+          if (argClass.length > 0)
+        } yield (argClass)).mkString("\n")
+      })
+
       assertM(
-        caseclassstrdef,
+        typeCaseClass,
         equalTo(
-          "case class Hero(name: String, nick: String, bday: Option[Int])"
+          "case class Hero(name: HeroNameArgs => String, nick: String, bday: Option[Int])"
+        )
+      ) andThen assertM(
+        typeCaseClassArgs,
+        equalTo(
+          "case class HeroNameArgs(pad: Int)"
         )
       )
     },
@@ -54,7 +68,7 @@ object GeneratorSpec extends DefaultRunnableSpec(
       assertM(
         caseclassstrdef,
         equalTo(
-          """case class friendFields(id: Option[Int], name: Option[String], profilePic: Option[String])""".stripMargin
+          """case class FriendFields(id: Option[Int], name: Option[String], profilePic: Option[String])""".stripMargin
         )
       )
     },
@@ -79,9 +93,9 @@ object GeneratorSpec extends DefaultRunnableSpec(
         caseclassstrdef,
         equalTo(
           """
-            |case class userArgs(id: Option[Int])
+            |case class UserArgs(id: Option[Int])
             |case class Queries(
-            |user: userArgs => Option[User]
+            |user: UserArgs => Option[User]
             |)""".stripMargin
         )
       )
@@ -103,9 +117,9 @@ object GeneratorSpec extends DefaultRunnableSpec(
         caseclassstrdef,
         equalTo(
           """
-            |case class setMessageArgs(message: Option[String])
+            |case class SetMessageArgs(message: Option[String])
             |case class Mutations(
-            |setMessage: setMessageArgs => Option[String]
+            |setMessage: SetMessageArgs => Option[String]
             |)""".stripMargin
         )
       )
