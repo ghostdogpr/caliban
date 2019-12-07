@@ -40,7 +40,7 @@ object Introspector {
       args => types.find(_.name.contains(args.name)).get
     )
     val introspectionSchema = Schema.gen[__Introspection]
-    RootSchema(Operation(introspectionSchema, resolver), None, None)
+    RootSchema(Operation(introspectionSchema.toType(), introspectionSchema.resolve(resolver)), None, None)
   }
 
   private[caliban] def isIntrospection(document: Document): Boolean =

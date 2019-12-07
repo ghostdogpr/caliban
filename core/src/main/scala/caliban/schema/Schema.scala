@@ -1,12 +1,14 @@
 package caliban.schema
 
+import scala.annotation.implicitNotFound
 import scala.language.experimental.macros
+import java.util.UUID
 import caliban.CalibanError.ExecutionError
-import caliban.ResponseValue
+import caliban.{ InputValue, ResponseValue }
 import caliban.ResponseValue._
+import caliban.Value._
 import caliban.introspection.adt._
-import caliban.parsing.adt.Value
-import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLName }
+import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLInputName, GQLName }
 import caliban.schema.Step._
 import caliban.schema.Types._
 import magnolia._
@@ -18,6 +20,14 @@ import zquery.ZQuery
  * Typeclass that defines how to map the type `T` to the according GraphQL concepts: how to introspect it and how to resolve it.
  * `R` is the ZIO environment required by the effects in the schema (`Any` if nothing required).
  */
+@implicitNotFound(
+  """Cannot find a Schema for type ${T}.
+     Caliban derives a Schema automatically for basic Scala types, case classes and sealed traits, but
+     you need to manually provide an implicit Schema for other types that could be nested in ${T}.
+     If you use a custom type as an argument, you also need to provide an implicit ArgBuilder for that type.
+     See https://ghostdogpr.github.io/caliban/docs/schema.html for more information.
+"""
+)
 trait Schema[-R, T] { self =>
 
   /**
@@ -85,7 +95,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
 
       override def toType(isInput: Boolean): __Type =
         if (isInput) {
-          makeInputObject(Some(name), description, fields.map {
+          makeInputObject(Some(customizeInputTypeName(name)), description, fields.map {
             case (f, _) => __InputValue(f.name, f.description, f.`type`, None)
           })
         } else makeObject(Some(name), description, fields.map(_._1))
@@ -94,13 +104,16 @@ trait GenericSchema[R] extends DerivationSchema[R] {
         ObjectStep(name, fields.map { case (f, plan) => f.name -> plan(value) }.toMap)
     }
 
-  implicit val unitSchema: Schema[Any, Unit]       = scalarSchema("Unit", None, _ => ObjectValue(Nil))
-  implicit val booleanSchema: Schema[Any, Boolean] = scalarSchema("Boolean", None, BooleanValue)
-  implicit val stringSchema: Schema[Any, String]   = scalarSchema("String", None, StringValue)
-  implicit val intSchema: Schema[Any, Int]         = scalarSchema("Int", None, i => IntValue(i.toLong))
-  implicit val longSchema: Schema[Any, Long]       = scalarSchema("Long", None, IntValue)
-  implicit val floatSchema: Schema[Any, Float]     = scalarSchema("Float", None, i => FloatValue(i.toDouble))
-  implicit val doubleSchema: Schema[Any, Double]   = scalarSchema("Double", None, FloatValue)
+  implicit val unitSchema: Schema[Any, Unit]             = scalarSchema("Unit", None, _ => ObjectValue(Nil))
+  implicit val booleanSchema: Schema[Any, Boolean]       = scalarSchema("Boolean", None, BooleanValue)
+  implicit val stringSchema: Schema[Any, String]         = scalarSchema("String", None, StringValue)
+  implicit val uuidSchema: Schema[Any, UUID]             = stringSchema.contramap(_.toString)
+  implicit val intSchema: Schema[Any, Int]               = scalarSchema("Int", None, IntValue(_))
+  implicit val longSchema: Schema[Any, Long]             = scalarSchema("Long", None, IntValue(_))
+  implicit val bigIntSchema: Schema[Any, BigInt]         = scalarSchema("BigInt", None, IntValue(_))
+  implicit val doubleSchema: Schema[Any, Double]         = scalarSchema("Float", None, FloatValue(_))
+  implicit val floatSchema: Schema[Any, Float]           = scalarSchema("Float", None, FloatValue(_))
+  implicit val bigDecimalSchema: Schema[Any, BigDecimal] = scalarSchema("BigDecimal", None, FloatValue(_))
 
   implicit def optionSchema[A](implicit ev: Schema[R, A]): Schema[R, Option[A]] = new Schema[R, Option[A]] {
     override def optional: Boolean                        = true
@@ -207,41 +220,61 @@ trait GenericSchema[R] extends DerivationSchema[R] {
       override def optional: Boolean                        = ev2.optional
       override def toType(isInput: Boolean = false): __Type = ev2.toType(isInput)
 
-      override def resolve(value: A => B): Step[RA with RB] =
+      override def resolve(f: A => B): Step[RA with RB] =
         FunctionStep(
           args =>
-            QueryStep(
-              ZQuery.fromEffect(arg1.build(Value.ObjectValue(args)).map(argValue => ev2.resolve(value(argValue))))
-            )
+            arg1.build(InputValue.ObjectValue(args)) match {
+              case Left(error)  => QueryStep(ZQuery.fail(error))
+              case Right(value) => ev2.resolve(f(value))
+            }
         )
+    }
+  implicit def infallibleEffectSchema[R1 <: R, A](implicit ev: Schema[R, A]): Schema[R1, ZIO[R1, Nothing, A]] =
+    new Schema[R1, ZIO[R1, Nothing, A]] {
+      override def optional: Boolean                        = ev.optional
+      override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
+      override def resolve(value: ZIO[R1, Nothing, A]): Step[R1] =
+        QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
     }
   implicit def effectSchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZIO[R1, E, A]] =
     new Schema[R1, ZIO[R1, E, A]] {
-      override def optional: Boolean                        = ev.optional
+      override def optional: Boolean                        = true
       override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
       override def resolve(value: ZIO[R1, E, A]): Step[R1] =
-        QueryStep(
-          ZQuery.fromEffect(value.bimap(GenericSchema.effectfulExecutionError, ev.resolve))
-        )
+        QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
+    }
+  implicit def infallibleQuerySchema[R1 <: R, A](implicit ev: Schema[R, A]): Schema[R1, ZQuery[R1, Nothing, A]] =
+    new Schema[R1, ZQuery[R1, Nothing, A]] {
+      override def optional: Boolean                        = ev.optional
+      override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
+      override def resolve(value: ZQuery[R1, Nothing, A]): Step[R1] =
+        QueryStep(value.map(ev.resolve))
     }
   implicit def querySchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZQuery[R1, E, A]] =
     new Schema[R1, ZQuery[R1, E, A]] {
-      override def optional: Boolean                = ev.optional
+      override def optional: Boolean                = true
       override def toType(isInput: Boolean): __Type = ev.toType(isInput)
       override def resolve(value: ZQuery[R1, E, A]): Step[R1] =
-        QueryStep(value.map(ev.resolve).mapError("CalibanExecutionError")(GenericSchema.effectfulExecutionError))
+        QueryStep(value.map(ev.resolve))
     }
   implicit def streamSchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZStream[R1, E, A]] =
     new Schema[R1, ZStream[R1, E, A]] {
-      override def optional: Boolean                        = ev.optional
-      override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
-      override def resolve(value: ZStream[R1, E, A]): Step[R1] =
-        StreamStep(value.bimap(GenericSchema.effectfulExecutionError, ev.resolve))
+      override def optional: Boolean                           = ev.optional
+      override def toType(isInput: Boolean = false): __Type    = ev.toType(isInput)
+      override def resolve(value: ZStream[R1, E, A]): Step[R1] = StreamStep(value.map(ev.resolve))
     }
 
 }
 
 trait DerivationSchema[R] {
+
+  /**
+   * Default naming logic for input types.
+   * This is needed to avoid a name clash between a type used as an input and the same type used as an output.
+   * GraphQL needs 2 different types, and they can't have the same name.
+   * By default, we add the "Input" suffix after the type name.
+   */
+  def customizeInputTypeName(name: String): String = s"${name}Input"
 
   type Typeclass[T] = Schema[R, T]
 
@@ -249,7 +282,8 @@ trait DerivationSchema[R] {
     override def toType(isInput: Boolean = false): __Type =
       if (isInput)
         makeInputObject(
-          Some(getName(ctx)),
+          Some(ctx.annotations.collectFirst { case GQLInputName(suffix) => suffix }
+            .getOrElse(customizeInputTypeName(getName(ctx)))),
           getDescription(ctx),
           ctx.parameters
             .map(
@@ -285,14 +319,14 @@ trait DerivationSchema[R] {
         )
 
     override def resolve(value: T): Step[R] =
-      if (ctx.isObject) PureStep(ResponseValue.EnumValue(getName(ctx)))
+      if (ctx.isObject) PureStep(EnumValue(getName(ctx)))
       else ObjectStep(getName(ctx), ctx.parameters.map(p => p.label -> p.typeclass.resolve(p.dereference(value))).toMap)
   }
 
   def dispatch[T](ctx: SealedTrait[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
     override def toType(isInput: Boolean = false): __Type = {
       val subtypes =
-        ctx.subtypes.map(s => s.typeclass.toType(isInput) -> s.annotations).toList.sortBy(_._1.name.getOrElse(""))
+        ctx.subtypes.map(s => s.typeclass.toType() -> s.annotations).toList.sortBy(_._1.name.getOrElse(""))
       val isEnum = subtypes.forall {
         case (t, _) if t.fields(__DeprecatedArgs(Some(true))).forall(_.isEmpty) && t.inputFields.forall(_.isEmpty) =>
           true
@@ -374,8 +408,8 @@ trait DerivationSchema[R] {
 
 object GenericSchema {
 
-  def effectfulExecutionError(e: Throwable): ExecutionError = e match {
+  def effectfulExecutionError(fieldName: String, e: Throwable): ExecutionError = e match {
     case e: ExecutionError => e
-    case other             => ExecutionError("Caught error during execution of effectful field", Some(other))
+    case other             => ExecutionError("Effect failure", Some(fieldName), Some(other))
   }
 }

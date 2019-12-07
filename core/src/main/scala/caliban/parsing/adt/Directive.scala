@@ -1,3 +1,5 @@
 package caliban.parsing.adt
 
-case class Directive(name: String, arguments: Map[String, Value])
+import caliban.InputValue
+
+case class Directive(name: String, arguments: Map[String, InputValue])

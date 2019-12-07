@@ -126,7 +126,7 @@ class GraphQLBenchmarks {
                 """
 
   val zioRuntime: DefaultRuntime = new DefaultRuntime {
-    override val Platform: Platform = PlatformLive.Benchmark
+    override val platform: Platform = PlatformLive.Benchmark
   }
 
   case class CharactersArgs(origin: Option[Origin])
@@ -144,7 +144,7 @@ class GraphQLBenchmarks {
     )
   )
 
-  val interpreter: GraphQL[Any, Query, Unit, Unit] = graphQL(resolver)
+  val interpreter: GraphQL[Any, Query, Unit, Unit, CalibanError] = graphQL(resolver)
 
   @Benchmark
   def simpleCaliban(): Unit = {
