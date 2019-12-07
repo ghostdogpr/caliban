@@ -415,6 +415,7 @@ object ParserSpec
               |"nick desc" nick: String!
               |bday: Int
               |suits: [String]
+              |powers: [String!]!
               |}""".stripMargin
           assertM(
             Parser.parseQuery(gqltype), equalTo(
@@ -425,7 +426,8 @@ object ParserSpec
                       FieldDefinition(Some("name desc"), "name", List("pad" -> NamedType("Int", true)), NamedType("String", true), List(Directive("skip", Map("if" -> VariableValue("someTestM"))))),
                       FieldDefinition(Some("nick desc"), "nick", List(), NamedType("String", true), List()),
                       FieldDefinition(None, "bday", List(), NamedType("Int", false), List()),
-                      FieldDefinition(None, "suits", List(), ListType(NamedType("String", false), true), List()),
+                      FieldDefinition(None, "suits", List(), ListType(NamedType("String", false), false), List()),
+                      FieldDefinition(None, "powers", List(), ListType(NamedType("String", true), true), List()),
                     )
 
                   )

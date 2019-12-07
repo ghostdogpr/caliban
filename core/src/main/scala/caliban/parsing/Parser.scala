@@ -123,7 +123,7 @@ object Parser {
   private def selectionSet[_: P]: P[List[Selection]] = P("{" ~/ selection.rep ~ "}").map(_.toList)
 
   private def namedType[_: P]: P[NamedType] = P(name.filter(_ != "null")).map(NamedType(_, nonNull = false))
-  private def listType[_: P]: P[ListType]   = P("[" ~/ type_ ~ "]").map(t => ListType(t, nonNull = false))
+  private def listType[_: P]: P[ListType]   = P("[" ~ type_ ~ "]").map(t => ListType(t, nonNull = false))
 
   private def argumentDefinition[_: P]: P[(String, Type)]     = P(name ~ ":" ~ type_)
   private def argumentDefinitions[_: P]: P[List[(String, Type)]] = P("(" ~/ argumentDefinition.rep ~ ")").map(t => t.toList)
