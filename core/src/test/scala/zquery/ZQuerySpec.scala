@@ -18,8 +18,8 @@ object ZQuerySpec
           } yield assert(log, hasSize(equalTo(2)))
         },
         testM("mapError does not prevent batching") {
-          val a = getUserNameById(1).zip(getUserNameById(2)).mapError("identity")(identity)
-          val b = getUserNameById(3).zip(getUserNameById(4)).mapError("identity")(identity)
+          val a = getUserNameById(1).zip(getUserNameById(2)).mapError(identity)
+          val b = getUserNameById(3).zip(getUserNameById(4)).mapError(identity)
           for {
             result <- ZQuery.collectAllPar(List(a, b)).run
             log    <- TestConsole.output
@@ -45,18 +45,18 @@ object ZQuerySpecUtil {
   val userIds: List[Int]          = (1 to 26).toList
   val userNames: Map[Int, String] = userIds.zip(('a' to 'z').map(_.toString)).toMap
 
-  sealed trait UserRequest[+A] extends Request[A]
+  sealed trait UserRequest[+A] extends Request[Nothing, A]
 
   case object GetAllIds                 extends UserRequest[List[Int]]
   final case class GetNameById(id: Int) extends UserRequest[String]
 
   val UserRequestDataSource =
-    DataSource.Service[Console, Nothing, UserRequest[Any]]("UserRequestDataSource") { requests =>
+    DataSource.Service[Console, UserRequest[Any]]("UserRequestDataSource") { requests =>
       console.putStrLn("Running query") *> ZIO.succeed {
         requests.foldLeft(CompletedRequestMap.empty) {
-          case (completedRequests, GetAllIds) => completedRequests.insert(GetAllIds)(userIds)
+          case (completedRequests, GetAllIds) => completedRequests.insert(GetAllIds)(Right(userIds))
           case (completedRequests, GetNameById(id)) =>
-            userNames.get(id).fold(completedRequests)(completedRequests.insert(GetNameById(id)))
+            userNames.get(id).fold(completedRequests)(name => completedRequests.insert(GetNameById(id))(Right(name)))
         }
       }
     }

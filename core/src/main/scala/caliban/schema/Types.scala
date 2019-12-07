@@ -38,7 +38,7 @@ object Types {
     )
 
   def makeInputObject(name: Option[String], description: Option[String], fields: List[__InputValue]) =
-    __Type(__TypeKind.INPUT_OBJECT, name.map(_ + "Input"), description, inputFields = Some(fields))
+    __Type(__TypeKind.INPUT_OBJECT, name, description, inputFields = Some(fields))
 
   def makeUnion(name: Option[String], description: Option[String], subTypes: List[__Type]) =
     __Type(__TypeKind.UNION, name, description, possibleTypes = Some(subTypes))
@@ -53,7 +53,8 @@ object Types {
       case _ =>
         val map1 = t.name.fold(existingTypes)(name => existingTypes.updated(name, t))
         val embeddedTypes =
-          t.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).flatMap(f => f.`type` :: f.args.map(_.`type`))
+          t.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).flatMap(f => f.`type` :: f.args.map(_.`type`)) ++
+            t.inputFields.getOrElse(Nil).map(_.`type`)
         val map2 = embeddedTypes.foldLeft(map1) {
           case (types, f) =>
             val t = innerType(f())

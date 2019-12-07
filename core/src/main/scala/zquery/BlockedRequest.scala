@@ -10,20 +10,22 @@ import zio.Ref
  * results will be of the type requested.
  */
 private[zquery] sealed trait BlockedRequest[+A] {
-  type Value
+  type Failure
+  type Success
 
-  def request: Request[Value]
+  def request: Request[Failure, Success]
 
-  def result: Ref[Option[Value]]
+  def result: Ref[Option[Either[Failure, Success]]]
 }
 
 private[zquery] object BlockedRequest {
 
-  def apply[A, B](request0: A, result0: Ref[Option[B]])(
-    implicit ev: A <:< Request[B]
+  def apply[E, A, B](request0: A, result0: Ref[Option[Either[E, B]]])(
+    implicit ev: A <:< Request[E, B]
   ): BlockedRequest[A] =
     new BlockedRequest[A] {
-      type Value = B
+      type Failure = E
+      type Success = B
 
       val request = request0
 

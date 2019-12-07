@@ -35,6 +35,6 @@ object ExampleCatsInterop extends IOApp {
   override def run(args: List[String]): IO[ExitCode] =
     for {
       result <- interpreter.executeAsync[IO](query)
-      _      <- IO(println(result))
+      _      <- IO(println(result.data))
     } yield ExitCode.Success
 }

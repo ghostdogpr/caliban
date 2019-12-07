@@ -11,7 +11,7 @@ object Rendering {
     types.flatMap {
       case (_, t) =>
         t.kind match {
-          case __TypeKind.SCALAR   => None
+          case __TypeKind.SCALAR   => t.name.flatMap(name => if (isBuiltinScalar(name)) None else Some(s"scalar $name"))
           case __TypeKind.NON_NULL => None
           case __TypeKind.LIST     => None
           case __TypeKind.UNION =>
@@ -20,8 +20,7 @@ object Rendering {
               .flatMap(_.name)
               .mkString(" | ")}""")
           case _ =>
-            Some(s"""
-                    |${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} {
+            Some(s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} {
                     |  ${t.fields(__DeprecatedArgs()).getOrElse(Nil).map(renderField).mkString("\n  ")}${t.inputFields
                       .getOrElse(Nil)
                       .map(renderInputValue)
@@ -32,7 +31,7 @@ object Rendering {
                       .mkString("\n  ")}
                     |}""".stripMargin)
         }
-    }.mkString("\n")
+    }.mkString("\n\n")
 
   private def renderKind(kind: __TypeKind): String =
     kind match {
@@ -65,6 +64,9 @@ object Rendering {
     case Nil  => ""
     case list => s"(${list.map(a => s"${a.name}: ${renderTypeName(a.`type`())}").mkString(", ")})"
   }
+
+  private def isBuiltinScalar(name: String): Boolean =
+    name == "Int" || name == "Float" || name == "String" || name == "Boolean" || name == "ID"
 
   private[caliban] def renderTypeName(fieldType: __Type): String =
     fieldType.kind match {

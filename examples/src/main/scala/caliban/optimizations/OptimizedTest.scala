@@ -56,49 +56,49 @@ object OptimizedTest extends App with GenericSchema[Console] {
     args => getViewerFriendIdsAttendingEvent(id, args.first).flatMap(ZQuery.foreachPar(_)(getUser))
   )
 
-  case class GetUser(id: Int) extends Request[User]
-  val UserDataSource: DataSource.Service[Console, Nothing, GetUser] = DataSource.Service("UserDataSource") { requests =>
+  case class GetUser(id: Int) extends Request[Nothing, User]
+  val UserDataSource: DataSource.Service[Console, GetUser] = DataSource.Service("UserDataSource") { requests =>
     requests.toList match {
-      case head :: Nil => putStrLn("getUser").as(CompletedRequestMap.empty.insert(head)(fakeUser(head.id)))
+      case head :: Nil => putStrLn("getUser").as(CompletedRequestMap.empty.insert(head)(Right(fakeUser(head.id))))
       case list =>
         putStrLn("getUsers").as(list.foldLeft(CompletedRequestMap.empty) {
-          case (map, req) => map.insert(req)(fakeUser(req.id))
+          case (map, req) => map.insert(req)(Right(fakeUser(req.id)))
         })
     }
   }
 
-  case class GetEvent(id: Int) extends Request[Event]
-  val EventDataSource: DataSource.Service[Console, Nothing, GetEvent] =
+  case class GetEvent(id: Int) extends Request[Nothing, Event]
+  val EventDataSource: DataSource.Service[Console, GetEvent] =
     fromFunctionBatchedM("EventDataSource") { requests =>
       putStrLn("getEvents").as(requests.map(r => fakeEvent(r.id)))
     }
 
-  case class GetViewerMetadataForEvents(id: Int) extends Request[ViewerMetadata]
-  val ViewerMetadataDataSource: DataSource.Service[Console, Nothing, GetViewerMetadataForEvents] =
+  case class GetViewerMetadataForEvents(id: Int) extends Request[Nothing, ViewerMetadata]
+  val ViewerMetadataDataSource: DataSource.Service[Console, GetViewerMetadataForEvents] =
     fromFunctionBatchedM("ViewerMetadataDataSource") { requests =>
       putStrLn("getViewerMetadataForEvents").as(requests.map(_ => ViewerMetadata("")))
     }
 
-  case class GetVenue(id: Int) extends Request[Venue]
-  val VenueDataSource: DataSource.Service[Console, Nothing, GetVenue] =
+  case class GetVenue(id: Int) extends Request[Nothing, Venue]
+  val VenueDataSource: DataSource.Service[Console, GetVenue] =
     fromFunctionBatchedM("VenueDataSource") { requests =>
       putStrLn("getVenues").as(requests.map(_ => Venue("venue")))
     }
 
-  case class GetTags(ids: List[Int]) extends Request[List[Tag]]
-  val TagsDataSource: DataSource.Service[Console, Nothing, GetTags] =
+  case class GetTags(ids: List[Int]) extends Request[Nothing, List[Tag]]
+  val TagsDataSource: DataSource.Service[Console, GetTags] =
     fromFunctionBatchedM("TagsDataSource") { requests =>
       putStrLn("getTags").as(requests.map(_.ids.map(id => Tag(id.toString))))
     }
 
-  case class GetViewerFriendIdsAttendingEvent(id: Int, first: Int) extends Request[List[Int]]
-  val ViewerFriendDataSource: DataSource.Service[Console, Nothing, GetViewerFriendIdsAttendingEvent] =
+  case class GetViewerFriendIdsAttendingEvent(id: Int, first: Int) extends Request[Nothing, List[Int]]
+  val ViewerFriendDataSource: DataSource.Service[Console, GetViewerFriendIdsAttendingEvent] =
     fromFunctionBatchedM("ViewerFriendDataSource") { requests =>
       putStrLn("getViewerFriendIdsAttendingEvent").as(requests.map(r => (1 to r.first).toList))
     }
 
-  case class GetUpcomingEventIdsForUser(id: Int, first: Int) extends Request[List[Int]]
-  val UpcomingEventDataSource: DataSource.Service[Console, Nothing, GetUpcomingEventIdsForUser] =
+  case class GetUpcomingEventIdsForUser(id: Int, first: Int) extends Request[Nothing, List[Int]]
+  val UpcomingEventDataSource: DataSource.Service[Console, GetUpcomingEventIdsForUser] =
     fromFunctionBatchedM("UpcomingEventDataSource") { requests =>
       putStrLn("getUpcomingEventIdsForUser").as(requests.map(r => (1 to r.first).toList))
     }
@@ -122,9 +122,9 @@ object OptimizedTest extends App with GenericSchema[Console] {
   implicit val firstArgsSchema: Schema[Any, FirstArgs]           = Schema.gen[FirstArgs]
   implicit lazy val user: Schema[Console, User]                  = gen[User]
 
-  val resolver                                           = Queries(args => getUser(args.id))
-  val interpreter: GraphQL[Console, Queries, Unit, Unit] = GraphQL.graphQL(RootResolver(resolver))
+  val resolver    = Queries(args => getUser(args.id))
+  val interpreter = GraphQL.graphQL(RootResolver(resolver))
 
   override def run(args: List[String]): ZIO[zio.ZEnv, Nothing, Int] =
-    interpreter.execute(query).catchAll(err => putStrLn(err.toString)).as(0)
+    interpreter.execute(query).map(_.errors.length)
 }

@@ -26,7 +26,12 @@ object CalibanError {
   /**
    * Describes an error that happened while executing a query.
    */
-  case class ExecutionError(msg: String, innerThrowable: Option[Throwable] = None) extends CalibanError {
-    override def toString: String = s"""Execution error: $msg ${innerThrowable.map(_.toString).getOrElse("")}"""
+  case class ExecutionError(msg: String, fieldName: Option[String] = None, innerThrowable: Option[Throwable] = None)
+      extends CalibanError {
+    override def toString: String = {
+      val field = fieldName.fold("")(f => s" on field '$f'")
+      val inner = innerThrowable.fold("")(e => s" with ${e.toString}")
+      s"Execution error$field: $msg$inner"
+    }
   }
 }

@@ -1,10 +1,12 @@
 package caliban.parsing
 
 import caliban.CalibanError.ParsingError
+import caliban.InputValue
 import caliban.parsing.adt.ExecutableDefinition._
 import caliban.parsing.adt.Selection._
 import caliban.parsing.adt.Type._
-import caliban.parsing.adt.Value._
+import caliban.InputValue._
+import caliban.Value._
 import caliban.parsing.adt._
 import fastparse._
 import zio.{ IO, Task }
@@ -35,7 +37,7 @@ object Parser {
   private def nonZeroDigit[_: P]: P[Unit] = P(CharIn("1-9"))
   private def digit[_: P]: P[Unit]        = P("0" | nonZeroDigit)
   private def integerPart[_: P]: P[Unit]  = P((negativeSign.? ~~ "0") | (negativeSign.? ~~ nonZeroDigit ~~ digit.repX))
-  private def intValue[_: P]: P[IntValue] = integerPart.!.map(v => IntValue(v.toLong))
+  private def intValue[_: P]: P[IntValue] = integerPart.!.map(IntValue(_))
 
   private def sign[_: P]: P[Unit]              = P("-" | "+")
   private def exponentIndicator[_: P]: P[Unit] = P(CharIn("eE"))
@@ -44,7 +46,7 @@ object Parser {
 
   private def floatValue[_: P]: P[FloatValue] =
     P((integerPart ~~ fractionalPart) | (integerPart ~~ exponentPart) | (integerPart ~~ fractionalPart ~~ exponentPart)).!.map(
-      v => FloatValue(v.toDouble)
+      FloatValue(_)
     )
 
   private def hexDigit[_: P]: P[Unit] = P(CharIn("0-9a-fA-F"))
@@ -96,21 +98,21 @@ object Parser {
     l4.mkString("\n")
   }
 
-  private def nullValue[_: P]: P[Value]     = P("null").map(_ => NullValue)
-  private def enumValue[_: P]: P[Value]     = P(name).map(EnumValue)
-  private def listValue[_: P]: P[ListValue] = P("[" ~/ value.rep ~ "]").map(values => ListValue(values.toList))
+  private def nullValue[_: P]: P[InputValue] = P("null").map(_ => NullValue)
+  private def enumValue[_: P]: P[InputValue] = P(name).map(EnumValue)
+  private def listValue[_: P]: P[ListValue]  = P("[" ~/ value.rep ~ "]").map(values => ListValue(values.toList))
 
-  private def objectField[_: P]: P[(String, Value)] = P(name ~ ":" ~/ value)
+  private def objectField[_: P]: P[(String, InputValue)] = P(name ~ ":" ~/ value)
   private def objectValue[_: P]: P[ObjectValue] =
     P("{" ~ objectField.rep ~ "}").map(values => ObjectValue(values.toMap))
 
-  private def value[_: P]: P[Value] =
+  private def value[_: P]: P[InputValue] =
     P(floatValue | intValue | booleanValue | stringValue | nullValue | enumValue | listValue | objectValue | variable)
 
   private def alias[_: P]: P[String] = P(name ~ ":")
 
-  private def argument[_: P]: P[(String, Value)]     = P(name ~ ":" ~ value)
-  private def arguments[_: P]: P[Map[String, Value]] = P("(" ~/ argument.rep ~ ")").map(_.toMap)
+  private def argument[_: P]: P[(String, InputValue)]     = P(name ~ ":" ~ value)
+  private def arguments[_: P]: P[Map[String, InputValue]] = P("(" ~/ argument.rep ~ ")").map(_.toMap)
 
   private def directive[_: P]: P[Directive] = P("@" ~/ name ~ arguments).map {
     case (name, arguments) => Directive(name, arguments)
@@ -143,7 +145,7 @@ object Parser {
     P(variable ~ ":" ~/ type_ ~ defaultValue.? ~ directives).map {
       case (v, t, default, dirs) => VariableDefinition(v.name, t, default, dirs)
     }
-  private def defaultValue[_: P]: P[Value] = P("=" ~/ value)
+  private def defaultValue[_: P]: P[InputValue] = P("=" ~/ value)
 
   private def field[_: P]: P[Field] = P(alias.? ~ name ~ arguments.? ~ directives.? ~ selectionSet.?).map {
     case (alias, name, args, dirs, sels) =>
