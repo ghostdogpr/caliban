@@ -408,7 +408,7 @@ object ParserSpec
                         |}""".stripMargin
           assertM(Parser.parseQuery(query).run, fails(equalTo(ParsingError("Position 4:3, found \"}\\n}\""))))
         },
-        testM("simple type") {
+        testM("type") {
           val gqltype =
             """type Hero {
               |"name desc" name(pad: Int!): String! @skip(if: $someTestM)
@@ -417,6 +417,7 @@ object ParserSpec
               |suits: [String]
               |powers: [String!]!
               |}""".stripMargin
+          //planetSavedTimesCmp(moreThan: Int!)!: Int!
           assertM(
             Parser.parseQuery(gqltype), equalTo(
               Document(
@@ -428,6 +429,7 @@ object ParserSpec
                       FieldDefinition(None, "bday", List(), NamedType("Int", false), List()),
                       FieldDefinition(None, "suits", List(), ListType(NamedType("String", false), false), List()),
                       FieldDefinition(None, "powers", List(), ListType(NamedType("String", true), true), List()),
+//                      FieldDefinition(None, "planetSavedTimesCmp", List("moreThan" -> NamedType("Int", true)), NamedType("Int", true), List()),
                     )
 
                   )

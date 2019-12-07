@@ -2,10 +2,8 @@ package caliban.modelgen
 import caliban.modelgen.Generator.{Args, RootMutationDef, RootQueryDef, RootSubscriptionDef}
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document
-import caliban.parsing.adt.ExecutableDefinition.{FragmentDefinition, TypeDefinition}
 import zio.test.Assertion._
 import zio.test._
-import zio._
 object GeneratorSpec extends DefaultRunnableSpec(
   suite("Generator single values")(
     testM("type with field parameter") {
@@ -36,7 +34,7 @@ object GeneratorSpec extends DefaultRunnableSpec(
       assertM(
         typeCaseClass,
         equalTo(
-          "case class Hero(name: HeroNameArgs => String, nick: String, bday: Option[Int])"
+          "case class Hero(name: HeroNameArgs () => String, nick: String, bday: Option[Int])"
         )
       ) andThen assertM(
         typeCaseClassArgs,
@@ -72,11 +70,12 @@ object GeneratorSpec extends DefaultRunnableSpec(
         )
       )
     },
-    testM("simple query") {
+    testM("simple queries") {
       val query =
         """
          type Query {
            user(id: Int): User
+           userList: [User]!
          }
          type User {
            id: Int
@@ -93,10 +92,11 @@ object GeneratorSpec extends DefaultRunnableSpec(
         caseclassstrdef,
         equalTo(
           """
-            |case class UserArgs(id: Option[Int])
-            |case class Queries(
-            |user: UserArgs => Option[User]
-            |)""".stripMargin
+case class UserArgs(id: Option[Int])
+case class Queries(
+user: UserArgs => Option[User],
+userList: () => List[Option[User]]
+)""".stripMargin
         )
       )
     },

@@ -246,6 +246,7 @@ object Validator {
               )(validateFields(context, selectionSet, _))
           }
         case _: FragmentDefinition => IO.unit
+        case _: TypeDefinition     => IO.unit
       }
       .unit
 

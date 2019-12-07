@@ -1,15 +1,8 @@
 package caliban
 
-import java.io.{File, IOException}
-
-import scala.util.Try
-
-import caliban.Macros.gqldoc
-import caliban.modelgen.{Generator, ScalaWriter}
+import java.io.File
+import caliban.modelgen.{ Generator, ScalaWriter }
 import caliban.parsing.Parser
-import caliban.parsing.adt.Document
-import caliban.parsing.adt.Document.definitions
-import caliban.parsing.adt.ExecutableDefinition.OperationDefinition
 import zio._
 import zio.console._
 
@@ -37,15 +30,16 @@ object Cli extends App {
       schema_string <- Task(scala.io.Source.fromFile(schema_path).mkString)
       schema        <- Parser.parseQuery(schema_string)
       code          <- Task(Generator.generate(schema)(ScalaWriter.DefaultGQLWriter))
+      formatted     <- Task(Generator.format(code))
       file          <- Task(new File(to_path))
-      _ <- Task {
-            val pw = new java.io.PrintWriter(file)
-            try {
-              pw.println(code)
-            } finally {
-              pw.close()
+      _ <-  Task {
+              val pw = new java.io.PrintWriter(file)
+              try {
+                pw.println(formatted)
+              } finally {
+                pw.close()
+              }
             }
-          }
     } yield ()
 
 }

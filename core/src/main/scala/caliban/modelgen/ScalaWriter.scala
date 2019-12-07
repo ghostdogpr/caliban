@@ -30,35 +30,48 @@ object ScalaWriter {
   //  toString
   //  }
 
+  def reservedType(typeDefinition: TypeDefinition): Boolean =
+    typeDefinition.name == "Query" || typeDefinition.name == "Mutation" || typeDefinition.name == "Subscription"
+
   object DocumentWriter extends GQLWriter[Document, Any] {
     override def write(schema: Document)(nothing: Any)(implicit context: GQLWriterContext): String = {
       import context._
 
       s"""
+      import Types._
+      import Fragments._
+
       object Types {
         ${Document
-        .typeDefinitions(schema)
+        .typeDefinitions(schema).filterNot(reservedType)
+        .flatMap(_.children.filter(_.args.nonEmpty).map(c => GQLWriter[Args, String].write(Args(c))("")))
+        .mkString("\n")
+        }
+        ${Document
+        .typeDefinitions(schema).filterNot(reservedType)
         .map(GQLWriter[TypeDefinition, Document].write(_)(schema))
-        .mkString("\n\n")}
+        .mkString("\n")}
       }
 
-      ${Document
-        .typeDefinition("Query")(schema)
-        .map(t => GQLWriter[RootQueryDef, Document].write(RootQueryDef(t))(schema))}
+      object Operations {
+        ${Document
+          .typeDefinition("Query")(schema)
+          .map(t => GQLWriter[RootQueryDef, Document].write(RootQueryDef(t))(schema)).getOrElse("")}
 
-      ${Document
-        .typeDefinition("Mutation")(schema)
-        .map(t => GQLWriter[RootMutationDef, Document].write(RootMutationDef(t))(schema))}
+        ${Document
+          .typeDefinition("Mutation")(schema)
+          .map(t => GQLWriter[RootMutationDef, Document].write(RootMutationDef(t))(schema)).getOrElse("")}
 
-      ${Document
-        .typeDefinition("Subscription")(schema)
-        .map(t => GQLWriter[RootSubscriptionDef, Document].write(RootSubscriptionDef(t))(schema))}
+        ${Document
+          .typeDefinition("Subscription")(schema)
+          .map(t => GQLWriter[RootSubscriptionDef, Document].write(RootSubscriptionDef(t))(schema)).getOrElse("")}
+      }
 
       object Fragments {
         ${Document
         .fragmentDefinitions(schema)
         .map(GQLWriter[FragmentDefinition, Document].write(_)(schema))
-        .mkString("\n\n")}
+        .mkString("\n")}
       }
       """
     }
@@ -103,7 +116,9 @@ object ScalaWriter {
     override def write(queryDef: QueryDef)(schema: Document)(implicit context: GQLWriterContext): String = {
       import context._
 
-      s"${queryDef.op.name}: ${queryDef.op.name.capitalize}Args => ${GQLWriter[Type, Any].write(queryDef.op.ofType)(Nil)}"
+      val argsName = if (queryDef.op.args.nonEmpty) s"${queryDef.op.name.capitalize}Args" else "()"
+
+      s"${queryDef.op.name}: ${argsName} => ${GQLWriter[Type, Any].write(queryDef.op.ofType)(Nil)}"
     }
   }
 
@@ -112,7 +127,8 @@ object ScalaWriter {
       import context._
 
       s"""
-         |${queryDef.op.children.map(c => GQLWriter[Args, String].write(Args(c))("")).mkString(",\n")}
+         |${queryDef.op.children.filter(_.args.nonEmpty)
+           .map(c => GQLWriter[Args, String].write(Args(c))("")).mkString(",\n")}
          |case class Queries(
          |${queryDef.op.children.map(c => GQLWriter[QueryDef, Document].write(QueryDef(c))(schema)).mkString(",\n")}
          |)""".stripMargin
@@ -123,7 +139,9 @@ object ScalaWriter {
     override def write(mutationDef: MutationDef)(schema: Document)(implicit context: GQLWriterContext): String = {
       import context._
 
-      s"${mutationDef.op.name}: ${mutationDef.op.name.capitalize}Args => ${GQLWriter[Type, Any].write(mutationDef.op.ofType)(Nil)}"
+      val argsName = if (mutationDef.op.args.nonEmpty) s"${mutationDef.op.name.capitalize}Args" else "()"
+
+      s"${mutationDef.op.name}: $argsName => ${GQLWriter[Type, Any].write(mutationDef.op.ofType)(Nil)}"
     }
   }
 
@@ -132,7 +150,7 @@ object ScalaWriter {
       import context._
 
       s"""
-         |${mutationDef.op.children
+         |${mutationDef.op.children.filter(_.args.nonEmpty)
            .map(c => GQLWriter[Args, String].write(Args(c))(""))
            .mkString(",\n")}
          |case class Mutations(
@@ -147,9 +165,9 @@ object ScalaWriter {
     )(schema: Document)(implicit context: GQLWriterContext): String = {
       import context._
 
-      "%s: %sArgs => ZStream[Console, Nothing, %s]".format(
+      "%s: %s => ZStream[Console, Nothing, %s]".format(
         subscriptionDef.op.name,
-        subscriptionDef.op.name.capitalize,
+        if (subscriptionDef.op.args.nonEmpty) s"${subscriptionDef.op.name.capitalize}Args" else "()",
         GQLWriter[Type, Any]
           .write(subscriptionDef.op.ofType)(Nil)
       )
@@ -163,7 +181,7 @@ object ScalaWriter {
       import context._
 
       s"""
-         |${subscriptionDef.op.children
+         |${subscriptionDef.op.children.filter(_.args.nonEmpty)
            .map(c => GQLWriter[Args, String].write(Args(c))(""))
            .mkString(",\n")}
          |case class Subscriptions(
