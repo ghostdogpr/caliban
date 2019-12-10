@@ -2,34 +2,51 @@ package caliban.akkahttp
 
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
-import akka.stream.ActorMaterializer
 import akka.http.scaladsl.server.Directives._
-import caliban.{AkkaHttpAdapter, ExampleService, RootResolver}
-import caliban.ExampleApp.{Mutations, Queries, Subscriptions}
-import caliban.ExampleData.sampleCharacters
+import akka.stream.ActorMaterializer
+import caliban.ExampleData.{Character, CharacterArgs, CharactersArgs, Role, sampleCharacters}
 import caliban.GraphQL.graphQL
-import zio.DefaultRuntime
+import caliban.schema.Annotations.{GQLDeprecated, GQLDescription}
+import caliban.schema.GenericSchema
+import caliban.{AkkaHttpAdapter, ExampleService, RootResolver}
+import zio.clock.Clock
+import zio.console.Console
+import zio.stream.ZStream
+import zio.{DefaultRuntime, URIO}
 
 import scala.io.StdIn
 
-object ExampleApp extends App {
+object ExampleApp extends App with GenericSchema[Console with Clock] {
 
   implicit val system = ActorSystem()
   implicit val materializer = ActorMaterializer()
   implicit val executionContext = system.dispatcher
   implicit val defaultRuntime = new DefaultRuntime {}
 
-  case class Character(name: String)
-  def getCharacters: List[Character] = List(Character("Tobias"), Character("Jonas"), Character("Caliban"))
-  def getCharacter(name: String): Option[Character] = getCharacters.find(_.name == name)
+  implicit val roleSchema = gen[Role]
+  implicit val characterSchema = gen[Character]
+  implicit val characterArgsSchema = gen[CharacterArgs]
+  implicit val charactersArgsSchema = gen[CharactersArgs]
 
-  case class CharacterName(name: String)
-  case class Queries(characters: List[Character],
-                     character: CharacterName => Option[Character])
+  case class Queries(
+                      @GQLDescription("Return all characters from a given origin")
+                      characters: CharactersArgs => URIO[Console, List[Character]],
+                      @GQLDeprecated("Use `characters`")
+                      character: CharacterArgs => URIO[Console, Option[Character]]
+                    )
+  case class Mutations(deleteCharacter: CharacterArgs => URIO[Console, Boolean])
+  case class Subscriptions(characterDeleted: ZStream[Console, Nothing, String])
 
-  val queries = Queries(getCharacters, args => getCharacter(args.name))
-  val interpreter = graphQL(RootResolver(queries))
-
+  val interpreter = defaultRuntime.unsafeRun(ExampleService.make(sampleCharacters).map(service => {
+    graphQL(
+      RootResolver(
+        Queries(
+          args => service.getCharacters(args.origin),
+          args => service.findCharacter(args.name)
+        ),
+        Mutations(args => service.deleteCharacter(args.name)),
+        Subscriptions(service.deletedEvents)))
+  }))
 
   /**
    * curl -X POST \
