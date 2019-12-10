@@ -1,9 +1,10 @@
-package caliban
+package caliban.http4s
 
 import caliban.ExampleData._
 import caliban.GraphQL._
 import caliban.schema.Annotations.{GQLDeprecated, GQLDescription}
 import caliban.schema.GenericSchema
+import caliban.{ExampleService, Http4sAdapter, RootResolver}
 import cats.data.Kleisli
 import cats.effect.Blocker
 import org.http4s.StaticFile
