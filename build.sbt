@@ -118,13 +118,10 @@ lazy val akkaHttp = project
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "dev.zio"           %% "zio-interop-cats" % "2.0.0.0-RC10",
-      "org.typelevel"     %% "cats-effect"      % "2.0.0",
-      "com.typesafe.akka" %% "akka-http"        % "10.1.11",
-      "com.typesafe.akka" %% "akka-stream"      % "2.5.26",
-      "de.heikoseeberger" %% "akka-http-circe"  % "1.29.1",
-      "io.circe"          %% "circe-parser"     % "0.12.3",
-      "io.circe"          %% "circe-generic"    % "0.12.3",
+      "com.typesafe.akka" %% "akka-http"       % "10.1.11",
+      "com.typesafe.akka" %% "akka-stream"     % "2.5.26",
+      "de.heikoseeberger" %% "akka-http-circe" % "1.29.1",
+      "io.circe"          %% "circe-parser"    % "0.12.3",
       compilerPlugin(
         ("org.typelevel" %% "kind-projector" % "0.11.0")
           .cross(CrossVersion.full)
