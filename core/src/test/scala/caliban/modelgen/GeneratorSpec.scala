@@ -148,5 +148,62 @@ userList: () => List[Option[User]]
         )
       )
     },
+    testM("schema test") {
+      val schema =
+        """
+          |  type Subscription {
+          |    postAdded: Post
+          |  }
+          |  type Query {
+          |    posts: [Post]
+          |  }
+          |  type Mutation {
+          |    addPost(author: String, comment: String): Post
+          |  }
+          |  type Post {
+          |    author: String
+          |    comment: String
+          |  }
+          |  fragment PostAuthor on Post {
+          |    author
+          |  }
+          |""".stripMargin
+
+      implicit val writer = ScalaWriter.DefaultGQLWriter
+
+      assertM(
+        Parser.parseQuery(schema).map( s=> Generator.format(Generator.generate(s))),
+        equalTo("""import Types._
+                  |import Fragments._
+                  |import zio.console.Console
+                  |import zio.stream.ZStream
+                  |
+                  |object Types {
+                  |
+                  |  case class Post(author: Option[String], comment: Option[String])
+                  |}
+                  |
+                  |object Operations {
+                  |
+                  |  case class Queries(
+                  |    posts: () => Option[List[Option[Post]]]
+                  |  )
+                  |
+                  |  case class AddPostArgs(author: Option[String], comment: Option[String])
+                  |  case class Mutations(
+                  |    addPost: AddPostArgs => Option[Post]
+                  |  )
+                  |
+                  |  case class Subscriptions(
+                  |    postAdded: () => ZStream[Console, Nothing, Option[Post]]
+                  |  )
+                  |}
+                  |
+                  |object Fragments {
+                  |  case class PostAuthor(author: Option[String])
+                  |}
+                  |""".stripMargin)
+      )
+    }
   )
 )

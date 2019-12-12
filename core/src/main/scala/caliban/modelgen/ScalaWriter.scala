@@ -37,9 +37,12 @@ object ScalaWriter {
     override def write(schema: Document)(nothing: Any)(implicit context: GQLWriterContext): String = {
       import context._
 
+      val hasSubscriptions = Document.typeDefinition("Subscription")(schema).nonEmpty
+
       s"""
       import Types._
       import Fragments._
+      ${if (hasSubscriptions) "import zio.console.Console\n      import zio.stream.ZStream" else ""}
 
       object Types {
         ${Document
