@@ -39,8 +39,8 @@ object ScalaWriter {
 
       val hasSubscriptions = Document.typeDefinition("Subscription")(schema).nonEmpty
 
-      s"""
-      import Types._
+
+      s"""import Types._
       import Fragments._
       ${if (hasSubscriptions) "import zio.console.Console\n      import zio.stream.ZStream" else ""}
 
@@ -79,8 +79,7 @@ object ScalaWriter {
         .fragmentDefinitions(schema)
         .map(GQLWriter[FragmentDefinition, Document].write(_)(schema))
         .mkString("\n")}
-      }
-      """
+      }"""
     }
 
   }
