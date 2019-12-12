@@ -1,24 +1,23 @@
-package caliban.modelgen
+package caliban.codegen
 
-import java.nio.file.Paths
+import java.nio.file.{ FileSystems, Paths }
 
-import caliban.parsing.adt.{Document, Selection, Type}
+import caliban.parsing.adt.{ Document, Selection, Type }
 import caliban.parsing.adt.Document._
-import caliban.parsing.adt.ExecutableDefinition.{FragmentDefinition, OperationDefinition, TypeDefinition}
-import caliban.parsing.adt.Type.{FieldDefinition, ListType, NamedType}
+import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition, TypeDefinition }
+import caliban.parsing.adt.Type.{ FieldDefinition, ListType, NamedType }
 import org.scalafmt.interfaces.Scalafmt
-import zio.IO
+import zio.{ IO, Task }
 
 object Generator {
   def generate(doc: Document)(implicit writerContext: GQLWriterContext): String =
     writerContext.docWriter.write(doc)(Nil)
 
-  def format(str: String): String = {
+  def format(str: String, fmtPath: String): Task[String] = Task {
     val scalafmt = Scalafmt.create(this.getClass.getClassLoader)
-    val config = Paths.get(".scalafmt.conf")
+    val config   = Paths.get(fmtPath)
     scalafmt.format(config, Paths.get("Nil.scala"), str)
   }
-
 
   trait GQLWriter[A, D] {
     def write(entity: A)(depends: D)(implicit context: GQLWriterContext): String

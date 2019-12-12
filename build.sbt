@@ -41,7 +41,7 @@ addCommandAlias(
   "check",
   "all scalafmtSbtCheck scalafmtCheck test:scalafmtCheck"
 )
-addCommandAlias("modelgen", "coreJVM/runMain caliban.Cli")
+addCommandAlias("codegen", "coreJVM/runMain caliban.Cli schema")
 
 lazy val root = project
   .in(file("."))
@@ -66,8 +66,8 @@ lazy val core = crossProject(JSPlatform, JVMPlatform)
       "dev.zio"        %%% "zio-test"         % "1.0.0-RC17" % "test",
       "dev.zio"        %%% "zio-test-sbt"     % "1.0.0-RC17" % "test",
       "io.circe"       %%% "circe-derivation" % "0.12.0-M7" % Optional,
-      "org.scalameta"   %% "scalafmt-dynamic" % "2.3.1",
-      compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"),
+      "org.scalameta"  %% "scalafmt-dynamic"  % "2.3.1",
+      compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
     )
   )
   .jvmSettings(

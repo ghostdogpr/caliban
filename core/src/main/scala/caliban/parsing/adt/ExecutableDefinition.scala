@@ -6,8 +6,6 @@ sealed trait ExecutableDefinition
 
 object ExecutableDefinition {
 
-
-
   case class OperationDefinition(
     operationType: OperationType,
     name: Option[String],

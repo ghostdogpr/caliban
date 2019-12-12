@@ -1,7 +1,7 @@
 package caliban
 
 import java.io.File
-import caliban.modelgen.{ Generator, ScalaWriter }
+import caliban.codegen.{ Generator, ScalaWriter }
 import caliban.parsing.Parser
 import zio._
 import zio.console._
@@ -9,7 +9,7 @@ import zio.console._
 object Cli extends App {
   val printHelp = putStrLn(
     """
-    schema      (schema_path, out_path)     will write a scala object containing types, queries, fragments etc. for provided schema
+    schema      (schema_path, out_path, ?scalafmt_path)     will write a scala object containing types, queries, fragments etc. for provided schema
   """
   )
 
@@ -20,26 +20,29 @@ object Cli extends App {
       1
     }, _ => 0)
 
-  def execCommand(args: List[String]) = args match {
-    case "schema" :: schema_path :: to_path :: Nil => doSchemaGenerate(schema_path, to_path)
-    case _                                         => printHelp
-  }
+  def execCommand(args: List[String]) =
+    args match {
+      case "schema" :: schemaPath :: toPath :: Nil => doSchemaGenerate(schemaPath, toPath, None)
+      case "schema" :: schemaPath :: toPath :: formatPath :: Nil =>
+        doSchemaGenerate(schemaPath, toPath, Some(formatPath))
+      case _ => printHelp
+    }
 
-  def doSchemaGenerate(schema_path: String, to_path: String) =
+  def doSchemaGenerate(schemaPath: String, toPath: String, fmtPath: Option[String]) =
     for {
-      schema_string <- Task(scala.io.Source.fromFile(schema_path).mkString)
+      schema_string <- Task(scala.io.Source.fromFile(schemaPath).mkString)
       schema        <- Parser.parseQuery(schema_string)
       code          <- Task(Generator.generate(schema)(ScalaWriter.DefaultGQLWriter))
-      formatted     <- Task(Generator.format(code))
-      file          <- Task(new File(to_path))
-      _ <-  Task {
-              val pw = new java.io.PrintWriter(file)
-              try {
-                pw.println(formatted)
-              } finally {
-                pw.close()
-              }
+      formatted     <- fmtPath.map(Generator.format(code, _)).getOrElse(Task.succeed(code))
+      file          <- Task(new File(toPath))
+      _ <- Task {
+            val pw = new java.io.PrintWriter(file)
+            try {
+              pw.println(formatted)
+            } finally {
+              pw.close()
             }
+          }
     } yield ()
 
 }

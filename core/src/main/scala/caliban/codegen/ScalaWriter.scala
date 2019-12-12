@@ -1,4 +1,4 @@
-package caliban.modelgen
+package caliban.codegen
 
 import caliban.parsing.adt.{ Document, ExecutableDefinition, Selection, Type }
 import caliban.parsing.adt.Type.{ FieldDefinition, ListType, NamedType }
@@ -46,28 +46,32 @@ object ScalaWriter {
 
       object Types {
         ${Document
-        .typeDefinitions(schema).filterNot(reservedType)
+        .typeDefinitions(schema)
+        .filterNot(reservedType)
         .flatMap(_.children.filter(_.args.nonEmpty).map(c => GQLWriter[Args, String].write(Args(c))("")))
-        .mkString("\n")
-        }
+        .mkString("\n")}
         ${Document
-        .typeDefinitions(schema).filterNot(reservedType)
+        .typeDefinitions(schema)
+        .filterNot(reservedType)
         .map(GQLWriter[TypeDefinition, Document].write(_)(schema))
         .mkString("\n")}
       }
 
       object Operations {
         ${Document
-          .typeDefinition("Query")(schema)
-          .map(t => GQLWriter[RootQueryDef, Document].write(RootQueryDef(t))(schema)).getOrElse("")}
+        .typeDefinition("Query")(schema)
+        .map(t => GQLWriter[RootQueryDef, Document].write(RootQueryDef(t))(schema))
+        .getOrElse("")}
 
         ${Document
-          .typeDefinition("Mutation")(schema)
-          .map(t => GQLWriter[RootMutationDef, Document].write(RootMutationDef(t))(schema)).getOrElse("")}
+        .typeDefinition("Mutation")(schema)
+        .map(t => GQLWriter[RootMutationDef, Document].write(RootMutationDef(t))(schema))
+        .getOrElse("")}
 
         ${Document
-          .typeDefinition("Subscription")(schema)
-          .map(t => GQLWriter[RootSubscriptionDef, Document].write(RootSubscriptionDef(t))(schema)).getOrElse("")}
+        .typeDefinition("Subscription")(schema)
+        .map(t => GQLWriter[RootSubscriptionDef, Document].write(RootSubscriptionDef(t))(schema))
+        .getOrElse("")}
       }
 
       object Fragments {
@@ -130,8 +134,10 @@ object ScalaWriter {
       import context._
 
       s"""
-         |${queryDef.op.children.filter(_.args.nonEmpty)
-           .map(c => GQLWriter[Args, String].write(Args(c))("")).mkString(",\n")}
+         |${queryDef.op.children
+           .filter(_.args.nonEmpty)
+           .map(c => GQLWriter[Args, String].write(Args(c))(""))
+           .mkString(",\n")}
          |case class Queries(
          |${queryDef.op.children.map(c => GQLWriter[QueryDef, Document].write(QueryDef(c))(schema)).mkString(",\n")}
          |)""".stripMargin
@@ -153,7 +159,8 @@ object ScalaWriter {
       import context._
 
       s"""
-         |${mutationDef.op.children.filter(_.args.nonEmpty)
+         |${mutationDef.op.children
+           .filter(_.args.nonEmpty)
            .map(c => GQLWriter[Args, String].write(Args(c))(""))
            .mkString(",\n")}
          |case class Mutations(
@@ -184,7 +191,8 @@ object ScalaWriter {
       import context._
 
       s"""
-         |${subscriptionDef.op.children.filter(_.args.nonEmpty)
+         |${subscriptionDef.op.children
+           .filter(_.args.nonEmpty)
            .map(c => GQLWriter[Args, String].write(Args(c))(""))
            .mkString(",\n")}
          |case class Subscriptions(

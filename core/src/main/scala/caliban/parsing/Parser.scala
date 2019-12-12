@@ -125,11 +125,13 @@ object Parser {
   private def namedType[_: P]: P[NamedType] = P(name.filter(_ != "null")).map(NamedType(_, nonNull = false))
   private def listType[_: P]: P[ListType]   = P("[" ~ type_ ~ "]").map(t => ListType(t, nonNull = false))
 
-  private def argumentDefinition[_: P]: P[(String, Type)]     = P(name ~ ":" ~ type_)
-  private def argumentDefinitions[_: P]: P[List[(String, Type)]] = P("(" ~/ argumentDefinition.rep ~ ")").map(t => t.toList)
+  private def argumentDefinition[_: P]: P[(String, Type)] = P(name ~ ":" ~ type_)
+  private def argumentDefinitions[_: P]: P[List[(String, Type)]] =
+    P("(" ~/ argumentDefinition.rep ~ ")").map(t => t.toList)
 
-  private def fieldDefinition[_: P]: P[FieldDefinition] = P(stringValue.? ~ name ~ argumentDefinitions.? ~ ":" ~ type_ ~ directives.?)
-    .map(t => FieldDefinition(t._1.map(_.value), t._2, t._3.getOrElse(List()), t._4, t._5.getOrElse(List())))
+  private def fieldDefinition[_: P]: P[FieldDefinition] =
+    P(stringValue.? ~ name ~ argumentDefinitions.? ~ ":" ~ type_ ~ directives.?)
+      .map(t => FieldDefinition(t._1.map(_.value), t._2, t._3.getOrElse(List()), t._4, t._5.getOrElse(List())))
 
   private def nonNullType[_: P]: P[Type] = P((namedType | listType) ~ "!").map {
     case t: NamedType => t.copy(nonNull = true)
@@ -160,7 +162,6 @@ object Parser {
 
   private def fragmentName[_: P]: P[String] = P(name).filter(_ != "on")
 
-
   private def fragmentSpread[_: P]: P[FragmentSpread] = P("..." ~ fragmentName ~ directives).map {
     case (name, dirs) => FragmentSpread(name, dirs)
   }
@@ -187,9 +188,11 @@ object Parser {
       case (name, typeCondition, dirs, sel) => FragmentDefinition(name, typeCondition, dirs, sel)
     }
 
-  private def typeDefinition[_: P]: P[TypeDefinition] = P("type" ~/ name ~ "{" ~ fieldDefinition.rep ~ "}").map(t => TypeDefinition(t._1, t._2.toList))
+  private def typeDefinition[_: P]: P[TypeDefinition] =
+    P("type" ~/ name ~ "{" ~ fieldDefinition.rep ~ "}").map(t => TypeDefinition(t._1, t._2.toList))
 
-  private def executableDefinition[_: P]: P[ExecutableDefinition] = P(operationDefinition | fragmentDefinition | typeDefinition)
+  private def executableDefinition[_: P]: P[ExecutableDefinition] =
+    P(operationDefinition | fragmentDefinition | typeDefinition)
 
   private def definition[_: P]: P[ExecutableDefinition] = executableDefinition
 
