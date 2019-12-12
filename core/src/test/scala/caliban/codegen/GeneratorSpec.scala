@@ -194,42 +194,44 @@ userList: () => List[Option[User]]
           implicit val writer = ScalaWriter.DefaultGQLWriter
 
           assertM(
-            Parser.parseQuery(schema).map(s => {
-              Generator.generate(s)
-            }),
+            Parser
+              .parseQuery(schema)
+              .map(s => {
+                Generator.generate(s)
+              }),
             equalTo(
-              "import Types._\n"+
-                "      import Fragments._\n"+
-                "      import zio.console.Console\n"+
-                "      import zio.stream.ZStream\n"+
-                "\n"+
-                "      object Types {\n"+
-                "        \n"+
-                "        case class Post(author: Option[String], comment: Option[String])\n"+
-                "      }\n"+
-                "\n"+
-                "      object Operations {\n"+
-                "        \n"+
-                "\n"+
-                "case class Queries(\n"+
-                "posts: () => Option[List[Option[Post]]]\n"+
-                ")\n"+
-                "\n"+
-                "        \n"+
-                "case class AddPostArgs(author: Option[String], comment: Option[String])\n"+
-                "case class Mutations(\n"+
-                "addPost: AddPostArgs => Option[Post]\n"+
-                ")\n"+
-                "\n"+
-                "        \n"+
-                "\n"+
-                "case class Subscriptions(\n"+
-                "postAdded: () => ZStream[Console, Nothing, Option[Post]]\n"+
-                ")\n"+
-                "      }\n"+
-                "\n"+
-                "      object Fragments {\n"+
-                "        case class PostAuthor(author: Option[String])\n"+
+              "import Types._\n" +
+                "      import Fragments._\n" +
+                "      import zio.console.Console\n" +
+                "      import zio.stream.ZStream\n" +
+                "\n" +
+                "      object Types {\n" +
+                "        \n" +
+                "        case class Post(author: Option[String], comment: Option[String])\n" +
+                "      }\n" +
+                "\n" +
+                "      object Operations {\n" +
+                "        \n" +
+                "\n" +
+                "case class Queries(\n" +
+                "posts: () => Option[List[Option[Post]]]\n" +
+                ")\n" +
+                "\n" +
+                "        \n" +
+                "case class AddPostArgs(author: Option[String], comment: Option[String])\n" +
+                "case class Mutations(\n" +
+                "addPost: AddPostArgs => Option[Post]\n" +
+                ")\n" +
+                "\n" +
+                "        \n" +
+                "\n" +
+                "case class Subscriptions(\n" +
+                "postAdded: () => ZStream[Console, Nothing, Option[Post]]\n" +
+                ")\n" +
+                "      }\n" +
+                "\n" +
+                "      object Fragments {\n" +
+                "        case class PostAuthor(author: Option[String])\n" +
                 "      }"
             )
           )

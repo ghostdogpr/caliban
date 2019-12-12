@@ -39,7 +39,6 @@ object ScalaWriter {
 
       val hasSubscriptions = Document.typeDefinition("Subscription")(schema).nonEmpty
 
-
       s"""import Types._
       import Fragments._
       ${if (hasSubscriptions) "import zio.console.Console\n      import zio.stream.ZStream" else ""}
