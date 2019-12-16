@@ -3,6 +3,7 @@ package caliban.schema
 import scala.annotation.implicitNotFound
 import scala.language.experimental.macros
 import java.util.UUID
+import scala.concurrent.Future
 import caliban.CalibanError.ExecutionError
 import caliban.{ InputValue, ResponseValue }
 import caliban.ResponseValue._
@@ -229,6 +230,8 @@ trait GenericSchema[R] extends DerivationSchema[R] {
             }
         )
     }
+  implicit def futureSchema[A](implicit ev: Schema[R, A]): Schema[R, Future[A]] =
+    effectSchema[R, Throwable, A].contramap[Future[A]](future => ZIO.fromFuture(_ => future))
   implicit def infallibleEffectSchema[R1 <: R, A](implicit ev: Schema[R, A]): Schema[R1, ZIO[R1, Nothing, A]] =
     new Schema[R1, ZIO[R1, Nothing, A]] {
       override def optional: Boolean                        = ev.optional
