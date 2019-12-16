@@ -1,5 +1,6 @@
 package caliban.schema
 
+import scala.concurrent.Future
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
 import caliban.schema.SchemaSpecUtils._
 import zio.test.Assertion._
@@ -21,6 +22,12 @@ object SchemaSpec
             isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.NON_NULL)))
           )
         },
+        test("field with Future") {
+          assert(
+            introspect[FutureFieldSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()),
+            isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.SCALAR)))
+          )
+        },
         test("nested input fields") {
           case class Queries(a: A => Unit)
           case class A(b: B)
@@ -37,6 +44,7 @@ object SchemaSpec
 object SchemaSpecUtils {
   case class EffectfulFieldSchema(q: Task[Int])
   case class InfallibleFieldSchema(q: UIO[Int])
+  case class FutureFieldSchema(q: Future[Int])
 
-  def introspect[Q](implicit schema: Schema[Any, Q]): __Type = schema.toType(false)
+  def introspect[Q](implicit schema: Schema[Any, Q]): __Type = schema.toType()
 }
