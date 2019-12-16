@@ -6,7 +6,7 @@ import scala.concurrent.Future
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
 import caliban.schema.SchemaSpecUtils._
 import zio.test.Assertion._
-import zio.test.{ test, _ }
+import zio.test._
 import zio.{ Task, UIO }
 
 object SchemaSpec
