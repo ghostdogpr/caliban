@@ -66,7 +66,7 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
             .bindHttp(8088, "localhost")
             .withHttpApp(
               Router[ExampleTask](
-                "/api/graphql" -> CORS(Http4sAdapter.makeRestService(interpreter)),
+                "/api/graphql" -> CORS(Http4sAdapter.makeHttpService(interpreter)),
                 "/ws/graphql"  -> CORS(Http4sAdapter.makeWebSocketService(interpreter)),
                 "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", blocker, None))
               ).orNotFound
