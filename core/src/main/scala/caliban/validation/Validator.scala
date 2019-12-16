@@ -2,7 +2,6 @@ package caliban.validation
 
 import caliban.CalibanError.ValidationError
 import caliban.{ InputValue, Rendering }
-import caliban.execution.Executor
 import caliban.introspection.Introspector
 import caliban.introspection.adt._
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
@@ -10,6 +9,7 @@ import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.NamedType
 import caliban.InputValue.VariableValue
 import caliban.Value.NullValue
+import caliban.execution.{ Field => F }
 import caliban.parsing.adt.{ Directive, Document, OperationType, Selection, Type }
 import caliban.schema.{ RootType, Types }
 import zio.IO
@@ -455,9 +455,12 @@ object Validator {
 
   private def validateSubscriptionOperation(context: Context): IO[ValidationError, Unit] =
     IO.fromOption(
-        context.operations
-          .filter(_.operationType == OperationType.Subscription)
-          .find(op => Executor.mergeSelectionSet(op.selectionSet, "", context.fragments, Map()).length > 1)
+        for {
+          t <- context.rootType.subscriptionType
+          op <- context.operations
+                 .filter(_.operationType == OperationType.Subscription)
+                 .find(op => F(op.selectionSet, context.fragments, Map.empty[String, InputValue], t).fields.length > 1)
+        } yield op
       )
       .map(
         op =>
