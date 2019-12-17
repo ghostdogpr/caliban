@@ -19,7 +19,7 @@ object QueryAnalyzer {
    * @param interpreter a GraphQL interpreter
    * @return a new GraphQL interpreter
    */
-  def maxDepth[R, Q, M, S, E](maxDepth: Int)(interpreter: GraphQL[R, Q, M, S, E]): GraphQL[R, Q, M, S, E] =
+  def maxDepth[R, E](maxDepth: Int)(interpreter: GraphQL[R, E]): GraphQL[R, E] =
     interpreter.withQueryAnalyzer(checkMaxDepth(maxDepth))
 
   /**
@@ -44,7 +44,7 @@ object QueryAnalyzer {
    * @param interpreter a GraphQL interpreter
    * @return a new GraphQL interpreter
    */
-  def maxFields[R, Q, M, S, E](maxFields: Int)(interpreter: GraphQL[R, Q, M, S, E]): GraphQL[R, Q, M, S, E] =
+  def maxFields[R, E](maxFields: Int)(interpreter: GraphQL[R, E]): GraphQL[R, E] =
     interpreter.withQueryAnalyzer(checkMaxFields(maxFields))
 
   /**

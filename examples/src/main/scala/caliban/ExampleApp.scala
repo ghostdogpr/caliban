@@ -37,9 +37,7 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
   implicit val characterArgsSchema  = gen[CharacterArgs]
   implicit val charactersArgsSchema = gen[CharactersArgs]
 
-  def makeInterpreter(
-    service: ExampleService
-  ): GraphQL[Console with Clock, Queries, Mutations, Subscriptions, CalibanError] =
+  def makeInterpreter(service: ExampleService): GraphQL[Console with Clock, CalibanError] =
     maxDepth(30)(
       maxFields(200)(
         graphQL(

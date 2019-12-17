@@ -7,9 +7,7 @@ import zio.Runtime
 
 package object implicits {
 
-  implicit class CatsEffectGraphQL[R, Q, M, S, E](
-    underlying: GraphQL[R, Q, M, S, E]
-  ) {
+  implicit class CatsEffectGraphQL[R, E](underlying: GraphQL[R, E]) {
 
     def executeAsync[F[_]: Async](
       query: String,
@@ -24,9 +22,7 @@ package object implicits {
         skipValidation
       )
 
-    def checkAsync[F[_]: Async](
-      query: String
-    )(implicit runtime: Runtime[R]): F[Unit] =
+    def checkAsync[F[_]: Async](query: String)(implicit runtime: Runtime[R]): F[Unit] =
       CatsInterop.checkAsync(underlying)(query)
   }
 

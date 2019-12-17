@@ -4,7 +4,6 @@ import caliban.Rendering.renderTypes
 import caliban.execution.Executor
 import caliban.execution.QueryAnalyzer.QueryAnalyzer
 import caliban.introspection.Introspector
-import caliban.introspection.adt.__Introspection
 import caliban.parsing.Parser
 import caliban.schema.RootSchema.Operation
 import caliban.schema._
@@ -12,13 +11,13 @@ import caliban.validation.Validator
 import zio.{ IO, URIO }
 
 /**
- * A `GraphQL[R, Q, M, S, E]` represents a GraphQL interpreter for a query type `Q`, a mutation type `M`
- * and a subscription type `S`, whose execution requires a ZIO environment of type `R` and can fail with an `E`.
+ * A `GraphQL[-R, +E]` represents a GraphQL interpreter whose execution requires
+ * a ZIO environment of type `R` and can fail with an `E`.
  *
  * It is intended to be created only once, typically when you start your server.
  * The introspection schema will be generated when this class is instantiated.
  */
-trait GraphQL[-R, -Q, -M, -S, +E] { self =>
+trait GraphQL[-R, +E] { self =>
 
   /**
    * Parses and validates the provided query against this interpreter.
@@ -54,7 +53,7 @@ trait GraphQL[-R, -Q, -M, -S, +E] { self =>
    * @param f a function from the current error type `E` to another type `E2`
    * @return a new GraphQL interpreter with error type `E2`
    */
-  def mapError[E2](f: E => E2): GraphQL[R, Q, M, S, E2] =
+  def mapError[E2](f: E => E2): GraphQL[R, E2] =
     wrapExecutionWith(_.map(res => GraphQLResponse(res.data, res.errors.map(f))))
 
   /**
@@ -62,7 +61,7 @@ trait GraphQL[-R, -Q, -M, -S, +E] { self =>
    * @param r a value of type `R`
    * @return a new GraphQL interpreter with R = `Any`
    */
-  def provide(r: R): GraphQL[Any, Q, M, S, E] = wrapExecutionWith(_.provide(r))
+  def provide(r: R): GraphQL[Any, E] = wrapExecutionWith(_.provide(r))
 
   /**
    * Wraps the `execute` method of the interpreter with the given function.
@@ -72,8 +71,8 @@ trait GraphQL[-R, -Q, -M, -S, +E] { self =>
    */
   def wrapExecutionWith[R2, E2](
     f: URIO[R, GraphQLResponse[E]] => URIO[R2, GraphQLResponse[E2]]
-  ): GraphQL[R2, Q, M, S, E2] =
-    new GraphQL[R2, Q, M, S, E2] {
+  ): GraphQL[R2, E2] =
+    new GraphQL[R2, E2] {
       override def check(query: String): IO[CalibanError, Unit] = self.check(query)
       override def execute[R1 <: R2](
         query: String,
@@ -90,8 +89,8 @@ trait GraphQL[-R, -Q, -M, -S, +E] { self =>
    * @param queryAnalyzer a function from `Field` to `ZIO[R, CalibanError, Field]`
    * @return  a new GraphQL interpreter
    */
-  def withQueryAnalyzer[R2 <: R](queryAnalyzer: QueryAnalyzer[R2]): GraphQL[R2, Q, M, S, E] =
-    new GraphQL[R2, Q, M, S, E] {
+  def withQueryAnalyzer[R2 <: R](queryAnalyzer: QueryAnalyzer[R2]): GraphQL[R2, E] =
+    new GraphQL[R2, E] {
       override def check(query: String): IO[CalibanError, Unit] = self.check(query)
       override def execute[R1 <: R2](
         query: String,
@@ -117,18 +116,17 @@ object GraphQL {
     implicit querySchema: Schema[R, Q],
     mutationSchema: Schema[R, M],
     subscriptionSchema: Schema[R, S]
-  ): GraphQL[R, Q, M, S, CalibanError] =
-    new GraphQL[R, Q, M, S, CalibanError] {
-      val schema: RootSchema[R, Q, M, S] = RootSchema(
+  ): GraphQL[R, CalibanError] =
+    new GraphQL[R, CalibanError] {
+      val schema: RootSchema[R] = RootSchema(
         Operation(querySchema.toType(), querySchema.resolve(resolver.queryResolver)),
         resolver.mutationResolver.map(r => Operation(mutationSchema.toType(), mutationSchema.resolve(r))),
         resolver.subscriptionResolver.map(r => Operation(subscriptionSchema.toType(), subscriptionSchema.resolve(r)))
       )
       val rootType: RootType =
         RootType(schema.query.opType, schema.mutation.map(_.opType), schema.subscription.map(_.opType))
-      val introspectionRootSchema: RootSchema[Any, __Introspection, Nothing, Nothing] =
-        Introspector.introspect(rootType)
-      val introspectionRootType: RootType = RootType(introspectionRootSchema.query.opType, None, None)
+      val introspectionRootSchema: RootSchema[Any] = Introspector.introspect(rootType)
+      val introspectionRootType: RootType          = RootType(introspectionRootSchema.query.opType, None, None)
 
       def check(query: String): IO[CalibanError, Unit] =
         for {
