@@ -48,35 +48,6 @@ object GeneratorSpec
             )
           )
         },
-        testM("simple fragment") {
-          val query =
-            """
-         type User {
-           id: Int
-           name: String
-           profilePic: String
-         }
-         fragment friendFields on User {
-           id
-           name
-           profilePic(size: 50)
-         }"""
-
-          implicit val writer = ScalaWriter.DefaultGQLWriter
-
-          val caseclassstrdef = Parser
-            .parseQuery(query)
-            .map(doc => {
-              Document.fragmentDefinitions(doc).map(d => ScalaWriter.FragmentWriter.write(d)(doc)).mkString("\n")
-            })
-
-          assertM(
-            caseclassstrdef,
-            equalTo(
-              """case class FriendFields(id: Option[Int], name: Option[String], profilePic: Option[String])""".stripMargin
-            )
-          )
-        },
         testM("simple queries") {
           val query =
             """
@@ -95,7 +66,7 @@ object GeneratorSpec
             .parseQuery(query)
             .map(doc => {
               Document
-                .typeDefinition("Query")(doc)
+                .typeDefinition(doc, "Query")
                 .map(d => ScalaWriter.RootQueryDefWriter.write(RootQueryDef(d))(doc))
                 .mkString("\n")
             })
@@ -125,7 +96,7 @@ userList: () => List[Option[User]]
             .parseQuery(query)
             .map(doc => {
               Document
-                .typeDefinition("Mutation")(doc)
+                .typeDefinition(doc, "Mutation")
                 .map(d => ScalaWriter.RootMutationDefWriter.write(RootMutationDef(d))(doc))
                 .mkString("\n")
             })
@@ -154,7 +125,7 @@ userList: () => List[Option[User]]
             .parseQuery(query)
             .map(doc => {
               Document
-                .typeDefinition("Subscription")(doc)
+                .typeDefinition(doc, "Subscription")
                 .map(d => ScalaWriter.RootSubscriptionDefWriter.write(RootSubscriptionDef(d))(doc))
                 .mkString("\n")
             })
@@ -165,7 +136,7 @@ userList: () => List[Option[User]]
               """
                 |case class UserWatchArgs(id: Int)
                 |case class Subscriptions(
-                |UserWatch: UserWatchArgs => ZStream[Console, Nothing, String]
+                |UserWatch: UserWatchArgs => ZStream[Any, Nothing, String]
                 |)""".stripMargin
             )
           )
@@ -186,9 +157,6 @@ userList: () => List[Option[User]]
               |    author: String
               |    comment: String
               |  }
-              |  fragment PostAuthor on Post {
-              |    author
-              |  }
               |""".stripMargin
 
           implicit val writer = ScalaWriter.DefaultGQLWriter
@@ -196,43 +164,35 @@ userList: () => List[Option[User]]
           assertM(
             Parser
               .parseQuery(schema)
-              .map(s => {
-                Generator.generate(s)
+              .flatMap(s => {
+                Generator.formatStr(Generator.generate(s), ScalaWriter.scalafmtConfig)
               }),
             equalTo(
-              "import Types._\n" +
-                "      import Fragments._\n" +
-                "      import zio.console.Console\n" +
-                "      import zio.stream.ZStream\n" +
-                "\n" +
-                "      object Types {\n" +
-                "        \n" +
-                "        case class Post(author: Option[String], comment: Option[String])\n" +
-                "      }\n" +
-                "\n" +
-                "      object Operations {\n" +
-                "        \n" +
-                "\n" +
-                "case class Queries(\n" +
-                "posts: () => Option[List[Option[Post]]]\n" +
-                ")\n" +
-                "\n" +
-                "        \n" +
-                "case class AddPostArgs(author: Option[String], comment: Option[String])\n" +
-                "case class Mutations(\n" +
-                "addPost: AddPostArgs => Option[Post]\n" +
-                ")\n" +
-                "\n" +
-                "        \n" +
-                "\n" +
-                "case class Subscriptions(\n" +
-                "postAdded: () => ZStream[Console, Nothing, Option[Post]]\n" +
-                ")\n" +
-                "      }\n" +
-                "\n" +
-                "      object Fragments {\n" +
-                "        case class PostAuthor(author: Option[String])\n" +
-                "      }"
+              """import Types._
+                |import Fragments._
+                |import zio.stream.ZStream
+                |
+                |object Types {
+                |
+                |  case class Post(author: Option[String], comment: Option[String])
+                |}
+                |
+                |object Operations {
+                |
+                |  case class Queries(
+                |    posts: () => Option[List[Option[Post]]]
+                |  )
+                |
+                |  case class AddPostArgs(author: Option[String], comment: Option[String])
+                |  case class Mutations(
+                |    addPost: AddPostArgs => Option[Post]
+                |  )
+                |
+                |  case class Subscriptions(
+                |    postAdded: () => ZStream[Any, Nothing, Option[Post]]
+                |  )
+                |}
+                |""".stripMargin
             )
           )
         }

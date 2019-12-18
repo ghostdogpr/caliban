@@ -205,7 +205,7 @@ object Parser {
   def parseQuery(query: String): IO[ParsingError, Document] =
     Task(parse(query, document(_))).mapError(ex => ParsingError(s"Internal parsing error", Some(ex))).flatMap {
       case Parsed.Success(value, _) => IO.succeed(value)
-      case f: Parsed.Failure        => IO.fail(ParsingError(s"${f.msg}"))
+      case f: Parsed.Failure        => IO.fail(ParsingError(f.msg))
     }
 
   /**

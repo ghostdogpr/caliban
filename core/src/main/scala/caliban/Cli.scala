@@ -1,6 +1,7 @@
 package caliban
 
-import java.io.File
+import java.io.{ File, PrintWriter }
+
 import caliban.codegen.{ Generator, ScalaWriter }
 import caliban.parsing.Parser
 import zio._
@@ -13,14 +14,14 @@ object Cli extends App {
   """
   )
 
-  def run(args: List[String]) =
+  def run(args: List[String]): URIO[Console, Int] =
     execCommand(args).fold(q => {
-      println(q)
-      println(q.getStackTrace.mkString("\n"))
+      putStrLn(q.toString)
+      putStrLn(q.getStackTrace.mkString("\n"))
       1
     }, _ => 0)
 
-  def execCommand(args: List[String]) =
+  def execCommand(args: List[String]): ZIO[Console, Throwable, Unit] =
     args match {
       case "schema" :: schemaPath :: toPath :: Nil => doSchemaGenerate(schemaPath, toPath, None)
       case "schema" :: schemaPath :: toPath :: formatPath :: Nil =>
@@ -34,15 +35,10 @@ object Cli extends App {
       schema        <- Parser.parseQuery(schema_string)
       code          <- Task(Generator.generate(schema)(ScalaWriter.DefaultGQLWriter))
       formatted     <- fmtPath.map(Generator.format(code, _)).getOrElse(Task.succeed(code))
-      file          <- Task(new File(toPath))
-      _ <- Task {
-            val pw = new java.io.PrintWriter(file)
-            try {
-              pw.println(formatted)
-            } finally {
-              pw.close()
-            }
-          }
+      _ <- Task(new PrintWriter(new File(toPath)))
+            .bracket(q => UIO(q.close()), { pw =>
+              Task(pw.println(formatted))
+            })
     } yield ()
 
 }

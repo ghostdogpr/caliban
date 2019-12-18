@@ -18,17 +18,29 @@ object ScalaWriter {
     implicit val mutationWriter         = MutationDefWriter
     implicit val rootSubscriptionWriter = RootSubscriptionDefWriter
     implicit val subscriptionWriter     = SubscriptionDefWriter
-    implicit val fragmentWriter         = FragmentWriter
-    implicit val selectionWriter        = SelectionTypeWriter
     implicit val argsWriter             = ArgsWriter
   }
 
   object DefaultGQLWriter extends ScalaGQLWriter
 
-  //todo hmm
-//  case class CaseClass(name: String, ) {
-  //  toString
-  //  }
+  val scalafmtConfig = """
+                         |version = "2.2.1"
+                         |
+                         |maxColumn = 120
+                         |align = most
+                         |continuationIndent.defnSite = 2
+                         |assumeStandardLibraryStripMargin = true
+                         |docstrings = JavaDoc
+                         |lineEndings = preserve
+                         |includeCurlyBraceInSelectChains = false
+                         |danglingParentheses = true
+                         |spaces {
+                         |  inImportCurlyBraces = true
+                         |}
+                         |optIn.annotationNewlines = true
+                         |
+                         |rewrite.rules = [SortImports, RedundantBraces]
+                         |""".stripMargin
 
   def reservedType(typeDefinition: TypeDefinition): Boolean =
     typeDefinition.name == "Query" || typeDefinition.name == "Mutation" || typeDefinition.name == "Subscription"
@@ -37,11 +49,11 @@ object ScalaWriter {
     override def write(schema: Document)(nothing: Any)(implicit context: GQLWriterContext): String = {
       import context._
 
-      val hasSubscriptions = Document.typeDefinition("Subscription")(schema).nonEmpty
+      val hasSubscriptions = Document.typeDefinition(schema, "Subscription").nonEmpty
 
       s"""import Types._
       import Fragments._
-      ${if (hasSubscriptions) "import zio.console.Console\n      import zio.stream.ZStream" else ""}
+      ${if (hasSubscriptions) "import zio.stream.ZStream" else ""}
 
       object Types {
         ${Document
@@ -58,63 +70,22 @@ object ScalaWriter {
 
       object Operations {
         ${Document
-        .typeDefinition("Query")(schema)
+        .typeDefinition(schema, "Query")
         .map(t => GQLWriter[RootQueryDef, Document].write(RootQueryDef(t))(schema))
         .getOrElse("")}
 
         ${Document
-        .typeDefinition("Mutation")(schema)
+        .typeDefinition(schema, "Mutation")
         .map(t => GQLWriter[RootMutationDef, Document].write(RootMutationDef(t))(schema))
         .getOrElse("")}
 
         ${Document
-        .typeDefinition("Subscription")(schema)
+        .typeDefinition(schema, "Subscription")
         .map(t => GQLWriter[RootSubscriptionDef, Document].write(RootSubscriptionDef(t))(schema))
         .getOrElse("")}
-      }
-
-      object Fragments {
-        ${Document
-        .fragmentDefinitions(schema)
-        .map(GQLWriter[FragmentDefinition, Document].write(_)(schema))
-        .mkString("\n")}
       }"""
     }
 
-  }
-
-  object SelectionTypeWriter extends GQLWriter[Selection, Document] {
-    override def write(s: Selection)(schema: Document)(implicit context: GQLWriterContext): String = {
-      import context._
-
-      //todo Exception
-      s match {
-//        case i: InlineFragment => i.typeCondition.map(q => GQLWriter[Type, Document].write(q)(i.)).getOrElse("Nothing")
-        case f: FragmentSpread => f.name
-        case f: Field          => f.name
-      }
-    }
-  }
-
-  object FragmentWriter extends GQLWriter[FragmentDefinition, Document] {
-    override def write(a: FragmentDefinition)(schema: Document)(implicit context: GQLWriterContext): String = {
-      import context._
-
-      val gqlTypeOpt = Document.typeDefinition(a.typeCondition.name)(schema) //maybe as second parameter???
-
-      //todo check for
-      val fields = for {
-        selection <- a.selectionSet
-        fieldName = GQLWriter[Selection, Document].write(selection)(schema)
-        gqlType   <- gqlTypeOpt
-        field = gqlType.children
-          .find(_.name == fieldName)
-          .map(GQLWriter[FieldDefinition, TypeDefinition].write(_)(gqlType))
-          .getOrElse("Unknown: Nothing")
-      } yield s"$field"
-
-      s"""case class ${a.name.capitalize}(${fields.mkString(", ")})"""
-    }
   }
 
   object QueryDefWriter extends GQLWriter[QueryDef, Document] {
@@ -173,7 +144,7 @@ object ScalaWriter {
     )(schema: Document)(implicit context: GQLWriterContext): String = {
       import context._
 
-      "%s: %s => ZStream[Console, Nothing, %s]".format(
+      "%s: %s => ZStream[Any, Nothing, %s]".format(
         subscriptionDef.op.name,
         if (subscriptionDef.op.args.nonEmpty) s"${subscriptionDef.op.name.capitalize}Args" else "()",
         GQLWriter[Type, Any]
