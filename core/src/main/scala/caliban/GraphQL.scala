@@ -86,15 +86,20 @@ trait GraphQL[-R] { self =>
 
   /**
    * Merges this GraphQL API with another GraphQL API.
-   * In case of conflicts (same field declared on both APIs), fields from the this API will be favored.
+   * In case of conflicts (same field declared on both APIs), fields from `that` API will be used.
    * @param that another GraphQL API object
    * @return a new GraphQL API
    */
-  final def |+|[R1 <: R](that: GraphQL[R1]): GraphQL[R1] =
+  final def combine[R1 <: R](that: GraphQL[R1]): GraphQL[R1] =
     new GraphQL[R1] {
       override val schema: RootSchema[R1]                  = self.schema |+| that.schema
       override val queryAnalyzers: List[QueryAnalyzer[R1]] = self.queryAnalyzers ++ that.queryAnalyzers
     }
+
+  /**
+   * Operator alias for `combine`.
+   */
+  final def |+|[R1 <: R](that: GraphQL[R1]): GraphQL[R1] = combine(that)
 
   /**
    * Renames the root queries, mutations and subscriptions objects.

@@ -16,13 +16,13 @@ case class __Type(
     (name ++ that.name).reduceOption((a, b) => s"${a}With$b"),
     (description ++ that.description).reduceOption((a, b) => s"$a\n$b"),
     args =>
-      (fields(args) ++ that.fields(args)).reduceOption((a, b) => a ++ b.filterNot(f => a.exists(_.name == f.name))),
-    (interfaces ++ that.interfaces).reduceOption((a, b) => a ++ b.filterNot(t => a.exists(_.name == t.name))),
-    (possibleTypes ++ that.possibleTypes).reduceOption((a, b) => a ++ b.filterNot(t => a.exists(_.name == t.name))),
+      (fields(args) ++ that.fields(args)).reduceOption((a, b) => a.filterNot(f => b.exists(_.name == f.name)) ++ b),
+    (interfaces ++ that.interfaces).reduceOption((a, b) => a.filterNot(t => b.exists(_.name == t.name)) ++ b),
+    (possibleTypes ++ that.possibleTypes).reduceOption((a, b) => a.filterNot(t => b.exists(_.name == t.name)) ++ b),
     args =>
       (enumValues(args) ++ that.enumValues(args))
-        .reduceOption((a, b) => a ++ b.filterNot(v => a.exists(_.name == v.name))),
-    (inputFields ++ that.inputFields).reduceOption((a, b) => a ++ b.filterNot(t => a.exists(_.name == t.name))),
+        .reduceOption((a, b) => a.filterNot(v => b.exists(_.name == v.name)) ++ b),
+    (inputFields ++ that.inputFields).reduceOption((a, b) => a.filterNot(t => b.exists(_.name == t.name)) ++ b),
     (ofType ++ that.ofType).reduceOption(_ |+| _)
   )
 }
