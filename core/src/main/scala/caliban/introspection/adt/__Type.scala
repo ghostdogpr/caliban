@@ -13,8 +13,8 @@ case class __Type(
 ) {
   def |+|(that: __Type): __Type = __Type(
     kind,
-    (name ++ that.name).reduceOption((a, b) => s"${a}With$b"),
-    (description ++ that.description).reduceOption((a, b) => s"$a\n$b"),
+    (name ++ that.name).reduceOption((_, b) => b),
+    (description ++ that.description).reduceOption((_, b) => b),
     args =>
       (fields(args) ++ that.fields(args)).reduceOption((a, b) => a.filterNot(f => b.exists(_.name == f.name)) ++ b),
     (interfaces ++ that.interfaces).reduceOption((a, b) => a.filterNot(t => b.exists(_.name == t.name)) ++ b),
