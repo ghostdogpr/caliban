@@ -137,7 +137,7 @@ class GraphQLBenchmarks {
     character: CharacterArgs => UIO[Option[Character]]
   )
 
-  val resolver = RootResolver(
+  val resolver: RootResolver[Query, Unit, Unit] = RootResolver(
     Query(
       args => UIO(Data.characters.filter(c => args.origin.forall(c.origin == _))),
       args => UIO(Data.characters.find(c => c.name == args.name))
@@ -148,14 +148,14 @@ class GraphQLBenchmarks {
 
   @Benchmark
   def simpleCaliban(): Unit = {
-    val io = interpreter.execute(simpleQuery).map(_.toString)
+    val io = interpreter.execute(simpleQuery)
     zioRuntime.unsafeRun(io)
     ()
   }
 
   @Benchmark
   def introspectCaliban(): Unit = {
-    val io = interpreter.execute(fullIntrospectionQuery).map(_.toString)
+    val io = interpreter.execute(fullIntrospectionQuery)
     zioRuntime.unsafeRun(io)
     ()
   }
@@ -195,10 +195,10 @@ class GraphQLBenchmarks {
     )
   )
 
-  val OriginArg = Argument("origin", OptionInputType(OriginEnum))
-  val NameArg   = Argument("name", StringType)
+  val OriginArg: Argument[Option[Origin]] = Argument("origin", OptionInputType(OriginEnum))
+  val NameArg: Argument[String]           = Argument("name", StringType)
 
-  val QueryType = ObjectType(
+  val QueryType: ObjectType[Unit, Unit] = ObjectType(
     "Query",
     fields[Unit, Unit](
       Field(
@@ -216,7 +216,7 @@ class GraphQLBenchmarks {
     )
   )
 
-  val schema = Schema(QueryType)
+  val schema: Schema[Unit, Unit] = Schema(QueryType)
 
   implicit val executionContext: ExecutionContextExecutor = scala.concurrent.ExecutionContext.global
 
