@@ -33,7 +33,7 @@ See the [Custom Types](#custom-types) section to find out how to support your ow
 
 If you want Caliban to support other standard types, feel free to [file an issue](https://github.com/ghostdogpr/caliban/issues) or even a PR.
 
-::: warning
+::: warning Schema derivation issues
 Magnolia (the library used to derive the schema at compile-time) sometimes has some trouble generating schemas with a lot of nested types, or types reused in multiple places.
 to deal with this, you can declare schemas for your case classes and sealed traits explicitly:
 

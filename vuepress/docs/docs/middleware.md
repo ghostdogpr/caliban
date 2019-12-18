@@ -13,16 +13,16 @@ It is used internally to implement `mapError` (customize errors) and `provide` (
 
 ```scala
 // create an interpreter
-val i: GraphQL[MyEnv, CalibanError] = graphqQL(...)
+val i: GraphQLInterpreter[MyEnv, CalibanError] = graphqQL(...).interpreter
 
 // change error type to String
-val i2: GraphQL[MyEnv, String] = i.mapError(_.toString)
+val i2: GraphQLInterpreter[MyEnv, String] = i.mapError(_.toString)
 
 // provide the environment
-val i3: GraphQL[Any, CalibanError] = i.provide(myEnv)
+val i3: GraphQLInterpreter[Any, CalibanError] = i.provide(myEnv)
 
 // add a timeout on every query execution
-val i4: GraphQL[MyEnv with Clock, CalibanError] =
+val i4: GraphQLInterpreter[MyEnv with Clock, CalibanError] =
   i.wrapExecutionWith(
     _.timeout(30 seconds).map(
       _.getOrElse(GraphQLResponse(NullValue, List(ExecutionError("Timeout!"))))

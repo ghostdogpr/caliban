@@ -23,12 +23,17 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
 
   case class Queries(
     @GQLDescription("Return all characters from a given origin")
-    characters: CharactersArgs => URIO[Console, List[Character]],
-    @GQLDeprecated("Use `characters`")
-    character: CharacterArgs => URIO[Console, Option[Character]]
+    characters: CharactersArgs => URIO[Console, List[Character]]
   )
   case class Mutations(deleteCharacter: CharacterArgs => URIO[Console, Boolean])
   case class Subscriptions(characterDeleted: ZStream[Console, Nothing, String])
+
+  case class Queries2(
+    @GQLDeprecated("Use `characters`")
+    character: CharacterArgs => URIO[Console, Option[Character]]
+  )
+
+  case class Queries3(character: Int)
 
   type ExampleTask[A] = RIO[Console with Clock, A]
 
@@ -37,21 +42,23 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
   implicit val characterArgsSchema  = gen[CharacterArgs]
   implicit val charactersArgsSchema = gen[CharactersArgs]
 
-  def makeInterpreter(service: ExampleService): GraphQL[Console with Clock, CalibanError] =
-    maxDepth(30)(
-      maxFields(200)(
-        graphQL(
-          RootResolver(
-            Queries(
-              args => service.getCharacters(args.origin),
-              args => service.findCharacter(args.name)
-            ),
-            Mutations(args => service.deleteCharacter(args.name)),
-            Subscriptions(service.deletedEvents)
-          )
-        )
+  def makeApi(service: ExampleService): GraphQL[Console with Clock] = {
+    val api1 = graphQL(
+      RootResolver(
+        Queries(args => service.getCharacters(args.origin)),
+        Mutations(args => service.deleteCharacter(args.name)),
+        Subscriptions(service.deletedEvents)
       )
     )
+    val api2 = graphQL(RootResolver(Queries2(args => service.findCharacter(args.name))))
+    val api3 = graphQL(RootResolver(Queries3(2)))
+
+    maxDepth(30)(
+      maxFields(200)(
+        (api1 |+| api2 |+| api3).rename(queriesName = Some("Queries"))
+      )
+    )
+  }
 
   override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] =
     (for {
@@ -59,7 +66,7 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
                   .accessM[Blocking](_.blocking.blockingExecutor.map(_.asEC))
                   .map(Blocker.liftExecutionContext)
       service     <- ExampleService.make(sampleCharacters)
-      interpreter = makeInterpreter(service)
+      interpreter = makeApi(service).interpreter
       _ <- BlazeServerBuilder[ExampleTask]
             .bindHttp(8088, "localhost")
             .withHttpApp(

@@ -123,7 +123,7 @@ object OptimizedTest extends App with GenericSchema[Console] {
   implicit lazy val user: Schema[Console, User]                  = gen[User]
 
   val resolver    = Queries(args => getUser(args.id))
-  val interpreter = GraphQL.graphQL(RootResolver(resolver))
+  val interpreter = GraphQL.graphQL(RootResolver(resolver)).interpreter
 
   override def run(args: List[String]): ZIO[zio.ZEnv, Nothing, Int] =
     interpreter.execute(query).map(_.errors.length)

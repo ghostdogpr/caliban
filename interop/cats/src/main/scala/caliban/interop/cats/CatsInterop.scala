@@ -3,7 +3,7 @@ package caliban.interop.cats
 import caliban.introspection.adt.__Type
 import caliban.schema.Step.QueryStep
 import caliban.schema.{ Schema, Step }
-import caliban.{ GraphQL, GraphQLResponse, InputValue }
+import caliban.{ GraphQL, GraphQLInterpreter, GraphQLResponse, InputValue }
 import cats.effect.implicits._
 import cats.effect.{ Async, Effect }
 import cats.instances.either._
@@ -14,7 +14,7 @@ import zquery.ZQuery
 
 object CatsInterop {
 
-  def executeAsync[F[_]: Async, R, E](graphQL: GraphQL[R, E])(
+  def executeAsync[F[_]: Async, R, E](graphQL: GraphQLInterpreter[R, E])(
     query: String,
     operationName: Option[String] = None,
     variables: Map[String, InputValue] = Map(),
@@ -27,11 +27,9 @@ object CatsInterop {
       runtime.unsafeRunAsync(execution)(exit => cb(exit.toEither))
     }
 
-  def checkAsync[F[_]: Async, R, E](
-    graphQL: GraphQL[R, E]
-  )(query: String)(implicit runtime: Runtime[R]): F[Unit] =
+  def checkAsync[F[_]: Async, R](graphQL: GraphQL[R])(query: String)(implicit runtime: Runtime[R]): F[Unit] =
     Async[F].async { cb =>
-      runtime.unsafeRunAsync(graphQL.execute(query))(exit => cb(exit.toEither.void))
+      runtime.unsafeRunAsync(graphQL.check(query))(exit => cb(exit.toEither.void))
     }
 
   def schema[F[_]: Effect, R, A](implicit ev: Schema[R, A]): Schema[R, F[A]] =

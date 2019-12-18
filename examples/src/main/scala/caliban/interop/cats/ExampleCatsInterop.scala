@@ -19,7 +19,7 @@ object ExampleCatsInterop extends IOApp {
   val randomNumber = IO(scala.util.Random.nextInt()).map(Number)
 
   val queries     = Queries(numbers, randomNumber)
-  val interpreter = graphQL(RootResolver(queries))
+  val interpreter = graphQL(RootResolver(queries)).interpreter
 
   val query = """
   {

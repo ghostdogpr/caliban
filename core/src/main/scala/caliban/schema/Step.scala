@@ -21,6 +21,15 @@ object Step {
   val PureStep: caliban.schema.PureStep.type = caliban.schema.PureStep
 
   val NullStep: PureStep = PureStep(NullValue)
+
+  /**
+   * Merge 2 root steps. Root steps are supposed to be objects so we ignore other cases.
+   */
+  def mergeRootSteps[R](step1: Step[R], step2: Step[R]): Step[R] = (step1, step2) match {
+    case (ObjectStep(name, fields1), ObjectStep(_, fields2)) =>
+      ObjectStep(name, fields2 ++ fields1) // fields1 override fields2 in case of conflict
+    case _ => step1
+  }
 }
 
 sealed trait ReducedStep[-R]
