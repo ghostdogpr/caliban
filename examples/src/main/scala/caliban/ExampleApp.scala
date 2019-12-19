@@ -2,6 +2,7 @@ package caliban
 
 import caliban.ExampleData._
 import caliban.GraphQL._
+import caliban.execution.QueryAnalyzer._
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.GenericSchema
 import cats.data.Kleisli
@@ -36,36 +37,43 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
   implicit val characterArgsSchema  = gen[CharacterArgs]
   implicit val charactersArgsSchema = gen[CharactersArgs]
 
-  override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] =
-    (for {
-      service <- ExampleService.make(sampleCharacters)
-      interpreter = graphQL(
-        RootResolver(
-          Queries(
-            args => service.getCharacters(args.origin),
-            args => service.findCharacter(args.name)
-          ),
-          Mutations(args => service.deleteCharacter(args.name)),
-          Subscriptions(service.deletedEvents)
+  def makeInterpreter(
+    service: ExampleService
+  ): GraphQL[Console with Clock, Queries, Mutations, Subscriptions, CalibanError] =
+    maxDepth(30)(
+      maxFields(200)(
+        graphQL(
+          RootResolver(
+            Queries(
+              args => service.getCharacters(args.origin),
+              args => service.findCharacter(args.name)
+            ),
+            Mutations(args => service.deleteCharacter(args.name)),
+            Subscriptions(service.deletedEvents)
+          )
         )
       )
+    )
+
+  override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] =
+    (for {
       blocker <- ZIO
                   .accessM[Blocking](_.blocking.blockingExecutor.map(_.asEC))
                   .map(Blocker.liftExecutionContext)
+      service     <- ExampleService.make(sampleCharacters)
+      interpreter = makeInterpreter(service)
       _ <- BlazeServerBuilder[ExampleTask]
             .bindHttp(8088, "localhost")
             .withHttpApp(
               Router[ExampleTask](
-                "/api/graphql" -> CORS(Http4sAdapter.makeRestService(interpreter)),
-                "/ws/graphql" -> CORS(
-                  Http4sAdapter.makeWebSocketService(interpreter)
-                ),
-                "/graphiql" -> Kleisli
-                  .liftF(StaticFile.fromResource("/graphiql.html", blocker, None))
+                "/api/graphql" -> CORS(Http4sAdapter.makeHttpService(interpreter)),
+                "/ws/graphql"  -> CORS(Http4sAdapter.makeWebSocketService(interpreter)),
+                "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", blocker, None))
               ).orNotFound
             )
             .resource
             .toManaged
             .useForever
-    } yield 0).catchAll(err => putStrLn(err.toString).as(1))
+    } yield 0)
+      .catchAll(err => putStrLn(err.toString).as(1))
 }

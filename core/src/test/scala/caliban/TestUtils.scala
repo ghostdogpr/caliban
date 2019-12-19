@@ -5,6 +5,7 @@ import caliban.TestUtils.Role._
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.Schema
 import zio.UIO
+import zio.stream.ZStream
 
 object TestUtils {
 
@@ -63,6 +64,9 @@ object TestUtils {
   @GQLDescription("Mutations")
   case class MutationIO(deleteCharacter: CharacterArgs => UIO[Unit])
 
+  @GQLDescription("Subscriptions")
+  case class SubscriptionIO(deleteCharacters: ZStream[Any, Nothing, String])
+
   val resolver = RootResolver(
     Query(
       args => characters.filter(c => args.origin.forall(c.origin == _)),
@@ -80,6 +84,11 @@ object TestUtils {
   val resolverWithMutation = RootResolver(
     resolverIO.queryResolver,
     MutationIO(_ => UIO.unit)
+  )
+  val resolverWithSubscription = RootResolver(
+    resolver.queryResolver,
+    MutationIO(_ => UIO.unit),
+    SubscriptionIO(ZStream.empty)
   )
 
 }
