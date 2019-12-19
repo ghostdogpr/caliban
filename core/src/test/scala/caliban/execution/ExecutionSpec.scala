@@ -1,6 +1,7 @@
 package caliban.execution
 
 import java.util.UUID
+import caliban.CalibanError.ValidationError
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
 import caliban.RootResolver
@@ -241,6 +242,65 @@ object ExecutionSpec
           val interpreter = graphQL(RootResolver(Test(Right("ok")))).mapError(_ => "my custom error")
           val query       = """query{}"""
           assertM(interpreter.execute(query).map(_.errors), equalTo(List("my custom error")))
+        },
+        testM("QueryAnalyzer > fields") {
+          case class A(b: B)
+          case class B(c: Int)
+          case class Test(a: A)
+          val interpreter = QueryAnalyzer.maxFields(2)(graphQL(RootResolver(Test(A(B(2))))))
+          val query       = gqldoc("""
+              {
+                a {
+                  b {
+                    c
+                  }
+                }
+              }""")
+          assertM(
+            interpreter.execute(query).map(_.errors),
+            equalTo(List(ValidationError("Query has too many fields: 3. Max fields: 2.", "")))
+          )
+        },
+        testM("QueryAnalyzer > fields with fragment") {
+          case class A(b: B)
+          case class B(c: Int)
+          case class Test(a: A)
+          val interpreter = QueryAnalyzer.maxFields(2)(graphQL(RootResolver(Test(A(B(2))))))
+          val query       = gqldoc("""
+              query test {
+                a {
+                  ...f
+                }
+              }
+              
+              fragment f on A {
+                b {
+                  c 
+                }
+              }
+              """)
+          assertM(
+            interpreter.execute(query).map(_.errors),
+            equalTo(List(ValidationError("Query has too many fields: 3. Max fields: 2.", "")))
+          )
+        },
+        testM("QueryAnalyzer > depth") {
+          case class A(b: B)
+          case class B(c: Int)
+          case class Test(a: A)
+          val interpreter = QueryAnalyzer.maxDepth(2)(graphQL(RootResolver(Test(A(B(2))))))
+          val query       = gqldoc("""
+              {
+                a {
+                  b {
+                    c
+                  }
+                }
+              }""")
+          assertM(
+            interpreter.execute(query).map(_.errors),
+            equalTo(List(ValidationError("Query is too deep: 3. Max depth: 2.", "")))
+          )
         }
       )
     )

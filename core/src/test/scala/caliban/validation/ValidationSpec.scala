@@ -10,7 +10,7 @@ import zio.test._
 
 object ValidationSpec
     extends DefaultRunnableSpec({
-      val interpreter = graphQL(resolver)
+      val interpreter = graphQL(resolverWithSubscription)
       def check(query: String, expectedMessage: String): UIO[TestResult] = {
         val io = interpreter.execute(query).map(_.errors.headOption)
         assertM(io, isSome(hasField[CalibanError, String]("msg", _.msg, equalTo(expectedMessage))))

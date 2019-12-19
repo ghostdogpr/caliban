@@ -1,7 +1,10 @@
 module.exports = {
   base: '/caliban/',
   head: [
-    ['link', { rel: 'icon', href: '/caliban.png' }]
+    ['link', {
+      rel: 'icon',
+      href: '/caliban.png'
+    }]
   ],
   locales: {
     '/': {
@@ -16,29 +19,39 @@ module.exports = {
       '/': {
         selectText: 'Language',
         label: 'English',
-        nav: [
-          { text: 'Documentation', link: '/docs/' },
-          { text: 'About', link: '/about/' },
-          { text: 'Github', link: 'https://github.com/ghostdogpr/caliban' },
-          { text: 'Scaladoc', link: 'https://javadoc.io/doc/com.github.ghostdogpr/caliban_2.12/' },
+        nav: [{
+            text: 'Documentation',
+            link: '/docs/'
+          },
+          {
+            text: 'About',
+            link: '/about/'
+          },
+          {
+            text: 'Github',
+            link: 'https://github.com/ghostdogpr/caliban'
+          },
+          {
+            text: 'Scaladoc',
+            link: 'https://javadoc.io/doc/com.github.ghostdogpr/caliban_2.12/'
+          },
         ],
         sidebar: {
-          '/docs/': [
-            {
-              title: 'Caliban',
-              collapsable: false,
-              sidebarDepth: 2,
-              children: [
-                '',
-                'schema',
-                'optimization',
-                'validation',
-                'introspection',
-                'interop',
-                'examples'
-              ]
-            }
-          ]
+          '/docs/': [{
+            title: 'Caliban',
+            collapsable: false,
+            sidebarDepth: 2,
+            children: [
+              '',
+              'schema',
+              'middleware',
+              'optimization',
+              'validation',
+              'introspection',
+              'interop',
+              'examples'
+            ]
+          }]
         }
       }
     },
