@@ -2,8 +2,6 @@ package caliban
 
 import caliban.interop.circe._
 
-import scala.language.higherKinds
-
 /**
  * Represents a GraphQL request, containing a query, an operation name and a map of variables.
  */

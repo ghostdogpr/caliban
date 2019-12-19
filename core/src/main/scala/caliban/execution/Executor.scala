@@ -4,14 +4,14 @@ import scala.collection.immutable.ListMap
 import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue._
 import caliban.Value._
+import caliban.execution.QueryAnalyzer.QueryAnalyzer
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.OperationType.{ Mutation, Query, Subscription }
-import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt._
 import caliban.schema.Step._
 import caliban.schema.{ GenericSchema, ReducedStep, RootSchema, Step }
 import caliban.{ CalibanError, GraphQLResponse, InputValue, ResponseValue }
-import zio.{ IO, Ref, UIO, URIO, ZIO }
+import zio._
 import zquery.ZQuery
 
 object Executor {
@@ -27,7 +27,8 @@ object Executor {
     document: Document,
     schema: RootSchema[R, Q, M, S],
     operationName: Option[String] = None,
-    variables: Map[String, InputValue] = Map()
+    variables: Map[String, InputValue] = Map(),
+    queryAnalyzers: List[QueryAnalyzer[R]] = Nil
   ): URIO[R, GraphQLResponse[CalibanError]] = {
     val fragments = document.definitions.collect {
       case fragment: FragmentDefinition => fragment.name -> fragment
@@ -45,32 +46,28 @@ object Executor {
     operation match {
       case Left(error) => fail(ExecutionError(error))
       case Right(op) =>
-        def executeOperation[A](
-          plan: Step[R],
-          allowParallelism: Boolean
-        ): URIO[R, GraphQLResponse[CalibanError]] =
-          executePlan(
-            plan,
-            op.selectionSet,
-            fragments,
-            op.variableDefinitions,
-            variables,
-            allowParallelism
-          )
-
-        op.operationType match {
-          case Query => executeOperation(schema.query.plan, allowParallelism = true)
+        val getOperationType = op.operationType match {
+          case Query => IO.succeed((schema.query, true))
           case Mutation =>
             schema.mutation match {
-              case Some(m) => executeOperation(m.plan, allowParallelism = false)
-              case None    => fail(ExecutionError("Mutations are not supported on this schema"))
+              case Some(m) => IO.succeed((m, false))
+              case None    => IO.fail(ExecutionError("Mutations are not supported on this schema"))
             }
           case Subscription =>
             schema.subscription match {
-              case Some(m) => executeOperation(m.plan, allowParallelism = true)
-              case None    => fail(ExecutionError("Subscriptions are not supported on this schema"))
+              case Some(m) => IO.succeed((m, false))
+              case None    => IO.fail(ExecutionError("Subscriptions are not supported on this schema"))
             }
         }
+
+        (for {
+          (operationType, allowParallelism) <- getOperationType
+          root <- ZIO
+                   .foldLeft(queryAnalyzers)(Field(op.selectionSet, fragments, variables, operationType.opType)) {
+                     case (field, analyzer) => analyzer(field)
+                   }
+          result <- executePlan(operationType.plan, root, op.variableDefinitions, variables, allowParallelism)
+        } yield result).catchAll(fail)
     }
   }
 
@@ -79,8 +76,7 @@ object Executor {
 
   private def executePlan[R](
     plan: Step[R],
-    selectionSet: List[Selection],
-    fragments: Map[String, FragmentDefinition],
+    root: Field,
     variableDefinitions: List[VariableDefinition],
     variableValues: Map[String, InputValue],
     allowParallelism: Boolean
@@ -88,51 +84,50 @@ object Executor {
 
     def reduceStep(
       step: Step[R],
-      selectionSet: List[Selection],
-      arguments: Map[String, InputValue],
-      fieldName: String
+      currentField: Field,
+      arguments: Map[String, InputValue]
     ): ReducedStep[R] =
       step match {
         case s @ PureStep(value) =>
           value match {
-            case EnumValue(v) if selectionSet.collectFirst {
-                  case Selection.Field(_, "__typename", _, _, _) => true
+            case EnumValue(v) if mergeFields(currentField, v).collectFirst {
+                  case Field("__typename", _, _, _, _, _, _) => true
                 }.nonEmpty =>
               // special case of an hybrid union containing case objects, those should return an object instead of a string
-              val mergedSelectionSet = mergeSelectionSet(selectionSet, v, fragments, variableValues)
-              val obj = mergedSelectionSet.collectFirst {
-                case Selection.Field(alias, name @ "__typename", _, _, _) =>
+              val obj = mergeFields(currentField, v).collectFirst {
+                case Field(name @ "__typename", _, _, alias, _, _, _) =>
                   ObjectValue(List(alias.getOrElse(name) -> StringValue(v)))
               }
               obj.fold(s)(PureStep(_))
             case _ => s
           }
-        case FunctionStep(step) => reduceStep(step(arguments), selectionSet, Map(), fieldName)
-        case ListStep(steps)    => reduceList(steps.map(reduceStep(_, selectionSet, arguments, fieldName)))
+        case FunctionStep(step) => reduceStep(step(arguments), currentField, Map())
+        case ListStep(steps)    => reduceList(steps.map(reduceStep(_, currentField, arguments)))
         case ObjectStep(objectName, fields) =>
-          val mergedSelectionSet = mergeSelectionSet(selectionSet, objectName, fragments, variableValues)
-          val items = mergedSelectionSet.map {
-            case Selection.Field(alias, name @ "__typename", _, _, _) =>
+          val mergedFields = mergeFields(currentField, objectName)
+          val items = mergedFields.map {
+            case Field(name @ "__typename", _, _, alias, _, _, _) =>
               alias.getOrElse(name) -> PureStep(StringValue(objectName))
-            case Selection.Field(alias, name, args, _, selectionSet) =>
+            case f @ Field(name, _, _, alias, _, _, args) =>
               val arguments = resolveVariables(args, variableDefinitions, variableValues)
-              alias.getOrElse(name) -> fields
-                .get(name)
-                .map(reduceStep(_, selectionSet, arguments, name))
-                .getOrElse(NullStep)
+              alias.getOrElse(name) ->
+                fields
+                  .get(name)
+                  .map(reduceStep(_, f, arguments))
+                  .getOrElse(NullStep)
           }
           reduceObject(items)
         case QueryStep(inner) =>
           ReducedStep.QueryStep(
             inner
-              .map(reduceStep(_, selectionSet, arguments, fieldName))
-              .mapError(GenericSchema.effectfulExecutionError(fieldName, _))
+              .map(reduceStep(_, currentField, arguments))
+              .mapError(GenericSchema.effectfulExecutionError(currentField.name, _))
           )
         case StreamStep(stream) =>
           ReducedStep.StreamStep(
             stream.bimap(
-              GenericSchema.effectfulExecutionError(fieldName, _),
-              reduceStep(_, selectionSet, arguments, fieldName)
+              GenericSchema.effectfulExecutionError(currentField.name, _),
+              reduceStep(_, currentField, arguments)
             )
           )
       }
@@ -162,7 +157,7 @@ object Executor {
 
     for {
       errors       <- Ref.make(List.empty[CalibanError])
-      reduced      = reduceStep(plan, selectionSet, Map(), "")
+      reduced      = reduceStep(plan, root, Map())
       query        = makeQuery(reduced, errors)
       result       <- query.run
       resultErrors <- errors.get
@@ -183,61 +178,22 @@ object Executor {
         })
     }
 
-  private[caliban] def mergeSelectionSet(
-    selectionSet: List[Selection],
-    name: String,
-    fragments: Map[String, FragmentDefinition],
-    variableValues: Map[String, InputValue]
-  ): List[Field] = {
-    val fields = selectionSet.flatMap {
-      case f: Field if checkDirectives(f.directives, variableValues) => List(f)
-      case InlineFragment(typeCondition, directives, sel) if checkDirectives(directives, variableValues) =>
-        val matching = typeCondition.fold(true)(_.name == name)
-        if (matching) mergeSelectionSet(sel, name, fragments, variableValues) else Nil
-      case FragmentSpread(spreadName, directives) if checkDirectives(directives, variableValues) =>
-        fragments.get(spreadName) match {
-          case Some(fragment) if fragment.typeCondition.name == name =>
-            mergeSelectionSet(fragment.selectionSet, name, fragments, variableValues)
-          case _ => Nil
-        }
-      case _ => Nil
-    }
-    fields
+  private[caliban] def mergeFields(field: Field, typeName: String): List[Field] = {
+    val allFields = field.fields ++ field.conditionalFields.getOrElse(typeName, Nil)
+    allFields
       .foldLeft(ListMap.empty[String, Field]) {
         case (result, field) =>
+          val name = field.alias.getOrElse(field.name)
           result.updated(
-            field.name,
+            name,
             result
-              .get(field.name)
-              .fold(field)(f => f.copy(selectionSet = f.selectionSet ++ field.selectionSet))
+              .get(name)
+              .fold(field)(f => f.copy(fields = f.fields ++ field.fields))
           )
       }
       .values
       .toList
   }
-
-  private def checkDirectives(directives: List[Directive], variableValues: Map[String, InputValue]): Boolean =
-    !checkDirective("skip", default = false, directives, variableValues) &&
-      checkDirective("include", default = true, directives, variableValues)
-
-  private def checkDirective(
-    name: String,
-    default: Boolean,
-    directives: List[Directive],
-    variableValues: Map[String, InputValue]
-  ): Boolean =
-    directives
-      .find(_.name == name)
-      .flatMap(_.arguments.get("if")) match {
-      case Some(BooleanValue(value)) => value
-      case Some(InputValue.VariableValue(name)) =>
-        variableValues
-          .get(name) match {
-          case Some(BooleanValue(value)) => value
-          case _                         => default
-        }
-      case _ => default
-    }
 
   private def reduceList[R](list: List[ReducedStep[R]]): ReducedStep[R] =
     if (list.forall(_.isInstanceOf[PureStep]))

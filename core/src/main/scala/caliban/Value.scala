@@ -4,7 +4,6 @@ import caliban.Value._
 import caliban.interop.circe._
 import zio.stream.Stream
 
-import scala.language.higherKinds
 import scala.util.Try
 
 sealed trait InputValue
