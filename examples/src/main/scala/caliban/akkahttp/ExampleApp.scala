@@ -60,7 +60,7 @@ object ExampleApp extends App with GenericSchema[Console with Clock] {
 
   val route =
       path("api" / "graphql") {
-        AkkaHttpAdapter.makeRestService(interpreter)
+        AkkaHttpAdapter.makeHttpService(interpreter)
       }
 
   val bindingFuture = Http().bindAndHandle(route, "localhost", 8080)
