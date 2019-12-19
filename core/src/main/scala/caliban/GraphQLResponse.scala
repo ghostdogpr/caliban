@@ -2,8 +2,6 @@ package caliban
 
 import caliban.interop.circe._
 
-import scala.language.higherKinds
-
 /**
  * Represents the result of a GraphQL query, containing a data object and a list of errors.
  */

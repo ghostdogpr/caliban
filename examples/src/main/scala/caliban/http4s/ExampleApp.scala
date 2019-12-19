@@ -2,7 +2,8 @@ package caliban.http4s
 
 import caliban.ExampleData._
 import caliban.GraphQL._
-import caliban.schema.Annotations.{GQLDeprecated, GQLDescription}
+import caliban.execution.QueryAnalyzer._
+import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.GenericSchema
 import caliban.{ExampleService, Http4sAdapter, RootResolver}
 import cats.data.Kleisli
@@ -15,7 +16,7 @@ import org.http4s.server.middleware.CORS
 import zio._
 import zio.blocking.Blocking
 import zio.clock.Clock
-import zio.console.{Console, putStrLn}
+import zio.console.{ putStrLn, Console }
 import zio.interop.catz._
 import zio.stream.ZStream
 
@@ -32,41 +33,48 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
 
   type ExampleTask[A] = RIO[Console with Clock, A]
 
-  implicit val roleSchema = gen[Role]
-  implicit val characterSchema = gen[Character]
-  implicit val characterArgsSchema = gen[CharacterArgs]
+  implicit val roleSchema           = gen[Role]
+  implicit val characterSchema      = gen[Character]
+  implicit val characterArgsSchema  = gen[CharacterArgs]
   implicit val charactersArgsSchema = gen[CharactersArgs]
+
+  def makeInterpreter(
+    service: ExampleService
+  ): GraphQL[Console with Clock, Queries, Mutations, Subscriptions, CalibanError] =
+    maxDepth(30)(
+      maxFields(200)(
+        graphQL(
+          RootResolver(
+            Queries(
+              args => service.getCharacters(args.origin),
+              args => service.findCharacter(args.name)
+            ),
+            Mutations(args => service.deleteCharacter(args.name)),
+            Subscriptions(service.deletedEvents)
+          )
+        )
+      )
+    )
 
   override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] =
     (for {
-      service <- ExampleService.make(sampleCharacters)
-      interpreter = graphQL(
-        RootResolver(
-          Queries(
-            args => service.getCharacters(args.origin),
-            args => service.findCharacter(args.name)
-          ),
-          Mutations(args => service.deleteCharacter(args.name)),
-          Subscriptions(service.deletedEvents)
-        )
-      )
       blocker <- ZIO
-        .accessM[Blocking](_.blocking.blockingExecutor.map(_.asEC))
-        .map(Blocker.liftExecutionContext)
+                  .accessM[Blocking](_.blocking.blockingExecutor.map(_.asEC))
+                  .map(Blocker.liftExecutionContext)
+      service     <- ExampleService.make(sampleCharacters)
+      interpreter = makeInterpreter(service)
       _ <- BlazeServerBuilder[ExampleTask]
-        .bindHttp(8088, "localhost")
-        .withHttpApp(
-          Router[ExampleTask](
-            "/api/graphql" -> CORS(Http4sAdapter.makeRestService(interpreter)),
-            "/ws/graphql" -> CORS(
-              Http4sAdapter.makeWebSocketService(interpreter)
-            ),
-            "/graphiql" -> Kleisli
-              .liftF(StaticFile.fromResource("/graphiql.html", blocker, None))
-          ).orNotFound
-        )
-        .resource
-        .toManaged
-        .useForever
-    } yield 0).catchAll(err => putStrLn(err.toString).as(1))
+            .bindHttp(8088, "localhost")
+            .withHttpApp(
+              Router[ExampleTask](
+                "/api/graphql" -> CORS(Http4sAdapter.makeHttpService(interpreter)),
+                "/ws/graphql"  -> CORS(Http4sAdapter.makeWebSocketService(interpreter)),
+                "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", blocker, None))
+              ).orNotFound
+            )
+            .resource
+            .toManaged
+            .useForever
+    } yield 0)
+      .catchAll(err => putStrLn(err.toString).as(1))
 }

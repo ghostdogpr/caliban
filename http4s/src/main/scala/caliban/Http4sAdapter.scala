@@ -34,7 +34,11 @@ object Http4sAdapter {
     execute(interpreter, query)
       .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
 
-  def makeRestService[R, Q, M, S, E](interpreter: GraphQL[R, Q, M, S, E]): HttpRoutes[RIO[R, *]] = {
+  @deprecated("Use makeHttpService instead", "0.4.0")
+  def makeRestService[R, Q, M, S, E](interpreter: GraphQL[R, Q, M, S, E]): HttpRoutes[RIO[R, *]] =
+    makeHttpService(interpreter)
+
+  def makeHttpService[R, Q, M, S, E](interpreter: GraphQL[R, Q, M, S, E]): HttpRoutes[RIO[R, *]] = {
     object dsl extends Http4sDsl[RIO[R, *]]
     import dsl._
 
@@ -173,10 +177,16 @@ object Http4sAdapter {
   )(implicit F: Effect[F], runtime: Runtime[Any]): HttpRoutes[F] =
     wrapRoute(makeWebSocketService[Any, Q, M, S, E](interpreter))
 
+  @deprecated("Use makeHttpServiceF instead", "0.4.0")
   def makeRestServiceF[F[_], Q, M, S, E](
     interpreter: GraphQL[Any, Q, M, S, E]
   )(implicit F: Effect[F], runtime: Runtime[Any]): HttpRoutes[F] =
-    wrapRoute(makeRestService[Any, Q, M, S, E](interpreter))
+    makeHttpServiceF(interpreter)
+
+  def makeHttpServiceF[F[_], Q, M, S, E](
+    interpreter: GraphQL[Any, Q, M, S, E]
+  )(implicit F: Effect[F], runtime: Runtime[Any]): HttpRoutes[F] =
+    wrapRoute(makeHttpService[Any, Q, M, S, E](interpreter))
 
   def executeRequestF[F[_], Q, M, S, E](
     interpreter: GraphQL[Any, Q, M, S, E]

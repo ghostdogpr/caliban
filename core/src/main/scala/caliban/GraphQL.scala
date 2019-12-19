@@ -2,6 +2,7 @@ package caliban
 
 import caliban.Rendering.renderTypes
 import caliban.execution.Executor
+import caliban.execution.QueryAnalyzer.QueryAnalyzer
 import caliban.introspection.Introspector
 import caliban.introspection.adt.__Introspection
 import caliban.parsing.Parser
@@ -34,12 +35,13 @@ trait GraphQL[-R, -Q, -M, -S, +E] { self =>
    * @param skipValidation skips the validation step if true
    * @return an effect that either fails with an `E` or succeeds with a [[ResponseValue]]
    */
-  def execute(
+  def execute[R1 <: R](
     query: String,
     operationName: Option[String] = None,
     variables: Map[String, InputValue] = Map(),
-    skipValidation: Boolean = false
-  ): URIO[R, GraphQLResponse[E]]
+    skipValidation: Boolean = false,
+    queryAnalyzers: List[QueryAnalyzer[R1]] = Nil
+  ): URIO[R1, GraphQLResponse[E]]
 
   /**
    * Returns a string that renders the interpreter types into the GraphQL format.
@@ -73,13 +75,33 @@ trait GraphQL[-R, -Q, -M, -S, +E] { self =>
   ): GraphQL[R2, Q, M, S, E2] =
     new GraphQL[R2, Q, M, S, E2] {
       override def check(query: String): IO[CalibanError, Unit] = self.check(query)
-      override def execute(
+      override def execute[R1 <: R2](
         query: String,
         operationName: Option[String],
         variables: Map[String, InputValue],
-        skipValidation: Boolean
+        skipValidation: Boolean,
+        queryAnalyzers: List[QueryAnalyzer[R1]] = Nil
       ): URIO[R2, GraphQLResponse[E2]] = f(self.execute(query, operationName, variables, skipValidation))
       override def render: String      = self.render
+    }
+
+  /**
+   * Attaches a function that will analyze each query before execution, possibly modify or reject it.
+   * @param queryAnalyzer a function from `Field` to `ZIO[R, CalibanError, Field]`
+   * @return  a new GraphQL interpreter
+   */
+  def withQueryAnalyzer[R2 <: R](queryAnalyzer: QueryAnalyzer[R2]): GraphQL[R2, Q, M, S, E] =
+    new GraphQL[R2, Q, M, S, E] {
+      override def check(query: String): IO[CalibanError, Unit] = self.check(query)
+      override def execute[R1 <: R2](
+        query: String,
+        operationName: Option[String],
+        variables: Map[String, InputValue],
+        skipValidation: Boolean,
+        queryAnalyzers: List[QueryAnalyzer[R1]]
+      ): URIO[R1, GraphQLResponse[E]] =
+        self.execute(query, operationName, variables, skipValidation, queryAnalyzer :: queryAnalyzers)
+      override def render: String = self.render
     }
 }
 
@@ -102,10 +124,11 @@ object GraphQL {
         resolver.mutationResolver.map(r => Operation(mutationSchema.toType(), mutationSchema.resolve(r))),
         resolver.subscriptionResolver.map(r => Operation(subscriptionSchema.toType(), subscriptionSchema.resolve(r)))
       )
-      val rootType = RootType(schema.query.opType, schema.mutation.map(_.opType), schema.subscription.map(_.opType))
+      val rootType: RootType =
+        RootType(schema.query.opType, schema.mutation.map(_.opType), schema.subscription.map(_.opType))
       val introspectionRootSchema: RootSchema[Any, __Introspection, Nothing, Nothing] =
         Introspector.introspect(rootType)
-      val introspectionRootType = RootType(introspectionRootSchema.query.opType, None, None)
+      val introspectionRootType: RootType = RootType(introspectionRootSchema.query.opType, None, None)
 
       def check(query: String): IO[CalibanError, Unit] =
         for {
@@ -115,12 +138,13 @@ object GraphQL {
           _              <- Validator.validate(document, typeToValidate)
         } yield ()
 
-      def execute(
+      def execute[R1 <: R](
         query: String,
         operationName: Option[String] = None,
         variables: Map[String, InputValue] = Map(),
-        skipValidation: Boolean = false
-      ): URIO[R, GraphQLResponse[CalibanError]] = {
+        skipValidation: Boolean = false,
+        queryAnalyzers: List[QueryAnalyzer[R1]] = Nil
+      ): URIO[R1, GraphQLResponse[CalibanError]] = {
 
         val prepare = for {
           document        <- Parser.parseQuery(query)
@@ -132,7 +156,7 @@ object GraphQL {
 
         prepare.foldM(
           Executor.fail,
-          req => Executor.executeRequest(req._1, req._2, operationName, variables)
+          req => Executor.executeRequest(req._1, req._2, operationName, variables, queryAnalyzers)
         )
       }
 
