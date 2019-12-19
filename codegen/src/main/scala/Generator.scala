@@ -1,4 +1,4 @@
-package caliban.codegen
+package codegen
 
 import java.net.{ URL, URLClassLoader }
 import java.nio.file.{ FileSystems, Paths }

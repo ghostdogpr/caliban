@@ -1,4 +1,4 @@
-package caliban.codegen
+package codegen
 
 import caliban.parsing.adt.{ Document, ExecutableDefinition, Selection, Type }
 import caliban.parsing.adt.Type.{ FieldDefinition, ListType, NamedType }
@@ -7,22 +7,6 @@ import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationD
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 
 object ScalaWriter {
-  trait ScalaGQLWriter extends GQLWriterContext {
-    implicit val fieldWriter            = FieldWriter
-    implicit val typeWriter             = TypeWriter
-    implicit val typeDefWriter          = TypeDefinitionWriter
-    implicit val docWriter              = DocumentWriter
-    implicit val rootQueryWriter        = RootQueryDefWriter
-    implicit val queryWriter            = QueryDefWriter
-    implicit val rootMutationWriter     = RootMutationDefWriter
-    implicit val mutationWriter         = MutationDefWriter
-    implicit val rootSubscriptionWriter = RootSubscriptionDefWriter
-    implicit val subscriptionWriter     = SubscriptionDefWriter
-    implicit val argsWriter             = ArgsWriter
-  }
-
-  object DefaultGQLWriter extends ScalaGQLWriter
-
   val scalafmtConfig = """
                          |version = "2.2.1"
                          |
@@ -44,6 +28,22 @@ object ScalaWriter {
 
   def reservedType(typeDefinition: TypeDefinition): Boolean =
     typeDefinition.name == "Query" || typeDefinition.name == "Mutation" || typeDefinition.name == "Subscription"
+
+  trait ScalaGQLWriter extends GQLWriterContext {
+    implicit val fieldWriter            = FieldWriter
+    implicit val typeWriter             = TypeWriter
+    implicit val typeDefWriter          = TypeDefinitionWriter
+    implicit val docWriter              = DocumentWriter
+    implicit val rootQueryWriter        = RootQueryDefWriter
+    implicit val queryWriter            = QueryDefWriter
+    implicit val rootMutationWriter     = RootMutationDefWriter
+    implicit val mutationWriter         = MutationDefWriter
+    implicit val rootSubscriptionWriter = RootSubscriptionDefWriter
+    implicit val subscriptionWriter     = SubscriptionDefWriter
+    implicit val argsWriter             = ArgsWriter
+  }
+
+  object DefaultGQLWriter extends ScalaGQLWriter
 
   object DocumentWriter extends GQLWriter[Document, Any] {
     override def write(schema: Document)(nothing: Any)(implicit context: GQLWriterContext): String = {

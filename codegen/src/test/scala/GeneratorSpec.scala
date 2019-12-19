@@ -1,5 +1,5 @@
-package caliban.codegen
-import caliban.codegen.Generator.{ Args, RootMutationDef, RootQueryDef, RootSubscriptionDef }
+package codegen
+import codegen.Generator.{ Args, RootMutationDef, RootQueryDef, RootSubscriptionDef }
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document
 import zio.test.Assertion._
