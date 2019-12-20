@@ -3,9 +3,9 @@ package caliban.http4s
 import caliban.ExampleData._
 import caliban.GraphQL._
 import caliban.execution.QueryAnalyzer._
-import caliban.schema.Annotations.{GQLDeprecated, GQLDescription}
+import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.GenericSchema
-import caliban.{CalibanError, ExampleService, GraphQL, Http4sAdapter, RootResolver}
+import caliban.{ ExampleService, GraphQL, Http4sAdapter, RootResolver }
 import cats.data.Kleisli
 import cats.effect.Blocker
 import org.http4s.StaticFile
@@ -16,7 +16,7 @@ import org.http4s.server.middleware.CORS
 import zio._
 import zio.blocking.Blocking
 import zio.clock.Clock
-import zio.console.{Console, putStrLn}
+import zio.console.{ putStrLn, Console }
 import zio.interop.catz._
 import zio.stream.ZStream
 
