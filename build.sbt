@@ -57,8 +57,8 @@ lazy val core = crossProject(JSPlatform, JVMPlatform)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "com.lihaoyi"    %%% "fastparse"        % "2.1.3",
-      "com.propensive" %%% "magnolia"         % "0.12.3",
+      "com.lihaoyi"    %%% "fastparse"        % "2.2.0",
+      "com.propensive" %%% "magnolia"         % "0.12.5",
       "com.propensive" %%% "mercator"         % "0.3.0",
       "dev.zio"        %%% "zio"              % "1.0.0-RC17",
       "dev.zio"        %%% "zio-streams"      % "1.0.0-RC17",
@@ -112,11 +112,29 @@ lazy val http4s = project
   )
   .dependsOn(coreJVM)
 
+lazy val akkaHttp = project
+  .in(file("akka-http"))
+  .settings(name := "caliban-akka-http")
+  .settings(commonSettings)
+  .settings(
+    libraryDependencies ++= Seq(
+      "com.typesafe.akka" %% "akka-http"       % "10.1.11",
+      "com.typesafe.akka" %% "akka-stream"     % "2.5.26",
+      "de.heikoseeberger" %% "akka-http-circe" % "1.29.1",
+      "io.circe"          %% "circe-parser"    % "0.12.3",
+      compilerPlugin(
+        ("org.typelevel" %% "kind-projector" % "0.11.0")
+          .cross(CrossVersion.full)
+      )
+    )
+  )
+  .dependsOn(coreJVM)
+
 lazy val examples = project
   .in(file("examples"))
   .settings(commonSettings)
   .settings(skip in publish := true)
-  .dependsOn(http4s, catsInteropJVM)
+  .dependsOn(akkaHttp, http4s, catsInteropJVM)
 
 lazy val benchmarks = project
   .in(file("benchmarks"))
