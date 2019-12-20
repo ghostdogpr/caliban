@@ -21,24 +21,18 @@ import zio.interop.catz._
 
 object Http4sAdapter {
 
-  private def execute[R, Q, M, S, E](
-    interpreter: GraphQL[R, Q, M, S, E],
-    query: GraphQLRequest
-  ): URIO[R, GraphQLResponse[E]] =
+  private def execute[R, E](interpreter: GraphQLInterpreter[R, E], query: GraphQLRequest): URIO[R, GraphQLResponse[E]] =
     interpreter.execute(query.query, query.operationName, query.variables.getOrElse(Map()))
 
-  private def executeToJson[R, Q, M, S, E](
-    interpreter: GraphQL[R, Q, M, S, E],
-    query: GraphQLRequest
-  ): URIO[R, Json] =
+  private def executeToJson[R, E](interpreter: GraphQLInterpreter[R, E], query: GraphQLRequest): URIO[R, Json] =
     execute(interpreter, query)
       .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
 
   @deprecated("Use makeHttpService instead", "0.4.0")
-  def makeRestService[R, Q, M, S, E](interpreter: GraphQL[R, Q, M, S, E]): HttpRoutes[RIO[R, *]] =
+  def makeRestService[R, E](interpreter: GraphQLInterpreter[R, E]): HttpRoutes[RIO[R, *]] =
     makeHttpService(interpreter)
 
-  def makeHttpService[R, Q, M, S, E](interpreter: GraphQL[R, Q, M, S, E]): HttpRoutes[RIO[R, *]] = {
+  def makeHttpService[R, E](interpreter: GraphQLInterpreter[R, E]): HttpRoutes[RIO[R, *]] = {
     object dsl extends Http4sDsl[RIO[R, *]]
     import dsl._
 
@@ -52,7 +46,7 @@ object Http4sAdapter {
     }
   }
 
-  def executeRequest[R0, R, Q, M, S, E](interpreter: GraphQL[R, Q, M, S, E], provideEnv: R0 => R): HttpApp[RIO[R0, *]] =
+  def executeRequest[R0, R, E](interpreter: GraphQLInterpreter[R, E], provideEnv: R0 => R): HttpApp[RIO[R0, *]] =
     Kleisli { req =>
       object dsl extends Http4sDsl[RIO[R0, *]]
       import dsl._
@@ -63,7 +57,7 @@ object Http4sAdapter {
       } yield response
     }
 
-  def makeWebSocketService[R, Q, M, S, E](interpreter: GraphQL[R, Q, M, S, E]): HttpRoutes[RIO[R, *]] = {
+  def makeWebSocketService[R, E](interpreter: GraphQLInterpreter[R, E]): HttpRoutes[RIO[R, *]] = {
 
     object dsl extends Http4sDsl[RIO[R, *]]
     import dsl._
@@ -172,24 +166,24 @@ object Http4sAdapter {
       .dimap((req: Request[F]) => req.mapK(toTask))((res: Response[Task]) => res.mapK(toF))
   }
 
-  def makeWebSocketServiceF[F[_], Q, M, S, E](
-    interpreter: GraphQL[Any, Q, M, S, E]
+  def makeWebSocketServiceF[F[_], E](
+    interpreter: GraphQLInterpreter[Any, E]
   )(implicit F: Effect[F], runtime: Runtime[Any]): HttpRoutes[F] =
-    wrapRoute(makeWebSocketService[Any, Q, M, S, E](interpreter))
+    wrapRoute(makeWebSocketService[Any, E](interpreter))
 
   @deprecated("Use makeHttpServiceF instead", "0.4.0")
-  def makeRestServiceF[F[_], Q, M, S, E](
-    interpreter: GraphQL[Any, Q, M, S, E]
+  def makeRestServiceF[F[_], E](
+    interpreter: GraphQLInterpreter[Any, E]
   )(implicit F: Effect[F], runtime: Runtime[Any]): HttpRoutes[F] =
     makeHttpServiceF(interpreter)
 
-  def makeHttpServiceF[F[_], Q, M, S, E](
-    interpreter: GraphQL[Any, Q, M, S, E]
+  def makeHttpServiceF[F[_], E](
+    interpreter: GraphQLInterpreter[Any, E]
   )(implicit F: Effect[F], runtime: Runtime[Any]): HttpRoutes[F] =
-    wrapRoute(makeHttpService[Any, Q, M, S, E](interpreter))
+    wrapRoute(makeHttpService[Any, E](interpreter))
 
-  def executeRequestF[F[_], Q, M, S, E](
-    interpreter: GraphQL[Any, Q, M, S, E]
+  def executeRequestF[F[_], E](
+    interpreter: GraphQLInterpreter[Any, E]
   )(implicit F: Effect[F], runtime: Runtime[Any]): HttpApp[F] =
-    wrapApp(executeRequest[Any, Any, Q, M, S, E](interpreter, identity))
+    wrapApp(executeRequest[Any, Any, E](interpreter, identity))
 }

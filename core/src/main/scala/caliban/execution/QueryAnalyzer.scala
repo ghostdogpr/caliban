@@ -14,13 +14,13 @@ object QueryAnalyzer {
   type QueryAnalyzer[-R] = Field => ZIO[R, CalibanError, Field]
 
   /**
-   * Attaches to the given GraphQL interpreter a function that checks that each query depth is under a given max.
+   * Attaches to the given GraphQL API definition a function that checks that each query depth is under a given max.
    * @param maxDepth the max allowed depth for a query
-   * @param interpreter a GraphQL interpreter
-   * @return a new GraphQL interpreter
+   * @param api a GraphQL API definition
+   * @return a new GraphQL API definition
    */
-  def maxDepth[R, Q, M, S, E](maxDepth: Int)(interpreter: GraphQL[R, Q, M, S, E]): GraphQL[R, Q, M, S, E] =
-    interpreter.withQueryAnalyzer(checkMaxDepth(maxDepth))
+  def maxDepth[R, E](maxDepth: Int)(api: GraphQL[R]): GraphQL[R] =
+    api.withQueryAnalyzer(checkMaxDepth(maxDepth))
 
   /**
    * Checks that the given field's depth is under a given max
@@ -39,13 +39,13 @@ object QueryAnalyzer {
   }
 
   /**
-   * Attaches to the given GraphQL interpreter a function that checks that each query has a limited number of fields.
+   * Attaches to the given GraphQL API definition a function that checks that each query has a limited number of fields.
    * @param maxFields the max allowed number of fields for a query
-   * @param interpreter a GraphQL interpreter
-   * @return a new GraphQL interpreter
+   * @param api a GraphQL API definition
+   * @return a new GraphQL API definition
    */
-  def maxFields[R, Q, M, S, E](maxFields: Int)(interpreter: GraphQL[R, Q, M, S, E]): GraphQL[R, Q, M, S, E] =
-    interpreter.withQueryAnalyzer(checkMaxFields(maxFields))
+  def maxFields[R, E](maxFields: Int)(api: GraphQL[R]): GraphQL[R] =
+    api.withQueryAnalyzer(checkMaxFields(maxFields))
 
   /**
    * Checks that the given field has a limited number of fields

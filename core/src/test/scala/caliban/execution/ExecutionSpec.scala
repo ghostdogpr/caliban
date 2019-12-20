@@ -14,7 +14,7 @@ object ExecutionSpec
     extends DefaultRunnableSpec(
       suite("ExecutionSpec")(
         testM("skip directive") {
-          val interpreter = graphQL(resolver)
+          val interpreter = graphQL(resolver).interpreter
           val query       = gqldoc("""
             query test {
               amos: character(name: "Amos Burton") {
@@ -29,7 +29,7 @@ object ExecutionSpec
           )
         },
         testM("simple query with fields") {
-          val interpreter = graphQL(resolver)
+          val interpreter = graphQL(resolver).interpreter
           val query       = gqldoc("""
             {
               characters {
@@ -45,7 +45,7 @@ object ExecutionSpec
           )
         },
         testM("arguments") {
-          val interpreter = graphQL(resolver)
+          val interpreter = graphQL(resolver).interpreter
           val query       = gqldoc("""
             {
               characters(origin: MARS) {
@@ -62,7 +62,7 @@ object ExecutionSpec
           )
         },
         testM("arguments with list coercion") {
-          val interpreter = graphQL(resolver)
+          val interpreter = graphQL(resolver).interpreter
           val query       = gqldoc("""
             {
               charactersIn(names: "Alex Kamal") {
@@ -76,7 +76,7 @@ object ExecutionSpec
           )
         },
         testM("aliases") {
-          val interpreter = graphQL(resolver)
+          val interpreter = graphQL(resolver).interpreter
           val query       = gqldoc("""
              {
                amos: character(name: "Amos Burton") {
@@ -95,7 +95,7 @@ object ExecutionSpec
           )
         },
         testM("fragment") {
-          val interpreter = graphQL(resolver)
+          val interpreter = graphQL(resolver).interpreter
           val query       = gqldoc("""
              {
                amos: character(name: "Amos Burton") {
@@ -113,7 +113,7 @@ object ExecutionSpec
           )
         },
         testM("inline fragment") {
-          val interpreter = graphQL(resolver)
+          val interpreter = graphQL(resolver).interpreter
           val query       = gqldoc("""
              {
                amos: character(name: "Amos Burton") {
@@ -132,7 +132,7 @@ object ExecutionSpec
           )
         },
         testM("effectful query") {
-          val interpreter = graphQL(resolverIO)
+          val interpreter = graphQL(resolverIO).interpreter
           val query       = gqldoc("""
                {
                  characters {
@@ -148,7 +148,7 @@ object ExecutionSpec
           )
         },
         testM("mutation") {
-          val interpreter = graphQL(resolverWithMutation)
+          val interpreter = graphQL(resolverWithMutation).interpreter
           val query       = gqldoc("""
                mutation {
                  deleteCharacter(name: "Amos Burton")
@@ -157,7 +157,7 @@ object ExecutionSpec
           assertM(interpreter.execute(query).map(_.data.toString), equalTo("""{"deleteCharacter":{}}"""))
         },
         testM("variable") {
-          val interpreter = graphQL(resolver)
+          val interpreter = graphQL(resolver).interpreter
           val query       = gqldoc("""
              query test($name: String!){
                amos: character(name: $name) {
@@ -171,7 +171,7 @@ object ExecutionSpec
           )
         },
         testM("skip directive") {
-          val interpreter = graphQL(resolver)
+          val interpreter = graphQL(resolver).interpreter
           val query       = gqldoc("""
              query test{
                amos: character(name: "Amos Burton") {
@@ -183,7 +183,7 @@ object ExecutionSpec
           assertM(interpreter.execute(query).map(_.data.toString), equalTo("""{"amos":{"name":"Amos Burton"}}"""))
         },
         testM("include directive") {
-          val interpreter = graphQL(resolver)
+          val interpreter = graphQL(resolver).interpreter
           val query       = gqldoc("""
              query test($included: Boolean!){
                amos: character(name: "Amos Burton") {
@@ -199,7 +199,7 @@ object ExecutionSpec
         },
         testM("test Map") {
           case class Test(map: Map[Int, String])
-          val interpreter = graphQL(RootResolver(Test(Map(3 -> "ok"))))
+          val interpreter = graphQL(RootResolver(Test(Map(3 -> "ok")))).interpreter
           val query       = gqldoc("""
              {
                map {
@@ -212,7 +212,7 @@ object ExecutionSpec
         },
         testM("test Either") {
           case class Test(either: Either[Int, String])
-          val interpreter = graphQL(RootResolver(Test(Right("ok"))))
+          val interpreter = graphQL(RootResolver(Test(Right("ok")))).interpreter
           val query       = gqldoc("""
              {
                either {
@@ -226,7 +226,7 @@ object ExecutionSpec
         testM("test UUID") {
           case class IdArgs(id: UUID)
           case class Queries(test: IdArgs => UUID)
-          val interpreter = graphQL(RootResolver(Queries(_.id)))
+          val interpreter = graphQL(RootResolver(Queries(_.id))).interpreter
           val query       = gqldoc("""
              {
                test(id: "be722453-d97d-48c2-b535-9badd1b5d4c9")
@@ -239,7 +239,7 @@ object ExecutionSpec
         },
         testM("mapError") {
           case class Test(either: Either[Int, String])
-          val interpreter = graphQL(RootResolver(Test(Right("ok")))).mapError(_ => "my custom error")
+          val interpreter = graphQL(RootResolver(Test(Right("ok")))).interpreter.mapError(_ => "my custom error")
           val query       = """query{}"""
           assertM(interpreter.execute(query).map(_.errors), equalTo(List("my custom error")))
         },
@@ -247,7 +247,7 @@ object ExecutionSpec
           case class A(b: B)
           case class B(c: Int)
           case class Test(a: A)
-          val interpreter = QueryAnalyzer.maxFields(2)(graphQL(RootResolver(Test(A(B(2))))))
+          val interpreter = QueryAnalyzer.maxFields(2)(graphQL(RootResolver(Test(A(B(2)))))).interpreter
           val query       = gqldoc("""
               {
                 a {
@@ -265,7 +265,7 @@ object ExecutionSpec
           case class A(b: B)
           case class B(c: Int)
           case class Test(a: A)
-          val interpreter = QueryAnalyzer.maxFields(2)(graphQL(RootResolver(Test(A(B(2))))))
+          val interpreter = QueryAnalyzer.maxFields(2)(graphQL(RootResolver(Test(A(B(2)))))).interpreter
           val query       = gqldoc("""
               query test {
                 a {
@@ -288,7 +288,7 @@ object ExecutionSpec
           case class A(b: B)
           case class B(c: Int)
           case class Test(a: A)
-          val interpreter = QueryAnalyzer.maxDepth(2)(graphQL(RootResolver(Test(A(B(2))))))
+          val interpreter = QueryAnalyzer.maxDepth(2)(graphQL(RootResolver(Test(A(B(2)))))).interpreter
           val query       = gqldoc("""
               {
                 a {
@@ -300,6 +300,22 @@ object ExecutionSpec
           assertM(
             interpreter.execute(query).map(_.errors),
             equalTo(List(ValidationError("Query is too deep: 3. Max depth: 2.", "")))
+          )
+        },
+        testM("merge 2 APIs") {
+          case class Test(name: String)
+          case class Test2(id: Int)
+          val api1        = graphQL(RootResolver(Test("name")))
+          val api2        = graphQL(RootResolver(Test2(2)))
+          val interpreter = (api1 |+| api2).interpreter
+          val query =
+            """query{
+              |  name
+              |  id
+              |}""".stripMargin
+          assertM(
+            interpreter.execute(query).map(_.data.toString),
+            equalTo("""{"name":"name","id":2}""")
           )
         }
       )

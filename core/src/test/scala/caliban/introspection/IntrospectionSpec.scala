@@ -104,7 +104,7 @@ object IntrospectionSpec
               }
                 """)
 
-          val interpreter = graphQL(resolverIO)
+          val interpreter = graphQL(resolverIO).interpreter
 
           assertM(
             interpreter.execute(fullIntrospectionQuery).map(_.data.toString),

@@ -12,7 +12,7 @@ val query = gqldoc("""
   }""")
 ```
 
-At **runtime**, it is possible to validate a query against your schema by calling the method `check` on your interpreter.
+At **runtime**, it is possible to validate a query against your schema by calling the method `check` on your API.
 
 ```scala
 def check(query: String): IO[CalibanError, Unit]

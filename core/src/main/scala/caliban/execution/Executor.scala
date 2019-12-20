@@ -23,9 +23,9 @@ object Executor {
    * @param operationName the operation to run in case the query contains multiple operations.
    * @param variables a list of variables.
    */
-  def executeRequest[R, Q, M, S](
+  def executeRequest[R](
     document: Document,
-    schema: RootSchema[R, Q, M, S],
+    schema: RootSchema[R],
     operationName: Option[String] = None,
     variables: Map[String, InputValue] = Map(),
     queryAnalyzers: List[QueryAnalyzer[R]] = Nil

@@ -20,8 +20,9 @@ libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "0.3.1"
 The following modules are optional:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-http4s" % "0.3.1" // routes for http4s
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-cats"   % "0.3.1" // interop with cats effect
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-http4s" % "0.3.1"    // routes for http4s
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-akka-http" % "0.3.1" // routes for akka-http
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-cats"   % "0.3.1"    // interop with cats effect
 ```
 
 Note that Caliban is also available for ScalaJS.
@@ -50,16 +51,18 @@ case class Queries(characters: List[Character],
 val queries = Queries(getCharacters, args => getCharacter(args.name))
 ```
 
-The next step is creating our graphql interpreter. First, we wrap our query resolver inside a `RootResolver`, the root object that contains queries, mutations and subscriptions. Only queries are mandatory. Then we can call the `graphQL` function which will turn our simple resolver value into an interpreter. The whole schema will be derived at compile time, meaning that if it compiles, it will be able to serve it.
+The next step is creating our GraphQL API definition. First, we wrap our query resolver inside a `RootResolver`, the root object that contains queries, mutations and subscriptions. Only queries are mandatory.
+Then we can call the `graphQL` function which will turn our simple resolver value into a GraphQL API definition.
+The whole schema will be derived at compile time, meaning that if it compiles, it will be able to serve it.
 
 ```scala
 import caliban.GraphQL.graphQL
 import caliban.RootResolver
 
-val interpreter = graphQL(RootResolver(queries))
+val api = graphQL(RootResolver(queries))
 ```
 
-You can use `interpreter.render` to visualize the schema generated, in this case:
+You can use `api.render` to visualize the schema generated, in this case:
 
 ```graphql
 type Character {
@@ -70,6 +73,13 @@ type Queries {
   characters: [Character!]!
   character(name: String!): Character
 }
+```
+
+In order to process requests, you need to turn your API into an interpreter, which can be done easily by calling `.interpreter`.
+An interpreter is a light wrapper around the API definition that allows plugging in some middleware and possibly modifying the environment and error types (see [Middleware](middleware.md) for more info).
+
+```scala
+val interpreter = api.interpreter
 ```
 
 Now you can call `interpreter.execute` with a given GraphQL query, and you will get an `ZIO[R, Nothing, GraphQLResponse[CalibanError]]` as a response, with `GraphQLResponse` defined as follows:
@@ -100,7 +110,20 @@ A `CalibanError` can be:
 - a `ValidationError`: the query was parsed but does not match the schema
 - an `ExecutionError`: an error happened while executing the query
 
-Caliban itself is not tied to any web framework, you are free to expose this function using the protocol and library of your choice. The [caliban-http4s](https://github.com/ghostdogpr/caliban/tree/master/http4s) module provides an `Http4sAdapter` that exposes an interpreter over HTTP and WebSocket using http4s.
+Caliban itself is not tied to any web framework, you are free to expose this function using the protocol and library of your choice. The [caliban-http4s](https://github.com/ghostdogpr/caliban/tree/master/http4s) module provides an `Http4sAdapter` that exposes an interpreter over HTTP and WebSocket using http4s. There is also a [caliban-akka-http](https://github.com/ghostdogpr/caliban/tree/master/akka-http) that provides similar functionality for Akka HTTP.
+
+::: tip Combining GraphQL APIs
+You don't have to define all your root fields into a single case class: you can use smaller case classes and combine `GraphQL` objects using the `|+|` operator.
+
+```scala
+val api1 = graphQL(...)
+val api2 = graphQL(...)
+
+val api = api1 |+| api2
+```
+
+You can use `.rename` to change the names of the generated root types.
+:::
 
 ## Mutations
 
@@ -110,7 +133,7 @@ Creating mutations is the same as queries, except you pass them as the second ar
 case class CharacterArgs(name: String)
 case class Mutations(deleteCharacter: CharacterArgs => Task[Boolean])
 val mutations = Mutations(???)
-val interpreter = graphQL(RootResolver(queries, mutations))
+val api = graphQL(RootResolver(queries, mutations))
 ```
 
 ## Subscriptions
@@ -120,7 +143,7 @@ Similarly, subscriptions are passed as the third argument to `RootResolver`:
 ```scala
 case class Subscriptions(deletedCharacter: ZStream[Any, Nothing, Character])
 val subscriptions = Subscriptions(???)
-val interpreter = graphQL(RootResolver(queries, mutations, subscriptions))
+val api = graphQL(RootResolver(queries, mutations, subscriptions))
 ```
 
 All the fields of the subscription root case class MUST return `ZStream` or `? => ZStream` objects. When a subscription request is received, an output stream of `ResponseValue` will be returned wrapped in an `ObjectValue`.
