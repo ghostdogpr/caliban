@@ -47,7 +47,7 @@ lazy val root = project
   .enablePlugins(ScalaJSPlugin)
   .settings(skip in publish := true)
   .settings(historyPath := None)
-  .aggregate(coreJVM, coreJS, http4s, catsInteropJVM, catsInteropJS)
+  .aggregate(coreJVM, coreJS, http4s, akkaHttp, catsInteropJVM, catsInteropJS)
 
 lazy val core = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)
