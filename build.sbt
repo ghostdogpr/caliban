@@ -85,7 +85,8 @@ lazy val catsInterop = crossProject(JSPlatform, JVMPlatform)
   .settings(
     libraryDependencies ++= Seq(
       "dev.zio"       %%% "zio-interop-cats" % "2.0.0.0-RC10",
-      "org.typelevel" %%% "cats-effect"      % "2.0.0"
+      "org.typelevel" %%% "cats-effect"      % "2.0.0",
+      "co.fs2"        %%% "fs2-core"         % "2.1.0"
     )
   )
   .dependsOn(core)
