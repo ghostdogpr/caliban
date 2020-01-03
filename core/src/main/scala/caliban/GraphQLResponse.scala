@@ -16,11 +16,12 @@ private object GraphQLResponceCirce {
   import io.circe._
   import io.circe.syntax._
   val graphQLResponseEncoder: Encoder[GraphQLResponse[CalibanError]] = Encoder
-    .instance[GraphQLResponse[CalibanError]](
-      response =>
+    .instance[GraphQLResponse[CalibanError]] {
+      case GraphQLResponse(data, Nil) => Json.obj("data" -> data.asJson)
+      case GraphQLResponse(data, errors) =>
         Json.obj(
-          "data"   -> response.data.asJson,
-          "errors" -> Json.fromValues(response.errors.map(err => Json.fromString(err.toString)))
+          "data"   -> data.asJson,
+          "errors" -> Json.fromValues(errors.map(err => Json.obj("message" -> Json.fromString(err.toString))))
         )
-    )
+    }
 }
