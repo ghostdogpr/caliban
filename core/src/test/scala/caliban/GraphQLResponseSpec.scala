@@ -1,5 +1,6 @@
 package caliban
 
+import caliban.CalibanError.ExecutionError
 import caliban.Value._
 import io.circe._
 import io.circe.syntax._
@@ -13,7 +14,20 @@ object GraphQLResponseSpec
           val response = GraphQLResponse(StringValue("data"), Nil)
           assert(
             response.asJson,
-            equalTo(Json.obj("data" -> Json.fromString("data"), "errors" -> Json.arr()))
+            equalTo(Json.obj("data" -> Json.fromString("data")))
+          )
+        },
+        test("should include error only if non-empty") {
+          val response = GraphQLResponse(StringValue("data"), List(ExecutionError("Resolution failed")))
+
+          assert(
+            response.asJson,
+            equalTo(
+              Json.obj(
+                "data"   -> Json.fromString("data"),
+                "errors" -> Json.arr(Json.obj("message" -> Json.fromString("Execution error: Resolution failed")))
+              )
+            )
           )
         }
       )
