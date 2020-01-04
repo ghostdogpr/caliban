@@ -124,7 +124,7 @@ Caliban provides auto-derivation for common types such as `Int`, `String`, `List
 
 ## Effects
 
-Fields can return ZIO effects. This allows you to leverage all the features provided by ZIO: timeouts, retries, access to ZIO environment, memoizing, etc. An effect will be ran every time a query requiring the corresponding field is executed.
+Fields can return ZIO effects. This allows you to leverage all the features provided by ZIO: timeouts, retries, access to ZIO environment, memoizing, etc. An effect will be run every time a query requiring the corresponding field is executed.
 
 ```scala
 case class Queries(characters: Task[List[Character]],
