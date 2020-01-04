@@ -44,7 +44,7 @@ Let's create a case class named `Queries` that will represent our API, with 2 fi
 
 ```scala
 // schema
-case class CharacterName(name: String)
+case class Character(name: String)
 case class Queries(characters: List[Character],
                    character: CharacterName => Option[Character])
 // resolver
@@ -93,9 +93,7 @@ Use `ResponseValue#toString` to get the JSON representation of the result.
 ```scala
 val query = """
   {
-    characters {
-      name
-    }
+    characters 
   }"""
 
 for {
