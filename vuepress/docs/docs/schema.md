@@ -142,7 +142,7 @@ import schema._
 
 ## Annotations
 
-Caliban supports a few annotation to enrich data types:
+Caliban supports a few annotations to enrich data types:
 
 - `@GQLName("name")` allows you to specify a different name for a data type or a field.
 - `@GQLInputName("name")` allows you to specify a different name for a data type used as an input (by default, the suffix `Input` is appended to the type name).
