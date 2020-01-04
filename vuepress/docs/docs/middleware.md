@@ -7,7 +7,7 @@ You might want to perform some actions on every query received. Caliban supports
 
 ## Wrapping query execution
 
-Once you have a `GraphQL` interpreter, you can call `wrapExecutionWith` on it. This method that takes a function and return a new `GraphQL` interpreter that will wrap the `execute` method with this function.
+Once you have a `GraphQL` interpreter, you can call `wrapExecutionWith` on it. This method takes in a function `f` and returns a new `GraphQL` interpreter that will wrap the `execute` method with this function `f`.
 
 It is used internally to implement `mapError` (customize errors) and `provide` (eliminate the environment), but you can use it for other purposes such as adding a general timeout, logging response times, etc.
 
