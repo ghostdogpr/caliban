@@ -3,7 +3,7 @@ package caliban
 /**
  * The base type for all Caliban errors.
  */
-sealed trait CalibanError extends Throwable {
+sealed trait CalibanError extends Throwable with Product with Serializable {
   def msg: String
 }
 
