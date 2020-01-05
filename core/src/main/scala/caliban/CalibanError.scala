@@ -13,7 +13,7 @@ object CalibanError {
    * Describes an error that happened while parsing a query.
    */
   case class ParsingError(msg: String, innerThrowable: Option[Throwable] = None) extends CalibanError {
-    override def toString: String = s"""Parsing error: $msg ${innerThrowable.map(_.toString).getOrElse("")}"""
+    override def toString: String = s"""Parsing error: $msg ${innerThrowable.fold("")(_.toString)}"""
   }
 
   /**

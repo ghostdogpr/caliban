@@ -227,7 +227,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
             arg1.build(InputValue.ObjectValue(args)) match {
               case Left(error)  => QueryStep(ZQuery.fail(error))
               case Right(value) => ev2.resolve(f(value))
-            }
+          }
         )
     }
   implicit def futureSchema[A](implicit ev: Schema[R, A]): Schema[R, Future[A]] =
@@ -297,7 +297,7 @@ trait DerivationSchema[R] {
                   () =>
                     if (p.typeclass.optional) p.typeclass.toType(isInput) else makeNonNull(p.typeclass.toType(isInput)),
                   None
-                )
+              )
             )
             .toList
         )
@@ -316,7 +316,7 @@ trait DerivationSchema[R] {
                     if (p.typeclass.optional) p.typeclass.toType(isInput) else makeNonNull(p.typeclass.toType(isInput)),
                   p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
                   p.annotations.collectFirst { case GQLDeprecated(reason) => reason }
-                )
+              )
             )
             .toList
         )
@@ -329,9 +329,16 @@ trait DerivationSchema[R] {
   def dispatch[T](ctx: SealedTrait[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
     override def toType(isInput: Boolean = false): __Type = {
       val subtypes =
-        ctx.subtypes.map(s => s.typeclass.toType() -> s.annotations).toList.sortBy(_._1.name.getOrElse(""))
+        ctx.subtypes
+          .map(s => s.typeclass.toType() -> s.annotations)
+          .toList
+          .sortBy {
+            case (tpe, _) => tpe.name.getOrElse("")
+          }
       val isEnum = subtypes.forall {
-        case (t, _) if t.fields(__DeprecatedArgs(Some(true))).forall(_.isEmpty) && t.inputFields.forall(_.isEmpty) =>
+        case (t, _)
+            if t.fields(__DeprecatedArgs(Some(true))).forall(_.isEmpty)
+              && t.inputFields.forall(_.isEmpty) =>
           true
         case _ => false
       }
@@ -374,7 +381,7 @@ trait DerivationSchema[R] {
                     () => makeScalar("Boolean")
                   )
                 )
-              )
+            )
           )
         case _ => t
       }
