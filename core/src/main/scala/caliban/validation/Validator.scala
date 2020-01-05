@@ -181,7 +181,7 @@ object Validator {
                       "Variables are scoped on a per‐operation basis. That means that any variable used within the context of an operation must be defined at the top level of that operation"
                     )
                   )
-              )
+                )
             ) *> IO.foreach(op.variableDefinitions)(
               v =>
                 IO.when(!variableUsages.contains(v.name))(
@@ -191,9 +191,9 @@ object Validator {
                       "All variables defined by an operation must be used in that operation or a fragment transitively included by that operation. Unused variables cause a validation error."
                     )
                   )
-              )
+                )
             )
-        }
+          }
       )
       .unit
 
@@ -323,7 +323,7 @@ object Validator {
             ValidationError(
               s"Field '${field.name}' does not exist on type '${Rendering.renderTypeName(currentType)}'.",
               "The target field of a field selection must be defined on the scoped type of the selection set. There are no limitations on alias names."
-          )
+            )
         )
         .flatMap { f =>
           validateFields(context, field.selectionSet, Types.innerType(f.`type`())) *>
@@ -355,7 +355,7 @@ object Validator {
                 "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
               )
             )
-        )
+          )
       )
 
   private def validateInputValues(inputValue: __InputValue, argValue: InputValue): IO[ValidationError, Unit] = {
@@ -390,7 +390,7 @@ object Validator {
                     "Input object fields may be required. Much like a field may have required arguments, an input object may have required fields. An input field is required if it has a non‐null type and does not have a default value. Otherwise, the input object field is optional."
                   )
                 )
-            )
+              )
           )
           .unit
       case _ => IO.unit
