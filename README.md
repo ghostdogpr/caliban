@@ -13,7 +13,7 @@ It relies on [Magnolia](https://github.com/propensive/magnolia) to automatically
 
 The design principles behind the library are the following:
 - pure interface: errors and effects are returned explicitly (no exceptions thrown), all returned types are referentially transparent (no `Future`).
-- clean separation between schema definition and implementation: schema is defined and validated at compile time using Scala standard types, resolver is a simple value provided at runtime.
+- clean separation between schema definition and implementation: schema is defined and validated at compile time using Scala standard types, resolver (`RootResolver`) is a simple value provided at runtime.
 - minimal amount of boilerplate: no need to manually define a schema for every type in your API.
 
 ### Consult the [Documentation](https://ghostdogpr.github.io/caliban/docs/) to learn how to use Caliban.
