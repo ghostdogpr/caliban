@@ -93,7 +93,9 @@ Use `ResponseValue#toString` to get the JSON representation of the result.
 ```scala
 val query = """
   {
-    characters 
+    characters {
+       name
+    }  
   }"""
 
 for {
