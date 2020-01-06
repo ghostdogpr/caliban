@@ -73,10 +73,12 @@ object Rendering {
   private def isBuiltinScalar(name: String): Boolean =
     name == "Int" || name == "Float" || name == "String" || name == "Boolean" || name == "ID"
 
-  private[caliban] def renderTypeName(fieldType: __Type): String =
+  private[caliban] def renderTypeName(fieldType: __Type): String = {
+    lazy val renderedTypeName = fieldType.ofType.fold("null")(renderTypeName)
     fieldType.kind match {
-      case __TypeKind.NON_NULL => s"${fieldType.ofType.fold("null")(renderTypeName)}!"
-      case __TypeKind.LIST     => s"[${fieldType.ofType.fold("null")(renderTypeName)}]"
+      case __TypeKind.NON_NULL => renderedTypeName + "!"
+      case __TypeKind.LIST     => s"[$renderedTypeName]"
       case _                   => s"${fieldType.name.getOrElse("null")}"
     }
+  }
 }
