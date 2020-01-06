@@ -157,12 +157,12 @@ An easy way to do this is to reuse existing instances and use `contramap` to map
 
 ```scala
 import caliban.schema._
-implicit val nonEmptyStringSchema: Schema[NonEmptyString] = Schema.stringSchema.contramap(_.value)
+implicit val nonEmptyStringSchema: Schema[Any, NonEmptyString] = Schema.stringSchema.contramap(_.value)
 ```
 
 You can also use the `scalarSchema` helper to create your own scalar types, providing a name, an optional description, and a function from your type to a `ResponseValue`:
 
 ```scala
 import caliban.schema._
-implicit val unitSchema: Schema[Unit] = scalarSchema("Unit", None, _ => ObjectValue(Nil))
+implicit val unitSchema: Schema[Any, Unit] = scalarSchema("Unit", None, _ => ObjectValue(Nil))
 ```
