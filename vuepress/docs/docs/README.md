@@ -94,8 +94,8 @@ Use `ResponseValue#toString` to get the JSON representation of the result.
 val query = """
   {
     characters {
-       name
-    }  
+      name
+    }
   }"""
 
 for {
