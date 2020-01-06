@@ -63,7 +63,7 @@ object Types {
         t.possibleTypes.getOrElse(Nil).foldLeft(map2) { case (types, subtype) => collectTypes(subtype, types) }
     }
 
-  def innerType(t: __Type): __Type = t.ofType.map(innerType).getOrElse(t)
+  def innerType(t: __Type): __Type = t.ofType.fold(t)(innerType)
 
   def name(t: __Type): String =
     (t.kind match {

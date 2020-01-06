@@ -63,7 +63,9 @@ object Value {
     def apply(v: Long): IntValue   = LongNumber(v)
     def apply(v: BigInt): IntValue = BigIntNumber(v)
     def apply(s: String): IntValue =
-      Try(IntNumber(s.toInt)).orElse(Try(LongNumber(s.toLong))).getOrElse(BigIntNumber(BigInt(s)))
+      Try(IntNumber(s.toInt)) orElse
+        Try(LongNumber(s.toLong)) getOrElse
+        BigIntNumber(BigInt(s))
 
     case class IntNumber(value: Int) extends IntValue {
       override def toInt: Int       = value
