@@ -7,9 +7,33 @@ import zio.stream.Stream
 import scala.util.Try
 
 sealed trait InputValue
-sealed trait ResponseValue
-sealed trait Value extends InputValue with ResponseValue
+object InputValue {
+  case class ListValue(values: List[InputValue])          extends InputValue
+  case class ObjectValue(fields: Map[String, InputValue]) extends InputValue
+  case class VariableValue(name: String)                  extends InputValue
 
+  implicit def circeDecoder[F[_]: IsCirceDecoder]: F[InputValue] =
+    ValueCirce.inputValueDecoder.asInstanceOf[F[InputValue]]
+}
+
+sealed trait ResponseValue
+object ResponseValue {
+  case class ListValue(values: List[ResponseValue]) extends ResponseValue {
+    override def toString: String = values.mkString("[", ",", "]")
+  }
+  case class ObjectValue(fields: List[(String, ResponseValue)]) extends ResponseValue {
+    override def toString: String =
+      fields.map { case (name, value) => s""""$name":${value.toString}""" }.mkString("{", ",", "}")
+  }
+  case class StreamValue(stream: Stream[Throwable, ResponseValue]) extends ResponseValue {
+    override def toString: String = "<stream>"
+  }
+
+  implicit def circeEncoder[F[_]](implicit ev: IsCirceEncoder[F]): F[ResponseValue] =
+    ValueCirce.responseValueEncoder.asInstanceOf[F[ResponseValue]]
+}
+
+sealed trait Value extends InputValue with ResponseValue
 object Value {
   case object NullValue extends Value {
     override def toString: String = "null"
@@ -86,31 +110,6 @@ object Value {
       override def toString: String         = value.toString
     }
   }
-}
-
-object InputValue {
-  case class ListValue(values: List[InputValue])          extends InputValue
-  case class ObjectValue(fields: Map[String, InputValue]) extends InputValue
-  case class VariableValue(name: String)                  extends InputValue
-
-  implicit def circeDecoder[F[_]: IsCirceDecoder]: F[InputValue] =
-    ValueCirce.inputValueDecoder.asInstanceOf[F[InputValue]]
-}
-
-object ResponseValue {
-  case class ListValue(values: List[ResponseValue]) extends ResponseValue {
-    override def toString: String = values.mkString("[", ",", "]")
-  }
-  case class ObjectValue(fields: List[(String, ResponseValue)]) extends ResponseValue {
-    override def toString: String =
-      fields.map { case (name, value) => s""""$name":${value.toString}""" }.mkString("{", ",", "}")
-  }
-  case class StreamValue(stream: Stream[Throwable, ResponseValue]) extends ResponseValue {
-    override def toString: String = "<stream>"
-  }
-
-  implicit def circeEncoder[F[_]](implicit ev: IsCirceEncoder[F]): F[ResponseValue] =
-    ValueCirce.responseValueEncoder.asInstanceOf[F[ResponseValue]]
 }
 
 private object ValueCirce {
