@@ -34,7 +34,7 @@ Creating a GraphQL API with Caliban is as simple as creating a case class. Indee
 Let's say we have a class `Character` and 2 functions: `getCharacters` and `getCharacter`:
 
 ```scala
-case class Character(name: String)
+case class Character(name: String, age: Int)
 
 def getCharacters: List[Character] = ???
 def getCharacter(name: String): Option[Character] = ???
@@ -44,7 +44,7 @@ Let's create a case class named `Queries` that will represent our API, with 2 fi
 
 ```scala
 // schema
-case class Character(name: String)
+case class CharacterName(name: String)
 case class Queries(characters: List[Character],
                    character: CharacterName => Option[Character])
 // resolver
