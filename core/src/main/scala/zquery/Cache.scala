@@ -1,6 +1,6 @@
 package zquery
 
-import zio.{ Ref, UIO }
+import zio.{ IO, Ref, UIO }
 
 /**
  * A `Cache` maintains an internal state with a mapping from requests to `Ref`s
@@ -8,13 +8,13 @@ import zio.{ Ref, UIO }
  * is used internally by the library to provide deduplication and caching of
  * requests.
  */
-class Cache private (private val state: Ref[Map[Any, Any]]) {
+final class Cache private (private val state: Ref[Map[Any, Any]]) {
 
   /**
    * Inserts a request and a `Ref` that will contain the result of the request
    * when it is executed into the cache.
    */
-  final def insert[E, A](request: Request[E, A], result: Ref[Option[Either[E, A]]]): UIO[Unit] =
+  def insert[E, A](request: Request[E, A], result: Ref[Option[Either[E, A]]]): UIO[Unit] =
     state.update(_ + (request -> result)).unit
 
   /**
@@ -23,8 +23,8 @@ class Cache private (private val state: Ref[Map[Any, Any]]) {
    * been executed yet, or `Some(Ref(Some(value)))` if the request has been
    * executed.
    */
-  final def lookup[E, A](request: Request[E, A]): UIO[Option[Ref[Option[Either[E, A]]]]] =
-    state.get.map(_.get(request).asInstanceOf[Option[Ref[Option[Either[E, A]]]]])
+  def lookup[E, A](request: Request[E, A]): IO[Unit, Ref[Option[Either[E, A]]]] =
+    state.get.map(_.get(request).asInstanceOf[Option[Ref[Option[Either[E, A]]]]]).get
 }
 
 object Cache {

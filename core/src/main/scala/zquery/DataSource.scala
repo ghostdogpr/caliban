@@ -1,6 +1,6 @@
 package zquery
 
-import zio.ZIO
+import zio.{ NeedsEnv, ZIO }
 
 /**
  * A `DataSource[R, A]` is capable of executing requests of type `A` that
@@ -47,11 +47,11 @@ object DataSource {
      * specified function to transform `B` requests into requests that this
      * data source can execute.
      */
-    final def contramap[B](f: B => A)(name: String): DataSource.Service[R, B] =
+    final def contramap[B](f: Described[B => A]): DataSource.Service[R, B] =
       new DataSource.Service[R, B] {
-        val identifier = s"${self.identifier}.contramap($name)"
+        val identifier = s"${self.identifier}.contramap(${f.description})"
         def run(requests: Iterable[B]): ZIO[R, Nothing, CompletedRequestMap] =
-          self.run(requests.map(f))
+          self.run(requests.map(f.value))
       }
 
     /**
@@ -59,11 +59,11 @@ object DataSource {
      * specified effectual function to transform `B` requests into requests
      * that this data source can execute.
      */
-    final def contramapM[R1 <: R, B](name: String)(f: B => ZIO[R1, Nothing, A]): DataSource.Service[R1, B] =
+    final def contramapM[R1 <: R, B](f: Described[B => ZIO[R1, Nothing, A]]): DataSource.Service[R1, B] =
       new DataSource.Service[R1, B] {
-        val identifier = s"${self.identifier}.contramapM($name)"
+        val identifier = s"${self.identifier}.contramapM(${f.description})"
         def run(requests: Iterable[B]): ZIO[R1, Nothing, CompletedRequestMap] =
-          ZIO.foreach(requests)(f).flatMap(self.run)
+          ZIO.foreach(requests)(f.value).flatMap(self.run)
       }
 
     /**
@@ -73,13 +73,13 @@ object DataSource {
      */
     final def eitherWith[R1 <: R, B, C](
       that: DataSource.Service[R1, B]
-    )(name: String)(f: C => Either[A, B]): DataSource.Service[R1, C] =
+    )(f: Described[C => Either[A, B]]): DataSource.Service[R1, C] =
       new DataSource.Service[R1, C] {
-        val identifier = s"${self.identifier}.eitherWith(${that.identifier})($name)"
+        val identifier = s"${self.identifier}.eitherWith(${that.identifier})(${f.description})"
         def run(requests: Iterable[C]): ZIO[R1, Nothing, CompletedRequestMap] = {
           val (as, bs) = requests.foldLeft((List.empty[A], List.empty[B])) {
             case ((as, bs), c) =>
-              f(c) match {
+              f.value(c) match {
                 case Left(a)  => (a :: as, bs)
                 case Right(b) => (as, b :: bs)
               }
@@ -98,17 +98,17 @@ object DataSource {
     /**
      * Provides this data source with its required environment.
      */
-    final def provide(name: String)(r: R): DataSource.Service[Any, A] =
-      provideSome(s"_ => $name")(_ => r)
+    final def provide(r: Described[R])(implicit ev: NeedsEnv[R]): DataSource.Service[Any, A] =
+      provideSome(Described(_ => r.value, s"_ => ${r.description}"))
 
     /**
      * Provides this data source with part of its required environment.
      */
-    final def provideSome[R0](name: String)(f: R0 => R): DataSource.Service[R0, A] =
+    final def provideSome[R0](f: Described[R0 => R])(implicit ev: NeedsEnv[R]): DataSource.Service[R0, A] =
       new DataSource.Service[R0, A] {
-        val identifier = s"${self.identifier}.provideSome($name)"
+        val identifier = s"${self.identifier}.provideSome(${f.description})"
         def run(requests: Iterable[A]): ZIO[R0, Nothing, CompletedRequestMap] =
-          self.run(requests).provideSome(f)
+          self.run(requests).provideSome(f.value)
       }
 
     override final def toString: String =
@@ -131,7 +131,7 @@ object DataSource {
     /**
      * Constructs a data source from a pure function.
      */
-    final def fromFunction[A, B](
+    def fromFunction[A, B](
       name: String
     )(f: A => B)(implicit ev: A <:< Request[Nothing, B]): DataSource.Service[Any, A] =
       new DataSource.Service[Any, A] {
@@ -141,36 +141,71 @@ object DataSource {
       }
 
     /**
-     * Constructs a data source from a pure function that takes a list of requests and returns a list of results of the same size.
-     * Each item in the result list must correspond to the item at the same index in the request list.
+     * Constructs a data source from a pure function that takes a list of
+     * requests and returns a list of results of the same size. Each item in
+     * the result list must correspond to the item at the same index in the
+     * request list.
      */
-    final def fromFunctionBatched[A, B](
+    def fromFunctionBatched[A, B](
       name: String
     )(f: Iterable[A] => Iterable[B])(implicit ev: A <:< Request[Nothing, B]): DataSource.Service[Any, A] =
       fromFunctionBatchedM(name)(f andThen ZIO.succeed)
 
     /**
-     * Constructs a data source from an effectual function that takes a list of requests and returns a list of results of the same size.
-     * Each item in the result list must correspond to the item at the same index in the request list.
+     * Constructs a data source from an effectual function that takes a list of
+     * requests and returns a list of results of the same size. Each item in
+     * the result list must correspond to the item at the same index in the
+     * request list.
      */
-    final def fromFunctionBatchedM[R, E, A, B](
+    def fromFunctionBatchedM[R, E, A, B](
       name: String
     )(f: Iterable[A] => ZIO[R, Nothing, Iterable[B]])(implicit ev: A <:< Request[E, B]): DataSource.Service[R, A] =
       new DataSource.Service[R, A] {
         val identifier = name
         def run(requests: Iterable[A]): ZIO[R, Nothing, CompletedRequestMap] =
-          f(requests).map(
-            results =>
-              (requests zip results).foldLeft(CompletedRequestMap.empty) {
-                case (map, (k, v)) => map.insert(k)(Right(v))
-              }
-          )
+          f(requests).map { results =>
+            (requests zip results).foldLeft(CompletedRequestMap.empty) {
+              case (map, (k, v)) => map.insert(k)(Right(v))
+            }
+          }
+      }
+
+    /**
+     * Constructs a data source from a function that takes a list of requests
+     * and returns a list of results of the same size. Uses the specified
+     * function to associate each result with the corresponding effect,
+     * allowing the function to return the list of results in a different order
+     * than the list of requests.
+     */
+    def fromFunctionBatchedWith[A, B](
+      name: String
+    )(f: Iterable[A] => Iterable[B], g: B => Request[Nothing, B]): DataSource.Service[Any, A] =
+      fromFunctionBatchedWithM(name)(f andThen ZIO.succeed, g)
+
+    /**
+     * Constructs a data source from an effectual function that takes a list of
+     * requests and returns a list of results of the same size. Uses the
+     * specified function to associate each result with the corresponding
+     * effect, allowing the function to return the list of results in a
+     * different order than the list of requests.
+     */
+    def fromFunctionBatchedWithM[R, E, A, B](
+      name: String
+    )(f: Iterable[A] => ZIO[R, Nothing, Iterable[B]], g: B => Request[E, B]): DataSource.Service[R, A] =
+      new DataSource.Service[R, A] {
+        val identifier = name
+        def run(requests: Iterable[A]): ZIO[R, Nothing, CompletedRequestMap] =
+          f(requests).map { results =>
+            results.map(b => (g(b), b)).foldLeft(CompletedRequestMap.empty) {
+              case (map, (k, v)) => map.insert(k)(Right(v))
+            }
+          }
       }
 
     /**
      * Constructs a data source from an effectual function.
      */
-    final def fromFunctionM[R, E, A, B](
+    def fromFunctionM[R, E, A, B](
       name: String
     )(f: A => ZIO[R, Nothing, B])(implicit ev: A <:< Request[E, B]): DataSource.Service[R, A] =
       new DataSource.Service[R, A] {

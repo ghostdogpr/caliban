@@ -18,6 +18,7 @@ object ZQuerySpec
           } yield assert(log, hasSize(equalTo(2)))
         },
         testM("mapError does not prevent batching") {
+          import zio.CanFail.canFail
           val a = getUserNameById(1).zip(getUserNameById(2)).mapError(identity)
           val b = getUserNameById(3).zip(getUserNameById(4)).mapError(identity)
           for {

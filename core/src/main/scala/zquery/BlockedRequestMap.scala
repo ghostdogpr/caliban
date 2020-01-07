@@ -24,7 +24,7 @@ private[zquery] final class BlockedRequestMap[-R](
    * can change the environment and error types of data sources but must
    * preserve the request type of each data source.
    */
-  final def mapDataSources[R1](f: DataSourceFunction[R, R1]): BlockedRequestMap[R1] =
+  def mapDataSources[R1](f: DataSourceFunction[R, R1]): BlockedRequestMap[R1] =
     new BlockedRequestMap(self.map.map { case (k, v) => (f(k).asInstanceOf[DataSource.Service[Any, Any]], v) })
 
   /**
