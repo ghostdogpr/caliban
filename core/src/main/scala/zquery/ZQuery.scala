@@ -78,6 +78,13 @@ sealed trait ZQuery[-R, +E, +A] { self =>
     zip(that)
 
   /**
+   * Returns a query whose failure and success channels have been mapped by the
+   * specified pair of functions, `f` and `g`.
+   */
+  final def bimap[E1, B](f: E => E1, g: A => B)(implicit ev: CanFail[E]): ZQuery[R, E1, B] =
+    foldM(e => ZQuery.fail(f(e)), a => ZQuery.succeed(g(a)))
+
+  /**
    * A symbolic alias for `flatMap`.
    */
   final def >>=[R1 <: R, E1 >: E, B](f: A => ZQuery[R1, E1, B]): ZQuery[R1, E1, B] =
@@ -114,9 +121,22 @@ sealed trait ZQuery[-R, +E, +A] { self =>
    * right function passed to `fold`.
    */
   final def fold[B](failure: E => B, success: A => B)(implicit ev: CanFail[E]): ZQuery[R, Nothing, B] =
-    new ZQuery[R, Nothing, B] {
-      def step(cache: Cache): ZIO[R, Nothing, Result[R, Nothing, B]] =
-        self.step(cache).map(_.fold(failure, success))
+    foldM(e => ZQuery.succeed(failure(e)), a => ZQuery.succeed(success(a)))
+
+  /**
+   * Recovers from errors by accepting one query to execute for the case of an
+   * error, and one query to execute for the case of success.
+   */
+  final def foldM[R1 <: R, E1, B](failure: E => ZQuery[R1, E1, B], success: A => ZQuery[R1, E1, B])(
+    implicit ev: CanFail[E]
+  ): ZQuery[R1, E1, B] =
+    new ZQuery[R1, E1, B] {
+      def step(cache: Cache): ZIO[R1, Nothing, Result[R1, E1, B]] =
+        self.step(cache).flatMap {
+          case Result.Blocked(br, c) => ZIO.succeed(Result.blocked(br, c.foldM(failure, success)))
+          case Result.Done(a)        => success(a).step(cache)
+          case Result.Fail(e)        => e.failureOrCause.fold(failure(_).step(cache), ZIO.halt)
+        }
     }
 
   /**
@@ -132,10 +152,7 @@ sealed trait ZQuery[-R, +E, +A] { self =>
    * Maps the specified function over the failed result of this query.
    */
   final def mapError[E1](f: E => E1)(implicit ev: CanFail[E]): ZQuery[R, E1, A] =
-    new ZQuery[R, E1, A] {
-      def step(cache: Cache): ZIO[R, Nothing, Result[R, E1, A]] =
-        self.step(cache).map(_.mapError(f))
-    }
+    bimap(f, identity)
 
   /**
    * Provides this query with its required environment.
