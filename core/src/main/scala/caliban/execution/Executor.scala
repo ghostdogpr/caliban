@@ -118,9 +118,10 @@ object Executor {
           reduceObject(items)
         case QueryStep(inner) =>
           ReducedStep.QueryStep(
-            inner
-              .map(reduceStep(_, currentField, arguments))
-              .mapError(GenericSchema.effectfulExecutionError(currentField.name, _))
+            inner.bimap(
+              GenericSchema.effectfulExecutionError(currentField.name, _),
+              reduceStep(_, currentField, arguments)
+            )
           )
         case StreamStep(stream) =>
           ReducedStep.StreamStep(
