@@ -7,13 +7,13 @@ import zio.ZIO
  * requests from those data sources.
  */
 private[zquery] final class BlockedRequestMap[-R](
-  private val map: Map[DataSource.Service[Any, Any], Vector[BlockedRequest[Any]]]
+  private val map: Map[DataSource[Any, Any], Vector[BlockedRequest[Any]]]
 ) { self =>
 
   def ++[R1 <: R](that: BlockedRequestMap[R1]): BlockedRequestMap[R1] =
     new BlockedRequestMap(
       (self.map.toVector ++ that.map.toVector)
-        .foldLeft[Map[DataSource.Service[Any, Any], Vector[BlockedRequest[Any]]]](Map()) {
+        .foldLeft[Map[DataSource[Any, Any], Vector[BlockedRequest[Any]]]](Map()) {
           case (acc, (key, value)) =>
             acc + (key -> acc.get(key).fold(value)(_ ++ value))
         }
@@ -25,7 +25,7 @@ private[zquery] final class BlockedRequestMap[-R](
    * preserve the request type of each data source.
    */
   def mapDataSources[R1](f: DataSourceFunction[R, R1]): BlockedRequestMap[R1] =
-    new BlockedRequestMap(self.map.map { case (k, v) => (f(k).asInstanceOf[DataSource.Service[Any, Any]], v) })
+    new BlockedRequestMap(self.map.map { case (k, v) => (f(k).asInstanceOf[DataSource[Any, Any]], v) })
 
   /**
    * Executes all requests, submitting batched requests to each data source in
@@ -50,11 +50,11 @@ object BlockedRequestMap {
    * specified data source to the specified request.
    */
   def apply[R, E, K](
-    dataSource: DataSource.Service[R, K],
+    dataSource: DataSource[R, K],
     blockedRequest: BlockedRequest[K]
   ): BlockedRequestMap[R] =
     new BlockedRequestMap(
-      Map(dataSource.asInstanceOf[DataSource.Service[Any, Any]] -> Vector(blockedRequest))
+      Map(dataSource.asInstanceOf[DataSource[Any, Any]] -> Vector(blockedRequest))
     )
 
   /**
@@ -62,6 +62,6 @@ object BlockedRequestMap {
    */
   val empty: BlockedRequestMap[Any] =
     new BlockedRequestMap(
-      Map.empty[DataSource.Service[Any, Any], Vector[BlockedRequest[Any]]]
+      Map.empty[DataSource[Any, Any], Vector[BlockedRequest[Any]]]
     )
 }

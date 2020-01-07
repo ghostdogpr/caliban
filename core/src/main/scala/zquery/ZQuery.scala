@@ -298,25 +298,13 @@ object ZQuery {
     ZQuery(effect.foldCause(Result.fail, Result.done))
 
   /**
-   * Constructs a query from a request, requiring an environment containing a
-   * data source able to execute the request. This is useful to express the
-   * dependency on a data source in a more idiomatic style and to defer
-   * committing to a particular implementation of the data source too early,
-   * allowing, for example, for live and test implementations.
+   * Constructs a query from a request and a data source. Queries must be
+   * constructed with `fromRequest` or combinators derived from it for
+   * optimizations to be applied.
    */
   def fromRequest[R, E, A, B](
     request: A
-  )(implicit ev: A <:< Request[E, B]): ZQuery[R with DataSource[R, A], E, B] =
-    ZQuery.fromEffect(ZIO.environment[DataSource[R, A]]).flatMap(r => fromRequestWith(request)(r.dataSource))
-
-  /**
-   * Constructs a query from a request and a data source. Queries must be
-   * constructed with `fromRequestWith` or combinators derived from it for
-   * optimizations to be applied.
-   */
-  def fromRequestWith[R, E, A, B](
-    request: A
-  )(dataSource: DataSource.Service[R, A])(implicit ev: A <:< Request[E, B]): ZQuery[R, E, B] =
+  )(dataSource: DataSource[R, A])(implicit ev: A <:< Request[E, B]): ZQuery[R, E, B] =
     new ZQuery[R, E, B] {
       def step(cache: Cache): ZIO[R, Nothing, Result[R, E, B]] =
         cache
