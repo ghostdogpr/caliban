@@ -58,7 +58,7 @@ lazy val core = crossProject(JSPlatform, JVMPlatform)
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "com.lihaoyi"    %%% "fastparse"        % "2.2.2",
-      "com.propensive" %%% "magnolia"         % "0.12.5",
+      "com.propensive" %%% "magnolia"         % "0.12.6",
       "com.propensive" %%% "mercator"         % "0.3.0",
       "dev.zio"        %%% "zio"              % "1.0.0-RC17",
       "dev.zio"        %%% "zio-streams"      % "1.0.0-RC17",
