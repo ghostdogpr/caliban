@@ -1,9 +1,9 @@
 package caliban.akkahttp
 
+import scala.io.StdIn
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives._
-import akka.stream.ActorMaterializer
 import caliban.ExampleData.{ sampleCharacters, Character, CharacterArgs, CharactersArgs, Role }
 import caliban.GraphQL.graphQL
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
@@ -14,12 +14,9 @@ import zio.console.Console
 import zio.stream.ZStream
 import zio.{ DefaultRuntime, URIO }
 
-import scala.io.StdIn
-
 object ExampleApp extends App with GenericSchema[Console with Clock] {
 
   implicit val system           = ActorSystem()
-  implicit val materializer     = ActorMaterializer()
   implicit val executionContext = system.dispatcher
   implicit val defaultRuntime   = new DefaultRuntime {}
 
