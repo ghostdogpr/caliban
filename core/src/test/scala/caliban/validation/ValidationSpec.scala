@@ -10,7 +10,9 @@ import zio.test._
 
 object ValidationSpec
     extends DefaultRunnableSpec({
-      val interpreter = graphQL(resolverWithSubscription).interpreter
+      val gql         = graphQL(resolverWithSubscription)
+      val interpreter = gql.interpreter
+
       def check(query: String, expectedMessage: String): UIO[TestResult] = {
         val io = interpreter.execute(query).map(_.errors.headOption)
         assertM(io, isSome(hasField[CalibanError, String]("msg", _.msg, equalTo(expectedMessage))))
@@ -270,7 +272,7 @@ object ValidationSpec
               bday: Int
               }""")
           assertM(
-            interpreter.check(gqltype).map(_.toString).run,
+            gql.check(gqltype).map(_.toString).run,
             fails[CalibanError](
               hasField[CalibanError, String]("msg", _.msg, equalTo("Type 'Hero' has duplicate fields."))
             )
@@ -289,7 +291,7 @@ object ValidationSpec
               }
             """)
           assertM(
-            interpreter.check(gqltype).map(_.toString).run,
+            gql.check(gqltype).map(_.toString).run,
             fails[CalibanError](
               hasField[CalibanError, String]("msg", _.msg, equalTo("Type 'Hero' is defined more than once."))
             )
