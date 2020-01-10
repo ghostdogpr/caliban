@@ -78,7 +78,7 @@ lazy val coreJS = core.js.settings(
 )
 lazy val codegen = project
   .in(file("codegen"))
-  .settings(name := "codegen")
+  .settings(name := "caliban-codegen")
   .settings(commonSettings)
   .settings(
     sbtPlugin := true,

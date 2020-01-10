@@ -15,11 +15,15 @@ object CodegenPlugin extends AutoPlugin {
     Command.args("codegen", helpMsg) { (state: State, args: Seq[String]) =>
       val runtime = new DefaultRuntime {}
 
-      runtime.unsafeRun(execCommand(args).fold(q => {
-        putStrLn(q.toString)
-        putStrLn(q.getStackTrace.mkString("\n"))
-        1
-      }, _ => 0))
+      runtime.unsafeRun(
+        execCommand(args).foldM(
+          reason =>
+            putStrLn(reason.toString) *>
+              putStrLn(reason.getStackTrace.mkString("\n"))
+              as (1),
+          _ => Task.succeed(1)
+        )
+      )
 
       state
     }
@@ -28,8 +32,9 @@ object CodegenPlugin extends AutoPlugin {
       |codegen schemaPath outPath ?scalafmtPath
       |
       |Command will write a scala file (outPath) containing GraphQL types,
-      |queries and subscriptions for provided schema (schemaPath) and will
-      |eventually format generated code with scalafmt (scalafmtPath)
+      |queries and subscriptions for provided json schema (schemaPath) and will
+      |format generated code with scalafmt with config in (scalafmtPath) or
+      |default config provided along with caliban-codegen.
       |
       |""".stripMargin
 
@@ -46,7 +51,9 @@ object CodegenPlugin extends AutoPlugin {
       schema_string <- Task(scala.io.Source.fromFile(schemaPath).mkString)
       schema        <- Parser.parseQuery(schema_string)
       code          <- Task(Generator.generate(schema)(ScalaWriter.DefaultGQLWriter))
-      formatted     <- fmtPath.map(Generator.format(code, _)).getOrElse(Task.succeed(code))
+      formatted <- fmtPath
+                    .map(Generator.format(code, _))
+                    .getOrElse(Task(Generator.formatStr(code, ScalaWriter.scalafmtConfig)))
       _ <- Task(new PrintWriter(new File(toPath)))
             .bracket(q => UIO(q.close()), { pw =>
               Task(pw.println(formatted))
