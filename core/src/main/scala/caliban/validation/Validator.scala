@@ -53,8 +53,9 @@ object Validator {
         case FragmentSpread(name, directives) =>
           directives.flatMap(_.arguments.values) ++ context.fragments
             .get(name)
-            .map(f => f.directives.flatMap(_.arguments.values) ++ collectValues(f.selectionSet))
-            .getOrElse(Nil)
+            .fold(List.empty[InputValue])(
+              f => f.directives.flatMap(_.arguments.values) ++ collectValues(f.selectionSet)
+            )
         case Field(_, _, arguments, directives, selectionSet) =>
           arguments.values ++ directives.flatMap(_.arguments.values) ++ collectValues(selectionSet)
         case InlineFragment(_, directives, selectionSet) =>
@@ -297,9 +298,10 @@ object Validator {
           ) *> validateFields(context, selectionSet, fragmentType)
         }
       case None =>
+        lazy val typeConditionName = typeCondition.fold("?")(_.name)
         IO.fail(
           ValidationError(
-            s"${name.fold("Inline fragment spread")(n => s"Fragment spread '$n'")} targets an invalid type: '${typeCondition.map(_.name).getOrElse("?")}'.",
+            s"${name.fold("Inline fragment spread")(n => s"Fragment spread '$n'")} targets an invalid type: '$typeConditionName'.",
             "Fragments must be specified on types that exist in the schema. This applies for both named and inline fragments. If they are not defined in the schema, the query does not validate."
           )
         )
@@ -486,23 +488,23 @@ object Validator {
                  .find(op => F(op.selectionSet, context.fragments, Map.empty[String, InputValue], t).fields.length > 1)
         } yield op
       )
-      .map(
-        op =>
-          ValidationError(
-            s"Subscription ${op.name.map(n => s"'$n'").getOrElse("")} has more than one root field.",
-            "Subscription operations must have exactly one root field."
-          )
-      )
+      .map { op =>
+        val subscription = op.name.fold("")(n => s"'$n'")
+        ValidationError(
+          s"Subscription $subscription has more than one root field.",
+          "Subscription operations must have exactly one root field."
+        )
+      }
       .flip
 
   private def validateFragmentType(name: Option[String], targetType: __Type): IO[ValidationError, Unit] =
     targetType.kind match {
       case __TypeKind.UNION | __TypeKind.INTERFACE | __TypeKind.OBJECT => IO.unit
       case _ =>
+        val targetTypeName = targetType.name.getOrElse("")
         IO.fail(
           ValidationError(
-            s"${name.fold("Inline fragment")(n => s"Fragment '$n'")} is defined on invalid type '${targetType.name
-              .getOrElse("")}'",
+            s"${name.fold("Inline fragment")(n => s"Fragment '$n'")} is defined on invalid type '$targetTypeName'",
             "Fragments can only be declared on unions, interfaces, and objects. They are invalid on scalars. They can only be applied on non‐leaf fields. This rule applies to both inline and named fragments."
           )
         )

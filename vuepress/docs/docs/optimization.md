@@ -29,10 +29,10 @@ This would normally require N + 1 queries, one for `getAllUserIds` and one for e
 
 ## Building a DataSource
 
-To build a `ZQuery` that executes a request, you first need to build a `DataSource`. A `DataSource[R, E, A]` defines how to execute requests of type `A` and require 2 things:
+To build a `ZQuery` that executes a request, you first need to build a `DataSource`. A `DataSource[R, E, A]` defines how to execute requests of type `A` and it requires 2 things:
 
 - an `identifier` that uniquely identifies the data source (requests from _different_ data sources will _not_ be batched together)
-- a effectful function `run` from a list of requests to a `Map` of requests and results
+- a effectful function `run` from an `Iterable` of requests to a `Map` of requests and results
 
 Let's consider `getUserNameById` from the previous example. We need to define a corresponding request type that extends `zquery.Request` for a given response type:
 
@@ -98,7 +98,7 @@ If you have a `ZQuery` object, you can use:
 
 - `map` and `mapError` to modify the returned result or error
 - `flatMap` or `zip` to combine it with other `ZQuery` objects
-- `provide` and `provideSome` to eliminate some of the R requirements
+- `provide` and `provideSome` to eliminate some of the `R` requirements
 
 There are several ways to run a `ZQuery`:
 

@@ -329,9 +329,16 @@ trait DerivationSchema[R] {
   def dispatch[T](ctx: SealedTrait[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
     override def toType(isInput: Boolean = false): __Type = {
       val subtypes =
-        ctx.subtypes.map(s => s.typeclass.toType() -> s.annotations).toList.sortBy(_._1.name.getOrElse(""))
+        ctx.subtypes
+          .map(s => s.typeclass.toType() -> s.annotations)
+          .toList
+          .sortBy {
+            case (tpe, _) => tpe.name.getOrElse("")
+          }
       val isEnum = subtypes.forall {
-        case (t, _) if t.fields(__DeprecatedArgs(Some(true))).forall(_.isEmpty) && t.inputFields.forall(_.isEmpty) =>
+        case (t, _)
+            if t.fields(__DeprecatedArgs(Some(true))).forall(_.isEmpty)
+              && t.inputFields.forall(_.isEmpty) =>
           true
         case _ => false
       }

@@ -33,7 +33,7 @@ object Introspector {
   /**
    * Generates a schema for introspecting the given type.
    */
-  def introspect(rootType: RootType): RootSchema[Any, __Introspection, Nothing, Nothing] = {
+  def introspect(rootType: RootType): RootSchema[Any] = {
     val types = rootType.types.updated("Boolean", Types.boolean).values.toList.sortBy(_.name.getOrElse(""))
     val resolver = __Introspection(
       __Schema(rootType.queryType, rootType.mutationType, rootType.subscriptionType, types, directives),

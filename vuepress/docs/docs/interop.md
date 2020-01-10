@@ -25,7 +25,7 @@ object ExampleCatsInterop extends IOApp {
   case class Queries(numbers: List[Int], randomNumber: IO[Int])
 
   val queries     = Queries(List(1, 2, 3, 4), IO(scala.util.Random.nextInt()))
-  val interpreter = graphQL(RootResolver(queries))
+  val interpreter = graphQL(RootResolver(queries)).interpreter
 
   val query = """
   {

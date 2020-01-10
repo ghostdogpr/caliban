@@ -21,7 +21,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.12.10! coreJVM/test http4s/compile examples/compile catsInteropJVM/compile benchmarks/compile codegen/compile
+      - run: sbt ++2.12.10! coreJVM/test http4s/compile akkaHttp/compile examples/compile catsInteropJVM/compile benchmarks/compile codegen/compile
       - save_cache:
           key: sbtcache
           paths:
@@ -35,7 +35,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.1! coreJVM/test http4s/compile examples/compile catsInteropJVM/compile codegen/compile
+      - run: sbt ++2.13.1! coreJVM/test http4s/compile akkaHttp/compile examples/compile catsInteropJVM/compile codegen/compile
       - save_cache:
           key: sbtcache
           paths:

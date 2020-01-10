@@ -15,20 +15,25 @@ object Rendering {
           case __TypeKind.NON_NULL => None
           case __TypeKind.LIST     => None
           case __TypeKind.UNION =>
-            Some(s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} = ${t.possibleTypes
-              .getOrElse(Nil)
-              .flatMap(_.name)
-              .mkString(" | ")}""")
+            val renderedTypes: String =
+              t.possibleTypes
+                .fold(List.empty[String])(_.flatMap(_.name))
+                .mkString(" | ")
+            Some(s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} = $renderedTypes""")
           case _ =>
+            val renderedFields: String = t
+              .fields(__DeprecatedArgs())
+              .fold(List.empty[String])(_.map(renderField))
+              .mkString("\n  ")
+            val renderedInputFields: String = t.inputFields
+              .fold(List.empty[String])(_.map(renderInputValue))
+              .mkString("\n  ")
+            val renderedEnumValues = t
+              .enumValues(__DeprecatedArgs())
+              .fold(List.empty[String])(_.map(renderEnumValue))
+              .mkString("\n  ")
             Some(s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} {
-                    |  ${t.fields(__DeprecatedArgs()).getOrElse(Nil).map(renderField).mkString("\n  ")}${t.inputFields
-                      .getOrElse(Nil)
-                      .map(renderInputValue)
-                      .mkString("\n  ")}${t
-                      .enumValues(__DeprecatedArgs())
-                      .getOrElse(Nil)
-                      .map(renderEnumValue)
-                      .mkString("\n  ")}
+                    |  ${renderedFields}${renderedInputFields}${renderedEnumValues}
                     |}""".stripMargin)
         }
     }.mkString("\n\n")
@@ -68,10 +73,12 @@ object Rendering {
   private def isBuiltinScalar(name: String): Boolean =
     name == "Int" || name == "Float" || name == "String" || name == "Boolean" || name == "ID"
 
-  private[caliban] def renderTypeName(fieldType: __Type): String =
+  private[caliban] def renderTypeName(fieldType: __Type): String = {
+    lazy val renderedTypeName = fieldType.ofType.fold("null")(renderTypeName)
     fieldType.kind match {
-      case __TypeKind.NON_NULL => s"${fieldType.ofType.map(renderTypeName).getOrElse("null")}!"
-      case __TypeKind.LIST     => s"[${fieldType.ofType.map(renderTypeName).getOrElse("null")}]"
+      case __TypeKind.NON_NULL => renderedTypeName + "!"
+      case __TypeKind.LIST     => s"[$renderedTypeName]"
       case _                   => s"${fieldType.name.getOrElse("null")}"
     }
+  }
 }

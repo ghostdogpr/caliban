@@ -1,10 +1,11 @@
-package caliban
+package caliban.http4s
 
 import caliban.ExampleData._
 import caliban.GraphQL._
 import caliban.execution.QueryAnalyzer._
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.GenericSchema
+import caliban.{ ExampleService, GraphQL, Http4sAdapter, RootResolver }
 import cats.data.Kleisli
 import cats.effect.Blocker
 import org.http4s.StaticFile
@@ -37,9 +38,7 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
   implicit val characterArgsSchema  = gen[CharacterArgs]
   implicit val charactersArgsSchema = gen[CharactersArgs]
 
-  def makeInterpreter(
-    service: ExampleService
-  ): GraphQL[Console with Clock, Queries, Mutations, Subscriptions, CalibanError] =
+  def makeApi(service: ExampleService): GraphQL[Console with Clock] =
     maxDepth(30)(
       maxFields(200)(
         graphQL(
@@ -61,7 +60,7 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
                   .accessM[Blocking](_.blocking.blockingExecutor.map(_.asEC))
                   .map(Blocker.liftExecutionContext)
       service     <- ExampleService.make(sampleCharacters)
-      interpreter = makeInterpreter(service)
+      interpreter = makeApi(service).interpreter
       _ <- BlazeServerBuilder[ExampleTask]
             .bindHttp(8088, "localhost")
             .withHttpApp(

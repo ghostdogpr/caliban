@@ -82,7 +82,7 @@ object Parser {
       case _ :: tail =>
         tail.foldLeft(Option.empty[Int]) {
           case (commonIndent, line) =>
-            val indent = "[ \t]*".r.findPrefixOf(line).map(_.length).getOrElse(0)
+            val indent = "[ \t]*".r.findPrefixOf(line).fold(0)(_.length)
             if (indent < line.length && commonIndent.fold(true)(_ > indent)) Some(indent) else commonIndent
         }
     }

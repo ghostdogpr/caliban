@@ -33,7 +33,7 @@ See the [Custom Types](#custom-types) section to find out how to support your ow
 
 If you want Caliban to support other standard types, feel free to [file an issue](https://github.com/ghostdogpr/caliban/issues) or even a PR.
 
-::: warning
+::: warning Schema derivation issues
 Magnolia (the library used to derive the schema at compile-time) sometimes has some trouble generating schemas with a lot of nested types, or types reused in multiple places.
 to deal with this, you can declare schemas for your case classes and sealed traits explicitly:
 
@@ -124,7 +124,7 @@ Caliban provides auto-derivation for common types such as `Int`, `String`, `List
 
 ## Effects
 
-Fields can return ZIO effects. This allows you to leverage all the features provided by ZIO: timeouts, retries, access to ZIO environment, memoizing, etc. An effect will be ran every time a query requiring the corresponding field is executed.
+Fields can return ZIO effects. This allows you to leverage all the features provided by ZIO: timeouts, retries, access to ZIO environment, memoizing, etc. An effect will be run every time a query requiring the corresponding field is executed.
 
 ```scala
 case class Queries(characters: Task[List[Character]],
@@ -142,7 +142,7 @@ import schema._
 
 ## Annotations
 
-Caliban supports a few annotation to enrich data types:
+Caliban supports a few annotations to enrich data types:
 
 - `@GQLName("name")` allows you to specify a different name for a data type or a field.
 - `@GQLInputName("name")` allows you to specify a different name for a data type used as an input (by default, the suffix `Input` is appended to the type name).
@@ -157,14 +157,14 @@ An easy way to do this is to reuse existing instances and use `contramap` to map
 
 ```scala
 import caliban.schema._
-implicit val nonEmptyStringSchema: Schema[NonEmptyString] = Schema.stringSchema.contramap(_.value)
+implicit val nonEmptyStringSchema: Schema[Any, NonEmptyString] = Schema.stringSchema.contramap(_.value)
 ```
 
 You can also use the `scalarSchema` helper to create your own scalar types, providing a name, an optional description, and a function from your type to a `ResponseValue`:
 
 ```scala
 import caliban.schema._
-implicit val unitSchema: Schema[Unit] = scalarSchema("Unit", None, _ => ObjectValue(Nil))
+implicit val unitSchema: Schema[Any, Unit] = scalarSchema("Unit", None, _ => ObjectValue(Nil))
 ```
 
 ##Schema migration

@@ -23,9 +23,9 @@ object Executor {
    * @param operationName the operation to run in case the query contains multiple operations.
    * @param variables a list of variables.
    */
-  def executeRequest[R, Q, M, S](
+  def executeRequest[R](
     document: Document,
-    schema: RootSchema[R, Q, M, S],
+    schema: RootSchema[R],
     operationName: Option[String] = None,
     variables: Map[String, InputValue] = Map(),
     queryAnalyzers: List[QueryAnalyzer[R]] = Nil
@@ -113,8 +113,7 @@ object Executor {
               alias.getOrElse(name) ->
                 fields
                   .get(name)
-                  .map(reduceStep(_, f, arguments))
-                  .getOrElse(NullStep)
+                  .fold(NullStep: ReducedStep[R])(reduceStep(_, f, arguments))
           }
           reduceObject(items)
         case QueryStep(inner) =>
@@ -173,7 +172,11 @@ object Executor {
       case (k, v) =>
         k -> (v match {
           case InputValue.VariableValue(name) =>
-            variableValues.get(name) orElse variableDefinitions.find(_.name == name).flatMap(_.defaultValue) getOrElse v
+            lazy val defaultInputValue = (for {
+              definition <- variableDefinitions.find(_.name == name)
+              inputValue <- definition.defaultValue
+            } yield inputValue) getOrElse v
+            variableValues.getOrElse(name, defaultInputValue)
           case value => value
         })
     }

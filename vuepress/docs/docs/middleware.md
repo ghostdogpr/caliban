@@ -7,22 +7,22 @@ You might want to perform some actions on every query received. Caliban supports
 
 ## Wrapping query execution
 
-Once you have a `GraphQL` interpreter, you can call `wrapExecutionWith` on it. This method that takes a function and return a new `GraphQL` interpreter that will wrap the `execute` method with this function.
+Once you have a `GraphQL` interpreter, you can call `wrapExecutionWith` on it. This method takes in a function `f` and returns a new `GraphQL` interpreter that will wrap the `execute` method with this function `f`.
 
 It is used internally to implement `mapError` (customize errors) and `provide` (eliminate the environment), but you can use it for other purposes such as adding a general timeout, logging response times, etc.
 
 ```scala
 // create an interpreter
-val i: GraphQL[MyEnv, Queries, Unit, Unit, CalibanError] = graphqQL(...)
+val i: GraphQLInterpreter[MyEnv, CalibanError] = graphqQL(...).interpreter
 
 // change error type to String
-val i2: GraphQL[MyEnv, Queries, Unit, Unit, String] = i.mapError(_.toString)
+val i2: GraphQLInterpreter[MyEnv, String] = i.mapError(_.toString)
 
 // provide the environment
-val i3: GraphQL[Any, Queries, Unit, Unit, CalibanError] = i.provide(myEnv)
+val i3: GraphQLInterpreter[Any, CalibanError] = i.provide(myEnv)
 
 // add a timeout on every query execution
-val i4: GraphQL[MyEnv with Clock, Queries, Unit, Unit, CalibanError] =
+val i4: GraphQLInterpreter[MyEnv with Clock, CalibanError] =
   i.wrapExecutionWith(
     _.timeout(30 seconds).map(
       _.getOrElse(GraphQLResponse(NullValue, List(ExecutionError("Timeout!"))))
