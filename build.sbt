@@ -86,8 +86,8 @@ lazy val codegen = project
     libraryDependencies ++= Seq(
       "org.scalameta" %%% "scalafmt-dynamic" % "2.3.2",
       "org.scalameta" %%% "scalafmt-core"    % "2.3.2",
-      "dev.zio"       %%% "zio-test"        % "1.0.0-RC17" % "test",
-      "dev.zio"       %%% "zio-test-sbt"    % "1.0.0-RC17" % "test"
+      "dev.zio"       %%% "zio-test"         % "1.0.0-RC17" % "test",
+      "dev.zio"       %%% "zio-test-sbt"     % "1.0.0-RC17" % "test"
     )
   )
   .dependsOn(coreJVM)
