@@ -11,19 +11,19 @@ package zquery
  */
 final class CompletedRequestMap private (private val map: Map[Any, Either[Any, Any]]) { self =>
 
-  final def ++(that: CompletedRequestMap): CompletedRequestMap =
+  def ++(that: CompletedRequestMap): CompletedRequestMap =
     new CompletedRequestMap(self.map ++ that.map)
 
   /**
    * Appends the specified result to the completed requests map.
    */
-  final def insert[E, A](request: Request[E, A])(result: Either[E, A]): CompletedRequestMap =
+  def insert[E, A](request: Request[E, A])(result: Either[E, A]): CompletedRequestMap =
     new CompletedRequestMap(self.map + (request -> result))
 
   /**
    * Retrieves the result of the specified request if it exists.
    */
-  final def lookup[E, A](request: Request[E, A]): Option[Either[E, A]] =
+  def lookup[E, A](request: Request[E, A]): Option[Either[E, A]] =
     map.get(request).asInstanceOf[Option[Either[E, A]]]
 }
 

@@ -118,9 +118,10 @@ object Executor {
           reduceObject(items)
         case QueryStep(inner) =>
           ReducedStep.QueryStep(
-            inner
-              .map(reduceStep(_, currentField, arguments))
-              .mapError(GenericSchema.effectfulExecutionError(currentField.name, _))
+            inner.bimap(
+              GenericSchema.effectfulExecutionError(currentField.name, _),
+              reduceStep(_, currentField, arguments)
+            )
           )
         case StreamStep(stream) =>
           ReducedStep.StreamStep(
@@ -142,10 +143,10 @@ object Executor {
             val queries = steps.map { case (name, field) => loop(field).map(name -> _) }
             (if (allowParallelism) ZQuery.collectAllPar(queries) else ZQuery.collectAll(queries)).map(ObjectValue)
           case ReducedStep.QueryStep(step) =>
-            step.fold(Left(_), Right(_)).flatMap {
-              case Left(error)  => ZQuery.fromEffect(errors.update(error :: _)).map(_ => NullValue)
-              case Right(query) => loop(query)
-            }
+            step.foldM(
+              error => ZQuery.fromEffect(errors.update(error :: _)).map(_ => NullValue),
+              query => loop(query)
+            )
           case ReducedStep.StreamStep(stream) =>
             ZQuery
               .fromEffect(ZIO.environment[R])
