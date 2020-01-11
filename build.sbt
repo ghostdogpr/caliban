@@ -135,6 +135,12 @@ lazy val examples = project
   .settings(commonSettings)
   .settings(skip in publish := true)
   .dependsOn(akkaHttp, http4s, catsInteropJVM)
+  .settings(
+    libraryDependencies ++= Seq(
+      "com.beachape" %% "enumeratum"       % "1.5.15",
+      "com.beachape" %% "enumeratum-circe" % "1.5.22"
+    )
+  )
 
 lazy val benchmarks = project
   .in(file("benchmarks"))
