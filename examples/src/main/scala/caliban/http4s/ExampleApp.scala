@@ -4,7 +4,7 @@ import scala.language.postfixOps
 import caliban.ExampleData._
 import caliban.GraphQL._
 import caliban.execution.QueryAnalyzer._
-import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLName }
+import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.GenericSchema
 import caliban.wrappers.ApolloTracing.apolloTracing
 import caliban.wrappers.Wrappers._
@@ -30,14 +30,10 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
     @GQLDescription("Return all characters from a given origin")
     characters: CharactersArgs => URIO[Console, List[Character]],
     @GQLDeprecated("Use `characters`")
-    character: CharacterArgs => URIO[Console, Option[Character]],
-    test: Foo[Int]
+    character: CharacterArgs => URIO[Console, Option[Character]]
   )
   case class Mutations(deleteCharacter: CharacterArgs => URIO[Console, Boolean])
   case class Subscriptions(characterDeleted: ZStream[Console, Nothing, String])
-
-  @GQLName("FooAnnotated")
-  case class Foo[E](e: E)
 
   type ExampleTask[A] = RIO[Console with Clock, A]
 
@@ -56,8 +52,7 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
                 RootResolver(
                   Queries(
                     args => service.getCharacters(args.origin),
-                    args => service.findCharacter(args.name),
-                    Foo(2)
+                    args => service.findCharacter(args.name)
                   ),
                   Mutations(args => service.deleteCharacter(args.name)),
                   Subscriptions(service.deletedEvents)

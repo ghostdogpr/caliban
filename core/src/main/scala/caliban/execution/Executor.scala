@@ -135,17 +135,11 @@ object Executor {
           reduceObject(items, fieldWrappers)
         case QueryStep(inner) =>
           ReducedStep.QueryStep(
-            inner.bimap(
-              GenericSchema.effectfulExecutionError(currentField.name, path, _),
-              reduceStep(_, currentField, arguments, path)
-            )
+            inner.bimap(GenericSchema.effectfulExecutionError(path, _), reduceStep(_, currentField, arguments, path))
           )
         case StreamStep(stream) =>
           ReducedStep.StreamStep(
-            stream.bimap(
-              GenericSchema.effectfulExecutionError(currentField.name, path, _),
-              reduceStep(_, currentField, arguments, path)
-            )
+            stream.bimap(GenericSchema.effectfulExecutionError(path, _), reduceStep(_, currentField, arguments, path))
           )
       }
 
@@ -254,8 +248,8 @@ object Executor {
     fieldWrappers: List[FieldWrapper[R]]
   ): ReducedStep[R] =
     if (!fieldWrappers.exists(_.wrapPureValues) && items.map(_._2).forall(_.isInstanceOf[PureStep]))
-      PureStep(ObjectValue(items.asInstanceOf[List[(String, PureStep)]].map {
-        case (k, v) => k -> v.value
+      PureStep(ObjectValue(items.asInstanceOf[List[(String, PureStep, FieldInfo)]].map {
+        case (k, v, _) => (k, v.value)
       }))
     else ReducedStep.ObjectStep(items)
 

@@ -418,9 +418,9 @@ trait DerivationSchema[R] {
 
 object GenericSchema {
 
-  def effectfulExecutionError(fieldName: String, path: List[Either[String, Int]], e: Throwable): ExecutionError =
+  def effectfulExecutionError(path: List[Either[String, Int]], e: Throwable): ExecutionError =
     e match {
       case e: ExecutionError => e
-      case other             => ExecutionError("Effect failure", Some(fieldName), path, Some(other))
+      case other             => ExecutionError("Effect failure", path, Some(other))
     }
 }
