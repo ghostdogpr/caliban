@@ -1,14 +1,16 @@
 package caliban
 
 import caliban.Rendering.renderTypes
-import caliban.execution.Executor
 import caliban.execution.QueryAnalyzer.QueryAnalyzer
+import caliban.execution.Executor
 import caliban.introspection.Introspector
 import caliban.parsing.Parser
 import caliban.schema.RootSchema.Operation
 import caliban.schema._
 import caliban.validation.Validator
-import zio.{ IO, URIO }
+import caliban.wrappers.Wrapper
+import caliban.wrappers.Wrapper._
+import zio.{ IO, URIO, ZIO }
 
 /**
  * A `GraphQL[-R]` represents a GraphQL API whose execution requires a ZIO environment of type `R`.
@@ -20,6 +22,7 @@ trait GraphQL[-R] { self =>
 
   protected val schema: RootSchema[R]
   protected val queryAnalyzers: List[QueryAnalyzer[R]]
+  protected val wrappers: List[Wrapper[R]]
 
   private lazy val rootType: RootType =
     RootType(schema.query.opType, schema.mutation.map(_.opType), schema.subscription.map(_.opType))
@@ -33,18 +36,40 @@ trait GraphQL[-R] { self =>
     skipValidation: Boolean
   ): URIO[R, GraphQLResponse[CalibanError]] = {
 
+    val (overallWrappers, parsingWrappers, validationWrappers, executionWrappers, fieldWrappers) = decompose(wrappers)
     val prepare = for {
-      document        <- Parser.parseQuery(query)
+      document        <- wrap(Parser.parseQuery(query))(parsingWrappers, query)
       intro           = Introspector.isIntrospection(document)
       typeToValidate  = if (intro) introspectionRootType else rootType
       schemaToExecute = if (intro) introspectionRootSchema else schema
-      _               <- IO.when(!skipValidation)(Validator.validate(document, typeToValidate))
+      _ <- ZIO.when(!skipValidation) {
+            wrap(Validator.validate(document, typeToValidate))(validationWrappers, document)
+          }
     } yield (document, schemaToExecute)
 
-    prepare.foldM(
-      Executor.fail,
-      req => Executor.executeRequest(req._1, req._2, operationName, variables, queryAnalyzers)
-    )
+    ZIO
+      .environment[R]
+      .flatMap(
+        env =>
+          wrap(
+            prepare
+              .foldM(
+                Executor.fail,
+                req =>
+                  ZIO
+                    .environment[R]
+                    .flatMap(
+                      env =>
+                        wrap(
+                          Executor
+                            .executeRequest(req._1, req._2, operationName, variables, queryAnalyzers, fieldWrappers)
+                            .provide(env)
+                        )(executionWrappers, req._1)
+                    )
+              )
+              .provide(env)
+          )(overallWrappers, query)
+      )
   }
 
   /**
@@ -82,6 +107,20 @@ trait GraphQL[-R] { self =>
     new GraphQL[R2] {
       override val schema: RootSchema[R2]                  = self.schema
       override val queryAnalyzers: List[QueryAnalyzer[R2]] = queryAnalyzer :: self.queryAnalyzers
+      override protected val wrappers: List[Wrapper[R2]]   = self.wrappers
+    }
+
+  /**
+   * Attaches a function that will wrap one of the stages of query processing
+   * (parsing, validation, execution, field execution).
+   * @param wrapper a wrapping function
+   * @return a new GraphQL API
+   */
+  final def withWrapper[R2 <: R](wrapper: Wrapper[R2]): GraphQL[R2] =
+    new GraphQL[R2] {
+      override val schema: RootSchema[R2]                  = self.schema
+      override val queryAnalyzers: List[QueryAnalyzer[R2]] = self.queryAnalyzers
+      override val wrappers: List[Wrapper[R2]]             = wrapper :: self.wrappers
     }
 
   /**
@@ -94,6 +133,7 @@ trait GraphQL[-R] { self =>
     new GraphQL[R1] {
       override val schema: RootSchema[R1]                  = self.schema |+| that.schema
       override val queryAnalyzers: List[QueryAnalyzer[R1]] = self.queryAnalyzers ++ that.queryAnalyzers
+      override protected val wrappers: List[Wrapper[R1]]   = self.wrappers ++ that.wrappers
     }
 
   /**
@@ -125,6 +165,7 @@ trait GraphQL[-R] { self =>
       )
     )
     override protected val queryAnalyzers: List[QueryAnalyzer[R]] = self.queryAnalyzers
+    override protected val wrappers: List[Wrapper[R]]             = self.wrappers
   }
 }
 
@@ -147,5 +188,6 @@ object GraphQL {
       resolver.subscriptionResolver.map(r => Operation(subscriptionSchema.toType(), subscriptionSchema.resolve(r)))
     )
     val queryAnalyzers: List[QueryAnalyzer[R]] = Nil
+    val wrappers: List[Wrapper[R]]             = Nil
   }
 }

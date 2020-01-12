@@ -287,6 +287,11 @@ object ZQuery {
     foreachPar(as)(identity)
 
   /**
+   * Accesses the whole environment of the query.
+   */
+  def environment[R]: ZQuery[R, Nothing, R] = ZQuery.fromEffect(ZIO.environment[R])
+
+  /**
    * Constructs a query that fails with the specified error.
    */
   def fail[E](error: E): ZQuery[Any, E, Nothing] =

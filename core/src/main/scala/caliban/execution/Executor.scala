@@ -10,9 +10,10 @@ import caliban.parsing.adt.OperationType.{ Mutation, Query, Subscription }
 import caliban.parsing.adt._
 import caliban.schema.Step._
 import caliban.schema.{ GenericSchema, ReducedStep, RootSchema, Step }
+import caliban.wrappers.Wrapper.FieldWrapper
 import caliban.{ CalibanError, GraphQLResponse, InputValue, ResponseValue }
 import zio._
-import zquery.ZQuery
+import zquery.{ Described, ZQuery }
 
 object Executor {
 
@@ -28,7 +29,8 @@ object Executor {
     schema: RootSchema[R],
     operationName: Option[String] = None,
     variables: Map[String, InputValue] = Map(),
-    queryAnalyzers: List[QueryAnalyzer[R]] = Nil
+    queryAnalyzers: List[QueryAnalyzer[R]] = Nil,
+    fieldWrappers: List[FieldWrapper[R]] = Nil
   ): URIO[R, GraphQLResponse[CalibanError]] = {
     val fragments = document.definitions.collect {
       case fragment: FragmentDefinition => fragment.name -> fragment
@@ -66,7 +68,14 @@ object Executor {
                    .foldLeft(queryAnalyzers)(Field(op.selectionSet, fragments, variables, operationType.opType)) {
                      case (field, analyzer) => analyzer(field)
                    }
-          result <- executePlan(operationType.plan, root, op.variableDefinitions, variables, allowParallelism)
+          result <- executePlan(
+                     operationType.plan,
+                     root,
+                     op.variableDefinitions,
+                     variables,
+                     allowParallelism,
+                     fieldWrappers
+                   )
         } yield result).catchAll(fail)
     }
   }
@@ -79,13 +88,15 @@ object Executor {
     root: Field,
     variableDefinitions: List[VariableDefinition],
     variableValues: Map[String, InputValue],
-    allowParallelism: Boolean
+    allowParallelism: Boolean,
+    fieldWrappers: List[FieldWrapper[R]]
   ): URIO[R, GraphQLResponse[CalibanError]] = {
 
     def reduceStep(
       step: Step[R],
       currentField: Field,
-      arguments: Map[String, InputValue]
+      arguments: Map[String, InputValue],
+      path: List[Either[String, Int]]
     ): ReducedStep[R] =
       step match {
         case s @ PureStep(value) =>
@@ -101,38 +112,64 @@ object Executor {
               obj.fold(s)(PureStep(_))
             case _ => s
           }
-        case FunctionStep(step) => reduceStep(step(arguments), currentField, Map())
-        case ListStep(steps)    => reduceList(steps.map(reduceStep(_, currentField, arguments)))
+        case FunctionStep(step) => reduceStep(step(arguments), currentField, Map(), path)
+        case ListStep(steps) =>
+          reduceList(steps.zipWithIndex.map {
+            case (step, i) => reduceStep(step, currentField, arguments, Right(i) :: path)
+          })
         case ObjectStep(objectName, fields) =>
           val mergedFields = mergeFields(currentField, objectName)
           val items = mergedFields.map {
-            case Field(name @ "__typename", _, _, alias, _, _, _) =>
-              alias.getOrElse(name) -> PureStep(StringValue(objectName))
+            case f @ Field(name @ "__typename", _, _, alias, _, _, _) =>
+              (alias.getOrElse(name), PureStep(StringValue(objectName)), fieldInfo(f, path))
             case f @ Field(name, _, _, alias, _, _, args) =>
               val arguments = resolveVariables(args, variableDefinitions, variableValues)
-              alias.getOrElse(name) ->
+              (
+                alias.getOrElse(name),
                 fields
                   .get(name)
-                  .fold(NullStep: ReducedStep[R])(reduceStep(_, f, arguments))
+                  .fold(NullStep: ReducedStep[R])(reduceStep(_, f, arguments, Left(alias.getOrElse(name)) :: path)),
+                fieldInfo(f, path)
+              )
           }
-          reduceObject(items)
+          reduceObject(items, fieldWrappers)
         case QueryStep(inner) =>
           ReducedStep.QueryStep(
             inner.bimap(
-              GenericSchema.effectfulExecutionError(currentField.name, _),
-              reduceStep(_, currentField, arguments)
+              GenericSchema.effectfulExecutionError(currentField.name, path, _),
+              reduceStep(_, currentField, arguments, path)
             )
           )
         case StreamStep(stream) =>
           ReducedStep.StreamStep(
             stream.bimap(
-              GenericSchema.effectfulExecutionError(currentField.name, _),
-              reduceStep(_, currentField, arguments)
+              GenericSchema.effectfulExecutionError(currentField.name, path, _),
+              reduceStep(_, currentField, arguments, path)
             )
           )
       }
 
     def makeQuery(step: ReducedStep[R], errors: Ref[List[CalibanError]]): ZQuery[R, Nothing, ResponseValue] = {
+
+      def wrap(query: ZQuery[R, Nothing, ResponseValue])(
+        wrappers: List[FieldWrapper[R]],
+        fieldInfo: FieldInfo
+      ): ZQuery[R, Nothing, ResponseValue] =
+        wrappers match {
+          case Nil => query
+          case wrapper :: tail =>
+            ZQuery
+              .environment[R]
+              .flatMap(
+                env =>
+                  wrap(
+                    wrapper
+                      .f(query.provide(Described(env, "Wrapper")), fieldInfo)
+                      .foldM(error => ZQuery.fromEffect(errors.update(error :: _)).map(_ => NullValue), ZQuery.succeed)
+                  )(tail, fieldInfo)
+              )
+        }
+
       def loop(step: ReducedStep[R]): ZQuery[R, Nothing, ResponseValue] =
         step match {
           case PureStep(value) => ZQuery.succeed(value)
@@ -140,7 +177,7 @@ object Executor {
             val queries = steps.map(loop)
             (if (allowParallelism) ZQuery.collectAllPar(queries) else ZQuery.collectAll(queries)).map(ListValue)
           case ReducedStep.ObjectStep(steps) =>
-            val queries = steps.map { case (name, field) => loop(field).map(name -> _) }
+            val queries = steps.map { case (name, step, info) => wrap(loop(step))(fieldWrappers, info).map(name -> _) }
             (if (allowParallelism) ZQuery.collectAllPar(queries) else ZQuery.collectAll(queries)).map(ObjectValue)
           case ReducedStep.QueryStep(step) =>
             step.foldM(
@@ -157,7 +194,7 @@ object Executor {
 
     for {
       errors       <- Ref.make(List.empty[CalibanError])
-      reduced      = reduceStep(plan, root, Map())
+      reduced      = reduceStep(plan, root, Map(), Nil)
       query        = makeQuery(reduced, errors)
       result       <- query.run
       resultErrors <- errors.get
@@ -199,13 +236,24 @@ object Executor {
       .toList
   }
 
+  private def fieldInfo(field: Field, path: List[Either[String, Int]]): FieldInfo =
+    FieldInfo(
+      field.alias.getOrElse(field.name),
+      path,
+      field.parentType.flatMap(_.name).getOrElse(""), // TODO should go up to catch [] and !
+      field.fieldType.name.getOrElse("")              // TODO should go up to catch [] and !
+    )
+
   private def reduceList[R](list: List[ReducedStep[R]]): ReducedStep[R] =
     if (list.forall(_.isInstanceOf[PureStep]))
       PureStep(ListValue(list.asInstanceOf[List[PureStep]].map(_.value)))
     else ReducedStep.ListStep(list)
 
-  private def reduceObject[R](items: List[(String, ReducedStep[R])]): ReducedStep[R] =
-    if (items.map(_._2).forall(_.isInstanceOf[PureStep]))
+  private def reduceObject[R](
+    items: List[(String, ReducedStep[R], FieldInfo)],
+    fieldWrappers: List[FieldWrapper[R]]
+  ): ReducedStep[R] =
+    if (!fieldWrappers.exists(_.wrapPureValues) && items.map(_._2).forall(_.isInstanceOf[PureStep]))
       PureStep(ObjectValue(items.asInstanceOf[List[(String, PureStep)]].map {
         case (k, v) => k -> v.value
       }))

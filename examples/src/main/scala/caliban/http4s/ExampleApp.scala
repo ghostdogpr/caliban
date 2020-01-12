@@ -1,10 +1,13 @@
 package caliban.http4s
 
+import scala.language.postfixOps
 import caliban.ExampleData._
 import caliban.GraphQL._
 import caliban.execution.QueryAnalyzer._
-import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
+import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLName }
 import caliban.schema.GenericSchema
+import caliban.wrappers.ApolloTracing.apolloTracing
+import caliban.wrappers.Wrappers._
 import caliban.{ ExampleService, GraphQL, Http4sAdapter, RootResolver }
 import cats.data.Kleisli
 import cats.effect.Blocker
@@ -17,6 +20,7 @@ import zio._
 import zio.blocking.Blocking
 import zio.clock.Clock
 import zio.console.{ putStrLn, Console }
+import zio.duration._
 import zio.interop.catz._
 import zio.stream.ZStream
 
@@ -26,10 +30,14 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
     @GQLDescription("Return all characters from a given origin")
     characters: CharactersArgs => URIO[Console, List[Character]],
     @GQLDeprecated("Use `characters`")
-    character: CharacterArgs => URIO[Console, Option[Character]]
+    character: CharacterArgs => URIO[Console, Option[Character]],
+    test: Foo[Int]
   )
   case class Mutations(deleteCharacter: CharacterArgs => URIO[Console, Boolean])
   case class Subscriptions(characterDeleted: ZStream[Console, Nothing, String])
+
+  @GQLName("FooAnnotated")
+  case class Foo[E](e: E)
 
   type ExampleTask[A] = RIO[Console with Clock, A]
 
@@ -38,17 +46,24 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
   implicit val characterArgsSchema  = gen[CharacterArgs]
   implicit val charactersArgsSchema = gen[CharactersArgs]
 
-  def makeApi(service: ExampleService): GraphQL[Console with Clock] =
-    maxDepth(30)(
-      maxFields(200)(
-        graphQL(
-          RootResolver(
-            Queries(
-              args => service.getCharacters(args.origin),
-              args => service.findCharacter(args.name)
-            ),
-            Mutations(args => service.deleteCharacter(args.name)),
-            Subscriptions(service.deletedEvents)
+  def makeApi(service: ExampleService): UIO[GraphQL[Console with Clock]] =
+    apolloTracing(
+      logSlowQueries(500 millis)( // wrapper that logs slow queries
+        timeout(3 seconds)(       // wrapper that fails slow queries
+          maxDepth(30)(           // query analyzer that limit query depth
+            maxFields(200)(       // query analyzer that limit query fields
+              graphQL(
+                RootResolver(
+                  Queries(
+                    args => service.getCharacters(args.origin),
+                    args => service.findCharacter(args.name),
+                    Foo(2)
+                  ),
+                  Mutations(args => service.deleteCharacter(args.name)),
+                  Subscriptions(service.deletedEvents)
+                )
+              )
+            )
           )
         )
       )
@@ -60,7 +75,8 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
                   .accessM[Blocking](_.blocking.blockingExecutor.map(_.asEC))
                   .map(Blocker.liftExecutionContext)
       service     <- ExampleService.make(sampleCharacters)
-      interpreter = makeApi(service).interpreter
+      api         <- makeApi(service)
+      interpreter = api.interpreter
       _ <- BlazeServerBuilder[ExampleTask]
             .bindHttp(8088, "localhost")
             .withHttpApp(
