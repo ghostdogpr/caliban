@@ -231,12 +231,7 @@ object Executor {
   }
 
   private def fieldInfo(field: Field, path: List[Either[String, Int]]): FieldInfo =
-    FieldInfo(
-      field.alias.getOrElse(field.name),
-      path,
-      field.parentType.flatMap(_.name).getOrElse(""), // TODO should go up to catch [] and !
-      field.fieldType.name.getOrElse("")              // TODO should go up to catch [] and !
-    )
+    FieldInfo(field.alias.getOrElse(field.name), path, field.parentType, field.fieldType)
 
   private def reduceList[R](list: List[ReducedStep[R]]): ReducedStep[R] =
     if (list.forall(_.isInstanceOf[PureStep]))

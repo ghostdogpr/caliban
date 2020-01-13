@@ -3,7 +3,7 @@ package caliban.wrappers
 import java.time.{ Instant, ZoneId }
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
-import caliban.{ GraphQL, ResponseValue }
+import caliban.{ GraphQL, Rendering, ResponseValue }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ IntValue, StringValue }
 import caliban.wrappers.Wrapper.{ FieldWrapper, OverallWrapper, ParsingWrapper, ValidationWrapper }
@@ -160,9 +160,9 @@ object ApolloTracing {
                           resolvers =
                             Resolver(
                               path = fieldInfo.path,
-                              parentType = fieldInfo.parentType,
+                              parentType = fieldInfo.parentType.fold("")(Rendering.renderTypeName),
                               fieldName = fieldInfo.fieldName,
-                              returnType = fieldInfo.returnType,
+                              returnType = Rendering.renderTypeName(fieldInfo.returnType),
                               startOffset = start - state.startTimeMonotonic,
                               duration = duration
                             ) :: state.execution.resolvers
