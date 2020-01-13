@@ -32,7 +32,11 @@ object CalibanError {
     innerThrowable: Option[Throwable] = None
   ) extends CalibanError {
     override def toString: String = {
-      val field = path.lastOption.fold("")(f => s" on field '$f'")
+      val pathString = path.map {
+        case Left(value)  => value
+        case Right(value) => value.toString
+      }.mkString(" > ")
+      val field = if (pathString.isEmpty) "" else s" on field '$pathString'"
       val inner = innerThrowable.fold("")(e => s" with ${e.toString}")
       s"Execution error$field: $msg$inner"
     }

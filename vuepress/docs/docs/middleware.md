@@ -38,7 +38,7 @@ val api = graphQL(...).withWrapper(wrapper)
 ```
 
 Caliban comes with a few pre-made wrappers:
-- `caliban.wrappers.Wrappers.logSlowQueries` returns a wrapper that logs slow queries
+- `caliban.wrappers.Wrappers.printSlowQueries` returns a wrapper that prints slow queries
 - `caliban.wrappers.Wrappers.timeout` returns a wrapper that fails queries taking more than a specified time
 - `caliban.wrappers.ApolloTracing.apolloTracing` returns a wrapper that adds tracing data into the `extensions` field of each response following [Apollo Tracing](https://github.com/apollographql/apollo-tracing) format.
 
@@ -46,7 +46,7 @@ They can be used like this:
 ```scala
 val api =
   apolloTracing( // note: this constructor is effectful
-    logSlowQueries(500 millis)(
+    printSlowQueries(500 millis)(
       timeout(3 seconds)(  
         graphQL(...)
       )

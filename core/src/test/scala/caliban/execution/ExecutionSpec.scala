@@ -1,12 +1,13 @@
 package caliban.execution
 
 import java.util.UUID
-import caliban.CalibanError.ValidationError
+import caliban.CalibanError.{ ExecutionError, ValidationError }
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
 import caliban.RootResolver
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, StringValue }
+import zio.IO
 import zio.test.Assertion._
 import zio.test._
 
@@ -316,6 +317,25 @@ object ExecutionSpec
           assertM(
             interpreter.execute(query).map(_.data.toString),
             equalTo("""{"name":"name","id":2}""")
+          )
+        },
+        testM("error path") {
+          case class A(b: B)
+          case class B(c: IO[Throwable, Int])
+          case class Test(a: A)
+          val e           = new Exception("boom")
+          val interpreter = graphQL(RootResolver(Test(A(B(IO.fail(e)))))).interpreter
+          val query       = gqldoc("""
+              {
+                a {
+                  b {
+                    c
+                  }
+                }
+              }""")
+          assertM(
+            interpreter.execute(query).map(_.errors),
+            equalTo(List(ExecutionError("Effect failure", List(Left("a"), Left("b"), Left("c")), Some(e))))
           )
         }
       )

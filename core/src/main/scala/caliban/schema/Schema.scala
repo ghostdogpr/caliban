@@ -421,6 +421,6 @@ object GenericSchema {
   def effectfulExecutionError(path: List[Either[String, Int]], e: Throwable): ExecutionError =
     e match {
       case e: ExecutionError => e
-      case other             => ExecutionError("Effect failure", path, Some(other))
+      case other             => ExecutionError("Effect failure", path.reverse, Some(other))
     }
 }

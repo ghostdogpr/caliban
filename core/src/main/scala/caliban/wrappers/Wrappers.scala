@@ -12,18 +12,18 @@ import zio.duration.Duration
 object Wrappers {
 
   /**
-   * Attaches to the given GraphQL API definition a wrapper that logs slow queries.
+   * Attaches to the given GraphQL API definition a wrapper that prints slow queries.
    * @param duration threshold above which queries are considered slow
    * @param api a GraphQL API definition
    */
-  def logSlowQueries[R <: Console with Clock](duration: Duration)(api: GraphQL[R]): GraphQL[R] =
-    api.withWrapper(logSlowQueriesWrapper(duration))
+  def printSlowQueries[R <: Console with Clock](duration: Duration)(api: GraphQL[R]): GraphQL[R] =
+    api.withWrapper(printSlowQueriesWrapper(duration))
 
   /**
-   * Returns a wrapper that logs slow queries
+   * Returns a wrapper that prints slow queries
    * @param duration threshold above which queries are considered slow
    */
-  def logSlowQueriesWrapper(duration: Duration): OverallWrapper[Console with Clock] =
+  def printSlowQueriesWrapper(duration: Duration): OverallWrapper[Console with Clock] =
     OverallWrapper {
       case (io, query) =>
         io.timed.flatMap {
