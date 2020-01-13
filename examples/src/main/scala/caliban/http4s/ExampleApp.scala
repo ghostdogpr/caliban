@@ -43,7 +43,7 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
   implicit val charactersArgsSchema = gen[CharactersArgs]
 
   def makeApi(service: ExampleService): UIO[GraphQL[Console with Clock]] =
-    apolloTracing(
+    apolloTracing(                // wrapper for https://github.com/apollographql/apollo-tracing
       logSlowQueries(500 millis)( // wrapper that logs slow queries
         timeout(3 seconds)(       // wrapper that fails slow queries
           maxDepth(30)(           // query analyzer that limit query depth
