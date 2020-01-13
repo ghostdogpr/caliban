@@ -15,6 +15,23 @@ import zquery.ZQuery
 
 object ApolloTracing {
 
+  /**
+   * Attaches to the given GraphQL API definition a wrapper that adds tracing information to every response
+   * following Apollo Tracing format: https://github.com/apollographql/apollo-tracing.
+   * @param api a GraphQL API definition
+   */
+  def apolloTracing[R](api: GraphQL[R]): UIO[GraphQL[Clock with R]] =
+    FiberRef
+      .make(Tracing())
+      .map(
+        ref =>
+          api
+            .withWrapper(apolloTracingOverallWrapper(ref))
+            .withWrapper(apolloTracingParsingWrapper(ref))
+            .withWrapper(apolloTracingValidationWrapper(ref))
+            .withWrapper(apolloTracingFieldWrapper(ref))
+      )
+
   private val dateFormatter: DateTimeFormatter = DateTimeFormatter
     .ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
     .withZone(ZoneId.of("UTC"))
@@ -23,10 +40,12 @@ object ApolloTracing {
     def toResponseValue: ResponseValue =
       ObjectValue(List("startOffset" -> IntValue(startOffset), "duration" -> IntValue(duration.toNanos)))
   }
+
   case class Validation(startOffset: Long = 0, duration: Duration = Duration.Zero) {
     def toResponseValue: ResponseValue =
       ObjectValue(List("startOffset" -> IntValue(startOffset), "duration" -> IntValue(duration.toNanos)))
   }
+
   case class Resolver(
     path: List[Either[String, Int]] = Nil,
     parentType: String = "",
@@ -50,10 +69,12 @@ object ApolloTracing {
         )
       )
   }
+
   case class Execution(resolvers: List[Resolver] = Nil) {
     def toResponseValue: ResponseValue =
       ObjectValue(List("resolvers" -> ListValue(resolvers.sortBy(_.startOffset).map(_.toResponseValue))))
   }
+
   case class Tracing(
     version: Int = 1,
     startTime: Long = 0,
@@ -77,18 +98,6 @@ object ApolloTracing {
         )
       )
   }
-
-  def apolloTracing[R](api: GraphQL[R]): UIO[GraphQL[Clock with R]] =
-    FiberRef
-      .make(Tracing())
-      .map(
-        ref =>
-          api
-            .withWrapper(apolloTracingOverallWrapper(ref))
-            .withWrapper(apolloTracingParsingWrapper(ref))
-            .withWrapper(apolloTracingValidationWrapper(ref))
-            .withWrapper(apolloTracingFieldWrapper(ref))
-      )
 
   private def apolloTracingOverallWrapper(ref: FiberRef[Tracing]): OverallWrapper[Clock] = OverallWrapper {
     case (io, _) =>

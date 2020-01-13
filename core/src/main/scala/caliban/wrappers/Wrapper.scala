@@ -7,18 +7,62 @@ import caliban.{ CalibanError, GraphQLResponse, ResponseValue }
 import zio.{ IO, ZIO }
 import zquery.ZQuery
 
+/**
+ * A `Wrapper[R]` represents an extra layer of computation that can be applied on top of Caliban's query handling.
+ * There are different types of wrappers:
+ * - `OverallWrapper` to wrap the whole query processing
+ * - `ParsingWrapper` to wrap the query parsing only
+ * - `ValidationWrapper` to wrap the query validation only
+ * - `ExecutionWrapper` to wrap the query execution only
+ * - `FieldWrapper` to wrap each field execution
+ */
 sealed trait Wrapper[-R]
 
 object Wrapper {
 
+  /**
+   * `WrappingFunction[-R, E, A, Info]` is an alias for a function that takes an `IO[E, A]` and some extra `Info`
+   * and returns a `ZIO[R, E, A]`.
+   */
   type WrappingFunction[-R, E, A, Info] = (IO[E, A], Info) => ZIO[R, E, A]
 
+  /**
+   * Wrapper for the whole query processing.
+   * Takes a function from a `UIO[GraphQLResponse[CalibanError]]` and a query `String` and that returns a
+   * `URIO[R, GraphQLResponse[CalibanError]]`.
+   */
   case class OverallWrapper[-R](f: WrappingFunction[R, Nothing, GraphQLResponse[CalibanError], String])
       extends Wrapper[R]
-  case class ParsingWrapper[-R](f: WrappingFunction[R, ParsingError, Document, String])     extends Wrapper[R]
+
+  /**
+   * Wrapper for the query parsing stage.
+   * Takes a function from an `IO[ParsingError, Document]` and a query `String` and that returns a
+   * `ZIO[R, ParsingError, Document]`.
+   */
+  case class ParsingWrapper[-R](f: WrappingFunction[R, ParsingError, Document, String]) extends Wrapper[R]
+
+  /**
+   * Wrapper for the query validation stage.
+   * Takes a function from an `IO[ValidationError, Document]` and a `Document` and that returns a
+   * `ZIO[R, ValidationError, Unit]`.
+   */
   case class ValidationWrapper[-R](f: WrappingFunction[R, ValidationError, Unit, Document]) extends Wrapper[R]
+
+  /**
+   * Wrapper for the query execution stage.
+   * Takes a function from a `UIO[GraphQLResponse[CalibanError]]` and a `Document` and that returns a
+   * `URIO[R, GraphQLResponse[CalibanError]]`.
+   */
   case class ExecutionWrapper[-R](f: WrappingFunction[R, Nothing, GraphQLResponse[CalibanError], Document])
       extends Wrapper[R]
+
+  /**
+   * Wrapper for each individual field.
+   * Takes a function from a `ZQuery[Any, Nothing, ResponseValue]` and a `FieldInfo` and that returns a
+   * `ZQuery[R, CalibanError, ResponseValue]`.
+   * If `wrapPureValues` is true, every single field will be wrapped, which could have an impact on performances.
+   * If false, simple pure values will be ignored.
+   */
   case class FieldWrapper[-R](
     f: (ZQuery[Any, Nothing, ResponseValue], FieldInfo) => ZQuery[R, CalibanError, ResponseValue],
     wrapPureValues: Boolean = false

@@ -5,6 +5,7 @@ import caliban.execution.QueryAnalyzer.QueryAnalyzer
 import caliban.execution.Executor
 import caliban.introspection.Introspector
 import caliban.parsing.Parser
+import caliban.parsing.adt.Document
 import caliban.schema.RootSchema.Operation
 import caliban.schema._
 import caliban.validation.Validator
@@ -47,6 +48,9 @@ trait GraphQL[-R] { self =>
           }
     } yield (document, schemaToExecute)
 
+    val execute = (req: (Document, RootSchema[R])) =>
+      Executor.executeRequest(req._1, req._2, operationName, variables, queryAnalyzers, fieldWrappers)
+
     ZIO
       .environment[R]
       .flatMap(
@@ -55,17 +59,7 @@ trait GraphQL[-R] { self =>
             prepare
               .foldM(
                 Executor.fail,
-                req =>
-                  ZIO
-                    .environment[R]
-                    .flatMap(
-                      env =>
-                        wrap(
-                          Executor
-                            .executeRequest(req._1, req._2, operationName, variables, queryAnalyzers, fieldWrappers)
-                            .provide(env)
-                        )(executionWrappers, req._1)
-                    )
+                req => ZIO.environment[R].flatMap(env => wrap(execute(req).provide(env))(executionWrappers, req._1))
               )
               .provide(env)
           )(overallWrappers, query)
@@ -112,7 +106,7 @@ trait GraphQL[-R] { self =>
 
   /**
    * Attaches a function that will wrap one of the stages of query processing
-   * (parsing, validation, execution, field execution).
+   * (parsing, validation, execution, field execution or overall).
    * @param wrapper a wrapping function
    * @return a new GraphQL API
    */
