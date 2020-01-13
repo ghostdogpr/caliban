@@ -7,7 +7,7 @@
     <meta name="description" content="Functional GraphQL backend in Scala">
     <link rel="icon" href="/caliban/caliban.png">
     
-    <link rel="preload" href="/caliban/assets/css/0.styles.60ae45c9.css" as="style"><link rel="preload" href="/caliban/assets/js/app.3dfab889.js" as="script"><link rel="preload" href="/caliban/assets/js/2.4df5629e.js" as="script"><link rel="preload" href="/caliban/assets/js/7.3390571c.js" as="script"><link rel="prefetch" href="/caliban/assets/js/10.a1705cc5.js"><link rel="prefetch" href="/caliban/assets/js/11.e0dfdfb2.js"><link rel="prefetch" href="/caliban/assets/js/12.93b8526d.js"><link rel="prefetch" href="/caliban/assets/js/13.7cac2333.js"><link rel="prefetch" href="/caliban/assets/js/14.d5750f7a.js"><link rel="prefetch" href="/caliban/assets/js/15.d71e6e19.js"><link rel="prefetch" href="/caliban/assets/js/3.86ff51ab.js"><link rel="prefetch" href="/caliban/assets/js/4.2810ddf2.js"><link rel="prefetch" href="/caliban/assets/js/5.be4c08d2.js"><link rel="prefetch" href="/caliban/assets/js/6.cc98efa9.js"><link rel="prefetch" href="/caliban/assets/js/8.269cb9c3.js"><link rel="prefetch" href="/caliban/assets/js/9.4838bf0f.js">
+    <link rel="preload" href="/caliban/assets/css/0.styles.60ae45c9.css" as="style"><link rel="preload" href="/caliban/assets/js/app.2d737d53.js" as="script"><link rel="preload" href="/caliban/assets/js/2.4df5629e.js" as="script"><link rel="preload" href="/caliban/assets/js/7.642ab07a.js" as="script"><link rel="prefetch" href="/caliban/assets/js/10.ec4ee459.js"><link rel="prefetch" href="/caliban/assets/js/11.e0dfdfb2.js"><link rel="prefetch" href="/caliban/assets/js/12.93b8526d.js"><link rel="prefetch" href="/caliban/assets/js/13.7cac2333.js"><link rel="prefetch" href="/caliban/assets/js/14.d5750f7a.js"><link rel="prefetch" href="/caliban/assets/js/15.d71e6e19.js"><link rel="prefetch" href="/caliban/assets/js/3.86ff51ab.js"><link rel="prefetch" href="/caliban/assets/js/4.2810ddf2.js"><link rel="prefetch" href="/caliban/assets/js/5.be4c08d2.js"><link rel="prefetch" href="/caliban/assets/js/6.cc98efa9.js"><link rel="prefetch" href="/caliban/assets/js/8.269cb9c3.js"><link rel="prefetch" href="/caliban/assets/js/9.e513ede6.js">
     <link rel="stylesheet" href="/caliban/assets/css/0.styles.60ae45c9.css">
   </head>
   <body>
@@ -42,6 +42,7 @@ The whole schema will be derived at compile time, meaning that if it compiles, i
 <span class="token keyword">val</span> api <span class="token operator">=</span> graphQL<span class="token punctuation">(</span>RootResolver<span class="token punctuation">(</span>queries<span class="token punctuation">)</span><span class="token punctuation">)</span>
 </code></pre></div><p>You can use <code>api.render</code> to visualize the schema generated, in this case:</p> <div class="language-graphql extra-class"><pre class="language-graphql"><code><span class="token keyword">type</span> <span class="token class-name">Character</span> <span class="token punctuation">{</span>
   <span class="token attr-name">name</span><span class="token punctuation">:</span> String<span class="token operator">!</span>
+  <span class="token attr-name">age</span><span class="token punctuation">:</span> Int<span class="token operator">!</span>
 <span class="token punctuation">}</span>
 
 <span class="token keyword">type</span> <span class="token class-name">Queries</span> <span class="token punctuation">{</span>
@@ -76,6 +77,6 @@ An interpreter is a light wrapper around the API definition that allows plugging
 </code></pre></div><p>All the fields of the subscription root case class MUST return <code>ZStream</code> or <code>? =&gt; ZStream</code> objects. When a subscription request is received, an output stream of <code>ResponseValue</code> (a <code>StreamValue</code>) will be returned wrapped inside an <code>ObjectValue</code>.</p></div> <footer class="page-edit"><!----> <!----></footer> <div class="page-nav"><p class="inner"><!----> <span class="next"><a href="/caliban/docs/schema.html">Schemas</a>
       →
     </span></p></div> </main></div><div class="global-ui"></div></div>
-    <script src="/caliban/assets/js/app.3dfab889.js" defer></script><script src="/caliban/assets/js/2.4df5629e.js" defer></script><script src="/caliban/assets/js/7.3390571c.js" defer></script>
+    <script src="/caliban/assets/js/app.2d737d53.js" defer></script><script src="/caliban/assets/js/2.4df5629e.js" defer></script><script src="/caliban/assets/js/7.642ab07a.js" defer></script>
   </body>
 </html>
