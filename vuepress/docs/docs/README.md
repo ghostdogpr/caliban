@@ -67,6 +67,7 @@ You can use `api.render` to visualize the schema generated, in this case:
 ```graphql
 type Character {
   name: String!
+  age: Int!
 }
 
 type Queries {

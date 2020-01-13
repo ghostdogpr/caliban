@@ -17,8 +17,8 @@ object GraphQLResponse {
 private object GraphQLResponseCirce {
   import io.circe._
   import io.circe.syntax._
-  val graphQLResponseEncoder: Encoder[GraphQLResponse[CalibanError]] = Encoder
-    .instance[GraphQLResponse[CalibanError]] {
+  val graphQLResponseEncoder: Encoder[GraphQLResponse[Any]] = Encoder
+    .instance[GraphQLResponse[Any]] {
       case GraphQLResponse(data, Nil, None) => Json.obj("data" -> data.asJson)
       case GraphQLResponse(data, Nil, Some(extensions)) =>
         Json.obj("data" -> data.asJson, "extensions" -> extensions.asInstanceOf[ResponseValue].asJson)
@@ -32,7 +32,7 @@ private object GraphQLResponseCirce {
         )
     }
 
-  private def handleError(err: CalibanError): Json =
+  private def handleError(err: Any): Json =
     err match {
       case ExecutionError(_, path, _) if path.nonEmpty =>
         Json.obj(
