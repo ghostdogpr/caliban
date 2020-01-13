@@ -238,10 +238,15 @@ object ExecutionSpec
           )
         },
         testM("mapError") {
+          import io.circe.syntax._
           case class Test(either: Either[Int, String])
           val interpreter = graphQL(RootResolver(Test(Right("ok")))).interpreter.mapError(_ => "my custom error")
           val query       = """query{}"""
-          assertM(interpreter.execute(query).map(_.errors), equalTo(List("my custom error")))
+
+          for {
+            result <- interpreter.execute(query)
+          } yield assert(result.errors, equalTo(List("my custom error"))) &&
+            assert(result.asJson.noSpaces, equalTo("""{"data":null,"errors":[{"message":"my custom error"}]}"""))
         },
         testM("QueryAnalyzer > fields") {
           case class A(b: B)
