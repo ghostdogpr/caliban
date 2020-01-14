@@ -4,10 +4,10 @@ import caliban.CalibanError.ExecutionError
 import caliban.Value.NullValue
 import caliban.wrappers.Wrapper.OverallWrapper
 import caliban.{ GraphQL, GraphQLResponse }
-import zio.ZIO
 import zio.clock.Clock
 import zio.console.{ putStrLn, Console }
 import zio.duration.Duration
+import zio.{ URIO, ZIO }
 
 object Wrappers {
 
@@ -24,11 +24,28 @@ object Wrappers {
    * @param duration threshold above which queries are considered slow
    */
   def printSlowQueriesWrapper(duration: Duration): OverallWrapper[Console with Clock] =
+    onSlowQueriesWrapper(duration) { case (time, query) => putStrLn(s"Slow query took ${time.render}:\n$query") }
+
+  /**
+   * Attaches to the given GraphQL API definition a wrapper that runs a given function in case of slow queries.
+   * @param duration threshold above which queries are considered slow
+   * @param api a GraphQL API definition
+   */
+  def onSlowQueries[R <: Clock](
+    duration: Duration
+  )(f: (Duration, String) => URIO[R, Any])(api: GraphQL[R]): GraphQL[R] =
+    api.withWrapper(onSlowQueriesWrapper(duration)(f))
+
+  /**
+   * Returns a wrapper that runs a given function in case of slow queries
+   * @param duration threshold above which queries are considered slow
+   */
+  def onSlowQueriesWrapper[R](duration: Duration)(f: (Duration, String) => URIO[R, Any]): OverallWrapper[R with Clock] =
     OverallWrapper {
       case (io, query) =>
         io.timed.flatMap {
           case (time, res) =>
-            ZIO.when(time > duration)(putStrLn(s"Slow query took ${time.render}:\n$query")).as(res)
+            ZIO.when(time > duration)(f(time, query)).as(res)
         }
     }
 
