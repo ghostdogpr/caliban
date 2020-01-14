@@ -1,46 +1,29 @@
 package caliban.wrappers
 
-import caliban.CalibanError.ExecutionError
+import caliban.CalibanError.{ ExecutionError, ValidationError }
+import caliban.GraphQLResponse
 import caliban.Value.NullValue
-import caliban.wrappers.Wrapper.OverallWrapper
-import caliban.{ GraphQL, GraphQLResponse }
+import caliban.execution.Field
+import caliban.wrappers.Wrapper.{ OverallWrapper, ValidationWrapper }
 import zio.clock.Clock
 import zio.console.{ putStrLn, Console }
 import zio.duration.Duration
-import zio.{ URIO, ZIO }
+import zio.{ IO, URIO, ZIO }
 
 object Wrappers {
-
-  /**
-   * Attaches to the given GraphQL API definition a wrapper that prints slow queries.
-   * @param duration threshold above which queries are considered slow
-   * @param api a GraphQL API definition
-   */
-  def printSlowQueries[R <: Console with Clock](duration: Duration)(api: GraphQL[R]): GraphQL[R] =
-    api.withWrapper(printSlowQueriesWrapper(duration))
 
   /**
    * Returns a wrapper that prints slow queries
    * @param duration threshold above which queries are considered slow
    */
-  def printSlowQueriesWrapper(duration: Duration): OverallWrapper[Console with Clock] =
-    onSlowQueriesWrapper(duration) { case (time, query) => putStrLn(s"Slow query took ${time.render}:\n$query") }
-
-  /**
-   * Attaches to the given GraphQL API definition a wrapper that runs a given function in case of slow queries.
-   * @param duration threshold above which queries are considered slow
-   * @param api a GraphQL API definition
-   */
-  def onSlowQueries[R <: Clock](
-    duration: Duration
-  )(f: (Duration, String) => URIO[R, Any])(api: GraphQL[R]): GraphQL[R] =
-    api.withWrapper(onSlowQueriesWrapper(duration)(f))
+  def printSlowQueries(duration: Duration): OverallWrapper[Console with Clock] =
+    onSlowQueries(duration) { case (time, query) => putStrLn(s"Slow query took ${time.render}:\n$query") }
 
   /**
    * Returns a wrapper that runs a given function in case of slow queries
    * @param duration threshold above which queries are considered slow
    */
-  def onSlowQueriesWrapper[R](duration: Duration)(f: (Duration, String) => URIO[R, Any]): OverallWrapper[R with Clock] =
+  def onSlowQueries[R](duration: Duration)(f: (Duration, String) => URIO[R, Any]): OverallWrapper[R with Clock] =
     OverallWrapper {
       case (io, query) =>
         io.timed.flatMap {
@@ -50,18 +33,10 @@ object Wrappers {
     }
 
   /**
-   * Attaches to the given GraphQL API definition a wrapper that times out queries taking more than a specified time.
-   * @param duration threshold above which queries should be timed out
-   * @param api a GraphQL API definition
-   */
-  def timeout[R <: Clock](duration: Duration)(api: GraphQL[R]): GraphQL[R] =
-    api.withWrapper(timeoutWrapper(duration))
-
-  /**
    * Returns a wrapper that times out queries taking more than a specified time.
    * @param duration threshold above which queries should be timed out
    */
-  def timeoutWrapper(duration: Duration): OverallWrapper[Clock] =
+  def timeout(duration: Duration): OverallWrapper[Clock] =
     OverallWrapper {
       case (io, query) =>
         io.timeout(duration)
@@ -74,4 +49,46 @@ object Wrappers {
             )
           )
     }
+
+  /**
+   * Returns a wrapper that checks that the query's depth is under a given max
+   * @param maxDepth the max allowed depth
+   */
+  def maxDepth(maxDepth: Int): ValidationWrapper[Any] =
+    ValidationWrapper {
+      case (io, _) =>
+        io.flatMap { req =>
+          val depth = calculateDepth(req.field)
+          if (depth > maxDepth) IO.fail(ValidationError(s"Query is too deep: $depth. Max depth: $maxDepth.", ""))
+          else IO.succeed(req)
+        }
+    }
+
+  private def calculateDepth(field: Field): Int = {
+    val children      = field.fields ++ field.conditionalFields.values.flatten
+    val childrenDepth = if (children.isEmpty) 0 else children.map(calculateDepth).max
+    childrenDepth + (if (field.name.nonEmpty) 1 else 0)
+  }
+
+  /**
+   * Returns a wrapper that checks that the query has a limited number of fields
+   * @param maxFields the max allowed number of fields
+   */
+  def maxFields(maxFields: Int): ValidationWrapper[Any] =
+    ValidationWrapper {
+      case (io, _) =>
+        io.flatMap { req =>
+          val fields = countFields(req.field)
+          if (fields > maxFields)
+            IO.fail(ValidationError(s"Query has too many fields: $fields. Max fields: $maxFields.", ""))
+          else IO.succeed(req)
+        }
+    }
+
+  private def countFields(field: Field): Int =
+    innerFields(field.fields) + (if (field.conditionalFields.isEmpty) 0
+                                 else field.conditionalFields.values.map(innerFields).max)
+
+  private def innerFields(fields: List[Field]): Int = fields.length + fields.map(countFields).sum
+
 }

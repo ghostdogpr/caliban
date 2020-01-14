@@ -1,15 +1,11 @@
 package caliban.execution
 
 import scala.collection.immutable.ListMap
-import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue._
 import caliban.Value._
-import caliban.execution.QueryAnalyzer.QueryAnalyzer
-import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
-import caliban.parsing.adt.OperationType.{ Mutation, Query, Subscription }
 import caliban.parsing.adt._
 import caliban.schema.Step._
-import caliban.schema.{ GenericSchema, ReducedStep, RootSchema, Step }
+import caliban.schema.{ GenericSchema, ReducedStep, Step }
 import caliban.wrappers.Wrapper.FieldWrapper
 import caliban.{ CalibanError, GraphQLResponse, InputValue, ResponseValue }
 import zio._
@@ -19,65 +15,24 @@ object Executor {
 
   /**
    * Executes the given query against a schema. It returns either an [[caliban.CalibanError.ExecutionError]] or a [[ResponseValue]].
-   * @param document the parsed query
-   * @param schema the schema to use to run the query
-   * @param operationName the operation to run in case the query contains multiple operations.
-   * @param variables a list of variables.
+   * @param request a request object containing all information needed
+   * @param plan an execution plan
+   * @param variables a list of variables
+   * @param fieldWrappers a list of field wrappers
    */
   def executeRequest[R](
-    document: Document,
-    schema: RootSchema[R],
-    operationName: Option[String] = None,
+    request: ExecutionRequest,
+    plan: Step[R],
     variables: Map[String, InputValue] = Map(),
-    queryAnalyzers: List[QueryAnalyzer[R]] = Nil,
     fieldWrappers: List[FieldWrapper[R]] = Nil
   ): URIO[R, GraphQLResponse[CalibanError]] = {
-    val fragments = document.definitions.collect {
-      case fragment: FragmentDefinition => fragment.name -> fragment
-    }.toMap
-    val operation = operationName match {
-      case Some(name) =>
-        document.definitions.collectFirst { case op: OperationDefinition if op.name.contains(name) => op }
-          .toRight(s"Unknown operation $name.")
-      case None =>
-        document.definitions.collect { case op: OperationDefinition => op } match {
-          case head :: Nil => Right(head)
-          case _           => Left("Operation name is required.")
-        }
+    val allowParallelism = request.operationType match {
+      case OperationType.Query        => true
+      case OperationType.Mutation     => false
+      case OperationType.Subscription => false
     }
-    operation match {
-      case Left(error) => fail(ExecutionError(error))
-      case Right(op) =>
-        val getOperationType = op.operationType match {
-          case Query => IO.succeed((schema.query, true))
-          case Mutation =>
-            schema.mutation match {
-              case Some(m) => IO.succeed((m, false))
-              case None    => IO.fail(ExecutionError("Mutations are not supported on this schema"))
-            }
-          case Subscription =>
-            schema.subscription match {
-              case Some(m) => IO.succeed((m, false))
-              case None    => IO.fail(ExecutionError("Subscriptions are not supported on this schema"))
-            }
-        }
 
-        (for {
-          (operationType, allowParallelism) <- getOperationType
-          root <- ZIO
-                   .foldLeft(queryAnalyzers)(Field(op.selectionSet, fragments, variables, operationType.opType)) {
-                     case (field, analyzer) => analyzer(field)
-                   }
-          result <- executePlan(
-                     operationType.plan,
-                     root,
-                     op.variableDefinitions,
-                     variables,
-                     allowParallelism,
-                     fieldWrappers
-                   )
-        } yield result).catchAll(fail)
-    }
+    executePlan(plan, request.field, request.variableDefinitions, variables, allowParallelism, fieldWrappers)
   }
 
   private[caliban] def fail(error: CalibanError): UIO[GraphQLResponse[CalibanError]] =

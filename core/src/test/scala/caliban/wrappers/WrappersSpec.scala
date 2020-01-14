@@ -1,21 +1,81 @@
 package caliban.wrappers
 
 import scala.language.postfixOps
-import caliban.CalibanError.ExecutionError
+import caliban.CalibanError.{ ExecutionError, ValidationError }
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
-import caliban.{ CalibanError, GraphQLInterpreter, RootResolver }
 import caliban.schema.GenericSchema
+import caliban.wrappers.Wrappers._
+import caliban.{ CalibanError, GraphQLInterpreter, RootResolver }
 import zio.clock.Clock
 import zio.duration._
 import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestClock
-import zio.{ clock, Promise, UIO, URIO, ZIO }
+import zio.{ clock, Promise, URIO, ZIO }
 
 object WrappersSpec
     extends DefaultRunnableSpec(
       suite("WrappersSpec")(
+        testM("Max fields") {
+          case class A(b: B)
+          case class B(c: Int)
+          case class Test(a: A)
+          val interpreter = (graphQL(RootResolver(Test(A(B(2))))) @@ maxFields(2)).interpreter
+          val query       = gqldoc("""
+              {
+                a {
+                  b {
+                    c
+                  }
+                }
+              }""")
+          assertM(
+            interpreter.execute(query).map(_.errors),
+            equalTo(List(ValidationError("Query has too many fields: 3. Max fields: 2.", "")))
+          )
+        },
+        testM("Max fields with fragment") {
+          case class A(b: B)
+          case class B(c: Int)
+          case class Test(a: A)
+          val interpreter = (graphQL(RootResolver(Test(A(B(2))))) @@ maxFields(2)).interpreter
+          val query       = gqldoc("""
+              query test {
+                a {
+                  ...f
+                }
+              }
+              
+              fragment f on A {
+                b {
+                  c 
+                }
+              }
+              """)
+          assertM(
+            interpreter.execute(query).map(_.errors),
+            equalTo(List(ValidationError("Query has too many fields: 3. Max fields: 2.", "")))
+          )
+        },
+        testM("Max depth") {
+          case class A(b: B)
+          case class B(c: Int)
+          case class Test(a: A)
+          val interpreter = (graphQL(RootResolver(Test(A(B(2))))) @@ maxDepth(2)).interpreter
+          val query       = gqldoc("""
+              {
+                a {
+                  b {
+                    c
+                  }
+                }
+              }""")
+          assertM(
+            interpreter.execute(query).map(_.errors),
+            equalTo(List(ValidationError("Query is too deep: 3. Max depth: 2.", "")))
+          )
+        },
         testM("Timeout") {
           case class Test(a: URIO[Clock, Int])
 
@@ -23,11 +83,7 @@ object WrappersSpec
           import schema._
 
           val interpreter =
-            Wrappers
-              .timeout(1 minute)(
-                graphQL(RootResolver(Test(clock.sleep(2 minutes).as(0))))
-              )
-              .interpreter
+            (graphQL(RootResolver(Test(clock.sleep(2 minutes).as(0)))) @@ timeout(1 minute)).interpreter
           val query = gqldoc("""
               {
                 a
@@ -48,25 +104,21 @@ object WrappersSpec
           object schema extends GenericSchema[Clock]
           import schema._
 
-          def interpreter(latch: Promise[Nothing, Unit]): UIO[GraphQLInterpreter[Clock, CalibanError]] =
-            ApolloTracing
-              .apolloTracing(
-                graphQL(
-                  RootResolver(
-                    Query(
-                      Hero(
-                        latch.succeed(()) *> ZIO.sleep(1 second).as("R2-D2"),
-                        List(
-                          Hero(ZIO.succeed("Luke Skywalker")),
-                          Hero(ZIO.succeed("Han Solo")),
-                          Hero(ZIO.succeed("Leia Organa"))
-                        )
-                      )
+          def interpreter(latch: Promise[Nothing, Unit]): GraphQLInterpreter[Clock, CalibanError] =
+            (graphQL(
+              RootResolver(
+                Query(
+                  Hero(
+                    latch.succeed(()) *> ZIO.sleep(1 second).as("R2-D2"),
+                    List(
+                      Hero(ZIO.succeed("Luke Skywalker")),
+                      Hero(ZIO.succeed("Han Solo")),
+                      Hero(ZIO.succeed("Leia Organa"))
                     )
                   )
                 )
               )
-              .map(_.interpreter)
+            ) @@ ApolloTracing.apolloTracing).interpreter
 
           val query = gqldoc("""
               {
@@ -79,12 +131,11 @@ object WrappersSpec
               }""")
           assertM(
             for {
-              latch       <- Promise.make[Nothing, Unit]
-              interpreter <- interpreter(latch)
-              fiber       <- interpreter.execute(query).map(_.extensions.map(_.toString)).fork
-              _           <- latch.await
-              _           <- TestClock.adjust(1 second)
-              result      <- fiber.join
+              latch  <- Promise.make[Nothing, Unit]
+              fiber  <- interpreter(latch).execute(query).map(_.extensions.map(_.toString)).fork
+              _      <- latch.await
+              _      <- TestClock.adjust(1 second)
+              result <- fiber.join
             } yield result,
             isSome(
               equalTo(

@@ -3,7 +3,6 @@ package caliban.http4s
 import scala.language.postfixOps
 import caliban.ExampleData._
 import caliban.GraphQL._
-import caliban.execution.QueryAnalyzer._
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.GenericSchema
 import caliban.wrappers.ApolloTracing.apolloTracing
@@ -42,27 +41,22 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
   implicit val characterArgsSchema  = gen[CharacterArgs]
   implicit val charactersArgsSchema = gen[CharactersArgs]
 
-  def makeApi(service: ExampleService): UIO[GraphQL[Console with Clock]] =
-    apolloTracing(                  // wrapper for https://github.com/apollographql/apollo-tracing
-      printSlowQueries(500 millis)( // wrapper that logs slow queries
-        timeout(3 seconds)(         // wrapper that fails slow queries
-          maxDepth(30)(             // query analyzer that limit query depth
-            maxFields(200)(         // query analyzer that limit query fields
-              graphQL(
-                RootResolver(
-                  Queries(
-                    args => service.getCharacters(args.origin),
-                    args => service.findCharacter(args.name)
-                  ),
-                  Mutations(args => service.deleteCharacter(args.name)),
-                  Subscriptions(service.deletedEvents)
-                )
-              )
-            )
-          )
-        )
+  def makeApi(service: ExampleService): GraphQL[Console with Clock] =
+    graphQL(
+      RootResolver(
+        Queries(
+          args => service.getCharacters(args.origin),
+          args => service.findCharacter(args.name)
+        ),
+        Mutations(args => service.deleteCharacter(args.name)),
+        Subscriptions(service.deletedEvents)
       )
-    )
+    ) @@
+      maxFields(200) @@               // query analyzer that limit query fields
+      maxDepth(30) @@                 // query analyzer that limit query depth
+      timeout(3 seconds) @@           // wrapper that fails slow queries
+      printSlowQueries(500 millis) @@ // wrapper that logs slow queries
+      apolloTracing                   // wrapper for https://github.com/apollographql/apollo-tracing
 
   override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] =
     (for {
@@ -70,8 +64,7 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
                   .accessM[Blocking](_.blocking.blockingExecutor.map(_.asEC))
                   .map(Blocker.liftExecutionContext)
       service     <- ExampleService.make(sampleCharacters)
-      api         <- makeApi(service)
-      interpreter = api.interpreter
+      interpreter = makeApi(service).interpreter
       _ <- BlazeServerBuilder[ExampleTask]
             .bindHttp(8088, "localhost")
             .withHttpApp(
