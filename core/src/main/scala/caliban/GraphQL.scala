@@ -10,7 +10,7 @@ import caliban.schema._
 import caliban.validation.Validator
 import caliban.wrappers.Wrapper
 import caliban.wrappers.Wrapper._
-import zio.{ IO, URIO, ZIO }
+import zio.{ IO, URIO }
 
 /**
  * A `GraphQL[-R]` represents a GraphQL API whose execution requires a ZIO environment of type `R`.
@@ -46,25 +46,17 @@ trait GraphQL[-R] { self =>
                   )(validationWrappers, document)
       } yield (request, schemaToExecute)
 
-      val execute = (req: ExecutionRequest, schema: RootSchema[R]) => {
-        ZIO
-          .environment[R]
-          .flatMap(
-            env =>
-              wrap {
-                val op = req.operationType match {
-                  case OperationType.Query        => schema.query
-                  case OperationType.Mutation     => schema.mutation.getOrElse(schema.query)
-                  case OperationType.Subscription => schema.subscription.getOrElse(schema.query)
-                }
-                Executor.executeRequest(req, op.plan, variables, fieldWrappers).provide(env)
-              }(executionWrappers, req)
-          )
-      }
+      val execute = (req: ExecutionRequest, schema: RootSchema[R]) =>
+        wrap {
+          val op = req.operationType match {
+            case OperationType.Query        => schema.query
+            case OperationType.Mutation     => schema.mutation.getOrElse(schema.query)
+            case OperationType.Subscription => schema.subscription.getOrElse(schema.query)
+          }
+          Executor.executeRequest(req, op.plan, variables, fieldWrappers)
+        }(executionWrappers, req)
 
-      ZIO
-        .environment[R]
-        .flatMap(env => wrap(prepare.foldM(Executor.fail, execute.tupled).provide(env))(overallWrappers, query))
+      wrap(prepare.foldM(Executor.fail, execute.tupled))(overallWrappers, query)
   }
 
   /**

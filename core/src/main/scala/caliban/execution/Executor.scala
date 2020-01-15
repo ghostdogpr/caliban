@@ -1,5 +1,6 @@
 package caliban.execution
 
+import scala.annotation.tailrec
 import scala.collection.immutable.ListMap
 import caliban.ResponseValue._
 import caliban.Value._
@@ -9,7 +10,7 @@ import caliban.schema.{ GenericSchema, ReducedStep, Step }
 import caliban.wrappers.Wrapper.FieldWrapper
 import caliban.{ CalibanError, GraphQLResponse, InputValue, ResponseValue }
 import zio._
-import zquery.{ Described, ZQuery }
+import zquery.ZQuery
 
 object Executor {
 
@@ -100,6 +101,7 @@ object Executor {
 
     def makeQuery(step: ReducedStep[R], errors: Ref[List[CalibanError]]): ZQuery[R, Nothing, ResponseValue] = {
 
+      @tailrec
       def wrap(query: ZQuery[R, Nothing, ResponseValue])(
         wrappers: List[FieldWrapper[R]],
         fieldInfo: FieldInfo
@@ -107,16 +109,12 @@ object Executor {
         wrappers match {
           case Nil => query
           case wrapper :: tail =>
-            ZQuery
-              .environment[R]
-              .flatMap(
-                env =>
-                  wrap(
-                    wrapper
-                      .f(query.provide(Described(env, "Wrapper")), fieldInfo)
-                      .foldM(error => ZQuery.fromEffect(errors.update(error :: _)).map(_ => NullValue), ZQuery.succeed)
-                  )(tail, fieldInfo)
-              )
+            wrap(
+              wrapper
+                .f(query, fieldInfo)
+                .foldM(error => ZQuery.fromEffect(errors.update(error :: _)).map(_ => NullValue), ZQuery.succeed)
+            )(tail, fieldInfo)
+
         }
 
       def loop(step: ReducedStep[R]): ZQuery[R, Nothing, ResponseValue] =

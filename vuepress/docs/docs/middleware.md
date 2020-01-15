@@ -17,7 +17,7 @@ There are 5 basic types of wrappers:
  - `ExecutionWrapper` to wrap the query execution only
  - `FieldWrapper` to wrap each field execution
 
-Each one requires a function that takes an `IO` or `ZQuery` computation together with some contextual information (e.g. the query string) and should return another computation.
+Each one requires a function that takes a `ZIO` or `ZQuery` computation together with some contextual information (e.g. the query string) and should return another computation.
 
 Let's see how to implement a wrapper that times out the whole query if its processing takes longer that 1 minute.
 
