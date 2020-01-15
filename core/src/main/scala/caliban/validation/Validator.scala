@@ -6,6 +6,7 @@ import caliban.Value.NullValue
 import caliban.execution.{ ExecutionRequest, Field => F }
 import caliban.introspection.Introspector
 import caliban.introspection.adt._
+import caliban.parsing.SourceMapper
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.OperationType._
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
@@ -79,10 +80,10 @@ object Validator {
           }).map(
             operation =>
               ExecutionRequest(
-                F(op.selectionSet, fragments, variables, operation.opType),
+                F(op.selectionSet, fragments, variables, operation.opType, document.sourceMapper),
                 op.operationType,
                 op.variableDefinitions
-              )
+            )
           )
       }
     }
@@ -119,7 +120,7 @@ object Validator {
             .fold(List.empty[InputValue])(
               f => f.directives.flatMap(_.arguments.values) ++ collectValues(f.selectionSet)
             )
-        case Field(_, _, arguments, directives, selectionSet) =>
+        case Field(_, _, arguments, directives, selectionSet, _) =>
           arguments.values ++ directives.flatMap(_.arguments.values) ++ collectValues(selectionSet)
         case InlineFragment(_, directives, selectionSet) =>
           directives.flatMap(_.arguments.values) ++ collectValues(selectionSet)
@@ -132,7 +133,7 @@ object Validator {
   private def collectSelectionSets(selectionSet: List[Selection]): List[Selection] =
     selectionSet ++ selectionSet.flatMap {
       case _: FragmentSpread                  => Nil
-      case Field(_, _, _, _, selectionSet)    => collectSelectionSets(selectionSet)
+      case Field(_, _, _, _, selectionSet, _) => collectSelectionSets(selectionSet)
       case InlineFragment(_, _, selectionSet) => collectSelectionSets(selectionSet)
     }
 
@@ -161,7 +162,7 @@ object Validator {
     IO.foreach(selectionSet) {
         case FragmentSpread(_, directives) =>
           checkDirectivesUniqueness(directives).as(directives.map((_, __DirectiveLocation.FRAGMENT_SPREAD)))
-        case Field(_, _, _, directives, selectionSet) =>
+        case Field(_, _, _, directives, selectionSet, _) =>
           checkDirectivesUniqueness(directives) *>
             collectDirectives(selectionSet).map(directives.map((_, __DirectiveLocation.FIELD)) ++ _)
         case InlineFragment(_, directives, selectionSet) =>
@@ -242,7 +243,7 @@ object Validator {
                       "Variables are scoped on a per‐operation basis. That means that any variable used within the context of an operation must be defined at the top level of that operation"
                     )
                   )
-                )
+              )
             ) *> IO.foreach(op.variableDefinitions)(
               v =>
                 IO.when(!variableUsages.contains(v.name))(
@@ -252,9 +253,9 @@ object Validator {
                       "All variables defined by an operation must be used in that operation or a fragment transitively included by that operation. Unused variables cause a validation error."
                     )
                   )
-                )
+              )
             )
-          }
+        }
       )
       .unit
 
@@ -384,7 +385,7 @@ object Validator {
             ValidationError(
               s"Field '${field.name}' does not exist on type '${Rendering.renderTypeName(currentType)}'.",
               "The target field of a field selection must be defined on the scoped type of the selection set. There are no limitations on alias names."
-            )
+          )
         )
         .flatMap { f =>
           validateFields(context, field.selectionSet, Types.innerType(f.`type`())) *>
@@ -416,7 +417,7 @@ object Validator {
                 "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
               )
             )
-          )
+        )
       )
 
   private def validateInputValues(inputValue: __InputValue, argValue: InputValue): IO[ValidationError, Unit] = {
@@ -451,7 +452,7 @@ object Validator {
                     "Input object fields may be required. Much like a field may have required arguments, an input object may have required fields. An input field is required if it has a non‐null type and does not have a default value. Otherwise, the input object field is optional."
                   )
                 )
-              )
+            )
           )
           .unit
       case _ => IO.unit
@@ -522,7 +523,10 @@ object Validator {
           t <- context.rootType.subscriptionType
           op <- context.operations
                  .filter(_.operationType == OperationType.Subscription)
-                 .find(op => F(op.selectionSet, context.fragments, Map.empty[String, InputValue], t).fields.length > 1)
+                 .find(
+                   op =>
+                     F(op.selectionSet, context.fragments, Map.empty[String, InputValue], t, SourceMapper.empty).fields.length > 1
+                 )
         } yield op
       )
       .map { op =>

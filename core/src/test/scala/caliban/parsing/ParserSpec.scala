@@ -34,11 +34,13 @@ object ParserSpec
                   simpleField(
                     "hero",
                     selectionSet = List(
-                      simpleField("name"),
-                      simpleField("friends", selectionSet = List(simpleField("name")))
-                    )
+                      simpleField("name", index = 15),
+                      simpleField("friends", selectionSet = List(simpleField("name", index = 73)), index = 57)
+                    ),
+                    index = 4
                   )
-                )
+                ),
+                sourceMapper = SourceMapper(query)
               )
             )
           )
@@ -58,10 +60,14 @@ object ParserSpec
                   simpleField(
                     "human",
                     arguments = Map("id" -> StringValue("1000")),
-                    selectionSet =
-                      List(simpleField("name"), simpleField("height", arguments = Map("unit" -> EnumValue("FOOT"))))
+                    selectionSet = List(
+                      simpleField("name", index = 28),
+                      simpleField("height", arguments = Map("unit" -> EnumValue("FOOT")), index = 37)
+                    ),
+                    index = 4
                   )
-                )
+                ),
+                sourceMapper = SourceMapper(query)
               )
             )
           )
@@ -84,15 +90,18 @@ object ParserSpec
                     "hero",
                     alias = Some("empireHero"),
                     arguments = Map("episode" -> EnumValue("EMPIRE")),
-                    selectionSet = List(simpleField("name"))
+                    selectionSet = List(simpleField("name", index = 44)),
+                    index = 4
                   ),
                   simpleField(
                     "hero",
                     alias = Some("jediHero"),
                     arguments = Map("episode" -> EnumValue("JEDI")),
-                    selectionSet = List(simpleField("name"))
+                    selectionSet = List(simpleField("name", index = 91)),
+                    index = 55
                   )
-                )
+                ),
+                sourceMapper = SourceMapper(query)
               )
             )
           )
@@ -123,9 +132,11 @@ object ParserSpec
                       "list"  -> ListValue(List(IntValue(1), IntValue(2), IntValue(3))),
                       "obj"   -> ObjectValue(Map("name" -> StringValue("name")))
                     ),
-                    selectionSet = List(simpleField("name"))
+                    selectionSet = List(simpleField("name", index = 131)),
+                    index = 4
                   )
-                )
+                ),
+                sourceMapper = SourceMapper(query)
               )
             )
           )
@@ -139,9 +150,11 @@ object ParserSpec
                 selectionSet = List(
                   simpleField(
                     "sendEmail",
-                    arguments = Map("message" -> StringValue("Hello,\n  World!\n\nYours,\n  GraphQL. "))
+                    arguments = Map("message" -> StringValue("Hello,\n  World!\n\nYours,\n  GraphQL. ")),
+                    index = 2
                   )
-                )
+                ),
+                sourceMapper = SourceMapper(query)
               )
             )
           )
@@ -167,12 +180,14 @@ object ParserSpec
                     "user",
                     arguments = Map("id" -> IntValue(4)),
                     selectionSet = List(
-                      simpleField("id"),
-                      simpleField("name"),
-                      simpleField("profilePic", arguments = Map("size" -> VariableValue("devicePicSize")))
-                    )
+                      simpleField("id", index = 69),
+                      simpleField("name", index = 76),
+                      simpleField("profilePic", arguments = Map("size" -> VariableValue("devicePicSize")), index = 85)
+                    ),
+                    index = 51
                   )
-                )
+                ),
+                sourceMapper = SourceMapper(query)
               )
             )
           )
@@ -191,9 +206,11 @@ object ParserSpec
                 selectionSet = List(
                   simpleField(
                     "experimentalField",
-                    directives = List(Directive("skip", Map("if" -> VariableValue("someTestM"))))
+                    directives = List(Directive("skip", Map("if" -> VariableValue("someTestM")), 57)),
+                    index = 39
                   )
-                )
+                ),
+                sourceMapper = SourceMapper(query)
               )
             )
           )
@@ -215,7 +232,8 @@ object ParserSpec
                     Nil
                   )
                 ),
-                selectionSet = List(simpleField("nothing"))
+                selectionSet = List(simpleField("nothing", index = 50)),
+                sourceMapper = SourceMapper(query)
               )
             )
           )
@@ -255,14 +273,17 @@ object ParserSpec
                           simpleField(
                             "friends",
                             arguments = Map("first" -> IntValue(10)),
-                            selectionSet = List(FragmentSpread("friendFields", Nil))
+                            selectionSet = List(FragmentSpread("friendFields", Nil)),
+                            index = 42
                           ),
                           simpleField(
                             "mutualFriends",
                             arguments = Map("first" -> IntValue(10)),
-                            selectionSet = List(FragmentSpread("friendFields", Nil))
+                            selectionSet = List(FragmentSpread("friendFields", Nil)),
+                            index = 95
                           )
-                        )
+                        ),
+                        index = 24
                       )
                     )
                   ),
@@ -271,12 +292,13 @@ object ParserSpec
                     NamedType("User", nonNull = false),
                     Nil,
                     List(
-                      simpleField("id"),
-                      simpleField("name"),
-                      simpleField("profilePic", arguments = Map("size" -> IntValue(50)))
+                      simpleField("id", index = 191),
+                      simpleField("name", index = 196),
+                      simpleField("profilePic", arguments = Map("size" -> IntValue(50)), index = 203)
                     )
                   )
-                )
+                ),
+                SourceMapper(query)
               )
             )
           )
@@ -307,20 +329,24 @@ object ParserSpec
                     "profiles",
                     arguments = Map("handles" -> ListValue(List(StringValue("zuck"), StringValue("cocacola")))),
                     selectionSet = List(
-                      simpleField("handle"),
+                      simpleField("handle", index = 77),
                       InlineFragment(
                         Some(NamedType("User", nonNull = false)),
                         Nil,
-                        List(simpleField("friends", selectionSet = List(simpleField("count"))))
+                        List(
+                          simpleField("friends", selectionSet = List(simpleField("count", index = 126)), index = 108)
+                        )
                       ),
                       InlineFragment(
                         Some(NamedType("Page", nonNull = false)),
                         Nil,
-                        List(simpleField("likers", selectionSet = List(simpleField("count"))))
+                        List(simpleField("likers", selectionSet = List(simpleField("count", index = 187)), index = 170))
                       )
-                    )
+                    ),
+                    index = 31
                   )
-                )
+                ),
+                sourceMapper = SourceMapper(query)
               )
             )
           )
@@ -349,20 +375,22 @@ object ParserSpec
                     "user",
                     arguments = Map("handle" -> StringValue("zuck")),
                     selectionSet = List(
-                      simpleField("id"),
-                      simpleField("name"),
+                      simpleField("id", index = 82),
+                      simpleField("name", index = 89),
                       InlineFragment(
                         None,
-                        List(Directive("include", Map("if" -> VariableValue("expandedInfo")))),
+                        List(Directive("include", Map("if" -> VariableValue("expandedInfo")), 102)),
                         List(
-                          simpleField("firstName"),
-                          simpleField("lastName"),
-                          simpleField("birthday")
+                          simpleField("firstName", index = 138),
+                          simpleField("lastName", index = 154),
+                          simpleField("birthday", index = 169)
                         )
                       )
-                    )
+                    ),
+                    index = 55
                   )
-                )
+                ),
+                sourceMapper = SourceMapper(query)
               )
             )
           )
@@ -390,12 +418,14 @@ object ParserSpec
                         "likeStory",
                         arguments = Map("storyID" -> IntValue(12345)),
                         selectionSet = List(
-                          simpleField("story", selectionSet = List(simpleField("likeCount")))
-                        )
+                          simpleField("story", selectionSet = List(simpleField("likeCount", index = 59)), index = 45)
+                        ),
+                        index = 13
                       )
                     )
                   )
-                )
+                ),
+                SourceMapper(query)
               )
             )
           )
@@ -417,14 +447,16 @@ object ParserSpecUtils {
     name: Option[String] = None,
     variableDefinitions: List[VariableDefinition] = Nil,
     directives: List[Directive] = Nil,
-    selectionSet: List[Selection] = Nil
-  ) = Document(List(OperationDefinition(Query, name, variableDefinitions, directives, selectionSet)))
+    selectionSet: List[Selection] = Nil,
+    sourceMapper: SourceMapper = SourceMapper.empty
+  ) = Document(List(OperationDefinition(Query, name, variableDefinitions, directives, selectionSet)), sourceMapper)
 
   def simpleField(
     name: String,
     alias: Option[String] = None,
     arguments: Map[String, InputValue] = Map(),
     directives: List[Directive] = Nil,
-    selectionSet: List[Selection] = Nil
-  ) = Field(alias, name, arguments, directives, selectionSet)
+    selectionSet: List[Selection] = Nil,
+    index: Int = 0
+  ) = Field(alias, name, arguments, directives, selectionSet, index)
 }

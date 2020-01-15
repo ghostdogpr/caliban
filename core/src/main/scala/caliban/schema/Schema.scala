@@ -3,12 +3,14 @@ package caliban.schema
 import scala.annotation.implicitNotFound
 import scala.language.experimental.macros
 import java.util.UUID
+
 import scala.concurrent.Future
 import caliban.CalibanError.ExecutionError
 import caliban.{ InputValue, ResponseValue }
 import caliban.ResponseValue._
 import caliban.Value._
 import caliban.introspection.adt._
+import caliban.parsing.adt.LocationInfo
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLInputName, GQLName }
 import caliban.schema.Step._
 import caliban.schema.Types._
@@ -418,9 +420,13 @@ trait DerivationSchema[R] {
 
 object GenericSchema {
 
-  def effectfulExecutionError(path: List[Either[String, Int]], e: Throwable): ExecutionError =
+  def effectfulExecutionError(
+    path: List[Either[String, Int]],
+    locationInfo: Option[LocationInfo],
+    e: Throwable
+  ): ExecutionError =
     e match {
       case e: ExecutionError => e
-      case other             => ExecutionError("Effect failure", path.reverse, Some(other))
+      case other             => ExecutionError("Effect failure", path.reverse, locationInfo, Some(other))
     }
 }

@@ -1,5 +1,7 @@
 package caliban
 
+import caliban.parsing.adt.LocationInfo
+
 /**
  * The base type for all Caliban errors.
  */
@@ -29,6 +31,7 @@ object CalibanError {
   case class ExecutionError(
     msg: String,
     path: List[Either[String, Int]] = Nil,
+    locationInfo: Option[LocationInfo] = None,
     innerThrowable: Option[Throwable] = None
   ) extends CalibanError {
     override def toString: String = {
