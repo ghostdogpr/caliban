@@ -24,6 +24,10 @@ module.exports = {
             link: '/docs/'
           },
           {
+            text: 'Resources',
+            link: '/resources/'
+          },
+          {
             text: 'About',
             link: '/about/'
           },
