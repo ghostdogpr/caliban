@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.Rendering.renderTypes
-import caliban.execution.{ ExecutionRequest, Executor }
+import caliban.execution.Executor
 import caliban.introspection.Introspector
 import caliban.parsing.Parser
 import caliban.parsing.adt.OperationType
@@ -35,28 +35,21 @@ trait GraphQL[-R] { self =>
     skipValidation: Boolean
   ): URIO[R, GraphQLResponse[CalibanError]] = decompose(wrappers).flatMap {
     case (overallWrappers, parsingWrappers, validationWrappers, executionWrappers, fieldWrappers) =>
-      val prepare = for {
-        document        <- wrap(Parser.parseQuery(query))(parsingWrappers, query)
-        intro           = Introspector.isIntrospection(document)
+      wrap((for {
+        doc             <- wrap(Parser.parseQuery(query))(parsingWrappers, query)
+        intro           = Introspector.isIntrospection(doc)
         typeToValidate  = if (intro) introspectionRootType else rootType
         schemaToExecute = if (intro) introspectionRootSchema else schema
-        request <- wrap(
-                    Validator
-                      .prepare(document, typeToValidate, schemaToExecute, operationName, variables, skipValidation)
-                  )(validationWrappers, document)
-      } yield (request, schemaToExecute)
-
-      val execute = (req: ExecutionRequest, schema: RootSchema[R]) =>
-        wrap {
-          val op = req.operationType match {
-            case OperationType.Query        => schema.query
-            case OperationType.Mutation     => schema.mutation.getOrElse(schema.query)
-            case OperationType.Subscription => schema.subscription.getOrElse(schema.query)
-          }
-          Executor.executeRequest(req, op.plan, variables, fieldWrappers)
-        }(executionWrappers, req)
-
-      wrap(prepare.foldM(Executor.fail, execute.tupled))(overallWrappers, query)
+        validate        = Validator.prepare(doc, typeToValidate, schemaToExecute, operationName, variables, skipValidation)
+        request         <- wrap(validate)(validationWrappers, doc)
+        op = request.operationType match {
+          case OperationType.Query        => schemaToExecute.query
+          case OperationType.Mutation     => schemaToExecute.mutation.getOrElse(schemaToExecute.query)
+          case OperationType.Subscription => schemaToExecute.subscription.getOrElse(schemaToExecute.query)
+        }
+        execute = Executor.executeRequest(request, op.plan, variables, fieldWrappers)
+        result  <- wrap(execute)(executionWrappers, request)
+      } yield result).catchAll(Executor.fail))(overallWrappers, query)
   }
 
   /**

@@ -1,5 +1,6 @@
 package caliban.wrappers
 
+import scala.annotation.tailrec
 import caliban.CalibanError.{ ParsingError, ValidationError }
 import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.parsing.adt.Document
@@ -89,11 +90,11 @@ object Wrapper {
   private[caliban] def wrap[R1 >: R, R, E, A, Info](
     zio: ZIO[R1, E, A]
   )(wrappers: List[WrappingFunction[R, E, A, Info]], info: Info): ZIO[R, E, A] = {
+    @tailrec
     def loop(zio: ZIO[R, E, A], wrappers: List[WrappingFunction[R, E, A, Info]]): ZIO[R, E, A] =
       wrappers match {
-        case Nil => zio
-        case wrapper :: tail =>
-          ZIO.environment[R].flatMap(env => loop(wrapper(zio, info).provide(env), tail))
+        case Nil             => zio
+        case wrapper :: tail => loop(wrapper(zio, info), tail)
       }
     loop(zio, wrappers)
   }
