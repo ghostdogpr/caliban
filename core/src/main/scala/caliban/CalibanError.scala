@@ -26,10 +26,17 @@ object CalibanError {
   /**
    * Describes an error that happened while executing a query.
    */
-  case class ExecutionError(msg: String, fieldName: Option[String] = None, innerThrowable: Option[Throwable] = None)
-      extends CalibanError {
+  case class ExecutionError(
+    msg: String,
+    path: List[Either[String, Int]] = Nil,
+    innerThrowable: Option[Throwable] = None
+  ) extends CalibanError {
     override def toString: String = {
-      val field = fieldName.fold("")(f => s" on field '$f'")
+      val pathString = path.map {
+        case Left(value)  => value
+        case Right(value) => value.toString
+      }.mkString(" > ")
+      val field = if (pathString.isEmpty) "" else s" on field '$pathString'"
       val inner = innerThrowable.fold("")(e => s" with ${e.toString}")
       s"Execution error$field: $msg$inner"
     }

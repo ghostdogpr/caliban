@@ -1,13 +1,75 @@
 # Middleware
 
-You might want to perform some actions on every query received. Caliban supports this in 2 different ways:
+Caliban allows you to perform additional actions at various level of a query processing, via the concept of `Wrapper`. Using wrappers, you can:
+- verify that a query doesn't reach some limit (e.g. depth, complexity)
+- modify a query before it's executed
+- add timeouts to queries or fields
+- log each field execution time
+- support [Apollo Tracing](https://github.com/apollographql/apollo-tracing) or anything similar
+- etc.
 
-- you can wrap the execution of each query with any arbitrary code
-- you can analyze the requested fields before execution, and possibly modify or reject the query
+## Wrapper types
 
-## Wrapping query execution
+There are 5 basic types of wrappers:
+ - `OverallWrapper` to wrap the whole query processing
+ - `ParsingWrapper` to wrap the query parsing only
+ - `ValidationWrapper` to wrap the query validation only
+ - `ExecutionWrapper` to wrap the query execution only
+ - `FieldWrapper` to wrap each field execution
 
-Once you have a `GraphQL` interpreter, you can call `wrapExecutionWith` on it. This method takes in a function `f` and returns a new `GraphQL` interpreter that will wrap the `execute` method with this function `f`.
+Each one requires a function that takes a `ZIO` or `ZQuery` computation together with some contextual information (e.g. the query string) and should return another computation.
+
+Let's see how to implement a wrapper that times out the whole query if its processing takes longer that 1 minute.
+
+```scala
+val wrapper = OverallWrapper {
+  case (io, query) =>
+    io.timeout(1 minute)
+      .map(
+        _.getOrElse(
+          GraphQLResponse(
+            NullValue,
+            List(ExecutionError(s"Query was interrupted after timeout of ${duration.render}:\n$query"))
+          )
+        )
+      )
+}
+```
+
+You can also combine wrappers using `|+|` and create a wrapper that requires an effect to be run at each query using `EffectfulWrapper`.
+
+To use your wrapper, call `GraphQL#withWrapper` or its alias `@@`.
+```scala
+val api = graphQL(...).withWrapper(wrapper)
+// or
+val api = graphQL(...) @@ wrapper
+```
+
+## Pre-defined wrappers
+
+
+Caliban comes with a few pre-made wrappers in `caliban.wrappers.Wrappers`:
+- `maxDepth` returns a wrapper that fails queries whose depth is higher than a given value
+- `maxFields` returns a wrapper that fails queries whose number of fields is higher than a given value
+- `timeout` returns a wrapper that fails queries taking more than a specified time
+- `printSlowQueries` returns a wrapper that prints slow queries
+- `onSlowQueries` returns a wrapper that can run a given function on slow queries
+
+In addition to those, `caliban.wrappers.ApolloTracing.apolloTracing` returns a wrapper that adds tracing data into the `extensions` field of each response following [Apollo Tracing](https://github.com/apollographql/apollo-tracing) format.
+
+They can be used like this:
+```scala
+val api =
+  graphQL(...) @@
+    maxDepth(50) @@
+    timeout(3 seconds) @@
+    printSlowQueries(500 millis) @@
+    apolloTracing
+```
+
+## Wrapping the interpreter
+
+All the wrappers mentioned above require that you don't modify the environment `R` and the error type which is always a `CalibanError`. It is also possible to wrap your `GraphQLInterpreter` by calling `wrapExecutionWith` on it. This method takes in a function `f` and returns a new `GraphQLInterpreter` that will wrap the `execute` method with this function `f`.
 
 It is used internally to implement `mapError` (customize errors) and `provide` (eliminate the environment), but you can use it for other purposes such as adding a general timeout, logging response times, etc.
 
@@ -28,49 +90,4 @@ val i4: GraphQLInterpreter[MyEnv with Clock, CalibanError] =
       _.getOrElse(GraphQLResponse(NullValue, List(ExecutionError("Timeout!"))))
     )
   )
-```
-
-## Query Analyzer
-
-You can also use `GraphQL#withQueryAnalyzer` to register a hook function that will be run before query execution. Such function is called a `QueryAnalyzer` and looks like this:
-
-```scala
-type QueryAnalyzer[-R] = Field => ZIO[R, CalibanError, Field]
-```
-
-As an input, you receive the root `Field` object that contains the whole query in a convenient format (the fragments are replaced by the actual fields). You can analyze this object and return a `ZIO[R, CalibanError, Field]` that allows you to:
-
-- modify the query (e.g. add or remove fields)
-- return an error to prevent execution
-- run some effect (e.g. write metrics somewhere)
-
-A typical use case is to limit the number of fields or the depth of the query. Those are already implemented in Caliban and can be used like this:
-
-```scala
-val interpreter =
-  maxDepth(30)(
-    maxFields(200)(
-      graphQL(...)
-    )
-  )
-```
-
-You can look at their implementation which is only a few lines long.
-
-You can even use a Query Analyzer to "inject" some data into your ZIO environment and possibly use it later during execution. For example, you can have a `Context` as part of your environment:
-
-```scala
-case class ContextData(cost: Int)
-trait Context {
-  def context: Ref[ContextData]
-}
-```
-
-Then you can register a Query Analyzer that calculates the cost of every query (in this example, I just used the number of fields) and save it into the context. that way you can support an API that returns the cost associated with each query.
-
-```scala
-interpreter.withQueryAnalyzer { root =>
-  val cost = QueryAnalyzer.countFields(root)
-  ZIO.accessM[Context](_.context.update(_.copy(cost = cost))).as(root)
-}
 ```

@@ -1,17 +1,18 @@
 package caliban.validation
 
 import caliban.CalibanError.ValidationError
-import caliban.{ InputValue, Rendering }
+import caliban.InputValue.VariableValue
+import caliban.Value.NullValue
+import caliban.execution.{ ExecutionRequest, Field => F }
 import caliban.introspection.Introspector
 import caliban.introspection.adt._
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
+import caliban.parsing.adt.OperationType._
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.NamedType
-import caliban.InputValue.VariableValue
-import caliban.Value.NullValue
-import caliban.execution.{ Field => F }
 import caliban.parsing.adt.{ Directive, Document, OperationType, Selection, Type }
-import caliban.schema.{ RootType, Types }
+import caliban.schema.{ RootSchema, RootType, Types }
+import caliban.{ InputValue, Rendering }
 import zio.IO
 
 object Validator {
@@ -27,7 +28,67 @@ object Validator {
   /**
    * Verifies that the given document is valid for this type. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
-  def validate(document: Document, rootType: RootType): IO[ValidationError, Unit] = {
+  def validate(document: Document, rootType: RootType): IO[ValidationError, Unit] =
+    check(document, rootType).unit
+
+  /**
+   * Prepare the request for execution.
+   * Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
+   */
+  def prepare[R](
+    document: Document,
+    rootType: RootType,
+    rootSchema: RootSchema[R],
+    operationName: Option[String],
+    variables: Map[String, InputValue],
+    skipValidation: Boolean
+  ): IO[ValidationError, ExecutionRequest] = {
+    val fragments = if (skipValidation) {
+      IO.succeed(collectOperationsAndFragments(document)._2.foldLeft(Map.empty[String, FragmentDefinition]) {
+        case (m, f) => m.updated(f.name, f)
+      })
+    } else check(document, rootType)
+
+    fragments.flatMap { fragments =>
+      val operation = operationName match {
+        case Some(name) =>
+          document.definitions.collectFirst { case op: OperationDefinition if op.name.contains(name) => op }
+            .toRight(s"Unknown operation $name.")
+        case None =>
+          document.definitions.collect { case op: OperationDefinition => op } match {
+            case head :: Nil => Right(head)
+            case _           => Left("Operation name is required.")
+          }
+      }
+
+      operation match {
+        case Left(error) => IO.fail(ValidationError(error, ""))
+        case Right(op) =>
+          (op.operationType match {
+            case Query => IO.succeed(rootSchema.query)
+            case Mutation =>
+              rootSchema.mutation match {
+                case Some(m) => IO.succeed(m)
+                case None    => IO.fail(ValidationError("Mutations are not supported on this schema", ""))
+              }
+            case Subscription =>
+              rootSchema.subscription match {
+                case Some(m) => IO.succeed(m)
+                case None    => IO.fail(ValidationError("Subscriptions are not supported on this schema", ""))
+              }
+          }).map(
+            operation =>
+              ExecutionRequest(
+                F(op.selectionSet, fragments, variables, operation.opType),
+                op.operationType,
+                op.variableDefinitions
+              )
+          )
+      }
+    }
+  }
+
+  private def check(document: Document, rootType: RootType): IO[ValidationError, Map[String, FragmentDefinition]] = {
     val (operations, fragments) = collectOperationsAndFragments(document)
     for {
       fragmentMap   <- validateFragments(fragments)
@@ -40,7 +101,7 @@ object Validator {
       _             <- validateVariables(context)
       _             <- validateSubscriptionOperation(context)
       _             <- validateDocumentFields(context)
-    } yield ()
+    } yield fragmentMap
   }
 
   private def collectOperationsAndFragments(document: Document): (List[OperationDefinition], List[FragmentDefinition]) =

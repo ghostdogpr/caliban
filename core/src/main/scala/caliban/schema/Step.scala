@@ -3,6 +3,7 @@ package caliban.schema
 import caliban.CalibanError.ExecutionError
 import caliban.{ InputValue, ResponseValue }
 import caliban.Value.NullValue
+import caliban.execution.FieldInfo
 import zio.stream.ZStream
 import zquery.ZQuery
 
@@ -36,7 +37,7 @@ sealed trait ReducedStep[-R]
 
 object ReducedStep {
   case class ListStep[-R](steps: List[ReducedStep[R]])                         extends ReducedStep[R]
-  case class ObjectStep[-R](fields: List[(String, ReducedStep[R])])            extends ReducedStep[R]
+  case class ObjectStep[-R](fields: List[(String, ReducedStep[R], FieldInfo)]) extends ReducedStep[R]
   case class QueryStep[-R](query: ZQuery[R, ExecutionError, ReducedStep[R]])   extends ReducedStep[R]
   case class StreamStep[-R](inner: ZStream[R, ExecutionError, ReducedStep[R]]) extends ReducedStep[R]
 
