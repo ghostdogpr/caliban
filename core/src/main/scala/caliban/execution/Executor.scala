@@ -77,14 +77,18 @@ object Executor {
           reduceObject(items, fieldWrappers)
         case QueryStep(inner) =>
           ReducedStep.QueryStep(
-            inner.bimap(GenericSchema.effectfulExecutionError(path, Some(currentField.locationInfo), _),
-                        reduceStep(_, currentField, arguments, path))
+            inner.bimap(
+              GenericSchema.effectfulExecutionError(path, Some(currentField.locationInfo), _),
+              reduceStep(_, currentField, arguments, path)
+            )
           )
         case StreamStep(stream) =>
           if (request.operationType == OperationType.Subscription) {
             ReducedStep.StreamStep(
-              stream.bimap(GenericSchema.effectfulExecutionError(path, Some(currentField.locationInfo), _),
-                           reduceStep(_, currentField, arguments, path))
+              stream.bimap(
+                GenericSchema.effectfulExecutionError(path, Some(currentField.locationInfo), _),
+                reduceStep(_, currentField, arguments, path)
+              )
             )
           } else {
             reduceStep(QueryStep(ZQuery.fromEffect(stream.runCollect.map(ListStep(_)))), currentField, arguments, path)
