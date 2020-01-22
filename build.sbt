@@ -100,9 +100,9 @@ lazy val http4s = project
     libraryDependencies ++= Seq(
       "dev.zio"       %% "zio-interop-cats"    % "2.0.0.0-RC10",
       "org.typelevel" %% "cats-effect"         % "2.0.0",
-      "org.http4s"    %% "http4s-dsl"          % "0.21.0-M6",
-      "org.http4s"    %% "http4s-circe"        % "0.21.0-M6",
-      "org.http4s"    %% "http4s-blaze-server" % "0.21.0-M6",
+      "org.http4s"    %% "http4s-dsl"          % "0.21.0-RC1",
+      "org.http4s"    %% "http4s-circe"        % "0.21.0-RC1",
+      "org.http4s"    %% "http4s-blaze-server" % "0.21.0-RC1",
       "io.circe"      %% "circe-parser"        % "0.12.3",
       compilerPlugin(
         ("org.typelevel" %% "kind-projector" % "0.11.0")
