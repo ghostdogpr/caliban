@@ -2,6 +2,7 @@ import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
 val mainScala = "2.12.10"
 val allScala  = Seq("2.13.1", mainScala)
+val http4sVersion =  "0.21.0-M5"
 
 inThisBuild(
   List(
@@ -59,7 +60,7 @@ lazy val core = crossProject(JSPlatform, JVMPlatform)
     libraryDependencies ++= Seq(
       "com.lihaoyi"    %%% "fastparse"        % "2.2.3",
       "com.propensive" %%% "magnolia"         % "0.12.6",
-      "com.propensive" %%% "mercator"         % "0.3.0",
+      "com.propensive" %%% "mercator"         % "0.2.1",
       "dev.zio"        %%% "zio"              % "1.0.0-RC17",
       "dev.zio"        %%% "zio-streams"      % "1.0.0-RC17",
       "dev.zio"        %%% "zio-test"         % "1.0.0-RC17" % "test",
@@ -100,9 +101,9 @@ lazy val http4s = project
     libraryDependencies ++= Seq(
       "dev.zio"       %% "zio-interop-cats"    % "2.0.0.0-RC10",
       "org.typelevel" %% "cats-effect"         % "2.0.0",
-      "org.http4s"    %% "http4s-dsl"          % "0.21.0-M6",
-      "org.http4s"    %% "http4s-circe"        % "0.21.0-M6",
-      "org.http4s"    %% "http4s-blaze-server" % "0.21.0-M6",
+      "org.http4s"    %% "http4s-dsl"          % http4sVersion,
+      "org.http4s"    %% "http4s-circe"        % http4sVersion,
+      "org.http4s"    %% "http4s-blaze-server" % http4sVersion,
       "io.circe"      %% "circe-parser"        % "0.12.3",
       compilerPlugin(
         ("org.typelevel" %% "kind-projector" % "0.11.0")
