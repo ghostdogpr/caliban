@@ -161,6 +161,7 @@ val commonSettings = Def.settings(
     "-language:existentials",
     "-unchecked",
     "-Xlint:_,-type-parameter-shadow",
+    "-Xfatal-warnings",
     "-Ywarn-numeric-widen",
     "-Ywarn-unused:patvars,-implicits",
     "-Ywarn-value-discard"
