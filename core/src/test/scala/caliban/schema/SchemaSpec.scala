@@ -48,7 +48,7 @@ object SchemaSpec
         },
         test("field with Json object") {
           import caliban.interop.circe.json._
-          case class Queries(from: io.circe.Json => Unit, to: io.circe.Json)
+          case class Queries(to: io.circe.Json, from: io.circe.Json => Unit)
 
           assert(
             introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()),
