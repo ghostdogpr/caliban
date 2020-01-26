@@ -12,6 +12,8 @@ object InputValue {
   case class ObjectValue(fields: Map[String, InputValue]) extends InputValue
   case class VariableValue(name: String)                  extends InputValue
 
+  implicit def circeEncoder[F[_]: IsCirceEncoder]: F[InputValue] =
+    ValueCirce.inputValueEncoder.asInstanceOf[F[InputValue]]
   implicit def circeDecoder[F[_]: IsCirceDecoder]: F[InputValue] =
     ValueCirce.inputValueDecoder.asInstanceOf[F[InputValue]]
 }
@@ -29,8 +31,10 @@ object ResponseValue {
     override def toString: String = "<stream>"
   }
 
-  implicit def circeEncoder[F[_]](implicit ev: IsCirceEncoder[F]): F[ResponseValue] =
+  implicit def circeEncoder[F[_]: IsCirceEncoder]: F[ResponseValue] =
     ValueCirce.responseValueEncoder.asInstanceOf[F[ResponseValue]]
+  implicit def circeDecoder[F[_]: IsCirceDecoder]: F[ResponseValue] =
+    ValueCirce.inputValueDecoder.asInstanceOf[F[ResponseValue]]
 }
 
 sealed trait Value extends InputValue with ResponseValue
@@ -116,7 +120,7 @@ object Value {
 
 private object ValueCirce {
   import io.circe._
-  private def jsonToValue(json: Json): InputValue =
+  private def jsonToInputValue(json: Json): InputValue =
     json.fold(
       NullValue,
       BooleanValue,
@@ -125,10 +129,47 @@ private object ValueCirce {
           number.toBigDecimal.map(FloatValue.apply) getOrElse
           FloatValue(number.toDouble),
       StringValue,
-      array => InputValue.ListValue(array.toList.map(jsonToValue)),
-      obj => InputValue.ObjectValue(obj.toMap.map { case (k, v) => k -> jsonToValue(v) })
+      array => InputValue.ListValue(array.toList.map(jsonToInputValue)),
+      obj => InputValue.ObjectValue(obj.toMap.map { case (k, v) => k -> jsonToInputValue(v) })
     )
-  val inputValueDecoder: Decoder[InputValue] = Decoder.instance(hcursor => Right(jsonToValue(hcursor.value)))
+  val inputValueDecoder: Decoder[InputValue] = Decoder.instance(hcursor => Right(jsonToInputValue(hcursor.value)))
+  val inputValueEncoder: Encoder[InputValue] = Encoder
+    .instance[InputValue]({
+      case NullValue => Json.Null
+      case v: IntValue =>
+        v match {
+          case IntValue.IntNumber(value)    => Json.fromInt(value)
+          case IntValue.LongNumber(value)   => Json.fromLong(value)
+          case IntValue.BigIntNumber(value) => Json.fromBigInt(value)
+        }
+      case v: FloatValue =>
+        v match {
+          case FloatValue.FloatNumber(value)      => Json.fromFloatOrNull(value)
+          case FloatValue.DoubleNumber(value)     => Json.fromDoubleOrNull(value)
+          case FloatValue.BigDecimalNumber(value) => Json.fromBigDecimal(value)
+        }
+      case StringValue(value)           => Json.fromString(value)
+      case BooleanValue(value)          => Json.fromBoolean(value)
+      case EnumValue(value)             => Json.fromString(value)
+      case InputValue.ListValue(values) => Json.arr(values.map(inputValueEncoder.apply): _*)
+      case InputValue.ObjectValue(fields) =>
+        Json.obj(fields.map { case (k, v) => k -> inputValueEncoder.apply(v) }.toList: _*)
+      case InputValue.VariableValue(name) => Json.fromString(name)
+    })
+  private def jsonToResponseValue(json: Json): ResponseValue =
+    json.fold(
+      NullValue,
+      BooleanValue,
+      number =>
+        number.toBigInt.map(IntValue.apply) orElse
+          number.toBigDecimal.map(FloatValue.apply) getOrElse
+          FloatValue(number.toDouble),
+      StringValue,
+      array => ResponseValue.ListValue(array.toList.map(jsonToResponseValue)),
+      obj => ResponseValue.ObjectValue(obj.toList.map { case (k, v) => k -> jsonToResponseValue(v) })
+    )
+  val responseValueDecoder: Decoder[ResponseValue] =
+    Decoder.instance(hcursor => Right(jsonToResponseValue(hcursor.value)))
   val responseValueEncoder: Encoder[ResponseValue] = Encoder
     .instance[ResponseValue]({
       case NullValue => Json.Null
