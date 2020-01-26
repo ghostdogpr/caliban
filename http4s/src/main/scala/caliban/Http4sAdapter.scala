@@ -7,6 +7,7 @@ import cats.effect.Effect
 import cats.effect.syntax.all._
 import cats.~>
 import fs2.{ Pipe, Stream }
+import io.circe.Decoder.Result
 import io.circe._
 import io.circe.parser._
 import io.circe.syntax._
@@ -32,6 +33,26 @@ object Http4sAdapter {
   def makeRestService[R, E](interpreter: GraphQLInterpreter[R, E]): HttpRoutes[RIO[R, *]] =
     makeHttpService(interpreter)
 
+  private def getGraphQLRequest(query: String, op: Option[String], vars: Option[String]): Result[GraphQLRequest] = {
+    val variablesJs = vars
+      .map(Json.fromString(_))
+      .filterNot { _.asObject.isEmpty } // we don't want to keep in variables='{}'
+    // as building the GraphQLRequest would fail with DecodingFailure([K, V]Map[K, V], List(DownField(variables)))
+    val fields = List("query" -> Json.fromString(query)) ++
+      op.map(o => "operationName"       -> Json.fromString(o)) ++
+      variablesJs.map(js => "variables" -> js)
+    Json
+      .fromFields(fields)
+      .as[GraphQLRequest]
+  }
+
+  private def getGraphQLRequest(params: Map[String, String]): Result[GraphQLRequest] = {
+    val query     = params.get("query").getOrElse("")
+    val variables = params.get("variables")
+    val op        = params.get("operationName")
+    getGraphQLRequest(query, op, variables)
+  }
+
   def makeHttpService[R, E](interpreter: GraphQLInterpreter[R, E]): HttpRoutes[RIO[R, *]] = {
     object dsl extends Http4sDsl[RIO[R, *]]
     import dsl._
@@ -40,6 +61,12 @@ object Http4sAdapter {
       case req @ POST -> Root =>
         for {
           query    <- req.attemptAs[GraphQLRequest].value.absolve
+          result   <- executeToJson(interpreter, query)
+          response <- Ok(result)
+        } yield response
+      case req @ GET -> Root =>
+        for {
+          query    <- Task(getGraphQLRequest(req.params)).absolve
           result   <- executeToJson(interpreter, query)
           response <- Ok(result)
         } yield response
@@ -122,7 +149,7 @@ object Http4sAdapter {
                                   )
                                   .noSpaces
                               )
-                            )
+                          )
                         )
                     }
                   case "stop" =>
