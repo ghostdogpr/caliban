@@ -1,7 +1,7 @@
 package caliban
 
 import akka.http.scaladsl.model.MediaTypes.`application/json`
-import akka.http.scaladsl.model.{ HttpEntity, HttpResponse }
+import akka.http.scaladsl.model.{ HttpEntity, HttpResponse, StatusCodes }
 import akka.http.scaladsl.server.{ Route, StandardRoute }
 import caliban.Value.NullValue
 import de.heikoseeberger.akkahttpcirce.FailFastCirceSupport
@@ -26,7 +26,7 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
   ): URIO[R, HttpResponse] =
     execute(interpreter, request)
       .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
-      .map(gqlResult => HttpResponse(200, entity = HttpEntity(`application/json`, gqlResult.toString())))
+      .map(gqlResult => HttpResponse(StatusCodes.OK, entity = HttpEntity(`application/json`, gqlResult.toString())))
 
   private def getGraphQLRequest(query: String, op: Option[String], vars: Option[String]): Result[GraphQLRequest] = {
     val variablesJs = vars
