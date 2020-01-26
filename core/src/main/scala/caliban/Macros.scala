@@ -7,7 +7,7 @@ import caliban.parsing.Parser
 object Macros {
 
   /**
-   * Verifies at compile-time that the given string is a valid QraphQL document.
+   * Verifies at compile-time that the given string is a valid GraphQL document.
    * @param document a string representing a GraphQL document.
    */
   def gqldoc(document: String): String = macro MacrosInternal.queryLiteral
