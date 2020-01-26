@@ -120,6 +120,25 @@ object Value {
 
 private object ValueCirce {
   import io.circe._
+  val valueEncoder: Encoder[Value] = Encoder
+    .instance[Value]({
+      case NullValue => Json.Null
+      case v: IntValue =>
+        v match {
+          case IntValue.IntNumber(value)    => Json.fromInt(value)
+          case IntValue.LongNumber(value)   => Json.fromLong(value)
+          case IntValue.BigIntNumber(value) => Json.fromBigInt(value)
+        }
+      case v: FloatValue =>
+        v match {
+          case FloatValue.FloatNumber(value)      => Json.fromFloatOrNull(value)
+          case FloatValue.DoubleNumber(value)     => Json.fromDoubleOrNull(value)
+          case FloatValue.BigDecimalNumber(value) => Json.fromBigDecimal(value)
+        }
+      case StringValue(value)  => Json.fromString(value)
+      case BooleanValue(value) => Json.fromBoolean(value)
+      case EnumValue(value)    => Json.fromString(value)
+    })
   private def jsonToInputValue(json: Json): InputValue =
     json.fold(
       NullValue,
@@ -135,22 +154,7 @@ private object ValueCirce {
   val inputValueDecoder: Decoder[InputValue] = Decoder.instance(hcursor => Right(jsonToInputValue(hcursor.value)))
   val inputValueEncoder: Encoder[InputValue] = Encoder
     .instance[InputValue]({
-      case NullValue => Json.Null
-      case v: IntValue =>
-        v match {
-          case IntValue.IntNumber(value)    => Json.fromInt(value)
-          case IntValue.LongNumber(value)   => Json.fromLong(value)
-          case IntValue.BigIntNumber(value) => Json.fromBigInt(value)
-        }
-      case v: FloatValue =>
-        v match {
-          case FloatValue.FloatNumber(value)      => Json.fromFloatOrNull(value)
-          case FloatValue.DoubleNumber(value)     => Json.fromDoubleOrNull(value)
-          case FloatValue.BigDecimalNumber(value) => Json.fromBigDecimal(value)
-        }
-      case StringValue(value)           => Json.fromString(value)
-      case BooleanValue(value)          => Json.fromBoolean(value)
-      case EnumValue(value)             => Json.fromString(value)
+      case value: Value                 => valueEncoder.apply(value)
       case InputValue.ListValue(values) => Json.arr(values.map(inputValueEncoder.apply): _*)
       case InputValue.ObjectValue(fields) =>
         Json.obj(fields.map { case (k, v) => k -> inputValueEncoder.apply(v) }.toList: _*)
@@ -172,22 +176,7 @@ private object ValueCirce {
     Decoder.instance(hcursor => Right(jsonToResponseValue(hcursor.value)))
   val responseValueEncoder: Encoder[ResponseValue] = Encoder
     .instance[ResponseValue]({
-      case NullValue => Json.Null
-      case v: IntValue =>
-        v match {
-          case IntValue.IntNumber(value)    => Json.fromInt(value)
-          case IntValue.LongNumber(value)   => Json.fromLong(value)
-          case IntValue.BigIntNumber(value) => Json.fromBigInt(value)
-        }
-      case v: FloatValue =>
-        v match {
-          case FloatValue.FloatNumber(value)      => Json.fromFloatOrNull(value)
-          case FloatValue.DoubleNumber(value)     => Json.fromDoubleOrNull(value)
-          case FloatValue.BigDecimalNumber(value) => Json.fromBigDecimal(value)
-        }
-      case StringValue(value)              => Json.fromString(value)
-      case BooleanValue(value)             => Json.fromBoolean(value)
-      case EnumValue(value)                => Json.fromString(value)
+      case value: Value                    => valueEncoder.apply(value)
       case ResponseValue.ListValue(values) => Json.arr(values.map(responseValueEncoder.apply): _*)
       case ResponseValue.ObjectValue(fields) =>
         Json.obj(fields.map { case (k, v) => k -> responseValueEncoder.apply(v) }: _*)
