@@ -27,7 +27,7 @@ The table below shows how common Scala types are converted to GraphQL types.
 | ZIO[R, Nothing, A] | A                                                |
 | ZIO[R, E, A]       | Nullable A                                       |
 | Future[A]          | Nullable A                                       |
-| ZStream[R, E, A]   | A                                                |
+| ZStream[R, E, A]   | A (subscription) or List of A (query, mutation)  |
 
 See the [Custom Types](#custom-types) section to find out how to support your own types.
 
@@ -121,6 +121,10 @@ type Queries {
 ```
 
 Caliban provides auto-derivation for common types such as `Int`, `String`, `List`, `Option`, etc. but you can also support your own types by providing an implicit instance of `caliban.schema.ArgBuilder`.
+
+::: tip
+There is no `ArgBuilder` for tuples. If you have multiple arguments, use a case class containing all of them instead of a tuple.
+:::
 
 ## Effects
 

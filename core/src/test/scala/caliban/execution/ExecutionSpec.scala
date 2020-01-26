@@ -8,6 +8,7 @@ import caliban.RootResolver
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, StringValue }
 import zio.IO
+import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
 
@@ -282,6 +283,34 @@ object ExecutionSpec
           assertM(
             interpreter.execute(query).map(_.errors),
             equalTo(List(ExecutionError("Effect failure", List(Left("a"), Left("b"), Left("c")), Some(e))))
+          )
+        },
+        testM("ZStream used in a query") {
+          case class Queries(test: ZStream[Any, Throwable, Int])
+          val interpreter = graphQL(RootResolver(Queries(ZStream(1, 2, 3)))).interpreter
+          val query       = gqldoc("""
+             {
+               test
+             }""")
+
+          assertM(
+            interpreter.execute(query).map(_.data.toString),
+            equalTo("""{"test":[1,2,3]}""")
+          )
+        },
+        testM("ZStream used in a subscription") {
+          case class Queries(test: Int)
+          case class Subscriptions(test: ZStream[Any, Throwable, Int])
+          val interpreter =
+            graphQL(RootResolver(Queries(1), Option.empty[Unit], Subscriptions(ZStream(1, 2, 3)))).interpreter
+          val query = gqldoc("""
+             subscription {
+               test
+             }""")
+
+          assertM(
+            interpreter.execute(query).map(_.data.toString),
+            equalTo("""{"test":<stream>}""")
           )
         }
       )
