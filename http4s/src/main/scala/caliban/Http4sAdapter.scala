@@ -33,6 +33,7 @@ object Http4sAdapter {
   def makeRestService[R, E](interpreter: GraphQLInterpreter[R, E]): HttpRoutes[RIO[R, *]] =
     makeHttpService(interpreter)
 
+  // to consolidate with the Akka piece.
   private def getGraphQLRequest(query: String, op: Option[String], vars: Option[String]): Result[GraphQLRequest] = {
     val variablesJs = vars
       .map(Json.fromString(_))
@@ -46,12 +47,10 @@ object Http4sAdapter {
       .as[GraphQLRequest]
   }
 
-  private def getGraphQLRequest(params: Map[String, String]): Result[GraphQLRequest] = {
-    val query     = params.get("query").getOrElse("")
-    val variables = params.get("variables")
-    val op        = params.get("operationName")
-    getGraphQLRequest(query, op, variables)
-  }
+  private def getGraphQLRequest(params: Map[String, String]): Result[GraphQLRequest] =
+    getGraphQLRequest(query = params.get("query").getOrElse(""),
+                      op = params.get("operationName"),
+                      vars = params.get("variables"))
 
   def makeHttpService[R, E](interpreter: GraphQLInterpreter[R, E]): HttpRoutes[RIO[R, *]] = {
     object dsl extends Http4sDsl[RIO[R, *]]
