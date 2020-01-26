@@ -27,26 +27,12 @@ object Executor {
     variables: Map[String, InputValue] = Map(),
     fieldWrappers: List[FieldWrapper[R]] = Nil
   ): URIO[R, GraphQLResponse[CalibanError]] = {
+
     val allowParallelism = request.operationType match {
       case OperationType.Query        => true
       case OperationType.Mutation     => false
       case OperationType.Subscription => false
     }
-
-    executePlan(plan, request.field, request.variableDefinitions, variables, allowParallelism, fieldWrappers)
-  }
-
-  private[caliban] def fail(error: CalibanError): UIO[GraphQLResponse[CalibanError]] =
-    IO.succeed(GraphQLResponse(NullValue, List(error)))
-
-  private def executePlan[R](
-    plan: Step[R],
-    root: Field,
-    variableDefinitions: List[VariableDefinition],
-    variableValues: Map[String, InputValue],
-    allowParallelism: Boolean,
-    fieldWrappers: List[FieldWrapper[R]]
-  ): URIO[R, GraphQLResponse[CalibanError]] = {
 
     def reduceStep(
       step: Step[R],
@@ -79,7 +65,7 @@ object Executor {
             case f @ Field(name @ "__typename", _, _, alias, _, _, _) =>
               (alias.getOrElse(name), PureStep(StringValue(objectName)), fieldInfo(f, path))
             case f @ Field(name, _, _, alias, _, _, args) =>
-              val arguments = resolveVariables(args, variableDefinitions, variableValues)
+              val arguments = resolveVariables(args, request.variableDefinitions, variables)
               (
                 alias.getOrElse(name),
                 fields
@@ -94,9 +80,13 @@ object Executor {
             inner.bimap(GenericSchema.effectfulExecutionError(path, _), reduceStep(_, currentField, arguments, path))
           )
         case StreamStep(stream) =>
-          ReducedStep.StreamStep(
-            stream.bimap(GenericSchema.effectfulExecutionError(path, _), reduceStep(_, currentField, arguments, path))
-          )
+          if (request.operationType == OperationType.Subscription) {
+            ReducedStep.StreamStep(
+              stream.bimap(GenericSchema.effectfulExecutionError(path, _), reduceStep(_, currentField, arguments, path))
+            )
+          } else {
+            reduceStep(QueryStep(ZQuery.fromEffect(stream.runCollect.map(ListStep(_)))), currentField, arguments, path)
+          }
       }
 
     def makeQuery(step: ReducedStep[R], errors: Ref[List[CalibanError]]): ZQuery[R, Nothing, ResponseValue] = {
@@ -141,12 +131,15 @@ object Executor {
 
     for {
       errors       <- Ref.make(List.empty[CalibanError])
-      reduced      = reduceStep(plan, root, Map(), Nil)
+      reduced      = reduceStep(plan, request.field, Map(), Nil)
       query        = makeQuery(reduced, errors)
       result       <- query.run
       resultErrors <- errors.get
     } yield GraphQLResponse(result, resultErrors.reverse)
   }
+
+  private[caliban] def fail(error: CalibanError): UIO[GraphQLResponse[CalibanError]] =
+    IO.succeed(GraphQLResponse(NullValue, List(error)))
 
   private def resolveVariables(
     arguments: Map[String, InputValue],
