@@ -14,25 +14,18 @@ import scala.concurrent.ExecutionContext
 
 object AkkaHttpAdapter extends FailFastCirceSupport {
 
-  private def execute[R, E](
-    interpreter: GraphQLInterpreter[R, E],
-    query: GraphQLRequest
-  ): URIO[R, GraphQLResponse[E]] =
-    interpreter.execute(query.query, query.operationName, query.variables.getOrElse(Map()))
-
   private def executeHttpResponse[R, E](
     interpreter: GraphQLInterpreter[R, E],
     request: GraphQLRequest
   ): URIO[R, HttpResponse] =
-    execute(interpreter, request)
+    interpreter
+      .execute(request.query, request.operationName, request.variables.getOrElse(Map()))
       .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
       .map(gqlResult => HttpResponse(StatusCodes.OK, entity = HttpEntity(`application/json`, gqlResult.toString())))
 
-  private def getGraphQLRequest(query: String, op: Option[String], vars: Option[String]): Result[GraphQLRequest] = {
-    val variablesJs = vars
-      .map(Json.fromString(_))
-      .filterNot { _.asObject.isEmpty } // we don't want to keep in variables='{}'
-    // as building the GraphQLRequest would fail with DecodingFailure([K, V]Map[K, V], List(DownField(variables)))
+  def getGraphQLRequest(query: String, op: Option[String], vars: Option[String]): Result[GraphQLRequest] = {
+    import io.circe.parser._
+    val variablesJs = vars.flatMap(parse(_).toOption)
     val fields = List("query" -> Json.fromString(query)) ++
       op.map(o => "operationName"       -> Json.fromString(o)) ++
       variablesJs.map(js => "variables" -> js)
@@ -53,16 +46,15 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
           .future
       )
 
-    concat(
-      get {
-        parameters(('query.as[String], 'operationName.?, 'variables.?)) { (query, op, vars) =>
-          val request = getGraphQLRequest(query, op, vars)
-          request.fold(decodingFail => failWith(decodingFail), completeRequest)
-        }
-      },
+    get {
+      parameters(('query.as[String], 'operationName.?, 'variables.?)) {
+        case (query, op, vars) =>
+          getGraphQLRequest(query, op, vars)
+            .fold(decodingFail => failWith(decodingFail), completeRequest)
+      }
+    } ~
       post {
         entity(as[GraphQLRequest]) { completeRequest }
       }
-    )
   }
 }

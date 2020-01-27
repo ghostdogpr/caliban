@@ -8,7 +8,7 @@ import cats.effect.syntax.all._
 import cats.~>
 import fs2.{ Pipe, Stream }
 import io.circe.Decoder.Result
-import io.circe._
+import io.circe.Json
 import io.circe.parser._
 import io.circe.syntax._
 import org.http4s._
@@ -33,12 +33,8 @@ object Http4sAdapter {
   def makeRestService[R, E](interpreter: GraphQLInterpreter[R, E]): HttpRoutes[RIO[R, *]] =
     makeHttpService(interpreter)
 
-  // to consolidate with the Akka piece.
   private def getGraphQLRequest(query: String, op: Option[String], vars: Option[String]): Result[GraphQLRequest] = {
-    val variablesJs = vars
-      .map(Json.fromString(_))
-      .filterNot { _.asObject.isEmpty } // we don't want to keep in variables='{}'
-    // as building the GraphQLRequest would fail with DecodingFailure([K, V]Map[K, V], List(DownField(variables)))
+    val variablesJs = vars.flatMap(parse(_).toOption)
     val fields = List("query" -> Json.fromString(query)) ++
       op.map(o => "operationName"       -> Json.fromString(o)) ++
       variablesJs.map(js => "variables" -> js)
@@ -49,9 +45,9 @@ object Http4sAdapter {
 
   private def getGraphQLRequest(params: Map[String, String]): Result[GraphQLRequest] =
     getGraphQLRequest(
-      query = params.get("query").getOrElse(""),
-      op = params.get("operationName"),
-      vars = params.get("variables")
+      params.getOrElse("query", ""),
+      params.get("operationName"),
+      params.get("variables")
     )
 
   def makeHttpService[R, E](interpreter: GraphQLInterpreter[R, E]): HttpRoutes[RIO[R, *]] = {
