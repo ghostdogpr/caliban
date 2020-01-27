@@ -48,9 +48,11 @@ object Http4sAdapter {
   }
 
   private def getGraphQLRequest(params: Map[String, String]): Result[GraphQLRequest] =
-    getGraphQLRequest(query = params.get("query").getOrElse(""),
-                      op = params.get("operationName"),
-                      vars = params.get("variables"))
+    getGraphQLRequest(
+      query = params.get("query").getOrElse(""),
+      op = params.get("operationName"),
+      vars = params.get("variables")
+    )
 
   def makeHttpService[R, E](interpreter: GraphQLInterpreter[R, E]): HttpRoutes[RIO[R, *]] = {
     object dsl extends Http4sDsl[RIO[R, *]]
@@ -148,7 +150,7 @@ object Http4sAdapter {
                                   )
                                   .noSpaces
                               )
-                          )
+                            )
                         )
                     }
                   case "stop" =>
