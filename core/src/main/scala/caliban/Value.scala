@@ -34,7 +34,7 @@ object ResponseValue {
   implicit def circeEncoder[F[_]: IsCirceEncoder]: F[ResponseValue] =
     ValueCirce.responseValueEncoder.asInstanceOf[F[ResponseValue]]
   implicit def circeDecoder[F[_]: IsCirceDecoder]: F[ResponseValue] =
-    ValueCirce.inputValueDecoder.asInstanceOf[F[ResponseValue]]
+    ValueCirce.responseValueDecoder.asInstanceOf[F[ResponseValue]]
 }
 
 sealed trait Value extends InputValue with ResponseValue

@@ -7,6 +7,7 @@ import caliban.Macros.gqldoc
 import caliban.RootResolver
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, StringValue }
+import io.circe.Json
 import zio.IO
 import zio.stream.ZStream
 import zio.test.Assertion._
@@ -311,6 +312,21 @@ object ExecutionSpec
           assertM(
             interpreter.execute(query).map(_.data.toString),
             equalTo("""{"test":<stream>}""")
+          )
+        },
+        testM("Json scalar") {
+          import caliban.interop.circe.json._
+          case class Queries(test: Json)
+
+          val interpreter = graphQL(RootResolver(Queries(Json.obj(("a", Json.fromInt(333)))))).interpreter
+          val query       = gqldoc("""
+             {
+               test
+             }""")
+
+          assertM(
+            interpreter.execute(query).map(_.data.toString),
+            equalTo("""{"test":{"a":333}}""")
           )
         }
       )
