@@ -63,7 +63,7 @@ object Http4sAdapter {
         } yield response
       case req @ GET -> Root =>
         for {
-          query    <- Task(getGraphQLRequest(req.params)).absolve
+          query    <- Task.fromEither(getGraphQLRequest(req.params))
           result   <- executeToJson(interpreter, query)
           response <- Ok(result)
         } yield response

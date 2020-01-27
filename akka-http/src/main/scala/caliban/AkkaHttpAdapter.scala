@@ -2,6 +2,7 @@ package caliban
 
 import akka.http.scaladsl.model.MediaTypes.`application/json`
 import akka.http.scaladsl.model.{ HttpEntity, HttpResponse, StatusCodes }
+import akka.http.scaladsl.server.Directives.complete
 import akka.http.scaladsl.server.{ Route, StandardRoute }
 import caliban.Value.NullValue
 import de.heikoseeberger.akkahttpcirce.FailFastCirceSupport
@@ -34,27 +35,29 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
       .as[GraphQLRequest]
   }
 
+  def completeRequest[R, E](
+    interpreter: GraphQLInterpreter[R, E]
+  )(request: GraphQLRequest)(implicit ec: ExecutionContext, runtime: Runtime[R]): StandardRoute =
+    complete(
+      runtime
+        .unsafeRunToFuture(executeHttpResponse(interpreter, request))
+        .future
+    )
+
   def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E]
   )(implicit ec: ExecutionContext, runtime: Runtime[R]): Route = {
     import akka.http.scaladsl.server.Directives._
 
-    def completeRequest(request: GraphQLRequest)(implicit ec: ExecutionContext, runtime: Runtime[R]): StandardRoute =
-      complete(
-        runtime
-          .unsafeRunToFuture(executeHttpResponse(interpreter, request))
-          .future
-      )
-
     get {
       parameters(('query.as[String], 'operationName.?, 'variables.?)) {
         case (query, op, vars) =>
           getGraphQLRequest(query, op, vars)
-            .fold(decodingFail => failWith(decodingFail), completeRequest)
+            .fold(failWith, completeRequest(interpreter))
       }
     } ~
       post {
-        entity(as[GraphQLRequest]) { completeRequest }
+        entity(as[GraphQLRequest]) { completeRequest(interpreter) }
       }
   }
 }
