@@ -84,7 +84,7 @@ object Validator {
   private def check(document: Document, rootType: RootType): IO[ValidationError, Map[String, FragmentDefinition]] = {
     val (operations, fragments, types) = collectDefinitions(document)
     for {
-      typeMap       <- validateTypes(types)
+      _             <- validateTypes(types)
       fragmentMap   <- validateFragments(fragments)
       selectionSets = collectSelectionSets(operations.flatMap(_.selectionSet) ++ fragments.flatMap(_.selectionSet))
       context       = Context(document, rootType, operations, fragmentMap, selectionSets)
@@ -514,7 +514,7 @@ object Validator {
               "Type definitions name must be unique within a document."
             )
           )
-        } else if (gqltype.children.map(_.name).groupBy(identity).size != gqltype.children.size) {
+        } else if (gqltype.fields.map(_.name).groupBy(identity).size != gqltype.fields.size) {
           IO.fail(
             ValidationError(
               s"Type '${gqltype.name}' has duplicate fields.",

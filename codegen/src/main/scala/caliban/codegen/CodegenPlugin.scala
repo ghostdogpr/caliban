@@ -1,10 +1,10 @@
-package codegen
+package caliban.codegen
 
 import java.io.{ File, PrintWriter }
 
-import sbt._
-import Keys._
 import caliban.parsing.Parser
+import sbt.Keys.commands
+import sbt.{ AutoPlugin, Command, State }
 import zio.console.Console
 import zio.{ DefaultRuntime, Task, UIO, ZIO }
 
@@ -48,9 +48,10 @@ object CodegenPlugin extends AutoPlugin {
 
   def doSchemaGenerate(schemaPath: String, toPath: String, fmtPath: Option[String]): ZIO[Console, Throwable, Unit] =
     for {
-      schema_string <- Task(scala.io.Source.fromFile(schemaPath).mkString)
-      schema        <- Parser.parseQuery(schema_string)
-      code          <- Task(Generator.generate(schema)(ScalaWriter.DefaultGQLWriter))
+      schema_string <- Task(scala.io.Source.fromFile(schemaPath))
+                        .bracket(f => UIO(f.close()), f => Task(f.mkString))
+      schema <- Parser.parseQuery(schema_string)
+      code   <- Task(Generator.generate(schema)(ScalaWriter.DefaultGQLWriter))
       formatted <- fmtPath
                     .map(Generator.format(code, _))
                     .getOrElse(Task(Generator.formatStr(code, ScalaWriter.scalafmtConfig)))

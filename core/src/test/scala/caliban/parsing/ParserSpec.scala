@@ -450,7 +450,6 @@ object ParserSpec
               |suits: [String]
               |powers: [String!]!
               |}""".stripMargin
-          //planetSavedTimesCmp(moreThan: Int!)!: Int!
           assertM(
             Parser.parseQuery(gqltype),
             equalTo(

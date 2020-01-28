@@ -1,9 +1,9 @@
-package codegen
+package caliban.codegen
 
+import caliban.codegen.Generator._
 import caliban.parsing.adt.ExecutableDefinition.TypeDefinition
 import caliban.parsing.adt.Type.{FieldDefinition, ListType, NamedType}
 import caliban.parsing.adt.{Document, Type}
-import codegen.Generator._
 
 object ScalaWriter {
   val scalafmtConfig = """
@@ -58,7 +58,7 @@ object ScalaWriter {
         ${Document
         .typeDefinitions(schema)
         .filterNot(reservedType)
-        .flatMap(_.children.filter(_.args.nonEmpty).map(c => GQLWriter[Args, String].write(Args(c))("")))
+        .flatMap(_.fields.filter(_.args.nonEmpty).map(c => GQLWriter[Args, String].write(Args(c))("")))
         .mkString("\n")}
         ${Document
         .typeDefinitions(schema)
@@ -102,12 +102,12 @@ object ScalaWriter {
       import context._
 
       s"""
-         |${queryDef.op.children
+         |${queryDef.op.fields
            .filter(_.args.nonEmpty)
            .map(c => GQLWriter[Args, String].write(Args(c))(""))
            .mkString(",\n")}
          |case class Queries(
-         |${queryDef.op.children.map(c => GQLWriter[QueryDef, Document].write(QueryDef(c))(schema)).mkString(",\n")}
+         |${queryDef.op.fields.map(c => GQLWriter[QueryDef, Document].write(QueryDef(c))(schema)).mkString(",\n")}
          |)""".stripMargin
     }
   }
@@ -127,12 +127,12 @@ object ScalaWriter {
       import context._
 
       s"""
-         |${mutationDef.op.children
+         |${mutationDef.op.fields
            .filter(_.args.nonEmpty)
            .map(c => GQLWriter[Args, String].write(Args(c))(""))
            .mkString(",\n")}
          |case class Mutations(
-         |${mutationDef.op.children.map(c => GQLWriter[QueryDef, Document].write(QueryDef(c))(schema)).mkString(",\n")}
+         |${mutationDef.op.fields.map(c => GQLWriter[QueryDef, Document].write(QueryDef(c))(schema)).mkString(",\n")}
          |)""".stripMargin
     }
   }
@@ -159,12 +159,12 @@ object ScalaWriter {
       import context._
 
       s"""
-         |${subscriptionDef.op.children
+         |${subscriptionDef.op.fields
            .filter(_.args.nonEmpty)
            .map(c => GQLWriter[Args, String].write(Args(c))(""))
            .mkString(",\n")}
          |case class Subscriptions(
-         |${subscriptionDef.op.children
+         |${subscriptionDef.op.fields
            .map(c => GQLWriter[SubscriptionDef, Document].write(SubscriptionDef(c))(schema))
            .mkString(",\n")}
          |)""".stripMargin
@@ -175,7 +175,7 @@ object ScalaWriter {
     override def write(typedef: TypeDefinition)(schema: Document)(implicit context: GQLWriterContext): String = {
       import context._
 
-      s"""case class ${typedef.name}(${typedef.children
+      s"""case class ${typedef.name}(${typedef.fields
         .map(GQLWriter[FieldDefinition, TypeDefinition].write(_)(typedef))
         .mkString(", ")})"""
     }
@@ -216,10 +216,10 @@ object ScalaWriter {
 
     override def write(t: Type)(nothing: Any)(implicit context: GQLWriterContext): String =
       t match {
-        case NamedType(name, nonNull) if (nonNull)   => convertType(name)
-        case NamedType(name, nonNull) if (!nonNull)  => s"Option[${convertType(name)}]"
-        case ListType(ofType, nonNull) if (nonNull)  => s"List[${TypeWriter.write(ofType)(nothing)}]"
-        case ListType(ofType, nonNull) if (!nonNull) => s"Option[List[${TypeWriter.write(ofType)(nothing)}]]"
+        case NamedType(name, true) => convertType(name)
+        case NamedType(name, false) => s"Option[${convertType(name)}]"
+        case ListType(ofType, true) => s"List[${TypeWriter.write(ofType)(nothing)}]"
+        case ListType(ofType, false) => s"Option[List[${TypeWriter.write(ofType)(nothing)}]]"
       }
   }
 

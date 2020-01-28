@@ -179,7 +179,7 @@ Caliban can automatically generate a scala schema out of a GraphQL schema provid
 In order to use this feature add the caliban sbt plugin to your project. 
  
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen" % "0.4.2")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen" % "0.5.0")
 ```
 Then call the `codegen` sbt command.
 ```scala

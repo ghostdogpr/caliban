@@ -1,5 +1,6 @@
 package codegen
-import codegen.Generator.{ Args, RootMutationDef, RootQueryDef, RootSubscriptionDef }
+import caliban.codegen.{Generator, ScalaWriter}
+import caliban.codegen.Generator.{Args, RootMutationDef, RootQueryDef, RootSubscriptionDef}
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document
 import zio.test.Assertion._
@@ -30,7 +31,7 @@ object GeneratorSpec
             .map(doc => {
               (for {
                 typeDef      <- Document.typeDefinitions(doc)
-                typeDefField <- typeDef.children
+                typeDefField <- typeDef.fields
                 argClass     = ScalaWriter.ArgsWriter.write(Args(typeDefField))("Hero")
                 if (argClass.length > 0)
               } yield (argClass)).mkString("\n")

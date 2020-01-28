@@ -21,6 +21,6 @@ object ExecutableDefinition {
     selectionSet: List[Selection]
   ) extends ExecutableDefinition
 
-  case class TypeDefinition(name: String, children: List[FieldDefinition]) extends ExecutableDefinition
+  case class TypeDefinition(name: String, fields: List[FieldDefinition]) extends ExecutableDefinition
 
 }
