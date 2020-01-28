@@ -191,13 +191,15 @@ object Parser {
   /**
    * Parses the given string into a [[caliban.parsing.adt.Document]] object or fails with a [[caliban.CalibanError.ParsingError]].
    */
-  def parseQuery(query: String): IO[ParsingError, Document] =
+  def parseQuery(query: String): IO[ParsingError, Document] = {
+    val sm = SourceMapper(query)
     Task(parse(query, document(_)))
-      .mapError(ex => ParsingError(s"Internal parsing error", Some(ex)))
+      .mapError(ex => ParsingError(s"Internal parsing error", innerThrowable = Some(ex)))
       .flatMap {
-        case Parsed.Success(value, _) => IO.succeed(Document(value.definitions, SourceMapper(query)))
-        case f: Parsed.Failure        => IO.fail(ParsingError(f.msg))
+        case Parsed.Success(value, _) => IO.succeed(Document(value.definitions, sm))
+        case f: Parsed.Failure        => IO.fail(ParsingError(f.msg, Some(sm.getLocation(f.index))))
       }
+  }
 
   /**
    * Checks if the query is valid, if not returns an error string.

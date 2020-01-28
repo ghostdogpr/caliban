@@ -417,16 +417,3 @@ trait DerivationSchema[R] {
   implicit def gen[T]: Typeclass[T] = macro Magnolia.gen[T]
 
 }
-
-object GenericSchema {
-
-  def effectfulExecutionError(
-    path: List[Either[String, Int]],
-    locationInfo: Option[LocationInfo],
-    e: Throwable
-  ): ExecutionError =
-    e match {
-      case e: ExecutionError => e
-      case other             => ExecutionError("Effect failure", path.reverse, locationInfo, Some(other))
-    }
-}

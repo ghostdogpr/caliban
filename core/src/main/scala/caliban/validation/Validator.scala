@@ -132,9 +132,9 @@ object Validator {
 
   private def collectSelectionSets(selectionSet: List[Selection]): List[Selection] =
     selectionSet ++ selectionSet.flatMap {
-      case _: FragmentSpread                  => Nil
-      case Field(_, _, _, _, selectionSet, _) => collectSelectionSets(selectionSet)
-      case InlineFragment(_, _, selectionSet) => collectSelectionSets(selectionSet)
+      case _: FragmentSpread => Nil
+      case f: Field          => collectSelectionSets(f.selectionSet)
+      case f: InlineFragment => collectSelectionSets(f.selectionSet)
     }
 
   private def collectAllDirectives(context: Context): IO[ValidationError, List[(Directive, __DirectiveLocation)]] =

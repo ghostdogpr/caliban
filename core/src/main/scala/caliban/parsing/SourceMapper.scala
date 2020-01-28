@@ -15,7 +15,10 @@ trait SourceMapper {
 object SourceMapper {
 
   /**
-   * Implementation taken from https://github.com/lihaoyi/fastparse/blob/master/fastparse/src/fastparse/ParserInput.scala
+   * Implementation taken from https://github.com/lihaoyi/fastparse/blob/e334ca88b747fb3b6637ef6d76715ad66e048a6c/fastparse/src/fastparse/ParserInput.scala#L123-L131
+   *
+   * It is used to look up a line/column number pair given a raw index into a source string. The numbers are determined by
+   * computing the number of newlines occurring between 0 and the current index.
    */
   private[parsing] case class DefaultSourceMapper(source: String) extends SourceMapper {
     private[this] lazy val lineNumberLookup = Util.lineNumberLookup(source)

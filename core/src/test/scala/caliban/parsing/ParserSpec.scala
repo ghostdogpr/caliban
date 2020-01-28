@@ -9,7 +9,7 @@ import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationD
 import caliban.parsing.adt.OperationType.{ Mutation, Query }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.{ ListType, NamedType }
-import caliban.parsing.adt.{ Directive, Document, Selection, VariableDefinition }
+import caliban.parsing.adt.{ Directive, Document, LocationInfo, Selection, VariableDefinition }
 import zio.test.Assertion._
 import zio.test._
 
@@ -436,7 +436,10 @@ object ParserSpec
                         |    name(
                         |  }
                         |}""".stripMargin
-          assertM(Parser.parseQuery(query).run, fails(equalTo(ParsingError("Position 4:3, found \"}\\n}\""))))
+          assertM(
+            Parser.parseQuery(query).run,
+            fails(equalTo(ParsingError("Position 4:3, found \"}\\n}\"", locationInfo = Some(LocationInfo(3, 4)))))
+          )
         }
       )
     )

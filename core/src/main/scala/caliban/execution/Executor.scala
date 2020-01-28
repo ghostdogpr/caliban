@@ -1,5 +1,7 @@
 package caliban.execution
 
+import caliban.CalibanError.ExecutionError
+
 import scala.annotation.tailrec
 import scala.collection.immutable.ListMap
 import caliban.ResponseValue._
@@ -43,13 +45,11 @@ object Executor {
       step match {
         case s @ PureStep(value) =>
           value match {
-            case EnumValue(v) if mergeFields(currentField, v).collectFirst {
-                  case Field("__typename", _, _, _, _, _, _, _) => true
-                }.nonEmpty =>
+            case EnumValue(v) =>
               // special case of an hybrid union containing case objects, those should return an object instead of a string
               val obj = mergeFields(currentField, v).collectFirst {
-                case Field(name @ "__typename", _, _, alias, _, _, _, _) =>
-                  ObjectValue(List(alias.getOrElse(name) -> StringValue(v)))
+                case f: Field if f.name == "__typename" =>
+                  ObjectValue(List(f.alias.getOrElse(f.name) -> StringValue(v)))
               }
               obj.fold(s)(PureStep(_))
             case _ => s
@@ -78,7 +78,7 @@ object Executor {
         case QueryStep(inner) =>
           ReducedStep.QueryStep(
             inner.bimap(
-              GenericSchema.effectfulExecutionError(path, Some(currentField.locationInfo), _),
+              effectfulExecutionError(path, Some(currentField.locationInfo), _),
               reduceStep(_, currentField, arguments, path)
             )
           )
@@ -86,7 +86,7 @@ object Executor {
           if (request.operationType == OperationType.Subscription) {
             ReducedStep.StreamStep(
               stream.bimap(
-                GenericSchema.effectfulExecutionError(path, Some(currentField.locationInfo), _),
+                effectfulExecutionError(path, Some(currentField.locationInfo), _),
                 reduceStep(_, currentField, arguments, path)
               )
             )
@@ -199,5 +199,15 @@ object Executor {
         case (k, v, _) => (k, v.value)
       }))
     else ReducedStep.ObjectStep(items)
+
+  private def effectfulExecutionError(
+    path: List[Either[String, Int]],
+    locationInfo: Option[LocationInfo],
+    e: Throwable
+  ): ExecutionError =
+    e match {
+      case e: ExecutionError => e
+      case other             => ExecutionError("Effect failure", path.reverse, locationInfo, Some(other))
+    }
 
 }
