@@ -1,12 +1,14 @@
 package caliban.execution
 
 import java.util.UUID
+
 import caliban.CalibanError.ExecutionError
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
 import caliban.RootResolver
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, StringValue }
+import caliban.parsing.adt.LocationInfo
 import io.circe.Json
 import zio.IO
 import zio.stream.ZStream
@@ -283,7 +285,16 @@ object ExecutionSpec
               }""")
           assertM(
             interpreter.execute(query).map(_.errors),
-            equalTo(List(ExecutionError("Effect failure", List(Left("a"), Left("b"), Left("c")), Some(e))))
+            equalTo(
+              List(
+                ExecutionError(
+                  "Effect failure",
+                  List(Left("a"), Left("b"), Left("c")),
+                  Some(LocationInfo(21, 5)),
+                  Some(e)
+                )
+              )
+            )
           )
         },
         testM("ZStream used in a query") {

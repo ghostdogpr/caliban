@@ -6,6 +6,7 @@ import caliban.Value.NullValue
 import caliban.execution.{ ExecutionRequest, Field => F }
 import caliban.introspection.Introspector
 import caliban.introspection.adt._
+import caliban.parsing.SourceMapper
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.OperationType._
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
@@ -79,7 +80,7 @@ object Validator {
           }).map(
             operation =>
               ExecutionRequest(
-                F(op.selectionSet, fragments, variables, operation.opType),
+                F(op.selectionSet, fragments, variables, operation.opType, document.sourceMapper),
                 op.operationType,
                 op.variableDefinitions
               )
@@ -119,7 +120,7 @@ object Validator {
             .fold(List.empty[InputValue])(
               f => f.directives.flatMap(_.arguments.values) ++ collectValues(f.selectionSet)
             )
-        case Field(_, _, arguments, directives, selectionSet) =>
+        case Field(_, _, arguments, directives, selectionSet, _) =>
           arguments.values ++ directives.flatMap(_.arguments.values) ++ collectValues(selectionSet)
         case InlineFragment(_, directives, selectionSet) =>
           directives.flatMap(_.arguments.values) ++ collectValues(selectionSet)
@@ -131,9 +132,9 @@ object Validator {
 
   private def collectSelectionSets(selectionSet: List[Selection]): List[Selection] =
     selectionSet ++ selectionSet.flatMap {
-      case _: FragmentSpread                  => Nil
-      case Field(_, _, _, _, selectionSet)    => collectSelectionSets(selectionSet)
-      case InlineFragment(_, _, selectionSet) => collectSelectionSets(selectionSet)
+      case _: FragmentSpread => Nil
+      case f: Field          => collectSelectionSets(f.selectionSet)
+      case f: InlineFragment => collectSelectionSets(f.selectionSet)
     }
 
   private def collectAllDirectives(context: Context): IO[ValidationError, List[(Directive, __DirectiveLocation)]] =
@@ -161,7 +162,7 @@ object Validator {
     IO.foreach(selectionSet) {
         case FragmentSpread(_, directives) =>
           checkDirectivesUniqueness(directives).as(directives.map((_, __DirectiveLocation.FRAGMENT_SPREAD)))
-        case Field(_, _, _, directives, selectionSet) =>
+        case Field(_, _, _, directives, selectionSet, _) =>
           checkDirectivesUniqueness(directives) *>
             collectDirectives(selectionSet).map(directives.map((_, __DirectiveLocation.FIELD)) ++ _)
         case InlineFragment(_, directives, selectionSet) =>
@@ -522,7 +523,10 @@ object Validator {
           t <- context.rootType.subscriptionType
           op <- context.operations
                  .filter(_.operationType == OperationType.Subscription)
-                 .find(op => F(op.selectionSet, context.fragments, Map.empty[String, InputValue], t).fields.length > 1)
+                 .find(
+                   op =>
+                     F(op.selectionSet, context.fragments, Map.empty[String, InputValue], t, SourceMapper.empty).fields.length > 1
+                 )
         } yield op
       )
       .map { op =>

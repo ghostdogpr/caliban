@@ -1,16 +1,18 @@
 package caliban.execution
 
-import scala.annotation.tailrec
-import scala.collection.immutable.ListMap
+import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue._
 import caliban.Value._
 import caliban.parsing.adt._
 import caliban.schema.Step._
-import caliban.schema.{ GenericSchema, ReducedStep, Step }
+import caliban.schema.{ ReducedStep, Step }
 import caliban.wrappers.Wrapper.FieldWrapper
 import caliban.{ CalibanError, GraphQLResponse, InputValue, ResponseValue }
 import zio._
 import zquery.ZQuery
+
+import scala.annotation.tailrec
+import scala.collection.immutable.ListMap
 
 object Executor {
 
@@ -43,13 +45,11 @@ object Executor {
       step match {
         case s @ PureStep(value) =>
           value match {
-            case EnumValue(v) if mergeFields(currentField, v).collectFirst {
-                  case Field("__typename", _, _, _, _, _, _) => true
-                }.nonEmpty =>
+            case EnumValue(v) =>
               // special case of an hybrid union containing case objects, those should return an object instead of a string
               val obj = mergeFields(currentField, v).collectFirst {
-                case Field(name @ "__typename", _, _, alias, _, _, _) =>
-                  ObjectValue(List(alias.getOrElse(name) -> StringValue(v)))
+                case f: Field if f.name == "__typename" =>
+                  ObjectValue(List(f.alias.getOrElse(f.name) -> StringValue(v)))
               }
               obj.fold(s)(PureStep(_))
             case _ => s
@@ -62,9 +62,9 @@ object Executor {
         case ObjectStep(objectName, fields) =>
           val mergedFields = mergeFields(currentField, objectName)
           val items = mergedFields.map {
-            case f @ Field(name @ "__typename", _, _, alias, _, _, _) =>
+            case f @ Field(name @ "__typename", _, _, alias, _, _, _, _) =>
               (alias.getOrElse(name), PureStep(StringValue(objectName)), fieldInfo(f, path))
-            case f @ Field(name, _, _, alias, _, _, args) =>
+            case f @ Field(name, _, _, alias, _, _, args, _) =>
               val arguments = resolveVariables(args, request.variableDefinitions, variables)
               (
                 alias.getOrElse(name),
@@ -77,12 +77,18 @@ object Executor {
           reduceObject(items, fieldWrappers)
         case QueryStep(inner) =>
           ReducedStep.QueryStep(
-            inner.bimap(GenericSchema.effectfulExecutionError(path, _), reduceStep(_, currentField, arguments, path))
+            inner.bimap(
+              effectfulExecutionError(path, Some(currentField.locationInfo), _),
+              reduceStep(_, currentField, arguments, path)
+            )
           )
         case StreamStep(stream) =>
           if (request.operationType == OperationType.Subscription) {
             ReducedStep.StreamStep(
-              stream.bimap(GenericSchema.effectfulExecutionError(path, _), reduceStep(_, currentField, arguments, path))
+              stream.bimap(
+                effectfulExecutionError(path, Some(currentField.locationInfo), _),
+                reduceStep(_, currentField, arguments, path)
+              )
             )
           } else {
             reduceStep(QueryStep(ZQuery.fromEffect(stream.runCollect.map(ListStep(_)))), currentField, arguments, path)
@@ -193,5 +199,15 @@ object Executor {
         case (k, v, _) => (k, v.value)
       }))
     else ReducedStep.ObjectStep(items)
+
+  private def effectfulExecutionError(
+    path: List[Either[String, Int]],
+    locationInfo: Option[LocationInfo],
+    e: Throwable
+  ): ExecutionError =
+    e match {
+      case e: ExecutionError => e
+      case other             => ExecutionError("Effect failure", path.reverse, locationInfo, Some(other))
+    }
 
 }

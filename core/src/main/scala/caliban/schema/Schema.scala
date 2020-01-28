@@ -1,21 +1,22 @@
 package caliban.schema
 
-import scala.annotation.implicitNotFound
-import scala.language.experimental.macros
 import java.util.UUID
-import scala.concurrent.Future
-import caliban.CalibanError.ExecutionError
-import caliban.{ InputValue, ResponseValue }
+
 import caliban.ResponseValue._
 import caliban.Value._
 import caliban.introspection.adt._
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLInputName, GQLName }
 import caliban.schema.Step._
 import caliban.schema.Types._
+import caliban.{ InputValue, ResponseValue }
 import magnolia._
 import zio.ZIO
 import zio.stream.ZStream
 import zquery.ZQuery
+
+import scala.annotation.implicitNotFound
+import scala.concurrent.Future
+import scala.language.experimental.macros
 
 /**
  * Typeclass that defines how to map the type `T` to the according GraphQL concepts: how to introspect it and how to resolve it.
@@ -414,13 +415,4 @@ trait DerivationSchema[R] {
 
   implicit def gen[T]: Typeclass[T] = macro Magnolia.gen[T]
 
-}
-
-object GenericSchema {
-
-  def effectfulExecutionError(path: List[Either[String, Int]], e: Throwable): ExecutionError =
-    e match {
-      case e: ExecutionError => e
-      case other             => ExecutionError("Effect failure", path.reverse, Some(other))
-    }
 }

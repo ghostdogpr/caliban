@@ -47,8 +47,8 @@ object Introspector {
     document.definitions.forall {
       case OperationDefinition(_, _, _, _, selectionSet) =>
         selectionSet.forall {
-          case Field(_, name, _, _, _) => name == "__schema" || name == "__type"
-          case _                       => true
+          case Field(_, name, _, _, _, _) => name == "__schema" || name == "__type"
+          case _                          => true
         }
       case _ => true
     }

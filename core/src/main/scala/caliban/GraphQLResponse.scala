@@ -1,6 +1,5 @@
 package caliban
 
-import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue.ObjectValue
 import caliban.interop.circe._
 
@@ -34,15 +33,8 @@ private object GraphQLResponseCirce {
 
   private def handleError(err: Any): Json =
     err match {
-      case ExecutionError(_, path, _) if path.nonEmpty =>
-        Json.obj(
-          "message" -> Json.fromString(err.toString),
-          "path" -> Json.fromValues(path.map {
-            case Left(value)  => Json.fromString(value)
-            case Right(value) => Json.fromInt(value)
-          })
-        )
-      case _ => Json.obj("message" -> Json.fromString(err.toString))
+      case ce: CalibanError => ce.asJson
+      case _                => Json.obj("message" -> Json.fromString(err.toString))
     }
 
 }
