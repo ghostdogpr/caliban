@@ -34,7 +34,7 @@ object ExampleApp extends App with GenericSchema[Console with Clock] {
   case class Mutations(deleteCharacter: CharacterArgs => URIO[Console, Boolean])
   case class Subscriptions(characterDeleted: ZStream[Console, Nothing, String])
 
-  val interpreter = defaultRuntime.unsafeRun(
+  val interpreter = 
     ExampleService
       .make(sampleCharacters)
       .map(service => {
@@ -49,7 +49,6 @@ object ExampleApp extends App with GenericSchema[Console with Clock] {
           )
         ).interpreter
       })
-  )
 
   /**
    * curl -X POST \
@@ -62,7 +61,7 @@ object ExampleApp extends App with GenericSchema[Console with Clock] {
    */
   val route =
     path("api" / "graphql") {
-      AkkaHttpAdapter.makeHttpService(interpreter)
+      AkkaHttpAdapter.makeHttpServiceM(interpreter)
     } ~ path("graphiql") {
       getFromResource("graphiql.html")
     }
