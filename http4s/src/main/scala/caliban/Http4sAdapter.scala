@@ -19,6 +19,7 @@ import org.http4s.websocket.WebSocketFrame
 import org.http4s.websocket.WebSocketFrame.Text
 import zio._
 import zio.interop.catz._
+import com.github.ghik.silencer.silent
 
 object Http4sAdapter {
 
@@ -50,7 +51,7 @@ object Http4sAdapter {
       params.get("variables")
     )
 
-  def makeHttpService[R, E](interpreter: GraphQLInterpreter[R, E]): HttpRoutes[RIO[R, *]] = {
+  @silent def makeHttpService[R, E](interpreter: GraphQLInterpreter[R, E]): HttpRoutes[RIO[R, *]] = {
     object dsl extends Http4sDsl[RIO[R, *]]
     import dsl._
 

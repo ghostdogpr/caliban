@@ -1,9 +1,9 @@
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
-val mainScala     = "2.12.10"
-val allScala      = Seq("2.13.1", mainScala)
-val http4sVersion = "0.21.0-M5"
-
+val mainScala       = "2.12.10"
+val allScala        = Seq("2.13.1", mainScala)
+val http4sVersion   = "0.21.0-M5"
+val silencerVersion = "1.4.4"
 inThisBuild(
   List(
     organization := "com.github.ghostdogpr",
@@ -108,7 +108,9 @@ lazy val http4s = project
       compilerPlugin(
         ("org.typelevel" %% "kind-projector" % "0.11.0")
           .cross(CrossVersion.full)
-      )
+      ),
+      compilerPlugin("com.github.ghik" % "silencer-plugin" % silencerVersion cross CrossVersion.full),
+      "com.github.ghik" % "silencer-lib" % silencerVersion % Provided cross CrossVersion.full
     )
   )
   .dependsOn(coreJVM)
