@@ -122,7 +122,7 @@ lazy val akkaHttp = project
   .settings(
     libraryDependencies ++= Seq(
       "com.typesafe.akka" %% "akka-http"       % "10.1.11",
-      "com.typesafe.akka" %% "akka-stream"     % "2.6.2",
+      "com.typesafe.akka" %% "akka-stream"     % "2.6.3",
       "de.heikoseeberger" %% "akka-http-circe" % "1.30.0",
       "io.circe"          %% "circe-parser"    % "0.12.3",
       compilerPlugin(
