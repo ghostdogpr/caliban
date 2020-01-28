@@ -19,17 +19,13 @@ object CalibanError {
     msg: String,
     locationInfo: Option[LocationInfo] = None,
     innerThrowable: Option[Throwable] = None
-  ) extends CalibanError {
-    override def toString: String = s"""Parsing error: $msg ${innerThrowable.fold("")(_.toString)}"""
-  }
+  ) extends CalibanError
 
   /**
    * Describes an error that happened while validating a query.
    */
   case class ValidationError(msg: String, explanatoryText: String, locationInfo: Option[LocationInfo] = None)
-      extends CalibanError {
-    override def toString: String = s"""Validation error: $msg $explanatoryText"""
-  }
+      extends CalibanError
 
   /**
    * Describes an error that happened while executing a query.
@@ -39,17 +35,7 @@ object CalibanError {
     path: List[Either[String, Int]] = Nil,
     locationInfo: Option[LocationInfo] = None,
     innerThrowable: Option[Throwable] = None
-  ) extends CalibanError {
-    override def toString: String = {
-      val pathString = path.map {
-        case Left(value)  => value
-        case Right(value) => value.toString
-      }.mkString(" > ")
-      val field = if (pathString.isEmpty) "" else s" on field '$pathString'"
-      val inner = innerThrowable.fold("")(e => s" with ${e.toString}")
-      s"Execution error$field: $msg$inner"
-    }
-  }
+  ) extends CalibanError
 
   implicit def circeEncoder[F[_]](implicit ev: IsCirceEncoder[F]): F[CalibanError] =
     ErrorCirce.errorValueEncoder.asInstanceOf[F[CalibanError]]
@@ -66,7 +52,7 @@ private object ErrorCirce {
     case CalibanError.ParsingError(msg, locationInfo, _) =>
       Json
         .obj(
-          "message" -> msg.asJson,
+          "message" -> s"Parsing Error: $msg".asJson,
           "locations" -> Some(locationInfo).collect {
             case Some(li) => Json.arr(locationToJson(li))
           }.asJson
