@@ -50,7 +50,7 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
     import akka.http.scaladsl.server.Directives._
 
     get {
-      parameters(('query.as[String], 'operationName.?, 'variables.?)) {
+      parameters((Symbol("query").as[String], Symbol("operationName").?, Symbol("variables").?)) {
         case (query, op, vars) =>
           getGraphQLRequest(query, op, vars)
             .fold(failWith, completeRequest(interpreter))
