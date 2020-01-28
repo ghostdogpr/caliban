@@ -1,9 +1,11 @@
 package caliban.schema
 
+import java.util.UUID
+
 import scala.annotation.implicitNotFound
 import scala.language.experimental.macros
 import scala.util.Try
-import java.util.UUID
+
 import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.Value._

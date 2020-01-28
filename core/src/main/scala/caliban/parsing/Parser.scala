@@ -2,11 +2,11 @@ package caliban.parsing
 
 import caliban.CalibanError.ParsingError
 import caliban.InputValue
+import caliban.InputValue._
+import caliban.Value._
 import caliban.parsing.adt.ExecutableDefinition._
 import caliban.parsing.adt.Selection._
 import caliban.parsing.adt.Type._
-import caliban.InputValue._
-import caliban.Value._
 import caliban.parsing.adt._
 import fastparse._
 import zio.{ IO, Task }
@@ -114,8 +114,8 @@ object Parser {
   private def argument[_: P]: P[(String, InputValue)]     = P(name ~ ":" ~ value)
   private def arguments[_: P]: P[Map[String, InputValue]] = P("(" ~/ argument.rep ~ ")").map(_.toMap)
 
-  private def directive[_: P]: P[Directive] = P("@" ~/ name ~ arguments).map {
-    case (name, arguments) => Directive(name, arguments)
+  private def directive[_: P]: P[Directive] = P(Index ~ "@" ~/ name ~ arguments).map {
+    case (index, name, arguments) => Directive(name, arguments, index)
   }
   private def directives[_: P]: P[List[Directive]] = P(directive.rep).map(_.toList)
 
@@ -149,14 +149,15 @@ object Parser {
     }
   private def defaultValue[_: P]: P[InputValue] = P("=" ~/ value)
 
-  private def field[_: P]: P[Field] = P(alias.? ~ name ~ arguments.? ~ directives.? ~ selectionSet.?).map {
-    case (alias, name, args, dirs, sels) =>
+  private def field[_: P]: P[Field] = P(Index ~ alias.? ~ name ~ arguments.? ~ directives.? ~ selectionSet.?).map {
+    case (index, alias, name, args, dirs, sels) =>
       Field(
         alias,
         name,
         args.getOrElse(Map()),
         dirs.getOrElse(Nil),
-        sels.getOrElse(Nil)
+        sels.getOrElse(Nil),
+        index
       )
   }
 
@@ -196,17 +197,21 @@ object Parser {
 
   private def definition[_: P]: P[ExecutableDefinition] = executableDefinition
 
-  private def document[_: P]: P[Document] =
-    P(Start ~ ignored ~ definition.rep ~ ignored ~ End).map(seq => Document(seq.toList))
+  private def document[_: P]: P[ParsedDocument] =
+    P(Start ~ ignored ~ definition.rep ~ ignored ~ End).map(seq => ParsedDocument(seq.toList))
 
   /**
    * Parses the given string into a [[caliban.parsing.adt.Document]] object or fails with a [[caliban.CalibanError.ParsingError]].
    */
-  def parseQuery(query: String): IO[ParsingError, Document] =
-    Task(parse(query, document(_))).mapError(ex => ParsingError(s"Internal parsing error", Some(ex))).flatMap {
-      case Parsed.Success(value, _) => IO.succeed(value)
-      case f: Parsed.Failure        => IO.fail(ParsingError(f.msg))
-    }
+  def parseQuery(query: String): IO[ParsingError, Document] = {
+    val sm = SourceMapper(query)
+    Task(parse(query, document(_)))
+      .mapError(ex => ParsingError(s"Internal parsing error", innerThrowable = Some(ex)))
+      .flatMap {
+        case Parsed.Success(value, _) => IO.succeed(Document(value.definitions, sm))
+        case f: Parsed.Failure        => IO.fail(ParsingError(f.msg, Some(sm.getLocation(f.index))))
+      }
+  }
 
   /**
    * Checks if the query is valid, if not returns an error string.
@@ -216,3 +221,5 @@ object Parser {
     case f: Parsed.Failure    => Some(f.msg)
   }
 }
+
+case class ParsedDocument(definitions: List[ExecutableDefinition], index: Int = 0)

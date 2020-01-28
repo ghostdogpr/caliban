@@ -9,7 +9,7 @@ package zquery
  */
 trait DataSourceFunction[+R, -R1] { self =>
 
-  def apply[A](dataSource: DataSource.Service[R, A]): DataSource.Service[R1, A]
+  def apply[A](dataSource: DataSource[R, A]): DataSource[R1, A]
 
   /**
    * A symbolic alias for `compose`.
@@ -29,7 +29,7 @@ trait DataSourceFunction[+R, -R1] { self =>
    */
   final def andThen[R2](that: DataSourceFunction[R1, R2]): DataSourceFunction[R, R2] =
     new DataSourceFunction[R, R2] {
-      def apply[A](dataSource: DataSource.Service[R, A]): DataSource.Service[R2, A] =
+      def apply[A](dataSource: DataSource[R, A]): DataSource[R2, A] =
         that(self(dataSource))
     }
 
@@ -39,7 +39,7 @@ trait DataSourceFunction[+R, -R1] { self =>
    */
   final def compose[R0](that: DataSourceFunction[R0, R]): DataSourceFunction[R0, R1] =
     new DataSourceFunction[R0, R1] {
-      def apply[A](dataSource: DataSource.Service[R0, A]): DataSource.Service[R1, A] =
+      def apply[A](dataSource: DataSource[R0, A]): DataSource[R1, A] =
         self(that(dataSource))
     }
 }
@@ -50,16 +50,16 @@ object DataSourceFunction {
    * A data source function that provides a data source with its required
    * environment.
    */
-  final def provide[R](name: String)(r: R): DataSourceFunction[R, Any] =
-    provideSome(s"_ => $name")(_ => r)
+  def provide[R](r: Described[R]): DataSourceFunction[R, Any] =
+    provideSome(Described(_ => r.value, s"_ => ${r.description}"))
 
   /**
    * A data source function that provides a data sources with part of its
    * required environment.
    */
-  final def provideSome[R, R1](name: String)(f: R1 => R): DataSourceFunction[R, R1] =
+  def provideSome[R, R1](f: Described[R1 => R]): DataSourceFunction[R, R1] =
     new DataSourceFunction[R, R1] {
-      def apply[A](dataSource: DataSource.Service[R, A]): DataSource.Service[R1, A] =
-        dataSource.provideSome(name)(f)
+      def apply[A](dataSource: DataSource[R, A]): DataSource[R1, A] =
+        dataSource.provideSome(f)
     }
 }

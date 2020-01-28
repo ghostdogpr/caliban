@@ -3,31 +3,32 @@
 A GraphQL schema will be derived automatically at compile-time (no reflection) from the types present in your resolver.
 The table below shows how common Scala types are converted to GraphQL types.
 
-| Scala Type         | GraphQL Type                                     |
-| ------------------ | ------------------------------------------------ |
-| Boolean            | Boolean                                          |
-| Int                | Int                                              |
-| Float              | Float                                            |
-| Double             | Float                                            |
-| String             | String                                           |
-| java.util.UUID     | ID                                               |
-| Unit               | Unit (custom scalar)                             |
-| Long               | Long (custom scalar)                             |
-| BigInt             | BigInt (custom scalar)                           |
-| BigDecimal         | BigDecimal (custom scalar)                       |
-| Case Class         | Object                                           |
-| Sealed Trait       | Enum or Union                                    |
-| Option[A]          | Nullable A                                       |
-| List[A]            | List of A                                        |
-| Set[A]             | List of A                                        |
-| A => B             | A and B                                          |
-| (A, B)             | Object with 2 fields `_1` and `_2`               |
-| Either[A, B]       | Object with 2 nullable fields `left` and `right` |
-| Map[A, B]          | List of Object with 2 fields `key` and `value`   |
-| ZIO[R, Nothing, A] | A                                                |
-| ZIO[R, E, A]       | Nullable A                                       |
-| Future[A]          | Nullable A                                       |
-| ZStream[R, E, A]   | A                                                |
+| Scala Type                                          | GraphQL Type                                                     |
+| --------------------------------------------------- | ---------------------------------------------------------------- |
+| Boolean                                             | Boolean                                                          |
+| Int                                                 | Int                                                              |
+| Float                                               | Float                                                            |
+| Double                                              | Float                                                            |
+| String                                              | String                                                           |
+| java.util.UUID                                      | ID                                                               |
+| Unit                                                | Unit (custom scalar)                                             |
+| Long                                                | Long (custom scalar)                                             |
+| BigInt                                              | BigInt (custom scalar)                                           |
+| BigDecimal                                          | BigDecimal (custom scalar)                                       |
+| Case Class                                          | Object                                                           |
+| Sealed Trait                                        | Enum or Union                                                    |
+| Option[A]                                           | Nullable A                                                       |
+| List[A]                                             | List of A                                                        |
+| Set[A]                                              | List of A                                                        |
+| A => B                                              | A and B                                                          |
+| (A, B)                                              | Object with 2 fields `_1` and `_2`                               |
+| Either[A, B]                                        | Object with 2 nullable fields `left` and `right`                 |
+| Map[A, B]                                           | List of Object with 2 fields `key` and `value`                   |
+| ZIO[R, Nothing, A]                                  | A                                                                |
+| ZIO[R, E, A]                                        | Nullable A                                                       |
+| Future[A]                                           | Nullable A                                                       |
+| ZStream[R, E, A]                                    | A (subscription) or List of A (query, mutation)                  |
+| Json (from [Circe](https://github.com/circe/circe)) | Json (custom scalar, need `import caliban.interop.circe.json._`) |
 
 See the [Custom Types](#custom-types) section to find out how to support your own types.
 
@@ -121,6 +122,10 @@ type Queries {
 ```
 
 Caliban provides auto-derivation for common types such as `Int`, `String`, `List`, `Option`, etc. but you can also support your own types by providing an implicit instance of `caliban.schema.ArgBuilder`.
+
+::: tip
+There is no `ArgBuilder` for tuples. If you have multiple arguments, use a case class containing all of them instead of a tuple.
+:::
 
 ## Effects
 

@@ -45,6 +45,15 @@ object SchemaSpec
             introspect[IDSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()),
             isSome(hasField[__Type, String]("id", _.ofType.flatMap(_.name).get, equalTo("ID")))
           )
+        },
+        test("field with Json object") {
+          import caliban.interop.circe.json._
+          case class Queries(to: io.circe.Json, from: io.circe.Json => Unit)
+
+          assert(
+            introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()),
+            isSome(hasField[__Type, String]("to", _.ofType.flatMap(_.name).get, equalTo("Json")))
+          )
         }
       )
     )

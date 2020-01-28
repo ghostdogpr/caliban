@@ -5,7 +5,7 @@ import caliban.schema.{ GenericSchema, Schema }
 import caliban.{ GraphQL, RootResolver }
 import zio.console.{ putStrLn, Console }
 import zio.{ App, ZIO }
-import zquery.DataSource.Service.fromFunctionBatchedM
+import zquery.DataSource.fromFunctionBatchedM
 import zquery.{ CompletedRequestMap, DataSource, Request, ZQuery }
 
 /**
@@ -57,7 +57,7 @@ object OptimizedTest extends App with GenericSchema[Console] {
   )
 
   case class GetUser(id: Int) extends Request[Nothing, User]
-  val UserDataSource: DataSource.Service[Console, GetUser] = DataSource.Service("UserDataSource") { requests =>
+  val UserDataSource: DataSource[Console, GetUser] = DataSource("UserDataSource") { requests =>
     requests.toList match {
       case head :: Nil => putStrLn("getUser").as(CompletedRequestMap.empty.insert(head)(Right(fakeUser(head.id))))
       case list =>
@@ -68,51 +68,51 @@ object OptimizedTest extends App with GenericSchema[Console] {
   }
 
   case class GetEvent(id: Int) extends Request[Nothing, Event]
-  val EventDataSource: DataSource.Service[Console, GetEvent] =
+  val EventDataSource: DataSource[Console, GetEvent] =
     fromFunctionBatchedM("EventDataSource") { requests =>
       putStrLn("getEvents").as(requests.map(r => fakeEvent(r.id)))
     }
 
   case class GetViewerMetadataForEvents(id: Int) extends Request[Nothing, ViewerMetadata]
-  val ViewerMetadataDataSource: DataSource.Service[Console, GetViewerMetadataForEvents] =
+  val ViewerMetadataDataSource: DataSource[Console, GetViewerMetadataForEvents] =
     fromFunctionBatchedM("ViewerMetadataDataSource") { requests =>
       putStrLn("getViewerMetadataForEvents").as(requests.map(_ => ViewerMetadata("")))
     }
 
   case class GetVenue(id: Int) extends Request[Nothing, Venue]
-  val VenueDataSource: DataSource.Service[Console, GetVenue] =
+  val VenueDataSource: DataSource[Console, GetVenue] =
     fromFunctionBatchedM("VenueDataSource") { requests =>
       putStrLn("getVenues").as(requests.map(_ => Venue("venue")))
     }
 
   case class GetTags(ids: List[Int]) extends Request[Nothing, List[Tag]]
-  val TagsDataSource: DataSource.Service[Console, GetTags] =
+  val TagsDataSource: DataSource[Console, GetTags] =
     fromFunctionBatchedM("TagsDataSource") { requests =>
       putStrLn("getTags").as(requests.map(_.ids.map(id => Tag(id.toString))))
     }
 
   case class GetViewerFriendIdsAttendingEvent(id: Int, first: Int) extends Request[Nothing, List[Int]]
-  val ViewerFriendDataSource: DataSource.Service[Console, GetViewerFriendIdsAttendingEvent] =
+  val ViewerFriendDataSource: DataSource[Console, GetViewerFriendIdsAttendingEvent] =
     fromFunctionBatchedM("ViewerFriendDataSource") { requests =>
       putStrLn("getViewerFriendIdsAttendingEvent").as(requests.map(r => (1 to r.first).toList))
     }
 
   case class GetUpcomingEventIdsForUser(id: Int, first: Int) extends Request[Nothing, List[Int]]
-  val UpcomingEventDataSource: DataSource.Service[Console, GetUpcomingEventIdsForUser] =
+  val UpcomingEventDataSource: DataSource[Console, GetUpcomingEventIdsForUser] =
     fromFunctionBatchedM("UpcomingEventDataSource") { requests =>
       putStrLn("getUpcomingEventIdsForUser").as(requests.map(r => (1 to r.first).toList))
     }
 
-  def getUser(id: Int): Query[User]             = ZQuery.fromRequestWith(GetUser(id))(UserDataSource)
-  def getEvent(id: Int): Query[Event]           = ZQuery.fromRequestWith(GetEvent(id))(EventDataSource)
-  def getVenue(id: Int): Query[Venue]           = ZQuery.fromRequestWith(GetVenue(id))(VenueDataSource)
-  def getTags(ids: List[Int]): Query[List[Tag]] = ZQuery.fromRequestWith(GetTags(ids))(TagsDataSource)
+  def getUser(id: Int): Query[User]             = ZQuery.fromRequest(GetUser(id))(UserDataSource)
+  def getEvent(id: Int): Query[Event]           = ZQuery.fromRequest(GetEvent(id))(EventDataSource)
+  def getVenue(id: Int): Query[Venue]           = ZQuery.fromRequest(GetVenue(id))(VenueDataSource)
+  def getTags(ids: List[Int]): Query[List[Tag]] = ZQuery.fromRequest(GetTags(ids))(TagsDataSource)
   def getViewerMetadataForEvent(id: Int): Query[ViewerMetadata] =
-    ZQuery.fromRequestWith(GetViewerMetadataForEvents(id))(ViewerMetadataDataSource)
+    ZQuery.fromRequest(GetViewerMetadataForEvents(id))(ViewerMetadataDataSource)
   def getViewerFriendIdsAttendingEvent(id: Int, first: Int): Query[List[Int]] =
-    ZQuery.fromRequestWith(GetViewerFriendIdsAttendingEvent(id, first))(ViewerFriendDataSource)
+    ZQuery.fromRequest(GetViewerFriendIdsAttendingEvent(id, first))(ViewerFriendDataSource)
   def getUpcomingEventIdsForUser(id: Int, first: Int): Query[List[Int]] =
-    ZQuery.fromRequestWith(GetUpcomingEventIdsForUser(id, first))(UpcomingEventDataSource)
+    ZQuery.fromRequest(GetUpcomingEventIdsForUser(id, first))(UpcomingEventDataSource)
 
   implicit val viewerMetadataSchema: Schema[Any, ViewerMetadata] = Schema.gen[ViewerMetadata]
   implicit val tagSchema: Schema[Any, Tag]                       = Schema.gen[Tag]

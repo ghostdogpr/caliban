@@ -43,7 +43,7 @@ case class GetUserName(id: Int) extends Request[Throwable, String]
 Now let's build the corresponding `DataSource`. We need to implement the following functions:
 
 ```scala
-val UserDataSource = new DataSource.Service[Any, GetUserName] {
+val UserDataSource = new DataSource[Any, GetUserName] {
   override val identifier: String = ???
   override def run(requests: Iterable[GetUserName]): ZIO[Any, Throwable, CompletedRequestMap] = ???
 }
@@ -77,18 +77,18 @@ override def run(requests: Iterable[GetUserName]): ZIO[Any, Nothing, CompletedRe
 }
 ```
 
-Now to build a `ZQuery` from it, we can use `ZQuery.fromRequestWith` and just pass the request and the data source:
+Now to build a `ZQuery` from it, we can use `ZQuery.fromRequest` and just pass the request and the data source:
 
 ```scala
 def getUserNameById(id: Int): ZQuery[Any, Throwable, String] =
-  ZQuery.fromRequestWith(GetUserName(id))(UserDataSource)
+  ZQuery.fromRequest(GetUserName(id))(UserDataSource)
 ```
 
 To run a `ZQuery`, simply use `ZQuery#run` which will return a `ZIO[R, E, A]`.
 
 ## ZQuery constructors and operators
 
-There are several ways to create a `ZQuery`. We've seen `ZQuery.fromRequestWith`, but you can also:
+There are several ways to create a `ZQuery`. We've seen `ZQuery.fromRequest`, but you can also:
 
 - create from a pure value with `ZQuery.succeed`
 - create from an effect value with `ZQuery.fromEffect`

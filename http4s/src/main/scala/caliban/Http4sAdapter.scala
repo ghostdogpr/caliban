@@ -7,7 +7,8 @@ import cats.effect.Effect
 import cats.effect.syntax.all._
 import cats.~>
 import fs2.{ Pipe, Stream }
-import io.circe._
+import io.circe.Decoder.Result
+import io.circe.Json
 import io.circe.parser._
 import io.circe.syntax._
 import org.http4s._
@@ -18,6 +19,7 @@ import org.http4s.websocket.WebSocketFrame
 import org.http4s.websocket.WebSocketFrame.Text
 import zio._
 import zio.interop.catz._
+import com.github.ghik.silencer.silent
 
 object Http4sAdapter {
 
@@ -32,7 +34,24 @@ object Http4sAdapter {
   def makeRestService[R, E](interpreter: GraphQLInterpreter[R, E]): HttpRoutes[RIO[R, *]] =
     makeHttpService(interpreter)
 
-  def makeHttpService[R, E](interpreter: GraphQLInterpreter[R, E]): HttpRoutes[RIO[R, *]] = {
+  private def getGraphQLRequest(query: String, op: Option[String], vars: Option[String]): Result[GraphQLRequest] = {
+    val variablesJs = vars.flatMap(parse(_).toOption)
+    val fields = List("query" -> Json.fromString(query)) ++
+      op.map(o => "operationName"       -> Json.fromString(o)) ++
+      variablesJs.map(js => "variables" -> js)
+    Json
+      .fromFields(fields)
+      .as[GraphQLRequest]
+  }
+
+  private def getGraphQLRequest(params: Map[String, String]): Result[GraphQLRequest] =
+    getGraphQLRequest(
+      params.getOrElse("query", ""),
+      params.get("operationName"),
+      params.get("variables")
+    )
+
+  @silent def makeHttpService[R, E](interpreter: GraphQLInterpreter[R, E]): HttpRoutes[RIO[R, *]] = {
     object dsl extends Http4sDsl[RIO[R, *]]
     import dsl._
 
@@ -40,6 +59,12 @@ object Http4sAdapter {
       case req @ POST -> Root =>
         for {
           query    <- req.attemptAs[GraphQLRequest].value.absolve
+          result   <- executeToJson(interpreter, query)
+          response <- Ok(result)
+        } yield response
+      case req @ GET -> Root =>
+        for {
+          query    <- Task.fromEither(getGraphQLRequest(req.params))
           result   <- executeToJson(interpreter, query)
           response <- Ok(result)
         } yield response

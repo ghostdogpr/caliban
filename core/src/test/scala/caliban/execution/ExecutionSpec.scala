@@ -1,12 +1,17 @@
 package caliban.execution
 
 import java.util.UUID
-import caliban.CalibanError.ValidationError
+
+import caliban.CalibanError.ExecutionError
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
 import caliban.RootResolver
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, StringValue }
+import caliban.parsing.adt.LocationInfo
+import io.circe.Json
+import zio.IO
+import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
 
@@ -102,7 +107,7 @@ object ExecutionSpec
                  ...info
                }
              }
-               
+
              fragment info on Character {
                name
              }""")
@@ -238,69 +243,15 @@ object ExecutionSpec
           )
         },
         testM("mapError") {
+          import io.circe.syntax._
           case class Test(either: Either[Int, String])
           val interpreter = graphQL(RootResolver(Test(Right("ok")))).interpreter.mapError(_ => "my custom error")
           val query       = """query{}"""
-          assertM(interpreter.execute(query).map(_.errors), equalTo(List("my custom error")))
-        },
-        testM("QueryAnalyzer > fields") {
-          case class A(b: B)
-          case class B(c: Int)
-          case class Test(a: A)
-          val interpreter = QueryAnalyzer.maxFields(2)(graphQL(RootResolver(Test(A(B(2)))))).interpreter
-          val query       = gqldoc("""
-              {
-                a {
-                  b {
-                    c
-                  }
-                }
-              }""")
-          assertM(
-            interpreter.execute(query).map(_.errors),
-            equalTo(List(ValidationError("Query has too many fields: 3. Max fields: 2.", "")))
-          )
-        },
-        testM("QueryAnalyzer > fields with fragment") {
-          case class A(b: B)
-          case class B(c: Int)
-          case class Test(a: A)
-          val interpreter = QueryAnalyzer.maxFields(2)(graphQL(RootResolver(Test(A(B(2)))))).interpreter
-          val query       = gqldoc("""
-              query test {
-                a {
-                  ...f
-                }
-              }
-              
-              fragment f on A {
-                b {
-                  c 
-                }
-              }
-              """)
-          assertM(
-            interpreter.execute(query).map(_.errors),
-            equalTo(List(ValidationError("Query has too many fields: 3. Max fields: 2.", "")))
-          )
-        },
-        testM("QueryAnalyzer > depth") {
-          case class A(b: B)
-          case class B(c: Int)
-          case class Test(a: A)
-          val interpreter = QueryAnalyzer.maxDepth(2)(graphQL(RootResolver(Test(A(B(2)))))).interpreter
-          val query       = gqldoc("""
-              {
-                a {
-                  b {
-                    c
-                  }
-                }
-              }""")
-          assertM(
-            interpreter.execute(query).map(_.errors),
-            equalTo(List(ValidationError("Query is too deep: 3. Max depth: 2.", "")))
-          )
+
+          for {
+            result <- interpreter.execute(query)
+          } yield assert(result.errors, equalTo(List("my custom error"))) &&
+            assert(result.asJson.noSpaces, equalTo("""{"data":null,"errors":[{"message":"my custom error"}]}"""))
         },
         testM("merge 2 APIs") {
           case class Test(name: String)
@@ -316,6 +267,77 @@ object ExecutionSpec
           assertM(
             interpreter.execute(query).map(_.data.toString),
             equalTo("""{"name":"name","id":2}""")
+          )
+        },
+        testM("error path") {
+          case class A(b: B)
+          case class B(c: IO[Throwable, Int])
+          case class Test(a: A)
+          val e           = new Exception("boom")
+          val interpreter = graphQL(RootResolver(Test(A(B(IO.fail(e)))))).interpreter
+          val query       = gqldoc("""
+              {
+                a {
+                  b {
+                    c
+                  }
+                }
+              }""")
+          assertM(
+            interpreter.execute(query).map(_.errors),
+            equalTo(
+              List(
+                ExecutionError(
+                  "Effect failure",
+                  List(Left("a"), Left("b"), Left("c")),
+                  Some(LocationInfo(21, 5)),
+                  Some(e)
+                )
+              )
+            )
+          )
+        },
+        testM("ZStream used in a query") {
+          case class Queries(test: ZStream[Any, Throwable, Int])
+          val interpreter = graphQL(RootResolver(Queries(ZStream(1, 2, 3)))).interpreter
+          val query       = gqldoc("""
+             {
+               test
+             }""")
+
+          assertM(
+            interpreter.execute(query).map(_.data.toString),
+            equalTo("""{"test":[1,2,3]}""")
+          )
+        },
+        testM("ZStream used in a subscription") {
+          case class Queries(test: Int)
+          case class Subscriptions(test: ZStream[Any, Throwable, Int])
+          val interpreter =
+            graphQL(RootResolver(Queries(1), Option.empty[Unit], Subscriptions(ZStream(1, 2, 3)))).interpreter
+          val query = gqldoc("""
+             subscription {
+               test
+             }""")
+
+          assertM(
+            interpreter.execute(query).map(_.data.toString),
+            equalTo("""{"test":<stream>}""")
+          )
+        },
+        testM("Json scalar") {
+          import caliban.interop.circe.json._
+          case class Queries(test: Json)
+
+          val interpreter = graphQL(RootResolver(Queries(Json.obj(("a", Json.fromInt(333)))))).interpreter
+          val query       = gqldoc("""
+             {
+               test
+             }""")
+
+          assertM(
+            interpreter.execute(query).map(_.data.toString),
+            equalTo("""{"test":{"a":333}}""")
           )
         }
       )

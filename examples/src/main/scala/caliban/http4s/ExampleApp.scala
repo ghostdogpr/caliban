@@ -1,10 +1,12 @@
 package caliban.http4s
 
+import scala.language.postfixOps
 import caliban.ExampleData._
 import caliban.GraphQL._
-import caliban.execution.QueryAnalyzer._
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.GenericSchema
+import caliban.wrappers.ApolloTracing.apolloTracing
+import caliban.wrappers.Wrappers._
 import caliban.{ ExampleService, GraphQL, Http4sAdapter, RootResolver }
 import cats.data.Kleisli
 import cats.effect.Blocker
@@ -17,6 +19,7 @@ import zio._
 import zio.blocking.Blocking
 import zio.clock.Clock
 import zio.console.{ putStrLn, Console }
+import zio.duration._
 import zio.interop.catz._
 import zio.stream.ZStream
 
@@ -39,20 +42,21 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
   implicit val charactersArgsSchema = gen[CharactersArgs]
 
   def makeApi(service: ExampleService): GraphQL[Console with Clock] =
-    maxDepth(30)(
-      maxFields(200)(
-        graphQL(
-          RootResolver(
-            Queries(
-              args => service.getCharacters(args.origin),
-              args => service.findCharacter(args.name)
-            ),
-            Mutations(args => service.deleteCharacter(args.name)),
-            Subscriptions(service.deletedEvents)
-          )
-        )
+    graphQL(
+      RootResolver(
+        Queries(
+          args => service.getCharacters(args.origin),
+          args => service.findCharacter(args.name)
+        ),
+        Mutations(args => service.deleteCharacter(args.name)),
+        Subscriptions(service.deletedEvents)
       )
-    )
+    ) @@
+      maxFields(200) @@               // query analyzer that limit query fields
+      maxDepth(30) @@                 // query analyzer that limit query depth
+      timeout(3 seconds) @@           // wrapper that fails slow queries
+      printSlowQueries(500 millis) @@ // wrapper that logs slow queries
+      apolloTracing                   // wrapper for https://github.com/apollographql/apollo-tracing
 
   override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] =
     (for {

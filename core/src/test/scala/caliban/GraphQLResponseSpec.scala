@@ -25,7 +25,7 @@ object GraphQLResponseSpec
             equalTo(
               Json.obj(
                 "data"   -> Json.fromString("data"),
-                "errors" -> Json.arr(Json.obj("message" -> Json.fromString("Execution error: Resolution failed")))
+                "errors" -> Json.arr(Json.obj("message" -> Json.fromString("Resolution failed")))
               )
             )
           )

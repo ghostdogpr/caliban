@@ -1,7 +1,5 @@
 package caliban.parsing.adt
 
-import caliban.parsing.adt.Selection.Field
-
 import scala.annotation.tailrec
 
 sealed trait Type

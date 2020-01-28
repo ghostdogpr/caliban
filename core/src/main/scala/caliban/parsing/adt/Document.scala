@@ -1,5 +1,6 @@
 package caliban.parsing.adt
 
+import caliban.parsing.SourceMapper
 import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition, TypeDefinition }
 import caliban.parsing.adt.OperationType.{ Mutation, Query, Subscription }
 
@@ -21,4 +22,4 @@ object Document {
     typeDefinitions(doc).find(t => t.name == name)
 }
 
-case class Document(definitions: List[ExecutableDefinition])
+case class Document(definitions: List[ExecutableDefinition], sourceMapper: SourceMapper)
