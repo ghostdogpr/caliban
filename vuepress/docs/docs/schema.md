@@ -174,7 +174,7 @@ implicit val unitSchema: Schema[Any, Unit] = scalarSchema("Unit", None, _ => Obj
 
 ##Schema migration
 
-Caliban can automatically generate a scala schema out of a GraphQL schema provided as a json file for easier and faster development. 
+Caliban can automatically generate Scala code out of a GraphQL schema provided as a json file for easier and faster development. 
 
 In order to use this feature add the caliban sbt plugin to your project. 
  
