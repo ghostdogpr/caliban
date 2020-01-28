@@ -3,14 +3,13 @@ package caliban.wrappers
 import java.time.format.DateTimeFormatter
 import java.time.{ Instant, ZoneId }
 import java.util.concurrent.TimeUnit
-
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ IntValue, StringValue }
-import caliban.wrappers.Wrapper._
+import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper, ParsingWrapper, ValidationWrapper }
 import caliban.{ Rendering, ResponseValue }
+import zio.{ clock, FiberRef }
 import zio.clock.Clock
 import zio.duration.Duration
-import zio.{ clock, FiberRef }
 import zquery.ZQuery
 
 object ApolloTracing {
