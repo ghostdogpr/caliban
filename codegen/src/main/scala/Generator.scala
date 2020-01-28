@@ -1,17 +1,15 @@
 package codegen
 
-import java.net.{ URL, URLClassLoader }
-import java.nio.file.{ FileSystems, Paths }
+import java.net.{URL, URLClassLoader}
+import java.nio.file.Paths
 
-import caliban.parsing.adt.{ Document, Selection, Type }
-import caliban.parsing.adt.Document._
-import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition, TypeDefinition }
-import caliban.parsing.adt.Type.{ FieldDefinition, ListType, NamedType }
-import com.typesafe.config.ConfigFactory
+import caliban.parsing.adt.ExecutableDefinition.{OperationDefinition, TypeDefinition}
+import caliban.parsing.adt.Type.FieldDefinition
+import caliban.parsing.adt.{Document, Type}
+import org.scalafmt.dynamic.ScalafmtReflect
 import org.scalafmt.dynamic.utils.ReentrantCache
-import org.scalafmt.dynamic.{ ScalafmtDynamic, ScalafmtReflect }
 import org.scalafmt.interfaces.Scalafmt
-import zio.{ IO, Task }
+import zio.Task
 
 object Generator {
   def generate(doc: Document)(implicit writerContext: GQLWriterContext): String =

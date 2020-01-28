@@ -1,10 +1,9 @@
 package codegen
 
-import caliban.parsing.adt.{ Document, ExecutableDefinition, Selection, Type }
-import caliban.parsing.adt.Type.{ FieldDefinition, ListType, NamedType }
-import Generator._
-import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition, TypeDefinition }
-import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
+import caliban.parsing.adt.ExecutableDefinition.TypeDefinition
+import caliban.parsing.adt.Type.{FieldDefinition, ListType, NamedType}
+import caliban.parsing.adt.{Document, Type}
+import codegen.Generator._
 
 object ScalaWriter {
   val scalafmtConfig = """
