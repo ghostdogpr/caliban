@@ -1,18 +1,18 @@
 package caliban.execution
 
 import caliban.CalibanError.ExecutionError
-
-import scala.annotation.tailrec
-import scala.collection.immutable.ListMap
 import caliban.ResponseValue._
 import caliban.Value._
 import caliban.parsing.adt._
 import caliban.schema.Step._
-import caliban.schema.{ GenericSchema, ReducedStep, Step }
+import caliban.schema.{ ReducedStep, Step }
 import caliban.wrappers.Wrapper.FieldWrapper
 import caliban.{ CalibanError, GraphQLResponse, InputValue, ResponseValue }
 import zio._
 import zquery.ZQuery
+
+import scala.annotation.tailrec
+import scala.collection.immutable.ListMap
 
 object Executor {
 
