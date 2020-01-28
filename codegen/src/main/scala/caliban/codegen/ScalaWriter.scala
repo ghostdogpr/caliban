@@ -2,8 +2,8 @@ package caliban.codegen
 
 import caliban.codegen.Generator._
 import caliban.parsing.adt.ExecutableDefinition.TypeDefinition
-import caliban.parsing.adt.Type.{FieldDefinition, ListType, NamedType}
-import caliban.parsing.adt.{Document, Type}
+import caliban.parsing.adt.Type.{ FieldDefinition, ListType, NamedType }
+import caliban.parsing.adt.{ Document, Type }
 
 object ScalaWriter {
   val scalafmtConfig = """
@@ -216,9 +216,9 @@ object ScalaWriter {
 
     override def write(t: Type)(nothing: Any)(implicit context: GQLWriterContext): String =
       t match {
-        case NamedType(name, true) => convertType(name)
-        case NamedType(name, false) => s"Option[${convertType(name)}]"
-        case ListType(ofType, true) => s"List[${TypeWriter.write(ofType)(nothing)}]"
+        case NamedType(name, true)   => convertType(name)
+        case NamedType(name, false)  => s"Option[${convertType(name)}]"
+        case ListType(ofType, true)  => s"List[${TypeWriter.write(ofType)(nothing)}]"
         case ListType(ofType, false) => s"Option[List[${TypeWriter.write(ofType)(nothing)}]]"
       }
   }

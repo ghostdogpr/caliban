@@ -1,11 +1,11 @@
 package caliban.codegen
 
-import java.net.{URL, URLClassLoader}
+import java.net.{ URL, URLClassLoader }
 import java.nio.file.Paths
 
-import caliban.parsing.adt.ExecutableDefinition.{OperationDefinition, TypeDefinition}
+import caliban.parsing.adt.ExecutableDefinition.{ OperationDefinition, TypeDefinition }
 import caliban.parsing.adt.Type.FieldDefinition
-import caliban.parsing.adt.{Document, Type}
+import caliban.parsing.adt.{ Document, Type }
 import org.scalafmt.dynamic.ScalafmtReflect
 import org.scalafmt.dynamic.utils.ReentrantCache
 import org.scalafmt.interfaces.Scalafmt
