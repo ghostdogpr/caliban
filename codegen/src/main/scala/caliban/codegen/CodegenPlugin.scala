@@ -54,7 +54,7 @@ object CodegenPlugin extends AutoPlugin {
       code   <- Task(Generator.generate(schema)(ScalaWriter.DefaultGQLWriter))
       formatted <- fmtPath
                     .map(Generator.format(code, _))
-                    .getOrElse(Task(Generator.formatStr(code, ScalaWriter.scalafmtConfig)))
+                    .getOrElse(Generator.formatStr(code, ScalaWriter.scalafmtConfig))
       _ <- Task(new PrintWriter(new File(toPath)))
             .bracket(q => UIO(q.close()), { pw =>
               Task(pw.println(formatted))
