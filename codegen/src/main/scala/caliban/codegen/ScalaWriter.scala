@@ -86,7 +86,7 @@ object ScalaWriter {
         "object Types {\n" +
           argsTypes + "\n" +
           types + "\n" +
-          "}\n"
+          "\n}\n"
       else ""}
 
       ${if (hasOperations)
@@ -94,7 +94,7 @@ object ScalaWriter {
           queries + "\n\n" +
           mutations + "\n\n" +
           subscriptions + "\n" +
-          "}"
+          "\n}"
       else ""}
       """
     }

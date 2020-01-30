@@ -176,6 +176,7 @@ userList: () => List[Option[User]]
                 |object Types {
                 |
                 |  case class Post(author: Option[String], comment: Option[String])
+                |
                 |}
                 |
                 |object Operations {
@@ -192,6 +193,7 @@ userList: () => List[Option[User]]
                 |  case class Subscription(
                 |    postAdded: () => ZStream[Any, Nothing, Option[Post]]
                 |  )
+                |
                 |}
                 |""".stripMargin
             )
