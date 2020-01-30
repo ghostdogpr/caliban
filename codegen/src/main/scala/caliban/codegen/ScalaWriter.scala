@@ -48,41 +48,55 @@ object ScalaWriter {
     override def write(schema: Document)(nothing: Any)(implicit context: GQLWriterContext): String = {
       import context._
 
-      val hasSubscriptions = Document.typeDefinition(schema, "Subscription").nonEmpty
-
-      s"""import Types._
-      import Fragments._
-      ${if (hasSubscriptions) "import zio.stream.ZStream" else ""}
-
-      object Types {
-        ${Document
+      val argsTypes = Document
         .typeDefinitions(schema)
         .filterNot(reservedType)
         .flatMap(_.fields.filter(_.args.nonEmpty).map(c => GQLWriter[Args, String].write(Args(c))("")))
-        .mkString("\n")}
-        ${Document
+        .mkString("\n")
+
+      val types = Document
         .typeDefinitions(schema)
         .filterNot(reservedType)
         .map(GQLWriter[TypeDefinition, Document].write(_)(schema))
-        .mkString("\n")}
-      }
+        .mkString("\n")
 
-      object Operations {
-        ${Document
+      val queries = Document
         .typeDefinition(schema, "Query")
         .map(t => GQLWriter[RootQueryDef, Document].write(RootQueryDef(t))(schema))
-        .getOrElse("")}
+        .getOrElse("")
 
-        ${Document
+      val mutations = Document
         .typeDefinition(schema, "Mutation")
         .map(t => GQLWriter[RootMutationDef, Document].write(RootMutationDef(t))(schema))
-        .getOrElse("")}
+        .getOrElse("")
 
-        ${Document
+      val subscriptions = Document
         .typeDefinition(schema, "Subscription")
         .map(t => GQLWriter[RootSubscriptionDef, Document].write(RootSubscriptionDef(t))(schema))
-        .getOrElse("")}
-      }"""
+        .getOrElse("")
+
+      val hasSubscriptions = Document.typeDefinition(schema, "Subscription").nonEmpty
+      val hasTypes         = argsTypes.length + types.length > 0
+      val hasOperations    = queries.length + mutations.length + subscriptions.length > 0
+
+      s"""${if (hasTypes) "import Types._\n" else ""}
+      ${if (hasSubscriptions) "import zio.stream.ZStream" else ""}
+
+      ${if (hasTypes)
+        "object Types {\n" +
+          argsTypes + "\n" +
+          types + "\n" +
+          "}\n"
+      else ""}
+
+      ${if (hasOperations)
+        "object Operations {\n" +
+          queries + "\n\n" +
+          mutations + "\n\n" +
+          subscriptions + "\n" +
+          "}"
+      else ""}
+      """
     }
 
   }
@@ -106,7 +120,7 @@ object ScalaWriter {
            .filter(_.args.nonEmpty)
            .map(c => GQLWriter[Args, String].write(Args(c))(""))
            .mkString(",\n")}
-         |case class Queries(
+         |case class Query(
          |${queryDef.op.fields.map(c => GQLWriter[QueryDef, Document].write(QueryDef(c))(schema)).mkString(",\n")}
          |)""".stripMargin
     }
@@ -131,7 +145,7 @@ object ScalaWriter {
            .filter(_.args.nonEmpty)
            .map(c => GQLWriter[Args, String].write(Args(c))(""))
            .mkString(",\n")}
-         |case class Mutations(
+         |case class Mutation(
          |${mutationDef.op.fields.map(c => GQLWriter[QueryDef, Document].write(QueryDef(c))(schema)).mkString(",\n")}
          |)""".stripMargin
     }
@@ -163,7 +177,7 @@ object ScalaWriter {
            .filter(_.args.nonEmpty)
            .map(c => GQLWriter[Args, String].write(Args(c))(""))
            .mkString(",\n")}
-         |case class Subscriptions(
+         |case class Subscription(
          |${subscriptionDef.op.fields
            .map(c => GQLWriter[SubscriptionDef, Document].write(SubscriptionDef(c))(schema))
            .mkString(",\n")}

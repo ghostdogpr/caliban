@@ -77,7 +77,7 @@ object GeneratorSpec
             equalTo(
               """
 case class UserArgs(id: Option[Int])
-case class Queries(
+case class Query(
 user: UserArgs => Option[User],
 userList: () => List[Option[User]]
 )""".stripMargin
@@ -107,7 +107,7 @@ userList: () => List[Option[User]]
             equalTo(
               """
                 |case class SetMessageArgs(message: Option[String])
-                |case class Mutations(
+                |case class Mutation(
                 |setMessage: SetMessageArgs => Option[String]
                 |)""".stripMargin
             )
@@ -136,7 +136,7 @@ userList: () => List[Option[User]]
             equalTo(
               """
                 |case class UserWatchArgs(id: Int)
-                |case class Subscriptions(
+                |case class Subscription(
                 |UserWatch: UserWatchArgs => ZStream[Any, Nothing, String]
                 |)""".stripMargin
             )
@@ -170,7 +170,7 @@ userList: () => List[Option[User]]
               }),
             equalTo(
               """import Types._
-                |import Fragments._
+                |
                 |import zio.stream.ZStream
                 |
                 |object Types {
@@ -180,20 +180,36 @@ userList: () => List[Option[User]]
                 |
                 |object Operations {
                 |
-                |  case class Queries(
+                |  case class Query(
                 |    posts: () => Option[List[Option[Post]]]
                 |  )
                 |
                 |  case class AddPostArgs(author: Option[String], comment: Option[String])
-                |  case class Mutations(
+                |  case class Mutation(
                 |    addPost: AddPostArgs => Option[Post]
                 |  )
                 |
-                |  case class Subscriptions(
+                |  case class Subscription(
                 |    postAdded: () => ZStream[Any, Nothing, Option[Post]]
                 |  )
                 |}
                 |""".stripMargin
+            )
+          )
+        },
+        testM("empty schema test") {
+          val schema = ""
+
+          implicit val writer = ScalaWriter.DefaultGQLWriter
+
+          assertM(
+            Parser
+              .parseQuery(schema)
+              .flatMap(s => {
+                Generator.formatStr(Generator.generate(s), ScalaWriter.scalafmtConfig)
+              }),
+            equalTo(
+              "\n"
             )
           )
         }
