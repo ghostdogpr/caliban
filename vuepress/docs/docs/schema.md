@@ -191,3 +191,5 @@ Command will write a scala file (outPath) containing GraphQL types,
 queries, subscriptions and a few utility classes for provided json schema (schemaPath) and will
 format generated code with scalafmt with config in (scalafmtPath) or
 default config provided along with caliban-codegen.
+
+Expressions that can not be generated in the current release are following: enum, schema, interfaces, union types, input.
