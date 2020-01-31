@@ -224,7 +224,7 @@ userList: () => List[Option[User]]
               |  }
             """.stripMargin
 
-          val expected = 
+          val expected =
             """import Types._
               |
               |object Types {
