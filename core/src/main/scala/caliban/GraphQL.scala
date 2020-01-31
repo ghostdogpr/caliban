@@ -24,9 +24,10 @@ trait GraphQL[-R] { self =>
   protected val wrappers: List[Wrapper[R]]
 
   private lazy val rootType: RootType =
-    RootType(schema.query.opType, schema.mutation.map(_.opType), schema.subscription.map(_.opType))
+    RootType(schema.query.opType, schema.mutation.map(_.opType), schema.subscription.map(_.opType), schema.directives)
   private lazy val introspectionRootSchema: RootSchema[Any] = Introspector.introspect(rootType)
-  private lazy val introspectionRootType: RootType          = RootType(introspectionRootSchema.query.opType, None, None)
+  private lazy val introspectionRootType: RootType =
+    RootType(introspectionRootSchema.query.opType, None, None, schema.directives)
 
   private final def execute(
     query: String,

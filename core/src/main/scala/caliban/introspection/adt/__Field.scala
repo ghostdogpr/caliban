@@ -6,5 +6,6 @@ case class __Field(
   args: List[__InputValue],
   `type`: () => __Type,
   isDeprecated: Boolean = false,
-  deprecationReason: Option[String] = None
+  deprecationReason: Option[String] = None,
+  directives: Option[List[__Directive]] = None
 )

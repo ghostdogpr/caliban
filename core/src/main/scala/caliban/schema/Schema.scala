@@ -348,12 +348,13 @@ trait DerivationSchema[R] {
           Some(getName(ctx)),
           getDescription(ctx),
           subtypes.collect {
-            case (__Type(_, Some(name), description, _, _, _, _, _, _), annotations) =>
+            case (__Type(_, Some(name), description, _, _, _, _, _, _, directives), annotations) =>
               __EnumValue(
                 name,
                 description,
                 annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
-                annotations.collectFirst { case GQLDeprecated(reason) => reason }
+                annotations.collectFirst { case GQLDeprecated(reason) => reason },
+                directives
               )
           }
         )
