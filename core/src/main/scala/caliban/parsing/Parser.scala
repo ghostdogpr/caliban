@@ -4,7 +4,9 @@ import caliban.CalibanError.ParsingError
 import caliban.InputValue
 import caliban.InputValue._
 import caliban.Value._
-import caliban.parsing.adt.ExecutableDefinition._
+import caliban.parsing.adt.Definition._
+import caliban.parsing.adt.Definition.ExecutableDefinition._
+import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Selection._
 import caliban.parsing.adt.Type._
 import caliban.parsing.adt._
@@ -193,9 +195,9 @@ object Parser {
     P("type" ~/ name ~ "{" ~ fieldDefinition.rep ~ "}").map(t => TypeDefinition(t._1, t._2.toList))
 
   private def executableDefinition[_: P]: P[ExecutableDefinition] =
-    P(operationDefinition | fragmentDefinition | typeDefinition)
+    P(operationDefinition | fragmentDefinition)
 
-  private def definition[_: P]: P[ExecutableDefinition] = executableDefinition
+  private def definition[_: P]: P[Definition] = executableDefinition | typeDefinition
 
   private def document[_: P]: P[ParsedDocument] =
     P(Start ~ ignored ~ definition.rep ~ ignored ~ End).map(seq => ParsedDocument(seq.toList))
@@ -222,4 +224,4 @@ object Parser {
   }
 }
 
-case class ParsedDocument(definitions: List[ExecutableDefinition], index: Int = 0)
+case class ParsedDocument(definitions: List[Definition], index: Int = 0)

@@ -2,8 +2,7 @@ package caliban.codegen
 
 import java.net.{ URL, URLClassLoader }
 import java.nio.file.Paths
-
-import caliban.parsing.adt.ExecutableDefinition.{ OperationDefinition, TypeDefinition }
+import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Type.FieldDefinition
 import caliban.parsing.adt.{ Document, Type }
 import org.scalafmt.dynamic.ScalafmtReflect
@@ -62,8 +61,6 @@ object Generator {
   case class SubscriptionDef(op: FieldDefinition)
 
   case class Args(field: FieldDefinition)
-
-  case class SubscriptionDefinition(op: OperationDefinition)
 
   object GQLWriter {
     def apply[A, D](implicit instance: GQLWriter[A, D]): GQLWriter[A, D] =

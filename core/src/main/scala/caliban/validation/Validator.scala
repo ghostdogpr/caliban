@@ -7,7 +7,8 @@ import caliban.execution.{ ExecutionRequest, Field => F }
 import caliban.introspection.Introspector
 import caliban.introspection.adt._
 import caliban.parsing.SourceMapper
-import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition, TypeDefinition }
+import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
+import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.OperationType._
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.NamedType

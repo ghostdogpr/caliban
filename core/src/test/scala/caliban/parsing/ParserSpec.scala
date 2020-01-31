@@ -5,7 +5,8 @@ import caliban.InputValue
 import caliban.InputValue._
 import caliban.Value._
 import caliban.parsing.ParserSpecUtils._
-import caliban.parsing.adt.ExecutableDefinition.{ FragmentDefinition, OperationDefinition, TypeDefinition }
+import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
+import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.OperationType.{ Mutation, Query }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.{ FieldDefinition, ListType, NamedType }
@@ -488,7 +489,8 @@ object ParserSpecUtils {
     directives: List[Directive] = Nil,
     selectionSet: List[Selection] = Nil,
     sourceMapper: SourceMapper = SourceMapper.empty
-  ) = Document(List(OperationDefinition(Query, name, variableDefinitions, directives, selectionSet)), sourceMapper)
+  ): Document =
+    Document(List(OperationDefinition(Query, name, variableDefinitions, directives, selectionSet)), sourceMapper)
 
   def simpleField(
     name: String,
@@ -497,5 +499,5 @@ object ParserSpecUtils {
     directives: List[Directive] = Nil,
     selectionSet: List[Selection] = Nil,
     index: Int = 0
-  ) = Field(alias, name, arguments, directives, selectionSet, index)
+  ): Field = Field(alias, name, arguments, directives, selectionSet, index)
 }

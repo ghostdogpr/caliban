@@ -4,7 +4,7 @@ import caliban.InputValue
 import caliban.Value.BooleanValue
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type }
 import caliban.parsing.SourceMapper
-import caliban.parsing.adt.ExecutableDefinition.FragmentDefinition
+import caliban.parsing.adt.Definition.ExecutableDefinition.FragmentDefinition
 import caliban.parsing.adt.Selection.{ FragmentSpread, InlineFragment, Field => F }
 import caliban.parsing.adt.{ Directive, LocationInfo, Selection }
 import caliban.schema.Types

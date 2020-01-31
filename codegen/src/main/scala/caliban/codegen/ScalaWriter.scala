@@ -1,7 +1,7 @@
 package caliban.codegen
 
 import caliban.codegen.Generator._
-import caliban.parsing.adt.ExecutableDefinition.TypeDefinition
+import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Type.{ FieldDefinition, ListType, NamedType }
 import caliban.parsing.adt.{ Document, Type }
 
