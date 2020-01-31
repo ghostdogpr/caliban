@@ -1,6 +1,7 @@
 package caliban.wrappers
 
 import scala.language.postfixOps
+
 import caliban.CalibanError.{ ExecutionError, ValidationError }
 import caliban.GraphQL._
 import caliban.Macros.gqldoc

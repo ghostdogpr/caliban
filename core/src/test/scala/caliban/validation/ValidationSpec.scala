@@ -10,7 +10,9 @@ import zio.test._
 
 object ValidationSpec
     extends DefaultRunnableSpec({
-      val interpreter = graphQL(resolverWithSubscription).interpreter
+      val gql         = graphQL(resolverWithSubscription)
+      val interpreter = gql.interpreter
+
       def check(query: String, expectedMessage: String): UIO[TestResult] = {
         val io = interpreter.execute(query).map(_.errors.headOption)
         assertM(io, isSome(hasField[CalibanError, String]("msg", _.msg, equalTo(expectedMessage))))
@@ -262,6 +264,38 @@ object ValidationSpec
                }
              }""")
           check(query, "Directive 'skip' is defined twice.")
+        },
+        testM("type has duplicate fields") {
+          val gqltype = gqldoc("""type Hero {
+              name(pad: Int!): String! @skip(if: $someTestM)
+              name: String!
+              bday: Int
+              }""")
+          assertM(
+            gql.check(gqltype).map(_.toString).run,
+            fails[CalibanError](
+              hasField[CalibanError, String]("msg", _.msg, equalTo("Type 'Hero' has duplicate fields."))
+            )
+          )
+        },
+        testM("type defined twice") {
+          val gqltype = gqldoc("""type Hero {
+                name(pad: Int!): String! @skip(if: $someTestM)
+                nick: String!
+                bday: Int
+              }
+              type Hero {
+                othername(pad: Int!): String! @skip(if: $someTestM)
+                nick: String!
+                bday: Int
+              }
+            """)
+          assertM(
+            gql.check(gqltype).map(_.toString).run,
+            fails[CalibanError](
+              hasField[CalibanError, String]("msg", _.msg, equalTo("Type 'Hero' is defined more than once."))
+            )
+          )
         }
       )
     })

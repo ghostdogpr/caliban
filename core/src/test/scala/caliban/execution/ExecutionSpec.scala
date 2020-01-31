@@ -107,7 +107,7 @@ object ExecutionSpec
                  ...info
                }
              }
-               
+
              fragment info on Character {
                name
              }""")

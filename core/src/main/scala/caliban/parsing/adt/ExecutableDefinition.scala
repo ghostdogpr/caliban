@@ -1,6 +1,6 @@
 package caliban.parsing.adt
 
-import caliban.parsing.adt.Type.NamedType
+import caliban.parsing.adt.Type.{ FieldDefinition, NamedType }
 
 sealed trait ExecutableDefinition
 
@@ -20,5 +20,7 @@ object ExecutableDefinition {
     directives: List[Directive],
     selectionSet: List[Selection]
   ) extends ExecutableDefinition
+
+  case class TypeDefinition(name: String, fields: List[FieldDefinition]) extends ExecutableDefinition
 
 }

@@ -123,7 +123,15 @@ object Parser {
   private def selectionSet[_: P]: P[List[Selection]] = P("{" ~/ selection.rep ~ "}").map(_.toList)
 
   private def namedType[_: P]: P[NamedType] = P(name.filter(_ != "null")).map(NamedType(_, nonNull = false))
-  private def listType[_: P]: P[ListType]   = P("[" ~/ type_ ~ "]").map(t => ListType(t, nonNull = false))
+  private def listType[_: P]: P[ListType]   = P("[" ~ type_ ~ "]").map(t => ListType(t, nonNull = false))
+
+  private def argumentDefinition[_: P]: P[(String, Type)] = P(name ~ ":" ~ type_)
+  private def argumentDefinitions[_: P]: P[List[(String, Type)]] =
+    P("(" ~/ argumentDefinition.rep ~ ")").map(t => t.toList)
+
+  private def fieldDefinition[_: P]: P[FieldDefinition] =
+    P(stringValue.? ~ name ~ argumentDefinitions.? ~ ":" ~ type_ ~ directives.?)
+      .map(t => FieldDefinition(t._1.map(_.value), t._2, t._3.getOrElse(List()), t._4, t._5.getOrElse(List())))
 
   private def nonNullType[_: P]: P[Type] = P((namedType | listType) ~ "!").map {
     case t: NamedType => t.copy(nonNull = true)
@@ -181,7 +189,11 @@ object Parser {
       case (name, typeCondition, dirs, sel) => FragmentDefinition(name, typeCondition, dirs, sel)
     }
 
-  private def executableDefinition[_: P]: P[ExecutableDefinition] = P(operationDefinition | fragmentDefinition)
+  private def typeDefinition[_: P]: P[TypeDefinition] =
+    P("type" ~/ name ~ "{" ~ fieldDefinition.rep ~ "}").map(t => TypeDefinition(t._1, t._2.toList))
+
+  private def executableDefinition[_: P]: P[ExecutableDefinition] =
+    P(operationDefinition | fragmentDefinition | typeDefinition)
 
   private def definition[_: P]: P[ExecutableDefinition] = executableDefinition
 

@@ -48,7 +48,7 @@ lazy val root = project
   .enablePlugins(ScalaJSPlugin)
   .settings(skip in publish := true)
   .settings(historyPath := None)
-  .aggregate(coreJVM, coreJS, http4s, akkaHttp, catsInteropJVM, catsInteropJS)
+  .aggregate(coreJVM, coreJS, http4s, akkaHttp, catsInteropJVM, catsInteropJS, codegen)
 
 lazy val core = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)
@@ -77,6 +77,21 @@ lazy val coreJVM = core.jvm
 lazy val coreJS = core.js.settings(
   libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.0.0-RC3" % Test
 )
+lazy val codegen = project
+  .in(file("codegen"))
+  .settings(name := "caliban-codegen")
+  .settings(commonSettings)
+  .settings(
+    sbtPlugin := true,
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    libraryDependencies ++= Seq(
+      "org.scalameta" %%% "scalafmt-dynamic" % "2.3.3-RC1",
+      "com.geirsson"  %%% "scalafmt-core"    % "1.5.1",
+      "dev.zio"       %%% "zio-test"         % "1.0.0-RC17" % "test",
+      "dev.zio"       %%% "zio-test-sbt"     % "1.0.0-RC17" % "test"
+    )
+  )
+  .dependsOn(coreJVM)
 
 lazy val catsInterop = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)

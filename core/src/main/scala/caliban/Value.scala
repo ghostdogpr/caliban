@@ -1,10 +1,10 @@
 package caliban
 
+import scala.util.Try
+
 import caliban.Value._
 import caliban.interop.circe._
 import zio.stream.Stream
-
-import scala.util.Try
 
 sealed trait InputValue
 object InputValue {

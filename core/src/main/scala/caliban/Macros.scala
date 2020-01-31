@@ -2,6 +2,7 @@ package caliban
 
 import scala.language.experimental.macros
 import scala.reflect.macros.blackbox
+
 import caliban.parsing.Parser
 
 object Macros {

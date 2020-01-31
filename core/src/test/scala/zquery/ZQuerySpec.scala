@@ -1,11 +1,10 @@
 package zquery
 
-import zio.{ console, ZIO }
 import zio.console.Console
+import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestConsole
-import zio.test.Assertion._
-
+import zio.{ console, ZIO }
 import zquery.ZQuerySpecUtil._
 
 object ZQuerySpec

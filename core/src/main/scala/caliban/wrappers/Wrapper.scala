@@ -1,6 +1,7 @@
 package caliban.wrappers
 
 import scala.annotation.tailrec
+
 import caliban.CalibanError.{ ParsingError, ValidationError }
 import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.parsing.adt.Document

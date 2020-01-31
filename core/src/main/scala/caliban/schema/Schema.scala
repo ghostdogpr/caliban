@@ -2,6 +2,10 @@ package caliban.schema
 
 import java.util.UUID
 
+import scala.annotation.implicitNotFound
+import scala.concurrent.Future
+import scala.language.experimental.macros
+
 import caliban.ResponseValue._
 import caliban.Value._
 import caliban.introspection.adt._
@@ -13,10 +17,6 @@ import magnolia._
 import zio.ZIO
 import zio.stream.ZStream
 import zquery.ZQuery
-
-import scala.annotation.implicitNotFound
-import scala.concurrent.Future
-import scala.language.experimental.macros
 
 /**
  * Typeclass that defines how to map the type `T` to the according GraphQL concepts: how to introspect it and how to resolve it.
