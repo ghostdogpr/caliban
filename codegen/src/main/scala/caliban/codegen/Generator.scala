@@ -24,7 +24,11 @@ object Generator {
   def formatStr(code: String, fmt: String): Task[String] = Task {
     ReentrantCache()
     val scalafmtReflect =
-      ScalafmtReflect(new URLClassLoader(new Array[URL](0), this.getClass.getClassLoader), "2.2.1", false)
+      ScalafmtReflect(
+        new URLClassLoader(new Array[URL](0), this.getClass.getClassLoader),
+        "2.2.1",
+        respectVersion = false
+      )
     val config = scalafmtReflect.parseConfigFromString(fmt)
 
     scalafmtReflect.format(code, config)

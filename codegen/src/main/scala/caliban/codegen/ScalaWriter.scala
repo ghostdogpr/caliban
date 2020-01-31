@@ -107,7 +107,7 @@ object ScalaWriter {
 
       val argsName = if (queryDef.op.args.nonEmpty) s"${queryDef.op.name.capitalize}Args" else "()"
 
-      s"${queryDef.op.name}: ${argsName} => ${GQLWriter[Type, Any].write(queryDef.op.ofType)(Nil)}"
+      s"${queryDef.op.name}: $argsName => ${GQLWriter[Type, Any].write(queryDef.op.ofType)(Nil)}"
     }
   }
 

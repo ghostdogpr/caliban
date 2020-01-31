@@ -501,28 +501,25 @@ object Validator {
     )
   }
 
-  //TODO: maybe eliminate bolierplate in uniqueness checks across validations
-  private def validateTypes(
-    types: List[TypeDefinition]
-  ): IO[ValidationError, Map[String, TypeDefinition]] =
+  private def validateTypes(types: List[TypeDefinition]): IO[ValidationError, Map[String, TypeDefinition]] =
     IO.foldLeft(types)(Map.empty[String, TypeDefinition]) {
-      case (typeMap, gqltype) =>
-        if (typeMap.contains(gqltype.name)) {
+      case (typeMap, gqlType) =>
+        if (typeMap.contains(gqlType.name)) {
           IO.fail(
             ValidationError(
-              s"Type '${gqltype.name}' is defined more than once.",
-              "Type definitions name must be unique within a document."
+              s"Type '${gqlType.name}' is defined more than once.",
+              "Type definition name must be unique within a document."
             )
           )
-        } else if (gqltype.fields.map(_.name).groupBy(identity).size != gqltype.fields.size) {
+        } else if (gqlType.fields.map(_.name).groupBy(identity).size != gqlType.fields.size) {
           IO.fail(
             ValidationError(
-              s"Type '${gqltype.name}' has duplicate fields.",
-              "Fields names on a type definition must be unique."
+              s"Type '${gqlType.name}' has duplicate fields.",
+              "Field name must be unique within a type definition."
             )
           )
         } else
-          IO.succeed(typeMap.updated(gqltype.name, gqltype))
+          IO.succeed(typeMap.updated(gqlType.name, gqlType))
 
     }
 

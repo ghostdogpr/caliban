@@ -19,8 +19,7 @@ object CodegenPlugin extends AutoPlugin {
         execCommand(args).foldM(
           reason =>
             putStrLn(reason.toString) *>
-              putStrLn(reason.getStackTrace.mkString("\n"))
-              as (1),
+              putStrLn(reason.getStackTrace.mkString("\n")).as(1),
           _ => Task.succeed(1)
         )
       )
