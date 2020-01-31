@@ -477,6 +477,31 @@ object ParserSpec
               )
             )
           )
+        },
+        testM("input type") {
+          val gql =
+            """input MessageInput {
+              |  author: String!
+              |  message: String
+          }""".stripMargin
+
+          assertM(
+            Parser.parseQuery(gql),
+            equalTo(
+              Document(
+                List(
+                  TypeDefinition(
+                    "MessageInput",
+                    List(
+                      FieldDefinition(None, "author", List(), NamedType("String", true), List()),
+                      FieldDefinition(None, "message", List(), NamedType("String", false), List())
+                    )
+                  )
+                ),
+                SourceMapper.apply(gql)
+              )
+            )
+          )
         }
       )
     )

@@ -214,6 +214,36 @@ userList: () => List[Option[User]]
               "\n"
             )
           )
+        },
+        testM("simple input type") {
+          val schema =
+            """
+              |  input MessageInput {
+              |    content: String
+              |    author: String
+              |  }
+            """.stripMargin
+
+          val expected = 
+            """import Types._
+              |
+              |object Types {
+              |
+              |  case class MessageInput(content: Option[String], author: Option[String])
+              |
+              |}
+              |""".stripMargin
+
+          implicit val writer = ScalaWriter.DefaultGQLWriter
+
+          assertM(
+            Parser
+              .parseQuery(schema)
+              .flatMap(s => {
+                Generator.formatStr(Generator.generate(s), ScalaWriter.scalafmtConfig)
+              }),
+            equalTo(expected)
+          )
         }
       )
     )

@@ -192,7 +192,7 @@ object Parser {
     }
 
   private def typeDefinition[_: P]: P[TypeDefinition] =
-    P("type" ~/ name ~ "{" ~ fieldDefinition.rep ~ "}").map(t => TypeDefinition(t._1, t._2.toList))
+    P(("type" | "input") ~/ name ~ "{" ~ fieldDefinition.rep ~ "}").map(t => TypeDefinition(t._1, t._2.toList))
 
   private def executableDefinition[_: P]: P[ExecutableDefinition] =
     P(operationDefinition | fragmentDefinition)
