@@ -85,7 +85,7 @@ lazy val codegen = project
     sbtPlugin := true,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "org.scalameta" %%% "scalafmt-dynamic" % "2.3.3-RC1",
+      "org.scalameta" %%% "scalafmt-dynamic" % "2.3.3-RC2",
       "com.geirsson"  %%% "scalafmt-core"    % "1.5.1",
       "dev.zio"       %%% "zio-test"         % "1.0.0-RC17" % "test",
       "dev.zio"       %%% "zio-test-sbt"     % "1.0.0-RC17" % "test"
