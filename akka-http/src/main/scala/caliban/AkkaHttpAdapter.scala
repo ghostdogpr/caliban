@@ -16,8 +16,6 @@ import io.circe.syntax._
 import zio.{ Runtime, URIO }
 
 import scala.concurrent.{ ExecutionContext }
-//import scala.concurrent.duration.FiniteDuration
-// import zio.Task
 
 object AkkaHttpAdapter extends FailFastCirceSupport {
 

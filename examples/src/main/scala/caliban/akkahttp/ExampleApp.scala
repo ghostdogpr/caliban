@@ -54,12 +54,8 @@ object ExampleApp extends App with GenericSchema[Console with Clock] {
       .make(sampleCharacters)
       .map(service => makeApi(service).interpreter)
 
-  val apiRoute: Route = AkkaHttpAdapter.makeHttpServiceM(interpreter)
-  val wsApiRoute = {
-    // when do we create subscriptions? When do we make it effectful/unsafe?
-    //  val subscriptions: UIO[Ref[Map[String, Fiber[Throwable, Unit]]]] = Ref.make(Map.empty[String, Fiber[Throwable, Unit]])
-    AkkaHttpAdapter.makeWebSocketServiceM(interpreter)
-  }
+  val apiRoute   = AkkaHttpAdapter.makeHttpServiceM(interpreter)
+  val wsApiRoute = AkkaHttpAdapter.makeWebSocketServiceM(interpreter)
 
   /**
    * curl -X POST \
@@ -79,7 +75,6 @@ object ExampleApp extends App with GenericSchema[Console with Clock] {
       getFromResource("graphiql.html")
     }
 
-  // convention is normally 8080. Keep at 8088?
   val bindingFuture = Http().bindAndHandle(route, "localhost", 8088)
   println(s"Server online at http://localhost:8088/\nPress RETURN to stop...")
   StdIn.readLine()
