@@ -1,5 +1,7 @@
 package caliban.schema
 
+import caliban.parsing.adt.Directive
+
 import scala.annotation.StaticAnnotation
 
 object Annotations {
@@ -24,6 +26,11 @@ object Annotations {
    * Annotation used to provide an alternative name to a field or a type.
    */
   case class GQLName(value: String) extends StaticAnnotation
+
+  /**
+   * Annotation used to provide directives to a schema type
+   */
+  case class GQLDirective(directive: Directive) extends StaticAnnotation
 
   /**
    * Annotation to make a sealed trait an interface instead of a union type

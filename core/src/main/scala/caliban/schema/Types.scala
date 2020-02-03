@@ -1,6 +1,7 @@
 package caliban.schema
 
 import caliban.introspection.adt._
+import caliban.parsing.adt.Directive
 
 object Types {
 
@@ -29,13 +30,19 @@ object Types {
       enumValues = args => Some(values.filter(v => args.includeDeprecated.getOrElse(false) || !v.isDeprecated))
     )
 
-  def makeObject(name: Option[String], description: Option[String], fields: List[__Field]): __Type =
+  def makeObject(
+    name: Option[String],
+    description: Option[String],
+    fields: List[__Field],
+    directives: List[Directive]
+  ): __Type =
     __Type(
       __TypeKind.OBJECT,
       name,
       description,
       fields = args => Some(fields.filter(v => args.includeDeprecated.getOrElse(false) || !v.isDeprecated)),
-      interfaces = () => Some(Nil)
+      interfaces = () => Some(Nil),
+      directives = Some(directives)
     )
 
   def makeInputObject(name: Option[String], description: Option[String], fields: List[__InputValue]): __Type =

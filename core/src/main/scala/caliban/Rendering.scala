@@ -1,6 +1,8 @@
 package caliban
 
+import caliban.Value.{ BooleanValue, EnumValue, FloatValue, IntValue, NullValue, StringValue }
 import caliban.introspection.adt._
+import caliban.parsing.adt.Directive
 
 object Rendering {
 
@@ -21,6 +23,7 @@ object Rendering {
                 .mkString(" | ")
             Some(s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} = $renderedTypes""")
           case _ =>
+            val renderedDirectives: String = t.directives.fold("")(_.map(renderDirective).mkString(" "))
             val renderedFields: String = t
               .fields(__DeprecatedArgs())
               .fold(List.empty[String])(_.map(renderField))
@@ -33,7 +36,7 @@ object Rendering {
               .fold(List.empty[String])(_.map(renderEnumValue))
               .mkString("\n  ")
             Some(
-              s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)}${renderInterfaces(t)} {
+              s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)}${renderInterfaces(t)} $renderedDirectives {
                  |  $renderedFields$renderedInputFields$renderedEnumValues
                  |}""".stripMargin
             )
@@ -61,6 +64,27 @@ object Rendering {
     case None        => ""
     case Some(value) => if (value.contains("\n")) s"""\"\"\"\n$value\"\"\"\n""" else s""""$value"\n"""
   }
+
+  private def renderDirectiveArgument(value: InputValue): String = value match {
+    case InputValue.ListValue(values) =>
+      values.map(renderDirectiveArgument).mkString("[", ",", "]")
+    case InputValue.ObjectValue(fields) =>
+      fields.map { case (key, value) => s"$key: ${renderDirectiveArgument(value)}" }.mkString("{", ",", "}")
+    case InputValue.VariableValue(_) =>
+      throw new Exception("Variable values are not allowed in a directive declaration")
+    case NullValue           => "null"
+    case StringValue(value)  => "\"" + value + "\""
+    case i: IntValue         => i.toInt.toString
+    case f: FloatValue       => f.toFloat.toString
+    case BooleanValue(value) => value.toString
+    case EnumValue(value)    => value
+  }
+
+  private def renderDirective(directive: Directive) =
+    s"@${directive.name}${if (directive.arguments.nonEmpty) s"""(${directive.arguments.map {
+      case (key, value) => s"$key: ${renderDirectiveArgument(value)}"
+    }.mkString("{", ",", "}")})"""
+    else ""}"
 
   private def renderField(field: __Field): String =
     s"${field.name}${renderArguments(field.args)}: ${renderTypeName(field.`type`())}${if (field.isDeprecated)

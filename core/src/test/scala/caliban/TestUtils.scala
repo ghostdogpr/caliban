@@ -2,7 +2,9 @@ package caliban
 
 import caliban.TestUtils.Origin._
 import caliban.TestUtils.Role._
-import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLInterface }
+import caliban.Value.StringValue
+import caliban.parsing.adt.Directive
+import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLDirective, GQLInterface }
 import caliban.schema.Schema
 import zio.UIO
 import zio.stream.ZStream
@@ -34,6 +36,7 @@ object TestUtils {
     case class Mechanic(shipName: String) extends Role
   }
 
+  @GQLDirective(Directive("key", Map("name" -> StringValue("name")), 0))
   case class Character(name: String, nicknames: List[String], origin: Origin, role: Option[Role])
 
   object Character {
