@@ -1,6 +1,6 @@
 # Middleware
 
-Caliban allows you to perform additional actions at various level of a query processing, via the concept of `Wrapper`. Using wrappers, you can:
+Caliban allows you to perform additional actions at various levels of a query processing, via the concept of `Wrapper`. Using wrappers, you can:
 - verify that a query doesn't reach some limit (e.g. depth, complexity)
 - modify a query before it's executed
 - add timeouts to queries or fields

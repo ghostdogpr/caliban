@@ -48,7 +48,7 @@ lazy val root = project
   .enablePlugins(ScalaJSPlugin)
   .settings(skip in publish := true)
   .settings(historyPath := None)
-  .aggregate(coreJVM, coreJS, http4s, akkaHttp, catsInteropJVM, catsInteropJS)
+  .aggregate(coreJVM, coreJS, http4s, akkaHttp, catsInteropJVM, catsInteropJS, codegen)
 
 lazy val core = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)
@@ -77,6 +77,21 @@ lazy val coreJVM = core.jvm
 lazy val coreJS = core.js.settings(
   libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.0.0-RC3" % Test
 )
+lazy val codegen = project
+  .in(file("codegen"))
+  .settings(name := "caliban-codegen")
+  .settings(commonSettings)
+  .settings(
+    sbtPlugin := true,
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    libraryDependencies ++= Seq(
+      "org.scalameta" %%% "scalafmt-dynamic" % "2.3.3-RC2",
+      "com.geirsson"  %%% "scalafmt-core"    % "1.5.1",
+      "dev.zio"       %%% "zio-test"         % "1.0.0-RC17" % "test",
+      "dev.zio"       %%% "zio-test-sbt"     % "1.0.0-RC17" % "test"
+    )
+  )
+  .dependsOn(coreJVM)
 
 lazy val catsInterop = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)
@@ -86,7 +101,7 @@ lazy val catsInterop = crossProject(JSPlatform, JVMPlatform)
   .settings(
     libraryDependencies ++= Seq(
       "dev.zio"       %%% "zio-interop-cats" % "2.0.0.0-RC10",
-      "org.typelevel" %%% "cats-effect"      % "2.0.0"
+      "org.typelevel" %%% "cats-effect"      % "2.1.0"
     )
   )
   .dependsOn(core)
@@ -100,7 +115,7 @@ lazy val http4s = project
   .settings(
     libraryDependencies ++= Seq(
       "dev.zio"       %% "zio-interop-cats"    % "2.0.0.0-RC10",
-      "org.typelevel" %% "cats-effect"         % "2.0.0",
+      "org.typelevel" %% "cats-effect"         % "2.1.0",
       "org.http4s"    %% "http4s-dsl"          % http4sVersion,
       "org.http4s"    %% "http4s-circe"        % http4sVersion,
       "org.http4s"    %% "http4s-blaze-server" % http4sVersion,
@@ -122,7 +137,7 @@ lazy val akkaHttp = project
   .settings(
     libraryDependencies ++= Seq(
       "com.typesafe.akka" %% "akka-http"       % "10.1.11",
-      "com.typesafe.akka" %% "akka-stream"     % "2.6.2",
+      "com.typesafe.akka" %% "akka-stream"     % "2.6.3",
       "de.heikoseeberger" %% "akka-http-circe" % "1.30.0",
       "io.circe"          %% "circe-parser"    % "0.12.3",
       compilerPlugin(

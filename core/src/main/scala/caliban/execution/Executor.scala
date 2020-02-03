@@ -1,5 +1,8 @@
 package caliban.execution
 
+import scala.annotation.tailrec
+import scala.collection.immutable.ListMap
+
 import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue._
 import caliban.Value._
@@ -10,9 +13,6 @@ import caliban.wrappers.Wrapper.FieldWrapper
 import caliban.{ CalibanError, GraphQLResponse, InputValue, ResponseValue }
 import zio._
 import zquery.ZQuery
-
-import scala.annotation.tailrec
-import scala.collection.immutable.ListMap
 
 object Executor {
 

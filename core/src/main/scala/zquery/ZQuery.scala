@@ -1,6 +1,6 @@
 package zquery
 
-import zio.{ CanFail, Cause, NeedsEnv, Ref, ZIO }
+import zio._
 
 /**
  * A `ZQuery[R, E, A]` is a purely functional description of an effectual query

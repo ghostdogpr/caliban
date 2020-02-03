@@ -1,8 +1,8 @@
 package caliban.parsing
 
-import zio.test._
-import Assertion._
 import caliban.parsing.adt.LocationInfo
+import zio.test.Assertion._
+import zio.test._
 
 object SourceMapperSpec
     extends DefaultRunnableSpec(

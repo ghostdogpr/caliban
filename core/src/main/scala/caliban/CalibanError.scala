@@ -20,7 +20,7 @@ object CalibanError {
     locationInfo: Option[LocationInfo] = None,
     innerThrowable: Option[Throwable] = None
   ) extends CalibanError {
-    override def toString: String = s"""Parsing error: $msg ${innerThrowable.fold("")(_.toString)}"""
+    override def toString: String = s"Parsing Error: $msg ${innerThrowable.fold("")(_.toString)}"
   }
 
   /**
@@ -28,7 +28,7 @@ object CalibanError {
    */
   case class ValidationError(msg: String, explanatoryText: String, locationInfo: Option[LocationInfo] = None)
       extends CalibanError {
-    override def toString: String = s"""Validation error: $msg $explanatoryText"""
+    override def toString: String = s"ValidationError Error: $msg}"
   }
 
   /**
@@ -40,15 +40,7 @@ object CalibanError {
     locationInfo: Option[LocationInfo] = None,
     innerThrowable: Option[Throwable] = None
   ) extends CalibanError {
-    override def toString: String = {
-      val pathString = path.map {
-        case Left(value)  => value
-        case Right(value) => value.toString
-      }.mkString(" > ")
-      val field = if (pathString.isEmpty) "" else s" on field '$pathString'"
-      val inner = innerThrowable.fold("")(e => s" with ${e.toString}")
-      s"Execution error$field: $msg$inner"
-    }
+    override def toString: String = s"Execution Error: $msg ${innerThrowable.fold("")(_.toString)}"
   }
 
   implicit def circeEncoder[F[_]](implicit ev: IsCirceEncoder[F]): F[CalibanError] =
@@ -66,7 +58,7 @@ private object ErrorCirce {
     case CalibanError.ParsingError(msg, locationInfo, _) =>
       Json
         .obj(
-          "message" -> msg.asJson,
+          "message" -> s"Parsing Error: $msg".asJson,
           "locations" -> Some(locationInfo).collect {
             case Some(li) => Json.arr(locationToJson(li))
           }.asJson

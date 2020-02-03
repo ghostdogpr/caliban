@@ -33,7 +33,7 @@ object Rendering {
               .fold(List.empty[String])(_.map(renderEnumValue))
               .mkString("\n  ")
             Some(s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} {
-                    |  ${renderedFields}${renderedInputFields}${renderedEnumValues}
+                    |  $renderedFields$renderedInputFields$renderedEnumValues
                     |}""".stripMargin)
         }
     }.mkString("\n\n")

@@ -1,9 +1,9 @@
 package caliban.schema
 
 import caliban.CalibanError.ExecutionError
-import caliban.{ InputValue, ResponseValue }
 import caliban.Value.NullValue
 import caliban.execution.FieldInfo
+import caliban.{ InputValue, ResponseValue }
 import zio.stream.ZStream
 import zquery.ZQuery
 

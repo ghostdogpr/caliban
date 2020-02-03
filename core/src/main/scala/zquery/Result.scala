@@ -1,7 +1,6 @@
 package zquery
 
 import zio.{ CanFail, Cause, NeedsEnv }
-
 import zquery.Result._
 
 /**

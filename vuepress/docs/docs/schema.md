@@ -171,3 +171,26 @@ You can also use the `scalarSchema` helper to create your own scalar types, prov
 import caliban.schema._
 implicit val unitSchema: Schema[Any, Unit] = scalarSchema("Unit", None, _ => ObjectValue(Nil))
 ```
+
+## Schema generation
+
+Caliban can automatically generate Scala code out of a GraphQL schema provided as a json file for easier and faster development. 
+
+In order to use this feature add the caliban sbt plugin to your project and enable it. 
+ 
+```scala
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen" % "0.5.0")
+enablePlugins(CodegenPlugin)
+```
+Then call the `codegen` sbt command.
+```scala
+codegen schemaPath outPath ?scalafmtPath
+
+codegen project/schema.json src/main/GQLSchema.scala
+```
+Command will write a scala file (outPath) containing GraphQL types,
+queries, subscriptions and a few utility classes for provided json schema (schemaPath) and will
+format generated code with scalafmt with config in (scalafmtPath) or
+default config provided along with caliban-codegen.
+
+Expressions that can not be generated in the current release are following: enum, schema, interfaces, union types, input.

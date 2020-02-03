@@ -1,8 +1,8 @@
 package caliban.introspection
 
 import caliban.introspection.adt._
+import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
 import caliban.parsing.adt.Document
-import caliban.parsing.adt.ExecutableDefinition.OperationDefinition
 import caliban.parsing.adt.Selection.Field
 import caliban.schema.RootSchema.Operation
 import caliban.schema.{ RootSchema, RootType, Schema, Types }

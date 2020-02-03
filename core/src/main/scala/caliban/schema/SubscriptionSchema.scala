@@ -1,6 +1,7 @@
 package caliban.schema
 
 import scala.language.experimental.macros
+
 import magnolia._
 import zio.stream.ZStream
 
