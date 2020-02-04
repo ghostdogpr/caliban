@@ -3,7 +3,6 @@ package caliban.akkahttp
 import scala.io.StdIn
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
-import zio.{ DefaultRuntime, URIO }
 import akka.http.scaladsl.server.Route
 import akka.http.scaladsl.server.Directives._
 import akka.stream.Materializer
@@ -11,10 +10,11 @@ import caliban.ExampleData.{ sampleCharacters, Character, CharacterArgs, Charact
 import caliban.GraphQL.graphQL
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.GenericSchema
-import caliban.{ AkkaHttpAdapter, ExampleService, GraphQL, RootResolver }
+import caliban.{ AkkaHttpAdapter, ExampleService, RootResolver }
 import zio.clock.Clock
 import zio.console.Console
 import zio.stream.ZStream
+import zio.{ DefaultRuntime, URIO }
 
 object ExampleApp extends App with GenericSchema[Console with Clock] {
 
@@ -28,18 +28,6 @@ object ExampleApp extends App with GenericSchema[Console with Clock] {
   implicit val characterArgsSchema  = gen[CharacterArgs]
   implicit val charactersArgsSchema = gen[CharactersArgs]
 
-  def makeApi(service: ExampleService): GraphQL[Console with Clock] =
-    graphQL(
-      RootResolver(
-        Queries(
-          args => service.getCharacters(args.origin),
-          args => service.findCharacter(args.name)
-        ),
-        Mutations(args => service.deleteCharacter(args.name)),
-        Subscriptions(service.deletedEvents)
-      )
-    )
-
   case class Queries(
     @GQLDescription("Return all characters from a given origin")
     characters: CharactersArgs => URIO[Console, List[Character]],
@@ -49,17 +37,19 @@ object ExampleApp extends App with GenericSchema[Console with Clock] {
   case class Mutations(deleteCharacter: CharacterArgs => URIO[Console, Boolean])
   case class Subscriptions(characterDeleted: ZStream[Console, Nothing, String])
 
-  val interpreter =
-    ExampleService
-      .make(sampleCharacters)
-      .map(service => makeApi(service).interpreter)
+  val service = defaultRuntime.unsafeRun(ExampleService.make(sampleCharacters))
 
-  val apiRoute: Route = AkkaHttpAdapter.makeHttpServiceM(interpreter)
-  val wsApiRoute = {
-    // when do we create subscriptions? When do we make it effectful/unsafe?
-    //  val subscriptions: UIO[Ref[Map[String, Fiber[Throwable, Unit]]]] = Ref.make(Map.empty[String, Fiber[Throwable, Unit]])
-    AkkaHttpAdapter.makeWebSocketServiceM(interpreter)
-  }
+  val interpreter =
+    graphQL(
+      RootResolver(
+        Queries(
+          args => service.getCharacters(args.origin),
+          args => service.findCharacter(args.name)
+        ),
+        Mutations(args => service.deleteCharacter(args.name)),
+        Subscriptions(service.deletedEvents)
+      )
+    ).interpreter
 
   /**
    * curl -X POST \
@@ -72,12 +62,12 @@ object ExampleApp extends App with GenericSchema[Console with Clock] {
    */
   val route: Route =
     path("api" / "graphql") {
-      apiRoute // do not call makeHttpServiceM here, or it will be recreated at every call
-    } ~ path("ws" / "graphql") {
-      wsApiRoute
+      AkkaHttpAdapter.makeHttpService(interpreter)
     } ~ path("graphiql") {
       getFromResource("graphiql.html")
-    }
+    //} ~ path("ws" / "graphql") {
+    //  wsApiRoute
+
 
   // convention is normally 8080. Keep at 8088?
   val bindingFuture = Http().bindAndHandle(route, "localhost", 8088)
