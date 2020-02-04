@@ -4,7 +4,6 @@ import scala.io.StdIn
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives._
-import akka.http.scaladsl.server.Route
 import caliban.ExampleData.{ sampleCharacters, Character, CharacterArgs, CharactersArgs, Role }
 import caliban.GraphQL.graphQL
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
@@ -35,23 +34,19 @@ object ExampleApp extends App with GenericSchema[Console with Clock] {
   case class Mutations(deleteCharacter: CharacterArgs => URIO[Console, Boolean])
   case class Subscriptions(characterDeleted: ZStream[Console, Nothing, String])
 
-  val interpreter =
-    ExampleService
-      .make(sampleCharacters)
-      .map(service => {
-        graphQL(
-          RootResolver(
-            Queries(
-              args => service.getCharacters(args.origin),
-              args => service.findCharacter(args.name)
-            ),
-            Mutations(args => service.deleteCharacter(args.name)),
-            Subscriptions(service.deletedEvents)
-          )
-        ).interpreter
-      })
+  val service = defaultRuntime.unsafeRun(ExampleService.make(sampleCharacters))
 
-  val apiRoute: Route = AkkaHttpAdapter.makeHttpServiceM(interpreter)
+  val interpreter =
+    graphQL(
+      RootResolver(
+        Queries(
+          args => service.getCharacters(args.origin),
+          args => service.findCharacter(args.name)
+        ),
+        Mutations(args => service.deleteCharacter(args.name)),
+        Subscriptions(service.deletedEvents)
+      )
+    ).interpreter
 
   /**
    * curl -X POST \
@@ -64,7 +59,7 @@ object ExampleApp extends App with GenericSchema[Console with Clock] {
    */
   val route =
     path("api" / "graphql") {
-      apiRoute // do not call makeHttpServiceM here, or it will be recreated at every call
+      AkkaHttpAdapter.makeHttpService(interpreter)
     } ~ path("graphiql") {
       getFromResource("graphiql.html")
     }
