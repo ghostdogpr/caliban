@@ -146,12 +146,12 @@ trait GenericSchema[R] extends DerivationSchema[R] {
     implicit evA: Schema[RA, A],
     evB: Schema[RB, B]
   ): Schema[RA with RB, Either[A, B]] = {
-    val typeA: __Type       = evA.toType()
-    val typeB: __Type       = evB.toType()
-    val typeAName: String   = Types.name(typeA)
-    val typeBName: String   = Types.name(typeB)
-    val name: String        = s"Either${typeAName}Or$typeBName"
-    val description: String = s"Either $typeAName or $typeBName"
+    lazy val typeA: __Type       = evA.toType()
+    lazy val typeB: __Type       = evB.toType()
+    lazy val typeAName: String   = Types.name(typeA)
+    lazy val typeBName: String   = Types.name(typeB)
+    lazy val name: String        = s"Either${typeAName}Or$typeBName"
+    lazy val description: String = s"Either $typeAName or $typeBName"
 
     objectSchema(
       name,
@@ -172,10 +172,10 @@ trait GenericSchema[R] extends DerivationSchema[R] {
     implicit evA: Schema[RA, A],
     evB: Schema[RB, B]
   ): Schema[RA with RB, (A, B)] = {
-    val typeA: __Type     = evA.toType()
-    val typeB: __Type     = evB.toType()
-    val typeAName: String = Types.name(typeA)
-    val typeBName: String = Types.name(typeB)
+    lazy val typeA: __Type     = evA.toType()
+    lazy val typeB: __Type     = evB.toType()
+    lazy val typeAName: String = Types.name(typeA)
+    lazy val typeBName: String = Types.name(typeB)
 
     objectSchema(
       s"Tuple${typeAName}And$typeBName",
@@ -190,14 +190,14 @@ trait GenericSchema[R] extends DerivationSchema[R] {
   }
   implicit def mapSchema[RA, RB, A, B](implicit evA: Schema[RA, A], evB: Schema[RB, B]): Schema[RA with RB, Map[A, B]] =
     new Schema[RA with RB, Map[A, B]] {
-      val typeA: __Type       = evA.toType()
-      val typeB: __Type       = evB.toType()
-      val typeAName: String   = Types.name(typeA)
-      val typeBName: String   = Types.name(typeB)
-      val name: String        = s"KV$typeAName$typeBName"
-      val description: String = s"A key-value pair of $typeAName and $typeBName"
+      lazy val typeA: __Type       = evA.toType()
+      lazy val typeB: __Type       = evB.toType()
+      lazy val typeAName: String   = Types.name(typeA)
+      lazy val typeBName: String   = Types.name(typeB)
+      lazy val name: String        = s"KV$typeAName$typeBName"
+      lazy val description: String = s"A key-value pair of $typeAName and $typeBName"
 
-      val kvSchema: Schema[RA with RB, (A, B)] = objectSchema(
+      lazy val kvSchema: Schema[RA with RB, (A, B)] = objectSchema(
         name,
         Some(description),
         List(
