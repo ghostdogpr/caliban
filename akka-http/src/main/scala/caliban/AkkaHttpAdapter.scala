@@ -48,11 +48,6 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
         .future
     )
 
-  def makeHttpServiceM[R, E](
-    interpreter: URIO[R, GraphQLInterpreter[R, E]]
-  )(implicit ec: ExecutionContext, runtime: Runtime[R]): Route =
-    makeHttpService(runtime.unsafeRun(interpreter))
-
   def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E]
   )(implicit ec: ExecutionContext, runtime: Runtime[R]): Route = {
