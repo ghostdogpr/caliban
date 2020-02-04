@@ -3,9 +3,7 @@ package caliban.akkahttp
 import scala.io.StdIn
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
-import akka.http.scaladsl.server.Route
 import akka.http.scaladsl.server.Directives._
-import akka.stream.Materializer
 import caliban.ExampleData.{ sampleCharacters, Character, CharacterArgs, CharactersArgs, Role }
 import caliban.GraphQL.graphQL
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
@@ -19,7 +17,6 @@ import zio.{ DefaultRuntime, URIO }
 object ExampleApp extends App with GenericSchema[Console with Clock] {
 
   implicit val system           = ActorSystem()
-  implicit val materializer     = Materializer.matFromSystem
   implicit val executionContext = system.dispatcher
   implicit val defaultRuntime   = new DefaultRuntime {}
 
@@ -60,16 +57,13 @@ object ExampleApp extends App with GenericSchema[Console with Clock] {
    * "query": "query { characters { name }}"
    * }'
    */
-  val route: Route =
+  val route =
     path("api" / "graphql") {
       AkkaHttpAdapter.makeHttpService(interpreter)
     } ~ path("graphiql") {
       getFromResource("graphiql.html")
-    //} ~ path("ws" / "graphql") {
-    //  wsApiRoute
+    }
 
-
-  // convention is normally 8080. Keep at 8088?
   val bindingFuture = Http().bindAndHandle(route, "localhost", 8088)
   println(s"Server online at http://localhost:8088/\nPress RETURN to stop...")
   StdIn.readLine()
