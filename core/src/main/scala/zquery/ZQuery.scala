@@ -1,6 +1,8 @@
 package zquery
 
 import zio._
+import zio.clock._
+import zio.duration._
 
 /**
  * A `ZQuery[R, E, A]` is a purely functional description of an effectual query
@@ -200,6 +202,24 @@ sealed trait ZQuery[-R, +E, +A] { self =>
     } yield (cache, a)
 
   /**
+   * Summarizes a query by computing some value before and after execution,
+   * and then combining the values to produce a summary, together with the
+   * result of execution.
+   */
+  final def summarized[R1 <: R, E1 >: E, B, C](f: (B, B) => C)(summary: ZIO[R1, E1, B]): ZQuery[R1, E1, (C, A)] =
+    for {
+      start <- ZQuery.fromEffect(summary)
+      value <- self
+      end   <- ZQuery.fromEffect(summary)
+    } yield (f(start, end), value)
+
+  /**
+   * Returns a new query that executes this one and times the execution.
+   */
+  final def timed: ZQuery[R with Clock, E, (Duration, A)] =
+    summarized[R with Clock, E, Long, Duration]((start, end) => Duration.fromNanos(end - start))(clock.nanoTime)
+
+  /**
    * Returns a query that models the execution of this query and the specified
    * query sequentially, combining their results into a tuple.
    */
@@ -287,6 +307,12 @@ object ZQuery {
     foreachPar(as)(identity)
 
   /**
+   * Constructs a query that dies with the specified error.
+   */
+  def die(t: Throwable): ZQuery[Any, Nothing, Nothing] =
+    ZQuery(ZIO.die(t))
+
+  /**
    * Accesses the whole environment of the query.
    */
   def environment[R]: ZQuery[R, Nothing, R] = ZQuery.fromEffect(ZIO.environment[R])
@@ -320,15 +346,30 @@ object ZQuery {
     ZQuery(effect.foldCause(Result.fail, Result.done))
 
   /**
-   * Constructs a query from a request and a data source. Queries must be
-   * constructed with `fromRequest` or combinators derived from it for
-   * optimizations to be applied.
+   * Constructs a query from a request and a data source. Queries will die with
+   * a `QueryFailure` when run if the data source does not provide results for
+   * all requests received. Queries must be constructed with `fromRequest` or
+   * combinators derived from it for optimizations to be applied.
    */
   def fromRequest[R, E, A, B](
     request: A
   )(dataSource: DataSource[R, A])(implicit ev: A <:< Request[E, B]): ZQuery[R, E, B] =
-    new ZQuery[R, E, B] {
-      def step(cache: Cache): ZIO[R, Nothing, Result[R, E, B]] =
+    fromRequestOption(request)(dataSource).flatMap {
+      case None    => ZQuery.die(QueryFailure(dataSource, request))
+      case Some(b) => ZQuery.succeed(b)
+    }
+
+  /**
+   * Constructs a query from a request and a data source. Returns `Some` if the
+   * data source provides a result for a request or `None` otherwise. Queries
+   * must be constructed with `fromRequest` or combinators derived from it for
+   * optimizations to be applied.
+   */
+  def fromRequestOption[R, E, A, B](
+    request: A
+  )(dataSource: DataSource[R, A])(implicit ev: A <:< Request[E, B]): ZQuery[R, E, Option[B]] =
+    new ZQuery[R, E, Option[B]] {
+      def step(cache: Cache): ZIO[R, Nothing, Result[R, E, Option[B]]] =
         cache
           .lookup(request)
           .foldM(
@@ -338,25 +379,15 @@ object ZQuery {
                 _   <- cache.insert(request, ref)
               } yield Result.blocked(
                 BlockedRequestMap(dataSource, BlockedRequest(request, ref)),
-                ZQuery {
-                  ref.get.flatMap {
-                    case None    => ZIO.die(QueryFailure(dataSource, request))
-                    case Some(b) => ZIO.succeed(Result.fromEither(b))
-                  }
-                }
+                ZQuery(ref.get.map(Result.fromOptionEither))
               ),
             ref =>
               ref.get.map {
-                case Some(b) => Result.fromEither(b)
+                case Some(b) => Result.fromOptionEither(Some(b))
                 case None =>
                   Result.blocked(
                     BlockedRequestMap.empty,
-                    ZQuery {
-                      ref.get.flatMap {
-                        case None    => ZIO.die(QueryFailure(dataSource, request))
-                        case Some(b) => ZIO.succeed(Result.fromEither(b))
-                      }
-                    }
+                    ZQuery(ref.get.map(Result.fromOptionEither))
                   )
               }
           )

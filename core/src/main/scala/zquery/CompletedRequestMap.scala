@@ -21,6 +21,16 @@ final class CompletedRequestMap private (private val map: Map[Any, Either[Any, A
     new CompletedRequestMap(self.map + (request -> result))
 
   /**
+   * Appends the specified optional result to the completed request map.
+   */
+  def insertOption[E, A](request: Request[E, A])(result: Either[E, Option[A]]): CompletedRequestMap =
+    result match {
+      case Left(e)        => insert(request)(Left(e))
+      case Right(Some(a)) => insert(request)(Right(a))
+      case Right(None)    => self
+    }
+
+  /**
    * Retrieves the result of the specified request if it exists.
    */
   def lookup[E, A](request: Request[E, A]): Option[Either[E, A]] =

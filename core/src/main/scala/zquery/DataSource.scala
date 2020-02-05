@@ -18,9 +18,7 @@ import zio.{ NeedsEnv, ZIO }
  * the request type to a `Request[A]`. Data sources can then pattern match on
  * the collection of requests to determine the information requested, execute
  * the query, and place the results into the `CompletedRequestsMap` using
- * [[CompletedRequestMap.empty]] and [[CompletedRequestMap.insert]]. Data
- * sources must provide requests for all results received or fail with an `E`.
- * Failure to do so will cause a query to die with a `QueryFailure` when run.
+ * [[CompletedRequestMap.empty]] and [[CompletedRequestMap.insert]].
  */
 trait DataSource[-R, -A] { self =>
 
@@ -159,11 +157,44 @@ object DataSource {
       def run(requests: Iterable[A]): ZIO[R, Nothing, CompletedRequestMap] =
         f(requests)
           .fold(
-            failure => requests.map((_, Left(failure))),
-            results => requests.zip(results.map(Right(_)))
+            e => requests.map((_, Left(e))),
+            bs => requests.zip(bs.map(Right(_)))
           )
           .map(_.foldLeft(CompletedRequestMap.empty) {
             case (map, (k, v)) => map.insert(k)(v)
+          })
+    }
+
+  /**
+   * Constructs a data source from a pure function that takes a list of
+   * requests and returns a list of optional results of the same size. Each
+   * item in the result list must correspond to the item at the same index in
+   * the request list.
+   */
+  def fromFunctionBatchedOption[A, B](
+    name: String
+  )(f: Iterable[A] => Iterable[Option[B]])(implicit ev: A <:< Request[Nothing, B]): DataSource[Any, A] =
+    fromFunctionBatchedOptionM(name)(f andThen ZIO.succeed)
+
+  /**
+   * Constructs a data source from an effectual function that takes a list of
+   * requests and returns a list of optional results of the same size. Each
+   * item in the result list must correspond to the item at the same index in
+   * the request list.
+   */
+  def fromFunctionBatchedOptionM[R, E, A, B](
+    name: String
+  )(f: Iterable[A] => ZIO[R, E, Iterable[Option[B]]])(implicit ev: A <:< Request[E, B]): DataSource[R, A] =
+    new DataSource[R, A] {
+      val identifier = name
+      def run(requests: Iterable[A]): ZIO[R, Nothing, CompletedRequestMap] =
+        f(requests)
+          .fold(
+            e => requests.map((_, Left(e))),
+            bs => requests.zip(bs.map(Right(_)))
+          )
+          .map(_.foldLeft(CompletedRequestMap.empty) {
+            case (map, (k, v)) => map.insertOption(k)(v)
           })
     }
 
@@ -176,7 +207,9 @@ object DataSource {
    */
   def fromFunctionBatchedWith[A, B](
     name: String
-  )(f: Iterable[A] => Iterable[B], g: B => Request[Nothing, B]): DataSource[Any, A] =
+  )(f: Iterable[A] => Iterable[B], g: B => Request[Nothing, B])(
+    implicit ev: A <:< Request[Nothing, B]
+  ): DataSource[Any, A] =
     fromFunctionBatchedWithM(name)(f andThen ZIO.succeed, g)
 
   /**
@@ -188,15 +221,20 @@ object DataSource {
    */
   def fromFunctionBatchedWithM[R, E, A, B](
     name: String
-  )(f: Iterable[A] => ZIO[R, Nothing, Iterable[B]], g: B => Request[E, B]): DataSource[R, A] =
+  )(f: Iterable[A] => ZIO[R, E, Iterable[B]], g: B => Request[E, B])(
+    implicit ev: A <:< Request[E, B]
+  ): DataSource[R, A] =
     new DataSource[R, A] {
       val identifier = name
       def run(requests: Iterable[A]): ZIO[R, Nothing, CompletedRequestMap] =
-        f(requests).map { results =>
-          results.map(b => (g(b), b)).foldLeft(CompletedRequestMap.empty) {
-            case (map, (k, v)) => map.insert(k)(Right(v))
-          }
-        }
+        f(requests)
+          .fold(
+            e => requests.map(a => (ev(a), Left(e))),
+            bs => bs.map(b => (g(b), Right(b)))
+          )
+          .map(_.foldLeft(CompletedRequestMap.empty) {
+            case (map, (k, v)) => map.insert(k)(v)
+          })
     }
 
   /**
@@ -211,5 +249,31 @@ object DataSource {
         ZIO
           .foreachPar(requests)(k => ZIO.succeed(k).zip(f(k).either))
           .map(_.foldLeft(CompletedRequestMap.empty) { case (map, (k, v)) => map.insert(k)(v) })
+    }
+
+  /**
+   * Constructs a data source from a pure function that may not provide results
+   * for all requests received.
+   */
+  def fromFunctionOption[A, B](
+    name: String
+  )(f: A => Option[B])(implicit ev: A <:< Request[Nothing, B]): DataSource[Any, A] =
+    fromFunctionOptionM(name)(f andThen ZIO.succeed)
+
+  /**
+   * Constructs a data source from an effectual function that may not provide
+   * results for all requests received.
+   */
+  def fromFunctionOptionM[R, E, A, B](
+    name: String
+  )(f: A => ZIO[R, E, Option[B]])(implicit ev: A <:< Request[E, B]): DataSource[R, A] =
+    new DataSource[R, A] {
+      val identifier = name
+      def run(requests: Iterable[A]): ZIO[R, Nothing, CompletedRequestMap] =
+        ZIO
+          .foreachPar(requests)(k => ZIO.succeed(k).zip(f(k).either))
+          .map(_.foldLeft(CompletedRequestMap.empty) {
+            case (map, (k, v)) => map.insertOption(k)(v)
+          })
     }
 }

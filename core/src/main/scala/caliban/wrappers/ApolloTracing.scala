@@ -159,10 +159,11 @@ object ApolloTracing {
       {
         case (query, fieldInfo) =>
           for {
-            start    <- ZQuery.fromEffect(clock.nanoTime)
-            result   <- query
-            end      <- ZQuery.fromEffect(clock.nanoTime)
-            duration = Duration.fromNanos(end - start)
+            summarized <- query.summarized { (start: Long, end: Long) =>
+                           (start, end)
+                         }(clock.nanoTime)
+            ((start, end), result) = summarized
+            duration               = Duration.fromNanos(end - start)
             _ <- ZQuery.fromEffect(
                   ref
                     .update(

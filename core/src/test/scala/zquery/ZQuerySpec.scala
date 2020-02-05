@@ -36,6 +36,14 @@ object ZQuerySpec
             failure.getMessage,
             equalTo("Data source UserRequestDataSource did not complete request GetNameById(27).")
           )
+        },
+        testM("timed does not prevent batching") {
+          val a = getUserNameById(1).zip(getUserNameById(2)).timed
+          val b = getUserNameById(3).zip(getUserNameById(4))
+          for {
+            result <- ZQuery.collectAllPar(List(a, b)).run
+            log    <- TestConsole.output
+          } yield assert(log, hasSize(equalTo(2)))
         }
       )
     )
