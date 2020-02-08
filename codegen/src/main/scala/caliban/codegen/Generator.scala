@@ -2,7 +2,8 @@ package caliban.codegen
 
 import java.net.{ URL, URLClassLoader }
 import java.nio.file.Paths
-import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
+
+import caliban.parsing.adt.Definition.TypeSystemDefinition.{ EnumTypeDefinition, ObjectTypeDefinition }
 import caliban.parsing.adt.Type.FieldDefinition
 import caliban.parsing.adt.{ Document, Type }
 import org.scalafmt.dynamic.ScalafmtReflect
@@ -38,9 +39,10 @@ object Generator {
   }
 
   trait GQLWriterContext {
-    implicit val fieldWriter: GQLWriter[FieldDefinition, TypeDefinition]
+    implicit val fieldWriter: GQLWriter[FieldDefinition, ObjectTypeDefinition]
     implicit val typeWriter: GQLWriter[Type, Any]
-    implicit val typeDefWriter: GQLWriter[TypeDefinition, Document]
+    implicit val objectWriter: GQLWriter[ObjectTypeDefinition, Document]
+    implicit val enumWriter: GQLWriter[EnumTypeDefinition, Document]
     implicit val docWriter: GQLWriter[Document, Any]
     implicit val rootQueryWriter: GQLWriter[RootQueryDef, Document]
     implicit val queryWriter: GQLWriter[QueryDef, Document]
@@ -51,13 +53,13 @@ object Generator {
     implicit val argsWriter: GQLWriter[Args, String]
   }
 
-  case class RootQueryDef(op: TypeDefinition)
+  case class RootQueryDef(op: ObjectTypeDefinition)
   case class QueryDef(op: FieldDefinition)
 
-  case class RootMutationDef(op: TypeDefinition)
+  case class RootMutationDef(op: ObjectTypeDefinition)
   case class MutationDef(op: FieldDefinition)
 
-  case class RootSubscriptionDef(op: TypeDefinition)
+  case class RootSubscriptionDef(op: ObjectTypeDefinition)
   case class SubscriptionDef(op: FieldDefinition)
 
   case class Args(field: FieldDefinition)

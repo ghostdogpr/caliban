@@ -6,7 +6,7 @@ import caliban.InputValue._
 import caliban.Value._
 import caliban.parsing.adt.Definition._
 import caliban.parsing.adt.Definition.ExecutableDefinition._
-import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
+import caliban.parsing.adt.Definition.TypeSystemDefinition._
 import caliban.parsing.adt.Selection._
 import caliban.parsing.adt.Type._
 import caliban.parsing.adt._
@@ -191,13 +191,30 @@ object Parser {
       case (name, typeCondition, dirs, sel) => FragmentDefinition(name, typeCondition, dirs, sel)
     }
 
-  private def typeDefinition[_: P]: P[TypeDefinition] =
-    P("type" ~/ name ~ "{" ~ fieldDefinition.rep ~ "}").map(t => TypeDefinition(t._1, t._2.toList))
+  private def typeSystemDefinition[_: P]: P[TypeSystemDefinition] = objectTypeDefinition | enumTypeDefinition
+
+  private def objectTypeDefinition[_: P]: P[ObjectTypeDefinition] =
+    P("type" ~/ name ~ "{" ~ fieldDefinition.rep ~ "}").map(t => ObjectTypeDefinition(t._1, t._2.toList))
+
+  private def enumValueDefinition[_: P]: P[EnumValueDefinition] =
+    P(stringValue.? ~ name ~ directives.?).map {
+      case (description, enumValue, directives) =>
+        EnumValueDefinition(description.map(_.value), enumValue, directives.getOrElse(Nil))
+    }
+
+  private def enumTypeDefinition[_: P]: P[EnumTypeDefinition] =
+    P(
+      stringValue.? ~ "enum" ~/ name
+        .filter(s => s != "true" && s != "false" && s != "null") ~ directives.? ~ "{" ~ enumValueDefinition.rep ~ "}"
+    ).map {
+      case (description, name, directives, enumValuesDefinition) =>
+        EnumTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), enumValuesDefinition.toList)
+    }
 
   private def executableDefinition[_: P]: P[ExecutableDefinition] =
     P(operationDefinition | fragmentDefinition)
 
-  private def definition[_: P]: P[Definition] = executableDefinition | typeDefinition
+  private def definition[_: P]: P[Definition] = executableDefinition | typeSystemDefinition
 
   private def document[_: P]: P[ParsedDocument] =
     P(Start ~ ignored ~ definition.rep ~ ignored ~ End).map(seq => ParsedDocument(seq.toList))

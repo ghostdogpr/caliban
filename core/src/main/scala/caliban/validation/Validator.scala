@@ -8,7 +8,7 @@ import caliban.introspection.Introspector
 import caliban.introspection.adt._
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
-import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
+import caliban.parsing.adt.Definition.TypeSystemDefinition
 import caliban.parsing.adt.OperationType._
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.NamedType
@@ -83,9 +83,8 @@ object Validator {
   }
 
   private def check(document: Document, rootType: RootType): IO[ValidationError, Map[String, FragmentDefinition]] = {
-    val (operations, fragments, types) = collectDefinitions(document)
+    val (operations, fragments, _) = collectDefinitions(document)
     for {
-      _             <- validateTypes(types)
       fragmentMap   <- validateFragments(fragments)
       selectionSets = collectSelectionSets(operations.flatMap(_.selectionSet) ++ fragments.flatMap(_.selectionSet))
       context       = Context(document, rootType, operations, fragmentMap, selectionSets)
@@ -101,13 +100,13 @@ object Validator {
 
   private def collectDefinitions(
     document: Document
-  ): (List[OperationDefinition], List[FragmentDefinition], List[TypeDefinition]) =
+  ): (List[OperationDefinition], List[FragmentDefinition], List[TypeSystemDefinition]) =
     document.definitions.foldLeft(
-      (List.empty[OperationDefinition], List.empty[FragmentDefinition], List.empty[TypeDefinition])
+      (List.empty[OperationDefinition], List.empty[FragmentDefinition], List.empty[TypeSystemDefinition])
     ) {
-      case ((operations, fragments, types), o: OperationDefinition) => (o :: operations, fragments, types)
-      case ((operations, fragments, types), f: FragmentDefinition)  => (operations, f :: fragments, types)
-      case ((operations, fragments, types), t: TypeDefinition)      => (operations, fragments, t :: types)
+      case ((operations, fragments, types), o: OperationDefinition)  => (o :: operations, fragments, types)
+      case ((operations, fragments, types), f: FragmentDefinition)   => (operations, f :: fragments, types)
+      case ((operations, fragments, types), t: TypeSystemDefinition) => (operations, fragments, t :: types)
     }
 
   private def collectVariablesUsed(context: Context, selectionSet: List[Selection]): Set[String] = {
@@ -309,8 +308,8 @@ object Validator {
                 IO.fail(ValidationError("Subscription operations are not supported on this schema.", ""))
               )(validateFields(context, selectionSet, _))
           }
-        case _: FragmentDefinition => IO.unit
-        case _: TypeDefinition     => IO.unit
+        case _: FragmentDefinition   => IO.unit
+        case _: TypeSystemDefinition => IO.unit
       }
       .unit
 
@@ -501,28 +500,6 @@ object Validator {
       )
     )
   }
-
-  private def validateTypes(types: List[TypeDefinition]): IO[ValidationError, Map[String, TypeDefinition]] =
-    IO.foldLeft(types)(Map.empty[String, TypeDefinition]) {
-      case (typeMap, gqlType) =>
-        if (typeMap.contains(gqlType.name)) {
-          IO.fail(
-            ValidationError(
-              s"Type '${gqlType.name}' is defined more than once.",
-              "Type definition name must be unique within a document."
-            )
-          )
-        } else if (gqlType.fields.map(_.name).groupBy(identity).size != gqlType.fields.size) {
-          IO.fail(
-            ValidationError(
-              s"Type '${gqlType.name}' has duplicate fields.",
-              "Field name must be unique within a type definition."
-            )
-          )
-        } else
-          IO.succeed(typeMap.updated(gqlType.name, gqlType))
-
-    }
 
   private def validateFragments(
     fragments: List[FragmentDefinition]
