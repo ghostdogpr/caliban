@@ -7,7 +7,7 @@ import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ IntValue, StringValue }
 import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper, ParsingWrapper, ValidationWrapper }
 import caliban.{ Rendering, ResponseValue }
-import zio.{ clock, FiberRef }
+import zio.{ clock, Ref }
 import zio.clock.Clock
 import zio.duration.Duration
 import zquery.ZQuery
@@ -20,7 +20,7 @@ object ApolloTracing {
    */
   val apolloTracing: EffectfulWrapper[Clock] =
     EffectfulWrapper(
-      FiberRef
+      Ref
         .make(Tracing())
         .map(
           ref =>
@@ -98,7 +98,7 @@ object ApolloTracing {
       )
   }
 
-  private def apolloTracingOverall(ref: FiberRef[Tracing]): OverallWrapper[Clock] =
+  private def apolloTracingOverall(ref: Ref[Tracing]): OverallWrapper[Clock] =
     OverallWrapper {
       case (io, _) =>
         for {
@@ -123,7 +123,7 @@ object ApolloTracing {
         } yield result
     }
 
-  private def apolloTracingParsing(ref: FiberRef[Tracing]): ParsingWrapper[Clock] =
+  private def apolloTracingParsing(ref: Ref[Tracing]): ParsingWrapper[Clock] =
     ParsingWrapper {
       case (io, _) =>
         for {
@@ -138,7 +138,7 @@ object ApolloTracing {
         } yield result
     }
 
-  private def apolloTracingValidation(ref: FiberRef[Tracing]): ValidationWrapper[Clock] =
+  private def apolloTracingValidation(ref: Ref[Tracing]): ValidationWrapper[Clock] =
     ValidationWrapper {
       case (io, _) =>
         for {
@@ -154,15 +154,16 @@ object ApolloTracing {
         } yield result
     }
 
-  private def apolloTracingField(ref: FiberRef[Tracing]): FieldWrapper[Clock] =
+  private def apolloTracingField(ref: Ref[Tracing]): FieldWrapper[Clock] =
     FieldWrapper(
       {
         case (query, fieldInfo) =>
           for {
-            start    <- ZQuery.fromEffect(clock.nanoTime)
-            result   <- query
-            end      <- ZQuery.fromEffect(clock.nanoTime)
-            duration = Duration.fromNanos(end - start)
+            summarized <- query.summarized { (start: Long, end: Long) =>
+                           (start, end)
+                         }(clock.nanoTime)
+            ((start, end), result) = summarized
+            duration               = Duration.fromNanos(end - start)
             _ <- ZQuery.fromEffect(
                   ref
                     .update(

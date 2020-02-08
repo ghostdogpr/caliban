@@ -18,10 +18,10 @@ final class Cache private (private val state: Ref[Map[Any, Any]]) {
     state.update(_ + (request -> result)).unit
 
   /**
-   * Looks up a request in the cache, returning `None` if the request is not in
-   * the cache, `Some(Ref(None))` if the request is in the cache but has not
-   * been executed yet, or `Some(Ref(Some(value)))` if the request has been
-   * executed.
+   * Looks up a request in the cache, failing with the unit value if the
+   * request is not in the cache, succeeding with `Ref(None)` if the request is
+   * in the cache but has not been executed yet, or `Ref(Some(value))` if the
+   * request has been executed.
    */
   def lookup[E, A](request: Request[E, A]): IO[Unit, Ref[Option[Either[E, A]]]] =
     state.get.map(_.get(request).asInstanceOf[Option[Ref[Option[Either[E, A]]]]]).get

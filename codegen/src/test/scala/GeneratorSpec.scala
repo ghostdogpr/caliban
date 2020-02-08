@@ -3,6 +3,7 @@ import caliban.codegen.{ Generator, ScalaWriter }
 import caliban.codegen.Generator.{ Args, RootMutationDef, RootQueryDef, RootSubscriptionDef }
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document
+import zio.ZIO
 import zio.test.Assertion._
 import zio.test._
 object GeneratorSpec
@@ -23,14 +24,14 @@ object GeneratorSpec
           val typeCaseClass = Parser
             .parseQuery(gqltype)
             .map(doc => {
-              Document.typeDefinitions(doc).map(ScalaWriter.TypeDefinitionWriter.write(_)(doc)).mkString("\n")
+              Document.objectTypeDefinitions(doc).map(ScalaWriter.ObjectWriter.write(_)(doc)).mkString("\n")
             })
 
           val typeCaseClassArgs = Parser
             .parseQuery(gqltype)
             .map(doc => {
               (for {
-                typeDef      <- Document.typeDefinitions(doc)
+                typeDef      <- Document.objectTypeDefinitions(doc)
                 typeDefField <- typeDef.fields
                 argClass     = ScalaWriter.ArgsWriter.write(Args(typeDefField))("Hero")
                 if (argClass.length > 0)
@@ -67,7 +68,7 @@ object GeneratorSpec
             .parseQuery(query)
             .map(doc => {
               Document
-                .typeDefinition(doc, "Query")
+                .objectTypeDefinition(doc, "Query")
                 .map(d => ScalaWriter.RootQueryDefWriter.write(RootQueryDef(d))(doc))
                 .mkString("\n")
             })
@@ -97,7 +98,7 @@ userList: () => List[Option[User]]
             .parseQuery(query)
             .map(doc => {
               Document
-                .typeDefinition(doc, "Mutation")
+                .objectTypeDefinition(doc, "Mutation")
                 .map(d => ScalaWriter.RootMutationDefWriter.write(RootMutationDef(d))(doc))
                 .mkString("\n")
             })
@@ -126,7 +127,7 @@ userList: () => List[Option[User]]
             .parseQuery(query)
             .map(doc => {
               Document
-                .typeDefinition(doc, "Subscription")
+                .objectTypeDefinition(doc, "Subscription")
                 .map(d => ScalaWriter.RootSubscriptionDefWriter.write(RootSubscriptionDef(d))(doc))
                 .mkString("\n")
             })
@@ -207,11 +208,41 @@ userList: () => List[Option[User]]
           assertM(
             Parser
               .parseQuery(schema)
-              .flatMap(s => {
-                Generator.formatStr(Generator.generate(s), ScalaWriter.scalafmtConfig)
-              }),
+              .flatMap(s => Generator.formatStr(Generator.generate(s), ScalaWriter.scalafmtConfig)),
+            equalTo("\n")
+          )
+        },
+        testM("enum type") {
+          val gqltype =
+            """
+             enum Origin {
+               EARTH
+               MARS
+               BELT
+             }
+            """.stripMargin
+
+          implicit val writer = ScalaWriter.DefaultGQLWriter
+
+          val generated: ZIO[Any, Throwable, String] = Parser
+            .parseQuery(gqltype)
+            .flatMap(s => Generator.formatStr(Generator.generate(s), ScalaWriter.scalafmtConfig))
+
+          assertM(
+            generated,
             equalTo(
-              "\n"
+              """object Types {
+
+  sealed trait Origin extends Product with Serializable
+
+  object Origin {
+    case object EARTH extends Origin
+    case object MARS  extends Origin
+    case object BELT  extends Origin
+  }
+
+}
+"""
             )
           )
         }

@@ -1,7 +1,7 @@
 package caliban.codegen
 
 import caliban.codegen.Generator._
-import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
+import caliban.parsing.adt.Definition.TypeSystemDefinition.{ EnumTypeDefinition, ObjectTypeDefinition }
 import caliban.parsing.adt.Type.{ FieldDefinition, ListType, NamedType }
 import caliban.parsing.adt.{ Document, Type }
 
@@ -25,21 +25,22 @@ object ScalaWriter {
                          |rewrite.rules = [SortImports, RedundantBraces]
                          |""".stripMargin
 
-  def reservedType(typeDefinition: TypeDefinition): Boolean =
+  def reservedType(typeDefinition: ObjectTypeDefinition): Boolean =
     typeDefinition.name == "Query" || typeDefinition.name == "Mutation" || typeDefinition.name == "Subscription"
 
   trait ScalaGQLWriter extends GQLWriterContext {
-    implicit val fieldWriter            = FieldWriter
-    implicit val typeWriter             = TypeWriter
-    implicit val typeDefWriter          = TypeDefinitionWriter
-    implicit val docWriter              = DocumentWriter
-    implicit val rootQueryWriter        = RootQueryDefWriter
-    implicit val queryWriter            = QueryDefWriter
-    implicit val rootMutationWriter     = RootMutationDefWriter
-    implicit val mutationWriter         = MutationDefWriter
-    implicit val rootSubscriptionWriter = RootSubscriptionDefWriter
-    implicit val subscriptionWriter     = SubscriptionDefWriter
-    implicit val argsWriter             = ArgsWriter
+    override implicit val fieldWriter            = FieldWriter
+    override implicit val typeWriter             = TypeWriter
+    override implicit val objectWriter           = ObjectWriter
+    override implicit val enumWriter             = EnumWriter
+    override implicit val docWriter              = DocumentWriter
+    override implicit val rootQueryWriter        = RootQueryDefWriter
+    override implicit val queryWriter            = QueryDefWriter
+    override implicit val rootMutationWriter     = RootMutationDefWriter
+    override implicit val mutationWriter         = MutationDefWriter
+    override implicit val rootSubscriptionWriter = RootSubscriptionDefWriter
+    override implicit val subscriptionWriter     = SubscriptionDefWriter
+    override implicit val argsWriter             = ArgsWriter
   }
 
   object DefaultGQLWriter extends ScalaGQLWriter
@@ -49,43 +50,49 @@ object ScalaWriter {
       import context._
 
       val argsTypes = Document
-        .typeDefinitions(schema)
+        .objectTypeDefinitions(schema)
         .filterNot(reservedType)
         .flatMap(_.fields.filter(_.args.nonEmpty).map(c => GQLWriter[Args, String].write(Args(c))("")))
         .mkString("\n")
 
-      val types = Document
-        .typeDefinitions(schema)
+      val objects = Document
+        .objectTypeDefinitions(schema)
         .filterNot(reservedType)
-        .map(GQLWriter[TypeDefinition, Document].write(_)(schema))
+        .map(GQLWriter[ObjectTypeDefinition, Document].write(_)(schema))
+        .mkString("\n")
+
+      val enums = Document
+        .enumTypeDefinitions(schema)
+        .map(GQLWriter[EnumTypeDefinition, Document].write(_)(schema))
         .mkString("\n")
 
       val queries = Document
-        .typeDefinition(schema, "Query")
+        .objectTypeDefinition(schema, "Query")
         .map(t => GQLWriter[RootQueryDef, Document].write(RootQueryDef(t))(schema))
         .getOrElse("")
 
       val mutations = Document
-        .typeDefinition(schema, "Mutation")
+        .objectTypeDefinition(schema, "Mutation")
         .map(t => GQLWriter[RootMutationDef, Document].write(RootMutationDef(t))(schema))
         .getOrElse("")
 
       val subscriptions = Document
-        .typeDefinition(schema, "Subscription")
+        .objectTypeDefinition(schema, "Subscription")
         .map(t => GQLWriter[RootSubscriptionDef, Document].write(RootSubscriptionDef(t))(schema))
         .getOrElse("")
 
-      val hasSubscriptions = Document.typeDefinition(schema, "Subscription").nonEmpty
-      val hasTypes         = argsTypes.length + types.length > 0
+      val hasSubscriptions = Document.objectTypeDefinition(schema, "Subscription").nonEmpty
+      val hasTypes         = argsTypes.length + objects.length + enums.length > 0
       val hasOperations    = queries.length + mutations.length + subscriptions.length > 0
 
-      s"""${if (hasTypes) "import Types._\n" else ""}
+      s"""${if (hasTypes && hasOperations) "import Types._\n" else ""}
       ${if (hasSubscriptions) "import zio.stream.ZStream" else ""}
 
       ${if (hasTypes)
         "object Types {\n" +
           argsTypes + "\n" +
-          types + "\n" +
+          objects + "\n" +
+          enums + "\n" +
           "\n}\n"
       else ""}
 
@@ -97,6 +104,7 @@ object ScalaWriter {
           "\n}"
       else ""}
       """
+      // TODO add import GQLDescription
     }
 
   }
@@ -185,18 +193,30 @@ object ScalaWriter {
     }
   }
 
-  object TypeDefinitionWriter extends GQLWriter[TypeDefinition, Document] {
-    override def write(typedef: TypeDefinition)(schema: Document)(implicit context: GQLWriterContext): String = {
+  object ObjectWriter extends GQLWriter[ObjectTypeDefinition, Document] {
+    override def write(typedef: ObjectTypeDefinition)(schema: Document)(implicit context: GQLWriterContext): String = {
       import context._
 
       s"""case class ${typedef.name}(${typedef.fields
-        .map(GQLWriter[FieldDefinition, TypeDefinition].write(_)(typedef))
+        .map(GQLWriter[FieldDefinition, ObjectTypeDefinition].write(_)(typedef))
         .mkString(", ")})"""
     }
   }
 
-  object FieldWriter extends GQLWriter[FieldDefinition, TypeDefinition] {
-    override def write(field: FieldDefinition)(of: TypeDefinition)(implicit context: GQLWriterContext): String = {
+  object EnumWriter extends GQLWriter[EnumTypeDefinition, Document] {
+    override def write(typedef: EnumTypeDefinition)(schema: Document)(implicit context: GQLWriterContext): String =
+      s"""sealed trait ${typedef.name} extends Product with Serializable
+
+          object ${typedef.name} {
+            ${typedef.enumValuesDefinition
+        .map(v => s"case object ${v.enumValue} extends ${typedef.name}")
+        .mkString("\n")}
+          }
+       """
+  }
+
+  object FieldWriter extends GQLWriter[FieldDefinition, ObjectTypeDefinition] {
+    override def write(field: FieldDefinition)(of: ObjectTypeDefinition)(implicit context: GQLWriterContext): String = {
       import context._
 
       if (field.args.nonEmpty) {
