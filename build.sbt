@@ -48,7 +48,7 @@ lazy val root = project
   .enablePlugins(ScalaJSPlugin)
   .settings(skip in publish := true)
   .settings(historyPath := None)
-  .aggregate(coreJVM, coreJS, http4s, akkaHttp, catsInteropJVM, catsInteropJS, codegen)
+  .aggregate(coreJVM, coreJS, http4s, akkaHttp, catsInteropJVM, catsInteropJS, clientJVM, clientJS, codegen)
 
 lazy val core = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)
@@ -147,6 +147,22 @@ lazy val akkaHttp = project
     )
   )
   .dependsOn(coreJVM)
+
+lazy val client = crossProject(JSPlatform, JVMPlatform)
+  .crossType(CrossType.Pure)
+  .in(file("client"))
+  .settings(name := "caliban-client")
+  .settings(commonSettings)
+  .settings(
+    libraryDependencies ++= Seq(
+      "com.softwaremill.sttp.client" %%% "core"                         % "2.0.0-RC7",
+      "com.softwaremill.sttp.client" %%% "circe"                        % "2.0.0-RC7",
+      "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % "2.0.0-RC7"
+    )
+  )
+  .dependsOn(core)
+lazy val clientJVM = client.jvm
+lazy val clientJS  = client.js
 
 lazy val examples = project
   .in(file("examples"))
