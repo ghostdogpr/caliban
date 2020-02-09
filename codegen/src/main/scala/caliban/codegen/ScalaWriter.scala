@@ -1,29 +1,29 @@
 package caliban.codegen
 
 import caliban.codegen.Generator._
-import caliban.parsing.adt.Definition.TypeSystemDefinition.{ EnumTypeDefinition, ObjectTypeDefinition }
+import caliban.parsing.adt.Definition.TypeSystemDefinition._
 import caliban.parsing.adt.Type.{ FieldDefinition, ListType, NamedType }
 import caliban.parsing.adt.{ Document, Type }
 
 object ScalaWriter {
-  val scalafmtConfig = """
-                         |version = "2.2.1"
-                         |
-                         |maxColumn = 120
-                         |align = most
-                         |continuationIndent.defnSite = 2
-                         |assumeStandardLibraryStripMargin = true
-                         |docstrings = JavaDoc
-                         |lineEndings = preserve
-                         |includeCurlyBraceInSelectChains = false
-                         |danglingParentheses = true
-                         |spaces {
-                         |  inImportCurlyBraces = true
-                         |}
-                         |optIn.annotationNewlines = true
-                         |
-                         |rewrite.rules = [SortImports, RedundantBraces]
-                         |""".stripMargin
+  val scalafmtConfig: String = """
+                                 |version = "2.2.1"
+                                 |
+                                 |maxColumn = 120
+                                 |align = most
+                                 |continuationIndent.defnSite = 2
+                                 |assumeStandardLibraryStripMargin = true
+                                 |docstrings = JavaDoc
+                                 |lineEndings = preserve
+                                 |includeCurlyBraceInSelectChains = false
+                                 |danglingParentheses = true
+                                 |spaces {
+                                 |  inImportCurlyBraces = true
+                                 |}
+                                 |optIn.annotationNewlines = true
+                                 |
+                                 |rewrite.rules = [SortImports, RedundantBraces]
+                                 |""".stripMargin
 
   def reservedType(typeDefinition: ObjectTypeDefinition): Boolean =
     typeDefinition.name == "Query" || typeDefinition.name == "Mutation" || typeDefinition.name == "Subscription"
@@ -33,6 +33,7 @@ object ScalaWriter {
     override implicit val typeWriter             = TypeWriter
     override implicit val objectWriter           = ObjectWriter
     override implicit val enumWriter             = EnumWriter
+    override implicit val unionWriter            = UnionWriter
     override implicit val docWriter              = DocumentWriter
     override implicit val rootQueryWriter        = RootQueryDefWriter
     override implicit val queryWriter            = QueryDefWriter
@@ -55,9 +56,18 @@ object ScalaWriter {
         .flatMap(_.fields.filter(_.args.nonEmpty).map(c => GQLWriter[Args, String].write(Args(c))("")))
         .mkString("\n")
 
+      val unionTypes = Document
+        .unionTypeDefinitions(schema)
+        .map(union => Union(union, union.memberTypes.flatMap(Document.objectTypeDefinition(schema, _))))
+
+      val unions = unionTypes
+        .map(GQLWriter[Union, Document].write(_)(schema))
+        .mkString("\n")
+
       val objects = Document
         .objectTypeDefinitions(schema)
         .filterNot(reservedType)
+        .filterNot(obj => unionTypes.exists(_.objects.exists(_.name == obj.name)))
         .map(GQLWriter[ObjectTypeDefinition, Document].write(_)(schema))
         .mkString("\n")
 
@@ -82,7 +92,7 @@ object ScalaWriter {
         .getOrElse("")
 
       val hasSubscriptions = Document.objectTypeDefinition(schema, "Subscription").nonEmpty
-      val hasTypes         = argsTypes.length + objects.length + enums.length > 0
+      val hasTypes         = argsTypes.length + objects.length + enums.length + unions.length > 0
       val hasOperations    = queries.length + mutations.length + subscriptions.length > 0
 
       s"""${if (hasTypes && hasOperations) "import Types._\n" else ""}
@@ -92,6 +102,7 @@ object ScalaWriter {
         "object Types {\n" +
           argsTypes + "\n" +
           objects + "\n" +
+          unions + "\n" +
           enums + "\n" +
           "\n}\n"
       else ""}
@@ -213,6 +224,21 @@ object ScalaWriter {
         .mkString("\n")}
           }
        """
+  }
+
+  object UnionWriter extends GQLWriter[Union, Document] {
+    override def write(typedef: Union)(schema: Document)(implicit context: GQLWriterContext): String = {
+      import context._
+
+      s"""sealed trait ${typedef.typedef.name} extends Product with Serializable
+
+          object ${typedef.typedef.name} {
+            ${typedef.objects
+        .map(o => s"${GQLWriter[ObjectTypeDefinition, Document].write(o)(schema)} extends ${typedef.typedef.name}")
+        .mkString("\n")}
+          }
+       """
+    }
   }
 
   object FieldWriter extends GQLWriter[FieldDefinition, ObjectTypeDefinition] {

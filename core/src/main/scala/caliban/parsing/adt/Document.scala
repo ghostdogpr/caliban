@@ -2,7 +2,7 @@ package caliban.parsing.adt
 
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
-import caliban.parsing.adt.Definition.TypeSystemDefinition.{ EnumTypeDefinition, ObjectTypeDefinition }
+import caliban.parsing.adt.Definition.TypeSystemDefinition._
 import caliban.parsing.adt.OperationType.{ Mutation, Query, Subscription }
 
 object Document {
@@ -11,6 +11,9 @@ object Document {
   }
   def enumTypeDefinitions(doc: Document): List[EnumTypeDefinition] = doc.definitions.collect {
     case td: EnumTypeDefinition => td
+  }
+  def unionTypeDefinitions(doc: Document): List[UnionTypeDefinition] = doc.definitions.collect {
+    case td: UnionTypeDefinition => td
   }
   def fragmentDefinitions(doc: Document): List[FragmentDefinition] = doc.definitions.collect {
     case fd: FragmentDefinition => fd

@@ -457,7 +457,9 @@ object ParserSpec
               Document(
                 List(
                   ObjectTypeDefinition(
+                    None,
                     "Hero",
+                    Nil,
                     List(
                       FieldDefinition(
                         Some("name desc"),

@@ -1,11 +1,12 @@
-package codegen
-import caliban.codegen.{ Generator, ScalaWriter }
+package caliban.codegen
+
 import caliban.codegen.Generator.{ Args, RootMutationDef, RootQueryDef, RootSubscriptionDef }
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document
 import zio.ZIO
-import zio.test.Assertion._
-import zio.test._
+import zio.test.Assertion.equalTo
+import zio.test.{ assertM, suite, testM, DefaultRunnableSpec }
+
 object GeneratorSpec
     extends DefaultRunnableSpec(
       suite("Generator single values")(
@@ -239,6 +240,43 @@ userList: () => List[Option[User]]
     case object EARTH extends Origin
     case object MARS  extends Origin
     case object BELT  extends Origin
+  }
+
+}
+"""
+            )
+          )
+        },
+        testM("union type") {
+          val gqltype =
+            """
+             union Role = Captain | Pilot
+             
+             type Captain {
+               shipName: String!
+             }
+             
+             type Pilot {
+               shipName: String!
+             }
+            """.stripMargin
+
+          implicit val writer = ScalaWriter.DefaultGQLWriter
+
+          val generated: ZIO[Any, Throwable, String] = Parser
+            .parseQuery(gqltype)
+            .flatMap(s => Generator.formatStr(Generator.generate(s), ScalaWriter.scalafmtConfig))
+
+          assertM(
+            generated,
+            equalTo(
+              """object Types {
+
+  sealed trait Role extends Product with Serializable
+
+  object Role {
+    case class Captain(shipName: String) extends Role
+    case class Pilot(shipName: String)   extends Role
   }
 
 }

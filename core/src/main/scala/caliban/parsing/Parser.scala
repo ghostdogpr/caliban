@@ -191,10 +191,11 @@ object Parser {
       case (name, typeCondition, dirs, sel) => FragmentDefinition(name, typeCondition, dirs, sel)
     }
 
-  private def typeSystemDefinition[_: P]: P[TypeSystemDefinition] = objectTypeDefinition | enumTypeDefinition
-
   private def objectTypeDefinition[_: P]: P[ObjectTypeDefinition] =
-    P("type" ~/ name ~ "{" ~ fieldDefinition.rep ~ "}").map(t => ObjectTypeDefinition(t._1, t._2.toList))
+    P(stringValue.? ~ "type" ~/ name ~ directives.? ~ "{" ~ fieldDefinition.rep ~ "}").map {
+      case (description, name, directives, fields) =>
+        ObjectTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), fields.toList)
+    }
 
   private def enumValueDefinition[_: P]: P[EnumValueDefinition] =
     P(stringValue.? ~ name ~ directives.?).map {
@@ -210,6 +211,15 @@ object Parser {
       case (description, name, directives, enumValuesDefinition) =>
         EnumTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), enumValuesDefinition.toList)
     }
+
+  private def unionTypeDefinition[_: P]: P[UnionTypeDefinition] =
+    P(stringValue.? ~ "union" ~/ name ~ directives.? ~ "=" ~ ("|".? ~ namedType) ~ ("|" ~ namedType).rep).map {
+      case (description, name, directives, m, ms) =>
+        UnionTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), (m :: ms.toList).map(_.name))
+    }
+
+  private def typeSystemDefinition[_: P]: P[TypeSystemDefinition] =
+    objectTypeDefinition | enumTypeDefinition | unionTypeDefinition
 
   private def executableDefinition[_: P]: P[ExecutableDefinition] =
     P(operationDefinition | fragmentDefinition)

@@ -25,12 +25,23 @@ object Definition {
 
   sealed trait TypeSystemDefinition extends Definition
   object TypeSystemDefinition {
-    case class ObjectTypeDefinition(name: String, fields: List[FieldDefinition]) extends TypeSystemDefinition
+    case class ObjectTypeDefinition(
+      description: Option[String],
+      name: String,
+      directives: List[Directive],
+      fields: List[FieldDefinition]
+    ) extends TypeSystemDefinition
     case class EnumTypeDefinition(
       description: Option[String],
       name: String,
       directives: List[Directive],
       enumValuesDefinition: List[EnumValueDefinition]
+    ) extends TypeSystemDefinition
+    case class UnionTypeDefinition(
+      description: Option[String],
+      name: String,
+      directives: List[Directive],
+      memberTypes: List[String]
     ) extends TypeSystemDefinition
 
     case class EnumValueDefinition(description: Option[String], enumValue: String, directives: List[Directive])
