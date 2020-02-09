@@ -3,7 +3,6 @@ package caliban.codegen
 import java.net.{ URL, URLClassLoader }
 import java.nio.file.Paths
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
-import caliban.parsing.adt.Type.FieldDefinition
 import caliban.parsing.adt.{ Document, Type }
 import org.scalafmt.dynamic.ScalafmtReflect
 import org.scalafmt.dynamic.utils.ReentrantCache
@@ -39,8 +38,10 @@ object Generator {
 
   trait GQLWriterContext {
     implicit val fieldWriter: GQLWriter[FieldDefinition, ObjectTypeDefinition]
+    implicit val inputValueWriter: GQLWriter[InputValueDefinition, InputObjectTypeDefinition]
     implicit val typeWriter: GQLWriter[Type, Any]
     implicit val objectWriter: GQLWriter[ObjectTypeDefinition, Document]
+    implicit val inputObjectWriter: GQLWriter[InputObjectTypeDefinition, Document]
     implicit val enumWriter: GQLWriter[EnumTypeDefinition, Document]
     implicit val unionWriter: GQLWriter[Union, Document]
     implicit val docWriter: GQLWriter[Document, Any]

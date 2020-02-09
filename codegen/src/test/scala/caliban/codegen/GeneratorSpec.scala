@@ -322,6 +322,37 @@ object Types {
 """
             )
           )
+        },
+        testM("input type") {
+          val gqltype =
+            """
+             type Character {
+                name: String!
+             }
+              
+             input CharacterArgs {
+               name: String!
+             }
+            """.stripMargin
+
+          implicit val writer = ScalaWriter.DefaultGQLWriter
+
+          val generated: ZIO[Any, Throwable, String] = Parser
+            .parseQuery(gqltype)
+            .flatMap(s => Generator.formatStr(Generator.generate(s), ScalaWriter.scalafmtConfig))
+
+          assertM(
+            generated,
+            equalTo(
+              """object Types {
+
+  case class Character(name: String)
+  case class CharacterArgs(name: String)
+
+}
+"""
+            )
+          )
         }
       )
     )

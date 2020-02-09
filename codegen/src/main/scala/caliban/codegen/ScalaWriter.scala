@@ -2,7 +2,7 @@ package caliban.codegen
 
 import caliban.codegen.Generator._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
-import caliban.parsing.adt.Type.{ FieldDefinition, ListType, NamedType }
+import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt.{ Document, Type }
 
 object ScalaWriter {
@@ -30,8 +30,10 @@ object ScalaWriter {
 
   trait ScalaGQLWriter extends GQLWriterContext {
     override implicit val fieldWriter            = FieldWriter
+    override implicit val inputValueWriter       = InputValueWriter
     override implicit val typeWriter             = TypeWriter
     override implicit val objectWriter           = ObjectWriter
+    override implicit val inputObjectWriter      = InputObjectWriter
     override implicit val enumWriter             = EnumWriter
     override implicit val unionWriter            = UnionWriter
     override implicit val docWriter              = DocumentWriter
@@ -79,6 +81,11 @@ object ScalaWriter {
         .map(GQLWriter[ObjectTypeDefinition, Document].write(_)(schema))
         .mkString("\n")
 
+      val inputs = Document
+        .inputObjectTypeDefinitions(schema)
+        .map(GQLWriter[InputObjectTypeDefinition, Document].write(_)(schema))
+        .mkString("\n")
+
       val enums = Document
         .enumTypeDefinitions(schema)
         .map(GQLWriter[EnumTypeDefinition, Document].write(_)(schema))
@@ -100,7 +107,7 @@ object ScalaWriter {
         .getOrElse("")
 
       val hasSubscriptions = subscriptions.nonEmpty
-      val hasTypes         = argsTypes.length + objects.length + enums.length + unions.length > 0
+      val hasTypes         = argsTypes.length + objects.length + enums.length + unions.length + inputs.length > 0
       val hasOperations    = queries.length + mutations.length + subscriptions.length > 0
 
       val typesAndOperations = s"""
@@ -108,6 +115,7 @@ object ScalaWriter {
         "object Types {\n" +
           argsTypes + "\n" +
           objects + "\n" +
+          inputs + "\n" +
           unions + "\n" +
           enums + "\n" +
           "\n}\n"
@@ -226,6 +234,18 @@ object ScalaWriter {
     }
   }
 
+  object InputObjectWriter extends GQLWriter[InputObjectTypeDefinition, Document] {
+    override def write(
+      typedef: InputObjectTypeDefinition
+    )(schema: Document)(implicit context: GQLWriterContext): String = {
+      import context._
+
+      s"""${writeDescription(typedef.description)}case class ${typedef.name}(${typedef.fields
+        .map(GQLWriter[InputValueDefinition, InputObjectTypeDefinition].write(_)(typedef))
+        .mkString(", ")})"""
+    }
+  }
+
   object EnumWriter extends GQLWriter[EnumTypeDefinition, Document] {
     override def write(typedef: EnumTypeDefinition)(schema: Document)(implicit context: GQLWriterContext): String =
       s"""${writeDescription(typedef.description)}sealed trait ${typedef.name} extends Product with Serializable
@@ -267,18 +287,27 @@ object ScalaWriter {
     }
   }
 
+  object InputValueWriter extends GQLWriter[InputValueDefinition, InputObjectTypeDefinition] {
+    override def write(
+      value: InputValueDefinition
+    )(of: InputObjectTypeDefinition)(implicit context: GQLWriterContext): String = {
+      import context._
+
+      s"""${writeDescription(value.description)}${value.name}: ${GQLWriter[Type, Any].write(value.ofType)(value)}"""
+    }
+  }
+
   object ArgsWriter extends GQLWriter[Args, String] {
     override def write(arg: Args)(prefix: String)(implicit context: GQLWriterContext): String =
       if (arg.field.args.nonEmpty) {
-        //case when field is parametrized
         s"case class ${prefix.capitalize}${arg.field.name.capitalize}Args(${fields(arg.field.args)})"
       } else {
         ""
       }
 
-    def fields(args: List[(String, Type)])(implicit context: GQLWriterContext): String = {
+    def fields(args: List[InputValueDefinition])(implicit context: GQLWriterContext): String = {
       import context._
-      s"${args.map(arg => s"${arg._1}: ${GQLWriter[Type, Any].write(arg._2)(Nil)}").mkString(", ")}"
+      s"${args.map(arg => s"${arg.name}: ${GQLWriter[Type, Any].write(arg.ofType)(Nil)}").mkString(", ")}"
     }
   }
 

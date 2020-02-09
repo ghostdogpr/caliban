@@ -128,13 +128,19 @@ object Parser {
   private def namedType[_: P]: P[NamedType] = P(name.filter(_ != "null")).map(NamedType(_, nonNull = false))
   private def listType[_: P]: P[ListType]   = P("[" ~ type_ ~ "]").map(t => ListType(t, nonNull = false))
 
-  private def argumentDefinition[_: P]: P[(String, Type)] = P(name ~ ":" ~ type_)
-  private def argumentDefinitions[_: P]: P[List[(String, Type)]] =
-    P("(" ~/ argumentDefinition.rep ~ ")").map(t => t.toList)
+  private def argumentDefinition[_: P]: P[InputValueDefinition] =
+    P(stringValue.? ~ name ~ ":" ~ type_ ~ defaultValue.? ~ directives.?).map {
+      case (description, name, type_, defaultValue, directives) =>
+        InputValueDefinition(description.map(_.value), name, type_, defaultValue, directives.getOrElse(Nil))
+    }
+  private def argumentDefinitions[_: P]: P[List[InputValueDefinition]] =
+    P("(" ~/ argumentDefinition.rep ~ ")").map(_.toList)
 
   private def fieldDefinition[_: P]: P[FieldDefinition] =
-    P(stringValue.? ~ name ~ argumentDefinitions.? ~ ":" ~ type_ ~ directives.?)
-      .map(t => FieldDefinition(t._1.map(_.value), t._2, t._3.getOrElse(List()), t._4, t._5.getOrElse(List())))
+    P(stringValue.? ~ name ~ argumentDefinitions.? ~ ":" ~ type_ ~ directives.?).map {
+      case (description, name, args, type_, directives) =>
+        FieldDefinition(description.map(_.value), name, args.getOrElse(Nil), type_, directives.getOrElse(Nil))
+    }
 
   private def nonNullType[_: P]: P[Type] = P((namedType | listType) ~ "!").map {
     case t: NamedType => t.copy(nonNull = true)
@@ -198,6 +204,12 @@ object Parser {
         ObjectTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), fields.toList)
     }
 
+  private def inputObjectTypeDefinition[_: P]: P[InputObjectTypeDefinition] =
+    P(stringValue.? ~ "input" ~/ name ~ directives.? ~ "{" ~ argumentDefinition.rep ~ "}").map {
+      case (description, name, directives, fields) =>
+        InputObjectTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), fields.toList)
+    }
+
   private def enumValueDefinition[_: P]: P[EnumValueDefinition] =
     P(stringValue.? ~ name ~ directives.?).map {
       case (description, enumValue, directives) =>
@@ -240,7 +252,7 @@ object Parser {
     }
 
   private def typeDefinition[_: P]: P[TypeDefinition] =
-    objectTypeDefinition | enumTypeDefinition | unionTypeDefinition | scalarTypeDefinition
+    objectTypeDefinition | inputObjectTypeDefinition | enumTypeDefinition | unionTypeDefinition | scalarTypeDefinition
 
   private def typeSystemDefinition[_: P]: P[TypeSystemDefinition] = typeDefinition | schemaDefinition
 

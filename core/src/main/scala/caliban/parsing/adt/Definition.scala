@@ -1,6 +1,7 @@
 package caliban.parsing.adt
 
-import caliban.parsing.adt.Type.{ FieldDefinition, NamedType }
+import caliban.InputValue
+import caliban.parsing.adt.Type.NamedType
 
 sealed trait Definition
 
@@ -43,6 +44,13 @@ object Definition {
         fields: List[FieldDefinition]
       ) extends TypeDefinition
 
+      case class InputObjectTypeDefinition(
+        description: Option[String],
+        name: String,
+        directives: List[Directive],
+        fields: List[InputValueDefinition]
+      ) extends TypeDefinition
+
       case class EnumTypeDefinition(
         description: Option[String],
         name: String,
@@ -59,6 +67,22 @@ object Definition {
 
       case class ScalarTypeDefinition(description: Option[String], name: String, directives: List[Directive])
           extends TypeDefinition
+
+      case class InputValueDefinition(
+        description: Option[String],
+        name: String,
+        ofType: Type,
+        defaultValue: Option[InputValue],
+        directives: List[Directive]
+      )
+
+      case class FieldDefinition(
+        description: Option[String],
+        name: String,
+        args: List[InputValueDefinition],
+        ofType: Type,
+        directives: List[Directive]
+      )
 
       case class EnumValueDefinition(description: Option[String], enumValue: String, directives: List[Directive])
 
