@@ -2,11 +2,7 @@ package caliban.codegen
 
 import java.net.{ URL, URLClassLoader }
 import java.nio.file.Paths
-import caliban.parsing.adt.Definition.TypeSystemDefinition.{
-  EnumTypeDefinition,
-  ObjectTypeDefinition,
-  UnionTypeDefinition
-}
+import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Type.FieldDefinition
 import caliban.parsing.adt.{ Document, Type }
 import org.scalafmt.dynamic.ScalafmtReflect

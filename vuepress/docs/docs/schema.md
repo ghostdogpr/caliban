@@ -190,6 +190,8 @@ calibanGenSchema project/schema.json src/main/GQLSchema.scala
 ```
 This command will create a Scala file in `outputPath` containing all the types defined in the provided GraphQL schema defined at `schemaPath`. The generated code will be formatted with Scalafmt using the configuration defined by `scalafmtPath`.
 
-::: warning WIP
-This feature is still a work in progress. Only simple types are currently supported: any schema containing `input`, `interface`, `scalar` or `schema` will cause a generation error.
+::: warning Unsupported features
+Some features are not supported by Caliban and will cause an error during code generation:
+- interfaces
+- extensions
 :::

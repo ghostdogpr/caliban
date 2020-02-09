@@ -290,6 +290,38 @@ object Types {
 """
             )
           )
+        },
+        testM("schema") {
+          val gqltype =
+            """
+             schema {
+               query: Queries
+             }
+               
+             type Queries {
+               characters: Int!
+             }
+            """.stripMargin
+
+          implicit val writer = ScalaWriter.DefaultGQLWriter
+
+          val generated: ZIO[Any, Throwable, String] = Parser
+            .parseQuery(gqltype)
+            .flatMap(s => Generator.formatStr(Generator.generate(s), ScalaWriter.scalafmtConfig))
+
+          assertM(
+            generated,
+            equalTo(
+              """object Operations {
+
+  case class Queries(
+    characters: () => Int
+  )
+
+}
+"""
+            )
+          )
         }
       )
     )

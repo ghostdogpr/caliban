@@ -25,26 +25,44 @@ object Definition {
 
   sealed trait TypeSystemDefinition extends Definition
   object TypeSystemDefinition {
-    case class ObjectTypeDefinition(
-      description: Option[String],
-      name: String,
+
+    case class SchemaDefinition(
       directives: List[Directive],
-      fields: List[FieldDefinition]
-    ) extends TypeSystemDefinition
-    case class EnumTypeDefinition(
-      description: Option[String],
-      name: String,
-      directives: List[Directive],
-      enumValuesDefinition: List[EnumValueDefinition]
-    ) extends TypeSystemDefinition
-    case class UnionTypeDefinition(
-      description: Option[String],
-      name: String,
-      directives: List[Directive],
-      memberTypes: List[String]
+      query: Option[String],
+      mutation: Option[String],
+      subscription: Option[String]
     ) extends TypeSystemDefinition
 
-    case class EnumValueDefinition(description: Option[String], enumValue: String, directives: List[Directive])
+    sealed trait TypeDefinition extends TypeSystemDefinition
+    object TypeDefinition {
+
+      case class ObjectTypeDefinition(
+        description: Option[String],
+        name: String,
+        directives: List[Directive],
+        fields: List[FieldDefinition]
+      ) extends TypeDefinition
+
+      case class EnumTypeDefinition(
+        description: Option[String],
+        name: String,
+        directives: List[Directive],
+        enumValuesDefinition: List[EnumValueDefinition]
+      ) extends TypeDefinition
+
+      case class UnionTypeDefinition(
+        description: Option[String],
+        name: String,
+        directives: List[Directive],
+        memberTypes: List[String]
+      ) extends TypeDefinition
+
+      case class ScalarTypeDefinition(description: Option[String], name: String, directives: List[Directive])
+          extends TypeDefinition
+
+      case class EnumValueDefinition(description: Option[String], enumValue: String, directives: List[Directive])
+
+    }
+
   }
-
 }

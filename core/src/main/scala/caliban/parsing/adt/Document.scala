@@ -2,7 +2,8 @@ package caliban.parsing.adt
 
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
-import caliban.parsing.adt.Definition.TypeSystemDefinition._
+import caliban.parsing.adt.Definition.TypeSystemDefinition.SchemaDefinition
+import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.OperationType.{ Mutation, Query, Subscription }
 
 object Document {
@@ -17,6 +18,9 @@ object Document {
   }
   def fragmentDefinitions(doc: Document): List[FragmentDefinition] = doc.definitions.collect {
     case fd: FragmentDefinition => fd
+  }
+  def schemaDefinitions(doc: Document): List[SchemaDefinition] = doc.definitions.collect {
+    case sd: SchemaDefinition => sd
   }
   def operationDefinitions(doc: Document): List[OperationDefinition] = doc.definitions.collect {
     case od: OperationDefinition => od

@@ -1,7 +1,7 @@
 package caliban.codegen
 
 import caliban.codegen.Generator._
-import caliban.parsing.adt.Definition.TypeSystemDefinition._
+import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Type.{ FieldDefinition, ListType, NamedType }
 import caliban.parsing.adt.{ Document, Type }
 
@@ -50,6 +50,8 @@ object ScalaWriter {
     override def write(schema: Document)(nothing: Any)(implicit context: GQLWriterContext): String = {
       import context._
 
+      val schemaDef = Document.schemaDefinitions(schema).headOption
+
       val argsTypes = Document
         .objectTypeDefinitions(schema)
         .filterNot(reservedType)
@@ -66,8 +68,14 @@ object ScalaWriter {
 
       val objects = Document
         .objectTypeDefinitions(schema)
-        .filterNot(reservedType)
-        .filterNot(obj => unionTypes.exists(_.objects.exists(_.name == obj.name)))
+        .filterNot(
+          obj =>
+            reservedType(obj) ||
+              schemaDef.exists(_.query.contains(obj.name)) ||
+              schemaDef.exists(_.mutation.contains(obj.name)) ||
+              schemaDef.exists(_.subscription.contains(obj.name)) ||
+              unionTypes.exists(_.objects.exists(_.name == obj.name))
+        )
         .map(GQLWriter[ObjectTypeDefinition, Document].write(_)(schema))
         .mkString("\n")
 
@@ -77,21 +85,21 @@ object ScalaWriter {
         .mkString("\n")
 
       val queries = Document
-        .objectTypeDefinition(schema, "Query")
+        .objectTypeDefinition(schema, schemaDef.flatMap(_.query).getOrElse("Query"))
         .map(t => GQLWriter[RootQueryDef, Document].write(RootQueryDef(t))(schema))
         .getOrElse("")
 
       val mutations = Document
-        .objectTypeDefinition(schema, "Mutation")
+        .objectTypeDefinition(schema, schemaDef.flatMap(_.mutation).getOrElse("Mutation"))
         .map(t => GQLWriter[RootMutationDef, Document].write(RootMutationDef(t))(schema))
         .getOrElse("")
 
       val subscriptions = Document
-        .objectTypeDefinition(schema, "Subscription")
+        .objectTypeDefinition(schema, schemaDef.flatMap(_.subscription).getOrElse("Subscription"))
         .map(t => GQLWriter[RootSubscriptionDef, Document].write(RootSubscriptionDef(t))(schema))
         .getOrElse("")
 
-      val hasSubscriptions = Document.objectTypeDefinition(schema, "Subscription").nonEmpty
+      val hasSubscriptions = subscriptions.nonEmpty
       val hasTypes         = argsTypes.length + objects.length + enums.length + unions.length > 0
       val hasOperations    = queries.length + mutations.length + subscriptions.length > 0
 
@@ -143,7 +151,7 @@ object ScalaWriter {
            .filter(_.args.nonEmpty)
            .map(c => GQLWriter[Args, String].write(Args(c))(""))
            .mkString(",\n")}
-         |${writeDescription(queryDef.op.description)}case class Query(
+         |${writeDescription(queryDef.op.description)}case class ${queryDef.op.name}(
          |${queryDef.op.fields.map(c => GQLWriter[QueryDef, Document].write(QueryDef(c))(schema)).mkString(",\n")}
          |)""".stripMargin
     }
@@ -168,7 +176,7 @@ object ScalaWriter {
            .filter(_.args.nonEmpty)
            .map(c => GQLWriter[Args, String].write(Args(c))(""))
            .mkString(",\n")}
-         |${writeDescription(mutationDef.op.description)}case class Mutation(
+         |${writeDescription(mutationDef.op.description)}case class ${mutationDef.op.name}(
          |${mutationDef.op.fields.map(c => GQLWriter[QueryDef, Document].write(QueryDef(c))(schema)).mkString(",\n")}
          |)""".stripMargin
     }
@@ -200,7 +208,7 @@ object ScalaWriter {
            .filter(_.args.nonEmpty)
            .map(c => GQLWriter[Args, String].write(Args(c))(""))
            .mkString(",\n")}
-         |${writeDescription(subscriptionDef.op.description)}case class Subscription(
+         |${writeDescription(subscriptionDef.op.description)}case class ${subscriptionDef.op.name}(
          |${subscriptionDef.op.fields
            .map(c => GQLWriter[SubscriptionDef, Document].write(SubscriptionDef(c))(schema))
            .mkString(",\n")}

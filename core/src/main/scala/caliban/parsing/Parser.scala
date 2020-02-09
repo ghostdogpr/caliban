@@ -6,7 +6,8 @@ import caliban.InputValue._
 import caliban.Value._
 import caliban.parsing.adt.Definition._
 import caliban.parsing.adt.Definition.ExecutableDefinition._
-import caliban.parsing.adt.Definition.TypeSystemDefinition._
+import caliban.parsing.adt.Definition.TypeSystemDefinition.{ SchemaDefinition, TypeDefinition }
+import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Selection._
 import caliban.parsing.adt.Type._
 import caliban.parsing.adt._
@@ -218,8 +219,30 @@ object Parser {
         UnionTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), (m :: ms.toList).map(_.name))
     }
 
-  private def typeSystemDefinition[_: P]: P[TypeSystemDefinition] =
-    objectTypeDefinition | enumTypeDefinition | unionTypeDefinition
+  private def scalarTypeDefinition[_: P]: P[ScalarTypeDefinition] =
+    P(stringValue.? ~ "scalar" ~/ name ~ directives.?).map {
+      case (description, name, directives) =>
+        ScalarTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil))
+    }
+
+  private def rootOperationTypeDefinition[_: P]: P[(OperationType, NamedType)] = P(operationType ~ ":" ~ namedType)
+
+  private def schemaDefinition[_: P]: P[SchemaDefinition] =
+    P("schema" ~/ directives.? ~ "{" ~ rootOperationTypeDefinition.rep ~ "}").map {
+      case (directives, ops) =>
+        val opsMap = ops.toMap
+        SchemaDefinition(
+          directives.getOrElse(Nil),
+          opsMap.get(OperationType.Query).map(_.name),
+          opsMap.get(OperationType.Mutation).map(_.name),
+          opsMap.get(OperationType.Subscription).map(_.name)
+        )
+    }
+
+  private def typeDefinition[_: P]: P[TypeDefinition] =
+    objectTypeDefinition | enumTypeDefinition | unionTypeDefinition | scalarTypeDefinition
+
+  private def typeSystemDefinition[_: P]: P[TypeSystemDefinition] = typeDefinition | schemaDefinition
 
   private def executableDefinition[_: P]: P[ExecutableDefinition] =
     P(operationDefinition | fragmentDefinition)

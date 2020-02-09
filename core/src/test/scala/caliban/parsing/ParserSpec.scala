@@ -6,7 +6,7 @@ import caliban.InputValue._
 import caliban.Value._
 import caliban.parsing.ParserSpecUtils._
 import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
-import caliban.parsing.adt.Definition.TypeSystemDefinition.ObjectTypeDefinition
+import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.OperationType.{ Mutation, Query }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.{ FieldDefinition, ListType, NamedType }
