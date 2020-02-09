@@ -95,9 +95,7 @@ object ScalaWriter {
       val hasTypes         = argsTypes.length + objects.length + enums.length + unions.length > 0
       val hasOperations    = queries.length + mutations.length + subscriptions.length > 0
 
-      s"""${if (hasTypes && hasOperations) "import Types._\n" else ""}
-      ${if (hasSubscriptions) "import zio.stream.ZStream" else ""}
-
+      val typesAndOperations = s"""
       ${if (hasTypes)
         "object Types {\n" +
           argsTypes + "\n" +
@@ -115,7 +113,13 @@ object ScalaWriter {
           "\n}"
       else ""}
       """
-      // TODO add import GQLDescription
+
+      s"""${if (hasTypes && hasOperations) "import Types._\n" else ""}
+          ${if (typesAndOperations.contains("@GQL")) "import caliban.schema.Annotations._\n" else ""}
+          ${if (hasSubscriptions) "import zio.stream.ZStream" else ""}
+
+      $typesAndOperations
+      """
     }
 
   }
@@ -139,7 +143,7 @@ object ScalaWriter {
            .filter(_.args.nonEmpty)
            .map(c => GQLWriter[Args, String].write(Args(c))(""))
            .mkString(",\n")}
-         |case class Query(
+         |${writeDescription(queryDef.op.description)}case class Query(
          |${queryDef.op.fields.map(c => GQLWriter[QueryDef, Document].write(QueryDef(c))(schema)).mkString(",\n")}
          |)""".stripMargin
     }
@@ -164,7 +168,7 @@ object ScalaWriter {
            .filter(_.args.nonEmpty)
            .map(c => GQLWriter[Args, String].write(Args(c))(""))
            .mkString(",\n")}
-         |case class Mutation(
+         |${writeDescription(mutationDef.op.description)}case class Mutation(
          |${mutationDef.op.fields.map(c => GQLWriter[QueryDef, Document].write(QueryDef(c))(schema)).mkString(",\n")}
          |)""".stripMargin
     }
@@ -196,7 +200,7 @@ object ScalaWriter {
            .filter(_.args.nonEmpty)
            .map(c => GQLWriter[Args, String].write(Args(c))(""))
            .mkString(",\n")}
-         |case class Subscription(
+         |${writeDescription(subscriptionDef.op.description)}case class Subscription(
          |${subscriptionDef.op.fields
            .map(c => GQLWriter[SubscriptionDef, Document].write(SubscriptionDef(c))(schema))
            .mkString(",\n")}
@@ -208,7 +212,7 @@ object ScalaWriter {
     override def write(typedef: ObjectTypeDefinition)(schema: Document)(implicit context: GQLWriterContext): String = {
       import context._
 
-      s"""case class ${typedef.name}(${typedef.fields
+      s"""${writeDescription(typedef.description)}case class ${typedef.name}(${typedef.fields
         .map(GQLWriter[FieldDefinition, ObjectTypeDefinition].write(_)(typedef))
         .mkString(", ")})"""
     }
@@ -216,11 +220,11 @@ object ScalaWriter {
 
   object EnumWriter extends GQLWriter[EnumTypeDefinition, Document] {
     override def write(typedef: EnumTypeDefinition)(schema: Document)(implicit context: GQLWriterContext): String =
-      s"""sealed trait ${typedef.name} extends Product with Serializable
+      s"""${writeDescription(typedef.description)}sealed trait ${typedef.name} extends Product with Serializable
 
           object ${typedef.name} {
             ${typedef.enumValuesDefinition
-        .map(v => s"case object ${v.enumValue} extends ${typedef.name}")
+        .map(v => s"${writeDescription(v.description)}case object ${v.enumValue} extends ${typedef.name}")
         .mkString("\n")}
           }
        """
@@ -230,7 +234,7 @@ object ScalaWriter {
     override def write(typedef: Union)(schema: Document)(implicit context: GQLWriterContext): String = {
       import context._
 
-      s"""sealed trait ${typedef.typedef.name} extends Product with Serializable
+      s"""${writeDescription(typedef.typedef.description)}sealed trait ${typedef.typedef.name} extends Product with Serializable
 
           object ${typedef.typedef.name} {
             ${typedef.objects
@@ -247,9 +251,10 @@ object ScalaWriter {
 
       if (field.args.nonEmpty) {
         //case when field is parametrized
-        s"${field.name}: ${of.name.capitalize}${field.name.capitalize}Args => ${GQLWriter[Type, Any].write(field.ofType)(Nil)}"
+        s"${writeDescription(field.description)}${field.name}: ${of.name.capitalize}${field.name.capitalize}Args => ${GQLWriter[Type, Any]
+          .write(field.ofType)(Nil)}"
       } else {
-        s"""${field.name}: ${GQLWriter[Type, Any].write(field.ofType)(field)}"""
+        s"""${writeDescription(field.description)}${field.name}: ${GQLWriter[Type, Any].write(field.ofType)(field)}"""
       }
     }
   }
@@ -268,6 +273,10 @@ object ScalaWriter {
       s"${args.map(arg => s"${arg._1}: ${GQLWriter[Type, Any].write(arg._2)(Nil)}").mkString(", ")}"
     }
   }
+
+  def writeDescription(description: Option[String]): String =
+    description.fold("")(d => s"""@GQLDescription("$d")
+                                 |""".stripMargin)
 
   object TypeWriter extends GQLWriter[Type, Any] {
     def convertType(name: String): String = name match {

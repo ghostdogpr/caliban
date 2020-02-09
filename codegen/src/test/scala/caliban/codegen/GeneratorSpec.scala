@@ -250,10 +250,11 @@ userList: () => List[Option[User]]
         testM("union type") {
           val gqltype =
             """
+             "role"
              union Role = Captain | Pilot
              
              type Captain {
-               shipName: String!
+               "ship" shipName: String!
              }
              
              type Pilot {
@@ -270,13 +271,19 @@ userList: () => List[Option[User]]
           assertM(
             generated,
             equalTo(
-              """object Types {
+              """import caliban.schema.Annotations._
 
+object Types {
+
+  @GQLDescription("role")
   sealed trait Role extends Product with Serializable
 
   object Role {
-    case class Captain(shipName: String) extends Role
-    case class Pilot(shipName: String)   extends Role
+    case class Captain(
+      @GQLDescription("ship")
+      shipName: String
+    ) extends Role
+    case class Pilot(shipName: String) extends Role
   }
 
 }
