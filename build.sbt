@@ -2,7 +2,7 @@ import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
 val mainScala       = "2.12.10"
 val allScala        = Seq("2.13.1", mainScala)
-val http4sVersion   = "0.21.0-M5"
+val http4sVersion   = "0.21.0-RC5"
 val silencerVersion = "1.4.4"
 inThisBuild(
   List(
@@ -119,7 +119,7 @@ lazy val http4s = project
       "org.http4s"    %% "http4s-dsl"          % http4sVersion,
       "org.http4s"    %% "http4s-circe"        % http4sVersion,
       "org.http4s"    %% "http4s-blaze-server" % http4sVersion,
-      "io.circe"      %% "circe-parser"        % "0.12.3",
+      "io.circe"      %% "circe-parser"        % "0.13.0",
       compilerPlugin(
         ("org.typelevel" %% "kind-projector" % "0.11.0")
           .cross(CrossVersion.full)
@@ -139,7 +139,7 @@ lazy val akkaHttp = project
       "com.typesafe.akka" %% "akka-http"       % "10.1.11",
       "com.typesafe.akka" %% "akka-stream"     % "2.6.3",
       "de.heikoseeberger" %% "akka-http-circe" % "1.31.0",
-      "io.circe"          %% "circe-parser"    % "0.12.3",
+      "io.circe"          %% "circe-parser"    % "0.13.0",
       compilerPlugin(
         ("org.typelevel" %% "kind-projector" % "0.11.0")
           .cross(CrossVersion.full)
