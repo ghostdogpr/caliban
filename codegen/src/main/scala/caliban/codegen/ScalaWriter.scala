@@ -155,10 +155,6 @@ object ScalaWriter {
       import context._
 
       s"""
-         |${queryDef.op.fields
-           .filter(_.args.nonEmpty)
-           .map(c => GQLWriter[Args, String].write(Args(c))(""))
-           .mkString(",\n")}
          |${writeDescription(queryDef.op.description)}case class ${queryDef.op.name}(
          |${queryDef.op.fields.map(c => GQLWriter[QueryDef, Document].write(QueryDef(c))(schema)).mkString(",\n")}
          |)""".stripMargin
@@ -180,10 +176,6 @@ object ScalaWriter {
       import context._
 
       s"""
-         |${mutationDef.op.fields
-           .filter(_.args.nonEmpty)
-           .map(c => GQLWriter[Args, String].write(Args(c))(""))
-           .mkString(",\n")}
          |${writeDescription(mutationDef.op.description)}case class ${mutationDef.op.name}(
          |${mutationDef.op.fields.map(c => GQLWriter[QueryDef, Document].write(QueryDef(c))(schema)).mkString(",\n")}
          |)""".stripMargin
@@ -212,10 +204,6 @@ object ScalaWriter {
       import context._
 
       s"""
-         |${subscriptionDef.op.fields
-           .filter(_.args.nonEmpty)
-           .map(c => GQLWriter[Args, String].write(Args(c))(""))
-           .mkString(",\n")}
          |${writeDescription(subscriptionDef.op.description)}case class ${subscriptionDef.op.name}(
          |${subscriptionDef.op.fields
            .map(c => GQLWriter[SubscriptionDef, Document].write(SubscriptionDef(c))(schema))

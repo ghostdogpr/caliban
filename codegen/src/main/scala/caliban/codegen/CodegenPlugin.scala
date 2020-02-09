@@ -46,7 +46,7 @@ object CodegenPlugin extends AutoPlugin {
 
   def doSchemaGenerate(schemaPath: String, toPath: String, fmtPath: Option[String]): ZIO[Console, Throwable, Unit] =
     for {
-      _             <- putStr(s"Generating schema for $schemaPath")
+      _             <- putStrLn(s"Generating schema for $schemaPath")
       schema_string <- Task(scala.io.Source.fromFile(schemaPath)).bracket(f => UIO(f.close()), f => Task(f.mkString))
       schema        <- Parser.parseQuery(schema_string)
       code          <- Task(Generator.generate(schema)(ScalaWriter.DefaultGQLWriter))
@@ -54,6 +54,6 @@ object CodegenPlugin extends AutoPlugin {
       _ <- Task(new PrintWriter(new File(toPath))).bracket(q => UIO(q.close()), { pw =>
             Task(pw.println(formatted))
           })
-      _ <- putStr(s"Schema generation done")
+      _ <- putStrLn(s"Schema generation done")
     } yield ()
 }
