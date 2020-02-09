@@ -7,7 +7,7 @@ import caliban.parsing.adt.{ Document, Type }
 
 object ScalaWriter {
   val scalafmtConfig: String = """
-                                 |version = "2.2.1"
+                                 |version = "2.3.2"
                                  |
                                  |maxColumn = 120
                                  |align = most

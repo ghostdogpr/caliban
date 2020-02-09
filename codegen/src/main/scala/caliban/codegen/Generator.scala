@@ -24,7 +24,7 @@ object Generator {
     val scalafmtReflect =
       ScalafmtReflect(
         new URLClassLoader(new Array[URL](0), this.getClass.getClassLoader),
-        "2.2.1",
+        "2.3.2",
         respectVersion = false
       )
     val config = scalafmtReflect.parseConfigFromString(fmt)
