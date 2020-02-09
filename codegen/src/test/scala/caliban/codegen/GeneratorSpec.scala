@@ -78,7 +78,6 @@ object GeneratorSpec
             caseclassstrdef,
             equalTo(
               """
-case class UserArgs(id: Option[Int])
 case class Query(
 user: UserArgs => Option[User],
 userList: () => List[Option[User]]
@@ -108,7 +107,6 @@ userList: () => List[Option[User]]
             caseclassstrdef,
             equalTo(
               """
-                |case class SetMessageArgs(message: Option[String])
                 |case class Mutation(
                 |setMessage: SetMessageArgs => Option[String]
                 |)""".stripMargin
@@ -137,7 +135,6 @@ userList: () => List[Option[User]]
             caseclassstrdef,
             equalTo(
               """
-                |case class UserWatchArgs(id: Int)
                 |case class Subscription(
                 |UserWatch: UserWatchArgs => ZStream[Any, Nothing, String]
                 |)""".stripMargin
@@ -176,7 +173,7 @@ userList: () => List[Option[User]]
                 |import zio.stream.ZStream
                 |
                 |object Types {
-                |
+                |  case class AddPostArgs(author: Option[String], comment: Option[String])
                 |  case class Post(author: Option[String], comment: Option[String])
                 |
                 |}
@@ -187,7 +184,6 @@ userList: () => List[Option[User]]
                 |    posts: () => Option[List[Option[Post]]]
                 |  )
                 |
-                |  case class AddPostArgs(author: Option[String], comment: Option[String])
                 |  case class Mutation(
                 |    addPost: AddPostArgs => Option[Post]
                 |  )

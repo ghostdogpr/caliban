@@ -56,7 +56,6 @@ object ScalaWriter {
 
       val argsTypes = Document
         .objectTypeDefinitions(schema)
-        .filterNot(reservedType)
         .flatMap(_.fields.filter(_.args.nonEmpty).map(c => GQLWriter[Args, String].write(Args(c))("")))
         .mkString("\n")
 
