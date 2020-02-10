@@ -6,10 +6,10 @@ import caliban.InputValue._
 import caliban.Value._
 import caliban.parsing.ParserSpecUtils._
 import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
-import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
+import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.OperationType.{ Mutation, Query }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
-import caliban.parsing.adt.Type.{ FieldDefinition, ListType, NamedType }
+import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt._
 import zio.test.Assertion._
 import zio.test._
@@ -456,13 +456,15 @@ object ParserSpec
             equalTo(
               Document(
                 List(
-                  TypeDefinition(
+                  ObjectTypeDefinition(
+                    None,
                     "Hero",
+                    Nil,
                     List(
                       FieldDefinition(
                         Some("name desc"),
                         "name",
-                        List("pad" -> NamedType("Int", true)),
+                        List(InputValueDefinition(None, "pad", NamedType("Int", true), None, Nil)),
                         NamedType("String", true),
                         List(Directive("skip", Map("if" -> VariableValue("someTestM")), index = 49))
                       ),

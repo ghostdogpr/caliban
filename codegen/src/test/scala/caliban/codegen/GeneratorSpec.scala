@@ -1,10 +1,12 @@
-package codegen
-import caliban.codegen.{ Generator, ScalaWriter }
+package caliban.codegen
+
 import caliban.codegen.Generator.{ Args, RootMutationDef, RootQueryDef, RootSubscriptionDef }
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document
-import zio.test.Assertion._
-import zio.test._
+import zio.ZIO
+import zio.test.Assertion.equalTo
+import zio.test.{ assertM, suite, testM, DefaultRunnableSpec }
+
 object GeneratorSpec
     extends DefaultRunnableSpec(
       suite("Generator single values")(
@@ -23,14 +25,14 @@ object GeneratorSpec
           val typeCaseClass = Parser
             .parseQuery(gqltype)
             .map(doc => {
-              Document.typeDefinitions(doc).map(ScalaWriter.TypeDefinitionWriter.write(_)(doc)).mkString("\n")
+              Document.objectTypeDefinitions(doc).map(ScalaWriter.ObjectWriter.write(_)(doc)).mkString("\n")
             })
 
           val typeCaseClassArgs = Parser
             .parseQuery(gqltype)
             .map(doc => {
               (for {
-                typeDef      <- Document.typeDefinitions(doc)
+                typeDef      <- Document.objectTypeDefinitions(doc)
                 typeDefField <- typeDef.fields
                 argClass     = ScalaWriter.ArgsWriter.write(Args(typeDefField))("Hero")
                 if (argClass.length > 0)
@@ -67,7 +69,7 @@ object GeneratorSpec
             .parseQuery(query)
             .map(doc => {
               Document
-                .typeDefinition(doc, "Query")
+                .objectTypeDefinition(doc, "Query")
                 .map(d => ScalaWriter.RootQueryDefWriter.write(RootQueryDef(d))(doc))
                 .mkString("\n")
             })
@@ -76,7 +78,6 @@ object GeneratorSpec
             caseclassstrdef,
             equalTo(
               """
-case class UserArgs(id: Option[Int])
 case class Query(
 user: UserArgs => Option[User],
 userList: () => List[Option[User]]
@@ -97,7 +98,7 @@ userList: () => List[Option[User]]
             .parseQuery(query)
             .map(doc => {
               Document
-                .typeDefinition(doc, "Mutation")
+                .objectTypeDefinition(doc, "Mutation")
                 .map(d => ScalaWriter.RootMutationDefWriter.write(RootMutationDef(d))(doc))
                 .mkString("\n")
             })
@@ -106,7 +107,6 @@ userList: () => List[Option[User]]
             caseclassstrdef,
             equalTo(
               """
-                |case class SetMessageArgs(message: Option[String])
                 |case class Mutation(
                 |setMessage: SetMessageArgs => Option[String]
                 |)""".stripMargin
@@ -126,7 +126,7 @@ userList: () => List[Option[User]]
             .parseQuery(query)
             .map(doc => {
               Document
-                .typeDefinition(doc, "Subscription")
+                .objectTypeDefinition(doc, "Subscription")
                 .map(d => ScalaWriter.RootSubscriptionDefWriter.write(RootSubscriptionDef(d))(doc))
                 .mkString("\n")
             })
@@ -135,7 +135,6 @@ userList: () => List[Option[User]]
             caseclassstrdef,
             equalTo(
               """
-                |case class UserWatchArgs(id: Int)
                 |case class Subscription(
                 |UserWatch: UserWatchArgs => ZStream[Any, Nothing, String]
                 |)""".stripMargin
@@ -174,7 +173,7 @@ userList: () => List[Option[User]]
                 |import zio.stream.ZStream
                 |
                 |object Types {
-                |
+                |  case class AddPostArgs(author: Option[String], comment: Option[String])
                 |  case class Post(author: Option[String], comment: Option[String])
                 |
                 |}
@@ -185,7 +184,6 @@ userList: () => List[Option[User]]
                 |    posts: () => Option[List[Option[Post]]]
                 |  )
                 |
-                |  case class AddPostArgs(author: Option[String], comment: Option[String])
                 |  case class Mutation(
                 |    addPost: AddPostArgs => Option[Post]
                 |  )
@@ -207,11 +205,148 @@ userList: () => List[Option[User]]
           assertM(
             Parser
               .parseQuery(schema)
-              .flatMap(s => {
-                Generator.formatStr(Generator.generate(s), ScalaWriter.scalafmtConfig)
-              }),
+              .flatMap(s => Generator.formatStr(Generator.generate(s), ScalaWriter.scalafmtConfig)),
+            equalTo("\n")
+          )
+        },
+        testM("enum type") {
+          val gqltype =
+            """
+             enum Origin {
+               EARTH
+               MARS
+               BELT
+             }
+            """.stripMargin
+
+          implicit val writer = ScalaWriter.DefaultGQLWriter
+
+          val generated: ZIO[Any, Throwable, String] = Parser
+            .parseQuery(gqltype)
+            .flatMap(s => Generator.formatStr(Generator.generate(s), ScalaWriter.scalafmtConfig))
+
+          assertM(
+            generated,
             equalTo(
-              "\n"
+              """object Types {
+
+  sealed trait Origin extends Product with Serializable
+
+  object Origin {
+    case object EARTH extends Origin
+    case object MARS  extends Origin
+    case object BELT  extends Origin
+  }
+
+}
+"""
+            )
+          )
+        },
+        testM("union type") {
+          val gqltype =
+            """
+             "role"
+             union Role = Captain | Pilot
+             
+             type Captain {
+               "ship" shipName: String!
+             }
+             
+             type Pilot {
+               shipName: String!
+             }
+            """.stripMargin
+
+          implicit val writer = ScalaWriter.DefaultGQLWriter
+
+          val generated: ZIO[Any, Throwable, String] = Parser
+            .parseQuery(gqltype)
+            .flatMap(s => Generator.formatStr(Generator.generate(s), ScalaWriter.scalafmtConfig))
+
+          assertM(
+            generated,
+            equalTo(
+              """import caliban.schema.Annotations._
+
+object Types {
+
+  @GQLDescription("role")
+  sealed trait Role extends Product with Serializable
+
+  object Role {
+    case class Captain(
+      @GQLDescription("ship")
+      shipName: String
+    ) extends Role
+    case class Pilot(shipName: String) extends Role
+  }
+
+}
+"""
+            )
+          )
+        },
+        testM("schema") {
+          val gqltype =
+            """
+             schema {
+               query: Queries
+             }
+               
+             type Queries {
+               characters: Int!
+             }
+            """.stripMargin
+
+          implicit val writer = ScalaWriter.DefaultGQLWriter
+
+          val generated: ZIO[Any, Throwable, String] = Parser
+            .parseQuery(gqltype)
+            .flatMap(s => Generator.formatStr(Generator.generate(s), ScalaWriter.scalafmtConfig))
+
+          assertM(
+            generated,
+            equalTo(
+              """object Operations {
+
+  case class Queries(
+    characters: () => Int
+  )
+
+}
+"""
+            )
+          )
+        },
+        testM("input type") {
+          val gqltype =
+            """
+             type Character {
+                name: String!
+             }
+              
+             input CharacterArgs {
+               name: String!
+             }
+            """.stripMargin
+
+          implicit val writer = ScalaWriter.DefaultGQLWriter
+
+          val generated: ZIO[Any, Throwable, String] = Parser
+            .parseQuery(gqltype)
+            .flatMap(s => Generator.formatStr(Generator.generate(s), ScalaWriter.scalafmtConfig))
+
+          assertM(
+            generated,
+            equalTo(
+              """object Types {
+
+  case class Character(name: String)
+  case class CharacterArgs(name: String)
+
+}
+"""
             )
           )
         }

@@ -6,7 +6,8 @@ import caliban.InputValue._
 import caliban.Value._
 import caliban.parsing.adt.Definition._
 import caliban.parsing.adt.Definition.ExecutableDefinition._
-import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
+import caliban.parsing.adt.Definition.TypeSystemDefinition.{ SchemaDefinition, TypeDefinition }
+import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Selection._
 import caliban.parsing.adt.Type._
 import caliban.parsing.adt._
@@ -127,13 +128,19 @@ object Parser {
   private def namedType[_: P]: P[NamedType] = P(name.filter(_ != "null")).map(NamedType(_, nonNull = false))
   private def listType[_: P]: P[ListType]   = P("[" ~ type_ ~ "]").map(t => ListType(t, nonNull = false))
 
-  private def argumentDefinition[_: P]: P[(String, Type)] = P(name ~ ":" ~ type_)
-  private def argumentDefinitions[_: P]: P[List[(String, Type)]] =
-    P("(" ~/ argumentDefinition.rep ~ ")").map(t => t.toList)
+  private def argumentDefinition[_: P]: P[InputValueDefinition] =
+    P(stringValue.? ~ name ~ ":" ~ type_ ~ defaultValue.? ~ directives.?).map {
+      case (description, name, type_, defaultValue, directives) =>
+        InputValueDefinition(description.map(_.value), name, type_, defaultValue, directives.getOrElse(Nil))
+    }
+  private def argumentDefinitions[_: P]: P[List[InputValueDefinition]] =
+    P("(" ~/ argumentDefinition.rep ~ ")").map(_.toList)
 
   private def fieldDefinition[_: P]: P[FieldDefinition] =
-    P(stringValue.? ~ name ~ argumentDefinitions.? ~ ":" ~ type_ ~ directives.?)
-      .map(t => FieldDefinition(t._1.map(_.value), t._2, t._3.getOrElse(List()), t._4, t._5.getOrElse(List())))
+    P(stringValue.? ~ name ~ argumentDefinitions.? ~ ":" ~ type_ ~ directives.?).map {
+      case (description, name, args, type_, directives) =>
+        FieldDefinition(description.map(_.value), name, args.getOrElse(Nil), type_, directives.getOrElse(Nil))
+    }
 
   private def nonNullType[_: P]: P[Type] = P((namedType | listType) ~ "!").map {
     case t: NamedType => t.copy(nonNull = true)
@@ -191,13 +198,68 @@ object Parser {
       case (name, typeCondition, dirs, sel) => FragmentDefinition(name, typeCondition, dirs, sel)
     }
 
+  private def objectTypeDefinition[_: P]: P[ObjectTypeDefinition] =
+    P(stringValue.? ~ "type" ~/ name ~ directives.? ~ "{" ~ fieldDefinition.rep ~ "}").map {
+      case (description, name, directives, fields) =>
+        ObjectTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), fields.toList)
+    }
+
+  private def inputObjectTypeDefinition[_: P]: P[InputObjectTypeDefinition] =
+    P(stringValue.? ~ "input" ~/ name ~ directives.? ~ "{" ~ argumentDefinition.rep ~ "}").map {
+      case (description, name, directives, fields) =>
+        InputObjectTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), fields.toList)
+    }
+
+  private def enumValueDefinition[_: P]: P[EnumValueDefinition] =
+    P(stringValue.? ~ name ~ directives.?).map {
+      case (description, enumValue, directives) =>
+        EnumValueDefinition(description.map(_.value), enumValue, directives.getOrElse(Nil))
+    }
+
+  private def enumTypeDefinition[_: P]: P[EnumTypeDefinition] =
+    P(
+      stringValue.? ~ "enum" ~/ name
+        .filter(s => s != "true" && s != "false" && s != "null") ~ directives.? ~ "{" ~ enumValueDefinition.rep ~ "}"
+    ).map {
+      case (description, name, directives, enumValuesDefinition) =>
+        EnumTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), enumValuesDefinition.toList)
+    }
+
+  private def unionTypeDefinition[_: P]: P[UnionTypeDefinition] =
+    P(stringValue.? ~ "union" ~/ name ~ directives.? ~ "=" ~ ("|".? ~ namedType) ~ ("|" ~ namedType).rep).map {
+      case (description, name, directives, m, ms) =>
+        UnionTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), (m :: ms.toList).map(_.name))
+    }
+
+  private def scalarTypeDefinition[_: P]: P[ScalarTypeDefinition] =
+    P(stringValue.? ~ "scalar" ~/ name ~ directives.?).map {
+      case (description, name, directives) =>
+        ScalarTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil))
+    }
+
+  private def rootOperationTypeDefinition[_: P]: P[(OperationType, NamedType)] = P(operationType ~ ":" ~ namedType)
+
+  private def schemaDefinition[_: P]: P[SchemaDefinition] =
+    P("schema" ~/ directives.? ~ "{" ~ rootOperationTypeDefinition.rep ~ "}").map {
+      case (directives, ops) =>
+        val opsMap = ops.toMap
+        SchemaDefinition(
+          directives.getOrElse(Nil),
+          opsMap.get(OperationType.Query).map(_.name),
+          opsMap.get(OperationType.Mutation).map(_.name),
+          opsMap.get(OperationType.Subscription).map(_.name)
+        )
+    }
+
   private def typeDefinition[_: P]: P[TypeDefinition] =
-    P("type" ~/ name ~ "{" ~ fieldDefinition.rep ~ "}").map(t => TypeDefinition(t._1, t._2.toList))
+    objectTypeDefinition | inputObjectTypeDefinition | enumTypeDefinition | unionTypeDefinition | scalarTypeDefinition
+
+  private def typeSystemDefinition[_: P]: P[TypeSystemDefinition] = typeDefinition | schemaDefinition
 
   private def executableDefinition[_: P]: P[ExecutableDefinition] =
     P(operationDefinition | fragmentDefinition)
 
-  private def definition[_: P]: P[Definition] = executableDefinition | typeDefinition
+  private def definition[_: P]: P[Definition] = executableDefinition | typeSystemDefinition
 
   private def document[_: P]: P[ParsedDocument] =
     P(Start ~ ignored ~ definition.rep ~ ignored ~ End).map(seq => ParsedDocument(seq.toList))

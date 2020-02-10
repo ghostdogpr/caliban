@@ -8,7 +8,7 @@ import caliban.wrappers.Wrapper.{ OverallWrapper, ValidationWrapper }
 import zio.clock.Clock
 import zio.console.{ putStrLn, Console }
 import zio.duration.Duration
-import zio.{ IO, URIO, ZIO }
+import zio.{ IO, UIO, URIO, ZIO }
 
 object Wrappers {
 
@@ -57,17 +57,24 @@ object Wrappers {
   def maxDepth(maxDepth: Int): ValidationWrapper[Any] =
     ValidationWrapper {
       case (io, _) =>
-        io.flatMap { req =>
-          val depth = calculateDepth(req.field)
-          if (depth > maxDepth) IO.fail(ValidationError(s"Query is too deep: $depth. Max depth: $maxDepth.", ""))
-          else IO.succeed(req)
-        }
+        for {
+          req   <- io
+          depth <- calculateDepth(req.field)
+          _ <- IO.when(depth > maxDepth)(
+                IO.fail(ValidationError(s"Query is too deep: $depth. Max depth: $maxDepth.", ""))
+              )
+        } yield req
     }
 
-  private def calculateDepth(field: Field): Int = {
-    val children      = field.fields ++ field.conditionalFields.values.flatten
-    val childrenDepth = if (children.isEmpty) 0 else children.map(calculateDepth).max
-    childrenDepth + (if (field.name.nonEmpty) 1 else 0)
+  private def calculateDepth(field: Field): UIO[Int] = {
+    val self     = if (field.name.nonEmpty) 1 else 0
+    val children = field.fields ++ field.conditionalFields.values.flatten
+    ZIO
+      .foreach(children)(calculateDepth)
+      .map {
+        case Nil  => self
+        case list => list.max + self
+      }
   }
 
   /**
@@ -77,18 +84,25 @@ object Wrappers {
   def maxFields(maxFields: Int): ValidationWrapper[Any] =
     ValidationWrapper {
       case (io, _) =>
-        io.flatMap { req =>
-          val fields = countFields(req.field)
-          if (fields > maxFields)
-            IO.fail(ValidationError(s"Query has too many fields: $fields. Max fields: $maxFields.", ""))
-          else IO.succeed(req)
-        }
+        for {
+          req    <- io
+          fields <- countFields(req.field)
+          _ <- IO.when(fields > maxFields)(
+                IO.fail(ValidationError(s"Query has too many fields: $fields. Max fields: $maxFields.", ""))
+              )
+        } yield req
     }
 
-  private def countFields(field: Field): Int =
-    innerFields(field.fields) + (if (field.conditionalFields.isEmpty) 0
-                                 else field.conditionalFields.values.map(innerFields).max)
+  private def countFields(field: Field): UIO[Int] =
+    for {
+      inner <- innerFields(field.fields)
+      conditional <- IO.foreach(field.conditionalFields.values)(innerFields).map {
+                      case Nil  => 0
+                      case list => list.max
+                    }
+    } yield inner + conditional
 
-  private def innerFields(fields: List[Field]): Int = fields.length + fields.map(countFields).sum
+  private def innerFields(fields: List[Field]): UIO[Int] =
+    IO.foreach(fields)(countFields).map(_.sum + fields.length)
 
 }
