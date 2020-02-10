@@ -155,12 +155,14 @@ lazy val client = crossProject(JSPlatform, JVMPlatform)
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "com.softwaremill.sttp.client" %%% "core"                         % "2.0.0-RC7",
-      "com.softwaremill.sttp.client" %%% "circe"                        % "2.0.0-RC7",
+      "io.circe"                     %%% "circe-parser"     % "0.13.0",
+      "io.circe"                     %%% "circe-derivation" % "0.12.0-M7",
+      "com.softwaremill.sttp.client" %%% "core"             % "2.0.0-RC7",
+      "com.softwaremill.sttp.client" %%% "circe"            % "2.0.0-RC7",
+      // TODO delete
       "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % "2.0.0-RC7"
     )
   )
-  .dependsOn(core)
 lazy val clientJVM = client.jvm
 lazy val clientJS  = client.js
 

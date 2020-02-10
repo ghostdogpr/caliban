@@ -1,8 +1,6 @@
 package caliban.client
 
-import caliban.ResponseValue
-import caliban.ResponseValue.{ ListValue, ObjectValue }
-import caliban.Value.{ NullValue, StringValue }
+import caliban.client.ResponseValue._
 
 trait FieldType[+A] {
   def toGraphQL: String

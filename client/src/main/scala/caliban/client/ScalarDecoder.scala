@@ -1,7 +1,6 @@
 package caliban.client
 
-import caliban.ResponseValue
-import caliban.Value.{ BooleanValue, IntValue, StringValue }
+import caliban.client.ResponseValue._
 
 trait ScalarDecoder[+A] {
   def decode(value: ResponseValue): Either[String, A]
@@ -9,7 +8,7 @@ trait ScalarDecoder[+A] {
 
 object ScalarDecoder {
   implicit val int: ScalarDecoder[Int] = {
-    case value: IntValue => Right(value.toInt)
+    case value: IntValue => Right(value.value)
     case other           => Left(s"Can't build an Int from input $other")
   }
   implicit val string: ScalarDecoder[String] = {

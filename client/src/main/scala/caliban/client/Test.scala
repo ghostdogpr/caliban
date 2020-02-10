@@ -54,9 +54,7 @@ object Test extends App {
   TODO
   - error hierarchy
   - support all scalars (in and out)
-  - project structure: caliban-core + caliban-server + caliban-client vs caliban + caliban-client
   - code gen
-  - mapN
   - directives
   - aliases (auto + custom name)
   - variables => add parameter in Argument to force using a variable + name

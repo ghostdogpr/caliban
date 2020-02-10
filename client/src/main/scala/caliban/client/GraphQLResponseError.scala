@@ -1,6 +1,7 @@
-package caliban
+package caliban.client
 
-import caliban.interop.circe._
+import io.circe.{ Decoder, DecodingFailure, HCursor }
+import io.circe.derivation.deriveDecoder
 
 case class GraphQLResponseError(
   message: String,
@@ -9,17 +10,11 @@ case class GraphQLResponseError(
 )
 
 object GraphQLResponseError {
-  implicit def circeDecoder[F[_]: IsCirceDecoder, E]: F[GraphQLResponseError] =
-    GraphQLResponseErrorCirce.graphQLResponseErrorDecoder.asInstanceOf[F[GraphQLResponseError]]
-}
-
-private object GraphQLResponseErrorCirce {
-  import io.circe._
-  import io.circe.derivation._
 
   implicit val decoderEither: Decoder[Either[String, Int]] = (c: HCursor) =>
     c.value.asNumber.flatMap(_.toInt).map(v => Right(Right(v))) orElse c.value.asString
       .map(v => Right(Left(v))) getOrElse Left(DecodingFailure("Value is not an Either[String, Int]", c.history))
 
-  val graphQLResponseErrorDecoder: Decoder[GraphQLResponseError] = deriveDecoder[GraphQLResponseError]
+  implicit val decoder: Decoder[GraphQLResponseError] = deriveDecoder[GraphQLResponseError]
+
 }

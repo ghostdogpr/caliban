@@ -1,24 +1,12 @@
 package caliban.client
 
-import caliban.Value.StringValue
+import caliban.client.ResponseValue.StringValue
 import caliban.client.Autogen.Role._
 import caliban.client.FieldType._
 import caliban.client.Operations._
 import caliban.client.SelectionSet.Field
 
 object Autogen {
-
-//  case class CharacterView(name: String, nickname: List[String], origin: Origin)
-//
-//  val character: SelectionSet[Character, CharacterView] =
-//    (Character.name ~
-//      Character.nicknames ~
-//      Character.origin).mapN(CharacterView)
-//
-//  val query: SelectionSet[RootQuery, Option[CharacterView]] =
-//    Queries.character("Amos Burton") {
-//      character
-//    }
 
   // Auto-generated enum
   sealed trait Origin

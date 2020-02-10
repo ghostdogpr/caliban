@@ -1,9 +1,8 @@
 package caliban.client
 
-import caliban.ResponseValue.ObjectValue
 import caliban.client.FieldType.Scalar
 import caliban.client.Operations.IsOperation
-import caliban.{ GraphQLRequest, GraphQLResponse, GraphQLResponseError, ResponseValue }
+import caliban.client.ResponseValue.ObjectValue
 import io.circe.parser
 import sttp.client._
 import sttp.client.circe._
@@ -14,13 +13,6 @@ sealed trait SelectionSet[-Origin, +A] extends FieldType[A] { self =>
     SelectionSet.Concat(self, that)
   def map[B](f: A => B): SelectionSet[Origin, B] = SelectionSet.Map(self, f)
 
-  def mapN[B, C, Res](f: (B, C) => Res)(implicit ev: A <:< (B, C)): SelectionSet[Origin, Res] =
-    self.map(ev.andThen((v1: (B, C)) => f(v1._1, v1._2)))
-  def mapN[B, C, D, Res](f: (B, C, D) => Res)(implicit ev: A <:< ((B, C), D)): SelectionSet[Origin, Res] =
-    self.map(ev.andThen((v1: ((B, C), D)) => f(v1._1._1, v1._1._2, v1._2)))
-  def mapN[B, C, D, E, Res](f: (B, C, D, E) => Res)(implicit ev: A <:< (((B, C), D), E)): SelectionSet[Origin, Res] =
-    self.map(ev.andThen((v1: (((B, C), D), E)) => f(v1._1._1._1, v1._1._1._2, v1._1._2, v1._2)))
-
   def toRequest[A1 >: A, Origin1 <: Origin](
     uri: Uri
   )(implicit ev: IsOperation[Origin1]): Request[Either[Exception, A1], Nothing] = {
@@ -28,11 +20,11 @@ sealed trait SelectionSet[-Origin, +A] extends FieldType[A] { self =>
 
     basicRequest
       .post(uri)
-      .body(GraphQLRequest(operation, None, None))
+      .body(GraphQLRequest(operation))
       .mapResponse { response =>
         for {
           resp   <- response.left.map(new Exception(_))
-          parsed <- parser.decode[GraphQLResponse[GraphQLResponseError]](resp)
+          parsed <- parser.decode[GraphQLResponse](resp)
           objectValue <- parsed.data match {
                           case o: ObjectValue => Right(o)
                           case _              => Left(new Exception("Result is now an object"))
@@ -41,6 +33,143 @@ sealed trait SelectionSet[-Origin, +A] extends FieldType[A] { self =>
         } yield result
       }
   }
+
+  def mapN[B, C, Res](f: (B, C) => Res)(implicit ev: A <:< (B, C)): SelectionSet[Origin, Res] =
+    self.map(ev.andThen { case (b, c) => f(b, c) })
+  def mapN[B, C, D, Res](f: (B, C, D) => Res)(implicit ev: A <:< ((B, C), D)): SelectionSet[Origin, Res] =
+    self.map(ev.andThen { case ((b, c), d) => f(b, c, d) })
+  def mapN[B, C, D, E, Res](f: (B, C, D, E) => Res)(implicit ev: A <:< (((B, C), D), E)): SelectionSet[Origin, Res] =
+    self.map(ev.andThen { case (((b, c), d), e) => f(b, c, d, e) })
+  def mapN[B, C, D, E, F, Res](
+    f: (B, C, D, E, F) => Res
+  )(implicit ev: A <:< ((((B, C), D), E), F)): SelectionSet[Origin, Res] =
+    self.map(ev.andThen { case ((((b, c), d), e), ff) => f(b, c, d, e, ff) })
+  def mapN[B, C, D, E, F, G, Res](
+    f: (B, C, D, E, F, G) => Res
+  )(implicit ev: A <:< (((((B, C), D), E), F), G)): SelectionSet[Origin, Res] =
+    self.map(ev.andThen { case (((((b, c), d), e), ff), g) => f(b, c, d, e, ff, g) })
+  def mapN[B, C, D, E, F, G, H, Res](
+    f: (B, C, D, E, F, G, H) => Res
+  )(implicit ev: A <:< ((((((B, C), D), E), F), G), H)): SelectionSet[Origin, Res] =
+    self.map(ev.andThen { case ((((((b, c), d), e), ff), g), h) => f(b, c, d, e, ff, g, h) })
+  def mapN[B, C, D, E, F, G, H, I, Res](
+    f: (B, C, D, E, F, G, H, I) => Res
+  )(implicit ev: A <:< (((((((B, C), D), E), F), G), H), I)): SelectionSet[Origin, Res] =
+    self.map(ev.andThen { case (((((((b, c), d), e), ff), g), h), i) => f(b, c, d, e, ff, g, h, i) })
+  def mapN[B, C, D, E, F, G, H, I, J, Res](
+    f: (B, C, D, E, F, G, H, I, J) => Res
+  )(implicit ev: A <:< ((((((((B, C), D), E), F), G), H), I), J)): SelectionSet[Origin, Res] =
+    self.map(ev.andThen { case ((((((((b, c), d), e), ff), g), h), i), j) => f(b, c, d, e, ff, g, h, i, j) })
+  def mapN[B, C, D, E, F, G, H, I, J, K, Res](
+    f: (B, C, D, E, F, G, H, I, J, K) => Res
+  )(implicit ev: A <:< (((((((((B, C), D), E), F), G), H), I), J), K)): SelectionSet[Origin, Res] =
+    self.map(ev.andThen { case (((((((((b, c), d), e), ff), g), h), i), j), k) => f(b, c, d, e, ff, g, h, i, j, k) })
+  def mapN[B, C, D, E, F, G, H, I, J, K, L, Res](
+    f: (B, C, D, E, F, G, H, I, J, K, L) => Res
+  )(implicit ev: A <:< ((((((((((B, C), D), E), F), G), H), I), J), K), L)): SelectionSet[Origin, Res] =
+    self.map(ev.andThen {
+      case ((((((((((b, c), d), e), ff), g), h), i), j), k), l) => f(b, c, d, e, ff, g, h, i, j, k, l)
+    })
+  def mapN[B, C, D, E, F, G, H, I, J, K, L, M, Res](
+    f: (B, C, D, E, F, G, H, I, J, K, L, M) => Res
+  )(implicit ev: A <:< (((((((((((B, C), D), E), F), G), H), I), J), K), L), M)): SelectionSet[Origin, Res] =
+    self.map(ev.andThen {
+      case (((((((((((b, c), d), e), ff), g), h), i), j), k), l), m) => f(b, c, d, e, ff, g, h, i, j, k, l, m)
+    })
+  def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, Res](
+    f: (B, C, D, E, F, G, H, I, J, K, L, M, N) => Res
+  )(implicit ev: A <:< ((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N)): SelectionSet[Origin, Res] =
+    self.map(ev.andThen {
+      case ((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n) => f(b, c, d, e, ff, g, h, i, j, k, l, m, n)
+    })
+  def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, Res](
+    f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O) => Res
+  )(implicit ev: A <:< (((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O)): SelectionSet[Origin, Res] =
+    self.map(ev.andThen {
+      case (((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o) =>
+        f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o)
+    })
+  def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Res](
+    f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P) => Res
+  )(
+    implicit ev: A <:< ((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P)
+  ): SelectionSet[Origin, Res] =
+    self.map(ev.andThen {
+      case ((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p) =>
+        f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p)
+    })
+  def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, Res](
+    f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q) => Res
+  )(
+    implicit ev: A <:< (((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q)
+  ): SelectionSet[Origin, Res] =
+    self.map(ev.andThen {
+      case (((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q) =>
+        f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q)
+    })
+  def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, Res](
+    f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R) => Res
+  )(
+    implicit ev: A <:< ((((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q), R)
+  ): SelectionSet[Origin, Res] =
+    self.map(ev.andThen {
+      case ((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r) =>
+        f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r)
+    })
+  def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, Res](
+    f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S) => Res
+  )(
+    implicit ev: A <:< (((((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q), R), S)
+  ): SelectionSet[Origin, Res] =
+    self.map(ev.andThen {
+      case (((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r), s) =>
+        f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s)
+    })
+  def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, Res](
+    f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T) => Res
+  )(
+    implicit ev: A <:< ((((((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q), R), S), T)
+  ): SelectionSet[Origin, Res] =
+    self.map(ev.andThen {
+      case ((((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r), s), t) =>
+        f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s, t)
+    })
+  def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, Res](
+    f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U) => Res
+  )(
+    implicit ev: A <:< (((((((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q), R), S), T), U)
+  ): SelectionSet[Origin, Res] =
+    self.map(ev.andThen {
+      case (((((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r), s), t), u) =>
+        f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u)
+    })
+  def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, Res](
+    f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V) => Res
+  )(
+    implicit ev: A <:< (
+      (((((((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q), R), S), T), U),
+      V
+    )
+  ): SelectionSet[Origin, Res] =
+    self.map(ev.andThen {
+      case ((((((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r), s), t), u), v) =>
+        f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v)
+    })
+  def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, Res](
+    f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W) => Res
+  )(
+    implicit ev: A <:< (
+      ((((((((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q), R), S), T), U), V),
+      W
+    )
+  ): SelectionSet[Origin, Res] =
+    self.map(ev.andThen {
+      case (
+          ((((((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r), s), t), u), v),
+          w
+          ) =>
+        f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w)
+    })
 }
 
 object SelectionSet {
@@ -74,9 +203,4 @@ object SelectionSet {
     override def toGraphQL: String                                    = selectionSet.toGraphQL
     override def fromGraphQL(value: ResponseValue): Either[String, B] = selectionSet.fromGraphQL(value).map(f)
   }
-//  case class GraphQL[Origin, A](query: String, read: ResponseValue => Either[String, A])
-//      extends SelectionSet[Origin, A] {
-//    override def toGraphQL: String                                    = query
-//    override def fromGraphQL(value: ResponseValue): Either[String, A] = read(value)
-//  }
 }
