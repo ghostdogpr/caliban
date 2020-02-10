@@ -172,7 +172,7 @@ import caliban.schema._
 implicit val unitSchema: Schema[Any, Unit] = scalarSchema("Unit", None, _ => ObjectValue(Nil))
 ```
 
-## Schema generation
+## Code generation
 
 Caliban can automatically generate Scala code from a GraphQL schema. 
 
