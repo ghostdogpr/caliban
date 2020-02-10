@@ -5,4 +5,8 @@
 
 ## Blog Articles
 
+- __*GraphQL in Scala with Caliban*__ by Pierre Ricadat (February 2020)
+    - [Part 1: Turn a simple API into GraphQL](https://medium.com/@ghostdogpr/graphql-in-scala-with-caliban-part-1-8ceb6099c3c2)
+    - [Part 2: Query optimization](https://medium.com/@ghostdogpr/graphql-in-scala-with-caliban-part-2-c7762110c0f9)
+    - [Part 3: Customization](https://medium.com/@ghostdogpr/graphql-in-scala-with-caliban-part-3-8962a02d5d64)    
 - [Authentication in Caliban](http://fokot.github.io/post/caliban-auth.html) by František Kocun (December 2019)
