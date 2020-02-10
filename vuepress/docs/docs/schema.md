@@ -172,14 +172,14 @@ import caliban.schema._
 implicit val unitSchema: Schema[Any, Unit] = scalarSchema("Unit", None, _ => ObjectValue(Nil))
 ```
 
-## Schema generation
+## Code generation
 
 Caliban can automatically generate Scala code from a GraphQL schema. 
 
 In order to use this feature, add the `caliban-codegen` sbt plugin to your project and enable it. 
  
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen" % "0.5.0")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen" % "0.5.1")
 enablePlugins(CodegenPlugin)
 ```
 Then call the `codegen` sbt command.

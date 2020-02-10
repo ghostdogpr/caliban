@@ -11,7 +11,6 @@ inThisBuild(
     licenses := List(
       "Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0")
     ),
-    scalaVersion := mainScala,
     parallelExecution in Test := false,
     pgpPassphrase := sys.env.get("PGP_PASSWORD").map(_.toArray),
     pgpPublicRing := file("/tmp/public.asc"),
@@ -29,8 +28,7 @@ inThisBuild(
         "ghostdogpr@gmail.com",
         url("https://github.com/ghostdogpr")
       )
-    ),
-    crossScalaVersions := allScala
+    )
   )
 )
 
@@ -83,12 +81,13 @@ lazy val codegen = project
   .settings(commonSettings)
   .settings(
     sbtPlugin := true,
+    crossScalaVersions := Seq("2.12.10"),
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "org.scalameta" %%% "scalafmt-dynamic" % "2.3.2",
-      "org.scalameta" %%% "scalafmt-core"    % "2.3.2",
-      "dev.zio"       %%% "zio-test"         % "1.0.0-RC17" % "test",
-      "dev.zio"       %%% "zio-test-sbt"     % "1.0.0-RC17" % "test"
+      "org.scalameta" %% "scalafmt-dynamic" % "2.3.2",
+      "org.scalameta" %% "scalafmt-core"    % "2.3.2",
+      "dev.zio"       %% "zio-test"         % "1.0.0-RC17" % "test",
+      "dev.zio"       %% "zio-test-sbt"     % "1.0.0-RC17" % "test"
     )
   )
   .dependsOn(coreJVM)
@@ -186,6 +185,8 @@ lazy val benchmarks = project
   )
 
 val commonSettings = Def.settings(
+  scalaVersion := mainScala,
+  crossScalaVersions := allScala,
   scalacOptions ++= Seq(
     "-deprecation",
     "-encoding",
