@@ -23,7 +23,7 @@ object Rendering {
                 .mkString(" | ")
             Some(s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} = $renderedTypes""")
           case _ =>
-            val renderedDirectives: String = t.directives.fold("")(_.map(renderDirective).mkString(" "))
+            val renderedDirectives: String = renderDirectives(t.directives)
             val renderedFields: String = t
               .fields(__DeprecatedArgs())
               .fold(List.empty[String])(_.map(renderField))
@@ -86,13 +86,16 @@ object Rendering {
     }.mkString("{", ",", "}")})"""
     else ""}"
 
+  private def renderDirectives(directives: Option[List[Directive]]) =
+    directives.fold("")(_.map(renderDirective).mkString(" ", " ", ""))
+
   private def renderField(field: __Field): String =
     s"${field.name}${renderArguments(field.args)}: ${renderTypeName(field.`type`())}${if (field.isDeprecated)
       s" @deprecated${field.deprecationReason.fold("")(reason => s"""(reason: "$reason")""")}"
-    else ""}"
+    else ""}${renderDirectives(field.directives)}"
 
   private def renderInputValue(inputValue: __InputValue): String =
-    s"${inputValue.name}: ${renderTypeName(inputValue.`type`())}${inputValue.defaultValue.fold("")(d => s" = $d")}"
+    s"${inputValue.name}: ${renderTypeName(inputValue.`type`())}${inputValue.defaultValue.fold("")(d => s" = $d")}${renderDirectives(inputValue.directives)}"
 
   private def renderEnumValue(v: __EnumValue): String =
     s"${renderDescription(v.description)}${v.name}${if (v.isDeprecated)

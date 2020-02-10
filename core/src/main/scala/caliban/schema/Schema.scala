@@ -228,7 +228,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
             arg1.build(InputValue.ObjectValue(args)) match {
               case Left(error)  => QueryStep(ZQuery.fail(error))
               case Right(value) => ev2.resolve(f(value))
-          }
+            }
         )
     }
   implicit def futureSchema[A](implicit ev: Schema[R, A]): Schema[R, Future[A]] =
@@ -297,8 +297,9 @@ trait DerivationSchema[R] {
                   getDescription(p),
                   () =>
                     if (p.typeclass.optional) p.typeclass.toType(isInput) else makeNonNull(p.typeclass.toType(isInput)),
-                  None
-              )
+                  None,
+                  Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
+                )
             )
             .toList
         )
@@ -316,8 +317,9 @@ trait DerivationSchema[R] {
                   () =>
                     if (p.typeclass.optional) p.typeclass.toType(isInput) else makeNonNull(p.typeclass.toType(isInput)),
                   p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
-                  p.annotations.collectFirst { case GQLDeprecated(reason) => reason }
-              )
+                  p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
+                  Option(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
+                )
             )
             .toList,
           getDirectives(ctx)
@@ -402,7 +404,7 @@ trait DerivationSchema[R] {
                     () => makeScalar("Boolean")
                   )
                 )
-            )
+              )
           )
         case _ => t
       }

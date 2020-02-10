@@ -36,8 +36,13 @@ object TestUtils {
     case class Mechanic(shipName: String) extends Role
   }
 
-  @GQLDirective(Directive("key", Map("name" -> StringValue("name")), 0))
-  case class Character(name: String, nicknames: List[String], origin: Origin, role: Option[Role])
+  @GQLDirective(Directive("key", Map("name" -> StringValue("name"))))
+  case class Character(
+    @GQLDirective(Directive("external")) name: String,
+    @GQLDirective(Directive("required")) nicknames: List[String],
+    origin: Origin,
+    role: Option[Role]
+  )
 
   object Character {
     implicit val schema: Schema[Any, Character] = Schema.gen[Character]
@@ -55,7 +60,7 @@ object TestUtils {
 
   case class CharactersArgs(origin: Option[Origin])
   case class CharacterArgs(name: String)
-  case class CharacterInArgs(names: List[String])
+  case class CharacterInArgs(@GQLDirective(Directive("lowercase")) names: List[String])
   case class CharacterObjectArgs(character: Character)
 
   @GQLDescription("Queries")
