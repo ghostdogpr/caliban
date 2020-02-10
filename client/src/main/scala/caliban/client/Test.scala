@@ -53,7 +53,6 @@ object Test extends App {
   /*
   TODO
   - error hierarchy
-  - support all scalars (in and out)
   - code gen
   - directives
   - aliases (auto + custom name)

@@ -26,7 +26,7 @@ object FieldType {
       value match {
         case ListValue(items) =>
           items.map(inner.fromGraphQL).foldRight(Right(Nil): Either[String, List[A]]) { (e, acc) =>
-            for (xs <- acc.right; x <- e.right) yield x :: xs
+            for (xs <- acc; x <- e) yield x :: xs
           }
         case _ => Left(s"Field is not a list")
       }
