@@ -17,7 +17,8 @@ case class Field(
   fields: List[Field] = Nil,
   conditionalFields: Map[String, List[Field]] = Map(),
   arguments: Map[String, InputValue] = Map(),
-  locationInfo: LocationInfo = LocationInfo.origin
+  locationInfo: LocationInfo = LocationInfo.origin,
+  directives: List[Directive] = List.empty
 )
 
 object Field {
@@ -26,17 +27,24 @@ object Field {
     fragments: Map[String, FragmentDefinition],
     variableValues: Map[String, InputValue],
     fieldType: __Type,
-    sourceMapper: SourceMapper
+    sourceMapper: SourceMapper,
+    directives: List[Directive]
   ): Field = {
 
     def loop(selectionSet: List[Selection], fieldType: __Type): Field = {
       val innerType = Types.innerType(fieldType)
       val (fields, cFields) = selectionSet.map {
-        case f @ F(alias, name, arguments, _, selectionSet, index) if checkDirectives(f.directives, variableValues) =>
-          val t = innerType
+        case F(alias, name, arguments, directives, selectionSet, index)
+            if checkDirectives(directives, variableValues) =>
+          val selected = innerType
             .fields(__DeprecatedArgs(Some(true)))
             .flatMap(_.find(_.name == name))
+
+          val schemaDirectives = selected.flatMap(_.directives).getOrElse(Nil)
+
+          val t = selected
             .fold(Types.string)(_.`type`()) // default only case where it's not found is __typename
+
           val field = loop(selectionSet, t)
           (
             List(
@@ -48,7 +56,8 @@ object Field {
                 field.fields,
                 field.conditionalFields,
                 arguments,
-                sourceMapper.getLocation(index)
+                sourceMapper.getLocation(index),
+                directives ++ schemaDirectives
               )
             ),
             Map.empty[String, List[Field]]

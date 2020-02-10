@@ -73,7 +73,7 @@ object Validator {
           }).map(
             operation =>
               ExecutionRequest(
-                F(op.selectionSet, fragments, variables, operation.opType, document.sourceMapper),
+                F(op.selectionSet, fragments, variables, operation.opType, document.sourceMapper, Nil),
                 op.operationType,
                 op.variableDefinitions
               )
@@ -524,7 +524,7 @@ object Validator {
                  .filter(_.operationType == OperationType.Subscription)
                  .find(
                    op =>
-                     F(op.selectionSet, context.fragments, Map.empty[String, InputValue], t, SourceMapper.empty).fields.length > 1
+                     F(op.selectionSet, context.fragments, Map.empty[String, InputValue], t, SourceMapper.empty, Nil).fields.length > 1
                  )
         } yield op
       )
