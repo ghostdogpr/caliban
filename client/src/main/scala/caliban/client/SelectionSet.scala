@@ -1,9 +1,10 @@
 package caliban.client
 
-import caliban.client.CalibanClientError.{ CommunicationError, DecodingError }
+import caliban.client.CalibanClientError.{ CommunicationError, DecodingError, ServerError }
 import caliban.client.FieldType.Scalar
 import caliban.client.Operations.IsOperation
 import caliban.client.ResponseValue.ObjectValue
+import caliban.client.SelectionSet.Field
 import io.circe.parser
 import sttp.client._
 import sttp.client.circe._
@@ -12,7 +13,28 @@ import sttp.model.Uri
 sealed trait SelectionSet[-Origin, +A] extends FieldType[A] { self =>
   def ~[Origin1 <: Origin, B](that: SelectionSet[Origin1, B]): SelectionSet[Origin1, (A, B)] =
     SelectionSet.Concat(self, that)
+
   def map[B](f: A => B): SelectionSet[Origin, B] = SelectionSet.Map(self, f)
+
+  def fields: List[Field[_, _]]
+
+  def withDirective(directive: Directive): SelectionSet[Origin, A]
+  def withAlias(alias: String): SelectionSet[Origin, A]
+
+  override def toGraphQL: String = {
+    val innerFields = fields
+    val fieldNames  = innerFields.groupBy(_.name).map { case (k, v) => k -> v.size }
+    innerFields.map {
+      case f @ Field(name, field, alias, arguments, directives) =>
+        val args      = arguments.map(_.toGraphQL).filterNot(_.isEmpty).mkString(",")
+        val argString = if (args.nonEmpty) s"($args)" else ""
+        val dirs      = directives.map(_.toGraphQL).mkString(" ")
+        val aliasString = (if (fieldNames.get(alias.getOrElse(name)).exists(_ > 1))
+                             Some(alias.getOrElse(name) + math.abs(f.hashCode))
+                           else alias).fold("")(_ + ": ")
+        s"$aliasString$name$argString $dirs${field.toGraphQL}"
+    }.mkString(" ")
+  }
 
   def toRequest[A1 >: A, Origin1 <: Origin](
     uri: Uri
@@ -29,7 +51,8 @@ sealed trait SelectionSet[-Origin, +A] extends FieldType[A] { self =>
                      .decode[GraphQLResponse](resp)
                      .left
                      .map(ex => DecodingError("Json deserialization error", Some(ex)))
-          objectValue <- parsed.data match {
+          data <- if (parsed.errors.nonEmpty) Left(ServerError(parsed.errors)) else Right(parsed.data)
+          objectValue <- data match {
                           case o: ObjectValue => Right(o)
                           case _              => Left(DecodingError("Result is not an object"))
                         }
@@ -180,31 +203,53 @@ object SelectionSet {
 
   val __typename: SelectionSet[Any, String] = Field("__typename", Scalar[String]())
 
-  case class Field[Origin, A](name: String, field: FieldType[A], arguments: List[Argument[_]] = Nil)
-      extends SelectionSet[Origin, A] {
-    override def toGraphQL: String = {
-      val args = arguments.map(_.toGraphQL).filterNot(_.isEmpty).mkString(",")
-      if (args.nonEmpty) s"$name($args) ${field.toGraphQL}"
-      else name + field.toGraphQL
-    }
+  case class Field[Origin, A](
+    name: String,
+    field: FieldType[A],
+    alias: Option[String] = None,
+    arguments: List[Argument[_]] = Nil,
+    directives: List[Directive] = Nil
+  ) extends SelectionSet[Origin, A] { self =>
     override def fromGraphQL(value: ResponseValue): Either[DecodingError, A] =
       value match {
         case ObjectValue(fields) =>
-          fields.find(_._1 == name).toRight(DecodingError(s"Missing field $name")).flatMap(v => field.fromGraphQL(v._2))
+          fields.find {
+            case (o, _) => alias.getOrElse(name) + math.abs(self.hashCode) == o || alias.contains(o) || name == o
+          }.toRight(DecodingError(s"Missing field $name"))
+            .flatMap(v => field.fromGraphQL(v._2))
         case _ => Left(DecodingError(s"Invalid field type $name"))
       }
+
+    override def withDirective(directive: Directive): SelectionSet[Origin, A] =
+      self.copy(directives = directive :: directives)
+
+    override def fields: List[Field[_, _]] = List(self)
+
+    override def withAlias(alias: String): SelectionSet[Origin, A] = self.copy(alias = Some(alias))
   }
   case class Concat[Origin, A, B](first: SelectionSet[Origin, A], second: SelectionSet[Origin, B])
-      extends SelectionSet[Origin, (A, B)] {
-    override def toGraphQL: String = s"${first.toGraphQL} ${second.toGraphQL}"
+      extends SelectionSet[Origin, (A, B)] { self =>
     override def fromGraphQL(value: ResponseValue): Either[DecodingError, (A, B)] =
       for {
         v1 <- first.fromGraphQL(value)
         v2 <- second.fromGraphQL(value)
       } yield (v1, v2)
+
+    override def withDirective(directive: Directive): SelectionSet[Origin, (A, B)] =
+      Concat(first.withDirective(directive), second.withDirective(directive))
+
+    override def fields: List[Field[_, _]] = first.fields ++ second.fields
+
+    override def withAlias(alias: String): SelectionSet[Origin, (A, B)] = self // makes no sense, do nothing
   }
   case class Map[Origin, A, B](selectionSet: SelectionSet[Origin, A], f: A => B) extends SelectionSet[Origin, B] {
-    override def toGraphQL: String                                           = selectionSet.toGraphQL
     override def fromGraphQL(value: ResponseValue): Either[DecodingError, B] = selectionSet.fromGraphQL(value).map(f)
+
+    override def withDirective(directive: Directive): SelectionSet[Origin, B] =
+      Map(selectionSet.withDirective(directive), f)
+
+    override def fields: List[Field[_, _]] = selectionSet.fields
+
+    override def withAlias(alias: String): SelectionSet[Origin, B] = Map(selectionSet.withAlias(alias), f)
   }
 }

@@ -2,6 +2,7 @@ package caliban.client
 
 import caliban.client.ResponseValue.StringValue
 import caliban.client.Autogen.Role._
+import caliban.client.CalibanClientError.DecodingError
 import caliban.client.FieldType._
 import caliban.client.Operations._
 import caliban.client.SelectionSet.Field
@@ -19,7 +20,7 @@ object Autogen {
       case StringValue("EARTH") => Right(Origin.EARTH)
       case StringValue("MARS")  => Right(Origin.MARS)
       case StringValue("BELT")  => Right(Origin.BELT)
-      case other                => Left(s"Can't build an Origin from input $other")
+      case other                => Left(DecodingError(s"Can't build an Origin from input $other"))
     }
     implicit val originEncoder: ArgEncoder[Origin] = {
       case EARTH => "EARTH"
@@ -73,15 +74,15 @@ object Autogen {
     def characters[A](
       origin: Option[Origin] = None
     )(sel: SelectionSet[Character, A]): SelectionSet[RootQuery, List[A]] =
-      Field("characters", ListOf(Obj(sel)), List(Argument("origin", origin)))
+      Field("characters", ListOf(Obj(sel)), arguments = List(Argument("origin", origin)))
 
     def character[A](name: String)(sel: SelectionSet[Character, A]): Field[RootQuery, Option[A]] =
-      Field("character", OptionOf(Obj(sel)), List(Argument("name", name)))
+      Field("character", OptionOf(Obj(sel)), arguments = List(Argument("name", name)))
   }
 
   // Auto-generated mutation
   object Mutations {
     def deleteCharacter(name: String): SelectionSet[RootMutation, Boolean] =
-      Field("deleteCharacter", Scalar(), List(Argument("name", name)))
+      Field("deleteCharacter", Scalar(), arguments = List(Argument("name", name)))
   }
 }
