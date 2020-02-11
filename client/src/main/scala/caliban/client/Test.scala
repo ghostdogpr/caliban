@@ -53,7 +53,6 @@ object Test extends App {
 
   /*
   TODO
-  - error => don't read null
   - variables => add parameter in Argument to force using a variable + name
   - code gen
 
