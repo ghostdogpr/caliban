@@ -52,11 +52,10 @@ object Test extends App {
 
   /*
   TODO
-  - error hierarchy
-  - code gen
   - directives
   - aliases (auto + custom name)
   - variables => add parameter in Argument to force using a variable + name
+  - code gen
 
   - subscriptions (no backend for ScalaJS yet)
   - compact query with fragments

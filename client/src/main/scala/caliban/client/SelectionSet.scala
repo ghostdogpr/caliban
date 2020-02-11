@@ -1,5 +1,6 @@
 package caliban.client
 
+import caliban.client.CalibanClientError.{ CommunicationError, DecodingError }
 import caliban.client.FieldType.Scalar
 import caliban.client.Operations.IsOperation
 import caliban.client.ResponseValue.ObjectValue
@@ -15,7 +16,7 @@ sealed trait SelectionSet[-Origin, +A] extends FieldType[A] { self =>
 
   def toRequest[A1 >: A, Origin1 <: Origin](
     uri: Uri
-  )(implicit ev: IsOperation[Origin1]): Request[Either[Exception, A1], Nothing] = {
+  )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, A1], Nothing] = {
     val operation = s"${ev.operationName}{$toGraphQL}"
 
     basicRequest
@@ -23,13 +24,16 @@ sealed trait SelectionSet[-Origin, +A] extends FieldType[A] { self =>
       .body(GraphQLRequest(operation))
       .mapResponse { response =>
         for {
-          resp   <- response.left.map(new Exception(_))
-          parsed <- parser.decode[GraphQLResponse](resp)
+          resp <- response.left.map(CommunicationError(_))
+          parsed <- parser
+                     .decode[GraphQLResponse](resp)
+                     .left
+                     .map(ex => DecodingError("Json deserialization error", Some(ex)))
           objectValue <- parsed.data match {
                           case o: ObjectValue => Right(o)
-                          case _              => Left(new Exception("Result is now an object"))
+                          case _              => Left(DecodingError("Result is not an object"))
                         }
-          result <- fromGraphQL(objectValue).left.map(new Exception(_))
+          result <- fromGraphQL(objectValue)
         } yield result
       }
   }
@@ -183,24 +187,24 @@ object SelectionSet {
       if (args.nonEmpty) s"$name($args) ${field.toGraphQL}"
       else name + field.toGraphQL
     }
-    override def fromGraphQL(value: ResponseValue): Either[String, A] =
+    override def fromGraphQL(value: ResponseValue): Either[DecodingError, A] =
       value match {
         case ObjectValue(fields) =>
-          fields.find(_._1 == name).toRight(s"Missing field $name").flatMap(v => field.fromGraphQL(v._2))
-        case _ => Left(s"Invalid field type $name")
+          fields.find(_._1 == name).toRight(DecodingError(s"Missing field $name")).flatMap(v => field.fromGraphQL(v._2))
+        case _ => Left(DecodingError(s"Invalid field type $name"))
       }
   }
   case class Concat[Origin, A, B](first: SelectionSet[Origin, A], second: SelectionSet[Origin, B])
       extends SelectionSet[Origin, (A, B)] {
     override def toGraphQL: String = s"${first.toGraphQL} ${second.toGraphQL}"
-    override def fromGraphQL(value: ResponseValue): Either[String, (A, B)] =
+    override def fromGraphQL(value: ResponseValue): Either[DecodingError, (A, B)] =
       for {
         v1 <- first.fromGraphQL(value)
         v2 <- second.fromGraphQL(value)
       } yield (v1, v2)
   }
   case class Map[Origin, A, B](selectionSet: SelectionSet[Origin, A], f: A => B) extends SelectionSet[Origin, B] {
-    override def toGraphQL: String                                    = selectionSet.toGraphQL
-    override def fromGraphQL(value: ResponseValue): Either[String, B] = selectionSet.fromGraphQL(value).map(f)
+    override def toGraphQL: String                                           = selectionSet.toGraphQL
+    override def fromGraphQL(value: ResponseValue): Either[DecodingError, B] = selectionSet.fromGraphQL(value).map(f)
   }
 }
