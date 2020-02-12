@@ -45,7 +45,7 @@ object Test extends App {
       val uri                  = uri"http://localhost:8088/api/graphql"
       val call1: Task[Boolean] = mutation.toRequest(uri).send().map(_.body).absolve
       val call2: Task[(List[Character], Option[Character])] =
-        query.toRequest(uri).send().map(_.body).absolve
+        query.toRequest(uri, useVariables = true).send().map(_.body).absolve
       call1.tap(res => putStrLn(s"Result: $res")) *>
         call2.tap(res => putStrLn(s"Result: $res"))
     }.foldM(ex => putStrLn(ex.toString).as(1), _ => ZIO.succeed(0))
@@ -53,7 +53,6 @@ object Test extends App {
 
   /*
   TODO
-  - variables => add parameter in Argument to force using a variable + name
   - code gen
 
   - support interfaces

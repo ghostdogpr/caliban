@@ -3,10 +3,10 @@ package caliban.client
 import scala.util.Try
 import java.util.UUID
 import caliban.client.CalibanClientError.DecodingError
-import caliban.client.ResponseValue._
+import caliban.client.Value._
 
 trait ScalarDecoder[+A] {
-  def decode(value: ResponseValue): Either[DecodingError, A]
+  def decode(value: Value): Either[DecodingError, A]
 }
 
 object ScalarDecoder {

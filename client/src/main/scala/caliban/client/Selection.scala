@@ -9,13 +9,21 @@ object Selection {
     name: String,
     arguments: List[Argument[_]],
     directives: List[Directive],
-    selectionSet: List[Selection]
+    selectionSet: List[Selection],
+    code: Int
   ) extends Selection
 
   case class Directive(name: String, arguments: List[Argument[_]] = Nil) {
-    def toGraphQL: String = {
-      val args = arguments.map(_.toGraphQL).mkString(",")
-      s"@$name($args)"
+    def toGraphQL(
+      useVariables: Boolean,
+      variables: Map[String, (Value, String)]
+    ): (String, Map[String, (Value, String)]) = {
+      val (args, v) = arguments.foldRight((List.empty[String], variables)) {
+        case (arg, (args, v2)) =>
+          val (a2, v3) = arg.toGraphQL(useVariables, v2)
+          (a2 :: args, v3)
+      }
+      (s"@$name(${args.mkString(",")})", v)
     }
   }
 }

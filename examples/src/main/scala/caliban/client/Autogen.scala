@@ -1,6 +1,6 @@
 package caliban.client
 
-import caliban.client.ResponseValue.StringValue
+import caliban.client.Value.StringValue
 import caliban.client.Autogen.Role._
 import caliban.client.CalibanClientError.DecodingError
 import caliban.client.FieldBuilder._
@@ -22,10 +22,13 @@ object Autogen {
       case StringValue("BELT")  => Right(Origin.BELT)
       case other                => Left(DecodingError(s"Can't build an Origin from input $other"))
     }
-    implicit val originEncoder: ArgEncoder[Origin] = {
-      case EARTH => "EARTH"
-      case MARS  => "MARS"
-      case BELT  => "BELT"
+    implicit val originEncoder: ArgEncoder[Origin] = new ArgEncoder[Origin] {
+      override def encode(value: Origin): Value = value match {
+        case EARTH => StringValue("EARTH")
+        case MARS  => StringValue("MARS")
+        case BELT  => StringValue("BELT")
+      }
+      override def typeName: String = "Origin"
     }
   }
 

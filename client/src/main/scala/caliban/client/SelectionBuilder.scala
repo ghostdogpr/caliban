@@ -3,8 +3,8 @@ package caliban.client
 import caliban.client.CalibanClientError.{ CommunicationError, DecodingError, ServerError }
 import caliban.client.FieldBuilder.Scalar
 import caliban.client.Operations.IsOperation
-import caliban.client.ResponseValue.ObjectValue
 import caliban.client.Selection.Directive
+import caliban.client.Value.ObjectValue
 import io.circe.parser
 import sttp.client._
 import sttp.client.circe._
@@ -22,16 +22,23 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
 
   def withAlias(alias: String): SelectionBuilder[Origin, A]
 
-  def fromGraphQL(value: ResponseValue): Either[DecodingError, A]
+  def fromGraphQL(value: Value): Either[DecodingError, A]
 
   def toRequest[A1 >: A, Origin1 <: Origin](
-    uri: Uri
+    uri: Uri,
+    useVariables: Boolean = false
   )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, A1], Nothing] = {
-    val operation = s"${ev.operationName}{${SelectionBuilder.toGraphQL(toSelectionSet)}}"
+    val (fields, variables) = SelectionBuilder.toGraphQL(toSelectionSet, useVariables)
+    val variableDef =
+      if (variables.nonEmpty)
+        s"(${variables.map { case (name, (_, typeName)) => s"$$$name: $typeName" }.mkString(",")})"
+      else ""
+    val operation = s"${ev.operationName}$variableDef{$fields}"
+    val request   = GraphQLRequest(operation, variables.map { case (k, (v, _)) => k -> v })
 
     basicRequest
       .post(uri)
-      .body(GraphQLRequest(operation))
+      .body(request)
       .mapResponse { response =>
         for {
           resp <- response.left.map(CommunicationError(_))
@@ -202,7 +209,7 @@ object SelectionBuilder {
     arguments: List[Argument[_]] = Nil,
     directives: List[Directive] = Nil
   ) extends SelectionBuilder[Origin, A] { self =>
-    override def fromGraphQL(value: ResponseValue): Either[DecodingError, A] =
+    override def fromGraphQL(value: Value): Either[DecodingError, A] =
       value match {
         case ObjectValue(fields) =>
           fields.find {
@@ -216,13 +223,13 @@ object SelectionBuilder {
       self.copy(directives = directive :: directives)
 
     override def toSelectionSet: List[Selection] =
-      List(Selection.Field(alias, name, arguments, directives, builder.toSelectionSet))
+      List(Selection.Field(alias, name, arguments, directives, builder.toSelectionSet, self.hashCode))
 
     override def withAlias(alias: String): SelectionBuilder[Origin, A] = self.copy(alias = Some(alias))
   }
   case class Concat[Origin, A, B](first: SelectionBuilder[Origin, A], second: SelectionBuilder[Origin, B])
       extends SelectionBuilder[Origin, (A, B)] { self =>
-    override def fromGraphQL(value: ResponseValue): Either[DecodingError, (A, B)] =
+    override def fromGraphQL(value: Value): Either[DecodingError, (A, B)] =
       for {
         v1 <- first.fromGraphQL(value)
         v2 <- second.fromGraphQL(value)
@@ -236,7 +243,7 @@ object SelectionBuilder {
     override def withAlias(alias: String): SelectionBuilder[Origin, (A, B)] = self // makes no sense, do nothing
   }
   case class Map[Origin, A, B](builder: SelectionBuilder[Origin, A], f: A => B) extends SelectionBuilder[Origin, B] {
-    override def fromGraphQL(value: ResponseValue): Either[DecodingError, B] = builder.fromGraphQL(value).map(f)
+    override def fromGraphQL(value: Value): Either[DecodingError, B] = builder.fromGraphQL(value).map(f)
 
     override def withDirective(directive: Directive): SelectionBuilder[Origin, B] =
       Map(builder.withDirective(directive), f)
@@ -246,23 +253,42 @@ object SelectionBuilder {
     override def withAlias(alias: String): SelectionBuilder[Origin, B] = Map(builder.withAlias(alias), f)
   }
 
-  def toGraphQL(fields: List[Selection]): String = {
+  import scala.collection.immutable.{ Map => SMap }
+  def toGraphQL(
+    fields: List[Selection],
+    useVariables: Boolean,
+    variables: SMap[String, (Value, String)] = SMap()
+  ): (String, SMap[String, (Value, String)]) = {
     val fieldNames = fields.collect { case f: Selection.Field => f }.groupBy(_.name).map { case (k, v) => k -> v.size }
-    fields.map {
-      case Selection.InlineFragment(onType, selection) =>
-        s"... on $onType{${toGraphQL(selection)}}"
-      case f @ Selection.Field(alias, name, arguments, directives, selection) =>
-        val args      = arguments.map(_.toGraphQL).filterNot(_.isEmpty).mkString(",")
-        val argString = if (args.nonEmpty) s"($args)" else ""
-        val dirs      = directives.map(_.toGraphQL).mkString(" ")
-        val aliasString = (if (fieldNames.get(alias.getOrElse(name)).exists(_ > 1))
-                             Some(alias.getOrElse(name) + math.abs(f.hashCode))
-                           else alias).fold("")(_ + ": ")
-        val selString = toGraphQL(selection) match {
-          case ""    => ""
-          case other => s"{$other}"
-        }
-        s"$aliasString$name$argString $dirs$selString"
-    }.mkString(" ")
+    val (fields2, variables2) = fields
+      .foldRight((List.empty[String], variables)) {
+        case (Selection.InlineFragment(onType, selection), (fields, variables)) =>
+          val (f, v) = toGraphQL(selection, useVariables, variables)
+          (s"... on $onType{$f}" :: fields, v)
+        case (Selection.Field(alias, name, arguments, directives, selection, code), (fields, variables)) =>
+          val (newArgs, newVariables) = arguments
+            .foldRight((List.empty[String], variables)) {
+              case (a, (args, v)) =>
+                val (a2, v2) = a.toGraphQL(useVariables, v)
+                (a2 :: args, v2)
+            }
+          val args      = newArgs.filterNot(_.isEmpty).mkString(",")
+          val argString = if (args.nonEmpty) s"($args)" else ""
+          val (newDirectives, newVariables2) = directives
+            .foldRight((List.empty[String], newVariables)) {
+              case (d, (dirs, v)) =>
+                val (d2, v2) = d.toGraphQL(useVariables, v)
+                (d2 :: dirs, v2)
+            }
+          val dirs      = newDirectives.mkString(" ")
+          val dirString = if (dirs.nonEmpty) s" $dirs" else ""
+          val aliasString = (if (fieldNames.get(alias.getOrElse(name)).exists(_ > 1))
+                               Some(alias.getOrElse(name) + math.abs(code))
+                             else alias).fold("")(_ + ": ")
+          val (sel, v)  = toGraphQL(selection, useVariables, newVariables2)
+          val selString = if (sel.nonEmpty) s"{$sel}" else ""
+          (s"$aliasString$name$argString$dirString$selString" :: fields, v)
+      }
+    (fields2.mkString(" "), variables2)
   }
 }
