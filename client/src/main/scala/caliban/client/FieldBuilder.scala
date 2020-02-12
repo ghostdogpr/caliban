@@ -3,46 +3,44 @@ package caliban.client
 import caliban.client.CalibanClientError.DecodingError
 import caliban.client.ResponseValue._
 
-trait FieldType[+A] {
-  def toGraphQL: String
+trait FieldBuilder[+A] {
   def fromGraphQL(value: ResponseValue): Either[DecodingError, A]
+  def toSelectionSet: List[Selection]
 }
 
-object FieldType {
-  case class Scalar[A]()(implicit decoder: ScalarDecoder[A]) extends FieldType[A] {
-    override def toGraphQL: String                                           = ""
+object FieldBuilder {
+  case class Scalar[A]()(implicit decoder: ScalarDecoder[A]) extends FieldBuilder[A] {
     override def fromGraphQL(value: ResponseValue): Either[DecodingError, A] = decoder.decode(value)
+    override def toSelectionSet: List[Selection]                             = Nil
   }
-  case class Obj[Origin, A](selectionSet: SelectionSet[Origin, A]) extends FieldType[A] {
-    override def toGraphQL: String = s"{${selectionSet.toGraphQL}}"
+  case class Obj[Origin, A](builder: SelectionBuilder[Origin, A]) extends FieldBuilder[A] {
     override def fromGraphQL(value: ResponseValue): Either[DecodingError, A] =
       value match {
-        case o: ObjectValue => selectionSet.fromGraphQL(o)
+        case o: ObjectValue => builder.fromGraphQL(o)
         case _              => Left(DecodingError(s"Field $value is not an object"))
       }
+    override def toSelectionSet: List[Selection] = builder.toSelectionSet
   }
-  case class ListOf[A](inner: FieldType[A]) extends FieldType[List[A]] {
-    override def toGraphQL: String = inner.toGraphQL
+  case class ListOf[A](builder: FieldBuilder[A]) extends FieldBuilder[List[A]] {
     override def fromGraphQL(value: ResponseValue): Either[DecodingError, List[A]] =
       value match {
         case ListValue(items) =>
-          items.map(inner.fromGraphQL).foldRight(Right(Nil): Either[DecodingError, List[A]]) { (e, acc) =>
+          items.map(builder.fromGraphQL).foldRight(Right(Nil): Either[DecodingError, List[A]]) { (e, acc) =>
             for (xs <- acc; x <- e) yield x :: xs
           }
         case _ => Left(DecodingError(s"Field $value is not a list"))
       }
+    override def toSelectionSet: List[Selection] = builder.toSelectionSet
   }
-  case class OptionOf[A](inner: FieldType[A]) extends FieldType[Option[A]] {
-    override def toGraphQL: String = inner.toGraphQL
+  case class OptionOf[A](builder: FieldBuilder[A]) extends FieldBuilder[Option[A]] {
     override def fromGraphQL(value: ResponseValue): Either[DecodingError, Option[A]] =
       value match {
         case NullValue => Right(None)
-        case other     => inner.fromGraphQL(other).map(Some(_))
+        case other     => builder.fromGraphQL(other).map(Some(_))
       }
+    override def toSelectionSet: List[Selection] = builder.toSelectionSet
   }
-  case class Union[A](inner: Map[String, FieldType[A]]) extends FieldType[A] {
-    override def toGraphQL: String =
-      s"{__typename ${inner.map { case (typeName, field) => s"... on $typeName{${field.toGraphQL}}" }.mkString(" ")}}"
+  case class Union[A](builderMap: Map[String, FieldBuilder[A]]) extends FieldBuilder[A] {
     override def fromGraphQL(value: ResponseValue): Either[DecodingError, A] =
       value match {
         case ObjectValue(fields) =>
@@ -52,10 +50,14 @@ object FieldType {
                          case StringValue(value) => Right(value)
                          case _                  => Left(DecodingError("__typename is not a String"))
                        }
-            fieldType <- inner.get(typeName).toRight(DecodingError(s"type $typeName is unknown"))
+            fieldType <- builderMap.get(typeName).toRight(DecodingError(s"type $typeName is unknown"))
             result    <- fieldType.fromGraphQL(value)
           } yield result
         case _ => Left(DecodingError(s"Field $value is not an object"))
       }
+
+    override def toSelectionSet: List[Selection] =
+      Selection.Field(None, "__typename", Nil, Nil, Nil) ::
+        builderMap.map { case (k, v) => Selection.InlineFragment(k, v.toSelectionSet) }.toList
   }
 }

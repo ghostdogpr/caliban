@@ -3,9 +3,9 @@ package caliban.client
 import caliban.client.ResponseValue.StringValue
 import caliban.client.Autogen.Role._
 import caliban.client.CalibanClientError.DecodingError
-import caliban.client.FieldType._
+import caliban.client.FieldBuilder._
 import caliban.client.Operations._
-import caliban.client.SelectionSet.Field
+import caliban.client.SelectionBuilder.Field
 
 object Autogen {
 
@@ -33,38 +33,45 @@ object Autogen {
   object Role {
     type Captain
     object Captain {
-      def shipName: SelectionSet[Captain, String] = Field("shipName", Scalar())
+      def shipName: SelectionBuilder[Captain, String] = Field("shipName", Scalar())
     }
     type Pilot
     object Pilot {
-      def shipName: SelectionSet[Pilot, String] = Field("shipName", Scalar())
+      def shipName: SelectionBuilder[Pilot, String] = Field("shipName", Scalar())
     }
     type Mechanic
     object Mechanic {
-      def shipName: SelectionSet[Mechanic, String] = Field("shipName", Scalar())
+      def shipName: SelectionBuilder[Mechanic, String] = Field("shipName", Scalar())
     }
     type Engineer
     object Engineer {
-      def shipName: SelectionSet[Engineer, String] = Field("shipName", Scalar())
+      def shipName: SelectionBuilder[Engineer, String] = Field("shipName", Scalar())
     }
   }
 
   // Auto-generated object
   type Character
   object Character {
-    def name: SelectionSet[Character, String]            = Field("name", Scalar())
-    def nicknames: SelectionSet[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
-    def origin: SelectionSet[Character, Origin]          = Field("origin", Scalar())
+    def name: SelectionBuilder[Character, String]            = Field("name", Scalar())
+    def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
+    def origin: SelectionBuilder[Character, Origin]          = Field("origin", Scalar())
     def role[A](
-      onCaptain: SelectionSet[Captain, A],
-      onPilot: SelectionSet[Pilot, A],
-      onMechanic: SelectionSet[Mechanic, A],
-      onEngineer: SelectionSet[Engineer, A]
-    ): SelectionSet[Character, Option[A]] =
+      onCaptain: SelectionBuilder[Captain, A],
+      onPilot: SelectionBuilder[Pilot, A],
+      onMechanic: SelectionBuilder[Mechanic, A],
+      onEngineer: SelectionBuilder[Engineer, A]
+    ): SelectionBuilder[Character, Option[A]] =
       Field(
         "role",
         OptionOf(
-          Union(Map("Captain" -> onCaptain, "Pilot" -> onPilot, "Mechanic" -> onMechanic, "Engineer" -> onEngineer))
+          Union(
+            Map(
+              "Captain"  -> Obj(onCaptain),
+              "Pilot"    -> Obj(onPilot),
+              "Mechanic" -> Obj(onMechanic),
+              "Engineer" -> Obj(onEngineer)
+            )
+          )
         )
       )
   }
@@ -73,16 +80,16 @@ object Autogen {
   object Queries {
     def characters[A](
       origin: Option[Origin] = None
-    )(sel: SelectionSet[Character, A]): SelectionSet[RootQuery, List[A]] =
+    )(sel: SelectionBuilder[Character, A]): SelectionBuilder[RootQuery, List[A]] =
       Field("characters", ListOf(Obj(sel)), arguments = List(Argument("origin", origin)))
 
-    def character[A](name: String)(sel: SelectionSet[Character, A]): Field[RootQuery, Option[A]] =
+    def character[A](name: String)(sel: SelectionBuilder[Character, A]): Field[RootQuery, Option[A]] =
       Field("character", OptionOf(Obj(sel)), arguments = List(Argument("name", name)))
   }
 
   // Auto-generated mutation
   object Mutations {
-    def deleteCharacter(name: String): SelectionSet[RootMutation, Boolean] =
+    def deleteCharacter(name: String): SelectionBuilder[RootMutation, Boolean] =
       Field("deleteCharacter", Scalar(), arguments = List(Argument("name", name)))
   }
 }
