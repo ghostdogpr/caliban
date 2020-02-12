@@ -1,5 +1,6 @@
 package caliban.client
 
+import scala.collection.immutable.{ Map => SMap }
 import caliban.client.CalibanClientError.{ CommunicationError, DecodingError, ServerError }
 import caliban.client.FieldBuilder.Scalar
 import caliban.client.Operations.IsOperation
@@ -253,7 +254,6 @@ object SelectionBuilder {
     override def withAlias(alias: String): SelectionBuilder[Origin, B] = Map(builder.withAlias(alias), f)
   }
 
-  import scala.collection.immutable.{ Map => SMap }
   def toGraphQL(
     fields: List[Selection],
     useVariables: Boolean,
@@ -265,29 +265,42 @@ object SelectionBuilder {
         case (Selection.InlineFragment(onType, selection), (fields, variables)) =>
           val (f, v) = toGraphQL(selection, useVariables, variables)
           (s"... on $onType{$f}" :: fields, v)
+
         case (Selection.Field(alias, name, arguments, directives, selection, code), (fields, variables)) =>
-          val (newArgs, newVariables) = arguments
+          // format arguments
+          val (args, variables2) = arguments
             .foldRight((List.empty[String], variables)) {
-              case (a, (args, v)) =>
-                val (a2, v2) = a.toGraphQL(useVariables, v)
+              case (a, (args, variables)) =>
+                val (a2, v2) = a.toGraphQL(useVariables, variables)
                 (a2 :: args, v2)
             }
-          val args      = newArgs.filterNot(_.isEmpty).mkString(",")
-          val argString = if (args.nonEmpty) s"($args)" else ""
-          val (newDirectives, newVariables2) = directives
-            .foldRight((List.empty[String], newVariables)) {
-              case (d, (dirs, v)) =>
-                val (d2, v2) = d.toGraphQL(useVariables, v)
+          val argString = args.filterNot(_.isEmpty).mkString(",") match {
+            case ""   => ""
+            case args => s"($args)"
+          }
+
+          // format directives
+          val (dirs, variables3) = directives
+            .foldRight((List.empty[String], variables2)) {
+              case (d, (dirs, variables)) =>
+                val (d2, v2) = d.toGraphQL(useVariables, variables)
                 (d2 :: dirs, v2)
             }
-          val dirs      = newDirectives.mkString(" ")
-          val dirString = if (dirs.nonEmpty) s" $dirs" else ""
+          val dirString = dirs.mkString(" ") match {
+            case ""   => ""
+            case dirs => s" $dirs"
+          }
+
+          // format aliases
           val aliasString = (if (fieldNames.get(alias.getOrElse(name)).exists(_ > 1))
                                Some(alias.getOrElse(name) + math.abs(code))
                              else alias).fold("")(_ + ": ")
-          val (sel, v)  = toGraphQL(selection, useVariables, newVariables2)
-          val selString = if (sel.nonEmpty) s"{$sel}" else ""
-          (s"$aliasString$name$argString$dirString$selString" :: fields, v)
+
+          // format selection
+          val (sel, variables4) = toGraphQL(selection, useVariables, variables3)
+          val selString         = if (sel.nonEmpty) s"{$sel}" else ""
+
+          (s"$aliasString$name$argString$dirString$selString" :: fields, variables4)
       }
     (fields2.mkString(" "), variables2)
   }
