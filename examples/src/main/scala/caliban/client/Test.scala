@@ -56,6 +56,7 @@ object Test extends App {
   - variables => add parameter in Argument to force using a variable + name
   - code gen
 
+  - support interfaces
   - subscriptions (no backend for ScalaJS yet)
   - compact query with fragments
  */
