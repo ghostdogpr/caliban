@@ -4,6 +4,7 @@ import caliban.client.CalibanClientError.{ CommunicationError, DecodingError, Se
 import caliban.client.FieldBuilder.Scalar
 import caliban.client.Operations.IsOperation
 import caliban.client.ResponseValue.ObjectValue
+import caliban.client.Selection.Directive
 import io.circe.parser
 import sttp.client._
 import sttp.client.circe._

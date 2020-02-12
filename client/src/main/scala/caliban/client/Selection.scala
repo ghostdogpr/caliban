@@ -11,4 +11,11 @@ object Selection {
     directives: List[Directive],
     selectionSet: List[Selection]
   ) extends Selection
+
+  case class Directive(name: String, arguments: List[Argument[_]] = Nil) {
+    def toGraphQL: String = {
+      val args = arguments.map(_.toGraphQL).mkString(",")
+      s"@$name($args)"
+    }
+  }
 }
