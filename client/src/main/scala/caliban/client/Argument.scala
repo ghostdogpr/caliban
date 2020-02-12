@@ -23,11 +23,19 @@ case class Argument[+A](name: String, value: A)(implicit encoder: ArgEncoder[A])
 object Argument {
 
   @tailrec
-  def generateVariableName(name: String, value: Value, variables: Map[String, (Value, String)]): String =
-    variables.get(name) match {
-      case None                       => name
-      case Some((v, _)) if v == value => name
-      case Some(_)                    => generateVariableName(name + "_", value, variables)
+  def generateVariableName(
+    name: String,
+    value: Value,
+    variables: Map[String, (Value, String)],
+    index: Int = 0
+  ): String = {
+    val formattedName = if (index > 0) s"$name$index" else name
+    variables.get(formattedName) match {
+      case None                       => formattedName
+      case Some((v, _)) if v == value => formattedName
+      case Some(_) =>
+        generateVariableName(name, value, variables, index + 1)
     }
+  }
 
 }
