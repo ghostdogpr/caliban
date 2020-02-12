@@ -12,18 +12,18 @@ import sttp.client.circe._
 import sttp.model.Uri
 
 sealed trait SelectionBuilder[-Origin, +A] { self =>
+
+  private[caliban] def toSelectionSet: List[Selection]
+  private[caliban] def fromGraphQL(value: Value): Either[DecodingError, A]
+
   def ~[Origin1 <: Origin, B](that: SelectionBuilder[Origin1, B]): SelectionBuilder[Origin1, (A, B)] =
     SelectionBuilder.Concat(self, that)
 
   def map[B](f: A => B): SelectionBuilder[Origin, B] = SelectionBuilder.Map(self, f)
 
-  def toSelectionSet: List[Selection]
-
   def withDirective(directive: Directive): SelectionBuilder[Origin, A]
 
   def withAlias(alias: String): SelectionBuilder[Origin, A]
-
-  def fromGraphQL(value: Value): Either[DecodingError, A]
 
   def toRequest[A1 >: A, Origin1 <: Origin](
     uri: Uri,
