@@ -20,9 +20,10 @@ libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "0.5.1"
 The following modules are optional:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-http4s" % "0.5.1"    // routes for http4s
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-http4s"    % "0.5.1" // routes for http4s
 libraryDependencies += "com.github.ghostdogpr" %% "caliban-akka-http" % "0.5.1" // routes for akka-http
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-cats"   % "0.5.1"    // interop with cats effect
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-cats"      % "0.5.1" // interop with cats effect
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-monix"     % "0.5.1" // interop with monix
 ```
 
 Note that Caliban is also available for ScalaJS.
