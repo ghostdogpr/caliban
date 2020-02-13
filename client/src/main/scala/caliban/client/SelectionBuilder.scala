@@ -261,32 +261,32 @@ object SelectionBuilder {
   ): (String, SMap[String, (Value, String)]) = {
     val fieldNames = fields.collect { case f: Selection.Field => f }.groupBy(_.name).map { case (k, v) => k -> v.size }
     val (fields2, variables2) = fields
-      .foldRight((List.empty[String], variables)) {
-        case (Selection.InlineFragment(onType, selection), (fields, variables)) =>
+      .foldLeft((List.empty[String], variables)) {
+        case ((fields, variables), Selection.InlineFragment(onType, selection)) =>
           val (f, v) = toGraphQL(selection, useVariables, variables)
           (s"... on $onType{$f}" :: fields, v)
 
-        case (Selection.Field(alias, name, arguments, directives, selection, code), (fields, variables)) =>
+        case ((fields, variables), Selection.Field(alias, name, arguments, directives, selection, code)) =>
           // format arguments
           val (args, variables2) = arguments
-            .foldRight((List.empty[String], variables)) {
-              case (a, (args, variables)) =>
+            .foldLeft((List.empty[String], variables)) {
+              case ((args, variables), a) =>
                 val (a2, v2) = a.toGraphQL(useVariables, variables)
                 (a2 :: args, v2)
             }
-          val argString = args.filterNot(_.isEmpty).mkString(",") match {
+          val argString = args.filterNot(_.isEmpty).reverse.mkString(",") match {
             case ""   => ""
             case args => s"($args)"
           }
 
           // format directives
           val (dirs, variables3) = directives
-            .foldRight((List.empty[String], variables2)) {
-              case (d, (dirs, variables)) =>
+            .foldLeft((List.empty[String], variables2)) {
+              case ((dirs, variables), d) =>
                 val (d2, v2) = d.toGraphQL(useVariables, variables)
                 (d2 :: dirs, v2)
             }
-          val dirString = dirs.mkString(" ") match {
+          val dirString = dirs.reverse.mkString(" ") match {
             case ""   => ""
             case dirs => s" $dirs"
           }
@@ -294,7 +294,7 @@ object SelectionBuilder {
           // format aliases
           val aliasString = (if (fieldNames.get(alias.getOrElse(name)).exists(_ > 1))
                                Some(alias.getOrElse(name) + math.abs(code))
-                             else alias).fold("")(_ + ": ")
+                             else alias).fold("")(_ + ":")
 
           // format selection
           val (sel, variables4) = toGraphQL(selection, useVariables, variables3)
@@ -302,6 +302,6 @@ object SelectionBuilder {
 
           (s"$aliasString$name$argString$dirString$selString" :: fields, variables4)
       }
-    (fields2.mkString(" "), variables2)
+    (fields2.reverse.mkString(" "), variables2)
   }
 }

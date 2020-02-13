@@ -13,9 +13,9 @@ case class Argument[+A](name: String, value: A)(implicit encoder: ArgEncoder[A])
       case v =>
         if (useVariables) {
           val variableName = Argument.generateVariableName(name, v, variables)
-          (s"$name: $$$variableName", variables.updated(variableName, (v, encoder.formatTypeName)))
+          (s"$name:$$$variableName", variables.updated(variableName, (v, encoder.formatTypeName)))
         } else {
-          (s"$name: ${v.toString}", variables)
+          (s"$name:${v.toString}", variables)
         }
     }
 }

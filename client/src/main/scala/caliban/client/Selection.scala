@@ -18,12 +18,12 @@ object Selection {
       useVariables: Boolean,
       variables: Map[String, (Value, String)]
     ): (String, Map[String, (Value, String)]) = {
-      val (newArgs, newVariables) = arguments.foldRight((List.empty[String], variables)) {
-        case (arg, (args, variables)) =>
+      val (newArgs, newVariables) = arguments.foldLeft((List.empty[String], variables)) {
+        case ((args, variables), arg) =>
           val (arg2, variables2) = arg.toGraphQL(useVariables, variables)
           (arg2 :: args, variables2)
       }
-      (s"@$name(${newArgs.mkString(",")})", newVariables)
+      (s"@$name(${newArgs.reverse.mkString(",")})", newVariables)
     }
   }
 }
