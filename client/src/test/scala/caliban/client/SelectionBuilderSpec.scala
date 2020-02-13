@@ -2,7 +2,7 @@ package caliban.client
 
 import caliban.client.Selection.Directive
 import caliban.client.TestData._
-import caliban.client.Value.StringValue
+import caliban.client.Value.{ ListValue, ObjectValue, StringValue }
 import zio.test.Assertion._
 import zio.test._
 
@@ -107,6 +107,75 @@ object SelectionBuilderSpec
             assert(variables.get("name"), isSome(equalTo((StringValue("Amos Burton"), "String!")))) &&
             assert(variables.get("value"), isSome(equalTo((StringValue("what's up"), "String!"))))
           }
+        ),
+        suite("response parsing")(
+          test("simple object") {
+            val query =
+              Queries.characters() {
+                Character.name
+              }
+            val response =
+              ObjectValue(List("characters" -> ListValue(List(ObjectValue(List("name" -> StringValue("Amos")))))))
+            assert(query.fromGraphQL(response), isRight(equalTo(List("Amos"))))
+          },
+          test("combine 2 fields") {
+            val query =
+              Queries.characters() {
+                Character.name ~ Character.nicknames
+              }
+            val response =
+              ObjectValue(
+                List(
+                  "characters" -> ListValue(
+                    List(
+                      ObjectValue(
+                        List("name" -> StringValue("Amos Burton"), "nicknames" -> ListValue(List(StringValue("Amos"))))
+                      )
+                    )
+                  )
+                )
+              )
+            assert(query.fromGraphQL(response), isRight(equalTo(List("Amos Burton" -> List("Amos")))))
+          },
+          test("union type") {
+            case class CharacterView(name: String, nicknames: List[String], role: Option[String])
+            val query =
+              Queries.characters() {
+                (Character.name ~
+                  Character.nicknames ~
+                  Character
+                    .role(Role.Captain.shipName, Role.Pilot.shipName, Role.Mechanic.shipName, Role.Engineer.shipName))
+                  .mapN(CharacterView)
+              }
+
+            val response =
+              ObjectValue(
+                List(
+                  "characters" -> ListValue(
+                    List(
+                      ObjectValue(
+                        List(
+                          "name"      -> StringValue("Amos Burton"),
+                          "nicknames" -> ListValue(List(StringValue("Amos"))),
+                          "role" -> ObjectValue(
+                            List(
+                              "__typename" -> StringValue("Mechanic"),
+                              "shipName"   -> StringValue("Rocinante")
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            assert(
+              query.fromGraphQL(response),
+              isRight(equalTo(List(CharacterView("Amos Burton", List("Amos"), Some("Rocinante")))))
+            )
+          }
+          // TODO aliases
+          // TODO variables
         )
       )
     )
