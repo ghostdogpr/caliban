@@ -9,7 +9,7 @@ import monix.execution.Scheduler
 import monix.reactive.Observable
 import zio.interop.catz._
 import zio.interop.reactiveStreams._
-import zio.{ Runtime, _ }
+import zio._
 import zquery.ZQuery
 
 object MonixInterop {

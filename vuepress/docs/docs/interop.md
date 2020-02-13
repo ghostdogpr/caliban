@@ -1,6 +1,6 @@
 # Interop (Cats, Monix)
 
-If you prefer using [Monix](https://github.com/monix/monix) or [Cats IO](https://github.com/typelevel/cats-effect) rather than ZIO, you can use the respective `caliban-monix` and `caliban-cats` modules.
+If you prefer using [Cats Effect](https://github.com/typelevel/cats-effect) or [Monix](https://github.com/monix/monix) rather than ZIO, you can use the respective `caliban-cats` and `caliban-monix` modules.
 
 ## Cats Effect
 You first need to import `caliban.interop.cats.implicits._` and have an implicit `zio.Runtime` in scope. Then a few helpers are available:
