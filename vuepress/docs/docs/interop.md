@@ -86,4 +86,4 @@ object ExampleMonixInterop extends TaskApp {
 }
 ```
 
-You can find this example within the [examples](https://github.com/ghostdogpr/caliban/blob/master/examples/src/main/scala/caliban/interop/cats/ExampleCatsInterop.scala) project.
+You can find this example within the [examples](https://github.com/ghostdogpr/caliban/blob/master/examples/src/main/scala/caliban/interop/monix/ExampleMonixInterop.scala) project.
