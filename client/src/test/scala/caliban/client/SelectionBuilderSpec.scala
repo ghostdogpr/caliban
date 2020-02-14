@@ -173,9 +173,31 @@ object SelectionBuilderSpec
               query.fromGraphQL(response),
               isRight(equalTo(List(CharacterView("Amos Burton", List("Amos"), Some("Rocinante")))))
             )
+          },
+          test("aliases") {
+            val query =
+              Queries
+                .character("Amos Burton") {
+                  Character.name
+                }
+                .copy(alias = Some("amos")) ~
+                Queries
+                  .character("Naomi Nagata") {
+                    Character.name
+                  }
+                  .copy(alias = Some("naomi"))
+            val response =
+              ObjectValue(
+                List(
+                  "amos"  -> ObjectValue(List("name" -> StringValue("Amos Burton"))),
+                  "naomi" -> ObjectValue(List("name" -> StringValue("Naomi Nagata")))
+                )
+              )
+            assert(
+              query.fromGraphQL(response),
+              isRight(equalTo((Some("Amos Burton"), Some("Naomi Nagata"))))
+            )
           }
-          // TODO aliases
-          // TODO variables
         )
       )
     )
