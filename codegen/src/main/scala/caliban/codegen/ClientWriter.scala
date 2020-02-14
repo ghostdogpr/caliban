@@ -9,8 +9,8 @@ import caliban.parsing.adt.{ Document, Type }
 object ClientWriter {
 
   def write(schema: Document): String = {
-//    val schemaDef = Document.schemaDefinitions(schema).headOption
-//
+    val schemaDef = Document.schemaDefinitions(schema).headOption
+
 //    val argsTypes = Document
 //      .objectTypeDefinitions(schema)
 //      .flatMap(_.fields.filter(_.args.nonEmpty).map(c => writeArguments(c)("")))
@@ -33,30 +33,29 @@ object ClientWriter {
 
     val objects = Document
       .objectTypeDefinitions(schema)
+      .filterNot(
+        obj =>
+          schemaDef.exists(_.query.contains(obj.name)) ||
+            schemaDef.exists(_.mutation.contains(obj.name))
+      )
       //      .filterNot(obj => unionTypes.values.flatten.exists(_.name == obj.name))
       .map(writeObject(_, typesMap))
       .mkString("\n")
-//
+
 //    val inputs = Document.inputObjectTypeDefinitions(schema).map(writeInputObject).mkString("\n")
-//
-//    val enums = Document.enumTypeDefinitions(schema).map(writeEnum).mkString("\n")
-//
-//    val queries = Document
-//      .objectTypeDefinition(schema, schemaDef.flatMap(_.query).getOrElse("Query"))
-//      .map(t => writeRootQueryOrMutationDef(t))
-//      .getOrElse("")
-//
-//    val mutations = Document
-//      .objectTypeDefinition(schema, schemaDef.flatMap(_.mutation).getOrElse("Mutation"))
-//      .map(t => writeRootQueryOrMutationDef(t))
-//      .getOrElse("")
-//
-//    val subscriptions = Document
-//      .objectTypeDefinition(schema, schemaDef.flatMap(_.subscription).getOrElse("Subscription"))
-//      .map(t => writeRootSubscriptionDef(t))
-//      .getOrElse("")
-//
-//    val hasSubscriptions = subscriptions.nonEmpty
+
+    val enums = Document.enumTypeDefinitions(schema).map(writeEnum).mkString("\n")
+
+    val queries = Document
+      .objectTypeDefinition(schema, schemaDef.flatMap(_.query).getOrElse(""))
+      .map(t => writeRootQuery(t, typesMap))
+      .getOrElse("")
+
+    val mutations = Document
+      .objectTypeDefinition(schema, schemaDef.flatMap(_.mutation).getOrElse(""))
+      .map(t => writeRootMutation(t, typesMap))
+      .getOrElse("")
+
 //    val hasTypes         = argsTypes.length + objects.length + enums.length + unions.length + inputs.length > 0
 //    val hasOperations    = queries.length + mutations.length + subscriptions.length > 0
 //
@@ -89,34 +88,25 @@ object ClientWriter {
 
     s"""object Data {
        |
+       |  $enums
        |  $objects
+       |  $queries
+       |  $mutations
        |  
        |}""".stripMargin
   }
 
-  def writeRootField(field: FieldDefinition): String = {
-    val argsName = if (field.args.nonEmpty) s"${field.name.capitalize}Args" else "()"
-    s"${field.name}: $argsName => ${writeType(field.ofType)}"
-  }
+  def writeRootQuery(typedef: ObjectTypeDefinition, typesMap: Map[String, TypeDefinition]): String =
+    s"""object ${typedef.name} {
+       |  ${typedef.fields.map(writeField(_, typedef.copy(name = "RootQuery"), typesMap)).mkString("\n  ")}
+       |}
+       |""".stripMargin
 
-  def writeRootQueryOrMutationDef(op: ObjectTypeDefinition): String =
-    s"""
-       |${writeDescription(op.description)}case class ${op.name}(
-       |${op.fields.map(c => writeRootField(c)).mkString(",\n")}
-       |)""".stripMargin
-
-  def writeSubscriptionField(field: FieldDefinition): String =
-    "%s: %s => ZStream[Any, Nothing, %s]".format(
-      field.name,
-      if (field.args.nonEmpty) s"${field.name.capitalize}Args" else "()",
-      writeType(field.ofType)
-    )
-
-  def writeRootSubscriptionDef(op: ObjectTypeDefinition): String =
-    s"""
-       |${writeDescription(op.description)}case class ${op.name}(
-       |${op.fields.map(c => writeSubscriptionField(c)).mkString(",\n")}
-       |)""".stripMargin
+  def writeRootMutation(typedef: ObjectTypeDefinition, typesMap: Map[String, TypeDefinition]): String =
+    s"""object ${typedef.name} {
+       |  ${typedef.fields.map(writeField(_, typedef.copy(name = "RootMutation"), typesMap)).mkString("\n  ")}
+       |}
+       |""".stripMargin
 
   def writeObject(typedef: ObjectTypeDefinition, typesMap: Map[String, TypeDefinition]): String =
     s"""type ${typedef.name}
@@ -131,13 +121,27 @@ object ClientWriter {
       .mkString(", ")})"""
 
   def writeEnum(typedef: EnumTypeDefinition): String =
-    s"""${writeDescription(typedef.description)}sealed trait ${typedef.name} extends Product with Serializable
-
-          object ${typedef.name} {
-            ${typedef.enumValuesDefinition
-      .map(v => s"${writeDescription(v.description)}case object ${v.enumValue} extends ${typedef.name}")
+    s"""sealed trait ${typedef.name} extends Product with Serializable
+        object ${typedef.name} {
+          ${typedef.enumValuesDefinition
+      .map(v => s"case object ${v.enumValue} extends ${typedef.name}")
       .mkString("\n")}
+      
+          implicit val decoder: ScalarDecoder[${typedef.name}] = {
+            ${typedef.enumValuesDefinition
+      .map(v => s"""case StringValue ("${v.enumValue}") => Right(${typedef.name}.${v.enumValue})""")
+      .mkString("\n")}
+            case other => Left(DecodingError(s"Can't build ${typedef.name} from input $$other"))
           }
+          implicit val encoder: ArgEncoder[${typedef.name}] = new ArgEncoder[${typedef.name}] {
+            override def encode(value: ${typedef.name}): Value = value match {
+              ${typedef.enumValuesDefinition
+      .map(v => s"""case ${v.enumValue} => StringValue("${v.enumValue}")""")
+      .mkString("\n")}
+            }
+            override def typeName: String = "${typedef.name}"
+          }
+        }
        """
 
   def writeUnion(
@@ -181,10 +185,15 @@ object ClientWriter {
           writeTypeBuilder(field.ofType, "Obj(innerSelection)")
         )
       }
-    // TODO arguments
+    val args = field.args match {
+      case Nil => ""
+      case list =>
+        s"(${list.map { arg =>
+          s"${arg.name}: ${writeType(arg.ofType)}"
+        }.mkString(", ")})"
+    }
 
-    s"""def $name$typeParam$innerSelection: SelectionBuilder[$typeName, $outputType] = Field("$name", $builder)"""
-
+    s"""def $name$typeParam$args$innerSelection: SelectionBuilder[$typeName, $outputType] = Field("$name", $builder)"""
   }
 
   def writeInputValue(value: InputValueDefinition, of: InputObjectTypeDefinition): String =
@@ -226,4 +235,8 @@ object ClientWriter {
     case NamedType(name, _)  => name
     case ListType(ofType, _) => getTypeName(ofType)
   }
+
+  // TODO
+  // input
+  // union
 }
