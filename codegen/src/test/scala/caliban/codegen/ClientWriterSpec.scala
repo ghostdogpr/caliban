@@ -39,10 +39,33 @@ object ClientWriterSpec
               )
             )
           },
+          testM("object type with reserved name") {
+            val schema =
+              """
+             type Character {
+               type: String!
+             }
+            """.stripMargin
+
+            assertM(
+              gen(schema),
+              equalTo(
+                """object Data {
+
+  type Character
+  object Character {
+    def `type`: SelectionBuilder[Character, String] = Field("type", Scalar())
+  }
+
+}
+"""
+              )
+            )
+          },
           testM("nested object type") {
             val schema =
               """
-             type Query {
+             type Q {
                characters: [Character!]!
              }
              
@@ -57,9 +80,9 @@ object ClientWriterSpec
               equalTo(
                 """object Data {
 
-  type Query
-  object Query {
-    def characters[A](innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[Query, List[A]] =
+  type Q
+  object Q {
+    def characters[A](innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[Q, List[A]] =
       Field("characters", ListOf(Obj(innerSelection)))
   }
 
@@ -77,7 +100,7 @@ object ClientWriterSpec
           testM("object type with arguments") {
             val schema =
               """
-             type Query {
+             type Q {
                character(name: String!): Character
              }
              
@@ -92,9 +115,9 @@ object ClientWriterSpec
               equalTo(
                 """object Data {
 
-  type Query
-  object Query {
-    def character[A](name: String)(innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[Query, Option[A]] =
+  type Q
+  object Q {
+    def character[A](name: String)(innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[Q, Option[A]] =
       Field("character", OptionOf(Obj(innerSelection)))
   }
 
@@ -113,10 +136,10 @@ object ClientWriterSpec
             val schema =
               """
              schema {
-               query: Query
+               query: Q
              }
              
-             type Query {
+             type Q {
                characters: [Character!]!
              }
              
@@ -137,7 +160,7 @@ object ClientWriterSpec
     def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
   }
 
-  object Query {
+  object Q {
     def characters[A](innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[RootQuery, List[A]] =
       Field("characters", ListOf(Obj(innerSelection)))
   }

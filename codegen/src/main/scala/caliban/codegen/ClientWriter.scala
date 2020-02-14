@@ -35,7 +35,8 @@ object ClientWriter {
       .objectTypeDefinitions(schema)
       .filterNot(
         obj =>
-          schemaDef.exists(_.query.contains(obj.name)) ||
+          reservedType(obj) ||
+            schemaDef.exists(_.query.contains(obj.name)) ||
             schemaDef.exists(_.mutation.contains(obj.name))
       )
       //      .filterNot(obj => unionTypes.values.flatten.exists(_.name == obj.name))
@@ -47,12 +48,12 @@ object ClientWriter {
     val enums = Document.enumTypeDefinitions(schema).map(writeEnum).mkString("\n")
 
     val queries = Document
-      .objectTypeDefinition(schema, schemaDef.flatMap(_.query).getOrElse(""))
+      .objectTypeDefinition(schema, schemaDef.flatMap(_.query).getOrElse("Query"))
       .map(t => writeRootQuery(t, typesMap))
       .getOrElse("")
 
     val mutations = Document
-      .objectTypeDefinition(schema, schemaDef.flatMap(_.mutation).getOrElse(""))
+      .objectTypeDefinition(schema, schemaDef.flatMap(_.mutation).getOrElse("Mutation"))
       .map(t => writeRootMutation(t, typesMap))
       .getOrElse("")
 
@@ -95,6 +96,9 @@ object ClientWriter {
        |  
        |}""".stripMargin
   }
+
+  def reservedType(typeDefinition: ObjectTypeDefinition): Boolean =
+    typeDefinition.name == "Query" || typeDefinition.name == "Mutation" || typeDefinition.name == "Subscription"
 
   def writeRootQuery(typedef: ObjectTypeDefinition, typesMap: Map[String, TypeDefinition]): String =
     s"""object ${typedef.name} {
@@ -159,7 +163,7 @@ object ClientWriter {
        """
 
   def writeField(field: FieldDefinition, of: ObjectTypeDefinition, typesMap: Map[String, TypeDefinition]): String = {
-    val name      = field.name
+    val name      = if (reservedKeywords.contains(field.name)) s"`${field.name}`" else field.name
     val typeName  = of.name
     val fieldType = getTypeName(field.ofType)
     val isScalar = typesMap
@@ -193,7 +197,7 @@ object ClientWriter {
         }.mkString(", ")})"
     }
 
-    s"""def $name$typeParam$args$innerSelection: SelectionBuilder[$typeName, $outputType] = Field("$name", $builder)"""
+    s"""def $name$typeParam$args$innerSelection: SelectionBuilder[$typeName, $outputType] = Field("${field.name}", $builder)"""
   }
 
   def writeInputValue(value: InputValueDefinition, of: InputObjectTypeDefinition): String =
@@ -235,6 +239,48 @@ object ClientWriter {
     case NamedType(name, _)  => name
     case ListType(ofType, _) => getTypeName(ofType)
   }
+
+  val reservedKeywords = Set(
+    "abstract",
+    "case",
+    "catch",
+    "class",
+    "def",
+    "do",
+    "else",
+    "extends",
+    "false",
+    "final",
+    "finally",
+    "for",
+    "forSome",
+    "if",
+    "implicit",
+    "import",
+    "lazy",
+    "match",
+    "new",
+    "null",
+    "object",
+    "override",
+    "package",
+    "private",
+    "protected",
+    "return",
+    "sealed",
+    "super",
+    "this",
+    "throw",
+    "trait",
+    "try",
+    "true",
+    "type",
+    "val",
+    "var",
+    "while",
+    "with",
+    "yield"
+  )
 
   // TODO
   // input
