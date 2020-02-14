@@ -2,8 +2,8 @@ package caliban.interop.monix
 
 import caliban.schema.{ Schema, SubscriptionSchema }
 import caliban.{ GraphQL, GraphQLInterpreter, GraphQLResponse, InputValue }
+import cats.effect.ConcurrentEffect
 import monix.eval.Task
-import monix.execution.Scheduler
 import monix.reactive.Observable
 import zio.Runtime
 
@@ -31,10 +31,13 @@ package object implicits {
       MonixInterop.checkAsync(underlying)(query)
   }
 
-  implicit def effectSchema[R, A](implicit ev: Schema[R, A], s: Scheduler): Schema[R, Task[A]] =
+  implicit def effectSchema[R, A](implicit ev: Schema[R, A], ev2: ConcurrentEffect[Task]): Schema[R, Task[A]] =
     MonixInterop.taskSchema
 
-  implicit def observableSchema[R, A](implicit ev: Schema[R, A], s: Scheduler): Schema[R, Observable[A]] =
+  implicit def observableSchema[R, A](
+    implicit ev: Schema[R, A],
+    ev2: ConcurrentEffect[Task]
+  ): Schema[R, Observable[A]] =
     MonixInterop.observableSchema(16) // Size of the internal buffer. Use a power of 2 for best performance.
 
   implicit def observableSubscriptionSchema[A]: SubscriptionSchema[Observable[A]] =
