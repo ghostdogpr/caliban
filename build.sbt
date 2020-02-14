@@ -2,7 +2,7 @@ import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
 val mainScala       = "2.12.10"
 val allScala        = Seq("2.13.1", mainScala)
-val http4sVersion   = "0.21.0"
+val http4sVersion   = "0.21.1"
 val silencerVersion = "1.4.4"
 inThisBuild(
   List(
