@@ -1,17 +1,22 @@
 package caliban.codegen
 
-import caliban.codegen.Generator.{ Args, RootMutationDef, RootQueryDef, RootSubscriptionDef }
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document
-import zio.ZIO
+import zio.Task
 import zio.test.Assertion.equalTo
 import zio.test.{ assertM, suite, testM, DefaultRunnableSpec }
 
-object GeneratorSpec
-    extends DefaultRunnableSpec(
+object SchemaWriterSpec
+    extends DefaultRunnableSpec({
+
+      val gen: String => Task[String] = (schema: String) =>
+        Parser
+          .parseQuery(schema)
+          .flatMap(doc => Formatter.formatStr(SchemaWriter.write(doc), CodegenPlugin.scalafmtConfig))
+
       suite("Generator single values")(
         testM("type with field parameter") {
-          val gqltype =
+          val schema =
             """
           type Hero {
                 name(pad: Int!): String!
@@ -20,39 +25,36 @@ object GeneratorSpec
               }
               |""".stripMargin
 
-          implicit val writer = ScalaWriter.DefaultGQLWriter
-
           val typeCaseClass = Parser
-            .parseQuery(gqltype)
+            .parseQuery(schema)
             .map(doc => {
-              Document.objectTypeDefinitions(doc).map(ScalaWriter.ObjectWriter.write(_)(doc)).mkString("\n")
+              Document.objectTypeDefinitions(doc).map(SchemaWriter.writeObject).mkString("\n")
             })
 
           val typeCaseClassArgs = Parser
-            .parseQuery(gqltype)
+            .parseQuery(schema)
             .map(doc => {
               (for {
                 typeDef      <- Document.objectTypeDefinitions(doc)
                 typeDefField <- typeDef.fields
-                argClass     = ScalaWriter.ArgsWriter.write(Args(typeDefField))("Hero")
-                if (argClass.length > 0)
-              } yield (argClass)).mkString("\n")
+                argClass     = SchemaWriter.writeArguments(typeDefField) if argClass.length > 0
+              } yield argClass).mkString("\n")
             })
 
           assertM(
             typeCaseClass,
             equalTo(
-              "case class Hero(name: HeroNameArgs () => String, nick: String, bday: Option[Int])"
+              "case class Hero(name: NameArgs () => String, nick: String, bday: Option[Int])"
             )
           ) andThen assertM(
             typeCaseClassArgs,
             equalTo(
-              "case class HeroNameArgs(pad: Int)"
+              "case class NameArgs(pad: Int)"
             )
           )
         },
         testM("simple queries") {
-          val query =
+          val schema =
             """
          type Query {
            user(id: Int): User
@@ -63,19 +65,18 @@ object GeneratorSpec
            name: String
            profilePic: String
          }"""
-          implicit val writer = ScalaWriter.DefaultGQLWriter
 
-          val caseclassstrdef = Parser
-            .parseQuery(query)
+          val result = Parser
+            .parseQuery(schema)
             .map(doc => {
               Document
                 .objectTypeDefinition(doc, "Query")
-                .map(d => ScalaWriter.RootQueryDefWriter.write(RootQueryDef(d))(doc))
+                .map(SchemaWriter.writeRootQueryOrMutationDef)
                 .mkString("\n")
             })
 
           assertM(
-            caseclassstrdef,
+            result,
             equalTo(
               """
 case class Query(
@@ -86,25 +87,23 @@ userList: () => List[Option[User]]
           )
         },
         testM("simple mutation") {
-          val query =
+          val schema =
             """
          type Mutation {
            setMessage(message: String): String
          }
          """
-          implicit val writer = ScalaWriter.DefaultGQLWriter
-
-          val caseclassstrdef = Parser
-            .parseQuery(query)
+          val result = Parser
+            .parseQuery(schema)
             .map(doc => {
               Document
                 .objectTypeDefinition(doc, "Mutation")
-                .map(d => ScalaWriter.RootMutationDefWriter.write(RootMutationDef(d))(doc))
+                .map(SchemaWriter.writeRootQueryOrMutationDef)
                 .mkString("\n")
             })
 
           assertM(
-            caseclassstrdef,
+            result,
             equalTo(
               """
                 |case class Mutation(
@@ -114,25 +113,24 @@ userList: () => List[Option[User]]
           )
         },
         testM("simple subscription") {
-          val query =
+          val schema =
             """
          type Subscription {
            UserWatch(id: Int!): String!
          }
          """
-          implicit val writer = ScalaWriter.DefaultGQLWriter
 
-          val caseclassstrdef = Parser
-            .parseQuery(query)
+          val result = Parser
+            .parseQuery(schema)
             .map(doc => {
               Document
                 .objectTypeDefinition(doc, "Subscription")
-                .map(d => ScalaWriter.RootSubscriptionDefWriter.write(RootSubscriptionDef(d))(doc))
+                .map(SchemaWriter.writeRootSubscriptionDef)
                 .mkString("\n")
             })
 
           assertM(
-            caseclassstrdef,
+            result,
             equalTo(
               """
                 |case class Subscription(
@@ -159,14 +157,8 @@ userList: () => List[Option[User]]
               |  }
               |""".stripMargin
 
-          implicit val writer = ScalaWriter.DefaultGQLWriter
-
           assertM(
-            Parser
-              .parseQuery(schema)
-              .flatMap(s => {
-                Generator.formatStr(Generator.generate(s), ScalaWriter.scalafmtConfig)
-              }),
+            gen(schema),
             equalTo(
               """import Types._
                 |
@@ -198,19 +190,10 @@ userList: () => List[Option[User]]
           )
         },
         testM("empty schema test") {
-          val schema = ""
-
-          implicit val writer = ScalaWriter.DefaultGQLWriter
-
-          assertM(
-            Parser
-              .parseQuery(schema)
-              .flatMap(s => Generator.formatStr(Generator.generate(s), ScalaWriter.scalafmtConfig)),
-            equalTo("\n")
-          )
+          assertM(gen(""), equalTo("\n"))
         },
         testM("enum type") {
-          val gqltype =
+          val schema =
             """
              enum Origin {
                EARTH
@@ -219,14 +202,8 @@ userList: () => List[Option[User]]
              }
             """.stripMargin
 
-          implicit val writer = ScalaWriter.DefaultGQLWriter
-
-          val generated: ZIO[Any, Throwable, String] = Parser
-            .parseQuery(gqltype)
-            .flatMap(s => Generator.formatStr(Generator.generate(s), ScalaWriter.scalafmtConfig))
-
           assertM(
-            generated,
+            gen(schema),
             equalTo(
               """object Types {
 
@@ -244,7 +221,7 @@ userList: () => List[Option[User]]
           )
         },
         testM("union type") {
-          val gqltype =
+          val schema =
             """
              "role"
              union Role = Captain | Pilot
@@ -258,14 +235,8 @@ userList: () => List[Option[User]]
              }
             """.stripMargin
 
-          implicit val writer = ScalaWriter.DefaultGQLWriter
-
-          val generated: ZIO[Any, Throwable, String] = Parser
-            .parseQuery(gqltype)
-            .flatMap(s => Generator.formatStr(Generator.generate(s), ScalaWriter.scalafmtConfig))
-
           assertM(
-            generated,
+            gen(schema),
             equalTo(
               """import caliban.schema.Annotations._
 
@@ -288,7 +259,7 @@ object Types {
           )
         },
         testM("schema") {
-          val gqltype =
+          val schema =
             """
              schema {
                query: Queries
@@ -299,14 +270,8 @@ object Types {
              }
             """.stripMargin
 
-          implicit val writer = ScalaWriter.DefaultGQLWriter
-
-          val generated: ZIO[Any, Throwable, String] = Parser
-            .parseQuery(gqltype)
-            .flatMap(s => Generator.formatStr(Generator.generate(s), ScalaWriter.scalafmtConfig))
-
           assertM(
-            generated,
+            gen(schema),
             equalTo(
               """object Operations {
 
@@ -320,7 +285,7 @@ object Types {
           )
         },
         testM("input type") {
-          val gqltype =
+          val schema =
             """
              type Character {
                 name: String!
@@ -331,14 +296,8 @@ object Types {
              }
             """.stripMargin
 
-          implicit val writer = ScalaWriter.DefaultGQLWriter
-
-          val generated: ZIO[Any, Throwable, String] = Parser
-            .parseQuery(gqltype)
-            .flatMap(s => Generator.formatStr(Generator.generate(s), ScalaWriter.scalafmtConfig))
-
           assertM(
-            generated,
+            gen(schema),
             equalTo(
               """object Types {
 
@@ -351,4 +310,4 @@ object Types {
           )
         }
       )
-    )
+    })

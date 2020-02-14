@@ -55,9 +55,9 @@ object Test extends App {
 
   /*
   TODO
-  - tests
   - code gen
   - scaladoc
+  - cleanup examples
 
   - support interfaces
   - subscriptions (no backend for ScalaJS yet)
