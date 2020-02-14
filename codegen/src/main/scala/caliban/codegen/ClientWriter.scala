@@ -231,7 +231,7 @@ object ClientWriter {
       case NamedType(_, true)  => inner
       case NamedType(_, false) => s"OptionOf($inner)"
       case ListType(_, true)   => s"ListOf($inner)"
-      case ListType(_, false)  => s"OptionOf($inner)"
+      case ListType(_, false)  => s"OptionOf(ListOf($inner))"
     }
 
   @tailrec
@@ -284,5 +284,6 @@ object ClientWriter {
 
   // TODO
   // input
+  // imports
   // union
 }
