@@ -11,13 +11,6 @@ object ClientWriter {
   def write(schema: Document): String = {
     val schemaDef = Document.schemaDefinitions(schema).headOption
 
-//    val unionTypes = Document
-//      .unionTypeDefinitions(schema)
-//      .map(union => (union, union.memberTypes.flatMap(Document.objectTypeDefinition(schema, _))))
-//      .toMap
-//
-//    val unions = unionTypes.map { case (union, objects) => writeUnion(union, objects) }.mkString("\n")
-
     val typesMap: Map[String, TypeDefinition] = schema.definitions.collect {
       case op @ ObjectTypeDefinition(_, name, _, _)      => name -> op
       case op @ InputObjectTypeDefinition(_, name, _, _) => name -> op
@@ -26,15 +19,22 @@ object ClientWriter {
       case op @ ScalarTypeDefinition(_, name, _)         => name -> op
     }.toMap
 
+    val unionTypes = Document
+      .unionTypeDefinitions(schema)
+      .map(union => (union, union.memberTypes.flatMap(Document.objectTypeDefinition(schema, _))))
+      .toMap
+
+    val unions = unionTypes.map { case (union, objects) => writeUnion(union, objects, typesMap) }.mkString("\n")
+
     val objects = Document
       .objectTypeDefinitions(schema)
       .filterNot(
         obj =>
           reservedType(obj) ||
+            unionTypes.values.flatten.exists(_.name == obj.name) ||
             schemaDef.exists(_.query.contains(obj.name)) ||
             schemaDef.exists(_.mutation.contains(obj.name))
       )
-      //      .filterNot(obj => unionTypes.values.flatten.exists(_.name == obj.name))
       .map(writeObject(_, typesMap))
       .mkString("\n")
 
@@ -55,11 +55,12 @@ object ClientWriter {
     val imports = s"""${if (enums.nonEmpty)
       """import caliban.client.CalibanClientError.DecodingError
         |""".stripMargin
-    else ""}${if (objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty)
+    else ""}${if (objects.nonEmpty || unions.nonEmpty || queries.nonEmpty || mutations.nonEmpty)
       """import caliban.client.FieldBuilder._
         |import caliban.client.SelectionBuilder._
         |""".stripMargin
-    else ""}${if (enums.nonEmpty || objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || inputs.nonEmpty)
+    else
+      ""}${if (enums.nonEmpty || objects.nonEmpty || unions.nonEmpty || queries.nonEmpty || mutations.nonEmpty || inputs.nonEmpty)
       """import caliban.client._
         |""".stripMargin
     else ""}${if (queries.nonEmpty || mutations.nonEmpty)
@@ -74,6 +75,7 @@ object ClientWriter {
        |object Client {
        |
        |  $enums
+       |  $unions
        |  $objects
        |  $inputs
        |  $queries
@@ -155,14 +157,9 @@ object ClientWriter {
     objects: List[ObjectTypeDefinition],
     typesMap: Map[String, TypeDefinition]
   ): String =
-    s"""${writeDescription(typedef.description)}sealed trait ${typedef.name} extends Product with Serializable
-
-          object ${typedef.name} {
-            ${objects
-      .map(o => s"${writeObject(o, typesMap)} extends ${typedef.name}")
-      .mkString("\n")}
-          }
-       """
+    s"""object ${typedef.name} {
+       |  ${objects.map(writeObject(_, typesMap)).mkString("")}}
+       |""".stripMargin
 
   def writeField(field: FieldDefinition, of: ObjectTypeDefinition, typesMap: Map[String, TypeDefinition]): String = {
     val name      = if (reservedKeywords.contains(field.name)) s"`${field.name}`" else field.name
@@ -175,6 +172,15 @@ object ClientWriter {
         case _                       => false
       }
       .getOrElse(true)
+    val unionTypes = typesMap
+      .get(fieldType)
+      .collect {
+        case UnionTypeDefinition(_, _, _, memberTypes) => memberTypes.flatMap(typesMap.get)
+      }
+      .getOrElse(Nil)
+      .collect {
+        case o: ObjectTypeDefinition => o
+      }
     val (typeParam, innerSelection, outputType, builder) =
       if (isScalar) {
         (
@@ -182,6 +188,16 @@ object ClientWriter {
           "",
           writeType(field.ofType),
           writeTypeBuilder(field.ofType, "Scalar()")
+        )
+      } else if (unionTypes.nonEmpty) {
+        (
+          "[A]",
+          s"(${unionTypes.map(t => s"""on${t.name}: SelectionBuilder[${t.name}, A]""").mkString(", ")})",
+          writeType(field.ofType).replace(fieldType, "A"),
+          writeTypeBuilder(
+            field.ofType,
+            s"Union(Map(${unionTypes.map(t => s""""${t.name}" -> Obj(on${t.name})""").mkString(", ")}))"
+          )
         )
       } else {
         (
@@ -278,7 +294,5 @@ object ClientWriter {
     "yield"
   )
 
-  // TODO
-  // union
-  // package name
+  // TODO custom package name
 }

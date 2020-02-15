@@ -272,6 +272,58 @@ object Client {
 """
               )
             )
+          },
+          testM("union") {
+            val schema =
+              """
+             union Role = Captain | Pilot
+             
+             type Captain {
+               shipName: String!
+             }
+             
+             type Pilot {
+               shipName: String!
+             }
+             
+             type Character {
+               role: Role
+             }
+            """.stripMargin
+
+            assertM(
+              gen(schema),
+              equalTo(
+                """import caliban.client.FieldBuilder._
+import caliban.client.SelectionBuilder._
+import caliban.client._
+
+object Client {
+
+  object Role {
+    type Captain
+    object Captain {
+      def shipName: SelectionBuilder[Captain, String] = Field("shipName", Scalar())
+    }
+    type Pilot
+    object Pilot {
+      def shipName: SelectionBuilder[Pilot, String] = Field("shipName", Scalar())
+    }
+  }
+
+  type Character
+  object Character {
+    def role[A](
+      onCaptain: SelectionBuilder[Captain, A],
+      onPilot: SelectionBuilder[Pilot, A]
+    ): SelectionBuilder[Character, Option[A]] =
+      Field("role", OptionOf(Union(Map("Captain" -> Obj(onCaptain), "Pilot" -> Obj(onPilot)))))
+  }
+
+}
+"""
+              )
+            )
           }
         )
       }
