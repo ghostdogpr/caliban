@@ -69,9 +69,10 @@ object ClientWriter {
     else ""}${if (enums.nonEmpty || inputs.nonEmpty)
       """import caliban.client.Value._
         |""".stripMargin
-    else ""}"""
+    else ""}${unionTypes.keys.map(t => s"import Client.${t.name}._").mkString("\n")}"""
 
     s"""$imports
+       |
        |object Client {
        |
        |  $enums

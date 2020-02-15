@@ -19,7 +19,7 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
   def ~[Origin1 <: Origin, B](that: SelectionBuilder[Origin1, B]): SelectionBuilder[Origin1, (A, B)] =
     SelectionBuilder.Concat(self, that)
 
-  def map[B](f: A => B): SelectionBuilder[Origin, B] = SelectionBuilder.Map(self, f)
+  def map[B](f: A => B): SelectionBuilder[Origin, B] = SelectionBuilder.Mapping(self, f)
 
   def withDirective(directive: Directive): SelectionBuilder[Origin, A]
 
@@ -243,15 +243,16 @@ object SelectionBuilder {
 
     override def withAlias(alias: String): SelectionBuilder[Origin, (A, B)] = self // makes no sense, do nothing
   }
-  case class Map[Origin, A, B](builder: SelectionBuilder[Origin, A], f: A => B) extends SelectionBuilder[Origin, B] {
+  case class Mapping[Origin, A, B](builder: SelectionBuilder[Origin, A], f: A => B)
+      extends SelectionBuilder[Origin, B] {
     override def fromGraphQL(value: Value): Either[DecodingError, B] = builder.fromGraphQL(value).map(f)
 
     override def withDirective(directive: Directive): SelectionBuilder[Origin, B] =
-      Map(builder.withDirective(directive), f)
+      Mapping(builder.withDirective(directive), f)
 
     override def toSelectionSet: List[Selection] = builder.toSelectionSet
 
-    override def withAlias(alias: String): SelectionBuilder[Origin, B] = Map(builder.withAlias(alias), f)
+    override def withAlias(alias: String): SelectionBuilder[Origin, B] = Mapping(builder.withAlias(alias), f)
   }
 
   def toGraphQL(

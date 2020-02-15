@@ -297,6 +297,7 @@ object Client {
                 """import caliban.client.FieldBuilder._
 import caliban.client.SelectionBuilder._
 import caliban.client._
+import Client.Role._
 
 object Client {
 
