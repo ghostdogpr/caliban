@@ -69,7 +69,7 @@ object ClientWriter {
     else ""}${if (enums.nonEmpty || inputs.nonEmpty)
       """import caliban.client.Value._
         |""".stripMargin
-    else ""}${unionTypes.keys.map(t => s"import Client.${t.name}._").mkString("\n")}"""
+    else ""}${unionTypes.keys.map(t => s"import $objectName.${t.name}._").mkString("\n")}"""
 
     s"""${packageName.fold("")(p => s"package $p\n\n")}$imports
        |

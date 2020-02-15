@@ -55,7 +55,6 @@ object Test extends App {
 
   /*
   TODO
-  - code gen
   - scaladoc
   - cleanup examples
   - microsite
