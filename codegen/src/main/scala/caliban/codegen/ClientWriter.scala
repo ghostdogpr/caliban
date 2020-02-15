@@ -32,8 +32,9 @@ object ClientWriter {
         obj =>
           reservedType(obj) ||
             unionTypes.values.flatten.exists(_.name == obj.name) ||
-            schemaDef.exists(_.query.contains(obj.name)) ||
-            schemaDef.exists(_.mutation.contains(obj.name))
+            schemaDef.exists(_.query.getOrElse("Query") == obj.name) ||
+            schemaDef.exists(_.mutation.getOrElse("Mutation") == obj.name) ||
+            schemaDef.exists(_.subscription.getOrElse("Subscription") == obj.name)
       )
       .map(writeObject(_, typesMap))
       .mkString("\n")
@@ -170,6 +171,7 @@ object ClientWriter {
       .get(fieldType)
       .collect {
         case _: ScalarTypeDefinition => true
+        case _: EnumTypeDefinition   => true
         case _                       => false
       }
       .getOrElse(true)
@@ -215,8 +217,15 @@ object ClientWriter {
           s"${arg.name}: ${writeType(arg.ofType)}"
         }.mkString(", ")})"
     }
+    val argBuilder = field.args match {
+      case Nil => ""
+      case list =>
+        s", arguments = List(${list.map { arg =>
+          s"""Argument("${arg.name}", ${arg.name})"""
+        }.mkString(", ")})"
+    }
 
-    s"""def $name$typeParam$args$innerSelection: SelectionBuilder[$typeName, $outputType] = Field("${field.name}", $builder)"""
+    s"""def $name$typeParam$args$innerSelection: SelectionBuilder[$typeName, $outputType] = Field("${field.name}", $builder$argBuilder)"""
   }
 
   def writeArgumentFields(args: List[InputValueDefinition]): String =

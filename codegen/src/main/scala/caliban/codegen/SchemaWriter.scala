@@ -26,9 +26,9 @@ object SchemaWriter {
       .filterNot(
         obj =>
           reservedType(obj) ||
-            schemaDef.exists(_.query.contains(obj.name)) ||
-            schemaDef.exists(_.mutation.contains(obj.name)) ||
-            schemaDef.exists(_.subscription.contains(obj.name)) ||
+            schemaDef.exists(_.query.getOrElse("Query") == obj.name) ||
+            schemaDef.exists(_.mutation.getOrElse("Mutation") == obj.name) ||
+            schemaDef.exists(_.subscription.getOrElse("Subscription") == obj.name) ||
             unionTypes.values.flatten.exists(_.name == obj.name)
       )
       .map(writeObject)

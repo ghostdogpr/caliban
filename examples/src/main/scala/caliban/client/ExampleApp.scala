@@ -7,7 +7,7 @@ import sttp.client.asynchttpclient.zio.AsyncHttpClientZioBackend
 import zio.console.putStrLn
 import zio.{ App, ZIO }
 
-object Test extends App {
+object ExampleApp extends App {
 
   sealed trait Role
   object Role {
@@ -27,9 +27,9 @@ object Test extends App {
         origin ~
         role(
           Captain.shipName.map(Role.Captain),
-          Pilot.shipName.map(Role.Pilot),
+          Engineer.shipName.map(Role.Engineer),
           Mechanic.shipName.map(Role.Mechanic),
-          Engineer.shipName.map(Role.Engineer)
+          Pilot.shipName.map(Role.Pilot)
         )).mapN(Character)
     }
     val query =

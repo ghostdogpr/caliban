@@ -134,7 +134,7 @@ object Client {
   type Q
   object Q {
     def character[A](name: String)(innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[Q, Option[A]] =
-      Field("character", OptionOf(Obj(innerSelection)))
+      Field("character", OptionOf(Obj(innerSelection)), arguments = List(Argument("name", name)))
   }
 
   type Character
