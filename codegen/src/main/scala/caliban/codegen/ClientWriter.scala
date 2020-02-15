@@ -11,11 +11,6 @@ object ClientWriter {
   def write(schema: Document): String = {
     val schemaDef = Document.schemaDefinitions(schema).headOption
 
-//    val argsTypes = Document
-//      .objectTypeDefinitions(schema)
-//      .flatMap(_.fields.filter(_.args.nonEmpty).map(c => writeArguments(c)("")))
-//      .mkString("\n")
-//
 //    val unionTypes = Document
 //      .unionTypeDefinitions(schema)
 //      .map(union => (union, union.memberTypes.flatMap(Document.objectTypeDefinition(schema, _))))
@@ -43,7 +38,7 @@ object ClientWriter {
       .map(writeObject(_, typesMap))
       .mkString("\n")
 
-//    val inputs = Document.inputObjectTypeDefinitions(schema).map(writeInputObject).mkString("\n")
+    val inputs = Document.inputObjectTypeDefinitions(schema).map(writeInputObject).mkString("\n")
 
     val enums = Document.enumTypeDefinitions(schema).map(writeEnum).mkString("\n")
 
@@ -57,40 +52,30 @@ object ClientWriter {
       .map(t => writeRootMutation(t, typesMap))
       .getOrElse("")
 
-//    val hasTypes         = argsTypes.length + objects.length + enums.length + unions.length + inputs.length > 0
-//    val hasOperations    = queries.length + mutations.length + subscriptions.length > 0
-//
-//    val typesAndOperations = s"""
-//      ${if (hasTypes)
-//      "object Types {\n" +
-//        argsTypes + "\n" +
-//        objects + "\n" +
-//        inputs + "\n" +
-//        unions + "\n" +
-//        enums + "\n" +
-//        "\n}\n"
-//    else ""}
-//
-//      ${if (hasOperations)
-//      "object Operations {\n" +
-//        queries + "\n\n" +
-//        mutations + "\n\n" +
-//        subscriptions + "\n" +
-//        "\n}"
-//    else ""}
-//      """
-//
-//    s"""${if (hasTypes && hasOperations) "import Types._\n" else ""}
-//          ${if (typesAndOperations.contains("@GQL")) "import caliban.schema.Annotations._\n" else ""}
-//          ${if (hasSubscriptions) "import zio.stream.ZStream" else ""}
-//
-//      $typesAndOperations
-//      """
+    val imports = s"""${if (enums.nonEmpty)
+      """import caliban.client.CalibanClientError.DecodingError
+        |""".stripMargin
+    else ""}${if (objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty)
+      """import caliban.client.FieldBuilder._
+        |import caliban.client.SelectionBuilder._
+        |""".stripMargin
+    else ""}${if (enums.nonEmpty || objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || inputs.nonEmpty)
+      """import caliban.client._
+        |""".stripMargin
+    else ""}${if (queries.nonEmpty || mutations.nonEmpty)
+      """import caliban.client.Operations._
+        |""".stripMargin
+    else ""}${if (enums.nonEmpty || inputs.nonEmpty)
+      """import caliban.client.Value._
+        |""".stripMargin
+    else ""}"""
 
-    s"""object Data {
+    s"""$imports
+       |object Client {
        |
        |  $enums
        |  $objects
+       |  $inputs
        |  $queries
        |  $mutations
        |  
@@ -120,9 +105,26 @@ object ClientWriter {
        |""".stripMargin
 
   def writeInputObject(typedef: InputObjectTypeDefinition): String =
-    s"""${writeDescription(typedef.description)}case class ${typedef.name}(${typedef.fields
-      .map(writeInputValue(_, typedef))
-      .mkString(", ")})"""
+    s"""case class ${typedef.name}(${writeArgumentFields(typedef.fields)})
+       |object ${typedef.name} {
+       |  implicit val encoder: ArgEncoder[${typedef.name}] = new ArgEncoder[${typedef.name}] {
+       |    override def encode(value: ${typedef.name}): Value =
+       |      ObjectValue(List(${typedef.fields
+         .map(f => s""""${f.name}" -> ${writeInputValue(f.ofType, s"value.${f.name}")}""")
+         .mkString(", ")}))
+       |    override def typeName: String = "${typedef.name}"
+       |  }
+       |}""".stripMargin
+
+  def writeInputValue(t: Type, fieldName: String): String =
+    t match {
+      case NamedType(name, true) => s"implicitly[ArgEncoder[$name]].encode($fieldName)"
+      case NamedType(name, false) =>
+        s"$fieldName.fold(NullValue)(value => ${writeInputValue(NamedType(name, nonNull = true), "value")})"
+      case ListType(ofType, true) => s"ListValue($fieldName.map(value => ${writeInputValue(ofType, "value")}))"
+      case ListType(ofType, false) =>
+        s"$fieldName.fold(NullValue)(value => ${writeInputValue(ListType(ofType, nonNull = true), "value")})"
+    }
 
   def writeEnum(typedef: EnumTypeDefinition): String =
     s"""sealed trait ${typedef.name} extends Product with Serializable
@@ -200,19 +202,13 @@ object ClientWriter {
     s"""def $name$typeParam$args$innerSelection: SelectionBuilder[$typeName, $outputType] = Field("${field.name}", $builder)"""
   }
 
-  def writeInputValue(value: InputValueDefinition, of: InputObjectTypeDefinition): String =
-    s"""${writeDescription(value.description)}${value.name}: ${writeType(value.ofType)}"""
+  def writeArgumentFields(args: List[InputValueDefinition]): String =
+    s"${args.map(arg => s"${arg.name}: ${writeType(arg.ofType)}").mkString(", ")}"
 
-  def writeArguments(field: FieldDefinition): String = {
-    def fields(args: List[InputValueDefinition]): String =
-      s"${args.map(arg => s"${arg.name}: ${writeType(arg.ofType)}").mkString(", ")}"
-
+  def writeArguments(field: FieldDefinition): String =
     if (field.args.nonEmpty) {
-      s"case class ${field.name.capitalize}Args(${fields(field.args)})"
-    } else {
-      ""
-    }
-  }
+      s"case class ${field.name.capitalize}Args(${writeArgumentFields(field.args)})"
+    } else ""
 
   def writeDescription(description: Option[String]): String =
     description.fold("")(d => s"""@GQLDescription("$d")
@@ -283,7 +279,6 @@ object ClientWriter {
   )
 
   // TODO
-  // input
-  // imports
   // union
+  // package name
 }

@@ -26,7 +26,11 @@ object ClientWriterSpec
             assertM(
               gen(schema),
               equalTo(
-                """object Data {
+                """import caliban.client.FieldBuilder._
+import caliban.client.SelectionBuilder._
+import caliban.client._
+
+object Client {
 
   type Character
   object Character {
@@ -50,7 +54,11 @@ object ClientWriterSpec
             assertM(
               gen(schema),
               equalTo(
-                """object Data {
+                """import caliban.client.FieldBuilder._
+import caliban.client.SelectionBuilder._
+import caliban.client._
+
+object Client {
 
   type Character
   object Character {
@@ -78,7 +86,11 @@ object ClientWriterSpec
             assertM(
               gen(schema),
               equalTo(
-                """object Data {
+                """import caliban.client.FieldBuilder._
+import caliban.client.SelectionBuilder._
+import caliban.client._
+
+object Client {
 
   type Q
   object Q {
@@ -113,7 +125,11 @@ object ClientWriterSpec
             assertM(
               gen(schema),
               equalTo(
-                """object Data {
+                """import caliban.client.FieldBuilder._
+import caliban.client.SelectionBuilder._
+import caliban.client._
+
+object Client {
 
   type Q
   object Q {
@@ -152,7 +168,12 @@ object ClientWriterSpec
             assertM(
               gen(schema),
               equalTo(
-                """object Data {
+                """import caliban.client.FieldBuilder._
+import caliban.client.SelectionBuilder._
+import caliban.client._
+import caliban.client.Operations._
+
+object Client {
 
   type Character
   object Character {
@@ -183,7 +204,11 @@ object ClientWriterSpec
             assertM(
               gen(schema),
               equalTo(
-                """object Data {
+                """import caliban.client.CalibanClientError.DecodingError
+import caliban.client._
+import caliban.client.Value._
+
+object Client {
 
   sealed trait Origin extends Product with Serializable
   object Origin {
@@ -204,6 +229,42 @@ object ClientWriterSpec
         case BELT  => StringValue("BELT")
       }
       override def typeName: String = "Origin"
+    }
+  }
+
+}
+"""
+              )
+            )
+          },
+          testM("input object") {
+            val schema =
+              """
+             input CharacterInput {
+               name: String!
+               nicknames: [String!]!
+             }
+            """.stripMargin
+
+            assertM(
+              gen(schema),
+              equalTo(
+                """import caliban.client._
+import caliban.client.Value._
+
+object Client {
+
+  case class CharacterInput(name: String, nicknames: List[String])
+  object CharacterInput {
+    implicit val encoder: ArgEncoder[CharacterInput] = new ArgEncoder[CharacterInput] {
+      override def encode(value: CharacterInput): Value =
+        ObjectValue(
+          List(
+            "name"      -> implicitly[ArgEncoder[String]].encode(value.name),
+            "nicknames" -> ListValue(value.nicknames.map(value => implicitly[ArgEncoder[String]].encode(value)))
+          )
+        )
+      override def typeName: String = "CharacterInput"
     }
   }
 
