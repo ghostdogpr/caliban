@@ -6,7 +6,7 @@ import caliban.parsing.adt.{ Document, Type }
 
 object SchemaWriter {
 
-  def write(schema: Document): String = {
+  def write(schema: Document, objectName: String = "", packageName: Option[String] = None): String = {
     val schemaDef = Document.schemaDefinitions(schema).headOption
 
     val argsTypes = Document
@@ -77,7 +77,7 @@ object SchemaWriter {
     else ""}
       """
 
-    s"""${if (hasTypes && hasOperations) "import Types._\n" else ""}
+    s"""${packageName.fold("")(p => s"package $p\n\n")}${if (hasTypes && hasOperations) "import Types._\n" else ""}
           ${if (typesAndOperations.contains("@GQL")) "import caliban.schema.Annotations._\n" else ""}
           ${if (hasSubscriptions) "import zio.stream.ZStream" else ""}
 

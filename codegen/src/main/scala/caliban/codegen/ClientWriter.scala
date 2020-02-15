@@ -8,7 +8,7 @@ import caliban.parsing.adt.{ Document, Type }
 
 object ClientWriter {
 
-  def write(schema: Document): String = {
+  def write(schema: Document, objectName: String = "Client", packageName: Option[String] = None): String = {
     val schemaDef = Document.schemaDefinitions(schema).headOption
 
     val typesMap: Map[String, TypeDefinition] = schema.definitions.collect {
@@ -71,9 +71,9 @@ object ClientWriter {
         |""".stripMargin
     else ""}${unionTypes.keys.map(t => s"import Client.${t.name}._").mkString("\n")}"""
 
-    s"""$imports
+    s"""${packageName.fold("")(p => s"package $p\n\n")}$imports
        |
-       |object Client {
+       |object $objectName {
        |
        |  $enums
        |  $unions
@@ -294,6 +294,4 @@ object ClientWriter {
     "with",
     "yield"
   )
-
-  // TODO custom package name
 }

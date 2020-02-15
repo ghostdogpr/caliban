@@ -58,6 +58,7 @@ object Test extends App {
   - code gen
   - scaladoc
   - cleanup examples
+  - microsite
 
   - support interfaces
   - subscriptions (no backend for ScalaJS yet)
