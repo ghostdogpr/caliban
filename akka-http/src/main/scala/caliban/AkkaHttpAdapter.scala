@@ -104,10 +104,12 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
 
     def actorReply(actor: ActorRef): String => Task[Unit] = message => Task(actor ! TextMessage(message))
 
-    def onGraphQLResponse(reply: String => Task[Unit],
-                          subscriptions: Ref[Map[String, Fiber[Throwable, Unit]]],
-                          id: String,
-                          result: GraphQLResponse[E]): RIO[R, Any] =
+    def onGraphQLResponse(
+      reply: String => Task[Unit],
+      subscriptions: Ref[Map[String, Fiber[Throwable, Unit]]],
+      id: String,
+      result: GraphQLResponse[E]
+    ): RIO[R, Any] =
       result.data match {
         case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
           stream.foreach { item =>
@@ -121,9 +123,11 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
       }
 
     // http4s would use in place of actor a sendQueue: fs2.concurrent.Queue[RIO[R, *], WebSocketFrame], consider using a queue
-    def processMessage(reply: String => Task[Unit],
-                       subscriptions: Ref[Map[String, Fiber[Throwable, Unit]]],
-                       text: String): RIO[R, Unit] =
+    def processMessage(
+      reply: String => Task[Unit],
+      subscriptions: Ref[Map[String, Fiber[Throwable, Unit]]],
+      text: String
+    ): RIO[R, Unit] =
       for {
         msgCursor <- Task.fromEither(decode[Json](text)).map(_.hcursor)
         msgType   <- getFieldAsString(msgCursor, "type").fold(???)(Task.succeed)
@@ -158,8 +162,10 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
             }
       } yield ()
 
-    def createSink(reply: String => Task[Unit],
-                   subscriptions: UIO[Ref[Map[String, Fiber[Throwable, Unit]]]]): Sink[Message, NotUsed] =
+    def createSink(
+      reply: String => Task[Unit],
+      subscriptions: UIO[Ref[Map[String, Fiber[Throwable, Unit]]]]
+    ): Sink[Message, NotUsed] =
       Flow[Message].map {
         case TextMessage.Strict(message) =>
           val effect = Ref.make(Map.empty[String, Fiber[Throwable, Unit]]) flatMap { subscriptions =>
