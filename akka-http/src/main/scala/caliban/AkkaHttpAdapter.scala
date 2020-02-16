@@ -172,7 +172,6 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
             processMessage(reply, subscriptions, message)
           }
           runtime.unsafeRunToFuture(effect)
-        // http4s does receiver(sendQueue, subscriptions),
         case Streamed(textStream) =>
           // not exercised visibly so far.
           for {
@@ -190,8 +189,7 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
     def createSource(): (Source[TextMessage.Strict, NotUsed], ActorRef) = {
       val (ref, publisher) = {
         val completionMatcher: PartialFunction[Any, CompletionStrategy] = {
-          case Complete => CompletionStrategy.draining
-          case Fail     => CompletionStrategy.draining
+          case Complete | Fail => CompletionStrategy.draining
         }
         val failureMatcher: PartialFunction[Any, Throwable] = {
           case Fail(ex) => ex
