@@ -1,18 +1,22 @@
 package caliban.akkahttp
 
+import scala.language.postfixOps
 import scala.io.StdIn
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives._
 import caliban.ExampleData.{ sampleCharacters, Character, CharacterArgs, CharactersArgs, Role }
+import caliban.wrappers.ApolloTracing.apolloTracing
 import caliban.GraphQL.graphQL
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.GenericSchema
+import caliban.wrappers.Wrappers.{ maxDepth, maxFields, printSlowQueries, timeout }
 import caliban.{ AkkaHttpAdapter, ExampleService, RootResolver }
 import zio.clock.Clock
 import zio.console.Console
 import zio.stream.ZStream
 import zio.{ DefaultRuntime, URIO }
+import zio.duration._
 
 object ExampleApp extends App with GenericSchema[Console with Clock] {
 
@@ -37,7 +41,7 @@ object ExampleApp extends App with GenericSchema[Console with Clock] {
   val service = defaultRuntime.unsafeRun(ExampleService.make(sampleCharacters))
 
   val interpreter =
-    graphQL(
+    (graphQL(
       RootResolver(
         Queries(
           args => service.getCharacters(args.origin),
@@ -46,6 +50,12 @@ object ExampleApp extends App with GenericSchema[Console with Clock] {
         Mutations(args => service.deleteCharacter(args.name)),
         Subscriptions(service.deletedEvents)
       )
+    ) @@
+      maxFields(200) @@               // query analyzer that limit query fields
+      maxDepth(30) @@                 // query analyzer that limit query depth
+      timeout(3 seconds) @@           // wrapper that fails slow queries
+      printSlowQueries(500 millis) @@ // wrapper that logs slow queries
+      apolloTracing                   // wrapper for https://github.com/apollographql/apollo-tracing
     ).interpreter
 
   /**
@@ -59,11 +69,11 @@ object ExampleApp extends App with GenericSchema[Console with Clock] {
    */
   val route =
     path("api" / "graphql") {
-      AkkaHttpAdapter.makeHttpService(interpreter)
+      AkkaHttpAdapter.httpRoute(interpreter)
     } ~ path("graphiql") {
       getFromResource("graphiql.html")
     } ~ path("ws" / "graphql") {
-      AkkaHttpAdapter.makeWebSocketService(interpreter)
+      AkkaHttpAdapter.webSocketRoute(interpreter)
     }
 
   val bindingFuture = Http().bindAndHandle(route, "localhost", 8088)
