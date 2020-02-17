@@ -2,7 +2,7 @@ import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
 val mainScala       = "2.12.10"
 val allScala        = Seq("2.13.1", mainScala)
-val http4sVersion   = "0.21.0"
+val http4sVersion   = "0.21.1"
 val silencerVersion = "1.4.4"
 inThisBuild(
   List(
@@ -46,7 +46,7 @@ lazy val root = project
   .enablePlugins(ScalaJSPlugin)
   .settings(skip in publish := true)
   .settings(historyPath := None)
-  .aggregate(coreJVM, coreJS, http4s, akkaHttp, catsInteropJVM, catsInteropJS, clientJVM, clientJS, codegen)
+  .aggregate(coreJVM, coreJS, http4s, akkaHttp, catsInteropJVM, catsInteropJS, monixInterop, clientJVM, clientJS, codegen)
 
 lazy val core = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)
@@ -106,6 +106,19 @@ lazy val catsInterop = crossProject(JSPlatform, JVMPlatform)
   .dependsOn(core)
 lazy val catsInteropJVM = catsInterop.jvm
 lazy val catsInteropJS  = catsInterop.js
+
+lazy val monixInterop = project
+  .in(file("interop/monix"))
+  .settings(name := "caliban-monix")
+  .settings(commonSettings)
+  .settings(
+    libraryDependencies ++= Seq(
+      "dev.zio"  %% "zio-interop-reactivestreams" % "1.0.3.5-RC3",
+      "dev.zio"  %% "zio-interop-cats"            % "2.0.0.0-RC10",
+      "io.monix" %% "monix"                       % "3.1.0"
+    )
+  )
+  .dependsOn(coreJVM)
 
 lazy val http4s = project
   .in(file("http4s"))
@@ -175,7 +188,7 @@ lazy val examples = project
       "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % "2.0.0-RC7"
     )
   )
-  .dependsOn(akkaHttp, http4s, catsInteropJVM, clientJVM)
+  .dependsOn(akkaHttp, http4s, catsInteropJVM, monixInterop, clientJVM)
 
 lazy val benchmarks = project
   .in(file("benchmarks"))
