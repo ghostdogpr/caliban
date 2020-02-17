@@ -4,6 +4,12 @@ import caliban.client.GraphQLResponseError.Location
 import io.circe.{ Decoder, DecodingFailure, HCursor }
 import io.circe.derivation.deriveDecoder
 
+/**
+ * An GraphQL error as returned by the server.
+ * @param message error message
+ * @param locations line and column that caused the error in the initial query
+ * @param path path of the field that caused the error
+ */
 case class GraphQLResponseError(
   message: String,
   locations: Option[List[Location]],

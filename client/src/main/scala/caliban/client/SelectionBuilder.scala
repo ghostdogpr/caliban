@@ -11,20 +11,42 @@ import sttp.client._
 import sttp.client.circe._
 import sttp.model.Uri
 
+/**
+ * Represents a selection from parent type `Origin` that returns a result of type `A`.
+ */
 sealed trait SelectionBuilder[-Origin, +A] { self =>
 
   private[caliban] def toSelectionSet: List[Selection]
   private[caliban] def fromGraphQL(value: Value): Either[DecodingError, A]
 
+  /**
+   * Combines this selection with another selection, returning a tuple of both results.
+   * To be combines, selections needs to have the same origin.
+   */
   def ~[Origin1 <: Origin, B](that: SelectionBuilder[Origin1, B]): SelectionBuilder[Origin1, (A, B)] =
     SelectionBuilder.Concat(self, that)
 
+  /**
+   * Maps the result of this selection to a new type `B`
+   */
   def map[B](f: A => B): SelectionBuilder[Origin, B] = SelectionBuilder.Mapping(self, f)
 
+  /**
+   * Add the given directive to the selection
+   */
   def withDirective(directive: Directive): SelectionBuilder[Origin, A]
 
+  /**
+   * Use the given alias for this selection
+   */
   def withAlias(alias: String): SelectionBuilder[Origin, A]
 
+  /**
+   * Transforms a root selection into an STTP request ready to be run.
+   * @param uri the URL of the GraphQL server
+   * @param useVariables if true, all arguments will be passed as variables (default: false)
+   * @return an STTP request
+   */
   def toRequest[A1 >: A, Origin1 <: Origin](
     uri: Uri,
     useVariables: Boolean = false
@@ -57,56 +79,107 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
       }
   }
 
+  /**
+   * Maps a tupled result to a type `Res` using a  function `f` with 2 parameters
+   */
   def mapN[B, C, Res](f: (B, C) => Res)(implicit ev: A <:< (B, C)): SelectionBuilder[Origin, Res] =
     self.map(ev.andThen { case (b, c) => f(b, c) })
+
+  /**
+   * Maps a tupled result to a type `Res` using a  function `f` with 3 parameters
+   */
   def mapN[B, C, D, Res](f: (B, C, D) => Res)(implicit ev: A <:< ((B, C), D)): SelectionBuilder[Origin, Res] =
     self.map(ev.andThen { case ((b, c), d) => f(b, c, d) })
+
+  /**
+   * Maps a tupled result to a type `Res` using a  function `f` with 4 parameters
+   */
   def mapN[B, C, D, E, Res](
     f: (B, C, D, E) => Res
   )(implicit ev: A <:< (((B, C), D), E)): SelectionBuilder[Origin, Res] =
     self.map(ev.andThen { case (((b, c), d), e) => f(b, c, d, e) })
+
+  /**
+   * Maps a tupled result to a type `Res` using a  function `f` with 5 parameters
+   */
   def mapN[B, C, D, E, F, Res](
     f: (B, C, D, E, F) => Res
   )(implicit ev: A <:< ((((B, C), D), E), F)): SelectionBuilder[Origin, Res] =
     self.map(ev.andThen { case ((((b, c), d), e), ff) => f(b, c, d, e, ff) })
+
+  /**
+   * Maps a tupled result to a type `Res` using a  function `f` with 6 parameters
+   */
   def mapN[B, C, D, E, F, G, Res](
     f: (B, C, D, E, F, G) => Res
   )(implicit ev: A <:< (((((B, C), D), E), F), G)): SelectionBuilder[Origin, Res] =
     self.map(ev.andThen { case (((((b, c), d), e), ff), g) => f(b, c, d, e, ff, g) })
+
+  /**
+   * Maps a tupled result to a type `Res` using a  function `f` with 7 parameters
+   */
   def mapN[B, C, D, E, F, G, H, Res](
     f: (B, C, D, E, F, G, H) => Res
   )(implicit ev: A <:< ((((((B, C), D), E), F), G), H)): SelectionBuilder[Origin, Res] =
     self.map(ev.andThen { case ((((((b, c), d), e), ff), g), h) => f(b, c, d, e, ff, g, h) })
+
+  /**
+   * Maps a tupled result to a type `Res` using a  function `f` with 8 parameters
+   */
   def mapN[B, C, D, E, F, G, H, I, Res](
     f: (B, C, D, E, F, G, H, I) => Res
   )(implicit ev: A <:< (((((((B, C), D), E), F), G), H), I)): SelectionBuilder[Origin, Res] =
     self.map(ev.andThen { case (((((((b, c), d), e), ff), g), h), i) => f(b, c, d, e, ff, g, h, i) })
+
+  /**
+   * Maps a tupled result to a type `Res` using a  function `f` with 9 parameters
+   */
   def mapN[B, C, D, E, F, G, H, I, J, Res](
     f: (B, C, D, E, F, G, H, I, J) => Res
   )(implicit ev: A <:< ((((((((B, C), D), E), F), G), H), I), J)): SelectionBuilder[Origin, Res] =
     self.map(ev.andThen { case ((((((((b, c), d), e), ff), g), h), i), j) => f(b, c, d, e, ff, g, h, i, j) })
+
+  /**
+   * Maps a tupled result to a type `Res` using a  function `f` with 10 parameters
+   */
   def mapN[B, C, D, E, F, G, H, I, J, K, Res](
     f: (B, C, D, E, F, G, H, I, J, K) => Res
   )(implicit ev: A <:< (((((((((B, C), D), E), F), G), H), I), J), K)): SelectionBuilder[Origin, Res] =
     self.map(ev.andThen { case (((((((((b, c), d), e), ff), g), h), i), j), k) => f(b, c, d, e, ff, g, h, i, j, k) })
+
+  /**
+   * Maps a tupled result to a type `Res` using a  function `f` with 11 parameters
+   */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L) => Res
   )(implicit ev: A <:< ((((((((((B, C), D), E), F), G), H), I), J), K), L)): SelectionBuilder[Origin, Res] =
     self.map(ev.andThen {
       case ((((((((((b, c), d), e), ff), g), h), i), j), k), l) => f(b, c, d, e, ff, g, h, i, j, k, l)
     })
+
+  /**
+   * Maps a tupled result to a type `Res` using a  function `f` with 12 parameters
+   */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M) => Res
   )(implicit ev: A <:< (((((((((((B, C), D), E), F), G), H), I), J), K), L), M)): SelectionBuilder[Origin, Res] =
     self.map(ev.andThen {
       case (((((((((((b, c), d), e), ff), g), h), i), j), k), l), m) => f(b, c, d, e, ff, g, h, i, j, k, l, m)
     })
+
+  /**
+   * Maps a tupled result to a type `Res` using a  function `f` with 13 parameters
+   */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N) => Res
   )(implicit ev: A <:< ((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N)): SelectionBuilder[Origin, Res] =
     self.map(ev.andThen {
       case ((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n) => f(b, c, d, e, ff, g, h, i, j, k, l, m, n)
     })
+
+  /**
+   * Maps a tupled result to a type `Res` using a  function `f` with 14 parameters
+   */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O) => Res
   )(
@@ -116,6 +189,10 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
       case (((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o) =>
         f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o)
     })
+
+  /**
+   * Maps a tupled result to a type `Res` using a  function `f` with 15 parameters
+   */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P) => Res
   )(
@@ -125,6 +202,10 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
       case ((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p) =>
         f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p)
     })
+
+  /**
+   * Maps a tupled result to a type `Res` using a  function `f` with 16 parameters
+   */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q) => Res
   )(
@@ -134,6 +215,10 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
       case (((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q) =>
         f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q)
     })
+
+  /**
+   * Maps a tupled result to a type `Res` using a  function `f` with 17 parameters
+   */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R) => Res
   )(
@@ -143,6 +228,10 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
       case ((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r) =>
         f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r)
     })
+
+  /**
+   * Maps a tupled result to a type `Res` using a  function `f` with 18 parameters
+   */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S) => Res
   )(
@@ -152,6 +241,10 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
       case (((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r), s) =>
         f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s)
     })
+
+  /**
+   * Maps a tupled result to a type `Res` using a  function `f` with 19 parameters
+   */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T) => Res
   )(
@@ -161,6 +254,10 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
       case ((((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r), s), t) =>
         f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s, t)
     })
+
+  /**
+   * Maps a tupled result to a type `Res` using a  function `f` with 20 parameters
+   */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U) => Res
   )(
@@ -170,6 +267,10 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
       case (((((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r), s), t), u) =>
         f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u)
     })
+
+  /**
+   * Maps a tupled result to a type `Res` using a  function `f` with 21 parameters
+   */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V) => Res
   )(
@@ -182,6 +283,10 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
       case ((((((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r), s), t), u), v) =>
         f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v)
     })
+
+  /**
+   * Maps a tupled result to a type `Res` using a  function `f` with 22 parameters
+   */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W) => Res
   )(

@@ -7,14 +7,23 @@ sealed trait CalibanClientError extends Throwable with Product with Serializable
 
 object CalibanClientError {
 
+  /**
+   * An error while communicating with the backend (e.g. HTTP code 4xx or 5xx)
+   */
   case class CommunicationError(msg: String, innerThrowable: Option[Throwable] = None) extends CalibanClientError {
     override def toString: String = s"Communication Error: $msg ${innerThrowable.fold("")(_.toString)}"
   }
 
+  /**
+   * An error while parsing the response from the backend
+   */
   case class DecodingError(msg: String, innerThrowable: Option[Throwable] = None) extends CalibanClientError {
     override def toString: String = s"Decoding Error: $msg ${innerThrowable.fold("")(_.toString)}"
   }
 
+  /**
+   * A GraphQL error returned by the backend (e.g. failure during query parsing, validation or execution)
+   */
   case class ServerError(errors: List[GraphQLResponseError]) extends CalibanClientError {
     override def toString: String =
       s"Server Error: ${errors

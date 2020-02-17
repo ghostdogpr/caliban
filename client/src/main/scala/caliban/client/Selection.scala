@@ -4,6 +4,7 @@ sealed trait Selection
 
 object Selection {
   case class InlineFragment(onType: String, selectionSet: List[Selection]) extends Selection
+
   case class Field(
     alias: Option[String],
     name: String,

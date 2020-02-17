@@ -2,6 +2,9 @@ package caliban.client
 
 import io.circe.{ Decoder, Encoder, Json }
 
+/**
+ * Value that can be returned by the server or sent as an argument.
+ */
 sealed trait Value
 
 object Value {

@@ -5,6 +5,9 @@ import java.util.UUID
 import caliban.client.CalibanClientError.DecodingError
 import caliban.client.Value._
 
+/**
+ * Typeclass that defines how to decode a scalar from a GraphQL response into a proper value of type `A`.
+ */
 trait ScalarDecoder[+A] {
   def decode(value: Value): Either[DecodingError, A]
 }

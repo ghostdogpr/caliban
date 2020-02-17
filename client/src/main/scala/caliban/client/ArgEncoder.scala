@@ -2,6 +2,10 @@ package caliban.client
 
 import caliban.client.Value.{ BooleanValue, NullValue, NumberValue, ObjectValue, StringValue }
 
+/**
+ * Typeclass that defines how to encode an argument of type `A` into a valid [[caliban.client.Value]].
+ * Every type that can be passed as an argument needs an instance of `ArgEncoder`.
+ */
 trait ArgEncoder[-A] {
   def encode(value: A): Value
   def typeName: String

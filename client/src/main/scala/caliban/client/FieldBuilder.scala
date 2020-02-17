@@ -3,8 +3,19 @@ package caliban.client
 import caliban.client.CalibanClientError.DecodingError
 import caliban.client.Value._
 
+/**
+ * Represents a single field that returns a result of type `A`.
+ */
 trait FieldBuilder[+A] {
+
+  /**
+   * Parses a GraphQL response into a value of type `A`, or fail with a `DecodingError`.
+   */
   def fromGraphQL(value: Value): Either[DecodingError, A]
+
+  /**
+   * Returns a selection set from this field builder
+   */
   def toSelectionSet: List[Selection]
 }
 

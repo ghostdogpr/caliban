@@ -3,6 +3,9 @@ package caliban.client
 import scala.annotation.tailrec
 import caliban.client.Value.NullValue
 
+/**
+ * Represents an argument in a GraphQL query. Requires an encoder for the argument type.
+ */
 case class Argument[+A](name: String, value: A)(implicit encoder: ArgEncoder[A]) {
   def toGraphQL(
     useVariables: Boolean,

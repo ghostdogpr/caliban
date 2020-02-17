@@ -1,7 +1,7 @@
 package caliban.client
 
-import caliban.client.Autogen.Role._
-import caliban.client.Autogen._
+import caliban.client.Client.Role._
+import caliban.client.Client._
 import sttp.client._
 import sttp.client.asynchttpclient.zio.AsyncHttpClientZioBackend
 import zio.console.putStrLn
@@ -21,7 +21,7 @@ object ExampleApp extends App {
 
   override def run(args: List[String]): ZIO[zio.ZEnv, Nothing, Int] = {
     val character = {
-      import caliban.client.Autogen.Character._
+      import caliban.client.Client.Character._
       (name ~
         nicknames ~
         origin ~
@@ -55,8 +55,6 @@ object ExampleApp extends App {
 
   /*
   TODO
-  - scaladoc
-  - cleanup examples
   - microsite
 
   - support interfaces

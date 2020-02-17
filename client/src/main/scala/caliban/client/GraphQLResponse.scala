@@ -4,11 +4,10 @@ import caliban.client.Value.ObjectValue
 import io.circe.derivation.deriveDecoder
 import io.circe.Decoder
 
-case class GraphQLResponse(
-  data: Value,
-  errors: List[GraphQLResponseError] = Nil,
-  extensions: Option[ObjectValue] = None
-)
+/**
+ * Represents the result of a GraphQL query, containing a data object and a list of errors.
+ */
+case class GraphQLResponse(data: Value, errors: List[GraphQLResponseError] = Nil)
 
 object GraphQLResponse {
 

@@ -5,6 +5,9 @@ object Operations {
   type RootMutation
   type RootSubscription
 
+  /**
+   * Typeclass used to enforce that we can only create a request for one of the root fields.
+   */
   trait IsOperation[A] {
     def operationName: String
   }
