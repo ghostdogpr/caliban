@@ -146,7 +146,7 @@ object ClientWriter {
           implicit val encoder: ArgEncoder[${typedef.name}] = new ArgEncoder[${typedef.name}] {
             override def encode(value: ${typedef.name}): Value = value match {
               ${typedef.enumValuesDefinition
-      .map(v => s"""case ${v.enumValue} => StringValue("${v.enumValue}")""")
+      .map(v => s"""case ${typedef.name}.${v.enumValue} => StringValue("${v.enumValue}")""")
       .mkString("\n")}
             }
             override def typeName: String = "${typedef.name}"
@@ -258,8 +258,8 @@ object ClientWriter {
     t match {
       case NamedType(_, true)  => inner
       case NamedType(_, false) => s"OptionOf($inner)"
-      case ListType(_, true)   => s"ListOf($inner)"
-      case ListType(_, false)  => s"OptionOf(ListOf($inner))"
+      case ListType(of, true)  => s"ListOf(${writeTypeBuilder(of, inner)})"
+      case ListType(of, false) => s"OptionOf(ListOf(${writeTypeBuilder(of, inner)}))"
     }
 
   @tailrec

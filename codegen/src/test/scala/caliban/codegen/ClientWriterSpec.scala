@@ -224,9 +224,9 @@ object Client {
     }
     implicit val encoder: ArgEncoder[Origin] = new ArgEncoder[Origin] {
       override def encode(value: Origin): Value = value match {
-        case EARTH => StringValue("EARTH")
-        case MARS  => StringValue("MARS")
-        case BELT  => StringValue("BELT")
+        case Origin.EARTH => StringValue("EARTH")
+        case Origin.MARS  => StringValue("MARS")
+        case Origin.BELT  => StringValue("BELT")
       }
       override def typeName: String = "Origin"
     }
