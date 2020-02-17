@@ -35,12 +35,6 @@ calibanGenClient project/schema.graphql src/main/Client.scala
 ```
 This command will generate a Scala file in `outputPath` containing helper functions for all the types defined in the provided GraphQL schema defined at `schemaPath`. The generated code will be formatted with Scalafmt using the configuration defined by `scalafmtPath`.
 
-::: warning Unsupported features
-Some features are not supported by Caliban and will cause an error during code generation:
-- interfaces
-- extensions
-:::
-
 ## Query building
 
 Once the boilerplate code is generated, you can start building queries. For each *type* in your schema, a corresponding Scala object has been created. For each *field* in your schema, a corresponding Scala function has been created.
@@ -150,5 +144,6 @@ As a result, we get a ZIO `Task` whose return type is the same as our `Selection
 The [examples](https://github.com/ghostdogpr/caliban/tree/master/examples/) project contains a runnable sample code that queries the example GraphQL backend.
 
 ::: warning Limitations
-Only Queries and Mutations are supported. Subscriptions support will be added in the future. 
+Only Queries and Mutations are supported. Subscriptions support will be added in the future.
+Type extensions are not supported by the codegen tool.
 :::

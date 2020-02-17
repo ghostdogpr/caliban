@@ -199,9 +199,25 @@ object Parser {
     }
 
   private def objectTypeDefinition[_: P]: P[ObjectTypeDefinition] =
-    P(stringValue.? ~ "type" ~/ name ~ directives.? ~ "{" ~ fieldDefinition.rep ~ "}").map {
+    P(stringValue.? ~ "type" ~/ name ~ implements.? ~ directives.? ~ "{" ~ fieldDefinition.rep ~ "}").map {
+      case (description, name, implements, directives, fields) =>
+        ObjectTypeDefinition(
+          description.map(_.value),
+          name,
+          implements.getOrElse(Nil),
+          directives.getOrElse(Nil),
+          fields.toList
+        )
+    }
+
+  private def implements[_: P]: P[List[NamedType]] = P("implements" ~ ("&".? ~ namedType) ~ ("&" ~ namedType).rep).map {
+    case (head, tail) => head :: tail.toList
+  }
+
+  private def interfaceTypeDefinition[_: P]: P[InterfaceTypeDefinition] =
+    P(stringValue.? ~ "interface" ~/ name ~ directives.? ~ "{" ~ fieldDefinition.rep ~ "}").map {
       case (description, name, directives, fields) =>
-        ObjectTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), fields.toList)
+        InterfaceTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), fields.toList)
     }
 
   private def inputObjectTypeDefinition[_: P]: P[InputObjectTypeDefinition] =
@@ -252,7 +268,12 @@ object Parser {
     }
 
   private def typeDefinition[_: P]: P[TypeDefinition] =
-    objectTypeDefinition | inputObjectTypeDefinition | enumTypeDefinition | unionTypeDefinition | scalarTypeDefinition
+    objectTypeDefinition |
+      interfaceTypeDefinition |
+      inputObjectTypeDefinition |
+      enumTypeDefinition |
+      unionTypeDefinition |
+      scalarTypeDefinition
 
   private def typeSystemDefinition[_: P]: P[TypeSystemDefinition] = typeDefinition | schemaDefinition
 

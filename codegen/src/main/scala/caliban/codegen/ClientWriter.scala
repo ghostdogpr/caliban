@@ -12,11 +12,12 @@ object ClientWriter {
     val schemaDef = Document.schemaDefinitions(schema).headOption
 
     val typesMap: Map[String, TypeDefinition] = schema.definitions.collect {
-      case op @ ObjectTypeDefinition(_, name, _, _)      => name -> op
+      case op @ ObjectTypeDefinition(_, name, _, _, _)   => name -> op
       case op @ InputObjectTypeDefinition(_, name, _, _) => name -> op
       case op @ EnumTypeDefinition(_, name, _, _)        => name -> op
       case op @ UnionTypeDefinition(_, name, _, _)       => name -> op
       case op @ ScalarTypeDefinition(_, name, _)         => name -> op
+      case op @ InterfaceTypeDefinition(_, name, _, _)   => name -> op
     }.toMap
 
     val unionTypes = Document
@@ -41,6 +42,8 @@ object ClientWriter {
 
     val inputs = Document.inputObjectTypeDefinitions(schema).map(writeInputObject).mkString("\n")
 
+    val interfaces = Document.interfaceTypeDefinitions(schema).map(writeInterface(_, typesMap)).mkString("\n")
+
     val enums = Document.enumTypeDefinitions(schema).map(writeEnum).mkString("\n")
 
     val queries = Document
@@ -56,12 +59,12 @@ object ClientWriter {
     val imports = s"""${if (enums.nonEmpty)
       """import caliban.client.CalibanClientError.DecodingError
         |""".stripMargin
-    else ""}${if (objects.nonEmpty || unions.nonEmpty || queries.nonEmpty || mutations.nonEmpty)
+    else ""}${if (objects.nonEmpty || interfaces.nonEmpty || unions.nonEmpty || queries.nonEmpty || mutations.nonEmpty)
       """import caliban.client.FieldBuilder._
         |import caliban.client.SelectionBuilder._
         |""".stripMargin
     else
-      ""}${if (enums.nonEmpty || objects.nonEmpty || unions.nonEmpty || queries.nonEmpty || mutations.nonEmpty || inputs.nonEmpty)
+      ""}${if (enums.nonEmpty || objects.nonEmpty || interfaces.nonEmpty || unions.nonEmpty || queries.nonEmpty || mutations.nonEmpty || inputs.nonEmpty)
       """import caliban.client._
         |""".stripMargin
     else ""}${if (queries.nonEmpty || mutations.nonEmpty)
@@ -80,6 +83,7 @@ object ClientWriter {
        |  $unions
        |  $objects
        |  $inputs
+       |  $interfaces
        |  $queries
        |  $mutations
        |  
@@ -91,20 +95,27 @@ object ClientWriter {
 
   def writeRootQuery(typedef: ObjectTypeDefinition, typesMap: Map[String, TypeDefinition]): String =
     s"""object ${typedef.name} {
-       |  ${typedef.fields.map(writeField(_, typedef.copy(name = "RootQuery"), typesMap)).mkString("\n  ")}
+       |  ${typedef.fields.map(writeField(_, "RootQuery", typesMap)).mkString("\n  ")}
        |}
        |""".stripMargin
 
   def writeRootMutation(typedef: ObjectTypeDefinition, typesMap: Map[String, TypeDefinition]): String =
     s"""object ${typedef.name} {
-       |  ${typedef.fields.map(writeField(_, typedef.copy(name = "RootMutation"), typesMap)).mkString("\n  ")}
+       |  ${typedef.fields.map(writeField(_, "RootMutation", typesMap)).mkString("\n  ")}
        |}
        |""".stripMargin
 
   def writeObject(typedef: ObjectTypeDefinition, typesMap: Map[String, TypeDefinition]): String =
     s"""type ${typedef.name}
        |object ${typedef.name} {
-       |  ${typedef.fields.map(writeField(_, typedef, typesMap)).mkString("\n  ")}
+       |  ${typedef.fields.map(writeField(_, typedef.name, typesMap)).mkString("\n  ")}
+       |}
+       |""".stripMargin
+
+  def writeInterface(typedef: InterfaceTypeDefinition, typesMap: Map[String, TypeDefinition]): String =
+    s"""type ${typedef.name}
+       |object ${typedef.name} {
+       |  ${typedef.fields.map(writeField(_, typedef.name, typesMap)).mkString("\n  ")}
        |}
        |""".stripMargin
 
@@ -163,9 +174,8 @@ object ClientWriter {
        |  ${objects.map(writeObject(_, typesMap)).mkString("")}}
        |""".stripMargin
 
-  def writeField(field: FieldDefinition, of: ObjectTypeDefinition, typesMap: Map[String, TypeDefinition]): String = {
+  def writeField(field: FieldDefinition, typeName: String, typesMap: Map[String, TypeDefinition]): String = {
     val name      = if (reservedKeywords.contains(field.name)) s"`${field.name}`" else field.name
-    val typeName  = of.name
     val fieldType = getTypeName(field.ofType)
     val isScalar = typesMap
       .get(fieldType)
@@ -184,6 +194,18 @@ object ClientWriter {
       .collect {
         case o: ObjectTypeDefinition => o
       }
+    val interfaceTypes = typesMap
+      .get(fieldType)
+      .collect {
+        case InterfaceTypeDefinition(_, name, _, _) => name
+      }
+      .map(
+        interface =>
+          typesMap.values.collect {
+            case o @ ObjectTypeDefinition(_, _, implements, _, _) if implements.exists(_.name == interface) => o
+          }
+      )
+      .getOrElse(Nil)
     val (typeParam, innerSelection, outputType, builder) =
       if (isScalar) {
         (
@@ -199,7 +221,17 @@ object ClientWriter {
           writeType(field.ofType).replace(fieldType, "A"),
           writeTypeBuilder(
             field.ofType,
-            s"Union(Map(${unionTypes.map(t => s""""${t.name}" -> Obj(on${t.name})""").mkString(", ")}))"
+            s"ChoiceOf(Map(${unionTypes.map(t => s""""${t.name}" -> Obj(on${t.name})""").mkString(", ")}))"
+          )
+        )
+      } else if (interfaceTypes.nonEmpty) {
+        (
+          "[A]",
+          s"(${interfaceTypes.map(t => s"""on${t.name}: SelectionBuilder[${t.name}, A]""").mkString(", ")})",
+          writeType(field.ofType).replace(fieldType, "A"),
+          writeTypeBuilder(
+            field.ofType,
+            s"ChoiceOf(Map(${interfaceTypes.map(t => s""""${t.name}" -> Obj(on${t.name})""").mkString(", ")}))"
           )
         )
       } else {

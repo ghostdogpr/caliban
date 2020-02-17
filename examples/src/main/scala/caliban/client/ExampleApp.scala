@@ -52,12 +52,4 @@ object ExampleApp extends App {
         call2.tap(res => putStrLn(s"Result: $res"))
     }.foldM(ex => putStrLn(ex.toString).as(1), _ => ZIO.succeed(0))
   }
-
-  /*
-  TODO
-  - support interfaces
-  - subscriptions (no backend for ScalaJS yet)
-  - compact query with fragments
- */
-
 }

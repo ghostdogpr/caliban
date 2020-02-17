@@ -67,7 +67,7 @@ object Client {
       Field(
         "role",
         OptionOf(
-          Union(
+          ChoiceOf(
             Map(
               "Captain"  -> Obj(onCaptain),
               "Engineer" -> Obj(onEngineer),

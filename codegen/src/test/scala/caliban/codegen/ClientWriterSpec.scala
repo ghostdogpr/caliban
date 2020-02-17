@@ -318,7 +318,7 @@ object Client {
       onCaptain: SelectionBuilder[Captain, A],
       onPilot: SelectionBuilder[Pilot, A]
     ): SelectionBuilder[Character, Option[A]] =
-      Field("role", OptionOf(Union(Map("Captain" -> Obj(onCaptain), "Pilot" -> Obj(onPilot)))))
+      Field("role", OptionOf(ChoiceOf(Map("Captain" -> Obj(onCaptain), "Pilot" -> Obj(onPilot)))))
   }
 
 }

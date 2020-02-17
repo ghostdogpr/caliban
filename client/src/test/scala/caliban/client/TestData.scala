@@ -64,7 +64,7 @@ object TestData {
       Field(
         "role",
         OptionOf(
-          Union(
+          ChoiceOf(
             Map(
               "Captain"  -> Obj(onCaptain),
               "Pilot"    -> Obj(onPilot),

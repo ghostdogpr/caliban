@@ -51,7 +51,7 @@ object FieldBuilder {
       }
     override def toSelectionSet: List[Selection] = builder.toSelectionSet
   }
-  case class Union[A](builderMap: Map[String, FieldBuilder[A]]) extends FieldBuilder[A] {
+  case class ChoiceOf[A](builderMap: Map[String, FieldBuilder[A]]) extends FieldBuilder[A] {
     override def fromGraphQL(value: Value): Either[DecodingError, A] =
       value match {
         case ObjectValue(fields) =>

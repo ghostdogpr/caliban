@@ -40,6 +40,14 @@ object Definition {
       case class ObjectTypeDefinition(
         description: Option[String],
         name: String,
+        implements: List[NamedType],
+        directives: List[Directive],
+        fields: List[FieldDefinition]
+      ) extends TypeDefinition
+
+      case class InterfaceTypeDefinition(
+        description: Option[String],
+        name: String,
         directives: List[Directive],
         fields: List[FieldDefinition]
       ) extends TypeDefinition
