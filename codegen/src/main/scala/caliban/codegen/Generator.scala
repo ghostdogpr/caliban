@@ -2,9 +2,7 @@ package caliban.codegen
 
 import java.net.{ URL, URLClassLoader }
 import java.nio.file.Paths
-
-import caliban.parsing.adt.Definition.TypeSystemDefinition.{ EnumTypeDefinition, ObjectTypeDefinition }
-import caliban.parsing.adt.Type.FieldDefinition
+import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.{ Document, Type }
 import org.scalafmt.dynamic.ScalafmtReflect
 import org.scalafmt.dynamic.utils.ReentrantCache
@@ -26,7 +24,7 @@ object Generator {
     val scalafmtReflect =
       ScalafmtReflect(
         new URLClassLoader(new Array[URL](0), this.getClass.getClassLoader),
-        "2.2.1",
+        "2.3.2",
         respectVersion = false
       )
     val config = scalafmtReflect.parseConfigFromString(fmt)
@@ -40,9 +38,12 @@ object Generator {
 
   trait GQLWriterContext {
     implicit val fieldWriter: GQLWriter[FieldDefinition, ObjectTypeDefinition]
+    implicit val inputValueWriter: GQLWriter[InputValueDefinition, InputObjectTypeDefinition]
     implicit val typeWriter: GQLWriter[Type, Any]
     implicit val objectWriter: GQLWriter[ObjectTypeDefinition, Document]
+    implicit val inputObjectWriter: GQLWriter[InputObjectTypeDefinition, Document]
     implicit val enumWriter: GQLWriter[EnumTypeDefinition, Document]
+    implicit val unionWriter: GQLWriter[Union, Document]
     implicit val docWriter: GQLWriter[Document, Any]
     implicit val rootQueryWriter: GQLWriter[RootQueryDef, Document]
     implicit val queryWriter: GQLWriter[QueryDef, Document]
@@ -63,6 +64,8 @@ object Generator {
   case class SubscriptionDef(op: FieldDefinition)
 
   case class Args(field: FieldDefinition)
+
+  case class Union(typedef: UnionTypeDefinition, objects: List[ObjectTypeDefinition])
 
   object GQLWriter {
     def apply[A, D](implicit instance: GQLWriter[A, D]): GQLWriter[A, D] =

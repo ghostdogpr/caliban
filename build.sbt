@@ -2,8 +2,8 @@ import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
 val mainScala       = "2.12.10"
 val allScala        = Seq("2.13.1", mainScala)
-val http4sVersion   = "0.21.0-M5"
-val silencerVersion = "1.4.4"
+val http4sVersion   = "0.21.1"
+val silencerVersion = "1.5.0"
 inThisBuild(
   List(
     organization := "com.github.ghostdogpr",
@@ -11,7 +11,6 @@ inThisBuild(
     licenses := List(
       "Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0")
     ),
-    scalaVersion := mainScala,
     parallelExecution in Test := false,
     pgpPassphrase := sys.env.get("PGP_PASSWORD").map(_.toArray),
     pgpPublicRing := file("/tmp/public.asc"),
@@ -29,8 +28,7 @@ inThisBuild(
         "ghostdogpr@gmail.com",
         url("https://github.com/ghostdogpr")
       )
-    ),
-    crossScalaVersions := allScala
+    )
   )
 )
 
@@ -48,7 +46,7 @@ lazy val root = project
   .enablePlugins(ScalaJSPlugin)
   .settings(skip in publish := true)
   .settings(historyPath := None)
-  .aggregate(coreJVM, coreJS, http4s, akkaHttp, catsInteropJVM, catsInteropJS, codegen)
+  .aggregate(coreJVM, coreJS, http4s, akkaHttp, catsInteropJVM, catsInteropJS, monixInterop, codegen)
 
 lazy val core = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)
@@ -83,12 +81,13 @@ lazy val codegen = project
   .settings(commonSettings)
   .settings(
     sbtPlugin := true,
+    crossScalaVersions := Seq("2.12.10"),
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "org.scalameta" %%% "scalafmt-dynamic" % "2.3.3-RC2",
-      "com.geirsson"  %%% "scalafmt-core"    % "1.5.1",
-      "dev.zio"       %%% "zio-test"         % "1.0.0-RC17" % "test",
-      "dev.zio"       %%% "zio-test-sbt"     % "1.0.0-RC17" % "test"
+      "org.scalameta" %% "scalafmt-dynamic" % "2.3.2",
+      "org.scalameta" %% "scalafmt-core"    % "2.3.2",
+      "dev.zio"       %% "zio-test"         % "1.0.0-RC17" % "test",
+      "dev.zio"       %% "zio-test-sbt"     % "1.0.0-RC17" % "test"
     )
   )
   .dependsOn(coreJVM)
@@ -108,6 +107,19 @@ lazy val catsInterop = crossProject(JSPlatform, JVMPlatform)
 lazy val catsInteropJVM = catsInterop.jvm
 lazy val catsInteropJS  = catsInterop.js
 
+lazy val monixInterop = project
+  .in(file("interop/monix"))
+  .settings(name := "caliban-monix")
+  .settings(commonSettings)
+  .settings(
+    libraryDependencies ++= Seq(
+      "dev.zio"  %% "zio-interop-reactivestreams" % "1.0.3.5-RC3",
+      "dev.zio"  %% "zio-interop-cats"            % "2.0.0.0-RC10",
+      "io.monix" %% "monix"                       % "3.1.0"
+    )
+  )
+  .dependsOn(coreJVM)
+
 lazy val http4s = project
   .in(file("http4s"))
   .settings(name := "caliban-http4s")
@@ -119,7 +131,7 @@ lazy val http4s = project
       "org.http4s"    %% "http4s-dsl"          % http4sVersion,
       "org.http4s"    %% "http4s-circe"        % http4sVersion,
       "org.http4s"    %% "http4s-blaze-server" % http4sVersion,
-      "io.circe"      %% "circe-parser"        % "0.12.3",
+      "io.circe"      %% "circe-parser"        % "0.13.0",
       compilerPlugin(
         ("org.typelevel" %% "kind-projector" % "0.11.0")
           .cross(CrossVersion.full)
@@ -138,8 +150,8 @@ lazy val akkaHttp = project
     libraryDependencies ++= Seq(
       "com.typesafe.akka" %% "akka-http"       % "10.1.11",
       "com.typesafe.akka" %% "akka-stream"     % "2.6.3",
-      "de.heikoseeberger" %% "akka-http-circe" % "1.30.0",
-      "io.circe"          %% "circe-parser"    % "0.12.3",
+      "de.heikoseeberger" %% "akka-http-circe" % "1.31.0",
+      "io.circe"          %% "circe-parser"    % "0.13.0",
       compilerPlugin(
         ("org.typelevel" %% "kind-projector" % "0.11.0")
           .cross(CrossVersion.full)
@@ -152,7 +164,7 @@ lazy val examples = project
   .in(file("examples"))
   .settings(commonSettings)
   .settings(skip in publish := true)
-  .dependsOn(akkaHttp, http4s, catsInteropJVM)
+  .dependsOn(akkaHttp, http4s, catsInteropJVM, monixInterop)
 
 lazy val benchmarks = project
   .in(file("benchmarks"))
@@ -168,6 +180,8 @@ lazy val benchmarks = project
   )
 
 val commonSettings = Def.settings(
+  scalaVersion := mainScala,
+  crossScalaVersions := allScala,
   scalacOptions ++= Seq(
     "-deprecation",
     "-encoding",
