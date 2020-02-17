@@ -46,7 +46,7 @@ lazy val root = project
   .enablePlugins(ScalaJSPlugin)
   .settings(skip in publish := true)
   .settings(historyPath := None)
-  .aggregate(coreJVM, coreJS, http4s, akkaHttp, catsInteropJVM, catsInteropJS, codegen)
+  .aggregate(coreJVM, coreJS, http4s, akkaHttp, catsInteropJVM, catsInteropJS, monixInterop, codegen)
 
 lazy val core = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)
@@ -107,6 +107,19 @@ lazy val catsInterop = crossProject(JSPlatform, JVMPlatform)
 lazy val catsInteropJVM = catsInterop.jvm
 lazy val catsInteropJS  = catsInterop.js
 
+lazy val monixInterop = project
+  .in(file("interop/monix"))
+  .settings(name := "caliban-monix")
+  .settings(commonSettings)
+  .settings(
+    libraryDependencies ++= Seq(
+      "dev.zio"  %% "zio-interop-reactivestreams" % "1.0.3.5-RC3",
+      "dev.zio"  %% "zio-interop-cats"            % "2.0.0.0-RC10",
+      "io.monix" %% "monix"                       % "3.1.0"
+    )
+  )
+  .dependsOn(coreJVM)
+
 lazy val http4s = project
   .in(file("http4s"))
   .settings(name := "caliban-http4s")
@@ -151,7 +164,7 @@ lazy val examples = project
   .in(file("examples"))
   .settings(commonSettings)
   .settings(skip in publish := true)
-  .dependsOn(akkaHttp, http4s, catsInteropJVM)
+  .dependsOn(akkaHttp, http4s, catsInteropJVM, monixInterop)
 
 lazy val benchmarks = project
   .in(file("benchmarks"))
