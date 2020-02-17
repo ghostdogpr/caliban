@@ -152,7 +152,9 @@ object Http4sAdapter {
                     }
                   case "stop" =>
                     val id = msg.hcursor.downField("id").success.flatMap(_.value.asString).getOrElse("")
-                    subscriptions.get.flatMap(map => IO.whenCase(map.get(id)) { case Some(fiber) => fiber.interrupt })
+                    subscriptions
+                      .modify(map => (map.get(id), map - id))
+                      .flatMap(fiber => IO.whenCase(fiber) { case Some(fiber) => fiber.interrupt })
                 }
           } yield ()
         }
