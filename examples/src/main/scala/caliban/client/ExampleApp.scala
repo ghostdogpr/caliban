@@ -55,7 +55,6 @@ object ExampleApp extends App {
 
   /*
   TODO
-  - Float and ID scalar support in ArgEncoder
   - scaladoc
   - cleanup examples
   - microsite
