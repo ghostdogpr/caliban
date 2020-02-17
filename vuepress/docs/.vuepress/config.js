@@ -10,7 +10,7 @@ module.exports = {
     '/': {
       lang: 'en-US',
       title: 'Caliban',
-      description: 'Functional GraphQL backend in Scala',
+      description: 'Functional GraphQL library for Scala',
     }
   },
   themeConfig: {
@@ -53,6 +53,7 @@ module.exports = {
               'validation',
               'introspection',
               'interop',
+              'client',
               'examples'
             ]
           }]

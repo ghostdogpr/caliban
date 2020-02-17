@@ -9,6 +9,8 @@ The design principles behind the library are the following:
 - clean separation between schema definition and implementation: schema is defined and validated at compile-time (no reflection) using Scala standard types, resolver is a simple value provided at runtime.
 - minimal amount of boilerplate: no need to manually define a schema for every type in your API.
 
+Caliban can also be used to build GraphQL frontends: see the [dedicated section](client.md) for more details.
+
 ## Dependencies
 
 To use `caliban`, add the following line in your `build.sbt` file:

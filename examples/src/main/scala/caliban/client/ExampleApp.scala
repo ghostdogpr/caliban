@@ -55,8 +55,6 @@ object ExampleApp extends App {
 
   /*
   TODO
-  - microsite
-
   - support interfaces
   - subscriptions (no backend for ScalaJS yet)
   - compact query with fragments
