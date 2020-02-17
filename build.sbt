@@ -179,7 +179,6 @@ lazy val client = crossProject(JSPlatform, JVMPlatform)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "io.circe"                     %%% "circe-parser"     % "0.13.0",
       "io.circe"                     %%% "circe-derivation" % "0.12.0-M7",
       "com.softwaremill.sttp.client" %%% "core"             % "2.0.0-RC7",
       "com.softwaremill.sttp.client" %%% "circe"            % "2.0.0-RC7",
