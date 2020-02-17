@@ -240,10 +240,16 @@ object ClientWriter {
     description.fold("")(d => s"""@GQLDescription("$d")
                                  |""".stripMargin)
 
+  def mapTypeName(s: String): String = s match {
+    case "Float" => "Double"
+    case "ID"    => "String"
+    case other   => other
+  }
+
   def writeType(t: Type): String =
     t match {
-      case NamedType(name, true)   => name
-      case NamedType(name, false)  => s"Option[$name]"
+      case NamedType(name, true)   => mapTypeName(name)
+      case NamedType(name, false)  => s"Option[${mapTypeName(name)}]"
       case ListType(ofType, true)  => s"List[${writeType(ofType)}]"
       case ListType(ofType, false) => s"Option[List[${writeType(ofType)}]]"
     }
