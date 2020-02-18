@@ -1,5 +1,6 @@
 package caliban.akkahttp
 
+import scala.language.postfixOps
 import scala.io.StdIn
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
@@ -8,9 +9,12 @@ import caliban.ExampleData.{ sampleCharacters, Character, CharacterArgs, Charact
 import caliban.GraphQL.graphQL
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.GenericSchema
-import caliban.{ AkkaHttpAdapter, ExampleService, RootResolver }
+import caliban.wrappers.ApolloTracing.apolloTracing
+import caliban.wrappers.Wrappers._
+import caliban.{ AkkaHttpAdapter, ExampleService, GraphQL, RootResolver }
 import zio.clock.Clock
 import zio.console.Console
+import zio.duration._
 import zio.stream.ZStream
 import zio.{ DefaultRuntime, URIO }
 
@@ -34,9 +38,7 @@ object ExampleApp extends App with GenericSchema[Console with Clock] {
   case class Mutations(deleteCharacter: CharacterArgs => URIO[Console, Boolean])
   case class Subscriptions(characterDeleted: ZStream[Console, Nothing, String])
 
-  val service = defaultRuntime.unsafeRun(ExampleService.make(sampleCharacters))
-
-  val interpreter =
+  def makeApi(service: ExampleService): GraphQL[Console with Clock] =
     graphQL(
       RootResolver(
         Queries(
@@ -46,7 +48,16 @@ object ExampleApp extends App with GenericSchema[Console with Clock] {
         Mutations(args => service.deleteCharacter(args.name)),
         Subscriptions(service.deletedEvents)
       )
-    ).interpreter
+    ) @@
+      maxFields(200) @@               // query analyzer that limit query fields
+      maxDepth(30) @@                 // query analyzer that limit query depth
+      timeout(3 seconds) @@           // wrapper that fails slow queries
+      printSlowQueries(500 millis) @@ // wrapper that logs slow queries
+      apolloTracing                   // wrapper for https://github.com/apollographql/apollo-tracing
+
+  val service = defaultRuntime.unsafeRun(ExampleService.make(sampleCharacters))
+
+  val interpreter = makeApi(service).interpreter
 
   /**
    * curl -X POST \
@@ -60,6 +71,8 @@ object ExampleApp extends App with GenericSchema[Console with Clock] {
   val route =
     path("api" / "graphql") {
       AkkaHttpAdapter.makeHttpService(interpreter)
+    } ~ path("ws" / "graphql") {
+      AkkaHttpAdapter.makeWebSocketService(interpreter)
     } ~ path("graphiql") {
       getFromResource("graphiql.html")
     }
