@@ -3,7 +3,6 @@ package caliban
 import scala.concurrent.{ ExecutionContext }
 import akka.http.scaladsl.model.MediaTypes.`application/json`
 import akka.http.scaladsl.model.ws.{ BinaryMessage, Message, TextMessage }
-import akka.http.scaladsl.model.ws.BinaryMessage.Streamed
 import akka.http.scaladsl.model.{ HttpEntity, HttpResponse, StatusCodes }
 import akka.http.scaladsl.server.Directives.complete
 import akka.http.scaladsl.server.{ Route, StandardRoute }
@@ -157,7 +156,7 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
 
         val sink = Sink.foreach[Message] {
           case TextMessage.Strict(text) => runtime.unsafeRun(processMessage(queue, subscriptions, text))
-          case Streamed(textStream) =>
+          case TextMessage.Streamed(textStream) =>
             textStream
               .runFold("")(_ + _)
               .map(message => runtime.unsafeRun(processMessage(queue, subscriptions, message)))
