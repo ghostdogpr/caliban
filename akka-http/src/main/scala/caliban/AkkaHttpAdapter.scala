@@ -159,7 +159,7 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
           case TextMessage.Streamed(textStream) =>
             textStream
               .runFold("")(_ + _)
-              .map(message => runtime.unsafeRun(processMessage(queue, subscriptions, message)))
+              .map(text => runtime.unsafeRun(processMessage(queue, subscriptions, text)))
             ()
           case bm: BinaryMessage =>
             bm.dataStream.runWith(Sink.ignore)
