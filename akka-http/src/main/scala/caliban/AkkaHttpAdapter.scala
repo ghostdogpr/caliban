@@ -88,7 +88,7 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
                 )
                 .noSpaces
             )
-        )
+          )
       )
 
     def processMessage(
@@ -136,8 +136,8 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
                                   )
                                   .noSpaces
                               )
-                          )
-                      )
+                            )
+                        )
                     )
                 }
               case "stop" =>
