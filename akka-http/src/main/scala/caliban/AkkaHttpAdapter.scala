@@ -155,9 +155,8 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
         val subscriptions   = runtime.unsafeRun(Ref.make(Map.empty[String, Fiber[Throwable, Unit]]))
 
         val sink = Sink.foreachAsync[Message](1) {
-          case TextMessage.Strict(text) => runtime.unsafeRunToFuture(processMessage(queue, subscriptions, text)).future
-          case TextMessage.Streamed(textStream) =>
-            textStream
+          case tm: TextMessage =>
+            tm.textStream
               .runFold("")(_ + _)
               .flatMap(text => runtime.unsafeRunToFuture(processMessage(queue, subscriptions, text)).future)
           case bm: BinaryMessage =>
