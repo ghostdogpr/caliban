@@ -87,7 +87,7 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
                 )
                 .noSpaces
             )
-          )
+        )
       )
 
     def processMessage(
@@ -135,8 +135,8 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
                                   )
                                   .noSpaces
                               )
-                            )
-                        )
+                          )
+                      )
                     )
                 }
               case "stop" =>
@@ -164,7 +164,6 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
           case bm: BinaryMessage =>
             bm.dataStream.runWith(Sink.ignore)
             ()
-          case _ => ()
         }
 
         val flow = Flow.fromSinkAndSource(sink, source).watchTermination() { (_, f) =>
