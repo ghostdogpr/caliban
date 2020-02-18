@@ -88,12 +88,14 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
                 )
                 .noSpaces
             )
-        )
+          )
       )
 
-    def processMessage(queue: SourceQueueWithComplete[Message],
-                       subscriptions: Ref[Map[String, Fiber[Throwable, Unit]]],
-                       text: String): RIO[R, Unit] =
+    def processMessage(
+      queue: SourceQueueWithComplete[Message],
+      subscriptions: Ref[Map[String, Fiber[Throwable, Unit]]],
+      text: String
+    ): RIO[R, Unit] =
       for {
         msg     <- Task.fromEither(decode[Json](text))
         msgType = msg.hcursor.downField("type").success.flatMap(_.value.asString).getOrElse("")
@@ -134,8 +136,8 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
                                   )
                                   .noSpaces
                               )
-                          )
-                      )
+                            )
+                        )
                     )
                 }
               case "stop" =>

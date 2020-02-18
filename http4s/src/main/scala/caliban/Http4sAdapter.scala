@@ -147,7 +147,7 @@ object Http4sAdapter {
                                   )
                                   .noSpaces
                               )
-                          )
+                            )
                         )
                     }
                   case "stop" =>
