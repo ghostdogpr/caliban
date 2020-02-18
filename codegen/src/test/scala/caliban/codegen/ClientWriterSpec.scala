@@ -181,6 +181,7 @@ object Client {
     def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
   }
 
+  type Q = RootQuery
   object Q {
     def characters[A](innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[RootQuery, List[A]] =
       Field("characters", ListOf(Obj(innerSelection)))

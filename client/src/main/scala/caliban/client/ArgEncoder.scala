@@ -1,6 +1,6 @@
 package caliban.client
 
-import caliban.client.Value.{ BooleanValue, NullValue, NumberValue, ObjectValue, StringValue }
+import caliban.client.Value.{ BooleanValue, ListValue, NullValue, NumberValue, ObjectValue, StringValue }
 
 /**
  * Typeclass that defines how to encode an argument of type `A` into a valid [[caliban.client.Value]].
@@ -59,6 +59,11 @@ object ArgEncoder {
     override def encode(value: Option[A]): Value = value.fold(NullValue: Value)(ev.encode)
     override def typeName: String                = ev.typeName
     override def optional: Boolean               = true
+  }
+
+  implicit def list[A](implicit ev: ArgEncoder[A]): ArgEncoder[List[A]] = new ArgEncoder[List[A]] {
+    override def encode(value: List[A]): Value = ListValue(value.map(ev.encode))
+    override def typeName: String              = s"[${ev.typeName}]"
   }
 
 }

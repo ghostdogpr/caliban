@@ -1,6 +1,7 @@
 package caliban.parsing.adt
 
 import caliban.InputValue
+import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.InputValueDefinition
 import caliban.parsing.adt.Type.NamedType
 
 sealed trait Definition
@@ -33,6 +34,41 @@ object Definition {
       mutation: Option[String],
       subscription: Option[String]
     ) extends TypeSystemDefinition
+
+    case class DirectiveDefinition(
+      description: Option[String],
+      name: String,
+      args: List[InputValueDefinition],
+      locations: List[DirectiveLocation]
+    ) extends TypeSystemDefinition
+
+    sealed trait DirectiveLocation
+    object DirectiveLocation {
+      sealed trait ExecutableDirectiveLocation extends DirectiveLocation
+      object ExecutableDirectiveLocation {
+        case object QUERY               extends ExecutableDirectiveLocation
+        case object MUTATION            extends ExecutableDirectiveLocation
+        case object SUBSCRIPTION        extends ExecutableDirectiveLocation
+        case object FIELD               extends ExecutableDirectiveLocation
+        case object FRAGMENT_DEFINITION extends ExecutableDirectiveLocation
+        case object FRAGMENT_SPREAD     extends ExecutableDirectiveLocation
+        case object INLINE_FRAGMENT     extends ExecutableDirectiveLocation
+      }
+      sealed trait TypeSystemDirectiveLocation extends DirectiveLocation
+      object TypeSystemDirectiveLocation {
+        case object SCHEMA                 extends TypeSystemDirectiveLocation
+        case object SCALAR                 extends TypeSystemDirectiveLocation
+        case object OBJECT                 extends TypeSystemDirectiveLocation
+        case object FIELD_DEFINITION       extends TypeSystemDirectiveLocation
+        case object ARGUMENT_DEFINITION    extends TypeSystemDirectiveLocation
+        case object INTERFACE              extends TypeSystemDirectiveLocation
+        case object UNION                  extends TypeSystemDirectiveLocation
+        case object ENUM                   extends TypeSystemDirectiveLocation
+        case object ENUM_VALUE             extends TypeSystemDirectiveLocation
+        case object INPUT_OBJECT           extends TypeSystemDirectiveLocation
+        case object INPUT_FIELD_DEFINITION extends TypeSystemDirectiveLocation
+      }
+    }
 
     sealed trait TypeDefinition extends TypeSystemDefinition
     object TypeDefinition {

@@ -6,7 +6,8 @@ import caliban.InputValue._
 import caliban.Value._
 import caliban.parsing.adt.Definition._
 import caliban.parsing.adt.Definition.ExecutableDefinition._
-import caliban.parsing.adt.Definition.TypeSystemDefinition.{ SchemaDefinition, TypeDefinition }
+import caliban.parsing.adt.Definition.TypeSystemDefinition.DirectiveLocation._
+import caliban.parsing.adt.Definition.TypeSystemDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Selection._
 import caliban.parsing.adt.Type._
@@ -267,6 +268,57 @@ object Parser {
         )
     }
 
+  private def directiveLocation[_: P]: P[DirectiveLocation] =
+    P(
+      StringIn(
+        "QUERY",
+        "MUTATION",
+        "SUBSCRIPTION",
+        "FIELD",
+        "FRAGMENT_DEFINITION",
+        "FRAGMENT_SPREAD",
+        "INLINE_FRAGMENT",
+        "SCHEMA",
+        "SCALAR",
+        "OBJECT",
+        "FIELD_DEFINITION",
+        "ARGUMENT_DEFINITION",
+        "INTERFACE",
+        "UNION",
+        "ENUM",
+        "ENUM_VALUE",
+        "INPUT_OBJECT",
+        "INPUT_FIELD_DEFINITION"
+      ).!
+    ).map {
+      case "QUERY"                  => ExecutableDirectiveLocation.QUERY
+      case "MUTATION"               => ExecutableDirectiveLocation.MUTATION
+      case "SUBSCRIPTION"           => ExecutableDirectiveLocation.SUBSCRIPTION
+      case "FIELD"                  => ExecutableDirectiveLocation.FIELD
+      case "FRAGMENT_DEFINITION"    => ExecutableDirectiveLocation.FRAGMENT_DEFINITION
+      case "FRAGMENT_SPREAD"        => ExecutableDirectiveLocation.FRAGMENT_SPREAD
+      case "INLINE_FRAGMENT"        => ExecutableDirectiveLocation.INLINE_FRAGMENT
+      case "SCHEMA"                 => TypeSystemDirectiveLocation.SCHEMA
+      case "SCALAR"                 => TypeSystemDirectiveLocation.SCALAR
+      case "OBJECT"                 => TypeSystemDirectiveLocation.OBJECT
+      case "FIELD_DEFINITION"       => TypeSystemDirectiveLocation.FIELD_DEFINITION
+      case "ARGUMENT_DEFINITION"    => TypeSystemDirectiveLocation.ARGUMENT_DEFINITION
+      case "INTERFACE"              => TypeSystemDirectiveLocation.INTERFACE
+      case "UNION"                  => TypeSystemDirectiveLocation.UNION
+      case "ENUM"                   => TypeSystemDirectiveLocation.ENUM
+      case "ENUM_VALUE"             => TypeSystemDirectiveLocation.ENUM_VALUE
+      case "INPUT_OBJECT"           => TypeSystemDirectiveLocation.INPUT_OBJECT
+      case "INPUT_FIELD_DEFINITION" => TypeSystemDirectiveLocation.INPUT_FIELD_DEFINITION
+    }
+
+  private def directiveDefinition[_: P]: P[DirectiveDefinition] =
+    P(
+      stringValue.? ~ "directive @" ~/ name ~ argumentDefinitions.? ~ "on" ~ ("|".? ~ directiveLocation) ~ ("|" ~ directiveLocation).rep
+    ).map {
+      case (description, name, args, firstLoc, otherLoc) =>
+        DirectiveDefinition(description.map(_.value), name, args.getOrElse(Nil), firstLoc :: otherLoc.toList)
+    }
+
   private def typeDefinition[_: P]: P[TypeDefinition] =
     objectTypeDefinition |
       interfaceTypeDefinition |
@@ -275,7 +327,8 @@ object Parser {
       unionTypeDefinition |
       scalarTypeDefinition
 
-  private def typeSystemDefinition[_: P]: P[TypeSystemDefinition] = typeDefinition | schemaDefinition
+  private def typeSystemDefinition[_: P]: P[TypeSystemDefinition] =
+    typeDefinition | schemaDefinition | directiveDefinition
 
   private def executableDefinition[_: P]: P[ExecutableDefinition] =
     P(operationDefinition | fragmentDefinition)

@@ -94,13 +94,15 @@ object ClientWriter {
     typeDefinition.name == "Query" || typeDefinition.name == "Mutation" || typeDefinition.name == "Subscription"
 
   def writeRootQuery(typedef: ObjectTypeDefinition, typesMap: Map[String, TypeDefinition]): String =
-    s"""object ${typedef.name} {
+    s"""type ${typedef.name} = RootQuery
+       |object ${typedef.name} {
        |  ${typedef.fields.map(writeField(_, "RootQuery", typesMap)).mkString("\n  ")}
        |}
        |""".stripMargin
 
   def writeRootMutation(typedef: ObjectTypeDefinition, typesMap: Map[String, TypeDefinition]): String =
-    s"""object ${typedef.name} {
+    s"""type ${typedef.name} = RootMutation
+       |object ${typedef.name} {
        |  ${typedef.fields.map(writeField(_, "RootMutation", typesMap)).mkString("\n  ")}
        |}
        |""".stripMargin
@@ -125,7 +127,7 @@ object ClientWriter {
        |  implicit val encoder: ArgEncoder[${typedef.name}] = new ArgEncoder[${typedef.name}] {
        |    override def encode(value: ${typedef.name}): Value =
        |      ObjectValue(List(${typedef.fields
-         .map(f => s""""${f.name}" -> ${writeInputValue(f.ofType, s"value.${f.name}")}""")
+         .map(f => s""""${f.name}" -> ${writeInputValue(f.ofType, s"value.${safeName(f.name)}")}""")
          .mkString(", ")}))
        |    override def typeName: String = "${typedef.name}"
        |  }
@@ -133,31 +135,31 @@ object ClientWriter {
 
   def writeInputValue(t: Type, fieldName: String): String =
     t match {
-      case NamedType(name, true) => s"implicitly[ArgEncoder[$name]].encode($fieldName)"
+      case NamedType(name, true) => s"implicitly[ArgEncoder[${mapTypeName(name)}]].encode($fieldName)"
       case NamedType(name, false) =>
-        s"$fieldName.fold(NullValue)(value => ${writeInputValue(NamedType(name, nonNull = true), "value")})"
+        s"$fieldName.fold(NullValue: Value)(value => ${writeInputValue(NamedType(name, nonNull = true), "value")})"
       case ListType(ofType, true) => s"ListValue($fieldName.map(value => ${writeInputValue(ofType, "value")}))"
       case ListType(ofType, false) =>
-        s"$fieldName.fold(NullValue)(value => ${writeInputValue(ListType(ofType, nonNull = true), "value")})"
+        s"$fieldName.fold(NullValue: Value)(value => ${writeInputValue(ListType(ofType, nonNull = true), "value")})"
     }
 
   def writeEnum(typedef: EnumTypeDefinition): String =
     s"""sealed trait ${typedef.name} extends Product with Serializable
         object ${typedef.name} {
           ${typedef.enumValuesDefinition
-      .map(v => s"case object ${v.enumValue} extends ${typedef.name}")
+      .map(v => s"case object ${safeName(v.enumValue)} extends ${typedef.name}")
       .mkString("\n")}
       
           implicit val decoder: ScalarDecoder[${typedef.name}] = {
             ${typedef.enumValuesDefinition
-      .map(v => s"""case StringValue ("${v.enumValue}") => Right(${typedef.name}.${v.enumValue})""")
+      .map(v => s"""case StringValue ("${v.enumValue}") => Right(${typedef.name}.${safeName(v.enumValue)})""")
       .mkString("\n")}
             case other => Left(DecodingError(s"Can't build ${typedef.name} from input $$other"))
           }
           implicit val encoder: ArgEncoder[${typedef.name}] = new ArgEncoder[${typedef.name}] {
             override def encode(value: ${typedef.name}): Value = value match {
               ${typedef.enumValuesDefinition
-      .map(v => s"""case ${typedef.name}.${v.enumValue} => StringValue("${v.enumValue}")""")
+      .map(v => s"""case ${typedef.name}.${safeName(v.enumValue)} => StringValue("${v.enumValue}")""")
       .mkString("\n")}
             }
             override def typeName: String = "${typedef.name}"
@@ -174,8 +176,11 @@ object ClientWriter {
        |  ${objects.map(writeObject(_, typesMap)).mkString("")}}
        |""".stripMargin
 
+  def safeName(name: String): String =
+    if (reservedKeywords.contains(name)) s"`$name`" else name
+
   def writeField(field: FieldDefinition, typeName: String, typesMap: Map[String, TypeDefinition]): String = {
-    val name      = if (reservedKeywords.contains(field.name)) s"`${field.name}`" else field.name
+    val name      = safeName(field.name)
     val fieldType = getTypeName(field.ofType)
     val isScalar = typesMap
       .get(fieldType)
@@ -246,14 +251,14 @@ object ClientWriter {
       case Nil => ""
       case list =>
         s"(${list.map { arg =>
-          s"${arg.name}: ${writeType(arg.ofType)}"
+          s"${safeName(arg.name)}: ${writeType(arg.ofType)}"
         }.mkString(", ")})"
     }
     val argBuilder = field.args match {
       case Nil => ""
       case list =>
         s", arguments = List(${list.map { arg =>
-          s"""Argument("${arg.name}", ${arg.name})"""
+          s"""Argument("${arg.name}", ${safeName(arg.name)})"""
         }.mkString(", ")})"
     }
 
@@ -261,7 +266,7 @@ object ClientWriter {
   }
 
   def writeArgumentFields(args: List[InputValueDefinition]): String =
-    s"${args.map(arg => s"${arg.name}: ${writeType(arg.ofType)}").mkString(", ")}"
+    s"${args.map(arg => s"${safeName(arg.name)}: ${writeType(arg.ofType)}").mkString(", ")}"
 
   def writeArguments(field: FieldDefinition): String =
     if (field.args.nonEmpty) {
