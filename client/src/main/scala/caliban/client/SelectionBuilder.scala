@@ -42,6 +42,22 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
   def withAlias(alias: String): SelectionBuilder[Origin, A]
 
   /**
+   * Transforms a root selection into a GraphQL request.
+   * @param useVariables if true, all arguments will be passed as variables (default: false)
+   */
+  def toGraphQL[A1 >: A, Origin1 <: Origin](
+    useVariables: Boolean = false
+  )(implicit ev: IsOperation[Origin1]): GraphQLRequest = {
+    val (fields, variables) = SelectionBuilder.toGraphQL(toSelectionSet, useVariables)
+    val variableDef =
+      if (variables.nonEmpty)
+        s"(${variables.map { case (name, (_, typeName)) => s"$$$name: $typeName" }.mkString(",")})"
+      else ""
+    val operation = s"${ev.operationName}$variableDef{$fields}"
+    GraphQLRequest(operation, variables.map { case (k, (v, _)) => k -> v })
+  }
+
+  /**
    * Transforms a root selection into an STTP request ready to be run.
    * @param uri the URL of the GraphQL server
    * @param useVariables if true, all arguments will be passed as variables (default: false)
@@ -50,18 +66,10 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
   def toRequest[A1 >: A, Origin1 <: Origin](
     uri: Uri,
     useVariables: Boolean = false
-  )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, A1], Nothing] = {
-    val (fields, variables) = SelectionBuilder.toGraphQL(toSelectionSet, useVariables)
-    val variableDef =
-      if (variables.nonEmpty)
-        s"(${variables.map { case (name, (_, typeName)) => s"$$$name: $typeName" }.mkString(",")})"
-      else ""
-    val operation = s"${ev.operationName}$variableDef{$fields}"
-    val request   = GraphQLRequest(operation, variables.map { case (k, (v, _)) => k -> v })
-
+  )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, A1], Nothing] =
     basicRequest
       .post(uri)
-      .body(request)
+      .body(toGraphQL(useVariables))
       .mapResponse { response =>
         for {
           resp <- response.left.map(CommunicationError(_))
@@ -77,7 +85,6 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
           result <- fromGraphQL(objectValue)
         } yield result
       }
-  }
 
   /**
    * Maps a tupled result to a type `Res` using a  function `f` with 2 parameters
