@@ -1,6 +1,6 @@
 package caliban
 
-import scala.concurrent.{ ExecutionContext }
+import scala.concurrent.{ ExecutionContext, Future }
 import akka.http.scaladsl.model.MediaTypes.`application/json`
 import akka.http.scaladsl.model.ws.{ BinaryMessage, Message, TextMessage }
 import akka.http.scaladsl.model.{ HttpEntity, HttpResponse, StatusCodes }
@@ -87,7 +87,7 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
                 )
                 .noSpaces
             )
-        )
+          )
       )
 
     def processMessage(
@@ -135,8 +135,8 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
                                   )
                                   .noSpaces
                               )
-                          )
-                      )
+                            )
+                        )
                     )
                 }
               case "stop" =>
@@ -154,16 +154,15 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
         val (queue, source) = Source.queue[Message](0, OverflowStrategy.fail).preMaterialize()
         val subscriptions   = runtime.unsafeRun(Ref.make(Map.empty[String, Fiber[Throwable, Unit]]))
 
-        val sink = Sink.foreach[Message] {
-          case TextMessage.Strict(text) => runtime.unsafeRun(processMessage(queue, subscriptions, text))
+        val sink = Sink.foreachAsync[Message](1) {
+          case TextMessage.Strict(text) => runtime.unsafeRunToFuture(processMessage(queue, subscriptions, text)).future
           case TextMessage.Streamed(textStream) =>
             textStream
               .runFold("")(_ + _)
-              .map(text => runtime.unsafeRun(processMessage(queue, subscriptions, text)))
-            ()
+              .flatMap(text => runtime.unsafeRunToFuture(processMessage(queue, subscriptions, text)).future)
           case bm: BinaryMessage =>
             bm.dataStream.runWith(Sink.ignore)
-            ()
+            Future.successful(())
         }
 
         val flow = Flow.fromSinkAndSource(sink, source).watchTermination() { (_, f) =>
