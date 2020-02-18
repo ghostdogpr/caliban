@@ -88,7 +88,7 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
                 )
                 .noSpaces
             )
-          )
+        )
       )
 
     def processMessage(
@@ -136,8 +136,8 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
                                   )
                                   .noSpaces
                               )
-                            )
-                        )
+                          )
+                      )
                     )
                 }
               case "stop" =>
@@ -153,8 +153,7 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
     get {
       extractUpgradeToWebSocket { upgrade =>
         val (queue, source) = Source.queue[Message](0, OverflowStrategy.fail).preMaterialize()
-        val subscriptions: Ref[Map[String, Fiber[Throwable, Unit]]] =
-          runtime.unsafeRun(Ref.make(Map.empty[String, Fiber[Throwable, Unit]]))
+        val subscriptions   = runtime.unsafeRun(Ref.make(Map.empty[String, Fiber[Throwable, Unit]]))
 
         val sink = Sink.foreach[Message] {
           case TextMessage.Strict(text) => runtime.unsafeRun(processMessage(queue, subscriptions, text))
