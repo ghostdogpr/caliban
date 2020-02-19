@@ -47,7 +47,7 @@ Make sure those implicits are in scope when you call `graphQL(...)`. This will m
 This will also improve compilation times and generate less bytecode.
 :::
 
-## Enum and union
+## Enums, unions, interfaces
 
 A sealed trait will be converted to a different GraphQL type depending on its content:
 
@@ -104,6 +104,9 @@ type Mechanic {
 }
 ```
 
+If you prefer an `Interface` instead of a `Union` type, add the `@GQLInterface` annotation to your sealed trait.
+An interface will be created with all the fields that are common to the case classes extending the sealed trait.
+
 ## Arguments
 
 To declare a field that take arguments, create a dedicated case class representing the arguments and make the field a _function_ from this class to the result type.
@@ -153,6 +156,7 @@ Caliban supports a few annotations to enrich data types:
 - `@GQLInputName("name")` allows you to specify a different name for a data type used as an input (by default, the suffix `Input` is appended to the type name).
 - `@GQLDescription("description")` lets you provide a description for a data type or field. This description will be visible when your schema is introspected.
 - `@GQLDeprecated("reason")` allows deprecating a field or an enum value.
+- `@GQLInterface` to force a sealed trait generating an interface instead of a union
 
 ## Custom types
 

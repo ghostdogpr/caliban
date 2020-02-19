@@ -32,11 +32,20 @@ object Rendering {
               .enumValues(__DeprecatedArgs())
               .fold(List.empty[String])(_.map(renderEnumValue))
               .mkString("\n  ")
-            Some(s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} {
-                    |  $renderedFields$renderedInputFields$renderedEnumValues
-                    |}""".stripMargin)
+            Some(
+              s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)}${renderInterfaces(t)} {
+                 |  $renderedFields$renderedInputFields$renderedEnumValues
+                 |}""".stripMargin
+            )
         }
     }.mkString("\n\n")
+
+  private def renderInterfaces(t: __Type): String =
+    t.interfaces()
+      .fold("")(_.flatMap(_.name) match {
+        case Nil  => ""
+        case list => s" implements ${list.mkString("& ")}"
+      })
 
   private def renderKind(kind: __TypeKind): String =
     kind match {
@@ -44,6 +53,7 @@ object Rendering {
       case __TypeKind.UNION        => "union"
       case __TypeKind.ENUM         => "enum"
       case __TypeKind.INPUT_OBJECT => "input"
+      case __TypeKind.INTERFACE    => "interface"
       case _                       => ""
     }
 
