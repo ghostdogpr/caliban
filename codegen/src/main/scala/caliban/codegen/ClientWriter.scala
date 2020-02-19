@@ -127,20 +127,23 @@ object ClientWriter {
        |  implicit val encoder: ArgEncoder[${typedef.name}] = new ArgEncoder[${typedef.name}] {
        |    override def encode(value: ${typedef.name}): Value =
        |      ObjectValue(List(${typedef.fields
-         .map(f => s""""${f.name}" -> ${writeInputValue(f.ofType, s"value.${safeName(f.name)}")}""")
+         .map(f => s""""${f.name}" -> ${writeInputValue(f.ofType, s"value.${safeName(f.name)}", typedef.name)}""")
          .mkString(", ")}))
        |    override def typeName: String = "${typedef.name}"
        |  }
        |}""".stripMargin
 
-  def writeInputValue(t: Type, fieldName: String): String =
+  def writeInputValue(t: Type, fieldName: String, typeName: String): String =
     t match {
-      case NamedType(name, true) => s"implicitly[ArgEncoder[${mapTypeName(name)}]].encode($fieldName)"
+      case NamedType(name, true) =>
+        if (name == typeName) s"encode($fieldName)"
+        else s"implicitly[ArgEncoder[${mapTypeName(name)}]].encode($fieldName)"
       case NamedType(name, false) =>
-        s"$fieldName.fold(NullValue: Value)(value => ${writeInputValue(NamedType(name, nonNull = true), "value")})"
-      case ListType(ofType, true) => s"ListValue($fieldName.map(value => ${writeInputValue(ofType, "value")}))"
+        s"$fieldName.fold(NullValue: Value)(value => ${writeInputValue(NamedType(name, nonNull = true), "value", typeName)})"
+      case ListType(ofType, true) =>
+        s"ListValue($fieldName.map(value => ${writeInputValue(ofType, "value", typeName)}))"
       case ListType(ofType, false) =>
-        s"$fieldName.fold(NullValue: Value)(value => ${writeInputValue(ListType(ofType, nonNull = true), "value")})"
+        s"$fieldName.fold(NullValue: Value)(value => ${writeInputValue(ListType(ofType, nonNull = true), "value", typeName)})"
     }
 
   def writeEnum(typedef: EnumTypeDefinition): String =
