@@ -211,7 +211,7 @@ import caliban.client.Value._
 
 object Client {
 
-  sealed trait Origin extends Product with Serializable
+  sealed trait Origin extends scala.Product with scala.Serializable
   object Origin {
     case object EARTH extends Origin
     case object MARS  extends Origin

@@ -123,7 +123,7 @@ object SchemaWriter {
       .mkString(", ")})"""
 
   def writeEnum(typedef: EnumTypeDefinition): String =
-    s"""${writeDescription(typedef.description)}sealed trait ${typedef.name} extends Product with Serializable
+    s"""${writeDescription(typedef.description)}sealed trait ${typedef.name} extends scala.Product with scala.Serializable
 
           object ${typedef.name} {
             ${typedef.enumValuesDefinition
@@ -133,7 +133,7 @@ object SchemaWriter {
        """
 
   def writeUnion(typedef: UnionTypeDefinition, objects: List[ObjectTypeDefinition]): String =
-    s"""${writeDescription(typedef.description)}sealed trait ${typedef.name} extends Product with Serializable
+    s"""${writeDescription(typedef.description)}sealed trait ${typedef.name} extends scala.Product with scala.Serializable
 
           object ${typedef.name} {
             ${objects

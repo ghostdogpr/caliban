@@ -46,6 +46,12 @@ object ClientWriter {
 
     val enums = Document.enumTypeDefinitions(schema).map(writeEnum).mkString("\n")
 
+    val scalars = Document
+      .scalarTypeDefinitions(schema)
+      .filterNot(s => supportedScalars.contains(s.name))
+      .map(writeScalar)
+      .mkString("\n")
+
     val queries = Document
       .objectTypeDefinition(schema, schemaDef.flatMap(_.query).getOrElse("Query"))
       .map(t => writeRootQuery(t, typesMap))
@@ -79,6 +85,7 @@ object ClientWriter {
        |
        |object $objectName {
        |
+       |  $scalars
        |  $enums
        |  $unions
        |  $objects
@@ -147,7 +154,7 @@ object ClientWriter {
     }
 
   def writeEnum(typedef: EnumTypeDefinition): String =
-    s"""sealed trait ${typedef.name} extends Product with Serializable
+    s"""sealed trait ${typedef.name} extends scala.Product with scala.Serializable
         object ${typedef.name} {
           ${typedef.enumValuesDefinition
       .map(v => s"case object ${safeName(v.enumValue)} extends ${typedef.name}")
@@ -170,6 +177,10 @@ object ClientWriter {
         }
        """
 
+  def writeScalar(typedef: ScalarTypeDefinition): String =
+    s"""type ${typedef.name} = String
+        """
+
   def writeUnion(
     typedef: UnionTypeDefinition,
     objects: List[ObjectTypeDefinition],
@@ -181,6 +192,10 @@ object ClientWriter {
 
   def safeName(name: String): String =
     if (reservedKeywords.contains(name)) s"`$name`" else name
+
+  @tailrec
+  def getTypeLetter(typesMap: Map[String, TypeDefinition], letter: String = "A"): String =
+    if (!typesMap.contains(letter)) letter else getTypeLetter(typesMap, letter + "A")
 
   def writeField(field: FieldDefinition, typeName: String, typesMap: Map[String, TypeDefinition]): String = {
     val name      = safeName(field.name)
@@ -214,6 +229,7 @@ object ClientWriter {
           }
       )
       .getOrElse(Nil)
+    val typeLetter = getTypeLetter(typesMap)
     val (typeParam, innerSelection, outputType, builder) =
       if (isScalar) {
         (
@@ -224,9 +240,9 @@ object ClientWriter {
         )
       } else if (unionTypes.nonEmpty) {
         (
-          "[A]",
-          s"(${unionTypes.map(t => s"""on${t.name}: SelectionBuilder[${t.name}, A]""").mkString(", ")})",
-          writeType(field.ofType).replace(fieldType, "A"),
+          s"[$typeLetter]",
+          s"(${unionTypes.map(t => s"""on${t.name}: SelectionBuilder[${t.name}, $typeLetter]""").mkString(", ")})",
+          writeType(field.ofType).replace(fieldType, typeLetter),
           writeTypeBuilder(
             field.ofType,
             s"ChoiceOf(Map(${unionTypes.map(t => s""""${t.name}" -> Obj(on${t.name})""").mkString(", ")}))"
@@ -234,19 +250,19 @@ object ClientWriter {
         )
       } else if (interfaceTypes.nonEmpty) {
         (
-          "[A]",
-          s"(${interfaceTypes.map(t => s"""on${t.name}: SelectionBuilder[${t.name}, A]""").mkString(", ")})",
-          writeType(field.ofType).replace(fieldType, "A"),
+          s"[$typeLetter]",
+          s"(${interfaceTypes.map(t => s"""on${t.name}: Option[SelectionBuilder[${t.name}, $typeLetter]] = None""").mkString(", ")})",
+          writeType(field.ofType).replace(fieldType, typeLetter),
           writeTypeBuilder(
             field.ofType,
-            s"ChoiceOf(Map(${interfaceTypes.map(t => s""""${t.name}" -> Obj(on${t.name})""").mkString(", ")}))"
+            s"ChoiceOf(Map(${interfaceTypes.map(t => s""""${t.name}" -> on${t.name}""").mkString(", ")}).collect { case (k, Some(v)) => k -> Obj(v)})"
           )
         )
       } else {
         (
-          "[A]",
-          s"(innerSelection: SelectionBuilder[$fieldType, A])",
-          writeType(field.ofType).replace(fieldType, "A"),
+          s"[$typeLetter]",
+          s"(innerSelection: SelectionBuilder[$fieldType, $typeLetter])",
+          writeType(field.ofType).replace(fieldType, typeLetter),
           writeTypeBuilder(field.ofType, "Obj(innerSelection)")
         )
       }
@@ -307,6 +323,9 @@ object ClientWriter {
     case NamedType(name, _)  => name
     case ListType(ofType, _) => getTypeName(ofType)
   }
+
+  val supportedScalars =
+    Set("Int", "Float", "Double", "Long", "Unit", "String", "Boolean", "BigInt", "BigDecimal", "ID")
 
   val reservedKeywords = Set(
     "abstract",

@@ -19,6 +19,9 @@ object Document {
   def enumTypeDefinitions(doc: Document): List[EnumTypeDefinition] = doc.definitions.collect {
     case td: EnumTypeDefinition => td
   }
+  def scalarTypeDefinitions(doc: Document): List[ScalarTypeDefinition] = doc.definitions.collect {
+    case td: ScalarTypeDefinition => td
+  }
   def unionTypeDefinitions(doc: Document): List[UnionTypeDefinition] = doc.definitions.collect {
     case td: UnionTypeDefinition => td
   }

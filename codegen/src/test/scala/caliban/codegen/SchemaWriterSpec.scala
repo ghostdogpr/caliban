@@ -207,7 +207,7 @@ userList: () => List[Option[User]]
             equalTo(
               """object Types {
 
-  sealed trait Origin extends Product with Serializable
+  sealed trait Origin extends scala.Product with scala.Serializable
 
   object Origin {
     case object EARTH extends Origin
@@ -243,7 +243,7 @@ userList: () => List[Option[User]]
 object Types {
 
   @GQLDescription("role")
-  sealed trait Role extends Product with Serializable
+  sealed trait Role extends scala.Product with scala.Serializable
 
   object Role {
     case class Captain(
