@@ -31,7 +31,8 @@ object CodegenPlugin extends AutoPlugin {
       |
       |This command will create a Scala file in `outputPath` containing all the types
       |defined in the provided GraphQL schema defined at `schemaPath`. The generated 
-      |code will be formatted with Scalafmt using the configuration defined by `scalafmtPath`.
+      |code will be formatted with Scalafmt using the configuration defined by
+      |`scalafmtPath` (default: ".scalafmt.conf").
       |
       |""".stripMargin
 
@@ -41,7 +42,8 @@ object CodegenPlugin extends AutoPlugin {
       |
       |This command will create a Scala file in `outputPath` containing client code for all the
       |typed defined in the provided GraphQL schema defined at `schemaPath`. The generated 
-      |code will be formatted with Scalafmt using the configuration defined by `scalafmtPath`.
+      |code will be formatted with Scalafmt using the configuration defined by
+      |`scalafmtPath` (default: ".scalafmt.conf").
       |
       |""".stripMargin
 
@@ -55,25 +57,6 @@ object CodegenPlugin extends AutoPlugin {
       case schemaPath :: toPath :: formatPath :: Nil => generate(schemaPath, toPath, Some(formatPath), writer)
       case _                                         => putStrLn(helpMsg)
     }
-
-  val scalafmtConfig: String = """
-                                 |version = "2.3.2"
-                                 |
-                                 |maxColumn = 120
-                                 |align = most
-                                 |continuationIndent.defnSite = 2
-                                 |assumeStandardLibraryStripMargin = true
-                                 |docstrings = JavaDoc
-                                 |lineEndings = preserve
-                                 |includeCurlyBraceInSelectChains = false
-                                 |danglingParentheses = true
-                                 |spaces {
-                                 |  inImportCurlyBraces = true
-                                 |}
-                                 |optIn.annotationNewlines = true
-                                 |
-                                 |rewrite.rules = [SortImports, RedundantBraces]
-                                 |""".stripMargin
 
   def generate(
     schemaPath: String,
@@ -89,7 +72,7 @@ object CodegenPlugin extends AutoPlugin {
       schema_string <- Task(scala.io.Source.fromFile(schemaPath)).bracket(f => UIO(f.close()), f => Task(f.mkString))
       schema        <- Parser.parseQuery(schema_string)
       code          = writer(schema, objectName, packageName)
-      formatted     <- fmtPath.fold(Formatter.formatStr(code, scalafmtConfig))(Formatter.format(code, _))
+      formatted     <- Formatter.format(code, fmtPath)
       _ <- Task(new PrintWriter(new File(toPath))).bracket(q => UIO(q.close()), { pw =>
             Task(pw.println(formatted))
           })

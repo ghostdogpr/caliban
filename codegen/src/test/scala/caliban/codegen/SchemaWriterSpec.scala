@@ -12,7 +12,7 @@ object SchemaWriterSpec
       val gen: String => Task[String] = (schema: String) =>
         Parser
           .parseQuery(schema)
-          .flatMap(doc => Formatter.formatStr(SchemaWriter.write(doc), CodegenPlugin.scalafmtConfig))
+          .flatMap(doc => Formatter.format(SchemaWriter.write(doc), None))
 
       suite("Generator single values")(
         testM("type with field parameter") {

@@ -33,7 +33,7 @@ calibanGenClient schemaPath outPath ?scalafmtPath
 
 calibanGenClient project/schema.graphql src/main/Client.scala
 ```
-This command will generate a Scala file in `outputPath` containing helper functions for all the types defined in the provided GraphQL schema defined at `schemaPath`. The generated code will be formatted with Scalafmt using the configuration defined by `scalafmtPath`.
+This command will generate a Scala file in `outputPath` containing helper functions for all the types defined in the provided GraphQL schema defined at `schemaPath`. The generated code will be formatted with Scalafmt using the configuration defined by `scalafmtPath` (default: `.scalafmt.conf`).
 
 ## Query building
 

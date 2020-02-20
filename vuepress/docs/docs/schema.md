@@ -188,7 +188,7 @@ calibanGenSchema schemaPath outPath ?scalafmtPath
 
 calibanGenSchema project/schema.graphql src/main/MyAPI.scala
 ```
-This command will create a Scala file in `outputPath` containing all the types defined in the provided GraphQL schema defined at `schemaPath`. The generated code will be formatted with Scalafmt using the configuration defined by `scalafmtPath`.
+This command will create a Scala file in `outputPath` containing all the types defined in the provided GraphQL schema defined at `schemaPath`. The generated code will be formatted with Scalafmt using the configuration defined by `scalafmtPath` (default: `.scalafmt.conf`).
 
 ::: warning Unsupported features
 Some features are not supported by Caliban and will cause an error during code generation:
