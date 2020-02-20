@@ -1,31 +1,23 @@
 package caliban.codegen
 
-import java.net.{ URL, URLClassLoader }
-import java.nio.file.Paths
-import org.scalafmt.dynamic.ScalafmtReflect
-import org.scalafmt.dynamic.utils.ReentrantCache
+import java.nio.file.{ Files, Paths }
+
 import org.scalafmt.interfaces.Scalafmt
 import zio.Task
 
 object Formatter {
 
-  def format(str: String, fmtPath: String): Task[String] = Task {
-    val scalafmt = Scalafmt.create(this.getClass.getClassLoader)
-    val config   = Paths.get(fmtPath)
-    scalafmt.format(config, Paths.get("Nil.scala"), str)
-  }
-
-  def formatStr(code: String, fmt: String): Task[String] = Task {
-    ReentrantCache()
-    val scalafmtReflect =
-      ScalafmtReflect(
-        new URLClassLoader(new Array[URL](0), this.getClass.getClassLoader),
-        "2.3.2",
-        respectVersion = false
-      )
-    val config = scalafmtReflect.parseConfigFromString(fmt)
-
-    scalafmtReflect.format(code, config)
+  def format(str: String, fmtPath: Option[String]): Task[String] = Task {
+    val scalafmt          = Scalafmt.create(this.getClass.getClassLoader)
+    val defaultConfigPath = Paths.get(".scalafmt.conf")
+    val defaultConfig =
+      if (Files.exists(defaultConfigPath)) defaultConfigPath else Paths.get("")
+    val config = fmtPath.fold(defaultConfig)(Paths.get(_))
+    val result = scalafmt
+      .withRespectVersion(false)
+      .format(config, Paths.get("Nil.scala"), str)
+    scalafmt.clear()
+    result
   }
 
 }

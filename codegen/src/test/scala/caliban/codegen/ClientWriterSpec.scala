@@ -11,7 +11,7 @@ object ClientWriterSpec
         val gen: String => Task[String] = (schema: String) =>
           Parser
             .parseQuery(schema)
-            .flatMap(doc => Formatter.formatStr(ClientWriter.write(doc), CodegenPlugin.scalafmtConfig))
+            .flatMap(doc => Formatter.format(ClientWriter.write(doc), None))
 
         suite("ClientWriterSpec")(
           testM("simple object type") {
