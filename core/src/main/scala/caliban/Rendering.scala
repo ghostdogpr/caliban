@@ -36,7 +36,7 @@ object Rendering {
               .fold(List.empty[String])(_.map(renderEnumValue))
               .mkString("\n  ")
             Some(
-              s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)}${renderInterfaces(t)} $renderedDirectives {
+              s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)}${renderInterfaces(t)}$renderedDirectives {
                  |  $renderedFields$renderedInputFields$renderedEnumValues
                  |}""".stripMargin
             )
@@ -87,7 +87,10 @@ object Rendering {
     else ""}"
 
   private def renderDirectives(directives: Option[List[Directive]]) =
-    directives.fold("")(_.map(renderDirective).mkString(" ", " ", ""))
+    directives.fold("") {
+      case Nil => ""
+      case d   => d.map(renderDirective).mkString(" ", " ", "")
+    }
 
   private def renderField(field: __Field): String =
     s"${field.name}${renderArguments(field.args)}: ${renderTypeName(field.`type`())}${if (field.isDeprecated)
