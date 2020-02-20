@@ -7,7 +7,8 @@ object Types {
   /**
    * Creates a new scalar type with the given name.
    */
-  def makeScalar(name: String, description: Option[String] = None) = __Type(__TypeKind.SCALAR, Some(name), description)
+  def makeScalar(name: String, description: Option[String] = None): __Type =
+    __Type(__TypeKind.SCALAR, Some(name), description)
 
   val boolean: __Type = makeScalar("Boolean")
   val string: __Type  = makeScalar("String")
@@ -16,11 +17,11 @@ object Types {
   val float: __Type   = makeScalar("Float")
   val double: __Type  = makeScalar("Double")
 
-  def makeList(underlying: __Type) = __Type(__TypeKind.LIST, ofType = Some(underlying))
+  def makeList(underlying: __Type): __Type = __Type(__TypeKind.LIST, ofType = Some(underlying))
 
-  def makeNonNull(underlying: __Type) = __Type(__TypeKind.NON_NULL, ofType = Some(underlying))
+  def makeNonNull(underlying: __Type): __Type = __Type(__TypeKind.NON_NULL, ofType = Some(underlying))
 
-  def makeEnum(name: Option[String], description: Option[String], values: List[__EnumValue]) =
+  def makeEnum(name: Option[String], description: Option[String], values: List[__EnumValue]): __Type =
     __Type(
       __TypeKind.ENUM,
       name,
@@ -28,20 +29,34 @@ object Types {
       enumValues = args => Some(values.filter(v => args.includeDeprecated.getOrElse(false) || !v.isDeprecated))
     )
 
-  def makeObject(name: Option[String], description: Option[String], fields: List[__Field]) =
+  def makeObject(name: Option[String], description: Option[String], fields: List[__Field]): __Type =
     __Type(
       __TypeKind.OBJECT,
       name,
       description,
       fields = args => Some(fields.filter(v => args.includeDeprecated.getOrElse(false) || !v.isDeprecated)),
-      interfaces = Some(Nil)
+      interfaces = () => Some(Nil)
     )
 
-  def makeInputObject(name: Option[String], description: Option[String], fields: List[__InputValue]) =
+  def makeInputObject(name: Option[String], description: Option[String], fields: List[__InputValue]): __Type =
     __Type(__TypeKind.INPUT_OBJECT, name, description, inputFields = Some(fields))
 
-  def makeUnion(name: Option[String], description: Option[String], subTypes: List[__Type]) =
+  def makeUnion(name: Option[String], description: Option[String], subTypes: List[__Type]): __Type =
     __Type(__TypeKind.UNION, name, description, possibleTypes = Some(subTypes))
+
+  def makeInterface(
+    name: Option[String],
+    description: Option[String],
+    fields: List[__Field],
+    subTypes: List[__Type]
+  ): __Type =
+    __Type(
+      __TypeKind.INTERFACE,
+      name,
+      description,
+      fields = args => Some(fields.filter(v => args.includeDeprecated.getOrElse(false) || !v.isDeprecated)),
+      possibleTypes = Some(subTypes)
+    )
 
   /**
    * Returns a map of all the types nested within the given root type.

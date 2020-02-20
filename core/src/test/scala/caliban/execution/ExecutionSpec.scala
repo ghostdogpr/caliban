@@ -1,7 +1,6 @@
 package caliban.execution
 
 import java.util.UUID
-
 import caliban.CalibanError.ExecutionError
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
@@ -339,6 +338,18 @@ object ExecutionSpec
             interpreter.execute(query).map(_.data.toString),
             equalTo("""{"test":{"a":333}}""")
           )
+        },
+        testM("test Interface") {
+          case class Test(i: Interface)
+          val interpreter = graphQL(RootResolver(Test(Interface.B("ok")))).interpreter
+          val query       = gqldoc("""
+             {
+               i {
+                 id
+               }
+             }""")
+
+          assertM(interpreter.execute(query).map(_.data.toString), equalTo("""{"i":{"id":"ok"}}"""))
         }
       )
     )

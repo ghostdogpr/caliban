@@ -2,12 +2,20 @@ package caliban
 
 import caliban.TestUtils.Origin._
 import caliban.TestUtils.Role._
-import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
+import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLInterface }
 import caliban.schema.Schema
 import zio.UIO
 import zio.stream.ZStream
 
 object TestUtils {
+
+  @GQLInterface
+  sealed trait Interface
+  object Interface {
+    case class A(id: String, other: Int)    extends Interface
+    case class B(id: String)                extends Interface
+    case class C(id: String, blah: Boolean) extends Interface
+  }
 
   sealed trait Origin
 

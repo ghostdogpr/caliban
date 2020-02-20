@@ -1,15 +1,13 @@
 package caliban.schema
 
 import java.util.UUID
-
 import scala.annotation.implicitNotFound
 import scala.concurrent.Future
 import scala.language.experimental.macros
-
 import caliban.ResponseValue._
 import caliban.Value._
 import caliban.introspection.adt._
-import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLInputName, GQLName }
+import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLInputName, GQLInterface, GQLName }
 import caliban.schema.Step._
 import caliban.schema.Types._
 import caliban.{ InputValue, ResponseValue }
@@ -357,12 +355,31 @@ trait DerivationSchema[R] {
               )
           }
         )
-      else
-        makeUnion(
-          Some(getName(ctx)),
-          getDescription(ctx),
-          subtypes.map { case (t, _) => fixEmptyUnionObject(t) }
-        )
+      else {
+        ctx.annotations.collectFirst {
+          case GQLInterface() => ()
+        }.fold(
+          makeUnion(
+            Some(getName(ctx)),
+            getDescription(ctx),
+            subtypes.map { case (t, _) => fixEmptyUnionObject(t) }
+          )
+        ) { _ =>
+          val impl = subtypes.map(_._1.copy(interfaces = () => Some(List(toType(isInput)))))
+          val commonFields = impl
+            .flatMap(_.fields(__DeprecatedArgs(Some(true))))
+            .flatten
+            .groupBy(_.name)
+            .collect {
+              case (name, list)
+                  if impl.forall(_.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).exists(_.name == name)) =>
+                list.headOption
+            }
+            .flatten
+
+          makeInterface(Some(getName(ctx)), getDescription(ctx), commonFields.toList, impl)
+        }
+      }
     }
 
     // see https://github.com/graphql/graphql-spec/issues/568

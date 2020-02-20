@@ -24,4 +24,9 @@ object Annotations {
    * Annotation used to provide an alternative name to a field or a type.
    */
   case class GQLName(value: String) extends StaticAnnotation
+
+  /**
+   * Annotation to make a sealed trait an interface instead of a union type
+   */
+  case class GQLInterface() extends StaticAnnotation
 }
