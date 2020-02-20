@@ -103,16 +103,15 @@ object ApolloCaching {
         for {
           result <- io
           cache  <- ref.get
-        } yield
-          result.copy(
-            extensions = Some(
-              ObjectValue(
-                ("cacheControl" -> cache.toResponseValue) :: result.extensions.fold(
-                  List.empty[(String, ResponseValue)]
-                )(_.fields)
-              )
+        } yield result.copy(
+          extensions = Some(
+            ObjectValue(
+              ("cacheControl" -> cache.toResponseValue) :: result.extensions.fold(
+                List.empty[(String, ResponseValue)]
+              )(_.fields)
             )
           )
+        )
     }
 
   private def apolloCachingField(ref: Ref[Caching]): FieldWrapper[Any] =
@@ -135,7 +134,7 @@ object ApolloCaching {
                         maxAge = cacheDirective.maxAge getOrElse Duration.Zero,
                         scope = cacheDirective.scope getOrElse CacheScope.Private
                       ) :: state.hints
-                  )
+                    )
                 )
               )
           }

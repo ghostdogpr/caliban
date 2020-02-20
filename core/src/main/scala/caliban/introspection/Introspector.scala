@@ -36,11 +36,13 @@ object Introspector {
   def introspect(rootType: RootType): RootSchema[Any] = {
     val types = rootType.types.updated("Boolean", Types.boolean).values.toList.sortBy(_.name.getOrElse(""))
     val resolver = __Introspection(
-      __Schema(rootType.queryType,
-               rootType.mutationType,
-               rootType.subscriptionType,
-               types,
-               directives ++ rootType.additionalDirectives),
+      __Schema(
+        rootType.queryType,
+        rootType.mutationType,
+        rootType.subscriptionType,
+        types,
+        directives ++ rootType.additionalDirectives
+      ),
       args => types.find(_.name.contains(args.name)).get
     )
     val introspectionSchema = Schema.gen[__Introspection]
