@@ -11,25 +11,25 @@ import zio.Ref
 import zio.duration.Duration
 import zquery.ZQuery
 
-object CacheControl {
-
-  def apply(scope: ApolloCaching.CacheScope): Directive =
-    Directive("cacheControl", Map("scope" -> EnumValue(scope.toString)))
-
-  def apply(maxAge: Duration): Directive =
-    Directive("cacheControl", Map("maxAge" -> IntValue(maxAge.toMillis / 1000)))
-
-  def apply(maxAge: Duration, scope: ApolloCaching.CacheScope): Directive =
-    Directive("cacheControl", Map("maxAge" -> IntValue(maxAge.toMillis / 1000), "scope" -> EnumValue(scope.toString)))
-
-}
-
 /**
  * Returns a wrapper which applies apollo caching response extensions
  */
 object ApolloCaching {
 
   private val directiveName = "cacheControl"
+
+  object CacheControl {
+
+    def apply(scope: ApolloCaching.CacheScope): Directive =
+      Directive(directiveName, Map("scope" -> EnumValue(scope.toString)))
+
+    def apply(maxAge: Duration): Directive =
+      Directive(directiveName, Map("maxAge" -> IntValue(maxAge.toMillis / 1000)))
+
+    def apply(maxAge: Duration, scope: ApolloCaching.CacheScope): Directive =
+      Directive(directiveName, Map("maxAge" -> IntValue(maxAge.toMillis / 1000), "scope" -> EnumValue(scope.toString)))
+
+  }
 
   val apolloCaching: EffectfulWrapper[Any] =
     EffectfulWrapper(

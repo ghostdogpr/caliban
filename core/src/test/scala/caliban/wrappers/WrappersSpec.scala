@@ -1,12 +1,12 @@
 package caliban.wrappers
 
 import scala.language.postfixOps
-
 import caliban.CalibanError.{ ExecutionError, ValidationError }
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
 import caliban.schema.Annotations.GQLDirective
 import caliban.schema.GenericSchema
+import caliban.wrappers.ApolloCaching.CacheControl
 import caliban.wrappers.Wrappers._
 import caliban.{ CalibanError, GraphQLInterpreter, RootResolver }
 import zio.clock.Clock

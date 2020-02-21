@@ -11,11 +11,12 @@ object RenderingSpec
         test("it should render directives") {
           assert(
             graphQL(resolver).render.trim,
-            equalTo("""
-                      |union Role = Captain | Engineer | Mechanic | Pilot
+            equalTo("""union Role = Captain | Engineer | Mechanic | Pilot
                       |
-                      |type Engineer {
-                      |  shipName: String!
+                      |enum Origin {
+                      |  BELT
+                      |  EARTH
+                      |  MARS
                       |}
                       |
                       |input CharacterInput {
@@ -25,17 +26,8 @@ object RenderingSpec
                       |  role: Role
                       |}
                       |
-                      |enum Origin {
-                      |  BELT
-                      |  EARTH
-                      |  MARS
-                      |}
-                      |
-                      |"Queries"
-                      |type Query {
-                      |  characters(origin: Origin): [Character!]!
-                      |  charactersIn(names: [String!]!): [Character!]!
-                      |  exists(character: CharacterInput!): Boolean!
+                      |type Captain {
+                      |  shipName: String!
                       |}
                       |
                       |type Character @key({name: "name"}) {
@@ -45,7 +37,7 @@ object RenderingSpec
                       |  role: Role
                       |}
                       |
-                      |type Pilot {
+                      |type Engineer {
                       |  shipName: String!
                       |}
                       |
@@ -53,8 +45,15 @@ object RenderingSpec
                       |  shipName: String!
                       |}
                       |
-                      |type Captain {
+                      |type Pilot {
                       |  shipName: String!
+                      |}
+                      |
+                      |"Queries"
+                      |type Query {
+                      |  characters(origin: Origin): [Character!]!
+                      |  charactersIn(names: [String!]!): [Character!]!
+                      |  exists(character: CharacterInput!): Boolean!
                       |}""".stripMargin.trim)
           )
         }

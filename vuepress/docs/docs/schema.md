@@ -156,7 +156,8 @@ Caliban supports a few annotations to enrich data types:
 - `@GQLInputName("name")` allows you to specify a different name for a data type used as an input (by default, the suffix `Input` is appended to the type name).
 - `@GQLDescription("description")` lets you provide a description for a data type or field. This description will be visible when your schema is introspected.
 - `@GQLDeprecated("reason")` allows deprecating a field or an enum value.
-- `@GQLInterface` to force a sealed trait generating an interface instead of a union
+- `@GQLInterface` to force a sealed trait generating an interface instead of a union.
+- `@GQLDirective(directive: Directive)` to add a directive to a field or type.
 
 ## Custom types
 
