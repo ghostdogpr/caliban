@@ -1,5 +1,7 @@
 package caliban.introspection.adt
 
+import caliban.parsing.adt.Directive
+
 case class __Type(
   kind: __TypeKind,
   name: Option[String] = None,
@@ -9,7 +11,8 @@ case class __Type(
   possibleTypes: Option[List[__Type]] = None,
   enumValues: __DeprecatedArgs => Option[List[__EnumValue]] = _ => None,
   inputFields: Option[List[__InputValue]] = None,
-  ofType: Option[__Type] = None
+  ofType: Option[__Type] = None,
+  directives: Option[List[Directive]] = None
 ) {
   def |+|(that: __Type): __Type = __Type(
     kind,
@@ -23,6 +26,7 @@ case class __Type(
       (enumValues(args) ++ that.enumValues(args))
         .reduceOption((a, b) => a.filterNot(v => b.exists(_.name == v.name)) ++ b),
     (inputFields ++ that.inputFields).reduceOption((a, b) => a.filterNot(t => b.exists(_.name == t.name)) ++ b),
-    (ofType ++ that.ofType).reduceOption(_ |+| _)
+    (ofType ++ that.ofType).reduceOption(_ |+| _),
+    (directives ++ that.directives).reduceOption(_ ++ _)
   )
 }

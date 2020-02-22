@@ -7,7 +7,8 @@ import scala.language.experimental.macros
 import caliban.ResponseValue._
 import caliban.Value._
 import caliban.introspection.adt._
-import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLInputName, GQLInterface, GQLName }
+import caliban.parsing.adt.Directive
+import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLDirective, GQLInputName, GQLInterface, GQLName }
 import caliban.schema.Step._
 import caliban.schema.Types._
 import caliban.{ InputValue, ResponseValue }
@@ -89,7 +90,8 @@ trait GenericSchema[R] extends DerivationSchema[R] {
   def objectSchema[R1, A](
     name: String,
     description: Option[String],
-    fields: List[(__Field, A => Step[R1])]
+    fields: List[(__Field, A => Step[R1])],
+    directives: List[Directive] = List.empty
   ): Schema[R1, A] =
     new Schema[R1, A] {
 
@@ -98,7 +100,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
           makeInputObject(Some(customizeInputTypeName(name)), description, fields.map {
             case (f, _) => __InputValue(f.name, f.description, f.`type`, None)
           })
-        } else makeObject(Some(name), description, fields.map(_._1))
+        } else makeObject(Some(name), description, fields.map(_._1), directives)
 
       override def resolve(value: A): Step[R1] =
         ObjectStep(name, fields.map { case (f, plan) => f.name -> plan(value) }.toMap)
@@ -295,7 +297,8 @@ trait DerivationSchema[R] {
                   getDescription(p),
                   () =>
                     if (p.typeclass.optional) p.typeclass.toType(isInput) else makeNonNull(p.typeclass.toType(isInput)),
-                  None
+                  None,
+                  Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
                 )
             )
             .toList
@@ -314,10 +317,12 @@ trait DerivationSchema[R] {
                   () =>
                     if (p.typeclass.optional) p.typeclass.toType(isInput) else makeNonNull(p.typeclass.toType(isInput)),
                   p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
-                  p.annotations.collectFirst { case GQLDeprecated(reason) => reason }
+                  p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
+                  Option(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
                 )
             )
-            .toList
+            .toList,
+          getDirectives(ctx)
         )
 
     override def resolve(value: T): Step[R] =
@@ -346,7 +351,7 @@ trait DerivationSchema[R] {
           Some(getName(ctx)),
           getDescription(ctx),
           subtypes.collect {
-            case (__Type(_, Some(name), description, _, _, _, _, _, _), annotations) =>
+            case (__Type(_, Some(name), description, _, _, _, _, _, _, _), annotations) =>
               __EnumValue(
                 name,
                 description,
@@ -407,6 +412,12 @@ trait DerivationSchema[R] {
     override def resolve(value: T): Step[R] =
       ctx.dispatch(value)(subType => subType.typeclass.resolve(subType.cast(value)))
   }
+
+  private def getDirectives(annotations: Seq[Any]): List[Directive] =
+    annotations.collect { case GQLDirective(dir) => dir }.toList
+
+  private def getDirectives[Typeclass[_], Type](ctx: CaseClass[Typeclass, Type]): List[Directive] =
+    getDirectives(ctx.annotations)
 
   private def getName(annotations: Seq[Any], typeName: TypeName): String =
     annotations.collectFirst { case GQLName(name) => name }
