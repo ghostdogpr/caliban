@@ -195,7 +195,7 @@ lazy val examples = project
   .settings(skip in publish := true)
   .settings(
     libraryDependencies ++= Seq(
-      "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % "2.0.0-RC7"
+      "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % "2.0.0-RC10"
     )
   )
   .dependsOn(akkaHttp, http4s, catsInteropJVM, monixInterop, clientJVM)
