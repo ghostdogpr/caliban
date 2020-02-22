@@ -70,8 +70,6 @@ val api =
     apolloCaching
 ```
 
-As well you can also use 
-
 ## Wrapping the interpreter
 
 All the wrappers mentioned above require that you don't modify the environment `R` and the error type which is always a `CalibanError`. It is also possible to wrap your `GraphQLInterpreter` by calling `wrapExecutionWith` on it. This method takes in a function `f` and returns a new `GraphQLInterpreter` that will wrap the `execute` method with this function `f`.
