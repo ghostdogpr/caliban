@@ -26,6 +26,18 @@ object Validator {
     check(document, rootType).unit
 
   /**
+   * Verifies that the given schema is valid. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
+   */
+  def validateSchema(rootType: RootType): IO[ValidationError, Unit] =
+    IO.foreach(rootType.types.values) { t =>
+        t.kind match {
+          case __TypeKind.ENUM => validateEnum(t)
+          case _               => IO.unit
+        }
+      }
+      .unit
+
+  /**
    * Prepare the request for execution.
    * Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
@@ -272,14 +284,14 @@ object Validator {
                 "Defined fragments must be used within a document."
               )
             )
-          else if (detectCycles(context, f))
+          else
             IO.fail(
-              ValidationError(
-                s"Fragment '${f.name}' forms a cycle.",
-                "The graph of fragment spreads must not form any cycles including spreading itself. Otherwise an operation could infinitely spread or infinitely execute on cycles in the underlying data."
+                ValidationError(
+                  s"Fragment '${f.name}' forms a cycle.",
+                  "The graph of fragment spreads must not form any cycles including spreading itself. Otherwise an operation could infinitely spread or infinitely execute on cycles in the underlying data."
+                )
               )
-            )
-          else IO.unit
+              .when(detectCycles(context, f))
       )
       .unit
   }
@@ -379,12 +391,11 @@ object Validator {
   private def validateField(context: Context, field: Field, currentType: __Type): IO[ValidationError, Unit] =
     IO.when(field.name != "__typename") {
       IO.fromOption(currentType.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).find(_.name == field.name))
-        .mapError(
-          _ =>
-            ValidationError(
-              s"Field '${field.name}' does not exist on type '${Rendering.renderTypeName(currentType)}'.",
-              "The target field of a field selection must be defined on the scoped type of the selection set. There are no limitations on alias names."
-            )
+        .asError(
+          ValidationError(
+            s"Field '${field.name}' does not exist on type '${Rendering.renderTypeName(currentType)}'.",
+            "The target field of a field selection must be defined on the scoped type of the selection set. There are no limitations on alias names."
+          )
         )
         .flatMap { f =>
           validateFields(context, field.selectionSet, Types.innerType(f.`type`())) *>
@@ -546,6 +557,18 @@ object Validator {
           ValidationError(
             s"${name.fold("Inline fragment")(n => s"Fragment '$n'")} is defined on invalid type '$targetTypeName'",
             "Fragments can only be declared on unions, interfaces, and objects. They are invalid on scalars. They can only be applied on non‐leaf fields. This rule applies to both inline and named fragments."
+          )
+        )
+    }
+
+  private def validateEnum(t: __Type): IO[ValidationError, Unit] =
+    t.enumValues(__DeprecatedArgs(Some(true))) match {
+      case Some(_ :: _) => IO.unit
+      case _ =>
+        IO.fail(
+          ValidationError(
+            s"Enum ${t.name} doesn't contain any values",
+            "An Enum type must define one or more unique enum values."
           )
         )
     }

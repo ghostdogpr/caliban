@@ -3,7 +3,7 @@ package caliban.interop.monix
 import caliban.introspection.adt.__Type
 import caliban.schema.Step.{ QueryStep, StreamStep }
 import caliban.schema.{ Schema, Step }
-import caliban.{ GraphQL, GraphQLInterpreter, GraphQLResponse, InputValue }
+import caliban.{ CalibanError, GraphQL, GraphQLInterpreter, GraphQLResponse, InputValue }
 import cats.effect.ConcurrentEffect
 import monix.eval.{ Task => MonixTask }
 import monix.reactive.Observable
@@ -29,6 +29,13 @@ object MonixInterop {
   def checkAsync[R](graphQL: GraphQL[R])(query: String)(implicit runtime: Runtime[R]): MonixTask[Unit] =
     MonixTask.async { cb =>
       runtime.unsafeRunAsync(graphQL.check(query))(exit => cb(exit.toEither))
+    }
+
+  def interpreterAsync[R](
+    graphQL: GraphQL[R]
+  )(implicit runtime: Runtime[R]): MonixTask[GraphQLInterpreter[R, CalibanError]] =
+    MonixTask.async { cb =>
+      runtime.unsafeRunAsync(graphQL.interpreter)(exit => cb(exit.toEither))
     }
 
   def taskSchema[R, A](implicit ev: Schema[R, A], ev2: ConcurrentEffect[MonixTask]): Schema[R, MonixTask[A]] =

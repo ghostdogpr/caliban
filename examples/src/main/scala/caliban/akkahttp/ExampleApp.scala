@@ -55,9 +55,8 @@ object ExampleApp extends App with GenericSchema[Console with Clock] {
       printSlowQueries(500 millis) @@ // wrapper that logs slow queries
       apolloTracing                   // wrapper for https://github.com/apollographql/apollo-tracing
 
-  val service = defaultRuntime.unsafeRun(ExampleService.make(sampleCharacters))
-
-  val interpreter = makeApi(service).interpreter
+  val service     = defaultRuntime.unsafeRun(ExampleService.make(sampleCharacters))
+  val interpreter = defaultRuntime.unsafeRun(makeApi(service).interpreter)
 
   /**
    * curl -X POST \

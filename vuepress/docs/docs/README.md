@@ -79,9 +79,12 @@ type Queries {
 
 In order to process requests, you need to turn your API into an interpreter, which can be done easily by calling `.interpreter`.
 An interpreter is a light wrapper around the API definition that allows plugging in some middleware and possibly modifying the environment and error types (see [Middleware](middleware.md) for more info).
+Creating the interpreter may fail with a `ValidationError` if some type is found invalid.
 
 ```scala
-val interpreter = api.interpreter
+for {
+  interpreter <- api.interpreter
+} yield interpreter
 ```
 
 Now you can call `interpreter.execute` with a given GraphQL query, and you will get an `ZIO[R, Nothing, GraphQLResponse[CalibanError]]` as a response, with `GraphQLResponse` defined as follows:

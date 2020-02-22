@@ -8,15 +8,13 @@ import caliban.schema.Annotations.GQLDirective
 import caliban.schema.GenericSchema
 import caliban.wrappers.ApolloCaching.CacheControl
 import caliban.wrappers.Wrappers._
-import caliban.{ CalibanError, GraphQLInterpreter, RootResolver }
+import caliban.{ GraphQL, RootResolver }
 import zio.clock.Clock
 import zio.duration._
 import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestClock
 import zio.{ clock, Promise, URIO, ZIO }
-
-import scala.language.postfixOps
 
 object WrappersSpec
     extends DefaultRunnableSpec(
@@ -35,7 +33,7 @@ object WrappersSpec
                 }
               }""")
           assertM(
-            interpreter.execute(query).map(_.errors),
+            interpreter.flatMap(_.execute(query)).map(_.errors),
             equalTo(List(ValidationError("Query has too many fields: 3. Max fields: 2.", "")))
           )
         },
@@ -58,7 +56,7 @@ object WrappersSpec
               }
               """)
           assertM(
-            interpreter.execute(query).map(_.errors),
+            interpreter.flatMap(_.execute(query)).map(_.errors),
             equalTo(List(ValidationError("Query has too many fields: 3. Max fields: 2.", "")))
           )
         },
@@ -76,7 +74,7 @@ object WrappersSpec
                 }
               }""")
           assertM(
-            interpreter.execute(query).map(_.errors),
+            interpreter.flatMap(_.execute(query)).map(_.errors),
             equalTo(List(ValidationError("Query is too deep: 3. Max depth: 2.", "")))
           )
         },
@@ -93,7 +91,7 @@ object WrappersSpec
                 a
               }""")
           assertM(
-            TestClock.adjust(1 minute) *> interpreter.execute(query).map(_.errors),
+            TestClock.adjust(1 minute) *> interpreter.flatMap(_.execute(query)).map(_.errors),
             equalTo(List(ExecutionError("""Query was interrupted after timeout of 1 m:
 
               {
@@ -108,8 +106,8 @@ object WrappersSpec
           object schema extends GenericSchema[Clock]
           import schema._
 
-          def interpreter(latch: Promise[Nothing, Unit]): GraphQLInterpreter[Clock, CalibanError] =
-            (graphQL(
+          def api(latch: Promise[Nothing, Unit]): GraphQL[Clock] =
+            graphQL(
               RootResolver(
                 Query(
                   Hero(
@@ -122,7 +120,7 @@ object WrappersSpec
                   )
                 )
               )
-            ) @@ ApolloTracing.apolloTracing).interpreter
+            ) @@ ApolloTracing.apolloTracing
 
           val query = gqldoc("""
               {
@@ -135,11 +133,12 @@ object WrappersSpec
               }""")
           assertM(
             for {
-              latch  <- Promise.make[Nothing, Unit]
-              fiber  <- interpreter(latch).execute(query).map(_.extensions.map(_.toString)).fork
-              _      <- latch.await
-              _      <- TestClock.adjust(1 second)
-              result <- fiber.join
+              latch       <- Promise.make[Nothing, Unit]
+              interpreter <- api(latch).interpreter
+              fiber       <- interpreter.execute(query).map(_.extensions.map(_.toString)).fork
+              _           <- latch.await
+              _           <- TestClock.adjust(1 second)
+              result      <- fiber.join
             } yield result,
             isSome(
               equalTo(
@@ -157,8 +156,8 @@ object WrappersSpec
           object schema extends GenericSchema[Clock]
           import schema._
 
-          def interpreter: GraphQLInterpreter[Clock, CalibanError] =
-            (graphQL(
+          def api: GraphQL[Clock] =
+            graphQL(
               RootResolver(
                 Query(
                   Hero(
@@ -171,7 +170,7 @@ object WrappersSpec
                   )
                 )
               )
-            ) @@ ApolloCaching.apolloCaching).interpreter
+            ) @@ ApolloCaching.apolloCaching
 
           val query = gqldoc("""
               {
@@ -184,7 +183,8 @@ object WrappersSpec
               }""")
           assertM(
             for {
-              result <- interpreter.execute(query).map(_.extensions.map(_.toString))
+              interpreter <- api.interpreter
+              result      <- interpreter.execute(query).map(_.extensions.map(_.toString))
             } yield result,
             isSome(
               equalTo(
