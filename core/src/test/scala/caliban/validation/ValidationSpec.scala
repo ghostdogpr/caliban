@@ -1,10 +1,11 @@
 package caliban.validation
 
 import caliban.CalibanError
+import caliban.CalibanError.ValidationError
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
-import zio.UIO
+import zio.IO
 import zio.test.Assertion._
 import zio.test._
 
@@ -13,8 +14,8 @@ object ValidationSpec
       val gql         = graphQL(resolverWithSubscription)
       val interpreter = gql.interpreter
 
-      def check(query: String, expectedMessage: String): UIO[TestResult] = {
-        val io = interpreter.execute(query).map(_.errors.headOption)
+      def check(query: String, expectedMessage: String): IO[ValidationError, TestResult] = {
+        val io = interpreter.flatMap(_.execute(query)).map(_.errors.headOption)
         assertM(io, isSome(hasField[CalibanError, String]("msg", _.msg, equalTo(expectedMessage))))
       }
 

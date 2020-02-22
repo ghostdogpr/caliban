@@ -3,7 +3,7 @@ package caliban.interop.cats
 import caliban.introspection.adt.__Type
 import caliban.schema.Step.QueryStep
 import caliban.schema.{ Schema, Step }
-import caliban.{ GraphQL, GraphQLInterpreter, GraphQLResponse, InputValue }
+import caliban.{ CalibanError, GraphQL, GraphQLInterpreter, GraphQLResponse, InputValue }
 import cats.effect.implicits._
 import cats.effect.{ Async, Effect }
 import zio.interop.catz._
@@ -28,6 +28,13 @@ object CatsInterop {
   def checkAsync[F[_]: Async, R](graphQL: GraphQL[R])(query: String)(implicit runtime: Runtime[R]): F[Unit] =
     Async[F].async { cb =>
       runtime.unsafeRunAsync(graphQL.check(query))(exit => cb(exit.toEither))
+    }
+
+  def interpreterAsync[F[_]: Async, R](
+    graphQL: GraphQL[R]
+  )(implicit runtime: Runtime[R]): F[GraphQLInterpreter[R, CalibanError]] =
+    Async[F].async { cb =>
+      runtime.unsafeRunAsync(graphQL.interpreter)(exit => cb(exit.toEither))
     }
 
   def schema[F[_]: Effect, R, A](implicit ev: Schema[R, A]): Schema[R, F[A]] =

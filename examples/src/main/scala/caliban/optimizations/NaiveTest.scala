@@ -81,9 +81,9 @@ object NaiveTest extends App with GenericSchema[Console] {
   implicit val firstArgsSchema: Schema[Any, FirstArgs]           = Schema.gen[FirstArgs]
   implicit lazy val user: Schema[Console, User]                  = gen[User]
 
-  val resolver    = Queries(args => getUser(args.id))
-  val interpreter = GraphQL.graphQL(RootResolver(resolver)).interpreter
+  val resolver = Queries(args => getUser(args.id))
+  val api      = GraphQL.graphQL(RootResolver(resolver))
 
   override def run(args: List[String]): ZIO[zio.ZEnv, Nothing, Int] =
-    interpreter.execute(query).map(_.errors.length)
+    api.interpreter.flatMap(_.execute(query).map(_.errors.length)).catchAll(err => putStrLn(err.toString).as(1))
 }

@@ -77,8 +77,7 @@ All the wrappers mentioned above require that you don't modify the environment `
 It is used internally to implement `mapError` (customize errors) and `provide` (eliminate the environment), but you can use it for other purposes such as adding a general timeout, logging response times, etc.
 
 ```scala
-// create an interpreter
-val i: GraphQLInterpreter[MyEnv, CalibanError] = graphqQL(...).interpreter
+val i: GraphQLInterpreter[MyEnv, CalibanError] = ???
 
 // change error type to String
 val i2: GraphQLInterpreter[MyEnv, String] = i.mapError(_.toString)

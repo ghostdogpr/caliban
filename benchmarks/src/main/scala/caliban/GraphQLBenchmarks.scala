@@ -144,7 +144,7 @@ class GraphQLBenchmarks {
     )
   )
 
-  val interpreter: GraphQLInterpreter[Any, CalibanError] = graphQL(resolver).interpreter
+  val interpreter: GraphQLInterpreter[Any, CalibanError] = zioRuntime.unsafeRun(graphQL(resolver).interpreter)
 
   @Benchmark
   def simpleCaliban(): Unit = {

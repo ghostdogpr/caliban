@@ -1,5 +1,6 @@
 package caliban
 
+import caliban.CalibanError.ValidationError
 import caliban.Rendering.renderTypes
 import caliban.execution.Executor
 import caliban.introspection.Introspector
@@ -73,10 +74,15 @@ trait GraphQL[-R] { self =>
   /**
    * Creates an interpreter from your API. A GraphQLInterpreter is a wrapper around your API that allows
    * adding some middleware around the query execution.
+   * Fails with a [[caliban.CalibanError.ValidationError]] if the schema is invalid.
    */
-  final def interpreter: GraphQLInterpreter[R, CalibanError] =
-    (query: String, operationName: Option[String], variables: Map[String, InputValue], skipValidation: Boolean) =>
-      self.execute(query, operationName, variables, skipValidation)
+  final def interpreter: IO[ValidationError, GraphQLInterpreter[R, CalibanError]] =
+    Validator
+      .validateSchema(rootType)
+      .as {
+        (query: String, operationName: Option[String], variables: Map[String, InputValue], skipValidation: Boolean) =>
+          self.execute(query, operationName, variables, skipValidation)
+      }
 
   /**
    * Attaches a function that will wrap one of the stages of query processing

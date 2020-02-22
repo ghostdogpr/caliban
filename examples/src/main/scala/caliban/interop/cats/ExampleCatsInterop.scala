@@ -18,9 +18,8 @@ object ExampleCatsInterop extends IOApp {
   val numbers      = List(1, 2, 3, 4).map(Number)
   val randomNumber = IO(scala.util.Random.nextInt()).map(Number)
 
-  val queries     = Queries(numbers, randomNumber)
-  val api         = graphQL(RootResolver(queries))
-  val interpreter = api.interpreter
+  val queries = Queries(numbers, randomNumber)
+  val api     = graphQL(RootResolver(queries))
 
   val query = """
   {
@@ -35,8 +34,9 @@ object ExampleCatsInterop extends IOApp {
 
   override def run(args: List[String]): IO[ExitCode] =
     for {
-      _      <- api.checkAsync[IO](query)
-      result <- interpreter.executeAsync[IO](query)
-      _      <- IO(println(result.data))
+      _           <- api.checkAsync[IO](query)
+      interpreter <- api.interpreterAsync[IO]
+      result      <- interpreter.executeAsync[IO](query)
+      _           <- IO(println(result.data))
     } yield ExitCode.Success
 }

@@ -64,7 +64,7 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
                   .accessM[Blocking](_.blocking.blockingExecutor.map(_.asEC))
                   .map(Blocker.liftExecutionContext)
       service     <- ExampleService.make(sampleCharacters)
-      interpreter = makeApi(service).interpreter
+      interpreter <- makeApi(service).interpreter
       _ <- BlazeServerBuilder[ExampleTask]
             .bindHttp(8088, "localhost")
             .withHttpApp(

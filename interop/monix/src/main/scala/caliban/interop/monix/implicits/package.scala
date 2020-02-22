@@ -1,7 +1,7 @@
 package caliban.interop.monix
 
 import caliban.schema.{ Schema, SubscriptionSchema }
-import caliban.{ GraphQL, GraphQLInterpreter, GraphQLResponse, InputValue }
+import caliban.{ CalibanError, GraphQL, GraphQLInterpreter, GraphQLResponse, InputValue }
 import cats.effect.ConcurrentEffect
 import monix.eval.Task
 import monix.reactive.Observable
@@ -29,6 +29,9 @@ package object implicits {
 
     def checkAsync(query: String)(implicit runtime: Runtime[R]): Task[Unit] =
       MonixInterop.checkAsync(underlying)(query)
+
+    def interpreterAsync(implicit runtime: Runtime[R]): Task[GraphQLInterpreter[R, CalibanError]] =
+      MonixInterop.interpreterAsync(underlying)
   }
 
   implicit def effectSchema[R, A](implicit ev: Schema[R, A], ev2: ConcurrentEffect[Task]): Schema[R, Task[A]] =

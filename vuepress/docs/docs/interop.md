@@ -5,7 +5,7 @@ If you prefer using [Cats Effect](https://github.com/typelevel/cats-effect) or [
 ## Cats Effect
 You first need to import `caliban.interop.cats.implicits._` and have an implicit `zio.Runtime` in scope. Then a few helpers are available:
 
-- the GraphQL object is enriched with `executeAsync` and `checkAsync`, variants of `execute` and `check` that return an `F[_]: Async` instead of a `ZIO`.
+- the GraphQL object is enriched with `interpreterAsync`, `executeAsync` and `checkAsync`, variants of `interpreter`, `execute` and `check` that return an `F[_]: Async` instead of a `ZIO`.
 - the `Http4sAdapter` also has cats-effect variants named `makeRestServiceF` and `makeWebSocketServiceF`.
 
 In addition to that, a `Schema` for any `F[_]: Effect` is provided. That means you can include fields returning Monix Task for Cats IO in your queries, mutations or subscriptions.
@@ -26,7 +26,7 @@ object ExampleCatsInterop extends IOApp {
   case class Queries(numbers: List[Int], randomNumber: IO[Int])
 
   val queries     = Queries(List(1, 2, 3, 4), IO(scala.util.Random.nextInt()))
-  val interpreter = graphQL(RootResolver(queries)).interpreter
+  val api = graphQL(RootResolver(queries))
 
   val query = """
   {
@@ -36,8 +36,9 @@ object ExampleCatsInterop extends IOApp {
 
   override def run(args: List[String]): IO[ExitCode] =
     for {
-      result <- interpreter.executeAsync[IO](query)
-      _      <- IO(println(result.data))
+      interpreter <- api.interpreterAsync[IO]
+      result      <- interpreter.executeAsync[IO](query)
+      _           <- IO(println(result.data))
     } yield ExitCode.Success
 }
 ```
@@ -47,7 +48,7 @@ You can find this example within the [examples](https://github.com/ghostdogpr/ca
 ## Monix
 You first need to import `caliban.interop.monix.implicits._` and have an implicit `zio.Runtime` in scope. Then a few helpers are available:
 
-- the GraphQL object is enriched with `executeAsync` and `checkAsync`, variants of `execute` and `check` that return a Monix `Task` instead of a `ZIO`.
+- the GraphQL object is enriched with `interpreterAsync`, `executeAsync` and `checkAsync`, variants of `interpreter`, `execute` and `check` that return a Monix `Task` instead of a `ZIO`.
 
 In addition to that, a `Schema` for any Monix `Task` as well as `Observable` is provided.
 
@@ -70,7 +71,7 @@ object ExampleMonixInterop extends TaskApp {
   case class Queries(numbers: List[Int], randomNumber: Task[Int])
 
   val queries     = Queries(List(1, 2, 3, 4), Task.eval(scala.util.Random.nextInt()))
-  val interpreter = graphQL(RootResolver(queries)).interpreter
+  val api = graphQL(RootResolver(queries))
 
   val query = """
   {
@@ -80,8 +81,9 @@ object ExampleMonixInterop extends TaskApp {
 
   override def run(args: List[String]): Task[ExitCode] =
     for {
-      result <- interpreter.executeAsync(query)
-      _      <- Task.eval(println(result.data))
+      interpreter <- api.interpreterAsync
+      result      <- interpreter.executeAsync(query)
+      _           <- Task.eval(println(result.data))
     } yield ExitCode.Success
 }
 ```
