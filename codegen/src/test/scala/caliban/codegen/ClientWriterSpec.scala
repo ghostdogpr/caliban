@@ -326,6 +326,42 @@ object Client {
 """
               )
             )
+          },
+          testM("deprecated field + comment") {
+            val schema =
+              """
+             type Character {
+               "name"
+               name: String! @deprecated(reason: "blah")
+               nicknames: [String!]! @deprecated
+             }
+            """.stripMargin
+
+            assertM(
+              gen(schema),
+              equalTo(
+                """import caliban.client.FieldBuilder._
+import caliban.client.SelectionBuilder._
+import caliban.client._
+
+object Client {
+
+  type Character
+  object Character {
+
+    /**
+     * name
+     */
+    @deprecated("blah")
+    def name: SelectionBuilder[Character, String] = Field("name", Scalar())
+    @deprecated
+    def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
+  }
+
+}
+"""
+              )
+            )
           }
         )
       }

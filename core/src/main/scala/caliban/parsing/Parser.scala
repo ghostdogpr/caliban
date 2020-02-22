@@ -118,8 +118,8 @@ object Parser {
   private def argument[_: P]: P[(String, InputValue)]     = P(name ~ ":" ~ value)
   private def arguments[_: P]: P[Map[String, InputValue]] = P("(" ~/ argument.rep ~ ")").map(_.toMap)
 
-  private def directive[_: P]: P[Directive] = P(Index ~ "@" ~/ name ~ arguments).map {
-    case (index, name, arguments) => Directive(name, arguments, index)
+  private def directive[_: P]: P[Directive] = P(Index ~ "@" ~/ name ~ arguments.?).map {
+    case (index, name, arguments) => Directive(name, arguments.getOrElse(Map()), index)
   }
   private def directives[_: P]: P[List[Directive]] = P(directive.rep).map(_.toList)
 

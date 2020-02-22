@@ -1,6 +1,7 @@
 package caliban.codegen
 
 import scala.annotation.tailrec
+import caliban.Value.StringValue
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Type.{ ListType, NamedType }
@@ -207,6 +208,13 @@ object ClientWriter {
            | */
            |""".stripMargin
     }
+    val deprecated = field.directives.find(_.name == "deprecated") match {
+      case None => ""
+      case Some(directive) =>
+        s"@deprecated${directive.arguments.collectFirst {
+          case ("reason", StringValue(reason)) => reason
+        }.fold("")(r => s"""("$r")""")}\n"
+    }
     val fieldType = getTypeName(field.ofType)
     val isScalar = typesMap
       .get(fieldType)
@@ -289,7 +297,7 @@ object ClientWriter {
         }.mkString(", ")})"
     }
 
-    s"""${description}def $name$typeParam$args$innerSelection: SelectionBuilder[$typeName, $outputType] = Field("${field.name}", $builder$argBuilder)"""
+    s"""$description${deprecated}def $name$typeParam$args$innerSelection: SelectionBuilder[$typeName, $outputType] = Field("${field.name}", $builder$argBuilder)"""
   }
 
   def writeArgumentFields(args: List[InputValueDefinition]): String =
