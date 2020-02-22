@@ -198,7 +198,15 @@ object ClientWriter {
     if (!typesMap.contains(letter)) letter else getTypeLetter(typesMap, letter + "A")
 
   def writeField(field: FieldDefinition, typeName: String, typesMap: Map[String, TypeDefinition]): String = {
-    val name      = safeName(field.name)
+    val name = safeName(field.name)
+    val description = field.description match {
+      case None => ""
+      case Some(d) =>
+        s"""/**
+           | * $d
+           | */
+           |""".stripMargin
+    }
     val fieldType = getTypeName(field.ofType)
     val isScalar = typesMap
       .get(fieldType)
@@ -281,7 +289,7 @@ object ClientWriter {
         }.mkString(", ")})"
     }
 
-    s"""def $name$typeParam$args$innerSelection: SelectionBuilder[$typeName, $outputType] = Field("${field.name}", $builder$argBuilder)"""
+    s"""${description}def $name$typeParam$args$innerSelection: SelectionBuilder[$typeName, $outputType] = Field("${field.name}", $builder$argBuilder)"""
   }
 
   def writeArgumentFields(args: List[InputValueDefinition]): String =
