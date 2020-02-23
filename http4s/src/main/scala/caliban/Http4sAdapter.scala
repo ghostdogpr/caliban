@@ -135,19 +135,18 @@ object Http4sAdapter {
                                     WebSocketFrame.Text(s"""{"type":"complete","id":"$id"}""")
                                   )
                               }
-                        } yield ()).catchAll(
-                          error =>
-                            sendQueue.enqueue1(
-                              WebSocketFrame.Text(
-                                Json
-                                  .obj(
-                                    "id"      -> Json.fromString(id),
-                                    "type"    -> Json.fromString("complete"),
-                                    "payload" -> Json.fromString(error.toString)
-                                  )
-                                  .noSpaces
-                              )
+                        } yield ()).catchAll(error =>
+                          sendQueue.enqueue1(
+                            WebSocketFrame.Text(
+                              Json
+                                .obj(
+                                  "id"      -> Json.fromString(id),
+                                  "type"    -> Json.fromString("complete"),
+                                  "payload" -> Json.fromString(error.toString)
+                                )
+                                .noSpaces
                             )
+                          )
                         )
                     }
                   case "stop" =>

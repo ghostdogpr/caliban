@@ -125,16 +125,15 @@ object ApolloCaching {
           cacheDirectives.foldLeft(query) {
             case (q, cacheDirective) =>
               q <* ZQuery.fromEffect(
-                ref.update(
-                  state =>
-                    state.copy(
-                      hints = CacheHint(
-                        path = fieldInfo.path,
-                        fieldName = fieldInfo.fieldName,
-                        maxAge = cacheDirective.maxAge getOrElse Duration.Zero,
-                        scope = cacheDirective.scope getOrElse CacheScope.Private
-                      ) :: state.hints
-                    )
+                ref.update(state =>
+                  state.copy(
+                    hints = CacheHint(
+                      path = fieldInfo.path,
+                      fieldName = fieldInfo.fieldName,
+                      maxAge = cacheDirective.maxAge getOrElse Duration.Zero,
+                      scope = cacheDirective.scope getOrElse CacheScope.Private
+                    ) :: state.hints
+                  )
                 )
               )
           }

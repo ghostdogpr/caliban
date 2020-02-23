@@ -11,7 +11,11 @@ object RenderingSpec
         test("it should render directives") {
           assert(
             graphQL(resolver).render.trim,
-            equalTo("""union Role = Captain | Engineer | Mechanic | Pilot
+            equalTo("""schema {
+                      |  query: Query
+                      |}
+                      |
+                      |union Role = Captain | Engineer | Mechanic | Pilot
                       |
                       |enum Origin {
                       |  BELT

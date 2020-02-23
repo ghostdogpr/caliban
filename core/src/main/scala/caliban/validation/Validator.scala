@@ -83,13 +83,12 @@ object Validator {
                 case Some(m) => IO.succeed(m)
                 case None    => IO.fail(ValidationError("Subscriptions are not supported on this schema", ""))
               }
-          }).map(
-            operation =>
-              ExecutionRequest(
-                F(op.selectionSet, fragments, variables, operation.opType, document.sourceMapper, Nil),
-                op.operationType,
-                op.variableDefinitions
-              )
+          }).map(operation =>
+            ExecutionRequest(
+              F(op.selectionSet, fragments, variables, operation.opType, document.sourceMapper, Nil),
+              op.operationType,
+              op.variableDefinitions
+            )
           )
       }
     }
@@ -128,8 +127,8 @@ object Validator {
         case FragmentSpread(name, directives) =>
           directives.flatMap(_.arguments.values) ++ context.fragments
             .get(name)
-            .fold(List.empty[InputValue])(
-              f => f.directives.flatMap(_.arguments.values) ++ collectValues(f.selectionSet)
+            .fold(List.empty[InputValue])(f =>
+              f.directives.flatMap(_.arguments.values) ++ collectValues(f.selectionSet)
             )
         case Field(_, _, arguments, directives, selectionSet, _) =>
           arguments.values ++ directives.flatMap(_.arguments.values) ++ collectValues(selectionSet)
@@ -150,19 +149,17 @@ object Validator {
 
   private def collectAllDirectives(context: Context): IO[ValidationError, List[(Directive, __DirectiveLocation)]] =
     for {
-      opDirectives <- IO.foreach(context.operations)(
-                       op =>
-                         checkDirectivesUniqueness(op.directives).as(op.operationType match {
-                           case OperationType.Query    => op.directives.map((_, __DirectiveLocation.QUERY))
-                           case OperationType.Mutation => op.directives.map((_, __DirectiveLocation.MUTATION))
-                           case OperationType.Subscription =>
-                             op.directives.map((_, __DirectiveLocation.SUBSCRIPTION))
-                         })
+      opDirectives <- IO.foreach(context.operations)(op =>
+                       checkDirectivesUniqueness(op.directives).as(op.operationType match {
+                         case OperationType.Query    => op.directives.map((_, __DirectiveLocation.QUERY))
+                         case OperationType.Mutation => op.directives.map((_, __DirectiveLocation.MUTATION))
+                         case OperationType.Subscription =>
+                           op.directives.map((_, __DirectiveLocation.SUBSCRIPTION))
+                       })
                      )
-      fragmentDirectives <- IO.foreach(context.fragments.values)(
-                             fragment =>
-                               checkDirectivesUniqueness(fragment.directives)
-                                 .as(fragment.directives.map((_, __DirectiveLocation.FRAGMENT_DEFINITION)))
+      fragmentDirectives <- IO.foreach(context.fragments.values)(fragment =>
+                             checkDirectivesUniqueness(fragment.directives)
+                               .as(fragment.directives.map((_, __DirectiveLocation.FRAGMENT_DEFINITION)))
                            )
       selectionDirectives <- collectDirectives(context.selectionSets)
     } yield opDirectives.flatten ++ fragmentDirectives.flatten ++ selectionDirectives
@@ -220,53 +217,50 @@ object Validator {
     } yield ()
 
   private def validateVariables(context: Context): IO[ValidationError, Unit] =
-    IO.foreach(context.operations)(
-        op =>
-          IO.foreach(op.variableDefinitions.groupBy(_.name)) {
-            case (name, variables) =>
-              IO.when(variables.length > 1)(
-                IO.fail(
-                  ValidationError(
-                    s"Variable '$name' is defined more than once.",
-                    "If any operation defines more than one variable with the same name, it is ambiguous and invalid. It is invalid even if the type of the duplicate variable is the same."
-                  )
+    IO.foreach(context.operations)(op =>
+        IO.foreach(op.variableDefinitions.groupBy(_.name)) {
+          case (name, variables) =>
+            IO.when(variables.length > 1)(
+              IO.fail(
+                ValidationError(
+                  s"Variable '$name' is defined more than once.",
+                  "If any operation defines more than one variable with the same name, it is ambiguous and invalid. It is invalid even if the type of the duplicate variable is the same."
                 )
               )
-          } *> IO.foreach(op.variableDefinitions) { v =>
-            val t = Type.innerType(v.variableType)
-            IO.whenCase(context.rootType.types.get(t).map(_.kind)) {
-              case Some(__TypeKind.OBJECT) | Some(__TypeKind.UNION) | Some(__TypeKind.INTERFACE) =>
-                IO.fail(
-                  ValidationError(
-                    s"Type of variable '${v.name}' is not a valid input type.",
-                    "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
-                  )
-                )
-            }
-          } *> {
-            val variableUsages = collectVariablesUsed(context, op.selectionSet)
-            IO.foreach(variableUsages)(
-              v =>
-                IO.when(!op.variableDefinitions.exists(_.name == v))(
-                  IO.fail(
-                    ValidationError(
-                      s"Variable '$v' is not defined.",
-                      "Variables are scoped on a per‐operation basis. That means that any variable used within the context of an operation must be defined at the top level of that operation"
-                    )
-                  )
-                )
-            ) *> IO.foreach(op.variableDefinitions)(
-              v =>
-                IO.when(!variableUsages.contains(v.name))(
-                  IO.fail(
-                    ValidationError(
-                      s"Variable '${v.name}' is not used.",
-                      "All variables defined by an operation must be used in that operation or a fragment transitively included by that operation. Unused variables cause a validation error."
-                    )
-                  )
-                )
             )
+        } *> IO.foreach(op.variableDefinitions) { v =>
+          val t = Type.innerType(v.variableType)
+          IO.whenCase(context.rootType.types.get(t).map(_.kind)) {
+            case Some(__TypeKind.OBJECT) | Some(__TypeKind.UNION) | Some(__TypeKind.INTERFACE) =>
+              IO.fail(
+                ValidationError(
+                  s"Type of variable '${v.name}' is not a valid input type.",
+                  "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
+                )
+              )
           }
+        } *> {
+          val variableUsages = collectVariablesUsed(context, op.selectionSet)
+          IO.foreach(variableUsages)(v =>
+            IO.when(!op.variableDefinitions.exists(_.name == v))(
+              IO.fail(
+                ValidationError(
+                  s"Variable '$v' is not defined.",
+                  "Variables are scoped on a per‐operation basis. That means that any variable used within the context of an operation must be defined at the top level of that operation"
+                )
+              )
+            )
+          ) *> IO.foreach(op.variableDefinitions)(v =>
+            IO.when(!variableUsages.contains(v.name))(
+              IO.fail(
+                ValidationError(
+                  s"Variable '${v.name}' is not used.",
+                  "All variables defined by an operation must be used in that operation or a fragment transitively included by that operation. Unused variables cause a validation error."
+                )
+              )
+            )
+          )
+        }
       )
       .unit
 
@@ -276,23 +270,22 @@ object Validator {
   private def validateFragmentSpreads(context: Context): IO[ValidationError, Unit] = {
     val spreads     = collectFragmentSpreads(context.selectionSets)
     val spreadNames = spreads.map(_.name).toSet
-    IO.foreach(context.fragments.values)(
-        f =>
-          if (!spreadNames.contains(f.name))
-            IO.fail(
+    IO.foreach(context.fragments.values)(f =>
+        if (!spreadNames.contains(f.name))
+          IO.fail(
+            ValidationError(
+              s"Fragment '${f.name}' is not used in any spread.",
+              "Defined fragments must be used within a document."
+            )
+          )
+        else
+          IO.fail(
               ValidationError(
-                s"Fragment '${f.name}' is not used in any spread.",
-                "Defined fragments must be used within a document."
+                s"Fragment '${f.name}' forms a cycle.",
+                "The graph of fragment spreads must not form any cycles including spreading itself. Otherwise an operation could infinitely spread or infinitely execute on cycles in the underlying data."
               )
             )
-          else
-            IO.fail(
-                ValidationError(
-                  s"Fragment '${f.name}' forms a cycle.",
-                  "The graph of fragment spreads must not form any cycles including spreading itself. Otherwise an operation could infinitely spread or infinitely execute on cycles in the underlying data."
-                )
-              )
-              .when(detectCycles(context, f))
+            .when(detectCycles(context, f))
       )
       .unit
   }
@@ -300,10 +293,9 @@ object Validator {
   private def detectCycles(context: Context, fragment: FragmentDefinition, visited: Set[String] = Set()): Boolean = {
     val selectionSets     = collectSelectionSets(fragment.selectionSet)
     val descendantSpreads = collectFragmentSpreads(selectionSets)
-    descendantSpreads.exists(
-      s =>
-        visited.contains(s.name) ||
-          context.fragments.get(s.name).fold(false)(f => detectCycles(context, f, visited + s.name))
+    descendantSpreads.exists(s =>
+      visited.contains(s.name) ||
+        context.fragments.get(s.name).fold(false)(f => detectCycles(context, f, visited + s.name))
     )
   }
 
@@ -418,17 +410,16 @@ object Validator {
           case Some(inputValue) => validateInputValues(inputValue, argValue)
         }
     } *>
-      IO.foreach(f.args.filter(a => a.`type`().kind == __TypeKind.NON_NULL && a.defaultValue.isEmpty))(
-        arg =>
-          IO.when(field.arguments.get(arg.name).forall(_ == NullValue))(
-            IO.fail(
-              ValidationError(
-                s"Required argument '${arg.name}' is null or missing on field '${field.name}' of type '${currentType.name
-                  .getOrElse("")}'.",
-                "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
-              )
+      IO.foreach(f.args.filter(a => a.`type`().kind == __TypeKind.NON_NULL && a.defaultValue.isEmpty))(arg =>
+        IO.when(field.arguments.get(arg.name).forall(_ == NullValue))(
+          IO.fail(
+            ValidationError(
+              s"Required argument '${arg.name}' is null or missing on field '${field.name}' of type '${currentType.name
+                .getOrElse("")}'.",
+              "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
             )
           )
+        )
       )
 
   private def validateInputValues(inputValue: __InputValue, argValue: InputValue): IO[ValidationError, Unit] = {
@@ -450,20 +441,19 @@ object Validator {
               case Some(value) => validateInputValues(value, v)
             }
         } *> IO
-          .foreach(inputFields)(
-            inputField =>
-              IO.when(
-                inputField.defaultValue.isEmpty &&
-                  inputField.`type`().kind == __TypeKind.NON_NULL &&
-                  !fields.contains(inputField.name)
-              )(
-                IO.fail(
-                  ValidationError(
-                    s"Required field '${inputField.name}' on object '${inputType.name.getOrElse("?")}' was not provided.",
-                    "Input object fields may be required. Much like a field may have required arguments, an input object may have required fields. An input field is required if it has a non‐null type and does not have a default value. Otherwise, the input object field is optional."
-                  )
+          .foreach(inputFields)(inputField =>
+            IO.when(
+              inputField.defaultValue.isEmpty &&
+                inputField.`type`().kind == __TypeKind.NON_NULL &&
+                !fields.contains(inputField.name)
+            )(
+              IO.fail(
+                ValidationError(
+                  s"Required field '${inputField.name}' on object '${inputType.name.getOrElse("?")}' was not provided.",
+                  "Input object fields may be required. Much like a field may have required arguments, an input object may have required fields. An input field is required if it has a non‐null type and does not have a default value. Otherwise, the input object field is optional."
                 )
               )
+            )
           )
           .unit
       case _ => IO.unit
@@ -534,9 +524,8 @@ object Validator {
           t <- context.rootType.subscriptionType
           op <- context.operations
                  .filter(_.operationType == OperationType.Subscription)
-                 .find(
-                   op =>
-                     F(op.selectionSet, context.fragments, Map.empty[String, InputValue], t, SourceMapper.empty, Nil).fields.length > 1
+                 .find(op =>
+                   F(op.selectionSet, context.fragments, Map.empty[String, InputValue], t, SourceMapper.empty, Nil).fields.length > 1
                  )
         } yield op
       )

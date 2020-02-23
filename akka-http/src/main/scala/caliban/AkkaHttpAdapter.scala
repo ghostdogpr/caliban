@@ -62,7 +62,7 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
       }
     } ~
       post {
-        entity(as[GraphQLRequest]) { completeRequest(interpreter) }
+        entity(as[GraphQLRequest])(completeRequest(interpreter))
       }
   }
 
@@ -75,19 +75,18 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
       data: ResponseValue,
       errors: List[E]
     ): Task[QueueOfferResult] =
-      IO.fromFuture(
-        _ =>
-          sendQueue.offer(
-            TextMessage(
-              Json
-                .obj(
-                  "id"      -> Json.fromString(id),
-                  "type"    -> Json.fromString("data"),
-                  "payload" -> GraphQLResponse(data, errors).asJson
-                )
-                .noSpaces
-            )
+      IO.fromFuture(_ =>
+        sendQueue.offer(
+          TextMessage(
+            Json
+              .obj(
+                "id"      -> Json.fromString(id),
+                "type"    -> Json.fromString("data"),
+                "payload" -> GraphQLResponse(data, errors).asJson
+              )
+              .noSpaces
           )
+        )
       )
 
     import akka.http.scaladsl.server.Directives._
@@ -120,26 +119,24 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
                                       sendMessage(queue, id, ObjectValue(List(fieldName -> item)), result.errors)
                                     }.fork.flatMap(fiber => subscriptions.update(_.updated(id, fiber)))
                                   case other =>
-                                    sendMessage(queue, id, other, result.errors) *> IO.fromFuture(
-                                      _ => queue.offer(TextMessage(s"""{"type":"complete","id":"$id"}"""))
+                                    sendMessage(queue, id, other, result.errors) *> IO.fromFuture(_ =>
+                                      queue.offer(TextMessage(s"""{"type":"complete","id":"$id"}"""))
                                     )
                                 }
-                          } yield ()).catchAll(
-                            error =>
-                              IO.fromFuture(
-                                _ =>
-                                  queue.offer(
-                                    TextMessage(
-                                      Json
-                                        .obj(
-                                          "id"      -> Json.fromString(id),
-                                          "type"    -> Json.fromString("complete"),
-                                          "payload" -> Json.fromString(error.toString)
-                                        )
-                                        .noSpaces
+                          } yield ()).catchAll(error =>
+                            IO.fromFuture(_ =>
+                              queue.offer(
+                                TextMessage(
+                                  Json
+                                    .obj(
+                                      "id"      -> Json.fromString(id),
+                                      "type"    -> Json.fromString("complete"),
+                                      "payload" -> Json.fromString(error.toString)
                                     )
-                                  )
+                                    .noSpaces
+                                )
                               )
+                            )
                           )
                       }
                     case "stop" =>

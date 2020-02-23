@@ -73,10 +73,8 @@ object CodegenPlugin extends AutoPlugin {
       schema        <- Parser.parseQuery(schema_string)
       code          = writer(schema, objectName, packageName)
       formatted     <- Formatter.format(code, fmtPath)
-      _ <- Task(new PrintWriter(new File(toPath))).bracket(q => UIO(q.close()), { pw =>
-            Task(pw.println(formatted))
-          })
-      _ <- putStrLn(s"Code generation done")
+      _             <- Task(new PrintWriter(new File(toPath))).bracket(q => UIO(q.close()), pw => Task(pw.println(formatted)))
+      _             <- putStrLn(s"Code generation done")
     } yield ()
 
 }

@@ -139,14 +139,14 @@ trait GraphQL[-R] { self =>
     subscriptionsName: Option[String] = None
   ): GraphQL[R] = new GraphQL[R] {
     override protected val schema: RootSchema[R] = self.schema.copy(
-      query = queriesName.fold(self.schema.query)(
-        name => self.schema.query.copy(opType = self.schema.query.opType.copy(name = Some(name)))
+      query = queriesName.fold(self.schema.query)(name =>
+        self.schema.query.copy(opType = self.schema.query.opType.copy(name = Some(name)))
       ),
-      mutation = mutationsName.fold(self.schema.mutation)(
-        name => self.schema.mutation.map(m => m.copy(opType = m.opType.copy(name = Some(name))))
+      mutation = mutationsName.fold(self.schema.mutation)(name =>
+        self.schema.mutation.map(m => m.copy(opType = m.opType.copy(name = Some(name))))
       ),
-      subscription = subscriptionsName.fold(self.schema.subscription)(
-        name => self.schema.subscription.map(m => m.copy(opType = m.opType.copy(name = Some(name))))
+      subscription = subscriptionsName.fold(self.schema.subscription)(name =>
+        self.schema.subscription.map(m => m.copy(opType = m.opType.copy(name = Some(name))))
       )
     )
     override protected val wrappers: List[Wrapper[R]] = self.wrappers

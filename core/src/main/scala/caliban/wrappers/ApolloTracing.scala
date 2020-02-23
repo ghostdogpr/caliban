@@ -22,12 +22,11 @@ object ApolloTracing {
     EffectfulWrapper(
       Ref
         .make(Tracing())
-        .map(
-          ref =>
-            apolloTracingOverall(ref) |+|
-              apolloTracingParsing(ref) |+|
-              apolloTracingValidation(ref) |+|
-              apolloTracingField(ref)
+        .map(ref =>
+          apolloTracingOverall(ref) |+|
+            apolloTracingParsing(ref) |+|
+            apolloTracingValidation(ref) |+|
+            apolloTracingField(ref)
         )
     )
 
@@ -129,11 +128,10 @@ object ApolloTracing {
         for {
           start              <- clock.nanoTime
           (duration, result) <- io.timed
-          _ <- ref.update(
-                state =>
-                  state.copy(
-                    parsing = state.parsing.copy(startOffset = start - state.startTimeMonotonic, duration = duration)
-                  )
+          _ <- ref.update(state =>
+                state.copy(
+                  parsing = state.parsing.copy(startOffset = start - state.startTimeMonotonic, duration = duration)
+                )
               )
         } yield result
     }
@@ -144,12 +142,11 @@ object ApolloTracing {
         for {
           start              <- clock.nanoTime
           (duration, result) <- io.timed
-          _ <- ref.update(
-                state =>
-                  state.copy(
-                    validation =
-                      state.validation.copy(startOffset = start - state.startTimeMonotonic, duration = duration)
-                  )
+          _ <- ref.update(state =>
+                state.copy(
+                  validation =
+                    state.validation.copy(startOffset = start - state.startTimeMonotonic, duration = duration)
+                )
               )
         } yield result
     }
@@ -159,28 +156,25 @@ object ApolloTracing {
       {
         case (query, fieldInfo) =>
           for {
-            summarized <- query.summarized { (start: Long, end: Long) =>
-                           (start, end)
-                         }(clock.nanoTime)
+            summarized             <- query.summarized((start: Long, end: Long) => (start, end))(clock.nanoTime)
             ((start, end), result) = summarized
             duration               = Duration.fromNanos(end - start)
             _ <- ZQuery.fromEffect(
                   ref
-                    .update(
-                      state =>
-                        state.copy(
-                          execution = state.execution.copy(
-                            resolvers =
-                              Resolver(
-                                path = fieldInfo.path,
-                                parentType = fieldInfo.parentType.fold("")(Rendering.renderTypeName),
-                                fieldName = fieldInfo.fieldName,
-                                returnType = Rendering.renderTypeName(fieldInfo.returnType),
-                                startOffset = start - state.startTimeMonotonic,
-                                duration = duration
-                              ) :: state.execution.resolvers
-                          )
+                    .update(state =>
+                      state.copy(
+                        execution = state.execution.copy(
+                          resolvers =
+                            Resolver(
+                              path = fieldInfo.path,
+                              parentType = fieldInfo.parentType.fold("")(Rendering.renderTypeName),
+                              fieldName = fieldInfo.fieldName,
+                              returnType = Rendering.renderTypeName(fieldInfo.returnType),
+                              startOffset = start - state.startTimeMonotonic,
+                              duration = duration
+                            ) :: state.execution.resolvers
                         )
+                      )
                     )
                 )
           } yield result
