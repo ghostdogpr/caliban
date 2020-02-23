@@ -31,8 +31,9 @@ object Validator {
   def validateSchema(rootType: RootType): IO[ValidationError, Unit] =
     IO.foreach(rootType.types.values) { t =>
         t.kind match {
-          case __TypeKind.ENUM => validateEnum(t)
-          case _               => IO.unit
+          case __TypeKind.ENUM  => validateEnum(t)
+          case __TypeKind.UNION => validateUnion(t)
+          case _                => IO.unit
         }
       }
       .unit
@@ -572,6 +573,34 @@ object Validator {
           )
         )
     }
+
+  private def validateUnion(t: __Type): IO[ValidationError, Unit] = {
+
+    def isObject(t: __Type): Boolean = t.kind match {
+      case __TypeKind.OBJECT => true
+      case _                 => false
+    }
+
+    t.possibleTypes match {
+      case None | Some(Nil) =>
+        IO.fail(
+          ValidationError(
+            s"Union ${t.name.getOrElse("")} doesn't contain any type.",
+            "A Union type must include one or more unique member types."
+          )
+        )
+      case Some(types) if !types.forall(isObject) =>
+        IO.fail(
+          ValidationError(
+            s"Union ${t.name.getOrElse("")} contains the following non Object types: " +
+              types.filterNot(isObject).map(_.name.getOrElse("")).filterNot(_.isEmpty).mkString("", ", ", "."),
+            s"The member types of a Union type must all be Object base types."
+          )
+        )
+      case _ => IO.unit
+    }
+
+  }
 
   case class Context(
     document: Document,

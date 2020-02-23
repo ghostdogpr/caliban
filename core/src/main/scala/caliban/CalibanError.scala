@@ -28,7 +28,7 @@ object CalibanError {
    */
   case class ValidationError(msg: String, explanatoryText: String, locationInfo: Option[LocationInfo] = None)
       extends CalibanError {
-    override def toString: String = s"ValidationError Error: $msg}"
+    override def toString: String = s"ValidationError Error: $msg"
   }
 
   /**
