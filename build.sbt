@@ -180,7 +180,8 @@ lazy val finch = project
     libraryDependencies ++= Seq(
       "com.github.finagle" %% "finchx-core"      % "0.31.0",
       "com.github.finagle" %% "finchx-circe"     % "0.31.0",
-      "dev.zio"            %% "zio-interop-cats" % "2.0.0.0-RC10"
+      "dev.zio"            %% "zio-interop-cats" % "2.0.0.0-RC10",
+      "org.typelevel"      %% "cats-effect"      % "2.0.0"
     )
   )
   .dependsOn(coreJVM)
