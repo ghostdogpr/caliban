@@ -460,6 +460,7 @@ object ParserSpec
                     None,
                     "Hero",
                     Nil,
+                    Nil,
                     List(
                       FieldDefinition(
                         Some("name desc"),

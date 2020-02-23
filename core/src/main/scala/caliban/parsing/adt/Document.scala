@@ -13,8 +13,14 @@ object Document {
   def inputObjectTypeDefinitions(doc: Document): List[InputObjectTypeDefinition] = doc.definitions.collect {
     case td: InputObjectTypeDefinition => td
   }
+  def interfaceTypeDefinitions(doc: Document): List[InterfaceTypeDefinition] = doc.definitions.collect {
+    case td: InterfaceTypeDefinition => td
+  }
   def enumTypeDefinitions(doc: Document): List[EnumTypeDefinition] = doc.definitions.collect {
     case td: EnumTypeDefinition => td
+  }
+  def scalarTypeDefinitions(doc: Document): List[ScalarTypeDefinition] = doc.definitions.collect {
+    case td: ScalarTypeDefinition => td
   }
   def unionTypeDefinitions(doc: Document): List[UnionTypeDefinition] = doc.definitions.collect {
     case td: UnionTypeDefinition => td

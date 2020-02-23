@@ -69,7 +69,15 @@ trait GraphQL[-R] { self =>
   /**
    * Returns a string that renders the API types into the GraphQL format.
    */
-  final def render: String = renderTypes(rootType.types)
+  final def render: String =
+    s"""schema {
+       |${schema.query.opType.name.fold("")(n => s"  query: $n\n")}${schema.mutation
+         .flatMap(_.opType.name)
+         .fold("")(n => s"  mutation: $n\n")}${schema.subscription
+         .flatMap(_.opType.name)
+         .fold("")(n => s"  subscription: $n\n")}}
+       |
+       |${renderTypes(rootType.types)}""".stripMargin
 
   /**
    * Creates an interpreter from your API. A GraphQLInterpreter is a wrapper around your API that allows
