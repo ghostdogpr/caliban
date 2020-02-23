@@ -58,35 +58,26 @@ private object ErrorCirce {
     case CalibanError.ParsingError(msg, locationInfo, _) =>
       Json
         .obj(
-          "message" -> s"Parsing Error: $msg".asJson,
-          "locations" -> Some(locationInfo).collect {
-            case Some(li) => Json.arr(locationToJson(li))
-          }.asJson
+          "message"   -> s"Parsing Error: $msg".asJson,
+          "locations" -> locationInfo.fold(Json.Null)(li => Json.arr(locationToJson(li)))
         )
         .dropNullValues
     case CalibanError.ValidationError(msg, _, locationInfo) =>
       Json
         .obj(
-          "message" -> msg.asJson,
-          "locations" -> Some(locationInfo).collect {
-            case Some(li) => Json.arr(locationToJson(li))
-          }.asJson
+          "message"   -> msg.asJson,
+          "locations" -> locationInfo.fold(Json.Null)(li => Json.arr(locationToJson(li)))
         )
         .dropNullValues
     case CalibanError.ExecutionError(msg, path, locationInfo, _) =>
       Json
         .obj(
-          "message" -> msg.asJson,
-          "locations" -> Some(locationInfo).collect {
-            case Some(li) => Json.arr(locationToJson(li))
-          }.asJson,
-          "path" -> Some(path).collect {
-            case p if p.nonEmpty =>
-              Json.fromValues(p.map {
-                case Left(value)  => value.asJson
-                case Right(value) => value.asJson
-              })
-          }.asJson
+          "message"   -> msg.asJson,
+          "locations" -> locationInfo.fold(Json.Null)(li => Json.arr(locationToJson(li))),
+          "path" -> (path match {
+            case path if path.isEmpty => Json.Null
+            case path                 => Json.fromValues(path.map(_.fold(_.asJson, _.asJson)))
+          })
         )
         .dropNullValues
   }

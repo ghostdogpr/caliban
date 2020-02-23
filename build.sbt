@@ -52,6 +52,8 @@ lazy val root = project
     finch,
     http4s,
     akkaHttp,
+    play_27,
+    play_28,
     catsInteropJVM,
     catsInteropJS,
     monixInterop,
@@ -153,6 +155,17 @@ lazy val http4s = project
     )
   )
   .dependsOn(coreJVM)
+
+lazy val play_base = project
+  .in(file("play"))
+  .settings(name := "caliban-play", commonSettings)
+  .dependsOn(coreJVM)
+
+lazy val play_28 =
+  play_base.settings(libraryDependencies += "com.typesafe.play" %% "play" % "2.8.1")
+
+lazy val play_27 =
+  play_base.settings(libraryDependencies += "com.typesafe.play" %% "play" % "2.7.4")
 
 lazy val akkaHttp = project
   .in(file("akka-http"))
