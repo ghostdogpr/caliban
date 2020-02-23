@@ -1,10 +1,11 @@
 package caliban.finch
 
+import scala.language.postfixOps
 import caliban.ExampleData.{ sampleCharacters, Character, CharacterArgs, CharactersArgs, Role }
 import caliban.GraphQL.graphQL
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.GenericSchema
-import caliban.{ ExampleService, FinchHttpAdapter, RootResolver }
+import caliban.{ ExampleService, FinchHttpAdapter, GraphQL, RootResolver }
 import io.finch.Endpoint
 import zio.clock.Clock
 import zio.console.Console
@@ -32,22 +33,29 @@ object ExampleApp extends App with GenericSchema[Console with Clock] with Endpoi
   case class Mutations(deleteCharacter: CharacterArgs => URIO[Console, Boolean])
   case class Subscriptions(characterDeleted: ZStream[Console, Nothing, String])
 
-  val interpreter = defaultRuntime.unsafeRun(
-    ExampleService
-      .make(sampleCharacters)
-      .map(service => {
-        graphQL(
-          RootResolver(
-            Queries(
-              args => service.getCharacters(args.origin),
-              args => service.findCharacter(args.name)
-            ),
-            Mutations(args => service.deleteCharacter(args.name)),
-            Subscriptions(service.deletedEvents)
-          )
-        ).interpreter
-      })
-  )
+  import zio.duration._
+  import caliban.wrappers.Wrappers._
+  import caliban.wrappers.ApolloTracing.apolloTracing
+
+  def makeApi(service: ExampleService): GraphQL[Console with Clock] =
+    graphQL(
+      RootResolver(
+        Queries(
+          args => service.getCharacters(args.origin),
+          args => service.findCharacter(args.name)
+        ),
+        Mutations(args => service.deleteCharacter(args.name)),
+        Subscriptions(service.deletedEvents)
+      )
+    ) @@
+      maxFields(200) @@               // query analyzer that limit query fields
+      maxDepth(30) @@                 // query analyzer that limit query depth
+      timeout(3 seconds) @@           // wrapper that fails slow queries
+      printSlowQueries(500 millis) @@ // wrapper that logs slow queries
+      apolloTracing                   // wrapper for https://github.com/apollographql/apollo-tracing
+
+  val service     = defaultRuntime.unsafeRun(ExampleService.make(sampleCharacters))
+  val interpreter = defaultRuntime.unsafeRun(makeApi(service).interpreter)
 
   /**
    * curl -X POST \
@@ -61,9 +69,9 @@ object ExampleApp extends App with GenericSchema[Console with Clock] with Endpoi
   import io.finch._
   import io.finch.circe._
   import com.twitter.finagle.Http
-  val service: Endpoint[Task, Json] = FinchHttpAdapter.makeHttpService(interpreter)
+  val endpoint: Endpoint[Task, Json] = FinchHttpAdapter.makeHttpService(interpreter)
 
-  val server = Http.server.serve(":8088", ("api" :: "graphql" :: service).toService)
+  val server = Http.server.serve(":8088", ("api" :: "graphql" :: endpoint).toService)
 
   println(s"Server online at http://localhost:8088/\nPress RETURN to stop...")
   Await.ready(server)
