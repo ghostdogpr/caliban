@@ -27,19 +27,17 @@ object SchemaWriterSpec
 
           val typeCaseClass = Parser
             .parseQuery(schema)
-            .map(doc => {
-              Document.objectTypeDefinitions(doc).map(SchemaWriter.writeObject).mkString("\n")
-            })
+            .map(doc => Document.objectTypeDefinitions(doc).map(SchemaWriter.writeObject).mkString("\n"))
 
           val typeCaseClassArgs = Parser
             .parseQuery(schema)
-            .map(doc => {
+            .map { doc =>
               (for {
                 typeDef      <- Document.objectTypeDefinitions(doc)
                 typeDefField <- typeDef.fields
                 argClass     = SchemaWriter.writeArguments(typeDefField) if argClass.length > 0
               } yield argClass).mkString("\n")
-            })
+            }
 
           assertM(
             typeCaseClass,
@@ -68,12 +66,12 @@ object SchemaWriterSpec
 
           val result = Parser
             .parseQuery(schema)
-            .map(doc => {
+            .map { doc =>
               Document
                 .objectTypeDefinition(doc, "Query")
                 .map(SchemaWriter.writeRootQueryOrMutationDef)
                 .mkString("\n")
-            })
+            }
 
           assertM(
             result,
@@ -95,12 +93,12 @@ userList: () => List[Option[User]]
          """
           val result = Parser
             .parseQuery(schema)
-            .map(doc => {
+            .map { doc =>
               Document
                 .objectTypeDefinition(doc, "Mutation")
                 .map(SchemaWriter.writeRootQueryOrMutationDef)
                 .mkString("\n")
-            })
+            }
 
           assertM(
             result,
@@ -122,12 +120,12 @@ userList: () => List[Option[User]]
 
           val result = Parser
             .parseQuery(schema)
-            .map(doc => {
+            .map { doc =>
               Document
                 .objectTypeDefinition(doc, "Subscription")
                 .map(SchemaWriter.writeRootSubscriptionDef)
                 .mkString("\n")
-            })
+            }
 
           assertM(
             result,

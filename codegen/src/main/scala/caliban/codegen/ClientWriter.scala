@@ -30,13 +30,12 @@ object ClientWriter {
 
     val objects = Document
       .objectTypeDefinitions(schema)
-      .filterNot(
-        obj =>
-          reservedType(obj) ||
-            unionTypes.values.flatten.exists(_.name == obj.name) ||
-            schemaDef.exists(_.query.getOrElse("Query") == obj.name) ||
-            schemaDef.exists(_.mutation.getOrElse("Mutation") == obj.name) ||
-            schemaDef.exists(_.subscription.getOrElse("Subscription") == obj.name)
+      .filterNot(obj =>
+        reservedType(obj) ||
+          unionTypes.values.flatten.exists(_.name == obj.name) ||
+          schemaDef.exists(_.query.getOrElse("Query") == obj.name) ||
+          schemaDef.exists(_.mutation.getOrElse("Mutation") == obj.name) ||
+          schemaDef.exists(_.subscription.getOrElse("Subscription") == obj.name)
       )
       .map(writeObject(_, typesMap))
       .mkString("\n")
@@ -238,11 +237,10 @@ object ClientWriter {
       .collect {
         case InterfaceTypeDefinition(_, name, _, _) => name
       }
-      .map(
-        interface =>
-          typesMap.values.collect {
-            case o @ ObjectTypeDefinition(_, _, implements, _, _) if implements.exists(_.name == interface) => o
-          }
+      .map(interface =>
+        typesMap.values.collect {
+          case o @ ObjectTypeDefinition(_, _, implements, _, _) if implements.exists(_.name == interface) => o
+        }
       )
       .getOrElse(Nil)
     val typeLetter = getTypeLetter(typesMap)
@@ -285,16 +283,12 @@ object ClientWriter {
     val args = field.args match {
       case Nil => ""
       case list =>
-        s"(${list.map { arg =>
-          s"${safeName(arg.name)}: ${writeType(arg.ofType)}"
-        }.mkString(", ")})"
+        s"(${list.map(arg => s"${safeName(arg.name)}: ${writeType(arg.ofType)}").mkString(", ")})"
     }
     val argBuilder = field.args match {
       case Nil => ""
       case list =>
-        s", arguments = List(${list.map { arg =>
-          s"""Argument("${arg.name}", ${safeName(arg.name)})"""
-        }.mkString(", ")})"
+        s", arguments = List(${list.map(arg => s"""Argument("${arg.name}", ${safeName(arg.name)})""").mkString(", ")})"
     }
 
     s"""$description${deprecated}def $name$typeParam$args$innerSelection: SelectionBuilder[$typeName, $outputType] = Field("${field.name}", $builder$argBuilder)"""

@@ -27,16 +27,12 @@ object MonixInterop {
     }
 
   def checkAsync[R](graphQL: GraphQL[R])(query: String)(implicit runtime: Runtime[R]): MonixTask[Unit] =
-    MonixTask.async { cb =>
-      runtime.unsafeRunAsync(graphQL.check(query))(exit => cb(exit.toEither))
-    }
+    MonixTask.async(cb => runtime.unsafeRunAsync(graphQL.check(query))(exit => cb(exit.toEither)))
 
   def interpreterAsync[R](
     graphQL: GraphQL[R]
   )(implicit runtime: Runtime[R]): MonixTask[GraphQLInterpreter[R, CalibanError]] =
-    MonixTask.async { cb =>
-      runtime.unsafeRunAsync(graphQL.interpreter)(exit => cb(exit.toEither))
-    }
+    MonixTask.async(cb => runtime.unsafeRunAsync(graphQL.interpreter)(exit => cb(exit.toEither)))
 
   def taskSchema[R, A](implicit ev: Schema[R, A], ev2: ConcurrentEffect[MonixTask]): Schema[R, MonixTask[A]] =
     new Schema[R, MonixTask[A]] {
@@ -57,8 +53,8 @@ object MonixInterop {
           ZStream.flatten(
             ZStream.fromEffect(
               MonixTask
-                .deferAction(
-                  implicit sc => MonixTask.eval(value.toReactivePublisher.toStream(queueSize).map(ev.resolve))
+                .deferAction(implicit sc =>
+                  MonixTask.eval(value.toReactivePublisher.toStream(queueSize).map(ev.resolve))
                 )
                 .to[Task]
             )

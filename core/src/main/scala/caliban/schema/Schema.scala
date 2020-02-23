@@ -223,12 +223,11 @@ trait GenericSchema[R] extends DerivationSchema[R] {
       override def toType(isInput: Boolean = false): __Type = ev2.toType(isInput)
 
       override def resolve(f: A => B): Step[RA with RB] =
-        FunctionStep(
-          args =>
-            arg1.build(InputValue.ObjectValue(args)) match {
-              case Left(error)  => QueryStep(ZQuery.fail(error))
-              case Right(value) => ev2.resolve(f(value))
-            }
+        FunctionStep(args =>
+          arg1.build(InputValue.ObjectValue(args)) match {
+            case Left(error)  => QueryStep(ZQuery.fail(error))
+            case Right(value) => ev2.resolve(f(value))
+          }
         )
     }
   implicit def futureSchema[A](implicit ev: Schema[R, A]): Schema[R, Future[A]] =
@@ -290,16 +289,15 @@ trait DerivationSchema[R] {
             .getOrElse(customizeInputTypeName(getName(ctx)))),
           getDescription(ctx),
           ctx.parameters
-            .map(
-              p =>
-                __InputValue(
-                  p.label,
-                  getDescription(p),
-                  () =>
-                    if (p.typeclass.optional) p.typeclass.toType(isInput) else makeNonNull(p.typeclass.toType(isInput)),
-                  None,
-                  Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
-                )
+            .map(p =>
+              __InputValue(
+                p.label,
+                getDescription(p),
+                () =>
+                  if (p.typeclass.optional) p.typeclass.toType(isInput) else makeNonNull(p.typeclass.toType(isInput)),
+                None,
+                Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
+              )
             )
             .toList
         )
@@ -308,18 +306,17 @@ trait DerivationSchema[R] {
           Some(getName(ctx)),
           getDescription(ctx),
           ctx.parameters
-            .map(
-              p =>
-                __Field(
-                  p.label,
-                  getDescription(p),
-                  p.typeclass.arguments,
-                  () =>
-                    if (p.typeclass.optional) p.typeclass.toType(isInput) else makeNonNull(p.typeclass.toType(isInput)),
-                  p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
-                  p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
-                  Option(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
-                )
+            .map(p =>
+              __Field(
+                p.label,
+                getDescription(p),
+                p.typeclass.arguments,
+                () =>
+                  if (p.typeclass.optional) p.typeclass.toType(isInput) else makeNonNull(p.typeclass.toType(isInput)),
+                p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
+                p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
+                Option(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
+              )
             )
             .toList,
           getDirectives(ctx)

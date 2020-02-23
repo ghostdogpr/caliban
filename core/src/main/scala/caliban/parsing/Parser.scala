@@ -28,9 +28,7 @@ object Parser {
   private def comment[_: P]: P[Unit]        = P("#" ~~ commentChar.repX)
   private def ignored[_: P]: P[Unit]        = P(unicodeBOM | whiteSpace | lineTerminator | comment | comma).repX
 
-  implicit val whitespace: P[_] => P[Unit] = { implicit ctx: ParsingRun[_] =>
-    ignored
-  }
+  implicit val whitespace: P[_] => P[Unit] = { implicit ctx: ParsingRun[_] => ignored }
 
   private def name[_: P]: P[String] = P(CharIn("_A-Za-z") ~~ CharIn("_0-9A-Za-z").repX).!
 
