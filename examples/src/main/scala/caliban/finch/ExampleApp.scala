@@ -1,18 +1,18 @@
 package caliban.finch
 
-import scala.io.StdIn
 import caliban.ExampleData.{ sampleCharacters, Character, CharacterArgs, CharactersArgs, Role }
 import caliban.GraphQL.graphQL
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.GenericSchema
 import caliban.{ ExampleService, FinchHttpAdapter, RootResolver }
-import com.twitter.finagle.Http
 import io.finch.Endpoint
 import zio.clock.Clock
 import zio.console.Console
 import zio.stream.ZStream
 import zio.{ DefaultRuntime, Task, URIO }
 import com.twitter.util.Await
+import io.circe.Json
+import zio.interop.catz._
 
 object ExampleApp extends App with GenericSchema[Console with Clock] with Endpoint.Module[Task] {
 
@@ -48,8 +48,6 @@ object ExampleApp extends App with GenericSchema[Console with Clock] with Endpoi
         ).interpreter
       })
   )
-  import io.finch._
-  import io.finch.circe._
 
   /**
    * curl -X POST \
@@ -60,12 +58,12 @@ object ExampleApp extends App with GenericSchema[Console with Clock] with Endpoi
    * "query": "query { characters { name }}"
    * }'
    */
+  import io.finch._
+  import io.finch.circe._
   import com.twitter.finagle.Http
+  val service: Endpoint[Task, Json] = FinchHttpAdapter.makeHttpService(interpreter)
 
-  val route = Bootstrap
-    .serve[Application.Json](FinchHttpAdapter.makeHttpService(interpreter))
-
-  val server = Http.server.serve(":8080", route)
+  val server = Http.server.serve(":8088", ("api" :: "graphql" :: service).toService)
 
   println(s"Server online at http://localhost:8088/\nPress RETURN to stop...")
   Await.ready(server)
