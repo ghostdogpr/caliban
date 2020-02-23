@@ -177,6 +177,7 @@ lazy val finch = project
   .settings(name := "caliban-finch")
   .settings(commonSettings)
   .settings(
+    crossScalaVersions := Seq("2.12.10"),
     libraryDependencies ++= Seq(
       "com.github.finagle" %% "finchx-core"      % "0.31.0",
       "com.github.finagle" %% "finchx-circe"     % "0.31.0",
