@@ -567,7 +567,7 @@ object Validator {
       case _ =>
         IO.fail(
           ValidationError(
-            s"Enum ${t.name} doesn't contain any values",
+            s"Enum ${t.name.getOrElse("")} doesn't contain any values",
             "An Enum type must define one or more unique enum values."
           )
         )
