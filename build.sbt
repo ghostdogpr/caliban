@@ -56,7 +56,9 @@ lazy val root = project
     monixInterop,
     clientJVM,
     clientJS,
-    codegen
+    codegen,
+    derivationJVM,
+    derivationJS
   )
 
 lazy val core = crossProject(JSPlatform, JVMPlatform)
@@ -212,6 +214,34 @@ lazy val benchmarks = project
       "org.sangria-graphql" %% "sangria-circe" % "1.2.1"
     )
   )
+
+lazy val derivation = crossProject(JSPlatform, JVMPlatform)
+  .crossType(CrossType.Pure)
+  .in(file("derivation"))
+  .settings(name := "caliban-derivation")
+  .settings(commonSettings)
+  .settings(
+    libraryDependencies ++= Seq(
+      "org.scala-lang" % "scala-reflect" % scalaVersion.value
+    )
+  )
+  .settings(
+    scalacOptions ++= {
+      CrossVersion.partialVersion(scalaVersion.value) match {
+        case Some((2, n)) if n >= 13 => "-Ymacro-annotations" :: Nil
+        case _                       => Nil
+      }
+    },
+    libraryDependencies ++= {
+      CrossVersion.partialVersion(scalaVersion.value) match {
+        case Some((2, n)) if n >= 13 => Nil
+        case _                       => compilerPlugin("org.scalamacros" % "paradise" % "2.1.1" cross CrossVersion.full) :: Nil
+      }
+    }
+  )
+  .dependsOn(core)
+lazy val derivationJVM = derivation.jvm
+lazy val derivationJS  = derivation.js
 
 val commonSettings = Def.settings(
   scalaVersion := mainScala,
