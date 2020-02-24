@@ -1,19 +1,21 @@
 package caliban.finch
 
-import scala.language.postfixOps
 import caliban.ExampleData.{ sampleCharacters, Character, CharacterArgs, CharactersArgs, Role }
 import caliban.GraphQL.graphQL
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.GenericSchema
 import caliban.{ ExampleService, FinchHttpAdapter, GraphQL, RootResolver }
+import com.twitter.io.{ Buf, Reader }
+import com.twitter.util.Await
+import io.circe.Json
 import io.finch.Endpoint
 import zio.clock.Clock
 import zio.console.Console
+import zio.interop.catz._
 import zio.stream.ZStream
 import zio.{ DefaultRuntime, Task, URIO }
-import com.twitter.util.Await
-import io.circe.Json
-import zio.interop.catz._
+
+import scala.language.postfixOps
 
 object ExampleApp extends App with GenericSchema[Console with Clock] with Endpoint.Module[Task] {
 
@@ -33,9 +35,9 @@ object ExampleApp extends App with GenericSchema[Console with Clock] with Endpoi
   case class Mutations(deleteCharacter: CharacterArgs => URIO[Console, Boolean])
   case class Subscriptions(characterDeleted: ZStream[Console, Nothing, String])
 
-  import zio.duration._
-  import caliban.wrappers.Wrappers._
   import caliban.wrappers.ApolloTracing.apolloTracing
+  import caliban.wrappers.Wrappers._
+  import zio.duration._
 
   def makeApi(service: ExampleService): GraphQL[Console with Clock] =
     graphQL(
