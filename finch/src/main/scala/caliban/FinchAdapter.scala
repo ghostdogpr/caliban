@@ -8,7 +8,7 @@ import io.finch.circe._
 import zio.interop.catz._
 import zio.{ Runtime, Task, URIO }
 
-object FinchHttpAdapter extends Endpoint.Module[Task] {
+object FinchAdapter extends Endpoint.Module[Task] {
 
   /**
    * Create a finch HTTP endpoint, provided you have an interpreter and a runtime
