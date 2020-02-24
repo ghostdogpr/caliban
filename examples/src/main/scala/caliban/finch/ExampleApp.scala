@@ -68,12 +68,23 @@ object ExampleApp extends App with GenericSchema[Console with Clock] with Endpoi
    * "query": "query { characters { name }}"
    * }'
    */
+  import com.twitter.finagle.Http
   import io.finch._
   import io.finch.circe._
-  import com.twitter.finagle.Http
-  val endpoint: Endpoint[Task, Json] = FinchHttpAdapter.makeHttpService(interpreter)
+  val endpoint: Endpoint[Task, Json] = "api" :: "graphql" :: FinchHttpAdapter.makeHttpService(interpreter)
 
-  val server = Http.server.serve(":8088", ("api" :: "graphql" :: endpoint).toService)
+  val graphiqlBuf = {
+    val stream = getClass.getResourceAsStream("/graphiql.html")
+    Reader.readAll(Reader.fromStream(stream))
+  }
+
+  val grapihql: Endpoint[Task, Buf] = get("graphiql") {
+    graphiqlBuf.map(Ok(_))
+  }
+
+  val services = Bootstrap.serve[Application.Json](endpoint).serve[Text.Html](grapihql).toService
+
+  val server = Http.server.serve(":8088", services)
 
   println(s"Server online at http://localhost:8088/\nPress RETURN to stop...")
   Await.ready(server)
