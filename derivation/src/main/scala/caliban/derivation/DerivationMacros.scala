@@ -122,12 +122,25 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
   private def nonImplicit(params: List[Symbol]): Boolean =
     !params.exists(_.isImplicit)
 
-  private def canDerive(method: MethodSymbol): Boolean =
+  private def isExcluded(parent: Type, method: MethodSymbol): Boolean = {
+    if (method.isGetter) {
+      val value = parent.decls.collectFirst {
+        case sym: TermSymbol if !sym.isMethod && sym.nameString.stripSuffix(termNames.LOCAL_SUFFIX_STRING) == method.nameString =>
+          sym
+      }
+
+      value.exists(hasAnnotation[GQLExclude])
+    } else {
+      hasAnnotation[GQLExclude](method)
+    }
+  }
+
+  private def canDerive(parent: Type, method: MethodSymbol): Boolean =
     method.typeParams.isEmpty &&
       method.isPublic &&
       !method.isConstructor &&
       !method.isSynthetic &&
-      !hasAnnotation[GQLExclude](method)
+      !isExcluded(parent, method)
 
   def deriveSchema[T](implicit wtt: WeakTypeTag[T]): Tree = {
     val tpe = wtt.tpe
@@ -137,7 +150,7 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
     }
 
     val candidates = tpe.decls.collect {
-      case ms: MethodSymbol if canDerive(ms) => ms
+      case ms: MethodSymbol if canDerive(tpe, ms) => ms
     }
 
     val info   = GraphQLInfo(tpe.typeSymbol)
