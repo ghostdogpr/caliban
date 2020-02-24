@@ -12,17 +12,21 @@ import scala.reflect.macros.blackbox
 class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
   import c.universe._
 
-  private case class DeriveMember(parent: Type, ms: MethodSymbol) {
-    assert(ms.paramLists.count(nonImplicit) <= 1)
-    assert(ms.typeParams.isEmpty)
+  private case class DeriveMember(parent: Type, sym: TermSymbol) {
+    // Only accept methods that have a single (non-implicit) parameter list
+    assert(!sym.isMethod || sym.asMethod.paramLists.count(nonImplicit) <= 1)
+    // Only accept methods that do not have type parameters
+    assert(!sym.isMethod || sym.asMethod.typeParams.isEmpty)
 
-    private val params: Option[List[Symbol]] = ms.paramLists.headOption
+    private val params: Option[List[Symbol]] =
+      if (sym.isMethod) sym.asMethod.paramLists.headOption
+      else None
 
-    private val scalaType: Type = ms.returnType
+    private val scalaType: Type = if (sym.isMethod) sym.asMethod.returnType else sym.typeSignature
 
-    private val info: GraphQLInfo = GraphQLInfo(ms)
+    private val info: GraphQLInfo = GraphQLInfo(sym)
 
-    private val fieldName: TermName = ms.name.toTermName
+    private val fieldName: TermName = sym.name.normalize
 
     private def deriveParam(param: Symbol): Tree = {
       // TODO: Figure out how to cleanly extract the default argument, if any
@@ -122,25 +126,12 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
   private def nonImplicit(params: List[Symbol]): Boolean =
     !params.exists(_.isImplicit)
 
-  private def isExcluded(parent: Type, method: MethodSymbol): Boolean = {
-    if (method.isGetter) {
-      val value = parent.decls.collectFirst {
-        case sym: TermSymbol if !sym.isMethod && sym.nameString.stripSuffix(termNames.LOCAL_SUFFIX_STRING) == method.nameString =>
-          sym
-      }
-
-      value.exists(hasAnnotation[GQLExclude])
-    } else {
-      hasAnnotation[GQLExclude](method)
-    }
-  }
-
-  private def canDerive(parent: Type, method: MethodSymbol): Boolean =
-    method.typeParams.isEmpty &&
-      method.isPublic &&
-      !method.isConstructor &&
-      !method.isSynthetic &&
-      !isExcluded(parent, method)
+  private def canDerive(sym: TermSymbol): Boolean =
+    (!sym.isMethod || sym.asMethod.typeParams.isEmpty) &&
+      sym.isPublic &&
+      !sym.isConstructor &&
+      !sym.isSynthetic &&
+      !hasAnnotation[GQLExclude](sym)
 
   def deriveSchema[T](implicit wtt: WeakTypeTag[T]): Tree = {
     val tpe = wtt.tpe
@@ -150,8 +141,14 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
     }
 
     val candidates = tpe.decls.collect {
-      case ms: MethodSymbol if canDerive(tpe, ms) => ms
-    }
+      case ms: MethodSymbol =>
+        if (ms.isGetter) ms
+        else {
+          tpe.decls.collectFirst {
+            case sym: TermSymbol if !sym.isMethod && sym.name.normalizeString == ms.nameString => sym
+          }.get
+        }
+    }.filter(canDerive)
 
     val info   = GraphQLInfo(tpe.typeSymbol)
     val fields = candidates.map(DeriveMember(tpe, _).derive)

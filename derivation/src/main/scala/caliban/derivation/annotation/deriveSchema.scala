@@ -48,7 +48,7 @@ class DeriveSchemaImpl(val c: whitebox.Context) {
               }
             """
           List(cd, md)
-          
+
         case List(cd: ClassDef, md: ModuleDef) =>
           val ModuleDef(mods, name, Template(parents, self, body)) = md
 
