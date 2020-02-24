@@ -298,19 +298,17 @@ object Client {
                 """import caliban.client.FieldBuilder._
 import caliban.client.SelectionBuilder._
 import caliban.client._
-import Client.Role._
 
 object Client {
 
-  object Role {
-    type Captain
-    object Captain {
-      def shipName: SelectionBuilder[Captain, String] = Field("shipName", Scalar())
-    }
-    type Pilot
-    object Pilot {
-      def shipName: SelectionBuilder[Pilot, String] = Field("shipName", Scalar())
-    }
+  type Captain
+  object Captain {
+    def shipName: SelectionBuilder[Captain, String] = Field("shipName", Scalar())
+  }
+
+  type Pilot
+  object Pilot {
+    def shipName: SelectionBuilder[Pilot, String] = Field("shipName", Scalar())
   }
 
   type Character
@@ -352,9 +350,9 @@ object Client {
     /**
      * name
      */
-    @deprecated("blah")
+    @deprecated("blah", "")
     def name: SelectionBuilder[Character, String] = Field("name", Scalar())
-    @deprecated
+    @deprecated("", "")
     def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
   }
 
