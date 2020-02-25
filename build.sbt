@@ -196,8 +196,8 @@ lazy val client = crossProject(JSPlatform, JVMPlatform)
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "io.circe"                     %%% "circe-derivation" % "0.12.0-M7",
-      "com.softwaremill.sttp.client" %%% "core"             % "2.0.0-RC13",
-      "com.softwaremill.sttp.client" %%% "circe"            % "2.0.0-RC13",
+      "com.softwaremill.sttp.client" %%% "core"             % "2.0.0",
+      "com.softwaremill.sttp.client" %%% "circe"            % "2.0.0",
       "dev.zio"                      %%% "zio-test"         % "1.0.0-RC17" % "test",
       "dev.zio"                      %%% "zio-test-sbt"     % "1.0.0-RC17" % "test"
     )
@@ -211,7 +211,7 @@ lazy val examples = project
   .settings(skip in publish := true)
   .settings(
     libraryDependencies ++= Seq(
-      "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % "2.0.0-RC13"
+      "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % "2.0.0"
     )
   )
   .dependsOn(akkaHttp, http4s, catsInteropJVM, finch, monixInterop, clientJVM)
