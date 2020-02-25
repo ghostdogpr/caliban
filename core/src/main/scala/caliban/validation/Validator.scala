@@ -33,6 +33,7 @@ object Validator {
         t.kind match {
           case __TypeKind.ENUM  => validateEnum(t)
           case __TypeKind.UNION => validateUnion(t)
+          case __TypeKind.INTERFACE => validateInterface(t)
           case _                => IO.unit
         }
       }
@@ -562,6 +563,52 @@ object Validator {
           )
         )
     }
+
+  private def validateInterface(t: __Type): IO[ValidationError, Unit] = {
+    def validateFieldName(field: __Field): IO[ValidationError, Unit] = ???
+    def validateFieldReturnOutputType(`type`: () => __Type): IO[ValidationError, Unit] = ???
+    def validateFieldArgumentsName(args: List[__InputValue]): IO[ValidationError, Unit]= ???
+    def validateFieldArgumentsInputType(args: List[__InputValue]): IO[ValidationError, Unit] = ???
+
+
+    def validateInterfaceField(field: __Field): IO[ValidationError, Unit] = {
+      for {
+        _ <- validateFieldName(field)
+        _ <- validateFieldReturnOutputType(field.`type`)
+        _ <- validateFieldArgumentsName(field.args)
+        r <- validateFieldArgumentsInputType(field.args)
+      } yield r
+    }
+
+    def duplicateFieldName(fields: List[__Field]): Option[__Field] = {
+      fields.groupBy(_.name).collectFirst{ case (_, List(f,_,_*)) => f }
+    }
+
+    t.fields(__DeprecatedArgs(Some(true))) match {
+      case None | Some(Nil) =>
+        IO.fail(
+          ValidationError(
+            s"message",
+            "explanatory"
+          )
+        )
+      case Some(fields) => {
+        duplicateFieldName(fields) match {
+          case Some(value) =>
+            IO.fail(
+              ValidationError(
+                s"message with $value",
+                "explanatory"
+              )
+            )
+          case None =>
+            fields.foldRight[IO[ValidationError, Unit]](IO.unit)((field, result) => {
+              result.flatMap(_ => validateInterfaceField(field))
+            })
+        }
+      }
+    }
+  }
 
   private def validateUnion(t: __Type): IO[ValidationError, Unit] = {
 
