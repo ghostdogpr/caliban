@@ -49,6 +49,7 @@ lazy val root = project
   .aggregate(
     coreJVM,
     coreJS,
+    finch,
     http4s,
     akkaHttp,
     catsInteropJVM,
@@ -171,6 +172,21 @@ lazy val akkaHttp = project
   )
   .dependsOn(coreJVM)
 
+lazy val finch = project
+  .in(file("finch"))
+  .settings(name := "caliban-finch")
+  .settings(commonSettings)
+  .settings(
+    crossScalaVersions := Seq("2.12.10"),
+    libraryDependencies ++= Seq(
+      "com.github.finagle" %% "finchx-core"      % "0.31.0",
+      "com.github.finagle" %% "finchx-circe"     % "0.31.0",
+      "dev.zio"            %% "zio-interop-cats" % "2.0.0.0-RC10",
+      "org.typelevel"      %% "cats-effect"      % "2.1.1"
+    )
+  )
+  .dependsOn(coreJVM)
+
 lazy val client = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)
   .in(file("client"))
@@ -198,7 +214,7 @@ lazy val examples = project
       "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % "2.0.0-RC13"
     )
   )
-  .dependsOn(akkaHttp, http4s, catsInteropJVM, monixInterop, clientJVM)
+  .dependsOn(akkaHttp, http4s, catsInteropJVM, finch, monixInterop, clientJVM)
 
 lazy val benchmarks = project
   .in(file("benchmarks"))

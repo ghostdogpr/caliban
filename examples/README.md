@@ -7,7 +7,8 @@ libraryDependencies ++= Seq(
   "com.github.ghostdogpr" %% "caliban" % "0.5.2",
   "com.github.ghostdogpr" %% "caliban-http4s" % "0.5.2",
   "com.github.ghostdogpr" %% "caliban-akka-http" % "0.5.2",
-  "com.github.ghostdogpr" %% "caliban-cats" % "0.5.2"
+  "com.github.ghostdogpr" %% "caliban-cats" % "0.5.2",
+  "com.github.ghostdogpr" %% "caliban-finch" % "0.5.2"
 )
 
 scalacOptions += "-Ypartial-unification"
