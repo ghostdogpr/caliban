@@ -427,7 +427,7 @@ object Validator {
     val inputType   = if (t.kind == __TypeKind.NON_NULL) t.ofType.getOrElse(t) else t
     val inputFields = inputType.inputFields.getOrElse(Nil)
     argValue match {
-      case InputValue.ObjectValue(fields) =>
+      case InputValue.ObjectValue(fields) if inputType.kind == __TypeKind.INPUT_OBJECT =>
         IO.foreach(fields) {
           case (k, v) =>
             inputFields.find(_.name == k) match {
