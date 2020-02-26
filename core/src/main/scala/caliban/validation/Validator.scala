@@ -565,10 +565,24 @@ object Validator {
     }
 
   private def validateInterface(t: __Type): IO[ValidationError, Unit] = {
-    def validateFieldName(field: __Field): IO[ValidationError, Unit]                         = ???
-    def validateFieldReturnOutputType(`type`: () => __Type): IO[ValidationError, Unit]       = ???
-    def validateFieldArgumentsName(args: List[__InputValue]): IO[ValidationError, Unit]      = ???
-    def validateFieldArgumentsInputType(args: List[__InputValue]): IO[ValidationError, Unit] = ???
+    def validateName(name: String) = {
+      if (name.isEmpty) {
+        IO.fail(ValidationError("msg", "explanatory"))
+      } else if (name.startsWith("__")) {
+        IO.fail(ValidationError("msg", "explanatory"))
+      } else {
+        IO.unit
+      }
+    }
+    def validateFieldName(field: __Field): IO[ValidationError, Unit] = {
+      validateName(field.name)
+    }
+    def validateFieldArgumentsName(args: List[__InputValue]): IO[ValidationError, Unit] = {
+      IO.foreach(args){ arg => validateName(arg.name) }.unit
+    }
+
+    def validateFieldReturnOutputType(`type`: () => __Type): IO[ValidationError, Unit]       = IO.unit
+    def validateFieldArgumentsInputType(args: List[__InputValue]): IO[ValidationError, Unit] = IO.unit
 
     def validateInterfaceField(field: __Field): IO[ValidationError, Unit] =
       for {
@@ -589,7 +603,7 @@ object Validator {
             "explanatory"
           )
         )
-      case Some(fields) => {
+      case Some(fields) =>
         duplicateFieldName(fields) match {
           case Some(value) =>
             IO.fail(
@@ -601,7 +615,6 @@ object Validator {
           case None =>
             IO.foreach(fields){ validateInterfaceField }.unit
         }
-      }
     }
   }
 
