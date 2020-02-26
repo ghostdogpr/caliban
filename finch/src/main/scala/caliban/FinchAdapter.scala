@@ -16,9 +16,9 @@ object FinchAdapter extends Endpoint.Module[Task] {
    *
    * @param interpreter the graphql interpreter
    * @param runtime the zio runtime used to execute the query
-   * @tparam R the environment the [[Runtime]] requires
+   * @tparam R the environment the `Runtime` requires
    * @tparam E the error type that the interpreter can fail with
-   * @return a Finch endpoint in [[Task]] returning a Json response that is the result of executing incoming graphql
+   * @return a Finch endpoint in `Task` returning a Json response that is the result of executing incoming graphql
    *         queries against the interpreter
    */
   def makeHttpService[R, E](
