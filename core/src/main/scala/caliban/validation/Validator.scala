@@ -575,11 +575,11 @@ object Validator {
         _ <- validateFieldName(field)
         _ <- validateFieldReturnOutputType(field.`type`)
         _ <- validateFieldArgumentsName(field.args)
-        r <- validateFieldArgumentsInputType(field.args)
-      } yield r
+        _ <- validateFieldArgumentsInputType(field.args)
+      } yield ()
 
     def duplicateFieldName(fields: List[__Field]): Option[__Field] =
-      fields.groupBy(_.name).collectFirst { case (_, List(f, _, _*)) => f }
+      fields.groupBy(_.name).collectFirst { case (_, f :: _ :: _) => f }
 
     t.fields(__DeprecatedArgs(Some(true))) match {
       case None | Some(Nil) =>
@@ -599,9 +599,7 @@ object Validator {
               )
             )
           case None =>
-            fields.foldRight[IO[ValidationError, Unit]](IO.unit) { (field, result) =>
-              result.flatMap(_ => validateInterfaceField(field))
-            }
+            IO.foreach(fields){ validateInterfaceField }.unit
         }
       }
     }
