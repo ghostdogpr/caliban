@@ -107,4 +107,28 @@ object TestUtils {
     SubscriptionIO(ZStream.empty)
   )
 
+  object InvalidSchemas {
+    case class DoubleUnderscoreArg(__name: String)
+    case class DoubleUnderscoreInputObjectArg(wrong: DoubleUnderscoreArg)
+    case class WrongMutationUnderscore(w: DoubleUnderscoreInputObjectArg => UIO[Unit])
+
+    val resolverWrongMutationUnderscore = RootResolver(
+      resolverIO.queryResolver,
+      WrongMutationUnderscore(_ => UIO.unit)
+    )
+
+    sealed trait UnionInput
+    object UnionInput {
+      case class A(value: String) extends UnionInput
+      case class B(value: String) extends UnionInput
+    }
+    case class UnionArg(union: UnionInput)
+    case class UnionInputObjectArg(wrong: UnionArg)
+    case class WrongMutationUnion(w: UnionInputObjectArg => UIO[Unit])
+
+    val resolverWrongMutationUnion = RootResolver(
+      resolverIO.queryResolver,
+      WrongMutationUnion(_ => UIO.unit)
+    )
+  }
 }

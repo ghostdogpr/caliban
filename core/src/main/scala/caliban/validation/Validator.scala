@@ -31,9 +31,10 @@ object Validator {
   def validateSchema(rootType: RootType): IO[ValidationError, Unit] =
     IO.foreach(rootType.types.values) { t =>
         t.kind match {
-          case __TypeKind.ENUM  => validateEnum(t)
-          case __TypeKind.UNION => validateUnion(t)
-          case _                => IO.unit
+          case __TypeKind.ENUM         => validateEnum(t)
+          case __TypeKind.UNION        => validateUnion(t)
+          case __TypeKind.INPUT_OBJECT => validateInputObject(t)
+          case _                       => IO.unit
         }
       }
       .unit
@@ -589,6 +590,67 @@ object Validator {
       case _ => IO.unit
     }
 
+  }
+
+  private def validateInputObject(t: __Type): IO[ValidationError, Unit] = {
+    // https://spec.graphql.org/June2018/#IsInputType()
+    def isInputType(t: __Type): Either[__Type, Unit] = t.kind match {
+      case __TypeKind.LIST | __TypeKind.NON_NULL                         => t.ofType.fold[Either[__Type, Unit]](Left(t))(isInputType)
+      case __TypeKind.SCALAR | __TypeKind.ENUM | __TypeKind.INPUT_OBJECT => Right(())
+      case _                                                             => Left(t)
+    }
+
+    def failValidation(msg: String, explanatoryText: String): IO[ValidationError, Unit] =
+      IO.fail(ValidationError(msg, explanatoryText))
+
+    def validateFields(fields: List[__InputValue]): IO[ValidationError, Unit] =
+      duplicateFieldName(fields).flatMap(_ =>
+        IO.foreach(fields)(field =>
+            for {
+              _ <- doesNotStartWithUnderscore(field)
+              _ <- onlyInputFieldType(field)
+            } yield ()
+          )
+          .unit
+      )
+
+    def duplicateFieldName(fields: List[__InputValue]): IO[ValidationError, Unit] =
+      fields
+        .groupBy(_.name)
+        .collectFirst { case (_, f :: _ :: _) => f }
+        .fold[IO[ValidationError, Unit]](IO.unit)(duplicateField =>
+          failValidation(
+            s"InputObject has repeated fields: ${duplicateField.name}",
+            "The input field must have a unique name within that Input Object type; no two input fields may share the same name"
+          )
+        )
+
+    def doesNotStartWithUnderscore(field: __InputValue): IO[ValidationError, Unit] =
+      IO.when(field.name.startsWith("__"))(
+        failValidation(
+          s"InputObject can't start with '__': ${field.name}",
+          """The input field must not have a name which begins with the
+characters {"__"} (two underscores)"""
+        )
+      )
+
+    def onlyInputFieldType(field: __InputValue): IO[ValidationError, Unit] =
+      IO.whenCase(isInputType(field.`type`())) {
+        case Left(errorType) =>
+          failValidation(
+            s"${errorType.name.getOrElse("")} is of kind ${errorType.kind}, must be an InputType",
+            """The input field must accept a type where IsInputType(inputFieldType) returns true, https://spec.graphql.org/June2018/#IsInputType()"""
+          )
+      }
+
+    t.inputFields match {
+      case None | Some(Nil) =>
+        failValidation(
+          s"InputObject ${t.name.getOrElse("")} does not have fields",
+          "An Input Object type must define one or more input fields"
+        )
+      case Some(fields) => validateFields(fields)
+    }
   }
 
   case class Context(
