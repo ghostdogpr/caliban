@@ -158,14 +158,14 @@ lazy val http4s = project
 
 lazy val play_base = project
   .in(file("play"))
-  .settings(name := "caliban-play", commonSettings)
+  .settings(commonSettings)
   .dependsOn(coreJVM)
 
-lazy val play_28 =
-  play_base.settings(libraryDependencies += "com.typesafe.play" %% "play" % "2.8.1")
-
 lazy val play_27 =
-  play_base.settings(libraryDependencies += "com.typesafe.play" %% "play" % "2.7.4")
+  play_base.settings(name := "caliban-play-27", libraryDependencies += "com.typesafe.play" %% "play" % "2.7.4")
+
+lazy val play_28 =
+  play_base.settings(name := "caliban-play-28", libraryDependencies += "com.typesafe.play" %% "play" % "2.8.1")
 
 lazy val akkaHttp = project
   .in(file("akka-http"))

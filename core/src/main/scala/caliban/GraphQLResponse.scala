@@ -20,14 +20,14 @@ private object GraphQLResponseCirce {
     .instance[GraphQLResponse[Any]] {
       case GraphQLResponse(data, Nil, None) => Json.obj("data" -> data.asJson)
       case GraphQLResponse(data, Nil, Some(extensions)) =>
-        Json.obj("data" -> data.asJson, "extensions" -> extensions.asInstanceOf[ResponseValue].asJson)
+        Json.obj("data" -> data.asJson, "extensions" -> (extensions: ResponseValue).asJson)
       case GraphQLResponse(data, errors, None) =>
         Json.obj("data" -> data.asJson, "errors" -> Json.fromValues(errors.map(handleError)))
       case GraphQLResponse(data, errors, Some(extensions)) =>
         Json.obj(
           "data"       -> data.asJson,
           "errors"     -> Json.fromValues(errors.map(handleError)),
-          "extensions" -> extensions.asInstanceOf[ResponseValue].asJson
+          "extensions" -> (extensions: ResponseValue).asJson
         )
     }
 

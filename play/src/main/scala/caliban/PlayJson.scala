@@ -3,11 +3,8 @@ package caliban
 import caliban.Value._
 import caliban.parsing.adt.LocationInfo
 import play.api.http.Writeable
-import play.api.libs.json.Reads._
 import play.api.libs.json.Writes._
 import play.api.libs.json._
-
-import scala.util.Try
 
 object PlayJson {
 
@@ -16,7 +13,10 @@ object PlayJson {
     case JsNull             => NullValue
     case boolean: JsBoolean => BooleanValue(boolean.value)
     case JsNumber(value) =>
-      Try(value.toIntExact).fold(_ => FloatValue(value), IntValue(_))
+      if (value.isValidInt) IntValue(value.toInt)
+      else if (value.isValidLong) IntValue(value.toLong)
+      else if (value.isWhole) IntValue(value.toBigInt)
+      else FloatValue(value)
     case JsString(value) => StringValue(value)
     case JsArray(array) =>
       InputValue.ListValue(array.toList.map(jsonToInputValue))
@@ -31,11 +31,7 @@ object PlayJson {
     json => JsSuccess(jsonToInputValue(json))
 
   implicit val readsGraphQLRequest: Reads[GraphQLRequest] =
-    for {
-      query         <- (__ \ "query").read[String]
-      operationName <- (__ \ "operationName").readNullable[String]
-      variables     <- (__ \ "variables").readNullable[Map[String, InputValue]]
-    } yield GraphQLRequest(query, operationName, variables)
+    Json.reads
 
   //// JSON Writes
 
@@ -64,60 +60,46 @@ object PlayJson {
   }
 
   // CalibanError
-  private def locationToJson(li: LocationInfo): JsValue =
-    JsObject(List("line" -> li.line.asJson, "column" -> li.column.asJson))
+  private implicit val locationToJson: Writes[LocationInfo] =
+    li => Json.obj("locations" -> Json.arr(Json.obj("line" -> li.line, "column" -> li.column)))
+
+  private def encodeLocationInfoAndMessage(li: Option[LocationInfo], message: String) =
+    li.fold(Json.obj())(li => Json.obj("locations" -> li)) ++ Json.obj("message" -> message)
 
   val errorValueEncoder: Writes[CalibanError] = {
     case CalibanError.ParsingError(msg, locationInfo, _) =>
-      JsObject(
-        List("message" -> s"Parsing Error: $msg".asJson) ++
-          locationInfo.map(li => "locations" -> Json.arr(locationToJson(li)))
-      )
+      encodeLocationInfoAndMessage(locationInfo, s"Parsing Error: $msg")
+
     case CalibanError.ValidationError(msg, _, locationInfo) =>
-      JsObject(
-        List("message" -> msg.asJson) ++
-          locationInfo.map(li => "locations" -> Json.arr(locationToJson(li)))
-      )
+      encodeLocationInfoAndMessage(locationInfo, msg)
+
     case CalibanError.ExecutionError(msg, path, locationInfo, _) =>
-      JsObject(
-        List("message" -> msg.asJson) ++
-          locationInfo.map(li => "locations" -> Json.arr(locationToJson(li))) ++
-          (path match {
-            case p if p.nonEmpty => Some("path" -> JsArray(p.map(_.fold(_.asJson, _.asJson))))
-            case _               => None
-          })
-      )
+      val paths =
+        if (path.isEmpty) Nil
+        else
+          List(
+            "path" -> Json
+              .arr(path.map(_.fold(Json.toJsFieldJsValueWrapper[String], Json.toJsFieldJsValueWrapper[Int])): _*)
+          )
+
+      encodeLocationInfoAndMessage(locationInfo, msg) ++ JsObject(paths)
   }
 
   // GraphQLResponse
   implicit def writesGraphQLResponse[E]: Writes[GraphQLResponse[E]] = {
-    case GraphQLResponse(data, Nil, None) => Json.obj("data" -> responseValueToJson(data))
-    case GraphQLResponse(data, Nil, Some(extensions)) =>
+    case GraphQLResponse(data, errors, maybeExtensions) =>
       Json.obj(
-        "data"       -> responseValueToJson(data),
-        "extensions" -> responseValueToJson(extensions.asInstanceOf[ResponseValue])
-      )
-    case GraphQLResponse(data, errors, None) =>
-      Json.obj("data" -> responseValueToJson(data), "errors" -> JsArray(errors.map(handleError)))
-    case GraphQLResponse(data, errors, Some(extensions)) =>
-      Json.obj(
-        "data"       -> responseValueToJson(data),
-        "errors"     -> JsArray(errors.map(handleError)),
-        "extensions" -> responseValueToJson(extensions.asInstanceOf[ResponseValue])
+        "data" -> responseValueToJson(data),
+        "errors" -> (errors match {
+          case Nil => Option.empty[JsValue]
+          case _   => Some(JsArray(errors.map(handleError)))
+        }),
+        "extensions" -> maybeExtensions.map(responseValueToJson)
       )
   }
 
   //// HTTP writable
   implicit def writableGraphQLResponse[E]: Writeable[GraphQLResponse[E]] =
     Writeable.writeableOf_JsValue.map(writesGraphQLResponse.writes)
-
-  //// Simple helper syntax
-  implicit private class IntAsJsonOps(val value: Int) extends AnyVal {
-    def asJson: JsValue = JsNumber(value)
-  }
-
-  implicit private class StringAsJsonOps(val value: String) extends AnyVal {
-    def asJson: JsValue = JsString(value)
-  }
 
 }
