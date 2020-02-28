@@ -41,6 +41,21 @@ addCommandAlias(
   "all scalafmtSbtCheck scalafmtCheck test:scalafmtCheck"
 )
 
+val macroParadise: Seq[Def.Setting[_]] = Seq(
+  scalacOptions ++= {
+    CrossVersion.partialVersion(scalaVersion.value) match {
+      case Some((2, n)) if n >= 13 => "-Ymacro-annotations" :: Nil
+      case _                       => Nil
+    }
+  },
+  libraryDependencies ++= {
+    CrossVersion.partialVersion(scalaVersion.value) match {
+      case Some((2, n)) if n >= 13 => Nil
+      case _                       => compilerPlugin("org.scalamacros" % "paradise" % "2.1.1" cross CrossVersion.full) :: Nil
+    }
+  }
+)
+
 lazy val root = project
   .in(file("."))
   .enablePlugins(ScalaJSPlugin)
@@ -200,7 +215,8 @@ lazy val examples = project
       "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % "2.0.0-RC13"
     )
   )
-  .dependsOn(akkaHttp, http4s, catsInteropJVM, monixInterop, clientJVM)
+  .settings(macroParadise)
+  .dependsOn(akkaHttp, http4s, catsInteropJVM, monixInterop, clientJVM, derivationJVM)
 
 lazy val benchmarks = project
   .in(file("benchmarks"))
@@ -225,20 +241,7 @@ lazy val derivation = crossProject(JSPlatform, JVMPlatform)
       "org.scala-lang" % "scala-reflect" % scalaVersion.value
     )
   )
-  .settings(
-    scalacOptions ++= {
-      CrossVersion.partialVersion(scalaVersion.value) match {
-        case Some((2, n)) if n >= 13 => "-Ymacro-annotations" :: Nil
-        case _                       => Nil
-      }
-    },
-    libraryDependencies ++= {
-      CrossVersion.partialVersion(scalaVersion.value) match {
-        case Some((2, n)) if n >= 13 => Nil
-        case _                       => compilerPlugin("org.scalamacros" % "paradise" % "2.1.1" cross CrossVersion.full) :: Nil
-      }
-    }
-  )
+  .settings(macroParadise)
   .dependsOn(core)
 lazy val derivationJVM = derivation.jvm
 lazy val derivationJS  = derivation.js
