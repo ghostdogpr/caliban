@@ -569,7 +569,7 @@ object Validator {
     def validateInterfaceArgument(arg: __InputValue): IO[ValidationError, Unit] =
       for {
         _ <- doesNotStartWithUnderscore(arg.name, "argument input value", "Interface")
-        _ <- onlyOutputType(arg.`type`())
+        _ <- onlyInputType(arg.`type`())
       } yield ()
 
     def validateFields(fields: List[__Field]): IO[ValidationError, Unit] =
