@@ -27,7 +27,6 @@ object RenderingSpec
                       |  name: String! @external
                       |  nicknames: [String!]! @required
                       |  origin: Origin!
-                      |  role: Role
                       |}
                       |
                       |type Captain {

@@ -1,9 +1,13 @@
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
-val mainScala       = "2.12.10"
-val allScala        = Seq("2.13.1", mainScala)
+val mainScala = "2.12.10"
+val allScala  = Seq("2.13.1", mainScala)
+
 val http4sVersion   = "0.21.1"
 val silencerVersion = "1.6.0"
+val sttpVersion     = "2.0.1"
+val zioVersion      = "1.0.0-RC17"
+
 inThisBuild(
   List(
     organization := "com.github.ghostdogpr",
@@ -71,10 +75,10 @@ lazy val core = crossProject(JSPlatform, JVMPlatform)
       "com.lihaoyi"    %%% "fastparse"        % "2.2.4",
       "com.propensive" %%% "magnolia"         % "0.12.7",
       "com.propensive" %%% "mercator"         % "0.2.1",
-      "dev.zio"        %%% "zio"              % "1.0.0-RC17",
-      "dev.zio"        %%% "zio-streams"      % "1.0.0-RC17",
-      "dev.zio"        %%% "zio-test"         % "1.0.0-RC17" % "test",
-      "dev.zio"        %%% "zio-test-sbt"     % "1.0.0-RC17" % "test",
+      "dev.zio"        %%% "zio"              % zioVersion,
+      "dev.zio"        %%% "zio-streams"      % zioVersion,
+      "dev.zio"        %%% "zio-test"         % zioVersion % "test",
+      "dev.zio"        %%% "zio-test-sbt"     % zioVersion % "test",
       "io.circe"       %%% "circe-derivation" % "0.12.0-M7" % Optional,
       compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
     )
@@ -98,8 +102,8 @@ lazy val codegen = project
     libraryDependencies ++= Seq(
       "org.scalameta" %% "scalafmt-dynamic" % "2.4.2",
       "org.scalameta" %% "scalafmt-core"    % "2.4.2",
-      "dev.zio"       %% "zio-test"         % "1.0.0-RC17" % "test",
-      "dev.zio"       %% "zio-test-sbt"     % "1.0.0-RC17" % "test"
+      "dev.zio"       %% "zio-test"         % zioVersion % "test",
+      "dev.zio"       %% "zio-test-sbt"     % zioVersion % "test"
     )
   )
   .dependsOn(coreJVM)
@@ -196,10 +200,10 @@ lazy val client = crossProject(JSPlatform, JVMPlatform)
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "io.circe"                     %%% "circe-derivation" % "0.12.0-M7",
-      "com.softwaremill.sttp.client" %%% "core"             % "2.0.0",
-      "com.softwaremill.sttp.client" %%% "circe"            % "2.0.0",
-      "dev.zio"                      %%% "zio-test"         % "1.0.0-RC17" % "test",
-      "dev.zio"                      %%% "zio-test-sbt"     % "1.0.0-RC17" % "test"
+      "com.softwaremill.sttp.client" %%% "core"             % sttpVersion,
+      "com.softwaremill.sttp.client" %%% "circe"            % sttpVersion,
+      "dev.zio"                      %%% "zio-test"         % zioVersion % "test",
+      "dev.zio"                      %%% "zio-test-sbt"     % zioVersion % "test"
     )
   )
 lazy val clientJVM = client.jvm
@@ -211,7 +215,7 @@ lazy val examples = project
   .settings(skip in publish := true)
   .settings(
     libraryDependencies ++= Seq(
-      "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % "2.0.0"
+      "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion
     )
   )
   .dependsOn(akkaHttp, http4s, catsInteropJVM, finch, monixInterop, clientJVM)

@@ -16,6 +16,8 @@ The design principles behind the library are the following:
 - clean separation between schema definition and implementation: schema is defined and validated at compile time using Scala standard types, resolver (`RootResolver`) is a simple value provided at runtime.
 - minimal amount of boilerplate: no need to manually define a schema for every type in your API.
 
+Caliban can also be used to build GraphQL frontends thanks to a type-safe and functional DSL.
+
 ### Consult the [Documentation](https://ghostdogpr.github.io/caliban/docs/) to learn how to use Caliban.
 
 ### Any questions? Head up to the [#caliban](https://discordapp.com/channels/629491597070827530/633200096393166868) channel on [ZIO Discord](https://discord.gg/EYpumuv).

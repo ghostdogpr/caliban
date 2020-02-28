@@ -3,7 +3,7 @@ package caliban.codegen
 import caliban.parsing.Parser
 import zio.Task
 import zio.test.Assertion._
-import zio.test.{ assertM, suite, testM, DefaultRunnableSpec }
+import zio.test.{ assertM, suite, testM, DefaultRunnableSpec, TestAspect }
 
 object ClientWriterSpec
     extends DefaultRunnableSpec(
@@ -361,6 +361,6 @@ object Client {
               )
             )
           }
-        )
+        ) @@ TestAspect.sequential
       }
     )
