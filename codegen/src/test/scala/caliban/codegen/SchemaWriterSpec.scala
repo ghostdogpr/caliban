@@ -4,7 +4,7 @@ import caliban.parsing.Parser
 import caliban.parsing.adt.Document
 import zio.Task
 import zio.test.Assertion.equalTo
-import zio.test.{ assertM, suite, testM, DefaultRunnableSpec }
+import zio.test.{ assertM, suite, testM, DefaultRunnableSpec, TestAspect }
 
 object SchemaWriterSpec
     extends DefaultRunnableSpec({
@@ -307,5 +307,5 @@ object Types {
             )
           )
         }
-      )
+      ) @@ TestAspect.sequential
     })
