@@ -4,7 +4,7 @@ import caliban.TestUtils.Origin._
 import caliban.TestUtils.Role._
 import caliban.Value.StringValue
 import caliban.parsing.adt.Directive
-import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLDirective, GQLInterface }
+import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLDirective, GQLInputName, GQLInterface }
 import caliban.schema.Schema
 import zio.UIO
 import zio.stream.ZStream
@@ -44,6 +44,13 @@ object TestUtils {
     role: Option[Role]
   )
 
+  @GQLInputName("CharacterInput")
+  case class CharacterInput(
+    @GQLDirective(Directive("external")) name: String,
+    @GQLDirective(Directive("required")) nicknames: List[String],
+    origin: Origin
+  )
+
   object Character {
     implicit val schema: Schema[Any, Character] = Schema.gen[Character]
   }
@@ -61,7 +68,7 @@ object TestUtils {
   case class CharactersArgs(origin: Option[Origin])
   case class CharacterArgs(name: String)
   case class CharacterInArgs(@GQLDirective(Directive("lowercase")) names: List[String])
-  case class CharacterObjectArgs(character: Character)
+  case class CharacterObjectArgs(character: CharacterInput)
 
   @GQLDescription("Queries")
   case class Query(
