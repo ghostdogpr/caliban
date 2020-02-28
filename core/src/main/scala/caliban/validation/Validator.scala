@@ -521,56 +521,6 @@ object Validator {
         )
     }
 
-  private def validateInterface(t: __Type): IO[ValidationError, Unit] = {
-    def validateName(name: String) = {
-      if (name.isEmpty) {
-        failValidation("msg", "explanatory")
-      } else if (name.startsWith("__")) {
-        failValidation("msg", "explanatory")
-      } else {
-        IO.unit
-      }
-    }
-    def validateFieldName(field: __Field): IO[ValidationError, Unit] = {
-      validateName(field.name)
-    }
-    def validateFieldArgumentsName(args: List[__InputValue]): IO[ValidationError, Unit] = {
-      IO.foreach(args){ arg => validateName(arg.name) }.unit
-    }
-
-    def validateFieldReturnOutputType(`type`: () => __Type): IO[ValidationError, Unit]       = IO.unit
-    def validateFieldArgumentsInputType(args: List[__InputValue]): IO[ValidationError, Unit] = IO.unit
-
-    def validateInterfaceField(field: __Field): IO[ValidationError, Unit] =
-      for {
-        _ <- validateFieldName(field)
-        _ <- validateFieldReturnOutputType(field.`type`)
-        _ <- validateFieldArgumentsName(field.args)
-        _ <- validateFieldArgumentsInputType(field.args)
-      } yield ()
-
-    def duplicateFieldName(fields: List[__Field]): Option[__Field] =
-      fields.groupBy(_.name).collectFirst { case (_, f :: _ :: _) => f }
-
-    t.fields(__DeprecatedArgs(Some(true))) match {
-      case None | Some(Nil) =>
-        failValidation(
-            s"message",
-            "explanatory"
-        )
-      case Some(fields) =>
-        duplicateFieldName(fields) match {
-          case Some(value) =>
-            failValidation(
-                s"message with $value",
-                "explanatory"
-            )
-          case None =>
-            IO.foreach(fields){ validateInterfaceField }.unit
-        }
-    }
-  }
-
   private def validateUnion(t: __Type): IO[ValidationError, Unit] = {
 
     def isObject(t: __Type): Boolean = t.kind match {
@@ -596,50 +546,14 @@ object Validator {
   }
 
   private def validateInputObject(t: __Type): IO[ValidationError, Unit] = {
-    // https://spec.graphql.org/June2018/#IsInputType()
-    def isInputType(t: __Type): Either[__Type, Unit] = t.kind match {
-      case __TypeKind.LIST | __TypeKind.NON_NULL                         => t.ofType.fold[Either[__Type, Unit]](Left(t))(isInputType)
-      case __TypeKind.SCALAR | __TypeKind.ENUM | __TypeKind.INPUT_OBJECT => Right(())
-      case _                                                             => Left(t)
-    }
-
     def validateFields(fields: List[__InputValue]): IO[ValidationError, Unit] =
-      duplicateFieldName(fields) <*
+      noDuplicateInputValueName(fields) <*
         IO.foreach(fields)(field =>
           for {
-            _ <- doesNotStartWithUnderscore(field)
-            _ <- onlyInputFieldType(field)
+            _ <- doesNotStartWithUnderscore(field.name, "input value", "InputObject")
+            _ <- onlyInputType(field.`type`())
           } yield ()
         )
-
-    def duplicateFieldName(fields: List[__InputValue]): IO[ValidationError, Unit] =
-      fields
-        .groupBy(_.name)
-        .collectFirst { case (_, f :: _ :: _) => f }
-        .fold[IO[ValidationError, Unit]](IO.unit)(duplicateField =>
-          failValidation(
-            s"InputObject has repeated fields: ${duplicateField.name}",
-            "The input field must have a unique name within that Input Object type; no two input fields may share the same name"
-          )
-        )
-
-    def doesNotStartWithUnderscore(field: __InputValue): IO[ValidationError, Unit] =
-      IO.when(field.name.startsWith("__"))(
-        failValidation(
-          s"InputObject can't start with '__': ${field.name}",
-          """The input field must not have a name which begins with the
-characters {"__"} (two underscores)"""
-        )
-      )
-
-    def onlyInputFieldType(field: __InputValue): IO[ValidationError, Unit] =
-      IO.whenCase(isInputType(field.`type`())) {
-        case Left(errorType) =>
-          failValidation(
-            s"${errorType.name.getOrElse("")} is of kind ${errorType.kind}, must be an InputType",
-            """The input field must accept a type where IsInputType(inputFieldType) returns true, https://spec.graphql.org/June2018/#IsInputType()"""
-          )
-      }
 
     t.inputFields match {
       case None | Some(Nil) =>
@@ -650,6 +564,98 @@ characters {"__"} (two underscores)"""
       case Some(fields) => validateFields(fields)
     }
   }
+
+  private def validateInterface(t: __Type): IO[ValidationError, Unit] = {
+    def validateInterfaceArgument(arg: __InputValue): IO[ValidationError, Unit] =
+      for {
+        _ <- doesNotStartWithUnderscore(arg.name, "argument input value", "Interface")
+        _ <- onlyOutputType(arg.`type`())
+      } yield ()
+
+    def validateFields(fields: List[__Field]): IO[ValidationError, Unit] =
+      noDuplicateFieldName(fields) <*
+        IO.foreach(fields)(field =>
+          for {
+            _ <- doesNotStartWithUnderscore(field.name, "field", "Interface")
+            _ <- onlyOutputType(field.`type`())
+            _ <- IO.foreach(field.args)(validateInterfaceArgument)
+          } yield ()
+        )
+
+    t.fields(__DeprecatedArgs(Some(true))) match {
+      case None | Some(Nil) =>
+        failValidation(
+          s"message",
+          "explanatory"
+        )
+      case Some(fields) => validateFields(fields)
+    }
+  }
+
+  private def onlyInputType(`type`: __Type): IO[ValidationError, Unit] = {
+    // https://spec.graphql.org/June2018/#IsInputType()
+    def isInputType(t: __Type): Either[__Type, Unit] = {
+      import __TypeKind._
+      t.kind match {
+        case LIST | NON_NULL              => t.ofType.fold[Either[__Type, Unit]](Left(t))(isInputType)
+        case SCALAR | ENUM | INPUT_OBJECT => Right(())
+        case _                            => Left(t)
+      }
+    }
+
+    IO.whenCase(isInputType(`type`)) {
+      case Left(errorType) =>
+        failValidation(
+          s"${errorType.name.getOrElse("")} is of kind ${errorType.kind}, must be an InputType",
+          """The input field must accept a type where IsInputType(type) returns true, https://spec.graphql.org/June2018/#IsInputType()"""
+        )
+    }
+  }
+
+  private def onlyOutputType(`type`: __Type): IO[ValidationError, Unit] = {
+    // https://spec.graphql.org/June2018/#IsOutputType()
+    def isOutputType(t: __Type): Either[__Type, Unit] = {
+      import __TypeKind._
+      t.kind match {
+        case LIST | NON_NULL                            => t.ofType.fold[Either[__Type, Unit]](Left(t))(isOutputType)
+        case SCALAR | OBJECT | INTERFACE | UNION | ENUM => Right(())
+        case _                                          => Left(t)
+      }
+    }
+
+    IO.whenCase(isOutputType(`type`)) {
+      case Left(errorType) =>
+        failValidation(
+          s"${errorType.name.getOrElse("")} is of kind ${errorType.kind}, must be an OutputType",
+          """The input field must accept a type where IsOutputType(type) returns true, https://spec.graphql.org/June2018/#IsInputType()"""
+        )
+    }
+  }
+
+  private def noDuplicateFieldName(fields: List[__Field]) =
+    noDuplicateName[__Field](fields, _.name)
+
+  private def noDuplicateInputValueName(inputValues: List[__InputValue]) =
+    noDuplicateName[__InputValue](inputValues, _.name)
+
+  private def noDuplicateName[T](listOfNamed: List[T], nameExtractor: T => String): IO[ValidationError, Unit] =
+    listOfNamed
+      .groupBy(nameExtractor(_))
+      .collectFirst { case (_, f :: _ :: _) => f }
+      .fold[IO[ValidationError, Unit]](IO.unit)(duplicate =>
+        failValidation(
+          s"InputObject has repeated fields: ${nameExtractor(duplicate)}",
+          "The input field must have a unique name within that Input Object type; no two input fields may share the same name"
+        )
+      )
+
+  private def doesNotStartWithUnderscore(name: String, typeName: String, inType: String): IO[ValidationError, Unit] =
+    IO.when(name.startsWith("__"))(
+      failValidation(
+        s"A $typeName in $inType can't start with '__': $name",
+        s"""The $typeName must not have a name which begins with the characters {"__"} (two underscores)"""
+      )
+    )
 
   case class Context(
     document: Document,

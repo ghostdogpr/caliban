@@ -18,7 +18,7 @@ object ValidationSchemaSpec
           testM("name can't start with '__'") {
             check(
               graphQL(resolverWrongMutationUnderscore),
-              "InputObject can't start with '__': __name"
+              "A input value in InputObject can't start with '__': __name"
             )
           },
           testM("should only contain types for which IsInputType(type) is true") {
