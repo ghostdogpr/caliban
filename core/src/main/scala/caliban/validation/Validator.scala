@@ -553,14 +553,13 @@ object Validator {
     }
 
     def validateFields(fields: List[__InputValue]): IO[ValidationError, Unit] =
-      duplicateFieldName(fields).<*(
+      duplicateFieldName(fields) <*
         IO.foreach(fields)(field =>
           for {
             _ <- doesNotStartWithUnderscore(field)
             _ <- onlyInputFieldType(field)
           } yield ()
         )
-      )
 
     def duplicateFieldName(fields: List[__InputValue]): IO[ValidationError, Unit] =
       fields
