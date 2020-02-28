@@ -90,7 +90,7 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
               ps.zip(paramNames).map {
                 case (p, name) =>
                   val paramName = p.nameStringLit
-                  val rhs = ArgBuilder.summon(p.typeSignature)(bld => q"$bld.build($args($paramName))")
+                  val rhs       = ArgBuilder.summon(p.typeSignature)(bld => q"$bld.build($args($paramName))")
 
                   fq"$name <- $rhs"
               }
