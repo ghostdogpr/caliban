@@ -21,18 +21,10 @@ object ClientWriter {
       case op @ InterfaceTypeDefinition(_, name, _, _)   => name -> op
     }.toMap
 
-    val unionTypes = Document
-      .unionTypeDefinitions(schema)
-      .map(union => (union, union.memberTypes.flatMap(Document.objectTypeDefinition(schema, _))))
-      .toMap
-
-    val unions = unionTypes.map { case (union, objects) => writeUnion(union, objects, typesMap) }.mkString("\n")
-
     val objects = Document
       .objectTypeDefinitions(schema)
       .filterNot(obj =>
         reservedType(obj) ||
-          unionTypes.values.flatten.exists(_.name == obj.name) ||
           schemaDef.exists(_.query.getOrElse("Query") == obj.name) ||
           schemaDef.exists(_.mutation.getOrElse("Mutation") == obj.name) ||
           schemaDef.exists(_.subscription.getOrElse("Subscription") == obj.name)
@@ -41,8 +33,6 @@ object ClientWriter {
       .mkString("\n")
 
     val inputs = Document.inputObjectTypeDefinitions(schema).map(writeInputObject).mkString("\n")
-
-    val interfaces = Document.interfaceTypeDefinitions(schema).map(writeInterface(_, typesMap)).mkString("\n")
 
     val enums = Document.enumTypeDefinitions(schema).map(writeEnum).mkString("\n")
 
@@ -65,12 +55,12 @@ object ClientWriter {
     val imports = s"""${if (enums.nonEmpty)
       """import caliban.client.CalibanClientError.DecodingError
         |""".stripMargin
-    else ""}${if (objects.nonEmpty || interfaces.nonEmpty || unions.nonEmpty || queries.nonEmpty || mutations.nonEmpty)
+    else ""}${if (objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty)
       """import caliban.client.FieldBuilder._
         |import caliban.client.SelectionBuilder._
         |""".stripMargin
     else
-      ""}${if (enums.nonEmpty || objects.nonEmpty || interfaces.nonEmpty || unions.nonEmpty || queries.nonEmpty || mutations.nonEmpty || inputs.nonEmpty)
+      ""}${if (enums.nonEmpty || objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || inputs.nonEmpty)
       """import caliban.client._
         |""".stripMargin
     else ""}${if (queries.nonEmpty || mutations.nonEmpty)
@@ -79,7 +69,7 @@ object ClientWriter {
     else ""}${if (enums.nonEmpty || inputs.nonEmpty)
       """import caliban.client.Value._
         |""".stripMargin
-    else ""}${unionTypes.keys.map(t => s"import $objectName.${t.name}._").mkString("\n")}"""
+    else ""}"""
 
     s"""${packageName.fold("")(p => s"package $p\n\n")}$imports
        |
@@ -87,10 +77,8 @@ object ClientWriter {
        |
        |  $scalars
        |  $enums
-       |  $unions
        |  $objects
        |  $inputs
-       |  $interfaces
        |  $queries
        |  $mutations
        |  
@@ -115,13 +103,6 @@ object ClientWriter {
        |""".stripMargin
 
   def writeObject(typedef: ObjectTypeDefinition, typesMap: Map[String, TypeDefinition]): String =
-    s"""type ${typedef.name}
-       |object ${typedef.name} {
-       |  ${typedef.fields.map(writeField(_, typedef.name, typesMap)).mkString("\n  ")}
-       |}
-       |""".stripMargin
-
-  def writeInterface(typedef: InterfaceTypeDefinition, typesMap: Map[String, TypeDefinition]): String =
     s"""type ${typedef.name}
        |object ${typedef.name} {
        |  ${typedef.fields.map(writeField(_, typedef.name, typesMap)).mkString("\n  ")}
@@ -181,15 +162,6 @@ object ClientWriter {
     s"""type ${typedef.name} = String
         """
 
-  def writeUnion(
-    typedef: UnionTypeDefinition,
-    objects: List[ObjectTypeDefinition],
-    typesMap: Map[String, TypeDefinition]
-  ): String =
-    s"""object ${typedef.name} {
-       |  ${objects.map(writeObject(_, typesMap)).mkString("")}}
-       |""".stripMargin
-
   def safeName(name: String): String =
     if (reservedKeywords.contains(name)) s"`$name`" else name
 
@@ -200,19 +172,15 @@ object ClientWriter {
   def writeField(field: FieldDefinition, typeName: String, typesMap: Map[String, TypeDefinition]): String = {
     val name = safeName(field.name)
     val description = field.description match {
-      case None => ""
-      case Some(d) =>
-        s"""/**
-           | * $d
-           | */
-           |""".stripMargin
+      case None    => ""
+      case Some(d) => s"/**\n * $d\n */\n"
     }
     val deprecated = field.directives.find(_.name == "deprecated") match {
       case None => ""
       case Some(directive) =>
-        s"@deprecated${directive.arguments.collectFirst {
+        s"@deprecated(${directive.arguments.collectFirst {
           case ("reason", StringValue(reason)) => reason
-        }.fold("")(r => s"""("$r")""")}\n"
+        }.fold(""""",""""")(r => s""""$r",""""")})\n"
     }
     val fieldType = getTypeName(field.ofType)
     val isScalar = typesMap
