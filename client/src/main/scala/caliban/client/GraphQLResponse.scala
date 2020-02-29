@@ -7,7 +7,7 @@ import io.circe.Decoder
 /**
  * Represents the result of a GraphQL query, containing a data object and a list of errors.
  */
-case class GraphQLResponse(data: Value, errors: List[GraphQLResponseError] = Nil)
+case class GraphQLResponse(data: Option[Value], errors: List[GraphQLResponseError] = Nil)
 
 object GraphQLResponse {
 
