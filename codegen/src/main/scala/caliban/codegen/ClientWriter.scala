@@ -150,7 +150,7 @@ object ClientWriter {
           implicit val encoder: ArgEncoder[${typedef.name}] = new ArgEncoder[${typedef.name}] {
             override def encode(value: ${typedef.name}): Value = value match {
               ${typedef.enumValuesDefinition
-      .map(v => s"""case ${typedef.name}.${safeName(v.enumValue)} => StringValue("${v.enumValue}")""")
+      .map(v => s"""case ${typedef.name}.${safeName(v.enumValue)} => EnumValue("${v.enumValue}")""")
       .mkString("\n")}
             }
             override def typeName: String = "${typedef.name}"
