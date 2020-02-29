@@ -585,8 +585,8 @@ object Validator {
     t.fields(__DeprecatedArgs(Some(true))) match {
       case None | Some(Nil) =>
         failValidation(
-          s"message",
-          "explanatory"
+          s"Interface ${t.name.getOrElse("")} does not have fields",
+          "An Interface type must define one or more fields"
         )
       case Some(fields) => validateFields(fields)
     }
@@ -632,27 +632,40 @@ object Validator {
     }
   }
 
-  private def noDuplicateFieldName(fields: List[__Field]) =
-    noDuplicateName[__Field](fields, _.name)
+  private def noDuplicateFieldName(fields: List[__Field]) = {
+    val messageBuilder = (f: __Field) => s"Interface has repeated fields: ${f.name}"
+    val explanatory =
+      "The field must have a unique name within that Interface type; no two fields may share the same name"
+    noDuplicateName[__Field](fields, _.name, messageBuilder, explanatory)
+  }
 
-  private def noDuplicateInputValueName(inputValues: List[__InputValue]) =
-    noDuplicateName[__InputValue](inputValues, _.name)
+  private def noDuplicateInputValueName(inputValues: List[__InputValue]) = {
+    val messageBuilder = (i: __InputValue) => s"InputObject has repeated fields: ${i.name}"
+    val explanatory =
+      "The input field must have a unique name within that Input Object type; no two input fields may share the same name"
+    noDuplicateName[__InputValue](inputValues, _.name, messageBuilder, explanatory)
+  }
 
-  private def noDuplicateName[T](listOfNamed: List[T], nameExtractor: T => String): IO[ValidationError, Unit] =
+  private def noDuplicateName[T](
+    listOfNamed: List[T],
+    nameExtractor: T => String,
+    messageBuilder: T => String,
+    explanatoryText: String
+  ): IO[ValidationError, Unit] =
     listOfNamed
       .groupBy(nameExtractor(_))
       .collectFirst { case (_, f :: _ :: _) => f }
       .fold[IO[ValidationError, Unit]](IO.unit)(duplicate =>
         failValidation(
-          s"InputObject has repeated fields: ${nameExtractor(duplicate)}",
-          "The input field must have a unique name within that Input Object type; no two input fields may share the same name"
+          messageBuilder(duplicate),
+          explanatoryText
         )
       )
 
   private def doesNotStartWithUnderscore(name: String, typeName: String, inType: String): IO[ValidationError, Unit] =
     IO.when(name.startsWith("__"))(
       failValidation(
-        s"A $typeName in $inType can't start with '__': $name",
+        s"$typeName in $inType can't start with '__': $name",
         s"""The $typeName must not have a name which begins with the characters {"__"} (two underscores)"""
       )
     )

@@ -18,7 +18,7 @@ object ValidationSchemaSpec
           testM("name can't start with '__'") {
             check(
               graphQL(resolverWrongMutationUnderscore),
-              "A input value in InputObject can't start with '__': __name"
+              "input value in InputObject can't start with '__': __name"
             )
           },
           testM("should only contain types for which IsInputType(type) is true") {
@@ -32,19 +32,19 @@ object ValidationSchemaSpec
           testM("must define one or more fields") {
             check(
               graphQL(resolverEmptyInferface),
-              "message"
+              "Interface InterfaceEmpty does not have fields"
             )
           },
           testM("field name can't start with '__'") {
             check(
               graphQL(resolverInferfaceWrongFieldName),
-              "A field in Interface can't start with '__': __name"
+              "field in Interface can't start with '__': __name"
             )
           },
           testM("field argument name can't start with '__'") {
             check(
               graphQL(resolverInterfaceWrongArgumentName),
-              "A argument input value in Interface can't start with '__': __name"
+              "argument input value in Interface can't start with '__': __name"
             )
           },
           testM("field argument can't be output type") {
