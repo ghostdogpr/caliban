@@ -548,15 +548,16 @@ object Validator {
   private def validateInputObject(t: __Type): IO[ValidationError, Unit] = {
     val inputObjectContext = s"""InputObject '${t.name.getOrElse("")}'"""
 
+    def noDuplicateInputValueName(inputValues: List[__InputValue], errorContext: String) = {
+      val messageBuilder = (i: __InputValue) => s"$errorContext has repeated fields: ${i.name}"
+      val explanatory =
+        "The input field must have a unique name within that Input Object type; no two input fields may share the same name"
+      noDuplicateName[__InputValue](inputValues, _.name, messageBuilder, explanatory)
+    }
+
     def validateFields(fields: List[__InputValue]): IO[ValidationError, Unit] =
       noDuplicateInputValueName(fields, inputObjectContext) <*
-        IO.foreach(fields) { field =>
-          val fieldContext = s"InputValue '${field.name}' of $inputObjectContext"
-          for {
-            _ <- doesNotStartWithUnderscore(field, fieldContext)
-            _ <- onlyInputType(field.`type`(), fieldContext)
-          } yield ()
-        }
+        IO.foreach(fields)(validateInputValue(_, inputObjectContext))
 
     t.inputFields match {
       case None | Some(Nil) =>
@@ -568,15 +569,21 @@ object Validator {
     }
   }
 
+  private def validateInputValue(inputValue: __InputValue, errorContext: String): IO[ValidationError, Unit] = {
+    val fieldContext = s"InputValue '${inputValue.name}' of $errorContext"
+    for {
+      _ <- doesNotStartWithUnderscore(inputValue, fieldContext)
+      _ <- onlyInputType(inputValue.`type`(), fieldContext)
+    } yield ()
+  }
   private def validateInterface(t: __Type): IO[ValidationError, Unit] = {
     val interfaceContext = s"Interface '${t.name.getOrElse("")}'"
 
-    def validateInterfaceArgument(arg: __InputValue, errorContext: String): IO[ValidationError, Unit] = {
-      val argumentContext = s"InputValue '${arg.name}' of $errorContext"
-      for {
-        _ <- doesNotStartWithUnderscore(arg, argumentContext)
-        _ <- onlyInputType(arg.`type`(), argumentContext)
-      } yield ()
+    def noDuplicateFieldName(fields: List[__Field], errorContext: String) = {
+      val messageBuilder = (f: __Field) => s"$errorContext has repeated fields: ${f.name}"
+      val explanatory =
+        "The field must have a unique name within that Interface type; no two fields may share the same name"
+      noDuplicateName[__Field](fields, _.name, messageBuilder, explanatory)
     }
 
     def validateFields(fields: List[__Field]): IO[ValidationError, Unit] =
@@ -586,7 +593,7 @@ object Validator {
           for {
             _ <- doesNotStartWithUnderscore(field, fieldContext)
             _ <- onlyOutputType(field.`type`(), fieldContext)
-            _ <- IO.foreach(field.args)(validateInterfaceArgument(_, fieldContext))
+            _ <- IO.foreach(field.args)(validateInputValue(_, fieldContext))
           } yield ()
         }
 
@@ -638,20 +645,6 @@ object Validator {
           """The input field must accept a type where IsOutputType(type) returns true, https://spec.graphql.org/June2018/#IsInputType()"""
         )
     }
-  }
-
-  private def noDuplicateFieldName(fields: List[__Field], errorContext: String) = {
-    val messageBuilder = (f: __Field) => s"$errorContext has repeated fields: ${f.name}"
-    val explanatory =
-      "The field must have a unique name within that Interface type; no two fields may share the same name"
-    noDuplicateName[__Field](fields, _.name, messageBuilder, explanatory)
-  }
-
-  private def noDuplicateInputValueName(inputValues: List[__InputValue], errorContext: String) = {
-    val messageBuilder = (i: __InputValue) => s"$errorContext has repeated fields: ${i.name}"
-    val explanatory =
-      "The input field must have a unique name within that Input Object type; no two input fields may share the same name"
-    noDuplicateName[__InputValue](inputValues, _.name, messageBuilder, explanatory)
   }
 
   private def noDuplicateName[T](
