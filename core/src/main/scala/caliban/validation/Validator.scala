@@ -546,19 +546,22 @@ object Validator {
   }
 
   private def validateInputObject(t: __Type): IO[ValidationError, Unit] = {
+    val inputObjectContext = s"""InputObject '${t.name.getOrElse("")}'"""
+
     def validateFields(fields: List[__InputValue]): IO[ValidationError, Unit] =
-      noDuplicateInputValueName(fields) <*
-        IO.foreach(fields)(field =>
+      noDuplicateInputValueName(fields, inputObjectContext) <*
+        IO.foreach(fields) { field =>
+          val fieldContext = s"InputValue '${field.name}' of $inputObjectContext"
           for {
-            _ <- doesNotStartWithUnderscore(field.name, "input value", "InputObject")
-            _ <- onlyInputType(field.`type`())
+            _ <- doesNotStartWithUnderscore(field, fieldContext)
+            _ <- onlyInputType(field.`type`(), fieldContext)
           } yield ()
-        )
+        }
 
     t.inputFields match {
       case None | Some(Nil) =>
         failValidation(
-          s"InputObject ${t.name.getOrElse("")} does not have fields",
+          s"$inputObjectContext does not have fields",
           "An Input Object type must define one or more input fields"
         )
       case Some(fields) => validateFields(fields)
@@ -566,33 +569,38 @@ object Validator {
   }
 
   private def validateInterface(t: __Type): IO[ValidationError, Unit] = {
-    def validateInterfaceArgument(arg: __InputValue): IO[ValidationError, Unit] =
+    val interfaceContext = s"Interface '${t.name.getOrElse("")}'"
+
+    def validateInterfaceArgument(arg: __InputValue, errorContext: String): IO[ValidationError, Unit] = {
+      val argumentContext = s"InputValue '${arg.name}' of $errorContext"
       for {
-        _ <- doesNotStartWithUnderscore(arg.name, "argument input value", "Interface")
-        _ <- onlyInputType(arg.`type`())
+        _ <- doesNotStartWithUnderscore(arg, argumentContext)
+        _ <- onlyInputType(arg.`type`(), argumentContext)
       } yield ()
+    }
 
     def validateFields(fields: List[__Field]): IO[ValidationError, Unit] =
-      noDuplicateFieldName(fields) <*
-        IO.foreach(fields)(field =>
+      noDuplicateFieldName(fields, interfaceContext) <*
+        IO.foreach(fields) { field =>
+          val fieldContext = s"Field '${field.name}' of $interfaceContext"
           for {
-            _ <- doesNotStartWithUnderscore(field.name, "field", "Interface")
-            _ <- onlyOutputType(field.`type`())
-            _ <- IO.foreach(field.args)(validateInterfaceArgument)
+            _ <- doesNotStartWithUnderscore(field, fieldContext)
+            _ <- onlyOutputType(field.`type`(), fieldContext)
+            _ <- IO.foreach(field.args)(validateInterfaceArgument(_, fieldContext))
           } yield ()
-        )
+        }
 
     t.fields(__DeprecatedArgs(Some(true))) match {
       case None | Some(Nil) =>
         failValidation(
-          s"Interface ${t.name.getOrElse("")} does not have fields",
+          s"$interfaceContext does not have fields",
           "An Interface type must define one or more fields"
         )
       case Some(fields) => validateFields(fields)
     }
   }
 
-  private def onlyInputType(`type`: __Type): IO[ValidationError, Unit] = {
+  private def onlyInputType(`type`: __Type, errorContext: String): IO[ValidationError, Unit] = {
     // https://spec.graphql.org/June2018/#IsInputType()
     def isInputType(t: __Type): Either[__Type, Unit] = {
       import __TypeKind._
@@ -606,13 +614,13 @@ object Validator {
     IO.whenCase(isInputType(`type`)) {
       case Left(errorType) =>
         failValidation(
-          s"${errorType.name.getOrElse("")} is of kind ${errorType.kind}, must be an InputType",
+          s"${errorType.name.getOrElse("")} of $errorContext is of kind ${errorType.kind}, must be an InputType",
           """The input field must accept a type where IsInputType(type) returns true, https://spec.graphql.org/June2018/#IsInputType()"""
         )
     }
   }
 
-  private def onlyOutputType(`type`: __Type): IO[ValidationError, Unit] = {
+  private def onlyOutputType(`type`: __Type, errorContext: String): IO[ValidationError, Unit] = {
     // https://spec.graphql.org/June2018/#IsOutputType()
     def isOutputType(t: __Type): Either[__Type, Unit] = {
       import __TypeKind._
@@ -626,21 +634,21 @@ object Validator {
     IO.whenCase(isOutputType(`type`)) {
       case Left(errorType) =>
         failValidation(
-          s"${errorType.name.getOrElse("")} is of kind ${errorType.kind}, must be an OutputType",
+          s"${errorType.name.getOrElse("")} of $errorContext is of kind ${errorType.kind}, must be an OutputType",
           """The input field must accept a type where IsOutputType(type) returns true, https://spec.graphql.org/June2018/#IsInputType()"""
         )
     }
   }
 
-  private def noDuplicateFieldName(fields: List[__Field]) = {
-    val messageBuilder = (f: __Field) => s"Interface has repeated fields: ${f.name}"
+  private def noDuplicateFieldName(fields: List[__Field], errorContext: String) = {
+    val messageBuilder = (f: __Field) => s"$errorContext has repeated fields: ${f.name}"
     val explanatory =
       "The field must have a unique name within that Interface type; no two fields may share the same name"
     noDuplicateName[__Field](fields, _.name, messageBuilder, explanatory)
   }
 
-  private def noDuplicateInputValueName(inputValues: List[__InputValue]) = {
-    val messageBuilder = (i: __InputValue) => s"InputObject has repeated fields: ${i.name}"
+  private def noDuplicateInputValueName(inputValues: List[__InputValue], errorContext: String) = {
+    val messageBuilder = (i: __InputValue) => s"$errorContext has repeated fields: ${i.name}"
     val explanatory =
       "The input field must have a unique name within that Input Object type; no two input fields may share the same name"
     noDuplicateName[__InputValue](inputValues, _.name, messageBuilder, explanatory)
@@ -662,11 +670,27 @@ object Validator {
         )
       )
 
-  private def doesNotStartWithUnderscore(name: String, typeName: String, inType: String): IO[ValidationError, Unit] =
-    IO.when(name.startsWith("__"))(
+  private def doesNotStartWithUnderscore(field: __Field, errorContext: String) = {
+    val explanatory = s"""The field must not have a name which begins with the characters {"__"} (two underscores)"""
+    doesNotStartWithUnderscore[__Field](field, _.name, errorContext, explanatory)
+  }
+
+  private def doesNotStartWithUnderscore(inputValue: __InputValue, errorContext: String) = {
+    val explanatory =
+      s"""The input field must not have a name which begins with the characters "__" (two underscores)"""
+    doesNotStartWithUnderscore[__InputValue](inputValue, _.name, errorContext, explanatory)
+  }
+
+  private def doesNotStartWithUnderscore[T](
+    t: T,
+    nameExtractor: T => String,
+    errorContext: String,
+    explanatoryText: String
+  ): IO[ValidationError, Unit] =
+    IO.when(nameExtractor(t).startsWith("__"))(
       failValidation(
-        s"$typeName in $inType can't start with '__': $name",
-        s"""The $typeName must not have a name which begins with the characters {"__"} (two underscores)"""
+        s"$errorContext can't start with '__'",
+        explanatoryText
       )
     )
 

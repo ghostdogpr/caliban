@@ -18,13 +18,13 @@ object ValidationSchemaSpec
           testM("name can't start with '__'") {
             check(
               graphQL(resolverWrongMutationUnderscore),
-              "input value in InputObject can't start with '__': __name"
+              "InputValue '__name' of InputObject 'DoubleUnderscoreArgInput' can't start with '__'"
             )
           },
           testM("should only contain types for which IsInputType(type) is true") {
             check(
               graphQL(resolverWrongMutationUnion),
-              "UnionInput is of kind UNION, must be an InputType"
+              "UnionInput of InputValue 'union' of InputObject 'UnionArgInput' is of kind UNION, must be an InputType"
             )
           }
         ),
@@ -32,25 +32,25 @@ object ValidationSchemaSpec
           testM("must define one or more fields") {
             check(
               graphQL(resolverEmptyInferface),
-              "Interface InterfaceEmpty does not have fields"
+              "Interface 'InterfaceEmpty' does not have fields"
             )
           },
           testM("field name can't start with '__'") {
             check(
               graphQL(resolverInferfaceWrongFieldName),
-              "field in Interface can't start with '__': __name"
+              "Field '__name' of Interface 'InterfaceWrongFieldName' can't start with '__'"
             )
           },
           testM("field argument name can't start with '__'") {
             check(
               graphQL(resolverInterfaceWrongArgumentName),
-              "argument input value in Interface can't start with '__': __name"
+              "InputValue '__name' of Field 'x' of Interface 'InterfaceWrongArgumentName' can't start with '__'"
             )
           },
           testM("field argument can't be output type") {
             check(
               graphQL(resolverInterfaceWrongArgumentInputType),
-              "UnionInput is of kind UNION, must be an InputType"
+              "UnionInput of InputValue 'union' of InputObject 'UnionArgInput' is of kind UNION, must be an InputType"
             )
           }
         )
