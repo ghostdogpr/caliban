@@ -255,7 +255,7 @@ import caliban.client.Value._
 
 object Client {
 
-  case class CharacterInput(name: String, nicknames: List[String])
+  case class CharacterInput(name: String, nicknames: List[String] = Nil)
   object CharacterInput {
     implicit val encoder: ArgEncoder[CharacterInput] = new ArgEncoder[CharacterInput] {
       override def encode(value: CharacterInput): Value =
@@ -354,6 +354,46 @@ object Client {
     def name: SelectionBuilder[Character, String] = Field("name", Scalar())
     @deprecated("", "")
     def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
+  }
+
+}
+"""
+              )
+            )
+          },
+          testM("default arguments for optional and list arguments") {
+            val schema =
+              """
+              type Query {
+                characters(
+                  first: Int!
+                  last: Int
+                  origins: [String]!
+                ): String
+              }""".stripMargin
+
+            assertM(
+              gen(schema),
+              equalTo(
+                """import caliban.client.FieldBuilder._
+import caliban.client.SelectionBuilder._
+import caliban.client._
+import caliban.client.Operations._
+
+object Client {
+
+  type Query = RootQuery
+  object Query {
+    def characters(
+      first: Int,
+      last: Option[Int] = None,
+      origins: List[Option[String]] = Nil
+    ): SelectionBuilder[RootQuery, Option[String]] =
+      Field(
+        "characters",
+        OptionOf(Scalar()),
+        arguments = List(Argument("first", first), Argument("last", last), Argument("origins", origins))
+      )
   }
 
 }
