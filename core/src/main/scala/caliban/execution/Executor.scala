@@ -153,8 +153,9 @@ object Executor {
   ): Map[String, InputValue] = {
     def resolveVariable(value: InputValue): InputValue =
       value match {
-        case InputValue.ListValue(values)   => InputValue.ListValue(values.map(resolveVariable))
-        case InputValue.ObjectValue(fields) => InputValue.ObjectValue(fields.mapValues(resolveVariable).toMap)
+        case InputValue.ListValue(values) => InputValue.ListValue(values.map(resolveVariable))
+        case InputValue.ObjectValue(fields) =>
+          InputValue.ObjectValue(fields.map({ case (k, v) => k -> resolveVariable(v) }))
         case InputValue.VariableValue(name) =>
           lazy val defaultInputValue = (for {
             definition <- variableDefinitions.find(_.name == name)
@@ -163,7 +164,7 @@ object Executor {
           variableValues.getOrElse(name, defaultInputValue)
         case value: Value => value
       }
-    arguments.mapValues(resolveVariable).toMap
+    arguments.map({ case (k, v) => k -> resolveVariable(v) })
   }
 
   private[caliban] def mergeFields(field: Field, typeName: String): List[Field] = {
