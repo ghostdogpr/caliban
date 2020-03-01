@@ -5,6 +5,7 @@ import caliban.CalibanError.ValidationError
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
+import caliban.Value.StringValue
 import zio.IO
 import zio.test.Assertion._
 import zio.test._
@@ -233,6 +234,28 @@ object ValidationSpec
                }
               }""")
           check(query, "Variable 'x' is not used.")
+        },
+        testM("variable used in list") {
+          val query = gqldoc("""
+             query($x: String) {
+               charactersIn(names: [$x]){
+                 name
+               }
+              }""")
+          assertM(
+            interpreter.flatMap(_.execute(query, None, Map("x" -> StringValue("y")))).map(_.errors.headOption),
+            isNone
+          )
+        },
+        testM("variable used in object") {
+          val query = gqldoc("""
+             query($x: String) {
+               exists(character: { name: $x, nicknames: [], origin: EARTH })
+              }""")
+          assertM(
+            interpreter.flatMap(_.execute(query, None, Map("x" -> StringValue("y")))).map(_.errors.headOption),
+            isNone
+          )
         },
         testM("invalid input field") {
           val query = gqldoc("""
