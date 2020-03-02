@@ -264,11 +264,11 @@ object ClientWriter {
   def writeArgumentFields(args: List[InputValueDefinition]): String =
     s"${args.map(arg => s"${safeName(arg.name)}: ${writeType(arg.ofType)}${writeDefaultArgument(arg)}").mkString(", ")}"
 
-  def writeDefaultArgument(arg: InputValueDefinition) : String =
+  def writeDefaultArgument(arg: InputValueDefinition): String =
     arg.ofType match {
       case t if t.nullable => " = None"
-      case ListType(_, _) => " = Nil"
-      case _ => ""
+      case ListType(_, _)  => " = Nil"
+      case _               => ""
     }
 
   def writeArguments(field: FieldDefinition): String =
