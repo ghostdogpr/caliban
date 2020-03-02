@@ -2,7 +2,6 @@ package caliban.execution
 
 import scala.annotation.tailrec
 import scala.collection.immutable.ListMap
-
 import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue._
 import caliban.Value._
@@ -10,7 +9,7 @@ import caliban.parsing.adt._
 import caliban.schema.Step._
 import caliban.schema.{ ReducedStep, Step }
 import caliban.wrappers.Wrapper.FieldWrapper
-import caliban.{ CalibanError, GraphQLResponse, InputValue, ResponseValue }
+import caliban.{ CalibanError, GraphQLResponse, InputValue, ResponseValue, Value }
 import zio._
 import zquery.ZQuery
 
@@ -151,19 +150,22 @@ object Executor {
     arguments: Map[String, InputValue],
     variableDefinitions: List[VariableDefinition],
     variableValues: Map[String, InputValue]
-  ): Map[String, InputValue] =
-    arguments.map {
-      case (k, v) =>
-        k -> (v match {
-          case InputValue.VariableValue(name) =>
-            lazy val defaultInputValue = (for {
-              definition <- variableDefinitions.find(_.name == name)
-              inputValue <- definition.defaultValue
-            } yield inputValue) getOrElse v
-            variableValues.getOrElse(name, defaultInputValue)
-          case value => value
-        })
-    }
+  ): Map[String, InputValue] = {
+    def resolveVariable(value: InputValue): InputValue =
+      value match {
+        case InputValue.ListValue(values) => InputValue.ListValue(values.map(resolveVariable))
+        case InputValue.ObjectValue(fields) =>
+          InputValue.ObjectValue(fields.map({ case (k, v) => k -> resolveVariable(v) }))
+        case InputValue.VariableValue(name) =>
+          lazy val defaultInputValue = (for {
+            definition <- variableDefinitions.find(_.name == name)
+            inputValue <- definition.defaultValue
+          } yield inputValue) getOrElse value
+          variableValues.getOrElse(name, defaultInputValue)
+        case value: Value => value
+      }
+    arguments.map({ case (k, v) => k -> resolveVariable(v) })
+  }
 
   private[caliban] def mergeFields(field: Field, typeName: String): List[Field] = {
     val allFields = field.fields ++ field.conditionalFields.getOrElse(typeName, Nil)

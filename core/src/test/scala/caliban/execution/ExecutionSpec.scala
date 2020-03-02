@@ -174,6 +174,32 @@ object ExecutionSpec
             equalTo("""{"amos":{"name":"Amos Burton"}}""")
           )
         },
+        testM("variable in list") {
+          val interpreter = graphQL(resolver).interpreter
+          val query       = gqldoc("""
+             query test($name: String) {
+               amos: charactersIn(names: [$name]){
+                 name
+               }
+              }""")
+
+          assertM(
+            interpreter.flatMap(_.execute(query, None, Map("name" -> StringValue("Amos Burton")))).map(_.data.toString),
+            equalTo("""{"amos":[{"name":"Amos Burton"}]}""")
+          )
+        },
+        testM("variable in object") {
+          val interpreter = graphQL(resolver).interpreter
+          val query       = gqldoc("""
+             query test($name: String) {
+               exists(character: { name: $name, nicknames: [], origin: EARTH })
+              }""")
+
+          assertM(
+            interpreter.flatMap(_.execute(query, None, Map("name" -> StringValue("Amos Burton")))).map(_.data.toString),
+            equalTo("""{"exists":false}""")
+          )
+        },
         testM("skip directive") {
           val interpreter = graphQL(resolver).interpreter
           val query       = gqldoc("""

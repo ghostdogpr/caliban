@@ -14,7 +14,7 @@ import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt._
 import caliban.schema.{ RootSchema, RootType, Types }
-import caliban.{ InputValue, Rendering }
+import caliban.{ InputValue, Rendering, Value }
 import zio.IO
 
 object Validator {
@@ -140,9 +140,16 @@ object Validator {
         case InlineFragment(_, directives, selectionSet) =>
           directives.flatMap(_.arguments.values) ++ collectValues(selectionSet)
       }
-    collectValues(selectionSet).collect {
-      case VariableValue(name) => name
-    }.toSet
+    def collectVariableValues(values: List[InputValue]): List[VariableValue] =
+      values.flatMap({
+        case InputValue.ListValue(values)   => collectVariableValues(values)
+        case InputValue.ObjectValue(fields) => collectVariableValues(fields.values.toList)
+        case v: VariableValue               => List(v)
+        case _: Value                       => List()
+      })
+    val allValues = collectValues(selectionSet)
+    val varValues = collectVariableValues(allValues)
+    varValues.map(_.name).toSet
   }
 
   private def collectSelectionSets(selectionSet: List[Selection]): List[Selection] =
