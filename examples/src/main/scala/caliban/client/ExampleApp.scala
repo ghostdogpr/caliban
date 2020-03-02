@@ -1,6 +1,5 @@
 package caliban.client
 
-import caliban.client.Client.Role._
 import caliban.client.Client._
 import sttp.client._
 import sttp.client.asynchttpclient.zio.AsyncHttpClientZioBackend
