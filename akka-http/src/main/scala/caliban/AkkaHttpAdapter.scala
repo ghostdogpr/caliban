@@ -19,14 +19,19 @@ import zio.{ Fiber, IO, Ref, Runtime, Task, URIO }
 
 object AkkaHttpAdapter extends FailFastCirceSupport {
 
-  private def execute[R, E](interpreter: GraphQLInterpreter[R, E], query: GraphQLRequest): URIO[R, GraphQLResponse[E]] =
-    interpreter.execute(query.query, query.operationName, query.variables.getOrElse(Map()))
+  private def execute[R, E](
+    interpreter: GraphQLInterpreter[R, E],
+    query: GraphQLRequest,
+    skipValidation: Boolean
+  ): URIO[R, GraphQLResponse[E]] =
+    interpreter.execute(query.query, query.operationName, query.variables.getOrElse(Map()), skipValidation)
 
   private def executeHttpResponse[R, E](
     interpreter: GraphQLInterpreter[R, E],
-    request: GraphQLRequest
+    request: GraphQLRequest,
+    skipValidation: Boolean
   ): URIO[R, HttpResponse] =
-    execute(interpreter, request)
+    execute(interpreter, request, skipValidation)
       .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
       .map(gqlResult => HttpResponse(StatusCodes.OK, entity = HttpEntity(`application/json`, gqlResult.toString())))
 
@@ -41,16 +46,18 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
   }
 
   def completeRequest[R, E](
-    interpreter: GraphQLInterpreter[R, E]
+    interpreter: GraphQLInterpreter[R, E],
+    skipValidation: Boolean = false
   )(request: GraphQLRequest)(implicit ec: ExecutionContext, runtime: Runtime[R]): StandardRoute =
     complete(
       runtime
-        .unsafeRunToFuture(executeHttpResponse(interpreter, request))
+        .unsafeRunToFuture(executeHttpResponse(interpreter, request, skipValidation))
         .future
     )
 
   def makeHttpService[R, E](
-    interpreter: GraphQLInterpreter[R, E]
+    interpreter: GraphQLInterpreter[R, E],
+    skipValidation: Boolean = false
   )(implicit ec: ExecutionContext, runtime: Runtime[R]): Route = {
     import akka.http.scaladsl.server.Directives._
 
@@ -58,16 +65,17 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
       parameters((Symbol("query").as[String], Symbol("operationName").?, Symbol("variables").?)) {
         case (query, op, vars) =>
           getGraphQLRequest(query, op, vars)
-            .fold(failWith, completeRequest(interpreter))
+            .fold(failWith, completeRequest(interpreter, skipValidation))
       }
     } ~
       post {
-        entity(as[GraphQLRequest])(completeRequest(interpreter))
+        entity(as[GraphQLRequest])(completeRequest(interpreter, skipValidation))
       }
   }
 
   def makeWebSocketService[R, E](
-    interpreter: GraphQLInterpreter[R, E]
+    interpreter: GraphQLInterpreter[R, E],
+    skipValidation: Boolean = false
   )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): Route = {
     def sendMessage(
       sendQueue: SourceQueueWithComplete[Message],
@@ -112,7 +120,7 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
                         case Some(query) =>
                           val operationName = payload.downField("operationName").success.flatMap(_.value.asString)
                           (for {
-                            result <- execute(interpreter, GraphQLRequest(query, operationName, None))
+                            result <- execute(interpreter, GraphQLRequest(query, operationName, None), skipValidation)
                             _ <- result.data match {
                                   case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
                                     stream.foreach { item =>
