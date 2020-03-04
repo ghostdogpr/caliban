@@ -555,7 +555,7 @@ object Validator {
   private def validateInputObject(t: __Type): IO[ValidationError, Unit] = {
     val inputObjectContext = s"""InputObject '${t.name.getOrElse("")}'"""
 
-    def noDuplicateInputValueName(inputValues: List[__InputValue], errorContext: String) = {
+    def noDuplicateInputValueName(inputValues: List[__InputValue], errorContext: String): IO[ValidationError, Unit] = {
       val messageBuilder = (i: __InputValue) => s"$errorContext has repeated fields: ${i.name}"
       val explanatory =
         "The input field must have a unique name within that Input Object type; no two input fields may share the same name"
@@ -663,12 +663,7 @@ object Validator {
     listOfNamed
       .groupBy(nameExtractor(_))
       .collectFirst { case (_, f :: _ :: _) => f }
-      .fold[IO[ValidationError, Unit]](IO.unit)(duplicate =>
-        failValidation(
-          messageBuilder(duplicate),
-          explanatoryText
-        )
-      )
+      .fold[IO[ValidationError, Unit]](IO.unit)(duplicate => failValidation(messageBuilder(duplicate), explanatoryText))
 
   private def doesNotStartWithUnderscore(field: __Field, errorContext: String) = {
     val explanatory = s"""The field must not have a name which begins with the characters {"__"} (two underscores)"""
@@ -688,10 +683,7 @@ object Validator {
     explanatoryText: String
   ): IO[ValidationError, Unit] =
     IO.when(nameExtractor(t).startsWith("__"))(
-      failValidation(
-        s"$errorContext can't start with '__'",
-        explanatoryText
-      )
+      failValidation(s"$errorContext can't start with '__'", explanatoryText)
     )
 
   case class Context(
