@@ -17,11 +17,11 @@ import caliban.GraphQL.graphQL
 import caliban.RootResolver
 import caliban.interop.cats.implicits._
 import cats.effect.{ ExitCode, IO, IOApp }
-import zio.DefaultRuntime
+import zio.Runtime
 
 object ExampleCatsInterop extends IOApp {
 
-  implicit val runtime = new DefaultRuntime {}
+  implicit val runtime = Runtime.default
 
   case class Queries(numbers: List[Int], randomNumber: IO[Int])
 
