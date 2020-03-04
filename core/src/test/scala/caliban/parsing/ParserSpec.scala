@@ -27,9 +27,7 @@ object ParserSpec
                         |    }
                         |  }
                         |}""".stripMargin
-          assertM(
-            Parser.parseQuery(query),
-            equalTo(
+          assertM(Parser.parseQuery(query))(equalTo(
               simpleQuery(
                 selectionSet = List(
                   simpleField(
@@ -43,8 +41,7 @@ object ParserSpec
                 ),
                 sourceMapper = SourceMapper(query)
               )
-            )
-          )
+            ))
         },
         testM("arguments") {
           val query = """{
@@ -53,9 +50,7 @@ object ParserSpec
                         |    height(unit: FOOT)
                         |  }
                         |}""".stripMargin
-          assertM(
-            Parser.parseQuery(query),
-            equalTo(
+          assertM(Parser.parseQuery(query))(equalTo(
               simpleQuery(
                 selectionSet = List(
                   simpleField(
@@ -70,8 +65,7 @@ object ParserSpec
                 ),
                 sourceMapper = SourceMapper(query)
               )
-            )
-          )
+            ))
         },
         testM("aliases") {
           val query = """{
@@ -82,9 +76,7 @@ object ParserSpec
                         |    name
                         |  }
                         |}""".stripMargin
-          assertM(
-            Parser.parseQuery(query),
-            equalTo(
+          assertM(Parser.parseQuery(query))(equalTo(
               simpleQuery(
                 selectionSet = List(
                   simpleField(
@@ -104,8 +96,7 @@ object ParserSpec
                 ),
                 sourceMapper = SourceMapper(query)
               )
-            )
-          )
+            ))
         },
         testM("input values") {
           val query = """{
@@ -116,9 +107,7 @@ object ParserSpec
                         |    name
                         |  }
                         |}""".stripMargin
-          assertM(
-            Parser.parseQuery(query),
-            equalTo(
+          assertM(Parser.parseQuery(query))(equalTo(
               simpleQuery(
                 selectionSet = List(
                   simpleField(
@@ -139,14 +128,11 @@ object ParserSpec
                 ),
                 sourceMapper = SourceMapper(query)
               )
-            )
-          )
+            ))
         },
         testM("block strings") {
           val query = "{ sendEmail(message: \"\"\"\n  Hello,\n    World!\n\n  Yours,\n    GraphQL. \"\"\") }"
-          assertM(
-            Parser.parseQuery(query),
-            equalTo(
+          assertM(Parser.parseQuery(query))(equalTo(
               simpleQuery(
                 selectionSet = List(
                   simpleField(
@@ -157,8 +143,7 @@ object ParserSpec
                 ),
                 sourceMapper = SourceMapper(query)
               )
-            )
-          )
+            ))
         },
         testM("variables") {
           val query = """query getZuckProfile($devicePicSize: Int = 60) {
@@ -168,9 +153,7 @@ object ParserSpec
                         |    profilePic(size: $devicePicSize)
                         |  }
                         |}""".stripMargin
-          assertM(
-            Parser.parseQuery(query),
-            equalTo(
+          assertM(Parser.parseQuery(query))(equalTo(
               simpleQuery(
                 name = Some("getZuckProfile"),
                 variableDefinitions = List(
@@ -190,16 +173,13 @@ object ParserSpec
                 ),
                 sourceMapper = SourceMapper(query)
               )
-            )
-          )
+            ))
         },
         testM("directives") {
           val query = """query myQuery($someTestM: Boolean) {
                         |  experimentalField @skip(if: $someTestM)
                         |}""".stripMargin
-          assertM(
-            Parser.parseQuery(query),
-            equalTo(
+          assertM(Parser.parseQuery(query))(equalTo(
               simpleQuery(
                 name = Some("myQuery"),
                 variableDefinitions =
@@ -213,16 +193,13 @@ object ParserSpec
                 ),
                 sourceMapper = SourceMapper(query)
               )
-            )
-          )
+            ))
         },
         testM("list and non-null types") {
           val query = """query getZuckProfile($devicePicSize: [Int!]!) {
                         |  nothing
                         |}""".stripMargin
-          assertM(
-            Parser.parseQuery(query),
-            equalTo(
+          assertM(Parser.parseQuery(query))(equalTo(
               simpleQuery(
                 name = Some("getZuckProfile"),
                 variableDefinitions = List(
@@ -236,8 +213,7 @@ object ParserSpec
                 selectionSet = List(simpleField("nothing", index = 50)),
                 sourceMapper = SourceMapper(query)
               )
-            )
-          )
+            ))
         },
         testM("fragments") {
           val query = """query withFragments {
@@ -256,9 +232,7 @@ object ParserSpec
                         |  name
                         |  profilePic(size: 50)
                         |}""".stripMargin
-          assertM(
-            Parser.parseQuery(query),
-            equalTo(
+          assertM(Parser.parseQuery(query))(equalTo(
               Document(
                 List(
                   OperationDefinition(
@@ -301,8 +275,7 @@ object ParserSpec
                 ),
                 SourceMapper(query)
               )
-            )
-          )
+            ))
         },
         testM("inline fragments") {
           val query = """query inlineFragmentTyping {
@@ -320,9 +293,7 @@ object ParserSpec
                         |    }
                         |  }
                         |}""".stripMargin
-          assertM(
-            Parser.parseQuery(query),
-            equalTo(
+          assertM(Parser.parseQuery(query))(equalTo(
               simpleQuery(
                 name = Some("inlineFragmentTyping"),
                 selectionSet = List(
@@ -349,8 +320,7 @@ object ParserSpec
                 ),
                 sourceMapper = SourceMapper(query)
               )
-            )
-          )
+            ))
         },
         testM("inline fragments with directives") {
           val query = """query inlineFragmentNoType($expandedInfo: Boolean) {
@@ -364,9 +334,7 @@ object ParserSpec
                         |    }
                         |  }
                         |}""".stripMargin
-          assertM(
-            Parser.parseQuery(query),
-            equalTo(
+          assertM(Parser.parseQuery(query))(equalTo(
               simpleQuery(
                 name = Some("inlineFragmentNoType"),
                 variableDefinitions =
@@ -393,8 +361,7 @@ object ParserSpec
                 ),
                 sourceMapper = SourceMapper(query)
               )
-            )
-          )
+            ))
         },
         testM("mutation") {
           val query = """mutation {
@@ -404,9 +371,7 @@ object ParserSpec
                         |    }
                         |  }
                         |}""".stripMargin
-          assertM(
-            Parser.parseQuery(query),
-            equalTo(
+          assertM(Parser.parseQuery(query))(equalTo(
               Document(
                 List(
                   OperationDefinition(
@@ -428,8 +393,7 @@ object ParserSpec
                 ),
                 SourceMapper(query)
               )
-            )
-          )
+            ))
         },
         testM("invalid syntax") {
           val query = """{
@@ -437,10 +401,7 @@ object ParserSpec
                         |    name(
                         |  }
                         |}""".stripMargin
-          assertM(
-            Parser.parseQuery(query).run,
-            fails(equalTo(ParsingError("Position 4:3, found \"}\\n}\"", locationInfo = Some(LocationInfo(3, 4)))))
-          )
+          assertM(Parser.parseQuery(query).run)(fails(equalTo(ParsingError("Position 4:3, found \"}\\n}\"", locationInfo = Some(LocationInfo(3, 4))))))
         },
         testM("type") {
           val gqltype =
@@ -451,9 +412,7 @@ object ParserSpec
               |suits: [String]
               |powers: [String!]!
               |}""".stripMargin
-          assertM(
-            Parser.parseQuery(gqltype),
-            equalTo(
+          assertM(Parser.parseQuery(gqltype))(equalTo(
               Document(
                 List(
                   ObjectTypeDefinition(
@@ -478,8 +437,7 @@ object ParserSpec
                 ),
                 sourceMapper = SourceMapper.apply(gqltype)
               )
-            )
-          )
+            ))
         }
       )
     )

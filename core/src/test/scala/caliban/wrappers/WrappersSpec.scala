@@ -32,10 +32,7 @@ object WrappersSpec
                   }
                 }
               }""")
-          assertM(
-            interpreter.flatMap(_.execute(query)).map(_.errors),
-            equalTo(List(ValidationError("Query has too many fields: 3. Max fields: 2.", "")))
-          )
+          assertM(interpreter.flatMap(_.execute(query)).map(_.errors))(equalTo(List(ValidationError("Query has too many fields: 3. Max fields: 2.", ""))))
         },
         testM("Max fields with fragment") {
           case class A(b: B)
@@ -55,10 +52,7 @@ object WrappersSpec
                 }
               }
               """)
-          assertM(
-            interpreter.flatMap(_.execute(query)).map(_.errors),
-            equalTo(List(ValidationError("Query has too many fields: 3. Max fields: 2.", "")))
-          )
+          assertM(interpreter.flatMap(_.execute(query)).map(_.errors))(equalTo(List(ValidationError("Query has too many fields: 3. Max fields: 2.", ""))))
         },
         testM("Max depth") {
           case class A(b: B)
@@ -73,10 +67,7 @@ object WrappersSpec
                   }
                 }
               }""")
-          assertM(
-            interpreter.flatMap(_.execute(query)).map(_.errors),
-            equalTo(List(ValidationError("Query is too deep: 3. Max depth: 2.", "")))
-          )
+          assertM(interpreter.flatMap(_.execute(query)).map(_.errors))(equalTo(List(ValidationError("Query is too deep: 3. Max depth: 2.", ""))))
         },
         testM("Timeout") {
           case class Test(a: URIO[Clock, Int])
@@ -90,14 +81,11 @@ object WrappersSpec
               {
                 a
               }""")
-          assertM(
-            TestClock.adjust(1 minute) *> interpreter.flatMap(_.execute(query)).map(_.errors),
-            equalTo(List(ExecutionError("""Query was interrupted after timeout of 1 m:
+          assertM(TestClock.adjust(1 minute) *> interpreter.flatMap(_.execute(query)).map(_.errors))(equalTo(List(ExecutionError("""Query was interrupted after timeout of 1 m:
 
               {
                 a
-              }""".stripMargin)))
-          )
+              }""".stripMargin))))
         },
         testM("Apollo Tracing") {
           case class Query(hero: Hero)
@@ -131,21 +119,18 @@ object WrappersSpec
                   }
                 }
               }""")
-          assertM(
-            for {
+          assertM(for {
               latch       <- Promise.make[Nothing, Unit]
               interpreter <- api(latch).interpreter
               fiber       <- interpreter.execute(query).map(_.extensions.map(_.toString)).fork
               _           <- latch.await
               _           <- TestClock.adjust(1 second)
               result      <- fiber.join
-            } yield result,
-            isSome(
+            } yield result)(isSome(
               equalTo(
                 """{"tracing":{"version":1,"startTime":"1970-01-01T00:00:00.000Z","endTime":"1970-01-01T00:00:01.000Z","duration":1000000000,"parsing":{"startOffset":0,"duration":0},"validation":{"startOffset":0,"duration":0},"execution":{"resolvers":[{"path":["hero"],"parentType":"Query","fieldName":"hero","returnType":"Hero!","startOffset":0,"duration":1000000000},{"path":["hero","name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":1000000000},{"path":["hero","friends"],"parentType":"Hero","fieldName":"friends","returnType":"[Hero!]!","startOffset":1000000000,"duration":0},{"path":["hero","friends",2,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":1000000000,"duration":0},{"path":["hero","friends",1,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":1000000000,"duration":0},{"path":["hero","friends",0,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":1000000000,"duration":0}]}}}"""
               )
-            )
-          )
+            ))
         },
         testM("Apollo Caching") {
           case class Query(@GQLDirective(CacheControl(10.seconds)) hero: Hero)
@@ -181,17 +166,14 @@ object WrappersSpec
                   }
                 }
               }""")
-          assertM(
-            for {
+          assertM(for {
               interpreter <- api.interpreter
               result      <- interpreter.execute(query).map(_.extensions.map(_.toString))
-            } yield result,
-            isSome(
+            } yield result)(isSome(
               equalTo(
                 "{\"cacheControl\":{\"version\":1,\"hints\":[{\"path\":[\"hero\"],\"maxAge\":10,\"scope\":\"PRIVATE\"}]}}"
               )
-            )
-          )
+            ))
         }
       )
     )

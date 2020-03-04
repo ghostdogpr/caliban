@@ -11,7 +11,7 @@ import zio.test._
 object ValidationSchemaSpec
     extends DefaultRunnableSpec({
       def check(gql: GraphQL[Any], expectedMessage: String): IO[ValidationError, TestResult] =
-        assertM(gql.interpreter.run, fails[ValidationError](hasField("msg", _.msg, equalTo(expectedMessage))))
+        assertM(gql.interpreter.run)(fails[ValidationError](hasField("msg", _.msg, equalTo(expectedMessage))))
 
       suite("ValidationSchemaSpec")(
         suite("InputObjects")(

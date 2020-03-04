@@ -14,7 +14,7 @@ object ZQuerySpec
           for {
             result <- getAllUserNames.run
             log    <- TestConsole.output
-          } yield assert(log, hasSize(equalTo(2)))
+          } yield assert(log)(hasSize(equalTo(2)))
         },
         testM("mapError does not prevent batching") {
           import zio.CanFail.canFail
@@ -23,19 +23,16 @@ object ZQuerySpec
           for {
             result <- ZQuery.collectAllPar(List(a, b)).run
             log    <- TestConsole.output
-          } yield assert(log, hasSize(equalTo(2)))
+          } yield assert(log)(hasSize(equalTo(2)))
         },
         testM("failure to complete request is query failure") {
           for {
             result <- getUserNameById(27).run.run
-          } yield assert(result, dies(equalTo(QueryFailure(UserRequestDataSource, GetNameById(27)))))
+          } yield assert(result)(dies(equalTo(QueryFailure(UserRequestDataSource, GetNameById(27)))))
         },
         test("query failure is correctly reported") {
           val failure = QueryFailure(UserRequestDataSource, GetNameById(27))
-          assert(
-            failure.getMessage,
-            equalTo("Data source UserRequestDataSource did not complete request GetNameById(27).")
-          )
+          assert(failure.getMessage)(equalTo("Data source UserRequestDataSource did not complete request GetNameById(27)."))
         },
         testM("timed does not prevent batching") {
           val a = getUserNameById(1).zip(getUserNameById(2)).timed
@@ -43,7 +40,7 @@ object ZQuerySpec
           for {
             result <- ZQuery.collectAllPar(List(a, b)).run
             log    <- TestConsole.output
-          } yield assert(log, hasSize(equalTo(2)))
+          } yield assert(log)(hasSize(equalTo(2)))
         }
       )
     )

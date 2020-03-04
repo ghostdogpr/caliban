@@ -8,14 +8,14 @@ object SourceMapperSpec
     extends DefaultRunnableSpec(
       suite("SourceMapper")(
         test("should not throw IndexOutOfBounds") {
-          assert(SourceMapper("").getLocation(100), equalTo(LocationInfo(101, 1)))
+          assert(SourceMapper("").getLocation(100))(equalTo(LocationInfo(101, 1)))
         },
         test("should map correctly to the source location") {
           val sm = SourceMapper("""
                                   |a
                                   |b
                                   |""".stripMargin)
-          assert(sm.getLocation(3), equalTo(LocationInfo(1, 3)))
+          assert(sm.getLocation(3))(equalTo(LocationInfo(1, 3)))
         }
       )
     )

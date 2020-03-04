@@ -9,9 +9,7 @@ object RenderingSpec
     extends DefaultRunnableSpec(
       suite("rendering")(
         test("it should render directives") {
-          assert(
-            graphQL(resolver).render.trim,
-            equalTo("""schema {
+          assert(graphQL(resolver).render.trim)(equalTo("""schema {
                       |  query: Query
                       |}
                       |
@@ -57,8 +55,7 @@ object RenderingSpec
                       |  characters(origin: Origin): [Character!]!
                       |  charactersIn(names: [String!]!): [Character!]!
                       |  exists(character: CharacterInput!): Boolean!
-                      |}""".stripMargin.trim)
-          )
+                      |}""".stripMargin.trim))
         }
       )
     )

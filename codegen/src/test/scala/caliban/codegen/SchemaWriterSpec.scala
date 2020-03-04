@@ -39,17 +39,11 @@ object SchemaWriterSpec
               } yield argClass).mkString("\n")
             }
 
-          assertM(
-            typeCaseClass,
-            equalTo(
+          assertM(typeCaseClass)(equalTo(
               "case class Hero(name: NameArgs () => String, nick: String, bday: Option[Int])"
-            )
-          ) andThen assertM(
-            typeCaseClassArgs,
-            equalTo(
+            )) andThen assertM(typeCaseClassArgs)(equalTo(
               "case class NameArgs(pad: Int)"
-            )
-          )
+            ))
         },
         testM("simple queries") {
           val schema =
@@ -73,16 +67,13 @@ object SchemaWriterSpec
                 .mkString("\n")
             }
 
-          assertM(
-            result,
-            equalTo(
+          assertM(result)(equalTo(
               """
 case class Query(
 user: UserArgs => Option[User],
 userList: () => List[Option[User]]
 )""".stripMargin
-            )
-          )
+            ))
         },
         testM("simple mutation") {
           val schema =
@@ -100,15 +91,12 @@ userList: () => List[Option[User]]
                 .mkString("\n")
             }
 
-          assertM(
-            result,
-            equalTo(
+          assertM(result)(equalTo(
               """
                 |case class Mutation(
                 |setMessage: SetMessageArgs => Option[String]
                 |)""".stripMargin
-            )
-          )
+            ))
         },
         testM("simple subscription") {
           val schema =
@@ -127,15 +115,12 @@ userList: () => List[Option[User]]
                 .mkString("\n")
             }
 
-          assertM(
-            result,
-            equalTo(
+          assertM(result)(equalTo(
               """
                 |case class Subscription(
                 |UserWatch: UserWatchArgs => ZStream[Any, Nothing, String]
                 |)""".stripMargin
-            )
-          )
+            ))
         },
         testM("schema test") {
           val schema =
@@ -155,9 +140,7 @@ userList: () => List[Option[User]]
               |  }
               |""".stripMargin
 
-          assertM(
-            gen(schema),
-            equalTo(
+          assertM(gen(schema))(equalTo(
               """import Types._
                 |
                 |import zio.stream.ZStream
@@ -184,11 +167,10 @@ userList: () => List[Option[User]]
                 |
                 |}
                 |""".stripMargin
-            )
-          )
+            ))
         },
         testM("empty schema test") {
-          assertM(gen(""), equalTo("\n"))
+          assertM(gen(""))(equalTo("\n"))
         },
         testM("enum type") {
           val schema =
@@ -200,9 +182,7 @@ userList: () => List[Option[User]]
              }
             """.stripMargin
 
-          assertM(
-            gen(schema),
-            equalTo(
+          assertM(gen(schema))(equalTo(
               """object Types {
 
   sealed trait Origin extends scala.Product with scala.Serializable
@@ -215,8 +195,7 @@ userList: () => List[Option[User]]
 
 }
 """
-            )
-          )
+            ))
         },
         testM("union type") {
           val schema =
@@ -233,9 +212,7 @@ userList: () => List[Option[User]]
              }
             """.stripMargin
 
-          assertM(
-            gen(schema),
-            equalTo(
+          assertM(gen(schema))(equalTo(
               """import caliban.schema.Annotations._
 
 object Types {
@@ -253,8 +230,7 @@ object Types {
 
 }
 """
-            )
-          )
+            ))
         },
         testM("schema") {
           val schema =
@@ -268,9 +244,7 @@ object Types {
              }
             """.stripMargin
 
-          assertM(
-            gen(schema),
-            equalTo(
+          assertM(gen(schema))(equalTo(
               """object Operations {
 
   case class Queries(
@@ -279,8 +253,7 @@ object Types {
 
 }
 """
-            )
-          )
+            ))
         },
         testM("input type") {
           val schema =
@@ -294,9 +267,7 @@ object Types {
              }
             """.stripMargin
 
-          assertM(
-            gen(schema),
-            equalTo(
+          assertM(gen(schema))(equalTo(
               """object Types {
 
   case class Character(name: String)
@@ -304,8 +275,7 @@ object Types {
 
 }
 """
-            )
-          )
+            ))
         }
       ) @@ TestAspect.sequential
     })

@@ -10,9 +10,7 @@ object GraphQLResponseSpec
         test("can be parsed from JSON") {
           val response =
             """{"errors":[{"message":"Parse error on \"direction\" (STRING) at [1, 107]","locations":[{"line":1,"column":107}]}]}"""
-          assert(
-            io.circe.parser.decode[GraphQLResponse](response),
-            isRight(
+          assert(io.circe.parser.decode[GraphQLResponse](response))(isRight(
               equalTo(
                 GraphQLResponse(
                   None,
@@ -25,8 +23,7 @@ object GraphQLResponseSpec
                   )
                 )
               )
-            )
-          )
+            ))
         }
       )
     )

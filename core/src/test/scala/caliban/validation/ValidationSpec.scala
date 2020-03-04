@@ -17,7 +17,7 @@ object ValidationSpec
 
       def check(query: String, expectedMessage: String): IO[ValidationError, TestResult] = {
         val io = interpreter.flatMap(_.execute(query)).map(_.errors.headOption)
-        assertM(io, isSome(hasField[CalibanError, String]("msg", _.msg, equalTo(expectedMessage))))
+        assertM(io)(isSome(hasField[CalibanError, String]("msg", _.msg, equalTo(expectedMessage))))
       }
 
       suite("ValidationSpec")(
@@ -242,20 +242,14 @@ object ValidationSpec
                  name
                }
               }""")
-          assertM(
-            interpreter.flatMap(_.execute(query, None, Map("x" -> StringValue("y")))).map(_.errors.headOption),
-            isNone
-          )
+          assertM(interpreter.flatMap(_.execute(query, None, Map("x" -> StringValue("y")))).map(_.errors.headOption))(isNone)
         },
         testM("variable used in object") {
           val query = gqldoc("""
              query($x: String) {
                exists(character: { name: $x, nicknames: [], origin: EARTH })
               }""")
-          assertM(
-            interpreter.flatMap(_.execute(query, None, Map("x" -> StringValue("y")))).map(_.errors.headOption),
-            isNone
-          )
+          assertM(interpreter.flatMap(_.execute(query, None, Map("x" -> StringValue("y")))).map(_.errors.headOption))(isNone)
         },
         testM("invalid input field") {
           val query = gqldoc("""

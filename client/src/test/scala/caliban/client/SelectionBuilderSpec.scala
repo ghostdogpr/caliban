@@ -16,7 +16,7 @@ object SelectionBuilderSpec
                 Character.name
               }
             val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
-            assert(s, equalTo("characters{name}"))
+            assert(s)(equalTo("characters{name}"))
           },
           test("combine 2 fields") {
             val query =
@@ -24,7 +24,7 @@ object SelectionBuilderSpec
                 Character.name ~ Character.nicknames
               }
             val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
-            assert(s, equalTo("characters{name nicknames}"))
+            assert(s)(equalTo("characters{name nicknames}"))
           },
           test("union type") {
             val query =
@@ -35,12 +35,9 @@ object SelectionBuilderSpec
                     .role(Role.Captain.shipName, Role.Pilot.shipName, Role.Mechanic.shipName, Role.Engineer.shipName)
               }
             val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
-            assert(
-              s,
-              equalTo(
+            assert(s)(equalTo(
                 "characters{name nicknames role{__typename ... on Captain{shipName} ... on Pilot{shipName} ... on Mechanic{shipName} ... on Engineer{shipName}}}"
-              )
-            )
+              ))
           },
           test("argument") {
             val query =
@@ -48,7 +45,7 @@ object SelectionBuilderSpec
                 Character.name
               }
             val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
-            assert(s, equalTo("""characters(origin:"MARS"){name}"""))
+            assert(s)(equalTo("""characters(origin:"MARS"){name}"""))
           },
           test("aliases") {
             val query =
@@ -63,10 +60,7 @@ object SelectionBuilderSpec
                   }
                   .copy(alias = Some("naomi"))
             val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
-            assert(
-              s,
-              equalTo("""amos:character(name:"Amos Burton"){name} naomi:character(name:"Naomi Nagata"){name}""")
-            )
+            assert(s)(equalTo("""amos:character(name:"Amos Burton"){name} naomi:character(name:"Naomi Nagata"){name}"""))
           },
           test("variables") {
             val query =
@@ -81,9 +75,9 @@ object SelectionBuilderSpec
                   }
                   .withAlias("naomi")
             val (s, variables) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = true)
-            assert(s, equalTo("""amos:character(name:$name){name} naomi:character(name:$name1){name}""")) &&
-            assert(variables.get("name"), isSome(equalTo((StringValue("Amos Burton"), "String!")))) &&
-            assert(variables.get("name1"), isSome(equalTo((StringValue("Naomi Nagata"), "String!"))))
+            assert(s)(equalTo("""amos:character(name:$name){name} naomi:character(name:$name1){name}""")) &&
+            assert(variables.get("name"))(isSome(equalTo((StringValue("Amos Burton"), "String!")))) &&
+            assert(variables.get("name1"))(isSome(equalTo((StringValue("Naomi Nagata"), "String!"))))
           },
           test("directives") {
             val query =
@@ -93,7 +87,7 @@ object SelectionBuilderSpec
                 }
                 .withDirective(Directive("yo", List(Argument("value", "what's up"))))
             val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
-            assert(s, equalTo("""character(name:"Amos Burton") @yo(value:"what's up"){name}"""))
+            assert(s)(equalTo("""character(name:"Amos Burton") @yo(value:"what's up"){name}"""))
           },
           test("directives + variables") {
             val query =
@@ -103,9 +97,9 @@ object SelectionBuilderSpec
                 }
                 .withDirective(Directive("yo", List(Argument("value", "what's up"))))
             val (s, variables) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = true)
-            assert(s, equalTo("""character(name:$name) @yo(value:$value){name}""")) &&
-            assert(variables.get("name"), isSome(equalTo((StringValue("Amos Burton"), "String!")))) &&
-            assert(variables.get("value"), isSome(equalTo((StringValue("what's up"), "String!"))))
+            assert(s)(equalTo("""character(name:$name) @yo(value:$value){name}""")) &&
+            assert(variables.get("name"))(isSome(equalTo((StringValue("Amos Burton"), "String!")))) &&
+            assert(variables.get("value"))(isSome(equalTo((StringValue("what's up"), "String!"))))
           }
         ),
         suite("response parsing")(
@@ -116,7 +110,7 @@ object SelectionBuilderSpec
               }
             val response =
               ObjectValue(List("characters" -> ListValue(List(ObjectValue(List("name" -> StringValue("Amos")))))))
-            assert(query.fromGraphQL(response), isRight(equalTo(List("Amos"))))
+            assert(query.fromGraphQL(response))(isRight(equalTo(List("Amos"))))
           },
           test("combine 2 fields") {
             val query =
@@ -135,7 +129,7 @@ object SelectionBuilderSpec
                   )
                 )
               )
-            assert(query.fromGraphQL(response), isRight(equalTo(List("Amos Burton" -> List("Amos")))))
+            assert(query.fromGraphQL(response))(isRight(equalTo(List("Amos Burton" -> List("Amos")))))
           },
           test("union type") {
             case class CharacterView(name: String, nicknames: List[String], role: Option[String])
@@ -169,10 +163,7 @@ object SelectionBuilderSpec
                   )
                 )
               )
-            assert(
-              query.fromGraphQL(response),
-              isRight(equalTo(List(CharacterView("Amos Burton", List("Amos"), Some("Rocinante")))))
-            )
+            assert(query.fromGraphQL(response))(isRight(equalTo(List(CharacterView("Amos Burton", List("Amos"), Some("Rocinante"))))))
           },
           test("aliases") {
             val query =
@@ -193,10 +184,7 @@ object SelectionBuilderSpec
                   "naomi" -> ObjectValue(List("name" -> StringValue("Naomi Nagata")))
                 )
               )
-            assert(
-              query.fromGraphQL(response),
-              isRight(equalTo((Some("Amos Burton"), Some("Naomi Nagata"))))
-            )
+            assert(query.fromGraphQL(response))(isRight(equalTo((Some("Amos Burton"), Some("Naomi Nagata")))))
           }
         )
       )
