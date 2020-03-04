@@ -371,7 +371,7 @@ object Validator {
   private def validateField(context: Context, field: Field, currentType: __Type): IO[ValidationError, Unit] =
     IO.when(field.name != "__typename") {
       IO.fromOption(currentType.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).find(_.name == field.name))
-        .asError(
+        .orElseFail(
           ValidationError(
             s"Field '${field.name}' does not exist on type '${Rendering.renderTypeName(currentType)}'.",
             "The target field of a field selection must be defined on the scoped type of the selection set. There are no limitations on alias names."

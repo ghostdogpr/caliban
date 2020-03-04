@@ -60,9 +60,7 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
 
   override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] =
     (for {
-      blocker <- ZIO
-                  .accessM[Blocking](_.blocking.blockingExecutor.map(_.asEC))
-                  .map(Blocker.liftExecutionContext)
+      blocker     <- ZIO.access[Blocking](_.get.blockingExecutor.asEC).map(Blocker.liftExecutionContext)
       service     <- ExampleService.make(sampleCharacters)
       interpreter <- makeApi(service).interpreter
       _ <- BlazeServerBuilder[ExampleTask]
