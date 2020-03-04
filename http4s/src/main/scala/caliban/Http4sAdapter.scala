@@ -23,11 +23,19 @@ import com.github.ghik.silencer.silent
 
 object Http4sAdapter {
 
-  private def execute[R, E](interpreter: GraphQLInterpreter[R, E], query: GraphQLRequest): URIO[R, GraphQLResponse[E]] =
-    interpreter.execute(query.query, query.operationName, query.variables.getOrElse(Map()))
+  private def execute[R, E](
+    interpreter: GraphQLInterpreter[R, E],
+    query: GraphQLRequest,
+    skipValidation: Boolean
+  ): URIO[R, GraphQLResponse[E]] =
+    interpreter.execute(query.query, query.operationName, query.variables.getOrElse(Map()), skipValidation)
 
-  private def executeToJson[R, E](interpreter: GraphQLInterpreter[R, E], query: GraphQLRequest): URIO[R, Json] =
-    execute(interpreter, query)
+  private def executeToJson[R, E](
+    interpreter: GraphQLInterpreter[R, E],
+    query: GraphQLRequest,
+    skipValidation: Boolean
+  ): URIO[R, Json] =
+    execute(interpreter, query, skipValidation)
       .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
 
   @deprecated("Use makeHttpService instead", "0.4.0")
@@ -51,7 +59,10 @@ object Http4sAdapter {
       params.get("variables")
     )
 
-  @silent def makeHttpService[R, E](interpreter: GraphQLInterpreter[R, E]): HttpRoutes[RIO[R, *]] = {
+  @silent def makeHttpService[R, E](
+    interpreter: GraphQLInterpreter[R, E],
+    skipValidation: Boolean = false
+  ): HttpRoutes[RIO[R, *]] = {
     object dsl extends Http4sDsl[RIO[R, *]]
     import dsl._
 
@@ -59,30 +70,37 @@ object Http4sAdapter {
       case req @ POST -> Root =>
         for {
           query    <- req.attemptAs[GraphQLRequest].value.absolve
-          result   <- executeToJson(interpreter, query)
+          result   <- executeToJson(interpreter, query, skipValidation)
           response <- Ok(result)
         } yield response
       case req @ GET -> Root =>
         for {
           query    <- Task.fromEither(getGraphQLRequest(req.params))
-          result   <- executeToJson(interpreter, query)
+          result   <- executeToJson(interpreter, query, skipValidation)
           response <- Ok(result)
         } yield response
     }
   }
 
-  def executeRequest[R0, R, E](interpreter: GraphQLInterpreter[R, E], provideEnv: R0 => R): HttpApp[RIO[R0, *]] =
+  def executeRequest[R0, R, E](
+    interpreter: GraphQLInterpreter[R, E],
+    provideEnv: R0 => R,
+    skipValidation: Boolean = false
+  ): HttpApp[RIO[R0, *]] =
     Kleisli { req =>
       object dsl extends Http4sDsl[RIO[R0, *]]
       import dsl._
       for {
         query    <- req.attemptAs[GraphQLRequest].value.absolve
-        result   <- executeToJson(interpreter, query).provideSome[R0](provideEnv)
+        result   <- executeToJson(interpreter, query, skipValidation).provideSome[R0](provideEnv)
         response <- Ok(result)
       } yield response
     }
 
-  def makeWebSocketService[R, E](interpreter: GraphQLInterpreter[R, E]): HttpRoutes[RIO[R, *]] = {
+  def makeWebSocketService[R, E](
+    interpreter: GraphQLInterpreter[R, E],
+    skipValidation: Boolean = false
+  ): HttpRoutes[RIO[R, *]] = {
 
     object dsl extends Http4sDsl[RIO[R, *]]
     import dsl._
@@ -124,7 +142,7 @@ object Http4sAdapter {
                       case Some(query) =>
                         val operationName = payload.downField("operationName").success.flatMap(_.value.asString)
                         (for {
-                          result <- execute(interpreter, GraphQLRequest(query, operationName, None))
+                          result <- execute(interpreter, GraphQLRequest(query, operationName, None), skipValidation)
                           _ <- result.data match {
                                 case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
                                   stream.foreach { item =>
@@ -193,9 +211,10 @@ object Http4sAdapter {
   }
 
   def makeWebSocketServiceF[F[_], E](
-    interpreter: GraphQLInterpreter[Any, E]
+    interpreter: GraphQLInterpreter[Any, E],
+    skipValidation: Boolean = false
   )(implicit F: Effect[F], runtime: Runtime[Any]): HttpRoutes[F] =
-    wrapRoute(makeWebSocketService[Any, E](interpreter))
+    wrapRoute(makeWebSocketService[Any, E](interpreter, skipValidation))
 
   @deprecated("Use makeHttpServiceF instead", "0.4.0")
   def makeRestServiceF[F[_], E](
@@ -204,12 +223,14 @@ object Http4sAdapter {
     makeHttpServiceF(interpreter)
 
   def makeHttpServiceF[F[_], E](
-    interpreter: GraphQLInterpreter[Any, E]
+    interpreter: GraphQLInterpreter[Any, E],
+    skipValidation: Boolean = false
   )(implicit F: Effect[F], runtime: Runtime[Any]): HttpRoutes[F] =
-    wrapRoute(makeHttpService[Any, E](interpreter))
+    wrapRoute(makeHttpService[Any, E](interpreter, skipValidation))
 
   def executeRequestF[F[_], E](
-    interpreter: GraphQLInterpreter[Any, E]
+    interpreter: GraphQLInterpreter[Any, E],
+    skipValidation: Boolean = false
   )(implicit F: Effect[F], runtime: Runtime[Any]): HttpApp[F] =
-    wrapApp(executeRequest[Any, Any, E](interpreter, identity))
+    wrapApp(executeRequest[Any, Any, E](interpreter, identity, skipValidation))
 }

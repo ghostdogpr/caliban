@@ -22,12 +22,13 @@ object FinchAdapter extends Endpoint.Module[Task] {
    *         queries against the interpreter
    */
   def makeHttpService[R, E](
-    interpreter: GraphQLInterpreter[R, E]
+    interpreter: GraphQLInterpreter[R, E],
+    skipValidation: Boolean = false
   )(implicit runtime: Runtime[R]): Endpoint[Task, Json] =
     post(jsonBody[GraphQLRequest]) { request: GraphQLRequest =>
       runtime
         .unsafeRunToFuture(
-          execute(interpreter, request)
+          execute(interpreter, request, skipValidation)
             .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
             .map(gqlResult => Ok(gqlResult))
         )
@@ -36,7 +37,8 @@ object FinchAdapter extends Endpoint.Module[Task] {
 
   private def execute[R, E](
     interpreter: GraphQLInterpreter[R, E],
-    query: GraphQLRequest
+    query: GraphQLRequest,
+    skipValidation: Boolean
   ): URIO[R, GraphQLResponse[E]] =
     interpreter.execute(query.query, query.operationName, query.variables.getOrElse(Map()))
 }
