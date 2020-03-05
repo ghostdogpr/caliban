@@ -23,7 +23,7 @@ import zio.duration._
 import zio.interop.catz._
 import zio.stream.ZStream
 
-object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
+object ExampleApp extends App with GenericSchema[Console with Clock] {
 
   case class Queries(
     @GQLDescription("Return all characters from a given origin")
@@ -59,22 +59,26 @@ object ExampleApp extends CatsApp with GenericSchema[Console with Clock] {
       apolloTracing                   // wrapper for https://github.com/apollographql/apollo-tracing
 
   override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] =
-    (for {
-      blocker     <- ZIO.access[Blocking](_.get.blockingExecutor.asEC).map(Blocker.liftExecutionContext)
-      service     <- ExampleService.make(sampleCharacters)
-      interpreter <- makeApi(service).interpreter
-      _ <- BlazeServerBuilder[ExampleTask]
-            .bindHttp(8088, "localhost")
-            .withHttpApp(
-              Router[ExampleTask](
-                "/api/graphql" -> CORS(Http4sAdapter.makeHttpService(interpreter)),
-                "/ws/graphql"  -> CORS(Http4sAdapter.makeWebSocketService(interpreter)),
-                "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", blocker, None))
-              ).orNotFound
-            )
-            .resource
-            .toManaged
-            .useForever
-    } yield 0)
+    ZIO
+      .runtime[ZEnv]
+      .flatMap { implicit runtime =>
+        for {
+          blocker     <- ZIO.access[Blocking](_.get.blockingExecutor.asEC).map(Blocker.liftExecutionContext)
+          service     <- ExampleService.make(sampleCharacters)
+          interpreter <- makeApi(service).interpreter
+          _ <- BlazeServerBuilder[ExampleTask]
+                .bindHttp(8088, "localhost")
+                .withHttpApp(
+                  Router[ExampleTask](
+                    "/api/graphql" -> CORS(Http4sAdapter.makeHttpService(interpreter)),
+                    "/ws/graphql"  -> CORS(Http4sAdapter.makeWebSocketService(interpreter)),
+                    "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", blocker, None))
+                  ).orNotFound
+                )
+                .resource
+                .toManaged
+                .useForever
+        } yield 0
+      }
       .catchAll(err => putStrLn(err.toString).as(1))
 }
