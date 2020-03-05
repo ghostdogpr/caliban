@@ -115,7 +115,7 @@ lazy val catsInterop = crossProject(JSPlatform, JVMPlatform)
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "dev.zio"       %%% "zio-interop-cats" % "2.0.0.0-RC10",
+      "dev.zio"       %%% "zio-interop-cats" % "2.0.0.0-RC11",
       "org.typelevel" %%% "cats-effect"      % "2.1.2"
     )
   )
@@ -130,7 +130,7 @@ lazy val monixInterop = project
   .settings(
     libraryDependencies ++= Seq(
       "dev.zio"  %% "zio-interop-reactivestreams" % "1.0.3.5-RC3",
-      "dev.zio"  %% "zio-interop-cats"            % "2.0.0.0-RC10",
+      "dev.zio"  %% "zio-interop-cats"            % "2.0.0.0-RC11",
       "io.monix" %% "monix"                       % "3.1.0"
     )
   )
@@ -142,7 +142,7 @@ lazy val http4s = project
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "dev.zio"       %% "zio-interop-cats"    % "2.0.0.0-RC10",
+      "dev.zio"       %% "zio-interop-cats"    % "2.0.0.0-RC11",
       "org.typelevel" %% "cats-effect"         % "2.1.2",
       "org.http4s"    %% "http4s-dsl"          % http4sVersion,
       "org.http4s"    %% "http4s-circe"        % http4sVersion,
@@ -185,7 +185,7 @@ lazy val finch = project
     libraryDependencies ++= Seq(
       "com.github.finagle" %% "finchx-core"      % "0.31.0",
       "com.github.finagle" %% "finchx-circe"     % "0.31.0",
-      "dev.zio"            %% "zio-interop-cats" % "2.0.0.0-RC10",
+      "dev.zio"            %% "zio-interop-cats" % "2.0.0.0-RC11",
       "org.typelevel"      %% "cats-effect"      % "2.1.2"
     )
   )
