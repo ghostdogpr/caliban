@@ -5,7 +5,7 @@ val allScala  = Seq("2.13.1", mainScala)
 
 val http4sVersion   = "0.21.1"
 val silencerVersion = "1.6.0"
-val sttpVersion     = "2.0.1"
+val sttpVersion     = "2.0.2"
 val zioVersion      = "1.0.0-RC17"
 
 inThisBuild(
