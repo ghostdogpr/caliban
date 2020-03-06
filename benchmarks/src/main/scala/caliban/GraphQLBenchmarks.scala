@@ -14,7 +14,7 @@ import sangria.marshalling.circe._
 import sangria.parser.QueryParser
 import sangria.schema._
 import zio.internal.Platform
-import zio.{ BootstrapRuntime, UIO }
+import zio.{ BootstrapRuntime, Runtime, UIO }
 
 @State(Scope.Thread)
 @BenchmarkMode(Array(Mode.Throughput))
@@ -22,7 +22,7 @@ import zio.{ BootstrapRuntime, UIO }
 @Warmup(iterations = 5, time = 3, timeUnit = TimeUnit.SECONDS)
 @Measurement(iterations = 5, time = 3, timeUnit = TimeUnit.SECONDS)
 @Fork(1)
-class GraphQLBenchmarks extends BootstrapRuntime {
+class GraphQLBenchmarks {
 
   val simpleQuery: String =
     """{
@@ -125,7 +125,9 @@ class GraphQLBenchmarks extends BootstrapRuntime {
               }
                 """
 
-  override val platform: Platform = Platform.benchmark
+  val runtime: Runtime[Unit] = new BootstrapRuntime {
+    override val platform: Platform = Platform.benchmark
+  }
 
   case class CharactersArgs(origin: Option[Origin])
   case class CharacterArgs(name: String)
@@ -142,19 +144,19 @@ class GraphQLBenchmarks extends BootstrapRuntime {
     )
   )
 
-  val interpreter: GraphQLInterpreter[Any, CalibanError] = unsafeRun(graphQL(resolver).interpreter)
+  val interpreter: GraphQLInterpreter[Any, CalibanError] = runtime.unsafeRun(graphQL(resolver).interpreter)
 
   @Benchmark
   def simpleCaliban(): Unit = {
     val io = interpreter.execute(simpleQuery)
-    unsafeRun(io)
+    runtime.unsafeRun(io)
     ()
   }
 
   @Benchmark
   def introspectCaliban(): Unit = {
     val io = interpreter.execute(fullIntrospectionQuery)
-    unsafeRun(io)
+    runtime.unsafeRun(io)
     ()
   }
 
