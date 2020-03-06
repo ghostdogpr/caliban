@@ -7,7 +7,7 @@ import cats.effect.ExitCode
 import monix.eval.{ Task, TaskApp }
 import monix.reactive.Observable
 import zio.Runtime
-import zio.interop.reactiveStreams._
+import zio.interop.reactivestreams._
 
 object ExampleMonixInterop extends TaskApp {
 
