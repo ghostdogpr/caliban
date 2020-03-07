@@ -107,7 +107,7 @@ object Executor {
             wrap(
               wrapper
                 .f(query, fieldInfo)
-                .foldM(error => ZQuery.fromEffect(errors.update(error :: _)).map(_ => NullValue), ZQuery.succeed)
+                .foldM(error => ZQuery.fromEffect(errors.update(error :: _)).map(_ => NullValue), ZQuery.succeed(_))
             )(tail, fieldInfo)
 
         }
