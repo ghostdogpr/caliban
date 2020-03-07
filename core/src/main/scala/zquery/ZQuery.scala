@@ -163,6 +163,29 @@ sealed trait ZQuery[-R, +E, +A] { self =>
     provideSome(Described(_ => r.value, s"_ => ${r.description}"))
 
   /**
+   * Provides the part of the environment that is not part of the `ZEnv`,
+   * leaving a query that only depends on the `ZEnv`.
+   */
+  final def provideCustomLayer[E1 >: E, R1 <: Has[_]](
+    layer: Described[ZLayer[ZEnv, E1, R1]]
+  )(implicit ev: ZEnv with R1 <:< R, tagged: Tagged[R1]): ZQuery[ZEnv, E1, A] =
+    provideSomeLayer[ZEnv](layer)
+
+  /**
+   * Provides a layer to this query, which translates it to another level.
+   */
+  final def provideLayer[E1 >: E, R0, R1 <: Has[_]](
+    layer: Described[ZLayer[R0, E1, R1]]
+  )(implicit ev1: R1 <:< R, ev2: NeedsEnv[R]): ZQuery[R0, E1, A] =
+    new ZQuery[R0, E1, A] {
+      def step(cache: Cache): ZIO[R0, Nothing, Result[R0, E1, A]] =
+        layer.value.build.run.use {
+          case Exit.Failure(e) => ZIO.succeed(Result.fail(e))
+          case Exit.Success(r) => self.step(cache).provide(r).map(_.provide(Described(r, layer.description)))
+        }
+    }
+
+  /**
    * Provides this query with part of its required environment.
    */
   final def provideSome[R0](f: Described[R0 => R])(implicit ev: NeedsEnv[R]): ZQuery[R0, E, A] =
@@ -170,6 +193,13 @@ sealed trait ZQuery[-R, +E, +A] { self =>
       def step(cache: Cache): ZIO[R0, Nothing, Result[R0, E, A]] =
         self.step(cache).provideSome(f.value).map(_.provideSome(f))
     }
+
+  /**
+   * Splits the environment into two parts, providing one part using the
+   * specified layer and leaving the remainder `R0`.
+   */
+  final def provideSomeLayer[R0 <: Has[_]]: ZQuery.ProvideSomeLayer[R0, R, E, A] =
+    new ZQuery.ProvideSomeLayer[R0, R, E, A](self)
 
   /**
    * Returns an effect that models executing this query.
@@ -309,7 +339,7 @@ object ZQuery {
   /**
    * Constructs a query that dies with the specified error.
    */
-  def die(t: Throwable): ZQuery[Any, Nothing, Nothing] =
+  def die(t: => Throwable): ZQuery[Any, Nothing, Nothing] =
     ZQuery(ZIO.die(t))
 
   /**
@@ -320,7 +350,7 @@ object ZQuery {
   /**
    * Constructs a query that fails with the specified error.
    */
-  def fail[E](error: E): ZQuery[Any, E, Nothing] =
+  def fail[E](error: => E): ZQuery[Any, E, Nothing] =
     ZQuery(ZIO.succeed(Result.fail(Cause.fail(error))))
 
   /**
@@ -416,8 +446,15 @@ object ZQuery {
   /**
    *  Constructs a query that succeeds with the specified value.
    */
-  def succeed[A](value: A): ZQuery[Any, Nothing, A] =
+  def succeed[A](value: => A): ZQuery[Any, Nothing, A] =
     ZQuery(ZIO.succeed(Result.done(value)))
+
+  final class ProvideSomeLayer[R0 <: Has[_], -R, +E, +A](private val self: ZQuery[R, E, A]) extends AnyVal {
+    def apply[E1 >: E, R1 <: Has[_]](
+      layer: Described[ZLayer[R0, E1, R1]]
+    )(implicit ev1: R0 with R1 <:< R, ev2: NeedsEnv[R], tagged: Tagged[R1]): ZQuery[R0, E1, A] =
+      self.provideLayer[E1, R0, R0 with R1](Described(ZLayer.identity[R0] ++ layer.value, layer.description))
+  }
 
   /**
    * Constructs a query from an effect that returns a result.
