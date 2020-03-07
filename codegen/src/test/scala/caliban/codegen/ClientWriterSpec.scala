@@ -3,30 +3,30 @@ package caliban.codegen
 import caliban.parsing.Parser
 import zio.Task
 import zio.test.Assertion._
-import zio.test.{ assertM, suite, testM, DefaultRunnableSpec, TestAspect }
+import zio.test.{ assertM, suite, testM, DefaultRunnableSpec, TestAspect, ZSpec }
+import zio.test.environment.TestEnvironment
 
-object ClientWriterSpec
-    extends DefaultRunnableSpec(
-      {
-        val gen: String => Task[String] = (schema: String) =>
-          Parser
-            .parseQuery(schema)
-            .flatMap(doc => Formatter.format(ClientWriter.write(doc), None))
+object ClientWriterSpec extends DefaultRunnableSpec {
 
-        suite("ClientWriterSpec")(
-          testM("simple object type") {
-            val schema =
-              """
+  val gen: String => Task[String] = (schema: String) =>
+    Parser
+      .parseQuery(schema)
+      .flatMap(doc => Formatter.format(ClientWriter.write(doc), None))
+
+  override def spec: ZSpec[TestEnvironment, Any] =
+    suite("ClientWriterSpec")(
+      testM("simple object type") {
+        val schema =
+          """
              type Character {
                name: String!
                nicknames: [String!]!
              }
             """.stripMargin
 
-            assertM(
-              gen(schema),
-              equalTo(
-                """import caliban.client.FieldBuilder._
+        assertM(gen(schema))(
+          equalTo(
+            """import caliban.client.FieldBuilder._
 import caliban.client.SelectionBuilder._
 import caliban.client._
 
@@ -40,21 +40,20 @@ object Client {
 
 }
 """
-              )
-            )
-          },
-          testM("object type with reserved name") {
-            val schema =
-              """
+          )
+        )
+      },
+      testM("object type with reserved name") {
+        val schema =
+          """
              type Character {
                type: String!
              }
             """.stripMargin
 
-            assertM(
-              gen(schema),
-              equalTo(
-                """import caliban.client.FieldBuilder._
+        assertM(gen(schema))(
+          equalTo(
+            """import caliban.client.FieldBuilder._
 import caliban.client.SelectionBuilder._
 import caliban.client._
 
@@ -67,12 +66,12 @@ object Client {
 
 }
 """
-              )
-            )
-          },
-          testM("nested object type") {
-            val schema =
-              """
+          )
+        )
+      },
+      testM("nested object type") {
+        val schema =
+          """
              type Q {
                characters: [Character!]!
              }
@@ -83,10 +82,9 @@ object Client {
              }
             """.stripMargin
 
-            assertM(
-              gen(schema),
-              equalTo(
-                """import caliban.client.FieldBuilder._
+        assertM(gen(schema))(
+          equalTo(
+            """import caliban.client.FieldBuilder._
 import caliban.client.SelectionBuilder._
 import caliban.client._
 
@@ -106,12 +104,12 @@ object Client {
 
 }
 """
-              )
-            )
-          },
-          testM("object type with arguments") {
-            val schema =
-              """
+          )
+        )
+      },
+      testM("object type with arguments") {
+        val schema =
+          """
              type Q {
                character(name: String!): Character
              }
@@ -122,10 +120,9 @@ object Client {
              }
             """.stripMargin
 
-            assertM(
-              gen(schema),
-              equalTo(
-                """import caliban.client.FieldBuilder._
+        assertM(gen(schema))(
+          equalTo(
+            """import caliban.client.FieldBuilder._
 import caliban.client.SelectionBuilder._
 import caliban.client._
 
@@ -145,12 +142,12 @@ object Client {
 
 }
 """
-              )
-            )
-          },
-          testM("schema") {
-            val schema =
-              """
+          )
+        )
+      },
+      testM("schema") {
+        val schema =
+          """
              schema {
                query: Q
              }
@@ -165,10 +162,9 @@ object Client {
              }
             """.stripMargin
 
-            assertM(
-              gen(schema),
-              equalTo(
-                """import caliban.client.FieldBuilder._
+        assertM(gen(schema))(
+          equalTo(
+            """import caliban.client.FieldBuilder._
 import caliban.client.SelectionBuilder._
 import caliban.client._
 import caliban.client.Operations._
@@ -189,12 +185,12 @@ object Client {
 
 }
 """
-              )
-            )
-          },
-          testM("enum") {
-            val schema =
-              """
+          )
+        )
+      },
+      testM("enum") {
+        val schema =
+          """
              enum Origin {
                EARTH
                MARS
@@ -202,10 +198,9 @@ object Client {
              }
             """.stripMargin
 
-            assertM(
-              gen(schema),
-              equalTo(
-                """import caliban.client.CalibanClientError.DecodingError
+        assertM(gen(schema))(
+          equalTo(
+            """import caliban.client.CalibanClientError.DecodingError
 import caliban.client._
 import caliban.client.Value._
 
@@ -235,22 +230,21 @@ object Client {
 
 }
 """
-              )
-            )
-          },
-          testM("input object") {
-            val schema =
-              """
+          )
+        )
+      },
+      testM("input object") {
+        val schema =
+          """
              input CharacterInput {
                name: String!
                nicknames: [String!]!
              }
             """.stripMargin
 
-            assertM(
-              gen(schema),
-              equalTo(
-                """import caliban.client._
+        assertM(gen(schema))(
+          equalTo(
+            """import caliban.client._
 import caliban.client.Value._
 
 object Client {
@@ -271,12 +265,12 @@ object Client {
 
 }
 """
-              )
-            )
-          },
-          testM("union") {
-            val schema =
-              """
+          )
+        )
+      },
+      testM("union") {
+        val schema =
+          """
              union Role = Captain | Pilot
              
              type Captain {
@@ -292,10 +286,9 @@ object Client {
              }
             """.stripMargin
 
-            assertM(
-              gen(schema),
-              equalTo(
-                """import caliban.client.FieldBuilder._
+        assertM(gen(schema))(
+          equalTo(
+            """import caliban.client.FieldBuilder._
 import caliban.client.SelectionBuilder._
 import caliban.client._
 
@@ -322,12 +315,12 @@ object Client {
 
 }
 """
-              )
-            )
-          },
-          testM("deprecated field + comment") {
-            val schema =
-              """
+          )
+        )
+      },
+      testM("deprecated field + comment") {
+        val schema =
+          """
              type Character {
                "name"
                name: String! @deprecated(reason: "blah")
@@ -335,10 +328,9 @@ object Client {
              }
             """.stripMargin
 
-            assertM(
-              gen(schema),
-              equalTo(
-                """import caliban.client.FieldBuilder._
+        assertM(gen(schema))(
+          equalTo(
+            """import caliban.client.FieldBuilder._
 import caliban.client.SelectionBuilder._
 import caliban.client._
 
@@ -358,12 +350,12 @@ object Client {
 
 }
 """
-              )
-            )
-          },
-          testM("default arguments for optional and list arguments") {
-            val schema =
-              """
+          )
+        )
+      },
+      testM("default arguments for optional and list arguments") {
+        val schema =
+          """
               type Query {
                 characters(
                   first: Int!
@@ -372,10 +364,9 @@ object Client {
                 ): String
               }""".stripMargin
 
-            assertM(
-              gen(schema),
-              equalTo(
-                """import caliban.client.FieldBuilder._
+        assertM(gen(schema))(
+          equalTo(
+            """import caliban.client.FieldBuilder._
 import caliban.client.SelectionBuilder._
 import caliban.client._
 import caliban.client.Operations._
@@ -398,9 +389,8 @@ object Client {
 
 }
 """
-              )
-            )
-          }
-        ) @@ TestAspect.sequential
+          )
+        )
       }
-    )
+    ) @@ TestAspect.sequential
+}

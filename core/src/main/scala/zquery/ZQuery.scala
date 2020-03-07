@@ -137,7 +137,7 @@ sealed trait ZQuery[-R, +E, +A] { self =>
         self.step(cache).flatMap {
           case Result.Blocked(br, c) => ZIO.succeed(Result.blocked(br, c.foldM(failure, success)))
           case Result.Done(a)        => success(a).step(cache)
-          case Result.Fail(e)        => e.failureOrCause.fold(failure(_).step(cache), ZIO.halt)
+          case Result.Fail(e)        => e.failureOrCause.fold(failure(_).step(cache), ZIO.halt(_))
         }
     }
 
@@ -206,7 +206,7 @@ sealed trait ZQuery[-R, +E, +A] { self =>
    * and then combining the values to produce a summary, together with the
    * result of execution.
    */
-  final def summarized[R1 <: R, E1 >: E, B, C](f: (B, B) => C)(summary: ZIO[R1, E1, B]): ZQuery[R1, E1, (C, A)] =
+  final def summarized[R1 <: R, E1 >: E, B, C](summary: ZIO[R1, E1, B])(f: (B, B) => C): ZQuery[R1, E1, (C, A)] =
     for {
       start <- ZQuery.fromEffect(summary)
       value <- self
@@ -217,7 +217,7 @@ sealed trait ZQuery[-R, +E, +A] { self =>
    * Returns a new query that executes this one and times the execution.
    */
   final def timed: ZQuery[R with Clock, E, (Duration, A)] =
-    summarized[R with Clock, E, Long, Duration]((start, end) => Duration.fromNanos(end - start))(clock.nanoTime)
+    summarized[R with Clock, E, Long, Duration](clock.nanoTime)((start, end) => Duration.fromNanos(end - start))
 
   /**
    * Returns a query that models the execution of this query and the specified

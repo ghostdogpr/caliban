@@ -5,18 +5,17 @@ import caliban.parsing.Parser
 import caliban.parsing.adt.Document
 import sbt.Keys.commands
 import sbt.{ AutoPlugin, Command, State }
-import zio.console.Console
-import zio.{ DefaultRuntime, RIO, Task, UIO }
+import zio.console.{ putStrLn, Console }
+import zio.{ RIO, Runtime, Task, UIO }
 
 object CodegenPlugin extends AutoPlugin {
-  import Console.Live.console._
   override lazy val projectSettings = Seq(commands ++= Seq(genSchemaCommand, genClientCommand))
   lazy val genSchemaCommand         = genCommand("calibanGenSchema", genSchemaHelpMsg, SchemaWriter.write)
   lazy val genClientCommand         = genCommand("calibanGenClient", genClientHelpMsg, ClientWriter.write)
 
   def genCommand(name: String, helpMsg: String, writer: (Document, String, Option[String]) => String): Command =
     Command.args(name, helpMsg) { (state: State, args: Seq[String]) =>
-      val runtime = new DefaultRuntime {}
+      val runtime = Runtime.unsafeFromLayer(Console.live)
       runtime.unsafeRun(
         execGenCommand(helpMsg, args, writer)
           .catchAll(reason => putStrLn(reason.toString) *> putStrLn(reason.getStackTrace.mkString("\n")))

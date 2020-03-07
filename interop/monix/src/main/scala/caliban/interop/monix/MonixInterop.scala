@@ -9,7 +9,7 @@ import monix.eval.{ Task => MonixTask }
 import monix.reactive.Observable
 import zio._
 import zio.interop.catz._
-import zio.interop.reactiveStreams._
+import zio.interop.reactivestreams._
 import zio.stream.ZStream
 import zquery.ZQuery
 
