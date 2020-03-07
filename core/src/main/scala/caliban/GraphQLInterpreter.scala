@@ -40,14 +40,14 @@ trait GraphQLInterpreter[-R, +E] { self =>
    * Provides the interpreter with its required environment, which eliminates
    * its dependency on `R`.
    */
-  final def provide(r: R): GraphQLInterpreter[Any, E] = wrapExecutionWith(_.provide(r))
+  final def provide(r: R)(implicit ev: NeedsEnv[R]): GraphQLInterpreter[Any, E] = wrapExecutionWith(_.provide(r))
 
   /**
    * Provides a layer to this interpreter, which translates it to another level.
    */
   final def provideLayer[E1 >: E, R0, R1 <: Has[_]](
     layer: ZLayer[R0, E1, R1]
-  )(implicit ev1: R1 <:< R): GraphQLInterpreter[R0, E1] =
+  )(implicit ev1: R1 <:< R, ev2: NeedsEnv[R]): GraphQLInterpreter[R0, E1] =
     wrapExecutionWith(_.provideLayer(layer).fold(e => GraphQLResponse(NullValue, List(e)), identity))
 
   /**
