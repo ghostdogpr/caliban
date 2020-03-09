@@ -91,7 +91,7 @@ lazy val core = crossProject(JSPlatform, JVMPlatform)
   )
 lazy val coreJVM = core.jvm
 lazy val coreJS = core.js.settings(
-  libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.0.0-RC3" % Test
+  libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.0.0-RC5" % Test
 )
 lazy val codegen = project
   .in(file("codegen"))
