@@ -24,7 +24,7 @@ object ExampleMonixInterop extends TaskApp {
   val queries      = Queries(numbers, randomNumber)
 
   val subscriptions = Subscriptions(Observable.fromIterable(List(1, 2, 3)))
-  val api           = graphQL(RootResolver(queries, Option.empty[Unit], Some(subscriptions)))
+  val api           = graphQL(RootResolver(Some(queries), Option.empty[Unit], Some(subscriptions)))
 
   val query = """
   {
