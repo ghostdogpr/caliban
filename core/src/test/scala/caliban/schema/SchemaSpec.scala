@@ -33,7 +33,9 @@ object SchemaSpec extends DefaultRunnableSpec {
         case class A(b: B)
         case class B(c: C)
         case class C(d: Int)
-        assert(Types.collectTypes(introspect[Queries]).keys)(contains("BInput") && contains("CInput"))
+        assert(Types.collectTypes(introspect[Queries]).map(_.name.getOrElse("")))(
+          contains("BInput") && contains("CInput")
+        )
       },
       test("UUID field should be converted to ID") {
         assert(introspect[IDSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(

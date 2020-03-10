@@ -1,7 +1,7 @@
 package caliban.validation
 
 import caliban.CalibanError.ValidationError
-import caliban.GraphQL
+import caliban.{ GraphQL, RootResolver }
 import caliban.GraphQL.graphQL
 import caliban.TestUtils.InvalidSchemas._
 import zio.IO
@@ -53,6 +53,24 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
           check(
             graphQL(resolverInterfaceWrongArgumentInputType),
             "UnionInput of InputValue 'union' of InputObject 'UnionArgInput' is of kind UNION, must be an InputType"
+          )
+        },
+        testM("clashing input and object types") {
+          check(
+            graphQL(resolverClashingObjects),
+            "Type 'ClashingObjectInput' is defined multiple times (INPUT_OBJECT in caliban.TestUtils.InvalidSchemas.ClashingObject, OBJECT in caliban.TestUtils.InvalidSchemas.ClashingObjectInput)."
+          )
+        },
+        testM("clashing names from different packages") {
+          check(
+            graphQL(resolverClashingNames),
+            "Type 'C' is defined multiple times (OBJECT in caliban.TestUtils.InvalidSchemas.A.C, OBJECT in caliban.TestUtils.InvalidSchemas.B.C)."
+          )
+        },
+        testM("missing root query") {
+          check(
+            graphQL(RootResolver[Unit, Unit, Unit](None, None, None)),
+            "The query root operation is missing."
           )
         }
       )

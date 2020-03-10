@@ -4,8 +4,7 @@ import caliban.introspection.adt._
 import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
 import caliban.parsing.adt.Document
 import caliban.parsing.adt.Selection.Field
-import caliban.schema.RootSchema.Operation
-import caliban.schema.{ RootSchema, RootType, Schema, Types }
+import caliban.schema.{ Operation, RootSchema, RootType, Schema, Types }
 
 object Introspector {
 

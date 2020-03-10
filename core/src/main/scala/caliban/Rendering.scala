@@ -18,47 +18,46 @@ object Rendering {
       case __TypeKind.OBJECT       => 8
     }
 
-  private implicit val renderOrdering: Ordering[(String, __Type)] = Ordering.by(o => (o._2.kind, o._2.name))
+  private implicit val renderOrdering: Ordering[__Type] = Ordering.by(o => (o.kind, o.name.getOrElse("")))
 
   /**
    * Returns a string that renders the provided types into the GraphQL format.
    */
-  def renderTypes(types: Map[String, __Type]): String =
-    types.toList
+  def renderTypes(types: List[__Type]): String =
+    types
       .sorted(renderOrdering)
-      .flatMap {
-        case (_, t) =>
-          t.kind match {
-            case __TypeKind.SCALAR   => t.name.flatMap(name => if (isBuiltinScalar(name)) None else Some(s"scalar $name"))
-            case __TypeKind.NON_NULL => None
-            case __TypeKind.LIST     => None
-            case __TypeKind.UNION =>
-              val renderedTypes: String =
-                t.possibleTypes
-                  .fold(List.empty[String])(_.flatMap(_.name))
-                  .mkString(" | ")
-              Some(
-                s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} = $renderedTypes"""
-              )
-            case _ =>
-              val renderedDirectives: String = renderDirectives(t.directives)
-              val renderedFields: String = t
-                .fields(__DeprecatedArgs())
-                .fold(List.empty[String])(_.map(renderField))
-                .mkString("\n  ")
-              val renderedInputFields: String = t.inputFields
-                .fold(List.empty[String])(_.map(renderInputValue))
-                .mkString("\n  ")
-              val renderedEnumValues = t
-                .enumValues(__DeprecatedArgs())
-                .fold(List.empty[String])(_.map(renderEnumValue))
-                .mkString("\n  ")
-              Some(
-                s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)}${renderInterfaces(t)}$renderedDirectives {
-                   |  $renderedFields$renderedInputFields$renderedEnumValues
-                   |}""".stripMargin
-              )
-          }
+      .flatMap { t =>
+        t.kind match {
+          case __TypeKind.SCALAR   => t.name.flatMap(name => if (isBuiltinScalar(name)) None else Some(s"scalar $name"))
+          case __TypeKind.NON_NULL => None
+          case __TypeKind.LIST     => None
+          case __TypeKind.UNION =>
+            val renderedTypes: String =
+              t.possibleTypes
+                .fold(List.empty[String])(_.flatMap(_.name))
+                .mkString(" | ")
+            Some(
+              s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} = $renderedTypes"""
+            )
+          case _ =>
+            val renderedDirectives: String = renderDirectives(t.directives)
+            val renderedFields: String = t
+              .fields(__DeprecatedArgs())
+              .fold(List.empty[String])(_.map(renderField))
+              .mkString("\n  ")
+            val renderedInputFields: String = t.inputFields
+              .fold(List.empty[String])(_.map(renderInputValue))
+              .mkString("\n  ")
+            val renderedEnumValues = t
+              .enumValues(__DeprecatedArgs())
+              .fold(List.empty[String])(_.map(renderEnumValue))
+              .mkString("\n  ")
+            Some(
+              s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)}${renderInterfaces(t)}$renderedDirectives {
+                 |  $renderedFields$renderedInputFields$renderedEnumValues
+                 |}""".stripMargin
+            )
+        }
       }
       .mkString("\n\n")
 

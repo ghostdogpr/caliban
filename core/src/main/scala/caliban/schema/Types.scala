@@ -22,19 +22,26 @@ object Types {
 
   def makeNonNull(underlying: __Type): __Type = __Type(__TypeKind.NON_NULL, ofType = Some(underlying))
 
-  def makeEnum(name: Option[String], description: Option[String], values: List[__EnumValue]): __Type =
+  def makeEnum(
+    name: Option[String],
+    description: Option[String],
+    values: List[__EnumValue],
+    origin: Option[String]
+  ): __Type =
     __Type(
       __TypeKind.ENUM,
       name,
       description,
-      enumValues = args => Some(values.filter(v => args.includeDeprecated.getOrElse(false) || !v.isDeprecated))
+      enumValues = args => Some(values.filter(v => args.includeDeprecated.getOrElse(false) || !v.isDeprecated)),
+      origin = origin
     )
 
   def makeObject(
     name: Option[String],
     description: Option[String],
     fields: List[__Field],
-    directives: List[Directive]
+    directives: List[Directive],
+    origin: Option[String] = None
   ): __Type =
     __Type(
       __TypeKind.OBJECT,
@@ -42,48 +49,66 @@ object Types {
       description,
       fields = args => Some(fields.filter(v => args.includeDeprecated.getOrElse(false) || !v.isDeprecated)),
       interfaces = () => Some(Nil),
-      directives = Some(directives)
+      directives = Some(directives),
+      origin = origin
     )
 
-  def makeInputObject(name: Option[String], description: Option[String], fields: List[__InputValue]): __Type =
-    __Type(__TypeKind.INPUT_OBJECT, name, description, inputFields = Some(fields))
+  def makeInputObject(
+    name: Option[String],
+    description: Option[String],
+    fields: List[__InputValue],
+    origin: Option[String] = None
+  ): __Type =
+    __Type(__TypeKind.INPUT_OBJECT, name, description, inputFields = Some(fields), origin = origin)
 
-  def makeUnion(name: Option[String], description: Option[String], subTypes: List[__Type]): __Type =
-    __Type(__TypeKind.UNION, name, description, possibleTypes = Some(subTypes))
+  def makeUnion(
+    name: Option[String],
+    description: Option[String],
+    subTypes: List[__Type],
+    origin: Option[String] = None
+  ): __Type =
+    __Type(__TypeKind.UNION, name, description, possibleTypes = Some(subTypes), origin = origin)
 
   def makeInterface(
     name: Option[String],
     description: Option[String],
     fields: List[__Field],
-    subTypes: List[__Type]
+    subTypes: List[__Type],
+    origin: Option[String] = None
   ): __Type =
     __Type(
       __TypeKind.INTERFACE,
       name,
       description,
       fields = args => Some(fields.filter(v => args.includeDeprecated.getOrElse(false) || !v.isDeprecated)),
-      possibleTypes = Some(subTypes)
+      possibleTypes = Some(subTypes),
+      origin = origin
     )
 
   /**
    * Returns a map of all the types nested within the given root type.
    */
-  def collectTypes(t: __Type, existingTypes: Map[String, __Type] = Map()): Map[String, __Type] =
+  def collectTypes(t: __Type, existingTypes: List[__Type] = Nil): List[__Type] =
     t.kind match {
-      case __TypeKind.SCALAR | __TypeKind.ENUM   => t.name.fold(existingTypes)(name => existingTypes.updated(name, t))
-      case __TypeKind.LIST | __TypeKind.NON_NULL => t.ofType.fold(existingTypes)(collectTypes(_, existingTypes))
+      case __TypeKind.SCALAR | __TypeKind.ENUM =>
+        t.name.fold(existingTypes)(_ => if (existingTypes.exists(same(t, _))) existingTypes else t :: existingTypes)
+      case __TypeKind.LIST | __TypeKind.NON_NULL =>
+        t.ofType.fold(existingTypes)(collectTypes(_, existingTypes))
       case _ =>
-        val map1 = t.name.fold(existingTypes)(name => existingTypes.updated(name, t))
+        val list1 =
+          t.name.fold(existingTypes)(_ => if (existingTypes.exists(same(t, _))) existingTypes else t :: existingTypes)
         val embeddedTypes =
           t.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).flatMap(f => f.`type` :: f.args.map(_.`type`)) ++
             t.inputFields.getOrElse(Nil).map(_.`type`)
-        val map2 = embeddedTypes.foldLeft(map1) {
+        val list2 = embeddedTypes.foldLeft(list1) {
           case (types, f) =>
             val t = innerType(f())
-            t.name.fold(types)(name => if (types.contains(name)) types else collectTypes(t, types))
+            t.name.fold(types)(_ => if (existingTypes.exists(same(t, _))) types else collectTypes(t, types))
         }
-        t.possibleTypes.getOrElse(Nil).foldLeft(map2) { case (types, subtype) => collectTypes(subtype, types) }
+        t.possibleTypes.getOrElse(Nil).foldLeft(list2) { case (types, subtype) => collectTypes(subtype, types) }
     }
+
+  def same(t1: __Type, t2: __Type): Boolean = t1.name == t2.name && t1.kind == t2.kind && t1.origin == t2.origin
 
   def innerType(t: __Type): __Type = t.ofType.fold(t)(innerType)
 
