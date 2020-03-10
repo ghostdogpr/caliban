@@ -185,8 +185,8 @@ lazy val finch = project
   .settings(
     crossScalaVersions := Seq("2.12.10"),
     libraryDependencies ++= Seq(
-      "com.github.finagle" %% "finchx-core"      % "0.31.0",
-      "com.github.finagle" %% "finchx-circe"     % "0.31.0",
+      "com.github.finagle" %% "finchx-core"      % "0.32.1",
+      "com.github.finagle" %% "finchx-circe"     % "0.32.1",
       "dev.zio"            %% "zio-interop-cats" % zioInteropCatsVersion,
       "org.typelevel"      %% "cats-effect"      % catsEffectVersion
     )
