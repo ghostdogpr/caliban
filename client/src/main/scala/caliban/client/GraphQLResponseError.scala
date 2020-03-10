@@ -2,7 +2,6 @@ package caliban.client
 
 import caliban.client.GraphQLResponseError.Location
 import io.circe.{ Decoder, DecodingFailure, HCursor }
-import io.circe.derivation.deriveDecoder
 
 /**
  * An GraphQL error as returned by the server.
@@ -24,7 +23,17 @@ object GraphQLResponseError {
     c.value.asNumber.flatMap(_.toInt).map(v => Right(Right(v))) orElse c.value.asString
       .map(v => Right(Left(v))) getOrElse Left(DecodingFailure("Value is not an Either[String, Int]", c.history))
 
-  implicit val locationDecoder: Decoder[Location]     = deriveDecoder[Location]
-  implicit val decoder: Decoder[GraphQLResponseError] = deriveDecoder[GraphQLResponseError]
+  implicit val locationDecoder: Decoder[Location] = (c: HCursor) =>
+    for {
+      line   <- c.downField("line").as[Int]
+      column <- c.downField("column").as[Int]
+    } yield Location(line, column)
+
+  implicit val decoder: Decoder[GraphQLResponseError] = (c: HCursor) =>
+    for {
+      message   <- c.downField("message").as[String]
+      locations <- c.downField("locations").as[Option[List[Location]]]
+      path      <- c.downField("path").as[Option[List[Either[String, Int]]]]
+    } yield GraphQLResponseError(message, locations, path)
 
 }

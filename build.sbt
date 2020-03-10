@@ -74,14 +74,14 @@ lazy val core = crossProject(JSPlatform, JVMPlatform)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "com.lihaoyi"    %%% "fastparse"        % "2.2.4",
-      "com.propensive" %%% "magnolia"         % "0.12.7",
-      "com.propensive" %%% "mercator"         % "0.2.1",
-      "dev.zio"        %%% "zio"              % zioVersion,
-      "dev.zio"        %%% "zio-streams"      % zioVersion,
-      "dev.zio"        %%% "zio-test"         % zioVersion % "test",
-      "dev.zio"        %%% "zio-test-sbt"     % zioVersion % "test",
-      "io.circe"       %%% "circe-derivation" % "0.12.0-M7" % Optional,
+      "com.lihaoyi"    %%% "fastparse"    % "2.2.4",
+      "com.propensive" %%% "magnolia"     % "0.12.7",
+      "com.propensive" %%% "mercator"     % "0.2.1",
+      "dev.zio"        %%% "zio"          % zioVersion,
+      "dev.zio"        %%% "zio-streams"  % zioVersion,
+      "dev.zio"        %%% "zio-test"     % zioVersion % "test",
+      "dev.zio"        %%% "zio-test-sbt" % zioVersion % "test",
+      "io.circe"       %%% "circe-core"   % "0.13.0" % Optional,
       compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
     )
   )
@@ -201,15 +201,17 @@ lazy val client = crossProject(JSPlatform, JVMPlatform)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "io.circe"                     %%% "circe-derivation" % "0.12.0-M7",
-      "com.softwaremill.sttp.client" %%% "core"             % sttpVersion,
-      "com.softwaremill.sttp.client" %%% "circe"            % sttpVersion,
-      "dev.zio"                      %%% "zio-test"         % zioVersion % "test",
-      "dev.zio"                      %%% "zio-test-sbt"     % zioVersion % "test"
+      "io.circe"                     %%% "circe-core"   % "0.13.0",
+      "com.softwaremill.sttp.client" %%% "core"         % sttpVersion,
+      "com.softwaremill.sttp.client" %%% "circe"        % sttpVersion,
+      "dev.zio"                      %%% "zio-test"     % zioVersion % "test",
+      "dev.zio"                      %%% "zio-test-sbt" % zioVersion % "test"
     )
   )
 lazy val clientJVM = client.jvm
-lazy val clientJS  = client.js
+lazy val clientJS = client.js.settings(
+  libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.0.0-RC5" % Test
+)
 
 lazy val examples = project
   .in(file("examples"))
