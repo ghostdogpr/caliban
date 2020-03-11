@@ -69,7 +69,7 @@ private object ErrorCirce {
           "locations" -> Some(locationInfo).collect {
             case Some(li) => Json.arr(locationToJson(li))
           }.asJson,
-          "extensions" -> extensions.asInstanceOf[Option[ResponseValue]].asJson.dropNullValues
+          "extensions" -> (extensions: Option[ResponseValue]).asJson.dropNullValues
         )
         .dropNullValues
     case CalibanError.ValidationError(msg, _, locationInfo, extensions) =>
@@ -79,7 +79,7 @@ private object ErrorCirce {
           "locations" -> Some(locationInfo).collect {
             case Some(li) => Json.arr(locationToJson(li))
           }.asJson,
-          "extensions" -> extensions.asInstanceOf[Option[ResponseValue]].asJson.dropNullValues
+          "extensions" -> (extensions: Option[ResponseValue]).asJson.dropNullValues
         )
         .dropNullValues
     case CalibanError.ExecutionError(msg, path, locationInfo, _, extensions) =>
@@ -96,7 +96,7 @@ private object ErrorCirce {
                 case Right(value) => value.asJson
               })
           }.asJson,
-          "extensions" -> extensions.asInstanceOf[Option[ResponseValue]].asJson.dropNullValues
+          "extensions" -> (extensions: Option[ResponseValue]).asJson.dropNullValues
         )
         .dropNullValues
   }

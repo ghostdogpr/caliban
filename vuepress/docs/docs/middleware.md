@@ -96,7 +96,7 @@ val i4: GraphQLInterpreter[MyEnv with Clock, CalibanError] =
 
 ## Customizing error responses
 
-During various phases of executing a query, an error may occur. Caliban renders the different instances of `CalibanError` to a GraphQL spec compliant response. As a user, you will most likely encounter `ExecutionError` at some point because this will encapsulate the errors in the error channel of your effects. For Caliban to be able to render some basic message about the error that occured during query execution, it is important that your errror extends `Throwable`.
+During various phases of executing a query, an error may occur. Caliban renders the different instances of `CalibanError` to a GraphQL spec compliant response. As a user, you will most likely encounter `ExecutionError` at some point because this will encapsulate the errors in the error channel of your effects. For Caliban to be able to render some basic message about the error that occured during query execution, it is important that your error extends `Throwable`.
 
 For more meaningful error handling, GraphQL spec allows for an [`extension`](http://spec.graphql.org/June2018/#example-fce18) object in the error response. This object may include, for instance, `code` information to model enum-like error codes that can be handled by a front-end. In order to generate this information, one can use the `mapError` function on a `GraphQLInterpreter`. An example is provided below in which we map a custom domain error within an `ExecutionError` to a meaningful error code.
 
