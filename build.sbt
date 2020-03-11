@@ -7,6 +7,8 @@ val catsEffectVersion     = "2.1.2"
 val http4sVersion         = "0.21.1"
 val silencerVersion       = "1.6.0"
 val sttpVersion           = "2.0.4"
+val play28Version         = "2.8.1"
+val play27Version         = "2.7.4"
 val zioVersion            = "1.0.0-RC18-1"
 val zioInteropCatsVersion = "2.0.0.0-RC11"
 
@@ -169,7 +171,7 @@ lazy val play_27 =
     .dependsOn(coreJVM)
     .settings(
       name := s"caliban-play-27",
-      libraryDependencies += "com.typesafe.play" %% "play" % "2.7.4",
+      libraryDependencies += "com.typesafe.play" %% "play" % play27Version,
       target := { file(baseDirectory.value.toString + s"/.play-27/target") }
     )
 
@@ -180,7 +182,7 @@ lazy val play_28 =
     .dependsOn(coreJVM)
     .settings(
       name := s"caliban-play-28",
-      libraryDependencies += "com.typesafe.play" %% "play" % "2.8.1",
+      libraryDependencies += "com.typesafe.play" %% "play" % play28Version,
       target := { file(baseDirectory.value.toString + s"/.play-28/target") }
     )
 
@@ -242,10 +244,11 @@ lazy val examples = project
   .settings(skip in publish := true)
   .settings(
     libraryDependencies ++= Seq(
-      "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion
+      "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion,
+      "com.typesafe.play"            %% "play-akka-http-server"         % play28Version
     )
   )
-  .dependsOn(akkaHttp, http4s, catsInteropJVM, finch, monixInterop, clientJVM)
+  .dependsOn(akkaHttp, http4s, catsInteropJVM, finch, monixInterop, clientJVM, play_28)
 
 lazy val benchmarks = project
   .in(file("benchmarks"))
