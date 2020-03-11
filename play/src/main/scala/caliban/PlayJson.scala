@@ -52,7 +52,7 @@ object PlayJson {
     case EnumValue(value)    => JsString(value)
   }
 
-  implicit val writesResponseValue: Writes[ResponseValue] = responseValueToJson
+  implicit val writesResponseValue: Writes[ResponseValue] = responseValueToJson _
 
   private def handleError(err: Any): JsValue = err match {
     case ce: CalibanError => errorValueEncoder.writes(ce)
