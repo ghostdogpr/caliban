@@ -60,11 +60,9 @@ object PlayJson {
   }
 
   // CalibanError
-  private implicit val locationToJson: Writes[LocationInfo] =
-    li => Json.obj("locations" -> Json.arr(Json.obj("line" -> li.line, "column" -> li.column)))
-
   private def encodeLocationInfoAndMessage(li: Option[LocationInfo], message: String) =
-    li.fold(Json.obj())(li => Json.obj("locations" -> li)) ++ Json.obj("message" -> message)
+    Json.obj("message" -> message) ++
+      li.fold(Json.obj())(li => Json.obj("locations" -> Json.arr(Json.obj("line" -> li.line, "column" -> li.column))))
 
   val errorValueEncoder: Writes[CalibanError] = {
     case CalibanError.ParsingError(msg, locationInfo, _) =>
