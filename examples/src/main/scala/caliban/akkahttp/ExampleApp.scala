@@ -16,13 +16,13 @@ import zio.clock.Clock
 import zio.console.Console
 import zio.duration._
 import zio.stream.ZStream
-import zio.{ DefaultRuntime, URIO }
+import zio.{ Runtime, URIO }
 
 object ExampleApp extends App with GenericSchema[Console with Clock] {
 
   implicit val system           = ActorSystem()
   implicit val executionContext = system.dispatcher
-  implicit val defaultRuntime   = new DefaultRuntime {}
+  implicit val runtime          = Runtime.unsafeFromLayer(Console.live ++ Clock.live)
 
   implicit val roleSchema           = gen[Role]
   implicit val characterSchema      = gen[Character]
@@ -55,8 +55,8 @@ object ExampleApp extends App with GenericSchema[Console with Clock] {
       printSlowQueries(500 millis) @@ // wrapper that logs slow queries
       apolloTracing                   // wrapper for https://github.com/apollographql/apollo-tracing
 
-  val service     = defaultRuntime.unsafeRun(ExampleService.make(sampleCharacters))
-  val interpreter = defaultRuntime.unsafeRun(makeApi(service).interpreter)
+  val service     = runtime.unsafeRun(ExampleService.make(sampleCharacters))
+  val interpreter = runtime.unsafeRun(makeApi(service).interpreter)
 
   /**
    * curl -X POST \

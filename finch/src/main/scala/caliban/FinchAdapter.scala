@@ -1,12 +1,13 @@
 package caliban
 
+import scala.concurrent.{ Future, Promise }
 import caliban.Value.NullValue
 import io.circe.Json
 import io.circe.syntax._
 import io.finch._
 import io.finch.circe._
 import zio.interop.catz._
-import zio.{ Runtime, Task, URIO }
+import zio.{ Exit, Runtime, Task, URIO, ZIO }
 
 object FinchAdapter extends Endpoint.Module[Task] {
 
@@ -22,21 +23,30 @@ object FinchAdapter extends Endpoint.Module[Task] {
    *         queries against the interpreter
    */
   def makeHttpService[R, E](
-    interpreter: GraphQLInterpreter[R, E]
+    interpreter: GraphQLInterpreter[R, E],
+    skipValidation: Boolean = false
   )(implicit runtime: Runtime[R]): Endpoint[Task, Json] =
     post(jsonBody[GraphQLRequest]) { request: GraphQLRequest =>
-      runtime
-        .unsafeRunToFuture(
-          execute(interpreter, request)
-            .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
-            .map(gqlResult => Ok(gqlResult))
-        )
-        .future
+      unsafeRunToFuture(
+        execute(interpreter, request, skipValidation)
+          .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
+          .map(gqlResult => Ok(gqlResult))
+      )
     }
+
+  private def unsafeRunToFuture[R, E <: Throwable, A](zio: ZIO[R, E, A])(implicit runtime: Runtime[R]): Future[A] = {
+    val p = Promise[A]()
+    runtime.unsafeRunAsync(zio) {
+      case Exit.Success(value) => p.success(value)
+      case Exit.Failure(cause) => p.failure(cause.squashTrace)
+    }
+    p.future
+  }
 
   private def execute[R, E](
     interpreter: GraphQLInterpreter[R, E],
-    query: GraphQLRequest
+    query: GraphQLRequest,
+    skipValidation: Boolean
   ): URIO[R, GraphQLResponse[E]] =
     interpreter.execute(query.query, query.operationName, query.variables.getOrElse(Map()))
 }

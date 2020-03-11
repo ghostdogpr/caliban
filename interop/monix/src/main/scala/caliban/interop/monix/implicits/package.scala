@@ -23,12 +23,12 @@ package object implicits {
         variables,
         skipValidation
       )
-  }
-
-  implicit class MonixGraphQL[R, E](underlying: GraphQL[R]) {
 
     def checkAsync(query: String)(implicit runtime: Runtime[R]): Task[Unit] =
       MonixInterop.checkAsync(underlying)(query)
+  }
+
+  implicit class MonixGraphQL[R, E](underlying: GraphQL[R]) {
 
     def interpreterAsync(implicit runtime: Runtime[R]): Task[GraphQLInterpreter[R, CalibanError]] =
       MonixInterop.interpreterAsync(underlying)

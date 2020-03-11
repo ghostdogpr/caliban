@@ -299,7 +299,8 @@ trait DerivationSchema[R] {
                 Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
               )
             )
-            .toList
+            .toList,
+          Some(ctx.typeName.full)
         )
       else
         makeObject(
@@ -319,7 +320,8 @@ trait DerivationSchema[R] {
               )
             )
             .toList,
-          getDirectives(ctx)
+          getDirectives(ctx),
+          Some(ctx.typeName.full)
         )
 
     override def resolve(value: T): Step[R] =
@@ -348,14 +350,15 @@ trait DerivationSchema[R] {
           Some(getName(ctx)),
           getDescription(ctx),
           subtypes.collect {
-            case (__Type(_, Some(name), description, _, _, _, _, _, _, _), annotations) =>
+            case (__Type(_, Some(name), description, _, _, _, _, _, _, _, _), annotations) =>
               __EnumValue(
                 name,
                 description,
                 annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
                 annotations.collectFirst { case GQLDeprecated(reason) => reason }
               )
-          }
+          },
+          Some(ctx.typeName.full)
         )
       else {
         ctx.annotations.collectFirst {
@@ -364,7 +367,8 @@ trait DerivationSchema[R] {
           makeUnion(
             Some(getName(ctx)),
             getDescription(ctx),
-            subtypes.map { case (t, _) => fixEmptyUnionObject(t) }
+            subtypes.map { case (t, _) => fixEmptyUnionObject(t) },
+            Some(ctx.typeName.full)
           )
         ) { _ =>
           val impl = subtypes.map(_._1.copy(interfaces = () => Some(List(toType(isInput)))))
@@ -379,7 +383,7 @@ trait DerivationSchema[R] {
             }
             .flatten
 
-          makeInterface(Some(getName(ctx)), getDescription(ctx), commonFields.toList, impl)
+          makeInterface(Some(getName(ctx)), getDescription(ctx), commonFields.toList, impl, Some(ctx.typeName.full))
         }
       }
     }

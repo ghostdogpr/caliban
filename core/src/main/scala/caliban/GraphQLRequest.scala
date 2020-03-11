@@ -18,6 +18,11 @@ object GraphQLRequest {
 
 private object GraphQLRequestCirce {
   import io.circe._
-  import io.circe.derivation._
-  val graphQLRequestDecoder: Decoder[GraphQLRequest] = deriveDecoder[GraphQLRequest]
+  val graphQLRequestDecoder: Decoder[GraphQLRequest] = (c: HCursor) =>
+    for {
+      query         <- c.downField("query").as[String]
+      operationName <- c.downField("operationName").as[Option[String]]
+      variables     <- c.downField("variables").as[Option[Map[String, InputValue]]]
+    } yield GraphQLRequest(query, operationName, variables)
+
 }

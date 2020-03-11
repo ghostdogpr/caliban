@@ -2,7 +2,10 @@ package caliban.parsing.adt
 
 import scala.annotation.tailrec
 
-sealed trait Type
+sealed trait Type {
+  val nonNull: Boolean
+  var nullable: Boolean = !nonNull
+}
 
 object Type {
 

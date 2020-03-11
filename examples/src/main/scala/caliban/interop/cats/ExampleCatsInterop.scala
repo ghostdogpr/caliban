@@ -3,13 +3,13 @@ package caliban.interop.cats
 import caliban.GraphQL.graphQL
 import caliban.RootResolver
 import cats.effect.{ ExitCode, IO, IOApp }
-import zio.DefaultRuntime
+import zio.Runtime
 
 object ExampleCatsInterop extends IOApp {
 
   import caliban.interop.cats.implicits._
 
-  implicit val runtime = new DefaultRuntime {}
+  implicit val runtime: Runtime[Unit] = Runtime.default
 
   case class Number(value: Int)
 
@@ -34,8 +34,8 @@ object ExampleCatsInterop extends IOApp {
 
   override def run(args: List[String]): IO[ExitCode] =
     for {
-      _           <- api.checkAsync[IO](query)
       interpreter <- api.interpreterAsync[IO]
+      _           <- interpreter.checkAsync[IO](query)
       result      <- interpreter.executeAsync[IO](query)
       _           <- IO(println(result.data))
     } yield ExitCode.Success

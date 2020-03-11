@@ -25,7 +25,9 @@ object CatsInterop {
       runtime.unsafeRunAsync(execution)(exit => cb(exit.toEither))
     }
 
-  def checkAsync[F[_]: Async, R](graphQL: GraphQL[R])(query: String)(implicit runtime: Runtime[R]): F[Unit] =
+  def checkAsync[F[_]: Async, R](
+    graphQL: GraphQLInterpreter[R, Any]
+  )(query: String)(implicit runtime: Runtime[R]): F[Unit] =
     Async[F].async(cb => runtime.unsafeRunAsync(graphQL.check(query))(exit => cb(exit.toEither)))
 
   def interpreterAsync[F[_]: Async, R](

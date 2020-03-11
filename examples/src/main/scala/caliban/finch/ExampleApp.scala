@@ -5,7 +5,7 @@ import caliban.GraphQL.graphQL
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.GenericSchema
 import caliban.{ ExampleService, FinchAdapter, GraphQL, RootResolver }
-import com.twitter.io.{ Buf, Reader }
+import com.twitter.io.{ Buf, BufReader, Reader }
 import com.twitter.util.Await
 import io.circe.Json
 import io.finch.Endpoint
@@ -13,13 +13,12 @@ import zio.clock.Clock
 import zio.console.Console
 import zio.interop.catz._
 import zio.stream.ZStream
-import zio.{ DefaultRuntime, Task, URIO }
-
+import zio.{ Runtime, Task, URIO }
 import scala.language.postfixOps
 
 object ExampleApp extends App with GenericSchema[Console with Clock] with Endpoint.Module[Task] {
 
-  implicit val defaultRuntime = new DefaultRuntime {}
+  implicit val runtime = Runtime.unsafeFromLayer(Console.live ++ Clock.live)
 
   implicit val roleSchema           = gen[Role]
   implicit val characterSchema      = gen[Character]
@@ -56,8 +55,8 @@ object ExampleApp extends App with GenericSchema[Console with Clock] with Endpoi
       printSlowQueries(500 millis) @@ // wrapper that logs slow queries
       apolloTracing                   // wrapper for https://github.com/apollographql/apollo-tracing
 
-  val service     = defaultRuntime.unsafeRun(ExampleService.make(sampleCharacters))
-  val interpreter = defaultRuntime.unsafeRun(makeApi(service).interpreter)
+  val service     = runtime.unsafeRun(ExampleService.make(sampleCharacters))
+  val interpreter = runtime.unsafeRun(makeApi(service).interpreter)
 
   /**
    * curl -X POST \
@@ -75,11 +74,11 @@ object ExampleApp extends App with GenericSchema[Console with Clock] with Endpoi
 
   val graphiqlBuf = {
     val stream = getClass.getResourceAsStream("/graphiql.html")
-    Reader.readAll(Reader.fromStream(stream))
+    BufReader.readAll(Reader.fromStream(stream))
   }
 
   val grapihql: Endpoint[Task, Buf] = get("graphiql") {
-    graphiqlBuf.map(Ok(_))
+    graphiqlBuf.map(Ok)
   }
 
   val services = Bootstrap.serve[Application.Json](endpoint).serve[Text.Html](grapihql).toService

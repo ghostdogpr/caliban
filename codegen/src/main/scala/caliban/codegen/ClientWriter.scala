@@ -150,7 +150,7 @@ object ClientWriter {
           implicit val encoder: ArgEncoder[${typedef.name}] = new ArgEncoder[${typedef.name}] {
             override def encode(value: ${typedef.name}): Value = value match {
               ${typedef.enumValuesDefinition
-      .map(v => s"""case ${typedef.name}.${safeName(v.enumValue)} => StringValue("${v.enumValue}")""")
+      .map(v => s"""case ${typedef.name}.${safeName(v.enumValue)} => EnumValue("${v.enumValue}")""")
       .mkString("\n")}
             }
             override def typeName: String = "${typedef.name}"
@@ -249,9 +249,8 @@ object ClientWriter {
         )
       }
     val args = field.args match {
-      case Nil => ""
-      case list =>
-        s"(${list.map(arg => s"${safeName(arg.name)}: ${writeType(arg.ofType)}").mkString(", ")})"
+      case Nil  => ""
+      case list => s"(${writeArgumentFields(list)})"
     }
     val argBuilder = field.args match {
       case Nil => ""
@@ -263,7 +262,14 @@ object ClientWriter {
   }
 
   def writeArgumentFields(args: List[InputValueDefinition]): String =
-    s"${args.map(arg => s"${safeName(arg.name)}: ${writeType(arg.ofType)}").mkString(", ")}"
+    s"${args.map(arg => s"${safeName(arg.name)}: ${writeType(arg.ofType)}${writeDefaultArgument(arg)}").mkString(", ")}"
+
+  def writeDefaultArgument(arg: InputValueDefinition): String =
+    arg.ofType match {
+      case t if t.nullable => " = None"
+      case ListType(_, _)  => " = Nil"
+      case _               => ""
+    }
 
   def writeArguments(field: FieldDefinition): String =
     if (field.args.nonEmpty) {

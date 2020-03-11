@@ -9,7 +9,7 @@ import monix.eval.{ Task => MonixTask }
 import monix.reactive.Observable
 import zio._
 import zio.interop.catz._
-import zio.interop.reactiveStreams._
+import zio.interop.reactivestreams._
 import zio.stream.ZStream
 import zquery.ZQuery
 
@@ -26,7 +26,7 @@ object MonixInterop {
       runtime.unsafeRunAsync(execution)(exit => cb(exit.toEither))
     }
 
-  def checkAsync[R](graphQL: GraphQL[R])(query: String)(implicit runtime: Runtime[R]): MonixTask[Unit] =
+  def checkAsync[R](graphQL: GraphQLInterpreter[R, Any])(query: String)(implicit runtime: Runtime[R]): MonixTask[Unit] =
     MonixTask.async(cb => runtime.unsafeRunAsync(graphQL.check(query))(exit => cb(exit.toEither)))
 
   def interpreterAsync[R](

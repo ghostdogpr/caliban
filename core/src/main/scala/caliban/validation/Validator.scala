@@ -13,8 +13,8 @@ import caliban.parsing.adt.OperationType._
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt._
-import caliban.schema.{ RootSchema, RootType, Types }
-import caliban.{ InputValue, Rendering }
+import caliban.schema.{ RootSchema, RootSchemaBuilder, RootType, Types }
+import caliban.{ InputValue, Rendering, Value }
 import zio.IO
 
 object Validator {
@@ -28,15 +28,21 @@ object Validator {
   /**
    * Verifies that the given schema is valid. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
-  def validateSchema(rootType: RootType): IO[ValidationError, Unit] =
-    IO.foreach(rootType.types.values) { t =>
-        t.kind match {
-          case __TypeKind.ENUM  => validateEnum(t)
-          case __TypeKind.UNION => validateUnion(t)
-          case _                => IO.unit
-        }
+  def validateSchema[R](schema: RootSchemaBuilder[R]): IO[ValidationError, RootSchema[R]] = {
+    val types = schema.types
+    IO.foreach(types) { t =>
+      t.kind match {
+        case __TypeKind.ENUM         => validateEnum(t)
+        case __TypeKind.UNION        => validateUnion(t)
+        case __TypeKind.INTERFACE    => validateInterface(t)
+        case __TypeKind.INPUT_OBJECT => validateInputObject(t)
+        case _                       => IO.unit
       }
-      .unit
+    } *> validateClashingTypes(types) *> validateRootQuery(schema)
+  }
+
+  def failValidation[T](msg: String, explanatoryText: String): IO[ValidationError, T] =
+    IO.fail(ValidationError(msg, explanatoryText))
 
   /**
    * Prepare the request for execution.
@@ -69,19 +75,19 @@ object Validator {
       }
 
       operation match {
-        case Left(error) => IO.fail(ValidationError(error, ""))
+        case Left(error) => failValidation(error, "")
         case Right(op) =>
           (op.operationType match {
             case Query => IO.succeed(rootSchema.query)
             case Mutation =>
               rootSchema.mutation match {
                 case Some(m) => IO.succeed(m)
-                case None    => IO.fail(ValidationError("Mutations are not supported on this schema", ""))
+                case None    => failValidation("Mutations are not supported on this schema", "")
               }
             case Subscription =>
               rootSchema.subscription match {
                 case Some(m) => IO.succeed(m)
-                case None    => IO.fail(ValidationError("Subscriptions are not supported on this schema", ""))
+                case None    => failValidation("Subscriptions are not supported on this schema", "")
               }
           }).map(operation =>
             ExecutionRequest(
@@ -135,9 +141,16 @@ object Validator {
         case InlineFragment(_, directives, selectionSet) =>
           directives.flatMap(_.arguments.values) ++ collectValues(selectionSet)
       }
-    collectValues(selectionSet).collect {
-      case VariableValue(name) => name
-    }.toSet
+    def collectVariableValues(values: List[InputValue]): List[VariableValue] =
+      values.flatMap({
+        case InputValue.ListValue(values)   => collectVariableValues(values)
+        case InputValue.ObjectValue(fields) => collectVariableValues(fields.values.toList)
+        case v: VariableValue               => List(v)
+        case _: Value                       => List()
+      })
+    val allValues = collectValues(selectionSet)
+    val varValues = collectVariableValues(allValues)
+    varValues.map(_.name).toSet
   }
 
   private def collectSelectionSets(selectionSet: List[Selection]): List[Selection] =
@@ -182,11 +195,9 @@ object Validator {
   private def checkDirectivesUniqueness(directives: List[Directive]): IO[ValidationError, Unit] =
     IO.whenCase(directives.groupBy(_.name).find { case (_, v) => v.length > 1 }) {
       case Some((name, _)) =>
-        IO.fail(
-          ValidationError(
-            s"Directive '$name' is defined twice.",
-            "Directives are used to describe some metadata or behavioral change on the definition they apply to. When more than one directive of the same name is used, the expected metadata or behavior becomes ambiguous, therefore only one of each directive is allowed per location."
-          )
+        failValidation(
+          s"Directive '$name' is defined twice.",
+          "Directives are used to describe some metadata or behavioral change on the definition they apply to. When more than one directive of the same name is used, the expected metadata or behavior becomes ambiguous, therefore only one of each directive is allowed per location."
         )
     }
 
@@ -197,19 +208,15 @@ object Validator {
             case (d, location) =>
               Introspector.directives.find(_.name == d.name) match {
                 case None =>
-                  IO.fail(
-                    ValidationError(
-                      s"Directive '${d.name}' is not supported.",
-                      "GraphQL servers define what directives they support. For each usage of a directive, the directive must be available on that server."
-                    )
+                  failValidation(
+                    s"Directive '${d.name}' is not supported.",
+                    "GraphQL servers define what directives they support. For each usage of a directive, the directive must be available on that server."
                   )
                 case Some(directive) =>
                   IO.when(!directive.locations.contains(location))(
-                    IO.fail(
-                      ValidationError(
-                        s"Directive '${d.name}' is used in invalid location '$location'.",
-                        "GraphQL servers define what directives they support and where they support them. For each usage of a directive, the directive must be used in a location that the server has declared support for."
-                      )
+                    failValidation(
+                      s"Directive '${d.name}' is used in invalid location '$location'.",
+                      "GraphQL servers define what directives they support and where they support them. For each usage of a directive, the directive must be used in a location that the server has declared support for."
                     )
                   )
               }
@@ -221,42 +228,34 @@ object Validator {
         IO.foreach(op.variableDefinitions.groupBy(_.name)) {
           case (name, variables) =>
             IO.when(variables.length > 1)(
-              IO.fail(
-                ValidationError(
-                  s"Variable '$name' is defined more than once.",
-                  "If any operation defines more than one variable with the same name, it is ambiguous and invalid. It is invalid even if the type of the duplicate variable is the same."
-                )
+              failValidation(
+                s"Variable '$name' is defined more than once.",
+                "If any operation defines more than one variable with the same name, it is ambiguous and invalid. It is invalid even if the type of the duplicate variable is the same."
               )
             )
         } *> IO.foreach(op.variableDefinitions) { v =>
           val t = Type.innerType(v.variableType)
           IO.whenCase(context.rootType.types.get(t).map(_.kind)) {
             case Some(__TypeKind.OBJECT) | Some(__TypeKind.UNION) | Some(__TypeKind.INTERFACE) =>
-              IO.fail(
-                ValidationError(
-                  s"Type of variable '${v.name}' is not a valid input type.",
-                  "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
-                )
+              failValidation(
+                s"Type of variable '${v.name}' is not a valid input type.",
+                "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
               )
           }
         } *> {
           val variableUsages = collectVariablesUsed(context, op.selectionSet)
           IO.foreach(variableUsages)(v =>
             IO.when(!op.variableDefinitions.exists(_.name == v))(
-              IO.fail(
-                ValidationError(
-                  s"Variable '$v' is not defined.",
-                  "Variables are scoped on a per‐operation basis. That means that any variable used within the context of an operation must be defined at the top level of that operation"
-                )
+              failValidation(
+                s"Variable '$v' is not defined.",
+                "Variables are scoped on a per‐operation basis. That means that any variable used within the context of an operation must be defined at the top level of that operation"
               )
             )
           ) *> IO.foreach(op.variableDefinitions)(v =>
             IO.when(!variableUsages.contains(v.name))(
-              IO.fail(
-                ValidationError(
-                  s"Variable '${v.name}' is not used.",
-                  "All variables defined by an operation must be used in that operation or a fragment transitively included by that operation. Unused variables cause a validation error."
-                )
+              failValidation(
+                s"Variable '${v.name}' is not used.",
+                "All variables defined by an operation must be used in that operation or a fragment transitively included by that operation. Unused variables cause a validation error."
               )
             )
           )
@@ -272,20 +271,15 @@ object Validator {
     val spreadNames = spreads.map(_.name).toSet
     IO.foreach(context.fragments.values)(f =>
         if (!spreadNames.contains(f.name))
-          IO.fail(
-            ValidationError(
-              s"Fragment '${f.name}' is not used in any spread.",
-              "Defined fragments must be used within a document."
-            )
+          failValidation(
+            s"Fragment '${f.name}' is not used in any spread.",
+            "Defined fragments must be used within a document."
           )
         else
-          IO.fail(
-              ValidationError(
-                s"Fragment '${f.name}' forms a cycle.",
-                "The graph of fragment spreads must not form any cycles including spreading itself. Otherwise an operation could infinitely spread or infinitely execute on cycles in the underlying data."
-              )
-            )
-            .when(detectCycles(context, f))
+          failValidation(
+            s"Fragment '${f.name}' forms a cycle.",
+            "The graph of fragment spreads must not form any cycles including spreading itself. Otherwise an operation could infinitely spread or infinitely execute on cycles in the underlying data."
+          ).when(detectCycles(context, f))
       )
       .unit
   }
@@ -306,11 +300,11 @@ object Validator {
             case OperationType.Query => validateFields(context, selectionSet, context.rootType.queryType)
             case OperationType.Mutation =>
               context.rootType.mutationType.fold[IO[ValidationError, Unit]](
-                IO.fail(ValidationError("Mutation operations are not supported on this schema.", ""))
+                failValidation("Mutation operations are not supported on this schema.", "")
               )(validateFields(context, selectionSet, _))
             case OperationType.Subscription =>
               context.rootType.subscriptionType.fold[IO[ValidationError, Unit]](
-                IO.fail(ValidationError("Subscription operations are not supported on this schema.", ""))
+                failValidation("Subscription operations are not supported on this schema.", "")
               )(validateFields(context, selectionSet, _))
           }
         case _: FragmentDefinition   => IO.unit
@@ -328,11 +322,9 @@ object Validator {
       case FragmentSpread(name, _) =>
         context.fragments.get(name) match {
           case None =>
-            IO.fail(
-              ValidationError(
-                s"Fragment spread '$name' is not defined.",
-                "Named fragment spreads must refer to fragments defined within the document. It is a validation error if the target of a spread is not defined."
-              )
+            failValidation(
+              s"Fragment spread '$name' is not defined.",
+              "Named fragment spreads must refer to fragments defined within the document. It is a validation error if the target of a spread is not defined."
             )
           case Some(fragment) =>
             validateSpread(context, Some(name), currentType, Some(fragment.typeCondition), fragment.selectionSet)
@@ -355,22 +347,18 @@ object Validator {
           val possibleFragmentTypes = getPossibleTypes(fragmentType).flatMap(_.name)
           val applicableTypes       = possibleTypes intersect possibleFragmentTypes
           IO.when(applicableTypes.isEmpty)(
-            IO.fail(
-              ValidationError(
-                s"${name.fold("Inline fragment spread")(n => s"Fragment spread '$n'")} is not possible: possible types are '${possibleTypes
-                  .mkString(", ")}' and possible fragment types are '${possibleFragmentTypes.mkString(", ")}'.",
-                "Fragments are declared on a type and will only apply when the runtime object type matches the type condition. They also are spread within the context of a parent type. A fragment spread is only valid if its type condition could ever apply within the parent type."
-              )
+            failValidation(
+              s"${name.fold("Inline fragment spread")(n => s"Fragment spread '$n'")} is not possible: possible types are '${possibleTypes
+                .mkString(", ")}' and possible fragment types are '${possibleFragmentTypes.mkString(", ")}'.",
+              "Fragments are declared on a type and will only apply when the runtime object type matches the type condition. They also are spread within the context of a parent type. A fragment spread is only valid if its type condition could ever apply within the parent type."
             )
           ) *> validateFields(context, selectionSet, fragmentType)
         }
       case None =>
         lazy val typeConditionName = typeCondition.fold("?")(_.name)
-        IO.fail(
-          ValidationError(
-            s"${name.fold("Inline fragment spread")(n => s"Fragment spread '$n'")} targets an invalid type: '$typeConditionName'.",
-            "Fragments must be specified on types that exist in the schema. This applies for both named and inline fragments. If they are not defined in the schema, the query does not validate."
-          )
+        failValidation(
+          s"${name.fold("Inline fragment spread")(n => s"Fragment spread '$n'")} targets an invalid type: '$typeConditionName'.",
+          "Fragments must be specified on types that exist in the schema. This applies for both named and inline fragments. If they are not defined in the schema, the query does not validate."
         )
     }
 
@@ -384,7 +372,7 @@ object Validator {
   private def validateField(context: Context, field: Field, currentType: __Type): IO[ValidationError, Unit] =
     IO.when(field.name != "__typename") {
       IO.fromOption(currentType.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).find(_.name == field.name))
-        .asError(
+        .orElseFail(
           ValidationError(
             s"Field '${field.name}' does not exist on type '${Rendering.renderTypeName(currentType)}'.",
             "The target field of a field selection must be defined on the scoped type of the selection set. There are no limitations on alias names."
@@ -401,23 +389,19 @@ object Validator {
       case (arg, argValue) =>
         f.args.find(_.name == arg) match {
           case None =>
-            IO.fail(
-              ValidationError(
-                s"Argument '$arg' is not defined on field '${field.name}' of type '${currentType.name.getOrElse("")}'.",
-                "Every argument provided to a field or directive must be defined in the set of possible arguments of that field or directive."
-              )
+            failValidation(
+              s"Argument '$arg' is not defined on field '${field.name}' of type '${currentType.name.getOrElse("")}'.",
+              "Every argument provided to a field or directive must be defined in the set of possible arguments of that field or directive."
             )
           case Some(inputValue) => validateInputValues(inputValue, argValue)
         }
     } *>
       IO.foreach(f.args.filter(a => a.`type`().kind == __TypeKind.NON_NULL && a.defaultValue.isEmpty))(arg =>
         IO.when(field.arguments.get(arg.name).forall(_ == NullValue))(
-          IO.fail(
-            ValidationError(
-              s"Required argument '${arg.name}' is null or missing on field '${field.name}' of type '${currentType.name
-                .getOrElse("")}'.",
-              "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
-            )
+          failValidation(
+            s"Required argument '${arg.name}' is null or missing on field '${field.name}' of type '${currentType.name
+              .getOrElse("")}'.",
+            "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
           )
         )
       )
@@ -432,11 +416,9 @@ object Validator {
           case (k, v) =>
             inputFields.find(_.name == k) match {
               case None =>
-                IO.fail(
-                  ValidationError(
-                    s"Input field '$k' is not defined on type '${inputType.name.getOrElse("?")}'.",
-                    "Every input field provided in an input object value must be defined in the set of possible fields of that input object’s expected type."
-                  )
+                failValidation(
+                  s"Input field '$k' is not defined on type '${inputType.name.getOrElse("?")}'.",
+                  "Every input field provided in an input object value must be defined in the set of possible fields of that input object’s expected type."
                 )
               case Some(value) => validateInputValues(value, v)
             }
@@ -447,11 +429,9 @@ object Validator {
                 inputField.`type`().kind == __TypeKind.NON_NULL &&
                 !fields.contains(inputField.name)
             )(
-              IO.fail(
-                ValidationError(
-                  s"Required field '${inputField.name}' on object '${inputType.name.getOrElse("?")}' was not provided.",
-                  "Input object fields may be required. Much like a field may have required arguments, an input object may have required fields. An input field is required if it has a non‐null type and does not have a default value. Otherwise, the input object field is optional."
-                )
+              failValidation(
+                s"Required field '${inputField.name}' on object '${inputType.name.getOrElse("?")}' was not provided.",
+                "Input object fields may be required. Much like a field may have required arguments, an input object may have required fields. An input field is required if it has a non‐null type and does not have a default value. Otherwise, the input object field is optional."
               )
             )
           )
@@ -463,18 +443,14 @@ object Validator {
   private def validateLeafFieldSelection(selections: List[Selection], currentType: __Type): IO[ValidationError, Unit] =
     IO.whenCase(currentType.kind) {
       case __TypeKind.SCALAR | __TypeKind.ENUM if selections.nonEmpty =>
-        IO.fail(
-          ValidationError(
-            s"Field selection is impossible on type '${currentType.name.getOrElse("")}'.",
-            "Field selections on scalars or enums are never allowed, because they are the leaf nodes of any GraphQL query."
-          )
+        failValidation(
+          s"Field selection is impossible on type '${currentType.name.getOrElse("")}'.",
+          "Field selections on scalars or enums are never allowed, because they are the leaf nodes of any GraphQL query."
         )
       case __TypeKind.INTERFACE | __TypeKind.UNION | __TypeKind.OBJECT if selections.isEmpty =>
-        IO.fail(
-          ValidationError(
-            s"Field selection is mandatory on type '${currentType.name.getOrElse("")}'.",
-            "Leaf selections on objects, interfaces, and unions without subfields are disallowed."
-          )
+        failValidation(
+          s"Field selection is mandatory on type '${currentType.name.getOrElse("")}'.",
+          "Leaf selections on objects, interfaces, and unions without subfields are disallowed."
         )
     }
 
@@ -482,11 +458,9 @@ object Validator {
     val names         = operations.flatMap(_.name).groupBy(identity)
     val repeatedNames = names.collect { case (name, items) if items.length > 1 => name }
     IO.when(repeatedNames.nonEmpty)(
-      IO.fail(
-        ValidationError(
-          s"Multiple operations have the same name: ${repeatedNames.mkString(", ")}.",
-          "Each named operation definition must be unique within a document when referred to by its name."
-        )
+      failValidation(
+        s"Multiple operations have the same name: ${repeatedNames.mkString(", ")}.",
+        "Each named operation definition must be unique within a document when referred to by its name."
       )
     )
   }
@@ -494,11 +468,9 @@ object Validator {
   private def validateLoneAnonymousOperation(operations: List[OperationDefinition]): IO[ValidationError, Unit] = {
     val anonymous = operations.filter(_.name.isEmpty)
     IO.when(operations.length > 1 && anonymous.nonEmpty)(
-      IO.fail(
-        ValidationError(
-          "Found both anonymous and named operations.",
-          "GraphQL allows a short‐hand form for defining query operations when only that one operation exists in the document."
-        )
+      failValidation(
+        "Found both anonymous and named operations.",
+        "GraphQL allows a short‐hand form for defining query operations when only that one operation exists in the document."
       )
     )
   }
@@ -509,11 +481,9 @@ object Validator {
     IO.foldLeft(fragments)(Map.empty[String, FragmentDefinition]) {
       case (fragmentMap, fragment) =>
         if (fragmentMap.contains(fragment.name)) {
-          IO.fail(
-            ValidationError(
-              s"Fragment '${fragment.name}' is defined more than once.",
-              "Fragment definitions are referenced in fragment spreads by name. To avoid ambiguity, each fragment’s name must be unique within a document."
-            )
+          failValidation(
+            s"Fragment '${fragment.name}' is defined more than once.",
+            "Fragment definitions are referenced in fragment spreads by name. To avoid ambiguity, each fragment’s name must be unique within a document."
           )
         } else IO.succeed(fragmentMap.updated(fragment.name, fragment))
     }
@@ -543,11 +513,9 @@ object Validator {
       case __TypeKind.UNION | __TypeKind.INTERFACE | __TypeKind.OBJECT => IO.unit
       case _ =>
         val targetTypeName = targetType.name.getOrElse("")
-        IO.fail(
-          ValidationError(
-            s"${name.fold("Inline fragment")(n => s"Fragment '$n'")} is defined on invalid type '$targetTypeName'",
-            "Fragments can only be declared on unions, interfaces, and objects. They are invalid on scalars. They can only be applied on non‐leaf fields. This rule applies to both inline and named fragments."
-          )
+        failValidation(
+          s"${name.fold("Inline fragment")(n => s"Fragment '$n'")} is defined on invalid type '$targetTypeName'",
+          "Fragments can only be declared on unions, interfaces, and objects. They are invalid on scalars. They can only be applied on non‐leaf fields. This rule applies to both inline and named fragments."
         )
     }
 
@@ -555,11 +523,9 @@ object Validator {
     t.enumValues(__DeprecatedArgs(Some(true))) match {
       case Some(_ :: _) => IO.unit
       case _ =>
-        IO.fail(
-          ValidationError(
-            s"Enum ${t.name.getOrElse("")} doesn't contain any values",
-            "An Enum type must define one or more unique enum values."
-          )
+        failValidation(
+          s"Enum ${t.name.getOrElse("")} doesn't contain any values",
+          "An Enum type must define one or more unique enum values."
         )
     }
 
@@ -572,23 +538,177 @@ object Validator {
 
     t.possibleTypes match {
       case None | Some(Nil) =>
-        IO.fail(
-          ValidationError(
-            s"Union ${t.name.getOrElse("")} doesn't contain any type.",
-            "A Union type must include one or more unique member types."
-          )
+        failValidation(
+          s"Union ${t.name.getOrElse("")} doesn't contain any type.",
+          "A Union type must include one or more unique member types."
         )
       case Some(types) if !types.forall(isObject) =>
-        IO.fail(
-          ValidationError(
-            s"Union ${t.name.getOrElse("")} contains the following non Object types: " +
-              types.filterNot(isObject).map(_.name.getOrElse("")).filterNot(_.isEmpty).mkString("", ", ", "."),
-            s"The member types of a Union type must all be Object base types."
-          )
+        failValidation(
+          s"Union ${t.name.getOrElse("")} contains the following non Object types: " +
+            types.filterNot(isObject).map(_.name.getOrElse("")).filterNot(_.isEmpty).mkString("", ", ", "."),
+          s"The member types of a Union type must all be Object base types."
         )
       case _ => IO.unit
     }
 
+  }
+
+  private def validateInputObject(t: __Type): IO[ValidationError, Unit] = {
+    val inputObjectContext = s"""InputObject '${t.name.getOrElse("")}'"""
+
+    def noDuplicateInputValueName(inputValues: List[__InputValue], errorContext: String): IO[ValidationError, Unit] = {
+      val messageBuilder = (i: __InputValue) => s"$errorContext has repeated fields: ${i.name}"
+      val explanatory =
+        "The input field must have a unique name within that Input Object type; no two input fields may share the same name"
+      noDuplicateName[__InputValue](inputValues, _.name, messageBuilder, explanatory)
+    }
+
+    def validateFields(fields: List[__InputValue]): IO[ValidationError, Unit] =
+      noDuplicateInputValueName(fields, inputObjectContext) <*
+        IO.foreach(fields)(validateInputValue(_, inputObjectContext))
+
+    t.inputFields match {
+      case None | Some(Nil) =>
+        failValidation(
+          s"$inputObjectContext does not have fields",
+          "An Input Object type must define one or more input fields"
+        )
+      case Some(fields) => validateFields(fields)
+    }
+  }
+
+  private def validateInputValue(inputValue: __InputValue, errorContext: String): IO[ValidationError, Unit] = {
+    val fieldContext = s"InputValue '${inputValue.name}' of $errorContext"
+    for {
+      _ <- doesNotStartWithUnderscore(inputValue, fieldContext)
+      _ <- onlyInputType(inputValue.`type`(), fieldContext)
+    } yield ()
+  }
+  private def validateInterface(t: __Type): IO[ValidationError, Unit] = {
+    val interfaceContext = s"Interface '${t.name.getOrElse("")}'"
+
+    def noDuplicateFieldName(fields: List[__Field], errorContext: String) = {
+      val messageBuilder = (f: __Field) => s"$errorContext has repeated fields: ${f.name}"
+      val explanatory =
+        "The field must have a unique name within that Interface type; no two fields may share the same name"
+      noDuplicateName[__Field](fields, _.name, messageBuilder, explanatory)
+    }
+
+    def validateFields(fields: List[__Field]): IO[ValidationError, Unit] =
+      noDuplicateFieldName(fields, interfaceContext) <*
+        IO.foreach(fields) { field =>
+          val fieldContext = s"Field '${field.name}' of $interfaceContext"
+          for {
+            _ <- doesNotStartWithUnderscore(field, fieldContext)
+            _ <- onlyOutputType(field.`type`(), fieldContext)
+            _ <- IO.foreach(field.args)(validateInputValue(_, fieldContext))
+          } yield ()
+        }
+
+    t.fields(__DeprecatedArgs(Some(true))) match {
+      case None | Some(Nil) =>
+        failValidation(
+          s"$interfaceContext does not have fields",
+          "An Interface type must define one or more fields"
+        )
+      case Some(fields) => validateFields(fields)
+    }
+  }
+
+  private def onlyInputType(`type`: __Type, errorContext: String): IO[ValidationError, Unit] = {
+    // https://spec.graphql.org/June2018/#IsInputType()
+    def isInputType(t: __Type): Either[__Type, Unit] = {
+      import __TypeKind._
+      t.kind match {
+        case LIST | NON_NULL              => t.ofType.fold[Either[__Type, Unit]](Left(t))(isInputType)
+        case SCALAR | ENUM | INPUT_OBJECT => Right(())
+        case _                            => Left(t)
+      }
+    }
+
+    IO.whenCase(isInputType(`type`)) {
+      case Left(errorType) =>
+        failValidation(
+          s"${errorType.name.getOrElse("")} of $errorContext is of kind ${errorType.kind}, must be an InputType",
+          """The input field must accept a type where IsInputType(type) returns true, https://spec.graphql.org/June2018/#IsInputType()"""
+        )
+    }
+  }
+
+  private def onlyOutputType(`type`: __Type, errorContext: String): IO[ValidationError, Unit] = {
+    // https://spec.graphql.org/June2018/#IsOutputType()
+    def isOutputType(t: __Type): Either[__Type, Unit] = {
+      import __TypeKind._
+      t.kind match {
+        case LIST | NON_NULL                            => t.ofType.fold[Either[__Type, Unit]](Left(t))(isOutputType)
+        case SCALAR | OBJECT | INTERFACE | UNION | ENUM => Right(())
+        case _                                          => Left(t)
+      }
+    }
+
+    IO.whenCase(isOutputType(`type`)) {
+      case Left(errorType) =>
+        failValidation(
+          s"${errorType.name.getOrElse("")} of $errorContext is of kind ${errorType.kind}, must be an OutputType",
+          """The input field must accept a type where IsOutputType(type) returns true, https://spec.graphql.org/June2018/#IsInputType()"""
+        )
+    }
+  }
+
+  private def noDuplicateName[T](
+    listOfNamed: List[T],
+    nameExtractor: T => String,
+    messageBuilder: T => String,
+    explanatoryText: String
+  ): IO[ValidationError, Unit] =
+    listOfNamed
+      .groupBy(nameExtractor(_))
+      .collectFirst { case (_, f :: _ :: _) => f }
+      .fold[IO[ValidationError, Unit]](IO.unit)(duplicate => failValidation(messageBuilder(duplicate), explanatoryText))
+
+  private def doesNotStartWithUnderscore(field: __Field, errorContext: String) = {
+    val explanatory = s"""The field must not have a name which begins with the characters {"__"} (two underscores)"""
+    doesNotStartWithUnderscore[__Field](field, _.name, errorContext, explanatory)
+  }
+
+  private def doesNotStartWithUnderscore(inputValue: __InputValue, errorContext: String) = {
+    val explanatory =
+      s"""The input field must not have a name which begins with the characters "__" (two underscores)"""
+    doesNotStartWithUnderscore[__InputValue](inputValue, _.name, errorContext, explanatory)
+  }
+
+  private def doesNotStartWithUnderscore[T](
+    t: T,
+    nameExtractor: T => String,
+    errorContext: String,
+    explanatoryText: String
+  ): IO[ValidationError, Unit] =
+    IO.when(nameExtractor(t).startsWith("__"))(
+      failValidation(s"$errorContext can't start with '__'", explanatoryText)
+    )
+
+  private def validateRootQuery[R](schema: RootSchemaBuilder[R]): IO[ValidationError, RootSchema[R]] =
+    schema.query match {
+      case None =>
+        failValidation(
+          "The query root operation is missing.",
+          "The query root operation type must be provided and must be an Object type."
+        )
+      case Some(query) => IO.succeed(RootSchema(query, schema.mutation, schema.subscription))
+    }
+
+  private def validateClashingTypes(types: List[__Type]): IO[ValidationError, Unit] = {
+    val check = types.groupBy(_.name).collectFirst { case (Some(name), v) if v.size > 1 => (name, v) }
+    IO.whenCase(check) {
+      case Some((name, values)) =>
+        failValidation(
+          s"Type '$name' is defined multiple times (${values
+            .sortBy(v => v.origin.getOrElse(""))
+            .map(v => s"${v.kind}${v.origin.fold("")(a => s" in $a")}")
+            .mkString(", ")}).",
+          "Each type must be defined only once."
+        )
+    }
   }
 
   case class Context(
