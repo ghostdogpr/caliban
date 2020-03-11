@@ -187,5 +187,22 @@ object TestUtils {
     val resolverInterfaceWrongArgumentInputType = RootResolver(
       TestWrongArgumentType(InterfaceWrongArgumentInputType.A(_ => UIO.unit))
     )
+
+    case class ClashingObjectArgs(a: ClashingObject)
+    case class ClashingObject(a: String)
+    case class ClashingObjectInput(a: String)
+    case class ClashingQuery(test: ClashingObjectArgs => ClashingObjectInput)
+    val resolverClashingObjects = RootResolver(
+      ClashingQuery(args => ClashingObjectInput(args.a.a))
+    )
+
+    object A {
+      case class C(a: String)
+    }
+    object B {
+      case class C(a: String)
+    }
+    case class ClashingNamesQuery(a: A.C, b: B.C)
+    val resolverClashingNames = RootResolver(ClashingNamesQuery(A.C(""), B.C("")))
   }
 }

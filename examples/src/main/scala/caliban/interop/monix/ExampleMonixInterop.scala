@@ -24,7 +24,7 @@ object ExampleMonixInterop extends TaskApp {
   val queries      = Queries(numbers, randomNumber)
 
   val subscriptions = Subscriptions(Observable.fromIterable(List(1, 2, 3)))
-  val api           = graphQL(RootResolver(queries, Option.empty[Unit], Some(subscriptions)))
+  val api           = graphQL(RootResolver(Some(queries), Option.empty[Unit], Some(subscriptions)))
 
   val query = """
   {
@@ -44,12 +44,12 @@ object ExampleMonixInterop extends TaskApp {
 
   override def run(args: List[String]): Task[ExitCode] =
     for {
-      _           <- api.checkAsync(query)
       interpreter <- api.interpreterAsync
+      _           <- interpreter.checkAsync(query)
       result      <- interpreter.executeAsync(query)
       _           <- Task.eval(println(result.data))
 
-      _      <- api.checkAsync(subscription)
+      _      <- interpreter.checkAsync(subscription)
       result <- interpreter.executeAsync(subscription)
       _ <- result.data match {
             case ObjectValue(("numbers", StreamValue(stream)) :: Nil) =>

@@ -13,7 +13,7 @@ import caliban.parsing.adt.OperationType._
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt._
-import caliban.schema.{ RootSchema, RootType, Types }
+import caliban.schema.{ RootSchema, RootSchemaBuilder, RootType, Types }
 import caliban.{ InputValue, Rendering, Value }
 import zio.IO
 
@@ -28,17 +28,18 @@ object Validator {
   /**
    * Verifies that the given schema is valid. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
-  def validateSchema(rootType: RootType): IO[ValidationError, Unit] =
-    IO.foreach(rootType.types.values) { t =>
-        t.kind match {
-          case __TypeKind.ENUM         => validateEnum(t)
-          case __TypeKind.UNION        => validateUnion(t)
-          case __TypeKind.INTERFACE    => validateInterface(t)
-          case __TypeKind.INPUT_OBJECT => validateInputObject(t)
-          case _                       => IO.unit
-        }
+  def validateSchema[R](schema: RootSchemaBuilder[R]): IO[ValidationError, RootSchema[R]] = {
+    val types = schema.types
+    IO.foreach(types) { t =>
+      t.kind match {
+        case __TypeKind.ENUM         => validateEnum(t)
+        case __TypeKind.UNION        => validateUnion(t)
+        case __TypeKind.INTERFACE    => validateInterface(t)
+        case __TypeKind.INPUT_OBJECT => validateInputObject(t)
+        case _                       => IO.unit
       }
-      .unit
+    } *> validateClashingTypes(types) *> validateRootQuery(schema)
+  }
 
   def failValidation[T](msg: String, explanatoryText: String): IO[ValidationError, T] =
     IO.fail(ValidationError(msg, explanatoryText))
@@ -685,6 +686,30 @@ object Validator {
     IO.when(nameExtractor(t).startsWith("__"))(
       failValidation(s"$errorContext can't start with '__'", explanatoryText)
     )
+
+  private def validateRootQuery[R](schema: RootSchemaBuilder[R]): IO[ValidationError, RootSchema[R]] =
+    schema.query match {
+      case None =>
+        failValidation(
+          "The query root operation is missing.",
+          "The query root operation type must be provided and must be an Object type."
+        )
+      case Some(query) => IO.succeed(RootSchema(query, schema.mutation, schema.subscription))
+    }
+
+  private def validateClashingTypes(types: List[__Type]): IO[ValidationError, Unit] = {
+    val check = types.groupBy(_.name).collectFirst { case (Some(name), v) if v.size > 1 => (name, v) }
+    IO.whenCase(check) {
+      case Some((name, values)) =>
+        failValidation(
+          s"Type '$name' is defined multiple times (${values
+            .sortBy(v => v.origin.getOrElse(""))
+            .map(v => s"${v.kind}${v.origin.fold("")(a => s" in $a")}")
+            .mkString(", ")}).",
+          "Each type must be defined only once."
+        )
+    }
+  }
 
   case class Context(
     document: Document,

@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.Value.NullValue
-import zio.{ Has, NeedsEnv, Tagged, URIO, ZEnv, ZLayer }
+import zio.{ Has, IO, NeedsEnv, Tagged, URIO, ZEnv, ZLayer }
 
 /**
  * A `GraphQLInterpreter[-R, +E]` represents a GraphQL interpreter whose execution requires
@@ -11,6 +11,13 @@ import zio.{ Has, NeedsEnv, Tagged, URIO, ZEnv, ZLayer }
  * query execution, and possibly transform the environment or the error type.
  */
 trait GraphQLInterpreter[-R, +E] { self =>
+
+  /**
+   * Parses and validates the provided query against this API.
+   * @param query a string containing the GraphQL query.
+   * @return an effect that either fails with a [[CalibanError]] or succeeds with `Unit`
+   */
+  def check(query: String): IO[CalibanError, Unit]
 
   /**
    * Parses, validates and finally runs the provided query against this interpreter.
@@ -74,9 +81,16 @@ trait GraphQLInterpreter[-R, +E] { self =>
    */
   final def wrapExecutionWith[R2, E2](
     f: URIO[R, GraphQLResponse[E]] => URIO[R2, GraphQLResponse[E2]]
-  ): GraphQLInterpreter[R2, E2] =
-    (query: String, operationName: Option[String], variables: Map[String, InputValue], skipValidation: Boolean) =>
-      f(self.execute(query, operationName, variables, skipValidation))
+  ): GraphQLInterpreter[R2, E2] = new GraphQLInterpreter[R2, E2] {
+    override def check(query: String): IO[CalibanError, Unit] = self.check(query)
+    override def execute(
+      query: String,
+      operationName: Option[String],
+      variables: Map[String, InputValue],
+      skipValidation: Boolean
+    ): URIO[R2, GraphQLResponse[E2]] = f(self.execute(query, operationName, variables, skipValidation))
+  }
+
 }
 
 object GraphQLInterpreter {

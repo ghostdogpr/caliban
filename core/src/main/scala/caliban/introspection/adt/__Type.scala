@@ -12,21 +12,20 @@ case class __Type(
   enumValues: __DeprecatedArgs => Option[List[__EnumValue]] = _ => None,
   inputFields: Option[List[__InputValue]] = None,
   ofType: Option[__Type] = None,
-  directives: Option[List[Directive]] = None
+  directives: Option[List[Directive]] = None,
+  origin: Option[String] = None
 ) {
   def |+|(that: __Type): __Type = __Type(
     kind,
     (name ++ that.name).reduceOption((_, b) => b),
     (description ++ that.description).reduceOption((_, b) => b),
-    args =>
-      (fields(args) ++ that.fields(args)).reduceOption((a, b) => a.filterNot(f => b.exists(_.name == f.name)) ++ b),
-    () => (interfaces() ++ that.interfaces()).reduceOption((a, b) => a.filterNot(t => b.exists(_.name == t.name)) ++ b),
-    (possibleTypes ++ that.possibleTypes).reduceOption((a, b) => a.filterNot(t => b.exists(_.name == t.name)) ++ b),
-    args =>
-      (enumValues(args) ++ that.enumValues(args))
-        .reduceOption((a, b) => a.filterNot(v => b.exists(_.name == v.name)) ++ b),
-    (inputFields ++ that.inputFields).reduceOption((a, b) => a.filterNot(t => b.exists(_.name == t.name)) ++ b),
+    args => (fields(args) ++ that.fields(args)).reduceOption(_ ++ _),
+    () => (interfaces() ++ that.interfaces()).reduceOption(_ ++ _),
+    (possibleTypes ++ that.possibleTypes).reduceOption(_ ++ _),
+    args => (enumValues(args) ++ that.enumValues(args)).reduceOption(_ ++ _),
+    (inputFields ++ that.inputFields).reduceOption(_ ++ _),
     (ofType ++ that.ofType).reduceOption(_ |+| _),
-    (directives ++ that.directives).reduceOption(_ ++ _)
+    (directives ++ that.directives).reduceOption(_ ++ _),
+    (origin ++ that.origin).reduceOption((_, b) => b)
   )
 }
