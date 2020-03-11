@@ -24,6 +24,7 @@ The following modules are optional:
 ```
 libraryDependencies += "com.github.ghostdogpr" %% "caliban-http4s"    % "0.6.0" // routes for http4s
 libraryDependencies += "com.github.ghostdogpr" %% "caliban-akka-http" % "0.6.0" // routes for akka-http
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-finch"     % "0.6.0" // routes for finch
 libraryDependencies += "com.github.ghostdogpr" %% "caliban-cats"      % "0.6.0" // interop with cats effect
 libraryDependencies += "com.github.ghostdogpr" %% "caliban-monix"     % "0.6.0" // interop with monix
 ```
