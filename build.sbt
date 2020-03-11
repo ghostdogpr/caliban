@@ -162,16 +162,27 @@ lazy val http4s = project
   )
   .dependsOn(coreJVM)
 
-lazy val play_base = project
-  .in(file("play"))
-  .settings(commonSettings)
-  .dependsOn(coreJVM)
-
 lazy val play_27 =
-  play_base.settings(name := "caliban-play-27", libraryDependencies += "com.typesafe.play" %% "play" % "2.7.4")
+  project
+    .in(file("play"))
+    .settings(commonSettings)
+    .dependsOn(coreJVM)
+    .settings(
+      name := s"caliban-play-27",
+      libraryDependencies += "com.typesafe.play" %% "play" % "2.7.4",
+      target := { file(baseDirectory.value.toString + s"/.play-27/target") }
+    )
 
 lazy val play_28 =
-  play_base.settings(name := "caliban-play-28", libraryDependencies += "com.typesafe.play" %% "play" % "2.8.1")
+  project
+    .in(file("play"))
+    .settings(commonSettings)
+    .dependsOn(coreJVM)
+    .settings(
+      name := s"caliban-play-28",
+      libraryDependencies += "com.typesafe.play" %% "play" % "2.8.1",
+      target := { file(baseDirectory.value.toString + s"/.play-28/target") }
+    )
 
 lazy val akkaHttp = project
   .in(file("akka-http"))
