@@ -5,7 +5,7 @@ import caliban.GraphQL.graphQL
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.GenericSchema
 import caliban.{ ExampleService, FinchAdapter, GraphQL, RootResolver }
-import com.twitter.io.{ Buf, Reader }
+import com.twitter.io.{ Buf, BufReader, Reader }
 import com.twitter.util.Await
 import io.circe.Json
 import io.finch.Endpoint
@@ -74,11 +74,11 @@ object ExampleApp extends App with GenericSchema[Console with Clock] with Endpoi
 
   val graphiqlBuf = {
     val stream = getClass.getResourceAsStream("/graphiql.html")
-    Reader.readAll(Reader.fromStream(stream))
+    BufReader.readAll(Reader.fromStream(stream))
   }
 
   val grapihql: Endpoint[Task, Buf] = get("graphiql") {
-    graphiqlBuf.map(Ok(_))
+    graphiqlBuf.map(Ok)
   }
 
   val services = Bootstrap.serve[Application.Json](endpoint).serve[Text.Html](grapihql).toService
