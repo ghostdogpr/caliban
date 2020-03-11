@@ -13,24 +13,23 @@ class ExampleService(characters: Ref[List[Character]], subscribers: Ref[List[Que
 
   def deleteCharacter(name: String): UIO[Boolean] =
     characters
-      .modify(
-        list =>
-          if (list.exists(_.name == name)) (true, list.filterNot(_.name == name))
-          else (false, list)
+      .modify(list =>
+        if (list.exists(_.name == name)) (true, list.filterNot(_.name == name))
+        else (false, list)
       )
-      .tap(
-        deleted =>
-          UIO.when(deleted)(
-            subscribers.get.flatMap(
-              // add item to all subscribers
-              UIO.foreach(_)(
-                queue =>
-                  queue
-                    .offer(name)
-                    .onInterrupt(subscribers.update(_.filterNot(_ == queue))) // if queue was shutdown, remove from subscribers
-              )
+      .tap(deleted =>
+        UIO.when(deleted)(
+          subscribers.get.flatMap(
+            // add item to all subscribers
+            UIO.foreach(_)(queue =>
+              queue
+                .offer(name)
+                .onInterrupt(
+                  subscribers.update(_.filterNot(_ == queue))
+                ) // if queue was shutdown, remove from subscribers
             )
           )
+        )
       )
 
   def deletedEvents: ZStream[Any, Nothing, String] = ZStream.unwrap {

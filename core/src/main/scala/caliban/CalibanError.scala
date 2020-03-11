@@ -1,5 +1,6 @@
 package caliban
 
+import caliban.ResponseValue.ObjectValue
 import caliban.interop.circe.IsCirceEncoder
 import caliban.parsing.adt.LocationInfo
 
@@ -18,7 +19,8 @@ object CalibanError {
   case class ParsingError(
     msg: String,
     locationInfo: Option[LocationInfo] = None,
-    innerThrowable: Option[Throwable] = None
+    innerThrowable: Option[Throwable] = None,
+    extensions: Option[ObjectValue] = None
   ) extends CalibanError {
     override def toString: String = s"Parsing Error: $msg ${innerThrowable.fold("")(_.toString)}"
   }
@@ -26,8 +28,12 @@ object CalibanError {
   /**
    * Describes an error that happened while validating a query.
    */
-  case class ValidationError(msg: String, explanatoryText: String, locationInfo: Option[LocationInfo] = None)
-      extends CalibanError {
+  case class ValidationError(
+    msg: String,
+    explanatoryText: String,
+    locationInfo: Option[LocationInfo] = None,
+    extensions: Option[ObjectValue] = None
+  ) extends CalibanError {
     override def toString: String = s"ValidationError Error: $msg"
   }
 
@@ -38,7 +44,8 @@ object CalibanError {
     msg: String,
     path: List[Either[String, Int]] = Nil,
     locationInfo: Option[LocationInfo] = None,
-    innerThrowable: Option[Throwable] = None
+    innerThrowable: Option[Throwable] = None,
+    extensions: Option[ObjectValue] = None
   ) extends CalibanError {
     override def toString: String = s"Execution Error: $msg ${innerThrowable.fold("")(_.toString)}"
   }
@@ -55,25 +62,27 @@ private object ErrorCirce {
     Json.obj("line" -> li.line.asJson, "column" -> li.column.asJson)
 
   val errorValueEncoder: Encoder[CalibanError] = Encoder.instance[CalibanError] {
-    case CalibanError.ParsingError(msg, locationInfo, _) =>
+    case CalibanError.ParsingError(msg, locationInfo, _, extensions) =>
       Json
         .obj(
           "message" -> s"Parsing Error: $msg".asJson,
           "locations" -> Some(locationInfo).collect {
             case Some(li) => Json.arr(locationToJson(li))
-          }.asJson
+          }.asJson,
+          "extensions" -> (extensions: Option[ResponseValue]).asJson.dropNullValues
         )
         .dropNullValues
-    case CalibanError.ValidationError(msg, _, locationInfo) =>
+    case CalibanError.ValidationError(msg, _, locationInfo, extensions) =>
       Json
         .obj(
           "message" -> msg.asJson,
           "locations" -> Some(locationInfo).collect {
             case Some(li) => Json.arr(locationToJson(li))
-          }.asJson
+          }.asJson,
+          "extensions" -> (extensions: Option[ResponseValue]).asJson.dropNullValues
         )
         .dropNullValues
-    case CalibanError.ExecutionError(msg, path, locationInfo, _) =>
+    case CalibanError.ExecutionError(msg, path, locationInfo, _, extensions) =>
       Json
         .obj(
           "message" -> msg.asJson,
@@ -86,7 +95,8 @@ private object ErrorCirce {
                 case Left(value)  => value.asJson
                 case Right(value) => value.asJson
               })
-          }.asJson
+          }.asJson,
+          "extensions" -> (extensions: Option[ResponseValue]).asJson.dropNullValues
         )
         .dropNullValues
   }
