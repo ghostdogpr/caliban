@@ -1,22 +1,22 @@
 package caliban.play
 
-import caliban.ExampleData.{ sampleCharacters, Character, CharacterArgs, CharactersArgs, Role }
+import caliban.ExampleData.{Character, CharacterArgs, CharactersArgs, Role, sampleCharacters}
 import caliban.GraphQL.graphQL
-import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
+import caliban.schema.Annotations.{GQLDeprecated, GQLDescription}
 import caliban.schema.GenericSchema
 import caliban.wrappers.ApolloTracing.apolloTracing
-import caliban.wrappers.Wrappers.{ maxDepth, maxFields, printSlowQueries, timeout }
-import caliban.{ ExampleService, GraphQL, PlayCaliban, RootResolver }
-import play.api.{ ApplicationLoader, BuiltInComponentsFromContext, Environment, NoHttpFiltersComponents }
-import play.api.mvc.DefaultControllerComponents
+import caliban.wrappers.Wrappers.{maxDepth, maxFields, printSlowQueries, timeout}
+import caliban.{CalibanController, ExampleService, GraphQL, GraphQLRequest, RootResolver}
+import play.api.mvc.{Action, DefaultControllerComponents}
 import play.api.routing.Router
 import play.api.routing.sird._
-import play.core.server.{ AkkaHttpServer, ServerConfig }
+import play.api.{ApplicationLoader, BuiltInComponents, BuiltInComponentsFromContext, Environment, NoHttpFiltersComponents}
+import play.core.server.{AkkaHttpServer, ServerConfig}
 import zio.clock.Clock
 import zio.console.Console
 import zio.duration._
 import zio.stream.ZStream
-import zio.{ Runtime, URIO }
+import zio.{Runtime, URIO}
 
 import scala.io.StdIn.readLine
 import scala.language.postfixOps
@@ -62,9 +62,10 @@ object ExampleApp extends GenericSchema[Console with Clock] {
   def main(args: Array[String]): Unit = {
 
     val context = ApplicationLoader.Context.create(Environment.simple())
-    val components = new BuiltInComponentsFromContext(context) with NoHttpFiltersComponents {
-      val playCaliban = new PlayCaliban(runtime)
-      val controller = new playCaliban.Controller(
+
+    val components: BuiltInComponents = new BuiltInComponentsFromContext(context) with NoHttpFiltersComponents {
+
+      val controller = new CalibanController(
         DefaultControllerComponents(
           defaultActionBuilder,
           playBodyParsers,
@@ -75,9 +76,9 @@ object ExampleApp extends GenericSchema[Console with Clock] {
         )
       )
 
-      override def router: Router = Router.from {
-        case POST(p"/api/graphql") => controller.action(interpreter)
-      }
+      val graphQLAction: Action[GraphQLRequest] = controller.action(runtime, interpreter)
+
+      override def router: Router = Router.from { case POST(p"/api/graphql") => graphQLAction }
     }
 
     val server = AkkaHttpServer.fromApplication(

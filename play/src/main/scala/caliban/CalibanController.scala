@@ -4,22 +4,28 @@ import caliban.PlayJson._
 import caliban.Value.NullValue
 import javax.inject.Inject
 import play.api.mvc.{ AbstractController, Action, ControllerComponents }
-import zio.{ Runtime, ZIO }
+import zio.{ Exit, Runtime, ZIO }
 
-class PlayCaliban[R](runtime: Runtime[R]) {
+import scala.concurrent.{ Future, Promise }
 
-  class Controller @Inject() (cc: ControllerComponents) extends AbstractController(cc) {
+class CalibanController @Inject() (cc: ControllerComponents) extends AbstractController(cc) {
 
-    def action[E](interpreter: GraphQLInterpreter[R, E]): Action[GraphQLRequest] =
-      Action.async(parse.json[GraphQLRequest]) { req =>
-        runtime
-          .unsafeRunToFuture(
-            interpreter
-              .execute(req.body.query, req.body.operationName, req.body.variables.getOrElse(Map.empty))
-              .catchAllCause(cause => ZIO.succeed(GraphQLResponse(NullValue, cause.defects)))
-              .map(Ok(_))
-          )
-          .future
-      }
+  private def unsafeRunToFuture[R, E <: Throwable, A](zio: ZIO[R, E, A])(runtime: Runtime[R]): Future[A] = {
+    val p = Promise[A]()
+    runtime.unsafeRunAsync(zio) {
+      case Exit.Success(value) => p.success(value)
+      case Exit.Failure(cause) => p.failure(cause.squashTrace)
+    }
+    p.future
   }
+
+  def action[R, E](runtime: Runtime[R], interpreter: GraphQLInterpreter[R, E]): Action[GraphQLRequest] =
+    Action.async(parse.json[GraphQLRequest]) { req =>
+      unsafeRunToFuture(
+        interpreter
+          .execute(req.body.query, req.body.operationName, req.body.variables.getOrElse(Map.empty))
+          .catchAllCause(cause => ZIO.succeed(GraphQLResponse(NullValue, cause.defects)))
+          .map(Ok(_))
+      )(runtime)
+    }
 }
