@@ -8,7 +8,7 @@ import caliban.introspection.Introspector
 import caliban.introspection.adt._
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
-import caliban.parsing.adt.Definition.TypeSystemDefinition
+import caliban.parsing.adt.Definition.{ TypeSystemDefinition, TypeSystemExtension }
 import caliban.parsing.adt.OperationType._
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.NamedType
@@ -101,7 +101,7 @@ object Validator {
   }
 
   private def check(document: Document, rootType: RootType): IO[ValidationError, Map[String, FragmentDefinition]] = {
-    val (operations, fragments, _) = collectDefinitions(document)
+    val (operations, fragments, _, _) = collectDefinitions(document)
     for {
       fragmentMap   <- validateFragments(fragments)
       selectionSets = collectSelectionSets(operations.flatMap(_.selectionSet) ++ fragments.flatMap(_.selectionSet))
@@ -118,13 +118,23 @@ object Validator {
 
   private def collectDefinitions(
     document: Document
-  ): (List[OperationDefinition], List[FragmentDefinition], List[TypeSystemDefinition]) =
+  ): (List[OperationDefinition], List[FragmentDefinition], List[TypeSystemDefinition], List[TypeSystemExtension]) =
     document.definitions.foldLeft(
-      (List.empty[OperationDefinition], List.empty[FragmentDefinition], List.empty[TypeSystemDefinition])
+      (
+        List.empty[OperationDefinition],
+        List.empty[FragmentDefinition],
+        List.empty[TypeSystemDefinition],
+        List.empty[TypeSystemExtension]
+      )
     ) {
-      case ((operations, fragments, types), o: OperationDefinition)  => (o :: operations, fragments, types)
-      case ((operations, fragments, types), f: FragmentDefinition)   => (operations, f :: fragments, types)
-      case ((operations, fragments, types), t: TypeSystemDefinition) => (operations, fragments, t :: types)
+      case ((operations, fragments, types, extensions), o: OperationDefinition) =>
+        (o :: operations, fragments, types, extensions)
+      case ((operations, fragments, types, extensions), f: FragmentDefinition) =>
+        (operations, f :: fragments, types, extensions)
+      case ((operations, fragments, types, extensions), t: TypeSystemDefinition) =>
+        (operations, fragments, t :: types, extensions)
+      case ((operations, fragments, types, extensions), e: TypeSystemExtension) =>
+        (operations, fragments, types, e :: extensions)
     }
 
   private def collectVariablesUsed(context: Context, selectionSet: List[Selection]): Set[String] = {
@@ -309,6 +319,7 @@ object Validator {
           }
         case _: FragmentDefinition   => IO.unit
         case _: TypeSystemDefinition => IO.unit
+        case _: TypeSystemExtension  => IO.unit
       }
       .unit
 

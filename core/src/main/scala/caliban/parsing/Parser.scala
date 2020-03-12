@@ -9,6 +9,8 @@ import caliban.parsing.adt.Definition.ExecutableDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.DirectiveLocation._
 import caliban.parsing.adt.Definition.TypeSystemDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
+import caliban.parsing.adt.Definition.TypeSystemExtension._
+import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension._
 import caliban.parsing.adt.Selection._
 import caliban.parsing.adt.Type._
 import caliban.parsing.adt._
@@ -116,7 +118,7 @@ object Parser {
   private def argument[_: P]: P[(String, InputValue)]     = P(name ~ ":" ~ value)
   private def arguments[_: P]: P[Map[String, InputValue]] = P("(" ~/ argument.rep ~ ")").map(_.toMap)
 
-  private def directive[_: P]: P[Directive] = P(Index ~ "@" ~/ name ~ arguments.?).map {
+  private def directive[_: P]: P[Directive] = P(Index ~ "@" ~ name ~ arguments.?).map {
     case (index, name, arguments) => Directive(name, arguments.getOrElse(Map()), index)
   }
   private def directives[_: P]: P[List[Directive]] = P(directive.rep).map(_.toList)
@@ -231,11 +233,10 @@ object Parser {
         EnumValueDefinition(description.map(_.value), enumValue, directives.getOrElse(Nil))
     }
 
+  private def enumName[_: P]: P[String] = name.filter(s => s != "true" && s != "false" && s != "null")
+
   private def enumTypeDefinition[_: P]: P[EnumTypeDefinition] =
-    P(
-      stringValue.? ~ "enum" ~/ name
-        .filter(s => s != "true" && s != "false" && s != "null") ~ directives.? ~ "{" ~ enumValueDefinition.rep ~ "}"
-    ).map {
+    P(stringValue.? ~ "enum" ~/ enumName ~ directives.? ~ "{" ~ enumValueDefinition.rep ~ "}").map {
       case (description, name, directives, enumValuesDefinition) =>
         EnumTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), enumValuesDefinition.toList)
     }
@@ -265,6 +266,142 @@ object Parser {
           opsMap.get(OperationType.Subscription).map(_.name)
         )
     }
+
+  private def schemaExtensionWithOptionalDirectivesAndOperations[_: P]: P[SchemaExtension] =
+    P(directives.? ~ "{" ~ rootOperationTypeDefinition.rep ~ "}").map {
+      case (directives, ops) =>
+        val opsMap = ops.toMap
+        SchemaExtension(
+          directives.getOrElse(Nil),
+          opsMap.get(OperationType.Query).map(_.name),
+          opsMap.get(OperationType.Mutation).map(_.name),
+          opsMap.get(OperationType.Subscription).map(_.name)
+        )
+    }
+
+  private def schemaExtensionWithDirectives[_: P]: P[SchemaExtension] =
+    P(directives).map(SchemaExtension(_, None, None, None))
+
+  private def schemaExtension[_: P]: P[SchemaExtension] =
+    P("extend schema" ~/ (schemaExtensionWithOptionalDirectivesAndOperations | schemaExtensionWithDirectives))
+
+  private def scalarTypeExtension[_: P]: P[ScalarTypeExtension] =
+    P("extend scalar" ~/ name ~ directives).map {
+      case (name, directives) =>
+        ScalarTypeExtension(name, directives)
+    }
+
+  private def objectTypeExtensionWithOptionalInterfacesOptionalDirectivesAndFields[_: P]: P[ObjectTypeExtension] =
+    P(name ~ implements.? ~ directives.? ~ "{" ~ fieldDefinition.rep ~ "}").map {
+      case (name, implements, directives, fields) =>
+        ObjectTypeExtension(
+          name,
+          implements.getOrElse(Nil),
+          directives.getOrElse(Nil),
+          fields.toList
+        )
+    }
+
+  private def objectTypeExtensionWithOptionalInterfacesAndDirectives[_: P]: P[ObjectTypeExtension] =
+    P(name ~ implements.? ~ directives ~ !("{" ~ fieldDefinition.rep ~ "}")).map {
+      case (name, implements, directives) =>
+        ObjectTypeExtension(
+          name,
+          implements.getOrElse(Nil),
+          directives,
+          Nil
+        )
+    }
+
+  private def objectTypeExtensionWithInterfaces[_: P]: P[ObjectTypeExtension] =
+    P(name ~ implements).map {
+      case (name, implements) =>
+        ObjectTypeExtension(
+          name,
+          implements,
+          Nil,
+          Nil
+        )
+    }
+
+  private def objectTypeExtension[_: P]: P[ObjectTypeExtension] =
+    P(
+      "extend type" ~/ (
+        objectTypeExtensionWithOptionalInterfacesOptionalDirectivesAndFields |
+          objectTypeExtensionWithOptionalInterfacesAndDirectives |
+          objectTypeExtensionWithInterfaces
+      )
+    )
+
+  private def interfaceTypeExtensionWithOptionalDirectivesAndFields[_: P]: P[InterfaceTypeExtension] =
+    P(name ~ directives.? ~ "{" ~ fieldDefinition.rep ~ "}").map {
+      case (name, directives, fields) =>
+        InterfaceTypeExtension(name, directives.getOrElse(Nil), fields.toList)
+    }
+
+  private def interfaceTypeExtensionWithDirectives[_: P]: P[InterfaceTypeExtension] =
+    P(name ~ directives).map {
+      case (name, directives) =>
+        InterfaceTypeExtension(name, directives, Nil)
+    }
+
+  private def interfaceTypeExtension[_: P]: P[InterfaceTypeExtension] =
+    P(
+      "extend interface" ~/ (
+        interfaceTypeExtensionWithOptionalDirectivesAndFields |
+          interfaceTypeExtensionWithDirectives
+      )
+    )
+
+  private def unionTypeExtensionWithOptionalDirectivesAndUnionMembers[_: P]: P[UnionTypeExtension] =
+    P(name ~ directives.? ~ "=" ~ ("|".? ~ namedType) ~ ("|" ~ namedType).rep).map {
+      case (name, directives, m, ms) =>
+        UnionTypeExtension(name, directives.getOrElse(Nil), (m :: ms.toList).map(_.name))
+    }
+
+  private def unionTypeExtensionWithDirectives[_: P]: P[UnionTypeExtension] =
+    P(name ~ directives).map {
+      case (name, directives) =>
+        UnionTypeExtension(name, directives, Nil)
+    }
+
+  private def unionTypeExtension[_: P]: P[UnionTypeExtension] =
+    P("extend union" ~/ (unionTypeExtensionWithOptionalDirectivesAndUnionMembers | unionTypeExtensionWithDirectives))
+
+  private def enumTypeExtensionWithOptionalDirectivesAndValues[_: P]: P[EnumTypeExtension] =
+    P(enumName ~ directives.? ~ "{" ~ enumValueDefinition.rep ~ "}").map {
+      case (name, directives, enumValuesDefinition) =>
+        EnumTypeExtension(name, directives.getOrElse(Nil), enumValuesDefinition.toList)
+    }
+
+  private def enumTypeExtensionWithDirectives[_: P]: P[EnumTypeExtension] =
+    P(enumName ~ directives).map {
+      case (name, directives) =>
+        EnumTypeExtension(name, directives, Nil)
+    }
+
+  private def enumTypeExtension[_: P]: P[EnumTypeExtension] =
+    P("extend enum" ~/ (enumTypeExtensionWithOptionalDirectivesAndValues | enumTypeExtensionWithDirectives))
+
+  private def inputObjectTypeExtensionWithOptionalDirectivesAndFields[_: P]: P[InputObjectTypeExtension] =
+    P(name ~ directives.? ~ "{" ~ argumentDefinition.rep ~ "}").map {
+      case (name, directives, fields) =>
+        InputObjectTypeExtension(name, directives.getOrElse(Nil), fields.toList)
+    }
+
+  private def inputObjectTypeExtensionWithDirectives[_: P]: P[InputObjectTypeExtension] =
+    P(name ~ directives).map {
+      case (name, directives) =>
+        InputObjectTypeExtension(name, directives, Nil)
+    }
+
+  private def inputObjectTypeExtension[_: P]: P[InputObjectTypeExtension] =
+    P(
+      "extend input" ~/ (
+        inputObjectTypeExtensionWithOptionalDirectivesAndFields |
+          inputObjectTypeExtensionWithDirectives
+      )
+    )
 
   private def directiveLocation[_: P]: P[DirectiveLocation] =
     P(
@@ -331,7 +468,18 @@ object Parser {
   private def executableDefinition[_: P]: P[ExecutableDefinition] =
     P(operationDefinition | fragmentDefinition)
 
-  private def definition[_: P]: P[Definition] = executableDefinition | typeSystemDefinition
+  private def typeExtension[_: P]: P[TypeExtension] =
+    objectTypeExtension |
+      interfaceTypeExtension |
+      inputObjectTypeExtension |
+      enumTypeExtension |
+      unionTypeExtension |
+      scalarTypeExtension
+
+  private def typeSystemExtension[_: P]: P[TypeSystemExtension] =
+    schemaExtension | typeExtension
+
+  private def definition[_: P]: P[Definition] = executableDefinition | typeSystemDefinition | typeSystemExtension
 
   private def document[_: P]: P[ParsedDocument] =
     P(Start ~ ignored ~ definition.rep ~ ignored ~ End).map(seq => ParsedDocument(seq.toList))

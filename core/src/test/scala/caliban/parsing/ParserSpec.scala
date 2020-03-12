@@ -6,13 +6,15 @@ import caliban.InputValue._
 import caliban.Value._
 import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
+import caliban.parsing.adt.Definition.TypeSystemExtension.SchemaExtension
+import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension._
 import caliban.parsing.adt.OperationType.{ Mutation, Query }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt._
 import zio.test.Assertion._
-import zio.test.environment.TestEnvironment
 import zio.test._
+import zio.test.environment.TestEnvironment
 
 object ParserSpec extends DefaultRunnableSpec {
 
@@ -464,6 +466,546 @@ object ParserSpec extends DefaultRunnableSpec {
                 )
               ),
               sourceMapper = SourceMapper.apply(gqltype)
+            )
+          )
+        )
+      },
+      testM("extend schema with directives") {
+        val gqlSchemaExtension = "extend schema @addedDirective"
+        assertM(Parser.parseQuery(gqlSchemaExtension))(
+          equalTo(
+            Document(
+              List(
+                SchemaExtension(
+                  List(Directive("addedDirective", index = 14)),
+                  None,
+                  None,
+                  None
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlSchemaExtension)
+            )
+          )
+        )
+      },
+      testM("extend schema with directives and operations") {
+        val gqlSchemaExtension =
+          """
+            |extend schema @addedDirective {
+            | query: Query
+            | mutation: Mutation
+            | subscription: Subscription
+            |}
+            |""".stripMargin
+        assertM(Parser.parseQuery(gqlSchemaExtension))(
+          equalTo(
+            Document(
+              List(
+                SchemaExtension(
+                  List(Directive("addedDirective", index = 15)),
+                  Some("Query"),
+                  Some("Mutation"),
+                  Some("Subscription")
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlSchemaExtension)
+            )
+          )
+        )
+      },
+      testM("extend schema with operations") {
+        val gqlSchemaExtension =
+          """
+            |extend schema {
+            | query: Query
+            | mutation: Mutation
+            | subscription: Subscription
+            |}
+            |""".stripMargin
+        assertM(Parser.parseQuery(gqlSchemaExtension))(
+          equalTo(
+            Document(
+              List(
+                SchemaExtension(
+                  Nil,
+                  Some("Query"),
+                  Some("Mutation"),
+                  Some("Subscription")
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlSchemaExtension)
+            )
+          )
+        )
+      },
+      testM("extend scalar with directives") {
+        val gqlScalarExtension = "extend scalar SomeScalar @foo(arg0: $someTestM)"
+        assertM(Parser.parseQuery(gqlScalarExtension))(
+          equalTo(
+            Document(
+              List(
+                ScalarTypeExtension(
+                  "SomeScalar",
+                  List(Directive("foo", Map("arg0" -> VariableValue("someTestM")), index = 25))
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlScalarExtension)
+            )
+          )
+        )
+      },
+      testM("extend type with interfaces") {
+        val gqlTypeExtension = "extend type Hero implements SomeInterface"
+        assertM(Parser.parseQuery(gqlTypeExtension))(
+          equalTo(
+            Document(
+              List(
+                ObjectTypeExtension(
+                  "Hero",
+                  List(NamedType("SomeInterface", false)),
+                  Nil,
+                  Nil
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlTypeExtension)
+            )
+          )
+        )
+      },
+      testM("extend type with interfaces and fields") {
+        val gqlTypeExtension =
+          """extend type Hero implements SomeInterface {
+            |"name desc" name(pad: Int!): String! @skip(if: $someTestM)
+            |"nick desc" nick: String!
+            |bday: Int
+            |suits: [String]
+            |powers: [String!]!
+            |}""".stripMargin
+        assertM(Parser.parseQuery(gqlTypeExtension))(
+          equalTo(
+            Document(
+              List(
+                ObjectTypeExtension(
+                  "Hero",
+                  List(NamedType("SomeInterface", false)),
+                  Nil,
+                  List(
+                    FieldDefinition(
+                      Some("name desc"),
+                      "name",
+                      List(InputValueDefinition(None, "pad", NamedType("Int", true), None, Nil)),
+                      NamedType("String", true),
+                      List(Directive("skip", Map("if" -> VariableValue("someTestM")), index = 81))
+                    ),
+                    FieldDefinition(Some("nick desc"), "nick", List(), NamedType("String", true), List()),
+                    FieldDefinition(None, "bday", List(), NamedType("Int", false), List()),
+                    FieldDefinition(None, "suits", List(), ListType(NamedType("String", false), false), List()),
+                    FieldDefinition(None, "powers", List(), ListType(NamedType("String", true), true), List())
+                  )
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlTypeExtension)
+            )
+          )
+        )
+      },
+      testM("extend type with interfaces and directives") {
+        val gqlTypeExtension = "extend type Hero implements SomeInterface @addedDirective"
+        assertM(Parser.parseQuery(gqlTypeExtension))(
+          equalTo(
+            Document(
+              List(
+                ObjectTypeExtension(
+                  "Hero",
+                  List(NamedType("SomeInterface", false)),
+                  List(Directive("addedDirective", index = 42)),
+                  Nil
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlTypeExtension)
+            )
+          )
+        )
+      },
+      testM("extend type with interfaces, directives and fields") {
+        val gqlTypeExtension =
+          """extend type Hero implements SomeInterface @addedDirective {
+            |"name desc" name(pad: Int!): String! @skip(if: $someTestM)
+            |"nick desc" nick: String!
+            |bday: Int
+            |suits: [String]
+            |powers: [String!]!
+            |}""".stripMargin
+        assertM(Parser.parseQuery(gqlTypeExtension))(
+          equalTo(
+            Document(
+              List(
+                ObjectTypeExtension(
+                  "Hero",
+                  List(NamedType("SomeInterface", false)),
+                  List(Directive("addedDirective", index = 42)),
+                  List(
+                    FieldDefinition(
+                      Some("name desc"),
+                      "name",
+                      List(InputValueDefinition(None, "pad", NamedType("Int", true), None, Nil)),
+                      NamedType("String", true),
+                      List(Directive("skip", Map("if" -> VariableValue("someTestM")), index = 97))
+                    ),
+                    FieldDefinition(Some("nick desc"), "nick", List(), NamedType("String", true), List()),
+                    FieldDefinition(None, "bday", List(), NamedType("Int", false), List()),
+                    FieldDefinition(None, "suits", List(), ListType(NamedType("String", false), false), List()),
+                    FieldDefinition(None, "powers", List(), ListType(NamedType("String", true), true), List())
+                  )
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlTypeExtension)
+            )
+          )
+        )
+      },
+      testM("extend type with directives") {
+        val gqlTypeExtension = "extend type Hero @addedDirective"
+        assertM(Parser.parseQuery(gqlTypeExtension))(
+          equalTo(
+            Document(
+              List(
+                ObjectTypeExtension(
+                  "Hero",
+                  Nil,
+                  List(Directive("addedDirective", index = 17)),
+                  Nil
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlTypeExtension)
+            )
+          )
+        )
+      },
+      testM("extend type with directives and fields") {
+        val gqlTypeExtension =
+          """extend type Hero @addedDirective {
+            |"name desc" name(pad: Int!): String! @skip(if: $someTestM)
+            |"nick desc" nick: String!
+            |bday: Int
+            |suits: [String]
+            |powers: [String!]!
+            |}""".stripMargin
+        assertM(Parser.parseQuery(gqlTypeExtension))(
+          equalTo(
+            Document(
+              List(
+                ObjectTypeExtension(
+                  "Hero",
+                  Nil,
+                  List(Directive("addedDirective", index = 17)),
+                  List(
+                    FieldDefinition(
+                      Some("name desc"),
+                      "name",
+                      List(InputValueDefinition(None, "pad", NamedType("Int", true), None, Nil)),
+                      NamedType("String", true),
+                      List(Directive("skip", Map("if" -> VariableValue("someTestM")), index = 72))
+                    ),
+                    FieldDefinition(Some("nick desc"), "nick", List(), NamedType("String", true), List()),
+                    FieldDefinition(None, "bday", List(), NamedType("Int", false), List()),
+                    FieldDefinition(None, "suits", List(), ListType(NamedType("String", false), false), List()),
+                    FieldDefinition(None, "powers", List(), ListType(NamedType("String", true), true), List())
+                  )
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlTypeExtension)
+            )
+          )
+        )
+      },
+      testM("extend type with fields") {
+        val gqlTypeExtension =
+          """extend type Hero {
+            |"name desc" name(pad: Int!): String! @skip(if: $someTestM)
+            |"nick desc" nick: String!
+            |bday: Int
+            |suits: [String]
+            |powers: [String!]!
+            |}""".stripMargin
+        assertM(Parser.parseQuery(gqlTypeExtension))(
+          equalTo(
+            Document(
+              List(
+                ObjectTypeExtension(
+                  "Hero",
+                  Nil,
+                  Nil,
+                  List(
+                    FieldDefinition(
+                      Some("name desc"),
+                      "name",
+                      List(InputValueDefinition(None, "pad", NamedType("Int", true), None, Nil)),
+                      NamedType("String", true),
+                      List(Directive("skip", Map("if" -> VariableValue("someTestM")), index = 56))
+                    ),
+                    FieldDefinition(Some("nick desc"), "nick", List(), NamedType("String", true), List()),
+                    FieldDefinition(None, "bday", List(), NamedType("Int", false), List()),
+                    FieldDefinition(None, "suits", List(), ListType(NamedType("String", false), false), List()),
+                    FieldDefinition(None, "powers", List(), ListType(NamedType("String", true), true), List())
+                  )
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlTypeExtension)
+            )
+          )
+        )
+      },
+      testM("extend interface with directives") {
+        val gqlInterfaceExtension = "extend interface NamedEntity @addedDirective"
+        assertM(Parser.parseQuery(gqlInterfaceExtension))(
+          equalTo(
+            Document(
+              List(
+                InterfaceTypeExtension(
+                  "NamedEntity",
+                  List(Directive("addedDirective", index = 29)),
+                  Nil
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlInterfaceExtension)
+            )
+          )
+        )
+      },
+      testM("extend interface with directives and fields") {
+        val gqlInterfaceExtension =
+          """
+            |extend interface NamedEntity @addedDirective {
+            |  nickname: String
+            |}
+            |""".stripMargin
+        assertM(Parser.parseQuery(gqlInterfaceExtension))(
+          equalTo(
+            Document(
+              List(
+                InterfaceTypeExtension(
+                  "NamedEntity",
+                  List(Directive("addedDirective", index = 30)),
+                  List(FieldDefinition(None, "nickname", Nil, NamedType("String", false), Nil))
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlInterfaceExtension)
+            )
+          )
+        )
+      },
+      testM("extend interface with fields") {
+        val gqlInterfaceExtension =
+          """
+            |extend interface NamedEntity {
+            |  nickname: String
+            |}
+            |""".stripMargin
+        assertM(Parser.parseQuery(gqlInterfaceExtension))(
+          equalTo(
+            Document(
+              List(
+                InterfaceTypeExtension(
+                  "NamedEntity",
+                  Nil,
+                  List(FieldDefinition(None, "nickname", Nil, NamedType("String", false), Nil))
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlInterfaceExtension)
+            )
+          )
+        )
+      },
+      testM("extend union with directives") {
+        val gqlUnionExtension = "extend union SearchResult @addedDirective"
+        assertM(Parser.parseQuery(gqlUnionExtension))(
+          equalTo(
+            Document(
+              List(
+                UnionTypeExtension(
+                  "SearchResult",
+                  List(Directive("addedDirective", index = 26)),
+                  Nil
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlUnionExtension)
+            )
+          )
+        )
+      },
+      testM("extend union with directives and union members") {
+        val gqlUnionExtension = "extend union SearchResult @addedDirective = Photo | Person"
+        assertM(Parser.parseQuery(gqlUnionExtension))(
+          equalTo(
+            Document(
+              List(
+                UnionTypeExtension(
+                  "SearchResult",
+                  List(Directive("addedDirective", index = 26)),
+                  List("Photo", "Person")
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlUnionExtension)
+            )
+          )
+        )
+      },
+      testM("extend union with union members") {
+        val gqlUnionExtension = "extend union SearchResult = Photo | Person"
+        assertM(Parser.parseQuery(gqlUnionExtension))(
+          equalTo(
+            Document(
+              List(
+                UnionTypeExtension(
+                  "SearchResult",
+                  Nil,
+                  List("Photo", "Person")
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlUnionExtension)
+            )
+          )
+        )
+      },
+      testM("extend enum with directives") {
+        val gqlEnumExtension = "extend enum Direction @addedDirective"
+        assertM(Parser.parseQuery(gqlEnumExtension))(
+          equalTo(
+            Document(
+              List(
+                EnumTypeExtension(
+                  "Direction",
+                  List(Directive("addedDirective", index = 22)),
+                  Nil
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlEnumExtension)
+            )
+          )
+        )
+      },
+      testM("extend enum with directives and values") {
+        val gqlEnumExtension =
+          """
+            |extend enum Direction @addedDirective {
+            |  NORTH_WEST
+            |  NORTH_EAST
+            |  SOUTH_WEST
+            |  SOUTH_EAST
+            |}
+            |""".stripMargin
+        assertM(Parser.parseQuery(gqlEnumExtension))(
+          equalTo(
+            Document(
+              List(
+                EnumTypeExtension(
+                  "Direction",
+                  List(Directive("addedDirective", index = 23)),
+                  List(
+                    EnumValueDefinition(None, "NORTH_WEST", Nil),
+                    EnumValueDefinition(None, "NORTH_EAST", Nil),
+                    EnumValueDefinition(None, "SOUTH_WEST", Nil),
+                    EnumValueDefinition(None, "SOUTH_EAST", Nil)
+                  )
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlEnumExtension)
+            )
+          )
+        )
+      },
+      testM("extend enum with values") {
+        val gqlEnumExtension =
+          """
+            |extend enum Direction {
+            |  NORTH_WEST
+            |  NORTH_EAST
+            |  SOUTH_WEST
+            |  SOUTH_EAST
+            |}
+            |""".stripMargin
+        assertM(Parser.parseQuery(gqlEnumExtension))(
+          equalTo(
+            Document(
+              List(
+                EnumTypeExtension(
+                  "Direction",
+                  Nil,
+                  List(
+                    EnumValueDefinition(None, "NORTH_WEST", Nil),
+                    EnumValueDefinition(None, "NORTH_EAST", Nil),
+                    EnumValueDefinition(None, "SOUTH_WEST", Nil),
+                    EnumValueDefinition(None, "SOUTH_EAST", Nil)
+                  )
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlEnumExtension)
+            )
+          )
+        )
+      },
+      testM("extend input with directives") {
+        val gqlInputExtension = "extend input Point @addedDirective"
+        assertM(Parser.parseQuery(gqlInputExtension))(
+          equalTo(
+            Document(
+              List(
+                InputObjectTypeExtension(
+                  "Point",
+                  List(Directive("addedDirective", index = 19)),
+                  Nil
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlInputExtension)
+            )
+          )
+        )
+      },
+      testM("extend input with directives and fields") {
+        val gqlInputExtension =
+          """
+            |extend input Point @addedDirective {
+            |  z: Int!
+            |}
+            |""".stripMargin
+        assertM(Parser.parseQuery(gqlInputExtension))(
+          equalTo(
+            Document(
+              List(
+                InputObjectTypeExtension(
+                  "Point",
+                  List(Directive("addedDirective", index = 20)),
+                  List(
+                    InputValueDefinition(None, "z", NamedType("Int", nonNull = true), None, Nil)
+                  )
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlInputExtension)
+            )
+          )
+        )
+      },
+      testM("extend input with fields") {
+        val gqlInputExtension =
+          """
+            |extend input Point {
+            |  z: Int!
+            |}
+            |""".stripMargin
+        assertM(Parser.parseQuery(gqlInputExtension))(
+          equalTo(
+            Document(
+              List(
+                InputObjectTypeExtension(
+                  "Point",
+                  Nil,
+                  List(
+                    InputValueDefinition(None, "z", NamedType("Int", nonNull = true), None, Nil)
+                  )
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlInputExtension)
             )
           )
         )
