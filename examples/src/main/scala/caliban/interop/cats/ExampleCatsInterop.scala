@@ -3,13 +3,13 @@ package caliban.interop.cats
 import caliban.GraphQL.graphQL
 import caliban.RootResolver
 import cats.effect.{ ExitCode, IO, IOApp }
-import zio.Runtime
+import zio.{ Runtime, ZEnv }
 
 object ExampleCatsInterop extends IOApp {
 
   import caliban.interop.cats.implicits._
 
-  implicit val runtime: Runtime[Unit] = Runtime.default
+  implicit val runtime: Runtime[ZEnv] = Runtime.default
 
   case class Number(value: Int)
 

@@ -1,28 +1,27 @@
 package caliban.akkahttp
 
-import scala.language.postfixOps
 import scala.io.StdIn
+import scala.language.postfixOps
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives._
 import caliban.ExampleData.{ sampleCharacters, Character, CharacterArgs, CharactersArgs, Role }
+import caliban.ExampleService.ExampleService
 import caliban.GraphQL.graphQL
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.GenericSchema
 import caliban.wrappers.ApolloTracing.apolloTracing
 import caliban.wrappers.Wrappers._
-import caliban.{ AkkaHttpAdapter, ExampleService, GraphQL, RootResolver }
-import zio.clock.Clock
-import zio.console.Console
+import caliban.{ AkkaHttpAdapter, ExampleService, RootResolver }
 import zio.duration._
 import zio.stream.ZStream
 import zio.{ Runtime, URIO }
 
-object ExampleApp extends App with GenericSchema[Console with Clock] {
+object ExampleApp extends App with GenericSchema[ExampleService] {
 
   implicit val system           = ActorSystem()
   implicit val executionContext = system.dispatcher
-  implicit val runtime          = Runtime.unsafeFromLayer(Console.live ++ Clock.live)
+  implicit val runtime          = Runtime.default
 
   implicit val roleSchema           = gen[Role]
   implicit val characterSchema      = gen[Character]
@@ -31,22 +30,22 @@ object ExampleApp extends App with GenericSchema[Console with Clock] {
 
   case class Queries(
     @GQLDescription("Return all characters from a given origin")
-    characters: CharactersArgs => URIO[Console, List[Character]],
+    characters: CharactersArgs => URIO[ExampleService, List[Character]],
     @GQLDeprecated("Use `characters`")
-    character: CharacterArgs => URIO[Console, Option[Character]]
+    character: CharacterArgs => URIO[ExampleService, Option[Character]]
   )
-  case class Mutations(deleteCharacter: CharacterArgs => URIO[Console, Boolean])
-  case class Subscriptions(characterDeleted: ZStream[Console, Nothing, String])
+  case class Mutations(deleteCharacter: CharacterArgs => URIO[ExampleService, Boolean])
+  case class Subscriptions(characterDeleted: ZStream[ExampleService, Nothing, String])
 
-  def makeApi(service: ExampleService): GraphQL[Console with Clock] =
+  val api =
     graphQL(
       RootResolver(
         Queries(
-          args => service.getCharacters(args.origin),
-          args => service.findCharacter(args.name)
+          args => ExampleService.getCharacters(args.origin),
+          args => ExampleService.findCharacter(args.name)
         ),
-        Mutations(args => service.deleteCharacter(args.name)),
-        Subscriptions(service.deletedEvents)
+        Mutations(args => ExampleService.deleteCharacter(args.name)),
+        Subscriptions(ExampleService.deletedEvents)
       )
     ) @@
       maxFields(200) @@               // query analyzer that limit query fields
@@ -55,8 +54,7 @@ object ExampleApp extends App with GenericSchema[Console with Clock] {
       printSlowQueries(500 millis) @@ // wrapper that logs slow queries
       apolloTracing                   // wrapper for https://github.com/apollographql/apollo-tracing
 
-  val service     = runtime.unsafeRun(ExampleService.make(sampleCharacters))
-  val interpreter = runtime.unsafeRun(makeApi(service).interpreter)
+  val interpreter = runtime.unsafeRun(api.interpreter).provideCustomLayer(ExampleService.make(sampleCharacters))
 
   /**
    * curl -X POST \

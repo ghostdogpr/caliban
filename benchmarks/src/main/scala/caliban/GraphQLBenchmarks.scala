@@ -14,7 +14,7 @@ import sangria.marshalling.circe._
 import sangria.parser.QueryParser
 import sangria.schema._
 import zio.internal.Platform
-import zio.{ BootstrapRuntime, Runtime, UIO }
+import zio.{ BootstrapRuntime, Runtime, UIO, ZEnv }
 
 @State(Scope.Thread)
 @BenchmarkMode(Array(Mode.Throughput))
@@ -125,7 +125,7 @@ class GraphQLBenchmarks {
               }
                 """
 
-  val runtime: Runtime[Unit] = new BootstrapRuntime {
+  val runtime: Runtime[ZEnv] = new BootstrapRuntime {
     override val platform: Platform = Platform.benchmark
   }
 
