@@ -6,14 +6,14 @@ import caliban.RootResolver
 import cats.effect.ExitCode
 import monix.eval.{ Task, TaskApp }
 import monix.reactive.Observable
-import zio.Runtime
+import zio.{ Runtime, ZEnv }
 import zio.interop.reactivestreams._
 
 object ExampleMonixInterop extends TaskApp {
 
   import caliban.interop.monix.implicits._
 
-  implicit val runtime: Runtime[Unit] = Runtime.default
+  implicit val runtime: Runtime[ZEnv] = Runtime.default
 
   case class Number(value: Int)
   case class Queries(numbers: List[Number], randomNumber: Task[Number])

@@ -7,8 +7,8 @@ val catsEffectVersion     = "2.1.2"
 val http4sVersion         = "0.21.1"
 val silencerVersion       = "1.6.0"
 val sttpVersion           = "2.0.4"
-val zioVersion            = "1.0.0-RC18-1"
-val zioInteropCatsVersion = "2.0.0.0-RC11"
+val zioVersion            = "1.0.0-RC18-2"
+val zioInteropCatsVersion = "2.0.0.0-RC12"
 
 inThisBuild(
   List(
@@ -131,7 +131,7 @@ lazy val monixInterop = project
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "dev.zio"  %% "zio-interop-reactivestreams" % "1.0.3.5-RC5",
+      "dev.zio"  %% "zio-interop-reactivestreams" % "1.0.3.5-RC6",
       "dev.zio"  %% "zio-interop-cats"            % zioInteropCatsVersion,
       "io.monix" %% "monix"                       % "3.1.0"
     )
