@@ -1,13 +1,12 @@
 package caliban
 
-import scala.concurrent.{ Future, Promise }
 import caliban.Value.NullValue
 import io.circe.Json
 import io.circe.syntax._
 import io.finch._
 import io.finch.circe._
 import zio.interop.catz._
-import zio.{ Exit, Runtime, Task, URIO, ZIO }
+import zio.{ Runtime, Task, URIO }
 
 object FinchAdapter extends Endpoint.Module[Task] {
 
@@ -27,21 +26,14 @@ object FinchAdapter extends Endpoint.Module[Task] {
     skipValidation: Boolean = false
   )(implicit runtime: Runtime[R]): Endpoint[Task, Json] =
     post(jsonBody[GraphQLRequest]) { request: GraphQLRequest =>
-      unsafeRunToFuture(
-        execute(interpreter, request, skipValidation)
-          .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
-          .map(gqlResult => Ok(gqlResult))
-      )
+      runtime
+        .unsafeRunToFuture(
+          execute(interpreter, request, skipValidation)
+            .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
+            .map(gqlResult => Ok(gqlResult))
+        )
+        .future
     }
-
-  private def unsafeRunToFuture[R, E <: Throwable, A](zio: ZIO[R, E, A])(implicit runtime: Runtime[R]): Future[A] = {
-    val p = Promise[A]()
-    runtime.unsafeRunAsync(zio) {
-      case Exit.Success(value) => p.success(value)
-      case Exit.Failure(cause) => p.failure(cause.squashTrace)
-    }
-    p.future
-  }
 
   private def execute[R, E](
     interpreter: GraphQLInterpreter[R, E],

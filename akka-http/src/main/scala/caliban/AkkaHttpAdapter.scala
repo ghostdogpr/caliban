@@ -1,6 +1,6 @@
 package caliban
 
-import scala.concurrent.{ ExecutionContext, Future, Promise }
+import scala.concurrent.ExecutionContext
 import akka.http.scaladsl.model.MediaTypes.`application/json`
 import akka.http.scaladsl.model.ws.{ Message, TextMessage }
 import akka.http.scaladsl.model.{ HttpEntity, HttpResponse, StatusCodes }
@@ -15,7 +15,7 @@ import io.circe.Decoder.Result
 import io.circe.Json
 import io.circe.parser._
 import io.circe.syntax._
-import zio.{ Exit, Fiber, IO, Ref, Runtime, Task, URIO, ZIO }
+import zio.{ Fiber, IO, Ref, Runtime, Task, URIO }
 
 object AkkaHttpAdapter extends FailFastCirceSupport {
 
@@ -45,20 +45,11 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
       .as[GraphQLRequest]
   }
 
-  private def unsafeRunToFuture[R, E <: Throwable, A](zio: ZIO[R, E, A])(implicit runtime: Runtime[R]): Future[A] = {
-    val p = Promise[A]()
-    runtime.unsafeRunAsync(zio) {
-      case Exit.Success(value) => p.success(value)
-      case Exit.Failure(cause) => p.failure(cause.squashTrace)
-    }
-    p.future
-  }
-
   def completeRequest[R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false
   )(request: GraphQLRequest)(implicit ec: ExecutionContext, runtime: Runtime[R]): StandardRoute =
-    complete(unsafeRunToFuture(executeHttpResponse(interpreter, request, skipValidation)))
+    complete(runtime.unsafeRunToFuture(executeHttpResponse(interpreter, request, skipValidation)).future)
 
   def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E],
