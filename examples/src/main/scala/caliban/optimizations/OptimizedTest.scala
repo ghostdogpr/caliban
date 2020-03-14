@@ -69,9 +69,7 @@ object OptimizedTest extends App with GenericSchema[Console] {
 
   case class GetEvent(id: Int) extends Request[Nothing, Event]
   val EventDataSource: DataSource[Console, GetEvent] =
-    fromFunctionBatchedM("EventDataSource") { requests =>
-      putStrLn("getEvents").as(requests.map(r => fakeEvent(r.id)))
-    }
+    fromFunctionBatchedM("EventDataSource")(requests => putStrLn("getEvents").as(requests.map(r => fakeEvent(r.id))))
 
   case class GetViewerMetadataForEvents(id: Int) extends Request[Nothing, ViewerMetadata]
   val ViewerMetadataDataSource: DataSource[Console, GetViewerMetadataForEvents] =
@@ -81,9 +79,7 @@ object OptimizedTest extends App with GenericSchema[Console] {
 
   case class GetVenue(id: Int) extends Request[Nothing, Venue]
   val VenueDataSource: DataSource[Console, GetVenue] =
-    fromFunctionBatchedM("VenueDataSource") { requests =>
-      putStrLn("getVenues").as(requests.map(_ => Venue("venue")))
-    }
+    fromFunctionBatchedM("VenueDataSource")(requests => putStrLn("getVenues").as(requests.map(_ => Venue("venue"))))
 
   case class GetTags(ids: List[Int]) extends Request[Nothing, List[Tag]]
   val TagsDataSource: DataSource[Console, GetTags] =

@@ -60,18 +60,18 @@ object PlayJson {
   }
 
   // CalibanError
-  private def encodeLocationInfoAndMessage(li: Option[LocationInfo], message: String) =
-    Json.obj("message" -> message) ++
+  private def encodeFields(li: Option[LocationInfo], message: String, extensions: Option[ResponseValue]) =
+    Json.obj("message" -> message, "extensions" -> extensions) ++
       li.fold(Json.obj())(li => Json.obj("locations" -> Json.arr(Json.obj("line" -> li.line, "column" -> li.column))))
 
   val errorValueEncoder: Writes[CalibanError] = {
-    case CalibanError.ParsingError(msg, locationInfo, _) =>
-      encodeLocationInfoAndMessage(locationInfo, s"Parsing Error: $msg")
+    case CalibanError.ParsingError(msg, locationInfo, _, extensions) =>
+      encodeFields(locationInfo, s"Parsing Error: $msg", extensions)
 
-    case CalibanError.ValidationError(msg, _, locationInfo) =>
-      encodeLocationInfoAndMessage(locationInfo, msg)
+    case CalibanError.ValidationError(msg, _, locationInfo, extensions) =>
+      encodeFields(locationInfo, msg, extensions)
 
-    case CalibanError.ExecutionError(msg, path, locationInfo, _) =>
+    case CalibanError.ExecutionError(msg, path, locationInfo, _, extensions) =>
       val paths =
         if (path.isEmpty) Nil
         else
@@ -80,7 +80,7 @@ object PlayJson {
               .arr(path.map(_.fold(Json.toJsFieldJsValueWrapper[String], Json.toJsFieldJsValueWrapper[Int])): _*)
           )
 
-      encodeLocationInfoAndMessage(locationInfo, msg) ++ JsObject(paths)
+      encodeFields(locationInfo, msg, extensions) ++ JsObject(paths)
   }
 
   // GraphQLResponse
