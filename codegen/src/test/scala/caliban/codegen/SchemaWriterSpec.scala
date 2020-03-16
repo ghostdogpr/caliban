@@ -217,11 +217,11 @@ userList: () => List[Option[User]]
           """
              "role"
              union Role = Captain | Pilot
-             
+
              type Captain {
                "ship" shipName: String!
              }
-             
+
              type Pilot {
                shipName: String!
              }
@@ -233,12 +233,12 @@ userList: () => List[Option[User]]
 
 object Types {
 
-  @GQLDescription("role")
+  @GQLDescription(\"\"\"role\"\"\")
   sealed trait Role extends scala.Product with scala.Serializable
 
   object Role {
     case class Captain(
-      @GQLDescription("ship")
+      @GQLDescription(\"\"\"ship\"\"\")
       shipName: String
     ) extends Role
     case class Pilot(shipName: String) extends Role
@@ -292,6 +292,52 @@ object Types {
 
   case class Character(name: String)
   case class CharacterArgs(name: String)
+
+}
+"""
+          )
+        )
+      },
+      testM("schema with multiline comment") {
+        val schema =
+          """
+             input CharacterArgs {
+               \"\"\"
+               Imagine a long comment text
+               that even has multiple lines.
+               \"\"\"
+               name: String!
+             }
+            """.stripMargin
+
+        assertM(gen(schema))(
+          equalTo(
+            """object Types {
+              @GQLDescription(
+                \"\"\"Imagine a long comment text
+                that even has multiple lines.\"\"\"
+              )
+              case class CharacterArgs(name: String)
+            }
+            """
+          )
+        )
+      },
+      testM("scala reserved word used") {
+        val schema =
+          """
+             type Character {
+               private: String!
+               object: String!
+               type: String!
+             }
+            """.stripMargin
+
+        assertM(gen(schema))(
+          equalTo(
+            """object Types {
+
+  case class Character(`private`: String, `object`: String, `type`: String)
 
 }
 """

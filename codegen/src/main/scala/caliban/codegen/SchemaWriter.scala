@@ -84,12 +84,18 @@ object SchemaWriter {
       """
   }
 
+  def protectedReservedName(name: String): String = {
+    val reserved = "package" :: "object" :: "private" :: "type" :: Nil
+    if (reserved.contains(name)) s"`${name}`" else name
+  }
+
   def reservedType(typeDefinition: ObjectTypeDefinition): Boolean =
     typeDefinition.name == "Query" || typeDefinition.name == "Mutation" || typeDefinition.name == "Subscription"
 
   def writeRootField(field: FieldDefinition): String = {
     val argsName = if (field.args.nonEmpty) s"${field.name.capitalize}Args" else "()"
-    s"${field.name}: $argsName => ${writeType(field.ofType)}"
+
+    s"${protectedReservedName(field.name)}: $argsName => ${writeType(field.ofType)}"
   }
 
   def writeRootQueryOrMutationDef(op: ObjectTypeDefinition): String =
@@ -100,7 +106,7 @@ object SchemaWriter {
 
   def writeSubscriptionField(field: FieldDefinition): String =
     "%s: %s => ZStream[Any, Nothing, %s]".format(
-      field.name,
+      protectedReservedName(field.name),
       if (field.args.nonEmpty) s"${field.name.capitalize}Args" else "()",
       writeType(field.ofType)
     )
@@ -126,7 +132,9 @@ object SchemaWriter {
 
           object ${typedef.name} {
             ${typedef.enumValuesDefinition
-      .map(v => s"${writeDescription(v.description)}case object ${v.enumValue} extends ${typedef.name}")
+      .map(v =>
+        s"${writeDescription(v.description)}case object ${protectedReservedName(v.enumValue)} extends ${typedef.name}"
+      )
       .mkString("\n")}
           }
        """
@@ -143,17 +151,17 @@ object SchemaWriter {
 
   def writeField(field: FieldDefinition, of: ObjectTypeDefinition): String =
     if (field.args.nonEmpty) {
-      s"${writeDescription(field.description)}${field.name}: ${of.name.capitalize}${field.name.capitalize}Args => ${writeType(field.ofType)}"
+      s"${writeDescription(field.description)}${protectedReservedName(field.name)}: ${of.name.capitalize}${field.name.capitalize}Args => ${writeType(field.ofType)}"
     } else {
-      s"""${writeDescription(field.description)}${field.name}: ${writeType(field.ofType)}"""
+      s"""${writeDescription(field.description)}${protectedReservedName(field.name)}: ${writeType(field.ofType)}"""
     }
 
   def writeInputValue(value: InputValueDefinition, of: InputObjectTypeDefinition): String =
-    s"""${writeDescription(value.description)}${value.name}: ${writeType(value.ofType)}"""
+    s"""${writeDescription(value.description)}${protectedReservedName(value.name)}: ${writeType(value.ofType)}"""
 
   def writeArguments(field: FieldDefinition): String = {
     def fields(args: List[InputValueDefinition]): String =
-      s"${args.map(arg => s"${arg.name}: ${writeType(arg.ofType)}").mkString(", ")}"
+      s"${args.map(arg => s"${protectedReservedName(arg.name)}: ${writeType(arg.ofType)}").mkString(", ")}"
 
     if (field.args.nonEmpty) {
       s"case class ${field.name.capitalize}Args(${fields(field.args)})"
@@ -163,7 +171,7 @@ object SchemaWriter {
   }
 
   def writeDescription(description: Option[String]): String =
-    description.fold("")(d => s"""@GQLDescription("$d")
+    description.fold("")(d => s"""@GQLDescription(\"\"\"$d\"\"\")
                                  |""".stripMargin)
 
   def writeType(t: Type): String =
