@@ -147,7 +147,7 @@ object Http4sAdapter {
                                 case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
                                   stream.foreach { item =>
                                     sendMessage(sendQueue, id, ObjectValue(List(fieldName -> item)), result.errors)
-                                  }.fork.flatMap(fiber => subscriptions.update(_.updated(id, fiber)))
+                                  }.forkDaemon.flatMap(fiber => subscriptions.update(_.updated(id, fiber)))
                                 case other =>
                                   sendMessage(sendQueue, id, other, result.errors) *> sendQueue.enqueue1(
                                     WebSocketFrame.Text(s"""{"type":"complete","id":"$id"}""")

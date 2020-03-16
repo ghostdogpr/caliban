@@ -121,7 +121,7 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
                                   case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
                                     stream.foreach { item =>
                                       sendMessage(queue, id, ObjectValue(List(fieldName -> item)), result.errors)
-                                    }.fork.flatMap(fiber => subscriptions.update(_.updated(id, fiber)))
+                                    }.forkDaemon.flatMap(fiber => subscriptions.update(_.updated(id, fiber)))
                                   case other =>
                                     sendMessage(queue, id, other, result.errors) *> IO.fromFuture(_ =>
                                       queue.offer(TextMessage(s"""{"type":"complete","id":"$id"}"""))
