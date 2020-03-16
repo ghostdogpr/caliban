@@ -3,22 +3,9 @@ package caliban
 import caliban.Value.{ BooleanValue, EnumValue, FloatValue, IntValue, NullValue, StringValue }
 import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
+import __TypeKind._
 
 object Rendering {
-
-  private implicit val kindOrdering: Ordering[__TypeKind] = Ordering
-    .by[__TypeKind, Int] {
-      case __TypeKind.SCALAR       => 1
-      case __TypeKind.NON_NULL     => 2
-      case __TypeKind.LIST         => 3
-      case __TypeKind.UNION        => 4
-      case __TypeKind.ENUM         => 5
-      case __TypeKind.INPUT_OBJECT => 6
-      case __TypeKind.INTERFACE    => 7
-      case __TypeKind.OBJECT       => 8
-    }
-
-  private implicit val renderOrdering: Ordering[__Type] = Ordering.by(o => (o.kind, o.name.getOrElse("")))
 
   /**
    * Returns a string that renders the provided types into the GraphQL format.

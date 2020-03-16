@@ -6,6 +6,7 @@ import caliban.Value.NullValue
 import caliban.execution.{ ExecutionRequest, Field => F }
 import caliban.introspection.Introspector
 import caliban.introspection.adt._
+import caliban.introspection.adt.__TypeKind._
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.Definition.{ TypeSystemDefinition, TypeSystemExtension }
@@ -30,12 +31,13 @@ object Validator {
    */
   def validateSchema[R](schema: RootSchemaBuilder[R]): IO[ValidationError, RootSchema[R]] = {
     val types = schema.types
-    IO.foreach(types) { t =>
+    IO.foreach(types.sorted(renderOrdering)) { t =>
       t.kind match {
         case __TypeKind.ENUM         => validateEnum(t)
         case __TypeKind.UNION        => validateUnion(t)
         case __TypeKind.INTERFACE    => validateInterface(t)
         case __TypeKind.INPUT_OBJECT => validateInputObject(t)
+        case __TypeKind.OBJECT       => validateObject(t)
         case _                       => IO.unit
       }
     } *> validateClashingTypes(types) *> validateRootQuery(schema)
@@ -595,26 +597,9 @@ object Validator {
       _ <- onlyInputType(inputValue.`type`(), fieldContext)
     } yield ()
   }
+
   private def validateInterface(t: __Type): IO[ValidationError, Unit] = {
     val interfaceContext = s"Interface '${t.name.getOrElse("")}'"
-
-    def noDuplicateFieldName(fields: List[__Field], errorContext: String) = {
-      val messageBuilder = (f: __Field) => s"$errorContext has repeated fields: ${f.name}"
-      val explanatory =
-        "The field must have a unique name within that Interface type; no two fields may share the same name"
-      noDuplicateName[__Field](fields, _.name, messageBuilder, explanatory)
-    }
-
-    def validateFields(fields: List[__Field]): IO[ValidationError, Unit] =
-      noDuplicateFieldName(fields, interfaceContext) <*
-        IO.foreach(fields) { field =>
-          val fieldContext = s"Field '${field.name}' of $interfaceContext"
-          for {
-            _ <- doesNotStartWithUnderscore(field, fieldContext)
-            _ <- onlyOutputType(field.`type`(), fieldContext)
-            _ <- IO.foreach(field.args)(validateInputValue(_, fieldContext))
-          } yield ()
-        }
 
     t.fields(__DeprecatedArgs(Some(true))) match {
       case None | Some(Nil) =>
@@ -622,7 +607,20 @@ object Validator {
           s"$interfaceContext does not have fields",
           "An Interface type must define one or more fields"
         )
-      case Some(fields) => validateFields(fields)
+      case Some(fields) => validateFields(fields, interfaceContext)
+    }
+  }
+
+  def validateObject(t: __Type): IO[ValidationError, Unit] = {
+    val objectContext = s"Object '${t.name.getOrElse("")}'"
+
+    t.fields(__DeprecatedArgs(Some(true))) match {
+      case None | Some(Nil) =>
+        failValidation(
+          s"$objectContext does not have fields",
+          "An Object type must define one or more fields"
+        )
+      case Some(fields) => validateFields(fields, objectContext)
     }
   }
 
@@ -644,6 +642,24 @@ object Validator {
           """The input field must accept a type where IsInputType(type) returns true, https://spec.graphql.org/June2018/#IsInputType()"""
         )
     }
+  }
+
+  private def validateFields(fields: List[__Field], context: String): IO[ValidationError, Unit] =
+    noDuplicateFieldName(fields, context) <*
+      IO.foreach(fields) { field =>
+        val fieldContext = s"Field '${field.name}' of $context"
+        for {
+          _ <- doesNotStartWithUnderscore(field, fieldContext)
+          _ <- onlyOutputType(field.`type`(), fieldContext)
+          _ <- IO.foreach(field.args)(validateInputValue(_, fieldContext))
+        } yield ()
+      }
+
+  private def noDuplicateFieldName(fields: List[__Field], errorContext: String) = {
+    val messageBuilder = (f: __Field) => s"$errorContext has repeated fields: ${f.name}"
+    val explanatory =
+      "The field must have a unique name within that Interface type; no two fields may share the same name"
+    noDuplicateName[__Field](fields, _.name, messageBuilder, explanatory)
   }
 
   private def onlyOutputType(`type`: __Type, errorContext: String): IO[ValidationError, Unit] = {
