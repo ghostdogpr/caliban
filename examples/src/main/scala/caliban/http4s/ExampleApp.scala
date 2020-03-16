@@ -59,21 +59,26 @@ object ExampleApp extends CatsApp with GenericSchema[ExampleService] {
       apolloTracing                   // wrapper for https://github.com/apollographql/apollo-tracing
 
   override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] =
-    (for {
-      blocker     <- ZIO.access[Blocking](_.get.blockingExecutor.asEC).map(Blocker.liftExecutionContext)
-      interpreter <- api.interpreter.map(_.provideCustomLayer(ExampleService.make(sampleCharacters)))
-      _ <- BlazeServerBuilder[ExampleTask]
-            .bindHttp(8088, "localhost")
-            .withHttpApp(
-              Router[ExampleTask](
-                "/api/graphql" -> CORS(Http4sAdapter.makeHttpService(interpreter)),
-                "/ws/graphql"  -> CORS(Http4sAdapter.makeWebSocketService(interpreter)),
-                "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", blocker, None))
-              ).orNotFound
-            )
-            .resource
-            .toManaged
-            .useForever
-    } yield 0)
+    ExampleService
+      .make(sampleCharacters)
+      .memoize
+      .use(layer =>
+        for {
+          blocker     <- ZIO.access[Blocking](_.get.blockingExecutor.asEC).map(Blocker.liftExecutionContext)
+          interpreter <- api.interpreter.map(_.provideCustomLayer(layer))
+          _ <- BlazeServerBuilder[ExampleTask]
+                .bindHttp(8088, "localhost")
+                .withHttpApp(
+                  Router[ExampleTask](
+                    "/api/graphql" -> CORS(Http4sAdapter.makeHttpService(interpreter)),
+                    "/ws/graphql"  -> CORS(Http4sAdapter.makeWebSocketService(interpreter)),
+                    "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", blocker, None))
+                  ).orNotFound
+                )
+                .resource
+                .toManaged
+                .useForever
+        } yield 0
+      )
       .catchAll(err => putStrLn(err.toString).as(1))
 }
