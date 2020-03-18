@@ -134,8 +134,9 @@ object ArgBuilder {
 
   def dispatch[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] = input => {
     (input match {
-      case EnumValue(value) => Some(value)
-      case _                => None
+      case EnumValue(value)   => Some(value)
+      case StringValue(value) => Some(value)
+      case _                  => None
     }) match {
       case Some(value) =>
         ctx.subtypes
