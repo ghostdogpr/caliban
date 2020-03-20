@@ -8,7 +8,7 @@ import caliban.interop.circe._
  */
 case class GraphQLResponse[+E](data: ResponseValue, errors: List[E], extensions: Option[ObjectValue] = None)
 
-object GraphQLResponse {
+object GraphQLResponse extends GraphQLResponsePlatformSpecific {
   implicit def circeEncoder[F[_]: IsCirceEncoder, E]: F[GraphQLResponse[E]] =
     GraphQLResponseCirce.graphQLResponseEncoder.asInstanceOf[F[GraphQLResponse[E]]]
 }

@@ -89,7 +89,9 @@ lazy val core = crossProject(JSPlatform, JVMPlatform)
     fork in Test := true,
     fork in run := true
   )
-lazy val coreJVM = core.jvm
+lazy val coreJVM = core.jvm.settings(
+  libraryDependencies += "io.spray" %% "spray-json" % "1.3.5" % Optional
+)
 lazy val coreJS = core.js.settings(
   libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.0.0-RC5" % Test
 )

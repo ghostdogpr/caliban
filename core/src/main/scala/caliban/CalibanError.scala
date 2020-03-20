@@ -11,7 +11,7 @@ sealed trait CalibanError extends Throwable with Product with Serializable {
   def msg: String
 }
 
-object CalibanError {
+object CalibanError extends CalibanErrorPlatformSpecific {
 
   /**
    * Describes an error that happened while parsing a query.

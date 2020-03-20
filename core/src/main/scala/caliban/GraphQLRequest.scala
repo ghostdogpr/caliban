@@ -11,7 +11,7 @@ case class GraphQLRequest(
   variables: Option[Map[String, InputValue]]
 )
 
-object GraphQLRequest {
+object GraphQLRequest extends GraphQLRequestPlatformSpecific {
   implicit def circeDecoder[F[_]: IsCirceDecoder]: F[GraphQLRequest] =
     GraphQLRequestCirce.graphQLRequestDecoder.asInstanceOf[F[GraphQLRequest]]
 }

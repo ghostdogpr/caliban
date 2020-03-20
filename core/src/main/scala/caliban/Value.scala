@@ -7,7 +7,7 @@ import caliban.interop.circe._
 import zio.stream.Stream
 
 sealed trait InputValue
-object InputValue {
+object InputValue extends InputValuePlatformSpecific {
   case class ListValue(values: List[InputValue])          extends InputValue
   case class ObjectValue(fields: Map[String, InputValue]) extends InputValue
   case class VariableValue(name: String)                  extends InputValue
@@ -19,7 +19,7 @@ object InputValue {
 }
 
 sealed trait ResponseValue
-object ResponseValue {
+object ResponseValue extends ResponseValuePlatformSpecific {
   case class ListValue(values: List[ResponseValue]) extends ResponseValue {
     override def toString: String = values.mkString("[", ",", "]")
   }
