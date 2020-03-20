@@ -43,7 +43,7 @@ private[caliban] object ValueSprayJson extends DefaultJsonProtocol {
 
   private def jsonToInputValue(json: JsValue): InputValue =
     json match {
-      case JsObject(fields)  => InputValue.ObjectValue(fields.mapValues(jsonToInputValue))
+      case JsObject(fields)  => InputValue.ObjectValue(fields.map { case (k, v) => k -> jsonToInputValue(v) })
       case JsArray(elements) => InputValue.ListValue(elements.toList.map(jsonToInputValue))
       case JsString(value)   => StringValue(value)
       case JsNumber(value) =>
@@ -63,7 +63,7 @@ private[caliban] object ValueSprayJson extends DefaultJsonProtocol {
       case value: Value                 => valueWriter.write(value)
       case InputValue.ListValue(values) => JsArray(values.map(inputValueWriter.write): _*)
       case InputValue.ObjectValue(fields) =>
-        JsObject(fields.mapValues(inputValueWriter.write).toList: _*)
+        JsObject(fields.map { case (k, v) => k -> inputValueWriter.write(v) }.toList: _*)
       case InputValue.VariableValue(name) => JsString(name)
     }
   }
@@ -75,7 +75,8 @@ private[caliban] object ValueSprayJson extends DefaultJsonProtocol {
 
   private def jsonToResponseValue(json: JsValue): ResponseValue =
     json match {
-      case JsObject(fields)  => ResponseValue.ObjectValue(fields.mapValues(jsonToResponseValue).toList)
+      case JsObject(fields) =>
+        ResponseValue.ObjectValue(fields.map { case (k, v) => k -> jsonToResponseValue(v) }.toList)
       case JsArray(elements) => ResponseValue.ListValue(elements.toList.map(jsonToResponseValue))
       case JsString(value)   => StringValue(value)
       case JsNumber(value) =>
