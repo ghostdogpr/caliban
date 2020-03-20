@@ -8,7 +8,6 @@ import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment
 
-
 object JVMExecutionSpec extends DefaultRunnableSpec {
 
   override def spec: ZSpec[TestEnvironment, Any] =

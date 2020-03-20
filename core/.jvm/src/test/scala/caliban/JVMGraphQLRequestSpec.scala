@@ -12,7 +12,7 @@ object JVMGraphQLRequestSpec extends DefaultRunnableSpec {
       test("can be parsed from JSON (spray)") {
         val request = JsObject("query" -> JsString("{}"), "operationName" -> JsString("op"), "variables" -> JsObject())
         assert(request.convertTo[GraphQLRequest])(
-            equalTo(GraphQLRequest(query = "{}", operationName = Some("op"), variables = Some(Map.empty)))
+          equalTo(GraphQLRequest(query = "{}", operationName = Some("op"), variables = Some(Map.empty)))
         )
       }
     )
