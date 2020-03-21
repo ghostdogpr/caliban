@@ -1,14 +1,7 @@
 package caliban.http4s
 
-import scala.language.postfixOps
 import caliban.ExampleData._
-import caliban.ExampleService.ExampleService
-import caliban.GraphQL._
-import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
-import caliban.schema.GenericSchema
-import caliban.wrappers.ApolloTracing.apolloTracing
-import caliban.wrappers.Wrappers._
-import caliban.{ ExampleService, Http4sAdapter, RootResolver }
+import caliban.{ ExampleApi, ExampleService, Http4sAdapter }
 import cats.data.Kleisli
 import cats.effect.Blocker
 import org.http4s.StaticFile
@@ -19,44 +12,11 @@ import org.http4s.server.middleware.CORS
 import zio._
 import zio.blocking.Blocking
 import zio.console.putStrLn
-import zio.duration._
 import zio.interop.catz._
-import zio.stream.ZStream
 
-object ExampleApp extends CatsApp with GenericSchema[ExampleService] {
-
-  case class Queries(
-    @GQLDescription("Return all characters from a given origin")
-    characters: CharactersArgs => URIO[ExampleService, List[Character]],
-    @GQLDeprecated("Use `characters`")
-    character: CharacterArgs => URIO[ExampleService, Option[Character]]
-  )
-  case class Mutations(deleteCharacter: CharacterArgs => URIO[ExampleService, Boolean])
-  case class Subscriptions(characterDeleted: ZStream[ExampleService, Nothing, String])
+object ExampleApp extends CatsApp {
 
   type ExampleTask[A] = RIO[ZEnv, A]
-
-  implicit val roleSchema           = gen[Role]
-  implicit val characterSchema      = gen[Character]
-  implicit val characterArgsSchema  = gen[CharacterArgs]
-  implicit val charactersArgsSchema = gen[CharactersArgs]
-
-  val api =
-    graphQL(
-      RootResolver(
-        Queries(
-          args => ExampleService.getCharacters(args.origin),
-          args => ExampleService.findCharacter(args.name)
-        ),
-        Mutations(args => ExampleService.deleteCharacter(args.name)),
-        Subscriptions(ExampleService.deletedEvents)
-      )
-    ) @@
-      maxFields(200) @@               // query analyzer that limit query fields
-      maxDepth(30) @@                 // query analyzer that limit query depth
-      timeout(3 seconds) @@           // wrapper that fails slow queries
-      printSlowQueries(500 millis) @@ // wrapper that logs slow queries
-      apolloTracing                   // wrapper for https://github.com/apollographql/apollo-tracing
 
   override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] =
     ExampleService
@@ -65,7 +25,7 @@ object ExampleApp extends CatsApp with GenericSchema[ExampleService] {
       .use(layer =>
         for {
           blocker     <- ZIO.access[Blocking](_.get.blockingExecutor.asEC).map(Blocker.liftExecutionContext)
-          interpreter <- api.interpreter.map(_.provideCustomLayer(layer))
+          interpreter <- ExampleApi.api.interpreter.map(_.provideCustomLayer(layer))
           _ <- BlazeServerBuilder[ExampleTask]
                 .bindHttp(8088, "localhost")
                 .withHttpApp(
