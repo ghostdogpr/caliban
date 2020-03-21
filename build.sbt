@@ -139,7 +139,7 @@ lazy val monixInterop = project
   .dependsOn(coreJVM)
 
 lazy val http4s = project
-  .in(file("http4s"))
+  .in(file("adapters/http4s"))
   .settings(name := "caliban-http4s")
   .settings(commonSettings)
   .settings(
@@ -161,7 +161,7 @@ lazy val http4s = project
   .dependsOn(coreJVM)
 
 lazy val akkaHttp = project
-  .in(file("akka-http"))
+  .in(file("adapters/akka-http"))
   .settings(name := "caliban-akka-http")
   .settings(commonSettings)
   .settings(
@@ -179,7 +179,7 @@ lazy val akkaHttp = project
   .dependsOn(coreJVM)
 
 lazy val finch = project
-  .in(file("finch"))
+  .in(file("adapters/finch"))
   .settings(name := "caliban-finch")
   .settings(commonSettings)
   .settings(

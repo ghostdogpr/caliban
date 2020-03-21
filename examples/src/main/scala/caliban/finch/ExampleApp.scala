@@ -1,61 +1,23 @@
 package caliban.finch
 
-import scala.language.postfixOps
-import caliban.ExampleData.{ sampleCharacters, Character, CharacterArgs, CharactersArgs, Role }
-import caliban.ExampleService.ExampleService
-import caliban.GraphQL.graphQL
-import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
-import caliban.schema.GenericSchema
-import caliban.{ ExampleService, FinchAdapter, RootResolver }
+import caliban.ExampleData.sampleCharacters
+import caliban.{ ExampleApi, ExampleService, FinchAdapter }
 import com.twitter.io.{ Buf, BufReader, Reader }
 import com.twitter.util.Await
 import io.circe.Json
 import io.finch.Endpoint
 import zio.interop.catz._
-import zio.stream.ZStream
-import zio.{ Runtime, Task, URIO }
+import zio.{ Runtime, Task, ZEnv }
 
-object ExampleApp extends App with GenericSchema[ExampleService] with Endpoint.Module[Task] {
+object ExampleApp extends App with Endpoint.Module[Task] {
 
-  implicit val runtime = Runtime.default
-
-  implicit val roleSchema           = gen[Role]
-  implicit val characterSchema      = gen[Character]
-  implicit val characterArgsSchema  = gen[CharacterArgs]
-  implicit val charactersArgsSchema = gen[CharactersArgs]
-
-  case class Queries(
-    @GQLDescription("Return all characters from a given origin")
-    characters: CharactersArgs => URIO[ExampleService, List[Character]],
-    @GQLDeprecated("Use `characters`")
-    character: CharacterArgs => URIO[ExampleService, Option[Character]]
-  )
-  case class Mutations(deleteCharacter: CharacterArgs => URIO[ExampleService, Boolean])
-  case class Subscriptions(characterDeleted: ZStream[ExampleService, Nothing, String])
-
-  import caliban.wrappers.ApolloTracing.apolloTracing
-  import caliban.wrappers.Wrappers._
-  import zio.duration._
-
-  val api =
-    graphQL(
-      RootResolver(
-        Queries(
-          args => ExampleService.getCharacters(args.origin),
-          args => ExampleService.findCharacter(args.name)
-        ),
-        Mutations(args => ExampleService.deleteCharacter(args.name)),
-        Subscriptions(ExampleService.deletedEvents)
-      )
-    ) @@
-      maxFields(200) @@               // query analyzer that limit query fields
-      maxDepth(30) @@                 // query analyzer that limit query depth
-      timeout(3 seconds) @@           // wrapper that fails slow queries
-      printSlowQueries(500 millis) @@ // wrapper that logs slow queries
-      apolloTracing                   // wrapper for https://github.com/apollographql/apollo-tracing
+  implicit val runtime: Runtime[ZEnv] = Runtime.default
 
   val interpreter = runtime.unsafeRun(
-    ExampleService.make(sampleCharacters).memoize.use(layer => api.interpreter.map(_.provideCustomLayer(layer)))
+    ExampleService
+      .make(sampleCharacters)
+      .memoize
+      .use(layer => ExampleApi.api.interpreter.map(_.provideCustomLayer(layer)))
   )
 
   /**
