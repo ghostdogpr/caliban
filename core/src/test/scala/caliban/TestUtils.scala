@@ -206,10 +206,15 @@ object TestUtils {
     val resolverClashingNames = RootResolver(ClashingNamesQuery(A.C(""), B.C("")))
 
     case class EmptyObject()
-
     case class TestEmptyObject(o: EmptyObject)
     val resolverEmptyObject = RootResolver(
       TestEmptyObject(EmptyObject())
+    )
+
+    case class ObjectWrongFieldName(__name: String)
+    case class TestWrongObjectFieldName(o: ObjectWrongFieldName)
+    val resolverObjectWrongFieldName = RootResolver(
+      TestWrongObjectFieldName(ObjectWrongFieldName("a"))
     )
   }
 }

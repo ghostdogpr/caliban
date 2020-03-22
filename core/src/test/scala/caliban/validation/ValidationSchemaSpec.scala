@@ -80,6 +80,12 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
             graphQL(resolverEmptyObject),
             "Object 'EmptyObject' does not have fields"
           )
+        },
+        testM("field name can't start with '__'") {
+          check(
+            graphQL(resolverObjectWrongFieldName),
+            "Field '__name' of Object 'ObjectWrongFieldName' can't start with '__'"
+          )
         }
       )
     )
