@@ -73,6 +73,14 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
             "The query root operation is missing."
           )
         }
+      ),
+      suite("Object")(
+        testM("must define one or more fields") {
+          check(
+            graphQL(resolverEmptyObject),
+            "Object 'EmptyObject' does not have fields"
+          )
+        }
       )
     )
 }

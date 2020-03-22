@@ -204,5 +204,12 @@ object TestUtils {
     }
     case class ClashingNamesQuery(a: A.C, b: B.C)
     val resolverClashingNames = RootResolver(ClashingNamesQuery(A.C(""), B.C("")))
+
+    case class EmptyObject()
+
+    case class TestEmptyObject(o: EmptyObject)
+    val resolverEmptyObject = RootResolver(
+      TestEmptyObject(EmptyObject())
+    )
   }
 }
