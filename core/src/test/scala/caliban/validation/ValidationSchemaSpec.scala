@@ -86,6 +86,12 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
             graphQL(resolverObjectWrongFieldName),
             "Field '__name' of Object 'ObjectWrongFieldName' can't start with '__'"
           )
+        },
+        testM("field argument name can't start with '__'") {
+          check(
+            graphQL(resolverObjectWrongArgumentName),
+            "InputValue '__name' of Field 'x' of Object 'ObjectWrongArgumentName' can't start with '__'"
+          )
         }
       )
     )

@@ -216,5 +216,11 @@ object TestUtils {
     val resolverObjectWrongFieldName = RootResolver(
       TestWrongObjectFieldName(ObjectWrongFieldName("a"))
     )
+
+    case class ObjectWrongArgumentName(x: WrongArgumentName => UIO[Unit])
+    case class TestWrongObjectArgumentName(o: ObjectWrongArgumentName)
+    val resolverObjectWrongArgumentName = RootResolver(
+      TestWrongObjectArgumentName(ObjectWrongArgumentName(_ => UIO.unit))
+    )
   }
 }
