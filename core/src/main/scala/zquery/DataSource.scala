@@ -18,7 +18,9 @@ import zio.{ NeedsEnv, ZIO }
  * the request type to a `Request[A]`. Data sources can then pattern match on
  * the collection of requests to determine the information requested, execute
  * the query, and place the results into the `CompletedRequestsMap` using
- * [[CompletedRequestMap.empty]] and [[CompletedRequestMap.insert]].
+ * [[CompletedRequestMap.empty]] and [[CompletedRequestMap.insert]]. Data
+ * sources must provide results for all requests received. Failure to do so
+ * will cause a query to die with a `QueryFailure` when run.
  */
 trait DataSource[-R, -A] { self =>
 

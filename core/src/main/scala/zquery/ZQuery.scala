@@ -132,13 +132,27 @@ sealed trait ZQuery[-R, +E, +A] { self =>
   final def foldM[R1 <: R, E1, B](failure: E => ZQuery[R1, E1, B], success: A => ZQuery[R1, E1, B])(
     implicit ev: CanFail[E]
   ): ZQuery[R1, E1, B] =
+    foldCauseM(_.failureOrCause.fold(failure, ZQuery.halt(_)), success)
+
+  /**
+   * A more powerful version of `foldM` that allows recovering from any type
+   * of failure except interruptions.
+   */
+  final def foldCauseM[R1 <: R, E1, B](
+    failure: Cause[E] => ZQuery[R1, E1, B],
+    success: A => ZQuery[R1, E1, B]
+  ): ZQuery[R1, E1, B] =
     new ZQuery[R1, E1, B] {
       def step(cache: Cache): ZIO[R1, Nothing, Result[R1, E1, B]] =
-        self.step(cache).flatMap {
-          case Result.Blocked(br, c) => ZIO.succeed(Result.blocked(br, c.foldM(failure, success)))
-          case Result.Done(a)        => success(a).step(cache)
-          case Result.Fail(e)        => e.failureOrCause.fold(failure(_).step(cache), ZIO.halt(_))
-        }
+        self
+          .step(cache)
+          .foldCauseM(
+            failure(_).step(cache), {
+              case Result.Blocked(br, c) => ZIO.succeed(Result.blocked(br, c.foldCauseM(failure, success)))
+              case Result.Done(a)        => success(a).step(cache)
+              case Result.Fail(e)        => failure(e).step(cache)
+            }
+          )
     }
 
   /**
@@ -155,6 +169,16 @@ sealed trait ZQuery[-R, +E, +A] { self =>
    */
   final def mapError[E1](f: E => E1)(implicit ev: CanFail[E]): ZQuery[R, E1, A] =
     bimap(f, identity)
+
+  /**
+   * Converts this query to one that returns `Some` if data sources return
+   * results for all requests received and `None` otherwise.
+   */
+  final def optional: ZQuery[R, E, Option[A]] =
+    foldCauseM(
+      QueryFailure.strip(_).fold[ZQuery[R, E, Option[A]]](ZQuery.none)(ZQuery.halt(_)),
+      ZQuery.some(_)
+    )
 
   /**
    * Provides this query with its required environment.
@@ -384,22 +408,8 @@ object ZQuery {
   def fromRequest[R, E, A, B](
     request: A
   )(dataSource: DataSource[R, A])(implicit ev: A <:< Request[E, B]): ZQuery[R, E, B] =
-    fromRequestOption(request)(dataSource).flatMap {
-      case None    => ZQuery.die(QueryFailure(dataSource, request))
-      case Some(b) => ZQuery.succeed(b)
-    }
-
-  /**
-   * Constructs a query from a request and a data source. Returns `Some` if the
-   * data source provides a result for a request or `None` otherwise. Queries
-   * must be constructed with `fromRequest` or combinators derived from it for
-   * optimizations to be applied.
-   */
-  def fromRequestOption[R, E, A, B](
-    request: A
-  )(dataSource: DataSource[R, A])(implicit ev: A <:< Request[E, B]): ZQuery[R, E, Option[B]] =
-    new ZQuery[R, E, Option[B]] {
-      def step(cache: Cache): ZIO[R, Nothing, Result[R, E, Option[B]]] =
+    new ZQuery[R, E, B] {
+      def step(cache: Cache): ZIO[R, Nothing, Result[R, E, B]] =
         cache
           .lookup(request)
           .foldM(
@@ -409,19 +419,41 @@ object ZQuery {
                 _   <- cache.insert(request, ref)
               } yield Result.blocked(
                 BlockedRequestMap(dataSource, BlockedRequest(request, ref)),
-                ZQuery(ref.get.map(Result.fromOptionEither))
+                ZQuery {
+                  ref.get.flatMap {
+                    case None    => ZIO.die(QueryFailure(dataSource, request))
+                    case Some(b) => ZIO.succeed(Result.fromEither(b))
+                  }
+                }
               ),
             ref =>
               ref.get.map {
-                case Some(b) => Result.fromOptionEither(Some(b))
+                case Some(b) => Result.fromEither(b)
                 case None =>
                   Result.blocked(
                     BlockedRequestMap.empty,
-                    ZQuery(ref.get.map(Result.fromOptionEither))
+                    ZQuery {
+                      ref.get.flatMap {
+                        case None    => ZIO.die(QueryFailure(dataSource, request))
+                        case Some(b) => ZIO.succeed(Result.fromEither(b))
+                      }
+                    }
                   )
               }
           )
     }
+
+  /**
+   * Constructs a query that fails with the specified cause.
+   */
+  def halt[E](cause: => Cause[E]): ZQuery[Any, E, Nothing] =
+    ZQuery(ZIO.succeed(Result.fail(cause)))
+
+  /**
+   * Constructs a query that succeds with the empty value.
+   */
+  val none: ZQuery[Any, Nothing, Option[Nothing]] =
+    succeed(None)
 
   /**
    * Performs a query for each element in a collection, collecting the results
@@ -442,6 +474,12 @@ object ZQuery {
     as: Iterable[A]
   )(f: A => ZQuery[R, E, B])(implicit ev: CanFail[E]): ZQuery[R, Nothing, (List[E], List[B])] =
     ZQuery.foreachPar(as)(f(_).either).map(partitionMap(_)(identity))
+
+  /**
+   * Constructs a query that succeeds with the optional value.
+   */
+  def some[A](a: => A): ZQuery[Any, Nothing, Option[A]] =
+    succeed(Some(a))
 
   /**
    *  Constructs a query that succeeds with the specified value.

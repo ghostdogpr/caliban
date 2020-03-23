@@ -2,6 +2,7 @@ package zquery
 
 import zio.console.Console
 import zio.test.Assertion._
+import zio.test.TestAspect.silent
 import zio.test._
 import zio.test.environment.{ TestConsole, TestEnvironment }
 import zio.{ console, ZIO }
@@ -43,8 +44,13 @@ object ZQuerySpec extends ZIOBaseSpec {
           _   <- ZQuery.collectAllPar(List(a, b)).run
           log <- TestConsole.output
         } yield assert(log)(hasSize(equalTo(2)))
+      },
+      testM("optional converts a query to one that returns its value optionally") {
+        for {
+          result <- getUserNameById(27).map(identity).optional.run
+        } yield assert(result)(isNone)
       }
-    )
+    ) @@ silent
 
   val userIds: List[Int]          = (1 to 26).toList
   val userNames: Map[Int, String] = userIds.zip(('a' to 'z').map(_.toString)).toMap
