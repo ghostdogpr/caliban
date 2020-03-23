@@ -309,8 +309,8 @@ sealed trait ZQuery[-R, +E, +A] { self =>
       def step(cache: Cache): ZIO[R1, Nothing, Result[R1, E1, C]] =
         self.step(cache).zip(that.step(cache)).map {
           case (Result.Blocked(br1, c1), Result.Blocked(br2, c2)) => Result.blocked(br1 ++ br2, c1.zipWithPar(c2)(f))
-          case (Result.Blocked(br, c), Result.Done(_))            => Result.blocked(br, c.zipWithPar(that)(f))
-          case (Result.Done(_), Result.Blocked(br, c))            => Result.blocked(br, self.zipWithPar(c)(f))
+          case (Result.Blocked(br, c), Result.Done(b))            => Result.blocked(br, c.map(a => f(a, b)))
+          case (Result.Done(a), Result.Blocked(br, c))            => Result.blocked(br, c.map(b => f(a, b)))
           case (Result.Done(a), Result.Done(b))                   => Result.done(f(a, b))
           case (Result.Fail(e1), Result.Fail(e2))                 => Result.fail(Cause.Both(e1, e2))
           case (Result.Fail(e), _)                                => Result.fail(e)
