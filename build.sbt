@@ -218,8 +218,8 @@ lazy val examples = project
   .settings(skip in publish := true)
   .settings(
     libraryDependencies ++= Seq(
-      "de.heikoseeberger" %% "akka-http-circe" % "1.31.0",
-      "io.circe"          %% "circe-parser"    % "0.13.0",
+      "de.heikoseeberger"            %% "akka-http-circe"               % "1.31.0",
+      "io.circe"                     %% "circe-parser"                  % "0.13.0",
       "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion
     )
   )
