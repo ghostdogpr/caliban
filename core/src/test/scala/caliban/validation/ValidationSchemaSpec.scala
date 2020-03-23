@@ -92,6 +92,12 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
             graphQL(resolverObjectWrongArgumentName),
             "InputValue '__name' of Field 'x' of Object 'ObjectWrongArgumentName' can't start with '__'"
           )
+        },
+        testM("field argument can't be output type") {
+          check(
+            graphQL(resolverObjectWrongArgumentInputType),
+            "UnionInput of InputValue 'union' of InputObject 'UnionArgInput' is of kind UNION, must be an InputType"
+          )
         }
       )
     )

@@ -222,5 +222,11 @@ object TestUtils {
     val resolverObjectWrongArgumentName = RootResolver(
       TestWrongObjectArgumentName(ObjectWrongArgumentName(_ => UIO.unit))
     )
+
+    case class ObjectWrongArgumentInputType(x: UnionInputObjectArg => UIO[Unit])
+    case class TestWrongObjectArgumentInputType(o: ObjectWrongArgumentInputType)
+    val resolverObjectWrongArgumentInputType = RootResolver(
+      TestWrongObjectArgumentInputType(ObjectWrongArgumentInputType(_ => UIO.unit))
+    )
   }
 }
