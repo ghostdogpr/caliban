@@ -40,6 +40,5 @@ object json {
     override def resolve(value: JsValue): Step[Any] =
       QueryStep(ZQuery.fromEffect(ZIO.fromEither(parse(value))).map(PureStep))
   }
-  implicit val jsonArgBuilder: ArgBuilder[JsValue] = (input: InputValue) =>
-    Right(Json.toJson(input))
+  implicit val jsonArgBuilder: ArgBuilder[JsValue] = (input: InputValue) => Right(Json.toJson(input))
 }
