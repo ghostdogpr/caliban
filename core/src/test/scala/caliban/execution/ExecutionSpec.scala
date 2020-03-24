@@ -1,6 +1,7 @@
 package caliban.execution
 
 import java.util.UUID
+
 import caliban.CalibanError.ExecutionError
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
@@ -8,7 +9,6 @@ import caliban.RootResolver
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, StringValue }
 import caliban.parsing.adt.LocationInfo
-import io.circe.Json
 import zio.IO
 import zio.stream.ZStream
 import zio.test.Assertion._
@@ -336,11 +336,25 @@ object ExecutionSpec extends DefaultRunnableSpec {
 
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":<stream>}"""))
       },
-      testM("Json scalar") {
+      testM("Circe Json scalar") {
+        import io.circe.Json
         import caliban.interop.circe.json._
         case class Queries(test: Json)
 
         val interpreter = graphQL(RootResolver(Queries(Json.obj(("a", Json.fromInt(333)))))).interpreter
+        val query       = gqldoc("""
+             {
+               test
+             }""")
+
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":{"a":333}}"""))
+      },
+      testM("Play Json scalar") {
+        import play.api.libs.json._
+        import caliban.interop.play.json._
+        case class Queries(test: JsValue)
+
+        val interpreter = graphQL(RootResolver(Queries(Json.obj(("a", JsNumber(333)))))).interpreter
         val query       = gqldoc("""
              {
                test

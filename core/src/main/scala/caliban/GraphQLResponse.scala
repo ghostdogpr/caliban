@@ -2,6 +2,7 @@ package caliban
 
 import caliban.ResponseValue.ObjectValue
 import caliban.interop.circe._
+import caliban.interop.play._
 
 /**
  * Represents the result of a GraphQL query, containing a data object and a list of errors.
@@ -11,6 +12,8 @@ case class GraphQLResponse[+E](data: ResponseValue, errors: List[E], extensions:
 object GraphQLResponse {
   implicit def circeEncoder[F[_]: IsCirceEncoder, E]: F[GraphQLResponse[E]] =
     GraphQLResponseCirce.graphQLResponseEncoder.asInstanceOf[F[GraphQLResponse[E]]]
+  implicit def playJsonWrites[F[_]: IsPlayJsonWrites, E]: F[GraphQLResponse[E]] =
+    GraphQLResponsePlayJson.graphQLResponseWrites.asInstanceOf[F[GraphQLResponse[E]]]
 }
 
 private object GraphQLResponseCirce {
@@ -35,6 +38,32 @@ private object GraphQLResponseCirce {
     err match {
       case ce: CalibanError => ce.asJson
       case _                => Json.obj("message" -> Json.fromString(err.toString))
+    }
+
+}
+
+private object GraphQLResponsePlayJson {
+  import play.api.libs.json._
+  import play.api.libs.json.Json.toJson
+
+  val graphQLResponseWrites: Writes[GraphQLResponse[Any]] = Writes {
+    case GraphQLResponse(data, Nil, None) => Json.obj("data" -> toJson(data))
+    case GraphQLResponse(data, Nil, Some(extensions)) =>
+      Json.obj("data" -> toJson(data), "extensions" -> toJson(extensions.asInstanceOf[ResponseValue]))
+    case GraphQLResponse(data, errors, None) =>
+      Json.obj("data" -> toJson(data), "errors" -> JsArray(errors.map(handleError)))
+    case GraphQLResponse(data, errors, Some(extensions)) =>
+      Json.obj(
+        "data"       -> toJson(data),
+        "errors"     -> JsArray(errors.map(handleError)),
+        "extensions" -> toJson(extensions.asInstanceOf[ResponseValue])
+      )
+  }
+
+  private def handleError(err: Any): JsValue =
+    err match {
+      case ce: CalibanError => toJson(ce)
+      case _                => Json.obj("message" -> JsString(err.toString))
     }
 
 }

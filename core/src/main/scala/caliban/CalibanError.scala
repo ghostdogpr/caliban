@@ -2,6 +2,7 @@ package caliban
 
 import caliban.ResponseValue.ObjectValue
 import caliban.interop.circe.IsCirceEncoder
+import caliban.interop.play.IsPlayJsonWrites
 import caliban.parsing.adt.LocationInfo
 
 /**
@@ -52,6 +53,9 @@ object CalibanError {
 
   implicit def circeEncoder[F[_]](implicit ev: IsCirceEncoder[F]): F[CalibanError] =
     ErrorCirce.errorValueEncoder.asInstanceOf[F[CalibanError]]
+
+  implicit def playJsonWrites[F[_]](implicit ev: IsPlayJsonWrites[F]): F[CalibanError] =
+    ErrorPlayJson.errorValueWrites.asInstanceOf[F[CalibanError]]
 }
 
 private object ErrorCirce {
@@ -99,6 +103,56 @@ private object ErrorCirce {
           "extensions" -> (extensions: Option[ResponseValue]).asJson.dropNullValues
         )
         .dropNullValues
+  }
+
+}
+
+private object ErrorPlayJson {
+  import play.api.libs.json._
+  import play.api.libs.json.Json.toJson
+
+  private def locationToJson(locInfo: Option[LocationInfo]): Map[String, JsValue] =
+    Some(locInfo).collect {
+      case Some(li) => Json.arr(Json.obj("line" -> toJson(li.line), "column" -> toJson(li.column)))
+    }.fold(Map.empty[String, JsValue])(v => Map("locations" -> v))
+
+  val errorValueWrites: Writes[CalibanError] = Writes {
+    case CalibanError.ParsingError(msg, locationInfo, _, extensions) =>
+      val strictFields = Map(
+        "message"    -> toJson(s"Parsing Error: $msg"),
+        "extensions" -> toJson[Option[ResponseValue]](extensions)
+      )
+      // excluding to avoid nulls
+      val optionalFields = locationToJson(locationInfo)
+
+      JsObject(strictFields ++ optionalFields)
+
+    case CalibanError.ValidationError(msg, _, locationInfo, extensions) =>
+      val strictFields = Map(
+        "message"    -> toJson(msg),
+        "extensions" -> toJson[Option[ResponseValue]](extensions)
+      )
+      // excluding to avoid nulls
+      val optionalFields = locationToJson(locationInfo)
+
+      JsObject(strictFields ++ optionalFields)
+
+    case CalibanError.ExecutionError(msg, path, locationInfo, _, extensions) =>
+      val strictFields = Map(
+        "message"    -> toJson(msg),
+        "extensions" -> toJson[Option[ResponseValue]](extensions)
+      )
+      // excluding to avoid nulls
+      val optionalFields = locationToJson(locationInfo) ++
+        Some(path).collect {
+          case p if p.nonEmpty =>
+            JsArray(p.map {
+              case Left(value)  => JsString(value)
+              case Right(value) => JsNumber(value)
+            })
+        }.fold(Map.empty[String, JsValue])(v => Map("path" -> v))
+
+      JsObject(strictFields ++ optionalFields)
   }
 
 }

@@ -74,14 +74,15 @@ lazy val core = crossProject(JSPlatform, JVMPlatform)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "com.lihaoyi"    %%% "fastparse"    % "2.2.4",
-      "com.propensive" %%% "magnolia"     % "0.12.7",
-      "com.propensive" %%% "mercator"     % "0.2.1",
-      "dev.zio"        %%% "zio"          % zioVersion,
-      "dev.zio"        %%% "zio-streams"  % zioVersion,
-      "dev.zio"        %%% "zio-test"     % zioVersion % "test",
-      "dev.zio"        %%% "zio-test-sbt" % zioVersion % "test",
-      "io.circe"       %%% "circe-core"   % "0.13.0" % Optional,
+      "com.lihaoyi"       %%% "fastparse"    % "2.2.4",
+      "com.propensive"    %%% "magnolia"     % "0.12.7",
+      "com.propensive"    %%% "mercator"     % "0.2.1",
+      "dev.zio"           %%% "zio"          % zioVersion,
+      "dev.zio"           %%% "zio-streams"  % zioVersion,
+      "dev.zio"           %%% "zio-test"     % zioVersion % "test",
+      "dev.zio"           %%% "zio-test-sbt" % zioVersion % "test",
+      "io.circe"          %%% "circe-core"   % "0.13.0" % Optional,
+      "com.typesafe.play" %%% "play-json"    % "2.8.1" % Optional,
       compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
     )
   )
