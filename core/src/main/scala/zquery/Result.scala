@@ -80,16 +80,6 @@ private[zquery] object Result {
   def fromEither[E, A](either: Either[E, A]): Result[Any, E, A] =
     either.fold(e => Result.fail(Cause.fail(e)), a => Result.done(a))
 
-  /**
-   * Lifts an `Option[Either[E, A]]` into a result.
-   */
-  def fromOptionEither[E, A](oeea: Option[Either[E, A]]): Result[Any, E, Option[A]] =
-    oeea match {
-      case None           => Result.done(None)
-      case Some(Left(e))  => Result.fail(Cause.fail(e))
-      case Some(Right(a)) => Result.done(Some(a))
-    }
-
   final case class Blocked[-R, +E, +A](blockedRequests: BlockedRequestMap[R], continue: ZQuery[R, E, A])
       extends Result[R, E, A]
 
