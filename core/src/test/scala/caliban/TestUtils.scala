@@ -211,25 +211,25 @@ object TestUtils {
     object Object {
       case class EmptyObject()
       case class TestEmptyObject(o: EmptyObject)
-      val resolverEmptyObject = RootResolver(
+      val resolverEmpty = RootResolver(
         TestEmptyObject(EmptyObject())
       )
 
       case class ObjectWrongFieldName(__name: String)
       case class TestWrongObjectFieldName(o: ObjectWrongFieldName)
-      val resolverObjectWrongFieldName = RootResolver(
+      val resolverWrongFieldName = RootResolver(
         TestWrongObjectFieldName(ObjectWrongFieldName("a"))
       )
 
       case class ObjectWrongArgumentName(x: WrongArgumentName => UIO[Unit])
       case class TestWrongObjectArgumentName(o: ObjectWrongArgumentName)
-      val resolverObjectWrongArgumentName = RootResolver(
+      val resolverWrongArgumentName = RootResolver(
         TestWrongObjectArgumentName(ObjectWrongArgumentName(_ => UIO.unit))
       )
 
       case class ObjectWrongArgumentInputType(x: UnionInputObjectArg => UIO[Unit])
       case class TestWrongObjectArgumentInputType(o: ObjectWrongArgumentInputType)
-      val resolverObjectWrongArgumentInputType = RootResolver(
+      val resolverWrongArgumentInputType = RootResolver(
         TestWrongObjectArgumentInputType(ObjectWrongArgumentInputType(_ => UIO.unit))
       )
     }

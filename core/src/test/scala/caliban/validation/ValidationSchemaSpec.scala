@@ -80,25 +80,25 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
         suite("Object")(
           testM("must define one or more fields") {
             check(
-              graphQL(resolverEmptyObject),
+              graphQL(resolverEmpty),
               "Object 'EmptyObject' does not have fields"
             )
           },
           testM("field name can't start with '__'") {
             check(
-              graphQL(resolverObjectWrongFieldName),
+              graphQL(resolverWrongFieldName),
               "Field '__name' of Object 'ObjectWrongFieldName' can't start with '__'"
             )
           },
           testM("field argument name can't start with '__'") {
             check(
-              graphQL(resolverObjectWrongArgumentName),
+              graphQL(resolverWrongArgumentName),
               "InputValue '__name' of Field 'x' of Object 'ObjectWrongArgumentName' can't start with '__'"
             )
           },
           testM("field argument can't be output type") {
             check(
-              graphQL(resolverObjectWrongArgumentInputType),
+              graphQL(resolverWrongArgumentInputType),
               "UnionInput of InputValue 'union' of InputObject 'UnionArgInput' is of kind UNION, must be an InputType"
             )
           }
