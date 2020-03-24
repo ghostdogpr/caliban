@@ -7,6 +7,13 @@ import io.circe.Json
 import io.circe.parser._
 import io.circe.syntax._
 
+/**
+ * Circe json backend for akka-http routes.
+ * <br/>
+ * Requires `"de.heikoseeberger" %% "akka-http-circe"` to be on the classpath (checked at compile-time).
+ *
+ * @see [[AkkaHttpAdapter]] for usage example.
+ */
 final class CirceJsonBackend extends JsonBackend with FailFastCirceSupport {
   def parseHttpRequest(query: String, op: Option[String], vars: Option[String]): Either[Throwable, GraphQLRequest] = {
     val variablesJs = vars.flatMap(parse(_).toOption)

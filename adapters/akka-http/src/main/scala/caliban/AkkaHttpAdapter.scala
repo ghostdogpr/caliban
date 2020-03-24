@@ -13,6 +13,29 @@ import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
 import zio.{ Fiber, IO, Ref, Runtime, Task, URIO }
 
+/**
+ * Akka-http adapter for caliban with pluggable json backend.
+ * There are two ways to use it:
+ * <br/>
+ * <br/>
+ * 1) Create the adapter manually (using [[AkkaHttpAdapter.apply]] and explicitly specify backend (recommended way):
+ * {{{
+ * val adapter = AkkaHttpAdapter(new CirceJsonBackend)
+ * adapter.makeHttpService(interpreter)
+ * }}}
+ *
+ * 2) Mix in an `all-included` trait, like [[caliban.interop.circe.AkkaHttpCirceAdapter]]:
+ * {{{
+ * class MyApi extends AkkaHttpCirceAdapter {
+ *
+ *   // adapter is provided by the mixin
+ *   adapter.makeHttpService(interpreter)
+ * }
+ * }}}
+ *
+ * @note Since all json backend dependencies are optional,
+ *       you have to explicitly specify a corresponding dependency in your build (see specific backends for details).
+ */
 trait AkkaHttpAdapter {
 
   def json: JsonBackend
@@ -148,6 +171,10 @@ trait AkkaHttpAdapter {
 }
 
 object AkkaHttpAdapter {
+
+  /**
+   * @see [[AkkaHttpAdapter]]
+   */
   def apply(jsonBackend: JsonBackend): AkkaHttpAdapter = new AkkaHttpAdapter {
     val json: JsonBackend = jsonBackend
   }
