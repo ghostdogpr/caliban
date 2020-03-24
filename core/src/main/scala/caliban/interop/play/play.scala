@@ -5,7 +5,7 @@ import caliban.schema.Step.QueryStep
 import caliban.schema.Types.makeScalar
 import caliban.schema.{ ArgBuilder, PureStep, Schema, Step }
 import caliban.{ InputValue, ResponseValue }
-import play.api.libs.json.{ JsValue, Reads, Writes }
+import play.api.libs.json.{ JsValue, Json, Reads, Writes }
 import zio.ZIO
 import zquery.ZQuery
 
@@ -41,5 +41,5 @@ object json {
       QueryStep(ZQuery.fromEffect(ZIO.fromEither(parse(value))).map(PureStep))
   }
   implicit val jsonArgBuilder: ArgBuilder[JsValue] = (input: InputValue) =>
-    Right(implicitly[Writes[InputValue]].writes(input))
+    Right(Json.toJson(input))
 }
