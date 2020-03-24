@@ -1,10 +1,11 @@
 package caliban
 
+import caliban.TestUtils.InvalidSchemas.Interface.WrongArgumentName
 import caliban.TestUtils.Origin._
 import caliban.TestUtils.Role._
 import caliban.Value.StringValue
 import caliban.parsing.adt.Directive
-import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLDirective, GQLInputName, GQLInterface }
+import caliban.schema.Annotations.{GQLDeprecated, GQLDescription, GQLDirective, GQLInputName, GQLInterface}
 import caliban.schema.Schema
 import zio.UIO
 import zio.stream.ZStream
@@ -138,95 +139,99 @@ object TestUtils {
       WrongMutationUnion(_ => UIO.unit)
     )
 
-    @GQLInterface
-    sealed trait InterfaceEmpty
-    object InterfaceEmpty {
-      case class A(x: String) extends InterfaceEmpty
-      case class B(y: String) extends InterfaceEmpty
+    object Interface {
+      @GQLInterface
+      sealed trait InterfaceEmpty
+      object InterfaceEmpty {
+        case class A(x: String) extends InterfaceEmpty
+        case class B(y: String) extends InterfaceEmpty
+      }
+
+      case class TestEmpty(i: InterfaceEmpty)
+      val resolverEmptyInferface = RootResolver(
+        TestEmpty(InterfaceEmpty.A("a"))
+      )
+
+      @GQLInterface
+      sealed trait InterfaceWrongFieldName
+      object InterfaceWrongFieldName {
+        case class A(__name: String) extends InterfaceWrongFieldName
+        case class B(__name: String) extends InterfaceWrongFieldName
+      }
+
+      case class TestWrongFieldName(i: InterfaceWrongFieldName)
+      val resolverInferfaceWrongFieldName = RootResolver(
+        TestWrongFieldName(InterfaceWrongFieldName.A("a"))
+      )
+
+      case class WrongArgumentName(__name: String)
+
+      @GQLInterface
+      sealed trait InterfaceWrongArgumentName
+      object InterfaceWrongArgumentName {
+        case class A(x: WrongArgumentName => UIO[Unit]) extends InterfaceWrongArgumentName
+        case class B(x: WrongArgumentName => UIO[Unit]) extends InterfaceWrongArgumentName
+      }
+
+      case class TestWrongArgumentName(i: InterfaceWrongArgumentName)
+      val resolverInterfaceWrongArgumentName = RootResolver(
+        TestWrongArgumentName(InterfaceWrongArgumentName.A(_ => UIO.unit))
+      )
+
+      @GQLInterface
+      sealed trait InterfaceWrongArgumentInputType
+      object InterfaceWrongArgumentInputType {
+        case class A(x: UnionInputObjectArg => UIO[Unit]) extends InterfaceWrongArgumentInputType
+        case class B(x: UnionInputObjectArg => UIO[Unit]) extends InterfaceWrongArgumentInputType
+      }
+
+      case class TestWrongArgumentType(i: InterfaceWrongArgumentInputType)
+      val resolverInterfaceWrongArgumentInputType = RootResolver(
+        TestWrongArgumentType(InterfaceWrongArgumentInputType.A(_ => UIO.unit))
+      )
+
+      case class ClashingObjectArgs(a: ClashingObject)
+      case class ClashingObject(a: String)
+      case class ClashingObjectInput(a: String)
+      case class ClashingQuery(test: ClashingObjectArgs => ClashingObjectInput)
+      val resolverClashingObjects = RootResolver(
+        ClashingQuery(args => ClashingObjectInput(args.a.a))
+      )
+
+      object A {
+        case class C(a: String)
+      }
+      object B {
+        case class C(a: String)
+      }
+      case class ClashingNamesQuery(a: A.C, b: B.C)
+      val resolverClashingNames = RootResolver(ClashingNamesQuery(A.C(""), B.C("")))
     }
 
-    case class TestEmpty(i: InterfaceEmpty)
-    val resolverEmptyInferface = RootResolver(
-      TestEmpty(InterfaceEmpty.A("a"))
-    )
+    object Object {
+      case class EmptyObject()
+      case class TestEmptyObject(o: EmptyObject)
+      val resolverEmptyObject = RootResolver(
+        TestEmptyObject(EmptyObject())
+      )
 
-    @GQLInterface
-    sealed trait InterfaceWrongFieldName
-    object InterfaceWrongFieldName {
-      case class A(__name: String) extends InterfaceWrongFieldName
-      case class B(__name: String) extends InterfaceWrongFieldName
+      case class ObjectWrongFieldName(__name: String)
+      case class TestWrongObjectFieldName(o: ObjectWrongFieldName)
+      val resolverObjectWrongFieldName = RootResolver(
+        TestWrongObjectFieldName(ObjectWrongFieldName("a"))
+      )
+
+      case class ObjectWrongArgumentName(x: WrongArgumentName => UIO[Unit])
+      case class TestWrongObjectArgumentName(o: ObjectWrongArgumentName)
+      val resolverObjectWrongArgumentName = RootResolver(
+        TestWrongObjectArgumentName(ObjectWrongArgumentName(_ => UIO.unit))
+      )
+
+      case class ObjectWrongArgumentInputType(x: UnionInputObjectArg => UIO[Unit])
+      case class TestWrongObjectArgumentInputType(o: ObjectWrongArgumentInputType)
+      val resolverObjectWrongArgumentInputType = RootResolver(
+        TestWrongObjectArgumentInputType(ObjectWrongArgumentInputType(_ => UIO.unit))
+      )
     }
-
-    case class TestWrongFieldName(i: InterfaceWrongFieldName)
-    val resolverInferfaceWrongFieldName = RootResolver(
-      TestWrongFieldName(InterfaceWrongFieldName.A("a"))
-    )
-
-    case class WrongArgumentName(__name: String)
-
-    @GQLInterface
-    sealed trait InterfaceWrongArgumentName
-    object InterfaceWrongArgumentName {
-      case class A(x: WrongArgumentName => UIO[Unit]) extends InterfaceWrongArgumentName
-      case class B(x: WrongArgumentName => UIO[Unit]) extends InterfaceWrongArgumentName
-    }
-
-    case class TestWrongArgumentName(i: InterfaceWrongArgumentName)
-    val resolverInterfaceWrongArgumentName = RootResolver(
-      TestWrongArgumentName(InterfaceWrongArgumentName.A(_ => UIO.unit))
-    )
-
-    @GQLInterface
-    sealed trait InterfaceWrongArgumentInputType
-    object InterfaceWrongArgumentInputType {
-      case class A(x: UnionInputObjectArg => UIO[Unit]) extends InterfaceWrongArgumentInputType
-      case class B(x: UnionInputObjectArg => UIO[Unit]) extends InterfaceWrongArgumentInputType
-    }
-
-    case class TestWrongArgumentType(i: InterfaceWrongArgumentInputType)
-    val resolverInterfaceWrongArgumentInputType = RootResolver(
-      TestWrongArgumentType(InterfaceWrongArgumentInputType.A(_ => UIO.unit))
-    )
-
-    case class ClashingObjectArgs(a: ClashingObject)
-    case class ClashingObject(a: String)
-    case class ClashingObjectInput(a: String)
-    case class ClashingQuery(test: ClashingObjectArgs => ClashingObjectInput)
-    val resolverClashingObjects = RootResolver(
-      ClashingQuery(args => ClashingObjectInput(args.a.a))
-    )
-
-    object A {
-      case class C(a: String)
-    }
-    object B {
-      case class C(a: String)
-    }
-    case class ClashingNamesQuery(a: A.C, b: B.C)
-    val resolverClashingNames = RootResolver(ClashingNamesQuery(A.C(""), B.C("")))
-
-    case class EmptyObject()
-    case class TestEmptyObject(o: EmptyObject)
-    val resolverEmptyObject = RootResolver(
-      TestEmptyObject(EmptyObject())
-    )
-
-    case class ObjectWrongFieldName(__name: String)
-    case class TestWrongObjectFieldName(o: ObjectWrongFieldName)
-    val resolverObjectWrongFieldName = RootResolver(
-      TestWrongObjectFieldName(ObjectWrongFieldName("a"))
-    )
-
-    case class ObjectWrongArgumentName(x: WrongArgumentName => UIO[Unit])
-    case class TestWrongObjectArgumentName(o: ObjectWrongArgumentName)
-    val resolverObjectWrongArgumentName = RootResolver(
-      TestWrongObjectArgumentName(ObjectWrongArgumentName(_ => UIO.unit))
-    )
-
-    case class ObjectWrongArgumentInputType(x: UnionInputObjectArg => UIO[Unit])
-    case class TestWrongObjectArgumentInputType(o: ObjectWrongArgumentInputType)
-    val resolverObjectWrongArgumentInputType = RootResolver(
-      TestWrongObjectArgumentInputType(ObjectWrongArgumentInputType(_ => UIO.unit))
-    )
   }
 }

@@ -30,6 +30,7 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
           )
         }
       ),
+      { import Interface._ ;
       suite("Interface")(
         testM("must define one or more fields") {
           check(
@@ -58,13 +59,13 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
         testM("clashing input and object types") {
           check(
             graphQL(resolverClashingObjects),
-            "Type 'ClashingObjectInput' is defined multiple times (INPUT_OBJECT in caliban.TestUtils.InvalidSchemas.ClashingObject, OBJECT in caliban.TestUtils.InvalidSchemas.ClashingObjectInput)."
+            "Type 'ClashingObjectInput' is defined multiple times (INPUT_OBJECT in caliban.TestUtils.InvalidSchemas.Interface.ClashingObject, OBJECT in caliban.TestUtils.InvalidSchemas.Interface.ClashingObjectInput)."
           )
         },
         testM("clashing names from different packages") {
           check(
             graphQL(resolverClashingNames),
-            "Type 'C' is defined multiple times (OBJECT in caliban.TestUtils.InvalidSchemas.A.C, OBJECT in caliban.TestUtils.InvalidSchemas.B.C)."
+            "Type 'C' is defined multiple times (OBJECT in caliban.TestUtils.InvalidSchemas.Interface.A.C, OBJECT in caliban.TestUtils.InvalidSchemas.Interface.B.C)."
           )
         },
         testM("missing root query") {
@@ -73,7 +74,8 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
             "The query root operation is missing."
           )
         }
-      ),
+      ) },
+      { import Object._ ;
       suite("Object")(
         testM("must define one or more fields") {
           check(
@@ -99,6 +101,6 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
             "UnionInput of InputValue 'union' of InputObject 'UnionArgInput' is of kind UNION, must be an InputType"
           )
         }
-      )
+      ) }
     )
 }
