@@ -5,7 +5,7 @@ import caliban.TestUtils.Origin._
 import caliban.TestUtils.Role._
 import caliban.Value.StringValue
 import caliban.parsing.adt.Directive
-import caliban.schema.Annotations.{GQLDeprecated, GQLDescription, GQLDirective, GQLInputName, GQLInterface}
+import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLDirective, GQLInputName, GQLInterface }
 import caliban.schema.Schema
 import zio.UIO
 import zio.stream.ZStream

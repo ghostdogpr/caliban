@@ -29,78 +29,80 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
             "UnionInput of InputValue 'union' of InputObject 'UnionArgInput' is of kind UNION, must be an InputType"
           )
         }
-      ),
-      { import Interface._ ;
-      suite("Interface")(
-        testM("must define one or more fields") {
-          check(
-            graphQL(resolverEmptyInferface),
-            "Interface 'InterfaceEmpty' does not have fields"
-          )
-        },
-        testM("field name can't start with '__'") {
-          check(
-            graphQL(resolverInferfaceWrongFieldName),
-            "Field '__name' of Interface 'InterfaceWrongFieldName' can't start with '__'"
-          )
-        },
-        testM("field argument name can't start with '__'") {
-          check(
-            graphQL(resolverInterfaceWrongArgumentName),
-            "InputValue '__name' of Field 'x' of Interface 'InterfaceWrongArgumentName' can't start with '__'"
-          )
-        },
-        testM("field argument can't be output type") {
-          check(
-            graphQL(resolverInterfaceWrongArgumentInputType),
-            "UnionInput of InputValue 'union' of InputObject 'UnionArgInput' is of kind UNION, must be an InputType"
-          )
-        },
-        testM("clashing input and object types") {
-          check(
-            graphQL(resolverClashingObjects),
-            "Type 'ClashingObjectInput' is defined multiple times (INPUT_OBJECT in caliban.TestUtils.InvalidSchemas.Interface.ClashingObject, OBJECT in caliban.TestUtils.InvalidSchemas.Interface.ClashingObjectInput)."
-          )
-        },
-        testM("clashing names from different packages") {
-          check(
-            graphQL(resolverClashingNames),
-            "Type 'C' is defined multiple times (OBJECT in caliban.TestUtils.InvalidSchemas.Interface.A.C, OBJECT in caliban.TestUtils.InvalidSchemas.Interface.B.C)."
-          )
-        },
-        testM("missing root query") {
-          check(
-            graphQL(RootResolver[Unit, Unit, Unit](None, None, None)),
-            "The query root operation is missing."
-          )
-        }
-      ) },
-      { import Object._ ;
-      suite("Object")(
-        testM("must define one or more fields") {
-          check(
-            graphQL(resolverEmptyObject),
-            "Object 'EmptyObject' does not have fields"
-          )
-        },
-        testM("field name can't start with '__'") {
-          check(
-            graphQL(resolverObjectWrongFieldName),
-            "Field '__name' of Object 'ObjectWrongFieldName' can't start with '__'"
-          )
-        },
-        testM("field argument name can't start with '__'") {
-          check(
-            graphQL(resolverObjectWrongArgumentName),
-            "InputValue '__name' of Field 'x' of Object 'ObjectWrongArgumentName' can't start with '__'"
-          )
-        },
-        testM("field argument can't be output type") {
-          check(
-            graphQL(resolverObjectWrongArgumentInputType),
-            "UnionInput of InputValue 'union' of InputObject 'UnionArgInput' is of kind UNION, must be an InputType"
-          )
-        }
-      ) }
+      ), {
+        import Interface._
+        suite("Interface")(
+          testM("must define one or more fields") {
+            check(
+              graphQL(resolverEmptyInferface),
+              "Interface 'InterfaceEmpty' does not have fields"
+            )
+          },
+          testM("field name can't start with '__'") {
+            check(
+              graphQL(resolverInferfaceWrongFieldName),
+              "Field '__name' of Interface 'InterfaceWrongFieldName' can't start with '__'"
+            )
+          },
+          testM("field argument name can't start with '__'") {
+            check(
+              graphQL(resolverInterfaceWrongArgumentName),
+              "InputValue '__name' of Field 'x' of Interface 'InterfaceWrongArgumentName' can't start with '__'"
+            )
+          },
+          testM("field argument can't be output type") {
+            check(
+              graphQL(resolverInterfaceWrongArgumentInputType),
+              "UnionInput of InputValue 'union' of InputObject 'UnionArgInput' is of kind UNION, must be an InputType"
+            )
+          },
+          testM("clashing input and object types") {
+            check(
+              graphQL(resolverClashingObjects),
+              "Type 'ClashingObjectInput' is defined multiple times (INPUT_OBJECT in caliban.TestUtils.InvalidSchemas.Interface.ClashingObject, OBJECT in caliban.TestUtils.InvalidSchemas.Interface.ClashingObjectInput)."
+            )
+          },
+          testM("clashing names from different packages") {
+            check(
+              graphQL(resolverClashingNames),
+              "Type 'C' is defined multiple times (OBJECT in caliban.TestUtils.InvalidSchemas.Interface.A.C, OBJECT in caliban.TestUtils.InvalidSchemas.Interface.B.C)."
+            )
+          },
+          testM("missing root query") {
+            check(
+              graphQL(RootResolver[Unit, Unit, Unit](None, None, None)),
+              "The query root operation is missing."
+            )
+          }
+        )
+      }, {
+        import Object._
+        suite("Object")(
+          testM("must define one or more fields") {
+            check(
+              graphQL(resolverEmptyObject),
+              "Object 'EmptyObject' does not have fields"
+            )
+          },
+          testM("field name can't start with '__'") {
+            check(
+              graphQL(resolverObjectWrongFieldName),
+              "Field '__name' of Object 'ObjectWrongFieldName' can't start with '__'"
+            )
+          },
+          testM("field argument name can't start with '__'") {
+            check(
+              graphQL(resolverObjectWrongArgumentName),
+              "InputValue '__name' of Field 'x' of Object 'ObjectWrongArgumentName' can't start with '__'"
+            )
+          },
+          testM("field argument can't be output type") {
+            check(
+              graphQL(resolverObjectWrongArgumentInputType),
+              "UnionInput of InputValue 'union' of InputObject 'UnionArgInput' is of kind UNION, must be an InputType"
+            )
+          }
+        )
+      }
     )
 }
