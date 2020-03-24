@@ -117,7 +117,7 @@ private object ErrorPlayJson {
     path: Option[JsArray]
   )
 
-  implicit val locationInfoWrites: Writes[LocationInfo] = Json.writes[LocationInfo].transform(Json.arr(_))
+  implicit val locationInfoWrites: Writes[LocationInfo] = Json.writes[LocationInfo].transform(v => JsArray(Seq(v)))
 
   private implicit val errorDTOWrites = Json.writes[ErrorDTO]
 
