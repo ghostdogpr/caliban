@@ -47,23 +47,23 @@ private object GraphQLResponsePlayJson {
   import play.api.libs.json.Json.toJson
 
   val graphQLResponseWrites: Writes[GraphQLResponse[Any]] = Writes {
-    case GraphQLResponse(data, Nil, None) => Json.obj("data" -> toJson(data))
+    case GraphQLResponse(data, Nil, None) => Json.obj("data" -> data)
     case GraphQLResponse(data, Nil, Some(extensions)) =>
-      Json.obj("data" -> toJson(data), "extensions" -> toJson(extensions.asInstanceOf[ResponseValue]))
+      Json.obj("data" -> data, "extensions" -> extensions.asInstanceOf[ResponseValue])
     case GraphQLResponse(data, errors, None) =>
-      Json.obj("data" -> toJson(data), "errors" -> JsArray(errors.map(handleError)))
+      Json.obj("data" -> data, "errors" -> JsArray(errors.map(handleError)))
     case GraphQLResponse(data, errors, Some(extensions)) =>
       Json.obj(
-        "data"       -> toJson(data),
+        "data"       -> data,
         "errors"     -> JsArray(errors.map(handleError)),
-        "extensions" -> toJson(extensions.asInstanceOf[ResponseValue])
+        "extensions" -> extensions.asInstanceOf[ResponseValue]
       )
   }
 
   private def handleError(err: Any): JsValue =
     err match {
       case ce: CalibanError => toJson(ce)
-      case _                => Json.obj("message" -> JsString(err.toString))
+      case _                => Json.obj("message" -> err.toString)
     }
 
 }

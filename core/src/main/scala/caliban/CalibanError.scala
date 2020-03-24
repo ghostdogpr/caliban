@@ -109,50 +109,38 @@ private object ErrorCirce {
 
 private object ErrorPlayJson {
   import play.api.libs.json._
-  import play.api.libs.json.Json.toJson
 
-  private def locationToJson(locInfo: Option[LocationInfo]): Map[String, JsValue] =
-    Some(locInfo).collect {
-      case Some(li) => Json.arr(Json.obj("line" -> toJson(li.line), "column" -> toJson(li.column)))
-    }.fold(Map.empty[String, JsValue])(v => Map("locations" -> v))
+  private final case class ErrorDTO(
+    message: String,
+    extensions: Option[ResponseValue],
+    locations: Option[LocationInfo],
+    path: Option[JsArray]
+  )
 
-  val errorValueWrites: Writes[CalibanError] = Writes {
+  implicit val locationInfoWrites: Writes[LocationInfo] = Json.writes[LocationInfo].transform(Json.arr(_))
+
+  private implicit val errorDTOWrites = Json.writes[ErrorDTO]
+
+  val errorValueWrites: Writes[CalibanError] = errorDTOWrites.contramap[CalibanError] {
     case CalibanError.ParsingError(msg, locationInfo, _, extensions) =>
-      val strictFields = Map(
-        "message"    -> toJson(s"Parsing Error: $msg"),
-        "extensions" -> toJson[Option[ResponseValue]](extensions)
-      )
-      // excluding to avoid nulls
-      val optionalFields = locationToJson(locationInfo)
-
-      JsObject(strictFields ++ optionalFields)
+      ErrorDTO(s"Parsing Error: $msg", extensions, locationInfo, None)
 
     case CalibanError.ValidationError(msg, _, locationInfo, extensions) =>
-      val strictFields = Map(
-        "message"    -> toJson(msg),
-        "extensions" -> toJson[Option[ResponseValue]](extensions)
-      )
-      // excluding to avoid nulls
-      val optionalFields = locationToJson(locationInfo)
-
-      JsObject(strictFields ++ optionalFields)
+      ErrorDTO(msg, extensions, locationInfo, None)
 
     case CalibanError.ExecutionError(msg, path, locationInfo, _, extensions) =>
-      val strictFields = Map(
-        "message"    -> toJson(msg),
-        "extensions" -> toJson[Option[ResponseValue]](extensions)
-      )
-      // excluding to avoid nulls
-      val optionalFields = locationToJson(locationInfo) ++
+      ErrorDTO(
+        msg,
+        extensions,
+        locationInfo,
         Some(path).collect {
           case p if p.nonEmpty =>
             JsArray(p.map {
               case Left(value)  => JsString(value)
               case Right(value) => JsNumber(value)
             })
-        }.fold(Map.empty[String, JsValue])(v => Map("path" -> v))
-
-      JsObject(strictFields ++ optionalFields)
+        }
+      )
   }
 
 }

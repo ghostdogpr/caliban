@@ -32,13 +32,6 @@ private object GraphQLRequestCirce {
 
 private object GraphQLRequestPlayJson {
   import play.api.libs.json._
-  import play.api.libs.json.Reads._
-  import play.api.libs.functional.syntax._
 
-  val graphQLRequestReads: Reads[GraphQLRequest] =
-    (
-      (JsPath \ "query").read[String] and
-        (JsPath \ "operationName").readNullable[String] and
-        (JsPath \ "variables").readNullable[Map[String, InputValue]]
-    )(GraphQLRequest.apply _)
+  val graphQLRequestReads: Reads[GraphQLRequest] = Json.reads[GraphQLRequest]
 }
