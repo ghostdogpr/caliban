@@ -6,11 +6,11 @@ import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives._
 import caliban.ExampleData.sampleCharacters
-import caliban.{ AkkaHttpAdapter, ExampleApi, ExampleService }
+import caliban.interop.circe.AkkaHttpCirceAdapter
+import caliban.{ ExampleApi, ExampleService }
 import zio.{ Runtime, ZEnv }
-import caliban.interop.circe.CirceJsonBackend
 
-object ExampleApp extends App {
+object ExampleApp extends App with AkkaHttpCirceAdapter {
 
   implicit val system: ActorSystem                        = ActorSystem()
   implicit val executionContext: ExecutionContextExecutor = system.dispatcher
@@ -22,8 +22,6 @@ object ExampleApp extends App {
       .memoize
       .use(layer => ExampleApi.api.interpreter.map(_.provideCustomLayer(layer)))
   )
-
-  val adapter = new AkkaHttpAdapter(new CirceJsonBackend)
 
   /**
    * curl -X POST \

@@ -13,9 +13,11 @@ import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
 import zio.{ Fiber, IO, Ref, Runtime, Task, URIO }
 
-final class AkkaHttpAdapter(json: JsonBackend) {
+trait AkkaHttpAdapter {
 
-  implicit val requestUnmarshaller: FromEntityUnmarshaller[GraphQLRequest] = json.reqUnmarshaller
+  def json: JsonBackend
+
+  implicit def requestUnmarshaller: FromEntityUnmarshaller[GraphQLRequest] = json.reqUnmarshaller
 
   private def execute[R, E](
     interpreter: GraphQLInterpreter[R, E],
@@ -142,5 +144,11 @@ final class AkkaHttpAdapter(json: JsonBackend) {
         complete(upgrade.handleMessages(flow, subprotocol = Some("graphql-ws")))
       }
     }
+  }
+}
+
+object AkkaHttpAdapter {
+  def apply(jsonBackend: JsonBackend): AkkaHttpAdapter = new AkkaHttpAdapter {
+    val json: JsonBackend = jsonBackend
   }
 }
