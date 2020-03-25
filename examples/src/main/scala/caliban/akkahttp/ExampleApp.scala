@@ -10,6 +10,9 @@ import caliban.interop.circe.AkkaHttpCirceAdapter
 import caliban.{ ExampleApi, ExampleService }
 import zio.{ Runtime, ZEnv }
 
+/**
+ * There's also an [[caliban.interop.play.AkkaHttpPlayJsonAdapter]] if you use play-json and don't want to have circe dependency
+ */
 object ExampleApp extends App with AkkaHttpCirceAdapter {
 
   implicit val system: ActorSystem                        = ActorSystem()

@@ -5,7 +5,7 @@ import caliban.schema.Step.QueryStep
 import caliban.schema.Types.makeScalar
 import caliban.schema.{ ArgBuilder, PureStep, Schema, Step }
 import caliban.{ InputValue, ResponseValue }
-import play.api.libs.json.{ JsValue, Json, Reads, Writes }
+import play.api.libs.json.{ JsPath, JsValue, Json, JsonValidationError, Reads, Writes }
 import zio.ZIO
 import zquery.ZQuery
 
@@ -34,11 +34,16 @@ object json {
         .reads(value)
         .asEither
         .left
-        .map(errs => new Throwable(s"Couldn't decode json: $errs"))
+        .map(parsingException)
 
     override def toType(isInput: Boolean): __Type = makeScalar("Json")
     override def resolve(value: JsValue): Step[Any] =
       QueryStep(ZQuery.fromEffect(ZIO.fromEither(parse(value))).map(PureStep))
   }
   implicit val jsonArgBuilder: ArgBuilder[JsValue] = (input: InputValue) => Right(Json.toJson(input))
+
+  private[caliban] def parsingException(
+    errs: scala.collection.Seq[(JsPath, scala.collection.Seq[JsonValidationError])]
+  ) =
+    new Throwable(s"Couldn't decode json: $errs")
 }
