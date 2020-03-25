@@ -42,6 +42,8 @@ object json {
   }
   implicit val jsonArgBuilder: ArgBuilder[JsValue] = (input: InputValue) => Right(Json.toJson(input))
 
-  private[caliban] def parsingException(errs: scala.collection.Seq[(JsPath, scala.collection.Seq[JsonValidationError])]) =
+  private[caliban] def parsingException(
+    errs: scala.collection.Seq[(JsPath, scala.collection.Seq[JsonValidationError])]
+  ) =
     new Throwable(s"Couldn't decode json: $errs")
 }
