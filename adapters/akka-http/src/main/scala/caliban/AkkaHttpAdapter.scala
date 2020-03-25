@@ -6,18 +6,41 @@ import akka.http.scaladsl.model.ws.{ Message, TextMessage }
 import akka.http.scaladsl.model.{ HttpEntity, HttpResponse, StatusCodes }
 import akka.http.scaladsl.server.Directives.complete
 import akka.http.scaladsl.server.{ Route, StandardRoute }
+import akka.http.scaladsl.unmarshalling.FromEntityUnmarshaller
 import akka.stream.scaladsl.{ Flow, Sink, Source, SourceQueueWithComplete }
 import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
-import de.heikoseeberger.akkahttpcirce.FailFastCirceSupport
-import io.circe.Decoder.Result
-import io.circe.Json
-import io.circe.parser._
-import io.circe.syntax._
 import zio.{ Fiber, IO, Ref, Runtime, Task, URIO }
 
-object AkkaHttpAdapter extends FailFastCirceSupport {
+/**
+ * Akka-http adapter for caliban with pluggable json backend.
+ * There are two ways to use it:
+ * <br/>
+ * <br/>
+ * 1) Create the adapter manually (using [[AkkaHttpAdapter.apply]] and explicitly specify backend (recommended way):
+ * {{{
+ * val adapter = AkkaHttpAdapter(new CirceJsonBackend)
+ * adapter.makeHttpService(interpreter)
+ * }}}
+ *
+ * 2) Mix in an `all-included` trait, like [[caliban.interop.circe.AkkaHttpCirceAdapter]]:
+ * {{{
+ * class MyApi extends AkkaHttpCirceAdapter {
+ *
+ *   // adapter is provided by the mixin
+ *   adapter.makeHttpService(interpreter)
+ * }
+ * }}}
+ *
+ * @note Since all json backend dependencies are optional,
+ *       you have to explicitly specify a corresponding dependency in your build (see specific backends for details).
+ */
+trait AkkaHttpAdapter {
+
+  def json: JsonBackend
+
+  implicit def requestUnmarshaller: FromEntityUnmarshaller[GraphQLRequest] = json.reqUnmarshaller
 
   private def execute[R, E](
     interpreter: GraphQLInterpreter[R, E],
@@ -32,18 +55,11 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
     skipValidation: Boolean
   ): URIO[R, HttpResponse] =
     execute(interpreter, request, skipValidation)
-      .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
-      .map(gqlResult => HttpResponse(StatusCodes.OK, entity = HttpEntity(`application/json`, gqlResult.toString())))
-
-  def getGraphQLRequest(query: String, op: Option[String], vars: Option[String]): Result[GraphQLRequest] = {
-    val variablesJs = vars.flatMap(parse(_).toOption)
-    val fields = List("query" -> Json.fromString(query)) ++
-      op.map(o => "operationName"       -> Json.fromString(o)) ++
-      variablesJs.map(js => "variables" -> js)
-    Json
-      .fromFields(fields)
-      .as[GraphQLRequest]
-  }
+      .foldCause(
+        cause => json.encodeGraphQLResponse(GraphQLResponse(NullValue, cause.defects)),
+        json.encodeGraphQLResponse
+      )
+      .map(gqlResult => HttpResponse(StatusCodes.OK, entity = HttpEntity(`application/json`, gqlResult)))
 
   def completeRequest[R, E](
     interpreter: GraphQLInterpreter[R, E],
@@ -60,7 +76,8 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
     get {
       parameters((Symbol("query").as[String], Symbol("operationName").?, Symbol("variables").?)) {
         case (query, op, vars) =>
-          getGraphQLRequest(query, op, vars)
+          json
+            .parseHttpRequest(query, op, vars)
             .fold(failWith, completeRequest(interpreter, skipValidation))
       }
     } ~
@@ -81,19 +98,32 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
     ): Task[QueueOfferResult] =
       IO.fromFuture(_ =>
         sendQueue.offer(
-          TextMessage(
-            Json
-              .obj(
-                "id"      -> Json.fromString(id),
-                "type"    -> Json.fromString("data"),
-                "payload" -> GraphQLResponse(data, errors).asJson
-              )
-              .noSpaces
-          )
+          TextMessage(json.encodeWSResponse(id, data, errors))
         )
       )
 
     import akka.http.scaladsl.server.Directives._
+
+    def startSubscription(
+      message: WSMessage,
+      query: String,
+      sendTo: SourceQueueWithComplete[Message],
+      subscriptions: Ref[Map[String, Fiber[Throwable, Unit]]]
+    ) =
+      for {
+        result <- execute(interpreter, GraphQLRequest(query, message.operationName, None), skipValidation)
+        _ <- result.data match {
+              case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
+                stream
+                  .foreach(item => sendMessage(sendTo, message.id, ObjectValue(List(fieldName -> item)), result.errors))
+                  .forkDaemon
+                  .flatMap(fiber => subscriptions.update(_.updated(message.id, fiber)))
+              case other =>
+                sendMessage(sendTo, message.id, other, result.errors) *> IO.fromFuture(_ =>
+                  sendTo.offer(TextMessage(s"""{"type":"complete","id":"${message.id}"}"""))
+                )
+            }
+      } yield ()
 
     get {
       extractUpgradeToWebSocket { upgrade =>
@@ -102,51 +132,27 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
         val sink = Sink.foreach[Message] {
           case TextMessage.Strict(text) =>
             val io = for {
-              msg     <- Task.fromEither(decode[Json](text))
-              msgType = msg.hcursor.downField("type").success.flatMap(_.value.asString).getOrElse("")
+              msg     <- Task.fromEither(json.parseWSMessage(text))
+              msgType = msg.messageType
               _ <- IO.whenCase(msgType) {
                     case "connection_init" =>
                       IO.fromFuture(_ => queue.offer(TextMessage("""{"type":"connection_ack"}""")))
                     case "connection_terminate" =>
                       IO.effect(queue.complete())
                     case "start" =>
-                      val payload = msg.hcursor.downField("payload")
-                      val id      = msg.hcursor.downField("id").success.flatMap(_.value.asString).getOrElse("")
-                      Task.whenCase(payload.downField("query").success.flatMap(_.value.asString)) {
+                      Task.whenCase(msg.query) {
                         case Some(query) =>
-                          val operationName = payload.downField("operationName").success.flatMap(_.value.asString)
-                          (for {
-                            result <- execute(interpreter, GraphQLRequest(query, operationName, None), skipValidation)
-                            _ <- result.data match {
-                                  case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
-                                    stream.foreach { item =>
-                                      sendMessage(queue, id, ObjectValue(List(fieldName -> item)), result.errors)
-                                    }.forkDaemon.flatMap(fiber => subscriptions.update(_.updated(id, fiber)))
-                                  case other =>
-                                    sendMessage(queue, id, other, result.errors) *> IO.fromFuture(_ =>
-                                      queue.offer(TextMessage(s"""{"type":"complete","id":"$id"}"""))
-                                    )
-                                }
-                          } yield ()).catchAll(error =>
+                          startSubscription(msg, query, queue, subscriptions).catchAll(error =>
                             IO.fromFuture(_ =>
                               queue.offer(
-                                TextMessage(
-                                  Json
-                                    .obj(
-                                      "id"      -> Json.fromString(id),
-                                      "type"    -> Json.fromString("complete"),
-                                      "payload" -> Json.fromString(error.toString)
-                                    )
-                                    .noSpaces
-                                )
+                                TextMessage(json.encodeWSError(msg.id, error))
                               )
                             )
                           )
                       }
                     case "stop" =>
-                      val id = msg.hcursor.downField("id").success.flatMap(_.value.asString).getOrElse("")
                       subscriptions
-                        .modify(map => (map.get(id), map - id))
+                        .modify(map => (map.get(msg.id), map - msg.id))
                         .flatMap(fiber => IO.whenCase(fiber) { case Some(fiber) => fiber.interrupt })
                   }
             } yield ()
@@ -161,5 +167,15 @@ object AkkaHttpAdapter extends FailFastCirceSupport {
         complete(upgrade.handleMessages(flow, subprotocol = Some("graphql-ws")))
       }
     }
+  }
+}
+
+object AkkaHttpAdapter {
+
+  /**
+   * @see [[AkkaHttpAdapter]]
+   */
+  def apply(jsonBackend: JsonBackend): AkkaHttpAdapter = new AkkaHttpAdapter {
+    val json: JsonBackend = jsonBackend
   }
 }
