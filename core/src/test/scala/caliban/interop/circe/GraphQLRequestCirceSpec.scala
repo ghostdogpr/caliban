@@ -1,15 +1,16 @@
-package caliban
+package caliban.interop.circe
 
+import caliban.GraphQLRequest
 import io.circe._
 import zio.test.Assertion._
 import zio.test.environment.TestEnvironment
-import zio.test._
+import zio.test.{ test, _ }
 
-object GraphQLRequestSpec extends DefaultRunnableSpec {
+object GraphQLRequestCirceSpec extends DefaultRunnableSpec {
 
   override def spec: ZSpec[TestEnvironment, Any] =
-    suite("GraphQLRequestSpec")(
-      test("can be parsed from JSON") {
+    suite("GraphQLRequestCirceSpec")(
+      test("can be parsed from JSON by circe") {
         val request = Json
           .obj("query" -> Json.fromString("{}"), "operationName" -> Json.fromString("op"), "variables" -> Json.obj())
         assert(request.as[GraphQLRequest])(

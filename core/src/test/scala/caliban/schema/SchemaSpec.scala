@@ -4,6 +4,7 @@ import java.util.UUID
 
 import scala.concurrent.Future
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
+import play.api.libs.json.JsValue
 import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment
@@ -42,9 +43,17 @@ object SchemaSpec extends DefaultRunnableSpec {
           isSome(hasField[__Type, String]("id", _.ofType.flatMap(_.name).get, equalTo("ID")))
         )
       },
-      test("field with Json object") {
+      test("field with Json object [circe]") {
         import caliban.interop.circe.json._
         case class Queries(to: io.circe.Json, from: io.circe.Json => Unit)
+
+        assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
+          isSome(hasField[__Type, String]("to", _.ofType.flatMap(_.name).get, equalTo("Json")))
+        )
+      },
+      test("field with Json object [play]") {
+        import caliban.interop.play.json._
+        case class Queries(to: JsValue, from: JsValue => Unit)
 
         assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
           isSome(hasField[__Type, String]("to", _.ofType.flatMap(_.name).get, equalTo("Json")))

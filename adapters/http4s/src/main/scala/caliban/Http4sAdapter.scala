@@ -1,7 +1,7 @@
 package caliban
 
-import caliban.ResponseValue._
-import caliban.Value._
+import caliban.ResponseValue.{ ObjectValue, StreamValue }
+import caliban.Value.NullValue
 import cats.data.{ Kleisli, OptionT }
 import cats.effect.Effect
 import cats.effect.syntax.all._
