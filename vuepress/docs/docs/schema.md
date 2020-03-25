@@ -20,6 +20,8 @@ The table below shows how common Scala types are converted to GraphQL types.
 | Option[A]                                           | Nullable A                                                       |
 | List[A]                                             | List of A                                                        |
 | Set[A]                                              | List of A                                                        |
+| Seq[A]                                              | List of A                                                        |
+| Vector[A]                                           | List of A                                                        |
 | A => B                                              | A and B                                                          |
 | (A, B)                                              | Object with 2 fields `_1` and `_2`                               |
 | Either[A, B]                                        | Object with 2 nullable fields `left` and `right`                 |
