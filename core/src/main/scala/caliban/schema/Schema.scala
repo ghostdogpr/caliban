@@ -135,7 +135,9 @@ trait GenericSchema[R] extends DerivationSchema[R] {
 
     override def resolve(value: List[A]): Step[R] = ListStep(value.map(ev.resolve))
   }
-  implicit def setSchema[A](implicit ev: Schema[R, A]): Schema[R, Set[A]] = listSchema[A].contramap(_.toList)
+  implicit def setSchema[A](implicit ev: Schema[R, A]): Schema[R, Set[A]]       = listSchema[A].contramap(_.toList)
+  implicit def seqSchema[A](implicit ev: Schema[R, A]): Schema[R, Seq[A]]       = listSchema[A].contramap(_.toList)
+  implicit def vectorSchema[A](implicit ev: Schema[R, A]): Schema[R, Vector[A]] = listSchema[A].contramap(_.toList)
   implicit def functionUnitSchema[A](implicit ev: Schema[R, A]): Schema[R, () => A] =
     new Schema[R, () => A] {
       override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
