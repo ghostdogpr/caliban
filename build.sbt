@@ -167,9 +167,10 @@ lazy val akkaHttp = project
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "com.typesafe.akka" %% "akka-http"       % "10.1.11",
-      "com.typesafe.akka" %% "akka-stream"     % "2.6.4",
-      "de.heikoseeberger" %% "akka-http-circe" % "1.31.0" % Optional,
+      "com.typesafe.akka" %% "akka-http"           % "10.1.11",
+      "com.typesafe.akka" %% "akka-stream"         % "2.6.4",
+      "de.heikoseeberger" %% "akka-http-circe"     % "1.31.0" % Optional,
+      "de.heikoseeberger" %% "akka-http-play-json" % "1.31.0" % Optional,
       compilerPlugin(
         ("org.typelevel" %% "kind-projector" % "0.11.0")
           .cross(CrossVersion.full)
@@ -218,7 +219,7 @@ lazy val examples = project
   .settings(skip in publish := true)
   .settings(
     libraryDependencies ++= Seq(
-      "de.heikoseeberger"            %% "akka-http-circe"               % "1.31.0",
+      "de.heikoseeberger"            %% "akka-http-play-json"               % "1.31.0",
       "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion
     )
   )
