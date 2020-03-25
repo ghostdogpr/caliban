@@ -219,7 +219,7 @@ lazy val examples = project
   .settings(skip in publish := true)
   .settings(
     libraryDependencies ++= Seq(
-      "de.heikoseeberger"            %% "akka-http-play-json"               % "1.31.0",
+      "de.heikoseeberger"            %% "akka-http-circe"               % "1.31.0",
       "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion
     )
   )
