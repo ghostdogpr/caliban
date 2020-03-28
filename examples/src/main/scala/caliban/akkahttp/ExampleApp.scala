@@ -6,10 +6,14 @@ import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives._
 import caliban.ExampleData.sampleCharacters
-import caliban.{ AkkaHttpAdapter, ExampleApi, ExampleService }
+import caliban.interop.circe.AkkaHttpCirceAdapter
+import caliban.{ ExampleApi, ExampleService }
 import zio.{ Runtime, ZEnv }
 
-object ExampleApp extends App {
+/**
+ * There's also an [[caliban.interop.play.AkkaHttpPlayJsonAdapter]] if you use play-json and don't want to have circe dependency
+ */
+object ExampleApp extends App with AkkaHttpCirceAdapter {
 
   implicit val system: ActorSystem                        = ActorSystem()
   implicit val executionContext: ExecutionContextExecutor = system.dispatcher
@@ -33,9 +37,9 @@ object ExampleApp extends App {
    */
   val route =
     path("api" / "graphql") {
-      AkkaHttpAdapter.makeHttpService(interpreter)
+      adapter.makeHttpService(interpreter)
     } ~ path("ws" / "graphql") {
-      AkkaHttpAdapter.makeWebSocketService(interpreter)
+      adapter.makeWebSocketService(interpreter)
     } ~ path("graphiql") {
       getFromResource("graphiql.html")
     }

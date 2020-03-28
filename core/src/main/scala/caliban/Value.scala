@@ -1,9 +1,9 @@
 package caliban
 
 import scala.util.Try
-
 import caliban.Value._
 import caliban.interop.circe._
+import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
 import zio.stream.Stream
 
 sealed trait InputValue
@@ -16,6 +16,11 @@ object InputValue {
     ValueCirce.inputValueEncoder.asInstanceOf[F[InputValue]]
   implicit def circeDecoder[F[_]: IsCirceDecoder]: F[InputValue] =
     ValueCirce.inputValueDecoder.asInstanceOf[F[InputValue]]
+
+  implicit def playJsonWrites[F[_]: IsPlayJsonWrites]: F[InputValue] =
+    ValuePlayJson.inputValueWrites.asInstanceOf[F[InputValue]]
+  implicit def playJsonReads[F[_]: IsPlayJsonReads]: F[InputValue] =
+    ValuePlayJson.inputValueReads.asInstanceOf[F[InputValue]]
 }
 
 sealed trait ResponseValue
@@ -35,6 +40,11 @@ object ResponseValue {
     ValueCirce.responseValueEncoder.asInstanceOf[F[ResponseValue]]
   implicit def circeDecoder[F[_]: IsCirceDecoder]: F[ResponseValue] =
     ValueCirce.responseValueDecoder.asInstanceOf[F[ResponseValue]]
+
+  implicit def playJsonWrites[F[_]: IsPlayJsonWrites]: F[ResponseValue] =
+    ValuePlayJson.responseValueWrites.asInstanceOf[F[ResponseValue]]
+  implicit def playJsonReads[F[_]: IsPlayJsonReads]: F[ResponseValue] =
+    ValuePlayJson.responseValueReads.asInstanceOf[F[ResponseValue]]
 }
 
 sealed trait Value extends InputValue with ResponseValue
@@ -182,4 +192,76 @@ private object ValueCirce {
         Json.obj(fields.map { case (k, v) => k -> responseValueEncoder.apply(v) }: _*)
       case s: ResponseValue.StreamValue => Json.fromString(s.toString)
     })
+}
+
+private object ValuePlayJson {
+  import play.api.libs.json._
+
+  val valueWrites: Writes[Value] = Writes {
+    case NullValue => JsNull
+    case v: IntValue =>
+      v match {
+        case IntValue.IntNumber(value)    => JsNumber(BigDecimal(value))
+        case IntValue.LongNumber(value)   => JsNumber(BigDecimal(value))
+        case IntValue.BigIntNumber(value) => JsNumber(BigDecimal(value))
+      }
+    case v: FloatValue =>
+      v match {
+        case FloatValue.FloatNumber(value)      => JsNumber(BigDecimal(value.toDouble))
+        case FloatValue.DoubleNumber(value)     => JsNumber(BigDecimal(value))
+        case FloatValue.BigDecimalNumber(value) => JsNumber(value)
+      }
+    case StringValue(value)  => JsString(value)
+    case BooleanValue(value) => JsBoolean(value)
+    case EnumValue(value)    => JsString(value)
+  }
+
+  private def jsonToInputValue(json: JsValue): InputValue =
+    json match {
+      case JsObject(fields)  => InputValue.ObjectValue(fields.map { case (k, v) => k -> jsonToInputValue(v) }.toMap)
+      case JsArray(elements) => InputValue.ListValue(elements.toList.map(jsonToInputValue))
+      case JsString(value)   => StringValue(value)
+      case JsNumber(value) =>
+        Try(value.toIntExact)
+          .map(IntValue.apply)
+          .getOrElse(FloatValue(value))
+
+      case b: JsBoolean => BooleanValue(b.value)
+      case JsNull       => NullValue
+    }
+
+  val inputValueReads: Reads[InputValue] = Reads(json => JsSuccess(jsonToInputValue(json)))
+  val inputValueWrites: Writes[InputValue] = Writes {
+    case value: Value                 => valueWrites.writes(value)
+    case InputValue.ListValue(values) => JsArray(values.map(inputValueWrites.writes))
+    case InputValue.ObjectValue(fields) =>
+      JsObject(fields.map { case (k, v) => k -> inputValueWrites.writes(v) })
+    case InputValue.VariableValue(name) => JsString(name)
+  }
+
+  private def jsonToResponseValue(json: JsValue): ResponseValue =
+    json match {
+      case JsObject(fields) =>
+        ResponseValue.ObjectValue(fields.map { case (k, v) => k -> jsonToResponseValue(v) }.toList)
+      case JsArray(elements) => ResponseValue.ListValue(elements.toList.map(jsonToResponseValue))
+      case JsString(value)   => StringValue(value)
+      case JsNumber(value) =>
+        Try(value.toIntExact)
+          .map(IntValue.apply)
+          .getOrElse(FloatValue(value))
+
+      case b: JsBoolean => BooleanValue(b.value)
+      case JsNull       => NullValue
+    }
+
+  val responseValueReads: Reads[ResponseValue] =
+    Reads(json => JsSuccess(jsonToResponseValue(json)))
+
+  val responseValueWrites: Writes[ResponseValue] = Writes {
+    case value: Value                    => valueWrites.writes(value)
+    case ResponseValue.ListValue(values) => JsArray(values.map(responseValueWrites.writes))
+    case ResponseValue.ObjectValue(fields) =>
+      JsObject(fields.map { case (k, v) => k -> responseValueWrites.writes(v) })
+    case s: ResponseValue.StreamValue => JsString(s.toString)
+  }
 }

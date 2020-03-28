@@ -1,6 +1,7 @@
 package caliban
 
 import caliban.interop.circe._
+import caliban.interop.play.IsPlayJsonReads
 
 /**
  * Represents a GraphQL request, containing a query, an operation name and a map of variables.
@@ -14,6 +15,8 @@ case class GraphQLRequest(
 object GraphQLRequest {
   implicit def circeDecoder[F[_]: IsCirceDecoder]: F[GraphQLRequest] =
     GraphQLRequestCirce.graphQLRequestDecoder.asInstanceOf[F[GraphQLRequest]]
+  implicit def playJsonReads[F[_]: IsPlayJsonReads]: F[GraphQLRequest] =
+    GraphQLRequestPlayJson.graphQLRequestReads.asInstanceOf[F[GraphQLRequest]]
 }
 
 private object GraphQLRequestCirce {
@@ -25,4 +28,10 @@ private object GraphQLRequestCirce {
       variables     <- c.downField("variables").as[Option[Map[String, InputValue]]]
     } yield GraphQLRequest(query, operationName, variables)
 
+}
+
+private object GraphQLRequestPlayJson {
+  import play.api.libs.json._
+
+  val graphQLRequestReads: Reads[GraphQLRequest] = Json.reads[GraphQLRequest]
 }

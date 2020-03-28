@@ -20,6 +20,8 @@ The table below shows how common Scala types are converted to GraphQL types.
 | Option[A]                                           | Nullable A                                                       |
 | List[A]                                             | List of A                                                        |
 | Set[A]                                              | List of A                                                        |
+| Seq[A]                                              | List of A                                                        |
+| Vector[A]                                           | List of A                                                        |
 | A => B                                              | A and B                                                          |
 | (A, B)                                              | Object with 2 fields `_1` and `_2`                               |
 | Either[A, B]                                        | Object with 2 nullable fields `left` and `right`                 |
@@ -29,6 +31,7 @@ The table below shows how common Scala types are converted to GraphQL types.
 | Future[A]                                           | Nullable A                                                       |
 | ZStream[R, E, A]                                    | A (subscription) or List of A (query, mutation)                  |
 | Json (from [Circe](https://github.com/circe/circe)) | Json (custom scalar, need `import caliban.interop.circe.json._`) |
+| Json (from [play-json](https://github.com/playframework/play-json)) | Json (custom scalar, need `import caliban.interop.play.json._`) |
 
 See the [Custom Types](#custom-types) section to find out how to support your own types.
 
@@ -184,7 +187,7 @@ Caliban can automatically generate Scala code from a GraphQL schema.
 In order to use this feature, add the `caliban-codegen` sbt plugin to your project and enable it. 
  
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen" % "0.7.2")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen" % "0.7.3")
 enablePlugins(CodegenPlugin)
 ```
 Then call the `calibanGenSchema` sbt command.

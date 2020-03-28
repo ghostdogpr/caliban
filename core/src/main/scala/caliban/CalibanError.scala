@@ -2,6 +2,7 @@ package caliban
 
 import caliban.ResponseValue.ObjectValue
 import caliban.interop.circe.IsCirceEncoder
+import caliban.interop.play.IsPlayJsonWrites
 import caliban.parsing.adt.LocationInfo
 
 /**
@@ -52,6 +53,9 @@ object CalibanError {
 
   implicit def circeEncoder[F[_]](implicit ev: IsCirceEncoder[F]): F[CalibanError] =
     ErrorCirce.errorValueEncoder.asInstanceOf[F[CalibanError]]
+
+  implicit def playJsonWrites[F[_]](implicit ev: IsPlayJsonWrites[F]): F[CalibanError] =
+    ErrorPlayJson.errorValueWrites.asInstanceOf[F[CalibanError]]
 }
 
 private object ErrorCirce {
@@ -99,6 +103,45 @@ private object ErrorCirce {
           "extensions" -> (extensions: Option[ResponseValue]).asJson.dropNullValues
         )
         .dropNullValues
+  }
+
+}
+
+private object ErrorPlayJson {
+  import play.api.libs.json._
+
+  private final case class ErrorDTO(
+    message: String,
+    extensions: Option[ResponseValue],
+    locations: Option[LocationInfo],
+    path: Option[JsArray]
+  )
+
+  implicit val locationInfoWrites: Writes[LocationInfo] =
+    Json.writes[LocationInfo].transform((v: JsValue) => Json.arr(v))
+
+  private implicit val errorDTOWrites = Json.writes[ErrorDTO]
+
+  val errorValueWrites: Writes[CalibanError] = errorDTOWrites.contramap[CalibanError] {
+    case CalibanError.ParsingError(msg, locationInfo, _, extensions) =>
+      ErrorDTO(s"Parsing Error: $msg", extensions, locationInfo, None)
+
+    case CalibanError.ValidationError(msg, _, locationInfo, extensions) =>
+      ErrorDTO(msg, extensions, locationInfo, None)
+
+    case CalibanError.ExecutionError(msg, path, locationInfo, _, extensions) =>
+      ErrorDTO(
+        msg,
+        extensions,
+        locationInfo,
+        Some(path).collect {
+          case p if p.nonEmpty =>
+            JsArray(p.map {
+              case Left(value)  => JsString(value)
+              case Right(value) => JsNumber(value)
+            })
+        }
+      )
   }
 
 }

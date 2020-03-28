@@ -4,7 +4,7 @@ val mainScala = "2.12.10"
 val allScala  = Seq("2.13.1", mainScala)
 
 val catsEffectVersion     = "2.1.2"
-val http4sVersion         = "0.21.1"
+val http4sVersion         = "0.21.2"
 val silencerVersion       = "1.6.0"
 val sttpVersion           = "2.0.6"
 val zioVersion            = "1.0.0-RC18-2"
@@ -74,14 +74,15 @@ lazy val core = crossProject(JSPlatform, JVMPlatform)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "com.lihaoyi"    %%% "fastparse"    % "2.2.4",
-      "com.propensive" %%% "magnolia"     % "0.12.7",
-      "com.propensive" %%% "mercator"     % "0.2.1",
-      "dev.zio"        %%% "zio"          % zioVersion,
-      "dev.zio"        %%% "zio-streams"  % zioVersion,
-      "dev.zio"        %%% "zio-test"     % zioVersion % "test",
-      "dev.zio"        %%% "zio-test-sbt" % zioVersion % "test",
-      "io.circe"       %%% "circe-core"   % "0.13.0" % Optional,
+      "com.lihaoyi"       %%% "fastparse"    % "2.2.4",
+      "com.propensive"    %%% "magnolia"     % "0.12.7",
+      "com.propensive"    %%% "mercator"     % "0.2.1",
+      "dev.zio"           %%% "zio"          % zioVersion,
+      "dev.zio"           %%% "zio-streams"  % zioVersion,
+      "dev.zio"           %%% "zio-test"     % zioVersion % "test",
+      "dev.zio"           %%% "zio-test-sbt" % zioVersion % "test",
+      "io.circe"          %%% "circe-core"   % "0.13.0" % Optional,
+      "com.typesafe.play" %%% "play-json"    % "2.8.1" % Optional,
       compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
     )
   )
@@ -166,10 +167,10 @@ lazy val akkaHttp = project
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "com.typesafe.akka" %% "akka-http"       % "10.1.11",
-      "com.typesafe.akka" %% "akka-stream"     % "2.6.4",
-      "de.heikoseeberger" %% "akka-http-circe" % "1.31.0",
-      "io.circe"          %% "circe-parser"    % "0.13.0",
+      "com.typesafe.akka" %% "akka-http"           % "10.1.11",
+      "com.typesafe.akka" %% "akka-stream"         % "2.6.4",
+      "de.heikoseeberger" %% "akka-http-circe"     % "1.31.0" % Optional,
+      "de.heikoseeberger" %% "akka-http-play-json" % "1.31.0" % Optional,
       compilerPlugin(
         ("org.typelevel" %% "kind-projector" % "0.11.0")
           .cross(CrossVersion.full)
@@ -218,6 +219,7 @@ lazy val examples = project
   .settings(skip in publish := true)
   .settings(
     libraryDependencies ++= Seq(
+      "de.heikoseeberger"            %% "akka-http-circe"               % "1.31.0",
       "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion
     )
   )
