@@ -15,6 +15,11 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
   def check(gql: GraphQL[Any], expectedMessage: String): IO[ValidationError, TestResult] =
     assertM(gql.interpreter.run)(fails[ValidationError](hasField("msg", _.msg, equalTo(expectedMessage))))
 
+  def checkTypeError(`type`: __Type, expectedMessage: String): IO[ValidationError, TestResult] =
+    assertM(Validator.validateEnum(`type`).run)(
+      fails[ValidationError](hasField("msg", _.msg, equalTo(expectedMessage)))
+    )
+
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("ValidationSchemaSpec")(
       suite("Enum")(
@@ -29,20 +34,13 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
           )(anything)
         },
         testM("must be non-empty") {
-          assertM(
-            Validator
-              .validateEnum(
-                __Type(
-                  name = Some("EmptyEnum"),
-                  kind = __TypeKind.ENUM,
-                  enumValues = _ => None
-                )
-              )
-              .run
-          )(
-            fails[ValidationError](
-              hasField("msg", _.msg, equalTo("Enum EmptyEnum doesn't contain any values"))
-            )
+          checkTypeError(
+            __Type(
+              name = Some("EmptyEnum"),
+              kind = __TypeKind.ENUM,
+              enumValues = _ => None
+            ),
+            "Enum EmptyEnum doesn't contain any values"
           )
         }
       ),
