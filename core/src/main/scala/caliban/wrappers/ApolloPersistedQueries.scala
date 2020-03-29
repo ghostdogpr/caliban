@@ -53,13 +53,11 @@ object ApolloPersistedQueries {
 
   private def readHash(request: GraphQLRequest): Option[String] =
     request.extensions
-      .getOrElse(Map())
-      .get("persistedQuery")
+      .flatMap(_.get("persistedQuery"))
       .flatMap {
         case InputValue.ObjectValue(fields) =>
-          fields.get("sha256Hash").flatMap {
-            case StringValue(hash) => Some(hash)
-            case _                 => None
+          fields.get("sha256Hash").collectFirst {
+            case StringValue(hash) => hash
           }
         case _ => None
       }
