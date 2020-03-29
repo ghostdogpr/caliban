@@ -18,8 +18,8 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("ValidationSchemaSpec")(
       suite("Enum")(
-        test("non-empty enum validates with no errors") {
-          assert(
+        testM("non-empty enum is ok") {
+          assertM(
             Validator.validateEnum(
               __Type(
                 kind = __TypeKind.ENUM,
@@ -27,6 +27,23 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
               )
             )
           )(anything)
+        },
+        testM("must be non-empty") {
+          assertM(
+            Validator
+              .validateEnum(
+                __Type(
+                  name = Some("EmptyEnum"),
+                  kind = __TypeKind.ENUM,
+                  enumValues = _ => None
+                )
+              )
+              .run
+          )(
+            fails[ValidationError](
+              hasField("msg", _.msg, equalTo("Enum EmptyEnum doesn't contain any values"))
+            )
+          )
         }
       ),
       suite("InputObjects")(
