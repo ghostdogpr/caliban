@@ -16,11 +16,11 @@ object CatsInterop {
     query: String,
     operationName: Option[String] = None,
     variables: Map[String, InputValue] = Map(),
+    extensions: Map[String, InputValue] = Map(),
     skipValidation: Boolean = false
   )(implicit runtime: Runtime[R]): F[GraphQLResponse[E]] =
     Async[F].async { cb =>
-      val execution =
-        graphQL.execute(query, operationName, variables, skipValidation)
+      val execution = graphQL.execute(query, operationName, variables, extensions, skipValidation)
 
       runtime.unsafeRunAsync(execution)(exit => cb(exit.toEither))
     }

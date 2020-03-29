@@ -3,12 +3,16 @@ package caliban.wrappers
 import scala.language.postfixOps
 import caliban.CalibanError.{ ExecutionError, ValidationError }
 import caliban.GraphQL._
+import caliban.InputValue.ObjectValue
 import caliban.Macros.gqldoc
+import caliban.Value.StringValue
 import caliban.schema.Annotations.GQLDirective
 import caliban.schema.GenericSchema
 import caliban.wrappers.ApolloCaching.CacheControl
+import caliban.wrappers.ApolloPersistedQueries.apolloPersistedQueries
 import caliban.wrappers.Wrappers._
-import caliban.{ GraphQL, RootResolver }
+import caliban.{ GraphQL, GraphQLRequest, RootResolver }
+import io.circe.syntax._
 import zio.clock.Clock
 import zio.duration._
 import zio.test.Assertion._
@@ -186,6 +190,35 @@ object WrappersSpec extends DefaultRunnableSpec {
             )
           )
         )
-      }
+      },
+      suite("Apollo Persisted Queries")(
+        testM("hash not found") {
+          case class Test(test: String)
+          val interpreter = (graphQL(RootResolver(Test("ok"))) @@ apolloPersistedQueries).interpreter
+          assertM(
+            interpreter
+              .flatMap(
+                _.executeRequest(
+                  GraphQLRequest(extensions =
+                    Some(Map("persistedQuery" -> ObjectValue(Map("sha256Hash" -> StringValue("my-hash")))))
+                  )
+                )
+              )
+              .map(_.asJson.noSpaces)
+          )(equalTo("""{"data":null,"errors":[{"message":"PersistedQueryNotFound"}]}"""))
+            .provideLayer(ApolloPersistedQueries.live)
+        },
+        testM("hash found") {
+          case class Test(test: String)
+
+          (for {
+            interpreter <- (graphQL(RootResolver(Test("ok"))) @@ apolloPersistedQueries).interpreter
+            extensions  = Some(Map("persistedQuery" -> ObjectValue(Map("sha256Hash" -> StringValue("my-hash")))))
+            _           <- interpreter.executeRequest(GraphQLRequest(query = Some("{test}"), extensions = extensions))
+            result      <- interpreter.executeRequest(GraphQLRequest(extensions = extensions))
+          } yield assert(result.asJson.noSpaces)(equalTo("""{"data":{"test":"ok"}}""")))
+            .provideLayer(ApolloPersistedQueries.live)
+        }
+      )
     )
 }
