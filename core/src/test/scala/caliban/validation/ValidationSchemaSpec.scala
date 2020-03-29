@@ -1,9 +1,10 @@
 package caliban.validation
 
 import caliban.CalibanError.ValidationError
-import caliban.{ GraphQL, RootResolver }
+import caliban.{GraphQL, RootResolver}
 import caliban.GraphQL.graphQL
 import caliban.TestUtils.InvalidSchemas._
+import caliban.introspection.adt.{__EnumValue, __Type, __TypeKind}
 import zio.IO
 import zio.test.Assertion._
 import zio.test.environment.TestEnvironment
@@ -16,6 +17,16 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("ValidationSchemaSpec")(
+      suite("Enum")(
+        test("non-empty enum validates with no errors") {
+          assert(Validator.validateEnum(
+            __Type(
+              kind = __TypeKind.ENUM,
+              enumValues = _ => Some(List(__EnumValue(name = "A", isDeprecated = false)))
+            )
+          ))(anything)
+        }
+      ),
       suite("InputObjects")(
         testM("name can't start with '__'") {
           check(

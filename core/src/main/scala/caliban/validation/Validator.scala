@@ -532,7 +532,7 @@ object Validator {
         )
     }
 
-  private def validateEnum(t: __Type): IO[ValidationError, Unit] =
+  private[caliban] def validateEnum(t: __Type): IO[ValidationError, Unit] =
     t.enumValues(__DeprecatedArgs(Some(true))) match {
       case Some(_ :: _) => IO.unit
       case _ =>
@@ -542,7 +542,7 @@ object Validator {
         )
     }
 
-  private def validateUnion(t: __Type): IO[ValidationError, Unit] = {
+  private[caliban] def validateUnion(t: __Type): IO[ValidationError, Unit] = {
 
     def isObject(t: __Type): Boolean = t.kind match {
       case __TypeKind.OBJECT => true
@@ -566,7 +566,7 @@ object Validator {
 
   }
 
-  private def validateInputObject(t: __Type): IO[ValidationError, Unit] = {
+  private[caliban] def validateInputObject(t: __Type): IO[ValidationError, Unit] = {
     val inputObjectContext = s"""InputObject '${t.name.getOrElse("")}'"""
 
     def noDuplicateInputValueName(inputValues: List[__InputValue], errorContext: String): IO[ValidationError, Unit] = {
@@ -590,7 +590,7 @@ object Validator {
     }
   }
 
-  private def validateInputValue(inputValue: __InputValue, errorContext: String): IO[ValidationError, Unit] = {
+  private[caliban] def validateInputValue(inputValue: __InputValue, errorContext: String): IO[ValidationError, Unit] = {
     val fieldContext = s"InputValue '${inputValue.name}' of $errorContext"
     for {
       _ <- doesNotStartWithUnderscore(inputValue, fieldContext)
@@ -598,7 +598,7 @@ object Validator {
     } yield ()
   }
 
-  private def validateInterface(t: __Type): IO[ValidationError, Unit] = {
+  private[caliban] def validateInterface(t: __Type): IO[ValidationError, Unit] = {
     val interfaceContext = s"Interface '${t.name.getOrElse("")}'"
 
     t.fields(__DeprecatedArgs(Some(true))) match {
@@ -624,7 +624,7 @@ object Validator {
     }
   }
 
-  private def onlyInputType(`type`: __Type, errorContext: String): IO[ValidationError, Unit] = {
+  private[caliban] def onlyInputType(`type`: __Type, errorContext: String): IO[ValidationError, Unit] = {
     // https://spec.graphql.org/June2018/#IsInputType()
     def isInputType(t: __Type): Either[__Type, Unit] = {
       import __TypeKind._
@@ -644,7 +644,7 @@ object Validator {
     }
   }
 
-  private def validateFields(fields: List[__Field], context: String): IO[ValidationError, Unit] =
+  private[caliban] def validateFields(fields: List[__Field], context: String): IO[ValidationError, Unit] =
     noDuplicateFieldName(fields, context) <*
       IO.foreach(fields) { field =>
         val fieldContext = s"Field '${field.name}' of $context"
@@ -655,14 +655,14 @@ object Validator {
         } yield ()
       }
 
-  private def noDuplicateFieldName(fields: List[__Field], errorContext: String) = {
+  private[caliban] def noDuplicateFieldName(fields: List[__Field], errorContext: String) = {
     val messageBuilder = (f: __Field) => s"$errorContext has repeated fields: ${f.name}"
     val explanatory =
       "The field must have a unique name within that Interface type; no two fields may share the same name"
     noDuplicateName[__Field](fields, _.name, messageBuilder, explanatory)
   }
 
-  private def onlyOutputType(`type`: __Type, errorContext: String): IO[ValidationError, Unit] = {
+  private[caliban] def onlyOutputType(`type`: __Type, errorContext: String): IO[ValidationError, Unit] = {
     // https://spec.graphql.org/June2018/#IsOutputType()
     def isOutputType(t: __Type): Either[__Type, Unit] = {
       import __TypeKind._
@@ -682,7 +682,7 @@ object Validator {
     }
   }
 
-  private def noDuplicateName[T](
+  private[caliban] def noDuplicateName[T](
     listOfNamed: List[T],
     nameExtractor: T => String,
     messageBuilder: T => String,
@@ -693,18 +693,18 @@ object Validator {
       .collectFirst { case (_, f :: _ :: _) => f }
       .fold[IO[ValidationError, Unit]](IO.unit)(duplicate => failValidation(messageBuilder(duplicate), explanatoryText))
 
-  private def doesNotStartWithUnderscore(field: __Field, errorContext: String) = {
+  private[caliban] def doesNotStartWithUnderscore(field: __Field, errorContext: String) = {
     val explanatory = s"""The field must not have a name which begins with the characters {"__"} (two underscores)"""
     doesNotStartWithUnderscore[__Field](field, _.name, errorContext, explanatory)
   }
 
-  private def doesNotStartWithUnderscore(inputValue: __InputValue, errorContext: String) = {
+  private[caliban] def doesNotStartWithUnderscore(inputValue: __InputValue, errorContext: String) = {
     val explanatory =
       s"""The input field must not have a name which begins with the characters "__" (two underscores)"""
     doesNotStartWithUnderscore[__InputValue](inputValue, _.name, errorContext, explanatory)
   }
 
-  private def doesNotStartWithUnderscore[T](
+  private[caliban] def doesNotStartWithUnderscore[T](
     t: T,
     nameExtractor: T => String,
     errorContext: String,
@@ -714,7 +714,7 @@ object Validator {
       failValidation(s"$errorContext can't start with '__'", explanatoryText)
     )
 
-  private def validateRootQuery[R](schema: RootSchemaBuilder[R]): IO[ValidationError, RootSchema[R]] =
+  private[caliban] def validateRootQuery[R](schema: RootSchemaBuilder[R]): IO[ValidationError, RootSchema[R]] =
     schema.query match {
       case None =>
         failValidation(
@@ -724,7 +724,7 @@ object Validator {
       case Some(query) => IO.succeed(RootSchema(query, schema.mutation, schema.subscription))
     }
 
-  private def validateClashingTypes(types: List[__Type]): IO[ValidationError, Unit] = {
+  private[caliban] def validateClashingTypes(types: List[__Type]): IO[ValidationError, Unit] = {
     val check = types.groupBy(_.name).collectFirst { case (Some(name), v) if v.size > 1 => (name, v) }
     IO.whenCase(check) {
       case Some((name, values)) =>
