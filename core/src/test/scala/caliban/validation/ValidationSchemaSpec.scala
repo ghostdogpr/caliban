@@ -48,7 +48,8 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
       ),
       suite("Union") {
         testM("must be non-empty") {
-          checkTypeError(
+          val expectedMessage = "Union EmptyUnion doesn't contain any type."
+          (checkTypeError(
             Validator.validateUnion(
               __Type(
                 name = Some("EmptyUnion"),
@@ -56,8 +57,17 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
                 possibleTypes = None
               )
             ),
-            "Union EmptyUnion doesn't contain any type."
-          )
+            expectedMessage
+          ) &&& checkTypeError(
+            Validator.validateUnion(
+              __Type(
+                name = Some("EmptyUnion"),
+                kind = __TypeKind.UNION,
+                possibleTypes = Some(List.empty)
+              )
+            ),
+            expectedMessage
+          )).map { case (a, b) => a && b }
         }
       },
       suite("InputObjects")(
