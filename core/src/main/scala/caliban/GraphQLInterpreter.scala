@@ -20,13 +20,22 @@ trait GraphQLInterpreter[-R, +E] { self =>
   def check(query: String): IO[CalibanError, Unit]
 
   /**
-   * Parses, validates and finally runs the provided query against this interpreter.
-   * @param request a GraphQL request.
+   * Parses, validates and finally runs the provided request against this interpreter.
+   * @param request a GraphQL request
    * @param skipValidation skips the validation step if true
    * @return an effect that either fails with an `E` or succeeds with a [[ResponseValue]]
    */
   def executeRequest(request: GraphQLRequest, skipValidation: Boolean = false): URIO[R, GraphQLResponse[E]]
 
+  /**
+   * Parses, validates and finally runs the provided query against this interpreter.
+   * @param query a string containing the GraphQL query
+   * @param operationName the operation to run in case the query contains multiple operations	
+   * @param variables a map of variables
+   * @param extensions a map of extensions
+   * @param skipValidation skips the validation step if true
+   * @return an effect that either fails with an `E` or succeeds with a [[ResponseValue]]
+   */
   def execute(
     query: String,
     operationName: Option[String] = None,

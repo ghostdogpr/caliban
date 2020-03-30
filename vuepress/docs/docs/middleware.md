@@ -22,18 +22,18 @@ Each one requires a function that takes a `ZIO` or `ZQuery` computation together
 Let's see how to implement a wrapper that times out the whole query if its processing takes longer that 1 minute.
 
 ```scala
-val wrapper = OverallWrapper {
-  case (io, query) =>
-    io.timeout(1 minute)
-      .map(
-        _.getOrElse(
-          GraphQLResponse(
-            NullValue,
-            List(ExecutionError(s"Query was interrupted after timeout of ${duration.render}:\n$query"))
-          )
+val wrapper = OverallWrapper { process => (request: GraphQLRequest) =>
+  process(request)
+    .timeout(1 minute)
+    .map(
+      _.getOrElse(
+        GraphQLResponse(
+          NullValue,
+          List(ExecutionError(s"Query was interrupted after timeout of ${duration.render}:\n$query"))
         )
       )
-}
+    )
+  }
 ```
 
 You can also combine wrappers using `|+|` and create a wrapper that requires an effect to be run at each query using `EffectfulWrapper`.
@@ -58,6 +58,7 @@ Caliban comes with a few pre-made wrappers in `caliban.wrappers.Wrappers`:
 In addition to those, Caliban also ships with some non-spec but standard wrappers
 - `caliban.wrappers.ApolloTracing.apolloTracing` returns a wrapper that adds tracing data into the `extensions` field of each response following [Apollo Tracing](https://github.com/apollographql/apollo-tracing) format.
 - `caliban.wrappers.ApolloCaching.apolloCaching` returns a wrapper that adds caching hints to properly annotated fields using the [Apollo Caching](https://github.com/apollographql/apollo-cache-control) format.
+- `caliban.wrappers.ApolloPersistedQueries.apolloPersistedQueries` returns a wrapper that caches and retrieves query using a hash using the [Apollo Persisted Queries](https://github.com/apollographql/apollo-link-persisted-queries) format.
 
 They can be used like this:
 ```scala
