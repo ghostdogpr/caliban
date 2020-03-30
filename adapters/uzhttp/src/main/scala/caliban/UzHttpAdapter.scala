@@ -47,12 +47,13 @@ object UzHttpAdapter {
         .toMap
 
       for {
-        query         <- ZIO.fromOption(params.get("query")).orElseFail(BadRequest("Missing query parameter"))
-        operationName = params.get("operationName")
         variables <- ZIO
                       .foreach(params.get("variables"))(s => ZIO.fromEither(decode[Map[String, InputValue]](s)))
                       .mapError(e => BadRequest(e.getMessage))
-        req = GraphQLRequest(query, operationName, variables)
+        extensions <- ZIO
+                       .foreach(params.get("extensions"))(s => ZIO.fromEither(decode[Map[String, InputValue]](s)))
+                       .mapError(e => BadRequest(e.getMessage))
+        req = GraphQLRequest(params.get("query"), params.get("operationName"), variables, extensions)
         res <- executeHttpResponse(interpreter, req, skipValidation)
       } yield res
   }
@@ -80,9 +81,8 @@ object UzHttpAdapter {
                           case Some(query) =>
                             val operationName = payload.downField("operationName").success.flatMap(_.value.asString)
                             for {
-                              result <- execute(
-                                         interpreter,
-                                         GraphQLRequest(query, operationName, None),
+                              result <- interpreter.executeRequest(
+                                         GraphQLRequest(Some(query), operationName),
                                          skipValidation
                                        )
                               _ <- result.data match {
@@ -140,19 +140,13 @@ object UzHttpAdapter {
       )
       .unit
 
-  private def execute[R, E](
-    interpreter: GraphQLInterpreter[R, E],
-    query: GraphQLRequest,
-    skipValidation: Boolean
-  ): URIO[R, GraphQLResponse[E]] =
-    interpreter.execute(query.query, query.operationName, query.variables.getOrElse(Map()), skipValidation)
-
   private def executeHttpResponse[R, E](
     interpreter: GraphQLInterpreter[R, E],
     request: GraphQLRequest,
     skipValidation: Boolean
   ): URIO[R, Response] =
-    execute(interpreter, request, skipValidation)
+    interpreter
+      .executeRequest(request, skipValidation)
       .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
       .map(gqlResult =>
         Response.const(
