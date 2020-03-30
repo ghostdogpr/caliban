@@ -15,10 +15,8 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
   def check(gql: GraphQL[Any], expectedMessage: String): IO[ValidationError, TestResult] =
     assertM(gql.interpreter.run)(fails[ValidationError](hasField("msg", _.msg, equalTo(expectedMessage))))
 
-  def checkTypeError(`type`: __Type, expectedMessage: String): IO[ValidationError, TestResult] =
-    assertM(Validator.validateEnum(`type`).run)(
-      fails[ValidationError](hasField("msg", _.msg, equalTo(expectedMessage)))
-    )
+  def checkTypeError(validation: IO[ValidationError, Unit], expectedMessage: String): IO[ValidationError, TestResult] =
+    assertM(validation.run)(fails(hasField("msg", _.msg, equalTo(expectedMessage))))
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("ValidationSchemaSpec")(
@@ -37,15 +35,31 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
         },
         testM("must be non-empty") {
           checkTypeError(
-            __Type(
-              name = Some("EmptyEnum"),
-              kind = __TypeKind.ENUM,
-              enumValues = _ => None
+            Validator.validateEnum(
+              __Type(
+                name = Some("EmptyEnum"),
+                kind = __TypeKind.ENUM,
+                enumValues = _ => None
+              )
             ),
             "Enum EmptyEnum doesn't contain any values"
           )
         }
       ),
+      suite("Union") {
+        testM("must be non-empty") {
+          checkTypeError(
+            Validator.validateUnion(
+              __Type(
+                name = Some("EmptyUnion"),
+                kind = __TypeKind.UNION,
+                possibleTypes = None
+              )
+            ),
+            "Union EmptyUnion doesn't contain any type."
+          )
+        }
+      },
       suite("InputObjects")(
         testM("name can't start with '__'") {
           check(
