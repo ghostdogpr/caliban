@@ -25,13 +25,15 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
       suite("Enum")(
         testM("non-empty enum is ok") {
           assertM(
-            Validator.validateEnum(
-              __Type(
-                kind = __TypeKind.ENUM,
-                enumValues = _ => Some(List(__EnumValue(name = "A", isDeprecated = false)))
+            Validator
+              .validateEnum(
+                __Type(
+                  kind = __TypeKind.ENUM,
+                  enumValues = _ => Some(List(__EnumValue(name = "A", isDeprecated = false)))
+                )
               )
-            )
-          )(anything)
+              .run
+          )(succeeds(anything))
         },
         testM("must be non-empty") {
           checkTypeError(
