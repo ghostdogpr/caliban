@@ -1,12 +1,11 @@
 package caliban.wrappers
 
 import scala.annotation.tailrec
-
 import caliban.CalibanError.{ ParsingError, ValidationError }
 import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.parsing.adt.Document
 import caliban.wrappers.Wrapper.CombinedWrapper
-import caliban.{ CalibanError, GraphQLResponse, ResponseValue }
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
 import zio.{ UIO, ZIO }
 import zquery.ZQuery
 
@@ -28,45 +27,41 @@ sealed trait Wrapper[-R] { self =>
 object Wrapper {
 
   /**
-   * `WrappingFunction[R, E, A, Info]` is an alias for a function that takes an `ZIO[R, E, A]` and some extra `Info`
-   * and returns a `ZIO[R, E, A]`.
+   * `WrappingFunction[R, E, A, Info]` is an alias for a function that transforms an initial function
+   * from `Info` to `ZIO[R, E, A]` into a new function from `Info` to `ZIO[R, E, A]`.
    */
-  type WrappingFunction[R, E, A, Info] = (ZIO[R, E, A], Info) => ZIO[R, E, A]
+  type WrappingFunction[R, E, A, Info] = (Info => ZIO[R, E, A]) => Info => ZIO[R, E, A]
 
   /**
    * Wrapper for the whole query processing.
-   * Takes a function from a `UIO[GraphQLResponse[CalibanError]]` and a query `String` and that returns a
-   * `URIO[R, GraphQLResponse[CalibanError]]`.
+   * Wraps a function from a request `GraphQLRequest` to a `URIO[R, GraphQLResponse[CalibanError]]`.
    */
-  case class OverallWrapper[R](f: WrappingFunction[R, Nothing, GraphQLResponse[CalibanError], String])
+  case class OverallWrapper[R](f: WrappingFunction[R, Nothing, GraphQLResponse[CalibanError], GraphQLRequest])
       extends Wrapper[R]
 
   /**
    * Wrapper for the query parsing stage.
-   * Takes a function from an `IO[ParsingError, Document]` and a query `String` and that returns a
-   * `ZIO[R, ParsingError, Document]`.
+   * Wraps a function from a query `String` to a `ZIO[R, ParsingError, Document]`.
    */
   case class ParsingWrapper[R](f: WrappingFunction[R, ParsingError, Document, String]) extends Wrapper[R]
 
   /**
    * Wrapper for the query validation stage.
-   * Takes a function from an `IO[ValidationError, ExecutionRequest]` and a `Document` and that returns a
-   * `ZIO[R, ValidationError, ExecutionRequest]`.
+   * Wraps a function from a `Document` to a `ZIO[R, ValidationError, ExecutionRequest]`.
    */
   case class ValidationWrapper[R](f: WrappingFunction[R, ValidationError, ExecutionRequest, Document])
       extends Wrapper[R]
 
   /**
    * Wrapper for the query execution stage.
-   * Takes a function from a `UIO[GraphQLResponse[CalibanError]]` and an `ExecutionRequest` and that returns a
-   * `URIO[R, GraphQLResponse[CalibanError]]`.
+   * Wraps a function from an `ExecutionRequest` to a `URIO[R, GraphQLResponse[CalibanError]]`.
    */
   case class ExecutionWrapper[R](f: WrappingFunction[R, Nothing, GraphQLResponse[CalibanError], ExecutionRequest])
       extends Wrapper[R]
 
   /**
    * Wrapper for each individual field.
-   * Takes a function from a `ZQuery[Any, Nothing, ResponseValue]` and a `FieldInfo` and that returns a
+   * Takes a function from a `ZQuery[R, Nothing, ResponseValue]` and a `FieldInfo` and that returns a
    * `ZQuery[R, CalibanError, ResponseValue]`.
    * If `wrapPureValues` is true, every single field will be wrapped, which could have an impact on performances.
    * If false, simple pure values will be ignored.
@@ -89,20 +84,20 @@ object Wrapper {
   case class EffectfulWrapper[-R](wrapper: UIO[Wrapper[R]]) extends Wrapper[R]
 
   private[caliban] def wrap[R1 >: R, R, E, A, Info](
-    zio: ZIO[R1, E, A]
+    process: Info => ZIO[R1, E, A]
   )(wrappers: List[WrappingFunction[R, E, A, Info]], info: Info): ZIO[R, E, A] = {
     @tailrec
-    def loop(zio: ZIO[R, E, A], wrappers: List[WrappingFunction[R, E, A, Info]]): ZIO[R, E, A] =
+    def loop(process: Info => ZIO[R, E, A], wrappers: List[WrappingFunction[R, E, A, Info]]): Info => ZIO[R, E, A] =
       wrappers match {
-        case Nil             => zio
-        case wrapper :: tail => loop(wrapper(zio, info), tail)
+        case Nil             => process
+        case wrapper :: tail => loop(wrapper((info: Info) => process(info)), tail)
       }
-    loop(zio, wrappers)
+    loop(process, wrappers)(info)
   }
 
   private[caliban] def decompose[R](wrappers: List[Wrapper[R]]): UIO[
     (
-      List[WrappingFunction[R, Nothing, GraphQLResponse[CalibanError], String]],
+      List[WrappingFunction[R, Nothing, GraphQLResponse[CalibanError], GraphQLRequest]],
       List[WrappingFunction[R, ParsingError, Document, String]],
       List[WrappingFunction[R, ValidationError, ExecutionRequest, Document]],
       List[WrappingFunction[R, Nothing, GraphQLResponse[CalibanError], ExecutionRequest]],
@@ -111,7 +106,7 @@ object Wrapper {
   ] =
     ZIO.foldLeft(wrappers)(
       (
-        List.empty[WrappingFunction[R, Nothing, GraphQLResponse[CalibanError], String]],
+        List.empty[WrappingFunction[R, Nothing, GraphQLResponse[CalibanError], GraphQLRequest]],
         List.empty[WrappingFunction[R, ParsingError, Document, String]],
         List.empty[WrappingFunction[R, ValidationError, ExecutionRequest, Document]],
         List.empty[WrappingFunction[R, Nothing, GraphQLResponse[CalibanError], ExecutionRequest]],

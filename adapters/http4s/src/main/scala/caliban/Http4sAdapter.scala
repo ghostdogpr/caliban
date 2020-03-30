@@ -23,30 +23,31 @@ import com.github.ghik.silencer.silent
 
 object Http4sAdapter {
 
-  private def execute[R, E](
-    interpreter: GraphQLInterpreter[R, E],
-    query: GraphQLRequest,
-    skipValidation: Boolean
-  ): URIO[R, GraphQLResponse[E]] =
-    interpreter.execute(query.query, query.operationName, query.variables.getOrElse(Map()), skipValidation)
-
   private def executeToJson[R, E](
     interpreter: GraphQLInterpreter[R, E],
-    query: GraphQLRequest,
+    request: GraphQLRequest,
     skipValidation: Boolean
   ): URIO[R, Json] =
-    execute(interpreter, query, skipValidation)
+    interpreter
+      .executeRequest(request, skipValidation)
       .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
 
   @deprecated("Use makeHttpService instead", "0.4.0")
   def makeRestService[R, E](interpreter: GraphQLInterpreter[R, E]): HttpRoutes[RIO[R, *]] =
     makeHttpService(interpreter)
 
-  private def getGraphQLRequest(query: String, op: Option[String], vars: Option[String]): Result[GraphQLRequest] = {
-    val variablesJs = vars.flatMap(parse(_).toOption)
+  private def getGraphQLRequest(
+    query: String,
+    op: Option[String],
+    vars: Option[String],
+    exts: Option[String]
+  ): Result[GraphQLRequest] = {
+    val variablesJs  = vars.flatMap(parse(_).toOption)
+    val extensionsJs = exts.flatMap(parse(_).toOption)
     val fields = List("query" -> Json.fromString(query)) ++
-      op.map(o => "operationName"       -> Json.fromString(o)) ++
-      variablesJs.map(js => "variables" -> js)
+      op.map(o => "operationName"         -> Json.fromString(o)) ++
+      variablesJs.map(js => "variables"   -> js) ++
+      extensionsJs.map(js => "extensions" -> js)
     Json
       .fromFields(fields)
       .as[GraphQLRequest]
@@ -56,7 +57,8 @@ object Http4sAdapter {
     getGraphQLRequest(
       params.getOrElse("query", ""),
       params.get("operationName"),
-      params.get("variables")
+      params.get("variables"),
+      params.get("extensions")
     )
 
   @silent def makeHttpService[R, E](
@@ -142,7 +144,7 @@ object Http4sAdapter {
                       case Some(query) =>
                         val operationName = payload.downField("operationName").success.flatMap(_.value.asString)
                         (for {
-                          result <- execute(interpreter, GraphQLRequest(query, operationName, None), skipValidation)
+                          result <- interpreter.execute(query, operationName, skipValidation = skipValidation)
                           _ <- result.data match {
                                 case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
                                   stream.foreach { item =>

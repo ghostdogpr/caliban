@@ -20,11 +20,18 @@ final class PlayJsonBackend extends JsonBackend with PlayJsonSupport {
   private def parseJson(s: String): Try[JsValue] =
     Try(Json.parse(s))
 
-  def parseHttpRequest(query: String, op: Option[String], vars: Option[String]): Either[Throwable, GraphQLRequest] = {
-    val variablesJs = vars.flatMap(parseJson(_).toOption)
+  def parseHttpRequest(
+    query: String,
+    op: Option[String],
+    vars: Option[String],
+    exts: Option[String]
+  ): Either[Throwable, GraphQLRequest] = {
+    val variablesJs  = vars.flatMap(parseJson(_).toOption)
+    val extensionsJs = exts.flatMap(parseJson(_).toOption)
     val fields = List("query" -> JsString(query)) ++
-      op.map(o => "operationName"       -> JsString(o)) ++
-      variablesJs.map(js => "variables" -> js)
+      op.map(o => "operationName"         -> JsString(o)) ++
+      variablesJs.map(js => "variables"   -> js) ++
+      extensionsJs.map(js => "extensions" -> js)
     JsObject(fields)
       .validate[GraphQLRequest]
       .asEither

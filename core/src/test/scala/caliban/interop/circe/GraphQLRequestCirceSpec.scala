@@ -15,7 +15,7 @@ object GraphQLRequestCirceSpec extends DefaultRunnableSpec {
           .obj("query" -> Json.fromString("{}"), "operationName" -> Json.fromString("op"), "variables" -> Json.obj())
         assert(request.as[GraphQLRequest])(
           isRight(
-            equalTo(GraphQLRequest(query = "{}", operationName = Some("op"), variables = Some(Map.empty)))
+            equalTo(GraphQLRequest(query = Some("{}"), operationName = Some("op"), variables = Some(Map.empty)))
           )
         )
       }

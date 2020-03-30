@@ -1,9 +1,10 @@
 package caliban.wrappers
 
 import caliban.CalibanError.{ ExecutionError, ValidationError }
-import caliban.GraphQLResponse
+import caliban.{ GraphQLRequest, GraphQLResponse }
 import caliban.Value.NullValue
 import caliban.execution.Field
+import caliban.parsing.adt.Document
 import caliban.wrappers.Wrapper.{ OverallWrapper, ValidationWrapper }
 import zio.clock.Clock
 import zio.console.{ putStrLn, Console }
@@ -24,12 +25,11 @@ object Wrappers {
    * @param duration threshold above which queries are considered slow
    */
   def onSlowQueries[R](duration: Duration)(f: (Duration, String) => URIO[R, Any]): OverallWrapper[R with Clock] =
-    OverallWrapper {
-      case (io, query) =>
-        io.timed.flatMap {
-          case (time, res) =>
-            ZIO.when(time > duration)(f(time, query)).as(res)
-        }
+    OverallWrapper { process => (request: GraphQLRequest) =>
+      process(request).timed.flatMap {
+        case (time, res) =>
+          ZIO.when(time > duration)(f(time, request.query.getOrElse(""))).as(res)
+      }
     }
 
   /**
@@ -37,17 +37,21 @@ object Wrappers {
    * @param duration threshold above which queries should be timed out
    */
   def timeout(duration: Duration): OverallWrapper[Clock] =
-    OverallWrapper {
-      case (io, query) =>
-        io.timeout(duration)
-          .map(
-            _.getOrElse(
-              GraphQLResponse(
-                NullValue,
-                List(ExecutionError(s"Query was interrupted after timeout of ${duration.render}:\n$query"))
+    OverallWrapper { process => (request: GraphQLRequest) =>
+      process(request)
+        .timeout(duration)
+        .map(
+          _.getOrElse(
+            GraphQLResponse(
+              NullValue,
+              List(
+                ExecutionError(
+                  s"Query was interrupted after timeout of ${duration.render}:\n${request.query.getOrElse("")}"
+                )
               )
             )
           )
+        )
     }
 
   /**
@@ -55,15 +59,14 @@ object Wrappers {
    * @param maxDepth the max allowed depth
    */
   def maxDepth(maxDepth: Int): ValidationWrapper[Any] =
-    ValidationWrapper {
-      case (io, _) =>
-        for {
-          req   <- io
-          depth <- calculateDepth(req.field)
-          _ <- IO.when(depth > maxDepth)(
-                IO.fail(ValidationError(s"Query is too deep: $depth. Max depth: $maxDepth.", ""))
-              )
-        } yield req
+    ValidationWrapper { process => (doc: Document) =>
+      for {
+        req   <- process(doc)
+        depth <- calculateDepth(req.field)
+        _ <- IO.when(depth > maxDepth)(
+              IO.fail(ValidationError(s"Query is too deep: $depth. Max depth: $maxDepth.", ""))
+            )
+      } yield req
     }
 
   private def calculateDepth(field: Field): UIO[Int] = {
@@ -82,15 +85,14 @@ object Wrappers {
    * @param maxFields the max allowed number of fields
    */
   def maxFields(maxFields: Int): ValidationWrapper[Any] =
-    ValidationWrapper {
-      case (io, _) =>
-        for {
-          req    <- io
-          fields <- countFields(req.field)
-          _ <- IO.when(fields > maxFields)(
-                IO.fail(ValidationError(s"Query has too many fields: $fields. Max fields: $maxFields.", ""))
-              )
-        } yield req
+    ValidationWrapper { process => (doc: Document) =>
+      for {
+        req    <- process(doc)
+        fields <- countFields(req.field)
+        _ <- IO.when(fields > maxFields)(
+              IO.fail(ValidationError(s"Query has too many fields: $fields. Max fields: $maxFields.", ""))
+            )
+      } yield req
     }
 
   private def countFields(field: Field): UIO[Int] =

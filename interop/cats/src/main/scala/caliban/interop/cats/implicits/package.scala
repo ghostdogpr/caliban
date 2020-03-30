@@ -13,14 +13,10 @@ package object implicits {
       query: String,
       operationName: Option[String] = None,
       variables: Map[String, InputValue] = Map(),
+      extensions: Map[String, InputValue] = Map(),
       skipValidation: Boolean = false
     )(implicit runtime: Runtime[R]): F[GraphQLResponse[E]] =
-      CatsInterop.executeAsync(underlying)(
-        query,
-        operationName,
-        variables,
-        skipValidation
-      )
+      CatsInterop.executeAsync(underlying)(query, operationName, variables, extensions, skipValidation)
 
     def checkAsync[F[_]: Async](query: String)(implicit runtime: Runtime[R]): F[Unit] =
       CatsInterop.checkAsync(underlying)(query)
