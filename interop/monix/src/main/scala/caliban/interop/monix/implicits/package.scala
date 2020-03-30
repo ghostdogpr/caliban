@@ -15,12 +15,14 @@ package object implicits {
       query: String,
       operationName: Option[String] = None,
       variables: Map[String, InputValue] = Map(),
+      extensions: Map[String, InputValue] = Map(),
       skipValidation: Boolean = false
     )(implicit runtime: Runtime[R]): Task[GraphQLResponse[E]] =
       MonixInterop.executeAsync(underlying)(
         query,
         operationName,
         variables,
+        extensions,
         skipValidation
       )
 

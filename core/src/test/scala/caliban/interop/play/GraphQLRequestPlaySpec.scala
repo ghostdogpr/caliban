@@ -15,7 +15,7 @@ object GraphQLRequestPlaySpec extends DefaultRunnableSpec {
           .obj("query" -> JsString("{}"), "operationName" -> JsString("op"), "variables" -> Json.obj())
         assert(request.validate[GraphQLRequest].asEither)(
           isRight(
-            equalTo(GraphQLRequest(query = "{}", operationName = Some("op"), variables = Some(Map.empty)))
+            equalTo(GraphQLRequest(query = Some("{}"), operationName = Some("op"), variables = Some(Map.empty)))
           )
         )
       }
