@@ -110,6 +110,10 @@ object ArgBuilder {
     case other => ev.build(other).map(List(_))
   }
 
+  implicit def seq[A](implicit ev: ArgBuilder[A]): ArgBuilder[Seq[A]]       = list[A].map(_.toSeq)
+  implicit def set[A](implicit ev: ArgBuilder[A]): ArgBuilder[Set[A]]       = list[A].map(_.toSet)
+  implicit def vector[A](implicit ev: ArgBuilder[A]): ArgBuilder[Vector[A]] = list[A].map(_.toVector)
+
   type EitherExecutionError[A] = Either[ExecutionError, A]
 
   implicit val eitherMonadic: Monadic[EitherExecutionError] = new Monadic[EitherExecutionError] {
