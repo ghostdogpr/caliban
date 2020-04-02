@@ -4,7 +4,7 @@ val mainScala = "2.12.10"
 val allScala  = Seq("2.13.1", mainScala)
 
 val catsEffectVersion     = "2.1.2"
-val http4sVersion         = "0.21.2"
+val http4sVersion         = "0.21.3"
 val silencerVersion       = "1.6.0"
 val sttpVersion           = "2.0.6"
 val zioVersion            = "1.0.0-RC18-2"
