@@ -58,7 +58,6 @@ lazy val root = project
     finch,
     http4s,
     akkaHttp,
-    uzhttp,
     catsInteropJVM,
     catsInteropJS,
     monixInterop,
@@ -194,18 +193,6 @@ lazy val finch = project
   )
   .dependsOn(coreJVM)
 
-lazy val uzhttp = project
-  .in(file("adapters/uzhttp"))
-  .settings(name := "caliban-uzhttp")
-  .settings(commonSettings)
-  .settings(
-    libraryDependencies ++= Seq(
-      "org.polynote" %% "uzhttp"       % "0.1.3",
-      "io.circe"     %% "circe-parser" % "0.13.0"
-    )
-  )
-  .dependsOn(coreJVM)
-
 lazy val client = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)
   .in(file("client"))
@@ -236,7 +223,7 @@ lazy val examples = project
       "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion
     )
   )
-  .dependsOn(akkaHttp, http4s, catsInteropJVM, finch, uzhttp, monixInterop, clientJVM)
+  .dependsOn(akkaHttp, http4s, catsInteropJVM, finch, monixInterop, clientJVM)
 
 lazy val benchmarks = project
   .in(file("benchmarks"))
