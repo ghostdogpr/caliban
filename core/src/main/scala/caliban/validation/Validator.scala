@@ -561,6 +561,7 @@ object Validator {
             types.filterNot(isObject).map(_.name.getOrElse("")).filterNot(_.isEmpty).mkString("", ", ", "."),
           s"The member types of a Union type must all be Object base types."
         )
+      // shouldn't we be validating each object here?
       case _ => IO.unit
     }
 

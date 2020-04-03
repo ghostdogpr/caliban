@@ -46,7 +46,19 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
           )
         }
       ),
-      suite("Union") {
+      suite("Union")(
+        testM("union containing object types is ok") {
+          assertM(
+            Validator
+              .validateUnion(
+                __Type(
+                  kind = __TypeKind.UNION,
+                  possibleTypes = Some(List(__Type(kind = __TypeKind.OBJECT)))
+                )
+              )
+              .run
+          )(succeeds(anything))
+        },
         testM("must be non-empty") {
           val expectedMessage = "Union EmptyUnion doesn't contain any type."
           (checkTypeError(
@@ -69,7 +81,7 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
             expectedMessage
           )).map { case (a, b) => a && b }
         }
-      },
+      ),
       suite("InputObjects")(
         testM("name can't start with '__'") {
           check(
