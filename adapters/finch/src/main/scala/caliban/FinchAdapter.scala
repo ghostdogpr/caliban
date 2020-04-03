@@ -6,7 +6,7 @@ import io.circe.syntax._
 import io.finch._
 import io.finch.circe._
 import zio.interop.catz._
-import zio.{ Runtime, Task, URIO }
+import zio.{ Runtime, Task }
 
 object FinchAdapter extends Endpoint.Module[Task] {
 
@@ -28,17 +28,11 @@ object FinchAdapter extends Endpoint.Module[Task] {
     post(jsonBody[GraphQLRequest]) { request: GraphQLRequest =>
       runtime
         .unsafeRunToFuture(
-          execute(interpreter, request, skipValidation)
+          interpreter
+            .executeRequest(request, skipValidation)
             .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
             .map(gqlResult => Ok(gqlResult))
         )
         .future
     }
-
-  private def execute[R, E](
-    interpreter: GraphQLInterpreter[R, E],
-    query: GraphQLRequest,
-    skipValidation: Boolean
-  ): URIO[R, GraphQLResponse[E]] =
-    interpreter.execute(query.query, query.operationName, query.variables.getOrElse(Map()))
 }

@@ -11,7 +11,7 @@ import akka.stream.scaladsl.{ Flow, Sink, Source, SourceQueueWithComplete }
 import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
-import zio.{ Fiber, IO, Ref, Runtime, Task, URIO }
+import zio.{ Fiber, IO, RIO, Ref, Runtime, Task, URIO }
 
 /**
  * Akka-http adapter for caliban with pluggable json backend.
@@ -42,19 +42,13 @@ trait AkkaHttpAdapter {
 
   implicit def requestUnmarshaller: FromEntityUnmarshaller[GraphQLRequest] = json.reqUnmarshaller
 
-  private def execute[R, E](
-    interpreter: GraphQLInterpreter[R, E],
-    query: GraphQLRequest,
-    skipValidation: Boolean
-  ): URIO[R, GraphQLResponse[E]] =
-    interpreter.execute(query.query, query.operationName, query.variables.getOrElse(Map()), skipValidation)
-
   private def executeHttpResponse[R, E](
     interpreter: GraphQLInterpreter[R, E],
     request: GraphQLRequest,
     skipValidation: Boolean
   ): URIO[R, HttpResponse] =
-    execute(interpreter, request, skipValidation)
+    interpreter
+      .executeRequest(request, skipValidation)
       .foldCause(
         cause => json.encodeGraphQLResponse(GraphQLResponse(NullValue, cause.defects)),
         json.encodeGraphQLResponse
@@ -74,10 +68,10 @@ trait AkkaHttpAdapter {
     import akka.http.scaladsl.server.Directives._
 
     get {
-      parameters((Symbol("query").as[String], Symbol("operationName").?, Symbol("variables").?)) {
-        case (query, op, vars) =>
+      parameters((Symbol("query").as[String], Symbol("operationName").?, Symbol("variables").?, Symbol("extensions").?)) {
+        case (query, op, vars, ext) =>
           json
-            .parseHttpRequest(query, op, vars)
+            .parseHttpRequest(query, op, vars, ext)
             .fold(failWith, completeRequest(interpreter, skipValidation))
       }
     } ~
@@ -109,9 +103,9 @@ trait AkkaHttpAdapter {
       query: String,
       sendTo: SourceQueueWithComplete[Message],
       subscriptions: Ref[Map[String, Fiber[Throwable, Unit]]]
-    ) =
+    ): RIO[R, Unit] =
       for {
-        result <- execute(interpreter, GraphQLRequest(query, message.operationName, None), skipValidation)
+        result <- interpreter.execute(query, message.operationName, skipValidation = skipValidation)
         _ <- result.data match {
               case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
                 stream

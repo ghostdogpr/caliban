@@ -1,8 +1,7 @@
 package caliban.wrappers
 
 import java.util.concurrent.TimeUnit
-
-import caliban.ResponseValue
+import caliban.{ GraphQLRequest, ResponseValue }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ EnumValue, IntValue, StringValue }
 import caliban.parsing.adt.Directive
@@ -98,20 +97,19 @@ object ApolloCaching {
     }
 
   private def apolloCachingOverall(ref: Ref[Caching]): OverallWrapper[Any] =
-    OverallWrapper {
-      case (io, _) =>
-        for {
-          result <- io
-          cache  <- ref.get
-        } yield result.copy(
-          extensions = Some(
-            ObjectValue(
-              ("cacheControl" -> cache.toResponseValue) :: result.extensions.fold(
-                List.empty[(String, ResponseValue)]
-              )(_.fields)
-            )
+    OverallWrapper { process => (request: GraphQLRequest) =>
+      for {
+        result <- process(request)
+        cache  <- ref.get
+      } yield result.copy(
+        extensions = Some(
+          ObjectValue(
+            ("cacheControl" -> cache.toResponseValue) :: result.extensions.fold(
+              List.empty[(String, ResponseValue)]
+            )(_.fields)
           )
         )
+      )
     }
 
   private def apolloCachingField(ref: Ref[Caching]): FieldWrapper[Any] =

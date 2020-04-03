@@ -15,11 +15,18 @@ import io.circe.syntax._
  * @see [[AkkaHttpAdapter]] for usage example.
  */
 final class CirceJsonBackend extends JsonBackend with FailFastCirceSupport {
-  def parseHttpRequest(query: String, op: Option[String], vars: Option[String]): Either[Throwable, GraphQLRequest] = {
-    val variablesJs = vars.flatMap(parse(_).toOption)
+  def parseHttpRequest(
+    query: String,
+    op: Option[String],
+    vars: Option[String],
+    exts: Option[String]
+  ): Either[Throwable, GraphQLRequest] = {
+    val variablesJs  = vars.flatMap(parse(_).toOption)
+    val extensionsJs = exts.flatMap(parse(_).toOption)
     val fields = List("query" -> Json.fromString(query)) ++
-      op.map(o => "operationName"       -> Json.fromString(o)) ++
-      variablesJs.map(js => "variables" -> js)
+      op.map(o => "operationName"         -> Json.fromString(o)) ++
+      variablesJs.map(js => "variables"   -> js) ++
+      extensionsJs.map(js => "extensions" -> js)
     Json
       .fromFields(fields)
       .as[GraphQLRequest]

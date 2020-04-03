@@ -6,7 +6,12 @@ import akka.http.scaladsl.unmarshalling.FromEntityUnmarshaller
  * Very simple json backend adapter that uses raw strings to avoid specific AST dependencies in the interface
  */
 trait JsonBackend {
-  def parseHttpRequest(query: String, op: Option[String], vars: Option[String]): Either[Throwable, GraphQLRequest]
+  def parseHttpRequest(
+    query: String,
+    op: Option[String],
+    vars: Option[String],
+    exts: Option[String]
+  ): Either[Throwable, GraphQLRequest]
   def encodeGraphQLResponse(r: GraphQLResponse[Any]): String
 
   def parseWSMessage(text: String): Either[Throwable, WSMessage]

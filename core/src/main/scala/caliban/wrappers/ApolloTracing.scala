@@ -5,8 +5,9 @@ import java.time.{ Instant, ZoneId }
 import java.util.concurrent.TimeUnit
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ IntValue, StringValue }
+import caliban.parsing.adt.Document
 import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper, ParsingWrapper, ValidationWrapper }
-import caliban.{ Rendering, ResponseValue }
+import caliban.{ GraphQLRequest, Rendering, ResponseValue }
 import zio.{ clock, Ref }
 import zio.clock.Clock
 import zio.duration.Duration
@@ -98,57 +99,53 @@ object ApolloTracing {
   }
 
   private def apolloTracingOverall(ref: Ref[Tracing]): OverallWrapper[Clock] =
-    OverallWrapper {
-      case (io, _) =>
-        for {
-          nanoTime    <- clock.nanoTime
-          currentTime <- clock.currentTime(TimeUnit.MILLISECONDS)
-          _           <- ref.update(_.copy(startTime = currentTime, startTimeMonotonic = nanoTime))
-          result <- io.timed.flatMap {
-                     case (duration, result) =>
-                       for {
-                         endTime <- clock.currentTime(TimeUnit.MILLISECONDS)
-                         _       <- ref.update(_.copy(duration = duration, endTime = endTime))
-                         tracing <- ref.get
-                       } yield result.copy(
-                         extensions = Some(
-                           ObjectValue(
-                             ("tracing" -> tracing.toResponseValue) ::
-                               result.extensions.fold(List.empty[(String, ResponseValue)])(_.fields)
-                           )
+    OverallWrapper { process => (request: GraphQLRequest) =>
+      for {
+        nanoTime    <- clock.nanoTime
+        currentTime <- clock.currentTime(TimeUnit.MILLISECONDS)
+        _           <- ref.update(_.copy(startTime = currentTime, startTimeMonotonic = nanoTime))
+        result <- process(request).timed.flatMap {
+                   case (duration, result) =>
+                     for {
+                       endTime <- clock.currentTime(TimeUnit.MILLISECONDS)
+                       _       <- ref.update(_.copy(duration = duration, endTime = endTime))
+                       tracing <- ref.get
+                     } yield result.copy(
+                       extensions = Some(
+                         ObjectValue(
+                           ("tracing" -> tracing.toResponseValue) ::
+                             result.extensions.fold(List.empty[(String, ResponseValue)])(_.fields)
                          )
                        )
-                   }
-        } yield result
+                     )
+                 }
+      } yield result
     }
 
   private def apolloTracingParsing(ref: Ref[Tracing]): ParsingWrapper[Clock] =
-    ParsingWrapper {
-      case (io, _) =>
-        for {
-          start              <- clock.nanoTime
-          (duration, result) <- io.timed
-          _ <- ref.update(state =>
-                state.copy(
-                  parsing = state.parsing.copy(startOffset = start - state.startTimeMonotonic, duration = duration)
-                )
+    ParsingWrapper { process => (query: String) =>
+      for {
+        start              <- clock.nanoTime
+        (duration, result) <- process(query).timed
+        _ <- ref.update(state =>
+              state.copy(
+                parsing = state.parsing.copy(startOffset = start - state.startTimeMonotonic, duration = duration)
               )
-        } yield result
+            )
+      } yield result
     }
 
   private def apolloTracingValidation(ref: Ref[Tracing]): ValidationWrapper[Clock] =
-    ValidationWrapper {
-      case (io, _) =>
-        for {
-          start              <- clock.nanoTime
-          (duration, result) <- io.timed
-          _ <- ref.update(state =>
-                state.copy(
-                  validation =
-                    state.validation.copy(startOffset = start - state.startTimeMonotonic, duration = duration)
-                )
+    ValidationWrapper { process => (doc: Document) =>
+      for {
+        start              <- clock.nanoTime
+        (duration, result) <- process(doc).timed
+        _ <- ref.update(state =>
+              state.copy(
+                validation = state.validation.copy(startOffset = start - state.startTimeMonotonic, duration = duration)
               )
-        } yield result
+            )
+      } yield result
     }
 
   private def apolloTracingField(ref: Ref[Tracing]): FieldWrapper[Clock] =

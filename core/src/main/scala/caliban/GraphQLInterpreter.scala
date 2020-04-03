@@ -20,10 +20,19 @@ trait GraphQLInterpreter[-R, +E] { self =>
   def check(query: String): IO[CalibanError, Unit]
 
   /**
+   * Parses, validates and finally runs the provided request against this interpreter.
+   * @param request a GraphQL request
+   * @param skipValidation skips the validation step if true
+   * @return an effect that either fails with an `E` or succeeds with a [[ResponseValue]]
+   */
+  def executeRequest(request: GraphQLRequest, skipValidation: Boolean = false): URIO[R, GraphQLResponse[E]]
+
+  /**
    * Parses, validates and finally runs the provided query against this interpreter.
-   * @param query a string containing the GraphQL query.
-   * @param operationName the operation to run in case the query contains multiple operations.
-   * @param variables a list of variables.
+   * @param query a string containing the GraphQL query
+   * @param operationName the operation to run in case the query contains multiple operations	
+   * @param variables a map of variables
+   * @param extensions a map of extensions
    * @param skipValidation skips the validation step if true
    * @return an effect that either fails with an `E` or succeeds with a [[ResponseValue]]
    */
@@ -31,8 +40,10 @@ trait GraphQLInterpreter[-R, +E] { self =>
     query: String,
     operationName: Option[String] = None,
     variables: Map[String, InputValue] = Map(),
+    extensions: Map[String, InputValue] = Map(),
     skipValidation: Boolean = false
-  ): URIO[R, GraphQLResponse[E]]
+  ): URIO[R, GraphQLResponse[E]] =
+    executeRequest(GraphQLRequest(Some(query), operationName, Some(variables), Some(extensions)), skipValidation)
 
   /**
    * Changes the error channel of the `execute` method.
@@ -83,12 +94,8 @@ trait GraphQLInterpreter[-R, +E] { self =>
     f: URIO[R, GraphQLResponse[E]] => URIO[R2, GraphQLResponse[E2]]
   ): GraphQLInterpreter[R2, E2] = new GraphQLInterpreter[R2, E2] {
     override def check(query: String): IO[CalibanError, Unit] = self.check(query)
-    override def execute(
-      query: String,
-      operationName: Option[String],
-      variables: Map[String, InputValue],
-      skipValidation: Boolean
-    ): URIO[R2, GraphQLResponse[E2]] = f(self.execute(query, operationName, variables, skipValidation))
+    override def executeRequest(request: GraphQLRequest, skipValidation: Boolean): URIO[R2, GraphQLResponse[E2]] =
+      f(self.executeRequest(request, skipValidation))
   }
 
 }
