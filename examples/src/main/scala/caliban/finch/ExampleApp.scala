@@ -4,7 +4,6 @@ import caliban.ExampleData.sampleCharacters
 import caliban.{ ExampleApi, ExampleService, FinchAdapter }
 import com.twitter.io.{ Buf, BufReader, Reader }
 import com.twitter.util.Await
-import io.circe.Json
 import io.finch.Endpoint
 import zio.interop.catz._
 import zio.{ Runtime, Task, ZEnv }
@@ -32,7 +31,8 @@ object ExampleApp extends App with Endpoint.Module[Task] {
   import com.twitter.finagle.Http
   import io.finch._
   import io.finch.circe._
-  val endpoint: Endpoint[Task, Json] = "api" :: "graphql" :: FinchAdapter.makeHttpService(interpreter)
+
+  val endpoint = "api" :: "graphql" :: FinchAdapter.makeHttpService(interpreter)
 
   val graphiqlBuf = {
     val stream = getClass.getResourceAsStream("/graphiql.html")

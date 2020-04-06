@@ -4,9 +4,10 @@ val mainScala = "2.12.10"
 val allScala  = Seq("2.13.1", mainScala)
 
 val catsEffectVersion     = "2.1.2"
-val http4sVersion         = "0.21.2"
+val circeVersion          = "0.13.0"
+val http4sVersion         = "0.21.3"
 val silencerVersion       = "1.6.0"
-val sttpVersion           = "2.0.6"
+val sttpVersion           = "2.0.7"
 val zioVersion            = "1.0.0-RC18-2"
 val zioInteropCatsVersion = "2.0.0.0-RC12"
 
@@ -82,7 +83,7 @@ lazy val core = crossProject(JSPlatform, JVMPlatform)
       "dev.zio"           %%% "zio-streams"  % zioVersion,
       "dev.zio"           %%% "zio-test"     % zioVersion % "test",
       "dev.zio"           %%% "zio-test-sbt" % zioVersion % "test",
-      "io.circe"          %%% "circe-core"   % "0.13.0" % Optional,
+      "io.circe"          %%% "circe-core"   % circeVersion % Optional,
       "com.typesafe.play" %%% "play-json"    % "2.8.1" % Optional,
       compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
     )
@@ -151,7 +152,7 @@ lazy val http4s = project
       "org.http4s"    %% "http4s-dsl"          % http4sVersion,
       "org.http4s"    %% "http4s-circe"        % http4sVersion,
       "org.http4s"    %% "http4s-blaze-server" % http4sVersion,
-      "io.circe"      %% "circe-parser"        % "0.13.0",
+      "io.circe"      %% "circe-parser"        % circeVersion,
       compilerPlugin(
         ("org.typelevel" %% "kind-projector" % "0.11.0")
           .cross(CrossVersion.full)
@@ -189,7 +190,8 @@ lazy val finch = project
       "com.github.finagle" %% "finchx-core"      % "0.32.1",
       "com.github.finagle" %% "finchx-circe"     % "0.32.1",
       "dev.zio"            %% "zio-interop-cats" % zioInteropCatsVersion,
-      "org.typelevel"      %% "cats-effect"      % catsEffectVersion
+      "org.typelevel"      %% "cats-effect"      % catsEffectVersion,
+      "io.circe"           %% "circe-parser"     % circeVersion
     )
   )
   .dependsOn(coreJVM)
@@ -214,7 +216,7 @@ lazy val client = crossProject(JSPlatform, JVMPlatform)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "io.circe"                     %%% "circe-core"   % "0.13.0",
+      "io.circe"                     %%% "circe-core"   % circeVersion,
       "com.softwaremill.sttp.client" %%% "core"         % sttpVersion,
       "com.softwaremill.sttp.client" %%% "circe"        % sttpVersion,
       "dev.zio"                      %%% "zio-test"     % zioVersion % "test",
