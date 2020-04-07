@@ -254,7 +254,7 @@ val commonSettings = Def.settings(
     "-Xlint:_,-type-parameter-shadow",
     "-Xfatal-warnings",
     "-Ywarn-numeric-widen",
-    "-Ywarn-unused:patvars,-implicits",
+    "-Ywarn-unused:patvars,-implicits,-locals",
     "-Ywarn-value-discard"
   ) ++ (CrossVersion.partialVersion(scalaVersion.value) match {
     case Some((2, 12)) =>
