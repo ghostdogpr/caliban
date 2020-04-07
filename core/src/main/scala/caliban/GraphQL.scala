@@ -48,10 +48,12 @@ trait GraphQL[-R] { self =>
       .validateSchema(schemaBuilder)
       .map { schema =>
         lazy val rootType =
-          RootType(schema.query.opType,
-                   schema.mutation.map(_.opType),
-                   schema.subscription.map(_.opType),
-                   additionalDirectives)
+          RootType(
+            schema.query.opType,
+            schema.mutation.map(_.opType),
+            schema.subscription.map(_.opType),
+            additionalDirectives
+          )
         lazy val introspectionRootSchema: RootSchema[Any] = Introspector.introspect(rootType)
         lazy val introspectionRootType: RootType          = RootType(introspectionRootSchema.query.opType, None, None)
 
@@ -70,33 +72,32 @@ trait GraphQL[-R] { self =>
           ): URIO[R, GraphQLResponse[CalibanError]] =
             decompose(wrappers).flatMap {
               case (overallWrappers, parsingWrappers, validationWrappers, executionWrappers, fieldWrappers) =>
-                wrap(
-                  (request: GraphQLRequest) =>
-                    (for {
-                      doc             <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
-                      intro           = Introspector.isIntrospection(doc)
-                      typeToValidate  = if (intro) introspectionRootType else rootType
-                      schemaToExecute = if (intro) introspectionRootSchema else schema
-                      validate = (doc: Document) =>
-                        Validator
-                          .prepare(
-                            doc,
-                            typeToValidate,
-                            schemaToExecute,
-                            request.operationName,
-                            request.variables.getOrElse(Map()),
-                            skipValidation
+                wrap((request: GraphQLRequest) =>
+                  (for {
+                    doc             <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
+                    intro           = Introspector.isIntrospection(doc)
+                    typeToValidate  = if (intro) introspectionRootType else rootType
+                    schemaToExecute = if (intro) introspectionRootSchema else schema
+                    validate = (doc: Document) =>
+                      Validator
+                        .prepare(
+                          doc,
+                          typeToValidate,
+                          schemaToExecute,
+                          request.operationName,
+                          request.variables.getOrElse(Map()),
+                          skipValidation
                         )
-                      executionRequest <- wrap(validate)(validationWrappers, doc)
-                      op = executionRequest.operationType match {
-                        case OperationType.Query        => schemaToExecute.query
-                        case OperationType.Mutation     => schemaToExecute.mutation.getOrElse(schemaToExecute.query)
-                        case OperationType.Subscription => schemaToExecute.subscription.getOrElse(schemaToExecute.query)
-                      }
-                      execute = (req: ExecutionRequest) =>
-                        Executor.executeRequest(req, op.plan, request.variables.getOrElse(Map()), fieldWrappers)
-                      result <- wrap(execute)(executionWrappers, executionRequest)
-                    } yield result).catchAll(Executor.fail)
+                    executionRequest <- wrap(validate)(validationWrappers, doc)
+                    op = executionRequest.operationType match {
+                      case OperationType.Query        => schemaToExecute.query
+                      case OperationType.Mutation     => schemaToExecute.mutation.getOrElse(schemaToExecute.query)
+                      case OperationType.Subscription => schemaToExecute.subscription.getOrElse(schemaToExecute.query)
+                    }
+                    execute = (req: ExecutionRequest) =>
+                      Executor.executeRequest(req, op.plan, request.variables.getOrElse(Map()), fieldWrappers)
+                    result <- wrap(execute)(executionWrappers, executionRequest)
+                  } yield result).catchAll(Executor.fail)
                 )(overallWrappers, request)
             }
         }
@@ -130,8 +131,8 @@ trait GraphQL[-R] { self =>
     new GraphQL[R1] {
       override val schemaBuilder: RootSchemaBuilder[R1]  = self.schemaBuilder |+| that.schemaBuilder
       override protected val wrappers: List[Wrapper[R1]] = self.wrappers ++ that.wrappers
-      override protected val additionalDirectives
-        : List[__Directive] = self.additionalDirectives ++ that.additionalDirectives
+      override protected val additionalDirectives: List[__Directive] =
+        self.additionalDirectives ++ that.additionalDirectives
     }
 
   /**
@@ -152,14 +153,14 @@ trait GraphQL[-R] { self =>
     subscriptionsName: Option[String] = None
   ): GraphQL[R] = new GraphQL[R] {
     override protected val schemaBuilder: RootSchemaBuilder[R] = self.schemaBuilder.copy(
-      query = queriesName.fold(self.schemaBuilder.query)(
-        name => self.schemaBuilder.query.map(m => m.copy(opType = m.opType.copy(name = Some(name))))
+      query = queriesName.fold(self.schemaBuilder.query)(name =>
+        self.schemaBuilder.query.map(m => m.copy(opType = m.opType.copy(name = Some(name))))
       ),
-      mutation = mutationsName.fold(self.schemaBuilder.mutation)(
-        name => self.schemaBuilder.mutation.map(m => m.copy(opType = m.opType.copy(name = Some(name))))
+      mutation = mutationsName.fold(self.schemaBuilder.mutation)(name =>
+        self.schemaBuilder.mutation.map(m => m.copy(opType = m.opType.copy(name = Some(name))))
       ),
-      subscription = subscriptionsName.fold(self.schemaBuilder.subscription)(
-        name => self.schemaBuilder.subscription.map(m => m.copy(opType = m.opType.copy(name = Some(name))))
+      subscription = subscriptionsName.fold(self.schemaBuilder.subscription)(name =>
+        self.schemaBuilder.subscription.map(m => m.copy(opType = m.opType.copy(name = Some(name))))
       )
     )
     override protected val wrappers: List[Wrapper[R]]              = self.wrappers
