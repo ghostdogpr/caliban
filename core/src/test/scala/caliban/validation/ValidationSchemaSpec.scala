@@ -83,6 +83,28 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
         }
       ),
       suite("InputObjects")(
+        testM("must define one or more fields") {
+          (checkTypeError(
+            Validator.validateInputObject(
+              __Type(
+                name = Some("EmptyInputObject"),
+                kind = __TypeKind.INPUT_OBJECT,
+                inputFields = None
+              )
+            ),
+            "InputObject 'EmptyInputObject' does not have fields"
+          ) &&&
+            checkTypeError(
+              Validator.validateInputObject(
+                __Type(
+                  name = Some("EmptyInputObject"),
+                  kind = __TypeKind.INPUT_OBJECT,
+                  inputFields = Some(List.empty)
+                )
+              ),
+              "InputObject 'EmptyInputObject' does not have fields"
+            )).map { case (a, b) => a && b }
+        },
         testM("no two input fields may share the same name") {
           checkTypeError(
             Validator.validateInputObject(
