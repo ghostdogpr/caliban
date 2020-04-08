@@ -4,7 +4,7 @@ import caliban.CalibanError.ValidationError
 import caliban.{ GraphQL, RootResolver }
 import caliban.GraphQL.graphQL
 import caliban.TestUtils.InvalidSchemas._
-import caliban.introspection.adt.{ __EnumValue, __InputValue, __Type, __TypeKind }
+import caliban.introspection.adt.{ __EnumValue, __Field, __InputValue, __Type, __TypeKind }
 import zio.IO
 import zio.test.Assertion._
 import zio.test.environment.TestEnvironment
@@ -140,6 +140,24 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
             check(
               graphQL(resolverEmptyInferface),
               "Interface 'InterfaceEmpty' does not have fields"
+            )
+          },
+          testM("field names must be unique") {
+            checkTypeError(
+              Validator.validateInterface(
+                __Type(
+                  name = Some("DuplicateNamesInterface"),
+                  kind = __TypeKind.INTERFACE,
+                  fields = _ =>
+                    Some(
+                      List(
+                        __Field("A", None, List.empty, `type` = () => __Type(__TypeKind.SCALAR)),
+                        __Field("A", None, List.empty, `type` = () => __Type(__TypeKind.SCALAR))
+                      )
+                    )
+                )
+              ),
+              "Interface 'DuplicateNamesInterface' has repeated fields: A"
             )
           },
           testM("field name can't start with '__'") {
