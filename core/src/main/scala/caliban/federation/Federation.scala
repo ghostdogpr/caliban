@@ -4,12 +4,23 @@ import caliban.CalibanError.ExecutionError
 import caliban.{ CalibanError, GraphQL, InputValue, RootResolver }
 import caliban.Value.{ NullValue, StringValue }
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation, __InputValue, __Type, __TypeKind }
+import caliban.parsing.adt.Directive
 import caliban.schema.Step.QueryStep
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema, Step, Types }
 import zquery.ZQuery
 
 trait Federation {
   import Federation._
+
+  object Key {
+    def apply(name: String): Directive =
+      Directive("key", Map("name" -> StringValue("name")))
+  }
+
+  object Extend {
+    def apply: Directive =
+      Directive("extend")
+  }
 
   /**
    * Wraps an existing graphql schema in a federated version of it.
@@ -18,6 +29,14 @@ trait Federation {
 
     val genericSchema = new GenericSchema[R] {}
     import genericSchema._
+
+    case class FieldSet(fields: String)
+
+    implicit val fieldSetSchema: Schema[Any, FieldSet] = Schema.scalarSchema[FieldSet](
+      "_FieldSet",
+      None,
+      fs => StringValue(fs.fields)
+    )
 
     implicit val entitySchema: Schema[R, _Entity] = new Schema[R, _Entity] {
       override def toType(isInput: Boolean): __Type =
@@ -46,18 +65,26 @@ trait Federation {
 
     case class Query(
       _entities: RepresentationsArgs => List[_Entity],
-      _service: _Service
+      _service: _Service,
+      _fieldSet: FieldSet = FieldSet("")
     )
 
-    GraphQL.graphQL[R, Query, Unit, Unit](
-      RootResolver(
-        Query(
-          _entities = args => args.representations.map(rep => _Entity(rep.__typename, rep.fields)),
-          _service = _Service(underlying.render)
-        )
-      ),
-      federationDirectives
-    ) |+| underlying
+    case class EmptyQuery(
+      _service: _Service,
+      _fieldSet: FieldSet = FieldSet("")
+    )
+
+    val federatedGraphQL =
+      if (underlying.schemaBuilder.types.exists(_.directives.flatMap(_.find(_.name == "key"))))
+        GraphQL.graphQL(
+          RootResolver(
+            Query(
+              _entities = args => args.representations.map(rep => _Entity(rep.__typename, rep.fields)),
+              _service = _Service(underlying.render)
+            )
+          ),
+          federationDirectives
+        ) |+| underlying
 
   }
 }

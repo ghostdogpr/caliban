@@ -36,7 +36,7 @@ object TestUtils {
     case class Mechanic(shipName: String) extends Role
   }
 
-  @GQLDirective(Directive("key", Map("name" -> StringValue("name"))))
+  @GQLDirective(federation.Key("name"))
   case class Character(
     @GQLDirective(Directive("external")) name: String,
     @GQLDirective(Directive("required")) nicknames: List[String],

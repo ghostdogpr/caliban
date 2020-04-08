@@ -26,4 +26,14 @@ object EntityResolver {
 
       override def toType: __Type = schema.toType()
     }
+
+  def from[A]: EntityResolverPartiallyApplied[A] =
+    new EntityResolverPartiallyApplied()
+
+  class EntityResolverPartiallyApplied[A](val dummy: Boolean = false) {
+    def apply[R, R1 <: R, T](
+      resolver: A => ZQuery[R1, CalibanError, Option[T]]
+    )(implicit schema: Schema[R, T], argBuilder: ArgBuilder[A]): EntityResolver[R1] =
+      EntityResolver[R1, A, T](resolver)
+  }
 }

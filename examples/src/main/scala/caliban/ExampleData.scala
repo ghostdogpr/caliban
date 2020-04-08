@@ -2,6 +2,9 @@ package caliban
 
 import caliban.ExampleData.Origin.{ BELT, EARTH, MARS }
 import caliban.ExampleData.Role.{ Captain, Engineer, Mechanic, Pilot }
+import caliban.Value.StringValue
+import caliban.parsing.adt.Directive
+import caliban.schema.Annotations.GQLDirective
 
 object ExampleData {
 
@@ -22,6 +25,7 @@ object ExampleData {
     case class Mechanic(shipName: String) extends Role
   }
 
+  @GQLDirective(Directive("key", Map("fields" -> StringValue("name"))))
   case class Character(name: String, nicknames: List[String], origin: Origin, role: Option[Role])
 
   case class CharactersArgs(origin: Option[Origin])

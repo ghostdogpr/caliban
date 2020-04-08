@@ -102,7 +102,7 @@ object Rendering {
   private def renderDirective(directive: Directive) =
     s"@${directive.name}${if (directive.arguments.nonEmpty) s"""(${directive.arguments.flatMap {
       case (key, value) => renderDirectiveArgument(value).map(v => s"$key: $v")
-    }.mkString("{", ",", "}")})"""
+    }.mkString(",")})"""
     else ""}"
 
   private def renderDirectives(directives: Option[List[Directive]]) =
