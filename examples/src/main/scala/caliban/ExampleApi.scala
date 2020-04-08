@@ -13,8 +13,6 @@ import zio.clock.Clock
 import zio.console.Console
 import zio.duration._
 import zio.stream.ZStream
-import caliban.federation._
-import zquery.ZQuery
 
 object ExampleApi extends GenericSchema[ExampleService] {
 
@@ -31,24 +29,22 @@ object ExampleApi extends GenericSchema[ExampleService] {
   implicit val characterSchema      = gen[Character]
   implicit val characterArgsSchema  = gen[CharacterArgs]
   implicit val charactersArgsSchema = gen[CharactersArgs]
+  implicit val episodeSchema        = gen[Episode]
 
   val api: GraphQL[Console with Clock with ExampleService] =
-    federate(
-      graphQL(
-        RootResolver(
-          Queries(
-            args => ExampleService.getCharacters(args.origin),
-            args => ExampleService.findCharacter(args.name)
-          ),
-          Mutations(args => ExampleService.deleteCharacter(args.name))
-//          Subscriptions(ExampleService.deletedEvents)
-        )
-      ) @@
-        maxFields(200) @@               // query analyzer that limit query fields
-        maxDepth(30) @@                 // query analyzer that limit query depth
-        timeout(3 seconds) @@           // wrapper that fails slow queries
-        printSlowQueries(500 millis) @@ // wrapper that logs slow queries
-        apolloTracing, // wrapper for https://github.com/apollographql/apollo-tracing
-      EntityResolver.from[CharacterArgs](args => ZQuery.fromEffect(ExampleService.findCharacter(args.name))) :: Nil
-    )
+    graphQL(
+      RootResolver(
+        Queries(
+          args => ExampleService.getCharacters(args.origin),
+          args => ExampleService.findCharacter(args.name)
+        ),
+        Mutations(args => ExampleService.deleteCharacter(args.name)),
+        Subscriptions(ExampleService.deletedEvents)
+      )
+    ) @@ maxFields(200) @@            // query analyzer that limit query fields
+      maxDepth(30) @@                 // query analyzer that limit query depth
+      timeout(3 seconds) @@           // wrapper that fails slow queries
+      printSlowQueries(500 millis) @@ // wrapper that logs slow queries
+      apolloTracing // wrapper for https://github.com/apollographql/apollo-tracing
+
 }

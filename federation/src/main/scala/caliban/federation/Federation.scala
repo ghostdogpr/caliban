@@ -1,12 +1,12 @@
 package caliban.federation
 
 import caliban.CalibanError.ExecutionError
-import caliban.{ CalibanError, GraphQL, InputValue, RootResolver }
 import caliban.Value.{ NullValue, StringValue }
-import caliban.introspection.adt.{ __Directive, __DirectiveLocation, __InputValue, __Type, __TypeKind }
+import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
 import caliban.schema.Step.QueryStep
-import caliban.schema.{ ArgBuilder, GenericSchema, Schema, Step, Types }
+import caliban.schema._
+import caliban.{ CalibanError, GraphQL, InputValue, RootResolver }
 import zquery.ZQuery
 
 trait Federation {
@@ -14,13 +14,12 @@ trait Federation {
 
   object Key {
     def apply(name: String): Directive =
-      Directive("key", Map("name" -> StringValue("name")))
+      Directive("key", Map("fields" -> StringValue("name")))
   }
 
-  object Extend {
-    def apply: Directive =
-      Directive("extend")
-  }
+  val Extend = Directive("extends")
+
+  val External = Directive("external")
 
   /**
    * Wraps an existing graphql schema in a federated version of it.
@@ -74,17 +73,15 @@ trait Federation {
       _fieldSet: FieldSet = FieldSet("")
     )
 
-    val federatedGraphQL =
-      if (underlying.schemaBuilder.types.exists(_.directives.flatMap(_.find(_.name == "key"))))
-        GraphQL.graphQL(
-          RootResolver(
-            Query(
-              _entities = args => args.representations.map(rep => _Entity(rep.__typename, rep.fields)),
-              _service = _Service(underlying.render)
-            )
-          ),
-          federationDirectives
-        ) |+| underlying
+    GraphQL.graphQL(
+      RootResolver(
+        Query(
+          _entities = args => args.representations.map(rep => _Entity(rep.__typename, rep.fields)),
+          _service = _Service(underlying.render)
+        )
+      ),
+      federationDirectives
+    ) |+| underlying
 
   }
 }

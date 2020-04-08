@@ -1,15 +1,14 @@
 package caliban.federation
 
 import caliban.GraphQL._
-import caliban.TestUtils._
 import caliban.Macros.gqldoc
+import caliban.TestUtils._
 import zio.test._
 import Assertion._
-import zio.test.environment.TestEnvironment
 import zquery.ZQuery
 
 object FederationSpec extends DefaultRunnableSpec {
-  override def spec: ZSpec[TestEnvironment, Any] = suite("FederationSpec")(
+  override def spec = suite("FederationSpec")(
     testM("resolve federated types") {
       val interpreter = federate(
         graphQL(resolver),
