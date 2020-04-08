@@ -4,7 +4,7 @@ import caliban.CalibanError.ValidationError
 import caliban.{ GraphQL, RootResolver }
 import caliban.GraphQL.graphQL
 import caliban.TestUtils.InvalidSchemas._
-import caliban.introspection.adt.{ __EnumValue, __Type, __TypeKind }
+import caliban.introspection.adt.{ __EnumValue, __InputValue, __Type, __TypeKind }
 import zio.IO
 import zio.test.Assertion._
 import zio.test.environment.TestEnvironment
@@ -83,6 +83,22 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
         }
       ),
       suite("InputObjects")(
+        testM("no two input fields may share the same name") {
+          checkTypeError(
+            Validator.validateInputObject(
+              __Type(
+                name = Some("DuplicateNamesInputObject"),
+                kind = __TypeKind.INPUT_OBJECT,
+                inputFields = Some(
+                  List.fill(2)(
+                    __InputValue("A", None, `type` = () => __Type(__TypeKind.SCALAR), None)
+                  )
+                )
+              )
+            ),
+            "InputObject 'DuplicateNamesInputObject' has repeated fields: A"
+          )
+        },
         testM("name can't start with '__'") {
           check(
             graphQL(resolverWrongMutationUnderscore),
