@@ -2,6 +2,7 @@ package caliban
 
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
+import cats.arrow.FunctionK
 import cats.data.{ Kleisli, OptionT }
 import cats.effect.Effect
 import cats.effect.syntax.all._
@@ -193,6 +194,43 @@ object Http4sAdapter {
         } yield builder
     }
   }
+
+  /**
+   * Utility function to create an http4s middleware that can extracts something from each request
+   * and provide a layer to eliminate the ZIO environment
+   * @param route an http4s route
+   * @param f a function from a request to a ZLayer
+   * @tparam R the environment type to eliminate
+   * @return a new route without the R requirement
+   */
+  def provideLayerFromRequest[R <: Has[_]](route: HttpRoutes[RIO[R, *]], f: Request[Task] => TaskLayer[R])(
+    implicit tagged: Tagged[R]
+  ): HttpRoutes[Task] =
+    Kleisli { req: Request[Task[*]] =>
+      val to: Task ~> RIO[R, *]   = FunctionK.lift[Task, RIO[R, *]](identity)
+      val from: RIO[R, *] ~> Task = λ[FunctionK[RIO[R, *], Task]](_.provideLayer(f(req)))
+      route(req.mapK(to)).mapK(from).map(_.mapK(from))
+    }
+
+  /**
+   * Utility function to create an http4s middleware that can extracts something from each request
+   * and provide a layer to eliminate some part of the ZIO environment
+   * @param route an http4s route
+   * @param f a function from a request to a ZLayer
+   * @tparam R the remaining environment
+   * @tparam R1 the environment to eliminate
+   * @return a new route that requires only R
+   */
+  def provideSomeLayerFromRequest[R <: Has[_], R1 <: Has[_]](
+    route: HttpRoutes[RIO[R with R1, *]],
+    f: Request[RIO[R, *]] => TaskLayer[R1]
+  )(implicit tagged: Tagged[R1]): HttpRoutes[RIO[R, *]] =
+    Kleisli { req: Request[RIO[R, *]] =>
+      val to: RIO[R, *] ~> RIO[R with R1, *] = FunctionK.lift[RIO[R, *], RIO[R with R1, *]](identity)
+      val from: RIO[R with R1, *] ~> RIO[R, *] =
+        λ[FunctionK[RIO[R with R1, *], RIO[R, *]]](_.provideSomeLayer[R](f(req)))
+      route(req.mapK(to)).mapK(from).map(_.mapK(from))
+    }
 
   private def wrapRoute[F[_]: Effect](route: HttpRoutes[Task])(implicit runtime: Runtime[Any]): HttpRoutes[F] = {
     val toF: Task ~> F    = λ[Task ~> F](_.toIO.to[F])

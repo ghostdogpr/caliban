@@ -13,7 +13,7 @@ import caliban.schema.Step._
 import caliban.schema.Types._
 import caliban.{ InputValue, ResponseValue }
 import magnolia._
-import zio.ZIO
+import zio.{ URIO, ZIO }
 import zio.stream.ZStream
 import zquery.ZQuery
 
@@ -233,40 +233,42 @@ trait GenericSchema[R] extends DerivationSchema[R] {
         )
     }
   implicit def futureSchema[A](implicit ev: Schema[R, A]): Schema[R, Future[A]] =
-    effectSchema[R, Throwable, A].contramap[Future[A]](future => ZIO.fromFuture(_ => future))
-  implicit def infallibleEffectSchema[R1 <: R, A](implicit ev: Schema[R, A]): Schema[R1, ZIO[R1, Nothing, A]] =
-    new Schema[R1, ZIO[R1, Nothing, A]] {
+    effectSchema[R, R, Throwable, A].contramap[Future[A]](future => ZIO.fromFuture(_ => future))
+  implicit def infallibleEffectSchema[R1 >: R, R2 >: R, A](implicit ev: Schema[R2, A]): Schema[R, URIO[R1, A]] =
+    new Schema[R, URIO[R1, A]] {
       override def optional: Boolean                        = ev.optional
       override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
-      override def resolve(value: ZIO[R1, Nothing, A]): Step[R1] =
-        QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
+      override def resolve(value: URIO[R1, A]): Step[R]     = QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
     }
-  implicit def effectSchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZIO[R1, E, A]] =
-    new Schema[R1, ZIO[R1, E, A]] {
+  implicit def effectSchema[R1 >: R, R2 >: R, E <: Throwable, A](implicit ev: Schema[R2, A]): Schema[R, ZIO[R1, E, A]] =
+    new Schema[R, ZIO[R1, E, A]] {
       override def optional: Boolean                        = true
       override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
-      override def resolve(value: ZIO[R1, E, A]): Step[R1] =
-        QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
+      override def resolve(value: ZIO[R1, E, A]): Step[R]   = QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
     }
-  implicit def infallibleQuerySchema[R1 <: R, A](implicit ev: Schema[R, A]): Schema[R1, ZQuery[R1, Nothing, A]] =
-    new Schema[R1, ZQuery[R1, Nothing, A]] {
-      override def optional: Boolean                        = ev.optional
-      override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
-      override def resolve(value: ZQuery[R1, Nothing, A]): Step[R1] =
-        QueryStep(value.map(ev.resolve))
+  implicit def infallibleQuerySchema[R1 >: R, R2 >: R, A](
+    implicit ev: Schema[R2, A]
+  ): Schema[R, ZQuery[R1, Nothing, A]] =
+    new Schema[R, ZQuery[R1, Nothing, A]] {
+      override def optional: Boolean                               = ev.optional
+      override def toType(isInput: Boolean = false): __Type        = ev.toType(isInput)
+      override def resolve(value: ZQuery[R1, Nothing, A]): Step[R] = QueryStep(value.map(ev.resolve))
     }
-  implicit def querySchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZQuery[R1, E, A]] =
-    new Schema[R1, ZQuery[R1, E, A]] {
-      override def optional: Boolean                = true
-      override def toType(isInput: Boolean): __Type = ev.toType(isInput)
-      override def resolve(value: ZQuery[R1, E, A]): Step[R1] =
-        QueryStep(value.map(ev.resolve))
+  implicit def querySchema[R1 >: R, R2 >: R, E <: Throwable, A](
+    implicit ev: Schema[R2, A]
+  ): Schema[R, ZQuery[R1, E, A]] =
+    new Schema[R, ZQuery[R1, E, A]] {
+      override def optional: Boolean                         = true
+      override def toType(isInput: Boolean): __Type          = ev.toType(isInput)
+      override def resolve(value: ZQuery[R1, E, A]): Step[R] = QueryStep(value.map(ev.resolve))
     }
-  implicit def streamSchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZStream[R1, E, A]] =
-    new Schema[R1, ZStream[R1, E, A]] {
-      override def optional: Boolean                           = ev.optional
-      override def toType(isInput: Boolean = false): __Type    = ev.toType(isInput)
-      override def resolve(value: ZStream[R1, E, A]): Step[R1] = StreamStep(value.map(ev.resolve))
+  implicit def streamSchema[R1 >: R, R2 >: R, E <: Throwable, A](
+    implicit ev: Schema[R2, A]
+  ): Schema[R, ZStream[R1, E, A]] =
+    new Schema[R, ZStream[R1, E, A]] {
+      override def optional: Boolean                          = ev.optional
+      override def toType(isInput: Boolean = false): __Type   = ev.toType(isInput)
+      override def resolve(value: ZStream[R1, E, A]): Step[R] = StreamStep(value.map(ev.resolve))
     }
 
 }
