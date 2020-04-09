@@ -55,23 +55,21 @@ object FederatedApi {
           timeout(3 seconds) @@           // wrapper that fails slow queries
           printSlowQueries(500 millis) @@ // wrapper that logs slow queries
           apolloTracing, // wrapper for https://github.com/apollographql/apollo-tracing
-        List(
-          EntityResolver.from[CharacterArgs](args => ZQuery.fromEffect(ExampleService.findCharacter(args.name))),
-          EntityResolver.from[EpisodeArgs](
-            args =>
-              ZQuery
-                .fromEffect(ExampleService.getCharactersByEpisode(args.season, args.episode))
-                .map(
-                  characters =>
-                    Some(
-                      Episode(
-                        args.season,
-                        args.episode,
-                        ZQuery.succeed(characters)
-                      )
-                  )
-              )
-          )
+        EntityResolver.from[CharacterArgs](args => ZQuery.fromEffect(ExampleService.findCharacter(args.name))),
+        EntityResolver.from[EpisodeArgs](
+          args =>
+            ZQuery
+              .fromEffect(ExampleService.getCharactersByEpisode(args.season, args.episode))
+              .map(
+                characters =>
+                  Some(
+                    Episode(
+                      args.season,
+                      args.episode,
+                      ZQuery.succeed(characters)
+                    )
+                )
+            )
         )
       )
   }
@@ -106,7 +104,7 @@ object FederatedApi {
           apolloTracing, // wrapper for https://github.com/apollographql/apollo-tracing
         EntityResolver.from[EpisodeArgs](
           args => ZQuery.fromEffect(EpisodeService.getEpisode(args.season, args.episode))
-        ) :: Nil
+        )
       )
   }
 
