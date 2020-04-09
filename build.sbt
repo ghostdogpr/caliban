@@ -242,13 +242,13 @@ lazy val federation = project
   .in(file("federation"))
   .settings(name := "caliban-federation")
   .settings(commonSettings)
-  .dependsOn(coreJVM).
-  settings(
+  .dependsOn(coreJVM)
+  .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "dev.zio"           %%% "zio"          % zioVersion,
-      "dev.zio"           %%% "zio-test"     % zioVersion % Test,
-      "dev.zio"           %%% "zio-test-sbt" % zioVersion % Test,
+      "dev.zio" %%% "zio"          % zioVersion,
+      "dev.zio" %%% "zio-test"     % zioVersion % Test,
+      "dev.zio" %%% "zio-test-sbt" % zioVersion % Test,
       compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
     )
   )

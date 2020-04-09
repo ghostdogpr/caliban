@@ -13,8 +13,8 @@ trait Federation {
   import Federation._
 
   object Key {
-    def apply(name: String): Directive =
-      Directive("key", Map("fields" -> StringValue("name")))
+    def apply(fields: String): Directive =
+      Directive("key", Map("fields" -> StringValue(fields)))
   }
 
   val Extend = Directive("extends")
@@ -64,7 +64,7 @@ trait Federation {
 
     case class Query(
       _entities: RepresentationsArgs => List[_Entity],
-      _service: _Service,
+      _service: ZQuery[Any, Nothing, _Service],
       _fieldSet: FieldSet = FieldSet("")
     )
 
@@ -77,7 +77,7 @@ trait Federation {
       RootResolver(
         Query(
           _entities = args => args.representations.map(rep => _Entity(rep.__typename, rep.fields)),
-          _service = _Service(underlying.render)
+          _service = ZQuery.succeed(_Service(underlying.render))
         )
       ),
       federationDirectives

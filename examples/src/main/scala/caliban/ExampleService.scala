@@ -9,6 +9,8 @@ object ExampleService {
   type ExampleService = Has[Service]
 
   trait Service {
+    def getCharactersByEpisode(season: Int, episode: Int): UIO[List[Character]]
+
     def getCharacters(origin: Option[Origin]): UIO[List[Character]]
 
     def findCharacter(name: String): UIO[Option[Character]]
@@ -30,43 +32,53 @@ object ExampleService {
   def deletedEvents: ZStream[ExampleService, Nothing, String] =
     ZStream.accessStream(_.get.deletedEvents)
 
+  def getCharactersByEpisode(season: Int, episode: Int): URIO[ExampleService, List[Character]] =
+    URIO.accessM(_.get.getCharactersByEpisode(season, episode))
+
   def make(initial: List[Character]): ZLayer[Any, Nothing, ExampleService] = ZLayer.fromEffect {
     for {
       characters  <- Ref.make(initial)
       subscribers <- Ref.make(List.empty[Queue[String]])
-    } yield new Service {
+    } yield
+      new Service {
 
-      def getCharacters(origin: Option[Origin]): UIO[List[Character]] =
-        characters.get.map(_.filter(c => origin.forall(c.origin == _)))
+        def getCharacters(origin: Option[Origin]): UIO[List[Character]] =
+          characters.get.map(_.filter(c => origin.forall(c.origin == _)))
 
-      def findCharacter(name: String): UIO[Option[Character]] = characters.get.map(_.find(c => c.name == name))
+        def findCharacter(name: String): UIO[Option[Character]] = characters.get.map(_.find(c => c.name == name))
 
-      def deleteCharacter(name: String): UIO[Boolean] =
-        characters
-          .modify(list =>
-            if (list.exists(_.name == name)) (true, list.filterNot(_.name == name))
-            else (false, list)
-          )
-          .tap(deleted =>
-            UIO.when(deleted)(
-              subscribers.get.flatMap(
-                // add item to all subscribers
-                UIO.foreach(_)(queue =>
-                  queue
-                    .offer(name)
-                    .onInterrupt(
-                      subscribers.update(_.filterNot(_ == queue))
-                    ) // if queue was shutdown, remove from subscribers
-                )
+        def deleteCharacter(name: String): UIO[Boolean] =
+          characters
+            .modify(
+              list =>
+                if (list.exists(_.name == name)) (true, list.filterNot(_.name == name))
+                else (false, list)
+            )
+            .tap(
+              deleted =>
+                UIO.when(deleted)(
+                  subscribers.get.flatMap(
+                    // add item to all subscribers
+                    UIO.foreach(_)(
+                      queue =>
+                        queue
+                          .offer(name)
+                          .onInterrupt(
+                            subscribers.update(_.filterNot(_ == queue))
+                        ) // if queue was shutdown, remove from subscribers
+                    )
+                  )
               )
             )
-          )
-      def deletedEvents: ZStream[Any, Nothing, String] = ZStream.unwrap {
-        for {
-          queue <- Queue.unbounded[String]
-          _     <- subscribers.update(queue :: _)
-        } yield ZStream.fromQueue(queue)
+        def deletedEvents: ZStream[Any, Nothing, String] = ZStream.unwrap {
+          for {
+            queue <- Queue.unbounded[String]
+            _     <- subscribers.update(queue :: _)
+          } yield ZStream.fromQueue(queue)
+        }
+
+        override def getCharactersByEpisode(season: Int, episode: Int): UIO[List[Character]] =
+          characters.get.map(_.filter(c => c.starredIn.exists(e => e.episode == episode && e.season == season)))
       }
-    }
   }
 }
