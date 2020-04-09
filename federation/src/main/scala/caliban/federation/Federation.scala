@@ -152,7 +152,7 @@ object Federation {
 
   implicit val representationsArgBuilder: ArgBuilder[RepresentationsArgs] = {
     case InputValue.ObjectValue(fields) =>
-      fields.get("representations").toRight(ExecutionError("_Any must contain a __typename value")).right.flatMap {
+      fields.get("representations").toRight(ExecutionError("_Any must contain a __typename value")).flatMap {
         case InputValue.ListValue(values) =>
           traverseEither(values.map(anyArgBuilder.build)).map(RepresentationsArgs)
         case other => Left(ExecutionError(s"Can't build a representations from input $other"))
