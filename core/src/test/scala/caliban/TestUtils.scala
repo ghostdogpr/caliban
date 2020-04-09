@@ -2,6 +2,7 @@ package caliban
 
 import caliban.TestUtils.Origin._
 import caliban.TestUtils.Role._
+import caliban.Value.StringValue
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLDirective, GQLInputName, GQLInterface }
 import caliban.schema.Schema
@@ -35,7 +36,7 @@ object TestUtils {
     case class Mechanic(shipName: String) extends Role
   }
 
-  @GQLDirective(Directive("name"))
+  @GQLDirective(Directive("key", Map("name" -> StringValue("name"))))
   case class Character(
     @GQLDirective(Directive("external")) name: String,
     @GQLDirective(Directive("required")) nicknames: List[String],

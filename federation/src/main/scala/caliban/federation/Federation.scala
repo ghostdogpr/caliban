@@ -17,25 +17,42 @@ trait Federation {
       Directive("key", Map("fields" -> StringValue(fields)))
   }
 
+  object Provides {
+    def apply(fields: String): Directive =
+      Directive("provides", Map("fields" -> StringValue(fields)))
+  }
+
+  object Requires {
+    def apply(fields: String): Directive =
+      Directive("requires", Map("fields" -> StringValue(fields)))
+  }
+
   val Extend = Directive("extends")
 
   val External = Directive("external")
 
+  def federate[R](underlying: GraphQL[R]): GraphQL[R] = {
+    import Schema._
+
+    case class Query(
+      _service: _Service,
+      _fieldSet: FieldSet = FieldSet("")
+    )
+
+    GraphQL.graphQL(RootResolver(Query(_service = _Service(underlying.render))), federationDirectives) |+| underlying
+  }
+
   /**
    * Wraps an existing graphql schema in a federated version of it.
    */
-  def federate[R](underlying: GraphQL[R], resolvers: List[EntityResolver[R]]): GraphQL[R] = {
+  def federate[R](underlying: GraphQL[R],
+                  resolver: EntityResolver[R],
+                  otherResolvers: EntityResolver[R]*): GraphQL[R] = {
+
+    val resolvers = resolver +: otherResolvers.toList
 
     val genericSchema = new GenericSchema[R] {}
     import genericSchema._
-
-    case class FieldSet(fields: String)
-
-    implicit val fieldSetSchema: Schema[Any, FieldSet] = Schema.scalarSchema[FieldSet](
-      "_FieldSet",
-      None,
-      fs => StringValue(fs.fields)
-    )
 
     implicit val entitySchema: Schema[R, _Entity] = new Schema[R, _Entity] {
       override def toType(isInput: Boolean): __Type =
@@ -59,8 +76,6 @@ trait Federation {
             .fold[ZQuery[R, CalibanError, Step[R]]](ZQuery.succeed(Step.NullStep))(_.resolve(value.value))
         )
     }
-
-    case class _Service(sdl: String)
 
     case class Query(
       _entities: RepresentationsArgs => List[_Entity],
@@ -162,4 +177,13 @@ object Federation {
   }
 
   case class _Entity(__typename: String, value: InputValue)
+
+  case class FieldSet(fields: String)
+  case class _Service(sdl: String)
+
+  implicit val fieldSetSchema: Schema[Any, FieldSet] = Schema.scalarSchema[FieldSet](
+    "_FieldSet",
+    None,
+    fs => StringValue(fs.fields)
+  )
 }
