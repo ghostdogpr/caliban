@@ -19,6 +19,12 @@ import scala.language.postfixOps
 
 object FederatedApi {
 
+  val standardWrappers = maxFields(200) |+| // query analyzer that limit query fields
+    maxDepth(30) |+|                 // query analyzer that limit query depth
+    timeout(3 seconds) |+|           // wrapper that fails slow queries
+    printSlowQueries(500 millis) |+| // wrapper that logs slow queries
+    apolloTracing // wrapper for https://github.com/apollographql/apollo-tracing
+
   object Characters extends GenericSchema[ExampleService] {
     import caliban.ExampleData.{ Character, CharacterArgs, CharactersArgs, Episode, EpisodeArgs, Role }
 
@@ -49,12 +55,7 @@ object FederatedApi {
             ),
             Mutations(args => ExampleService.deleteCharacter(args.name))
           )
-        ) @@
-          maxFields(200) @@               // query analyzer that limit query fields
-          maxDepth(30) @@                 // query analyzer that limit query depth
-          timeout(3 seconds) @@           // wrapper that fails slow queries
-          printSlowQueries(500 millis) @@ // wrapper that logs slow queries
-          apolloTracing, // wrapper for https://github.com/apollographql/apollo-tracing
+        ) @@ standardWrappers,
         EntityResolver.from[CharacterArgs](args => ZQuery.fromEffect(ExampleService.findCharacter(args.name))),
         EntityResolver.from[EpisodeArgs](
           args =>
@@ -96,12 +97,7 @@ object FederatedApi {
               args => EpisodeService.getEpisodes(args.season)
             )
           )
-        ) @@
-          maxFields(200) @@               // query analyzer that limit query fields
-          maxDepth(30) @@                 // query analyzer that limit query depth
-          timeout(3 seconds) @@           // wrapper that fails slow queries
-          printSlowQueries(500 millis) @@ // wrapper that logs slow queries
-          apolloTracing, // wrapper for https://github.com/apollographql/apollo-tracing
+        ) @@ standardWrappers,
         EntityResolver.from[EpisodeArgs](
           args => ZQuery.fromEffect(EpisodeService.getEpisode(args.season, args.episode))
         )

@@ -250,7 +250,8 @@ lazy val federation = project
       "dev.zio" %%% "zio-test"     % zioVersion % Test,
       "dev.zio" %%% "zio-test-sbt" % zioVersion % Test,
       compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
-    )
+    ),
+    scalacOptions += "-Ywarn-unused:-locals"
   )
 
 val commonSettings = Def.settings(
@@ -269,7 +270,7 @@ val commonSettings = Def.settings(
     "-Xlint:_,-type-parameter-shadow",
     "-Xfatal-warnings",
     "-Ywarn-numeric-widen",
-    "-Ywarn-unused:patvars,-implicits,-locals",
+    "-Ywarn-unused:patvars,-implicits",
     "-Ywarn-value-discard"
   ) ++ (CrossVersion.partialVersion(scalaVersion.value) match {
     case Some((2, 12)) =>

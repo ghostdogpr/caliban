@@ -75,7 +75,13 @@ object Wrapper {
    * Wrapper that combines multiple wrappers.
    * @param wrappers a list of wrappers
    */
-  case class CombinedWrapper[-R](wrappers: List[Wrapper[R]]) extends Wrapper[R]
+  case class CombinedWrapper[-R](wrappers: List[Wrapper[R]]) extends Wrapper[R] {
+    override def |+|[R1 <: R](that: Wrapper[R1]): Wrapper[R1] = that match {
+      case CombinedWrapper(other) => copy(wrappers = wrappers ++ other)
+      case other                  => copy(wrappers = wrappers :+ other)
+    }
+
+  }
 
   /**
    * A wrapper that requires an effect to be built. The effect will be run for each query.
