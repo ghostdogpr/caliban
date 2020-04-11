@@ -40,10 +40,11 @@ object ExampleApi extends GenericSchema[ExampleService] {
         Mutations(args => ExampleService.deleteCharacter(args.name)),
         Subscriptions(ExampleService.deletedEvents)
       )
-    ) @@ maxFields(200) @@            // query analyzer that limit query fields
+    ) @@
+      maxFields(200) @@               // query analyzer that limit query fields
       maxDepth(30) @@                 // query analyzer that limit query depth
       timeout(3 seconds) @@           // wrapper that fails slow queries
       printSlowQueries(500 millis) @@ // wrapper that logs slow queries
-      apolloTracing                   // wrapper for https://github.com/apollographql/apollo-tracing
+      apolloTracing // wrapper for https://github.com/apollographql/apollo-tracing
 
 }

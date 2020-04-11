@@ -27,7 +27,7 @@ object ExampleData {
   case class CharactersArgs(origin: Option[Origin])
   case class CharacterArgs(name: String)
 
-  lazy val sampleCharacters = List(
+  val sampleCharacters = List(
     Character("James Holden", List("Jim", "Hoss"), EARTH, Some(Captain("Rocinante"))),
     Character("Naomi Nagata", Nil, BELT, Some(Engineer("Rocinante"))),
     Character("Amos Burton", Nil, EARTH, Some(Mechanic("Rocinante"))),
@@ -36,5 +36,4 @@ object ExampleData {
     Character("Josephus Miller", List("Joe"), BELT, None),
     Character("Roberta Draper", List("Bobbie", "Gunny"), MARS, None)
   )
-
 }

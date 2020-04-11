@@ -31,7 +31,13 @@ trait Federation {
 
   val External = Directive("external")
 
-  def federate[R](underlying: GraphQL[R]): GraphQL[R] = {
+  /**
+   * Accepts a GraphQL and returns a GraphQL with the minimum settings to support federation. This variant does not
+   * provide any stitching capabilities, it merely makes this schema consumable by a graphql federation gateway.
+   * @param original The original schema
+   * @return A new schema which has been augmented with federation types
+   */
+  def federate[R](original: GraphQL[R]): GraphQL[R] = {
     import Schema._
 
     case class Query(
@@ -39,15 +45,17 @@ trait Federation {
       _fieldSet: FieldSet = FieldSet("")
     )
 
-    GraphQL.graphQL(RootResolver(Query(_service = _Service(underlying.render))), federationDirectives) |+| underlying
+    GraphQL.graphQL(RootResolver(Query(_service = _Service(original.render))), federationDirectives) |+| original
   }
 
   /**
-   * Wraps an existing graphql schema in a federated version of it.
+   * Accepts a GraphQL as well as entity resolvers in order to support more advanced federation use cases. This variant
+   * will allow the gateway to query for entities by resolver.
+   * @param original The original schema
+   * @param resolver A type which can resolve a single type by a key which is provided per type using the @key directive
+   * @param otherResolvers Additional resolvers to supply
    */
-  def federate[R](underlying: GraphQL[R],
-                  resolver: EntityResolver[R],
-                  otherResolvers: EntityResolver[R]*): GraphQL[R] = {
+  def federate[R](original: GraphQL[R], resolver: EntityResolver[R], otherResolvers: EntityResolver[R]*): GraphQL[R] = {
 
     val resolvers = resolver +: otherResolvers.toList
 
@@ -92,11 +100,11 @@ trait Federation {
       RootResolver(
         Query(
           _entities = args => args.representations.map(rep => _Entity(rep.__typename, rep.fields)),
-          _service = ZQuery.succeed(_Service(underlying.render))
+          _service = ZQuery.succeed(_Service(original.render))
         )
       ),
       federationDirectives
-    ) |+| underlying
+    ) |+| original
 
   }
 }

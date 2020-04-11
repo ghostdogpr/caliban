@@ -28,9 +28,9 @@ object EntityResolver {
     }
 
   def from[A]: EntityResolverPartiallyApplied[A] =
-    new EntityResolverPartiallyApplied()
+    new EntityResolverPartiallyApplied
 
-  class EntityResolverPartiallyApplied[A](val dummy: Boolean = false) {
+  class EntityResolverPartiallyApplied[A] {
     def apply[R, R1 <: R, T](
       resolver: A => ZQuery[R1, CalibanError, Option[T]]
     )(implicit schema: Schema[R, T], argBuilder: ArgBuilder[A]): EntityResolver[R1] =
