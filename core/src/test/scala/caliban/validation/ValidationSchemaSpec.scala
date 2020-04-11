@@ -1,14 +1,14 @@
 package caliban.validation
 
 import caliban.CalibanError.ValidationError
-import caliban.{ GraphQL, RootResolver }
 import caliban.GraphQL.graphQL
 import caliban.TestUtils.InvalidSchemas._
-import caliban.introspection.adt.{ __EnumValue, __Field, __InputValue, __Type, __TypeKind }
+import caliban.introspection.adt._
+import caliban.{ GraphQL, RootResolver }
 import zio.IO
 import zio.test.Assertion._
-import zio.test.environment.TestEnvironment
 import zio.test._
+import zio.test.environment.TestEnvironment
 
 object ValidationSchemaSpec extends DefaultRunnableSpec {
 
@@ -154,7 +154,7 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
                         __Field("A", None, List.empty, `type` = () => __Type(__TypeKind.SCALAR)),
                         __Field("A", None, List.empty, `type` = () => __Type(__TypeKind.SCALAR))
                       )
-                    )
+                  )
                 )
               ),
               "Interface 'DuplicateNamesInterface' has repeated fields: A"
@@ -164,6 +164,19 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
             check(
               graphQL(resolverInferfaceWrongFieldName),
               "Field '__name' of Interface 'InterfaceWrongFieldName' can't start with '__'"
+            )
+          },
+          testM("field can't be input type") {
+            checkTypeError(
+              Validator.validateInterface(
+                __Type(
+                  name = Some("InputTypeFieldInterface"),
+                  kind = __TypeKind.INTERFACE,
+                  fields = _ =>
+                    Some(List(__Field("InputField", None, List.empty, `type` = () => __Type(name = Some("InputType"), kind = __TypeKind.INPUT_OBJECT))))
+                )
+              ),
+              "InputType of Field 'InputField' of Interface 'InputTypeFieldInterface' is of kind INPUT_OBJECT, must be an OutputType"
             )
           },
           testM("field argument name can't start with '__'") {
