@@ -183,12 +183,12 @@ implicit val unitSchema: Schema[Any, Unit] = scalarSchema("Unit", None, _ => Obj
 If you are using a custom type as part of the input you also have to provide an implicit instance of `caliban.schema.ArgBuilder`. For example here's how to do that for `java.time.LocalDate`:
 
 ```scala
-  implicit val localDateArgBuilder: ArgBuilder[LocalDate] = {
-    case StringValue(value) =>
-      Try(LocalDate.parse(value))
-        .fold(ex => Left(ExecutionError(s"Can't parse $value into a LocalDate", innerThrowable = Some(ex))), Right(_))
-    case other => Left(ExecutionError(s"Can't build a LocalDate from input $other"))
-  }
+implicit val localDateArgBuilder: ArgBuilder[LocalDate] = {
+  case StringValue(value) =>
+    Try(LocalDate.parse(value))
+      .fold(ex => Left(ExecutionError(s"Can't parse $value into a LocalDate", innerThrowable = Some(ex))), Right(_))
+  case other => Left(ExecutionError(s"Can't build a LocalDate from input $other"))
+}
 ```
 
 ## Code generation
