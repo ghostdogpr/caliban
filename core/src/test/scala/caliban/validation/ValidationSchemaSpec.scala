@@ -154,7 +154,7 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
                         __Field("A", None, List.empty, `type` = () => __Type(__TypeKind.SCALAR)),
                         __Field("A", None, List.empty, `type` = () => __Type(__TypeKind.SCALAR))
                       )
-                  )
+                    )
                 )
               ),
               "Interface 'DuplicateNamesInterface' has repeated fields: A"
@@ -173,7 +173,16 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
                   name = Some("InputTypeFieldInterface"),
                   kind = __TypeKind.INTERFACE,
                   fields = _ =>
-                    Some(List(__Field("InputField", None, List.empty, `type` = () => __Type(name = Some("InputType"), kind = __TypeKind.INPUT_OBJECT))))
+                    Some(
+                      List(
+                        __Field(
+                          "InputField",
+                          None,
+                          List.empty,
+                          `type` = () => __Type(name = Some("InputType"), kind = __TypeKind.INPUT_OBJECT)
+                        )
+                      )
+                    )
                 )
               ),
               "InputType of Field 'InputField' of Interface 'InputTypeFieldInterface' is of kind INPUT_OBJECT, must be an OutputType"
