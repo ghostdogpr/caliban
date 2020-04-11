@@ -18,7 +18,7 @@ import zio.interop.catz._
 object FederatedApp extends CatsApp {
   type ExampleTask[A] = RIO[ZEnv, A]
 
-  val service1 = ExampleService
+  val service1 = CharacterService
     .make(sampleCharacters)
     .memoize
     .use(

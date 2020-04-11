@@ -1,14 +1,16 @@
-package caliban
+package caliban.federation
 
 import caliban.ExampleData._
 import zio.stream.ZStream
 import zio.{ Has, Queue, Ref, UIO, URIO, ZLayer }
 
-object ExampleService {
+object CharacterService {
 
-  type ExampleService = Has[Service]
+  type CharacterService = Has[Service]
 
   trait Service {
+    def getCharactersByEpisode(season: Int, episode: Int): UIO[List[Character]]
+
     def getCharacters(origin: Option[Origin]): UIO[List[Character]]
 
     def findCharacter(name: String): UIO[Option[Character]]
@@ -18,19 +20,22 @@ object ExampleService {
     def deletedEvents: ZStream[Any, Nothing, String]
   }
 
-  def getCharacters(origin: Option[Origin]): URIO[ExampleService, List[Character]] =
+  def getCharacters(origin: Option[Origin]): URIO[CharacterService, List[Character]] =
     URIO.accessM(_.get.getCharacters(origin))
 
-  def findCharacter(name: String): URIO[ExampleService, Option[Character]] =
+  def findCharacter(name: String): URIO[CharacterService, Option[Character]] =
     URIO.accessM(_.get.findCharacter(name))
 
-  def deleteCharacter(name: String): URIO[ExampleService, Boolean] =
+  def deleteCharacter(name: String): URIO[CharacterService, Boolean] =
     URIO.accessM(_.get.deleteCharacter(name))
 
-  def deletedEvents: ZStream[ExampleService, Nothing, String] =
+  def deletedEvents: ZStream[CharacterService, Nothing, String] =
     ZStream.accessStream(_.get.deletedEvents)
 
-  def make(initial: List[Character]): ZLayer[Any, Nothing, ExampleService] = ZLayer.fromEffect {
+  def getCharactersByEpisode(season: Int, episode: Int): URIO[CharacterService, List[Character]] =
+    URIO.accessM(_.get.getCharactersByEpisode(season, episode))
+
+  def make(initial: List[Character]): ZLayer[Any, Nothing, CharacterService] = ZLayer.fromEffect {
     for {
       characters  <- Ref.make(initial)
       subscribers <- Ref.make(List.empty[Queue[String]])
@@ -71,6 +76,9 @@ object ExampleService {
             _     <- subscribers.update(queue :: _)
           } yield ZStream.fromQueue(queue)
         }
+
+        override def getCharactersByEpisode(season: Int, episode: Int): UIO[List[Character]] =
+          characters.get.map(_.filter(c => c.starredIn.exists(e => e.episode == episode && e.season == season)))
       }
   }
 }

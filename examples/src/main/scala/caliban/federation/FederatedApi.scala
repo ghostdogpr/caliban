@@ -50,17 +50,17 @@ object FederatedApi {
         graphQL(
           RootResolver(
             Queries(
-              args => ExampleService.getCharacters(args.origin),
-              args => ExampleService.findCharacter(args.name)
+              args => CharacterService.getCharacters(args.origin),
+              args => CharacterService.findCharacter(args.name)
             ),
-            Mutations(args => ExampleService.deleteCharacter(args.name))
+            Mutations(args => CharacterService.deleteCharacter(args.name))
           )
         ) @@ standardWrappers,
-        EntityResolver.from[CharacterArgs](args => ZQuery.fromEffect(ExampleService.findCharacter(args.name))),
+        EntityResolver.from[CharacterArgs](args => ZQuery.fromEffect(CharacterService.findCharacter(args.name))),
         EntityResolver.from[EpisodeArgs](
           args =>
             ZQuery
-              .fromEffect(ExampleService.getCharactersByEpisode(args.season, args.episode))
+              .fromEffect(CharacterService.getCharactersByEpisode(args.season, args.episode))
               .map(
                 characters =>
                   Some(

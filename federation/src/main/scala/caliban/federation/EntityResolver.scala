@@ -27,6 +27,11 @@ object EntityResolver {
       override def toType: __Type = schema.toType()
     }
 
+  def fromQueryLift[R, A: ArgBuilder, T](
+    resolver: A => QueryLift[R, CalibanError, Option[T]]
+  )(implicit schema: Schema[R, T]): EntityResolver[R] =
+    apply[R, A, T](resolver andThen (_.toQuery))
+
   def from[A]: EntityResolverPartiallyApplied[A] =
     new EntityResolverPartiallyApplied()
 
