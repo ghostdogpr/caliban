@@ -138,7 +138,7 @@ trait AkkaHttpAdapter {
                     case "connection_init" =>
                       val ack: ZIO[Clock with Random, Throwable, Any] =
                         IO.fromFuture(_ => queue.offer(TextMessage("""{"type":"connection_ack"}""")))
-                      
+
                       val withKeepAlive = keepAliveTime.fold(ack) { time =>
                         ack
                           .flatMap(_ =>
@@ -154,6 +154,7 @@ trait AkkaHttpAdapter {
                       }
 
                       val withClientDuration = clientDuration.fold(withKeepAlive) { time =>
+                        //TODO: Shouldn't it send GQL_COMPLETE here before terminating?
                         withKeepAlive.flatMap(_ => IO.effect(queue.complete())).delay(time).forkDaemon
                       }
 
