@@ -86,7 +86,8 @@ trait AkkaHttpAdapter {
   def makeWebSocketService[R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
-    keepAliveTime: Option[Duration] = None
+    keepAliveTime: Option[Duration] = None,
+    clientDuration: Option[Duration] = None
   )(implicit ec: ExecutionContext, runtime: Runtime[R with Clock with Random], materializer: Materializer): Route = {
     def sendMessage(
       sendQueue: SourceQueueWithComplete[Message],
@@ -137,9 +138,10 @@ trait AkkaHttpAdapter {
                     case "connection_init" =>
                       val ack: ZIO[Clock with Random, Throwable, Any] =
                         IO.fromFuture(_ => queue.offer(TextMessage("""{"type":"connection_ack"}""")))
-                      keepAliveTime.fold(ack) { time =>
+                      
+                      val withKeepAlive = keepAliveTime.fold(ack) { time =>
                         ack
-                          .flatMap(a =>
+                          .flatMap(_ =>
                             IO.fromFuture(_ =>
                                 queue
                                   .offer(
@@ -150,6 +152,12 @@ trait AkkaHttpAdapter {
                               .forkDaemon
                           )
                       }
+
+                      val withClientDuration = clientDuration.fold(withKeepAlive) { time =>
+                        withKeepAlive.flatMap(_ => IO.effect(queue.complete())).delay(time).forkDaemon
+                      }
+
+                      withClientDuration
                     case "connection_terminate" =>
                       IO.effect(queue.complete())
                     case "start" =>
@@ -174,6 +182,7 @@ trait AkkaHttpAdapter {
         }
 
         val flow = Flow.fromSinkAndSource(sink, source).watchTermination() { (_, f) =>
+          //TODO: Shouldn't it send GQL_COMPLETE here before terminating?
           f.onComplete(_ => runtime.unsafeRun(subscriptions.get.flatMap(m => IO.foreach(m.values)(_.interrupt).unit)))
         }
 
