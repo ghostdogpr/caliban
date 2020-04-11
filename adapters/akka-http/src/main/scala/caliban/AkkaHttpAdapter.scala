@@ -11,7 +11,10 @@ import akka.stream.scaladsl.{ Flow, Sink, Source, SourceQueueWithComplete }
 import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
-import zio.{ Fiber, IO, RIO, Ref, Runtime, Task, URIO }
+import zio._
+import zio.clock.Clock
+import zio.duration._
+import zio.random.Random
 
 /**
  * Akka-http adapter for caliban with pluggable json backend.
@@ -82,8 +85,9 @@ trait AkkaHttpAdapter {
 
   def makeWebSocketService[R, E](
     interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false
-  )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): Route = {
+    skipValidation: Boolean = false,
+    keepAliveTime: Option[Duration] = None
+  )(implicit ec: ExecutionContext, runtime: Runtime[R with Clock with Random], materializer: Materializer): Route = {
     def sendMessage(
       sendQueue: SourceQueueWithComplete[Message],
       id: String,
@@ -121,8 +125,9 @@ trait AkkaHttpAdapter {
 
     get {
       extractUpgradeToWebSocket { upgrade =>
-        val (queue, source) = Source.queue[Message](0, OverflowStrategy.fail).preMaterialize()
-        val subscriptions   = runtime.unsafeRun(Ref.make(Map.empty[String, Fiber[Throwable, Unit]]))
+        val (queue: SourceQueueWithComplete[Message], source) =
+          Source.queue[Message](0, OverflowStrategy.fail).preMaterialize()
+        val subscriptions = runtime.unsafeRun(Ref.make(Map.empty[String, Fiber[Throwable, Unit]]))
         val sink = Sink.foreach[Message] {
           case TextMessage.Strict(text) =>
             val io = for {
@@ -130,7 +135,21 @@ trait AkkaHttpAdapter {
               msgType = msg.messageType
               _ <- IO.whenCase(msgType) {
                     case "connection_init" =>
-                      IO.fromFuture(_ => queue.offer(TextMessage("""{"type":"connection_ack"}""")))
+                      val ack: ZIO[Clock with Random, Throwable, Any] =
+                        IO.fromFuture(_ => queue.offer(TextMessage("""{"type":"connection_ack"}""")))
+                      keepAliveTime.fold(ack) { time =>
+                        ack
+                          .flatMap(a =>
+                            IO.fromFuture(_ =>
+                                queue
+                                  .offer(
+                                    TextMessage("""{"type":"ka"}""")
+                                  )
+                              )
+                              .repeat(Schedule.spaced(time).jittered)
+                              .forkDaemon
+                          )
+                      }
                     case "connection_terminate" =>
                       IO.effect(queue.complete())
                     case "start" =>
