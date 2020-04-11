@@ -16,18 +16,18 @@ Caliban can also be used to build GraphQL frontends: see the [dedicated section]
 To use `caliban`, add the following line in your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "0.7.3"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "0.7.4"
 ```
 
 The following modules are optional:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-http4s"    % "0.7.3" // routes for http4s
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-akka-http" % "0.7.3" // routes for akka-http
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-finch"     % "0.7.3" // routes for finch
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-uzhttp"    % "0.7.3" // routes for uzhttp
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-cats"      % "0.7.3" // interop with cats effect
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-monix"     % "0.7.3" // interop with monix
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-http4s"    % "0.7.4" // routes for http4s
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-akka-http" % "0.7.4" // routes for akka-http
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-finch"     % "0.7.4" // routes for finch
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-uzhttp"    % "0.7.4" // routes for uzhttp
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-cats"      % "0.7.4" // interop with cats effect
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-monix"     % "0.7.4" // interop with monix
 ```
 
 Note that Caliban is also available for ScalaJS.
