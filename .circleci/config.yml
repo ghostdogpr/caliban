@@ -21,7 +21,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.12.10! coreJVM/test http4s/compile akkaHttp/compile finch/compile examples/compile catsInteropJVM/compile benchmarks/compile codegen/test clientJVM/test monixInterop/compile
+      - run: sbt ++2.12.10! coreJVM/test http4s/compile akkaHttp/compile finch/compile uzhttp/compile examples/compile catsInteropJVM/compile benchmarks/compile codegen/test clientJVM/test monixInterop/compile
       - save_cache:
           key: sbtcache
           paths:
@@ -35,7 +35,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.1! coreJVM/test http4s/compile akkaHttp/compile finch/compile examples/compile catsInteropJVM/compile monixInterop/compile clientJVM/test
+      - run: sbt ++2.13.1! coreJVM/test http4s/compile akkaHttp/compile finch/compile uzhttp/compile examples/compile catsInteropJVM/compile monixInterop/compile clientJVM/test
       - save_cache:
           key: sbtcache
           paths:
