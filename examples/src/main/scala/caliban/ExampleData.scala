@@ -2,9 +2,6 @@ package caliban
 
 import caliban.ExampleData.Origin.{ BELT, EARTH, MARS }
 import caliban.ExampleData.Role.{ Captain, Engineer, Mechanic, Pilot }
-import caliban.ExampleService.ExampleService
-import caliban.schema.Annotations.GQLDirective
-import zquery.ZQuery
 
 object ExampleData {
 

@@ -29,7 +29,6 @@ object ExampleApi extends GenericSchema[ExampleService] {
   implicit val characterSchema      = gen[Character]
   implicit val characterArgsSchema  = gen[CharacterArgs]
   implicit val charactersArgsSchema = gen[CharactersArgs]
-  implicit val episodeSchema        = gen[Episode]
 
   val api: GraphQL[Console with Clock with ExampleService] =
     graphQL(
@@ -45,6 +44,6 @@ object ExampleApi extends GenericSchema[ExampleService] {
       maxDepth(30) @@                 // query analyzer that limit query depth
       timeout(3 seconds) @@           // wrapper that fails slow queries
       printSlowQueries(500 millis) @@ // wrapper that logs slow queries
-      apolloTracing // wrapper for https://github.com/apollographql/apollo-tracing
+      apolloTracing                   // wrapper for https://github.com/apollographql/apollo-tracing
 
 }

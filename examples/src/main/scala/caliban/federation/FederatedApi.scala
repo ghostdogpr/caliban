@@ -1,19 +1,19 @@
 package caliban.federation
 
-import caliban.ExampleService.ExampleService
 import caliban.GraphQL.graphQL
-import caliban.{ ExampleService, GraphQL, RootResolver }
+import caliban.federation.CharacterService.CharacterService
 import caliban.federation.EpisodeService.EpisodeService
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
+import caliban.wrappers.ApolloTracing._
 import caliban.wrappers.Wrappers.{ maxDepth, maxFields, printSlowQueries, timeout }
+import caliban.{ GraphQL, RootResolver }
 import zio.URIO
 import zio.clock.Clock
 import zio.console.Console
-import zquery.ZQuery
 import zio.duration._
-import caliban.wrappers.ApolloTracing._
 import zio.stream.ZStream
+import zquery.ZQuery
 
 import scala.language.postfixOps
 
@@ -23,29 +23,36 @@ object FederatedApi {
     maxDepth(30) |+|                 // query analyzer that limit query depth
     timeout(3 seconds) |+|           // wrapper that fails slow queries
     printSlowQueries(500 millis) |+| // wrapper that logs slow queries
-    apolloTracing // wrapper for https://github.com/apollographql/apollo-tracing
+    apolloTracing                    // wrapper for https://github.com/apollographql/apollo-tracing
 
-  object Characters extends GenericSchema[ExampleService] {
-    import caliban.ExampleData.{ Character, CharacterArgs, CharactersArgs, Episode, EpisodeArgs, Role }
+  object Characters extends GenericSchema[CharacterService] {
+    import caliban.federation.FederationData.characters.{
+      Character,
+      CharacterArgs,
+      CharactersArgs,
+      Episode,
+      EpisodeArgs,
+      Role
+    }
 
     case class Queries(
       @GQLDescription("Return all characters from a given origin")
-      characters: CharactersArgs => URIO[ExampleService, List[Character]],
+      characters: CharactersArgs => URIO[CharacterService, List[Character]],
       @GQLDeprecated("Use `characters`")
-      character: CharacterArgs => URIO[ExampleService, Option[Character]]
+      character: CharacterArgs => URIO[CharacterService, Option[Character]]
     )
-    case class Mutations(deleteCharacter: CharacterArgs => URIO[ExampleService, Boolean])
-    case class Subscriptions(characterDeleted: ZStream[ExampleService, Nothing, String])
+    case class Mutations(deleteCharacter: CharacterArgs => URIO[CharacterService, Boolean])
+    case class Subscriptions(characterDeleted: ZStream[CharacterService, Nothing, String])
 
-    implicit val roleSchema                                          = gen[Role]
-    implicit lazy val episodeSchema: Schema[ExampleService, Episode] = gen[Episode]
-    implicit val characterSchema                                     = gen[Character]
-    implicit val characterArgsSchema                                 = gen[CharacterArgs]
-    implicit val charactersArgsSchema                                = gen[CharactersArgs]
-    implicit val episodeArgs                                         = gen[EpisodeArgs]
-    implicit val episodeArgBuilder: ArgBuilder[EpisodeArgs]          = ArgBuilder.gen[EpisodeArgs]
+    implicit val roleSchema                                            = gen[Role]
+    implicit lazy val episodeSchema: Schema[CharacterService, Episode] = gen[Episode]
+    implicit val characterSchema                                       = gen[Character]
+    implicit val characterArgsSchema                                   = gen[CharacterArgs]
+    implicit val charactersArgsSchema                                  = gen[CharactersArgs]
+    implicit val episodeArgs                                           = gen[EpisodeArgs]
+    implicit val episodeArgBuilder: ArgBuilder[EpisodeArgs]            = ArgBuilder.gen[EpisodeArgs]
 
-    val api: GraphQL[Console with Clock with ExampleService] =
+    val api: GraphQL[Console with Clock with CharacterService] =
       federate(
         graphQL(
           RootResolver(
@@ -57,27 +64,24 @@ object FederatedApi {
           )
         ) @@ standardWrappers,
         EntityResolver.from[CharacterArgs](args => ZQuery.fromEffect(CharacterService.findCharacter(args.name))),
-        EntityResolver.from[EpisodeArgs](
-          args =>
-            ZQuery
-              .fromEffect(CharacterService.getCharactersByEpisode(args.season, args.episode))
-              .map(
-                characters =>
-                  Some(
-                    Episode(
-                      args.season,
-                      args.episode,
-                      ZQuery.succeed(characters)
-                    )
+        EntityResolver.from[EpisodeArgs](args =>
+          ZQuery
+            .fromEffect(CharacterService.getCharactersByEpisode(args.season, args.episode))
+            .map(characters =>
+              Some(
+                Episode(
+                  args.season,
+                  args.episode,
+                  ZQuery.succeed(characters)
                 )
+              )
             )
         )
       )
   }
 
   object Episodes extends GenericSchema[EpisodeService] {
-    import caliban.federation.FederationData.episodes.{ Episode, EpisodeArgs }
-    import caliban.federation.FederationData.episodes.EpisodesArgs
+    import caliban.federation.FederationData.episodes.{ Episode, EpisodeArgs, EpisodesArgs }
 
     case class Queries(
       episode: EpisodeArgs => URIO[EpisodeService, Option[Episode]],
@@ -98,8 +102,8 @@ object FederatedApi {
             )
           )
         ) @@ standardWrappers,
-        EntityResolver.from[EpisodeArgs](
-          args => ZQuery.fromEffect(EpisodeService.getEpisode(args.season, args.episode))
+        EntityResolver.from[EpisodeArgs](args =>
+          ZQuery.fromEffect(EpisodeService.getEpisode(args.season, args.episode))
         )
       )
   }
