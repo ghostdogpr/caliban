@@ -31,17 +31,18 @@ object Validator {
    */
   def validateSchema[R](schema: RootSchemaBuilder[R]): IO[ValidationError, RootSchema[R]] = {
     val types = schema.types
-    IO.foreach(types.sorted(renderOrdering)) { t =>
-      t.kind match {
-        case __TypeKind.ENUM         => validateEnum(t)
-        case __TypeKind.UNION        => validateUnion(t)
-        case __TypeKind.INTERFACE    => validateInterface(t)
-        case __TypeKind.INPUT_OBJECT => validateInputObject(t)
-        case __TypeKind.OBJECT       => validateObject(t)
-        case _                       => IO.unit
-      }
-    } *> validateClashingTypes(types) *> validateRootQuery(schema)
+    IO.foreach(types.sorted(renderOrdering))(validateType) *> validateClashingTypes(types) *> validateRootQuery(schema)
   }
+
+  private[caliban] def validateType(t: __Type) =
+    t.kind match {
+      case __TypeKind.ENUM         => validateEnum(t)
+      case __TypeKind.UNION        => validateUnion(t)
+      case __TypeKind.INTERFACE    => validateInterface(t)
+      case __TypeKind.INPUT_OBJECT => validateInputObject(t)
+      case __TypeKind.OBJECT       => validateObject(t)
+      case _                       => IO.unit
+    }
 
   def failValidation[T](msg: String, explanatoryText: String): IO[ValidationError, T] =
     IO.fail(ValidationError(msg, explanatoryText))

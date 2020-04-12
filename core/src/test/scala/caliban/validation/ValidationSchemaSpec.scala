@@ -15,8 +15,8 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
   def check(gql: GraphQL[Any], expectedMessage: String): IO[ValidationError, TestResult] =
     assertM(gql.interpreter.run)(fails[ValidationError](hasField("msg", _.msg, equalTo(expectedMessage))))
 
-  def checkTypeError(validation: IO[ValidationError, Unit], expectedMessage: String): IO[ValidationError, TestResult] =
-    assertM(validation.run)(fails(hasField("msg", _.msg, equalTo(expectedMessage))))
+  def checkTypeError(t: __Type, expectedMessage: String): IO[ValidationError, TestResult] =
+    assertM(Validator.validateType(t).run)(fails(hasField("msg", _.msg, equalTo(expectedMessage))))
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("ValidationSchemaSpec")(
@@ -35,12 +35,10 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
         },
         testM("must be non-empty") {
           checkTypeError(
-            Validator.validateEnum(
-              __Type(
-                name = Some("EmptyEnum"),
-                kind = __TypeKind.ENUM,
-                enumValues = _ => None
-              )
+            __Type(
+              name = Some("EmptyEnum"),
+              kind = __TypeKind.ENUM,
+              enumValues = _ => None
             ),
             "Enum EmptyEnum doesn't contain any values"
           )
@@ -62,21 +60,17 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
         testM("must be non-empty") {
           val expectedMessage = "Union EmptyUnion doesn't contain any type."
           (checkTypeError(
-            Validator.validateUnion(
-              __Type(
-                name = Some("EmptyUnion"),
-                kind = __TypeKind.UNION,
-                possibleTypes = None
-              )
+            __Type(
+              name = Some("EmptyUnion"),
+              kind = __TypeKind.UNION,
+              possibleTypes = None
             ),
             expectedMessage
           ) &&& checkTypeError(
-            Validator.validateUnion(
-              __Type(
-                name = Some("EmptyUnion"),
-                kind = __TypeKind.UNION,
-                possibleTypes = Some(List.empty)
-              )
+            __Type(
+              name = Some("EmptyUnion"),
+              kind = __TypeKind.UNION,
+              possibleTypes = Some(List.empty)
             ),
             expectedMessage
           )).map { case (a, b) => a && b }
@@ -85,36 +79,30 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
       suite("InputObjects")(
         testM("must define one or more fields") {
           (checkTypeError(
-            Validator.validateInputObject(
-              __Type(
-                name = Some("EmptyInputObject"),
-                kind = __TypeKind.INPUT_OBJECT,
-                inputFields = None
-              )
+            __Type(
+              name = Some("EmptyInputObject"),
+              kind = __TypeKind.INPUT_OBJECT,
+              inputFields = None
             ),
             "InputObject 'EmptyInputObject' does not have fields"
           ) &&&
             checkTypeError(
-              Validator.validateInputObject(
-                __Type(
-                  name = Some("EmptyInputObject"),
-                  kind = __TypeKind.INPUT_OBJECT,
-                  inputFields = Some(List.empty)
-                )
+              __Type(
+                name = Some("EmptyInputObject"),
+                kind = __TypeKind.INPUT_OBJECT,
+                inputFields = Some(List.empty)
               ),
               "InputObject 'EmptyInputObject' does not have fields"
             )).map { case (a, b) => a && b }
         },
         testM("no two input fields may share the same name") {
           checkTypeError(
-            Validator.validateInputObject(
-              __Type(
-                name = Some("DuplicateNamesInputObject"),
-                kind = __TypeKind.INPUT_OBJECT,
-                inputFields = Some(
-                  List.fill(2)(
-                    __InputValue("A", None, `type` = () => __Type(__TypeKind.SCALAR), None)
-                  )
+            __Type(
+              name = Some("DuplicateNamesInputObject"),
+              kind = __TypeKind.INPUT_OBJECT,
+              inputFields = Some(
+                List.fill(2)(
+                  __InputValue("A", None, `type` = () => __Type(__TypeKind.SCALAR), None)
                 )
               )
             ),
@@ -144,18 +132,16 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
           },
           testM("field names must be unique") {
             checkTypeError(
-              Validator.validateInterface(
-                __Type(
-                  name = Some("DuplicateNamesInterface"),
-                  kind = __TypeKind.INTERFACE,
-                  fields = _ =>
-                    Some(
-                      List(
-                        __Field("A", None, List.empty, `type` = () => __Type(__TypeKind.SCALAR)),
-                        __Field("A", None, List.empty, `type` = () => __Type(__TypeKind.SCALAR))
-                      )
+              __Type(
+                name = Some("DuplicateNamesInterface"),
+                kind = __TypeKind.INTERFACE,
+                fields = _ =>
+                  Some(
+                    List(
+                      __Field("A", None, List.empty, `type` = () => __Type(__TypeKind.SCALAR)),
+                      __Field("A", None, List.empty, `type` = () => __Type(__TypeKind.SCALAR))
                     )
-                )
+                  )
               ),
               "Interface 'DuplicateNamesInterface' has repeated fields: A"
             )
@@ -168,22 +154,20 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
           },
           testM("field can't be input type") {
             checkTypeError(
-              Validator.validateInterface(
-                __Type(
-                  name = Some("InputTypeFieldInterface"),
-                  kind = __TypeKind.INTERFACE,
-                  fields = _ =>
-                    Some(
-                      List(
-                        __Field(
-                          "InputField",
-                          None,
-                          List.empty,
-                          `type` = () => __Type(name = Some("InputType"), kind = __TypeKind.INPUT_OBJECT)
-                        )
+              __Type(
+                name = Some("InputTypeFieldInterface"),
+                kind = __TypeKind.INTERFACE,
+                fields = _ =>
+                  Some(
+                    List(
+                      __Field(
+                        "InputField",
+                        None,
+                        List.empty,
+                        `type` = () => __Type(name = Some("InputType"), kind = __TypeKind.INPUT_OBJECT)
                       )
                     )
-                )
+                  )
               ),
               "InputType of Field 'InputField' of Interface 'InputTypeFieldInterface' is of kind INPUT_OBJECT, must be an OutputType"
             )
