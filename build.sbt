@@ -105,13 +105,14 @@ lazy val codegen = project
     crossScalaVersions := Seq("2.12.10"),
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "org.scalameta" %% "scalafmt-dynamic" % "2.4.2",
-      "org.scalameta" %% "scalafmt-core"    % "2.4.2",
-      "dev.zio"       %% "zio-test"         % zioVersion % "test",
-      "dev.zio"       %% "zio-test-sbt"     % zioVersion % "test"
+      "org.scalameta"                %% "scalafmt-dynamic"              % "2.4.2",
+      "org.scalameta"                %% "scalafmt-core"                 % "2.4.2",
+      "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion,
+      "dev.zio"                      %% "zio-test"                      % zioVersion % "test",
+      "dev.zio"                      %% "zio-test-sbt"                  % zioVersion % "test"
     )
   )
-  .dependsOn(coreJVM)
+  .dependsOn(coreJVM, clientJVM)
 
 lazy val catsInterop = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)

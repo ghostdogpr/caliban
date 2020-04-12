@@ -74,7 +74,9 @@ object Definition {
       }
     }
 
-    sealed trait TypeDefinition extends TypeSystemDefinition
+    sealed trait TypeDefinition extends TypeSystemDefinition {
+      def name: String
+    }
     object TypeDefinition {
 
       case class ObjectTypeDefinition(
