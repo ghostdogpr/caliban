@@ -118,9 +118,8 @@ trait AkkaHttpAdapter {
                   .forkDaemon
                   .flatMap(fiber => subscriptions.update(_.updated(message.id, fiber)))
               case other =>
-                sendMessage(sendTo, message.id, other, result.errors) *> IO.fromFuture(_ =>
-                  sendTo.offer(TextMessage(s"""{"type":"complete","id":"${message.id}"}"""))
-                )
+                sendMessage(sendTo, message.id, other, result.errors) *> IO
+                  .fromFuture(_ => sendTo.offer(TextMessage(s"""{"type":"complete","id":"${message.id}"}""")))
             }
       } yield ()
 
@@ -132,25 +131,26 @@ trait AkkaHttpAdapter {
         val sink = Sink.foreach[Message] {
           case TextMessage.Strict(text) =>
             val io = for {
-              msg     <- Task.fromEither(json.parseWSMessage(text))
-              msgType = msg.messageType
+              msg               <- Task.fromEither(json.parseWSMessage(text))
+              msgType           = msg.messageType
+              keepAliveFiberRef <- Ref.make(None: Option[Fiber.Runtime[Throwable, Int]])
               _ <- IO.whenCase(msgType) {
                     case "connection_init" =>
                       val ack: ZIO[Clock with Random, Throwable, Any] =
                         IO.fromFuture(_ => queue.offer(TextMessage("""{"type":"connection_ack"}""")))
 
                       val withKeepAlive = keepAliveTime.fold(ack) { time =>
-                        ack
-                          .flatMap(_ =>
-                            IO.fromFuture(_ =>
-                                queue
-                                  .offer(
-                                    TextMessage("""{"type":"ka"}""")
-                                  )
-                              )
-                              .repeat(Schedule.spaced(time).jittered)
-                              .forkDaemon
-                          )
+                        ack.flatMap(_ =>
+                          IO.fromFuture(_ =>
+                              queue
+                                .offer(
+                                  TextMessage("""{"type":"ka"}""")
+                                )
+                            )
+                            .repeat(Schedule.spaced(time).jittered)
+                            .forkDaemon
+                            .map(f => keepAliveFiberRef.set(Option(f)))
+                        )
                       }
 
                       val withClientDuration = clientDuration.fold(withKeepAlive) { time =>
@@ -160,7 +160,10 @@ trait AkkaHttpAdapter {
 
                       withClientDuration
                     case "connection_terminate" =>
-                      IO.effect(queue.complete())
+                      IO.effect(queue.complete()).map { _ =>
+                        keepAliveFiberRef.map(_.map(_.interrupt))
+                        keepAliveFiberRef.set(None)
+                      }
                     case "start" =>
                       Task.whenCase(msg.query) {
                         case Some(query) =>
@@ -176,6 +179,10 @@ trait AkkaHttpAdapter {
                       subscriptions
                         .modify(map => (map.get(msg.id), map - msg.id))
                         .flatMap(fiber => IO.whenCase(fiber) { case Some(fiber) => fiber.interrupt })
+                        .map { _ =>
+                          keepAliveFiberRef.map(_.map(_.interrupt))
+                          keepAliveFiberRef.set(None)
+                        }
                   }
             } yield ()
             runtime.unsafeRun(io)
