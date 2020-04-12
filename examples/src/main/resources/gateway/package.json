@@ -1,0 +1,16 @@
+{
+  "name": "federated-gateway",
+  "version": "1.0.0",
+  "description": "",
+  "main": "gateway.js",
+  "scripts": {
+    "start": "node gateway.js"
+  },
+  "keywords": [],
+  "license": "MIT",
+  "dependencies": {
+    "apollo-server": "~2.9.15",
+    "@apollo/gateway": "~0.11.6",
+    "@apollo/federation": "latest"
+  }
+}

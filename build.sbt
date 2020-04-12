@@ -238,7 +238,7 @@ lazy val examples = project
       "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion
     )
   )
-  .dependsOn(akkaHttp, http4s, catsInteropJVM, finch, uzhttp, monixInterop, clientJVM)
+  .dependsOn(akkaHttp, http4s, catsInteropJVM, finch, uzhttp, monixInterop, clientJVM, federation)
 
 lazy val benchmarks = project
   .in(file("benchmarks"))
@@ -251,6 +251,22 @@ lazy val benchmarks = project
       "org.sangria-graphql" %% "sangria"       % "1.4.2",
       "org.sangria-graphql" %% "sangria-circe" % "1.2.1"
     )
+  )
+
+lazy val federation = project
+  .in(file("federation"))
+  .settings(name := "caliban-federation")
+  .settings(commonSettings)
+  .dependsOn(coreJVM)
+  .settings(
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    libraryDependencies ++= Seq(
+      "dev.zio" %%% "zio"          % zioVersion,
+      "dev.zio" %%% "zio-test"     % zioVersion % Test,
+      "dev.zio" %%% "zio-test-sbt" % zioVersion % Test,
+      compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
+    ),
+    scalacOptions += "-Ywarn-unused:-locals"
   )
 
 val commonSettings = Def.settings(

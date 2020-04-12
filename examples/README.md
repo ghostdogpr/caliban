@@ -18,3 +18,19 @@ scalacOptions += "-Ypartial-unification"
 ```
 
 Run `ExampleApp` and open [http://localhost:8088/graphiql](http://localhost:8088/graphiql)
+
+## Federation
+
+If you will be running the federation example, you also need to make sure you have NodeJS installed.
+
+To use the gateway you will need to first need to install the gateway found in the `/resources` folder.
+
+Run by calling:
+
+```
+npm i && npm start
+```
+
+The gateway should be launched after the federated services. To view open [http://localhost:4000/graphql](http://localhost:4000/graphql).
+
+
