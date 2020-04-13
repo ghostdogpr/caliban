@@ -86,8 +86,7 @@ trait AkkaHttpAdapter {
   def makeWebSocketService[R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
-    keepAliveTime: Option[Duration] = None,
-    clientDuration: Option[Duration] = None
+    keepAliveTime: Option[Duration] = None
   )(implicit ec: ExecutionContext, runtime: Runtime[R with Clock with Random], materializer: Materializer): Route = {
     def sendMessage(
       sendQueue: SourceQueueWithComplete[Message],
@@ -131,14 +130,16 @@ trait AkkaHttpAdapter {
         val sink = Sink.foreach[Message] {
           case TextMessage.Strict(text) =>
             val io = for {
-              msg               <- Task.fromEither(json.parseWSMessage(text))
-              msgType           = msg.messageType
-              keepAliveFiberRef <- Ref.make(None: Option[Fiber.Runtime[Throwable, Int]])
+              msg     <- Task.fromEither(json.parseWSMessage(text))
+              msgType = msg.messageType
               _ <- IO.whenCase(msgType) {
                     case "connection_init" =>
                       val ack: ZIO[Clock with Random, Throwable, Any] =
                         IO.fromFuture(_ => queue.offer(TextMessage("""{"type":"connection_ack"}""")))
 
+                      //If we wanted a keepAlive message to be sent, we set it up here,
+                      //note that we save it with a special id in the subscriptions as yet another
+                      //fiber that we have to interrupt later.
                       val withKeepAlive = keepAliveTime.fold(ack) { time =>
                         ack.flatMap(_ =>
                           IO.fromFuture(_ =>
@@ -149,21 +150,14 @@ trait AkkaHttpAdapter {
                             )
                             .repeat(Schedule.spaced(time).jittered)
                             .forkDaemon
-                            .map(f => keepAliveFiberRef.set(Option(f)))
+                            .map(keepAliveFiber =>
+                              subscriptions.update(_.updated("_keepAliveFiber", keepAliveFiber.unit))
+                            )
                         )
                       }
-
-                      val withClientDuration = clientDuration.fold(withKeepAlive) { time =>
-                        //TODO: Shouldn't it send GQL_COMPLETE here before terminating?
-                        withKeepAlive.flatMap(_ => IO.effect(queue.complete())).delay(time).forkDaemon
-                      }
-
-                      withClientDuration
+                      withKeepAlive
                     case "connection_terminate" =>
-                      IO.effect(queue.complete()).map { _ =>
-                        keepAliveFiberRef.map(_.map(_.interrupt))
-                        keepAliveFiberRef.set(None)
-                      }
+                      IO.effect(queue.complete())
                     case "start" =>
                       Task.whenCase(msg.query) {
                         case Some(query) =>
@@ -179,10 +173,6 @@ trait AkkaHttpAdapter {
                       subscriptions
                         .modify(map => (map.get(msg.id), map - msg.id))
                         .flatMap(fiber => IO.whenCase(fiber) { case Some(fiber) => fiber.interrupt })
-                        .map { _ =>
-                          keepAliveFiberRef.map(_.map(_.interrupt))
-                          keepAliveFiberRef.set(None)
-                        }
                   }
             } yield ()
             runtime.unsafeRun(io)
@@ -190,8 +180,12 @@ trait AkkaHttpAdapter {
         }
 
         val flow = Flow.fromSinkAndSource(sink, source).watchTermination() { (_, f) =>
-          //TODO: Shouldn't it send GQL_COMPLETE here before terminating?
-          f.onComplete(_ => runtime.unsafeRun(subscriptions.get.flatMap(m => IO.foreach(m.values)(_.interrupt).unit)))
+          f.onComplete(_ =>
+            runtime.unsafeRun(
+              subscriptions.get
+                .flatMap(m => IO.foreach(m.values)(_.interrupt).unit)
+            )
+          )
         }
 
         complete(upgrade.handleMessages(flow, subprotocol = Some("graphql-ws")))
