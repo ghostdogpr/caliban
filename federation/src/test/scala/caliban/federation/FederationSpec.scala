@@ -9,9 +9,8 @@ import zio.test._
 import zquery.ZQuery
 
 object FederationSpec extends DefaultRunnableSpec {
-  val entityResolver = EntityResolver[Any, CharacterArgs, Character](
-    args => ZQuery.succeed(characters.find(_.name == args.name))
-  )
+  val entityResolver =
+    EntityResolver[Any, CharacterArgs, Character](args => ZQuery.succeed(characters.find(_.name == args.name)))
 
   override def spec = suite("FederationSpec")(
     testM("should resolve federated types") {

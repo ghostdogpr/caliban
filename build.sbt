@@ -65,7 +65,8 @@ lazy val root = project
     monixInterop,
     clientJVM,
     clientJS,
-    codegen
+    codegen,
+    federation
   )
 
 lazy val core = crossProject(JSPlatform, JVMPlatform)
