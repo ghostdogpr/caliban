@@ -181,6 +181,19 @@ sealed trait ZQuery[-R, +E, +A] { self =>
     )
 
   /**
+   * Converts this query to one that dies if a query failure occurs.
+   */
+  final def orDie(implicit ev1: E <:< Throwable, ev2: CanFail[E]): ZQuery[R, Nothing, A] =
+    orDieWith(ev1)
+
+  /**
+   * Converts this query to one that dies if a query failure occurs, using the
+   * specified function to map the error to a `Throwable`.
+   */
+  final def orDieWith(f: E => Throwable)(implicit ev: CanFail[E]): ZQuery[R, Nothing, A] =
+    foldM(e => ZQuery.die(f(e)), a => ZQuery.succeed(a))
+
+  /**
    * Provides this query with its required environment.
    */
   final def provide(r: Described[R])(implicit ev: NeedsEnv[R]): ZQuery[Any, E, A] =
