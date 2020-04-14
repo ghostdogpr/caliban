@@ -87,7 +87,7 @@ trait AkkaHttpAdapter {
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     keepAliveTime: Option[Duration] = None
-  )(implicit ec: ExecutionContext, runtime: Runtime[R with Clock with Random], materializer: Materializer): Route = {
+  )(implicit ec: ExecutionContext, runtime: Runtime[R with Clock], materializer: Materializer): Route = {
     def sendMessage(
       sendQueue: SourceQueueWithComplete[Message],
       id: String,
@@ -153,7 +153,7 @@ trait AkkaHttpAdapter {
                             .flatMap(keepAliveFiber => subscriptions.update(_.updated(None, keepAliveFiber.unit)))
                         )
                       }
-                      withKeepAlive
+                      withKeepAlive.provideSomeLayer[Clock](Random.live)
                     case "connection_terminate" =>
                       IO.effect(queue.complete())
                     case "start" =>
