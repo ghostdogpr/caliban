@@ -21,6 +21,9 @@ import org.http4s.websocket.WebSocketFrame.Text
 import zio._
 import zio.interop.catz._
 import com.github.ghik.silencer.silent
+import zio.clock.Clock
+import zio.duration.Duration
+import zio.random.Random
 
 object Http4sAdapter {
 
@@ -102,7 +105,8 @@ object Http4sAdapter {
 
   def makeWebSocketService[R, E](
     interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false
+    skipValidation: Boolean = false,
+    keepAliveTime: Option[Duration] = None
   ): HttpRoutes[RIO[R, *]] = {
 
     object dsl extends Http4sDsl[RIO[R, *]]
@@ -128,7 +132,7 @@ object Http4sAdapter {
 
     def processMessage(
       sendQueue: fs2.concurrent.Queue[RIO[R, *], WebSocketFrame],
-      subscriptions: Ref[Map[String, Fiber[Throwable, Unit]]]
+      subscriptions: Ref[Map[Option[String], Fiber[Throwable, Unit]]]
     ): Pipe[RIO[R, *], WebSocketFrame, Unit] =
       _.collect { case Text(text, _) => text }.flatMap { text =>
         Stream.eval {
@@ -136,7 +140,26 @@ object Http4sAdapter {
             msg     <- Task.fromEither(decode[Json](text))
             msgType = msg.hcursor.downField("type").success.flatMap(_.value.asString).getOrElse("")
             _ <- IO.whenCase(msgType) {
-                  case "connection_init"      => sendQueue.enqueue1(WebSocketFrame.Text("""{"type":"connection_ack"}"""))
+                  case "connection_init" =>
+                    val ack =
+                      sendQueue.enqueue1(WebSocketFrame.Text("""{"type":"connection_ack"}"""))
+                    //If we wanted a keepAlive message to be sent, we set it up here,
+                    //note that we save it with a map id of None in the subscriptions as yet another
+                    //fiber that we have to interrupt later.
+                    val withKeepAlive = keepAliveTime.fold(ack) { time =>
+                      ZIO.accessM[R] { r =>
+                        ack.flatMap { _ =>
+                          val ka = sendQueue
+                            .enqueue1(WebSocketFrame.Text("""{"type":"ka"}"""))
+                          (ka
+                            .provide(r)
+                            .repeat(Schedule.spaced(time).jittered)
+                            .provideLayer(Random.live ++ Clock.live) *> ka).forkDaemon
+                            .flatMap(keepAliveFiber => subscriptions.update(_.updated(None, keepAliveFiber.unit))) *> ka
+                        }
+                      }
+                    }
+                    withKeepAlive
                   case "connection_terminate" => Task.fromEither(WebSocketFrame.Close(1000)) >>= sendQueue.enqueue1
                   case "start" =>
                     val payload = msg.hcursor.downField("payload")
@@ -150,7 +173,7 @@ object Http4sAdapter {
                                 case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
                                   stream.foreach { item =>
                                     sendMessage(sendQueue, id, ObjectValue(List(fieldName -> item)), result.errors)
-                                  }.forkDaemon.flatMap(fiber => subscriptions.update(_.updated(id, fiber)))
+                                  }.forkDaemon.flatMap(fiber => subscriptions.update(_.updated(Option(id), fiber)))
                                 case other =>
                                   sendMessage(sendQueue, id, other, result.errors) *> sendQueue.enqueue1(
                                     WebSocketFrame.Text(s"""{"type":"complete","id":"$id"}""")
@@ -173,7 +196,7 @@ object Http4sAdapter {
                   case "stop" =>
                     val id = msg.hcursor.downField("id").success.flatMap(_.value.asString).getOrElse("")
                     subscriptions
-                      .modify(map => (map.get(id), map - id))
+                      .modify(map => (map.get(Option(id)), map - Option(id)))
                       .flatMap(fiber => IO.whenCase(fiber) { case Some(fiber) => fiber.interrupt })
                 }
           } yield ()
@@ -184,7 +207,7 @@ object Http4sAdapter {
       case GET -> Root =>
         for {
           sendQueue     <- fs2.concurrent.Queue.unbounded[RIO[R, *], WebSocketFrame]
-          subscriptions <- Ref.make(Map.empty[String, Fiber[Throwable, Unit]])
+          subscriptions <- Ref.make(Map.empty[Option[String], Fiber[Throwable, Unit]])
           builder <- WebSocketBuilder[RIO[R, *]].build(
                       sendQueue.dequeue,
                       processMessage(sendQueue, subscriptions),
