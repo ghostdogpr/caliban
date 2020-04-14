@@ -106,7 +106,7 @@ trait AkkaHttpAdapter {
       message: WSMessage,
       query: String,
       sendTo: SourceQueueWithComplete[Message],
-      subscriptions: Ref[Map[String, Fiber[Throwable, Unit]]]
+      subscriptions: Ref[Map[Option[String], Fiber[Throwable, Unit]]]
     ): RIO[R, Unit] =
       for {
         result <- interpreter.execute(query, message.operationName, skipValidation = skipValidation)
@@ -115,7 +115,7 @@ trait AkkaHttpAdapter {
                 stream
                   .foreach(item => sendMessage(sendTo, message.id, ObjectValue(List(fieldName -> item)), result.errors))
                   .forkDaemon
-                  .flatMap(fiber => subscriptions.update(_.updated(message.id, fiber)))
+                  .flatMap(fiber => subscriptions.update(_.updated(Option(message.id), fiber)))
               case other =>
                 sendMessage(sendTo, message.id, other, result.errors) *> IO
                   .fromFuture(_ => sendTo.offer(TextMessage(s"""{"type":"complete","id":"${message.id}"}""")))
@@ -124,9 +124,9 @@ trait AkkaHttpAdapter {
 
     get {
       extractUpgradeToWebSocket { upgrade =>
-        val (queue: SourceQueueWithComplete[Message], source) =
+        val (queue, source) =
           Source.queue[Message](0, OverflowStrategy.fail).preMaterialize()
-        val subscriptions = runtime.unsafeRun(Ref.make(Map.empty[String, Fiber[Throwable, Unit]]))
+        val subscriptions = runtime.unsafeRun(Ref.make(Map.empty[Option[String], Fiber[Throwable, Unit]]))
         val sink = Sink.foreach[Message] {
           case TextMessage.Strict(text) =>
             val io = for {
@@ -138,7 +138,7 @@ trait AkkaHttpAdapter {
                         IO.fromFuture(_ => queue.offer(TextMessage("""{"type":"connection_ack"}""")))
 
                       //If we wanted a keepAlive message to be sent, we set it up here,
-                      //note that we save it with a special id in the subscriptions as yet another
+                      //note that we save it with a map id of None in the subscriptions as yet another
                       //fiber that we have to interrupt later.
                       val withKeepAlive = keepAliveTime.fold(ack) { time =>
                         ack.flatMap(_ =>
@@ -150,9 +150,7 @@ trait AkkaHttpAdapter {
                             )
                             .repeat(Schedule.spaced(time).jittered)
                             .forkDaemon
-                            .map(keepAliveFiber =>
-                              subscriptions.update(_.updated("_keepAliveFiber", keepAliveFiber.unit))
-                            )
+                            .flatMap(keepAliveFiber => subscriptions.update(_.updated(None, keepAliveFiber.unit)))
                         )
                       }
                       withKeepAlive
@@ -171,7 +169,7 @@ trait AkkaHttpAdapter {
                       }
                     case "stop" =>
                       subscriptions
-                        .modify(map => (map.get(msg.id), map - msg.id))
+                        .modify(map => (map.get(Option(msg.id)), map - Option(msg.id)))
                         .flatMap(fiber => IO.whenCase(fiber) { case Some(fiber) => fiber.interrupt })
                   }
             } yield ()
