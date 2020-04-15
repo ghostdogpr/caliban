@@ -172,8 +172,8 @@ object ClientWriter {
   def writeField(field: FieldDefinition, typeName: String, typesMap: Map[String, TypeDefinition]): String = {
     val name = safeName(field.name)
     val description = field.description match {
-      case None    => ""
-      case Some(d) => s"/**\n * $d\n */\n"
+      case Some(d) if d.trim.nonEmpty => s"/**\n * ${d.trim}\n */\n"
+      case _                          => ""
     }
     val deprecated = field.directives.find(_.name == "deprecated") match {
       case None => ""
