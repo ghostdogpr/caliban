@@ -259,7 +259,7 @@ lazy val federation = project
   .in(file("federation"))
   .settings(name := "caliban-federation")
   .settings(commonSettings)
-  .dependsOn(coreJVM)
+  .dependsOn(coreJVM % "compile->compile;test->test")
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
