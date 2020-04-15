@@ -87,7 +87,6 @@ object TestUtils {
   @GQLDescription("Mutations")
   case class MutationIO(deleteCharacter: CharacterArgs => UIO[Unit])
 
-  @GQLDescription("Subscriptions")
   case class SubscriptionIO(deleteCharacters: ZStream[Any, Nothing, String])
 
   val resolver = RootResolver(
