@@ -7,6 +7,7 @@ import cats.data.{ Kleisli, OptionT }
 import cats.effect.Effect
 import cats.effect.syntax.all._
 import cats.~>
+import com.github.ghik.silencer.silent
 import fs2.{ Pipe, Stream }
 import io.circe.Decoder.Result
 import io.circe.Json
@@ -19,11 +20,9 @@ import org.http4s.server.websocket.WebSocketBuilder
 import org.http4s.websocket.WebSocketFrame
 import org.http4s.websocket.WebSocketFrame.Text
 import zio._
-import zio.interop.catz._
-import com.github.ghik.silencer.silent
 import zio.clock.Clock
 import zio.duration.Duration
-import zio.random.Random
+import zio.interop.catz._
 
 object Http4sAdapter {
 
@@ -113,7 +112,7 @@ object Http4sAdapter {
     import dsl._
 
     def sendMessage(
-      sendQueue: fs2.concurrent.Queue[RIO[R, *], WebSocketFrame],
+      sendQueue: fs2.concurrent.Queue[Task, WebSocketFrame],
       id: String,
       data: ResponseValue,
       errors: List[E]
@@ -131,7 +130,7 @@ object Http4sAdapter {
       )
 
     def processMessage(
-      sendQueue: fs2.concurrent.Queue[RIO[R, *], WebSocketFrame],
+      sendQueue: fs2.concurrent.Queue[Task, WebSocketFrame],
       subscriptions: Ref[Map[Option[String], Fiber[Throwable, Unit]]]
     ): Pipe[RIO[R, *], WebSocketFrame, Unit] =
       _.collect { case Text(text, _) => text }.flatMap { text =>
@@ -141,25 +140,18 @@ object Http4sAdapter {
             msgType = msg.hcursor.downField("type").success.flatMap(_.value.asString).getOrElse("")
             _ <- IO.whenCase(msgType) {
                   case "connection_init" =>
-                    val ack =
-                      sendQueue.enqueue1(WebSocketFrame.Text("""{"type":"connection_ack"}"""))
-                    //If we wanted a keepAlive message to be sent, we set it up here,
-                    //note that we save it with a map id of None in the subscriptions as yet another
-                    //fiber that we have to interrupt later.
-                    val withKeepAlive = keepAliveTime.fold(ack) { time =>
-                      ZIO.accessM[R] { r =>
-                        ack.flatMap { _ =>
-                          val ka = sendQueue
+                    sendQueue.enqueue1(WebSocketFrame.Text("""{"type":"connection_ack"}""")) *>
+                      Task.whenCase(keepAliveTime) {
+                        case Some(time) =>
+                          // Save the keep-alive fiber with a key of None so that it's interrupted later
+                          sendQueue
                             .enqueue1(WebSocketFrame.Text("""{"type":"ka"}"""))
-                          (ka
-                            .provide(r)
-                            .repeat(Schedule.spaced(time).jittered)
-                            .provideLayer(Random.live ++ Clock.live) *> ka).forkDaemon
-                            .flatMap(keepAliveFiber => subscriptions.update(_.updated(None, keepAliveFiber.unit))) *> ka
-                        }
+                            .repeat(Schedule.spaced(time))
+                            .provideLayer(Clock.live)
+                            .unit
+                            .forkDaemon
+                            .flatMap(keepAliveFiber => subscriptions.update(_.updated(None, keepAliveFiber)))
                       }
-                    }
-                    withKeepAlive
                   case "connection_terminate" => Task.fromEither(WebSocketFrame.Close(1000)) >>= sendQueue.enqueue1
                   case "start" =>
                     val payload = msg.hcursor.downField("payload")
@@ -175,9 +167,8 @@ object Http4sAdapter {
                                     sendMessage(sendQueue, id, ObjectValue(List(fieldName -> item)), result.errors)
                                   }.forkDaemon.flatMap(fiber => subscriptions.update(_.updated(Option(id), fiber)))
                                 case other =>
-                                  sendMessage(sendQueue, id, other, result.errors) *> sendQueue.enqueue1(
-                                    WebSocketFrame.Text(s"""{"type":"complete","id":"$id"}""")
-                                  )
+                                  sendMessage(sendQueue, id, other, result.errors) *>
+                                    sendQueue.enqueue1(WebSocketFrame.Text(s"""{"type":"complete","id":"$id"}"""))
                               }
                         } yield ()).catchAll(error =>
                           sendQueue.enqueue1(
@@ -197,7 +188,13 @@ object Http4sAdapter {
                     val id = msg.hcursor.downField("id").success.flatMap(_.value.asString).getOrElse("")
                     subscriptions
                       .modify(map => (map.get(Option(id)), map - Option(id)))
-                      .flatMap(fiber => IO.whenCase(fiber) { case Some(fiber) => fiber.interrupt })
+                      .flatMap(fiber =>
+                        IO.whenCase(fiber) {
+                          case Some(fiber) =>
+                            fiber.interrupt *>
+                              sendQueue.enqueue1(WebSocketFrame.Text(s"""{"type":"complete","id":"$id"}"""))
+                        }
+                      )
                 }
           } yield ()
         }
@@ -206,7 +203,7 @@ object Http4sAdapter {
     HttpRoutes.of[RIO[R, *]] {
       case GET -> Root =>
         for {
-          sendQueue     <- fs2.concurrent.Queue.unbounded[RIO[R, *], WebSocketFrame]
+          sendQueue     <- fs2.concurrent.Queue.unbounded[Task, WebSocketFrame]
           subscriptions <- Ref.make(Map.empty[Option[String], Fiber[Throwable, Unit]])
           builder <- WebSocketBuilder[RIO[R, *]].build(
                       sendQueue.dequeue,

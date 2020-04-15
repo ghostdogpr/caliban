@@ -14,7 +14,6 @@ import caliban.Value.NullValue
 import zio._
 import zio.clock.Clock
 import zio.duration._
-import zio.random.Random
 
 /**
  * Akka-http adapter for caliban with pluggable json backend.
@@ -87,18 +86,14 @@ trait AkkaHttpAdapter {
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     keepAliveTime: Option[Duration] = None
-  )(implicit ec: ExecutionContext, runtime: Runtime[R with Clock], materializer: Materializer): Route = {
+  )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): Route = {
     def sendMessage(
       sendQueue: SourceQueueWithComplete[Message],
       id: String,
       data: ResponseValue,
       errors: List[E]
     ): Task[QueueOfferResult] =
-      IO.fromFuture(_ =>
-        sendQueue.offer(
-          TextMessage(json.encodeWSResponse(id, data, errors))
-        )
-      )
+      IO.fromFuture(_ => sendQueue.offer(TextMessage(json.encodeWSResponse(id, data, errors))))
 
     import akka.http.scaladsl.server.Directives._
 
@@ -117,16 +112,15 @@ trait AkkaHttpAdapter {
                   .forkDaemon
                   .flatMap(fiber => subscriptions.update(_.updated(Option(message.id), fiber)))
               case other =>
-                sendMessage(sendTo, message.id, other, result.errors) *> IO
-                  .fromFuture(_ => sendTo.offer(TextMessage(s"""{"type":"complete","id":"${message.id}"}""")))
+                sendMessage(sendTo, message.id, other, result.errors) *>
+                  IO.fromFuture(_ => sendTo.offer(TextMessage(s"""{"type":"complete","id":"${message.id}"}""")))
             }
       } yield ()
 
     get {
       extractUpgradeToWebSocket { upgrade =>
-        val (queue, source) =
-          Source.queue[Message](0, OverflowStrategy.fail).preMaterialize()
-        val subscriptions = runtime.unsafeRun(Ref.make(Map.empty[Option[String], Fiber[Throwable, Unit]]))
+        val (queue, source) = Source.queue[Message](0, OverflowStrategy.fail).preMaterialize()
+        val subscriptions   = runtime.unsafeRun(Ref.make(Map.empty[Option[String], Fiber[Throwable, Unit]]))
         val sink = Sink.foreach[Message] {
           case TextMessage.Strict(text) =>
             val io = for {
@@ -134,43 +128,38 @@ trait AkkaHttpAdapter {
               msgType = msg.messageType
               _ <- IO.whenCase(msgType) {
                     case "connection_init" =>
-                      val ack: ZIO[Clock with Random, Throwable, Any] =
-                        IO.fromFuture(_ => queue.offer(TextMessage("""{"type":"connection_ack"}""")))
-
-                      //If we wanted a keepAlive message to be sent, we set it up here,
-                      //note that we save it with a map id of None in the subscriptions as yet another
-                      //fiber that we have to interrupt later.
-                      val withKeepAlive = keepAliveTime.fold(ack) { time =>
-                        ack.flatMap(_ =>
-                          IO.fromFuture(_ =>
-                              queue
-                                .offer(
-                                  TextMessage("""{"type":"ka"}""")
-                                )
-                            )
-                            .repeat(Schedule.spaced(time).jittered)
-                            .forkDaemon
-                            .flatMap(keepAliveFiber => subscriptions.update(_.updated(None, keepAliveFiber.unit)))
-                        )
-                      }
-                      withKeepAlive.provideSomeLayer[Clock](Random.live)
+                      Task.fromFuture(_ => queue.offer(TextMessage("""{"type":"connection_ack"}"""))) *>
+                        Task.whenCase(keepAliveTime) {
+                          case Some(time) =>
+                            // Save the keep-alive fiber with a key of None so that it's interrupted later
+                            IO.fromFuture(_ => queue.offer(TextMessage("""{"type":"ka"}""")))
+                              .repeat(Schedule.spaced(time))
+                              .provideLayer(Clock.live)
+                              .unit
+                              .forkDaemon
+                              .flatMap(keepAliveFiber => subscriptions.update(_.updated(None, keepAliveFiber)))
+                        }
                     case "connection_terminate" =>
                       IO.effect(queue.complete())
                     case "start" =>
                       Task.whenCase(msg.query) {
                         case Some(query) =>
                           startSubscription(msg, query, queue, subscriptions).catchAll(error =>
-                            IO.fromFuture(_ =>
-                              queue.offer(
-                                TextMessage(json.encodeWSError(msg.id, error))
-                              )
-                            )
+                            IO.fromFuture(_ => queue.offer(TextMessage(json.encodeWSError(msg.id, error))))
                           )
                       }
                     case "stop" =>
                       subscriptions
                         .modify(map => (map.get(Option(msg.id)), map - Option(msg.id)))
-                        .flatMap(fiber => IO.whenCase(fiber) { case Some(fiber) => fiber.interrupt })
+                        .flatMap(fiber =>
+                          IO.whenCase(fiber) {
+                            case Some(fiber) =>
+                              fiber.interrupt *>
+                                IO.fromFuture(_ =>
+                                  queue.offer(TextMessage(s"""{"type":"complete","id":"${msg.id}"}"""))
+                                )
+                          }
+                        )
                   }
             } yield ()
             runtime.unsafeRun(io)
@@ -178,12 +167,7 @@ trait AkkaHttpAdapter {
         }
 
         val flow = Flow.fromSinkAndSource(sink, source).watchTermination() { (_, f) =>
-          f.onComplete(_ =>
-            runtime.unsafeRun(
-              subscriptions.get
-                .flatMap(m => IO.foreach(m.values)(_.interrupt).unit)
-            )
-          )
+          f.onComplete(_ => runtime.unsafeRun(subscriptions.get.flatMap(m => IO.foreach(m.values)(_.interrupt).unit)))
         }
 
         complete(upgrade.handleMessages(flow, subprotocol = Some("graphql-ws")))
