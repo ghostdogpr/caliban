@@ -203,5 +203,23 @@ object TestUtils {
     }
     case class ClashingNamesQuery(a: A.C, b: B.C)
     val resolverClashingNames = RootResolver(ClashingNamesQuery(A.C(""), B.C("")))
+
+    @GQLDirective(Directive("__name"))
+    case class TestWrongDirectiveName(
+      field: String
+    )
+    val resolverWrongDirectiveName = RootResolver(TestWrongDirectiveName(""))
+
+    case class TestWrongFieldDirectiveName(
+      @GQLDirective(Directive("__name"))
+      field: String
+    )
+    val resolverWrongFieldDirectiveName = RootResolver(TestWrongFieldDirectiveName(""))
+
+    case class TestWrongArgumentDirectiveName(
+      @GQLDirective(Directive("name", Map("__name" -> StringValue(""))))
+      field: String
+    )
+    val resolverWrongArgumentDirectiveName = RootResolver(TestWrongArgumentDirectiveName(""))
   }
 }
