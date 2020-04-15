@@ -24,7 +24,7 @@ interaction with the gateway.
 
 If you already have a graph you can add federation simply by calling the wrapper function `federate`
 
-```
+```scala
 import caliban.federation._
 
 val schema: GraphQL[R] = graphQL(RootResolver(Queries(
@@ -40,7 +40,7 @@ To actually enable entity resolution you will need to do a bit of leg work.
 First, any types that will be "resolvable" need to be annotated with a `@key` directive. You can use a helper function found
 in the `federation` package to help with that. 
 
-```
+```scala
 @GQLDirective(Key("name"))
 case class Character(name: String)
 ```
@@ -50,7 +50,7 @@ The `"name"` field is a field selector minus the outer braces.
 If you need to extend a type from another service, you will need to define a stub version of it in the current service
 and annotate it with the `@extends` annotation
 
-```
+```scala
 @GQLDirective(Key("season episode")) 
 @GQLDirective(Extend)
 case class Episode(@GQLDirective(External) season: Int, @GQLDirective(External) episode: Int, cast: List[Character])
@@ -64,7 +64,7 @@ Once you have annotated your types you need to tell `Federation` how to resolve 
 different mechanism in resolving types from a standard GraphQL query, so for each type that you wish to support, you will
 need to add an `EntityResolver`:
 
-```
+```scala
 EntityResolver[CharacterService, CharacterArgs, Character](args => 
   ZQuery.fromEffect(characters.getCharacter(args.name))
 )  
@@ -74,7 +74,7 @@ In the above we need to define an resolver which takes an `R` environment type,
 an `A` which has an implicit `ArgBuilder` and an `Option[Out]` where `Out` has an implicit
 `Schema[R, Out]` available. Creating the above we can now add these resolvers to our federated schema like so:
 
-```
+```scala
 federate(schema, aResolver, additionalResolvers:_*)
 ```
 
