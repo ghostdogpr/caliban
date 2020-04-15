@@ -285,7 +285,7 @@ trait DerivationSchema[R] {
 
   type Typeclass[T] = Schema[R, T]
 
-  def combine[T](ctx: CaseClass[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
+  def combine[T](ctx: ReadOnlyCaseClass[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
     override def toType(isInput: Boolean = false): __Type =
       if (isInput)
         makeInputObject(
@@ -421,14 +421,14 @@ trait DerivationSchema[R] {
   private def getDirectives(annotations: Seq[Any]): List[Directive] =
     annotations.collect { case GQLDirective(dir) => dir }.toList
 
-  private def getDirectives[Typeclass[_], Type](ctx: CaseClass[Typeclass, Type]): List[Directive] =
+  private def getDirectives[Typeclass[_], Type](ctx: ReadOnlyCaseClass[Typeclass, Type]): List[Directive] =
     getDirectives(ctx.annotations)
 
   private def getName(annotations: Seq[Any], typeName: TypeName): String =
     annotations.collectFirst { case GQLName(name) => name }
       .getOrElse(typeName.short + typeName.typeArguments.map(_.short).mkString)
 
-  private def getName[Typeclass[_], Type](ctx: CaseClass[Typeclass, Type]): String =
+  private def getName[Typeclass[_], Type](ctx: ReadOnlyCaseClass[Typeclass, Type]): String =
     getName(ctx.annotations, ctx.typeName)
 
   private def getName[Typeclass[_], Type](ctx: SealedTrait[Typeclass, Type]): String =
@@ -437,13 +437,13 @@ trait DerivationSchema[R] {
   private def getDescription(annotations: Seq[Any]): Option[String] =
     annotations.collectFirst { case GQLDescription(desc) => desc }
 
-  private def getDescription[Typeclass[_], Type](ctx: CaseClass[Typeclass, Type]): Option[String] =
+  private def getDescription[Typeclass[_], Type](ctx: ReadOnlyCaseClass[Typeclass, Type]): Option[String] =
     getDescription(ctx.annotations)
 
   private def getDescription[Typeclass[_], Type](ctx: SealedTrait[Typeclass, Type]): Option[String] =
     getDescription(ctx.annotations)
 
-  private def getDescription[Typeclass[_], Type](ctx: Param[Typeclass, Type]): Option[String] =
+  private def getDescription[Typeclass[_], Type](ctx: ReadOnlyParam[Typeclass, Type]): Option[String] =
     getDescription(ctx.annotations)
 
   implicit def gen[T]: Typeclass[T] = macro Magnolia.gen[T]
