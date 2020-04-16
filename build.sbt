@@ -124,7 +124,7 @@ lazy val codegenSbt = project
     crossScalaVersions := Seq("2.12.10"),
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "dev.zio"                      %% "zio-test-sbt"                  % zioVersion % "test"
+      "dev.zio" %% "zio-test-sbt" % zioVersion % "test"
     )
   )
   .dependsOn(coreJVM, clientJVM)
