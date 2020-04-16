@@ -109,13 +109,13 @@ lazy val codegen = project
       "org.scalameta"                %% "scalafmt-dynamic"              % "2.4.2",
       "org.scalameta"                %% "scalafmt-core"                 % "2.4.2",
       "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion,
-      "dev.zio"                      %% "zio-test"                      % zioVersion % "test"
+      "dev.zio"                      %% "zio-test"                      % zioVersion % "test",
+      "dev.zio"                      %% "zio-test-sbt"                  % zioVersion % "test"
     )
   )
   .dependsOn(coreJVM, clientJVM)
 
 lazy val codegenSbt = project
-  .dependsOn(codegen)
   .in(file("codegen-sbt"))
   .settings(name := "caliban-codegen-sbt")
   .settings(commonSettings)
@@ -127,7 +127,7 @@ lazy val codegenSbt = project
       "dev.zio" %% "zio-test-sbt" % zioVersion % "test"
     )
   )
-  .dependsOn(coreJVM, clientJVM)
+  .dependsOn(codegen)
 
 lazy val catsInterop = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)
