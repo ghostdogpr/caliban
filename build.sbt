@@ -66,6 +66,7 @@ lazy val root = project
     clientJVM,
     clientJS,
     codegen,
+    codegenSbt,
     federation
   )
 
@@ -102,14 +103,27 @@ lazy val codegen = project
   .settings(name := "caliban-codegen")
   .settings(commonSettings)
   .settings(
-    sbtPlugin := true,
     crossScalaVersions := Seq("2.12.10"),
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "org.scalameta"                %% "scalafmt-dynamic"              % "2.4.2",
       "org.scalameta"                %% "scalafmt-core"                 % "2.4.2",
       "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion,
-      "dev.zio"                      %% "zio-test"                      % zioVersion % "test",
+      "dev.zio"                      %% "zio-test"                      % zioVersion % "test"
+    )
+  )
+  .dependsOn(coreJVM, clientJVM)
+
+lazy val codegenSbt = project
+  .dependsOn(codegen)
+  .in(file("codegen-sbt"))
+  .settings(name := "caliban-codegen-sbt")
+  .settings(commonSettings)
+  .settings(
+    sbtPlugin := true,
+    crossScalaVersions := Seq("2.12.10"),
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    libraryDependencies ++= Seq(
       "dev.zio"                      %% "zio-test-sbt"                  % zioVersion % "test"
     )
   )
