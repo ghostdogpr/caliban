@@ -23,17 +23,23 @@ trait GraphQLInterpreter[-R, +E] { self =>
    * Parses, validates and finally runs the provided request against this interpreter.
    * @param request a GraphQL request
    * @param skipValidation skips the validation step if true
+   * @param enableIntrospection returns an error for introspection queries when false
    * @return an effect that either fails with an `E` or succeeds with a [[ResponseValue]]
    */
-  def executeRequest(request: GraphQLRequest, skipValidation: Boolean = false): URIO[R, GraphQLResponse[E]]
+  def executeRequest(
+    request: GraphQLRequest,
+    skipValidation: Boolean = false,
+    enableIntrospection: Boolean = true
+  ): URIO[R, GraphQLResponse[E]]
 
   /**
    * Parses, validates and finally runs the provided query against this interpreter.
    * @param query a string containing the GraphQL query
-   * @param operationName the operation to run in case the query contains multiple operations	
+   * @param operationName the operation to run in case the query contains multiple operations
    * @param variables a map of variables
    * @param extensions a map of extensions
    * @param skipValidation skips the validation step if true
+   * @param enableIntrospection returns an error for introspection queries when false
    * @return an effect that either fails with an `E` or succeeds with a [[ResponseValue]]
    */
   def execute(
@@ -41,9 +47,14 @@ trait GraphQLInterpreter[-R, +E] { self =>
     operationName: Option[String] = None,
     variables: Map[String, InputValue] = Map(),
     extensions: Map[String, InputValue] = Map(),
-    skipValidation: Boolean = false
+    skipValidation: Boolean = false,
+    enableIntrospection: Boolean = true
   ): URIO[R, GraphQLResponse[E]] =
-    executeRequest(GraphQLRequest(Some(query), operationName, Some(variables), Some(extensions)), skipValidation)
+    executeRequest(
+      GraphQLRequest(Some(query), operationName, Some(variables), Some(extensions)),
+      skipValidation = skipValidation,
+      enableIntrospection = enableIntrospection
+    )
 
   /**
    * Changes the error channel of the `execute` method.
@@ -94,8 +105,12 @@ trait GraphQLInterpreter[-R, +E] { self =>
     f: URIO[R, GraphQLResponse[E]] => URIO[R2, GraphQLResponse[E2]]
   ): GraphQLInterpreter[R2, E2] = new GraphQLInterpreter[R2, E2] {
     override def check(query: String): IO[CalibanError, Unit] = self.check(query)
-    override def executeRequest(request: GraphQLRequest, skipValidation: Boolean): URIO[R2, GraphQLResponse[E2]] =
-      f(self.executeRequest(request, skipValidation))
+    override def executeRequest(
+      request: GraphQLRequest,
+      skipValidation: Boolean,
+      enableIntrospection: Boolean
+    ): URIO[R2, GraphQLResponse[E2]] =
+      f(self.executeRequest(request, skipValidation = skipValidation, enableIntrospection))
   }
 
 }

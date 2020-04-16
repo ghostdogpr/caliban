@@ -1,5 +1,8 @@
 package caliban.introspection
 
+import caliban.CalibanError.ValidationError
+import caliban.Value._
+import caliban.{ GraphQLResponse }
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
@@ -9,70 +12,76 @@ import zio.test._
 
 object IntrospectionSpec extends DefaultRunnableSpec {
 
-  override def spec: ZSpec[TestEnvironment, Any] =
-    suite("IntrospectionSpec")(
-      testM("introspect schema") {
-        val fullIntrospectionQuery = gqldoc("""
-              query IntrospectionQuery {
-                __schema {
-                  queryType { name }
-                  mutationType { name }
-                  subscriptionType { name }
-                  types {
-                    ...FullType
-                  }
-                  directives {
-                    name
-                    description
-                    locations
-                    args {
-                      ...InputValue
-                    }
-                  }
-                }
+  val fullIntrospectionQuery = gqldoc("""
+        query IntrospectionQuery {
+          __schema {
+            queryType { name }
+            mutationType { name }
+            subscriptionType { name }
+            types {
+              ...FullType
+            }
+            directives {
+              name
+              description
+              locations
+              args {
+                ...InputValue
               }
+            }
+          }
+        }
 
-              fragment FullType on __Type {
-                kind
-                name
-                description
-                fields(includeDeprecated: true) {
-                  name
-                  description
-                  args {
-                    ...InputValue
-                  }
-                  type {
-                    ...TypeRef
-                  }
-                  isDeprecated
-                  deprecationReason
-                }
-                inputFields {
-                  ...InputValue
-                }
-                interfaces {
-                  ...TypeRef
-                }
-                enumValues(includeDeprecated: true) {
-                  name
-                  description
-                  isDeprecated
-                  deprecationReason
-                }
-                possibleTypes {
-                  ...TypeRef
-                }
-              }
+        fragment FullType on __Type {
+          kind
+          name
+          description
+          fields(includeDeprecated: true) {
+            name
+            description
+            args {
+              ...InputValue
+            }
+            type {
+              ...TypeRef
+            }
+            isDeprecated
+            deprecationReason
+          }
+          inputFields {
+            ...InputValue
+          }
+          interfaces {
+            ...TypeRef
+          }
+          enumValues(includeDeprecated: true) {
+            name
+            description
+            isDeprecated
+            deprecationReason
+          }
+          possibleTypes {
+            ...TypeRef
+          }
+        }
 
-              fragment InputValue on __InputValue {
-                name
-                description
-                type { ...TypeRef }
-                defaultValue
-              }
+        fragment InputValue on __InputValue {
+          name
+          description
+          type { ...TypeRef }
+          defaultValue
+        }
 
-              fragment TypeRef on __Type {
+        fragment TypeRef on __Type {
+          kind
+          name
+          ofType {
+            kind
+            name
+            ofType {
+              kind
+              name
+              ofType {
                 kind
                 name
                 ofType {
@@ -87,25 +96,27 @@ object IntrospectionSpec extends DefaultRunnableSpec {
                       ofType {
                         kind
                         name
-                        ofType {
-                          kind
-                          name
-                          ofType {
-                            kind
-                            name
-                            ofType {
-                              kind
-                              name
-                            }
-                          }
-                        }
                       }
                     }
                   }
                 }
               }
-                """)
+            }
+          }
+        }
+          """)
 
+  override def spec: ZSpec[TestEnvironment, Any] =
+    suite("IntrospectionSpec")(
+      testM("fail when introspection is disabled") {
+        val interpreter = graphQL(resolverIO).interpreter
+
+        assertM(
+          interpreter
+            .flatMap(_.execute(fullIntrospectionQuery, enableIntrospection = false))
+        )(equalTo(GraphQLResponse(NullValue, List(ValidationError("Introspection is disabled", "")))))
+      },
+      testM("introspect schema") {
         val interpreter = graphQL(resolverIO).interpreter
 
         assertM(interpreter.flatMap(_.execute(fullIntrospectionQuery)).map(_.data.toString))(

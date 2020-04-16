@@ -22,7 +22,8 @@ object UzHttpAdapter {
   def makeHttpService[R, E](
     path: String,
     interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false
+    skipValidation: Boolean = false,
+    enableIntrospection: Boolean = true
   ): PartialFunction[Request, ZIO[R, HTTPError, Response]] = {
 
     // POST case
@@ -33,7 +34,12 @@ object UzHttpAdapter {
                  case None        => ZIO.fail(BadRequest("Missing body"))
                }
         req <- ZIO.fromEither(decode[GraphQLRequest](body)).mapError(e => BadRequest(e.getMessage))
-        res <- executeHttpResponse(interpreter, req, skipValidation)
+        res <- executeHttpResponse(
+                interpreter,
+                req,
+                skipValidation = skipValidation,
+                enableIntrospection = enableIntrospection
+              )
       } yield res
 
     // GET case
@@ -56,7 +62,12 @@ object UzHttpAdapter {
                        .foreach(params.get("extensions"))(s => ZIO.fromEither(decode[Map[String, InputValue]](s)))
                        .mapError(e => BadRequest(e.getMessage))
         req = GraphQLRequest(params.get("query"), params.get("operationName"), variables, extensions)
-        res <- executeHttpResponse(interpreter, req, skipValidation)
+        res <- executeHttpResponse(
+                interpreter,
+                req,
+                skipValidation = skipValidation,
+                enableIntrospection = enableIntrospection
+              )
       } yield res
   }
 
@@ -64,6 +75,7 @@ object UzHttpAdapter {
     path: String,
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
+    enableIntrospection: Boolean = true,
     keepAliveTime: Option[Duration] = None
   ): PartialFunction[Request, ZIO[R, HTTPError, Response]] = {
     case req @ Request.WebsocketRequest(_, uri, _, _, inputFrames) if uri.getPath == path =>
@@ -98,7 +110,8 @@ object UzHttpAdapter {
                             for {
                               result <- interpreter.executeRequest(
                                          GraphQLRequest(Some(query), operationName),
-                                         skipValidation
+                                         skipValidation = skipValidation,
+                                         enableIntrospection = enableIntrospection
                                        )
                               _ <- result.data match {
                                     case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
@@ -164,10 +177,11 @@ object UzHttpAdapter {
   private def executeHttpResponse[R, E](
     interpreter: GraphQLInterpreter[R, E],
     request: GraphQLRequest,
-    skipValidation: Boolean
+    skipValidation: Boolean,
+    enableIntrospection: Boolean
   ): URIO[R, Response] =
     interpreter
-      .executeRequest(request, skipValidation)
+      .executeRequest(request, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
       .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
       .map(gqlResult =>
         Response.const(
