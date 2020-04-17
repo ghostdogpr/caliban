@@ -103,7 +103,6 @@ lazy val codegen = project
   .settings(name := "caliban-codegen")
   .settings(commonSettings)
   .settings(
-    crossScalaVersions := Seq("2.12.10"),
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "org.scalameta"                %% "scalafmt-dynamic"              % "2.4.2",
