@@ -3,11 +3,11 @@ import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 val mainScala = "2.12.10"
 val allScala  = Seq("2.13.1", mainScala)
 
-val catsEffectVersion     = "2.1.2"
+val catsEffectVersion     = "2.1.3"
 val circeVersion          = "0.13.0"
 val http4sVersion         = "0.21.3"
 val silencerVersion       = "1.6.0"
-val sttpVersion           = "2.0.7"
+val sttpVersion           = "2.0.8"
 val zioVersion            = "1.0.0-RC18-2"
 val zioInteropCatsVersion = "2.0.0.0-RC12"
 
@@ -64,6 +64,7 @@ lazy val root = project
     clientJVM,
     clientJS,
     codegen,
+    codegenSbt,
     federation
   )
 
@@ -96,8 +97,6 @@ lazy val codegen = project
   .settings(name := "caliban-codegen")
   .settings(commonSettings)
   .settings(
-    sbtPlugin := true,
-    crossScalaVersions := Seq("2.12.10"),
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "org.scalameta"                %% "scalafmt-dynamic"              % "2.4.2",
@@ -108,6 +107,20 @@ lazy val codegen = project
     )
   )
   .dependsOn(core, clientJVM)
+
+lazy val codegenSbt = project
+  .in(file("codegen-sbt"))
+  .settings(name := "caliban-codegen-sbt")
+  .settings(commonSettings)
+  .settings(
+    sbtPlugin := true,
+    crossScalaVersions := Seq("2.12.10"),
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio-test-sbt" % zioVersion % "test"
+    )
+  )
+  .dependsOn(codegen)
 
 lazy val catsInterop = project
   .in(file("interop/cats"))
