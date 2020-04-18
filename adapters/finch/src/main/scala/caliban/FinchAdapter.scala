@@ -33,12 +33,13 @@ object FinchAdapter extends Endpoint.Module[Task] {
   private def executeRequest[R, E](
     request: GraphQLRequest,
     interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean
+    skipValidation: Boolean,
+    enableIntrospection: Boolean
   )(implicit runtime: Runtime[R]) =
     runtime
       .unsafeRunToFuture(
         interpreter
-          .executeRequest(request, skipValidation)
+          .executeRequest(request, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
           .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
           .map(gqlResult => Ok(gqlResult))
       )
@@ -67,9 +68,12 @@ object FinchAdapter extends Endpoint.Module[Task] {
    */
   def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false
+    skipValidation: Boolean = false,
+    enableIntrospection: Boolean = true
   )(implicit runtime: Runtime[R]): Endpoint[Task, Json :+: Json :+: CNil] =
     post(jsonBody[GraphQLRequest]) { request: GraphQLRequest =>
-      executeRequest(request, interpreter, skipValidation)
-    } :+: get(queryParams) { request: GraphQLRequest => executeRequest(request, interpreter, skipValidation) }
+      executeRequest(request, interpreter, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
+    } :+: get(queryParams) { request: GraphQLRequest =>
+      executeRequest(request, interpreter, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
+    }
 }

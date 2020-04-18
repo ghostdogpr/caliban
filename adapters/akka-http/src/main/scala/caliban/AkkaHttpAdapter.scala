@@ -47,10 +47,11 @@ trait AkkaHttpAdapter {
   private def executeHttpResponse[R, E](
     interpreter: GraphQLInterpreter[R, E],
     request: GraphQLRequest,
-    skipValidation: Boolean
+    skipValidation: Boolean,
+    enableIntrospection: Boolean
   ): URIO[R, HttpResponse] =
     interpreter
-      .executeRequest(request, skipValidation)
+      .executeRequest(request, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
       .foldCause(
         cause => json.encodeGraphQLResponse(GraphQLResponse(NullValue, cause.defects)),
         json.encodeGraphQLResponse
@@ -59,13 +60,26 @@ trait AkkaHttpAdapter {
 
   def completeRequest[R, E](
     interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false
+    skipValidation: Boolean = false,
+    enableIntrospection: Boolean = true
   )(request: GraphQLRequest)(implicit ec: ExecutionContext, runtime: Runtime[R]): StandardRoute =
-    complete(runtime.unsafeRunToFuture(executeHttpResponse(interpreter, request, skipValidation)).future)
+    complete(
+      runtime
+        .unsafeRunToFuture(
+          executeHttpResponse(
+            interpreter,
+            request,
+            skipValidation = skipValidation,
+            enableIntrospection = enableIntrospection
+          )
+        )
+        .future
+    )
 
   def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false
+    skipValidation: Boolean = false,
+    enableIntrospection: Boolean = true
   )(implicit ec: ExecutionContext, runtime: Runtime[R]): Route = {
     import akka.http.scaladsl.server.Directives._
 
@@ -74,17 +88,23 @@ trait AkkaHttpAdapter {
         case (query, op, vars, ext) =>
           json
             .parseHttpRequest(query, op, vars, ext)
-            .fold(failWith, completeRequest(interpreter, skipValidation))
+            .fold(
+              failWith,
+              completeRequest(interpreter, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
+            )
       }
     } ~
       post {
-        entity(as[GraphQLRequest])(completeRequest(interpreter, skipValidation))
+        entity(as[GraphQLRequest])(
+          completeRequest(interpreter, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
+        )
       }
   }
 
   def makeWebSocketService[R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
+    enableIntrospection: Boolean = true,
     keepAliveTime: Option[Duration] = None
   )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): Route = {
     def sendMessage(
@@ -104,7 +124,12 @@ trait AkkaHttpAdapter {
       subscriptions: Ref[Map[Option[String], Fiber[Throwable, Unit]]]
     ): RIO[R, Unit] =
       for {
-        result <- interpreter.execute(query, message.operationName, skipValidation = skipValidation)
+        result <- interpreter.execute(
+                   query,
+                   message.operationName,
+                   skipValidation = skipValidation,
+                   enableIntrospection = enableIntrospection
+                 )
         _ <- result.data match {
               case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
                 stream

@@ -68,14 +68,18 @@ trait GraphQL[-R] { self =>
 
           override def executeRequest(
             request: GraphQLRequest,
-            skipValidation: Boolean
+            skipValidation: Boolean,
+            enableIntrospection: Boolean
           ): URIO[R, GraphQLResponse[CalibanError]] =
             decompose(wrappers).flatMap {
               case (overallWrappers, parsingWrappers, validationWrappers, executionWrappers, fieldWrappers) =>
                 wrap((request: GraphQLRequest) =>
                   (for {
-                    doc             <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
-                    intro           = Introspector.isIntrospection(doc)
+                    doc   <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
+                    intro = Introspector.isIntrospection(doc)
+                    _ <- IO.when(intro && !enableIntrospection) {
+                          IO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
+                        }
                     typeToValidate  = if (intro) introspectionRootType else rootType
                     schemaToExecute = if (intro) introspectionRootSchema else schema
                     validate = (doc: Document) =>
