@@ -66,6 +66,7 @@ lazy val root = project
     clientJVM,
     clientJS,
     codegen,
+    codegenSbt,
     federation
   )
 
@@ -102,8 +103,6 @@ lazy val codegen = project
   .settings(name := "caliban-codegen")
   .settings(commonSettings)
   .settings(
-    sbtPlugin := true,
-    crossScalaVersions := Seq("2.12.10"),
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "org.scalameta"                %% "scalafmt-dynamic"              % "2.4.2",
@@ -114,6 +113,20 @@ lazy val codegen = project
     )
   )
   .dependsOn(coreJVM, clientJVM)
+
+lazy val codegenSbt = project
+  .in(file("codegen-sbt"))
+  .settings(name := "caliban-codegen-sbt")
+  .settings(commonSettings)
+  .settings(
+    sbtPlugin := true,
+    crossScalaVersions := Seq("2.12.10"),
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio-test-sbt" % zioVersion % "test"
+    )
+  )
+  .dependsOn(codegen)
 
 lazy val catsInterop = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)
