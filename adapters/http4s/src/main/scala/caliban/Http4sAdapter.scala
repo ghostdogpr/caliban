@@ -297,13 +297,15 @@ object Http4sAdapter {
   def makeWebSocketServiceF[F[_], E](
     interpreter: GraphQLInterpreter[Any, E],
     skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true
+    enableIntrospection: Boolean = true,
+    keepAliveTime: Option[Duration] = None
   )(implicit F: Effect[F], runtime: Runtime[Any]): HttpRoutes[F] =
     wrapRoute(
       makeWebSocketService[Any, E](
         interpreter,
         skipValidation = skipValidation,
-        enableIntrospection = enableIntrospection
+        enableIntrospection = enableIntrospection,
+        keepAliveTime = keepAliveTime
       )
     )
 
