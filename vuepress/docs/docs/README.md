@@ -30,8 +30,6 @@ libraryDependencies += "com.github.ghostdogpr" %% "caliban-cats"      % "0.7.5" 
 libraryDependencies += "com.github.ghostdogpr" %% "caliban-monix"     % "0.7.5" // interop with monix
 ```
 
-Note that Caliban is also available for ScalaJS.
-
 ## A simple example
 
 Creating a GraphQL API with Caliban is as simple as creating a case class. Indeed, the whole GraphQL schema will be derived from a case class structure (its fields and the other types it references), and the resolver is just an instance of that case class.
