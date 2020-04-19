@@ -5,7 +5,7 @@ import zio.test.Assertion._
 import zio.test.TestAspect.silent
 import zio.test._
 import zio.test.environment.{ TestConsole, TestEnvironment }
-import zio.{ console, ZIO }
+import zio.{ console, Promise, ZIO }
 
 object ZQuerySpec extends ZIOBaseSpec {
 
@@ -49,7 +49,27 @@ object ZQuerySpec extends ZIOBaseSpec {
         for {
           result <- getUserNameById(27).map(identity).optional.run
         } yield assert(result)(isNone)
-      }
+      },
+      testM("queries to multiple data sources can be executed in parallel") {
+        for {
+          promise <- Promise.make[Nothing, Unit]
+          _       <- (neverQuery <&> succeedQuery(promise)).run.fork
+          _       <- promise.await
+        } yield assertCompletes
+      },
+      testM("arbitrary effects can be executed in parallel") {
+        for {
+          promise <- Promise.make[Nothing, Unit]
+          _       <- (ZQuery.never <&> ZQuery.fromEffect(promise.succeed(()))).run.fork
+          _       <- promise.await
+        } yield assertCompletes
+      },
+      testM("zipPar does not prevent batching") {
+        for {
+          result <- ZQuery.collectAllPar(List.fill(100)(getAllUserNames)).run
+          log    <- TestConsole.output
+        } yield assert(log)(hasSize(equalTo(2)))
+      } @@ TestAspect.nonFlaky
     ) @@ silent
 
   val userIds: List[Int]          = (1 to 26).toList
@@ -62,13 +82,15 @@ object ZQuerySpec extends ZIOBaseSpec {
 
   val UserRequestDataSource: DataSource[Console, UserRequest[Any]] =
     DataSource[Console, UserRequest[Any]]("UserRequestDataSource") { requests =>
-      console.putStrLn("Running query") *> ZIO.succeed {
-        requests.foldLeft(CompletedRequestMap.empty) {
-          case (completedRequests, GetAllIds) => completedRequests.insert(GetAllIds)(Right(userIds))
-          case (completedRequests, GetNameById(id)) =>
-            userNames.get(id).fold(completedRequests)(name => completedRequests.insert(GetNameById(id))(Right(name)))
+      ZIO.when(requests.toSet.size != requests.size)(ZIO.dieMessage("Duplicate requests)")) *>
+        console.putStrLn("Running query") *>
+        ZIO.succeed {
+          requests.foldLeft(CompletedRequestMap.empty) {
+            case (completedRequests, GetAllIds) => completedRequests.insert(GetAllIds)(Right(userIds))
+            case (completedRequests, GetNameById(id)) =>
+              userNames.get(id).fold(completedRequests)(name => completedRequests.insert(GetNameById(id))(Right(name)))
+          }
         }
-      }
     }
 
   val getAllUserIds: ZQuery[Console, Nothing, List[Int]] =
@@ -82,4 +104,22 @@ object ZQuerySpec extends ZIOBaseSpec {
       userIds   <- getAllUserIds
       userNames <- ZQuery.foreachPar(userIds)(getUserNameById)
     } yield userNames
+
+  case object NeverRequest extends Request[Nothing, Nothing]
+
+  val neverDataSource: DataSource[Any, NeverRequest.type] =
+    DataSource.fromFunctionM("never")(_ => ZIO.never)
+
+  val neverQuery: ZQuery[Any, Nothing, Nothing] =
+    ZQuery.fromRequest(NeverRequest)(neverDataSource)
+
+  final case class SucceedRequest(promise: Promise[Nothing, Unit]) extends Request[Nothing, Unit]
+
+  val succeedDataSource: DataSource[Any, SucceedRequest] =
+    DataSource.fromFunctionM("succeed") {
+      case SucceedRequest(promise) => promise.succeed(()).unit
+    }
+
+  def succeedQuery(promise: Promise[Nothing, Unit]): ZQuery[Any, Nothing, Unit] =
+    ZQuery.fromRequest(SucceedRequest(promise))(succeedDataSource)
 }
