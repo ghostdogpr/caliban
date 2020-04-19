@@ -733,9 +733,9 @@ object Validator {
     def validateArguments(args: Map[String, InputValue], errorContext: String): IO[ValidationError, Unit] = {
       val explanatoryText =
         s"""The directive argument must not have a name which begins with the characters "__" (two underscores)"""
-      val argumentErrorContext: String => String = argName => s"Argument '$argName' of $errorContext"
+      val argumentErrorContextBuilder = (name: String) => s"Argument '$name' of $errorContext"
       IO.foreach_(args.map(_._1))(argName =>
-        doesNotStartWithUnderscore[String](argName, identity, argumentErrorContext(argName), explanatoryText)
+        doesNotStartWithUnderscore[String](argName, identity, argumentErrorContextBuilder(argName), explanatoryText)
       )
     }
 
@@ -754,16 +754,36 @@ object Validator {
     ): IO[ValidationError, Unit] =
       IO.foreach_(directivesExtractor(t).getOrElse(List.empty))(validateDirective(_, errorContext))
 
+    def validateInputValueDirectives(
+      inputValues: List[__InputValue],
+      errorContext: String
+    ): IO[ValidationError, Unit] = {
+      val inputValueErrorContextBuilder = (name: String) => s"InputValue '$name' of $errorContext"
+      IO.foreach_(inputValues)(iv =>
+        validateDirectives[__InputValue](iv, _.directives, inputValueErrorContextBuilder(iv.name))
+      )
+    }
+
+    def validateFieldDirectives(
+      field: __Field,
+      errorContext: String
+    ): IO[ValidationError, Unit] = {
+      val fieldErrorContext = s"Field '${field.name}' of $errorContext"
+      validateDirectives[__Field](field, _.directives, fieldErrorContext) *> validateInputValueDirectives(
+        field.args,
+        fieldErrorContext
+      )
+    }
+
     IO.foreach_(types) { t =>
-      val typeErrorContext                    = s"Type '${t.name.getOrElse("")}'"
-      val fieldErrorContext: String => String = fieldName => s"Field '$fieldName' of $typeErrorContext"
+      val typeErrorContext = s"Type '${t.name.getOrElse("")}'"
       for {
         _ <- validateDirectives[__Type](t, _.directives, typeErrorContext)
-        _ <- IO.foreach_(t.fields(__DeprecatedArgs(Some(true))).getOrElse(List.empty[__Field]))(f =>
-              validateDirectives[__Field](f, _.directives, fieldErrorContext(f.name))
+        _ <- validateInputValueDirectives(t.inputFields.getOrElse(List.empty[__InputValue]), typeErrorContext)
+        _ <- IO.foreach_(t.fields(__DeprecatedArgs(Some(true))).getOrElse(List.empty[__Field]))(
+              validateFieldDirectives(_, typeErrorContext)
             )
       } yield ()
-
     }
   }
 

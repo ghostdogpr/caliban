@@ -29,6 +29,18 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
             "Directive '__name' of Field 'field' of Type 'TestWrongFieldDirectiveName' can't start with '__'"
           )
         },
+        testM("name on a inputValue on a type can't start with '__'") {
+          check(
+            graphQL(resolverWrongInputFieldDirectiveName),
+            "Directive '__name' of InputValue 'inputValue' of Type 'WronDirectiveNameInput' can't start with '__'"
+          )
+        },
+        testM("name on a inputValue on a field type can't start with '__'") {
+          check(
+            graphQL(resolverWrongFieldArgDirectiveName),
+            "Directive '__name' of InputValue 'inputValue' of Field 'field' of Type 'TestWrongFieldArgDirectiveName' can't start with '__'"
+          )
+        },
         testM("argument name can't start with '__'") {
           check(
             graphQL(resolverWrongArgumentDirectiveName),

@@ -221,5 +221,28 @@ object TestUtils {
       field: String
     )
     val resolverWrongArgumentDirectiveName = RootResolver(TestWrongArgumentDirectiveName(""))
+
+    case class WronDirectiveName(
+      @GQLDirective(Directive("__name"))
+      inputValue: String
+    )
+    case class WronDirectiveNameArgs(
+      i: WronDirectiveName
+    )
+    case class TestWrongInputFieldDirectiveName(
+      field: WronDirectiveNameArgs => UIO[Unit]
+    )
+    val resolverWrongInputFieldDirectiveName = RootResolver(
+      resolverIO.queryResolver,
+      TestWrongInputFieldDirectiveName(_ => UIO.unit)
+    )
+
+    case class TestWrongFieldArgDirectiveName(
+      field: WronDirectiveName => UIO[Unit]
+    )
+    val resolverWrongFieldArgDirectiveName = RootResolver(
+      TestWrongFieldArgDirectiveName(_ => UIO.unit)
+    )
+
   }
 }
