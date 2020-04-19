@@ -350,6 +350,7 @@ object ClientWriter {
     "var",
     "while",
     "with",
-    "yield"
+    "yield",
+    "_"
   )
 }
