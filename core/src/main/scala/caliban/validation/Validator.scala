@@ -747,21 +747,18 @@ object Validator {
       } yield ()
     }
 
-    def validateDirectives[T](
-      t: T,
-      directivesExtractor: T => Option[List[Directive]],
+    def validateDirectives(
+      directives: Option[List[Directive]],
       errorContext: String
     ): IO[ValidationError, Unit] =
-      IO.foreach_(directivesExtractor(t).getOrElse(List.empty))(validateDirective(_, errorContext))
+      IO.foreach_(directives.getOrElse(List.empty))(validateDirective(_, errorContext))
 
     def validateInputValueDirectives(
       inputValues: List[__InputValue],
       errorContext: String
     ): IO[ValidationError, Unit] = {
       val inputValueErrorContextBuilder = (name: String) => s"InputValue '$name' of $errorContext"
-      IO.foreach_(inputValues)(iv =>
-        validateDirectives[__InputValue](iv, _.directives, inputValueErrorContextBuilder(iv.name))
-      )
+      IO.foreach_(inputValues)(iv => validateDirectives(iv.directives, inputValueErrorContextBuilder(iv.name)))
     }
 
     def validateFieldDirectives(
@@ -769,7 +766,7 @@ object Validator {
       errorContext: String
     ): IO[ValidationError, Unit] = {
       val fieldErrorContext = s"Field '${field.name}' of $errorContext"
-      validateDirectives[__Field](field, _.directives, fieldErrorContext) *> validateInputValueDirectives(
+      validateDirectives(field.directives, fieldErrorContext) *> validateInputValueDirectives(
         field.args,
         fieldErrorContext
       )
@@ -778,7 +775,7 @@ object Validator {
     IO.foreach_(types) { t =>
       val typeErrorContext = s"Type '${t.name.getOrElse("")}'"
       for {
-        _ <- validateDirectives[__Type](t, _.directives, typeErrorContext)
+        _ <- validateDirectives(t.directives, typeErrorContext)
         _ <- validateInputValueDirectives(t.inputFields.getOrElse(List.empty[__InputValue]), typeErrorContext)
         _ <- IO.foreach_(t.fields(__DeprecatedArgs(Some(true))).getOrElse(List.empty[__Field]))(
               validateFieldDirectives(_, typeErrorContext)
