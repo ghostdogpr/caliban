@@ -734,17 +734,16 @@ object Validator {
       val explanatoryText =
         s"""The directive argument must not have a name which begins with the characters "__" (two underscores)"""
       val argumentErrorContextBuilder = (name: String) => s"Argument '$name' of $errorContext"
-      IO.foreach_(args.map(_._1))(argName =>
+      IO.foreach_(args.keys)(argName =>
         doesNotStartWithUnderscore[String](argName, identity, argumentErrorContextBuilder(argName), explanatoryText)
       )
     }
 
     def validateDirective(directive: Directive, errorContext: String) = {
       val directiveErrorContext = s"Directive '${directive.name}' of $errorContext"
-      for {
-        _ <- doesNotStartWithUnderscore(directive, directiveErrorContext)
-        _ <- validateArguments(directive.arguments, directiveErrorContext)
-      } yield ()
+
+      doesNotStartWithUnderscore(directive, directiveErrorContext) *>
+        validateArguments(directive.arguments, directiveErrorContext)
     }
 
     def validateDirectives(
@@ -766,10 +765,8 @@ object Validator {
       errorContext: String
     ): IO[ValidationError, Unit] = {
       val fieldErrorContext = s"Field '${field.name}' of $errorContext"
-      validateDirectives(field.directives, fieldErrorContext) *> validateInputValueDirectives(
-        field.args,
-        fieldErrorContext
-      )
+      validateDirectives(field.directives, fieldErrorContext) *>
+        validateInputValueDirectives(field.args, fieldErrorContext)
     }
 
     IO.foreach_(types) { t =>

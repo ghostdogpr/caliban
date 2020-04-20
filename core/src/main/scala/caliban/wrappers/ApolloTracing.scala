@@ -71,7 +71,11 @@ object ApolloTracing {
 
   case class Execution(resolvers: List[Resolver] = Nil) {
     def toResponseValue: ResponseValue =
-      ObjectValue(List("resolvers" -> ListValue(resolvers.sortBy(_.startOffset).map(_.toResponseValue))))
+      ObjectValue(
+        List(
+          "resolvers" -> ListValue(resolvers.sortBy(r => (r.startOffset, r.duration.toNanos)).map(_.toResponseValue))
+        )
+      )
   }
 
   case class Tracing(
