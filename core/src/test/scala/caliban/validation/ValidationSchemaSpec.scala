@@ -16,6 +16,38 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("ValidationSchemaSpec")(
+      suite("Directives")(
+        testM("name on a type can't start with '__'") {
+          check(
+            graphQL(resolverWrongDirectiveName),
+            "Directive '__name' of Type 'TestWrongDirectiveName' can't start with '__'"
+          )
+        },
+        testM("name on a field type can't start with '__'") {
+          check(
+            graphQL(resolverWrongFieldDirectiveName),
+            "Directive '__name' of Field 'field' of Type 'TestWrongFieldDirectiveName' can't start with '__'"
+          )
+        },
+        testM("name on a inputValue on a type can't start with '__'") {
+          check(
+            graphQL(resolverWrongInputFieldDirectiveName),
+            "Directive '__name' of InputValue 'inputValue' of Type 'WronDirectiveNameInput' can't start with '__'"
+          )
+        },
+        testM("name on a inputValue on a field type can't start with '__'") {
+          check(
+            graphQL(resolverWrongFieldArgDirectiveName),
+            "Directive '__name' of InputValue 'inputValue' of Field 'field' of Type 'TestWrongFieldArgDirectiveName' can't start with '__'"
+          )
+        },
+        testM("argument name can't start with '__'") {
+          check(
+            graphQL(resolverWrongArgumentDirectiveName),
+            "Argument '__name' of Directive 'name' of Field 'field' of Type 'TestWrongArgumentDirectiveName' can't start with '__'"
+          )
+        }
+      ),
       suite("InputObjects")(
         testM("name can't start with '__'") {
           check(
