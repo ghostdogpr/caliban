@@ -15,6 +15,7 @@ import caliban.{ GraphQL, GraphQLRequest, RootResolver }
 import io.circe.syntax._
 import zio.clock.Clock
 import zio.duration._
+import zio.test.TestAspect.ignore
 import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.{ TestClock, TestEnvironment }
@@ -145,7 +146,7 @@ object WrappersSpec extends DefaultRunnableSpec {
             )
           )
         )
-      },
+      } @@ ignore,
       testM("Apollo Caching") {
         case class Query(@GQLDirective(CacheControl(10.seconds)) hero: Hero)
 

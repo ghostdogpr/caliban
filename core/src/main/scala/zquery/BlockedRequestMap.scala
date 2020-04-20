@@ -35,7 +35,7 @@ private[zquery] final class BlockedRequestMap[-R](
     ZIO.foreachPar_(map) {
       case (dataSource, blockedRequests) =>
         for {
-          completedRequests <- dataSource.run(blockedRequests.map(_.request))
+          completedRequests <- dataSource.run(blockedRequests.map(_.request).distinct)
           _ <- ZIO.foreach_(blockedRequests) { blockedRequest =>
                 blockedRequest.result.set(completedRequests.lookup(blockedRequest.request))
               }
