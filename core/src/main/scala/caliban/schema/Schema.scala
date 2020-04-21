@@ -4,6 +4,7 @@ import java.util.UUID
 import scala.annotation.implicitNotFound
 import scala.concurrent.Future
 import scala.language.experimental.macros
+import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue._
 import caliban.Value._
 import caliban.introspection.adt._
@@ -220,16 +221,24 @@ trait GenericSchema[R] extends DerivationSchema[R] {
     ev2: Schema[RB, B]
   ): Schema[RA with RB, A => B] =
     new Schema[RA with RB, A => B] {
-      override def arguments: List[__InputValue]            = ev1.toType(true).inputFields.getOrElse(Nil)
+      override def arguments: List[__InputValue] = {
+        val t = ev1.toType(true)
+        t.inputFields.getOrElse(t.kind match {
+          case __TypeKind.SCALAR | __TypeKind.ENUM | __TypeKind.LIST =>
+            // argument was not wrapped in a case class, give it an arbitrary name
+            List(__InputValue("value", None, () => if (ev1.optional) t else makeNonNull(t), None))
+          case _ => Nil
+        })
+      }
       override def optional: Boolean                        = ev2.optional
       override def toType(isInput: Boolean = false): __Type = ev2.toType(isInput)
 
       override def resolve(f: A => B): Step[RA with RB] =
         FunctionStep(args =>
-          arg1.build(InputValue.ObjectValue(args)) match {
-            case Left(error)  => QueryStep(ZQuery.fail(error))
-            case Right(value) => ev2.resolve(f(value))
-          }
+          arg1
+            .build(InputValue.ObjectValue(args))
+            .fold(error => args.get("value").fold[Either[ExecutionError, A]](Left(error))(arg1.build), Right(_))
+            .fold(error => QueryStep(ZQuery.fail(error)), value => ev2.resolve(f(value)))
         )
     }
   implicit def futureSchema[A](implicit ev: Schema[R, A]): Schema[R, Future[A]] =
