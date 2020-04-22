@@ -91,20 +91,20 @@ trait GenericSchema[R] extends DerivationSchema[R] {
   def objectSchema[R1, A](
     name: String,
     description: Option[String],
-    fields: List[(__Field, A => Step[R1])],
+    fields: Boolean => List[(__Field, A => Step[R1])],
     directives: List[Directive] = List.empty
   ): Schema[R1, A] =
     new Schema[R1, A] {
 
       override def toType(isInput: Boolean): __Type =
         if (isInput) {
-          makeInputObject(Some(customizeInputTypeName(name)), description, fields.map {
+          makeInputObject(Some(customizeInputTypeName(name)), description, fields(isInput).map {
             case (f, _) => __InputValue(f.name, f.description, f.`type`, None)
           })
-        } else makeObject(Some(name), description, fields.map(_._1), directives)
+        } else makeObject(Some(name), description, fields(isInput).map(_._1), directives)
 
       override def resolve(value: A): Step[R1] =
-        ObjectStep(name, fields.map { case (f, plan) => f.name -> plan(value) }.toMap)
+        ObjectStep(name, fields(false).map { case (f, plan) => f.name -> plan(value) }.toMap)
     }
 
   implicit val unitSchema: Schema[Any, Unit]             = scalarSchema("Unit", None, _ => ObjectValue(Nil))
@@ -149,66 +149,83 @@ trait GenericSchema[R] extends DerivationSchema[R] {
     implicit evA: Schema[RA, A],
     evB: Schema[RB, B]
   ): Schema[RA with RB, Either[A, B]] = {
-    lazy val typeA: __Type       = evA.toType()
-    lazy val typeB: __Type       = evB.toType()
-    lazy val typeAName: String   = Types.name(typeA)
-    lazy val typeBName: String   = Types.name(typeB)
+    lazy val typeAName: String   = Types.name(evA.toType())
+    lazy val typeBName: String   = Types.name(evB.toType())
     lazy val name: String        = s"Either${typeAName}Or$typeBName"
     lazy val description: String = s"Either $typeAName or $typeBName"
 
     objectSchema(
       name,
       Some(description),
-      List(
-        __Field("left", Some("Left element of the Either"), Nil, () => typeA) -> {
-          case Left(value) => evA.resolve(value)
-          case Right(_)    => NullStep
-        },
-        __Field("right", Some("Right element of the Either"), Nil, () => typeB) -> {
-          case Left(_)      => NullStep
-          case Right(value) => evB.resolve(value)
-        }
-      )
+      isInput =>
+        List(
+          __Field("left", Some("Left element of the Either"), Nil, () => evA.toType(isInput)) -> {
+            case Left(value) => evA.resolve(value)
+            case Right(_)    => NullStep
+          },
+          __Field("right", Some("Right element of the Either"), Nil, () => evB.toType(isInput)) -> {
+            case Left(_)      => NullStep
+            case Right(value) => evB.resolve(value)
+          }
+        )
     )
   }
   implicit def tupleSchema[RA, RB, A, B](
     implicit evA: Schema[RA, A],
     evB: Schema[RB, B]
   ): Schema[RA with RB, (A, B)] = {
-    lazy val typeA: __Type     = evA.toType()
-    lazy val typeB: __Type     = evB.toType()
-    lazy val typeAName: String = Types.name(typeA)
-    lazy val typeBName: String = Types.name(typeB)
+    lazy val typeAName: String = Types.name(evA.toType())
+    lazy val typeBName: String = Types.name(evB.toType())
 
     objectSchema(
       s"Tuple${typeAName}And$typeBName",
       Some(s"A tuple of $typeAName and $typeBName"),
-      List(
-        __Field("_1", Some("First element of the tuple"), Nil, () => if (evA.optional) typeA else makeNonNull(typeA)) ->
-          ((tuple: (A, B)) => evA.resolve(tuple._1)),
-        __Field("_2", Some("Second element of the tuple"), Nil, () => if (evB.optional) typeB else makeNonNull(typeB)) ->
-          ((tuple: (A, B)) => evB.resolve(tuple._2))
-      )
+      isInput =>
+        List(
+          __Field(
+            "_1",
+            Some("First element of the tuple"),
+            Nil,
+            () => if (evA.optional) evA.toType(isInput) else makeNonNull(evA.toType(isInput))
+          ) ->
+            ((tuple: (A, B)) => evA.resolve(tuple._1)),
+          __Field(
+            "_2",
+            Some("Second element of the tuple"),
+            Nil,
+            () => if (evB.optional) evB.toType(isInput) else makeNonNull(evB.toType(isInput))
+          ) ->
+            ((tuple: (A, B)) => evB.resolve(tuple._2))
+        )
     )
   }
   implicit def mapSchema[RA, RB, A, B](implicit evA: Schema[RA, A], evB: Schema[RB, B]): Schema[RA with RB, Map[A, B]] =
     new Schema[RA with RB, Map[A, B]] {
-      lazy val typeA: __Type       = evA.toType()
-      lazy val typeB: __Type       = evB.toType()
-      lazy val typeAName: String   = Types.name(typeA)
-      lazy val typeBName: String   = Types.name(typeB)
+      lazy val typeAName: String   = Types.name(evA.toType())
+      lazy val typeBName: String   = Types.name(evB.toType())
       lazy val name: String        = s"KV$typeAName$typeBName"
       lazy val description: String = s"A key-value pair of $typeAName and $typeBName"
 
       lazy val kvSchema: Schema[RA with RB, (A, B)] = objectSchema(
         name,
         Some(description),
-        List(
-          __Field("key", Some("Key"), Nil, () => if (evA.optional) typeA else makeNonNull(typeA))
-            -> ((kv: (A, B)) => evA.resolve(kv._1)),
-          __Field("value", Some("Value"), Nil, () => if (evB.optional) typeB else makeNonNull(typeB))
-            -> ((kv: (A, B)) => evB.resolve(kv._2))
-        )
+        isInput =>
+          List(
+            __Field(
+              "key",
+              Some("Key"),
+              Nil,
+              () => if (evA.optional) evA.toType(isInput) else makeNonNull(evA.toType(isInput))
+            )
+              -> ((kv: (A, B)) => evA.resolve(kv._1)),
+            __Field(
+              "value",
+              Some("Value"),
+              Nil,
+              () => if (evB.optional) evB.toType(isInput) else makeNonNull(evB.toType(isInput))
+            )
+              -> ((kv: (A, B)) => evB.resolve(kv._2))
+          )
       )
 
       override def toType(isInput: Boolean = false): __Type = makeList(makeNonNull(kvSchema.toType(isInput)))
