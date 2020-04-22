@@ -6,6 +6,7 @@ import caliban.schema._
 import caliban.wrappers.Wrapper
 import caliban.{ GraphQL, InputValue }
 import sttp.model.Method
+import sttp.tapir.internal._
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.{ Endpoint, EndpointIO, EndpointInput, EndpointOutput }
 import zio.{ IO, URIO, ZIO }
@@ -21,6 +22,7 @@ import zquery.ZQuery
  */
 
 package object tapir {
+
   implicit class GraphQLInfallibleEndpoint[I, O, S](e: Endpoint[I, Nothing, O, S]) {
     def toGraphQL[R](logic: I => URIO[R, O])(
       implicit inputSchema: caliban.schema.Schema[R, I],
@@ -111,7 +113,6 @@ package object tapir {
     override protected val additionalDirectives: List[__Directive] = Nil
   }
 
-  import sttp.tapir.internal._
   private def extractPath[I](input: EndpointInput[I]): String =
     input
       .asVectorOfBasicInputs(includeAuth = false)
