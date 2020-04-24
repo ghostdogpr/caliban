@@ -2,8 +2,10 @@ package caliban.client
 
 import scala.util.Try
 import java.util.UUID
+
 import caliban.client.CalibanClientError.DecodingError
 import caliban.client.Value._
+import io.circe.Json
 
 /**
  * Typeclass that defines how to decode a scalar from a GraphQL response into a proper value of type `A`.
@@ -63,4 +65,5 @@ object ScalarDecoder {
     case ObjectValue(Nil) => Right(())
     case other            => Left(DecodingError(s"Can't build Unit from input $other"))
   }
+  implicit val json: ScalarDecoder[Json] = value => Right(Value.valueEncoder(value))
 }

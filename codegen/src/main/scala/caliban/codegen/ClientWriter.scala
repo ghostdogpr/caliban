@@ -172,7 +172,8 @@ object ClientWriter {
        """
 
   def writeScalar(typedef: ScalarTypeDefinition): String =
-    s"""type ${typedef.name} = String
+    if (typedef.name == "Json") "type Json = io.circe.Json"
+    else s"""type ${typedef.name} = String
         """
 
   def safeName(name: String): String =
@@ -322,7 +323,7 @@ object ClientWriter {
   }
 
   val supportedScalars =
-    Set("Int", "Float", "Double", "Long", "Unit", "String", "Boolean", "BigInt", "BigDecimal", "ID")
+    Set("Int", "Float", "Double", "Long", "Unit", "String", "Boolean", "BigInt", "BigDecimal")
 
   val reservedKeywords = Set(
     "abstract",
