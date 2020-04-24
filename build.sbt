@@ -208,7 +208,7 @@ lazy val uzhttp = project
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "org.polynote" %% "uzhttp"       % "0.1.3",
+      "org.polynote" %% "uzhttp"       % "0.1.4",
       "io.circe"     %% "circe-parser" % "0.13.0"
     )
   )
