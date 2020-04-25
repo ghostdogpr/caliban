@@ -118,29 +118,29 @@ trait AkkaHttpAdapter {
     import akka.http.scaladsl.server.Directives._
 
     def startSubscription(
-      message: WSMessage,
-      query: String,
+      messageId: String,
+      request: GraphQLRequest,
       sendTo: SourceQueueWithComplete[Message],
       subscriptions: Ref[Map[Option[String], Fiber[Throwable, Unit]]]
     ): RIO[R, Unit] =
       for {
-        result <- interpreter.execute(
-                   query,
-                   message.operationName,
-                   skipValidation = skipValidation,
-                   enableIntrospection = enableIntrospection
-                 )
+        result <- interpreter.executeRequest(
+          request,
+          skipValidation = skipValidation,
+          enableIntrospection = enableIntrospection
+        )
         _ <- result.data match {
-              case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
-                stream
-                  .foreach(item => sendMessage(sendTo, message.id, ObjectValue(List(fieldName -> item)), result.errors))
-                  .forkDaemon
-                  .flatMap(fiber => subscriptions.update(_.updated(Option(message.id), fiber)))
-              case other =>
-                sendMessage(sendTo, message.id, other, result.errors) *>
-                  IO.fromFuture(_ => sendTo.offer(TextMessage(s"""{"type":"complete","id":"${message.id}"}""")))
-            }
+          case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
+            stream
+              .foreach(item => sendMessage(sendTo, messageId, ObjectValue(List(fieldName -> item)), result.errors))
+              .forkDaemon
+              .flatMap(fiber => subscriptions.update(_.updated(Option(messageId), fiber)))
+          case other =>
+            sendMessage(sendTo, messageId, other, result.errors) *>
+              IO.fromFuture(_ => sendTo.offer(TextMessage(s"""{"type":"complete","id":"${messageId}"}""")))
+        }
       } yield ()
+
 
     get {
       extractUpgradeToWebSocket { upgrade =>
@@ -167,9 +167,9 @@ trait AkkaHttpAdapter {
                     case "connection_terminate" =>
                       IO.effect(queue.complete())
                     case "start" =>
-                      Task.whenCase(msg.query) {
-                        case Some(query) =>
-                          startSubscription(msg, query, queue, subscriptions).catchAll(error =>
+                      Task.whenCase(msg.request) {
+                        case Some(req) =>
+                          startSubscription(msg.id, req, queue, subscriptions).catchAll(error =>
                             IO.fromFuture(_ => queue.offer(TextMessage(json.encodeWSError(msg.id, error))))
                           )
                       }

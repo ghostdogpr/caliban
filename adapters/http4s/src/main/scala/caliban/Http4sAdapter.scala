@@ -175,16 +175,14 @@ object Http4sAdapter {
                   case "start" =>
                     val payload = msg.hcursor.downField("payload")
                     val id      = msg.hcursor.downField("id").success.flatMap(_.value.asString).getOrElse("")
-                    Task.whenCase(payload.downField("query").success.flatMap(_.value.asString)) {
-                      case Some(query) =>
-                        val operationName = payload.downField("operationName").success.flatMap(_.value.asString)
+                    Task.whenCase(payload.as[GraphQLRequest]) {
+                      case Right(req) =>
                         (for {
-                          result <- interpreter.execute(
-                                     query,
-                                     operationName,
-                                     skipValidation = skipValidation,
-                                     enableIntrospection = enableIntrospection
-                                   )
+                          result <- interpreter.executeRequest(
+                            req,
+                            skipValidation = skipValidation,
+                            enableIntrospection = enableIntrospection
+                          )
                           _ <- result.data match {
                                 case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
                                   stream.foreach { item =>

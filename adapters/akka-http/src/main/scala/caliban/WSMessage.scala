@@ -6,6 +6,5 @@ package caliban
 trait WSMessage {
   def id: String
   def messageType: String
-  def operationName: Option[String]
-  def query: Option[String]
+  def request: Option[GraphQLRequest]
 }
