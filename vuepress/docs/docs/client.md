@@ -3,7 +3,7 @@
 **Caliban-client** is a module independent from Caliban that makes it possible to write GraphQL queries using Scala code in a type-safe and functional fashion. It is built on top of [sttp](https://github.com/softwaremill/sttp), which means you can run requests using the backend of your choice.
 
 Just like Caliban, `caliban-client` offers a purely functional interface and keeps the boilerplate minimal. It works as follows:
-1. Use the `caliban-codegen` tool to generate boilerplate code from a given GraphQL schema
+1. Use the `caliban-codegen-sbt` tool to generate boilerplate code from a given GraphQL schema
 2. Write your GraphQL query/mutation by combining helpers from the generated code
 3. Transform your query/mutation into an `sttp` request and run it with your preferred backend
 
@@ -12,7 +12,7 @@ Just like Caliban, `caliban-client` offers a purely functional interface and kee
 To use `caliban-client`, add the following line in your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-client" % "0.7.5"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-client" % "0.7.6"
 ```
 
 Caliban-client is available for ScalaJS.
@@ -21,10 +21,10 @@ Caliban-client is available for ScalaJS.
 
 The first step for building GraphQL queries with `caliban-client` is to generate boilerplate code from a GraphQL schema. For that, you need a file containing your schema (if your backend uses `caliban`, you can get it by calling `GraphQL#render` on your API).
 
-To use this feature, add the `caliban-codegen` sbt plugin to your project and enable it. 
+To use this feature, add the `caliban-codegen-sbt` sbt plugin to your project and enable it. 
  
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen" % "0.7.5")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "0.7.6")
 enablePlugins(CodegenPlugin)
 ```
 Then call the `calibanGenClient` sbt command.
