@@ -125,22 +125,21 @@ trait AkkaHttpAdapter {
     ): RIO[R, Unit] =
       for {
         result <- interpreter.executeRequest(
-          request,
-          skipValidation = skipValidation,
-          enableIntrospection = enableIntrospection
-        )
+                   request,
+                   skipValidation = skipValidation,
+                   enableIntrospection = enableIntrospection
+                 )
         _ <- result.data match {
-          case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
-            stream
-              .foreach(item => sendMessage(sendTo, messageId, ObjectValue(List(fieldName -> item)), result.errors))
-              .forkDaemon
-              .flatMap(fiber => subscriptions.update(_.updated(Option(messageId), fiber)))
-          case other =>
-            sendMessage(sendTo, messageId, other, result.errors) *>
-              IO.fromFuture(_ => sendTo.offer(TextMessage(s"""{"type":"complete","id":"${messageId}"}""")))
-        }
+              case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
+                stream
+                  .foreach(item => sendMessage(sendTo, messageId, ObjectValue(List(fieldName -> item)), result.errors))
+                  .forkDaemon
+                  .flatMap(fiber => subscriptions.update(_.updated(Option(messageId), fiber)))
+              case other =>
+                sendMessage(sendTo, messageId, other, result.errors) *>
+                  IO.fromFuture(_ => sendTo.offer(TextMessage(s"""{"type":"complete","id":"$messageId"}""")))
+            }
       } yield ()
-
 
     get {
       extractUpgradeToWebSocket { upgrade =>

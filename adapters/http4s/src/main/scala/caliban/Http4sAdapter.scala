@@ -179,10 +179,10 @@ object Http4sAdapter {
                       case Right(req) =>
                         (for {
                           result <- interpreter.executeRequest(
-                            req,
-                            skipValidation = skipValidation,
-                            enableIntrospection = enableIntrospection
-                          )
+                                     req,
+                                     skipValidation = skipValidation,
+                                     enableIntrospection = enableIntrospection
+                                   )
                           _ <- result.data match {
                                 case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
                                   stream.foreach { item =>
