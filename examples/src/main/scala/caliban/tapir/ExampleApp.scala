@@ -9,6 +9,7 @@ import org.http4s.implicits._
 import org.http4s.server.Router
 import org.http4s.server.blaze.BlazeServerBuilder
 import org.http4s.server.middleware.CORS
+import sttp.tapir.server.ServerEndpoint
 import zio._
 import zio.blocking.Blocking
 import zio.console.putStrLn
@@ -107,10 +108,22 @@ object ExampleApp extends CatsApp {
       deleteBook.toGraphQL((bookDeleteLogic _).tupled) |+|
       booksListing.toGraphQL((bookListingLogic _).tupled)
 
+  type MyIO[+A] = IO[String, A]
+
+  val addBookEndpoint: ServerEndpoint[(Book, String), String, Unit, Nothing, MyIO] =
+    addBook.serverLogic[MyIO] { case (book, token) => bookAddLogic(book, token).either }
+  val deleteBookEndpoint: ServerEndpoint[(String, String), String, Unit, Nothing, MyIO] =
+    deleteBook.serverLogic[MyIO] { case (title, token) => bookDeleteLogic(title, token).either }
+  val booksListingEndpoint: ServerEndpoint[(Option[Int], Option[Int]), Nothing, List[Book], Nothing, UIO] =
+    booksListing.serverLogic[UIO] { case (year, limit) => bookListingLogic(year, limit).map(Right(_)) }
+
+  val graphql2: GraphQL[Any] =
+    addBookEndpoint.toGraphQL |+| deleteBookEndpoint.toGraphQL |+| booksListingEndpoint.toGraphQL
+
   override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] =
     (for {
       blocker     <- ZIO.access[Blocking](_.get.blockingExecutor.asEC).map(Blocker.liftExecutionContext)
-      interpreter <- graphql.interpreter
+      interpreter <- graphql2.interpreter
       _ <- BlazeServerBuilder[Task]
             .bindHttp(8088, "localhost")
             .withHttpApp(

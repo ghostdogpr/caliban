@@ -13,7 +13,6 @@ import zio.{ IO, URIO, ZIO }
 import zquery.ZQuery
 
 /* TODO
-- implicit class for ServerEndpoint
 - support for ZQuery
 - documentation
  */
@@ -40,6 +39,33 @@ package object tapir {
       argBuilder: ArgBuilder[I]
     ): GraphQL[R] =
       tapir.toGraphQL(ServerEndpoint[I, E, O, Nothing, URIO[R, *]](e, (input: I) => logic(input).either))
+  }
+
+  implicit class GraphQLInfallibleServerEndpoint[R, I, O](e: ServerEndpoint[I, Nothing, O, Nothing, URIO[R, *]]) {
+    def toGraphQL(
+      implicit inputSchema: caliban.schema.Schema[R, I],
+      outputSchema: caliban.schema.Schema[R, O],
+      argBuilder: ArgBuilder[I]
+    ): GraphQL[R] = tapir.toGraphQL(e)
+  }
+
+  implicit class GraphQLServerEndpoint[R, I, E, O](e: ServerEndpoint[I, E, O, Nothing, ZIO[R, E, *]]) {
+    def toGraphQL(
+      implicit inputSchema: caliban.schema.Schema[R, I],
+      outputSchema: caliban.schema.Schema[R, O],
+      argBuilder: ArgBuilder[I]
+    ): GraphQL[R] =
+      tapir.toGraphQL(
+        ServerEndpoint[I, E, O, Nothing, URIO[R, *]](
+          e.endpoint,
+          (input: I) =>
+            e.logic(input).either.map {
+              case Left(error)         => Left(error)
+              case Right(Left(error))  => Left(error)
+              case Right(Right(value)) => Right(value)
+            }
+        )
+      )
   }
 
   def toGraphQL[R, I, E, O, S](serverEndpoint: ServerEndpoint[I, E, O, S, URIO[R, *]])(
