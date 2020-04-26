@@ -13,31 +13,33 @@ import zio.{ IO, URIO, ZIO }
 import zquery.ZQuery
 
 /* TODO
-- naming of arguments in tuples
-- streaming
 - implicit class for ServerEndpoint
 - support for ZQuery
 - documentation
  */
 
+/* TODO LATER
+- streaming
+ */
+
 package object tapir {
 
-  implicit class GraphQLInfallibleEndpoint[I, O, S](e: Endpoint[I, Nothing, O, S]) {
+  implicit class GraphQLInfallibleEndpoint[I, O](e: Endpoint[I, Nothing, O, Nothing]) {
     def toGraphQL[R](logic: I => URIO[R, O])(
       implicit inputSchema: caliban.schema.Schema[R, I],
       outputSchema: caliban.schema.Schema[R, O],
       argBuilder: ArgBuilder[I]
     ): GraphQL[R] =
-      tapir.toGraphQL(ServerEndpoint[I, Nothing, O, S, URIO[R, *]](e, (input: I) => logic(input).map(Right(_))))
+      tapir.toGraphQL(ServerEndpoint[I, Nothing, O, Nothing, URIO[R, *]](e, (input: I) => logic(input).map(Right(_))))
   }
 
-  implicit class GraphQLEndpoint[I, E, O, S](e: Endpoint[I, E, O, S]) {
+  implicit class GraphQLEndpoint[I, E, O](e: Endpoint[I, E, O, Nothing]) {
     def toGraphQL[R](logic: I => ZIO[R, E, O])(
       implicit inputSchema: caliban.schema.Schema[R, I],
       outputSchema: caliban.schema.Schema[R, O],
       argBuilder: ArgBuilder[I]
     ): GraphQL[R] =
-      tapir.toGraphQL(ServerEndpoint[I, E, O, S, URIO[R, *]](e, (input: I) => logic(input).either))
+      tapir.toGraphQL(ServerEndpoint[I, E, O, Nothing, URIO[R, *]](e, (input: I) => logic(input).either))
   }
 
   def toGraphQL[R, I, E, O, S](serverEndpoint: ServerEndpoint[I, E, O, S, URIO[R, *]])(
@@ -46,18 +48,27 @@ package object tapir {
     argBuilder: ArgBuilder[I]
   ): GraphQL[R] = new GraphQL[R] {
 
-    val argNames: Map[Int, Option[String]] = extractArgNames(serverEndpoint.endpoint.input)
+    val argNames: Map[String, Option[(String, Option[String])]] = extractArgNames(serverEndpoint.endpoint.input)
+    val reverseArgNames: Map[String, String]                    = argNames.collect { case (k, Some((v, _))) => v -> k }
 
     def getArgs(t: __Type, optional: Boolean): List[__InputValue] =
       t.kind match {
-        case __TypeKind.INPUT_OBJECT => t.inputFields.getOrElse(Nil)
-        case _ =>
-          argNames
-            .get(0)
-            .flatten
-            .fold(List.empty[__InputValue])(arg =>
-              List(__InputValue(arg, None, () => if (optional) t else Types.makeNonNull(t), None))
+        case __TypeKind.INPUT_OBJECT =>
+          val fields = t.inputFields.getOrElse(Nil)
+          if (fields.forall(_.name.matches(s"_[0-9]+")) && fields.length == argNames.size) {
+            fields.map(f =>
+              argNames.get(f.name).flatten match {
+                case Some((name, desc)) => f.copy(name = name, description = desc)
+                case None               => f
+              }
             )
+          } else fields
+        case _ =>
+          argNames.values.headOption.flatten
+            .fold(List.empty[__InputValue]) {
+              case (name, desc) =>
+                List(__InputValue(name, desc, () => if (optional) t else Types.makeNonNull(t), None))
+            }
       }
 
     def makeOperation(name: String): Operation[R] =
@@ -83,10 +94,11 @@ package object tapir {
           name,
           Map(
             extractPath(serverEndpoint.endpoint.input) ->
-              FunctionStep(args =>
+              FunctionStep { args =>
+                val replacedArgs = args.map { case (k, v) => reverseArgNames.getOrElse(k, k) -> v }
                 QueryStep(
                   ZQuery.fromEffect(
-                    IO.fromEither(argBuilder.build(InputValue.ObjectValue(args)))
+                    IO.fromEither(argBuilder.build(InputValue.ObjectValue(replacedArgs)))
                       .flatMap(input => serverEndpoint.logic(input))
                       .map {
                         case Left(error: Throwable) => QueryStep(ZQuery.fail(error))
@@ -95,7 +107,7 @@ package object tapir {
                       }
                   )
                 )
-              )
+              }
           )
         )
       )
@@ -124,12 +136,20 @@ package object tapir {
       case head :: tail => head ++ tail.map(_.capitalize).mkString
     }
 
-  private def extractArgNames[I](input: EndpointInput[I]): Map[Int, Option[String]] =
+  private def extractArgNames[I](input: EndpointInput[I]): Map[String, Option[(String, Option[String])]] =
     input.traverseInputs {
-      case EndpointInput.PathCapture(Some(name), _, _) => Vector(Some(name))
-      case EndpointInput.Query(name, _, _)             => Vector(Some(name))
-      case EndpointInput.Cookie(name, _, _)            => Vector(Some(name))
-      case _: EndpointInput.MappedTuple[_, _]          => Vector(None)
-      case _: EndpointIO.MappedTuple[_, _]             => Vector(None)
-    }.zipWithIndex.map { case (k, v) => v -> k }.toMap
+      case EndpointInput.PathCapture(Some(name), _, info) => Vector(Some((name, info.description)))
+      case EndpointInput.Query(name, _, info)             => Vector(Some((name, info.description)))
+      case EndpointInput.Cookie(name, _, info)            => Vector(Some((name, info.description)))
+      case EndpointIO.Header(name, _, info)               => Vector(Some((name, info.description)))
+      case EndpointIO.Body(_, _, info)                    => Vector(Some(("body", info.description)))
+      case _: EndpointInput.MappedTuple[_, _]             => Vector(None)
+      case _: EndpointIO.MappedTuple[_, _]                => Vector(None)
+    }.zipWithIndex.map {
+      case (v, index) =>
+        s"_${index + 1}" -> (v match {
+          case None               => None
+          case Some((name, desc)) => Some((name.replace("-", "_"), desc))
+        })
+    }.toMap
 }
