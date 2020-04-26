@@ -1,7 +1,7 @@
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
 val mainScala = "2.12.11"
-val allScala  = Seq("2.13.1", mainScala)
+val allScala  = Seq("2.13.2", mainScala)
 
 val catsEffectVersion     = "2.1.3"
 val circeVersion          = "0.13.0"
@@ -222,7 +222,7 @@ lazy val uzhttp = project
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "org.polynote" %% "uzhttp"       % "0.1.3",
+      "org.polynote" %% "uzhttp"       % "0.1.4",
       "io.circe"     %% "circe-parser" % "0.13.0"
     )
   )
@@ -245,7 +245,7 @@ lazy val client = crossProject(JSPlatform, JVMPlatform)
   )
 lazy val clientJVM = client.jvm
 lazy val clientJS = client.js.settings(
-  libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.0.0-RC5" % Test
+  libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.0.0" % Test
 )
 
 lazy val examples = project
