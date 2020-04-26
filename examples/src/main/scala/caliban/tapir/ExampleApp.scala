@@ -46,6 +46,16 @@ object ExampleApp extends CatsApp {
       )
       .in(header[String]("X-Auth-Token").description("The token is 'secret'"))
 
+  val titleParameter: EndpointInput[String] =
+    query[String]("title").description("The title of the book")
+
+  // DELETE /books
+  val deleteBook: Endpoint[(String, String), String, Unit, Nothing] =
+    baseEndpoint.delete
+      .in("delete")
+      .in(titleParameter)
+      .in(header[String]("X-Auth-Token").description("The token is 'secret'"))
+
   // Re-usable parameter description
   val yearParameter: EndpointInput[Option[Int]] =
     query[Option[Int]]("year").description("The year from which to retrieve books")
@@ -71,6 +81,14 @@ object ExampleApp extends CatsApp {
       IO.unit
     }
 
+  def bookDeleteLogic(title: String, token: String): IO[String, Unit] =
+    if (token != "secret") {
+      IO.fail("Unauthorized access!!!11")
+    } else {
+      books = books.filterNot(_.title == title)
+      IO.unit
+    }
+
   def bookListingLogic(year: Option[Int], limit: Option[Int]): UIO[List[Book]] =
     UIO {
       val filteredBooks = year match {
@@ -86,6 +104,7 @@ object ExampleApp extends CatsApp {
 
   val graphql: GraphQL[Any] =
     addBook.toGraphQL((bookAddLogic _).tupled) |+|
+      deleteBook.toGraphQL((bookDeleteLogic _).tupled) |+|
       booksListing.toGraphQL((bookListingLogic _).tupled)
 
   override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] =

@@ -14,7 +14,6 @@ import zquery.ZQuery
 
 /* TODO
 - naming of arguments in tuples
-- nesting from path
 - streaming
 - implicit class for ServerEndpoint
 - support for ZQuery
@@ -119,7 +118,11 @@ package object tapir {
       .collect {
         case EndpointInput.FixedPath(s, _, _) => s
       }
-      .mkString("_")
+      .toList match {
+      case Nil          => "root"
+      case head :: Nil  => head
+      case head :: tail => head ++ tail.map(_.capitalize).mkString
+    }
 
   private def extractArgNames[I](input: EndpointInput[I]): Map[Int, Option[String]] =
     input.traverseInputs {
