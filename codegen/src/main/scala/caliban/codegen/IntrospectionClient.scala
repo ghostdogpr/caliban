@@ -18,7 +18,16 @@ import zio.{ IO, RIO, Task }
 
 object IntrospectionClient {
 
-  def directives(isDeprecated: Boolean, deprecationReason: Option[String]): List[Directive] =
+  def introspect(uri: String): Task[Document] =
+    for {
+      parsedUri <- IO.fromEither(Uri.parse(uri)).mapError(cause => new Exception(s"Invalid URL: $cause"))
+      result    <- send(introspection.toRequest(parsedUri)).provideLayer(AsyncHttpClientZioBackend.layer())
+    } yield result
+
+  private def send[T](req: Request[Either[CalibanClientError, T], Nothing]): RIO[SttpClient, T] =
+    SttpClient.send(req).map(_.body).absolve
+
+  private def directives(isDeprecated: Boolean, deprecationReason: Option[String]): List[Directive] =
     if (isDeprecated)
       List(
         Directive(
@@ -28,7 +37,7 @@ object IntrospectionClient {
       )
     else Nil
 
-  def mapEnumValue(
+  private def mapEnumValue(
     name: String,
     description: Option[String],
     isDeprecated: Boolean,
@@ -36,10 +45,10 @@ object IntrospectionClient {
   ): EnumValueDefinition =
     EnumValueDefinition(description, name, directives(isDeprecated, deprecationReason))
 
-  def mapInputValue(name: String, description: Option[String], `type`: Type): InputValueDefinition =
+  private def mapInputValue(name: String, description: Option[String], `type`: Type): InputValueDefinition =
     InputValueDefinition(description, name, `type`, None, Nil)
 
-  def mapTypeRef(kind: __TypeKind, name: Option[String], of: Option[Type]): Type =
+  private def mapTypeRef(kind: __TypeKind, name: Option[String], of: Option[Type]): Type =
     of match {
       case Some(value) =>
         kind match {
@@ -54,10 +63,10 @@ object IntrospectionClient {
       case None => NamedType(name.getOrElse(""), nonNull = false)
     }
 
-  def mapTypeRefSimple(name: Option[String]): Type =
+  private def mapTypeRefSimple(name: Option[String]): Type =
     NamedType(name.getOrElse(""), nonNull = true)
 
-  def mapField(
+  private def mapField(
     name: String,
     description: Option[String],
     args: List[InputValueDefinition],
@@ -66,7 +75,7 @@ object IntrospectionClient {
     deprecationReason: Option[String]
   ): FieldDefinition = FieldDefinition(description, name, args, `type`, directives(isDeprecated, deprecationReason))
 
-  def mapType(
+  private def mapType(
     kind: __TypeKind,
     name: Option[String],
     description: Option[String],
@@ -101,14 +110,14 @@ object IntrospectionClient {
     case __TypeKind.LIST | __TypeKind.NON_NULL => None
   }
 
-  def mapSchema(
+  private def mapSchema(
     query: Option[String],
     mutation: Option[Option[String]],
     subscription: Option[Option[String]]
   ): SchemaDefinition =
     SchemaDefinition(Nil, query, mutation.flatten, subscription.flatten)
 
-  def mapDirective(
+  private def mapDirective(
     name: String,
     description: Option[String],
     locations: List[__DirectiveLocation],
@@ -140,7 +149,7 @@ object IntrospectionClient {
       }
     )
 
-  val typeRef: SelectionBuilder[__Type, Type] =
+  private val typeRef: SelectionBuilder[__Type, Type] =
     (__Type.kind ~ __Type.name ~ __Type.ofType {
       (__Type.kind ~ __Type.name ~ __Type.ofType {
         (__Type.kind ~ __Type.name ~ __Type.ofType {
@@ -159,12 +168,12 @@ object IntrospectionClient {
       }).mapN(mapTypeRef _)
     }).mapN(mapTypeRef _)
 
-  val inputValue: SelectionBuilder[__InputValue, InputValueDefinition] =
+  private val inputValue: SelectionBuilder[__InputValue, InputValueDefinition] =
     (__InputValue.name ~
       __InputValue.description ~
       __InputValue.`type`(typeRef)).mapN(mapInputValue _)
 
-  val fullType: SelectionBuilder[__Type, Option[TypeDefinition]] =
+  private val fullType: SelectionBuilder[__Type, Option[TypeDefinition]] =
     (__Type.kind ~
       __Type.name ~
       __Type.description ~
@@ -186,7 +195,7 @@ object IntrospectionClient {
       } ~
       __Type.possibleTypes(typeRef)).mapN(mapType _)
 
-  val introspection: SelectionBuilder[RootQuery, Document] =
+  private val introspection: SelectionBuilder[RootQuery, Document] =
     Query.__schema {
       (__Schema.queryType(__Type.name) ~
         __Schema.mutationType(__Type.name) ~
@@ -199,13 +208,4 @@ object IntrospectionClient {
             __Directive.args(inputValue)).mapN(mapDirective _)
         }
     }.map { case ((schema, types), directives) => Document(schema :: types ++ directives, SourceMapper.empty) }
-
-  def send[T](req: Request[Either[CalibanClientError, T], Nothing]): RIO[SttpClient, T] =
-    SttpClient.send(req).map(_.body).absolve
-
-  def introspect(uri: String): Task[Document] =
-    for {
-      parsedUri <- IO.fromEither(Uri.parse(uri)).mapError(cause => new Exception(s"Invalid URL: $cause"))
-      result    <- send(introspection.toRequest(parsedUri)).provideLayer(AsyncHttpClientZioBackend.layer())
-    } yield result
 }
