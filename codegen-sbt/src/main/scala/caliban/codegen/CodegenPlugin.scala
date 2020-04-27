@@ -53,9 +53,11 @@ object CodegenPlugin extends AutoPlugin {
     writer: (Document, String, Option[String]) => String
   ): RIO[Console, Unit] =
     args match {
-      case schemaPath :: toPath :: Nil               => Codegen.generate(schemaPath, toPath, None, writer)
-      case schemaPath :: toPath :: formatPath :: Nil => Codegen.generate(schemaPath, toPath, Some(formatPath), writer)
-      case _                                         => putStrLn(helpMsg)
+      case schemaPath :: toPath :: Nil =>
+        Codegen.generate(schemaPath, toPath, None, None, writer) //TODO BK: pass right url headers
+      case schemaPath :: toPath :: formatPath :: Nil =>
+        Codegen.generate(schemaPath, toPath, Some(formatPath), None, writer) //TODO BK: pass right url headers
+      case _ => putStrLn(helpMsg)
     }
 
 }

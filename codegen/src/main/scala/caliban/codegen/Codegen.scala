@@ -7,19 +7,11 @@ import caliban.parsing.adt.Document
 import caliban.parsing.Parser
 
 object Codegen {
-  def getSchema(path: String): Task[Document] =
-    if (path.startsWith("http")) {
-      IntrospectionClient.introspect(path)
-    } else {
-      Task(scala.io.Source.fromFile(path))
-        .bracket(f => UIO(f.close()), f => Task(f.mkString))
-        .flatMap(Parser.parseQuery)
-    }
-
   def generate(
     schemaPath: String,
     toPath: String,
     fmtPath: Option[String],
+    schemaPathHeaders: Option[Map[String, String]],
     writer: (Document, String, Option[String]) => String
   ): RIO[Console, Unit] =
     for {
@@ -27,10 +19,20 @@ object Codegen {
       s           = ".*/scala/(.*)/(.*).scala".r.findFirstMatchIn(toPath)
       packageName = s.map(_.group(1).split("/").mkString("."))
       objectName  = s.map(_.group(2)).getOrElse("Client")
-      schema      <- getSchema(schemaPath)
+      schema      <- getSchema(schemaPath, schemaPathHeaders)
       code        = writer(schema, objectName, packageName)
       formatted   <- Formatter.format(code, fmtPath)
       _           <- Task(new PrintWriter(new File(toPath))).bracket(q => UIO(q.close()), pw => Task(pw.println(formatted)))
       _           <- putStrLn(s"Code generation done")
     } yield ()
+
+  private def getSchema(path: String, schemaPathHeaders: Option[Map[String, String]]): Task[Document] =
+    if (path.startsWith("http")) {
+      IntrospectionClient.introspect(path, schemaPathHeaders)
+    } else {
+      Task(scala.io.Source.fromFile(path))
+        .bracket(f => UIO(f.close()), f => Task(f.mkString))
+        .flatMap(Parser.parseQuery)
+    }
+
 }

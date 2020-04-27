@@ -18,10 +18,12 @@ import zio.{ IO, RIO, Task }
 
 object IntrospectionClient {
 
-  def introspect(uri: String): Task[Document] =
+  def introspect(uri: String, headers: Option[Map[String, String]]): Task[Document] =
     for {
       parsedUri <- IO.fromEither(Uri.parse(uri)).mapError(cause => new Exception(s"Invalid URL: $cause"))
-      result    <- send(introspection.toRequest(parsedUri)).provideLayer(AsyncHttpClientZioBackend.layer())
+      baseReq   = introspection.toRequest(parsedUri)
+      req       = headers.fold(baseReq)(baseReq.headers)
+      result    <- send(req).provideLayer(AsyncHttpClientZioBackend.layer())
     } yield result
 
   private def send[T](req: Request[Either[CalibanClientError, T], Nothing]): RIO[SttpClient, T] =
