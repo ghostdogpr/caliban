@@ -5,7 +5,7 @@ import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment
 
-class CommandLineArgumentsSpec extends DefaultRunnableSpec {
+object CommandLineArgumentsSpec extends DefaultRunnableSpec {
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("CommandLineArguments")(
       test("full arguments") {
@@ -23,6 +23,22 @@ class CommandLineArgumentsSpec extends DefaultRunnableSpec {
             )
           )
         )
+      },
+      test("minimum arguments") {
+        val input  = List("schema", "output")
+        val result = CommandLineArguments.fromArgs(input)
+        assert(result)(
+          equalTo(
+            Some(
+              CommandLineArguments("schema", "output", None, None)
+            )
+          )
+        )
+      },
+      test("not enough arguments") {
+        val input  = List("schema")
+        val result = CommandLineArguments.fromArgs(input)
+        assert(result)(equalTo(None))
       }
     )
 }
