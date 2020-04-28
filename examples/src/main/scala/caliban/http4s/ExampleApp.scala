@@ -14,6 +14,8 @@ import zio.blocking.Blocking
 import zio.console.putStrLn
 import zio.interop.catz._
 
+import scala.concurrent.ExecutionContext
+
 object ExampleApp extends CatsApp {
 
   type ExampleTask[A] = RIO[ZEnv, A]
@@ -26,7 +28,7 @@ object ExampleApp extends CatsApp {
         for {
           blocker     <- ZIO.access[Blocking](_.get.blockingExecutor.asEC).map(Blocker.liftExecutionContext)
           interpreter <- ExampleApi.api.interpreter.map(_.provideCustomLayer(layer))
-          _ <- BlazeServerBuilder[ExampleTask]
+          _ <- BlazeServerBuilder[ExampleTask](ExecutionContext.global)
                 .bindHttp(8088, "localhost")
                 .withHttpApp(
                   Router[ExampleTask](
