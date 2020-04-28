@@ -10,6 +10,7 @@ val silencerVersion       = "1.6.0"
 val sttpVersion           = "2.0.9"
 val zioVersion            = "1.0.0-RC18-2"
 val zioInteropCatsVersion = "2.0.0.0-RC13"
+val zioConfigVersion      = "1.0.0-RC16-2"
 
 inThisBuild(
   List(
@@ -102,6 +103,8 @@ lazy val codegen = project
       "org.scalameta"                %% "scalafmt-dynamic"              % "2.4.2",
       "org.scalameta"                %% "scalafmt-core"                 % "2.4.2",
       "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion,
+      "dev.zio"                      %% "zio-config"                    % zioConfigVersion,
+      "dev.zio"                      %% "zio-config-magnolia"           % zioConfigVersion,
       "dev.zio"                      %% "zio-test"                      % zioVersion % "test",
       "dev.zio"                      %% "zio-test-sbt"                  % zioVersion % "test"
     )

@@ -8,25 +8,23 @@ import caliban.parsing.Parser
 
 object Codegen {
   def generate(
-    schemaPath: String,
-    toPath: String,
-    fmtPath: Option[String],
-    schemaPathHeaders: Option[Map[String, String]],
+    arguments: CommandLineArguments,
     writer: (Document, String, Option[String]) => String
   ): RIO[Console, Unit] =
     for {
-      _           <- putStrLn(s"Generating code for $schemaPath")
-      s           = ".*/scala/(.*)/(.*).scala".r.findFirstMatchIn(toPath)
+      _           <- putStrLn(s"Generating code for ${arguments.schemaPath}")
+      s           = ".*/scala/(.*)/(.*).scala".r.findFirstMatchIn(arguments.toPath)
       packageName = s.map(_.group(1).split("/").mkString("."))
       objectName  = s.map(_.group(2)).getOrElse("Client")
-      schema      <- getSchema(schemaPath, schemaPathHeaders)
+      schema      <- getSchema(arguments.schemaPath, arguments.headers)
       code        = writer(schema, objectName, packageName)
-      formatted   <- Formatter.format(code, fmtPath)
-      _           <- Task(new PrintWriter(new File(toPath))).bracket(q => UIO(q.close()), pw => Task(pw.println(formatted)))
-      _           <- putStrLn(s"Code generation done")
+      formatted   <- Formatter.format(code, arguments.fmtPath)
+      _ <- Task(new PrintWriter(new File(arguments.toPath)))
+            .bracket(q => UIO(q.close()), pw => Task(pw.println(formatted)))
+      _ <- putStrLn(s"Code generation done")
     } yield ()
 
-  private def getSchema(path: String, schemaPathHeaders: Option[Map[String, String]]): Task[Document] =
+  private def getSchema(path: String, schemaPathHeaders: Option[List[CommandLineArguments.Header]]): Task[Document] =
     if (path.startsWith("http")) {
       IntrospectionClient.introspect(path, schemaPathHeaders)
     } else {
