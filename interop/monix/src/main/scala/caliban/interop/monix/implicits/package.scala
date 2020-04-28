@@ -16,14 +16,16 @@ package object implicits {
       operationName: Option[String] = None,
       variables: Map[String, InputValue] = Map(),
       extensions: Map[String, InputValue] = Map(),
-      skipValidation: Boolean = false
+      skipValidation: Boolean = false,
+      enableIntrospection: Boolean = true
     )(implicit runtime: Runtime[R]): Task[GraphQLResponse[E]] =
       MonixInterop.executeAsync(underlying)(
         query,
         operationName,
         variables,
         extensions,
-        skipValidation
+        skipValidation = skipValidation,
+        enableIntrospection = enableIntrospection
       )
 
     def checkAsync(query: String)(implicit runtime: Runtime[R]): Task[Unit] =

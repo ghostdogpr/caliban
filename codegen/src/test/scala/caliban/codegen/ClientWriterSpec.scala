@@ -391,6 +391,36 @@ object Client {
 """
           )
         )
+      },
+      testM("support for Json scalar") {
+        val schema =
+          """
+              scalar Json
+              
+              type Query {
+                test: Json!
+              }""".stripMargin
+
+        assertM(gen(schema))(
+          equalTo(
+            """import caliban.client.FieldBuilder._
+import caliban.client.SelectionBuilder._
+import caliban.client._
+import caliban.client.Operations._
+
+object Client {
+
+  type Json = io.circe.Json
+
+  type Query = RootQuery
+  object Query {
+    def test: SelectionBuilder[RootQuery, Json] = Field("test", Scalar())
+  }
+
+}
+"""
+          )
+        )
       }
     ) @@ TestAspect.sequential
 }

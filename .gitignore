@@ -8,9 +8,13 @@ tags
 
 .bloop
 .metals
+project/metals.sbt
 *.class
 *.log
 
 vuepress/node_modules/*
 *.lock
 vuepress/package-lock.json
+
+package-lock.json
+node_modules/

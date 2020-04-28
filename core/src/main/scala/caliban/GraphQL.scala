@@ -4,6 +4,7 @@ import caliban.CalibanError.ValidationError
 import caliban.Rendering.renderTypes
 import caliban.execution.{ ExecutionRequest, Executor }
 import caliban.introspection.Introspector
+import caliban.introspection.adt.__Directive
 import caliban.parsing.Parser
 import caliban.parsing.adt.{ Document, OperationType }
 import caliban.schema._
@@ -22,6 +23,7 @@ trait GraphQL[-R] { self =>
 
   protected val schemaBuilder: RootSchemaBuilder[R]
   protected val wrappers: List[Wrapper[R]]
+  protected val additionalDirectives: List[__Directive]
 
   /**
    * Returns a string that renders the API types into the GraphQL format.
@@ -46,7 +48,12 @@ trait GraphQL[-R] { self =>
       .validateSchema(schemaBuilder)
       .map { schema =>
         lazy val rootType =
-          RootType(schema.query.opType, schema.mutation.map(_.opType), schema.subscription.map(_.opType))
+          RootType(
+            schema.query.opType,
+            schema.mutation.map(_.opType),
+            schema.subscription.map(_.opType),
+            additionalDirectives
+          )
         lazy val introspectionRootSchema: RootSchema[Any] = Introspector.introspect(rootType)
         lazy val introspectionRootType: RootType          = RootType(introspectionRootSchema.query.opType, None, None)
 
@@ -61,14 +68,18 @@ trait GraphQL[-R] { self =>
 
           override def executeRequest(
             request: GraphQLRequest,
-            skipValidation: Boolean
+            skipValidation: Boolean,
+            enableIntrospection: Boolean
           ): URIO[R, GraphQLResponse[CalibanError]] =
             decompose(wrappers).flatMap {
               case (overallWrappers, parsingWrappers, validationWrappers, executionWrappers, fieldWrappers) =>
                 wrap((request: GraphQLRequest) =>
                   (for {
-                    doc             <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
-                    intro           = Introspector.isIntrospection(doc)
+                    doc   <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
+                    intro = Introspector.isIntrospection(doc)
+                    _ <- IO.when(intro && !enableIntrospection) {
+                          IO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
+                        }
                     typeToValidate  = if (intro) introspectionRootType else rootType
                     schemaToExecute = if (intro) introspectionRootSchema else schema
                     validate = (doc: Document) =>
@@ -104,8 +115,9 @@ trait GraphQL[-R] { self =>
    */
   final def withWrapper[R2 <: R](wrapper: Wrapper[R2]): GraphQL[R2] =
     new GraphQL[R2] {
-      override val schemaBuilder: RootSchemaBuilder[R2] = self.schemaBuilder
-      override val wrappers: List[Wrapper[R2]]          = wrapper :: self.wrappers
+      override val schemaBuilder: RootSchemaBuilder[R2]    = self.schemaBuilder
+      override val wrappers: List[Wrapper[R2]]             = wrapper :: self.wrappers
+      override val additionalDirectives: List[__Directive] = self.additionalDirectives
     }
 
   /**
@@ -123,6 +135,8 @@ trait GraphQL[-R] { self =>
     new GraphQL[R1] {
       override val schemaBuilder: RootSchemaBuilder[R1]  = self.schemaBuilder |+| that.schemaBuilder
       override protected val wrappers: List[Wrapper[R1]] = self.wrappers ++ that.wrappers
+      override protected val additionalDirectives: List[__Directive] =
+        self.additionalDirectives ++ that.additionalDirectives
     }
 
   /**
@@ -153,7 +167,8 @@ trait GraphQL[-R] { self =>
         self.schemaBuilder.subscription.map(m => m.copy(opType = m.opType.copy(name = Some(name))))
       )
     )
-    override protected val wrappers: List[Wrapper[R]] = self.wrappers
+    override protected val wrappers: List[Wrapper[R]]              = self.wrappers
+    override protected val additionalDirectives: List[__Directive] = self.additionalDirectives
   }
 }
 
@@ -165,7 +180,7 @@ object GraphQL {
    * It requires an instance of [[caliban.schema.Schema]] for each operation type.
    * This schema will be derived by Magnolia automatically.
    */
-  def graphQL[R, Q, M, S: SubscriptionSchema](resolver: RootResolver[Q, M, S])(
+  def graphQL[R, Q, M, S: SubscriptionSchema](resolver: RootResolver[Q, M, S], directives: List[__Directive] = Nil)(
     implicit querySchema: Schema[R, Q],
     mutationSchema: Schema[R, M],
     subscriptionSchema: Schema[R, S]
@@ -175,6 +190,7 @@ object GraphQL {
       resolver.mutationResolver.map(r => Operation(mutationSchema.toType(), mutationSchema.resolve(r))),
       resolver.subscriptionResolver.map(r => Operation(subscriptionSchema.toType(), subscriptionSchema.resolve(r)))
     )
-    val wrappers: List[Wrapper[R]] = Nil
+    val wrappers: List[Wrapper[R]]                       = Nil
+    override val additionalDirectives: List[__Directive] = directives
   }
 }

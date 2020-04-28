@@ -108,7 +108,8 @@ object Types {
         t.possibleTypes.getOrElse(Nil).foldLeft(list2) { case (types, subtype) => collectTypes(subtype, types) }
     }
 
-  def same(t1: __Type, t2: __Type): Boolean = t1.name == t2.name && t1.kind == t2.kind && t1.origin == t2.origin
+  def same(t1: __Type, t2: __Type): Boolean =
+    t1.name == t2.name && t1.kind == t2.kind && (t1.origin.isEmpty || t2.origin.isEmpty || t1.origin == t2.origin)
 
   def innerType(t: __Type): __Type = t.ofType.fold(t)(innerType)
 

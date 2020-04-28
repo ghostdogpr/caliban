@@ -181,6 +181,19 @@ sealed trait ZQuery[-R, +E, +A] { self =>
     )
 
   /**
+   * Converts this query to one that dies if a query failure occurs.
+   */
+  final def orDie(implicit ev1: E <:< Throwable, ev2: CanFail[E]): ZQuery[R, Nothing, A] =
+    orDieWith(ev1)
+
+  /**
+   * Converts this query to one that dies if a query failure occurs, using the
+   * specified function to map the error to a `Throwable`.
+   */
+  final def orDieWith(f: E => Throwable)(implicit ev: CanFail[E]): ZQuery[R, Nothing, A] =
+    foldM(e => ZQuery.die(f(e)), a => ZQuery.succeed(a))
+
+  /**
    * Provides this query with its required environment.
    */
   final def provide(r: Described[R])(implicit ev: NeedsEnv[R]): ZQuery[Any, E, A] =
@@ -331,7 +344,7 @@ sealed trait ZQuery[-R, +E, +A] { self =>
   final def zipWithPar[R1 <: R, E1 >: E, B, C](that: ZQuery[R1, E1, B])(f: (A, B) => C): ZQuery[R1, E1, C] =
     new ZQuery[R1, E1, C] {
       def step(cache: Cache): ZIO[R1, Nothing, Result[R1, E1, C]] =
-        self.step(cache).zip(that.step(cache)).map {
+        self.step(cache).zipPar(that.step(cache)).map {
           case (Result.Blocked(br1, c1), Result.Blocked(br2, c2)) => Result.blocked(br1 ++ br2, c1.zipWithPar(c2)(f))
           case (Result.Blocked(br, c), Result.Done(b))            => Result.blocked(br, c.map(a => f(a, b)))
           case (Result.Done(a), Result.Blocked(br, c))            => Result.blocked(br, c.map(b => f(a, b)))
@@ -448,6 +461,12 @@ object ZQuery {
    */
   def halt[E](cause: => Cause[E]): ZQuery[Any, E, Nothing] =
     ZQuery(ZIO.succeed(Result.fail(cause)))
+
+  /**
+   * Constructs a query that never completes.
+   */
+  val never: ZQuery[Any, Nothing, Nothing] =
+    ZQuery.fromEffect(ZIO.never)
 
   /**
    * Constructs a query that succeds with the empty value.

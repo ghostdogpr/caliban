@@ -373,6 +373,16 @@ object ExecutionSpec extends DefaultRunnableSpec {
              }""")
 
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"i":{"id":"ok"}}"""))
+      },
+      testM("argument not wrapped in a case class") {
+        case class Query(test: Int => Int)
+        val api         = graphQL(RootResolver(Query(identity)))
+        val interpreter = api.interpreter
+        val query =
+          """query{
+            |  test(value: 1)
+            |}""".stripMargin
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":1}"""))
       }
     )
 }

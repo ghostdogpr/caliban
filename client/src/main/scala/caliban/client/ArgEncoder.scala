@@ -1,6 +1,7 @@
 package caliban.client
 
 import caliban.client.Value.{ BooleanValue, ListValue, NullValue, NumberValue, ObjectValue, StringValue }
+import io.circe.Json
 
 /**
  * Typeclass that defines how to encode an argument of type `A` into a valid [[caliban.client.Value]].
@@ -66,4 +67,8 @@ object ArgEncoder {
     override def typeName: String              = s"[${ev.typeName}]"
   }
 
+  implicit val json: ArgEncoder[Json] = new ArgEncoder[Json] {
+    override def encode(value: Json): Value = Value.valueDecoder.decodeJson(value).getOrElse(NullValue)
+    override def typeName: String           = "Json"
+  }
 }

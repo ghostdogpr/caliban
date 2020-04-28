@@ -33,7 +33,7 @@ object RenderingSpec extends DefaultRunnableSpec {
                                                         |  shipName: String!
                                                         |}
                                                         |
-                                                        |type Character @key({name: "name"}) {
+                                                        |type Character @key(name: "name") {
                                                         |  name: String! @external
                                                         |  nicknames: [String!]! @required
                                                         |  origin: Origin!

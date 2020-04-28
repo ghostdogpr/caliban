@@ -52,18 +52,23 @@ object ClientWriter {
       .map(t => writeRootMutation(t, typesMap))
       .getOrElse("")
 
+    val subscriptions = Document
+      .objectTypeDefinition(schema, schemaDef.flatMap(_.subscription).getOrElse("Subscription"))
+      .map(t => writeRootSubscription(t, typesMap))
+      .getOrElse("")
+
     val imports = s"""${if (enums.nonEmpty)
       """import caliban.client.CalibanClientError.DecodingError
         |""".stripMargin
-    else ""}${if (objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty)
+    else ""}${if (objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty)
       """import caliban.client.FieldBuilder._
         |import caliban.client.SelectionBuilder._
         |""".stripMargin
     else
-      ""}${if (enums.nonEmpty || objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || inputs.nonEmpty)
+      ""}${if (enums.nonEmpty || objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty || inputs.nonEmpty)
       """import caliban.client._
         |""".stripMargin
-    else ""}${if (queries.nonEmpty || mutations.nonEmpty)
+    else ""}${if (queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty)
       """import caliban.client.Operations._
         |""".stripMargin
     else ""}${if (enums.nonEmpty || inputs.nonEmpty)
@@ -81,6 +86,7 @@ object ClientWriter {
        |  $inputs
        |  $queries
        |  $mutations
+       |  $subscriptions
        |  
        |}""".stripMargin
   }
@@ -99,6 +105,13 @@ object ClientWriter {
     s"""type ${typedef.name} = RootMutation
        |object ${typedef.name} {
        |  ${typedef.fields.map(writeField(_, "RootMutation", typesMap)).mkString("\n  ")}
+       |}
+       |""".stripMargin
+
+  def writeRootSubscription(typedef: ObjectTypeDefinition, typesMap: Map[String, TypeDefinition]): String =
+    s"""type ${typedef.name} = RootSubscription
+       |object ${typedef.name} {
+       |  ${typedef.fields.map(writeField(_, "RootSubscription", typesMap)).mkString("\n  ")}
        |}
        |""".stripMargin
 
@@ -159,7 +172,8 @@ object ClientWriter {
        """
 
   def writeScalar(typedef: ScalarTypeDefinition): String =
-    s"""type ${typedef.name} = String
+    if (typedef.name == "Json") "type Json = io.circe.Json"
+    else s"""type ${typedef.name} = String
         """
 
   def safeName(name: String): String =
@@ -172,8 +186,8 @@ object ClientWriter {
   def writeField(field: FieldDefinition, typeName: String, typesMap: Map[String, TypeDefinition]): String = {
     val name = safeName(field.name)
     val description = field.description match {
-      case None    => ""
-      case Some(d) => s"/**\n * $d\n */\n"
+      case Some(d) if d.trim.nonEmpty => s"/**\n * ${d.trim}\n */\n"
+      case _                          => ""
     }
     val deprecated = field.directives.find(_.name == "deprecated") match {
       case None => ""
@@ -309,7 +323,7 @@ object ClientWriter {
   }
 
   val supportedScalars =
-    Set("Int", "Float", "Double", "Long", "Unit", "String", "Boolean", "BigInt", "BigDecimal", "ID")
+    Set("Int", "Float", "Double", "Long", "Unit", "String", "Boolean", "BigInt", "BigDecimal")
 
   val reservedKeywords = Set(
     "abstract",
@@ -350,6 +364,7 @@ object ClientWriter {
     "var",
     "while",
     "with",
-    "yield"
+    "yield",
+    "_"
   )
 }
