@@ -23,14 +23,14 @@ object CodegenPlugin extends AutoPlugin {
 
   private val genSchemaHelpMsg =
     """
-      |calibanGenSchema schemaPath outputPath [--fmtPath scalafmtPath] [--headers name:value,name2:value2]
+      |calibanGenSchema schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2]
       |
       |This command will create a Scala file in `outputPath` containing all the types
       |defined in the provided GraphQL schema defined at `schemaPath`. Instead of a path,
       |you can provide a URL and introspection will be used to gather the schema.
       |
       |The generated code will be formatted with Scalafmt using the configuration defined by
-      |`--fmtPath` option (default: ".scalafmt.conf").
+      |`--scalafmtPath` option (default: ".scalafmt.conf").
       |
       |If you provide a URL for `schemaPath`, you can provide request headers with
       |`--headers` option.
@@ -39,14 +39,14 @@ object CodegenPlugin extends AutoPlugin {
 
   private val genClientHelpMsg =
     """
-      |calibanGenClient schemaPath outputPath [--fmtPath scalafmtPath] [--headers name:value,name2:value2]
+      |calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2]
       |
       |This command will create a Scala file in `outputPath` containing client code for all the
       |typed defined in the provided GraphQL schema defined at `schemaPath`. Instead of a path,
       |you can provide a URL and introspection will be used to gather the schema.
       |
       |The generated code will be formatted with Scalafmt using the configuration defined by
-      |`--fmtPath` option (default: ".scalafmt.conf").
+      |`--scalafmtPath` option (default: ".scalafmt.conf").
       |
       |If you provide a URL for `schemaPath`, you can provide request headers with
       |`--headers` option.
