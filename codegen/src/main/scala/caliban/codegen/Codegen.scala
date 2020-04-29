@@ -8,7 +8,7 @@ import caliban.parsing.Parser
 
 object Codegen {
   def generate(
-    arguments: CommandLineArguments,
+    arguments: Options,
     writer: (Document, String, Option[String]) => String
   ): RIO[Console, Unit] =
     for {
@@ -24,7 +24,7 @@ object Codegen {
       _ <- putStrLn(s"Code generation done")
     } yield ()
 
-  private def getSchema(path: String, schemaPathHeaders: Option[List[CommandLineArguments.Header]]): Task[Document] =
+  private def getSchema(path: String, schemaPathHeaders: Option[List[Options.Header]]): Task[Document] =
     if (path.startsWith("http")) {
       IntrospectionClient.introspect(path, schemaPathHeaders)
     } else {

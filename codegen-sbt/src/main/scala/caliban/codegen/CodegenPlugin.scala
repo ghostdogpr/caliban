@@ -58,7 +58,7 @@ object CodegenPlugin extends AutoPlugin {
     args: List[String],
     writer: (Document, String, Option[String]) => String
   ): RIO[Console, Unit] =
-    CommandLineArguments.fromArgs(args) match {
+    Options.fromArgs(args) match {
       case Some(arguments) => Codegen.generate(arguments, writer)
       case None            => putStrLn(helpMsg)
     }

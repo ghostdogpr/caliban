@@ -3,18 +3,18 @@ package caliban.codegen
 import zio.config.{ read, ConfigDescriptor, ConfigSource }
 import zio.config.magnolia.DeriveConfigDescriptor.descriptor
 
-final case class CommandLineArguments(
+final case class Options(
   schemaPath: String,
   toPath: String,
   fmtPath: Option[String],
-  headers: Option[List[CommandLineArguments.Header]]
+  headers: Option[List[Options.Header]]
 )
 
-object CommandLineArguments {
+object Options {
   final case class Header(name: String, value: String)
   final case class RawOptions(scalafmtPath: Option[String], headers: Option[List[String]])
 
-  def fromArgs(args: List[String]): Option[CommandLineArguments] =
+  def fromArgs(args: List[String]): Option[Options] =
     args match {
       case schemaPath :: toPath :: other =>
         val configSource: ConfigSource[String, String] =
@@ -26,7 +26,7 @@ object CommandLineArguments {
         val configDescriptor: ConfigDescriptor[String, String, RawOptions] = descriptor[RawOptions] from configSource
 
         read(configDescriptor).toOption.map { rawOpts =>
-          CommandLineArguments(
+          Options(
             schemaPath,
             toPath,
             rawOpts.scalafmtPath,
