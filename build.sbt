@@ -9,7 +9,7 @@ val http4sVersion         = "0.21.4"
 val silencerVersion       = "1.6.0"
 val sttpVersion           = "2.0.9"
 val zioVersion            = "1.0.0-RC18-2"
-val zioInteropCatsVersion = "2.0.0.0-RC12"
+val zioInteropCatsVersion = "2.0.0.0-RC13"
 
 inThisBuild(
   List(
