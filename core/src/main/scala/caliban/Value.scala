@@ -63,7 +63,7 @@ object Value {
     def toBigDecimal: BigDecimal
   }
   case class StringValue(value: String) extends Value {
-    override def toString: String = s""""${value.replace("\"", "\\\"")}""""
+    override def toString: String = s""""${value.replace("\"", "\\\"").replace("\n", "\\n")}""""
   }
   case class BooleanValue(value: Boolean) extends Value {
     override def toString: String = if (value) "true" else "false"
