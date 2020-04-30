@@ -8,7 +8,7 @@ val circeVersion          = "0.13.0"
 val http4sVersion         = "0.21.4"
 val silencerVersion       = "1.6.0"
 val sttpVersion           = "2.0.9"
-val tapirVersion          = "0.13.2"
+val tapirVersion          = "0.14.3"
 val zioVersion            = "1.0.0-RC18-2"
 val zioInteropCatsVersion = "2.0.0.0-RC13"
 
@@ -259,7 +259,7 @@ lazy val examples = project
     libraryDependencies ++= Seq(
       "de.heikoseeberger"            %% "akka-http-circe"               % "1.32.0",
       "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion,
-      "com.softwaremill.sttp.tapir"  %% "tapir-json-circe"              % "0.13.2",
+      "com.softwaremill.sttp.tapir"  %% "tapir-json-circe"              % tapirVersion,
       "io.circe"                     %% "circe-generic"                 % circeVersion
     )
   )

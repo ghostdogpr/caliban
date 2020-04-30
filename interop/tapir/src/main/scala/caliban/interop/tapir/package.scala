@@ -181,8 +181,8 @@ package object tapir {
       case EndpointInput.Cookie(name, _, info)            => Vector(Some((name, info.description)))
       case EndpointIO.Header(name, _, info)               => Vector(Some((name, info.description)))
       case EndpointIO.Body(_, _, info)                    => Vector(Some(("body", info.description)))
-      case _: EndpointInput.MappedTuple[_, _]             => Vector(None)
-      case _: EndpointIO.MappedTuple[_, _]                => Vector(None)
+      case _: EndpointInput.MappedPair[_, _, _, _]        => Vector(None)
+      case _: EndpointIO.MappedPair[_, _, _, _]           => Vector(None)
     }.zipWithIndex.map {
       case (v, index) =>
         s"_${index + 1}" -> (v match {
