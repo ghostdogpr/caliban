@@ -154,8 +154,11 @@ lazy val tapirInterop = project
   .settings(name := "caliban-tapir")
   .settings(commonSettings)
   .settings(
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "com.softwaremill.sttp.tapir" %% "tapir-core" % tapirVersion,
+      "com.softwaremill.sttp.tapir" %% "tapir-core"   % tapirVersion,
+      "dev.zio"                     %% "zio-test"     % zioVersion % "test",
+      "dev.zio"                     %% "zio-test-sbt" % zioVersion % "test",
       compilerPlugin(("org.typelevel" %% "kind-projector" % "0.11.0").cross(CrossVersion.full))
     )
   )

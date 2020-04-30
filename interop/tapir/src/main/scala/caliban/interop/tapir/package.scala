@@ -12,11 +12,6 @@ import sttp.tapir.{ Endpoint, EndpointIO, EndpointInput, EndpointOutput }
 import zio.{ IO, URIO, ZIO }
 import zquery.{ URQuery, ZQuery }
 
-/* TODO
-- documentation
-- tests
- */
-
 package object tapir {
 
   implicit class GraphQLInfallibleEndpoint[I, O](e: Endpoint[I, Nothing, O, Nothing]) {
