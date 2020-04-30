@@ -203,13 +203,14 @@ enablePlugins(CodegenPlugin)
 ```
 Then call the `calibanGenSchema` sbt command.
 ```scala
-calibanGenSchema schemaPath outPath ?scalafmtPath
+calibanGenSchema schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2]
 
 calibanGenSchema project/schema.graphql src/main/MyAPI.scala
 ```
 This command will create a Scala file in `outputPath` containing all the types defined in the provided GraphQL schema defined at `schemaPath`.
 Instead of a file, you can provide a URL and the schema will be obtained using introspection.
-The generated code will be formatted with Scalafmt using the configuration defined by `scalafmtPath` (default: `.scalafmt.conf`).
+The generated code will be formatted with Scalafmt using the configuration defined by `--scalafmtPath` option (default: `.scalafmt.conf`).
+If you provide a URL for `schemaPath`, you can provide request headers with `--headers` option.
 
 ::: warning Unsupported features
 Some features are not supported by Caliban and will cause an error during code generation:
