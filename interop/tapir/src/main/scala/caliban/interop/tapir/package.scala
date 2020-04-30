@@ -10,10 +10,9 @@ import sttp.tapir.internal._
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.{ Endpoint, EndpointIO, EndpointInput, EndpointOutput }
 import zio.{ IO, URIO, ZIO }
-import zquery.ZQuery
+import zquery.{ URQuery, ZQuery }
 
 /* TODO
-- support for ZQuery
 - documentation
 - tests
  */
@@ -26,7 +25,21 @@ package object tapir {
       outputSchema: caliban.schema.Schema[R, O],
       argBuilder: ArgBuilder[I]
     ): GraphQL[R] =
-      tapir.toGraphQL(ServerEndpoint[I, Nothing, O, Nothing, URIO[R, *]](e, (input: I) => logic(input).map(Right(_))))
+      tapir.toGraphQL(
+        ServerEndpoint[I, Nothing, O, Nothing, URQuery[R, *]](
+          e,
+          (input: I) => ZQuery.fromEffect(logic(input).map(Right(_)))
+        )
+      )
+
+    def toGraphQLQuery[R](logic: I => URQuery[R, O])(
+      implicit inputSchema: caliban.schema.Schema[R, I],
+      outputSchema: caliban.schema.Schema[R, O],
+      argBuilder: ArgBuilder[I]
+    ): GraphQL[R] =
+      tapir.toGraphQL(
+        ServerEndpoint[I, Nothing, O, Nothing, URQuery[R, *]](e, (input: I) => logic(input).map(Right(_)))
+      )
   }
 
   implicit class GraphQLEndpoint[I, E, O](e: Endpoint[I, E, O, Nothing]) {
@@ -35,7 +48,18 @@ package object tapir {
       outputSchema: caliban.schema.Schema[R, O],
       argBuilder: ArgBuilder[I]
     ): GraphQL[R] =
-      tapir.toGraphQL(ServerEndpoint[I, E, O, Nothing, URIO[R, *]](e, (input: I) => logic(input).either))
+      tapir.toGraphQL(
+        ServerEndpoint[I, E, O, Nothing, URQuery[R, *]](e, (input: I) => ZQuery.fromEffect(logic(input).either))
+      )
+
+    def toGraphQLQuery[R](logic: I => ZQuery[R, E, O])(
+      implicit inputSchema: caliban.schema.Schema[R, I],
+      outputSchema: caliban.schema.Schema[R, O],
+      argBuilder: ArgBuilder[I]
+    ): GraphQL[R] =
+      tapir.toGraphQL(
+        ServerEndpoint[I, E, O, Nothing, URQuery[R, *]](e, (input: I) => logic(input).either)
+      )
   }
 
   implicit class GraphQLInfallibleServerEndpoint[R, I, O](e: ServerEndpoint[I, Nothing, O, Nothing, URIO[R, *]]) {
@@ -43,7 +67,9 @@ package object tapir {
       implicit inputSchema: caliban.schema.Schema[R, I],
       outputSchema: caliban.schema.Schema[R, O],
       argBuilder: ArgBuilder[I]
-    ): GraphQL[R] = tapir.toGraphQL(e)
+    ): GraphQL[R] = tapir.toGraphQL(
+      ServerEndpoint[I, Nothing, O, Nothing, URQuery[R, *]](e.endpoint, (input: I) => ZQuery.fromEffect(e.logic(input)))
+    )
   }
 
   implicit class GraphQLServerEndpoint[R, I, E, O](e: ServerEndpoint[I, E, O, Nothing, ZIO[R, E, *]]) {
@@ -53,19 +79,14 @@ package object tapir {
       argBuilder: ArgBuilder[I]
     ): GraphQL[R] =
       tapir.toGraphQL(
-        ServerEndpoint[I, E, O, Nothing, URIO[R, *]](
+        ServerEndpoint[I, E, O, Nothing, URQuery[R, *]](
           e.endpoint,
-          (input: I) =>
-            e.logic(input).either.map {
-              case Left(error)         => Left(error)
-              case Right(Left(error))  => Left(error)
-              case Right(Right(value)) => Right(value)
-            }
+          (input: I) => ZQuery.fromEffect(e.logic(input).either.map(_.flatMap(identity)))
         )
       )
   }
 
-  def toGraphQL[R, I, E, O, S](serverEndpoint: ServerEndpoint[I, E, O, S, URIO[R, *]])(
+  def toGraphQL[R, I, E, O, S](serverEndpoint: ServerEndpoint[I, E, O, S, URQuery[R, *]])(
     implicit inputSchema: caliban.schema.Schema[R, I],
     outputSchema: caliban.schema.Schema[R, O],
     argBuilder: ArgBuilder[I]
@@ -120,15 +141,14 @@ package object tapir {
               FunctionStep { args =>
                 val replacedArgs = args.map { case (k, v) => reverseArgNames.getOrElse(k, k) -> v }
                 QueryStep(
-                  ZQuery.fromEffect(
-                    IO.fromEither(argBuilder.build(InputValue.ObjectValue(replacedArgs)))
-                      .flatMap(input => serverEndpoint.logic(input))
-                      .map {
-                        case Left(error: Throwable) => QueryStep(ZQuery.fail(error))
-                        case Left(otherError)       => QueryStep(ZQuery.fail(new Throwable(otherError.toString)))
-                        case Right(output)          => outputSchema.resolve(output)
-                      }
-                  )
+                  ZQuery
+                    .fromEffect(IO.fromEither(argBuilder.build(InputValue.ObjectValue(replacedArgs))))
+                    .flatMap(input => serverEndpoint.logic(input))
+                    .map {
+                      case Left(error: Throwable) => QueryStep(ZQuery.fail(error))
+                      case Left(otherError)       => QueryStep(ZQuery.fail(new Throwable(otherError.toString)))
+                      case Right(output)          => outputSchema.resolve(output)
+                    }
                 )
               }
           )
