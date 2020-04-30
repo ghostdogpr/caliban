@@ -16,6 +16,8 @@ import zio.console.putStrLn
 import zio.interop.catz._
 import zio.interop.catz.implicits._
 
+import scala.concurrent.ExecutionContext
+
 object ExampleApp extends CatsApp {
 
   import io.circe.generic.auto._
@@ -103,11 +105,13 @@ object ExampleApp extends CatsApp {
       limitedBooks
     }
 
+  // approach 1: using `Endpoint` and providing the logic
   val graphql: GraphQL[Any] =
     addBook.toGraphQL((bookAddLogic _).tupled) |+|
       deleteBook.toGraphQL((bookDeleteLogic _).tupled) |+|
       booksListing.toGraphQL((bookListingLogic _).tupled)
 
+  // approach 2: using the `ServerEndpoint` where logic is already provided
   type MyIO[+A] = IO[String, A]
 
   val addBookEndpoint: ServerEndpoint[(Book, String), String, Unit, Nothing, MyIO] =
@@ -123,8 +127,8 @@ object ExampleApp extends CatsApp {
   override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] =
     (for {
       blocker     <- ZIO.access[Blocking](_.get.blockingExecutor.asEC).map(Blocker.liftExecutionContext)
-      interpreter <- graphql2.interpreter
-      _ <- BlazeServerBuilder[Task]
+      interpreter <- graphql.interpreter
+      _ <- BlazeServerBuilder[Task](ExecutionContext.global)
             .bindHttp(8088, "localhost")
             .withHttpApp(
               Router[Task](

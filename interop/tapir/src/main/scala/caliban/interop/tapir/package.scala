@@ -15,10 +15,7 @@ import zquery.ZQuery
 /* TODO
 - support for ZQuery
 - documentation
- */
-
-/* TODO LATER
-- streaming
+- tests
  */
 
 package object tapir {
