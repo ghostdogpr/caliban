@@ -54,8 +54,8 @@ module.exports = {
               'introspection',
               'interop',
               'client',
+              'federation',
               'examples',
-              'federation'
             ]
           }]
         }

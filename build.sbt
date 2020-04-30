@@ -5,12 +5,12 @@ val allScala  = Seq("2.13.2", mainScala)
 
 val catsEffectVersion     = "2.1.3"
 val circeVersion          = "0.13.0"
-val http4sVersion         = "0.21.3"
+val http4sVersion         = "0.21.4"
 val silencerVersion       = "1.6.0"
 val sttpVersion           = "2.0.9"
 val tapirVersion          = "0.13.2"
 val zioVersion            = "1.0.0-RC18-2"
-val zioInteropCatsVersion = "2.0.0.0-RC12"
+val zioInteropCatsVersion = "2.0.0.0-RC13"
 
 inThisBuild(
   List(
@@ -78,7 +78,7 @@ lazy val core = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "com.lihaoyi"       %% "fastparse"    % "2.3.0",
-      "com.propensive"    %% "magnolia"     % "0.15.0",
+      "com.propensive"    %% "magnolia"     % "0.16.0",
       "com.propensive"    %% "mercator"     % "0.2.1",
       "dev.zio"           %% "zio"          % zioVersion,
       "dev.zio"           %% "zio-streams"  % zioVersion,
@@ -144,7 +144,7 @@ lazy val monixInterop = project
     libraryDependencies ++= Seq(
       "dev.zio"  %% "zio-interop-reactivestreams" % "1.0.3.5-RC6",
       "dev.zio"  %% "zio-interop-cats"            % zioInteropCatsVersion,
-      "io.monix" %% "monix"                       % "3.1.0"
+      "io.monix" %% "monix"                       % "3.2.0"
     )
   )
   .dependsOn(core)

@@ -18,4 +18,4 @@ At **runtime**, it is possible to validate a query against your schema by callin
 def check(query: String): IO[CalibanError, Unit]
 ```
 
-It is also possible to skip validation when executing a query by passing `skipValidation = true` when calling `execute`. This will slightly improve performance.
+It is also possible to skip validation when executing a query by passing `skipValidation = true` when calling `execute` (also available in the adapters). This will slightly improve performance.
