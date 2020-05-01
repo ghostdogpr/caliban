@@ -59,13 +59,15 @@ object CharacterService {
                 UIO.foreach(_)(queue =>
                   queue
                     .offer(name)
-                    .onInterrupt(
-                      subscribers.update(_.filterNot(_ == queue))
-                    ) // if queue was shutdown, remove from subscribers
+                    .catchSomeCause {
+                      case cause if cause.interrupted =>
+                        subscribers.update(_.filterNot(_ == queue)) *> UIO.succeed(false)
+                    } // if queue was shutdown, remove from subscribers
                 )
               )
             )
           )
+
       def deletedEvents: ZStream[Any, Nothing, String] = ZStream.unwrap {
         for {
           queue <- Queue.unbounded[String]
