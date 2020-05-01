@@ -23,27 +23,33 @@ object CodegenPlugin extends AutoPlugin {
 
   private val genSchemaHelpMsg =
     """
-      |calibanGenSchema schemaPath outputPath ?scalafmtPath
+      |calibanGenSchema schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2]
       |
       |This command will create a Scala file in `outputPath` containing all the types
       |defined in the provided GraphQL schema defined at `schemaPath`. Instead of a path,
       |you can provide a URL and introspection will be used to gather the schema.
       |
       |The generated code will be formatted with Scalafmt using the configuration defined by
-      |`scalafmtPath` (default: ".scalafmt.conf").
+      |`--scalafmtPath` option (default: ".scalafmt.conf").
+      |
+      |If you provide a URL for `schemaPath`, you can provide request headers with
+      |`--headers` option.
       |
       |""".stripMargin
 
   private val genClientHelpMsg =
     """
-      |calibanGenClient schemaPath outputPath ?scalafmtPath
+      |calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2]
       |
       |This command will create a Scala file in `outputPath` containing client code for all the
       |typed defined in the provided GraphQL schema defined at `schemaPath`. Instead of a path,
       |you can provide a URL and introspection will be used to gather the schema.
       |
       |The generated code will be formatted with Scalafmt using the configuration defined by
-      |`scalafmtPath` (default: ".scalafmt.conf").
+      |`--scalafmtPath` option (default: ".scalafmt.conf").
+      |
+      |If you provide a URL for `schemaPath`, you can provide request headers with
+      |`--headers` option.
       |
       |""".stripMargin
 
@@ -52,10 +58,8 @@ object CodegenPlugin extends AutoPlugin {
     args: List[String],
     writer: (Document, String, Option[String]) => String
   ): RIO[Console, Unit] =
-    args match {
-      case schemaPath :: toPath :: Nil               => Codegen.generate(schemaPath, toPath, None, writer)
-      case schemaPath :: toPath :: formatPath :: Nil => Codegen.generate(schemaPath, toPath, Some(formatPath), writer)
-      case _                                         => putStrLn(helpMsg)
+    Options.fromArgs(args) match {
+      case Some(arguments) => Codegen.generate(arguments, writer)
+      case None            => putStrLn(helpMsg)
     }
-
 }

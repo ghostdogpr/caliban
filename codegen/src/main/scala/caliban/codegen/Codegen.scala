@@ -7,30 +7,30 @@ import caliban.parsing.adt.Document
 import caliban.parsing.Parser
 
 object Codegen {
-  def getSchema(path: String): Task[Document] =
+  def generate(
+    arguments: Options,
+    writer: (Document, String, Option[String]) => String
+  ): RIO[Console, Unit] =
+    for {
+      _           <- putStrLn(s"Generating code for ${arguments.schemaPath}")
+      s           = ".*/scala/(.*)/(.*).scala".r.findFirstMatchIn(arguments.toPath)
+      packageName = s.map(_.group(1).split("/").mkString("."))
+      objectName  = s.map(_.group(2)).getOrElse("Client")
+      schema      <- getSchema(arguments.schemaPath, arguments.headers)
+      code        = writer(schema, objectName, packageName)
+      formatted   <- Formatter.format(code, arguments.fmtPath)
+      _ <- Task(new PrintWriter(new File(arguments.toPath)))
+            .bracket(q => UIO(q.close()), pw => Task(pw.println(formatted)))
+      _ <- putStrLn(s"Code generation done")
+    } yield ()
+
+  private def getSchema(path: String, schemaPathHeaders: Option[List[Options.Header]]): Task[Document] =
     if (path.startsWith("http")) {
-      IntrospectionClient.introspect(path)
+      IntrospectionClient.introspect(path, schemaPathHeaders)
     } else {
       Task(scala.io.Source.fromFile(path))
         .bracket(f => UIO(f.close()), f => Task(f.mkString))
         .flatMap(Parser.parseQuery)
     }
 
-  def generate(
-    schemaPath: String,
-    toPath: String,
-    fmtPath: Option[String],
-    writer: (Document, String, Option[String]) => String
-  ): RIO[Console, Unit] =
-    for {
-      _           <- putStrLn(s"Generating code for $schemaPath")
-      s           = ".*/scala/(.*)/(.*).scala".r.findFirstMatchIn(toPath)
-      packageName = s.map(_.group(1).split("/").mkString("."))
-      objectName  = s.map(_.group(2)).getOrElse("Client")
-      schema      <- getSchema(schemaPath)
-      code        = writer(schema, objectName, packageName)
-      formatted   <- Formatter.format(code, fmtPath)
-      _           <- Task(new PrintWriter(new File(toPath))).bracket(q => UIO(q.close()), pw => Task(pw.println(formatted)))
-      _           <- putStrLn(s"Code generation done")
-    } yield ()
 }
