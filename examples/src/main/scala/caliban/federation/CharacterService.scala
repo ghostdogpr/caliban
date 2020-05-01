@@ -61,7 +61,7 @@ object CharacterService {
                     .offer(name)
                     .catchSomeCause {
                       case cause if cause.interrupted =>
-                        subscribers.update(_.filterNot(_ == queue)) *> UIO.succeed(false)
+                        subscribers.update(_.filterNot(_ == queue)).as(false)
                     } // if queue was shutdown, remove from subscribers
                 )
               )
