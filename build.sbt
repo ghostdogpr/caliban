@@ -8,6 +8,7 @@ val circeVersion          = "0.13.0"
 val http4sVersion         = "0.21.4"
 val silencerVersion       = "1.6.0"
 val sttpVersion           = "2.0.9"
+val tapirVersion          = "0.14.3"
 val zioVersion            = "1.0.0-RC18-2"
 val zioInteropCatsVersion = "2.0.0.0-RC13"
 val zioConfigVersion      = "1.0.0-RC16-2"
@@ -62,6 +63,7 @@ lazy val root = project
     uzhttp,
     catsInterop,
     monixInterop,
+    tapirInterop,
     clientJVM,
     clientJS,
     codegen,
@@ -146,6 +148,21 @@ lazy val monixInterop = project
       "dev.zio"  %% "zio-interop-reactivestreams" % "1.0.3.5-RC6",
       "dev.zio"  %% "zio-interop-cats"            % zioInteropCatsVersion,
       "io.monix" %% "monix"                       % "3.2.1"
+    )
+  )
+  .dependsOn(core)
+
+lazy val tapirInterop = project
+  .in(file("interop/tapir"))
+  .settings(name := "caliban-tapir")
+  .settings(commonSettings)
+  .settings(
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    libraryDependencies ++= Seq(
+      "com.softwaremill.sttp.tapir" %% "tapir-core"   % tapirVersion,
+      "dev.zio"                     %% "zio-test"     % zioVersion % "test",
+      "dev.zio"                     %% "zio-test-sbt" % zioVersion % "test",
+      compilerPlugin(("org.typelevel" %% "kind-projector" % "0.11.0").cross(CrossVersion.full))
     )
   )
   .dependsOn(core)
@@ -244,10 +261,12 @@ lazy val examples = project
   .settings(
     libraryDependencies ++= Seq(
       "de.heikoseeberger"            %% "akka-http-circe"               % "1.32.0",
-      "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion
+      "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion,
+      "com.softwaremill.sttp.tapir"  %% "tapir-json-circe"              % tapirVersion,
+      "io.circe"                     %% "circe-generic"                 % circeVersion
     )
   )
-  .dependsOn(akkaHttp, http4s, catsInterop, finch, uzhttp, monixInterop, clientJVM, federation)
+  .dependsOn(akkaHttp, http4s, catsInterop, finch, uzhttp, monixInterop, tapirInterop, clientJVM, federation)
 
 lazy val benchmarks = project
   .in(file("benchmarks"))
