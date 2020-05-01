@@ -70,7 +70,7 @@ object CharacterService {
         for {
           queue <- Queue.unbounded[String]
           _     <- subscribers.update(queue :: _)
-        } yield ZStream.fromQueue(queue)
+        } yield ZStream.fromQueue(queue).ensuring(queue.shutdown)
       }
 
       override def getCharactersByEpisode(season: Int, episode: Int): UIO[List[Character]] =

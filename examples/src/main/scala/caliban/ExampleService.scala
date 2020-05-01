@@ -65,7 +65,7 @@ object ExampleService {
         for {
           queue <- Queue.unbounded[String]
           _     <- subscribers.update(queue :: _)
-        } yield ZStream.fromQueue(queue)
+        } yield ZStream.fromQueue(queue).ensuring(queue.shutdown)
       }
     }
   }
