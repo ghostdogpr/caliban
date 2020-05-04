@@ -92,7 +92,7 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
         testM("name on a inputValue on a type can't start with '__'") {
           check(
             graphQL(resolverWrongInputFieldDirectiveName),
-            "Directive '__name' of InputValue 'inputValue' of Type 'WronDirectiveNameInput' can't start with '__'"
+            "Directive '__name' of InputValue 'inputValue' of Type 'WrongDirectiveNameInput' can't start with '__'"
           )
         },
         testM("name on a inputValue on a field type can't start with '__'") {
@@ -264,6 +264,17 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
           },
           testM("may declare that it implements one or more unique interfaces") {
             assertM(graphQL(resolverTwoInterfaces).interpreter.run)(succeeds(anything))
+          },
+          testM("must include a field of the same name for every field defined in an interface") {
+            checkTypeError(mkIncompleteObjectWithFields("a"), "Object 'IncompleteFieldsObject' is missing field(s): b") *>
+              checkTypeError(
+                mkIncompleteObjectWithFields("b"),
+                "Object 'IncompleteFieldsObject' is missing field(s): a"
+              ) *>
+              checkTypeError(
+                mkIncompleteObjectWithFields("c"),
+                "Object 'IncompleteFieldsObject' is missing field(s): a, b"
+              )
           }
         )
       }

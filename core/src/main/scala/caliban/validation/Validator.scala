@@ -614,16 +614,32 @@ object Validator {
     }
   }
 
-  def validateObject(t: __Type): IO[ValidationError, Unit] = {
-    val objectContext = s"Object '${t.name.getOrElse("")}'"
+  def validateObject(obj: __Type): IO[ValidationError, Unit] = {
+    val objectContext = s"Object '${obj.name.getOrElse("")}'"
 
-    t.fields(__DeprecatedArgs(Some(true))) match {
+    def validateInterfaceFields(obj: __Type) = {
+      def fieldNames(t: __Type) =
+        t.fields(__DeprecatedArgs(Some(true))).toList.flatten.map(_.name).toSet
+
+      val interfaces          = obj.interfaces().toList.flatten
+      val interfaceFieldNames = interfaces.map(fieldNames).fold(Set.empty[String])(_ ++ _)
+      val objectFieldNames    = fieldNames(obj)
+      IO.when(interfaceFieldNames.nonEmpty && objectFieldNames.union(interfaceFieldNames) != objectFieldNames) {
+        val missingFields = interfaceFieldNames.diff(objectFieldNames).toList.sorted
+        failValidation(
+          s"$objectContext is missing field(s): ${missingFields.mkString(", ")}",
+          "An Object type must include a field of the same name for every field defined in an interface"
+        )
+      }
+    }
+
+    obj.fields(__DeprecatedArgs(Some(true))) match {
       case None | Some(Nil) =>
         failValidation(
           s"$objectContext does not have fields",
           "An Object type must define one or more fields"
         )
-      case Some(fields) => validateFields(fields, objectContext)
+      case Some(fields) => validateFields(fields, objectContext) *> validateInterfaceFields(obj)
     }
   }
 

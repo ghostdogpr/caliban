@@ -4,6 +4,7 @@ import caliban.TestUtils.InvalidSchemas.Interface.WrongArgumentName
 import caliban.TestUtils.Origin._
 import caliban.TestUtils.Role._
 import caliban.Value.StringValue
+import caliban.introspection.adt.{ __DeprecatedArgs, __Field, __Type, __TypeKind }
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
 import caliban.schema.Schema
@@ -268,6 +269,38 @@ object TestUtils {
       val resolverTwoInterfaces = RootResolver(
         TestTwoInterfaceObject(TwoInterfaceObject(0, 1))
       )
+
+      val interfaceA = mkInterface("InterfaceA", "a")
+      val interfaceB = mkInterface("InterfaceB", "b")
+      def mkInterface(name: String, fieldName: String): __Type =
+        __Type(
+          name = Some(name),
+          kind = __TypeKind.INTERFACE,
+          fields = mkFields(fieldName)
+        )
+
+      def mkFields(fieldNames: String*) = { (_: __DeprecatedArgs) =>
+        Some(
+          fieldNames
+            .map(name =>
+              __Field(
+                name,
+                description = None,
+                args = List.empty,
+                `type` = () => __Type(name = Some("Foo"), kind = __TypeKind.SCALAR)
+              )
+            )
+            .toList
+        )
+      }
+
+      def mkIncompleteObjectWithFields(fields: String*) =
+        __Type(
+          name = Some("IncompleteFieldsObject"),
+          kind = __TypeKind.OBJECT,
+          fields = mkFields(fields: _*),
+          interfaces = () => Some(List(interfaceA, interfaceB))
+        )
     }
 
     @GQLDirective(Directive("__name"))
@@ -288,15 +321,15 @@ object TestUtils {
     )
     val resolverWrongArgumentDirectiveName = RootResolver(TestWrongArgumentDirectiveName(""))
 
-    case class WronDirectiveName(
+    case class WrongDirectiveName(
       @GQLDirective(Directive("__name"))
       inputValue: String
     )
-    case class WronDirectiveNameArgs(
-      i: WronDirectiveName
+    case class WrongDirectiveNameArgs(
+      i: WrongDirectiveName
     )
     case class TestWrongInputFieldDirectiveName(
-      field: WronDirectiveNameArgs => UIO[Unit]
+      field: WrongDirectiveNameArgs => UIO[Unit]
     )
     val resolverWrongInputFieldDirectiveName = RootResolver(
       resolverIO.queryResolver,
@@ -304,7 +337,7 @@ object TestUtils {
     )
 
     case class TestWrongFieldArgDirectiveName(
-      field: WronDirectiveName => UIO[Unit]
+      field: WrongDirectiveName => UIO[Unit]
     )
     val resolverWrongFieldArgDirectiveName = RootResolver(
       TestWrongFieldArgDirectiveName(_ => UIO.unit)
