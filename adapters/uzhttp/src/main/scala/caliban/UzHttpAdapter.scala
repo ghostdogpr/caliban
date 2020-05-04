@@ -80,7 +80,7 @@ object UzHttpAdapter {
   ): PartialFunction[Request, ZIO[R, HTTPError, Response]] = {
     case req @ Request.WebsocketRequest(_, uri, _, _, inputFrames) if uri.getPath == path =>
       for {
-        subscriptions <- Ref.make(Map.empty[Option[String], Fiber[Throwable, Unit]])
+        subscriptions <- Ref.make(Map.empty[String, Fiber[Throwable, Unit]])
         sendQueue     <- Queue.unbounded[Take[Nothing, Frame]]
         _ <- inputFrames.collect { case Text(text, _) => text }.mapM { text =>
               for {
@@ -91,14 +91,11 @@ object UzHttpAdapter {
                         sendQueue.offer(Take.Value(Text("""{"type":"connection_ack"}"""))) *>
                           Task.whenCase(keepAliveTime) {
                             case Some(time) =>
-                              // Save the keep-alive fiber with a key of None so that it's interrupted later
                               sendQueue
                                 .offer(Take.Value(Text("""{"type":"ka"}""")))
                                 .repeat(Schedule.spaced(time))
                                 .provideLayer(Clock.live)
-                                .unit
-                                .forkDaemon
-                                .flatMap(keepAliveFiber => subscriptions.update(_.updated(None, keepAliveFiber)))
+                                .fork
                           }
                       case "connection_terminate" => sendQueue.offerAll(List(Take.Value(Close), Take.End))
                       case "start" =>
@@ -121,18 +118,17 @@ object UzHttpAdapter {
                                           ObjectValue(List(fieldName -> item)),
                                           result.errors
                                         )
-                                      }.forkDaemon.flatMap(fiber => subscriptions.update(_.updated(Some(id), fiber)))
+                                      }.fork.flatMap(fiber => subscriptions.update(_.updated(id, fiber)))
                                     case other =>
-                                      sendMessage(sendQueue, id, other, result.errors) *> sendQueue.offer(
-                                        Take.Value(Text(s"""{"type":"complete","id":"$id"}"""))
-                                      )
+                                      sendMessage(sendQueue, id, other, result.errors) *>
+                                        sendQueue.offer(Take.Value(Text(s"""{"type":"complete","id":"$id"}""")))
                                   }
                             } yield ()
                         }
                       case "stop" =>
                         val id = msg.hcursor.downField("id").success.flatMap(_.value.asString).getOrElse("")
                         subscriptions
-                          .modify(map => (map.get(Some(id)), map - Some(id)))
+                          .modify(map => (map.get(id), map - id))
                           .flatMap(fiber =>
                             IO.whenCase(fiber) {
                               case Some(fiber) =>

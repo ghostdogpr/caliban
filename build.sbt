@@ -5,11 +5,13 @@ val allScala  = Seq("2.13.2", mainScala)
 
 val catsEffectVersion     = "2.1.3"
 val circeVersion          = "0.13.0"
-val http4sVersion         = "0.21.3"
+val http4sVersion         = "0.21.4"
 val silencerVersion       = "1.6.0"
 val sttpVersion           = "2.0.9"
+val tapirVersion          = "0.14.3"
 val zioVersion            = "1.0.0-RC18-2"
-val zioInteropCatsVersion = "2.0.0.0-RC12"
+val zioInteropCatsVersion = "2.0.0.0-RC13"
+val zioConfigVersion      = "1.0.0-RC16-2"
 
 inThisBuild(
   List(
@@ -61,6 +63,7 @@ lazy val root = project
     uzhttp,
     catsInterop,
     monixInterop,
+    tapirInterop,
     clientJVM,
     clientJS,
     codegen,
@@ -76,7 +79,7 @@ lazy val core = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "com.lihaoyi"       %% "fastparse"    % "2.3.0",
-      "com.propensive"    %% "magnolia"     % "0.15.0",
+      "com.propensive"    %% "magnolia"     % "0.16.0",
       "com.propensive"    %% "mercator"     % "0.2.1",
       "dev.zio"           %% "zio"          % zioVersion,
       "dev.zio"           %% "zio-streams"  % zioVersion,
@@ -102,6 +105,8 @@ lazy val codegen = project
       "org.scalameta"                %% "scalafmt-dynamic"              % "2.4.2",
       "org.scalameta"                %% "scalafmt-core"                 % "2.4.2",
       "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion,
+      "dev.zio"                      %% "zio-config"                    % zioConfigVersion,
+      "dev.zio"                      %% "zio-config-magnolia"           % zioConfigVersion,
       "dev.zio"                      %% "zio-test"                      % zioVersion % "test",
       "dev.zio"                      %% "zio-test-sbt"                  % zioVersion % "test"
     )
@@ -142,7 +147,22 @@ lazy val monixInterop = project
     libraryDependencies ++= Seq(
       "dev.zio"  %% "zio-interop-reactivestreams" % "1.0.3.5-RC6",
       "dev.zio"  %% "zio-interop-cats"            % zioInteropCatsVersion,
-      "io.monix" %% "monix"                       % "3.2.0"
+      "io.monix" %% "monix"                       % "3.2.1"
+    )
+  )
+  .dependsOn(core)
+
+lazy val tapirInterop = project
+  .in(file("interop/tapir"))
+  .settings(name := "caliban-tapir")
+  .settings(commonSettings)
+  .settings(
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    libraryDependencies ++= Seq(
+      "com.softwaremill.sttp.tapir" %% "tapir-core"   % tapirVersion,
+      "dev.zio"                     %% "zio-test"     % zioVersion % "test",
+      "dev.zio"                     %% "zio-test-sbt" % zioVersion % "test",
+      compilerPlugin(("org.typelevel" %% "kind-projector" % "0.11.0").cross(CrossVersion.full))
     )
   )
   .dependsOn(core)
@@ -176,7 +196,7 @@ lazy val akkaHttp = project
   .settings(
     libraryDependencies ++= Seq(
       "com.typesafe.akka" %% "akka-http"           % "10.1.11",
-      "com.typesafe.akka" %% "akka-stream"         % "2.6.4",
+      "com.typesafe.akka" %% "akka-stream"         % "2.6.5",
       "de.heikoseeberger" %% "akka-http-circe"     % "1.32.0" % Optional,
       "de.heikoseeberger" %% "akka-http-play-json" % "1.32.0" % Optional,
       compilerPlugin(
@@ -241,10 +261,12 @@ lazy val examples = project
   .settings(
     libraryDependencies ++= Seq(
       "de.heikoseeberger"            %% "akka-http-circe"               % "1.32.0",
-      "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion
+      "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion,
+      "com.softwaremill.sttp.tapir"  %% "tapir-json-circe"              % tapirVersion,
+      "io.circe"                     %% "circe-generic"                 % circeVersion
     )
   )
-  .dependsOn(akkaHttp, http4s, catsInterop, finch, uzhttp, monixInterop, clientJVM, federation)
+  .dependsOn(akkaHttp, http4s, catsInterop, finch, uzhttp, monixInterop, tapirInterop, clientJVM, federation)
 
 lazy val benchmarks = project
   .in(file("benchmarks"))

@@ -149,10 +149,11 @@ object Http4sAdapter {
       )
 
     def processMessage(
+      receivingQueue: fs2.concurrent.Queue[Task, WebSocketFrame],
       sendQueue: fs2.concurrent.Queue[Task, WebSocketFrame],
-      subscriptions: Ref[Map[Option[String], Fiber[Throwable, Unit]]]
-    ): Pipe[RIO[R, *], WebSocketFrame, Unit] =
-      _.collect { case Text(text, _) => text }.flatMap { text =>
+      subscriptions: Ref[Map[String, Fiber[Throwable, Unit]]]
+    ) =
+      receivingQueue.dequeue.collect { case Text(text, _) => text }.flatMap { text =>
         Stream.eval {
           for {
             msg     <- Task.fromEither(decode[Json](text))
@@ -168,8 +169,7 @@ object Http4sAdapter {
                             .repeat(Schedule.spaced(time))
                             .provideLayer(Clock.live)
                             .unit
-                            .forkDaemon
-                            .flatMap(keepAliveFiber => subscriptions.update(_.updated(None, keepAliveFiber)))
+                            .fork
                       }
                   case "connection_terminate" => Task.fromEither(WebSocketFrame.Close(1000)) >>= sendQueue.enqueue1
                   case "start" =>
@@ -187,7 +187,7 @@ object Http4sAdapter {
                                 case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
                                   stream.foreach { item =>
                                     sendMessage(sendQueue, id, ObjectValue(List(fieldName -> item)), result.errors)
-                                  }.forkDaemon.flatMap(fiber => subscriptions.update(_.updated(Option(id), fiber)))
+                                  }.fork.flatMap(fiber => subscriptions.update(_.updated(id, fiber)))
                                 case other =>
                                   sendMessage(sendQueue, id, other, result.errors) *>
                                     sendQueue.enqueue1(WebSocketFrame.Text(s"""{"type":"complete","id":"$id"}"""))
@@ -209,7 +209,7 @@ object Http4sAdapter {
                   case "stop" =>
                     val id = msg.hcursor.downField("id").success.flatMap(_.value.asString).getOrElse("")
                     subscriptions
-                      .modify(map => (map.get(Option(id)), map - Option(id)))
+                      .modify(map => (map.get(id), map - id))
                       .flatMap(fiber =>
                         IO.whenCase(fiber) {
                           case Some(fiber) =>
@@ -220,18 +220,27 @@ object Http4sAdapter {
                 }
           } yield ()
         }
-      }
+      }.compile.drain
+
+    def passThroughPipe(
+      receivingQueue: fs2.concurrent.Queue[Task, WebSocketFrame]
+    ): Pipe[RIO[R, *], WebSocketFrame, Unit] = _.evalMap(receivingQueue.enqueue1)
 
     HttpRoutes.of[RIO[R, *]] {
       case GET -> Root =>
         for {
-          sendQueue     <- fs2.concurrent.Queue.unbounded[Task, WebSocketFrame]
-          subscriptions <- Ref.make(Map.empty[Option[String], Fiber[Throwable, Unit]])
+          receivingQueue <- fs2.concurrent.Queue.unbounded[Task, WebSocketFrame]
+          sendQueue      <- fs2.concurrent.Queue.unbounded[Task, WebSocketFrame]
+          subscriptions  <- Ref.make(Map.empty[String, Fiber[Throwable, Unit]])
+          // We provide fiber to process messages, which inherits the context of WebSocket connection request,
+          // so that we can pass information available at connection request, such as authentication information,
+          // to execution of subscription.
+          processMessageFiber <- processMessage(receivingQueue, sendQueue, subscriptions).forkDaemon
           builder <- WebSocketBuilder[RIO[R, *]].build(
                       sendQueue.dequeue,
-                      processMessage(sendQueue, subscriptions),
+                      passThroughPipe(receivingQueue),
                       headers = Headers.of(Header("Sec-WebSocket-Protocol", "graphql-ws")),
-                      onClose = subscriptions.get.flatMap(m => IO.foreach(m.values)(_.interrupt).unit)
+                      onClose = processMessageFiber.interrupt.unit
                     )
         } yield builder
     }
