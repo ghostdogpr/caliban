@@ -4,6 +4,7 @@ import caliban.CalibanError.ValidationError
 import caliban.GraphQL.graphQL
 import caliban.TestUtils.InvalidSchemas._
 import caliban.introspection.adt._
+import caliban.schema.Types
 import caliban.{ GraphQL, RootResolver }
 import zio.IO
 import zio.test.Assertion._
@@ -25,9 +26,11 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
           assertM(
             Validator
               .validateEnum(
-                __Type(
-                  kind = __TypeKind.ENUM,
-                  enumValues = _ => Some(List(__EnumValue(name = "A", isDeprecated = false)))
+                Types.makeEnum(
+                  name = Some("nonEmptyEnum"),
+                  description = None,
+                  values = List(__EnumValue(name = "A", isDeprecated = false)),
+                  origin = None
                 )
               )
               .run
@@ -35,10 +38,11 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
         },
         testM("must be non-empty") {
           checkTypeError(
-            __Type(
+            Types.makeEnum(
               name = Some("EmptyEnum"),
-              kind = __TypeKind.ENUM,
-              enumValues = _ => None
+              description = None,
+              values = Nil,
+              origin = None
             ),
             "Enum EmptyEnum doesn't contain any values"
           )
@@ -49,9 +53,10 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
           assertM(
             Validator
               .validateUnion(
-                __Type(
-                  kind = __TypeKind.UNION,
-                  possibleTypes = Some(List(__Type(kind = __TypeKind.OBJECT)))
+                Types.makeUnion(
+                  name = Some("GoodUnion"),
+                  description = None,
+                  subTypes = List(__Type(kind = __TypeKind.OBJECT))
                 )
               )
               .run
@@ -59,21 +64,14 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
         },
         testM("must be non-empty") {
           val expectedMessage = "Union EmptyUnion doesn't contain any type."
-          (checkTypeError(
-            __Type(
+          checkTypeError(
+            Types.makeUnion(
               name = Some("EmptyUnion"),
-              kind = __TypeKind.UNION,
-              possibleTypes = None
+              description = None,
+              subTypes = Nil
             ),
             expectedMessage
-          ) &&& checkTypeError(
-            __Type(
-              name = Some("EmptyUnion"),
-              kind = __TypeKind.UNION,
-              possibleTypes = Some(List.empty)
-            ),
-            expectedMessage
-          )).map { case (a, b) => a && b }
+          )
         }
       ),
       suite("Directives")(
@@ -110,32 +108,22 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
       ),
       suite("InputObjects")(
         testM("must define one or more fields") {
-          (checkTypeError(
-            __Type(
+          checkTypeError(
+            Types.makeInputObject(
               name = Some("EmptyInputObject"),
-              kind = __TypeKind.INPUT_OBJECT,
-              inputFields = None
+              description = None,
+              fields = Nil
             ),
             "InputObject 'EmptyInputObject' does not have fields"
-          ) &&&
-            checkTypeError(
-              __Type(
-                name = Some("EmptyInputObject"),
-                kind = __TypeKind.INPUT_OBJECT,
-                inputFields = Some(List.empty)
-              ),
-              "InputObject 'EmptyInputObject' does not have fields"
-            )).map { case (a, b) => a && b }
+          )
         },
         testM("no two input fields may share the same name") {
           checkTypeError(
-            __Type(
+            Types.makeInputObject(
               name = Some("DuplicateNamesInputObject"),
-              kind = __TypeKind.INPUT_OBJECT,
-              inputFields = Some(
-                List.fill(2)(
-                  __InputValue("A", None, `type` = () => __Type(__TypeKind.SCALAR), None)
-                )
+              description = None,
+              fields = List.fill(2)(
+                __InputValue("A", None, `type` = () => Types.string, None)
               )
             ),
             "InputObject 'DuplicateNamesInputObject' has repeated fields: A"
@@ -164,16 +152,14 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
           },
           testM("field names must be unique") {
             checkTypeError(
-              __Type(
+              Types.makeInterface(
                 name = Some("DuplicateNamesInterface"),
-                kind = __TypeKind.INTERFACE,
-                fields = _ =>
-                  Some(
-                    List(
-                      __Field("A", None, List.empty, `type` = () => __Type(__TypeKind.SCALAR)),
-                      __Field("A", None, List.empty, `type` = () => __Type(__TypeKind.SCALAR))
-                    )
-                  )
+                description = None,
+                fields = List(
+                  __Field("A", None, List.empty, `type` = () => __Type(__TypeKind.SCALAR)),
+                  __Field("A", None, List.empty, `type` = () => __Type(__TypeKind.SCALAR))
+                ),
+                subTypes = Nil
               ),
               "Interface 'DuplicateNamesInterface' has repeated fields: A"
             )
@@ -186,20 +172,18 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
           },
           testM("field can't be input type") {
             checkTypeError(
-              __Type(
+              Types.makeInterface(
                 name = Some("InputTypeFieldInterface"),
-                kind = __TypeKind.INTERFACE,
-                fields = _ =>
-                  Some(
-                    List(
-                      __Field(
-                        "InputField",
-                        None,
-                        List.empty,
-                        `type` = () => __Type(name = Some("InputType"), kind = __TypeKind.INPUT_OBJECT)
-                      )
-                    )
+                description = None,
+                fields = List(
+                  __Field(
+                    "InputField",
+                    None,
+                    List.empty,
+                    `type` = () => __Type(name = Some("InputType"), kind = __TypeKind.INPUT_OBJECT)
                   )
+                ),
+                subTypes = Nil
               ),
               "InputType of Field 'InputField' of Interface 'InputTypeFieldInterface' is of kind INPUT_OBJECT, must be an OutputType"
             )
@@ -266,15 +250,34 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
             assertM(graphQL(resolverTwoInterfaces).interpreter.run)(succeeds(anything))
           },
           testM("must include a field of the same name for every field defined in an interface") {
-            checkTypeError(mkIncompleteObjectWithFields("a"), "Object 'IncompleteFieldsObject' is missing field(s): b") *>
-              checkTypeError(
-                mkIncompleteObjectWithFields("b"),
-                "Object 'IncompleteFieldsObject' is missing field(s): a"
-              ) *>
-              checkTypeError(
-                mkIncompleteObjectWithFields("c"),
-                "Object 'IncompleteFieldsObject' is missing field(s): a, b"
+            def objectWithFields(fields: String*) =
+              __Type(
+                name = Some(s"Fields${fields.mkString("").toUpperCase}"),
+                kind = __TypeKind.OBJECT,
+                fields = _ =>
+                  Some(
+                    fields.toList
+                      .map(name =>
+                        __Field(
+                          name,
+                          description = None,
+                          args = List.empty,
+                          `type` = () => Types.string
+                        )
+                      )
+                  ),
+                interfaces = () => Some(List(interfaceA, interfaceB))
               )
+
+            IO.collectAll(
+                List(
+                  checkTypeError(objectWithFields("a"), "Object 'FieldsA' is missing field(s): b"),
+                  checkTypeError(objectWithFields("b"), "Object 'FieldsB' is missing field(s): a"),
+                  checkTypeError(objectWithFields("c"), "Object 'FieldsC' is missing field(s): a, b"),
+                  checkTypeError(objectWithFields("a", "c"), "Object 'FieldsAC' is missing field(s): b")
+                )
+              )
+              .map(_.reduce(_ && _))
           }
         )
       }

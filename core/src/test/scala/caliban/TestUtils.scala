@@ -4,10 +4,10 @@ import caliban.TestUtils.InvalidSchemas.Interface.WrongArgumentName
 import caliban.TestUtils.Origin._
 import caliban.TestUtils.Role._
 import caliban.Value.StringValue
-import caliban.introspection.adt.{ __DeprecatedArgs, __Field, __Type, __TypeKind }
+import caliban.introspection.adt.__Field
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
-import caliban.schema.Schema
+import caliban.schema.{ Schema, Types }
 import zio.UIO
 import zio.stream.ZStream
 
@@ -270,37 +270,19 @@ object TestUtils {
         TestTwoInterfaceObject(TwoInterfaceObject(0, 1))
       )
 
-      val interfaceA = mkInterface("InterfaceA", "a")
-      val interfaceB = mkInterface("InterfaceB", "b")
-      def mkInterface(name: String, fieldName: String): __Type =
-        __Type(
-          name = Some(name),
-          kind = __TypeKind.INTERFACE,
-          fields = mkFields(fieldName)
-        )
-
-      def mkFields(fieldNames: String*) = { (_: __DeprecatedArgs) =>
-        Some(
-          fieldNames
-            .map(name =>
-              __Field(
-                name,
-                description = None,
-                args = List.empty,
-                `type` = () => __Type(name = Some("Foo"), kind = __TypeKind.SCALAR)
-              )
+      def makeFields(fieldNames: String*) =
+        fieldNames.toList
+          .map(name =>
+            __Field(
+              name,
+              description = None,
+              args = List.empty,
+              `type` = () => Types.string
             )
-            .toList
-        )
-      }
+          )
 
-      def mkIncompleteObjectWithFields(fields: String*) =
-        __Type(
-          name = Some("IncompleteFieldsObject"),
-          kind = __TypeKind.OBJECT,
-          fields = mkFields(fields: _*),
-          interfaces = () => Some(List(interfaceA, interfaceB))
-        )
+      val interfaceA = Types.makeInterface(Some("InterfaceA"), None, makeFields("a"), Nil)
+      val interfaceB = Types.makeInterface(Some("InterfaceA"), None, makeFields("b"), Nil)
     }
 
     @GQLDirective(Directive("__name"))
