@@ -15,7 +15,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
       .flatMap(doc => Formatter.format(SchemaWriter.write(doc), None))
 
   override def spec: ZSpec[TestEnvironment, Any] =
-    suite("Generator single values")(
+    suite("SchemaWriterSpec")(
       testM("type with field parameter") {
         val schema =
           """
@@ -292,6 +292,27 @@ object Types {
 
   case class Character(name: String)
   case class CharacterArgs(name: String)
+
+}
+"""
+          )
+        )
+      },
+      testM("scala reserved word used") {
+        val schema =
+          """
+             type Character {
+               private: String!
+               object: String!
+               type: String!
+             }
+            """.stripMargin
+
+        assertM(gen(schema))(
+          equalTo(
+            """object Types {
+
+  case class Character(`private`: String, `object`: String, `type`: String)
 
 }
 """
