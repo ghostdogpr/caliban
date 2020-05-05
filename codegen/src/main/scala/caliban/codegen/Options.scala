@@ -17,13 +17,13 @@ object Options {
   def fromArgs(args: List[String]): Option[Options] =
     args match {
       case schemaPath :: toPath :: other =>
-        val configSource: ConfigSource[String, String] =
+        val configSource: ConfigSource =
           ConfigSource.fromCommandLineArgs(
             args = other,
             keyDelimiter = Some('.'),
             valueDelimiter = Some(',')
           )
-        val configDescriptor: ConfigDescriptor[String, String, RawOptions] = descriptor[RawOptions] from configSource
+        val configDescriptor: ConfigDescriptor[RawOptions] = descriptor[RawOptions] from configSource
 
         read(configDescriptor).toOption.map { rawOpts =>
           Options(
