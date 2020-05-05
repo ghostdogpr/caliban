@@ -250,25 +250,6 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
             assertM(graphQL(resolverTwoInterfaces).interpreter.run)(succeeds(anything))
           },
           testM("must include a field of the same name for every field defined in an interface") {
-            def objectWithFields(fields: String*) =
-              __Type(
-                name = Some(s"Fields${fields.mkString("").toUpperCase}"),
-                kind = __TypeKind.OBJECT,
-                fields = _ =>
-                  Some(
-                    fields.toList
-                      .map(name =>
-                        __Field(
-                          name,
-                          description = None,
-                          args = List.empty,
-                          `type` = () => Types.string
-                        )
-                      )
-                  ),
-                interfaces = () => Some(List(interfaceA, interfaceB))
-              )
-
             IO.collectAll(
                 List(
                   checkTypeError(objectWithFields("a"), "Object 'FieldsA' is missing field(s): b"),

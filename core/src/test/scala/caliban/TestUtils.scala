@@ -4,7 +4,7 @@ import caliban.TestUtils.InvalidSchemas.Interface.WrongArgumentName
 import caliban.TestUtils.Origin._
 import caliban.TestUtils.Role._
 import caliban.Value.StringValue
-import caliban.introspection.adt.__Field
+import caliban.introspection.adt.{ __Field, __Type, __TypeKind }
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
 import caliban.schema.{ Schema, Types }
@@ -283,6 +283,14 @@ object TestUtils {
 
       val interfaceA = Types.makeInterface(Some("InterfaceA"), None, makeFields("a"), Nil)
       val interfaceB = Types.makeInterface(Some("InterfaceA"), None, makeFields("b"), Nil)
+
+      def objectWithFields(fields: String*) =
+        __Type(
+          name = Some(s"Fields${fields.mkString("").toUpperCase}"),
+          kind = __TypeKind.OBJECT,
+          fields = _ => Some(makeFields(fields: _*)),
+          interfaces = () => Some(List(interfaceA, interfaceB))
+        )
     }
 
     @GQLDirective(Directive("__name"))
