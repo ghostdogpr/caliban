@@ -4,16 +4,16 @@ To run the examples without the rest of the project, add this to your build.sbt:
 
 ```scala
 libraryDependencies ++= Seq(
-  "com.github.ghostdogpr"        %% "caliban" % "0.7.6",
-  "com.github.ghostdogpr"        %% "caliban-http4s" % "0.7.6",
-  "com.github.ghostdogpr"        %% "caliban-akka-http" % "0.7.6",
+  "com.github.ghostdogpr"        %% "caliban" % "0.7.7",
+  "com.github.ghostdogpr"        %% "caliban-http4s" % "0.7.7",
+  "com.github.ghostdogpr"        %% "caliban-akka-http" % "0.7.7",
   "de.heikoseeberger"            %% "akka-http-circe" % "1.31.0",
-  "com.github.ghostdogpr"        %% "caliban-cats" % "0.7.6",
-  "com.github.ghostdogpr"        %% "caliban-monix" % "0.7.6",
-  "com.github.ghostdogpr"        %% "caliban-finch" % "0.7.6",
-  "com.github.ghostdogpr"        %% "caliban-uzhttp" % "0.7.6",
-  "com.github.ghostdogpr"        %% "caliban-federation" % "0.7.6",
-  "com.github.ghostdogpr"        %% "caliban-tapir" % "0.7.6",
+  "com.github.ghostdogpr"        %% "caliban-cats" % "0.7.7",
+  "com.github.ghostdogpr"        %% "caliban-monix" % "0.7.7",
+  "com.github.ghostdogpr"        %% "caliban-finch" % "0.7.7",
+  "com.github.ghostdogpr"        %% "caliban-uzhttp" % "0.7.7",
+  "com.github.ghostdogpr"        %% "caliban-federation" % "0.7.7",
+  "com.github.ghostdogpr"        %% "caliban-tapir" % "0.7.7",
   "com.softwaremill.sttp.tapir"  %% "tapir-json-circe" % "0.14.3",
   "io.circe"                     %% "circe-generic" % "0.13.0"
 )
