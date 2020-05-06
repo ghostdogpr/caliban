@@ -21,7 +21,8 @@ object CodegenPlugin extends AutoPlugin {
       state
     }
 
-  private val commonHelp = """
+  private val commonHelp =
+    """
       |The generated code will be formatted with Scalafmt using the configuration defined by
       |`--scalafmtPath` option (default: ".scalafmt.conf").
       |
@@ -35,25 +36,25 @@ object CodegenPlugin extends AutoPlugin {
 
   private val genSchemaHelpMsg =
     s"""
-      |calibanGenSchema schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name]
-      |
-      |This command will create a Scala file in `outputPath` containing all the types
-      |defined in the provided GraphQL schema defined at `schemaPath`. Instead of a path,
-      |you can provide a URL and introspection will be used to gather the schema.
-      |
-      |$commonHelp
-      |""".stripMargin
+       |calibanGenSchema schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name]
+       |
+       |This command will create a Scala file in `outputPath` containing all the types
+       |defined in the provided GraphQL schema defined at `schemaPath`. Instead of a path,
+       |you can provide a URL and introspection will be used to gather the schema.
+       |
+       |$commonHelp
+       |""".stripMargin
 
   private val genClientHelpMsg =
     s"""
-      |calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name]
-      |
-      |This command will create a Scala file in `outputPath` containing client code for all the
-      |typed defined in the provided GraphQL schema defined at `schemaPath`. Instead of a path,
-      |you can provide a URL and introspection will be used to gather the schema.
-      |
-      |$commonHelp
-      |""".stripMargin
+       |calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name]
+       |
+       |This command will create a Scala file in `outputPath` containing client code for all the
+       |typed defined in the provided GraphQL schema defined at `schemaPath`. Instead of a path,
+       |you can provide a URL and introspection will be used to gather the schema.
+       |
+       |$commonHelp
+       |""".stripMargin
 
   def execGenCommand(
     helpMsg: String,
