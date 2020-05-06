@@ -21,36 +21,38 @@ object CodegenPlugin extends AutoPlugin {
       state
     }
 
+  private val commonHelp = """
+      |The generated code will be formatted with Scalafmt using the configuration defined by
+      |`--scalafmtPath` option (default: ".scalafmt.conf").
+      |
+      |If you provide a URL for `schemaPath`, you can provide request headers with
+      |`--headers` option.
+      |
+      |The package of the generated code is derived from the folder of `outputPath`.
+      |This can be overridden by providing an alternative package with the `--packageName`
+      |option.
+  """.stripMargin
+
   private val genSchemaHelpMsg =
-    """
-      |calibanGenSchema schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2]
+    s"""
+      |calibanGenSchema schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name]
       |
       |This command will create a Scala file in `outputPath` containing all the types
       |defined in the provided GraphQL schema defined at `schemaPath`. Instead of a path,
       |you can provide a URL and introspection will be used to gather the schema.
       |
-      |The generated code will be formatted with Scalafmt using the configuration defined by
-      |`--scalafmtPath` option (default: ".scalafmt.conf").
-      |
-      |If you provide a URL for `schemaPath`, you can provide request headers with
-      |`--headers` option.
-      |
+      |$commonHelp
       |""".stripMargin
 
   private val genClientHelpMsg =
-    """
-      |calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2]
+    s"""
+      |calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name]
       |
       |This command will create a Scala file in `outputPath` containing client code for all the
       |typed defined in the provided GraphQL schema defined at `schemaPath`. Instead of a path,
       |you can provide a URL and introspection will be used to gather the schema.
       |
-      |The generated code will be formatted with Scalafmt using the configuration defined by
-      |`--scalafmtPath` option (default: ".scalafmt.conf").
-      |
-      |If you provide a URL for `schemaPath`, you can provide request headers with
-      |`--headers` option.
-      |
+      |$commonHelp
       |""".stripMargin
 
   def execGenCommand(
