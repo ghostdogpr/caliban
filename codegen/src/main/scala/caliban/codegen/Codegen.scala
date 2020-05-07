@@ -14,7 +14,7 @@ object Codegen {
     for {
       _           <- putStrLn(s"Generating code for ${arguments.schemaPath}")
       s           = ".*/scala/(.*)/(.*).scala".r.findFirstMatchIn(arguments.toPath)
-      packageName = s.map(_.group(1).split("/").mkString("."))
+      packageName = arguments.packageName.orElse(s.map(_.group(1).split("/").mkString(".")))
       objectName  = s.map(_.group(2)).getOrElse("Client")
       schema      <- getSchema(arguments.schemaPath, arguments.headers)
       code        = writer(schema, objectName, packageName)

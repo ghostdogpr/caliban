@@ -18,7 +18,8 @@ object OptionsSpec extends DefaultRunnableSpec {
                 "schema",
                 "output",
                 Some("fmtPath"),
-                Some(List(Header("header1", "value1"), Header("header2", "value2")))
+                Some(List(Header("header1", "value1"), Header("header2", "value2"))),
+                None
               )
             )
           )
@@ -34,7 +35,8 @@ object OptionsSpec extends DefaultRunnableSpec {
                 "schema",
                 "output",
                 Some("fmtPath"),
-                Some(List(Header("header1", "value1"), Header("header2", "value2")))
+                Some(List(Header("header1", "value1"), Header("header2", "value2"))),
+                None
               )
             )
           )
@@ -46,7 +48,7 @@ object OptionsSpec extends DefaultRunnableSpec {
         assert(result)(
           equalTo(
             Some(
-              Options("schema", "output", None, None)
+              Options("schema", "output", None, None, None)
             )
           )
         )
@@ -64,6 +66,23 @@ object OptionsSpec extends DefaultRunnableSpec {
       test("empty list") {
         val result = Options.fromArgs(Nil)
         assert(result)(equalTo(None))
+      },
+      test("provide package name") {
+        val input  = List("schema", "output", "--packageName", "com.github.ghostdogpr")
+        val result = Options.fromArgs(input)
+        assert(result)(
+          equalTo(
+            Some(
+              Options(
+                "schema",
+                "output",
+                None,
+                None,
+                Some("com.github.ghostdogpr")
+              )
+            )
+          )
+        )
       }
     )
 }
