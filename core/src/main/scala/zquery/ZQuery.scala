@@ -41,7 +41,9 @@ sealed trait ZQuery[-R, +E, +A] { self =>
   /**
    * Executes one step of this query.
    */
-  protected def step(cache: Cache): ZIO[R, Nothing, Result[R, E, A]]
+  protected def _step(cache: Cache): ZIO[R, Nothing, Result[R, E, A]]
+
+  protected def step(cache: Cache): ZIO[R, Nothing, Result[R, E, A]] = ZIO.effectSuspendTotal(_step(cache))
 
   /**
    * A symbolic alias for `zipParRight`.
@@ -109,7 +111,7 @@ sealed trait ZQuery[-R, +E, +A] { self =>
    */
   final def flatMap[R1 <: R, E1 >: E, B](f: A => ZQuery[R1, E1, B]): ZQuery[R1, E1, B] =
     new ZQuery[R1, E1, B] {
-      def step(cache: Cache): ZIO[R1, Nothing, Result[R1, E1, B]] =
+      def _step(cache: Cache): ZIO[R1, Nothing, Result[R1, E1, B]] =
         self.step(cache).flatMap {
           case Result.Blocked(br, c) => ZIO.succeed(Result.blocked(br, c.flatMap(f)))
           case Result.Done(a)        => f(a).step(cache)
@@ -143,7 +145,7 @@ sealed trait ZQuery[-R, +E, +A] { self =>
     success: A => ZQuery[R1, E1, B]
   ): ZQuery[R1, E1, B] =
     new ZQuery[R1, E1, B] {
-      def step(cache: Cache): ZIO[R1, Nothing, Result[R1, E1, B]] =
+      def _step(cache: Cache): ZIO[R1, Nothing, Result[R1, E1, B]] =
         self
           .step(cache)
           .foldCauseM(
@@ -160,7 +162,7 @@ sealed trait ZQuery[-R, +E, +A] { self =>
    */
   final def map[B](f: A => B): ZQuery[R, E, B] =
     new ZQuery[R, E, B] {
-      def step(cache: Cache): ZIO[R, Nothing, Result[R, E, B]] =
+      def _step(cache: Cache): ZIO[R, Nothing, Result[R, E, B]] =
         self.step(cache).map(_.map(f))
     }
 
@@ -215,7 +217,7 @@ sealed trait ZQuery[-R, +E, +A] { self =>
     layer: Described[ZLayer[R0, E1, R1]]
   )(implicit ev1: R1 <:< R, ev2: NeedsEnv[R]): ZQuery[R0, E1, A] =
     new ZQuery[R0, E1, A] {
-      def step(cache: Cache): ZIO[R0, Nothing, Result[R0, E1, A]] =
+      def _step(cache: Cache): ZIO[R0, Nothing, Result[R0, E1, A]] =
         layer.value.build.run.use {
           case Exit.Failure(e) => ZIO.succeed(Result.fail(e))
           case Exit.Success(r) => self.step(cache).provide(r).map(_.provide(Described(r, layer.description)))
@@ -227,7 +229,7 @@ sealed trait ZQuery[-R, +E, +A] { self =>
    */
   final def provideSome[R0](f: Described[R0 => R])(implicit ev: NeedsEnv[R]): ZQuery[R0, E, A] =
     new ZQuery[R0, E, A] {
-      def step(cache: Cache): ZIO[R0, Nothing, Result[R0, E, A]] =
+      def _step(cache: Cache): ZIO[R0, Nothing, Result[R0, E, A]] =
         self.step(cache).provideSome(f.value).map(_.provideSome(f))
     }
 
@@ -343,7 +345,7 @@ sealed trait ZQuery[-R, +E, +A] { self =>
    */
   final def zipWithPar[R1 <: R, E1 >: E, B, C](that: ZQuery[R1, E1, B])(f: (A, B) => C): ZQuery[R1, E1, C] =
     new ZQuery[R1, E1, C] {
-      def step(cache: Cache): ZIO[R1, Nothing, Result[R1, E1, C]] =
+      def _step(cache: Cache): ZIO[R1, Nothing, Result[R1, E1, C]] =
         self.step(cache).zipPar(that.step(cache)).map {
           case (Result.Blocked(br1, c1), Result.Blocked(br2, c2)) => Result.blocked(br1 ++ br2, c1.zipWithPar(c2)(f))
           case (Result.Blocked(br, c), Result.Done(b))            => Result.blocked(br, c.map(a => f(a, b)))
@@ -422,7 +424,7 @@ object ZQuery {
     request: A
   )(dataSource: DataSource[R, A])(implicit ev: A <:< Request[E, B]): ZQuery[R, E, B] =
     new ZQuery[R, E, B] {
-      def step(cache: Cache): ZIO[R, Nothing, Result[R, E, B]] =
+      def _step(cache: Cache): ZIO[R, Nothing, Result[R, E, B]] =
         cache
           .lookup(request)
           .foldM(
@@ -518,7 +520,7 @@ object ZQuery {
    */
   private def apply[R, E, A](step0: ZIO[R, Nothing, Result[R, E, A]]): ZQuery[R, E, A] =
     new ZQuery[R, E, A] {
-      def step(cache: Cache): ZIO[R, Nothing, Result[R, E, A]] =
+      def _step(cache: Cache): ZIO[R, Nothing, Result[R, E, A]] =
         step0
     }
 

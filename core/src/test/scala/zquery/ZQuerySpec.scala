@@ -64,6 +64,18 @@ object ZQuerySpec extends ZIOBaseSpec {
           _       <- promise.await
         } yield assertCompletes
       },
+      testM("flatMap is stack safe") {
+        val zio = (1 to 100000)
+          .map(ZQuery.succeed(_))
+          .foldLeft(ZQuery.succeed(0)) { (acc, a) =>
+            for {
+              x <- acc
+              y <- a
+            } yield x + y
+          }
+          .run
+        assertM(zio)(anything)
+      },
       testM("zipPar does not prevent batching") {
         for {
           result <- ZQuery.collectAllPar(List.fill(100)(getAllUserNames)).run
