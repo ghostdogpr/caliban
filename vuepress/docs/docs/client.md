@@ -21,8 +21,8 @@ Caliban-client is available for ScalaJS.
 
 The first step for building GraphQL queries with `caliban-client` is to generate boilerplate code from a GraphQL schema. For that, you need a file containing your schema (if your backend uses `caliban`, you can get it by calling `GraphQL#render` on your API).
 
-To use this feature, add the `caliban-codegen-sbt` sbt plugin to your project and enable it. 
- 
+To use this feature, add the `caliban-codegen-sbt` sbt plugin to your project and enable it.
+
 ```scala
 addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "0.7.7")
 enablePlugins(CodegenPlugin)
@@ -37,6 +37,9 @@ This command will generate a Scala file in `outputPath` containing helper functi
 Instead of a file, you can provide a URL and the schema will be obtained using introspection.
 The generated code will be formatted with Scalafmt using the configuration defined by `--scalafmtPath` option (default: `.scalafmt.conf`).
 If you provide a URL for `schemaPath`, you can provide request headers with `--headers` option.
+The package of the generated code is derived from the folder of `outputPath`.
+This can be overridden by providing an alternative package with the `--packageName`
+option.
 
 ## Query building
 
@@ -89,7 +92,7 @@ type Query {
 When calling `characters`, we need to provide a `SelectionBuilder[Character, ?]` to indicate which fields to select on the returned `Character`.
 
 ```scala
-val query: SelectionBuilder[RootQuery, List[CharacterView]] = 
+val query: SelectionBuilder[RootQuery, List[CharacterView]] =
   Query.characters {
     (Character.name ~ Character.nicknames ~ Character.origin)
       .mapN(CharacterView)
@@ -98,7 +101,7 @@ val query: SelectionBuilder[RootQuery, List[CharacterView]] =
 
 Or if we reuse the `character` selection we just created:
 ```scala
-val query: SelectionBuilder[RootQuery, List[CharacterView]] = 
+val query: SelectionBuilder[RootQuery, List[CharacterView]] =
   Query.characters {
     character
   }
@@ -117,7 +120,7 @@ type Query {
 You now need to provide an `Origin` when calling `characters`:
 
 ```scala
-val query: SelectionBuilder[RootQuery, List[CharacterView]] = 
+val query: SelectionBuilder[RootQuery, List[CharacterView]] =
   Query.characters(Origin.MARS) {
     character
   }
@@ -136,7 +139,7 @@ import sttp.client.asynchttpclient.zio.AsyncHttpClientZioBackend
 
 AsyncHttpClientZioBackend().flatMap { implicit backend =>
   val serverUrl = uri"http://localhost:8088/api/graphql"
-  val result: Task[List[CharacterView]] = 
+  val result: Task[List[CharacterView]] =
     query.toRequest(serverUrl).send().map(_.body).absolve
   ...
 }

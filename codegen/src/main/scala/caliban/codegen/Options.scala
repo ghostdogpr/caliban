@@ -7,12 +7,13 @@ final case class Options(
   schemaPath: String,
   toPath: String,
   fmtPath: Option[String],
-  headers: Option[List[Options.Header]]
+  headers: Option[List[Options.Header]],
+  packageName: Option[String]
 )
 
 object Options {
   final case class Header(name: String, value: String)
-  final case class RawOptions(scalafmtPath: Option[String], headers: Option[List[String]])
+  final case class RawOptions(scalafmtPath: Option[String], headers: Option[List[String]], packageName: Option[String])
 
   def fromArgs(args: List[String]): Option[Options] =
     args match {
@@ -37,7 +38,8 @@ object Options {
                   case _                    => None
                 }
               }
-            }
+            },
+            rawOpts.packageName
           )
         }
       case _ => None

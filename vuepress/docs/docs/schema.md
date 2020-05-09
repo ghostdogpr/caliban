@@ -193,10 +193,10 @@ implicit val localDateArgBuilder: ArgBuilder[LocalDate] = {
 
 ## Code generation
 
-Caliban can automatically generate Scala code from a GraphQL schema. 
+Caliban can automatically generate Scala code from a GraphQL schema.
 
-In order to use this feature, add the `caliban-codegen-sbt` sbt plugin to your project and enable it. 
- 
+In order to use this feature, add the `caliban-codegen-sbt` sbt plugin to your project and enable it.
+
 ```scala
 addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "0.7.7")
 enablePlugins(CodegenPlugin)
@@ -211,6 +211,9 @@ This command will create a Scala file in `outputPath` containing all the types d
 Instead of a file, you can provide a URL and the schema will be obtained using introspection.
 The generated code will be formatted with Scalafmt using the configuration defined by `--scalafmtPath` option (default: `.scalafmt.conf`).
 If you provide a URL for `schemaPath`, you can provide request headers with `--headers` option.
+The package of the generated code is derived from the folder of `outputPath`.
+This can be overridden by providing an alternative package with the `--packageName`
+option.
 
 ::: warning Unsupported features
 Some features are not supported by Caliban and will cause an error during code generation:
