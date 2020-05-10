@@ -236,6 +236,18 @@ lazy val uzhttp = project
   )
   .dependsOn(core)
 
+lazy val play = project
+  .in(file("adapters/play"))
+  .settings(name := "caliban-play")
+  .settings(commonSettings)
+  .settings(
+    libraryDependencies ++= Seq(
+      "com.typesafe.play" %% "play"                % "2.8.1",
+      "de.heikoseeberger" %% "akka-http-play-json" % "1.32.0"
+    )
+  )
+  .dependsOn(akkaHttp)
+
 lazy val client = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)
   .in(file("client"))
