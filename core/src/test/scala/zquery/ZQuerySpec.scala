@@ -2,7 +2,7 @@ package zquery
 
 import zio.console.Console
 import zio.test.Assertion._
-import zio.test.TestAspect.silent
+import zio.test.TestAspect.{ nonFlaky, silent }
 import zio.test._
 import zio.test.environment.{ TestConsole, TestEnvironment }
 import zio.{ console, Promise, ZIO }
@@ -69,7 +69,19 @@ object ZQuerySpec extends ZIOBaseSpec {
           result <- ZQuery.collectAllPar(List.fill(100)(getAllUserNames)).run
           log    <- TestConsole.output
         } yield assert(log)(hasSize(equalTo(2)))
-      } @@ TestAspect.nonFlaky
+      } @@ nonFlaky,
+      testM("stack safety") {
+        val effect = (0 to 100000)
+          .map(ZQuery.succeed(_))
+          .foldLeft(ZQuery.succeed(0)) { (query1, query2) =>
+            for {
+              acc <- query1
+              i   <- query2
+            } yield acc + i
+          }
+          .run
+        assertM(effect)(equalTo(705082704))
+      }
     ) @@ silent
 
   val userIds: List[Int]          = (1 to 26).toList
