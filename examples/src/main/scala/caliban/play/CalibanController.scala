@@ -24,8 +24,8 @@ class CalibanController(val controllerComponents: ControllerComponents)(
   val calibanPlayAdapter: PlayAdapter =
     PlayAdapter(new PlayJsonBackend(), controllerComponents.parsers, controllerComponents.actionBuilder)
 
-  implicit val runtime: Runtime[ZEnv] = Runtime.default
-  implicit val ec                     = actorSystem.dispatcher
+  implicit val runtime = Runtime.default
+  implicit val ec      = actorSystem.dispatcher
 
   val service: ZLayer[Any, Nothing, ExampleService] = ExampleService.make(ExampleData.sampleCharacters)
 
@@ -43,7 +43,7 @@ class CalibanController(val controllerComponents: ControllerComponents)(
     extensions: Option[String]
   ): Action[AnyContent] =
     calibanPlayAdapter.makeGetAction(interpreter)(query, variables, operation, extensions)
-    
+
   def graphqlPost(): Action[GraphQLRequest] = calibanPlayAdapter.makePostAction(interpreter)
 
   def webSocket(): WebSocket = calibanPlayAdapter.makeWebSocket(interpreter)
