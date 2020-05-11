@@ -6,7 +6,7 @@ import zio.UIO
 import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment
-import zquery.ZQuery
+import zio.zquery.ZQuery
 
 object TapirSpec extends DefaultRunnableSpec {
 
