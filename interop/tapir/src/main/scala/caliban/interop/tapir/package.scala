@@ -164,7 +164,7 @@ package object tapir {
 
   private def extractPath[I](endpointName: Option[String], input: EndpointInput[I]): String =
     endpointName
-      .flatMap(toCamel)
+      .map(replaceIllegalChars)
       .getOrElse(
         input
           .asVectorOfBasicInputs(includeAuth = false)
@@ -178,14 +178,8 @@ package object tapir {
         }
       )
 
-  private def toCamel(s: String): Option[String] =
-    s.replaceAll("\\W", "_")
-      .split("_")
-      .filterNot(_.isEmpty) match {
-      case Array(head, tail @ _*) =>
-        Some(head ++ tail.map(s => s"${s.head.toUpper}${s.tail.toLowerCase()}").mkString(""))
-      case _ => None
-    }
+  private def replaceIllegalChars(s: String): String =
+    s.replaceAll("\\W+", "_")
 
   private def extractArgNames[I](input: EndpointInput[I]): Map[String, Option[(String, Option[String])]] =
     input.traverseInputs {
