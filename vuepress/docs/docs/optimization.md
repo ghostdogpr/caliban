@@ -7,7 +7,7 @@ We might want to:
 - **cache** identical queries (deduplication)
 - **batch** queries to the same source
 
-This is possible in Caliban using the `ZQuery` data type.
+This is possible in Caliban using the [`ZQuery`](https://github.com/zio/zquery) data type.
 
 ## Introducing ZQuery
 
