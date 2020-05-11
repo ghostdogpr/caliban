@@ -56,7 +56,7 @@ object TapirSpec extends DefaultRunnableSpec {
         val interpreter = api.interpreter
         val query       = gqldoc("""
             query test {
-              override(title: "Title", X_Auth_Token: "token")
+              overrideWithIllegalChars(title: "Title", X_Auth_Token: "token")
             }""")
 
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
