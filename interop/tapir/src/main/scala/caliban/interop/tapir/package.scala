@@ -181,10 +181,10 @@ package object tapir {
   private def toCamel(s: String): Option[String] =
     s.replaceAll("\\W", "_")
       .split("_")
-      .filterNot(_.isEmpty)
-      .map(s => s"${s.head.toUpper}${s.tail.toLowerCase()}") match {
-      case Array(head, tail @ _*) => Some((head.toLowerCase ++ tail).mkString(""))
-      case _                      => None
+      .filterNot(_.isEmpty) match {
+      case Array(head, tail @ _*) =>
+        Some(head ++ tail.map(s => s"${s.head.toUpper}${s.tail.toLowerCase()}").mkString(""))
+      case _ => None
     }
 
   private def extractArgNames[I](input: EndpointInput[I]): Map[String, Option[(String, Option[String])]] =
