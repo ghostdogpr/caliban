@@ -163,18 +163,28 @@ package object tapir {
   }
 
   private def extractPath[I](endpointName: Option[String], input: EndpointInput[I]): String =
-    endpointName.getOrElse(
-      input
-        .asVectorOfBasicInputs(includeAuth = false)
-        .collect {
-          case EndpointInput.FixedPath(s, _, _) => s
+    endpointName
+      .flatMap(toCamel)
+      .getOrElse(
+        input
+          .asVectorOfBasicInputs(includeAuth = false)
+          .collect {
+            case EndpointInput.FixedPath(s, _, _) => s
+          }
+          .toList match {
+          case Nil          => "root"
+          case head :: Nil  => head
+          case head :: tail => head ++ tail.map(_.capitalize).mkString
         }
-        .toList match {
-        case Nil          => "root"
-        case head :: Nil  => head
-        case head :: tail => head ++ tail.map(_.capitalize).mkString
-      }
-    )
+      )
+
+  private def toCamel(s: String): Option[String] =
+    s.replaceAll("\\W", "_")
+      .split("_")
+      .filterNot(_.isEmpty) match {
+      case Array(head, tail @ _*) => Some((head.toLowerCase ++ tail).mkString(""))
+      case _                      => None
+    }
 
   private def extractArgNames[I](input: EndpointInput[I]): Map[String, Option[(String, Option[String])]] =
     input.traverseInputs {

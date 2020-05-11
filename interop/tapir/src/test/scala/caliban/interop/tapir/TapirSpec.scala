@@ -51,7 +51,7 @@ object TapirSpec extends DefaultRunnableSpec {
       },
       testM("test override operation name") {
         val api = getBook
-          .name("override")
+          .name("override with IllEgal-ChaRs !@()[]/,>")
           .toGraphQLQuery({ case (title, token) => ZQuery.succeed(s"$title+$token") })
         val interpreter = api.interpreter
         val query       = gqldoc("""
@@ -60,7 +60,7 @@ object TapirSpec extends DefaultRunnableSpec {
             }""")
 
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
-          equalTo("""{"override":"Title+token"}""")
+          equalTo("""{"overrideWithIllegalChars":"Title+token"}""")
         )
       }
     )
