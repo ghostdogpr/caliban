@@ -7,7 +7,7 @@ import caliban.parsing.adt.Directive
 import caliban.schema.Step.QueryStep
 import caliban.schema._
 import caliban.{ CalibanError, GraphQL, InputValue, RootResolver }
-import zquery.ZQuery
+import zio.zquery.ZQuery
 
 trait Federation {
   import Federation._

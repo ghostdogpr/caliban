@@ -3,7 +3,7 @@ package caliban.federation
 import caliban.federation
 import caliban.federation.CharacterService.CharacterService
 import caliban.schema.Annotations.GQLDirective
-import zquery.ZQuery
+import zio.zquery.ZQuery
 
 object FederationData {
 

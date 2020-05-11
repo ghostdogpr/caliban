@@ -5,8 +5,8 @@ import caliban.schema.{ GenericSchema, Schema }
 import caliban.{ GraphQL, RootResolver }
 import zio.console.{ putStrLn, Console }
 import zio.{ App, ZIO }
-import zquery.DataSource.fromFunctionBatchedM
-import zquery.{ CompletedRequestMap, DataSource, Request, ZQuery }
+import zio.zquery.DataSource.fromFunctionBatchedM
+import zio.zquery.{ CompletedRequestMap, DataSource, Request, ZQuery }
 
 /**
  * Optimized implementation of https://blog.apollographql.com/optimizing-your-graphql-request-waterfalls-7c3f3360b051

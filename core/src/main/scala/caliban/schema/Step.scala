@@ -5,7 +5,7 @@ import caliban.Value.NullValue
 import caliban.execution.FieldInfo
 import caliban.{ InputValue, ResponseValue }
 import zio.stream.ZStream
-import zquery.ZQuery
+import zio.zquery.ZQuery
 
 sealed trait Step[-R]
 

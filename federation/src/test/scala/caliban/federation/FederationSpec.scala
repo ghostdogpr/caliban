@@ -6,7 +6,7 @@ import caliban.Macros.gqldoc
 import caliban.TestUtils._
 import zio.test.Assertion._
 import zio.test._
-import zquery.ZQuery
+import zio.zquery.ZQuery
 
 object FederationSpec extends DefaultRunnableSpec {
   val entityResolver =

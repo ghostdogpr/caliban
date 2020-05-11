@@ -10,7 +10,7 @@ import sttp.tapir.internal._
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.{ Endpoint, EndpointIO, EndpointInput, EndpointOutput }
 import zio.{ IO, URIO, ZIO }
-import zquery.{ URQuery, ZQuery }
+import zio.zquery.{ URQuery, ZQuery }
 
 package object tapir {
 
