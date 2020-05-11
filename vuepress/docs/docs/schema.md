@@ -27,9 +27,9 @@ The table below shows how common Scala types are converted to GraphQL types.
 | Either[A, B]                                        | Object with 2 nullable fields `left` and `right`                 |
 | Map[A, B]                                           | List of Object with 2 fields `key` and `value`                   |
 | ZIO[R, Nothing, A]                                  | A                                                                |
-| ZIO[R, E, A]                                        | Nullable A                                                       |
+| ZIO[R, Throwable, A]                                | Nullable A                                                       |
 | Future[A]                                           | Nullable A                                                       |
-| ZStream[R, E, A]                                    | A (subscription) or List of A (query, mutation)                  |
+| ZStream[R, Throwable, A]                            | A (subscription) or List of A (query, mutation)                  |
 | Json (from [Circe](https://github.com/circe/circe)) | Json (custom scalar, need `import caliban.interop.circe.json._`) |
 | Json (from [play-json](https://github.com/playframework/play-json)) | Json (custom scalar, need `import caliban.interop.play.json._`) |
 
@@ -198,7 +198,7 @@ Caliban can automatically generate Scala code from a GraphQL schema.
 In order to use this feature, add the `caliban-codegen-sbt` sbt plugin to your project and enable it.
 
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "0.7.7")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "0.7.8")
 enablePlugins(CodegenPlugin)
 ```
 Then call the `calibanGenSchema` sbt command.
