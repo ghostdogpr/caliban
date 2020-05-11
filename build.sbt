@@ -3,9 +3,11 @@ import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 val mainScala = "2.12.11"
 val allScala  = Seq("2.13.2", mainScala)
 
+val akkaVersion           = "2.6.5"
 val catsEffectVersion     = "2.1.3"
 val circeVersion          = "0.13.0"
 val http4sVersion         = "0.21.4"
+val playVersion           = "2.8.1"
 val silencerVersion       = "1.6.0"
 val sttpVersion           = "2.0.9"
 val tapirVersion          = "0.15.0"
@@ -62,6 +64,7 @@ lazy val root = project
     http4s,
     akkaHttp,
     uzhttp,
+    play,
     catsInterop,
     monixInterop,
     tapirInterop,
@@ -88,7 +91,7 @@ lazy val core = project
       "dev.zio"           %% "zio-test"     % zioVersion % "test",
       "dev.zio"           %% "zio-test-sbt" % zioVersion % "test",
       "io.circe"          %% "circe-core"   % circeVersion % Optional,
-      "com.typesafe.play" %% "play-json"    % "2.8.1" % Optional,
+      "com.typesafe.play" %% "play-json"    % playVersion % Optional,
       compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
     )
   )
@@ -198,7 +201,7 @@ lazy val akkaHttp = project
   .settings(
     libraryDependencies ++= Seq(
       "com.typesafe.akka" %% "akka-http"           % "10.1.12",
-      "com.typesafe.akka" %% "akka-stream"         % "2.6.5",
+      "com.typesafe.akka" %% "akka-stream"         % akkaVersion,
       "de.heikoseeberger" %% "akka-http-circe"     % "1.32.0" % Optional,
       "de.heikoseeberger" %% "akka-http-play-json" % "1.32.0" % Optional,
       compilerPlugin(
@@ -242,7 +245,7 @@ lazy val play = project
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "com.typesafe.play" %% "play"                % "2.8.1",
+      "com.typesafe.play" %% "play"                % playVersion,
       "de.heikoseeberger" %% "akka-http-play-json" % "1.32.0"
     )
   )
@@ -277,10 +280,13 @@ lazy val examples = project
       "de.heikoseeberger"            %% "akka-http-circe"               % "1.32.0",
       "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion,
       "com.softwaremill.sttp.tapir"  %% "tapir-json-circe"              % tapirVersion,
-      "io.circe"                     %% "circe-generic"                 % circeVersion
+      "io.circe"                     %% "circe-generic"                 % circeVersion,
+      "com.typesafe.play"            %% "play-akka-http-server"         % playVersion,
+      "com.typesafe.akka"            %% "akka-actor-typed"              % akkaVersion,
+      "com.typesafe.akka"            %% "akka-slf4j"                    % akkaVersion
     )
   )
-  .dependsOn(akkaHttp, http4s, catsInterop, finch, uzhttp, monixInterop, tapirInterop, clientJVM, federation)
+  .dependsOn(akkaHttp, http4s, catsInterop, finch, uzhttp, play, monixInterop, tapirInterop, clientJVM, federation)
 
 lazy val benchmarks = project
   .in(file("benchmarks"))

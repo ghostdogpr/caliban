@@ -19,6 +19,9 @@ trait PlayAdapter {
   def actionBuilder: ActionBuilder[Request, AnyContent]
   def parse: PlayBodyParsers
 
+  implicit def writableGraphQLResponse[E](implicit wr: Writes[GraphQLResponse[E]]): Writeable[GraphQLResponse[E]] =
+    Writeable.writeableOf_JsValue.map(wr.writes)
+
   private def executeRequest[R, E](
     interpreter: GraphQLInterpreter[R, E],
     request: GraphQLRequest,
@@ -37,13 +40,12 @@ trait PlayAdapter {
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true
   )(implicit runtime: Runtime[R]): Action[GraphQLRequest] =
-    actionBuilder.async(parse.json[GraphQLRequest])(
-      req =>
-        executeRequest(
-          interpreter,
-          req.body,
-          skipValidation: Boolean,
-          enableIntrospection: Boolean
+    actionBuilder.async(parse.json[GraphQLRequest])(req =>
+      executeRequest(
+        interpreter,
+        req.body,
+        skipValidation: Boolean,
+        enableIntrospection: Boolean
       )
     )
 
@@ -73,9 +75,9 @@ trait PlayAdapter {
 
   private def webSocketFlow[R, E](
     interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    keepAliveTime: Option[Duration] = None
+    skipValidation: Boolean,
+    enableIntrospection: Boolean,
+    keepAliveTime: Option[Duration]
   )(implicit ec: ExecutionContext, materializer: Materializer, runtime: Runtime[R]): Flow[String, String, Unit] = {
     def sendMessage(
       sendQueue: SourceQueueWithComplete[String],
@@ -140,12 +142,11 @@ trait PlayAdapter {
               case "stop" =>
                 subscriptions
                   .modify(map => (map.get(Option(msg.id)), map - Option(msg.id)))
-                  .flatMap(
-                    fiber =>
-                      IO.whenCase(fiber) {
-                        case Some(fiber) =>
-                          fiber.interrupt *>
-                            IO.fromFuture(_ => queue.offer(s"""{"type":"complete","id":"${msg.id}"}"""))
+                  .flatMap(fiber =>
+                    IO.whenCase(fiber) {
+                      case Some(fiber) =>
+                        fiber.interrupt *>
+                          IO.fromFuture(_ => queue.offer(s"""{"type":"complete","id":"${msg.id}"}"""))
                     }
                   )
             }
@@ -164,8 +165,8 @@ trait PlayAdapter {
     enableIntrospection: Boolean = true,
     keepAliveTime: Option[Duration] = None
   )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): WebSocket =
-    WebSocket.accept[String, String](
-      _ => webSocketFlow(interpreter, skipValidation, enableIntrospection, keepAliveTime)
+    WebSocket.accept[String, String](_ =>
+      webSocketFlow(interpreter, skipValidation, enableIntrospection, keepAliveTime)
     )
 
   def makeWakeSocketOrResult[R, E](
@@ -176,10 +177,9 @@ trait PlayAdapter {
     keepAliveTime: Option[Duration] = None
   )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer) =
     WebSocket
-      .acceptOrResult(
-        requestHeader =>
-          handleRequestHeader(requestHeader)
-            .map(_.map(_ => webSocketFlow(interpreter, skipValidation, enableIntrospection, keepAliveTime)))
+      .acceptOrResult(requestHeader =>
+        handleRequestHeader(requestHeader)
+          .map(_.map(_ => webSocketFlow(interpreter, skipValidation, enableIntrospection, keepAliveTime)))
       )
 }
 
@@ -187,7 +187,7 @@ object PlayAdapter {
   def apply(
     jsonBackend: JsonBackend,
     playBodyParsers: PlayBodyParsers,
-    _actionBuilder: ActionBuilder[Request, AnyContent],
+    _actionBuilder: ActionBuilder[Request, AnyContent]
   ): PlayAdapter =
     new PlayAdapter {
       override def json: JsonBackend                                 = jsonBackend
