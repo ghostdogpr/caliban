@@ -2,11 +2,8 @@ package caliban
 
 import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
 import akka.stream.scaladsl.{ Flow, Sink, Source, SourceQueueWithComplete }
-import caliban.interop.play.PlayJsonBackend
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
-import play.api.http.Writeable
-import play.api.libs.json.Writes
 import play.api.mvc.{ Action, ActionBuilder, AnyContent, PlayBodyParsers, Request, RequestHeader, Result, WebSocket }
 import play.api.mvc.Results.Ok
 import zio.{ CancelableFuture, Fiber, IO, RIO, Ref, Runtime, Schedule, Task, ZIO }
@@ -15,15 +12,10 @@ import zio.duration.Duration
 
 import scala.concurrent.{ ExecutionContext, Future }
 
-trait PlayAdapter {
+trait PlayAdapter extends PlayJson {
 
   def actionBuilder: ActionBuilder[Request, AnyContent]
   def parse: PlayBodyParsers
-
-  private val json = new PlayJsonBackend()
-
-  implicit def writableGraphQLResponse[E](implicit wr: Writes[GraphQLResponse[E]]): Writeable[GraphQLResponse[E]] =
-    Writeable.writeableOf_JsValue.map(wr.writes)
 
   private def executeRequest[R, E](
     interpreter: GraphQLInterpreter[R, E],
@@ -63,17 +55,15 @@ trait PlayAdapter {
     extensions: Option[String]
   )(implicit runtime: Runtime[R]): Action[AnyContent] =
     actionBuilder.async(
-      json
-        .parseHttpRequest(
-          query,
-          variables,
-          operation,
-          extensions
-        )
-        .fold(
-          Future.failed,
-          executeRequest(interpreter, _, skipValidation, enableIntrospection)
-        )
+      parseHttpRequest(
+        query,
+        variables,
+        operation,
+        extensions
+      ).fold(
+        Future.failed,
+        executeRequest(interpreter, _, skipValidation, enableIntrospection)
+      )
     )
 
   private def webSocketFlow[R, E](
@@ -88,7 +78,7 @@ trait PlayAdapter {
       data: ResponseValue,
       errors: List[E]
     ): Task[QueueOfferResult] =
-      IO.fromFuture(_ => sendQueue.offer(json.encodeWSResponse(id, data, errors)))
+      IO.fromFuture(_ => sendQueue.offer(encodeWSResponse(id, data, errors)))
 
     def startSubscription(
       messageId: String,
@@ -119,7 +109,7 @@ trait PlayAdapter {
 
     val sink = Sink.foreach[String] { text =>
       val io = for {
-        msg     <- Task.fromEither(json.parseWSMessage(text))
+        msg     <- Task.fromEither(parseWSMessage(text))
         msgType = msg.messageType
         _ <- IO.whenCase(msgType) {
               case "connection_init" =>
@@ -140,7 +130,7 @@ trait PlayAdapter {
                 Task.whenCase(msg.request) {
                   case Some(req) =>
                     startSubscription(msg.id, req, queue, subscriptions)
-                      .catchAll(error => IO.fromFuture(_ => queue.offer(json.encodeWSError(msg.id, error))))
+                      .catchAll(error => IO.fromFuture(_ => queue.offer(encodeWSError(msg.id, error))))
                 }
               case "stop" =>
                 subscriptions

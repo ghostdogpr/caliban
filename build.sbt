@@ -245,11 +245,10 @@ lazy val play = project
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "com.typesafe.play" %% "play"                % playVersion,
-      "de.heikoseeberger" %% "akka-http-play-json" % "1.32.0"
+      "com.typesafe.play" %% "play" % playVersion
     )
   )
-  .dependsOn(akkaHttp)
+  .dependsOn(core)
 
 lazy val client = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)
