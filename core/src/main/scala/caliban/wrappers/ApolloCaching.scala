@@ -8,7 +8,7 @@ import caliban.parsing.adt.Directive
 import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper }
 import zio.Ref
 import zio.duration.Duration
-import zquery.ZQuery
+import zio.zquery.ZQuery
 
 /**
  * Returns a wrapper which applies apollo caching response extensions

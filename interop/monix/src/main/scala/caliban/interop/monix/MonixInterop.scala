@@ -11,7 +11,7 @@ import zio._
 import zio.interop.catz._
 import zio.interop.reactivestreams._
 import zio.stream.ZStream
-import zquery.ZQuery
+import zio.zquery.ZQuery
 
 object MonixInterop {
 

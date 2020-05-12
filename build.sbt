@@ -12,6 +12,7 @@ val tapirVersion          = "0.14.5"
 val zioVersion            = "1.0.0-RC18-2"
 val zioInteropCatsVersion = "2.0.0.0-RC13"
 val zioConfigVersion      = "1.0.0-RC17"
+val zqueryVersion         = "0.1.0"
 
 inThisBuild(
   List(
@@ -83,6 +84,7 @@ lazy val core = project
       "com.propensive"    %% "mercator"     % "0.2.1",
       "dev.zio"           %% "zio"          % zioVersion,
       "dev.zio"           %% "zio-streams"  % zioVersion,
+      "dev.zio"           %% "zquery"       % zqueryVersion,
       "dev.zio"           %% "zio-test"     % zioVersion % "test",
       "dev.zio"           %% "zio-test-sbt" % zioVersion % "test",
       "io.circe"          %% "circe-core"   % circeVersion % Optional,
@@ -195,7 +197,7 @@ lazy val akkaHttp = project
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "com.typesafe.akka" %% "akka-http"           % "10.1.11",
+      "com.typesafe.akka" %% "akka-http"           % "10.1.12",
       "com.typesafe.akka" %% "akka-stream"         % "2.6.5",
       "de.heikoseeberger" %% "akka-http-circe"     % "1.32.0" % Optional,
       "de.heikoseeberger" %% "akka-http-play-json" % "1.32.0" % Optional,

@@ -143,3 +143,14 @@ val api: GraphQL[Any] = addBookEndpoint.toGraphQL
 ```
 
 You can find a [full example](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/caliban/tapir) on github.
+
+### GraphQL restrictions
+
+[GraphQL spec](https://spec.graphql.org/June2018/#sec-Operation-Name-Uniqueness) requires unique naming for all operations.
+
+To customize the [name](https://github.com/softwaremill/tapir/blob/master/core/src/main/scala/sttp/tapir/Endpoint.scala#L287) of an operation use `EndpointInfo.name`
+
+```scala
+endpoint
+  .name("overrideName")
+``` 
