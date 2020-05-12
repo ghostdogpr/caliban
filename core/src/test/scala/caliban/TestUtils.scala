@@ -1,7 +1,9 @@
 package caliban
 
 import caliban.TestUtils.InvalidSchemas.Interface.WrongArgumentName
+import caliban.TestUtils.InvalidSchemas.Object.FieldInterface.FieldSubtypeObject
 import caliban.TestUtils.InvalidSchemas.Object.FieldUnion.FIELD_A
+import caliban.TestUtils.InvalidSchemas.Object.WithFieldInterface.WithFieldObject
 import caliban.TestUtils.Origin._
 import caliban.TestUtils.Role._
 import caliban.Value.StringValue
@@ -305,6 +307,26 @@ object TestUtils {
       case class TestUnionSubtype(fieldUnion: FieldUnionObject)
 
       val resolverUnionSubtype = RootResolver(TestUnionSubtype(FieldUnionObject(FIELD_A)))
+
+      @GQLInterface
+      sealed trait FieldInterface {
+        val a: String
+      }
+      object FieldInterface {
+        case class FieldSubtypeObject(a: String) extends FieldInterface
+      }
+
+      @GQLInterface
+      sealed trait WithFieldInterface {
+        val field: FieldInterface
+      }
+      object WithFieldInterface {
+        case class WithFieldObject(field: FieldSubtypeObject) extends WithFieldInterface
+      }
+
+      case class TestInterfaceSubtype(fieldInterface: WithFieldObject)
+
+      val resolverInterfaceSubtype = RootResolver(TestInterfaceSubtype(WithFieldObject(FieldSubtypeObject("a"))))
     }
 
     @GQLDirective(Directive("__name"))
