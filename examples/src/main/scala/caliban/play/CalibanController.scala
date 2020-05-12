@@ -2,17 +2,8 @@ package caliban.play
 
 import akka.actor.ActorSystem
 import akka.stream.Materializer
-import caliban.{
-  CalibanError,
-  ExampleApi,
-  ExampleData,
-  ExampleService,
-  GraphQLInterpreter,
-  GraphQLRequest,
-  PlayAdapter
-}
+import caliban.{play => _, _}
 import caliban.ExampleService.ExampleService
-import caliban.interop.play.PlayJsonBackend
 import play.api.mvc._
 import zio.{ Runtime, ZEnv, ZLayer }
 
@@ -22,7 +13,7 @@ class CalibanController(val controllerComponents: ControllerComponents)(
 ) extends BaseController {
 
   val calibanPlayAdapter: PlayAdapter =
-    PlayAdapter(new PlayJsonBackend(), controllerComponents.parsers, controllerComponents.actionBuilder)
+    PlayAdapter(controllerComponents.parsers, controllerComponents.actionBuilder)
 
   implicit val runtime = Runtime.default
   implicit val ec      = actorSystem.dispatcher

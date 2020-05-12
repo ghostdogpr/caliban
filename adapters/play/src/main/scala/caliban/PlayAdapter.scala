@@ -2,6 +2,7 @@ package caliban
 
 import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
 import akka.stream.scaladsl.{ Flow, Sink, Source, SourceQueueWithComplete }
+import caliban.interop.play.PlayJsonBackend
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
 import play.api.http.Writeable
@@ -11,13 +12,15 @@ import play.api.mvc.Results.Ok
 import zio.{ CancelableFuture, Fiber, IO, RIO, Ref, Runtime, Schedule, Task, ZIO }
 import zio.clock.Clock
 import zio.duration.Duration
+
 import scala.concurrent.{ ExecutionContext, Future }
 
 trait PlayAdapter {
 
-  def json: JsonBackend
   def actionBuilder: ActionBuilder[Request, AnyContent]
   def parse: PlayBodyParsers
+
+  private val json = new PlayJsonBackend()
 
   implicit def writableGraphQLResponse[E](implicit wr: Writes[GraphQLResponse[E]]): Writeable[GraphQLResponse[E]] =
     Writeable.writeableOf_JsValue.map(wr.writes)
@@ -44,8 +47,8 @@ trait PlayAdapter {
       executeRequest(
         interpreter,
         req.body,
-        skipValidation: Boolean,
-        enableIntrospection: Boolean
+        skipValidation,
+        enableIntrospection
       )
     )
 
@@ -185,12 +188,10 @@ trait PlayAdapter {
 
 object PlayAdapter {
   def apply(
-    jsonBackend: JsonBackend,
     playBodyParsers: PlayBodyParsers,
     _actionBuilder: ActionBuilder[Request, AnyContent]
   ): PlayAdapter =
     new PlayAdapter {
-      override def json: JsonBackend                                 = jsonBackend
       override def parse: PlayBodyParsers                            = playBodyParsers
       override def actionBuilder: ActionBuilder[Request, AnyContent] = _actionBuilder
     }
