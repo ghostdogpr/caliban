@@ -1,6 +1,7 @@
 package caliban
 
 import caliban.TestUtils.InvalidSchemas.Interface.WrongArgumentName
+import caliban.TestUtils.InvalidSchemas.Object.FieldUnion.FIELD_A
 import caliban.TestUtils.Origin._
 import caliban.TestUtils.Role._
 import caliban.Value.StringValue
@@ -291,6 +292,19 @@ object TestUtils {
           fields = _ => Some(makeFields(fields: _*)),
           interfaces = () => Some(List(interfaceA, interfaceB))
         )
+
+      sealed trait FieldUnion
+      object FieldUnion {
+        case object FIELD_A extends FieldUnion
+      }
+
+      sealed trait WithFieldUnion {
+        val field: FieldUnion
+      }
+      case class FieldUnionObject(field: FieldUnion) extends WithFieldUnion
+      case class TestUnionSubtype(fieldUnion: FieldUnionObject)
+
+      val resolverUnionSubtype = RootResolver(TestUnionSubtype(FieldUnionObject(FIELD_A)))
     }
 
     @GQLDirective(Directive("__name"))
