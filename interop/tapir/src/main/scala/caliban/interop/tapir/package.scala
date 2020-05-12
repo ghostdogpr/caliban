@@ -117,7 +117,7 @@ package object tapir {
           None,
           List(
             __Field(
-              extractPath(serverEndpoint.endpoint.input),
+              extractPath(serverEndpoint.endpoint.info.name, serverEndpoint.endpoint.input),
               serverEndpoint.endpoint.info.description,
               getArgs(inputSchema.toType(true), inputSchema.optional),
               () =>
@@ -132,7 +132,7 @@ package object tapir {
         Step.ObjectStep(
           name,
           Map(
-            extractPath(serverEndpoint.endpoint.input) ->
+            extractPath(serverEndpoint.endpoint.info.name, serverEndpoint.endpoint.input) ->
               FunctionStep { args =>
                 val replacedArgs = args.map { case (k, v) => reverseArgNames.getOrElse(k, k) -> v }
                 QueryStep(
@@ -162,17 +162,24 @@ package object tapir {
     override protected val additionalDirectives: List[__Directive] = Nil
   }
 
-  private def extractPath[I](input: EndpointInput[I]): String =
-    input
-      .asVectorOfBasicInputs(includeAuth = false)
-      .collect {
-        case EndpointInput.FixedPath(s, _, _) => s
-      }
-      .toList match {
-      case Nil          => "root"
-      case head :: Nil  => head
-      case head :: tail => head ++ tail.map(_.capitalize).mkString
-    }
+  private def extractPath[I](endpointName: Option[String], input: EndpointInput[I]): String =
+    endpointName
+      .map(replaceIllegalChars)
+      .getOrElse(
+        input
+          .asVectorOfBasicInputs(includeAuth = false)
+          .collect {
+            case EndpointInput.FixedPath(s, _, _) => s
+          }
+          .toList match {
+          case Nil          => "root"
+          case head :: Nil  => head
+          case head :: tail => head ++ tail.map(_.capitalize).mkString
+        }
+      )
+
+  private def replaceIllegalChars(s: String): String =
+    s.replaceAll("\\W+", "_")
 
   private def extractArgNames[I](input: EndpointInput[I]): Map[String, Option[(String, Option[String])]] =
     input.traverseInputs {
