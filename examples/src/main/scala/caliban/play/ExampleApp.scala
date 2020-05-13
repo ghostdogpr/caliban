@@ -1,18 +1,19 @@
 package caliban.play
 
 import play.api.Mode
-import play.api.mvc.{DefaultControllerComponents, Handler, RequestHeader}
+import play.api.mvc.{ DefaultControllerComponents, Handler, RequestHeader , Results}
 import play.api.routing.sird._
 import play.core.server.AkkaHttpServer
 import play.core.server.ServerConfig
 
+
 import scala.io.StdIn.readLine
 
-object ExampleApp extends App {
 
+object ExampleApp extends App {
   val server = AkkaHttpServer.fromRouterWithComponents(
     ServerConfig(
-      mode = Mode.Dev, 
+      mode = Mode.Dev,
       port = Some(8088),
       address = "127.0.0.1"
     )
@@ -34,6 +35,10 @@ object ExampleApp extends App {
           ) =>
         controller.graphqlGet(query, variables, operation, extensions)
       case GET(p"/ws/graphql") => controller.webSocket()
+      case GET(p"/graphiql") =>
+        components.defaultActionBuilder(
+          Results.Ok.sendResource("graphiql.html")(components.executionContext, components.fileMimeTypes)
+        )
     }
     router
   }
