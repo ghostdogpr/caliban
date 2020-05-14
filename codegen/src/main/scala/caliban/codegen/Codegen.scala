@@ -1,7 +1,7 @@
 package caliban.codegen
 
 import java.io.{ File, PrintWriter }
-import zio.{ RIO, Task, UIO }
+import zio.{ Task, UIO }
 import caliban.parsing.adt.Document
 import caliban.parsing.Parser
 
@@ -9,7 +9,7 @@ object Codegen {
   def generate(
     arguments: Options,
     writer: (Document, String, Option[String]) => String
-  ): RIO[Any, Unit] = {
+  ): Task[Unit] = {
     val s           = ".*/scala/(.*)/(.*).scala".r.findFirstMatchIn(arguments.toPath)
     val packageName = arguments.packageName.orElse(s.map(_.group(1).split("/").mkString(".")))
     val objectName  = s.map(_.group(2)).getOrElse("Client")
