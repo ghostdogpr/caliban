@@ -62,7 +62,12 @@ object CodegenPlugin extends AutoPlugin {
     writer: (Document, String, Option[String]) => String
   ): RIO[Console, Unit] =
     Options.fromArgs(args) match {
-      case Some(arguments) => Codegen.generate(arguments, writer)
-      case None            => putStrLn(helpMsg)
+      case Some(arguments) =>
+        for {
+          _ <- putStrLn(s"Generating code for ${arguments.schemaPath}")
+          _ <- Codegen.generate(arguments, writer)
+          _ <- putStrLn(s"Code generation done")
+        } yield ()
+      case None => putStrLn(helpMsg)
     }
 }
