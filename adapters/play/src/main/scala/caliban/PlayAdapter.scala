@@ -4,18 +4,46 @@ import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
 import akka.stream.scaladsl.{ Flow, Sink, Source, SourceQueueWithComplete }
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
+import caliban.interop.play.json.parsingException
+import play.api.http.Writeable
+import play.api.libs.json.{ Json, JsValue, Writes, _ }
 import play.api.mvc.{ Action, ActionBuilder, AnyContent, PlayBodyParsers, Request, RequestHeader, Result, WebSocket }
 import play.api.mvc.Results.Ok
 import zio.{ CancelableFuture, Fiber, IO, RIO, Ref, Runtime, Schedule, Task, ZIO }
 import zio.clock.Clock
 import zio.duration.Duration
-
 import scala.concurrent.{ ExecutionContext, Future }
+import scala.util.Try
 
-trait PlayAdapter extends PlayJson {
+trait PlayAdapter {
 
   def actionBuilder: ActionBuilder[Request, AnyContent]
   def parse: PlayBodyParsers
+
+  implicit def writableGraphQLResponse[E](implicit wr: Writes[GraphQLResponse[E]]): Writeable[GraphQLResponse[E]] =
+    Writeable.writeableOf_JsValue.map(wr.writes)
+
+  private def parseJson(s: String): Try[JsValue] =
+    Try(Json.parse(s))
+
+  private def getGraphQLRequest(
+    query: String,
+    op: Option[String],
+    vars: Option[String],
+    exts: Option[String]
+  ): Either[Throwable, GraphQLRequest] = {
+    val variablesJs  = vars.flatMap(parseJson(_).toOption)
+    val extensionsJs = exts.flatMap(parseJson(_).toOption)
+    val fields = List("query" -> JsString(query)) ++
+      op.map(o => "operationName"         -> JsString(o)) ++
+      variablesJs.map(js => "variables"   -> js) ++
+      extensionsJs.map(js => "extensions" -> js)
+    JsObject(fields)
+      .validate[GraphQLRequest]
+      .asEither
+      .left
+      .map(parsingException)
+  }
 
   private def executeRequest[R, E](
     interpreter: GraphQLInterpreter[R, E],
@@ -55,7 +83,7 @@ trait PlayAdapter extends PlayJson {
     extensions: Option[String]
   )(implicit runtime: Runtime[R]): Action[AnyContent] =
     actionBuilder.async(
-      parseHttpRequest(
+      getGraphQLRequest(
         query,
         variables,
         operation,
@@ -71,19 +99,23 @@ trait PlayAdapter extends PlayJson {
     skipValidation: Boolean,
     enableIntrospection: Boolean,
     keepAliveTime: Option[Duration]
-  )(implicit ec: ExecutionContext, materializer: Materializer, runtime: Runtime[R]): Flow[String, String, Unit] = {
+  )(
+    implicit ec: ExecutionContext,
+    materializer: Materializer,
+    runtime: Runtime[R]
+  ): Flow[PlayWSMessage, PlayWSMessage, Unit] = {
     def sendMessage(
-      sendQueue: SourceQueueWithComplete[String],
-      id: String,
+      sendQueue: SourceQueueWithComplete[PlayWSMessage],
+      id: Option[String],
       data: ResponseValue,
       errors: List[E]
     ): Task[QueueOfferResult] =
-      IO.fromFuture(_ => sendQueue.offer(encodeWSResponse(id, data, errors)))
+      IO.fromFuture(_ => sendQueue.offer(PlayWSMessage("data", id, GraphQLResponse(data, errors))))
 
     def startSubscription(
-      messageId: String,
+      messageId: Option[String],
       request: GraphQLRequest,
-      sendTo: SourceQueueWithComplete[String],
+      sendTo: SourceQueueWithComplete[PlayWSMessage],
       subscriptions: Ref[Map[Option[String], Fiber[Throwable, Unit]]]
     ): RIO[R, Unit] =
       for {
@@ -97,27 +129,25 @@ trait PlayAdapter extends PlayJson {
                 stream
                   .foreach(item => sendMessage(sendTo, messageId, ObjectValue(List(fieldName -> item)), result.errors))
                   .forkDaemon
-                  .flatMap(fiber => subscriptions.update(_.updated(Option(messageId), fiber)))
+                  .flatMap(fiber => subscriptions.update(_.updated(messageId, fiber)))
               case other =>
                 sendMessage(sendTo, messageId, other, result.errors) *>
-                  IO.fromFuture(_ => sendTo.offer(s"""{"type":"complete","id":"$messageId"}"""))
+                  IO.fromFuture(_ => sendTo.offer(PlayWSMessage("complete", messageId)))
             }
       } yield ()
 
-    val (queue, source) = Source.queue[String](0, OverflowStrategy.fail).preMaterialize()
+    val (queue, source) = Source.queue[PlayWSMessage](0, OverflowStrategy.fail).preMaterialize()
     val subscriptions   = runtime.unsafeRun(Ref.make(Map.empty[Option[String], Fiber[Throwable, Unit]]))
 
-    val sink = Sink.foreach[String] { text =>
+    val sink = Sink.foreach[PlayWSMessage] { msg =>
       val io = for {
-        msg     <- Task.fromEither(parseWSMessage(text))
-        msgType = msg.messageType
-        _ <- IO.whenCase(msgType) {
+        _ <- IO.whenCase(msg.messageType) {
               case "connection_init" =>
-                Task.fromFuture(_ => queue.offer("""{"type":"connection_ack"}""")) *>
+                Task.fromFuture(_ => queue.offer(PlayWSMessage("connection_ack"))) *>
                   Task.whenCase(keepAliveTime) {
                     case Some(time) =>
                       // Save the keep-alive fiber with a key of None so that it's interrupted later
-                      IO.fromFuture(_ => queue.offer("""{"type":"ka"}"""))
+                      IO.fromFuture(_ => queue.offer(PlayWSMessage("ka")))
                         .repeat(Schedule.spaced(time))
                         .provideLayer(Clock.live)
                         .unit
@@ -130,16 +160,18 @@ trait PlayAdapter extends PlayJson {
                 Task.whenCase(msg.request) {
                   case Some(req) =>
                     startSubscription(msg.id, req, queue, subscriptions)
-                      .catchAll(error => IO.fromFuture(_ => queue.offer(encodeWSError(msg.id, error))))
+                      .catchAll(error =>
+                        IO.fromFuture(_ => queue.offer(PlayWSMessage("complete", Some(error.toString))))
+                      )
                 }
               case "stop" =>
                 subscriptions
-                  .modify(map => (map.get(Option(msg.id)), map - Option(msg.id)))
+                  .modify(map => (map.get(msg.id), map - msg.id))
                   .flatMap(fiber =>
                     IO.whenCase(fiber) {
                       case Some(fiber) =>
                         fiber.interrupt *>
-                          IO.fromFuture(_ => queue.offer(s"""{"type":"complete","id":"${msg.id}"}"""))
+                          IO.fromFuture(_ => queue.offer(PlayWSMessage("complete", msg.id)))
                     }
                   )
             }
@@ -158,9 +190,7 @@ trait PlayAdapter extends PlayJson {
     enableIntrospection: Boolean = true,
     keepAliveTime: Option[Duration] = None
   )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): WebSocket =
-    WebSocket.accept[String, String](_ =>
-      webSocketFlow(interpreter, skipValidation, enableIntrospection, keepAliveTime)
-    )
+    WebSocket.accept(_ => webSocketFlow(interpreter, skipValidation, enableIntrospection, keepAliveTime))
 
   def makeWakeSocketOrResult[R, E](
     interpreter: GraphQLInterpreter[R, E],
@@ -168,7 +198,7 @@ trait PlayAdapter extends PlayJson {
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     keepAliveTime: Option[Duration] = None
-  )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer) =
+  )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): WebSocket =
     WebSocket
       .acceptOrResult(requestHeader =>
         handleRequestHeader(requestHeader)

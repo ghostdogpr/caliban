@@ -2,10 +2,11 @@ package caliban.play
 
 import akka.actor.ActorSystem
 import akka.stream.Materializer
-import caliban.{play => _, _}
+import caliban.{ play => _, _ }
 import caliban.ExampleService.ExampleService
 import play.api.mvc._
 import zio.{ Runtime, ZEnv, ZLayer }
+import scala.concurrent.ExecutionContext
 
 class CalibanController(val controllerComponents: ControllerComponents)(
   implicit actorSystem: ActorSystem,
@@ -15,8 +16,8 @@ class CalibanController(val controllerComponents: ControllerComponents)(
   val calibanPlayAdapter: PlayAdapter =
     PlayAdapter(controllerComponents.parsers, controllerComponents.actionBuilder)
 
-  implicit val runtime = Runtime.default
-  implicit val ec      = actorSystem.dispatcher
+  implicit val runtime: Runtime[zio.ZEnv] = Runtime.default
+  implicit val ec: ExecutionContext       = actorSystem.dispatcher
 
   val service: ZLayer[Any, Nothing, ExampleService] = ExampleService.make(ExampleData.sampleCharacters)
 
@@ -37,6 +38,7 @@ class CalibanController(val controllerComponents: ControllerComponents)(
 
   def graphqlPost(): Action[GraphQLRequest] = calibanPlayAdapter.makePostAction(interpreter)
 
-  def webSocket(): WebSocket = calibanPlayAdapter.makeWebSocket(interpreter)
+  def webSocket(): WebSocket =
+    calibanPlayAdapter.makeWebSocket(interpreter)
 
 }

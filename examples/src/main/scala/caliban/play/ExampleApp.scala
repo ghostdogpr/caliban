@@ -1,16 +1,13 @@
 package caliban.play
 
 import play.api.Mode
-import play.api.mvc.{ DefaultControllerComponents, Handler, RequestHeader , Results}
+import play.api.mvc.{ DefaultControllerComponents, Handler, RequestHeader, Results }
 import play.api.routing.sird._
-import play.core.server.AkkaHttpServer
-import play.core.server.ServerConfig
-
-
+import play.core.server.{ AkkaHttpServer, ServerConfig }
 import scala.io.StdIn.readLine
 
-
 object ExampleApp extends App {
+
   val server = AkkaHttpServer.fromRouterWithComponents(
     ServerConfig(
       mode = Mode.Dev,
@@ -29,7 +26,7 @@ object ExampleApp extends App {
       )
     )(components.actorSystem, components.materializer)
     val router: PartialFunction[RequestHeader, Handler] = {
-      case POST(p"/api/graphql") => controller.graphqlPost
+      case POST(p"/api/graphql") => controller.graphqlPost()
       case GET(
           p"/api/graphql" ? q"query=$query" & q_o"variables=$variables" & q_o"operation=$operation" & q_o"extensions=$extensions"
           ) =>
