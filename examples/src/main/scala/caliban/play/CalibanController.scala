@@ -3,10 +3,14 @@ package caliban.play
 import akka.actor.ActorSystem
 import akka.stream.Materializer
 import caliban.{ play => _, _ }
+import caliban.ExampleData.sampleCharacters
 import caliban.ExampleService.ExampleService
 import play.api.mvc._
-import zio.{ Runtime, ZEnv, ZLayer }
-import scala.concurrent.ExecutionContext
+import zio.Runtime
+import zio.clock.Clock
+import zio.console.Console
+import zio.internal.Platform
+import scala.concurrent.ExecutionContextExecutor
 
 class CalibanController(val controllerComponents: ControllerComponents)(
   implicit actorSystem: ActorSystem,
@@ -16,17 +20,11 @@ class CalibanController(val controllerComponents: ControllerComponents)(
   val calibanPlayAdapter: PlayAdapter =
     PlayAdapter(controllerComponents.parsers, controllerComponents.actionBuilder)
 
-  implicit val runtime: Runtime[zio.ZEnv] = Runtime.default
-  implicit val ec: ExecutionContext       = actorSystem.dispatcher
+  implicit val executionContext: ExecutionContextExecutor = actorSystem.dispatcher
+  implicit val runtime: Runtime[ExampleService with Console with Clock] =
+    Runtime.unsafeFromLayer(ExampleService.make(sampleCharacters) ++ Console.live ++ Clock.live, Platform.default)
 
-  val service: ZLayer[Any, Nothing, ExampleService] = ExampleService.make(ExampleData.sampleCharacters)
-
-  val interpreter: GraphQLInterpreter[ZEnv, CalibanError] = runtime.unsafeRun(
-    ExampleService
-      .make(ExampleData.sampleCharacters)
-      .memoize
-      .use(layer => ExampleApi.api.interpreter.map(_.provideCustomLayer(layer)))
-  )
+  val interpreter = runtime.unsafeRun(ExampleApi.api.interpreter)
 
   def graphqlGet(
     query: String,

@@ -281,8 +281,7 @@ lazy val examples = project
       "com.softwaremill.sttp.tapir"  %% "tapir-json-circe"              % tapirVersion,
       "io.circe"                     %% "circe-generic"                 % circeVersion,
       "com.typesafe.play"            %% "play-akka-http-server"         % playVersion,
-      "com.typesafe.akka"            %% "akka-actor-typed"              % akkaVersion,
-      "com.typesafe.akka"            %% "akka-slf4j"                    % akkaVersion
+      "com.typesafe.akka"            %% "akka-actor-typed"              % akkaVersion
     )
   )
   .dependsOn(akkaHttp, http4s, catsInterop, finch, uzhttp, play, monixInterop, tapirInterop, clientJVM, federation)
