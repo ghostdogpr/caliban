@@ -6,9 +6,13 @@ import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives._
 import caliban.ExampleData.sampleCharacters
+import caliban.ExampleService.ExampleService
 import caliban.interop.circe.AkkaHttpCirceAdapter
 import caliban.{ ExampleApi, ExampleService }
-import zio.{ Runtime, ZEnv }
+import zio.clock.Clock
+import zio.console.Console
+import zio.internal.Platform
+import zio.Runtime
 
 /**
  * There's also an [[caliban.interop.play.AkkaHttpPlayJsonAdapter]] if you use play-json and don't want to have circe dependency
@@ -17,14 +21,10 @@ object ExampleApp extends App with AkkaHttpCirceAdapter {
 
   implicit val system: ActorSystem                        = ActorSystem()
   implicit val executionContext: ExecutionContextExecutor = system.dispatcher
-  implicit val runtime: Runtime[ZEnv]                     = Runtime.default
+  implicit val runtime: Runtime[ExampleService with Console with Clock] =
+    Runtime.unsafeFromLayer(ExampleService.make(sampleCharacters) ++ Console.live ++ Clock.live, Platform.default)
 
-  val interpreter = runtime.unsafeRun(
-    ExampleService
-      .make(sampleCharacters)
-      .memoize
-      .use(layer => ExampleApi.api.interpreter.map(_.provideCustomLayer(layer)))
-  )
+  val interpreter = runtime.unsafeRun(ExampleApi.api.interpreter)
 
   /**
    * curl -X POST \

@@ -1,23 +1,23 @@
 package caliban.finch
 
 import caliban.ExampleData.sampleCharacters
+import caliban.ExampleService.ExampleService
 import caliban.{ ExampleApi, ExampleService, FinchAdapter }
 import com.twitter.io.{ Buf, BufReader, Reader }
 import com.twitter.util.Await
 import io.finch.Endpoint
+import zio.clock.Clock
+import zio.console.Console
+import zio.internal.Platform
 import zio.interop.catz._
-import zio.{ Runtime, Task, ZEnv }
+import zio.{ Runtime, Task }
 
 object ExampleApp extends App with Endpoint.Module[Task] {
 
-  implicit val runtime: Runtime[ZEnv] = Runtime.default
+  implicit val runtime: Runtime[ExampleService with Console with Clock] =
+    Runtime.unsafeFromLayer(ExampleService.make(sampleCharacters) ++ Console.live ++ Clock.live, Platform.default)
 
-  val interpreter = runtime.unsafeRun(
-    ExampleService
-      .make(sampleCharacters)
-      .memoize
-      .use(layer => ExampleApi.api.interpreter.map(_.provideCustomLayer(layer)))
-  )
+  val interpreter = runtime.unsafeRun(ExampleApi.api.interpreter)
 
   /**
    * curl -X POST \
