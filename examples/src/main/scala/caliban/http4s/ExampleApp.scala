@@ -1,6 +1,7 @@
 package caliban.http4s
 
 import caliban.ExampleData._
+import caliban.ExampleService.ExampleService
 import caliban.{ ExampleApi, ExampleService, Http4sAdapter }
 import cats.data.Kleisli
 import cats.effect.Blocker
@@ -16,18 +17,17 @@ import zio.interop.catz._
 
 import scala.concurrent.ExecutionContext
 
-object ExampleApp extends CatsApp {
+object ExampleApp extends App {
 
-  type ExampleTask[A] = RIO[ZEnv, A]
+  type ExampleTask[A] = RIO[ZEnv with ExampleService, A]
 
   override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] =
-    ExampleService
-      .make(sampleCharacters)
-      .memoize
-      .use(layer =>
+    ZIO
+      .runtime[ZEnv with ExampleService]
+      .flatMap(implicit runtime =>
         for {
           blocker     <- ZIO.access[Blocking](_.get.blockingExecutor.asEC).map(Blocker.liftExecutionContext)
-          interpreter <- ExampleApi.api.interpreter.map(_.provideCustomLayer(layer))
+          interpreter <- ExampleApi.api.interpreter
           _ <- BlazeServerBuilder[ExampleTask](ExecutionContext.global)
                 .bindHttp(8088, "localhost")
                 .withHttpApp(
@@ -42,5 +42,6 @@ object ExampleApp extends CatsApp {
                 .useForever
         } yield 0
       )
+      .provideCustomLayer(ExampleService.make(sampleCharacters))
       .catchAll(err => putStrLn(err.toString).as(1))
 }
