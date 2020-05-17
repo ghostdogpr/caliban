@@ -7,12 +7,12 @@ val catsEffectVersion     = "2.1.3"
 val circeVersion          = "0.13.0"
 val http4sVersion         = "0.21.4"
 val silencerVersion       = "1.6.0"
-val sttpVersion           = "2.0.9"
+val sttpVersion           = "2.1.1"
 val tapirVersion          = "0.15.0"
-val zioVersion            = "1.0.0-RC18-2"
-val zioInteropCatsVersion = "2.0.0.0-RC13"
-val zioConfigVersion      = "1.0.0-RC17"
-val zqueryVersion         = "0.1.0"
+val zioVersion            = "1.0.0-RC19"
+val zioInteropCatsVersion = "2.0.0.0-RC14"
+val zioConfigVersion      = "1.0.0-RC18"
+val zqueryVersion         = "0.1.0+58-ba383f35-SNAPSHOT"
 
 inThisBuild(
   List(
@@ -31,6 +31,7 @@ inThisBuild(
         "scm:git:git@github.com:ghostdogpr/caliban.git"
       )
     ),
+    resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
     developers := List(
       Developer(
         "ghostdogpr",
@@ -84,7 +85,7 @@ lazy val core = project
       "com.propensive"    %% "mercator"     % "0.2.1",
       "dev.zio"           %% "zio"          % zioVersion,
       "dev.zio"           %% "zio-streams"  % zioVersion,
-      "dev.zio"           %% "zquery"       % zqueryVersion,
+      "dev.zio"           %% "zioquery"     % zqueryVersion,
       "dev.zio"           %% "zio-test"     % zioVersion % "test",
       "dev.zio"           %% "zio-test-sbt" % zioVersion % "test",
       "io.circe"          %% "circe-core"   % circeVersion % Optional,

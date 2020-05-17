@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.Value.NullValue
-import zio.{ Has, IO, NeedsEnv, Tagged, URIO, ZEnv, ZLayer }
+import zio.{ Has, IO, NeedsEnv, Tag, URIO, ZEnv, ZLayer }
 
 /**
  * A `GraphQLInterpreter[-R, +E]` represents a GraphQL interpreter whose execution requires
@@ -85,7 +85,7 @@ trait GraphQLInterpreter[-R, +E] { self =>
    */
   final def provideCustomLayer[E1 >: E, R1 <: Has[_]](
     layer: ZLayer[ZEnv, E1, R1]
-  )(implicit ev: ZEnv with R1 <:< R, tagged: Tagged[R1]): GraphQLInterpreter[ZEnv, E1] =
+  )(implicit ev: ZEnv with R1 <:< R, tagged: Tag[R1]): GraphQLInterpreter[ZEnv, E1] =
     provideSomeLayer[ZEnv](layer)
 
   /**
@@ -120,7 +120,7 @@ object GraphQLInterpreter {
   final class ProvideSomeLayer[R0 <: Has[_], -R, +E](private val self: GraphQLInterpreter[R, E]) extends AnyVal {
     def apply[E1 >: E, R1 <: Has[_]](
       layer: ZLayer[R0, E1, R1]
-    )(implicit ev1: R0 with R1 <:< R, ev2: NeedsEnv[R], tagged: Tagged[R1]): GraphQLInterpreter[R0, E1] =
+    )(implicit ev1: R0 with R1 <:< R, ev2: NeedsEnv[R], tagged: Tag[R1]): GraphQLInterpreter[R0, E1] =
       self.provideLayer[E1, R0, R0 with R1](ZLayer.identity[R0] ++ layer)
   }
 }

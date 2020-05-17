@@ -5,8 +5,8 @@ import caliban.schema.{ GenericSchema, Schema }
 import caliban.{ GraphQL, RootResolver }
 import zio.console.{ putStrLn, Console }
 import zio.{ App, ZIO }
-import zio.zquery.DataSource.fromFunctionBatchedM
-import zio.zquery.{ CompletedRequestMap, DataSource, Request, ZQuery }
+import zio.query.DataSource.fromFunctionBatchedM
+import zio.query.{ CompletedRequestMap, DataSource, Request, ZQuery }
 
 /**
  * Optimized implementation of https://blog.apollographql.com/optimizing-your-graphql-request-waterfalls-7c3f3360b051
@@ -57,7 +57,7 @@ object OptimizedTest extends App with GenericSchema[Console] {
   )
 
   case class GetUser(id: Int) extends Request[Nothing, User]
-  val UserDataSource: DataSource[Console, GetUser] = DataSource("UserDataSource") { requests =>
+  val UserDataSource: DataSource[Console, GetUser] = DataSource.Batched.make("UserDataSource") { requests =>
     requests.toList match {
       case head :: Nil => putStrLn("getUser").as(CompletedRequestMap.empty.insert(head)(Right(fakeUser(head.id))))
       case list =>

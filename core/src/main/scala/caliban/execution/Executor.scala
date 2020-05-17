@@ -11,7 +11,7 @@ import caliban.schema.{ ReducedStep, Step }
 import caliban.wrappers.Wrapper.FieldWrapper
 import caliban.{ CalibanError, GraphQLResponse, InputValue, ResponseValue, Value }
 import zio._
-import zio.zquery.ZQuery
+import zio.query.ZQuery
 
 object Executor {
 
