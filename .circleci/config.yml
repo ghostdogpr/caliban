@@ -7,7 +7,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.12.10! check
+      - run: ./sbt ++2.12.10! check
       - save_cache:
           key: sbtcache
           paths:
@@ -21,7 +21,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.12.10! core/test http4s/compile akkaHttp/compile finch/compile uzhttp/compile examples/compile catsInterop/compile benchmarks/compile codegen/test codegenSbt/test clientJVM/test monixInterop/compile tapirInterop/test federation/test
+      - run: ./sbt ++2.12.10! core/test http4s/compile akkaHttp/compile finch/compile uzhttp/compile examples/compile catsInterop/compile benchmarks/compile codegen/test codegenSbt/test clientJVM/test monixInterop/compile tapirInterop/test federation/test
       - save_cache:
           key: sbtcache
           paths:
@@ -35,7 +35,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.2! core/test http4s/compile akkaHttp/compile finch/compile uzhttp/compile examples/compile catsInterop/compile monixInterop/compile tapirInterop/test clientJVM/test federation/test
+      - run: ./sbt ++2.13.2! core/test http4s/compile akkaHttp/compile finch/compile uzhttp/compile examples/compile catsInterop/compile monixInterop/compile tapirInterop/test clientJVM/test federation/test
       - save_cache:
           key: sbtcache
           paths:
@@ -49,7 +49,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.12.10! clientJS/test
+      - run: ./sbt ++2.12.10! clientJS/test
       - save_cache:
           key: sbtcache
           paths:
@@ -67,7 +67,7 @@ jobs:
       - run: echo "credentials += Credentials(\"Sonatype Nexus Repository Manager\", \"oss.sonatype.org\", \"$SONATYPE_USER\", \"$SONATYPE_PASSWORD\")" > ~/.sbt/1.0/sonatype.sbt
       - run: echo -n "${PGP_PUBLIC}" | base64 -d > /tmp/public.asc
       - run: echo -n "${PGP_SECRET}" | base64 -d > /tmp/secret.asc
-      - run: sbt ++${SCALA_VERSION}! clean sonatypeBundleClean +publishSigned sonatypeBundleRelease
+      - run: ./sbt ++${SCALA_VERSION}! clean sonatypeBundleClean +publishSigned sonatypeBundleRelease
 
   microsite:
     docker:
