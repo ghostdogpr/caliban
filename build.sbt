@@ -12,7 +12,7 @@ val tapirVersion          = "0.15.0"
 val zioVersion            = "1.0.0-RC19"
 val zioInteropCatsVersion = "2.0.0.0-RC14"
 val zioConfigVersion      = "1.0.0-RC18"
-val zqueryVersion         = "0.1.0+58-ba383f35-SNAPSHOT"
+val zqueryVersion         = "0.2.0"
 
 inThisBuild(
   List(
@@ -31,7 +31,6 @@ inThisBuild(
         "scm:git:git@github.com:ghostdogpr/caliban.git"
       )
     ),
-    resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
     developers := List(
       Developer(
         "ghostdogpr",
@@ -85,7 +84,7 @@ lazy val core = project
       "com.propensive"    %% "mercator"     % "0.2.1",
       "dev.zio"           %% "zio"          % zioVersion,
       "dev.zio"           %% "zio-streams"  % zioVersion,
-      "dev.zio"           %% "zioquery"     % zqueryVersion,
+      "dev.zio"           %% "zio-query"    % zqueryVersion,
       "dev.zio"           %% "zio-test"     % zioVersion % "test",
       "dev.zio"           %% "zio-test-sbt" % zioVersion % "test",
       "io.circe"          %% "circe-core"   % circeVersion % Optional,
