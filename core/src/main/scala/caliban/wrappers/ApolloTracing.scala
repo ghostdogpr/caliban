@@ -168,9 +168,9 @@ object ApolloTracing {
                           resolvers =
                             Resolver(
                               path = fieldInfo.path,
-                              parentType = fieldInfo.parentType.fold("")(Rendering.renderTypeName),
-                              fieldName = fieldInfo.fieldName,
-                              returnType = Rendering.renderTypeName(fieldInfo.returnType),
+                              parentType = fieldInfo.details.parentType.fold("")(Rendering.renderTypeName),
+                              fieldName = fieldInfo.name,
+                              returnType = Rendering.renderTypeName(fieldInfo.details.fieldType),
                               startOffset = start - state.startTimeMonotonic,
                               duration = duration
                             ) :: state.execution.resolvers
