@@ -1,12 +1,23 @@
 package caliban.play
 
+import caliban.{ ExampleApi, ExampleService, PlayRouter }
+import caliban.ExampleData.sampleCharacters
+import caliban.ExampleService.ExampleService
 import play.api.Mode
-import play.api.mvc.{ DefaultControllerComponents, Handler, RequestHeader, Results }
-import play.api.routing.sird._
+import play.api.mvc.DefaultControllerComponents
 import play.core.server.{ AkkaHttpServer, ServerConfig }
+import zio.clock.Clock
+import zio.console.Console
+import zio.internal.Platform
+import zio.Runtime
 import scala.io.StdIn.readLine
 
 object ExampleApp extends App {
+
+  implicit val runtime: Runtime[ExampleService with Console with Clock] =
+    Runtime.unsafeFromLayer(ExampleService.make(sampleCharacters) ++ Console.live ++ Clock.live, Platform.default)
+
+  val interpreter = runtime.unsafeRun(ExampleApi.api.interpreter)
 
   val server = AkkaHttpServer.fromRouterWithComponents(
     ServerConfig(
@@ -15,7 +26,8 @@ object ExampleApp extends App {
       address = "127.0.0.1"
     )
   ) { components =>
-    val controller = new CalibanController(
+    PlayRouter(
+      interpreter,
       DefaultControllerComponents(
         components.defaultActionBuilder,
         components.playBodyParsers,
@@ -24,20 +36,7 @@ object ExampleApp extends App {
         components.fileMimeTypes,
         components.executionContext
       )
-    )(components.actorSystem, components.materializer)
-    val router: PartialFunction[RequestHeader, Handler] = {
-      case POST(p"/api/graphql") => controller.graphqlPost()
-      case GET(
-          p"/api/graphql" ? q"query=$query" & q_o"variables=$variables" & q_o"operation=$operation" & q_o"extensions=$extensions"
-          ) =>
-        controller.graphqlGet(query, variables, operation, extensions)
-      case GET(p"/ws/graphql") => controller.webSocket()
-      case GET(p"/graphiql") =>
-        components.defaultActionBuilder(
-          Results.Ok.sendResource("graphiql.html")(components.executionContext, components.fileMimeTypes)
-        )
-    }
-    router
+    )(runtime, components.materializer).routes
   }
 
   println("Server online at http://localhost:8088/\nPress RETURN to stop...")
