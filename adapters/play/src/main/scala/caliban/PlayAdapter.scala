@@ -1,18 +1,18 @@
 package caliban
 
-import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
-import akka.stream.scaladsl.{ Flow, Sink, Source, SourceQueueWithComplete }
-import caliban.ResponseValue.{ ObjectValue, StreamValue }
+import akka.stream.{Materializer, OverflowStrategy, QueueOfferResult}
+import akka.stream.scaladsl.{Flow, Sink, Source, SourceQueueWithComplete}
+import caliban.ResponseValue.{ObjectValue, StreamValue}
 import caliban.Value.NullValue
 import caliban.interop.play.json.parsingException
 import play.api.http.Writeable
-import play.api.libs.json.{ Json, JsValue, Writes, _ }
-import play.api.mvc.{ Action, ActionBuilder, AnyContent, PlayBodyParsers, Request, RequestHeader, Result, WebSocket }
+import play.api.libs.json.{Json, JsValue, Writes}
+import play.api.mvc.{Action, ActionBuilder, AnyContent, PlayBodyParsers, Request, RequestHeader, Result, WebSocket}
 import play.api.mvc.Results.Ok
-import zio.{ CancelableFuture, Fiber, IO, RIO, Ref, Runtime, Schedule, Task, ZIO }
+import zio.{CancelableFuture, Fiber, IO, Ref, RIO, Runtime, Schedule, Task, ZIO}
 import zio.clock.Clock
 import zio.duration.Duration
-import scala.concurrent.{ ExecutionContext, Future }
+import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Try
 
 trait PlayAdapter {
@@ -34,11 +34,13 @@ trait PlayAdapter {
   ): Either[Throwable, GraphQLRequest] = {
     val variablesJs  = vars.flatMap(parseJson(_).toOption)
     val extensionsJs = exts.flatMap(parseJson(_).toOption)
-    val fields = List("query" -> JsString(query)) ++
-      op.map(o => "operationName"         -> JsString(o)) ++
-      variablesJs.map(js => "variables"   -> js) ++
-      extensionsJs.map(js => "extensions" -> js)
-    JsObject(fields)
+    Json
+      .obj(
+        "query"         -> query,
+        "operationName" -> op,
+        "variables"     -> variablesJs,
+        "extensions"    -> extensionsJs
+      )
       .validate[GraphQLRequest]
       .asEither
       .left
@@ -63,12 +65,13 @@ trait PlayAdapter {
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true
   )(implicit runtime: Runtime[R]): Action[GraphQLRequest] =
-    actionBuilder.async(parse.json[GraphQLRequest])(req =>
-      executeRequest(
-        interpreter,
-        req.body,
-        skipValidation,
-        enableIntrospection
+    actionBuilder.async(parse.json[GraphQLRequest])(
+      req =>
+        executeRequest(
+          interpreter,
+          req.body,
+          skipValidation,
+          enableIntrospection
       )
     )
 
@@ -85,8 +88,8 @@ trait PlayAdapter {
     actionBuilder.async(
       getGraphQLRequest(
         query,
-        variables,
         operation,
+        variables,
         extensions
       ).fold(
         Future.failed,
@@ -160,18 +163,19 @@ trait PlayAdapter {
                 Task.whenCase(msg.request) {
                   case Some(req) =>
                     startSubscription(msg.id, req, queue, subscriptions)
-                      .catchAll(error =>
-                        IO.fromFuture(_ => queue.offer(PlayWSMessage("complete", Some(error.toString))))
+                      .catchAll(
+                        error => IO.fromFuture(_ => queue.offer(PlayWSMessage("complete", Some(error.toString))))
                       )
                 }
               case "stop" =>
                 subscriptions
                   .modify(map => (map.get(msg.id), map - msg.id))
-                  .flatMap(fiber =>
-                    IO.whenCase(fiber) {
-                      case Some(fiber) =>
-                        fiber.interrupt *>
-                          IO.fromFuture(_ => queue.offer(PlayWSMessage("complete", msg.id)))
+                  .flatMap(
+                    fiber =>
+                      IO.whenCase(fiber) {
+                        case Some(fiber) =>
+                          fiber.interrupt *>
+                            IO.fromFuture(_ => queue.offer(PlayWSMessage("complete", msg.id)))
                     }
                   )
             }
@@ -200,9 +204,10 @@ trait PlayAdapter {
     keepAliveTime: Option[Duration] = None
   )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): WebSocket =
     WebSocket
-      .acceptOrResult(requestHeader =>
-        handleRequestHeader(requestHeader)
-          .map(_.map(_ => webSocketFlow(interpreter, skipValidation, enableIntrospection, keepAliveTime)))
+      .acceptOrResult(
+        requestHeader =>
+          handleRequestHeader(requestHeader)
+            .map(_.map(_ => webSocketFlow(interpreter, skipValidation, enableIntrospection, keepAliveTime)))
       )
 }
 

@@ -29,7 +29,7 @@ case class PlayRouter[R, E](
   override def routes: Routes = {
     case POST(p"/api/graphql") => makePostAction(interpreter, skipValidation, enableIntrospection)
     case GET(
-        p"/api/graphql" ? q"query=$query" & q_o"variables=$variables" & q_o"operation=$operation" & q_o"extensions=$extensions"
+        p"/api/graphql" ? q"query=$query" & q_o"variables=$variables" & q_o"operationName=$operation" & q_o"extensions=$extensions"
         ) if allowGETRequests =>
       makeGetAction(interpreter, skipValidation, enableIntrospection)(query, variables, operation, extensions)
     case GET(p"/ws/graphql") if subscriptions =>
