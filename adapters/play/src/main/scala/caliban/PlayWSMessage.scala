@@ -12,15 +12,10 @@ object PlayWSMessage {
   def apply[T](messageType: String, id: Option[String], payload: T)(implicit wr: Writes[T]): PlayWSMessage =
     PlayWSMessage(messageType, id, Some(wr.writes(payload)))
 
-  implicit val playWSMessageReads: Reads[PlayWSMessage] =
-    ((__ \ "type").read[String] and
-      (__ \ "id").readNullable[String]
-      and (__ \ "payload").readNullable[JsValue])(PlayWSMessage.apply _)
-
-  implicit val playWSMessageWrites: Writes[PlayWSMessage] =
-    ((JsPath \ "type").write[String] ~
-      (JsPath \ "id").writeNullable[String] ~
-      (JsPath \ "payload").writeNullable[JsValue])(unlift(PlayWSMessage.unapply))
+  implicit val playWSMessageFormat: Format[PlayWSMessage] =
+    ((__ \ "type").format[String] and
+      (__ \ "id").formatNullable[String]
+      and (__ \ "payload").formatNullable[JsValue])(PlayWSMessage.apply, unlift(PlayWSMessage.unapply))
 
   implicit val plaWSMessageMessageFlowTransformer: MessageFlowTransformer[PlayWSMessage, PlayWSMessage] =
     MessageFlowTransformer.jsonMessageFlowTransformer[PlayWSMessage, PlayWSMessage]
