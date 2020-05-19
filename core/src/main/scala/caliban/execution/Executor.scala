@@ -160,7 +160,7 @@ object Executor {
           lazy val defaultInputValue = (for {
             definition <- variableDefinitions.find(_.name == name)
             inputValue <- definition.defaultValue
-          } yield inputValue) getOrElse value
+          } yield inputValue) getOrElse NullValue
           variableValues.getOrElse(name, defaultInputValue)
         case value: Value => value
       }

@@ -167,6 +167,30 @@ object ExecutionSpec extends DefaultRunnableSpec {
           interpreter.flatMap(_.execute(query, None, Map("name" -> StringValue("Amos Burton")))).map(_.data.toString)
         )(equalTo("""{"amos":{"name":"Amos Burton"}}"""))
       },
+      testM("tolerate missing variables") {
+        import io.circe.syntax._
+
+        case class Args(term: String, id: Option[String])
+        case class Test(getId: Args => Option[String])
+        val api   = graphQL(RootResolver(Test(_.id)))
+        val query = """query test($term: String!, $id: String) { getId(term: $term, id: $id) }"""
+
+        assertM(
+          api.interpreter.flatMap(_.execute(query, None, Map("term" -> StringValue("search")))).map(_.asJson.noSpaces)
+        )(equalTo("""{"data":{"getId":null}}"""))
+      },
+      testM("error on missing required variables") {
+        import io.circe.syntax._
+
+        case class Args(term: String, id: String)
+        case class Test(getId: Args => String)
+        val api   = graphQL(RootResolver(Test(_.id)))
+        val query = """query test($term: String!, $id: String!) { getId(term: $term, id: $id) }"""
+
+        assertM(
+          api.interpreter.flatMap(_.execute(query, None, Map("term" -> StringValue("search")))).map(_.asJson.noSpaces)
+        )(equalTo("""{"data":{"getId":null},"errors":[{"message":"Can't build a String from input null"}]}"""))
+      },
       testM("variable in list") {
         val interpreter = graphQL(resolver).interpreter
         val query       = gqldoc("""
