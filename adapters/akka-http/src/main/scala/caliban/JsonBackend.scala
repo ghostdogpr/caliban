@@ -7,7 +7,7 @@ import akka.http.scaladsl.unmarshalling.FromEntityUnmarshaller
  */
 trait JsonBackend {
   def parseHttpRequest(
-    query: String,
+    query: Option[String],
     op: Option[String],
     vars: Option[String],
     exts: Option[String]
