@@ -117,7 +117,7 @@ object ApolloCaching {
       {
         case (query, fieldInfo) =>
           val cacheDirectives = extractCacheDirective(
-            fieldInfo.directives ++ fieldInfo.returnType.ofType.flatMap(_.directives).getOrElse(Nil)
+            fieldInfo.directives ++ fieldInfo.details.fieldType.ofType.flatMap(_.directives).getOrElse(Nil)
           )
 
           cacheDirectives.foldLeft(query) {
@@ -127,7 +127,7 @@ object ApolloCaching {
                   state.copy(
                     hints = CacheHint(
                       path = fieldInfo.path,
-                      fieldName = fieldInfo.fieldName,
+                      fieldName = fieldInfo.name,
                       maxAge = cacheDirective.maxAge getOrElse Duration.Zero,
                       scope = cacheDirective.scope getOrElse CacheScope.Private
                     ) :: state.hints
