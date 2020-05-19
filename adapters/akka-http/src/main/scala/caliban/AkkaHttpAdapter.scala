@@ -84,7 +84,7 @@ trait AkkaHttpAdapter {
     import akka.http.scaladsl.server.Directives._
 
     get {
-      parameters((Symbol("query").as[String], Symbol("operationName").?, Symbol("variables").?, Symbol("extensions").?)) {
+      parameters((Symbol("query").?, Symbol("operationName").?, Symbol("variables").?, Symbol("extensions").?)) {
         case (query, op, vars, ext) =>
           json
             .parseHttpRequest(query, op, vars, ext)

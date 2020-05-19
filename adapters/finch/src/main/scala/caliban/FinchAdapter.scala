@@ -14,14 +14,14 @@ import zio.{ Runtime, Task }
 object FinchAdapter extends Endpoint.Module[Task] {
 
   private def getGraphQLRequest(
-    query: String,
+    query: Option[String],
     op: Option[String],
     vars: Option[String],
     exts: Option[String]
   ): Result[GraphQLRequest] = {
     val variablesJs  = vars.flatMap(parse(_).toOption)
     val extensionsJs = exts.flatMap(parse(_).toOption)
-    val fields = List("query" -> Json.fromString(query)) ++
+    val fields = query.map(js => "query" -> Json.fromString(js)) ++
       op.map(o => "operationName"         -> Json.fromString(o)) ++
       variablesJs.map(js => "variables"   -> js) ++
       extensionsJs.map(js => "extensions" -> js)
@@ -46,7 +46,7 @@ object FinchAdapter extends Endpoint.Module[Task] {
       .future
 
   private val queryParams =
-    (param[String]("query") ::
+    (paramOption[String]("query") ::
       paramOption[String]("operationName") ::
       paramOption[String]("variables") ::
       paramOption[String]("extensions")).mapAsync {

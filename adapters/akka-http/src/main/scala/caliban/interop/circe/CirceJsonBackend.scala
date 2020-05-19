@@ -1,7 +1,7 @@
 package caliban.interop.circe
 
-import caliban._
 import akka.http.scaladsl.unmarshalling.FromEntityUnmarshaller
+import caliban._
 import de.heikoseeberger.akkahttpcirce.FailFastCirceSupport
 import io.circe.Json
 import io.circe.parser._
@@ -16,14 +16,14 @@ import io.circe.syntax._
  */
 final class CirceJsonBackend extends JsonBackend with FailFastCirceSupport {
   def parseHttpRequest(
-    query: String,
+    query: Option[String],
     op: Option[String],
     vars: Option[String],
     exts: Option[String]
   ): Either[Throwable, GraphQLRequest] = {
     val variablesJs  = vars.flatMap(parse(_).toOption)
     val extensionsJs = exts.flatMap(parse(_).toOption)
-    val fields = List("query" -> Json.fromString(query)) ++
+    val fields = query.map(js => "query" -> Json.fromString(js)) ++
       op.map(o => "operationName"         -> Json.fromString(o)) ++
       variablesJs.map(js => "variables"   -> js) ++
       extensionsJs.map(js => "extensions" -> js)
