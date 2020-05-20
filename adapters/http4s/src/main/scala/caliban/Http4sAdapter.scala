@@ -158,7 +158,7 @@ object Http4sAdapter {
           for {
             msg     <- Task.fromEither(decode[Json](text))
             msgType = msg.hcursor.downField("type").success.flatMap(_.value.asString).getOrElse("")
-            _ <- IO.whenCase(msgType) {
+            _ <- RIO.whenCase(msgType) {
                   case "connection_init" =>
                     sendQueue.enqueue1(WebSocketFrame.Text("""{"type":"connection_ack"}""")) *>
                       Task.whenCase(keepAliveTime) {
@@ -175,7 +175,7 @@ object Http4sAdapter {
                   case "start" =>
                     val payload = msg.hcursor.downField("payload")
                     val id      = msg.hcursor.downField("id").success.flatMap(_.value.asString).getOrElse("")
-                    Task.whenCase(payload.as[GraphQLRequest]) {
+                    RIO.whenCase(payload.as[GraphQLRequest]) {
                       case Right(req) =>
                         (for {
                           result <- interpreter.executeRequest(
@@ -255,7 +255,7 @@ object Http4sAdapter {
    * @return a new route without the R requirement
    */
   def provideLayerFromRequest[R <: Has[_]](route: HttpRoutes[RIO[R, *]], f: Request[Task] => TaskLayer[R])(
-    implicit tagged: Tagged[R]
+    implicit tagged: Tag[R]
   ): HttpRoutes[Task] =
     Kleisli { req: Request[Task[*]] =>
       val to: Task ~> RIO[R, *]   = FunctionK.lift[Task, RIO[R, *]](identity)
@@ -275,7 +275,7 @@ object Http4sAdapter {
   def provideSomeLayerFromRequest[R <: Has[_], R1 <: Has[_]](
     route: HttpRoutes[RIO[R with R1, *]],
     f: Request[RIO[R, *]] => TaskLayer[R1]
-  )(implicit tagged: Tagged[R1]): HttpRoutes[RIO[R, *]] =
+  )(implicit tagged: Tag[R1]): HttpRoutes[RIO[R, *]] =
     Kleisli { req: Request[RIO[R, *]] =>
       val to: RIO[R, *] ~> RIO[R with R1, *] = FunctionK.lift[RIO[R, *], RIO[R with R1, *]](identity)
       val from: RIO[R with R1, *] ~> RIO[R, *] =

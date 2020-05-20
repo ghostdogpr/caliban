@@ -7,7 +7,7 @@ import caliban.schema.{ ArgBuilder, PureStep, Schema, Step }
 import caliban.{ InputValue, ResponseValue }
 import play.api.libs.json.{ JsPath, JsValue, Json, JsonValidationError, Reads, Writes }
 import zio.ZIO
-import zio.zquery.ZQuery
+import zio.query.ZQuery
 
 /**
  * This class is an implementation of the pattern described in https://blog.7mind.io/no-more-orphans.html

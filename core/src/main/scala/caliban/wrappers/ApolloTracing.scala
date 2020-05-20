@@ -11,7 +11,7 @@ import caliban.{ GraphQLRequest, Rendering, ResponseValue }
 import zio.{ clock, Ref }
 import zio.clock.Clock
 import zio.duration.Duration
-import zio.zquery.ZQuery
+import zio.query.ZQuery
 
 object ApolloTracing {
 

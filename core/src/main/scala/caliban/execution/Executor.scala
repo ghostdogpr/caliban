@@ -11,7 +11,7 @@ import caliban.schema.{ ReducedStep, Step }
 import caliban.wrappers.Wrapper.FieldWrapper
 import caliban.{ CalibanError, GraphQLResponse, InputValue, ResponseValue, Value }
 import zio._
-import zio.zquery.ZQuery
+import zio.query.ZQuery
 
 object Executor {
 
@@ -107,7 +107,7 @@ object Executor {
             wrap(
               wrapper
                 .f(query, fieldInfo)
-                .foldM(error => ZQuery.fromEffect(errors.update(error :: _)).map(_ => NullValue), ZQuery.succeed(_))
+                .foldM(error => ZQuery.fromEffect(errors.update(error :: _)).as(NullValue), ZQuery.succeed(_))
             )(tail, fieldInfo)
 
         }
@@ -123,7 +123,7 @@ object Executor {
             (if (allowParallelism) ZQuery.collectAllPar(queries) else ZQuery.collectAll(queries)).map(ObjectValue)
           case ReducedStep.QueryStep(step) =>
             step.foldM(
-              error => ZQuery.fromEffect(errors.update(error :: _)).map(_ => NullValue),
+              error => ZQuery.fromEffect(errors.update(error :: _)).as(NullValue),
               query => loop(query)
             )
           case ReducedStep.StreamStep(stream) =>

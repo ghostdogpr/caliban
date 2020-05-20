@@ -7,7 +7,7 @@ import caliban.parsing.adt.Document
 import caliban.wrappers.Wrapper.CombinedWrapper
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
 import zio.{ UIO, ZIO }
-import zio.zquery.ZQuery
+import zio.query.ZQuery
 
 /**
  * A `Wrapper[-R]` represents an extra layer of computation that can be applied on top of Caliban's query handling.

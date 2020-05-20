@@ -11,7 +11,7 @@ import zio._
 import zio.interop.catz._
 import zio.interop.reactivestreams._
 import zio.stream.ZStream
-import zio.zquery.ZQuery
+import zio.query.ZQuery
 
 object MonixInterop {
 
@@ -59,15 +59,15 @@ object MonixInterop {
       override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
       override def resolve(value: Observable[A]): Step[R] =
         StreamStep(
-          ZStream.flatten(
-            ZStream.fromEffect(
+          ZStream
+            .fromEffect(
               MonixTask
                 .deferAction(implicit sc =>
                   MonixTask.eval(value.toReactivePublisher.toStream(queueSize).map(ev.resolve))
                 )
                 .to[Task]
             )
-          )
+            .flatten
         )
     }
 }
