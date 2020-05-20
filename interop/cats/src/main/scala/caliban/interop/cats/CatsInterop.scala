@@ -8,7 +8,7 @@ import cats.effect.implicits._
 import cats.effect.{ Async, Effect }
 import zio.interop.catz._
 import zio.{ Runtime, _ }
-import zio.zquery.ZQuery
+import zio.query.ZQuery
 
 object CatsInterop {
 

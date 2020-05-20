@@ -84,7 +84,7 @@ trait AkkaHttpAdapter {
     import akka.http.scaladsl.server.Directives._
 
     get {
-      parameters((Symbol("query").as[String], Symbol("operationName").?, Symbol("variables").?, Symbol("extensions").?)) {
+      parameters((Symbol("query").?, Symbol("operationName").?, Symbol("variables").?, Symbol("extensions").?)) {
         case (query, op, vars, ext) =>
           json
             .parseHttpRequest(query, op, vars, ext)
@@ -150,7 +150,7 @@ trait AkkaHttpAdapter {
             val io = for {
               msg     <- Task.fromEither(json.parseWSMessage(text))
               msgType = msg.messageType
-              _ <- IO.whenCase(msgType) {
+              _ <- RIO.whenCase(msgType) {
                     case "connection_init" =>
                       Task.fromFuture(_ => queue.offer(TextMessage("""{"type":"connection_ack"}"""))) *>
                         Task.whenCase(keepAliveTime) {
@@ -166,7 +166,7 @@ trait AkkaHttpAdapter {
                     case "connection_terminate" =>
                       IO.effect(queue.complete())
                     case "start" =>
-                      Task.whenCase(msg.request) {
+                      RIO.whenCase(msg.request) {
                         case Some(req) =>
                           startSubscription(msg.id, req, queue, subscriptions).catchAll(error =>
                             IO.fromFuture(_ => queue.offer(TextMessage(json.encodeWSError(msg.id, error))))

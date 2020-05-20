@@ -4,8 +4,7 @@ import akka.http.scaladsl.unmarshalling.FromEntityUnmarshaller
 import caliban._
 import caliban.interop.play.json.parsingException
 import de.heikoseeberger.akkahttpplayjson.PlayJsonSupport
-import play.api.libs.json.{ JsObject, JsString, JsValue, Json }
-
+import play.api.libs.json.{ JsObject, JsValue, Json }
 import scala.util.Try
 
 /**
@@ -21,18 +20,20 @@ final class PlayJsonBackend extends JsonBackend with PlayJsonSupport {
     Try(Json.parse(s))
 
   def parseHttpRequest(
-    query: String,
+    query: Option[String],
     op: Option[String],
     vars: Option[String],
     exts: Option[String]
   ): Either[Throwable, GraphQLRequest] = {
     val variablesJs  = vars.flatMap(parseJson(_).toOption)
     val extensionsJs = exts.flatMap(parseJson(_).toOption)
-    val fields = List("query" -> JsString(query)) ++
-      op.map(o => "operationName"         -> JsString(o)) ++
-      variablesJs.map(js => "variables"   -> js) ++
-      extensionsJs.map(js => "extensions" -> js)
-    JsObject(fields)
+    Json
+      .obj(
+        "query"         -> query,
+        "operationName" -> op,
+        "variables"     -> variablesJs,
+        "extensions"    -> extensionsJs
+      )
       .validate[GraphQLRequest]
       .asEither
       .left

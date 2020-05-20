@@ -16,7 +16,7 @@ import caliban.{ InputValue, ResponseValue }
 import magnolia._
 import zio.{ URIO, ZIO }
 import zio.stream.ZStream
-import zio.zquery.ZQuery
+import zio.query.ZQuery
 
 /**
  * Typeclass that defines how to map the type `T` to the according GraphQL concepts: how to introspect it and how to resolve it.

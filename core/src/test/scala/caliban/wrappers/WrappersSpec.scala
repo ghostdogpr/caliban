@@ -92,13 +92,15 @@ object WrappersSpec extends DefaultRunnableSpec {
               {
                 a
               }""")
-        assertM(TestClock.adjust(1 minute) *> interpreter.flatMap(_.execute(query)).map(_.errors))(
-          equalTo(List(ExecutionError("""Query was interrupted after timeout of 1 m:
+        assertM(for {
+          fiber <- interpreter.flatMap(_.execute(query)).map(_.errors).fork
+          _     <- TestClock.adjust(1 minute)
+          res   <- fiber.join
+        } yield res)(equalTo(List(ExecutionError("""Query was interrupted after timeout of 1 m:
 
               {
                 a
-              }""".stripMargin)))
-        )
+              }""".stripMargin))))
       },
       testM("Apollo Tracing") {
         case class Query(hero: Hero)

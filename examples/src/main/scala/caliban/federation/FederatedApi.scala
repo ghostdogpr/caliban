@@ -13,7 +13,7 @@ import zio.clock.Clock
 import zio.console.Console
 import zio.duration._
 import zio.stream.ZStream
-import zio.zquery.ZQuery
+import zio.query.ZQuery
 
 import scala.language.postfixOps
 

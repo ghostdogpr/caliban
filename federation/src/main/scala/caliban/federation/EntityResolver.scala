@@ -4,7 +4,7 @@ import caliban.introspection.adt.__Type
 import caliban.schema.{ ArgBuilder, Schema, Step }
 import caliban.{ CalibanError, InputValue }
 import zio.IO
-import zio.zquery.ZQuery
+import zio.query.ZQuery
 
 /**
  * A resolver which is used when attempting to materialize types from their "any" representation

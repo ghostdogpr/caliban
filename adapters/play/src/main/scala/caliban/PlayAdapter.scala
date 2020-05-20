@@ -143,7 +143,7 @@ trait PlayAdapter {
 
     val sink = Sink.foreach[PlayWSMessage] { msg =>
       val io = for {
-        _ <- IO.whenCase(msg.messageType) {
+        _ <- RIO.whenCase(msg.messageType) {
               case "connection_init" =>
                 Task.fromFuture(_ => queue.offer(PlayWSMessage("connection_ack"))) *>
                   Task.whenCase(keepAliveTime) {
