@@ -84,10 +84,7 @@ object UzHttpAdapter {
       for {
         subscriptions <- Ref.make(Map.empty[String, Fiber[Throwable, Unit]])
         sendQueue     <- Queue.unbounded[Take[Nothing, Frame]]
-        _ <- inputFrames.map { a =>
-              println(a)
-              a
-            }.collect { case Text(text, _) => text }.mapM { text =>
+        _ <- inputFrames.collect { case Text(text, _) => text }.mapM { text =>
               for {
                 msg     <- Task.fromEither(decode[Json](text))
                 msgType = msg.hcursor.downField("type").success.flatMap(_.value.asString).getOrElse("")
