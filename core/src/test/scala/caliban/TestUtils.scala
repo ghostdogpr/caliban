@@ -299,13 +299,11 @@ object TestUtils {
       object FieldUnion {
         case object FIELD_A extends FieldUnion
       }
-
       sealed trait WithFieldUnion {
         val field: FieldUnion
       }
       case class FieldUnionObject(field: FieldUnion) extends WithFieldUnion
       case class TestUnionSubtype(fieldUnion: FieldUnionObject)
-
       val resolverUnionSubtype = RootResolver(TestUnionSubtype(FieldUnionObject(FIELD_A)))
 
       @GQLInterface
@@ -315,7 +313,6 @@ object TestUtils {
       object FieldInterface {
         case class FieldSubtypeObject(a: String) extends FieldInterface
       }
-
       @GQLInterface
       sealed trait WithFieldInterface {
         val field: FieldInterface
@@ -323,10 +320,25 @@ object TestUtils {
       object WithFieldInterface {
         case class WithFieldObject(field: FieldSubtypeObject) extends WithFieldInterface
       }
-
       case class TestInterfaceSubtype(fieldInterface: WithFieldObject)
-
       val resolverInterfaceSubtype = RootResolver(TestInterfaceSubtype(WithFieldObject(FieldSubtypeObject("a"))))
+
+      sealed trait WithListFieldUnion {
+        val fieldUnions: List[FieldUnion]
+      }
+      case class ListFieldUnionObject(fieldUnions: List[FieldUnion]) extends WithListFieldUnion
+      case class TestListUnionSubtype(listFieldUnion: ListFieldUnionObject)
+      val resolverListUnionSubtype = RootResolver(TestListUnionSubtype(ListFieldUnionObject(List(FIELD_A))))
+
+      @GQLInterface
+      sealed trait WithListFieldInterface {
+        val fieldInterfaces: List[FieldInterface]
+      }
+      case class ListFieldInterfaceObject(fieldInterfaces: List[FieldInterface]) extends WithListFieldInterface
+      case class TestListInterfaceSubtype(listFieldInterface: ListFieldInterfaceObject)
+      val resolverListInterfaceSubtype = RootResolver(
+        TestListInterfaceSubtype(ListFieldInterfaceObject(List(FieldSubtypeObject("a"))))
+      )
     }
 
     @GQLDirective(Directive("__name"))

@@ -260,12 +260,18 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
               )
               .map(_.reduce(_ && _))
           },
-          testM("field type is a valid sub-type when equal to interface field type") {
+          testM("field type when equal to interface field type is a valid sub-type") {
             assertM(graphQL(resolverTwoInterfaces).interpreter.run)(succeeds(anything))
           },
           testM("field type in the possible types of an interface or union is a valid sub-type") {
             (assertM(graphQL(resolverUnionSubtype).interpreter.run)(succeeds(anything)) &&&
               assertM(graphQL(resolverInterfaceSubtype).interpreter.run)(succeeds(anything))).map {
+              case (a, b) => a && b
+            }
+          },
+          testM("field type that is a valid list item subtype is valid") {
+            (assertM(graphQL(resolverListUnionSubtype).interpreter.run)(succeeds(anything)) &&&
+              assertM(graphQL(resolverListInterfaceSubtype).interpreter.run)(succeeds(anything))).map {
               case (a, b) => a && b
             }
           }
