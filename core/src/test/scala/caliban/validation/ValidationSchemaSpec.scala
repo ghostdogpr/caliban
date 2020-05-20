@@ -274,6 +274,9 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
               assertM(graphQL(resolverListInterfaceSubtype).interpreter.run)(succeeds(anything))).map {
               case (a, b) => a && b
             }
+          },
+          testM("field type that is a Non-Null variant of a valid interface field type is valid") {
+            assertM(graphQL(resolveNonNullableSubtype).interpreter.run)(succeeds(anything))
           }
         )
       }
