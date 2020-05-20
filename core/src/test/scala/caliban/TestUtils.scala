@@ -7,12 +7,12 @@ import caliban.TestUtils.InvalidSchemas.Object.WithFieldInterface.WithFieldObjec
 import caliban.TestUtils.Origin._
 import caliban.TestUtils.Role._
 import caliban.Value.StringValue
-import caliban.introspection.adt.{__Field, __Type, __TypeKind}
+import caliban.introspection.adt.{ __Field, __Type, __TypeKind }
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
-import caliban.schema.{Schema, Types}
+import caliban.schema.{ Schema, Types }
 import zio.stream.ZStream
-import zio.{Task, UIO}
+import zio.{ Task, UIO }
 
 object TestUtils {
 
