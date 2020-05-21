@@ -280,6 +280,9 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
           },
           testM("fields including arguments of the same name and type defined in an interface are valid") {
             assertM(graphQL(resolverFieldWithArg).interpreter.run)(succeeds(anything))
+          },
+          testM("fields with nullable additional args are valid") {
+            assertM(Validator.validateObject(nullableExtraArgsObject).run)(succeeds(anything))
           }
         )
       }
