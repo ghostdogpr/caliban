@@ -346,7 +346,16 @@ object TestUtils {
       }
       case class WithNonNullable(field: UIO[String]) extends WithNullable
       case class TestNonNullableObject(nonNullable: WithNonNullable)
-      val resolveNonNullableSubtype = RootResolver(TestNonNullableObject(WithNonNullable(UIO.succeed("a"))))
+      val resolverNonNullableSubtype = RootResolver(TestNonNullableObject(WithNonNullable(UIO.succeed("a"))))
+
+      case class FieldArg(arg: String)
+      @GQLInterface
+      sealed trait WithFieldWithArg {
+        val fieldWithArg: FieldArg => String
+      }
+      case class FieldWithArgObject(fieldWithArg: FieldArg => String) extends WithFieldWithArg
+      case class TestFieldWithArgObject(obj: FieldWithArgObject)
+      val resolverFieldWithArg = RootResolver(TestFieldWithArgObject(FieldWithArgObject(_ => "a")))
     }
 
     @GQLDirective(Directive("__name"))

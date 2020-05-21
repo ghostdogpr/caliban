@@ -276,7 +276,10 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
             }
           },
           testM("field type that is a Non-Null variant of a valid interface field type is valid") {
-            assertM(graphQL(resolveNonNullableSubtype).interpreter.run)(succeeds(anything))
+            assertM(graphQL(resolverNonNullableSubtype).interpreter.run)(succeeds(anything))
+          },
+          testM("fields including arguments of the same name and type defined in an interface are valid") {
+            assertM(graphQL(resolverFieldWithArg).interpreter.run)(succeeds(anything))
           }
         )
       }
