@@ -7,12 +7,12 @@ import caliban.TestUtils.InvalidSchemas.Object.WithFieldInterface.WithFieldObjec
 import caliban.TestUtils.Origin._
 import caliban.TestUtils.Role._
 import caliban.Value.StringValue
-import caliban.introspection.adt.{__Field, __InputValue, __Type, __TypeKind}
+import caliban.introspection.adt.{ __Field, __InputValue, __Type, __TypeKind }
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
-import caliban.schema.{Schema, Types}
+import caliban.schema.{ Schema, Types }
 import zio.stream.ZStream
-import zio.{Task, UIO}
+import zio.{ Task, UIO }
 
 object TestUtils {
 
@@ -361,20 +361,30 @@ object TestUtils {
         name = Some("NullableExtraArgsObject"),
         description = None,
         fields = List(
-          __Field(name = "fieldWithArg", description = None, `type` = () => Types.string,
+          __Field(
+            name = "fieldWithArg",
+            description = None,
+            `type` = () => Types.string,
             args = List(
               __InputValue(name = "arg", description = None, `type` = () => Types.string, defaultValue = None),
               __InputValue(name = "extraArg", description = None, `type` = () => Types.string, defaultValue = None)
-            ))
-        ), directives = Nil)
+            )
+          )
+        ),
+        directives = Nil
+      )
 
       val withNullableExtraArgs = Types.makeInterface(
         name = Some("WithNullableExtraArgs"),
         description = None,
         fields = List(
-          __Field(name = "fieldWithArg", description = None, `type` = () => Types.string,
-            args = List(
-              __InputValue(name = "arg", description = None, `type` = () => Types.string, defaultValue = None)))
+          __Field(
+            name = "fieldWithArg",
+            description = None,
+            `type` = () => Types.string,
+            args =
+              List(__InputValue(name = "arg", description = None, `type` = () => Types.string, defaultValue = None))
+          )
         ),
         subTypes = List(nullableExtraArgsObject)
       )
