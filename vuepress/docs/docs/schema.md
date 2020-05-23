@@ -108,7 +108,7 @@ type Mechanic {
 ```
 
 If you prefer an `Interface` instead of a `Union` type, add the `@GQLInterface` annotation to your sealed trait.
-An interface will be created with all the fields that are common to the case classes extending the sealed trait.
+An interface will be created with all the fields that are common to the case classes extending the sealed trait, as long as they return the same type.
 
 ## Arguments
 
