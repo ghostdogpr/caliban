@@ -367,6 +367,16 @@ object SelectionBuilder {
     override def withAlias(alias: String): SelectionBuilder[Origin, B] = Mapping(builder.withAlias(alias), f)
   }
 
+  def combineAll[Origin, A](
+    head: SelectionBuilder[Origin, A],
+    tail: SelectionBuilder[Origin, A]*
+  ): SelectionBuilder[Origin, List[A]] =
+    tail
+      .foldLeft(head.map(List(_))) {
+        case (res, sel) => (res ~ sel).map { case (as, a) => a :: as }
+      }
+      .map(_.reverse)
+
   def toGraphQL(
     fields: List[Selection],
     useVariables: Boolean,
