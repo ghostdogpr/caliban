@@ -7,7 +7,7 @@
     <meta name="generator" content="VuePress 1.5.0">
     <link rel="icon" href="/caliban/caliban.png">
     <meta name="description" content="Functional GraphQL library for Scala">
-    <link rel="preload" href="/caliban/assets/css/0.styles.45db484b.css" as="style"><link rel="preload" href="/caliban/assets/js/app.128cd025.js" as="script"><link rel="preload" href="/caliban/assets/js/2.c0e447ff.js" as="script"><link rel="preload" href="/caliban/assets/js/15.b79ee4de.js" as="script"><link rel="prefetch" href="/caliban/assets/js/10.8f435eb9.js"><link rel="prefetch" href="/caliban/assets/js/11.758ec2fa.js"><link rel="prefetch" href="/caliban/assets/js/12.0cfda82d.js"><link rel="prefetch" href="/caliban/assets/js/13.ae945943.js"><link rel="prefetch" href="/caliban/assets/js/14.2374ba72.js"><link rel="prefetch" href="/caliban/assets/js/16.9296b033.js"><link rel="prefetch" href="/caliban/assets/js/17.afefb012.js"><link rel="prefetch" href="/caliban/assets/js/3.3ddec59a.js"><link rel="prefetch" href="/caliban/assets/js/4.2b7fc900.js"><link rel="prefetch" href="/caliban/assets/js/5.316ba494.js"><link rel="prefetch" href="/caliban/assets/js/6.8b6b7bfe.js"><link rel="prefetch" href="/caliban/assets/js/7.f9c08cd5.js"><link rel="prefetch" href="/caliban/assets/js/8.bbf21dd2.js"><link rel="prefetch" href="/caliban/assets/js/9.70ccea4b.js">
+    <link rel="preload" href="/caliban/assets/css/0.styles.45db484b.css" as="style"><link rel="preload" href="/caliban/assets/js/app.dc95855c.js" as="script"><link rel="preload" href="/caliban/assets/js/2.c0e447ff.js" as="script"><link rel="preload" href="/caliban/assets/js/15.89a7b8af.js" as="script"><link rel="prefetch" href="/caliban/assets/js/10.181d95e2.js"><link rel="prefetch" href="/caliban/assets/js/11.758ec2fa.js"><link rel="prefetch" href="/caliban/assets/js/12.0cfda82d.js"><link rel="prefetch" href="/caliban/assets/js/13.ae945943.js"><link rel="prefetch" href="/caliban/assets/js/14.2374ba72.js"><link rel="prefetch" href="/caliban/assets/js/16.f068293e.js"><link rel="prefetch" href="/caliban/assets/js/17.00d6ef8d.js"><link rel="prefetch" href="/caliban/assets/js/18.88fccffa.js"><link rel="prefetch" href="/caliban/assets/js/3.a18c8fa6.js"><link rel="prefetch" href="/caliban/assets/js/4.2b7fc900.js"><link rel="prefetch" href="/caliban/assets/js/5.316ba494.js"><link rel="prefetch" href="/caliban/assets/js/6.8b6b7bfe.js"><link rel="prefetch" href="/caliban/assets/js/7.4bdb1531.js"><link rel="prefetch" href="/caliban/assets/js/8.33a322ea.js"><link rel="prefetch" href="/caliban/assets/js/9.e24af131.js">
     <link rel="stylesheet" href="/caliban/assets/css/0.styles.45db484b.css">
   </head>
   <body>
@@ -15,6 +15,8 @@
   Documentation
 </a></div><div class="nav-item"><a href="/caliban/resources/" class="nav-link">
   Resources
+</a></div><div class="nav-item"><a href="/caliban/faq/" class="nav-link">
+  FAQ
 </a></div><div class="nav-item"><a href="/caliban/about/" class="nav-link">
   About
 </a></div><div class="nav-item"><a href="https://github.com/ghostdogpr/caliban" target="_blank" rel="noopener noreferrer" class="nav-link external">
@@ -25,6 +27,8 @@
   Documentation
 </a></div><div class="nav-item"><a href="/caliban/resources/" class="nav-link">
   Resources
+</a></div><div class="nav-item"><a href="/caliban/faq/" class="nav-link">
+  FAQ
 </a></div><div class="nav-item"><a href="/caliban/about/" class="nav-link">
   About
 </a></div><div class="nav-item"><a href="https://github.com/ghostdogpr/caliban" target="_blank" rel="noopener noreferrer" class="nav-link external">
@@ -67,7 +71,7 @@ This will also improve compilation times and generate less bytecode.</p></div> <
   <span class="token attr-name">_</span><span class="token punctuation">:</span> Boolean<span class="token operator">!</span>
 <span class="token punctuation">}</span>
 </code></pre></div><p>If you prefer an <code>Interface</code> instead of a <code>Union</code> type, add the <code>@GQLInterface</code> annotation to your sealed trait.
-An interface will be created with all the fields that are common to the case classes extending the sealed trait.</p> <h2 id="arguments"><a href="#arguments" class="header-anchor">#</a> Arguments</h2> <p>To declare a field that take arguments, create a dedicated case class representing the arguments and make the field a <em>function</em> from this class to the result type.</p> <div class="language-scala extra-class"><pre class="language-scala"><code><span class="token keyword">case</span> <span class="token keyword">class</span> FilterArgs<span class="token punctuation">(</span>origin<span class="token operator">:</span> Option<span class="token punctuation">[</span>Origin<span class="token punctuation">]</span><span class="token punctuation">)</span>
+An interface will be created with all the fields that are common to the case classes extending the sealed trait, as long as they return the same type.</p> <h2 id="arguments"><a href="#arguments" class="header-anchor">#</a> Arguments</h2> <p>To declare a field that take arguments, create a dedicated case class representing the arguments and make the field a <em>function</em> from this class to the result type.</p> <div class="language-scala extra-class"><pre class="language-scala"><code><span class="token keyword">case</span> <span class="token keyword">class</span> FilterArgs<span class="token punctuation">(</span>origin<span class="token operator">:</span> Option<span class="token punctuation">[</span>Origin<span class="token punctuation">]</span><span class="token punctuation">)</span>
 <span class="token keyword">case</span> <span class="token keyword">class</span> Queries<span class="token punctuation">(</span>characters<span class="token operator">:</span> FilterArgs <span class="token keyword">=&gt;</span> List<span class="token punctuation">[</span>Character<span class="token punctuation">]</span><span class="token punctuation">)</span>
 </code></pre></div><p>The snippet above will produce the following GraphQL type:</p> <div class="language-graphql extra-class"><pre class="language-graphql"><code><span class="token keyword">type</span> <span class="token class-name">Queries</span> <span class="token punctuation">{</span>
   <span class="token attr-name">characters</span><span class="token punctuation">(</span><span class="token attr-name">origin</span><span class="token punctuation">:</span> Origin<span class="token punctuation">)</span><span class="token punctuation">:</span> <span class="token punctuation">[</span>Character<span class="token operator">!</span><span class="token punctuation">]</span><span class="token operator">!</span>
@@ -106,6 +110,6 @@ option.</p> <div class="custom-block warning"><p class="custom-block-title">Unsu
       </a>
       →
     </span></p></div> </main></div><div class="global-ui"></div></div>
-    <script src="/caliban/assets/js/app.128cd025.js" defer></script><script src="/caliban/assets/js/2.c0e447ff.js" defer></script><script src="/caliban/assets/js/15.b79ee4de.js" defer></script>
+    <script src="/caliban/assets/js/app.dc95855c.js" defer></script><script src="/caliban/assets/js/2.c0e447ff.js" defer></script><script src="/caliban/assets/js/15.89a7b8af.js" defer></script>
   </body>
 </html>
