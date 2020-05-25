@@ -1,5 +1,6 @@
 package caliban.client
 
+import caliban.client.Operations.RootQuery
 import caliban.client.Selection.Directive
 import caliban.client.TestData._
 import caliban.client.Value.{ ListValue, ObjectValue, StringValue }
@@ -191,6 +192,20 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
               )
             )
           assert(query.fromGraphQL(response))(isRight(equalTo((Some("Amos Burton"), Some("Naomi Nagata")))))
+        },
+        test("combineAll") {
+          val query: SelectionBuilder[RootQuery, List[Option[String]]] = SelectionBuilder.combineAll(
+            Queries.character("Amos Burton")(Character.name).copy(alias = Some("amos")),
+            Queries.character("Naomi Nagata")(Character.name).copy(alias = Some("naomi"))
+          )
+          val response =
+            ObjectValue(
+              List(
+                "amos"  -> ObjectValue(List("name" -> StringValue("Amos Burton"))),
+                "naomi" -> ObjectValue(List("name" -> StringValue("Naomi Nagata")))
+              )
+            )
+          assert(query.fromGraphQL(response))(isRight(equalTo(List(Some("Amos Burton"), Some("Naomi Nagata")))))
         }
       )
     )
