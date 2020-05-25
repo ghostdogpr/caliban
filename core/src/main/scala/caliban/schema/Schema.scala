@@ -408,7 +408,8 @@ trait DerivationSchema[R] {
             .groupBy(_.name)
             .collect {
               case (name, list)
-                  if impl.forall(_.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).exists(_.name == name)) =>
+                  if impl.forall(_.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).exists(_.name == name)) &&
+                    list.map(t => Types.name(t.`type`())).distinct.length == 1 =>
                 list.headOption
             }
             .flatten

@@ -1,9 +1,9 @@
 package caliban.schema
 
 import java.util.UUID
-
 import scala.concurrent.Future
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
+import caliban.schema.Annotations.GQLInterface
 import play.api.libs.json.JsValue
 import zio.test.Assertion._
 import zio.test._
@@ -43,6 +43,11 @@ object SchemaSpec extends DefaultRunnableSpec {
           isSome(hasField[__Type, String]("id", _.ofType.flatMap(_.name).get, equalTo("ID")))
         )
       },
+      test("interface only take fields that return the same type") {
+        assert(introspect[MyInterface].fields(__DeprecatedArgs()).toList.flatten.map(_.name))(
+          equalTo(List("common"))
+        )
+      },
       test("field with Json object [circe]") {
         import caliban.interop.circe.json._
         case class Queries(to: io.circe.Json, from: io.circe.Json => Unit)
@@ -65,6 +70,13 @@ object SchemaSpec extends DefaultRunnableSpec {
   case class InfallibleFieldSchema(q: UIO[Int])
   case class FutureFieldSchema(q: Future[Int])
   case class IDSchema(id: UUID)
+
+  @GQLInterface
+  sealed trait MyInterface
+  object MyInterface {
+    case class A(common: Int, different: String)  extends MyInterface
+    case class B(common: Int, different: Boolean) extends MyInterface
+  }
 
   def introspect[Q](implicit schema: Schema[Any, Q]): __Type = schema.toType()
 }
