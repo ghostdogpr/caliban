@@ -14,7 +14,7 @@ val tapirVersion          = "0.15.2"
 val zioVersion            = "1.0.0-RC19-2"
 val zioInteropCatsVersion = "2.0.0.0-RC14"
 val zioConfigVersion      = "1.0.0-RC18"
-val zqueryVersion         = "0.2.0"
+val zqueryVersion         = "0.2.1"
 
 inThisBuild(
   List(
