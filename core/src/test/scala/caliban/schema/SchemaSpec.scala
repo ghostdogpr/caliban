@@ -38,6 +38,13 @@ object SchemaSpec extends DefaultRunnableSpec {
           contains("BInput") && contains("CInput")
         )
       },
+      test("nested types") {
+        case class Queries(a: Generic[Option[Double]], b: Generic[Option[Int]])
+        case class Generic[T](value: T)
+        assert(Types.collectTypes(introspect[Queries]).map(_.name.getOrElse("")))(
+          contains("GenericOptionDouble") && contains("GenericOptionInt")
+        )
+      },
       test("UUID field should be converted to ID") {
         assert(introspect[IDSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
           isSome(hasField[__Type, String]("id", _.ofType.flatMap(_.name).get, equalTo("ID")))
