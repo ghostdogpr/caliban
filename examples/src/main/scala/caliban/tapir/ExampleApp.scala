@@ -40,7 +40,7 @@ object ExampleApp extends CatsApp {
   val graphql2: GraphQL[Any] =
     addBookEndpoint.toGraphQL |+| deleteBookEndpoint.toGraphQL |+| booksListingEndpoint.toGraphQL
 
-  override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] =
+  override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
     (for {
       blocker     <- ZIO.access[Blocking](_.get.blockingExecutor.asEC).map(Blocker.liftExecutionContext)
       interpreter <- graphql.interpreter
@@ -55,7 +55,7 @@ object ExampleApp extends CatsApp {
             .resource
             .toManaged
             .useForever
-    } yield 0)
-      .catchAll(err => putStrLn(err.toString).as(1))
+    } yield ExitCode.success)
+      .catchAll(err => putStrLn(err.toString).as(ExitCode.failure))
 
 }

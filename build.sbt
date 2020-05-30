@@ -9,12 +9,12 @@ val circeVersion          = "0.13.0"
 val http4sVersion         = "0.21.4"
 val playVersion           = "2.8.1"
 val silencerVersion       = "1.6.0"
-val sttpVersion           = "2.1.4"
+val sttpVersion           = "2.1.5"
 val tapirVersion          = "0.15.3"
-val zioVersion            = "1.0.0-RC19-2"
-val zioInteropCatsVersion = "2.0.0.0-RC14"
+val zioVersion            = "1.0.0-RC20"
+val zioInteropCatsVersion = "2.1.3.0-RC15"
 val zioConfigVersion      = "1.0.0-RC20"
-val zqueryVersion         = "0.2.0"
+val zqueryVersion         = "0.2.1"
 
 inThisBuild(
   List(
@@ -150,7 +150,7 @@ lazy val monixInterop = project
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "dev.zio"  %% "zio-interop-reactivestreams" % "1.0.3.5-RC8",
+      "dev.zio"  %% "zio-interop-reactivestreams" % "1.0.3.5-RC10",
       "dev.zio"  %% "zio-interop-cats"            % zioInteropCatsVersion,
       "io.monix" %% "monix"                       % "3.2.1"
     )
