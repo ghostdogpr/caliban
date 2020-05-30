@@ -12,8 +12,8 @@ import caliban.parsing.adt.LocationInfo
 import zio.IO
 import zio.stream.ZStream
 import zio.test.Assertion._
-import zio.test.environment.TestEnvironment
 import zio.test._
+import zio.test.environment.TestEnvironment
 
 object ExecutionSpec extends DefaultRunnableSpec {
 
@@ -361,8 +361,8 @@ object ExecutionSpec extends DefaultRunnableSpec {
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":<stream>}"""))
       },
       testM("Circe Json scalar") {
-        import io.circe.Json
         import caliban.interop.circe.json._
+        import io.circe.Json
         case class Queries(test: Json)
 
         val interpreter = graphQL(RootResolver(Queries(Json.obj(("a", Json.fromInt(333)))))).interpreter
@@ -374,8 +374,8 @@ object ExecutionSpec extends DefaultRunnableSpec {
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":{"a":333}}"""))
       },
       testM("Play Json scalar") {
-        import play.api.libs.json._
         import caliban.interop.play.json._
+        import play.api.libs.json._
         case class Queries(test: JsValue)
 
         val interpreter = graphQL(RootResolver(Queries(Json.obj(("a", JsNumber(333)))))).interpreter
@@ -407,6 +407,29 @@ object ExecutionSpec extends DefaultRunnableSpec {
             |  test(value: 1)
             |}""".stripMargin
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":1}"""))
+      },
+      testM("value classes") {
+        case class Queries(events: List[Event], painters: List[WrappedPainter])
+        val event       = Event(OrganizationId(7), "Frida Kahlo exhibition")
+        val painter     = Painter("Claude Monet", "Impressionism")
+        val api         = graphQL(RootResolver(Queries(event :: Nil, WrappedPainter(painter) :: Nil)))
+        val interpreter = api.interpreter
+        val query =
+          """query {
+            |  events {
+            |    organizationId
+            |    title
+            |  }
+            |  painters {
+            |    name
+            |    movement
+            |  }
+            |}""".stripMargin
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
+          equalTo(
+            """{"events":[{"organizationId":7,"title":"Frida Kahlo exhibition"}],"painters":[{"name":"Claude Monet","movement":"Impressionism"}]}"""
+          )
+        )
       }
     )
 }

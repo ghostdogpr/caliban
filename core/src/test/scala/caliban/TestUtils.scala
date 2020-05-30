@@ -44,6 +44,12 @@ object TestUtils {
     role: Option[Role]
   )
 
+  case class OrganizationId(self: Long) extends AnyVal
+  case class Event(organizationId: OrganizationId, title: String)
+
+  case class Painter(name: String, movement: String)
+  case class WrappedPainter(self: Painter) extends AnyVal
+
   @GQLInputName("CharacterInput")
   case class CharacterInput(
     @GQLDirective(Directive("external")) name: String,

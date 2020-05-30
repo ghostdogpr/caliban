@@ -1,22 +1,24 @@
 package caliban.schema
 
 import java.util.UUID
-import scala.annotation.implicitNotFound
-import scala.concurrent.Future
-import scala.language.experimental.macros
+
 import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue._
 import caliban.Value._
 import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
-import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLDirective, GQLInputName, GQLInterface, GQLName }
+import caliban.schema.Annotations._
 import caliban.schema.Step._
 import caliban.schema.Types._
 import caliban.{ InputValue, ResponseValue }
 import magnolia._
-import zio.{ URIO, ZIO }
-import zio.stream.ZStream
 import zio.query.ZQuery
+import zio.stream.ZStream
+import zio.{ URIO, ZIO }
+
+import scala.annotation.implicitNotFound
+import scala.concurrent.Future
+import scala.language.experimental.macros
 
 /**
  * Typeclass that defines how to map the type `T` to the according GraphQL concepts: how to introspect it and how to resolve it.
@@ -313,7 +315,8 @@ trait DerivationSchema[R] {
 
   def combine[T](ctx: ReadOnlyCaseClass[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
     override def toType(isInput: Boolean = false): __Type =
-      if (isInput)
+      if (ctx.isValueClass && ctx.parameters.nonEmpty) ctx.parameters.head.typeclass.toType(isInput)
+      else if (isInput)
         makeInputObject(
           Some(ctx.annotations.collectFirst { case GQLInputName(suffix) => suffix }
             .getOrElse(customizeInputTypeName(getName(ctx)))),
@@ -356,7 +359,11 @@ trait DerivationSchema[R] {
 
     override def resolve(value: T): Step[R] =
       if (ctx.isObject) PureStep(EnumValue(getName(ctx)))
-      else ObjectStep(getName(ctx), ctx.parameters.map(p => p.label -> p.typeclass.resolve(p.dereference(value))).toMap)
+      else if (ctx.isValueClass && ctx.parameters.nonEmpty) {
+        val head = ctx.parameters.head
+        head.typeclass.resolve(head.dereference(value))
+      } else
+        ObjectStep(getName(ctx), ctx.parameters.map(p => p.label -> p.typeclass.resolve(p.dereference(value))).toMap)
   }
 
   def dispatch[T](ctx: SealedTrait[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
