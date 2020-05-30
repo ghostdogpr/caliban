@@ -452,8 +452,12 @@ trait DerivationSchema[R] {
     getDirectives(ctx.annotations)
 
   private def getName(annotations: Seq[Any], typeName: TypeName): String =
-    annotations.collectFirst { case GQLName(name) => name }
-      .getOrElse(typeName.short + typeName.typeArguments.map(_.short).mkString)
+    annotations.collectFirst { case GQLName(name) => name }.getOrElse {
+      typeName.typeArguments match {
+        case Nil  => typeName.short
+        case args => typeName.short + args.map(getName(Nil, _)).mkString
+      }
+    }
 
   private def getName[Typeclass[_], Type](ctx: ReadOnlyCaseClass[Typeclass, Type]): String =
     getName(ctx.annotations, ctx.typeName)
