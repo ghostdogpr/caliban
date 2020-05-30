@@ -1,7 +1,8 @@
 package caliban.schema
 
 import java.util.UUID
-import scala.concurrent.Future
+
+import caliban.TestUtils.{ OrganizationId, WrappedPainter }
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
 import caliban.schema.Annotations.GQLInterface
 import play.api.libs.json.JsValue
@@ -9,6 +10,8 @@ import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment
 import zio.{ Task, UIO }
+
+import scala.concurrent.Future
 
 object SchemaSpec extends DefaultRunnableSpec {
 
@@ -70,6 +73,11 @@ object SchemaSpec extends DefaultRunnableSpec {
         assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
           isSome(hasField[__Type, String]("to", _.ofType.flatMap(_.name).get, equalTo("Json")))
         )
+      },
+      test("value classes should unwrap") {
+        case class Queries(organizationId: OrganizationId, painter: WrappedPainter)
+        val fieldTypes = introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.map(_.`type`())
+        assert(fieldTypes.map(_.ofType.flatMap(_.name)))(equalTo(Some("Long") :: Some("Painter") :: Nil))
       }
     )
 

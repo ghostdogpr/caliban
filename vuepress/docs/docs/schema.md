@@ -191,6 +191,8 @@ implicit val localDateArgBuilder: ArgBuilder[LocalDate] = {
 }
 ```
 
+Value classes (`case class SomeWrapper(self: SomeType) extends AnyVal`) will be unwrapped by default.
+
 ## Code generation
 
 Caliban can automatically generate Scala code from a GraphQL schema.
