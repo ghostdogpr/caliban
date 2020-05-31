@@ -2,8 +2,6 @@ package caliban
 
 import caliban.TestUtils.InvalidSchemas.Interface.WrongArgumentName
 import caliban.TestUtils.InvalidSchemas.Object.FieldInterface.FieldSubtypeObject
-import caliban.TestUtils.InvalidSchemas.Object.FieldUnion.FIELD_A
-import caliban.TestUtils.InvalidSchemas.Object.WithFieldInterface.WithFieldObject
 import caliban.TestUtils.Origin._
 import caliban.TestUtils.Role._
 import caliban.Value.StringValue
@@ -157,7 +155,7 @@ object TestUtils {
 
       case class TestEmpty(i: InterfaceEmpty)
 
-      val resolverEmptyInferface = RootResolver(
+      val resolverEmptyInterface = RootResolver(
         TestEmpty(InterfaceEmpty.A("a"))
       )
 
@@ -174,7 +172,7 @@ object TestUtils {
 
       case class TestWrongFieldName(i: InterfaceWrongFieldName)
 
-      val resolverInferfaceWrongFieldName = RootResolver(
+      val resolverInterfaceWrongFieldName = RootResolver(
         TestWrongFieldName(InterfaceWrongFieldName.A("a"))
       )
 
@@ -287,6 +285,29 @@ object TestUtils {
       val interfaceA = Types.makeInterface(Some("InterfaceA"), None, makeFields("a"), Nil)
       val interfaceB = Types.makeInterface(Some("InterfaceA"), None, makeFields("b"), Nil)
 
+      val objectWrongInterfaceFieldType = __Type(
+        name = Some("ObjectWrongInterfaceFieldType"),
+        kind = __TypeKind.OBJECT,
+        interfaces = () => Some(List(interfaceA, interfaceB)),
+        fields = _ =>
+          Some(
+            List(
+              __Field(
+                name = "a",
+                description = None,
+                args = Nil,
+                `type` = () => Types.int // bad type, interface type is string
+              ),
+              __Field(
+                name = "b",
+                description = None,
+                args = Nil,
+                `type` = () => Types.boolean // bad type, interface type is string
+              )
+            )
+          )
+      )
+
       def objectWithFields(fields: String*) =
         __Type(
           name = Some(s"Fields${fields.mkString("").toUpperCase}"),
@@ -295,16 +316,10 @@ object TestUtils {
           interfaces = () => Some(List(interfaceA, interfaceB))
         )
 
-      sealed trait FieldUnion
-      object FieldUnion {
-        case object FIELD_A extends FieldUnion
-      }
-      sealed trait WithFieldUnion {
-        val field: FieldUnion
-      }
-      case class FieldUnionObject(field: FieldUnion) extends WithFieldUnion
-      case class TestUnionSubtype(fieldUnion: FieldUnionObject)
-      val resolverUnionSubtype = RootResolver(TestUnionSubtype(FieldUnionObject(FIELD_A)))
+      sealed trait Union
+      case class UnionSubtypeWithA(a: String) extends Union
+      case class TestUnionSubtype(fieldUnion: UnionSubtypeWithA)
+      val resolverUnionSubtype = RootResolver(TestUnionSubtype(UnionSubtypeWithA("a")))
 
       @GQLInterface
       sealed trait FieldInterface {
@@ -313,31 +328,22 @@ object TestUtils {
       object FieldInterface {
         case class FieldSubtypeObject(a: String) extends FieldInterface
       }
-      @GQLInterface
-      sealed trait WithFieldInterface {
-        val field: FieldInterface
-      }
-      object WithFieldInterface {
-        case class WithFieldObject(field: FieldSubtypeObject) extends WithFieldInterface
-      }
-      case class TestInterfaceSubtype(fieldInterface: WithFieldObject)
-      val resolverInterfaceSubtype = RootResolver(TestInterfaceSubtype(WithFieldObject(FieldSubtypeObject("a"))))
+      case class TestInterfaceSubtype(fieldInterface: FieldSubtypeObject)
+      val resolverInterfaceSubtype = RootResolver(TestInterfaceSubtype(FieldSubtypeObject("a")))
 
       sealed trait WithListFieldUnion {
-        val fieldUnions: List[FieldUnion]
+        val fieldUnions: List[Union]
       }
-      case class ListFieldUnionObject(fieldUnions: List[FieldUnion]) extends WithListFieldUnion
-      case class TestListUnionSubtype(listFieldUnion: ListFieldUnionObject)
-      val resolverListUnionSubtype = RootResolver(TestListUnionSubtype(ListFieldUnionObject(List(FIELD_A))))
+      case class TestListUnionSubtype(listFieldUnion: List[UnionSubtypeWithA])
+      val resolverListUnionSubtype = RootResolver(TestListUnionSubtype(List(UnionSubtypeWithA("a"))))
 
       @GQLInterface
       sealed trait WithListFieldInterface {
         val fieldInterfaces: List[FieldInterface]
       }
-      case class ListFieldInterfaceObject(fieldInterfaces: List[FieldInterface]) extends WithListFieldInterface
-      case class TestListInterfaceSubtype(listFieldInterface: ListFieldInterfaceObject)
+      case class TestListInterfaceSubtype(fieldInterfaces: List[FieldSubtypeObject]) extends WithListFieldInterface
       val resolverListInterfaceSubtype = RootResolver(
-        TestListInterfaceSubtype(ListFieldInterfaceObject(List(FieldSubtypeObject("a"))))
+        TestListInterfaceSubtype(List(FieldSubtypeObject("a")))
       )
 
       @GQLInterface
@@ -357,24 +363,29 @@ object TestUtils {
       case class TestFieldWithArgObject(obj: FieldWithArgObject)
       val resolverFieldWithArg = RootResolver(TestFieldWithArgObject(FieldWithArgObject(_ => "a")))
 
-      val nullableExtraArgsObject = Types.makeObject(
+      val nullableExtraArgsObject = __Type(
         name = Some("NullableExtraArgsObject"),
+        kind = __TypeKind.OBJECT,
         description = None,
-        fields = List(
-          __Field(
-            name = "fieldWithArg",
-            description = None,
-            `type` = () => Types.string,
-            args = List(
-              __InputValue(name = "arg", description = None, `type` = () => Types.string, defaultValue = None),
-              __InputValue(name = "extraArg", description = None, `type` = () => Types.string, defaultValue = None)
+        fields = _ =>
+          Some(
+            List(
+              __Field(
+                name = "fieldWithArg",
+                description = None,
+                `type` = () => Types.string,
+                args = List(
+                  __InputValue(name = "arg", description = None, `type` = () => Types.string, defaultValue = None),
+                  __InputValue(name = "extraArg", description = None, `type` = () => Types.string, defaultValue = None)
+                )
+              )
             )
-          )
-        ),
-        directives = Nil
+          ),
+        interfaces = () => Some(List(withNullableExtraArgs)),
+        directives = None
       )
 
-      val withNullableExtraArgs = Types.makeInterface(
+      val withNullableExtraArgs: __Type = Types.makeInterface(
         name = Some("WithNullableExtraArgs"),
         description = None,
         fields = List(

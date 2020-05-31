@@ -31,9 +31,10 @@ object Validator {
    */
   def validateSchema[R](schema: RootSchemaBuilder[R]): IO[ValidationError, RootSchema[R]] = {
     val types = schema.types
-    IO.foreach(types.sorted(renderOrdering))(validateType) *> validateClashingTypes(types) *> validateDirectives(types) *> validateRootQuery(
-      schema
-    )
+    IO.foreach(types.sorted(renderOrdering))(validateType) *>
+      validateClashingTypes(types) *>
+      validateDirectives(types) *>
+      validateRootQuery(schema)
   }
 
   private[caliban] def validateType(t: __Type) =
@@ -618,19 +619,59 @@ object Validator {
     val objectContext = s"Object '${obj.name.getOrElse("")}'"
 
     def validateInterfaceFields(obj: __Type) = {
-      def fieldNames(t: __Type) =
-        t.fields(__DeprecatedArgs(Some(true))).toList.flatten.map(_.name).toSet
+      def fields(t: __Type) =
+        t.fields(__DeprecatedArgs(Some(true))).toList.flatten
 
-      val interfaces          = obj.interfaces().toList.flatten
-      val interfaceFieldNames = interfaces.map(fieldNames).fold(Set.empty[String])(_ ++ _)
-      val objectFieldNames    = fieldNames(obj)
-      IO.when(interfaceFieldNames.nonEmpty && objectFieldNames.union(interfaceFieldNames) != objectFieldNames) {
-        val missingFields = interfaceFieldNames.diff(objectFieldNames).toList.sorted
-        failValidation(
-          s"$objectContext is missing field(s): ${missingFields.mkString(", ")}",
-          "An Object type must include a field of the same name for every field defined in an interface"
-        )
+      def fieldNames(t: __Type) =
+        fields(t).map(_.name).toSet
+
+      val supertype = obj.interfaces().toList.flatten
+
+      def checkForMissingFields() = {
+        val objectFieldNames    = fieldNames(obj)
+        val interfaceFieldNames = supertype.map(fieldNames).toSet.flatten
+        val isMissingFields     = objectFieldNames.union(interfaceFieldNames) != objectFieldNames
+
+        IO.when(interfaceFieldNames.nonEmpty && isMissingFields) {
+          val missingFields = interfaceFieldNames.diff(objectFieldNames).toList.sorted
+          failValidation(
+            s"$objectContext is missing field(s): ${missingFields.mkString(", ")}",
+            "An Object type must include a field of the same name for every field defined in an interface"
+          )
+        }
       }
+
+      def checkForInvalidSubtypeFields() = {
+        val objectFields    = fields(obj)
+        val supertypeFields = supertype.flatMap(fields)
+
+        def isValidSubtype(supertypeFieldType: __Type, objectFieldType: __Type) = {
+          val supertypePossibleTypes = supertypeFieldType.possibleTypes.toList.flatten
+          (supertypeFieldType == objectFieldType) || supertypePossibleTypes.contains(objectFieldType)
+        }
+
+        IO.foreach_(objectFields) { objField =>
+          supertypeFields.find(_.name == objField.name).fold[IO[ValidationError, Unit]](IO.unit) { superField =>
+            val fieldTypeIsValid = isValidSubtype(superField.`type`(), objField.`type`())
+            val listItemTypeIsValid =
+              isListField(superField) && isListField(objField) && (for {
+                superListItemType <- superField.`type`().ofType
+                objListItemType   <- objField.`type`().ofType
+              } yield isValidSubtype(superListItemType, objListItemType)).getOrElse(false)
+            IO.when(!fieldTypeIsValid && !listItemTypeIsValid) {
+              failValidation(
+                s"Field '${objField.name}' in $objectContext is an invalid subtype",
+                "An object field type must be equal to or a possible type of the interface field type."
+              )
+            }
+          }
+        }
+      }
+
+      for {
+        _ <- checkForMissingFields()
+        _ <- checkForInvalidSubtypeFields()
+      } yield ()
     }
 
     obj.fields(__DeprecatedArgs(Some(true))) match {
@@ -642,6 +683,9 @@ object Validator {
       case Some(fields) => validateFields(fields, objectContext) *> validateInterfaceFields(obj)
     }
   }
+
+  private def isListField(field: __Field) =
+    field.`type`().kind == __TypeKind.LIST
 
   private[caliban] def onlyInputType(`type`: __Type, errorContext: String): IO[ValidationError, Unit] = {
     // https://spec.graphql.org/June2018/#IsInputType()

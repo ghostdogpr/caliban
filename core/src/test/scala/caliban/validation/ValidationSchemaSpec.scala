@@ -146,7 +146,7 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
         suite("Interface")(
           testM("must define one or more fields") {
             check(
-              graphQL(resolverEmptyInferface),
+              graphQL(resolverEmptyInterface),
               "Interface 'InterfaceEmpty' does not have fields"
             )
           },
@@ -166,7 +166,7 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
           },
           testM("field name can't start with '__'") {
             check(
-              graphQL(resolverInferfaceWrongFieldName),
+              graphQL(resolverInterfaceWrongFieldName),
               "Field '__name' of Interface 'InterfaceWrongFieldName' can't start with '__'"
             )
           },
@@ -264,16 +264,22 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
             assertM(graphQL(resolverTwoInterfaces).interpreter.run)(succeeds(anything))
           },
           testM("field type in the possible types of an interface or union is a valid sub-type") {
-            (assertM(graphQL(resolverUnionSubtype).interpreter.run)(succeeds(anything)) &&&
-              assertM(graphQL(resolverInterfaceSubtype).interpreter.run)(succeeds(anything))).map {
-              case (a, b) => a && b
-            }
+            for {
+              a <- assertM(graphQL(resolverUnionSubtype).interpreter.run)(succeeds(anything))
+              b <- assertM(graphQL(resolverInterfaceSubtype).interpreter.run)(succeeds(anything))
+            } yield a && b
+          },
+          testM("field type with the same name but not equal to or a subtype of an interface field is invalid") {
+            checkTypeError(
+              objectWrongInterfaceFieldType,
+              "Field 'a' in Object 'ObjectWrongInterfaceFieldType' is an invalid subtype"
+            )
           },
           testM("field type that is a valid list item subtype is valid") {
-            (assertM(graphQL(resolverListUnionSubtype).interpreter.run)(succeeds(anything)) &&&
-              assertM(graphQL(resolverListInterfaceSubtype).interpreter.run)(succeeds(anything))).map {
-              case (a, b) => a && b
-            }
+            for {
+              a <- assertM(graphQL(resolverListUnionSubtype).interpreter.run)(succeeds(anything))
+              b <- assertM(graphQL(resolverListInterfaceSubtype).interpreter.run)(succeeds(anything))
+            } yield a && b
           },
           testM("field type that is a Non-Null variant of a valid interface field type is valid") {
             assertM(graphQL(resolverNonNullableSubtype).interpreter.run)(succeeds(anything))
@@ -281,7 +287,8 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
           testM("fields including arguments of the same name and type defined in an interface are valid") {
             assertM(graphQL(resolverFieldWithArg).interpreter.run)(succeeds(anything))
           },
-          testM("fields with nullable additional args are valid") {
+          // TODO: figure out this failing test
+          testM("fields with additional nullable args are valid") {
             assertM(Validator.validateObject(nullableExtraArgsObject).run)(succeeds(anything))
           }
         )
