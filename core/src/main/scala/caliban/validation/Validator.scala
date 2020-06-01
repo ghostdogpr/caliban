@@ -655,37 +655,37 @@ object Validator {
 
           IO.whenCase(supertypeFields.find(_.name == objField.name)) {
             case Some(superField) =>
-            val extraArgs = objField.args.filterNot(superField.args.toSet)
+              val extraArgs = objField.args.filterNot(superField.args.toSet)
 
-            def fieldTypeIsValid = isValidSubtype(superField.`type`(), objField.`type`())
+              def fieldTypeIsValid = isValidSubtype(superField.`type`(), objField.`type`())
 
-            def listItemTypeIsValid =
-              isListField(superField) && isListField(objField) && (for {
-                superListItemType <- superField.`type`().ofType
-                objListItemType   <- objField.`type`().ofType
-              } yield isValidSubtype(superListItemType, objListItemType)).getOrElse(false)
+              def listItemTypeIsValid =
+                isListField(superField) && isListField(objField) && (for {
+                  superListItemType <- superField.`type`().ofType
+                  objListItemType   <- objField.`type`().ofType
+                } yield isValidSubtype(superListItemType, objListItemType)).getOrElse(false)
 
-            def extraArgsAreValid = !extraArgs.exists(_.`type`().kind == __TypeKind.NON_NULL)
+              def extraArgsAreValid = !extraArgs.exists(_.`type`().kind == __TypeKind.NON_NULL)
 
-            IO.whenCase((fieldTypeIsValid, isListField(superField))) {
-              case (false, false) =>
-                failValidation(
-                  s"$fieldContext in $objectContext is an invalid subtype",
-                  "An object field type must be equal to or a possible type of the interface field type."
-                )
-              case (false, true) if !listItemTypeIsValid =>
-                failValidation(
-                  s"$fieldContext in $objectContext is an invalid list item subtype",
-                  "An object list item field type must be equal to or a possible" +
-                    " type of the interface list item field type."
-                )
-              case _ if !extraArgsAreValid =>
-                val argNames = extraArgs.filter(_.`type`().kind == __TypeKind.NON_NULL).map(_.name).mkString(", ")
-                failValidation(
-                  s"$fieldContext with extra non-nullable arg(s) '$argNames' in $objectContext is invalid",
-                  "Any additional field arguments must not be of a non-nullable type."
-                )
-            }
+              IO.whenCase((fieldTypeIsValid, isListField(superField))) {
+                case (false, false) =>
+                  failValidation(
+                    s"$fieldContext in $objectContext is an invalid subtype",
+                    "An object field type must be equal to or a possible type of the interface field type."
+                  )
+                case (false, true) if !listItemTypeIsValid =>
+                  failValidation(
+                    s"$fieldContext in $objectContext is an invalid list item subtype",
+                    "An object list item field type must be equal to or a possible" +
+                      " type of the interface list item field type."
+                  )
+                case _ if !extraArgsAreValid =>
+                  val argNames = extraArgs.filter(_.`type`().kind == __TypeKind.NON_NULL).map(_.name).mkString(", ")
+                  failValidation(
+                    s"$fieldContext with extra non-nullable arg(s) '$argNames' in $objectContext is invalid",
+                    "Any additional field arguments must not be of a non-nullable type."
+                  )
+              }
           }
         }
       }
