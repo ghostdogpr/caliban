@@ -29,7 +29,7 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
                 Types.makeEnum(
                   name = Some("nonEmptyEnum"),
                   description = None,
-                  values = List(__EnumValue(name = "A", isDeprecated = false)),
+                  values = List(__EnumValue("A", None, true, None)),
                   origin = None
                 )
               )
