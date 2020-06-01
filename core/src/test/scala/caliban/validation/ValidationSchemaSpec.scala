@@ -295,6 +295,13 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
           },
           testM("fields with additional nullable args are valid") {
             assertM(Validator.validateObject(nullableExtraArgsObject).run)(succeeds(anything))
+          },
+          testM("fields with additional non-nullable args are invalid") {
+            checkTypeError(
+              nonNullableExtraArgsObject,
+              "Field 'fieldWithArg' with extra non-nullable arg(s) 'extraArg'" +
+                " in Object 'NonNullableExtraArgsObject' is invalid"
+            )
           }
         )
       }

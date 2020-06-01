@@ -400,13 +400,40 @@ object TestUtils {
           Some(
             List(
               __Field(
-                name = "fieldWithArg",
-                description = None,
-                `type` = () => Types.string,
-                args = List(
+                "fieldWithArg",
+                None,
+                List(
                   __InputValue(name = "arg", description = None, `type` = () => Types.string, defaultValue = None),
                   __InputValue(name = "extraArg", description = None, `type` = () => Types.string, defaultValue = None)
-                )
+                ),
+                () => Types.string
+              )
+            )
+          ),
+        interfaces = () => Some(List(withNullableExtraArgs)),
+        directives = None
+      )
+
+      val nonNullableExtraArgsObject = __Type(
+        name = Some("NonNullableExtraArgsObject"),
+        kind = __TypeKind.OBJECT,
+        description = None,
+        fields = _ =>
+          Some(
+            List(
+              __Field(
+                "fieldWithArg",
+                None,
+                List(
+                  __InputValue(name = "arg", description = None, `type` = () => Types.string, defaultValue = None),
+                  __InputValue(
+                    name = "extraArg",
+                    description = None,
+                    `type` = () => Types.makeNonNull(Types.string),
+                    defaultValue = None
+                  )
+                ),
+                () => Types.string
               )
             )
           ),
