@@ -266,7 +266,7 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
           testM("field type in the possible types of an interface or union is a valid sub-type") {
             for {
               a <- assertM(graphQL(resolverUnionSubtype).interpreter.run)(succeeds(anything))
-              b <- assertM(graphQL(resolverInterfaceSubtype).interpreter.run)(succeeds(anything))
+              b <- assertM(graphQL(resolverFieldObject).interpreter.run)(succeeds(anything))
             } yield a && b
           },
           testM("field type with the same name but not equal to or a subtype of an interface field is invalid") {
@@ -281,13 +281,18 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
               b <- assertM(graphQL(resolverListInterfaceSubtype).interpreter.run)(succeeds(anything))
             } yield a && b
           },
+          testM("field type that is an invalid list item subtype is invalid") {
+            checkTypeError(
+              objectWrongListItemSubtype,
+              "Field 'a' in Object 'ObjectWrongListItemSubtype' is an invalid list item subtype"
+            )
+          },
           testM("field type that is a Non-Null variant of a valid interface field type is valid") {
             assertM(graphQL(resolverNonNullableSubtype).interpreter.run)(succeeds(anything))
           },
           testM("fields including arguments of the same name and type defined in an interface are valid") {
             assertM(graphQL(resolverFieldWithArg).interpreter.run)(succeeds(anything))
           },
-          // TODO: figure out this failing test
           testM("fields with additional nullable args are valid") {
             assertM(Validator.validateObject(nullableExtraArgsObject).run)(succeeds(anything))
           }

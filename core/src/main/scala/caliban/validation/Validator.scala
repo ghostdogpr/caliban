@@ -658,11 +658,21 @@ object Validator {
                 superListItemType <- superField.`type`().ofType
                 objListItemType   <- objField.`type`().ofType
               } yield isValidSubtype(superListItemType, objListItemType)).getOrElse(false)
-            IO.when(!fieldTypeIsValid && !listItemTypeIsValid) {
-              failValidation(
-                s"Field '${objField.name}' in $objectContext is an invalid subtype",
-                "An object field type must be equal to or a possible type of the interface field type."
-              )
+            IO.whenCase((fieldTypeIsValid, isListField(superField))) {
+              case (false, false) =>
+                failValidation(
+                  s"Field '${objField.name}' in $objectContext is an invalid subtype",
+                  "An object field type must be equal to or a possible type of the interface field type."
+                )
+              case (false, true) =>
+                IO.when(!listItemTypeIsValid) {
+                  failValidation(
+                    s"Field '${objField.name}' in $objectContext is an invalid list item subtype",
+                    "An object list item field type must be equal to or a possible" +
+                      " type of the interface list item field type."
+                  )
+                }
+              case (true, _) => IO.unit
             }
           }
         }

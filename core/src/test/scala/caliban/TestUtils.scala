@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.TestUtils.InvalidSchemas.Interface.WrongArgumentName
-import caliban.TestUtils.InvalidSchemas.Object.FieldInterface.FieldSubtypeObject
+import caliban.TestUtils.InvalidSchemas.Object.FieldInterface.FieldObject
 import caliban.TestUtils.Origin._
 import caliban.TestUtils.Role._
 import caliban.Value.StringValue
@@ -289,7 +289,7 @@ object TestUtils {
           )
 
       val interfaceA = Types.makeInterface(Some("InterfaceA"), None, makeFields("a"), Nil)
-      val interfaceB = Types.makeInterface(Some("InterfaceA"), None, makeFields("b"), Nil)
+      val interfaceB = Types.makeInterface(Some("InterfaceB"), None, makeFields("b"), Nil)
 
       val objectWrongInterfaceFieldType = __Type(
         name = Some("ObjectWrongInterfaceFieldType"),
@@ -332,10 +332,10 @@ object TestUtils {
         val a: String
       }
       object FieldInterface {
-        case class FieldSubtypeObject(a: String) extends FieldInterface
+        case class FieldObject(a: String, b: Int) extends FieldInterface
       }
-      case class TestInterfaceSubtype(fieldInterface: FieldSubtypeObject)
-      val resolverInterfaceSubtype = RootResolver(TestInterfaceSubtype(FieldSubtypeObject("a")))
+      case class TestFieldObject(fieldInterface: FieldObject)
+      val resolverFieldObject = RootResolver(TestFieldObject(FieldObject("a", 1)))
 
       sealed trait WithListFieldUnion {
         val fieldUnions: List[Union]
@@ -347,9 +347,32 @@ object TestUtils {
       sealed trait WithListFieldInterface {
         val fieldInterfaces: List[FieldInterface]
       }
-      case class TestListInterfaceSubtype(fieldInterfaces: List[FieldSubtypeObject]) extends WithListFieldInterface
-      val resolverListInterfaceSubtype = RootResolver(
-        TestListInterfaceSubtype(List(FieldSubtypeObject("a")))
+      case class TestListInterfaceSubtype(fieldInterfaces: List[FieldObject]) extends WithListFieldInterface
+      val resolverListInterfaceSubtype = RootResolver(TestListInterfaceSubtype(List(FieldObject("a", 1))))
+
+      val fieldInterface = Types.makeInterface(
+        name = Some("FieldInterface"),
+        description = None,
+        fields = List(__Field("a", None, Nil, () => Types.string)),
+        subTypes = Nil
+      )
+      val fieldObject = __Type(
+        kind = __TypeKind.OBJECT,
+        name = Some("FieldObject"),
+        interfaces = () => Some(List(fieldInterface)),
+        fields = _ => Some(List(__Field("a", None, Nil, () => Types.string)))
+      )
+      val withListFieldInterface = Types.makeInterface(
+        name = Some("WithListFieldInterface"),
+        description = None,
+        fields = List(__Field("a", None, Nil, () => Types.makeList(fieldInterface))),
+        subTypes = Nil
+      )
+      val objectWrongListItemSubtype = __Type(
+        kind = __TypeKind.OBJECT,
+        name = Some("ObjectWrongListItemSubtype"),
+        fields = _ => Some(List(__Field("a", None, Nil, () => Types.makeList(Types.string)))),
+        interfaces = () => Some(List(withListFieldInterface))
       )
 
       @GQLInterface
