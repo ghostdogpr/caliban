@@ -6,6 +6,7 @@ import caliban.Value.NullValue
 import caliban.execution.{ ExecutionRequest, Field => F }
 import caliban.introspection.Introspector
 import caliban.introspection.adt._
+import caliban.introspection.adt.__TypeKind._
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.Definition.{ TypeSystemDefinition, TypeSystemExtension }
@@ -30,16 +31,21 @@ object Validator {
    */
   def validateSchema[R](schema: RootSchemaBuilder[R]): IO[ValidationError, RootSchema[R]] = {
     val types = schema.types
-    IO.foreach(types) { t =>
-      t.kind match {
-        case __TypeKind.ENUM         => validateEnum(t)
-        case __TypeKind.UNION        => validateUnion(t)
-        case __TypeKind.INTERFACE    => validateInterface(t)
-        case __TypeKind.INPUT_OBJECT => validateInputObject(t)
-        case _                       => IO.unit
-      }
-    } *> validateClashingTypes(types) *> validateDirectives(types) *> validateRootQuery(schema)
+    IO.foreach(types.sorted)(validateType) *>
+      validateClashingTypes(types) *>
+      validateDirectives(types) *>
+      validateRootQuery(schema)
   }
+
+  private[caliban] def validateType(t: __Type) =
+    t.kind match {
+      case __TypeKind.ENUM         => validateEnum(t)
+      case __TypeKind.UNION        => validateUnion(t)
+      case __TypeKind.INTERFACE    => validateInterface(t)
+      case __TypeKind.INPUT_OBJECT => validateInputObject(t)
+      case __TypeKind.OBJECT       => validateObject(t)
+      case _                       => IO.unit
+    }
 
   def failValidation[T](msg: String, explanatoryText: String): IO[ValidationError, T] =
     IO.fail(ValidationError(msg, explanatoryText))
@@ -530,7 +536,7 @@ object Validator {
         )
     }
 
-  private def validateEnum(t: __Type): IO[ValidationError, Unit] =
+  private[caliban] def validateEnum(t: __Type): IO[ValidationError, Unit] =
     t.enumValues(__DeprecatedArgs(Some(true))) match {
       case Some(_ :: _) => IO.unit
       case _ =>
@@ -540,7 +546,7 @@ object Validator {
         )
     }
 
-  private def validateUnion(t: __Type): IO[ValidationError, Unit] = {
+  private[caliban] def validateUnion(t: __Type): IO[ValidationError, Unit] = {
 
     def isObject(t: __Type): Boolean = t.kind match {
       case __TypeKind.OBJECT => true
@@ -564,7 +570,7 @@ object Validator {
 
   }
 
-  private def validateInputObject(t: __Type): IO[ValidationError, Unit] = {
+  private[caliban] def validateInputObject(t: __Type): IO[ValidationError, Unit] = {
     val inputObjectContext = s"""InputObject '${t.name.getOrElse("")}'"""
 
     def noDuplicateInputValueName(inputValues: List[__InputValue], errorContext: String): IO[ValidationError, Unit] = {
@@ -588,33 +594,16 @@ object Validator {
     }
   }
 
-  private def validateInputValue(inputValue: __InputValue, errorContext: String): IO[ValidationError, Unit] = {
+  private[caliban] def validateInputValue(inputValue: __InputValue, errorContext: String): IO[ValidationError, Unit] = {
     val fieldContext = s"InputValue '${inputValue.name}' of $errorContext"
     for {
       _ <- doesNotStartWithUnderscore(inputValue, fieldContext)
       _ <- onlyInputType(inputValue.`type`(), fieldContext)
     } yield ()
   }
-  private def validateInterface(t: __Type): IO[ValidationError, Unit] = {
+
+  private[caliban] def validateInterface(t: __Type): IO[ValidationError, Unit] = {
     val interfaceContext = s"Interface '${t.name.getOrElse("")}'"
-
-    def noDuplicateFieldName(fields: List[__Field], errorContext: String) = {
-      val messageBuilder = (f: __Field) => s"$errorContext has repeated fields: ${f.name}"
-      val explanatory =
-        "The field must have a unique name within that Interface type; no two fields may share the same name"
-      noDuplicateName[__Field](fields, _.name, messageBuilder, explanatory)
-    }
-
-    def validateFields(fields: List[__Field]): IO[ValidationError, Unit] =
-      noDuplicateFieldName(fields, interfaceContext) <*
-        IO.foreach(fields) { field =>
-          val fieldContext = s"Field '${field.name}' of $interfaceContext"
-          for {
-            _ <- doesNotStartWithUnderscore(field, fieldContext)
-            _ <- onlyOutputType(field.`type`(), fieldContext)
-            _ <- IO.foreach(field.args)(validateInputValue(_, fieldContext))
-          } yield ()
-        }
 
     t.fields(__DeprecatedArgs(Some(true))) match {
       case None | Some(Nil) =>
@@ -622,11 +611,105 @@ object Validator {
           s"$interfaceContext does not have fields",
           "An Interface type must define one or more fields"
         )
-      case Some(fields) => validateFields(fields)
+      case Some(fields) => validateFields(fields, interfaceContext)
     }
   }
 
-  private def onlyInputType(`type`: __Type, errorContext: String): IO[ValidationError, Unit] = {
+  def validateObject(obj: __Type): IO[ValidationError, Unit] = {
+    val objectContext = s"Object '${obj.name.getOrElse("")}'"
+
+    def validateInterfaceFields(obj: __Type) = {
+      def fields(t: __Type) =
+        t.fields(__DeprecatedArgs(Some(true))).toList.flatten
+
+      def fieldNames(t: __Type) =
+        fields(t).map(_.name).toSet
+
+      val supertype = obj.interfaces().toList.flatten
+
+      def checkForMissingFields() = {
+        val objectFieldNames    = fieldNames(obj)
+        val interfaceFieldNames = supertype.map(fieldNames).toSet.flatten
+        val isMissingFields     = objectFieldNames.union(interfaceFieldNames) != objectFieldNames
+
+        IO.when(interfaceFieldNames.nonEmpty && isMissingFields) {
+          val missingFields = interfaceFieldNames.diff(objectFieldNames).toList.sorted
+          failValidation(
+            s"$objectContext is missing field(s): ${missingFields.mkString(", ")}",
+            "An Object type must include a field of the same name for every field defined in an interface"
+          )
+        }
+      }
+
+      def checkForInvalidSubtypeFields() = {
+        val objectFields    = fields(obj)
+        val supertypeFields = supertype.flatMap(fields)
+
+        def isValidSubtype(supertypeFieldType: __Type, objectFieldType: __Type) = {
+          val supertypePossibleTypes = supertypeFieldType.possibleTypes.toList.flatten
+          (supertypeFieldType == objectFieldType) || supertypePossibleTypes.contains(objectFieldType)
+        }
+
+        IO.foreach_(objectFields) { objField =>
+          val fieldContext = s"Field '${objField.name}'"
+
+          IO.whenCase(supertypeFields.find(_.name == objField.name)) {
+            case Some(superField) =>
+              val extraArgs = objField.args.filterNot(superField.args.toSet)
+
+              def fieldTypeIsValid = isValidSubtype(superField.`type`(), objField.`type`())
+
+              def listItemTypeIsValid =
+                isListField(superField) && isListField(objField) && (for {
+                  superListItemType <- superField.`type`().ofType
+                  objListItemType   <- objField.`type`().ofType
+                } yield isValidSubtype(superListItemType, objListItemType)).getOrElse(false)
+
+              def extraArgsAreValid = !extraArgs.exists(_.`type`().kind == __TypeKind.NON_NULL)
+
+              IO.whenCase((fieldTypeIsValid, isListField(superField))) {
+                case (false, false) =>
+                  failValidation(
+                    s"$fieldContext in $objectContext is an invalid subtype",
+                    "An object field type must be equal to or a possible type of the interface field type."
+                  )
+                case (false, true) if !listItemTypeIsValid =>
+                  failValidation(
+                    s"$fieldContext in $objectContext is an invalid list item subtype",
+                    "An object list item field type must be equal to or a possible" +
+                      " type of the interface list item field type."
+                  )
+                case _ if !extraArgsAreValid =>
+                  val argNames = extraArgs.filter(_.`type`().kind == __TypeKind.NON_NULL).map(_.name).mkString(", ")
+                  failValidation(
+                    s"$fieldContext with extra non-nullable arg(s) '$argNames' in $objectContext is invalid",
+                    "Any additional field arguments must not be of a non-nullable type."
+                  )
+              }
+          }
+        }
+      }
+
+      for {
+        _ <- checkForMissingFields()
+        _ <- checkForInvalidSubtypeFields()
+      } yield ()
+    }
+
+    obj.fields(__DeprecatedArgs(Some(true))) match {
+      case None | Some(Nil) =>
+        failValidation(
+          s"$objectContext does not have fields",
+          "An Object type must define one or more fields"
+        )
+      case Some(fields) => validateFields(fields, objectContext) *> validateInterfaceFields(obj)
+    }
+  }
+
+  private def isListField(field: __Field) =
+    field.`type`().kind == __TypeKind.LIST
+
+  private[caliban] def onlyInputType(`type`: __Type, errorContext: String): IO[ValidationError, Unit] = {
     // https://spec.graphql.org/June2018/#IsInputType()
     def isInputType(t: __Type): Either[__Type, Unit] = {
       import __TypeKind._
@@ -646,7 +729,25 @@ object Validator {
     }
   }
 
-  private def onlyOutputType(`type`: __Type, errorContext: String): IO[ValidationError, Unit] = {
+  private[caliban] def validateFields(fields: List[__Field], context: String): IO[ValidationError, Unit] =
+    noDuplicateFieldName(fields, context) <*
+      IO.foreach(fields) { field =>
+        val fieldContext = s"Field '${field.name}' of $context"
+        for {
+          _ <- doesNotStartWithUnderscore(field, fieldContext)
+          _ <- onlyOutputType(field.`type`(), fieldContext)
+          _ <- IO.foreach(field.args)(validateInputValue(_, fieldContext))
+        } yield ()
+      }
+
+  private[caliban] def noDuplicateFieldName(fields: List[__Field], errorContext: String) = {
+    val messageBuilder = (f: __Field) => s"$errorContext has repeated fields: ${f.name}"
+    val explanatory =
+      "The field must have a unique name within that Interface type; no two fields may share the same name"
+    noDuplicateName[__Field](fields, _.name, messageBuilder, explanatory)
+  }
+
+  private[caliban] def onlyOutputType(`type`: __Type, errorContext: String): IO[ValidationError, Unit] = {
     // https://spec.graphql.org/June2018/#IsOutputType()
     def isOutputType(t: __Type): Either[__Type, Unit] = {
       import __TypeKind._
@@ -666,7 +767,7 @@ object Validator {
     }
   }
 
-  private def noDuplicateName[T](
+  private[caliban] def noDuplicateName[T](
     listOfNamed: List[T],
     nameExtractor: T => String,
     messageBuilder: T => String,
@@ -677,12 +778,12 @@ object Validator {
       .collectFirst { case (_, f :: _ :: _) => f }
       .fold[IO[ValidationError, Unit]](IO.unit)(duplicate => failValidation(messageBuilder(duplicate), explanatoryText))
 
-  private def doesNotStartWithUnderscore(field: __Field, errorContext: String) = {
+  private[caliban] def doesNotStartWithUnderscore(field: __Field, errorContext: String) = {
     val explanatory = s"""The field must not have a name which begins with the characters {"__"} (two underscores)"""
     doesNotStartWithUnderscore[__Field](field, _.name, errorContext, explanatory)
   }
 
-  private def doesNotStartWithUnderscore(inputValue: __InputValue, errorContext: String) = {
+  private[caliban] def doesNotStartWithUnderscore(inputValue: __InputValue, errorContext: String) = {
     val explanatory =
       s"""The input field must not have a name which begins with the characters "__" (two underscores)"""
     doesNotStartWithUnderscore[__InputValue](inputValue, _.name, errorContext, explanatory)
@@ -694,7 +795,7 @@ object Validator {
     doesNotStartWithUnderscore[Directive](directive, _.name, errorContext, explanatory)
   }
 
-  private def doesNotStartWithUnderscore[T](
+  private[caliban] def doesNotStartWithUnderscore[T](
     t: T,
     nameExtractor: T => String,
     errorContext: String,
@@ -704,7 +805,7 @@ object Validator {
       failValidation(s"$errorContext can't start with '__'", explanatoryText)
     )
 
-  private def validateRootQuery[R](schema: RootSchemaBuilder[R]): IO[ValidationError, RootSchema[R]] =
+  private[caliban] def validateRootQuery[R](schema: RootSchemaBuilder[R]): IO[ValidationError, RootSchema[R]] =
     schema.query match {
       case None =>
         failValidation(
@@ -714,7 +815,7 @@ object Validator {
       case Some(query) => IO.succeed(RootSchema(query, schema.mutation, schema.subscription))
     }
 
-  private def validateClashingTypes(types: List[__Type]): IO[ValidationError, Unit] = {
+  private[caliban] def validateClashingTypes(types: List[__Type]): IO[ValidationError, Unit] = {
     val check = types.groupBy(_.name).collectFirst { case (Some(name), v) if v.size > 1 => (name, v) }
     IO.whenCase(check) {
       case Some((name, values)) =>
