@@ -24,6 +24,6 @@ object __TypeKind {
       case __TypeKind.OBJECT       => 8
     }
 
-  implicit val renderOrdering: Ordering[__Type] =
+  implicit val typeOrdering: Ordering[__Type] =
     Ordering.by(o => (o.kind, o.name.getOrElse("")))
 }

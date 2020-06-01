@@ -12,7 +12,7 @@ object Rendering {
    */
   def renderTypes(types: List[__Type]): String =
     types
-      .sorted(renderOrdering)
+      .sorted(typeOrdering)
       .flatMap { t =>
         t.kind match {
           case __TypeKind.SCALAR   => t.name.flatMap(name => if (isBuiltinScalar(name)) None else Some(s"scalar $name"))

@@ -31,7 +31,7 @@ object Validator {
    */
   def validateSchema[R](schema: RootSchemaBuilder[R]): IO[ValidationError, RootSchema[R]] = {
     val types = schema.types
-    IO.foreach(types.sorted(renderOrdering))(validateType) *>
+    IO.foreach(types.sorted)(validateType) *>
       validateClashingTypes(types) *>
       validateDirectives(types) *>
       validateRootQuery(schema)
@@ -653,7 +653,8 @@ object Validator {
         IO.foreach_(objectFields) { objField =>
           val fieldContext = s"Field '${objField.name}'"
 
-          supertypeFields.find(_.name == objField.name).fold[IO[ValidationError, Unit]](IO.unit) { superField =>
+          IO.whenCase(supertypeFields.find(_.name == objField.name)) {
+            case Some(superField) =>
             val extraArgs = objField.args.filterNot(superField.args.toSet)
 
             def fieldTypeIsValid = isValidSubtype(superField.`type`(), objField.`type`())
@@ -684,7 +685,6 @@ object Validator {
                   s"$fieldContext with extra non-nullable arg(s) '$argNames' in $objectContext is invalid",
                   "Any additional field arguments must not be of a non-nullable type."
                 )
-              case _ => IO.unit
             }
           }
         }
