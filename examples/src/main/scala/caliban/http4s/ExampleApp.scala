@@ -21,7 +21,7 @@ object ExampleApp extends App {
 
   type ExampleTask[A] = RIO[ZEnv with ExampleService, A]
 
-  override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] =
+  override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
     ZIO
       .runtime[ZEnv with ExampleService]
       .flatMap(implicit runtime =>
@@ -40,8 +40,8 @@ object ExampleApp extends App {
                 .resource
                 .toManaged
                 .useForever
-        } yield 0
+        } yield ExitCode.success
       )
       .provideCustomLayer(ExampleService.make(sampleCharacters))
-      .catchAll(err => putStrLn(err.toString).as(1))
+      .catchAll(err => putStrLn(err.toString).as(ExitCode.failure))
 }

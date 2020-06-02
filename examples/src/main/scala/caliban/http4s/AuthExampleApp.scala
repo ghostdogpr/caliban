@@ -53,7 +53,7 @@ object AuthExampleApp extends CatsApp {
   private val resolver = RootResolver(Query(ZIO.access[Auth](_.get[Auth.Service].token)))
   private val api      = graphQL(resolver)
 
-  override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] =
+  override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
     (for {
       interpreter <- api.interpreter
       route       = AuthMiddleware(Http4sAdapter.makeHttpService(interpreter))
@@ -64,6 +64,6 @@ object AuthExampleApp extends CatsApp {
             .resource
             .toManaged
             .useForever
-    } yield 0)
-      .catchAll(err => putStrLn(err.toString).as(1))
+    } yield ExitCode.success)
+      .catchAll(err => putStrLn(err.toString).as(ExitCode.failure))
 }

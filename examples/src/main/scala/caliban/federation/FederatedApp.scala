@@ -38,7 +38,7 @@ object FederatedApp extends CatsApp {
               .resource
               .toManaged
               .useForever
-      } yield 0
+      } yield ExitCode.success
     )
 
   val service2 = EpisodeService
@@ -59,10 +59,10 @@ object FederatedApp extends CatsApp {
               .resource
               .toManaged
               .useForever
-      } yield 0
+      } yield ExitCode.success
     )
 
-  override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] =
+  override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
     (service1 race service2)
-      .catchAll(err => putStrLn(err.toString).as(1))
+      .catchAll(err => putStrLn(err.toString).as(ExitCode.failure))
 }

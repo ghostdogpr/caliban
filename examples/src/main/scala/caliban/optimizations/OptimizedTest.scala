@@ -4,7 +4,7 @@ import caliban.optimizations.CommonData._
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.{ GraphQL, RootResolver }
 import zio.console.{ putStrLn, Console }
-import zio.{ App, ZIO }
+import zio.{ App, ExitCode, ZIO }
 import zio.query.DataSource.fromFunctionBatchedM
 import zio.query.{ CompletedRequestMap, DataSource, Request, ZQuery }
 
@@ -121,6 +121,8 @@ object OptimizedTest extends App with GenericSchema[Console] {
   val resolver = Queries(args => getUser(args.id))
   val api      = GraphQL.graphQL(RootResolver(resolver))
 
-  override def run(args: List[String]): ZIO[zio.ZEnv, Nothing, Int] =
-    api.interpreter.flatMap(_.execute(query).map(_.errors.length)).catchAll(err => putStrLn(err.toString).as(1))
+  override def run(args: List[String]): ZIO[zio.ZEnv, Nothing, ExitCode] =
+    api.interpreter
+      .flatMap(_.execute(query).map(res => ExitCode(res.errors.length)))
+      .catchAll(err => putStrLn(err.toString).as(ExitCode.failure))
 }

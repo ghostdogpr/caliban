@@ -4,7 +4,7 @@ import caliban.client.Client._
 import sttp.client._
 import sttp.client.asynchttpclient.zio.{ AsyncHttpClientZioBackend, SttpClient }
 import zio.console.{ putStrLn, Console }
-import zio.{ App, RIO, ZIO }
+import zio.{ App, ExitCode, RIO, ZIO }
 
 object ExampleApp extends App {
 
@@ -18,7 +18,7 @@ object ExampleApp extends App {
 
   case class Character(name: String, nicknames: List[String], origin: Origin, role: Option[Role])
 
-  override def run(args: List[String]): ZIO[zio.ZEnv, Nothing, Int] = {
+  override def run(args: List[String]): ZIO[zio.ZEnv, Nothing, ExitCode] = {
     val character = {
       import caliban.client.Client.Character._
       (name ~
@@ -52,6 +52,6 @@ object ExampleApp extends App {
 
     (call1 *> call2)
       .provideCustomLayer(AsyncHttpClientZioBackend.layer())
-      .foldM(ex => putStrLn(ex.toString).as(1), _ => ZIO.succeed(0))
+      .foldM(ex => putStrLn(ex.toString).as(ExitCode.failure), _ => ZIO.succeed(ExitCode.success))
   }
 }

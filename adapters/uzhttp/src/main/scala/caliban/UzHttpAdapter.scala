@@ -15,8 +15,7 @@ import uzhttp.websocket.{ Close, Frame, Text }
 import uzhttp.{ HTTPError, Request, Response }
 import zio.clock.Clock
 import zio.duration.Duration
-import zio.stream.ZStream.Take
-import zio.stream.{ ZStream, ZTransducer }
+import zio.stream.{ Take, ZStream, ZTransducer }
 import zio._
 
 object UzHttpAdapter {
@@ -90,17 +89,17 @@ object UzHttpAdapter {
                 msgType = msg.hcursor.downField("type").success.flatMap(_.value.asString).getOrElse("")
                 _ <- RIO.whenCase(msgType) {
                       case "connection_init" =>
-                        sendQueue.offer(Exit.succeed(Chunk.single(Text("""{"type":"connection_ack"}""")))) *>
+                        sendQueue.offer(Take.single(Text("""{"type":"connection_ack"}"""))) *>
                           Task.whenCase(keepAliveTime) {
                             case Some(time) =>
                               sendQueue
-                                .offer(Exit.succeed(Chunk.single(Text("""{"type":"ka"}"""))))
+                                .offer(Take.single(Text("""{"type":"ka"}""")))
                                 .repeat(Schedule.spaced(time))
                                 .provideLayer(Clock.live)
                                 .fork
                           }
                       case "connection_terminate" =>
-                        sendQueue.offerAll(List(Exit.succeed(Chunk.single(Close)), Take.End))
+                        sendQueue.offerAll(List(Take.single(Close), Take.end))
                       case "start" =>
                         val payload = msg.hcursor.downField("payload")
                         val id      = msg.hcursor.downField("id").success.flatMap(_.value.asString).getOrElse("")
@@ -125,7 +124,7 @@ object UzHttpAdapter {
                                     case other =>
                                       sendMessage(sendQueue, id, other, result.errors) *>
                                         sendQueue.offer(
-                                          Exit.succeed(Chunk.single(Text(s"""{"type":"complete","id":"$id"}""")))
+                                          Take.single(Text(s"""{"type":"complete","id":"$id"}"""))
                                         )
                                   }
                             } yield ()
@@ -139,7 +138,7 @@ object UzHttpAdapter {
                               case Some(fiber) =>
                                 fiber.interrupt *>
                                   sendQueue.offer(
-                                    Exit.succeed(Chunk.single(Text(s"""{"type":"complete","id":"$id"}""")))
+                                    Take.single(Text(s"""{"type":"complete","id":"$id"}"""))
                                   )
                             }
                           )
@@ -149,7 +148,7 @@ object UzHttpAdapter {
               .mapError(e => BadRequest(e.getMessage))
               .forkDaemon
         ws <- Response
-               .websocket(req, ZStream.fromQueue(sendQueue).collectWhileSuccess.flattenChunks)
+               .websocket(req, ZStream.fromQueue(sendQueue).flattenTake)
                .map(_.addHeaders("Sec-WebSocket-Protocol" -> "graphql-ws"))
       } yield ws
   }
@@ -162,17 +161,15 @@ object UzHttpAdapter {
   ): UIO[Unit] =
     sendQueue
       .offer(
-        Exit.succeed(
-          Chunk.single(
-            Text(
-              Json
-                .obj(
-                  "id"      -> Json.fromString(id),
-                  "type"    -> Json.fromString("data"),
-                  "payload" -> GraphQLResponse(data, errors).asJson
-                )
-                .noSpaces
-            )
+        Take.single(
+          Text(
+            Json
+              .obj(
+                "id"      -> Json.fromString(id),
+                "type"    -> Json.fromString("data"),
+                "payload" -> GraphQLResponse(data, errors).asJson
+              )
+              .noSpaces
           )
         )
       )

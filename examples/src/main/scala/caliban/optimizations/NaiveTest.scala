@@ -4,7 +4,7 @@ import caliban.optimizations.CommonData._
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.{ GraphQL, RootResolver }
 import zio.console.{ putStrLn, Console }
-import zio.{ App, ZIO }
+import zio.{ App, ExitCode, ZIO }
 
 /**
  * Naive implementation of https://blog.apollographql.com/optimizing-your-graphql-request-waterfalls-7c3f3360b051
@@ -84,6 +84,8 @@ object NaiveTest extends App with GenericSchema[Console] {
   val resolver = Queries(args => getUser(args.id))
   val api      = GraphQL.graphQL(RootResolver(resolver))
 
-  override def run(args: List[String]): ZIO[zio.ZEnv, Nothing, Int] =
-    api.interpreter.flatMap(_.execute(query).map(_.errors.length)).catchAll(err => putStrLn(err.toString).as(1))
+  override def run(args: List[String]): ZIO[zio.ZEnv, Nothing, ExitCode] =
+    api.interpreter
+      .flatMap(_.execute(query).map(res => ExitCode(res.errors.length)))
+      .catchAll(err => putStrLn(err.toString).as(ExitCode.failure))
 }
