@@ -1,10 +1,8 @@
 package caliban.tapir
 
-import scala.concurrent.ExecutionContext
-
-import caliban.{ GraphQL, Http4sAdapter }
 import caliban.interop.tapir._
 import caliban.tapir.Endpoints._
+import caliban.{ GraphQL, Http4sAdapter }
 import cats.data.Kleisli
 import cats.effect.Blocker
 import org.http4s.StaticFile
@@ -15,9 +13,10 @@ import org.http4s.server.middleware.CORS
 import sttp.tapir.server.ServerEndpoint
 import zio._
 import zio.blocking.Blocking
-import zio.console.putStrLn
 import zio.interop.catz._
 import zio.interop.catz.implicits._
+
+import scala.concurrent.ExecutionContext
 
 object ExampleApp extends CatsApp {
 
@@ -55,7 +54,5 @@ object ExampleApp extends CatsApp {
             .resource
             .toManaged
             .useForever
-    } yield ExitCode.success)
-      .catchAll(err => putStrLn(err.toString).as(ExitCode.failure))
-
+    } yield ()).exitCode
 }

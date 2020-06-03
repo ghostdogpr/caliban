@@ -12,7 +12,6 @@ import org.http4s.server.blaze.BlazeServerBuilder
 import org.http4s.server.middleware.CORS
 import zio._
 import zio.blocking.Blocking
-import zio.console.putStrLn
 import zio.interop.catz._
 
 import scala.concurrent.ExecutionContext
@@ -40,8 +39,8 @@ object ExampleApp extends App {
                 .resource
                 .toManaged
                 .useForever
-        } yield ExitCode.success
+        } yield ()
       )
       .provideCustomLayer(ExampleService.make(sampleCharacters))
-      .catchAll(err => putStrLn(err.toString).as(ExitCode.failure))
+      .exitCode
 }

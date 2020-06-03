@@ -124,5 +124,5 @@ object OptimizedTest extends App with GenericSchema[Console] {
   override def run(args: List[String]): ZIO[zio.ZEnv, Nothing, ExitCode] =
     api.interpreter
       .flatMap(_.execute(query).map(res => ExitCode(res.errors.length)))
-      .catchAll(err => putStrLn(err.toString).as(ExitCode.failure))
+      .exitCode
 }

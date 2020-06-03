@@ -12,7 +12,6 @@ import org.http4s.server.blaze.BlazeServerBuilder
 import org.http4s.server.middleware.CORS
 import zio._
 import zio.blocking.Blocking
-import zio.console.putStrLn
 import zio.interop.catz._
 
 import scala.concurrent.ExecutionContext
@@ -38,7 +37,7 @@ object FederatedApp extends CatsApp {
               .resource
               .toManaged
               .useForever
-      } yield ExitCode.success
+      } yield ()
     )
 
   val service2 = EpisodeService
@@ -59,10 +58,9 @@ object FederatedApp extends CatsApp {
               .resource
               .toManaged
               .useForever
-      } yield ExitCode.success
+      } yield ()
     )
 
   override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
-    (service1 race service2)
-      .catchAll(err => putStrLn(err.toString).as(ExitCode.failure))
+    (service1 race service2).exitCode
 }

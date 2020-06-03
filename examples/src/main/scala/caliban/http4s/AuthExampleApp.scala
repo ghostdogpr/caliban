@@ -3,14 +3,13 @@ package caliban.http4s
 import caliban.GraphQL._
 import caliban.schema.GenericSchema
 import caliban.{ Http4sAdapter, RootResolver }
+import org.http4s.HttpRoutes
 import org.http4s.dsl.Http4sDsl
 import org.http4s.implicits._
 import org.http4s.server.blaze.BlazeServerBuilder
 import org.http4s.server.{ Router, ServiceErrorHandler }
 import org.http4s.util.CaseInsensitiveString
-import org.http4s.HttpRoutes
 import zio._
-import zio.console.putStrLn
 import zio.interop.catz._
 import zio.interop.catz.implicits._
 
@@ -64,6 +63,5 @@ object AuthExampleApp extends CatsApp {
             .resource
             .toManaged
             .useForever
-    } yield ExitCode.success)
-      .catchAll(err => putStrLn(err.toString).as(ExitCode.failure))
+    } yield ()).exitCode
 }

@@ -52,6 +52,6 @@ object ExampleApp extends App {
 
     (call1 *> call2)
       .provideCustomLayer(AsyncHttpClientZioBackend.layer())
-      .foldM(ex => putStrLn(ex.toString).as(ExitCode.failure), _ => ZIO.succeed(ExitCode.success))
+      .exitCode
   }
 }
