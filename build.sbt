@@ -152,7 +152,7 @@ lazy val monixInterop = project
     libraryDependencies ++= Seq(
       "dev.zio"  %% "zio-interop-reactivestreams" % "1.0.3.5-RC10",
       "dev.zio"  %% "zio-interop-cats"            % zioInteropCatsVersion,
-      "io.monix" %% "monix"                       % "3.2.1"
+      "io.monix" %% "monix"                       % "3.2.2"
     )
   )
   .dependsOn(core)
