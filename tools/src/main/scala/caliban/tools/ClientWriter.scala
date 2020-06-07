@@ -1,4 +1,4 @@
-package caliban.codegen
+package caliban.tools
 
 import scala.annotation.tailrec
 import caliban.Value.StringValue
@@ -10,7 +10,7 @@ import caliban.parsing.adt.{ Document, Type }
 object ClientWriter {
 
   def write(schema: Document, objectName: String = "Client", packageName: Option[String] = None): String = {
-    val schemaDef = Document.schemaDefinitions(schema).headOption
+    val schemaDef = schema.schemaDefinition
 
     val typesMap: Map[String, TypeDefinition] = schema.definitions.collect {
       case op @ ObjectTypeDefinition(_, name, _, _, _)   => name -> op
@@ -21,8 +21,7 @@ object ClientWriter {
       case op @ InterfaceTypeDefinition(_, name, _, _)   => name -> op
     }.toMap
 
-    val objects = Document
-      .objectTypeDefinitions(schema)
+    val objects = schema.objectTypeDefinitions
       .filterNot(obj =>
         reservedType(obj) ||
           schemaDef.exists(_.query.getOrElse("Query") == obj.name) ||
@@ -32,28 +31,27 @@ object ClientWriter {
       .map(writeObject(_, typesMap))
       .mkString("\n")
 
-    val inputs = Document.inputObjectTypeDefinitions(schema).map(writeInputObject).mkString("\n")
+    val inputs = schema.inputObjectTypeDefinitions.map(writeInputObject).mkString("\n")
 
-    val enums = Document.enumTypeDefinitions(schema).map(writeEnum).mkString("\n")
+    val enums = schema.enumTypeDefinitions.map(writeEnum).mkString("\n")
 
-    val scalars = Document
-      .scalarTypeDefinitions(schema)
+    val scalars = schema.scalarTypeDefinitions
       .filterNot(s => supportedScalars.contains(s.name))
       .map(writeScalar)
       .mkString("\n")
 
-    val queries = Document
-      .objectTypeDefinition(schema, schemaDef.flatMap(_.query).getOrElse("Query"))
+    val queries = schema
+      .objectTypeDefinition(schemaDef.flatMap(_.query).getOrElse("Query"))
       .map(t => writeRootQuery(t, typesMap))
       .getOrElse("")
 
-    val mutations = Document
-      .objectTypeDefinition(schema, schemaDef.flatMap(_.mutation).getOrElse("Mutation"))
+    val mutations = schema
+      .objectTypeDefinition(schemaDef.flatMap(_.mutation).getOrElse("Mutation"))
       .map(t => writeRootMutation(t, typesMap))
       .getOrElse("")
 
-    val subscriptions = Document
-      .objectTypeDefinition(schema, schemaDef.flatMap(_.subscription).getOrElse("Subscription"))
+    val subscriptions = schema
+      .objectTypeDefinition(schemaDef.flatMap(_.subscription).getOrElse("Subscription"))
       .map(t => writeRootSubscription(t, typesMap))
       .getOrElse("")
 

@@ -1,4 +1,4 @@
-package caliban.codegen
+package caliban.tools
 
 import caliban.parsing.adt.Document
 import sbt.Keys.commands

@@ -1,4 +1,4 @@
-package caliban.codegen
+package caliban.tools
 
 import zio.config.{ read, ConfigDescriptor, ConfigSource }
 import zio.config.magnolia.DeriveConfigDescriptor.descriptor

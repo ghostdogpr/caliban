@@ -1,4 +1,4 @@
-package caliban.codegen
+package caliban.tools
 
 import java.io.{ File, PrintWriter }
 import zio.{ Task, UIO }

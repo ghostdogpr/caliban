@@ -1,4 +1,4 @@
-package caliban.codegen
+package caliban.tools
 
 import java.nio.file.{ Files, Paths }
 

@@ -8,9 +8,16 @@ import zio.stream.Stream
 
 sealed trait InputValue
 object InputValue {
-  case class ListValue(values: List[InputValue])          extends InputValue
-  case class ObjectValue(fields: Map[String, InputValue]) extends InputValue
-  case class VariableValue(name: String)                  extends InputValue
+  case class ListValue(values: List[InputValue]) extends InputValue {
+    override def toString: String = values.mkString("[", ",", "]")
+  }
+  case class ObjectValue(fields: Map[String, InputValue]) extends InputValue {
+    override def toString: String =
+      fields.map { case (name, value) => s""""$name":${value.toString}""" }.mkString("{", ",", "}")
+  }
+  case class VariableValue(name: String) extends InputValue {
+    override def toString: String = s"$$$name"
+  }
 
   implicit def circeEncoder[F[_]: IsCirceEncoder]: F[InputValue] =
     ValueCirce.inputValueEncoder.asInstanceOf[F[InputValue]]

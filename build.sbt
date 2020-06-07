@@ -70,8 +70,8 @@ lazy val root = project
     tapirInterop,
     clientJVM,
     clientJS,
-    codegen,
-    codegenSbt,
+    tools,
+    toolsSbt,
     federation
   )
 
@@ -100,9 +100,9 @@ lazy val core = project
     fork in run := true
   )
 
-lazy val codegen = project
-  .in(file("codegen"))
-  .settings(name := "caliban-codegen")
+lazy val tools = project
+  .in(file("tools"))
+  .settings(name := "caliban-tools")
   .settings(commonSettings)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
@@ -118,9 +118,9 @@ lazy val codegen = project
   )
   .dependsOn(core, clientJVM)
 
-lazy val codegenSbt = project
-  .in(file("codegen-sbt"))
-  .settings(name := "caliban-codegen-sbt")
+lazy val toolsSbt = project
+  .in(file("tools-sbt"))
+  .settings(name := "caliban-tools-sbt")
   .settings(commonSettings)
   .settings(
     sbtPlugin := true,
@@ -130,7 +130,7 @@ lazy val codegenSbt = project
       "dev.zio" %% "zio-test-sbt" % zioVersion % "test"
     )
   )
-  .dependsOn(codegen)
+  .dependsOn(tools)
 
 lazy val catsInterop = project
   .in(file("interop/cats"))

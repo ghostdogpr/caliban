@@ -451,7 +451,7 @@ object Parser {
       stringValue.? ~ "directive @" ~/ name ~ argumentDefinitions.? ~ "on" ~ ("|".? ~ directiveLocation) ~ ("|" ~ directiveLocation).rep
     ).map {
       case (description, name, args, firstLoc, otherLoc) =>
-        DirectiveDefinition(description.map(_.value), name, args.getOrElse(Nil), firstLoc :: otherLoc.toList)
+        DirectiveDefinition(description.map(_.value), name, args.getOrElse(Nil), otherLoc.toSet + firstLoc)
     }
 
   private def typeDefinition[_: P]: P[TypeDefinition] =
