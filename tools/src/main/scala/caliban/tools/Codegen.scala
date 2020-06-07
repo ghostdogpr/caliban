@@ -1,9 +1,9 @@
 package caliban.tools
 
 import java.io.{ File, PrintWriter }
-import zio.{ Task, UIO }
+
 import caliban.parsing.adt.Document
-import caliban.parsing.Parser
+import zio.{ Task, UIO }
 
 object Codegen {
   def generate(
@@ -13,8 +13,9 @@ object Codegen {
     val s           = ".*/scala/(.*)/(.*).scala".r.findFirstMatchIn(arguments.toPath)
     val packageName = arguments.packageName.orElse(s.map(_.group(1).split("/").mkString(".")))
     val objectName  = s.map(_.group(2)).getOrElse("Client")
+    val loader      = getSchemaLoader(arguments.schemaPath, arguments.headers)
     for {
-      schema    <- getSchema(arguments.schemaPath, arguments.headers)
+      schema    <- loader.load
       code      = writer(schema, objectName, packageName)
       formatted <- Formatter.format(code, arguments.fmtPath)
       _ <- Task(new PrintWriter(new File(arguments.toPath)))
@@ -22,13 +23,8 @@ object Codegen {
     } yield ()
   }
 
-  private def getSchema(path: String, schemaPathHeaders: Option[List[Options.Header]]): Task[Document] =
-    if (path.startsWith("http")) {
-      IntrospectionClient.introspect(path, schemaPathHeaders)
-    } else {
-      Task(scala.io.Source.fromFile(path))
-        .bracket(f => UIO(f.close()), f => Task(f.mkString))
-        .flatMap(Parser.parseQuery)
-    }
+  private def getSchemaLoader(path: String, schemaPathHeaders: Option[List[Options.Header]]): SchemaLoader =
+    if (path.startsWith("http")) SchemaLoader.fromIntrospection(path, schemaPathHeaders)
+    else SchemaLoader.fromFile(path)
 
 }

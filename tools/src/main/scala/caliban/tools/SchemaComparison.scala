@@ -4,10 +4,17 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.{ DirectiveDefinition, SchemaDefinition, TypeDefinition }
 import caliban.parsing.adt.{ Directive, Document }
 import caliban.tools.SchemaComparisonChange._
+import zio.Task
 
 object SchemaComparison {
 
-  def compareDocuments(left: Document, right: Document): List[SchemaComparisonChange] = {
+  def compare(left: SchemaLoader, right: SchemaLoader): Task[List[SchemaComparisonChange]] =
+    for {
+      docLeft  <- left.load
+      docRight <- right.load
+    } yield compareDocuments(docLeft, docRight)
+
+  private[caliban] def compareDocuments(left: Document, right: Document): List[SchemaComparisonChange] = {
     val schemaChanges = compareSchemas(left.schemaDefinition, right.schemaDefinition)
     val typeChanges = compareAllTypes(
       left.typeDefinitions.map(t => t.name  -> t).toMap,
@@ -243,12 +250,15 @@ object SchemaComparison {
     descriptionChanges ++ directiveChanges ++ typeChanges
   }
 
+  private def isBuiltinScalar(name: String): Boolean =
+    name == "Int" || name == "Float" || name == "String" || name == "Boolean" || name == "ID"
+
   private def compareAllTypes(
     left: Map[String, TypeDefinition],
     right: Map[String, TypeDefinition]
   ): List[SchemaComparisonChange] = {
-    val leftKeys    = left.keySet
-    val rightKeys   = right.keySet
+    val leftKeys    = left.keySet.filterNot(isBuiltinScalar)
+    val rightKeys   = right.keySet.filterNot(isBuiltinScalar)
     val added       = (rightKeys -- leftKeys).map(TypeAdded).toList
     val deleted     = (leftKeys -- rightKeys).map(TypeDeleted).toList
     val commonTypes = leftKeys intersect rightKeys
@@ -293,13 +303,16 @@ object SchemaComparison {
     right: Option[SchemaDefinition]
   ): List[SchemaComparisonChange] =
     (((left.flatMap(_.query), right.flatMap(_.query)) match {
-      case (l, r) if l != r => Some(SchemaQueryTypeChanged(l, r))
-      case _                => None
+      case (None, Some("Query")) | (Some("Query"), None) => None
+      case (l, r) if l != r                              => Some(SchemaQueryTypeChanged(l, r))
+      case _                                             => None
     }) :: ((left.flatMap(_.mutation), right.flatMap(_.mutation)) match {
-      case (l, r) if l != r => Some(SchemaMutationTypeChanged(l, r))
-      case _                => None
+      case (None, Some("Mutation")) | (Some("Mutation"), None) => None
+      case (l, r) if l != r                                    => Some(SchemaMutationTypeChanged(l, r))
+      case _                                                   => None
     }) :: ((left.flatMap(_.subscription), right.flatMap(_.subscription)) match {
-      case (l, r) if l != r => Some(SchemaSubscriptionTypeChanged(l, r))
-      case _                => None
+      case (None, Some("Subscription")) | (Some("Subscription"), None) => None
+      case (l, r) if l != r                                            => Some(SchemaSubscriptionTypeChanged(l, r))
+      case _                                                           => None
     }) :: Nil).flatten
 }

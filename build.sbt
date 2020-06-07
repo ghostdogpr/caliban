@@ -71,7 +71,7 @@ lazy val root = project
     clientJVM,
     clientJS,
     tools,
-    toolsSbt,
+    codegenSbt,
     federation
   )
 
@@ -118,9 +118,9 @@ lazy val tools = project
   )
   .dependsOn(core, clientJVM)
 
-lazy val toolsSbt = project
-  .in(file("tools-sbt"))
-  .settings(name := "caliban-tools-sbt")
+lazy val codegenSbt = project
+  .in(file("codegen-sbt"))
+  .settings(name := "caliban-codegen-sbt")
   .settings(commonSettings)
   .settings(
     sbtPlugin := true,
