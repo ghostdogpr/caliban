@@ -1,39 +1,24 @@
 package caliban.tools
 
-import caliban.parsing.Parser
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.{ DirectiveDefinition, SchemaDefinition, TypeDefinition }
 import caliban.parsing.adt.{ Directive, Document }
 import caliban.tools.SchemaComparisonChange._
-import zio.{ ExitCode, ZIO }
 
-object SchemaComparison extends zio.App {
+object SchemaComparison {
 
-  val schema1: String =
-    """
-          input HeroInput {
-            test: String!
-          }
-          
-          type Hero {
-            name(pad: Int!): String!
-            nick: String!
-            bday: Int
-          }
-      |""".stripMargin
-
-  val schema2: String =
-    """
-          input HeroInput {
-            test: String
-          }
-          
-          type Hero {
-            name(pad: Int!): String!
-            nick: String!
-            bday: Int!
-          }
-      |""".stripMargin
+  def compareDocuments(left: Document, right: Document): List[SchemaComparisonChange] = {
+    val schemaChanges = compareSchemas(left.schemaDefinition, right.schemaDefinition)
+    val typeChanges = compareAllTypes(
+      left.typeDefinitions.map(t => t.name  -> t).toMap,
+      right.typeDefinitions.map(t => t.name -> t).toMap
+    )
+    val directiveChanges = compareAllDirectiveDefinitions(
+      left.directiveDefinitions.map(t => t.name  -> t).toMap,
+      right.directiveDefinitions.map(t => t.name -> t).toMap
+    )
+    schemaChanges ++ typeChanges ++ directiveChanges
+  }
 
   private def compareEnumValues(
     typeName: String,
@@ -317,23 +302,4 @@ object SchemaComparison extends zio.App {
       case (l, r) if l != r => Some(SchemaSubscriptionTypeChanged(l, r))
       case _                => None
     }) :: Nil).flatten
-
-  def compareDocuments(left: Document, right: Document): List[SchemaComparisonChange] = {
-    val schemaChanges = compareSchemas(left.schemaDefinition, right.schemaDefinition)
-    val typeChanges = compareAllTypes(
-      left.typeDefinitions.map(t => t.name  -> t).toMap,
-      right.typeDefinitions.map(t => t.name -> t).toMap
-    )
-    val directiveChanges = compareAllDirectiveDefinitions(
-      left.directiveDefinitions.map(t => t.name  -> t).toMap,
-      right.directiveDefinitions.map(t => t.name -> t).toMap
-    )
-    schemaChanges ++ typeChanges ++ directiveChanges
-  }
-
-  override def run(args: List[String]): ZIO[zio.ZEnv, Nothing, ExitCode] =
-    (for {
-      s1 <- Parser.parseQuery(schema1)
-      s2 <- Parser.parseQuery(schema2)
-    } yield println(compareDocuments(s1, s2))).exitCode
 }
