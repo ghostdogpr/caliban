@@ -115,6 +115,37 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
           )
         )
       },
+      testM("deprecated") {
+        val schema1: String =
+          """
+          input HeroInput {
+            test: String @deprecated
+          }
+          
+          type Hero {
+            name(pad: Int!): String!
+          }
+            |""".stripMargin
+
+        val schema2: String =
+          """
+          input HeroInput {
+            test: String
+          }
+          
+          type Hero {
+            name(pad: Int!): String!
+          }
+            |""".stripMargin
+
+        assertM(for {
+          s1   <- Parser.parseQuery(schema1)
+          s2   <- Parser.parseQuery(schema2)
+          diff = compareDocuments(s1, s2)
+        } yield diff.map(_.toString))(
+          equalTo(List("Directive 'deprecated' was deleted from field 'test' of type 'HeroInput'."))
+        )
+      },
       testM("compare Caliban schema with string schema") {
         val schema: String =
           """
