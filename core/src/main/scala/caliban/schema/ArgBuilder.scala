@@ -12,6 +12,7 @@ import caliban.Value._
 import caliban.schema.Annotations.GQLName
 import magnolia._
 import mercator.Monadic
+import zio.Chunk
 
 /**
  * Typeclass that defines how to build an argument of type `T` from an input [[caliban.InputValue]].
@@ -113,6 +114,7 @@ object ArgBuilder {
   implicit def seq[A](implicit ev: ArgBuilder[A]): ArgBuilder[Seq[A]]       = list[A].map(_.toSeq)
   implicit def set[A](implicit ev: ArgBuilder[A]): ArgBuilder[Set[A]]       = list[A].map(_.toSet)
   implicit def vector[A](implicit ev: ArgBuilder[A]): ArgBuilder[Vector[A]] = list[A].map(_.toVector)
+  implicit def chunk[A](implicit ev: ArgBuilder[A]): ArgBuilder[Chunk[A]]   = list[A].map(Chunk.fromIterable)
 
   type EitherExecutionError[A] = Either[ExecutionError, A]
 
