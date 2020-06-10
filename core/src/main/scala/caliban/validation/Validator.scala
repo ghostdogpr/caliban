@@ -647,7 +647,8 @@ object Validator {
 
         def isValidSubtype(supertypeFieldType: __Type, objectFieldType: __Type) = {
           val supertypePossibleTypes = supertypeFieldType.possibleTypes.toList.flatten
-          (supertypeFieldType == objectFieldType) || supertypePossibleTypes.contains(objectFieldType)
+          Types.same(supertypeFieldType, objectFieldType) ||
+          supertypePossibleTypes.exists(Types.same(_, objectFieldType))
         }
 
         IO.foreach_(objectFields) { objField =>
@@ -668,16 +669,16 @@ object Validator {
               def extraArgsAreValid = !extraArgs.exists(_.`type`().kind == __TypeKind.NON_NULL)
 
               IO.whenCase((fieldTypeIsValid, isListField(superField))) {
-                case (false, false) =>
-                  failValidation(
-                    s"$fieldContext in $objectContext is an invalid subtype",
-                    "An object field type must be equal to or a possible type of the interface field type."
-                  )
-                case (false, true) if !listItemTypeIsValid =>
+                case (_, true) if !listItemTypeIsValid =>
                   failValidation(
                     s"$fieldContext in $objectContext is an invalid list item subtype",
                     "An object list item field type must be equal to or a possible" +
                       " type of the interface list item field type."
+                  )
+                case (false, false) =>
+                  failValidation(
+                    s"$fieldContext in $objectContext is an invalid subtype",
+                    "An object field type must be equal to or a possible type of the interface field type."
                   )
                 case _ if !extraArgsAreValid =>
                   val argNames = extraArgs.filter(_.`type`().kind == __TypeKind.NON_NULL).map(_.name).mkString(", ")
