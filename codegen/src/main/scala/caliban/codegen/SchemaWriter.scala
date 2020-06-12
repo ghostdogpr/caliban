@@ -6,7 +6,12 @@ import caliban.parsing.adt.{ Document, Type }
 
 object SchemaWriter {
 
-  def write(schema: Document, objectName: String = "", packageName: Option[String] = None): String = {
+  def write(
+    schema: Document,
+    objectName: String = "",
+    packageName: Option[String] = None,
+    effect: String = "zio.UIO"
+  ): String = {
     val schemaDef = Document.schemaDefinitions(schema).headOption
 
     val argsTypes = Document
@@ -39,12 +44,12 @@ object SchemaWriter {
 
     val queries = Document
       .objectTypeDefinition(schema, schemaDef.flatMap(_.query).getOrElse("Query"))
-      .map(t => writeRootQueryOrMutationDef(t))
+      .map(t => writeRootQueryOrMutationDef(t, effect))
       .getOrElse("")
 
     val mutations = Document
       .objectTypeDefinition(schema, schemaDef.flatMap(_.mutation).getOrElse("Mutation"))
-      .map(t => writeRootQueryOrMutationDef(t))
+      .map(t => writeRootQueryOrMutationDef(t, effect))
       .getOrElse("")
 
     val subscriptions = Document
@@ -89,21 +94,21 @@ object SchemaWriter {
   def reservedType(typeDefinition: ObjectTypeDefinition): Boolean =
     typeDefinition.name == "Query" || typeDefinition.name == "Mutation" || typeDefinition.name == "Subscription"
 
-  def writeRootField(field: FieldDefinition): String = {
-    val argsName = if (field.args.nonEmpty) s"${field.name.capitalize}Args" else "()"
-    s"${safeName(field.name)}: $argsName => ${writeType(field.ofType)}"
+  def writeRootField(field: FieldDefinition, effect: String): String = {
+    val argsName = if (field.args.nonEmpty) s" ${field.name.capitalize}Args =>" else ""
+    s"${safeName(field.name)}:$argsName $effect[${writeType(field.ofType)}]"
   }
 
-  def writeRootQueryOrMutationDef(op: ObjectTypeDefinition): String =
+  def writeRootQueryOrMutationDef(op: ObjectTypeDefinition, effect: String): String =
     s"""
        |${writeDescription(op.description)}case class ${op.name}(
-       |${op.fields.map(c => writeRootField(c)).mkString(",\n")}
+       |${op.fields.map(c => writeRootField(c, effect)).mkString(",\n")}
        |)""".stripMargin
 
   def writeSubscriptionField(field: FieldDefinition): String =
-    "%s: %s => ZStream[Any, Nothing, %s]".format(
+    "%s:%s ZStream[Any, Nothing, %s]".format(
       safeName(field.name),
-      if (field.args.nonEmpty) s"${field.name.capitalize}Args" else "()",
+      if (field.args.nonEmpty) s" ${field.name.capitalize}Args =>" else "",
       writeType(field.ofType)
     )
 

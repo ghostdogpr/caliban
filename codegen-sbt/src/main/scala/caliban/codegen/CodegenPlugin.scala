@@ -11,7 +11,7 @@ object CodegenPlugin extends AutoPlugin {
   lazy val genSchemaCommand         = genCommand("calibanGenSchema", genSchemaHelpMsg, SchemaWriter.write)
   lazy val genClientCommand         = genCommand("calibanGenClient", genClientHelpMsg, ClientWriter.write)
 
-  def genCommand(name: String, helpMsg: String, writer: (Document, String, Option[String]) => String): Command =
+  def genCommand(name: String, helpMsg: String, writer: (Document, String, Option[String], String) => String): Command =
     Command.args(name, helpMsg) { (state: State, args: Seq[String]) =>
       Runtime.default.unsafeRun(
         execGenCommand(helpMsg, args.toList, writer)
@@ -59,7 +59,7 @@ object CodegenPlugin extends AutoPlugin {
   def execGenCommand(
     helpMsg: String,
     args: List[String],
-    writer: (Document, String, Option[String]) => String
+    writer: (Document, String, Option[String], String) => String
   ): RIO[Console, Unit] =
     Options.fromArgs(args) match {
       case Some(arguments) =>
