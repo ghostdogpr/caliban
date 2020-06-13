@@ -3,14 +3,14 @@ import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 val mainScala = "2.12.11"
 val allScala  = Seq("2.13.2", mainScala)
 
-val akkaVersion           = "2.6.5"
+val akkaVersion           = "2.6.6"
 val catsEffectVersion     = "2.1.3"
 val circeVersion          = "0.13.0"
 val http4sVersion         = "0.21.4"
 val playVersion           = "2.8.1"
 val silencerVersion       = "1.6.0"
-val sttpVersion           = "2.1.5"
-val tapirVersion          = "0.15.3"
+val sttpVersion           = "2.2.0"
+val tapirVersion          = "0.15.4"
 val zioVersion            = "1.0.0-RC20"
 val zioInteropCatsVersion = "2.1.3.0-RC15"
 val zioConfigVersion      = "1.0.0-RC20"
@@ -150,7 +150,7 @@ lazy val monixInterop = project
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "dev.zio"  %% "zio-interop-reactivestreams" % "1.0.3.5-RC10",
+      "dev.zio"  %% "zio-interop-reactivestreams" % "1.0.3.5-RC11",
       "dev.zio"  %% "zio-interop-cats"            % zioInteropCatsVersion,
       "io.monix" %% "monix"                       % "3.2.2"
     )

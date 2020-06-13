@@ -9,7 +9,12 @@ import caliban.parsing.adt.{ Document, Type }
 
 object ClientWriter {
 
-  def write(schema: Document, objectName: String = "Client", packageName: Option[String] = None): String = {
+  def write(
+    schema: Document,
+    objectName: String = "Client",
+    packageName: Option[String] = None,
+    effect: String = "zio.UIO"
+  ): String = {
     val schemaDef = schema.schemaDefinition
 
     val typesMap: Map[String, TypeDefinition] = schema.definitions.collect {

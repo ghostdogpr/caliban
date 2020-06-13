@@ -19,6 +19,7 @@ import zio.{ URIO, ZIO }
 import scala.annotation.implicitNotFound
 import scala.concurrent.Future
 import scala.language.experimental.macros
+import zio.Chunk
 
 /**
  * Typeclass that defines how to map the type `T` to the according GraphQL concepts: how to introspect it and how to resolve it.
@@ -141,6 +142,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
   implicit def setSchema[A](implicit ev: Schema[R, A]): Schema[R, Set[A]]       = listSchema[A].contramap(_.toList)
   implicit def seqSchema[A](implicit ev: Schema[R, A]): Schema[R, Seq[A]]       = listSchema[A].contramap(_.toList)
   implicit def vectorSchema[A](implicit ev: Schema[R, A]): Schema[R, Vector[A]] = listSchema[A].contramap(_.toList)
+  implicit def chunkSchema[A](implicit ev: Schema[R, A]): Schema[R, Chunk[A]]   = listSchema[A].contramap(_.toList)
   implicit def functionUnitSchema[A](implicit ev: Schema[R, A]): Schema[R, () => A] =
     new Schema[R, () => A] {
       override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)

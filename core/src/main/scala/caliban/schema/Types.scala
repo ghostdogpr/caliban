@@ -3,6 +3,8 @@ package caliban.schema
 import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
 
+import scala.annotation.tailrec
+
 object Types {
 
   /**
@@ -108,8 +110,12 @@ object Types {
         t.possibleTypes.getOrElse(Nil).foldLeft(list2) { case (types, subtype) => collectTypes(subtype, types) }
     }
 
+  @tailrec
   def same(t1: __Type, t2: __Type): Boolean =
-    t1.name == t2.name && t1.kind == t2.kind && (t1.origin.isEmpty || t2.origin.isEmpty || t1.origin == t2.origin)
+    if (t1.kind == t2.kind && t1.ofType.nonEmpty)
+      same(t1.ofType.getOrElse(t1), t2.ofType.getOrElse(t2))
+    else
+      t1.name == t2.name && t1.kind == t2.kind && (t1.origin.isEmpty || t2.origin.isEmpty || t1.origin == t2.origin)
 
   def innerType(t: __Type): __Type = t.ofType.fold(t)(innerType)
 

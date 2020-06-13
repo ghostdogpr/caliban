@@ -12,7 +12,7 @@ object CodegenPlugin extends AutoPlugin {
   lazy val genSchemaCommand         = genCommand("calibanGenSchema", genSchemaHelpMsg, SchemaWriter.write)
   lazy val genClientCommand         = genCommand("calibanGenClient", genClientHelpMsg, ClientWriter.write)
 
-  def genCommand(name: String, helpMsg: String, writer: (Document, String, Option[String]) => String): Command =
+  def genCommand(name: String, helpMsg: String, writer: (Document, String, Option[String], String) => String): Command =
     Command.args(name, helpMsg) { (state: State, args: Seq[String]) =>
       Runtime.default.unsafeRun(
         execGenCommand(helpMsg, args.toList, writer)
@@ -37,13 +37,16 @@ object CodegenPlugin extends AutoPlugin {
 
   private val genSchemaHelpMsg =
     s"""
-       |calibanGenSchema schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name]
+       |calibanGenSchema schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name] [--effect fqdn.Effect]
        |
        |This command will create a Scala file in `outputPath` containing all the types
        |defined in the provided GraphQL schema defined at `schemaPath`. Instead of a path,
        |you can provide a URL and introspection will be used to gather the schema.
        |
        |$commonHelp
+       |
+       |By default, each Query and Mutation will be wrapped into a `zio.UIO` effect. 
+       |This can be overridden by providing an alternative effect with the `--effect` option.
        |""".stripMargin
 
   private val genClientHelpMsg =
@@ -60,7 +63,7 @@ object CodegenPlugin extends AutoPlugin {
   def execGenCommand(
     helpMsg: String,
     args: List[String],
-    writer: (Document, String, Option[String]) => String
+    writer: (Document, String, Option[String], String) => String
   ): RIO[Console, Unit] =
     Options.fromArgs(args) match {
       case Some(arguments) =>

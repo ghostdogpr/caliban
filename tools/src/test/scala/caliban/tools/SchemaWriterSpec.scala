@@ -64,14 +64,14 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
 
         val result = Parser
           .parseQuery(schema)
-          .map(_.objectTypeDefinition("Query").map(SchemaWriter.writeRootQueryOrMutationDef).mkString("\n"))
+          .map(_.objectTypeDefinition("Query").map(SchemaWriter.writeRootQueryOrMutationDef(_, "zio.UIO")).mkString("\n"))
 
         assertM(result)(
           equalTo(
             """
 case class Query(
-user: UserArgs => Option[User],
-userList: () => List[Option[User]]
+user: UserArgs => zio.UIO[Option[User]],
+userList: zio.UIO[List[Option[User]]]
 )""".stripMargin
           )
         )
@@ -85,13 +85,13 @@ userList: () => List[Option[User]]
          """
         val result = Parser
           .parseQuery(schema)
-          .map(_.objectTypeDefinition("Mutation").map(SchemaWriter.writeRootQueryOrMutationDef).mkString("\n"))
+          .map(_.objectTypeDefinition("Mutation").map(SchemaWriter.writeRootQueryOrMutationDef(_, "zio.UIO")).mkString("\n"))
 
         assertM(result)(
           equalTo(
             """
               |case class Mutation(
-              |setMessage: SetMessageArgs => Option[String]
+              |setMessage: SetMessageArgs => zio.UIO[Option[String]]
               |)""".stripMargin
           )
         )
@@ -150,15 +150,15 @@ userList: () => List[Option[User]]
               |object Operations {
               |
               |  case class Query(
-              |    posts: () => Option[List[Option[Post]]]
+              |    posts: zio.UIO[Option[List[Option[Post]]]]
               |  )
               |
               |  case class Mutation(
-              |    addPost: AddPostArgs => Option[Post]
+              |    addPost: AddPostArgs => zio.UIO[Option[Post]]
               |  )
               |
               |  case class Subscription(
-              |    postAdded: () => ZStream[Any, Nothing, Option[Post]]
+              |    postAdded: ZStream[Any, Nothing, Option[Post]]
               |  )
               |
               |}
@@ -250,7 +250,7 @@ object Types {
             """object Operations {
 
   case class Queries(
-    characters: () => Int
+    characters: zio.UIO[Int]
   )
 
 }
