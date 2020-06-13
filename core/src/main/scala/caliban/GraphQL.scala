@@ -4,9 +4,10 @@ import caliban.CalibanError.ValidationError
 import caliban.Rendering.renderTypes
 import caliban.execution.{ ExecutionRequest, Executor }
 import caliban.introspection.Introspector
-import caliban.introspection.adt.__Directive
-import caliban.parsing.Parser
+import caliban.introspection.adt._
+import caliban.parsing.adt.Definition.TypeSystemDefinition.SchemaDefinition
 import caliban.parsing.adt.{ Document, OperationType }
+import caliban.parsing.{ Parser, SourceMapper }
 import caliban.schema._
 import caliban.validation.Validator
 import caliban.wrappers.Wrapper
@@ -37,6 +38,20 @@ trait GraphQL[-R] { self =>
          .fold("")(n => s"  subscription: $n\n")}}
        |
        |${renderTypes(schemaBuilder.types)}""".stripMargin
+
+  /**
+   * Converts the schema to a Document.
+   */
+  final def toDocument: Document =
+    Document(
+      SchemaDefinition(
+        Nil,
+        schemaBuilder.query.flatMap(_.opType.name),
+        schemaBuilder.mutation.flatMap(_.opType.name),
+        schemaBuilder.subscription.flatMap(_.opType.name)
+      ) :: schemaBuilder.types.flatMap(_.toTypeDefinition) ++ additionalDirectives.map(_.toDirectiveDefinition),
+      SourceMapper.empty
+    )
 
   /**
    * Creates an interpreter from your API. A GraphQLInterpreter is a wrapper around your API that allows
@@ -190,7 +205,7 @@ object GraphQL {
       resolver.mutationResolver.map(r => Operation(mutationSchema.toType(), mutationSchema.resolve(r))),
       resolver.subscriptionResolver.map(r => Operation(subscriptionSchema.toType(), subscriptionSchema.resolve(r)))
     )
-    val wrappers: List[Wrapper[R]]                       = Nil
-    override val additionalDirectives: List[__Directive] = directives
+    val wrappers: List[Wrapper[R]]              = Nil
+    val additionalDirectives: List[__Directive] = directives
   }
 }

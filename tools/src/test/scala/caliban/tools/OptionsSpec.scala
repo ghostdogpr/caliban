@@ -1,6 +1,6 @@
-package caliban.codegen
+package caliban.tools
 
-import caliban.codegen.Options.Header
+import caliban.tools.Options.Header
 import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment

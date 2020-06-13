@@ -1,7 +1,6 @@
-package caliban.codegen
+package caliban.tools
 
 import caliban.parsing.Parser
-import caliban.parsing.adt.Document
 import zio.Task
 import zio.test.Assertion.equalTo
 import zio.test.{ assertM, suite, testM, DefaultRunnableSpec, TestAspect, ZSpec }
@@ -28,13 +27,13 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
 
         val typeCaseClass = Parser
           .parseQuery(schema)
-          .map(doc => Document.objectTypeDefinitions(doc).map(SchemaWriter.writeObject).mkString("\n"))
+          .map(_.objectTypeDefinitions.map(SchemaWriter.writeObject).mkString("\n"))
 
         val typeCaseClassArgs = Parser
           .parseQuery(schema)
           .map { doc =>
             (for {
-              typeDef      <- Document.objectTypeDefinitions(doc)
+              typeDef      <- doc.objectTypeDefinitions
               typeDefField <- typeDef.fields
               argClass     = SchemaWriter.writeArguments(typeDefField) if argClass.length > 0
             } yield argClass).mkString("\n")
@@ -65,12 +64,9 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
 
         val result = Parser
           .parseQuery(schema)
-          .map { doc =>
-            Document
-              .objectTypeDefinition(doc, "Query")
-              .map(SchemaWriter.writeRootQueryOrMutationDef(_, "zio.UIO"))
-              .mkString("\n")
-          }
+          .map(
+            _.objectTypeDefinition("Query").map(SchemaWriter.writeRootQueryOrMutationDef(_, "zio.UIO")).mkString("\n")
+          )
 
         assertM(result)(
           equalTo(
@@ -91,12 +87,11 @@ userList: zio.UIO[List[Option[User]]]
          """
         val result = Parser
           .parseQuery(schema)
-          .map { doc =>
-            Document
-              .objectTypeDefinition(doc, "Mutation")
+          .map(
+            _.objectTypeDefinition("Mutation")
               .map(SchemaWriter.writeRootQueryOrMutationDef(_, "zio.UIO"))
               .mkString("\n")
-          }
+          )
 
         assertM(result)(
           equalTo(
@@ -117,12 +112,7 @@ userList: zio.UIO[List[Option[User]]]
 
         val result = Parser
           .parseQuery(schema)
-          .map { doc =>
-            Document
-              .objectTypeDefinition(doc, "Subscription")
-              .map(SchemaWriter.writeRootSubscriptionDef)
-              .mkString("\n")
-          }
+          .map(_.objectTypeDefinition("Subscription").map(SchemaWriter.writeRootSubscriptionDef).mkString("\n"))
 
         assertM(result)(
           equalTo(

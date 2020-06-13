@@ -1,6 +1,7 @@
 package caliban.codegen
 
 import caliban.parsing.adt.Document
+import caliban.tools._
 import sbt.Keys.commands
 import sbt.{ AutoPlugin, Command, State }
 import zio.console.{ putStrLn, Console }

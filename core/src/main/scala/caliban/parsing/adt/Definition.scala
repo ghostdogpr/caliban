@@ -43,7 +43,7 @@ object Definition {
       description: Option[String],
       name: String,
       args: List[InputValueDefinition],
-      locations: List[DirectiveLocation]
+      locations: Set[DirectiveLocation]
     ) extends TypeSystemDefinition
 
     sealed trait DirectiveLocation
@@ -76,6 +76,8 @@ object Definition {
 
     sealed trait TypeDefinition extends TypeSystemDefinition {
       def name: String
+      def description: Option[String]
+      def directives: List[Directive]
     }
     object TypeDefinition {
 
@@ -85,38 +87,50 @@ object Definition {
         implements: List[NamedType],
         directives: List[Directive],
         fields: List[FieldDefinition]
-      ) extends TypeDefinition
+      ) extends TypeDefinition {
+        override def toString: String = "Object"
+      }
 
       case class InterfaceTypeDefinition(
         description: Option[String],
         name: String,
         directives: List[Directive],
         fields: List[FieldDefinition]
-      ) extends TypeDefinition
+      ) extends TypeDefinition {
+        override def toString: String = "Interface"
+      }
 
       case class InputObjectTypeDefinition(
         description: Option[String],
         name: String,
         directives: List[Directive],
         fields: List[InputValueDefinition]
-      ) extends TypeDefinition
+      ) extends TypeDefinition {
+        override def toString: String = "Input Object"
+      }
 
       case class EnumTypeDefinition(
         description: Option[String],
         name: String,
         directives: List[Directive],
         enumValuesDefinition: List[EnumValueDefinition]
-      ) extends TypeDefinition
+      ) extends TypeDefinition {
+        override def toString: String = "Enum"
+      }
 
       case class UnionTypeDefinition(
         description: Option[String],
         name: String,
         directives: List[Directive],
         memberTypes: List[String]
-      ) extends TypeDefinition
+      ) extends TypeDefinition {
+        override def toString: String = "Union"
+      }
 
       case class ScalarTypeDefinition(description: Option[String], name: String, directives: List[Directive])
-          extends TypeDefinition
+          extends TypeDefinition {
+        override def toString: String = "Scalar"
+      }
 
       case class InputValueDefinition(
         description: Option[String],

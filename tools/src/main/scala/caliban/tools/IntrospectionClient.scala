@@ -1,4 +1,4 @@
-package caliban.codegen
+package caliban.tools
 
 import caliban.InputValue
 import caliban.Value.StringValue
@@ -148,7 +148,7 @@ object IntrospectionClient {
         case __DirectiveLocation.ENUM_VALUE             => TypeSystemDirectiveLocation.ENUM_VALUE
         case __DirectiveLocation.INPUT_OBJECT           => TypeSystemDirectiveLocation.INPUT_OBJECT
         case __DirectiveLocation.INPUT_FIELD_DEFINITION => TypeSystemDirectiveLocation.INPUT_FIELD_DEFINITION
-      }
+      }.toSet
     )
 
   private val typeRef: SelectionBuilder[__Type, Type] =
