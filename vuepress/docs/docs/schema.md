@@ -205,7 +205,7 @@ enablePlugins(CodegenPlugin)
 ```
 Then call the `calibanGenSchema` sbt command.
 ```scala
-calibanGenSchema schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2]
+calibanGenSchema schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name] [--effect fqdn.Effect]
 
 calibanGenSchema project/schema.graphql src/main/MyAPI.scala
 ```
@@ -215,7 +215,8 @@ The generated code will be formatted with Scalafmt using the configuration defin
 If you provide a URL for `schemaPath`, you can provide request headers with `--headers` option.
 The package of the generated code is derived from the folder of `outputPath`.
 This can be overridden by providing an alternative package with the `--packageName`
-option.
+option. By default, each Query and Mutation will be wrapped into a `zio.UIO` effect. 
+This can be overridden by providing an alternative effect with the `--effect` option.
 
 ::: warning Unsupported features
 Some features are not supported by Caliban and will cause an error during code generation:

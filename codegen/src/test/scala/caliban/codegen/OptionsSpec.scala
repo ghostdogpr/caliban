@@ -19,6 +19,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 "output",
                 Some("fmtPath"),
                 Some(List(Header("header1", "value1"), Header("header2", "value2"))),
+                None,
                 None
               )
             )
@@ -36,6 +37,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 "output",
                 Some("fmtPath"),
                 Some(List(Header("header1", "value1"), Header("header2", "value2"))),
+                None,
                 None
               )
             )
@@ -48,7 +50,7 @@ object OptionsSpec extends DefaultRunnableSpec {
         assert(result)(
           equalTo(
             Some(
-              Options("schema", "output", None, None, None)
+              Options("schema", "output", None, None, None, None)
             )
           )
         )
@@ -78,7 +80,26 @@ object OptionsSpec extends DefaultRunnableSpec {
                 "output",
                 None,
                 None,
-                Some("com.github.ghostdogpr")
+                Some("com.github.ghostdogpr"),
+                None
+              )
+            )
+          )
+        )
+      },
+      test("provide effect") {
+        val input  = List("schema", "output", "--effect", "cats.effect.IO")
+        val result = Options.fromArgs(input)
+        assert(result)(
+          equalTo(
+            Some(
+              Options(
+                "schema",
+                "output",
+                None,
+                None,
+                None,
+                Some("cats.effect.IO")
               )
             )
           )
