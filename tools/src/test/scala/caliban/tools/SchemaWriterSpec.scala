@@ -64,7 +64,9 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
 
         val result = Parser
           .parseQuery(schema)
-          .map(_.objectTypeDefinition("Query").map(SchemaWriter.writeRootQueryOrMutationDef(_, "zio.UIO")).mkString("\n"))
+          .map(
+            _.objectTypeDefinition("Query").map(SchemaWriter.writeRootQueryOrMutationDef(_, "zio.UIO")).mkString("\n")
+          )
 
         assertM(result)(
           equalTo(
@@ -85,7 +87,11 @@ userList: zio.UIO[List[Option[User]]]
          """
         val result = Parser
           .parseQuery(schema)
-          .map(_.objectTypeDefinition("Mutation").map(SchemaWriter.writeRootQueryOrMutationDef(_, "zio.UIO")).mkString("\n"))
+          .map(
+            _.objectTypeDefinition("Mutation")
+              .map(SchemaWriter.writeRootQueryOrMutationDef(_, "zio.UIO"))
+              .mkString("\n")
+          )
 
         assertM(result)(
           equalTo(
