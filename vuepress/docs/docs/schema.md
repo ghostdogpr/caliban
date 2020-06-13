@@ -209,17 +209,10 @@ calibanGenSchema schemaPath outputPath [--scalafmtPath path] [--headers name:val
 
 calibanGenSchema project/schema.graphql src/main/MyAPI.scala
 ```
-This command will create a Scala file in `outputPath` containing all the types defined in the provided GraphQL schema defined at `schemaPath`.
-Instead of a file, you can provide a URL and the schema will be obtained using introspection.
-The generated code will be formatted with Scalafmt using the configuration defined by `--scalafmtPath` option (default: `.scalafmt.conf`).
-If you provide a URL for `schemaPath`, you can provide request headers with `--headers` option.
-The package of the generated code is derived from the folder of `outputPath`.
-This can be overridden by providing an alternative package with the `--packageName`
-option. By default, each Query and Mutation will be wrapped into a `zio.UIO` effect. 
-This can be overridden by providing an alternative effect with the `--effect` option.
+This command will create a Scala file in `outputPath` containing all the types defined in the provided GraphQL schema defined at `schemaPath`. Instead of a file, you can provide a URL and the schema will be obtained using introspection.
 
-::: warning Unsupported features
-Some features are not supported by Caliban and will cause an error during code generation:
-- interfaces
-- extensions
-:::
+The generated code will be formatted with Scalafmt using the configuration defined by `--scalafmtPath` option (default: `.scalafmt.conf`). If you provide a URL for `schemaPath`, you can provide request headers with `--headers` option.
+
+The package of the generated code is derived from the folder of `outputPath`. This can be overridden by providing an alternative package with the `--packageName` option.
+
+By default, each Query and Mutation will be wrapped into a `zio.UIO` effect. This can be overridden by providing an alternative effect with the `--effect` option.
