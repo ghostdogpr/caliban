@@ -297,7 +297,10 @@ trait GenericSchema[R] extends DerivationSchema[R] {
   ): Schema[R, ZStream[R1, E, A]] =
     new Schema[R, ZStream[R1, E, A]] {
       override def optional: Boolean                          = ev.optional
-      override def toType(isInput: Boolean = false): __Type   = ev.toType(isInput)
+      override def toType(isInput: Boolean = false): __Type   = {
+        val t = ev.toType(isInput)
+        makeList(if (ev.optional) t else makeNonNull(t))
+      }
       override def resolve(value: ZStream[R1, E, A]): Step[R] = StreamStep(value.map(ev.resolve))
     }
 
