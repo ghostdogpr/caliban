@@ -29,7 +29,7 @@ private[caliban] object IsCirceDecoder {
 
 object json {
   implicit val jsonSchema: Schema[Any, Json] = new Schema[Any, Json] {
-    override def toType(isInput: Boolean): __Type = makeScalar("Json")
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = makeScalar("Json")
     override def resolve(value: Json): Step[Any] =
       QueryStep(ZQuery.fromEffect(ZIO.fromEither(Decoder[ResponseValue].decodeJson(value))).map(PureStep))
   }

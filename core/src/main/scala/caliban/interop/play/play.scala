@@ -36,7 +36,7 @@ object json {
         .left
         .map(parsingException)
 
-    override def toType(isInput: Boolean): __Type = makeScalar("Json")
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = makeScalar("Json")
     override def resolve(value: JsValue): Step[Any] =
       QueryStep(ZQuery.fromEffect(ZIO.fromEither(parse(value))).map(PureStep))
   }

@@ -45,8 +45,8 @@ object MonixInterop {
 
   def taskSchema[R, A](implicit ev: Schema[R, A], ev2: ConcurrentEffect[MonixTask]): Schema[R, MonixTask[A]] =
     new Schema[R, MonixTask[A]] {
-      override def toType(isInput: Boolean): __Type = ev.toType(isInput)
-      override def optional: Boolean                = ev.optional
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType(isInput, isSubscription)
+      override def optional: Boolean                                         = ev.optional
       override def resolve(value: MonixTask[A]): Step[R] =
         QueryStep(ZQuery.fromEffect(value.to[Task].map(ev.resolve)))
     }
@@ -55,8 +55,8 @@ object MonixInterop {
     queueSize: Int
   )(implicit ev: Schema[R, A], ev2: ConcurrentEffect[MonixTask]): Schema[R, Observable[A]] =
     new Schema[R, Observable[A]] {
-      override def optional: Boolean                        = ev.optional
-      override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
+      override def optional: Boolean                                         = ev.optional
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType(isInput, isSubscription)
       override def resolve(value: Observable[A]): Step[R] =
         StreamStep(
           ZStream
