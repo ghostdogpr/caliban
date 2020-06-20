@@ -2,7 +2,7 @@ package caliban.interop.monix
 
 import caliban.introspection.adt.__Type
 import caliban.schema.Step.{ QueryStep, StreamStep }
-import caliban.schema.{ Schema, Step }
+import caliban.schema.{ Schema, Step, Types }
 import caliban.{ CalibanError, GraphQL, GraphQLInterpreter, GraphQLResponse, InputValue }
 import cats.effect.ConcurrentEffect
 import monix.eval.{ Task => MonixTask }
@@ -55,8 +55,11 @@ object MonixInterop {
     queueSize: Int
   )(implicit ev: Schema[R, A], ev2: ConcurrentEffect[MonixTask]): Schema[R, Observable[A]] =
     new Schema[R, Observable[A]] {
-      override def optional: Boolean                                         = ev.optional
-      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType(isInput, isSubscription)
+      override def optional: Boolean = true
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
+        val t = ev.toType(isInput, isSubscription)
+        if (isSubscription) t else Types.makeList(if (ev.optional) t else Types.makeNonNull(t))
+      }
       override def resolve(value: Observable[A]): Step[R] =
         StreamStep(
           ZStream
