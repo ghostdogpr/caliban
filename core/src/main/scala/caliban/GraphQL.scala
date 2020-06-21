@@ -203,7 +203,9 @@ object GraphQL {
     val schemaBuilder: RootSchemaBuilder[R] = RootSchemaBuilder(
       resolver.queryResolver.map(r => Operation(querySchema.toType(), querySchema.resolve(r))),
       resolver.mutationResolver.map(r => Operation(mutationSchema.toType(), mutationSchema.resolve(r))),
-      resolver.subscriptionResolver.map(r => Operation(subscriptionSchema.toType(), subscriptionSchema.resolve(r)))
+      resolver.subscriptionResolver.map(r =>
+        Operation(subscriptionSchema.toType(isSubscription = true), subscriptionSchema.resolve(r))
+      )
     )
     val wrappers: List[Wrapper[R]]              = Nil
     val additionalDirectives: List[__Directive] = directives

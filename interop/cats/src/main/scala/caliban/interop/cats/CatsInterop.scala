@@ -45,8 +45,8 @@ object CatsInterop {
 
   def schema[F[_]: Effect, R, A](implicit ev: Schema[R, A]): Schema[R, F[A]] =
     new Schema[R, F[A]] {
-      override def toType(isInput: Boolean): __Type =
-        ev.toType(isInput)
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
+        ev.toType(isInput, isSubscription)
 
       override def optional: Boolean =
         ev.optional

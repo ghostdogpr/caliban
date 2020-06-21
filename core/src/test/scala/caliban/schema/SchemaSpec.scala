@@ -6,6 +6,7 @@ import caliban.TestUtils.{ OrganizationId, WrappedPainter }
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
 import caliban.schema.Annotations.GQLInterface
 import play.api.libs.json.JsValue
+import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment
@@ -78,6 +79,20 @@ object SchemaSpec extends DefaultRunnableSpec {
         case class Queries(organizationId: OrganizationId, painter: WrappedPainter)
         val fieldTypes = introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.map(_.`type`())
         assert(fieldTypes.map(_.ofType.flatMap(_.name)))(equalTo(Some("Long") :: Some("Painter") :: Nil))
+      },
+      test("ZStream in a Query returns a list type") {
+        case class Query(a: ZStream[Any, Throwable, Int])
+
+        assert(introspect[Query].fields(__DeprecatedArgs()).flatMap(_.headOption).map(_.`type`().kind))(
+          isSome(equalTo(__TypeKind.LIST))
+        )
+      },
+      test("ZStream in a Subscription doesn't return a list type") {
+        case class Query(a: ZStream[Any, Throwable, Int])
+
+        assert(introspectSubscription[Query].fields(__DeprecatedArgs()).flatMap(_.headOption).map(_.`type`().kind))(
+          isSome(equalTo(__TypeKind.SCALAR))
+        )
       }
     )
 
@@ -93,5 +108,6 @@ object SchemaSpec extends DefaultRunnableSpec {
     case class B(common: Int, different: Boolean) extends MyInterface
   }
 
-  def introspect[Q](implicit schema: Schema[Any, Q]): __Type = schema.toType()
+  def introspect[Q](implicit schema: Schema[Any, Q]): __Type             = schema.toType()
+  def introspectSubscription[Q](implicit schema: Schema[Any, Q]): __Type = schema.toType(isSubscription = true)
 }
