@@ -145,6 +145,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
   implicit def chunkSchema[A](implicit ev: Schema[R, A]): Schema[R, Chunk[A]]   = listSchema[A].contramap(_.toList)
   implicit def functionUnitSchema[A](implicit ev: Schema[R, A]): Schema[R, () => A] =
     new Schema[R, () => A] {
+      override def optional: Boolean                                         = ev.optional
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType(isInput, isSubscription)
       override def resolve(value: () => A): Step[R]                          = FunctionStep(_ => ev.resolve(value()))
     }
