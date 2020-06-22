@@ -11,9 +11,9 @@ val playVersion           = "2.8.1"
 val silencerVersion       = "1.6.0"
 val sttpVersion           = "2.2.0"
 val tapirVersion          = "0.16.1"
-val zioVersion            = "1.0.0-RC20"
+val zioVersion            = "1.0.0-RC23"
 val zioInteropCatsVersion = "2.1.3.0-RC15"
-val zioConfigVersion      = "1.0.0-RC20"
+val zioConfigVersion      = "1.0.0-RC23"
 val zqueryVersion         = "0.2.2"
 
 inThisBuild(
