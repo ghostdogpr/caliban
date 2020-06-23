@@ -116,9 +116,13 @@ object SchemaWriter {
        |)""".stripMargin
 
   def writeObject(typedef: ObjectTypeDefinition): String =
-    s"""${writeDescription(typedef.description)}case class ${typedef.name}(${typedef.fields
-      .map(writeField(_, typedef))
-      .mkString(", ")})"""
+    if (typedef.fields.isEmpty) {
+      s"""${writeDescription(typedef.description)}case object ${typedef.name}"""
+    } else {
+      s"""${writeDescription(typedef.description)}case class ${typedef.name}(${typedef.fields
+        .map(writeField(_, typedef))
+        .mkString(", ")})"""
+    }
 
   def writeInputObject(typedef: InputObjectTypeDefinition): String =
     s"""${writeDescription(typedef.description)}case class ${typedef.name}(${typedef.fields

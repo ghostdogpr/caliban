@@ -206,7 +206,7 @@ userList: zio.UIO[List[Option[User]]]
         val schema =
           """
              "role"
-             union Role = Captain | Pilot
+             union Role = Captain | Pilot | Sailor
              
              type Captain {
                "ship" shipName: String!
@@ -215,6 +215,8 @@ userList: zio.UIO[List[Option[User]]]
              type Pilot {
                shipName: String!
              }
+             
+             type Sailor {}
             """.stripMargin
 
         assertM(gen(schema))(
@@ -232,6 +234,7 @@ object Types {
       shipName: String
     ) extends Role
     case class Pilot(shipName: String) extends Role
+    case object Sailor                 extends Role
   }
 
 }
