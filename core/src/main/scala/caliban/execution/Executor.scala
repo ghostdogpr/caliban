@@ -76,18 +76,17 @@ object Executor {
           reduceObject(items, fieldWrappers)
         case QueryStep(inner) =>
           ReducedStep.QueryStep(
-            inner.bimap(
-              effectfulExecutionError(path, Some(currentField.locationInfo), _),
-              reduceStep(_, currentField, arguments, path)
+            inner.foldCauseM(
+              e => ZQuery.halt(effectfulExecutionError(path, Some(currentField.locationInfo), e)),
+              a => ZQuery.succeed(reduceStep(a, currentField, arguments, path))
             )
           )
         case StreamStep(stream) =>
           if (request.operationType == OperationType.Subscription) {
             ReducedStep.StreamStep(
-              stream.bimap(
-                effectfulExecutionError(path, Some(currentField.locationInfo), _),
-                reduceStep(_, currentField, arguments, path)
-              )
+              stream
+                .mapErrorCause(effectfulExecutionError(path, Some(currentField.locationInfo), _))
+                .map(reduceStep(_, currentField, arguments, path))
             )
           } else {
             reduceStep(QueryStep(ZQuery.fromEffect(stream.runCollect.map(ListStep(_)))), currentField, arguments, path)
@@ -134,13 +133,19 @@ object Executor {
       loop(step)
     }
 
-    for {
+    (for {
       errors       <- Ref.make(List.empty[CalibanError])
       reduced      = reduceStep(plan, request.field, Map(), Nil)
       query        = makeQuery(reduced, errors)
       result       <- query.run
       resultErrors <- errors.get
-    } yield GraphQLResponse(result, resultErrors.reverse)
+    } yield GraphQLResponse(result, resultErrors.reverse))
+      .catchAllCause(cause =>
+        IO.succeed(GraphQLResponse(NullValue, cause.defects.map {
+          case e: CalibanError => e
+          case other           => ExecutionError("Effect failure", innerThrowable = Some(other))
+        }))
+      )
   }
 
   private[caliban] def fail(error: CalibanError): UIO[GraphQLResponse[CalibanError]] =
@@ -205,11 +210,15 @@ object Executor {
   private def effectfulExecutionError(
     path: List[Either[String, Int]],
     locationInfo: Option[LocationInfo],
-    e: Throwable
-  ): ExecutionError =
-    e match {
-      case e: ExecutionError => e
-      case other             => ExecutionError("Effect failure", path.reverse, locationInfo, Some(other))
+    cause: Cause[Throwable]
+  ): Cause[ExecutionError] =
+    cause.failureOrCause match {
+      case Left(e) =>
+        e match {
+          case e: ExecutionError => Cause.fail(e)
+          case other             => Cause.fail(ExecutionError("Effect failure", path.reverse, locationInfo, Some(other)))
+        }
+      case Right(cause) =>
+        Cause.die(ExecutionError("Effect failure", path.reverse, locationInfo, cause.defects.headOption))
     }
-
 }
