@@ -167,8 +167,14 @@ object SchemaWriter {
   }
 
   def writeDescription(description: Option[String]): String =
-    description.fold("")(d => s"""@GQLDescription("$d")
-                                 |""".stripMargin)
+    description.fold("") {
+      case d if d.contains("\n") =>
+        s"""@GQLDescription(\"\"\"$d\"\"\")
+           |""".stripMargin
+      case d =>
+        s"""@GQLDescription("$d")
+           |""".stripMargin
+    }
 
   def writeType(t: Type): String =
     t match {

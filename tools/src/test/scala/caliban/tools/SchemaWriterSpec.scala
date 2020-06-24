@@ -203,9 +203,16 @@ userList: zio.UIO[List[Option[User]]]
         )
       },
       testM("union type") {
-        val schema =
+        val role =
+          s"""
+              \"\"\"
+             role
+             Captain or Pilot
+             \"\"\"
           """
-             "role"
+        val schema =
+          s"""
+             $role
              union Role = Captain | Pilot
              
              type Captain {
@@ -218,12 +225,15 @@ userList: zio.UIO[List[Option[User]]]
             """.stripMargin
 
         assertM(gen(schema))(
-          equalTo(
-            """import caliban.schema.Annotations._
+          equalTo {
+            val role =
+              s"""\"\"\"role
+Captain or Pilot\"\"\""""
+            s"""import caliban.schema.Annotations._
 
 object Types {
 
-  @GQLDescription("role")
+  @GQLDescription($role)
   sealed trait Role extends scala.Product with scala.Serializable
 
   object Role {
@@ -236,7 +246,7 @@ object Types {
 
 }
 """
-          )
+          }
         )
       },
       testM("schema") {
