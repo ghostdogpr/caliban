@@ -20,6 +20,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 Some("fmtPath"),
                 Some(List(Header("header1", "value1"), Header("header2", "value2"))),
                 None,
+                None,
                 None
               )
             )
@@ -38,6 +39,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 Some("fmtPath"),
                 Some(List(Header("header1", "value1"), Header("header2", "value2"))),
                 None,
+                None,
                 None
               )
             )
@@ -50,7 +52,7 @@ object OptionsSpec extends DefaultRunnableSpec {
         assert(result)(
           equalTo(
             Some(
-              Options("schema", "output", None, None, None, None)
+              Options("schema", "output", None, None, None, None, None)
             )
           )
         )
@@ -81,6 +83,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 Some("com.github.ghostdogpr"),
+                None,
                 None
               )
             )
@@ -99,7 +102,27 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
-                Some("cats.effect.IO")
+                Some("cats.effect.IO"),
+                None
+              )
+            )
+          )
+        )
+      },
+      test("provide type mappings") {
+        val input  = List("schema", "output", "--typeMappings", "PosBigDecimal:eu.timepit.refined.types.PosBigDecimal")
+        val result = Options.fromArgs(input)
+        assert(result)(
+          equalTo(
+            Some(
+              Options(
+                "schema",
+                "output",
+                None,
+                None,
+                None,
+                None,
+                Some(Map("PosBigDecimal" -> "eu.timepit.refined.types.PosBigDecimal"))
               )
             )
           )

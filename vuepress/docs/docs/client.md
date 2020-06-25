@@ -29,17 +29,22 @@ enablePlugins(CodegenPlugin)
 ```
 Then call the `calibanGenClient` sbt command.
 ```scala
-calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2]
+calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--typeMappings gqlType:f.q.d.n.Type,gqlType2:f.q.d.n.Type2]
 
 calibanGenClient project/schema.graphql src/main/Client.scala
 ```
 This command will generate a Scala file in `outputPath` containing helper functions for all the types defined in the provided GraphQL schema defined at `schemaPath`.
 Instead of a file, you can provide a URL and the schema will be obtained using introspection.
+
 The generated code will be formatted with Scalafmt using the configuration defined by `--scalafmtPath` option (default: `.scalafmt.conf`).
 If you provide a URL for `schemaPath`, you can provide request headers with `--headers` option.
-The package of the generated code is derived from the folder of `outputPath`.
+
+The package of the generated code is derived from the folder of `outputPath`. 
 This can be overridden by providing an alternative package with the `--packageName`
-option.
+option. 
+
+If you want to force a mapping between a GraphQL type and a Scala class (such as scalars), you can use the
+`--typeMappings` option. 
 
 ## Query building
 

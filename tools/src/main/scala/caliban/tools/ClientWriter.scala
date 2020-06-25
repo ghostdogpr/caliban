@@ -13,7 +13,8 @@ object ClientWriter {
     schema: Document,
     objectName: String = "Client",
     packageName: Option[String] = None,
-    effect: String = "zio.UIO"
+    effect: String = "zio.UIO",
+    typeMappings: Map[String, String] = Map.empty
   ): String = {
     val schemaDef = schema.schemaDefinition
 
@@ -33,10 +34,10 @@ object ClientWriter {
           schemaDef.exists(_.mutation.getOrElse("Mutation") == obj.name) ||
           schemaDef.exists(_.subscription.getOrElse("Subscription") == obj.name)
       )
-      .map(writeObject(_, typesMap))
+      .map(writeObject(_, typesMap, typeMappings))
       .mkString("\n")
 
-    val inputs = schema.inputObjectTypeDefinitions.map(writeInputObject).mkString("\n")
+    val inputs = schema.inputObjectTypeDefinitions.map(writeInputObject(_, typeMappings)).mkString("\n")
 
     val enums = schema.enumTypeDefinitions.map(writeEnum).mkString("\n")
 
@@ -47,17 +48,17 @@ object ClientWriter {
 
     val queries = schema
       .objectTypeDefinition(schemaDef.flatMap(_.query).getOrElse("Query"))
-      .map(t => writeRootQuery(t, typesMap))
+      .map(t => writeRootQuery(t, typesMap, typeMappings))
       .getOrElse("")
 
     val mutations = schema
       .objectTypeDefinition(schemaDef.flatMap(_.mutation).getOrElse("Mutation"))
-      .map(t => writeRootMutation(t, typesMap))
+      .map(t => writeRootMutation(t, typesMap, typeMappings))
       .getOrElse("")
 
     val subscriptions = schema
       .objectTypeDefinition(schemaDef.flatMap(_.subscription).getOrElse("Subscription"))
-      .map(t => writeRootSubscription(t, typesMap))
+      .map(t => writeRootSubscription(t, typesMap, typeMappings))
       .getOrElse("")
 
     val imports = s"""${if (enums.nonEmpty)
@@ -97,57 +98,83 @@ object ClientWriter {
   def reservedType(typeDefinition: ObjectTypeDefinition): Boolean =
     typeDefinition.name == "Query" || typeDefinition.name == "Mutation" || typeDefinition.name == "Subscription"
 
-  def writeRootQuery(typedef: ObjectTypeDefinition, typesMap: Map[String, TypeDefinition]): String =
+  def writeRootQuery(
+    typedef: ObjectTypeDefinition,
+    typesMap: Map[String, TypeDefinition],
+    typeMappings: Map[String, String]
+  ): String =
     s"""type ${typedef.name} = RootQuery
        |object ${typedef.name} {
-       |  ${typedef.fields.map(writeField(_, "RootQuery", typesMap)).mkString("\n  ")}
+       |  ${typedef.fields.map(writeField(_, "RootQuery", typesMap, typeMappings)).mkString("\n  ")}
        |}
        |""".stripMargin
 
-  def writeRootMutation(typedef: ObjectTypeDefinition, typesMap: Map[String, TypeDefinition]): String =
+  def writeRootMutation(
+    typedef: ObjectTypeDefinition,
+    typesMap: Map[String, TypeDefinition],
+    typeMappings: Map[String, String]
+  ): String =
     s"""type ${typedef.name} = RootMutation
        |object ${typedef.name} {
-       |  ${typedef.fields.map(writeField(_, "RootMutation", typesMap)).mkString("\n  ")}
+       |  ${typedef.fields.map(writeField(_, "RootMutation", typesMap, typeMappings)).mkString("\n  ")}
        |}
        |""".stripMargin
 
-  def writeRootSubscription(typedef: ObjectTypeDefinition, typesMap: Map[String, TypeDefinition]): String =
+  def writeRootSubscription(
+    typedef: ObjectTypeDefinition,
+    typesMap: Map[String, TypeDefinition],
+    typeMappings: Map[String, String]
+  ): String =
     s"""type ${typedef.name} = RootSubscription
        |object ${typedef.name} {
-       |  ${typedef.fields.map(writeField(_, "RootSubscription", typesMap)).mkString("\n  ")}
+       |  ${typedef.fields.map(writeField(_, "RootSubscription", typesMap, typeMappings)).mkString("\n  ")}
        |}
        |""".stripMargin
 
-  def writeObject(typedef: ObjectTypeDefinition, typesMap: Map[String, TypeDefinition]): String =
+  def writeObject(
+    typedef: ObjectTypeDefinition,
+    typesMap: Map[String, TypeDefinition],
+    typeMappings: Map[String, String]
+  ): String =
     s"""type ${typedef.name}
        |object ${typedef.name} {
-       |  ${typedef.fields.map(writeField(_, typedef.name, typesMap)).mkString("\n  ")}
+       |  ${typedef.fields.map(writeField(_, typedef.name, typesMap, typeMappings)).mkString("\n  ")}
        |}
        |""".stripMargin
 
-  def writeInputObject(typedef: InputObjectTypeDefinition): String =
-    s"""case class ${typedef.name}(${writeArgumentFields(typedef.fields)})
+  def writeInputObject(
+    typedef: InputObjectTypeDefinition,
+    typeMappings: Map[String, String]
+  ): String =
+    s"""case class ${typedef.name}(${writeArgumentFields(typedef.fields, typeMappings)})
        |object ${typedef.name} {
        |  implicit val encoder: ArgEncoder[${typedef.name}] = new ArgEncoder[${typedef.name}] {
        |    override def encode(value: ${typedef.name}): Value =
        |      ObjectValue(List(${typedef.fields
-         .map(f => s""""${f.name}" -> ${writeInputValue(f.ofType, s"value.${safeName(f.name)}", typedef.name)}""")
+         .map(f =>
+           s""""${f.name}" -> ${writeInputValue(f.ofType, s"value.${safeName(f.name)}", typedef.name, typeMappings)}"""
+         )
          .mkString(", ")}))
        |    override def typeName: String = "${typedef.name}"
        |  }
        |}""".stripMargin
 
-  def writeInputValue(t: Type, fieldName: String, typeName: String): String =
+  def writeInputValue(
+    t: Type,
+    fieldName: String,
+    typeName: String,
+    typeMappings: Map[String, String]
+  ): String =
     t match {
       case NamedType(name, true) =>
         if (name == typeName) s"encode($fieldName)"
-        else s"implicitly[ArgEncoder[${mapTypeName(name)}]].encode($fieldName)"
+        else s"implicitly[ArgEncoder[${mapTypeName(name, typeMappings)}]].encode($fieldName)"
       case NamedType(name, false) =>
-        s"$fieldName.fold(NullValue: Value)(value => ${writeInputValue(NamedType(name, nonNull = true), "value", typeName)})"
+        s"$fieldName.fold(NullValue: Value)(value => ${writeInputValue(NamedType(name, nonNull = true), "value", typeName, typeMappings)})"
       case ListType(ofType, true) =>
-        s"ListValue($fieldName.map(value => ${writeInputValue(ofType, "value", typeName)}))"
+        s"ListValue($fieldName.map(value => ${writeInputValue(ofType, "value", typeName, typeMappings)}))"
       case ListType(ofType, false) =>
-        s"$fieldName.fold(NullValue: Value)(value => ${writeInputValue(ListType(ofType, nonNull = true), "value", typeName)})"
+        s"$fieldName.fold(NullValue: Value)(value => ${writeInputValue(ListType(ofType, nonNull = true), "value", typeName, typeMappings)})"
     }
 
   def writeEnum(typedef: EnumTypeDefinition): String =
@@ -186,7 +213,12 @@ object ClientWriter {
   def getTypeLetter(typesMap: Map[String, TypeDefinition], letter: String = "A"): String =
     if (!typesMap.contains(letter)) letter else getTypeLetter(typesMap, letter + "A")
 
-  def writeField(field: FieldDefinition, typeName: String, typesMap: Map[String, TypeDefinition]): String = {
+  def writeField(
+    field: FieldDefinition,
+    typeName: String,
+    typesMap: Map[String, TypeDefinition],
+    typeMappings: Map[String, String]
+  ): String = {
     val name = safeName(field.name)
     val description = field.description match {
       case Some(d) if d.trim.nonEmpty => s"/**\n * ${d.trim}\n */\n"
@@ -234,14 +266,14 @@ object ClientWriter {
         (
           "",
           "",
-          writeType(field.ofType),
+          writeType(field.ofType, typeMappings),
           writeTypeBuilder(field.ofType, "Scalar()")
         )
       } else if (unionTypes.nonEmpty) {
         (
           s"[$typeLetter]",
           s"(${unionTypes.map(t => s"""on${t.name}: SelectionBuilder[${t.name}, $typeLetter]""").mkString(", ")})",
-          writeType(field.ofType).replace(fieldType, typeLetter),
+          writeType(field.ofType, typeMappings).replace(fieldType, typeLetter),
           writeTypeBuilder(
             field.ofType,
             s"ChoiceOf(Map(${unionTypes.map(t => s""""${t.name}" -> Obj(on${t.name})""").mkString(", ")}))"
@@ -251,7 +283,7 @@ object ClientWriter {
         (
           s"[$typeLetter]",
           s"(${interfaceTypes.map(t => s"""on${t.name}: Option[SelectionBuilder[${t.name}, $typeLetter]] = None""").mkString(", ")})",
-          writeType(field.ofType).replace(fieldType, typeLetter),
+          writeType(field.ofType, typeMappings).replace(fieldType, typeLetter),
           writeTypeBuilder(
             field.ofType,
             s"ChoiceOf(Map(${interfaceTypes.map(t => s""""${t.name}" -> on${t.name}""").mkString(", ")}).collect { case (k, Some(v)) => k -> Obj(v)})"
@@ -261,13 +293,13 @@ object ClientWriter {
         (
           s"[$typeLetter]",
           s"(innerSelection: SelectionBuilder[$fieldType, $typeLetter])",
-          writeType(field.ofType).replace(fieldType, typeLetter),
+          writeType(field.ofType, typeMappings).replace(fieldType, typeLetter),
           writeTypeBuilder(field.ofType, "Obj(innerSelection)")
         )
       }
     val args = field.args match {
       case Nil  => ""
-      case list => s"(${writeArgumentFields(list)})"
+      case list => s"(${writeArgumentFields(list, typeMappings)})"
     }
     val argBuilder = field.args match {
       case Nil => ""
@@ -278,8 +310,11 @@ object ClientWriter {
     s"""$description${deprecated}def $name$typeParam$args$innerSelection: SelectionBuilder[$typeName, $outputType] = Field("${field.name}", $builder$argBuilder)"""
   }
 
-  def writeArgumentFields(args: List[InputValueDefinition]): String =
-    s"${args.map(arg => s"${safeName(arg.name)}: ${writeType(arg.ofType)}${writeDefaultArgument(arg)}").mkString(", ")}"
+  def writeArgumentFields(
+    args: List[InputValueDefinition],
+    typeMappings: Map[String, String]
+  ): String =
+    s"${args.map(arg => s"${safeName(arg.name)}: ${writeType(arg.ofType, typeMappings)}${writeDefaultArgument(arg)}").mkString(", ")}"
 
   def writeDefaultArgument(arg: InputValueDefinition): String =
     arg.ofType match {
@@ -288,27 +323,36 @@ object ClientWriter {
       case _               => ""
     }
 
-  def writeArguments(field: FieldDefinition): String =
+  def writeArguments(
+    field: FieldDefinition,
+    typeMappings: Map[String, String]
+  ): String =
     if (field.args.nonEmpty) {
-      s"case class ${field.name.capitalize}Args(${writeArgumentFields(field.args)})"
+      s"case class ${field.name.capitalize}Args(${writeArgumentFields(field.args, typeMappings)})"
     } else ""
 
   def writeDescription(description: Option[String]): String =
     description.fold("")(d => s"""@GQLDescription("$d")
                                  |""".stripMargin)
 
-  def mapTypeName(s: String): String = s match {
+  def mapTypeName(
+    s: String,
+    typeMappings: Map[String, String]
+  ): String = s match {
     case "Float" => "Double"
     case "ID"    => "String"
-    case other   => other
+    case other   => typeMappings.getOrElse(other, other)
   }
 
-  def writeType(t: Type): String =
+  def writeType(
+    t: Type,
+    typeMappings: Map[String, String]
+  ): String =
     t match {
-      case NamedType(name, true)   => mapTypeName(name)
-      case NamedType(name, false)  => s"Option[${mapTypeName(name)}]"
-      case ListType(ofType, true)  => s"List[${writeType(ofType)}]"
-      case ListType(ofType, false) => s"Option[List[${writeType(ofType)}]]"
+      case NamedType(name, true)   => mapTypeName(name, typeMappings)
+      case NamedType(name, false)  => s"Option[${mapTypeName(name, typeMappings)}]"
+      case ListType(ofType, true)  => s"List[${writeType(ofType, typeMappings)}]"
+      case ListType(ofType, false) => s"Option[List[${writeType(ofType, typeMappings)}]]"
     }
 
   def writeTypeBuilder(t: Type, inner: String): String =

@@ -9,7 +9,8 @@ final case class Options(
   fmtPath: Option[String],
   headers: Option[List[Options.Header]],
   packageName: Option[String],
-  effect: Option[String]
+  effect: Option[String],
+  typeMappings: Option[Map[String, String]]
 )
 
 object Options {
@@ -18,7 +19,8 @@ object Options {
     scalafmtPath: Option[String],
     headers: Option[List[String]],
     packageName: Option[String],
-    effect: Option[String]
+    effect: Option[String],
+    typeMappings: Option[List[String]]
   )
 
   def fromArgs(args: List[String]): Option[Options] =
@@ -46,7 +48,15 @@ object Options {
               }
             },
             rawOpts.packageName,
-            rawOpts.effect
+            rawOpts.effect,
+            rawOpts.typeMappings.map {
+              _.flatMap { rawMapping =>
+                rawMapping.split(":").toList match {
+                  case name :: value :: Nil => Some(name -> value)
+                  case _                    => None
+                }
+              }.toMap
+            }
           )
         }
       case _ => None

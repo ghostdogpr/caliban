@@ -12,7 +12,11 @@ object CodegenPlugin extends AutoPlugin {
   lazy val genSchemaCommand         = genCommand("calibanGenSchema", genSchemaHelpMsg, SchemaWriter.write)
   lazy val genClientCommand         = genCommand("calibanGenClient", genClientHelpMsg, ClientWriter.write)
 
-  def genCommand(name: String, helpMsg: String, writer: (Document, String, Option[String], String) => String): Command =
+  def genCommand(
+    name: String,
+    helpMsg: String,
+    writer: (Document, String, Option[String], String, Map[String, String]) => String
+  ): Command =
     Command.args(name, helpMsg) { (state: State, args: Seq[String]) =>
       Runtime.default.unsafeRun(
         execGenCommand(helpMsg, args.toList, writer)
@@ -33,6 +37,9 @@ object CodegenPlugin extends AutoPlugin {
       |The package of the generated code is derived from the folder of `outputPath`.
       |This can be overridden by providing an alternative package with the `--packageName`
       |option.
+      |
+      |If you want to force a mapping between a GraphQL type and a Scala class (such as scalars), you can use the
+      |`--typeMappings` option. 
   """.stripMargin
 
   private val genSchemaHelpMsg =
@@ -63,7 +70,7 @@ object CodegenPlugin extends AutoPlugin {
   def execGenCommand(
     helpMsg: String,
     args: List[String],
-    writer: (Document, String, Option[String], String) => String
+    writer: (Document, String, Option[String], String, Map[String, String]) => String
   ): RIO[Console, Unit] =
     Options.fromArgs(args) match {
       case Some(arguments) =>

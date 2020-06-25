@@ -2,165 +2,193 @@ package caliban.tools
 
 import caliban.parsing.Parser
 import zio.Task
-import zio.test.Assertion.equalTo
-import zio.test.{ assertM, suite, testM, DefaultRunnableSpec, TestAspect, ZSpec }
 import zio.test.environment.TestEnvironment
+import zio.test._
 
 object SchemaWriterSpec extends DefaultRunnableSpec {
 
   val gen: String => Task[String] = (schema: String) =>
     Parser
       .parseQuery(schema)
-      .flatMap(doc => Formatter.format(SchemaWriter.write(doc), None))
+      .flatMap(doc =>
+        Formatter.format(
+          SchemaWriter.write(
+            schema = doc,
+            objectName = "ObjectName",
+            packageName = Some("caliban.tools.testing"),
+            effect = "caliban.CalibanEffect",
+            typeMappings = Map("NonEmptyString" -> "eu.timepit.refined.types.string.NonEmptyString")
+          ),
+          None
+        )
+      )
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("SchemaWriterSpec")(
-      testM("type with field parameter") {
+      testM("type with field parameter with type mapping") {
         val schema =
           """
-          type Hero {
-                name(pad: Int!): String!
-                nick: String!
-                bday: Int
-              }
+            |scalar Name
+            |
+            |type Hero {
+            |  name(pad: Int!): Name!
+            |  nick: NonEmptyString!
+            |  bday: Int
+            |}
             |""".stripMargin
 
-        val typeCaseClass = Parser
-          .parseQuery(schema)
-          .map(_.objectTypeDefinitions.map(SchemaWriter.writeObject).mkString("\n"))
-
-        val typeCaseClassArgs = Parser
-          .parseQuery(schema)
-          .map { doc =>
-            (for {
-              typeDef      <- doc.objectTypeDefinitions
-              typeDefField <- typeDef.fields
-              argClass     = SchemaWriter.writeArguments(typeDefField) if argClass.length > 0
-            } yield argClass).mkString("\n")
-          }
-
-        assertM(typeCaseClass)(
-          equalTo(
-            "case class Hero(name: NameArgs () => String, nick: String, bday: Option[Int])"
-          )
-        ) andThen assertM(typeCaseClassArgs)(
-          equalTo(
-            "case class NameArgs(pad: Int)"
+        assertM(gen(schema))(
+          stringEqualTo(
+            """
+              |package caliban.tools.testing
+              |
+              |object Types {
+              |  case class NameArgs(pad: Int)
+              |  case class Hero(name: HeroNameArgs => Name, nick: eu.timepit.refined.types.string.NonEmptyString, bday: Option[Int])
+              |}
+              |""".stripMargin
           )
         )
       },
       testM("simple queries") {
         val schema =
           """
-         type Query {
-           user(id: Int): User
-           userList: [User]!
-         }
-         type User {
-           id: Int
-           name: String
-           profilePic: String
-         }"""
+            |type Query {
+            |  user(id: Int): User
+            |  userList: [User]!
+            |}
+            |
+            |type User {
+            |  id: Int
+            |  name: String
+            |  profilePic: String
+            |}
+            |""".stripMargin
 
-        val result = Parser
-          .parseQuery(schema)
-          .map(
-            _.objectTypeDefinition("Query").map(SchemaWriter.writeRootQueryOrMutationDef(_, "zio.UIO")).mkString("\n")
-          )
-
-        assertM(result)(
-          equalTo(
+        assertM(gen(schema))(
+          stringEqualTo(
             """
-case class Query(
-user: UserArgs => zio.UIO[Option[User]],
-userList: zio.UIO[List[Option[User]]]
-)""".stripMargin
+              |package caliban.tools.testing
+              |
+              |import Types._
+              |
+              |object Types {
+              |  case class UserArgs(id: Option[Int])
+              |  case class User(id: Option[Int], name: Option[String], profilePic: Option[String])
+              |}
+              |
+              |object Operations {
+              |  case class Query(
+              |    user: UserArgs => caliban.CalibanEffect[Option[User]],
+              |    userList: caliban.CalibanEffect[List[Option[User]]]
+              |  )
+              |}
+              |""".stripMargin
           )
         )
       },
       testM("simple mutation") {
         val schema =
           """
-         type Mutation {
-           setMessage(message: String): String
-         }
-         """
-        val result = Parser
-          .parseQuery(schema)
-          .map(
-            _.objectTypeDefinition("Mutation")
-              .map(SchemaWriter.writeRootQueryOrMutationDef(_, "zio.UIO"))
-              .mkString("\n")
-          )
+            |type Mutation {
+            |  setMessage(message: String): String
+            |}
+            |""".stripMargin
 
-        assertM(result)(
-          equalTo(
+        assertM(gen(schema))(
+          stringEqualTo(
             """
-              |case class Mutation(
-              |setMessage: SetMessageArgs => zio.UIO[Option[String]]
-              |)""".stripMargin
+              |package caliban.tools.testing
+              |
+              |import Types._
+              |
+              |object Types {
+              |  case class SetMessageArgs(message: Option[String])
+              |}
+              |
+              |object Operations {
+              |  case class Mutation(
+              |    setMessage: SetMessageArgs => caliban.CalibanEffect[Option[String]]
+              |  )
+              |}
+              |
+              |""".stripMargin
           )
         )
       },
       testM("simple subscription") {
         val schema =
           """
-         type Subscription {
-           UserWatch(id: Int!): String!
-         }
-         """
+            |type Subscription {
+            |  UserWatch(id: Int!): String!
+            |}
+            |""".stripMargin
 
-        val result = Parser
-          .parseQuery(schema)
-          .map(_.objectTypeDefinition("Subscription").map(SchemaWriter.writeRootSubscriptionDef).mkString("\n"))
-
-        assertM(result)(
-          equalTo(
+        assertM(gen(schema))(
+          stringEqualTo(
             """
-              |case class Subscription(
-              |UserWatch: UserWatchArgs => ZStream[Any, Nothing, String]
-              |)""".stripMargin
+              |package caliban.tools.testing
+              |
+              |import Types._
+              |
+              |import zio.stream.ZStream
+              |
+              |object Types {
+              |  case class UserWatchArgs(id: Int)
+              |}
+              |
+              |object Operations {
+              |  case class Subscription(
+              |    UserWatch: UserWatchArgs => ZStream[Any, Nothing, String]
+              |  )
+              |}
+              |""".stripMargin
           )
         )
       },
       testM("schema test") {
         val schema =
           """
-            |  type Subscription {
-            |    postAdded: Post
-            |  }
-            |  type Query {
-            |    posts: [Post]
-            |  }
-            |  type Mutation {
-            |    addPost(author: String, comment: String): Post
-            |  }
-            |  type Post {
-            |    author: String
-            |    comment: String
-            |  }
+            |type Subscription {
+            |  postAdded: Post
+            |}
+            |
+            |type Query {
+            |  posts: [Post]
+            |}
+            |
+            |type Mutation {
+            |  addPost(author: String, comment: String): Post
+            |}
+            |
+            |type Post {
+            |  author: String
+            |  comment: String
+            |}
             |""".stripMargin
 
         assertM(gen(schema))(
-          equalTo(
-            """import Types._
+          stringEqualTo(
+            """
+              |package caliban.tools.testing
+              |
+              |import Types._
               |
               |import zio.stream.ZStream
               |
               |object Types {
               |  case class AddPostArgs(author: Option[String], comment: Option[String])
               |  case class Post(author: Option[String], comment: Option[String])
-              |
               |}
               |
               |object Operations {
               |
               |  case class Query(
-              |    posts: zio.UIO[Option[List[Option[Post]]]]
+              |    posts: caliban.CalibanEffect[Option[List[Option[Post]]]]
               |  )
               |
               |  case class Mutation(
-              |    addPost: AddPostArgs => zio.UIO[Option[Post]]
+              |    addPost: AddPostArgs => caliban.CalibanEffect[Option[Post]]
               |  )
               |
               |  case class Subscription(
@@ -173,149 +201,160 @@ userList: zio.UIO[List[Option[User]]]
         )
       },
       testM("empty schema test") {
-        assertM(gen(""))(equalTo("\n"))
+        assertM(gen(""))(stringEqualTo("package caliban.tools.testing"))
       },
       testM("enum type") {
         val schema =
           """
-             enum Origin {
-               EARTH
-               MARS
-               BELT
-             }
-            """.stripMargin
+            |enum Origin {
+            |  EARTH
+            |  MARS
+            |  BELT
+            |}
+            |""".stripMargin
 
         assertM(gen(schema))(
-          equalTo(
-            """object Types {
-
-  sealed trait Origin extends scala.Product with scala.Serializable
-
-  object Origin {
-    case object EARTH extends Origin
-    case object MARS  extends Origin
-    case object BELT  extends Origin
-  }
-
-}
-"""
+          stringEqualTo(
+            """
+              |package caliban.tools.testing
+              |
+              |object Types {
+              |
+              |  sealed trait Origin extends scala.Product with scala.Serializable
+              |
+              |  object Origin {
+              |    case object EARTH extends Origin
+              |    case object MARS  extends Origin
+              |    case object BELT  extends Origin
+              |  }
+              |}
+              |""".stripMargin
           )
         )
       },
       testM("union type") {
         val role =
           s"""
-              \"\"\"
-             role
-             Captain or Pilot
-             \"\"\"
-          """
+             |\"\"\"
+             |role
+             |Captain or Pilot
+             |\"\"\"
+          """.stripMargin
+
         val schema =
           s"""
-             $role
-             union Role = Captain | Pilot
-             
-             type Captain {
-               "ship" shipName: String!
-             }
-             
-             type Pilot {
-               shipName: String!
-             }
-            """.stripMargin
+             |$role
+             |union Role = Captain | Pilot
+             |
+             |type Captain {
+             |  "ship" shipName: String!
+             |}
+             |
+             |type Pilot {
+             |  shipName: String!
+             |}
+             |""".stripMargin
 
         assertM(gen(schema))(
-          equalTo {
+          stringEqualTo {
             val role =
               s"""\"\"\"role
-Captain or Pilot\"\"\""""
-            s"""import caliban.schema.Annotations._
+                 |Captain or Pilot\"\"\"""".stripMargin
 
-object Types {
-
-  @GQLDescription($role)
-  sealed trait Role extends scala.Product with scala.Serializable
-
-  object Role {
-    case class Captain(
-      @GQLDescription("ship")
-      shipName: String
-    ) extends Role
-    case class Pilot(shipName: String) extends Role
-  }
-
-}
-"""
+            s"""
+               |package caliban.tools.testing
+               |
+               |import caliban.schema.Annotations._
+               |
+               |object Types {
+               |
+               |  @GQLDescription($role)
+               |  sealed trait Role extends scala.Product with scala.Serializable
+               |
+               |  object Role {
+               |    case class Captain(
+               |      @GQLDescription("ship")
+               |      shipName: String
+               |    ) extends Role
+               |
+               |    case class Pilot(shipName: String) extends Role
+               |  }
+               |
+               |}
+               |""".stripMargin
           }
         )
       },
       testM("schema") {
         val schema =
           """
-             schema {
-               query: Queries
-             }
-               
-             type Queries {
-               characters: Int!
-             }
-            """.stripMargin
+            |schema {
+            |  query: Queries
+            |}
+            |
+            |type Queries {
+            |  characters: Int!
+            |}
+            |""".stripMargin
 
         assertM(gen(schema))(
-          equalTo(
-            """object Operations {
-
-  case class Queries(
-    characters: zio.UIO[Int]
-  )
-
-}
-"""
+          stringEqualTo(
+            """
+              |package caliban.tools.testing
+              |
+              |object Operations {
+              |  case class Queries(
+              |    characters: caliban.CalibanEffect[Int]
+              |  )
+              |}
+              |""".stripMargin
           )
         )
       },
       testM("input type") {
         val schema =
           """
-             type Character {
-                name: String!
-             }
-              
-             input CharacterArgs {
-               name: String!
-             }
-            """.stripMargin
+            |type Character {
+            |  name: String!
+            |}
+            |
+            |input CharacterArgs {
+            |  name: String!
+            |}
+            |""".stripMargin
 
         assertM(gen(schema))(
-          equalTo(
-            """object Types {
-
-  case class Character(name: String)
-  case class CharacterArgs(name: String)
-
-}
-"""
+          stringEqualTo(
+            """
+              |package caliban.tools.testing
+              |
+              |object Types {
+              |  case class Character(name: String)
+              |  case class CharacterArgs(name: String)
+              |}
+              |""".stripMargin
           )
         )
       },
       testM("scala reserved word used") {
         val schema =
           """
-             type Character {
-               private: String!
-               object: String!
-               type: String!
-             }
-            """.stripMargin
+            |type Character {
+            |  private: String!
+            |  object: String!
+            |  type: String!
+            |}
+            |""".stripMargin
 
         assertM(gen(schema))(
-          equalTo(
-            """object Types {
-
-  case class Character(`private`: String, `object`: String, `type`: String)
-
-}
-"""
+          stringEqualTo(
+            """
+              |package caliban.tools.testing
+              |
+              |object Types {
+              |  case class Character(`private`: String, `object`: String, `type`: String)
+              |}
+              |""".stripMargin
           )
         )
       }
