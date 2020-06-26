@@ -2,6 +2,7 @@ package caliban
 
 import caliban.ResponseValue.ObjectValue
 import caliban.interop.circe.IsCirceEncoder
+import caliban.interop.jsoniter.IsJsoniterCodec
 import caliban.interop.play.IsPlayJsonWrites
 import caliban.parsing.adt.LocationInfo
 
@@ -57,6 +58,9 @@ object CalibanError {
   implicit def circeEncoder[F[_]](implicit ev: IsCirceEncoder[F]): F[CalibanError] =
     ErrorCirce.errorValueEncoder.asInstanceOf[F[CalibanError]]
 
+  implicit def jsoniterEncoder[F[_]](implicit ev: IsJsoniterCodec[F]): F[CalibanError] =
+    ErrorJsoniter.errorValueEncoder.asInstanceOf[F[CalibanError]]
+
   implicit def playJsonWrites[F[_]](implicit ev: IsPlayJsonWrites[F]): F[CalibanError] =
     ErrorPlayJson.errorValueWrites.asInstanceOf[F[CalibanError]]
 }
@@ -108,6 +112,48 @@ private object ErrorCirce {
         .dropNullValues
   }
 
+}
+
+private object ErrorJsoniter {
+  import com.github.plokhotnyuk.jsoniter_scala.core._
+  import com.github.plokhotnyuk.jsoniter_scala.macros._
+  import caliban.interop.jsoniter.JsonValueEncoder
+
+  implicit val eitherEncoder: JsonValueEncoder[Either[Int, String]] =
+    new JsonValueEncoder[Either[Int, String]] {
+      def encodeValue(x: Either[Int, String], out: JsonWriter): Unit =
+        x.fold(out.writeVal, out.writeVal)
+    }
+
+  private final case class ErrorDTO(
+    message: String,
+    extensions: Option[ResponseValue],
+    locations: List[LocationInfo],
+    path: Option[List[Either[String, Int]]]
+  )
+
+  private val errorValueDTOCodec: JsonValueCodec[ErrorDTO] = JsonCodecMaker.make
+
+  val errorValueEncoder: JsonValueEncoder[CalibanError] = new JsonValueEncoder[CalibanError] {
+    def encodeValue(x: CalibanError, out: JsonWriter): Unit = {
+      val errorDTO = x match {
+        case CalibanError.ParsingError(msg, locationInfo, _, extensions) =>
+          ErrorDTO(s"Parsing Error: $msg", extensions, locationInfo.toList, None)
+        case CalibanError.ValidationError(msg, _, locationInfo, extensions) =>
+          ErrorDTO(msg, extensions, locationInfo.toList, None)
+        case CalibanError.ExecutionError(msg, path, locationInfo, _, extensions) =>
+          ErrorDTO(
+            msg,
+            extensions,
+            locationInfo.toList,
+            Some(path).collect {
+              case p if p.nonEmpty => p
+            }
+          )
+      }
+      errorValueDTOCodec.encodeValue(errorDTO, out)
+    }
+  }
 }
 
 private object ErrorPlayJson {

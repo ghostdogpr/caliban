@@ -1,6 +1,7 @@
 package caliban
 
 import caliban.interop.circe._
+import caliban.interop.jsoniter._
 import caliban.interop.play.IsPlayJsonReads
 
 /**
@@ -16,6 +17,8 @@ case class GraphQLRequest(
 object GraphQLRequest {
   implicit def circeDecoder[F[_]: IsCirceDecoder]: F[GraphQLRequest] =
     GraphQLRequestCirce.graphQLRequestDecoder.asInstanceOf[F[GraphQLRequest]]
+  implicit def jsoniterCodec[F[_]: IsJsoniterCodec]: F[GraphQLRequest] =
+    GraphQLRequestJsoniter.graphQLRequestCodec.asInstanceOf[F[GraphQLRequest]]
   implicit def playJsonReads[F[_]: IsPlayJsonReads]: F[GraphQLRequest] =
     GraphQLRequestPlayJson.graphQLRequestReads.asInstanceOf[F[GraphQLRequest]]
 }
@@ -30,6 +33,12 @@ private object GraphQLRequestCirce {
       extensions    <- c.downField("extensions").as[Option[Map[String, InputValue]]]
     } yield GraphQLRequest(query, operationName, variables, extensions)
 
+}
+
+private object GraphQLRequestJsoniter {
+  import com.github.plokhotnyuk.jsoniter_scala.core._
+  import com.github.plokhotnyuk.jsoniter_scala.macros._
+  val graphQLRequestCodec: JsonValueCodec[GraphQLRequest] = JsonCodecMaker.make
 }
 
 private object GraphQLRequestPlayJson {

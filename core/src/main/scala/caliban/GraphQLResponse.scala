@@ -2,6 +2,7 @@ package caliban
 
 import caliban.ResponseValue.ObjectValue
 import caliban.interop.circe._
+import caliban.interop.jsoniter._
 import caliban.interop.play._
 
 /**
@@ -12,6 +13,8 @@ case class GraphQLResponse[+E](data: ResponseValue, errors: List[E], extensions:
 object GraphQLResponse {
   implicit def circeEncoder[F[_]: IsCirceEncoder, E]: F[GraphQLResponse[E]] =
     GraphQLResponseCirce.graphQLResponseEncoder.asInstanceOf[F[GraphQLResponse[E]]]
+  implicit def jsoniterEncoder[F[_]: IsJsoniterCodec, E]: F[GraphQLResponse[E]] =
+    GraphQLResponseJsoniterJson.graphQLResponseCodec.asInstanceOf[F[GraphQLResponse[E]]]
   implicit def playJsonWrites[F[_]: IsPlayJsonWrites, E]: F[GraphQLResponse[E]] =
     GraphQLResponsePlayJson.graphQLResponseWrites.asInstanceOf[F[GraphQLResponse[E]]]
 }
@@ -40,6 +43,37 @@ private object GraphQLResponseCirce {
       case _                => Json.obj("message" -> Json.fromString(err.toString))
     }
 
+}
+
+private object GraphQLResponseJsoniterJson {
+  import com.github.plokhotnyuk.jsoniter_scala.core._
+  val graphQLResponseCodec: JsonValueEncoder[GraphQLResponse[Any]] = new JsonValueEncoder[GraphQLResponse[Any]] {
+    private def handleError(out: JsonWriter)(err: Any): Unit =
+      err match {
+        case ce: CalibanError =>
+          ErrorJsoniter.errorValueEncoder.encodeValue(ce, out)
+        case _ =>
+          out.writeObjectStart()
+          out.writeKey("message")
+          out.writeVal(err.toString)
+          out.writeObjectEnd()
+      }
+    def encodeValue(x: GraphQLResponse[Any], out: JsonWriter): Unit = {
+      out.writeObjectStart()
+      out.writeKey("data")
+      ResponseValue.jsoniterCodec.encodeValue(x.data, out)
+      x.extensions.foreach(x1 => ResponseValue.jsoniterCodec.encodeValue(x1.asInstanceOf[ResponseValue], out))
+      Some(x.errors).collect {
+        case e if e.nonEmpty => e
+      }.foreach { x1 =>
+        out.writeKey("errors")
+        out.writeArrayStart()
+        x1.foreach(handleError(out))
+        out.writeArrayEnd()
+      }
+      out.writeObjectEnd()
+    }
+  }
 }
 
 private object GraphQLResponsePlayJson {

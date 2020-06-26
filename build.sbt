@@ -7,6 +7,7 @@ val akkaVersion           = "2.6.8"
 val catsEffectVersion     = "2.1.4"
 val circeVersion          = "0.13.0"
 val http4sVersion         = "0.21.6"
+val jsoniterVersion       = "2.5.0"
 val playVersion           = "2.8.1"
 val silencerVersion       = "1.6.0"
 val sttpVersion           = "2.2.2"
@@ -88,10 +89,13 @@ lazy val core = project
       "dev.zio"           %% "zio"          % zioVersion,
       "dev.zio"           %% "zio-streams"  % zioVersion,
       "dev.zio"           %% "zio-query"    % zqueryVersion,
-      "dev.zio"           %% "zio-test"     % zioVersion % "test",
-      "dev.zio"           %% "zio-test-sbt" % zioVersion % "test",
+      "dev.zio"           %% "zio-test"     % zioVersion % Test,
+      "dev.zio"           %% "zio-test-sbt" % zioVersion % Test,
       "io.circe"          %% "circe-core"   % circeVersion % Optional,
+      "io.circe"          %% "circe-parser" % circeVersion % Test,
       "com.typesafe.play" %% "play-json"    % playVersion % Optional,
+      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"   % jsoniterVersion % Optional,
+      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % Provided,
       compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
     )
   )
@@ -333,6 +337,7 @@ val commonSettings = Def.settings(
     "-Ywarn-numeric-widen",
     "-Ywarn-unused:patvars,-implicits",
     "-Ywarn-value-discard"
+    // ,"-Xmacro-settings:print-codecs"
   ) ++ (CrossVersion.partialVersion(scalaVersion.value) match {
     case Some((2, 12)) =>
       Seq(
