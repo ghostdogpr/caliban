@@ -89,7 +89,12 @@ object Executor {
                 .map(reduceStep(_, currentField, arguments, path))
             )
           } else {
-            reduceStep(QueryStep(ZQuery.fromEffect(stream.runCollect.map(ListStep(_)))), currentField, arguments, path)
+            reduceStep(
+              QueryStep(ZQuery.fromEffect(stream.runCollect.map(chunk => ListStep(chunk.toList)))),
+              currentField,
+              arguments,
+              path
+            )
           }
       }
 

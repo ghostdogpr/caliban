@@ -524,6 +524,7 @@ object Validator {
         )
       }
       .flip
+      .unit
 
   private def validateFragmentType(name: Option[String], targetType: __Type): IO[ValidationError, Unit] =
     targetType.kind match {
