@@ -9,12 +9,12 @@ val circeVersion          = "0.13.0"
 val http4sVersion         = "0.21.5"
 val playVersion           = "2.8.1"
 val silencerVersion       = "1.6.0"
-val sttpVersion           = "2.2.0"
+val sttpVersion           = "2.2.1"
 val tapirVersion          = "0.16.1"
-val zioVersion            = "1.0.0-RC20"
-val zioInteropCatsVersion = "2.1.3.0-RC15"
-val zioConfigVersion      = "1.0.0-RC20"
-val zqueryVersion         = "0.2.2"
+val zioVersion            = "1.0.0-RC21-1"
+val zioInteropCatsVersion = "2.1.3.0-RC16"
+val zioConfigVersion      = "1.0.0-RC23-1"
+val zqueryVersion         = "0.2.3"
 
 inThisBuild(
   List(
@@ -150,7 +150,7 @@ lazy val monixInterop = project
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "dev.zio"  %% "zio-interop-reactivestreams" % "1.0.3.5-RC11",
+      "dev.zio"  %% "zio-interop-reactivestreams" % "1.0.3.5-RC12",
       "dev.zio"  %% "zio-interop-cats"            % zioInteropCatsVersion,
       "io.monix" %% "monix"                       % "3.2.2"
     )
@@ -233,7 +233,7 @@ lazy val uzhttp = project
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "org.polynote" %% "uzhttp"       % "0.2.3",
+      "org.polynote" %% "uzhttp"       % "0.2.4",
       "io.circe"     %% "circe-parser" % "0.13.0"
     )
   )
