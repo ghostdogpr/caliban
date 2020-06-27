@@ -1,11 +1,13 @@
 package caliban.schema
 
+import java.time.format.DateTimeFormatter
+import java.time.temporal.Temporal
+import java.time.{ Instant, LocalDate, LocalDateTime, LocalTime, OffsetDateTime, OffsetTime, ZonedDateTime }
 import java.util.UUID
 
 import scala.annotation.implicitNotFound
 import scala.language.experimental.macros
 import scala.util.Try
-
 import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.Value._
@@ -13,6 +15,8 @@ import caliban.schema.Annotations.GQLName
 import magnolia._
 import mercator.Monadic
 import zio.Chunk
+
+import scala.util.control.NonFatal
 
 /**
  * Typeclass that defines how to build an argument of type `T` from an input [[caliban.InputValue]].
@@ -92,6 +96,55 @@ object ArgBuilder {
     case BooleanValue(value) => Right(value)
     case other               => Left(ExecutionError(s"Can't build a Boolean from input $other"))
   }
+
+  private abstract class TemporalDecoder[A](name: String) extends ArgBuilder[A] {
+    protected[this] def parseUnsafe(input: String): A
+
+    override def build(input: InputValue): Either[ExecutionError, A] = input match {
+      case StringValue(value) =>
+        try Right(parseUnsafe(value))
+        catch {
+          case NonFatal(e) =>
+            val message = e.getMessage
+            if (message.eq(null)) Left(ExecutionError(s"Can't build a $name from $value", innerThrowable = Some(e)))
+            else Left(ExecutionError(s"Can't build a $name from $value ($message)", innerThrowable = Some(e)))
+        }
+      case _ =>
+        Left(ExecutionError(s"Can't build a $name from $input"))
+    }
+  }
+
+  private object TemporalDecoder {
+    def apply[T <: Temporal](name: String)(parse: String => T): TemporalDecoder[T] = new TemporalDecoder[T](name) {
+      override protected[this] def parseUnsafe(input: String): T = parse(input)
+    }
+  }
+
+  final def localDateWithFormatter(formatter: DateTimeFormatter): ArgBuilder[LocalDate] =
+    TemporalDecoder("LocalDate")(LocalDate.parse(_, formatter))
+  final def localTimeWithFormatter(formatter: DateTimeFormatter): ArgBuilder[LocalTime] =
+    TemporalDecoder("LocalTime")(LocalTime.parse(_, formatter))
+  final def localDateTimeWithFormatter(formatter: DateTimeFormatter): ArgBuilder[LocalDateTime] =
+    TemporalDecoder("LocalDateTime")(LocalDateTime.parse(_, formatter))
+  final def offsetTimeWithFormatter(formatter: DateTimeFormatter): ArgBuilder[OffsetTime] =
+    TemporalDecoder("OffsetTime")(OffsetTime.parse(_, formatter))
+  final def offsetDateTimeWithFormatter(formatter: DateTimeFormatter): ArgBuilder[OffsetDateTime] =
+    TemporalDecoder("OffsetDateTime")(OffsetDateTime.parse(_, formatter))
+  final def zonedDateTimeWithFormatter(formatter: DateTimeFormatter): ArgBuilder[ZonedDateTime] =
+    TemporalDecoder("ZonedDateTime")(ZonedDateTime.parse(_, formatter))
+
+  lazy val instantEpoch: ArgBuilder[Instant] = {
+    case i: IntValue => Right(Instant.ofEpochMilli(i.toLong))
+    case value       => Left(ExecutionError(s"Can't build an Instant from $value"))
+  }
+
+  implicit lazy val instant: ArgBuilder[Instant]               = TemporalDecoder("Instant")(Instant.parse)
+  implicit lazy val localDate: ArgBuilder[LocalDate]           = TemporalDecoder("LocalDate")(LocalDate.parse)
+  implicit lazy val localTime: ArgBuilder[LocalTime]           = TemporalDecoder("LocalDateTime")(LocalTime.parse)
+  implicit lazy val localDateTime: ArgBuilder[LocalDateTime]   = TemporalDecoder("LocalDateTime")(LocalDateTime.parse)
+  implicit lazy val zonedDateTime: ArgBuilder[ZonedDateTime]   = TemporalDecoder("ZonedDateTime")(ZonedDateTime.parse)
+  implicit lazy val offsetDateTime: ArgBuilder[OffsetDateTime] = TemporalDecoder("OffsetDateTime")(OffsetDateTime.parse)
+
   implicit def option[A](implicit ev: ArgBuilder[A]): ArgBuilder[Option[A]] = {
     case NullValue => Right(None)
     case value     => ev.build(value).map(Some(_))
@@ -146,8 +199,8 @@ object ArgBuilder {
     }) match {
       case Some(value) =>
         ctx.subtypes
-          .find(t =>
-            t.annotations.collectFirst { case GQLName(name) => name }.contains(value) || t.typeName.short == value
+          .find(
+            t => t.annotations.collectFirst { case GQLName(name) => name }.contains(value) || t.typeName.short == value
           ) match {
           case Some(subtype) => subtype.typeclass.build(InputValue.ObjectValue(Map()))
           case None          => Left(ExecutionError(s"Invalid value $value for trait ${ctx.typeName.short}"))

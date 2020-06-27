@@ -1,5 +1,8 @@
 package caliban.schema
 
+import java.time.{ Instant, LocalDate, LocalDateTime, LocalTime, OffsetDateTime, ZoneOffset, ZonedDateTime }
+import java.time.format.DateTimeFormatter
+import java.time.temporal.Temporal
 import java.util.UUID
 
 import caliban.CalibanError.ExecutionError
@@ -71,7 +74,7 @@ trait Schema[-R, T] { self =>
 
 object Schema extends GenericSchema[Any]
 
-trait GenericSchema[R] extends DerivationSchema[R] {
+trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
 
   /**
    * Creates a scalar schema for a type `A`
@@ -172,7 +175,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
             case Left(_)      => NullStep
             case Right(value) => evB.resolve(value)
           }
-        )
+      )
     )
   }
   implicit def tupleSchema[RA, RB, A, B](
@@ -205,7 +208,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
               else makeNonNull(evB.toType(isInput, isSubscription))
           ) ->
             ((tuple: (A, B)) => evB.resolve(tuple._2))
-        )
+      )
     )
   }
   implicit def mapSchema[RA, RB, A, B](implicit evA: Schema[RA, A], evB: Schema[RB, B]): Schema[RA with RB, Map[A, B]] =
@@ -238,7 +241,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
                 else makeNonNull(evB.toType(isInput, isSubscription))
             )
               -> ((kv: (A, B)) => evB.resolve(kv._2))
-          )
+        )
       )
 
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
@@ -265,11 +268,12 @@ trait GenericSchema[R] extends DerivationSchema[R] {
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev2.toType(isInput, isSubscription)
 
       override def resolve(f: A => B): Step[RA with RB] =
-        FunctionStep(args =>
-          arg1
-            .build(InputValue.ObjectValue(args))
-            .fold(error => args.get("value").fold[Either[ExecutionError, A]](Left(error))(arg1.build), Right(_))
-            .fold(error => QueryStep(ZQuery.fail(error)), value => ev2.resolve(f(value)))
+        FunctionStep(
+          args =>
+            arg1
+              .build(InputValue.ObjectValue(args))
+              .fold(error => args.get("value").fold[Either[ExecutionError, A]](Left(error))(arg1.build), Right(_))
+              .fold(error => QueryStep(ZQuery.fail(error)), value => ev2.resolve(f(value)))
         )
     }
   implicit def futureSchema[A](implicit ev: Schema[R, A]): Schema[R, Future[A]] =
@@ -348,15 +352,16 @@ trait DerivationSchema[R] {
             .getOrElse(customizeInputTypeName(getName(ctx)))),
           getDescription(ctx),
           ctx.parameters
-            .map(p =>
-              __InputValue(
-                p.label,
-                getDescription(p),
-                () =>
-                  if (p.typeclass.optional) p.typeclass.toType(isInput, isSubscription)
-                  else makeNonNull(p.typeclass.toType(isInput, isSubscription)),
-                None,
-                Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
+            .map(
+              p =>
+                __InputValue(
+                  p.label,
+                  getDescription(p),
+                  () =>
+                    if (p.typeclass.optional) p.typeclass.toType(isInput, isSubscription)
+                    else makeNonNull(p.typeclass.toType(isInput, isSubscription)),
+                  None,
+                  Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
               )
             )
             .toList,
@@ -367,17 +372,18 @@ trait DerivationSchema[R] {
           Some(getName(ctx)),
           getDescription(ctx),
           ctx.parameters
-            .map(p =>
-              __Field(
-                p.label,
-                getDescription(p),
-                p.typeclass.arguments,
-                () =>
-                  if (p.typeclass.optional) p.typeclass.toType(isInput, isSubscription)
-                  else makeNonNull(p.typeclass.toType(isInput, isSubscription)),
-                p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
-                p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
-                Option(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
+            .map(
+              p =>
+                __Field(
+                  p.label,
+                  getDescription(p),
+                  p.typeclass.arguments,
+                  () =>
+                    if (p.typeclass.optional) p.typeclass.toType(isInput, isSubscription)
+                    else makeNonNull(p.typeclass.toType(isInput, isSubscription)),
+                  p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
+                  p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
+                  Option(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
               )
             )
             .toList,
@@ -471,7 +477,7 @@ trait DerivationSchema[R] {
                     () => makeScalar("Boolean")
                   )
                 )
-              )
+            )
           )
         case _ => t
       }
@@ -513,5 +519,76 @@ trait DerivationSchema[R] {
     getDescription(ctx.annotations)
 
   implicit def gen[T]: Typeclass[T] = macro Magnolia.gen[T]
+
+}
+
+trait TemporalSchema {
+
+  private[schema] abstract class TemporalSchema[T <: Temporal](
+    name: String,
+    description: Option[String]
+  ) extends Schema[Any, T] {
+
+    protected def format(temporal: T): ResponseValue
+
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
+      makeScalar(name, description)
+
+    override def resolve(value: T): Step[Any] =
+      PureStep(format(value))
+  }
+
+  def temporalSchema[A <: Temporal](name: String, description: Option[String] = None)(
+    f: A => ResponseValue
+  ): Schema[Any, A] = new TemporalSchema[A](name, description) {
+    override protected def format(temporal: A): ResponseValue = f(temporal)
+  }
+
+  def temporalSchemaWithFormatter[A <: Temporal](name: String, description: Option[String] = None)(
+    formatter: DateTimeFormatter
+  ): Schema[Any, A] =
+    temporalSchema[A](name, description)(a => StringValue(formatter.format(a)))
+
+  implicit lazy val instantSchema: Schema[Any, Instant] =
+    temporalSchema("Instant")(a => StringValue(a.toString))
+
+  lazy val instantEpochSchema: Schema[Any, Instant] =
+    temporalSchema("Instant")(a => IntValue.LongNumber(a.toEpochMilli))
+
+  implicit lazy val localDateTimeSchema: Schema[Any, LocalDateTime] =
+    localDateTimeSchemaWithFormatter(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+
+  def localDateTimeSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, LocalDateTime] =
+    temporalSchemaWithFormatter("LocalDateTime")(formatter)
+
+  implicit lazy val offsetDateTimeSchema: Schema[Any, OffsetDateTime] =
+    offsetDateTimeSchemaWithFormatter(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+
+  def offsetDateTimeSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, OffsetDateTime] =
+    temporalSchemaWithFormatter("OffsetDateTime")(formatter)
+
+  implicit lazy val zonedDateTimeSchema: Schema[Any, ZonedDateTime] =
+    zonedDateTimeSchemaWithFormatter(DateTimeFormatter.ISO_ZONED_DATE_TIME)
+
+  val localDateTimeEpochSchema: Schema[Any, ZonedDateTime] =
+    temporalSchema("LocalDateTime")(a => IntValue.LongNumber(a.toInstant.toEpochMilli))
+
+  def zonedDateTimeSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, ZonedDateTime] =
+    temporalSchemaWithFormatter("ZonedDateTime")(formatter)
+
+  implicit lazy val localDateSchema: Schema[Any, LocalDate] =
+    localDateSchemaWithFormatter(DateTimeFormatter.ISO_LOCAL_DATE)
+
+  val localDateEpochSchema: Schema[Any, LocalDate] =
+    temporalSchema("LocalDate")(a => IntValue.LongNumber(a.atStartOfDay.toInstant(ZoneOffset.UTC).toEpochMilli))
+
+  def localDateSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, LocalDate] =
+    temporalSchemaWithFormatter("LocalDate")(formatter)
+
+  implicit lazy val localTimeSchema: Schema[Any, LocalTime] =
+    localTimeSchemaWithFormatter(DateTimeFormatter.ISO_LOCAL_TIME)
+
+  def localTimeSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, LocalTime] =
+    temporalSchemaWithFormatter("LocalTime")(formatter)
 
 }
