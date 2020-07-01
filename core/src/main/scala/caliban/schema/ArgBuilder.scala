@@ -48,6 +48,13 @@ trait ArgBuilder[T] { self =>
    * @param f a function from `T` to Either[ExecutionError, A]
    */
   def flatMap[A](f: T => Either[ExecutionError, A]): ArgBuilder[A] = (input: InputValue) => self.build(input).flatMap(f)
+
+  def orElse(other: ArgBuilder[T]): ArgBuilder[T] =
+    (input: InputValue) =>
+      self.build(input) match {
+        case Left(_) => other.build(input)
+        case pass    => pass
+      }
 }
 
 object ArgBuilder {
@@ -142,6 +149,7 @@ object ArgBuilder {
   implicit lazy val localDate: ArgBuilder[LocalDate]           = TemporalDecoder("LocalDate")(LocalDate.parse)
   implicit lazy val localTime: ArgBuilder[LocalTime]           = TemporalDecoder("LocalDateTime")(LocalTime.parse)
   implicit lazy val localDateTime: ArgBuilder[LocalDateTime]   = TemporalDecoder("LocalDateTime")(LocalDateTime.parse)
+  implicit lazy val offsetTime: ArgBuilder[OffsetTime]         = TemporalDecoder("OffsetTime")(OffsetTime.parse)
   implicit lazy val zonedDateTime: ArgBuilder[ZonedDateTime]   = TemporalDecoder("ZonedDateTime")(ZonedDateTime.parse)
   implicit lazy val offsetDateTime: ArgBuilder[OffsetDateTime] = TemporalDecoder("OffsetDateTime")(OffsetDateTime.parse)
 
