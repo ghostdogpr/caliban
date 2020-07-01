@@ -175,7 +175,7 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
             case Left(_)      => NullStep
             case Right(value) => evB.resolve(value)
           }
-      )
+        )
     )
   }
   implicit def tupleSchema[RA, RB, A, B](
@@ -208,7 +208,7 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
               else makeNonNull(evB.toType(isInput, isSubscription))
           ) ->
             ((tuple: (A, B)) => evB.resolve(tuple._2))
-      )
+        )
     )
   }
   implicit def mapSchema[RA, RB, A, B](implicit evA: Schema[RA, A], evB: Schema[RB, B]): Schema[RA with RB, Map[A, B]] =
@@ -241,7 +241,7 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
                 else makeNonNull(evB.toType(isInput, isSubscription))
             )
               -> ((kv: (A, B)) => evB.resolve(kv._2))
-        )
+          )
       )
 
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
@@ -268,12 +268,11 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev2.toType(isInput, isSubscription)
 
       override def resolve(f: A => B): Step[RA with RB] =
-        FunctionStep(
-          args =>
-            arg1
-              .build(InputValue.ObjectValue(args))
-              .fold(error => args.get("value").fold[Either[ExecutionError, A]](Left(error))(arg1.build), Right(_))
-              .fold(error => QueryStep(ZQuery.fail(error)), value => ev2.resolve(f(value)))
+        FunctionStep(args =>
+          arg1
+            .build(InputValue.ObjectValue(args))
+            .fold(error => args.get("value").fold[Either[ExecutionError, A]](Left(error))(arg1.build), Right(_))
+            .fold(error => QueryStep(ZQuery.fail(error)), value => ev2.resolve(f(value)))
         )
     }
   implicit def futureSchema[A](implicit ev: Schema[R, A]): Schema[R, Future[A]] =
@@ -352,16 +351,15 @@ trait DerivationSchema[R] {
             .getOrElse(customizeInputTypeName(getName(ctx)))),
           getDescription(ctx),
           ctx.parameters
-            .map(
-              p =>
-                __InputValue(
-                  p.label,
-                  getDescription(p),
-                  () =>
-                    if (p.typeclass.optional) p.typeclass.toType(isInput, isSubscription)
-                    else makeNonNull(p.typeclass.toType(isInput, isSubscription)),
-                  None,
-                  Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
+            .map(p =>
+              __InputValue(
+                p.label,
+                getDescription(p),
+                () =>
+                  if (p.typeclass.optional) p.typeclass.toType(isInput, isSubscription)
+                  else makeNonNull(p.typeclass.toType(isInput, isSubscription)),
+                None,
+                Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
               )
             )
             .toList,
@@ -372,18 +370,17 @@ trait DerivationSchema[R] {
           Some(getName(ctx)),
           getDescription(ctx),
           ctx.parameters
-            .map(
-              p =>
-                __Field(
-                  p.label,
-                  getDescription(p),
-                  p.typeclass.arguments,
-                  () =>
-                    if (p.typeclass.optional) p.typeclass.toType(isInput, isSubscription)
-                    else makeNonNull(p.typeclass.toType(isInput, isSubscription)),
-                  p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
-                  p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
-                  Option(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
+            .map(p =>
+              __Field(
+                p.label,
+                getDescription(p),
+                p.typeclass.arguments,
+                () =>
+                  if (p.typeclass.optional) p.typeclass.toType(isInput, isSubscription)
+                  else makeNonNull(p.typeclass.toType(isInput, isSubscription)),
+                p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
+                p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
+                Option(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
               )
             )
             .toList,
@@ -477,7 +474,7 @@ trait DerivationSchema[R] {
                     () => makeScalar("Boolean")
                   )
                 )
-            )
+              )
           )
         case _ => t
       }

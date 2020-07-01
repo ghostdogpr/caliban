@@ -199,8 +199,8 @@ object ArgBuilder {
     }) match {
       case Some(value) =>
         ctx.subtypes
-          .find(
-            t => t.annotations.collectFirst { case GQLName(name) => name }.contains(value) || t.typeName.short == value
+          .find(t =>
+            t.annotations.collectFirst { case GQLName(name) => name }.contains(value) || t.typeName.short == value
           ) match {
           case Some(subtype) => subtype.typeclass.build(InputValue.ObjectValue(Map()))
           case None          => Left(ExecutionError(s"Invalid value $value for trait ${ctx.typeName.short}"))
