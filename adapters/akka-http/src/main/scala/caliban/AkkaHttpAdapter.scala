@@ -190,7 +190,7 @@ trait AkkaHttpAdapter {
           case _ => ()
         }
 
-        val flow = Flow.fromSinkAndSource(sink, source).watchTermination() { (_, f) =>
+        val flow = Flow.fromSinkAndSourceCoupled(sink, source).watchTermination() { (_, f) =>
           f.onComplete(_ => runtime.unsafeRun(subscriptions.get.flatMap(m => IO.foreach(m.values)(_.interrupt).unit)))
         }
 
