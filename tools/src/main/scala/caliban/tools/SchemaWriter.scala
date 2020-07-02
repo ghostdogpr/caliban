@@ -166,13 +166,16 @@ object SchemaWriter {
     }
   }
 
+  def escapeDoubleQuotes(input: String): String =
+    input.replaceAllLiterally("\"", "\\\"")
+
   def writeDescription(description: Option[String]): String =
     description.fold("") {
       case d if d.contains("\n") =>
-        s"""@GQLDescription(\"\"\"$d\"\"\")
+        s"""@GQLDescription(\"\"\"${escapeDoubleQuotes(d)}\"\"\")
            |""".stripMargin
       case d =>
-        s"""@GQLDescription("$d")
+        s"""@GQLDescription("${escapeDoubleQuotes(d)}")
            |""".stripMargin
     }
 
