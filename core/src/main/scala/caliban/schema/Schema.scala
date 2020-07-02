@@ -547,22 +547,34 @@ trait TemporalSchema {
     temporalSchema[A](name, description)(a => StringValue(formatter.format(a)))
 
   implicit lazy val instantSchema: Schema[Any, Instant] =
-    temporalSchema("Instant")(a => StringValue(a.toString))
+    temporalSchema(
+      "Instant",
+      Some("An instantaneous point on the time-line represented by a standard date time string")
+    )(a => StringValue(a.toString))
 
   lazy val instantEpochSchema: Schema[Any, Instant] =
-    temporalSchema("Instant")(a => IntValue.LongNumber(a.toEpochMilli))
+    temporalSchema(
+      "Instant",
+      Some("An instantaneous point on the time-line represented by a numerical millisecond since epoch")
+    )(a => IntValue.LongNumber(a.toEpochMilli))
 
   implicit lazy val localDateTimeSchema: Schema[Any, LocalDateTime] =
     localDateTimeSchemaWithFormatter(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
 
   def localDateTimeSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, LocalDateTime] =
-    temporalSchemaWithFormatter("LocalDateTime")(formatter)
+    temporalSchemaWithFormatter(
+      "LocalDateTime",
+      Some(s"A date-time without a time-zone in the ISO-8601 calendar system in the format of $formatter")
+    )(formatter)
 
   implicit lazy val offsetDateTimeSchema: Schema[Any, OffsetDateTime] =
     offsetDateTimeSchemaWithFormatter(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
 
   def offsetDateTimeSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, OffsetDateTime] =
-    temporalSchemaWithFormatter("OffsetDateTime")(formatter)
+    temporalSchemaWithFormatter(
+      "OffsetDateTime",
+      Some(s"A date-time with an offset from UTC/Greenwich in the ISO-8601 calendar system using the format $formatter")
+    )(formatter)
 
   implicit lazy val zonedDateTimeSchema: Schema[Any, ZonedDateTime] =
     zonedDateTimeSchemaWithFormatter(DateTimeFormatter.ISO_ZONED_DATE_TIME)
@@ -571,21 +583,33 @@ trait TemporalSchema {
     temporalSchema("LocalDateTime")(a => IntValue.LongNumber(a.toInstant.toEpochMilli))
 
   def zonedDateTimeSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, ZonedDateTime] =
-    temporalSchemaWithFormatter("ZonedDateTime")(formatter)
+    temporalSchemaWithFormatter(
+      "ZonedDateTime",
+      Some(s"A date-time with a time-zone in the ISO-8601 calendar system using the format $formatter")
+    )(formatter)
 
   implicit lazy val localDateSchema: Schema[Any, LocalDate] =
     localDateSchemaWithFormatter(DateTimeFormatter.ISO_LOCAL_DATE)
 
   val localDateEpochSchema: Schema[Any, LocalDate] =
-    temporalSchema("LocalDate")(a => IntValue.LongNumber(a.atStartOfDay.toInstant(ZoneOffset.UTC).toEpochMilli))
+    temporalSchema(
+      "LocalDate",
+      Some("A date without a time-zone in the ISO-8601 calendar system represented as a millisecond value since epoch")
+    )(a => IntValue.LongNumber(a.atStartOfDay.toInstant(ZoneOffset.UTC).toEpochMilli))
 
   def localDateSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, LocalDate] =
-    temporalSchemaWithFormatter("LocalDate")(formatter)
+    temporalSchemaWithFormatter(
+      "LocalDate",
+      Some(s"A date without a time-zone in the ISO-8601 calendar system using the format $formatter")
+    )(formatter)
 
   implicit lazy val localTimeSchema: Schema[Any, LocalTime] =
     localTimeSchemaWithFormatter(DateTimeFormatter.ISO_LOCAL_TIME)
 
   def localTimeSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, LocalTime] =
-    temporalSchemaWithFormatter("LocalTime")(formatter)
+    temporalSchemaWithFormatter(
+      "LocalTime",
+      Some(s"A time without a time-zone in the ISO-8601 calendar system using the format $formatter")
+    )(formatter)
 
 }
