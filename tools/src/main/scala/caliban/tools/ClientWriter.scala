@@ -195,9 +195,21 @@ object ClientWriter {
     val deprecated = field.directives.find(_.name == "deprecated") match {
       case None => ""
       case Some(directive) =>
-        s"@deprecated(${directive.arguments.collectFirst {
-          case ("reason", StringValue(reason)) => reason
-        }.fold(""""",""""")(r => s""""$r",""""")})\n"
+        val body =
+          directive.arguments.collectFirst {
+            case ("reason", StringValue(reason)) => reason
+          }
+
+        val tripleQuotes = "\"\"\""
+        val doubleQuotes = "\""
+
+        body.fold("@deprecated") { b =>
+          val quotes =
+            if (b.contains("\n")) tripleQuotes
+            else doubleQuotes
+
+          "@deprecated(" + quotes + b + quotes + ")"
+        } + "\n"
     }
     val fieldType = getTypeName(field.ofType)
     val isScalar = typesMap
