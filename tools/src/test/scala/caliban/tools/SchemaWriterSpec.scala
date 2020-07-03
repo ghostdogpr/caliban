@@ -249,6 +249,30 @@ object Types {
           }
         )
       },
+      testM("GQLDescription with escaped quotes") {
+        val schema =
+          s"""
+             type Captain {
+               "foo \\"quotes\\" bar" shipName: String!
+             }
+            """.stripMargin
+
+        assertM(gen(schema))(
+          equalTo {
+            s"""import caliban.schema.Annotations._
+
+object Types {
+
+  case class Captain(
+    @GQLDescription("foo \\"quotes\\" bar")
+    shipName: String
+  )
+
+}
+"""
+          }
+        )
+      },
       testM("schema") {
         val schema =
           """
