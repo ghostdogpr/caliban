@@ -353,6 +353,39 @@ object Client {
           )
         )
       },
+      testM("deprecated field + comment newline") {
+        val tripleQuotes = "\"\"\""
+        val schema =
+          """
+             type Character {
+               "name"
+               name: String! @deprecated(reason: "foo\nbar")
+             }
+            """.stripMargin
+
+        assertM(gen(schema))(
+          equalTo(
+            s"""import caliban.client.FieldBuilder._
+import caliban.client.SelectionBuilder._
+import caliban.client._
+
+object Client {
+
+  type Character
+  object Character {
+
+    /**
+     * name
+     */
+    @deprecated(${tripleQuotes}foo\nbar${tripleQuotes}, "")
+    def name: SelectionBuilder[Character, String] = Field("name", Scalar())
+  }
+
+}
+"""
+          )
+        )
+      },
       testM("default arguments for optional and list arguments") {
         val schema =
           """

@@ -186,6 +186,9 @@ object ClientWriter {
   def getTypeLetter(typesMap: Map[String, TypeDefinition], letter: String = "A"): String =
     if (!typesMap.contains(letter)) letter else getTypeLetter(typesMap, letter + "A")
 
+  private val tripleQuotes = "\"\"\""
+  private val doubleQuotes = "\""
+
   def writeField(field: FieldDefinition, typeName: String, typesMap: Map[String, TypeDefinition]): String = {
     val name = safeName(field.name)
     val description = field.description match {
@@ -195,9 +198,16 @@ object ClientWriter {
     val deprecated = field.directives.find(_.name == "deprecated") match {
       case None => ""
       case Some(directive) =>
-        s"@deprecated(${directive.arguments.collectFirst {
-          case ("reason", StringValue(reason)) => reason
-        }.fold(""""",""""")(r => s""""$r",""""")})\n"
+        val body =
+          directive.arguments.collectFirst {
+            case ("reason", StringValue(reason)) => reason
+          }.getOrElse("")
+
+        val quotes = 
+          if (body.contains("\n")) tripleQuotes
+          else doubleQuotes
+        
+        "@deprecated(" + quotes + body + quotes + """, "")""" + "\n"
     }
     val fieldType = getTypeName(field.ofType)
     val isScalar = typesMap
