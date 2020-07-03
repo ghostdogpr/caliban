@@ -10,6 +10,7 @@ import io.circe.parser
 import sttp.client._
 import sttp.client.circe._
 import sttp.model.Uri
+import io.circe.Json
 
 /**
  * Represents a selection from parent type `Origin` that returns a result of type `A`.
@@ -67,6 +68,21 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
     uri: Uri,
     useVariables: Boolean = false
   )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, A1], Nothing] =
+    toRequestWithExtensions[A1, Origin1](uri, useVariables)(ev).mapResponse {
+      case Right((r, _)) => Right(r)
+      case Left(l)       => Left(l)
+    }
+
+  /**
+   * Transforms a root selection into an STTP request ready to be run.
+   * @param uri the URL of the GraphQL server
+   * @param useVariables if true, all arguments will be passed as variables (default: false)
+   * @return an STTP request
+   */
+  def toRequestWithExtensions[A1 >: A, Origin1 <: Origin](
+    uri: Uri,
+    useVariables: Boolean = false
+  )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, (A1, Option[Json])], Nothing] =
     basicRequest
       .post(uri)
       .body(toGraphQL(useVariables))
@@ -83,7 +99,7 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
                           case _                    => Left(DecodingError("Result is not an object"))
                         }
           result <- fromGraphQL(objectValue)
-        } yield result
+        } yield (result, parsed.extensions)
       }
 
   /**
