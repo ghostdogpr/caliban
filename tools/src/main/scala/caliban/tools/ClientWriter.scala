@@ -203,10 +203,10 @@ object ClientWriter {
             case ("reason", StringValue(reason)) => reason
           }.getOrElse("")
 
-        val quotes = 
+        val quotes =
           if (body.contains("\n")) tripleQuotes
           else doubleQuotes
-        
+
         "@deprecated(" + quotes + body + quotes + """, "")""" + "\n"
     }
     val fieldType = getTypeName(field.ofType)
