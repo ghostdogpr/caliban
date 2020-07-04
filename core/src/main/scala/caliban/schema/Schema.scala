@@ -35,6 +35,13 @@ import zio.Chunk
 )
 trait Schema[-R, T] { self =>
 
+  private lazy val asType: __Type             = toType()
+  private lazy val asInputType: __Type        = toType(isInput = true)
+  private lazy val asSubscriptionType: __Type = toType(isSubscription = true)
+
+  def asType(isInput: Boolean = false, isSubscription: Boolean = false): __Type =
+    if (isInput) asInputType else if (isSubscription) asSubscriptionType else asType
+
   /**
    * Generates a GraphQL type object from `T`.
    * @param isInput indicates if the type is passed as an argument. This is needed because GraphQL differentiates `InputType` from `ObjectType`.
@@ -64,7 +71,7 @@ trait Schema[-R, T] { self =>
   def contramap[A](f: A => T): Schema[R, A] = new Schema[R, A] {
     override def optional: Boolean                                         = self.optional
     override def arguments: List[__InputValue]                             = self.arguments
-    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = self.toType(isInput, isSubscription)
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = self.asType(isInput, isSubscription)
     override def resolve(value: A): Step[R]                                = self.resolve(f(value))
   }
 }
@@ -123,7 +130,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
 
   implicit def optionSchema[A](implicit ev: Schema[R, A]): Schema[R, Option[A]] = new Schema[R, Option[A]] {
     override def optional: Boolean                                         = true
-    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType(isInput, isSubscription)
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.asType(isInput, isSubscription)
 
     override def resolve(value: Option[A]): Step[R] =
       value match {
@@ -133,7 +140,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
   }
   implicit def listSchema[A](implicit ev: Schema[R, A]): Schema[R, List[A]] = new Schema[R, List[A]] {
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
-      val t = ev.toType(isInput, isSubscription)
+      val t = ev.asType(isInput, isSubscription)
       makeList(if (ev.optional) t else makeNonNull(t))
     }
 
@@ -146,7 +153,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
   implicit def functionUnitSchema[A](implicit ev: Schema[R, A]): Schema[R, () => A] =
     new Schema[R, () => A] {
       override def optional: Boolean                                         = ev.optional
-      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType(isInput, isSubscription)
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.asType(isInput, isSubscription)
       override def resolve(value: () => A): Step[R]                          = FunctionStep(_ => ev.resolve(value()))
     }
 
@@ -154,8 +161,8 @@ trait GenericSchema[R] extends DerivationSchema[R] {
     implicit evA: Schema[RA, A],
     evB: Schema[RB, B]
   ): Schema[RA with RB, Either[A, B]] = {
-    lazy val typeAName: String   = Types.name(evA.toType())
-    lazy val typeBName: String   = Types.name(evB.toType())
+    lazy val typeAName: String   = Types.name(evA.asType())
+    lazy val typeBName: String   = Types.name(evB.asType())
     lazy val name: String        = s"Either${typeAName}Or$typeBName"
     lazy val description: String = s"Either $typeAName or $typeBName"
 
@@ -164,11 +171,11 @@ trait GenericSchema[R] extends DerivationSchema[R] {
       Some(description),
       (isInput, isSubscription) =>
         List(
-          __Field("left", Some("Left element of the Either"), Nil, () => evA.toType(isInput, isSubscription)) -> {
+          __Field("left", Some("Left element of the Either"), Nil, () => evA.asType(isInput, isSubscription)) -> {
             case Left(value) => evA.resolve(value)
             case Right(_)    => NullStep
           },
-          __Field("right", Some("Right element of the Either"), Nil, () => evB.toType(isInput, isSubscription)) -> {
+          __Field("right", Some("Right element of the Either"), Nil, () => evB.asType(isInput, isSubscription)) -> {
             case Left(_)      => NullStep
             case Right(value) => evB.resolve(value)
           }
@@ -179,8 +186,8 @@ trait GenericSchema[R] extends DerivationSchema[R] {
     implicit evA: Schema[RA, A],
     evB: Schema[RB, B]
   ): Schema[RA with RB, (A, B)] = {
-    lazy val typeAName: String = Types.name(evA.toType())
-    lazy val typeBName: String = Types.name(evB.toType())
+    lazy val typeAName: String = Types.name(evA.asType())
+    lazy val typeBName: String = Types.name(evB.asType())
 
     objectSchema(
       s"Tuple${typeAName}And$typeBName",
@@ -192,8 +199,8 @@ trait GenericSchema[R] extends DerivationSchema[R] {
             Some("First element of the tuple"),
             Nil,
             () =>
-              if (evA.optional) evA.toType(isInput, isSubscription)
-              else makeNonNull(evA.toType(isInput, isSubscription))
+              if (evA.optional) evA.asType(isInput, isSubscription)
+              else makeNonNull(evA.asType(isInput, isSubscription))
           ) ->
             ((tuple: (A, B)) => evA.resolve(tuple._1)),
           __Field(
@@ -201,8 +208,8 @@ trait GenericSchema[R] extends DerivationSchema[R] {
             Some("Second element of the tuple"),
             Nil,
             () =>
-              if (evB.optional) evB.toType(isInput, isSubscription)
-              else makeNonNull(evB.toType(isInput, isSubscription))
+              if (evB.optional) evB.asType(isInput, isSubscription)
+              else makeNonNull(evB.asType(isInput, isSubscription))
           ) ->
             ((tuple: (A, B)) => evB.resolve(tuple._2))
         )
@@ -210,8 +217,8 @@ trait GenericSchema[R] extends DerivationSchema[R] {
   }
   implicit def mapSchema[RA, RB, A, B](implicit evA: Schema[RA, A], evB: Schema[RB, B]): Schema[RA with RB, Map[A, B]] =
     new Schema[RA with RB, Map[A, B]] {
-      lazy val typeAName: String   = Types.name(evA.toType())
-      lazy val typeBName: String   = Types.name(evB.toType())
+      lazy val typeAName: String   = Types.name(evA.asType())
+      lazy val typeBName: String   = Types.name(evB.asType())
       lazy val name: String        = s"KV$typeAName$typeBName"
       lazy val description: String = s"A key-value pair of $typeAName and $typeBName"
 
@@ -225,8 +232,8 @@ trait GenericSchema[R] extends DerivationSchema[R] {
               Some("Key"),
               Nil,
               () =>
-                if (evA.optional) evA.toType(isInput, isSubscription)
-                else makeNonNull(evA.toType(isInput, isSubscription))
+                if (evA.optional) evA.asType(isInput, isSubscription)
+                else makeNonNull(evA.asType(isInput, isSubscription))
             )
               -> ((kv: (A, B)) => evA.resolve(kv._1)),
             __Field(
@@ -234,15 +241,15 @@ trait GenericSchema[R] extends DerivationSchema[R] {
               Some("Value"),
               Nil,
               () =>
-                if (evB.optional) evB.toType(isInput, isSubscription)
-                else makeNonNull(evB.toType(isInput, isSubscription))
+                if (evB.optional) evB.asType(isInput, isSubscription)
+                else makeNonNull(evB.asType(isInput, isSubscription))
             )
               -> ((kv: (A, B)) => evB.resolve(kv._2))
           )
       )
 
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-        makeList(makeNonNull(kvSchema.toType(isInput, isSubscription)))
+        makeList(makeNonNull(kvSchema.asType(isInput, isSubscription)))
 
       override def resolve(value: Map[A, B]): Step[RA with RB] = ListStep(value.toList.map(kvSchema.resolve))
     }
@@ -253,7 +260,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
   ): Schema[RA with RB, A => B] =
     new Schema[RA with RB, A => B] {
       override def arguments: List[__InputValue] = {
-        val t = ev1.toType(true)
+        val t = ev1.asType(true)
         t.inputFields.getOrElse(t.kind match {
           case __TypeKind.SCALAR | __TypeKind.ENUM | __TypeKind.LIST =>
             // argument was not wrapped in a case class, give it an arbitrary name
@@ -262,7 +269,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
         })
       }
       override def optional: Boolean                                         = ev2.optional
-      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev2.toType(isInput, isSubscription)
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev2.asType(isInput, isSubscription)
 
       override def resolve(f: A => B): Step[RA with RB] =
         FunctionStep(args =>
@@ -277,13 +284,13 @@ trait GenericSchema[R] extends DerivationSchema[R] {
   implicit def infallibleEffectSchema[R1 >: R, R2 >: R, A](implicit ev: Schema[R2, A]): Schema[R, URIO[R1, A]] =
     new Schema[R, URIO[R1, A]] {
       override def optional: Boolean                                         = ev.optional
-      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType(isInput, isSubscription)
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.asType(isInput, isSubscription)
       override def resolve(value: URIO[R1, A]): Step[R]                      = QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
     }
   implicit def effectSchema[R1 >: R, R2 >: R, E <: Throwable, A](implicit ev: Schema[R2, A]): Schema[R, ZIO[R1, E, A]] =
     new Schema[R, ZIO[R1, E, A]] {
       override def optional: Boolean                                         = true
-      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType(isInput, isSubscription)
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.asType(isInput, isSubscription)
       override def resolve(value: ZIO[R1, E, A]): Step[R]                    = QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
     }
   implicit def infallibleQuerySchema[R1 >: R, R2 >: R, A](
@@ -291,7 +298,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
   ): Schema[R, ZQuery[R1, Nothing, A]] =
     new Schema[R, ZQuery[R1, Nothing, A]] {
       override def optional: Boolean                                         = ev.optional
-      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType(isInput, isSubscription)
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.asType(isInput, isSubscription)
       override def resolve(value: ZQuery[R1, Nothing, A]): Step[R]           = QueryStep(value.map(ev.resolve))
     }
   implicit def querySchema[R1 >: R, R2 >: R, E <: Throwable, A](
@@ -299,7 +306,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
   ): Schema[R, ZQuery[R1, E, A]] =
     new Schema[R, ZQuery[R1, E, A]] {
       override def optional: Boolean                                         = true
-      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType(isInput, isSubscription)
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.asType(isInput, isSubscription)
       override def resolve(value: ZQuery[R1, E, A]): Step[R]                 = QueryStep(value.map(ev.resolve))
     }
   implicit def infallibleStreamSchema[R1 >: R, R2 >: R, A](
@@ -308,7 +315,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
     new Schema[R, ZStream[R1, Nothing, A]] {
       override def optional: Boolean = false
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
-        val t = ev.toType(isInput, isSubscription)
+        val t = ev.asType(isInput, isSubscription)
         if (isSubscription) t else makeList(if (ev.optional) t else makeNonNull(t))
       }
       override def resolve(value: ZStream[R1, Nothing, A]): Step[R] = StreamStep(value.map(ev.resolve))
@@ -319,7 +326,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
     new Schema[R, ZStream[R1, E, A]] {
       override def optional: Boolean = true
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
-        val t = ev.toType(isInput, isSubscription)
+        val t = ev.asType(isInput, isSubscription)
         if (isSubscription) t else makeList(if (ev.optional) t else makeNonNull(t))
       }
       override def resolve(value: ZStream[R1, E, A]): Step[R] = StreamStep(value.map(ev.resolve))
@@ -341,7 +348,7 @@ trait DerivationSchema[R] {
 
   def combine[T](ctx: ReadOnlyCaseClass[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-      if (ctx.isValueClass && ctx.parameters.nonEmpty) ctx.parameters.head.typeclass.toType(isInput, isSubscription)
+      if (ctx.isValueClass && ctx.parameters.nonEmpty) ctx.parameters.head.typeclass.asType(isInput, isSubscription)
       else if (isInput)
         makeInputObject(
           Some(ctx.annotations.collectFirst { case GQLInputName(suffix) => suffix }
@@ -353,8 +360,8 @@ trait DerivationSchema[R] {
                 p.label,
                 getDescription(p),
                 () =>
-                  if (p.typeclass.optional) p.typeclass.toType(isInput, isSubscription)
-                  else makeNonNull(p.typeclass.toType(isInput, isSubscription)),
+                  if (p.typeclass.optional) p.typeclass.asType(isInput, isSubscription)
+                  else makeNonNull(p.typeclass.asType(isInput, isSubscription)),
                 None,
                 Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
               )
@@ -373,8 +380,8 @@ trait DerivationSchema[R] {
                 getDescription(p),
                 p.typeclass.arguments,
                 () =>
-                  if (p.typeclass.optional) p.typeclass.toType(isInput, isSubscription)
-                  else makeNonNull(p.typeclass.toType(isInput, isSubscription)),
+                  if (p.typeclass.optional) p.typeclass.asType(isInput, isSubscription)
+                  else makeNonNull(p.typeclass.asType(isInput, isSubscription)),
                 p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
                 p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
                 Option(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
@@ -398,7 +405,7 @@ trait DerivationSchema[R] {
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
       val subtypes =
         ctx.subtypes
-          .map(s => s.typeclass.toType() -> s.annotations)
+          .map(s => s.typeclass.asType(isInput = false, isSubscription = false) -> s.annotations)
           .toList
           .sortBy {
             case (tpe, _) => tpe.name.getOrElse("")
