@@ -20,9 +20,10 @@ import zio.Chunk
  */
 @implicitNotFound(
   """Cannot find an ArgBuilder for type ${T}.
-     Caliban derives an ArgBuilder automatically for basic Scala types, case classes and sealed traits, but
-     you need to manually provide an implicit ArgBuilder for other types that could be nested in ${T}.
-     See https://ghostdogpr.github.io/caliban/docs/schema.html for more information.
+     
+Caliban derives an ArgBuilder automatically for basic Scala types, case classes and sealed traits, but
+you need to manually provide an implicit ArgBuilder for other types that could be nested in ${T}.
+See https://ghostdogpr.github.io/caliban/docs/schema.html for more information.
 """
 )
 trait ArgBuilder[T] { self =>

@@ -7,9 +7,17 @@ import caliban.client.CalibanClientError.DecodingError
 import caliban.client.Value._
 import io.circe.Json
 
+import scala.annotation.implicitNotFound
+
 /**
  * Typeclass that defines how to decode a scalar from a GraphQL response into a proper value of type `A`.
  */
+@implicitNotFound(
+  """Cannot find a ScalarDecoder for type ${A}.
+     
+Caliban needs it to know how to decode a scalar of type ${A}.
+"""
+)
 trait ScalarDecoder[+A] {
   def decode(value: Value): Either[DecodingError, A]
 }
