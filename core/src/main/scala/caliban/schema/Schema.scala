@@ -397,8 +397,11 @@ trait DerivationSchema[R] {
       else if (ctx.isValueClass && ctx.parameters.nonEmpty) {
         val head = ctx.parameters.head
         head.typeclass.resolve(head.dereference(value))
-      } else
-        ObjectStep(getName(ctx), ctx.parameters.map(p => p.label -> p.typeclass.resolve(p.dereference(value))).toMap)
+      } else {
+        val fields = Map.newBuilder[String, Step[R]]
+        ctx.parameters.foreach(p => fields += p.label -> p.typeclass.resolve(p.dereference(value)))
+        ObjectStep(getName(ctx), fields.result())
+      }
   }
 
   def dispatch[T](ctx: SealedTrait[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
