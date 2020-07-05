@@ -179,12 +179,19 @@ object Validator {
     varValues.map(_.name).toSet
   }
 
-  private def collectSelectionSets(selectionSet: List[Selection]): List[Selection] =
-    selectionSet ++ selectionSet.flatMap {
-      case _: FragmentSpread => Nil
-      case f: Field          => collectSelectionSets(f.selectionSet)
-      case f: InlineFragment => collectSelectionSets(f.selectionSet)
+  private def collectSelectionSets(selectionSet: List[Selection]): List[Selection] = {
+    val sets = List.newBuilder[Selection]
+    def loop(selectionSet: List[Selection]): Unit = {
+      sets ++= selectionSet
+      selectionSet.foreach {
+        case f: Field          => loop(f.selectionSet)
+        case f: InlineFragment => loop(f.selectionSet)
+        case _: FragmentSpread => ()
+      }
     }
+    loop(selectionSet)
+    sets.result()
+  }
 
   private def collectAllDirectives(context: Context): IO[ValidationError, List[(Directive, __DirectiveLocation)]] =
     for {

@@ -1,7 +1,5 @@
 package caliban.execution
 
-import scala.annotation.tailrec
-import scala.collection.immutable.ListMap
 import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue._
 import caliban.Value._
@@ -9,9 +7,12 @@ import caliban.parsing.adt._
 import caliban.schema.Step._
 import caliban.schema.{ ReducedStep, Step }
 import caliban.wrappers.Wrapper.FieldWrapper
-import caliban.{ CalibanError, GraphQLResponse, InputValue, ResponseValue, Value }
+import caliban._
 import zio._
 import zio.query.ZQuery
+
+import scala.annotation.tailrec
+import scala.collection.mutable.ArrayBuffer
 
 object Executor {
 
@@ -178,20 +179,34 @@ object Executor {
   }
 
   private[caliban] def mergeFields(field: Field, typeName: String): List[Field] = {
-    val allFields = field.fields ++ field.conditionalFields.getOrElse(typeName, Nil)
-    allFields
-      .foldLeft(ListMap.empty[String, Field]) {
-        case (result, field) =>
-          val name = field.alias.getOrElse(field.name)
-          result.updated(
-            name,
-            result
-              .get(name)
-              .fold(field)(f => f.copy(fields = f.fields ++ field.fields))
-          )
+    // ugly mutable code but it's worth it for the speed ;)
+    val array = ArrayBuffer.empty[Field]
+    val map   = collection.mutable.Map.empty[String, Int]
+    var index = 0
+
+    field.fields.foreach { field =>
+      if (field.condition.forall(_ == typeName)) {
+        val name = field.alias.getOrElse(field.name)
+        map.get(name) match {
+          case None =>
+            // first time we see this field, add it to the array
+            array += field
+            index += 1
+          case Some(index) =>
+            // field already existed, merge it
+            val f = array(index)
+            array(index) = f.copy(fields = f.fields ++ field.fields)
+        }
       }
-      .values
-      .toList
+    }
+
+    val result = List.newBuilder[Field]
+    var i      = 0
+    while (i < index) {
+      result += array(i)
+      i += 1
+    }
+    result.result()
   }
 
   private def fieldInfo(field: Field, path: List[Either[String, Int]], fieldDirectives: List[Directive]): FieldInfo =
