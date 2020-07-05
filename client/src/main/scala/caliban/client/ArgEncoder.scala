@@ -3,10 +3,18 @@ package caliban.client
 import caliban.client.Value.{ BooleanValue, ListValue, NullValue, NumberValue, ObjectValue, StringValue }
 import io.circe.Json
 
+import scala.annotation.implicitNotFound
+
 /**
  * Typeclass that defines how to encode an argument of type `A` into a valid [[caliban.client.Value]].
  * Every type that can be passed as an argument needs an instance of `ArgEncoder`.
  */
+@implicitNotFound(
+  """Cannot find an ArgEncoder for type ${A}.
+     
+Caliban needs it to know how to encode arguments of type ${A}.
+"""
+)
 trait ArgEncoder[-A] {
   def encode(value: A): Value
   def typeName: String
