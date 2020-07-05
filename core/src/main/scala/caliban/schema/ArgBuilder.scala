@@ -8,6 +8,7 @@ import java.util.UUID
 import scala.annotation.implicitNotFound
 import scala.language.experimental.macros
 import scala.util.Try
+import scala.util.control.NonFatal
 import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.Value._
@@ -15,8 +16,6 @@ import caliban.schema.Annotations.GQLName
 import magnolia._
 import mercator.Monadic
 import zio.Chunk
-
-import scala.util.control.NonFatal
 
 /**
  * Typeclass that defines how to build an argument of type `T` from an input [[caliban.InputValue]].
@@ -49,57 +48,68 @@ trait ArgBuilder[T] { self =>
    */
   def flatMap[A](f: T => Either[ExecutionError, A]): ArgBuilder[A] = (input: InputValue) => self.build(input).flatMap(f)
 
-  def orElse(other: ArgBuilder[T]): ArgBuilder[T] =
+  /**
+   * Builds a new `ArgBuilder` of T from two `ArgBuilders` of `T` where the second `ArgBuilder` is a fallback if the first one fails
+   * In the case that both fail, the error from the second will be returned
+   * @param fallback The alternative `ArgBuilder` if this one fails
+   */
+  def orElse(fallback: ArgBuilder[T]): ArgBuilder[T] =
     (input: InputValue) =>
       self.build(input) match {
-        case Left(_) => other.build(input)
+        case Left(_) => fallback.build(input)
         case pass    => pass
       }
+
+  /**
+   * @see [[orElse]]
+   */
+  def ||(fallback: ArgBuilder[T]): ArgBuilder[T] =
+    orElse(fallback)
 }
 
 object ArgBuilder {
 
   type Typeclass[T] = ArgBuilder[T]
 
-  implicit val unit: ArgBuilder[Unit] = _ => Right(())
-  implicit val int: ArgBuilder[Int] = {
+  implicit lazy val unit: ArgBuilder[Unit] = _ => Right(())
+  implicit lazy val int: ArgBuilder[Int] = {
     case value: IntValue => Right(value.toInt)
     case other           => Left(ExecutionError(s"Can't build an Int from input $other"))
   }
-  implicit val long: ArgBuilder[Long] = {
+  implicit lazy val long: ArgBuilder[Long] = {
     case value: IntValue => Right(value.toLong)
     case other           => Left(ExecutionError(s"Can't build a Long from input $other"))
   }
-  implicit val bigInt: ArgBuilder[BigInt] = {
+  implicit lazy val bigInt: ArgBuilder[BigInt] = {
     case value: IntValue => Right(value.toBigInt)
     case other           => Left(ExecutionError(s"Can't build a BigInt from input $other"))
   }
-  implicit val float: ArgBuilder[Float] = {
+  implicit lazy val float: ArgBuilder[Float] = {
     case value: IntValue   => Right(value.toLong.toFloat)
     case value: FloatValue => Right(value.toFloat)
     case other             => Left(ExecutionError(s"Can't build a Float from input $other"))
   }
-  implicit val double: ArgBuilder[Double] = {
+  implicit lazy val double: ArgBuilder[Double] = {
     case value: IntValue   => Right(value.toLong.toDouble)
     case value: FloatValue => Right(value.toDouble)
     case other             => Left(ExecutionError(s"Can't build a Double from input $other"))
   }
-  implicit val bigDecimal: ArgBuilder[BigDecimal] = {
+  implicit lazy val bigDecimal: ArgBuilder[BigDecimal] = {
     case value: IntValue   => Right(BigDecimal(value.toBigInt))
     case value: FloatValue => Right(value.toBigDecimal)
     case other             => Left(ExecutionError(s"Can't build a BigDecimal from input $other"))
   }
-  implicit val string: ArgBuilder[String] = {
+  implicit lazy val string: ArgBuilder[String] = {
     case StringValue(value) => Right(value)
     case other              => Left(ExecutionError(s"Can't build a String from input $other"))
   }
-  implicit val uuid: ArgBuilder[UUID] = {
+  implicit lazy val uuid: ArgBuilder[UUID] = {
     case StringValue(value) =>
       Try(UUID.fromString(value))
         .fold(ex => Left(ExecutionError(s"Can't parse $value into a UUID", innerThrowable = Some(ex))), Right(_))
     case other => Left(ExecutionError(s"Can't build a UUID from input $other"))
   }
-  implicit val boolean: ArgBuilder[Boolean] = {
+  implicit lazy val boolean: ArgBuilder[Boolean] = {
     case BooleanValue(value) => Right(value)
     case other               => Left(ExecutionError(s"Can't build a Boolean from input $other"))
   }
@@ -147,7 +157,7 @@ object ArgBuilder {
 
   implicit lazy val instant: ArgBuilder[Instant]               = TemporalDecoder("Instant")(Instant.parse)
   implicit lazy val localDate: ArgBuilder[LocalDate]           = TemporalDecoder("LocalDate")(LocalDate.parse)
-  implicit lazy val localTime: ArgBuilder[LocalTime]           = TemporalDecoder("LocalDateTime")(LocalTime.parse)
+  implicit lazy val localTime: ArgBuilder[LocalTime]           = TemporalDecoder("LocalTime")(LocalTime.parse)
   implicit lazy val localDateTime: ArgBuilder[LocalDateTime]   = TemporalDecoder("LocalDateTime")(LocalDateTime.parse)
   implicit lazy val offsetTime: ArgBuilder[OffsetTime]         = TemporalDecoder("OffsetTime")(OffsetTime.parse)
   implicit lazy val zonedDateTime: ArgBuilder[ZonedDateTime]   = TemporalDecoder("ZonedDateTime")(ZonedDateTime.parse)

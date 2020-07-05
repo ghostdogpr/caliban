@@ -579,8 +579,8 @@ trait TemporalSchema {
   implicit lazy val zonedDateTimeSchema: Schema[Any, ZonedDateTime] =
     zonedDateTimeSchemaWithFormatter(DateTimeFormatter.ISO_ZONED_DATE_TIME)
 
-  val localDateTimeEpochSchema: Schema[Any, ZonedDateTime] =
-    temporalSchema("LocalDateTime")(a => IntValue.LongNumber(a.toInstant.toEpochMilli))
+  val localDateTimeEpochSchema: Schema[Any, LocalDateTime] =
+    temporalSchema("LocalDateTime")(a => IntValue.LongNumber(a.toInstant(ZoneOffset.UTC).toEpochMilli))
 
   def zonedDateTimeSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, ZonedDateTime] =
     temporalSchemaWithFormatter(

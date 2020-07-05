@@ -15,6 +15,12 @@ The table below shows how common Scala types are converted to GraphQL types.
 | Long                                                | Long (custom scalar)                                             |
 | BigInt                                              | BigInt (custom scalar)                                           |
 | BigDecimal                                          | BigDecimal (custom scalar)                                       |
+| java.time.Instant                                   | Instant (custom scalar)                                          |
+| java.time.LocalDate                                 | LocalDate (custom scalar)                                        |
+| java.time.LocalTime                                 | LocalTime (custom scalar)                                        |
+| java.time.LocalDateTime                             | LocalDateTime (custom scalar)                                    |
+| java.time.OffsetDateTime                            | OffsetDateTime (custom scalar)                                   |
+| java.time.ZonedDateTime                             | ZonedDateTime (custom scalar)                                    |
 | Case Class                                          | Object                                                           |
 | Sealed Trait                                        | Enum or Union                                                    |
 | Option[A]                                           | Nullable A                                                       |
@@ -161,6 +167,14 @@ Caliban supports a few annotations to enrich data types:
 - `@GQLDeprecated("reason")` allows deprecating a field or an enum value.
 - `@GQLInterface` to force a sealed trait generating an interface instead of a union.
 - `@GQLDirective(directive: Directive)` to add a directive to a field or type.
+
+## Java 8 Time types
+
+Caliban provides implicit `Schema` types for the standard `java.time` types, by default these will use the
+ISO standard strings for serialization and deserialization. However, you can customize this behavior by using
+explicit constructor available under the `ArgBuilder` companion object. For instance, you can specify an `instantEpoch` 
+to handle instants which are encoded using a `Long` from the standard java epoch time (January 1st 1970 00:00:00).
+For some time formats you can also specify a specific `DateTimeFormatter` to handle your particular date time needs. 
 
 ## Custom types
 
