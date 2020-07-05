@@ -182,7 +182,8 @@ object Executor {
     // ugly mutable code but it's worth it for the speed ;)
     val array = ArrayBuffer.empty[Field]
     val map   = collection.mutable.Map.empty[String, Int]
-    var index = 0
+
+    val reusedFieldBuilder: ArrayBuffer[Field] = ArrayBuffer.empty[Field]
 
     field.fields.foreach { field =>
       if (field.condition.forall(_ == typeName)) {
@@ -191,22 +192,18 @@ object Executor {
           case None =>
             // first time we see this field, add it to the array
             array += field
-            index += 1
           case Some(index) =>
             // field already existed, merge it
             val f = array(index)
-            array(index) = f.copy(fields = f.fields ++ field.fields)
+            reusedFieldBuilder ++= f.fields
+            reusedFieldBuilder ++= field.fields
+            array(index) = f.copy(fields = reusedFieldBuilder.toList)
+            reusedFieldBuilder.clear()
         }
       }
     }
 
-    val result = List.newBuilder[Field]
-    var i      = 0
-    while (i < index) {
-      result += array(i)
-      i += 1
-    }
-    result.result()
+    array.toList
   }
 
   private def fieldInfo(field: Field, path: List[Either[String, Int]], fieldDirectives: List[Directive]): FieldInfo =
