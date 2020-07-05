@@ -183,8 +183,6 @@ object Executor {
     val array = ArrayBuffer.empty[Field]
     val map   = collection.mutable.Map.empty[String, Int]
 
-    val reusedFieldBuilder: ArrayBuffer[Field] = ArrayBuffer.empty[Field]
-
     field.fields.foreach { field =>
       if (field.condition.forall(_ == typeName)) {
         val name = field.alias.getOrElse(field.name)
@@ -195,10 +193,7 @@ object Executor {
           case Some(index) =>
             // field already existed, merge it
             val f = array(index)
-            reusedFieldBuilder ++= f.fields
-            reusedFieldBuilder ++= field.fields
-            array(index) = f.copy(fields = reusedFieldBuilder.toList)
-            reusedFieldBuilder.clear()
+            array(index) = f.copy(fields = f.fields ::: field.fields)
         }
       }
     }
