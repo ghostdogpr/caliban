@@ -24,7 +24,7 @@ object EntityResolver {
           resolver(arg).map(_.fold[Step[R]](Step.NullStep)(schema.resolve))
         }
 
-      override def toType: __Type = schema.toType()
+      override def toType: __Type = schema.toType_()
     }
 
   def from[A]: EntityResolverPartiallyApplied[A] =

@@ -167,7 +167,7 @@ object SchemaWriter {
   }
 
   def escapeDoubleQuotes(input: String): String =
-    input.replaceAllLiterally("\"", "\\\"")
+    input.replace("\"", "\\\"")
 
   def writeDescription(description: Option[String]): String =
     description.fold("") {

@@ -17,20 +17,61 @@ import caliban.parsing.adt._
 import fastparse._
 import zio.{ IO, Task }
 
+import scala.annotation.{ switch, tailrec }
+
 object Parser {
 
   private def sourceCharacter[_: P]: P[Unit]                      = P(CharIn("\u0009\u000A\u000D\u0020-\uFFFF"))
   private def sourceCharacterWithoutLineTerminator[_: P]: P[Unit] = P(CharIn("\u0009\u0020-\uFFFF"))
 
-  private def unicodeBOM[_: P]: P[Unit]     = P("\uFEFF")
-  private def whiteSpace[_: P]: P[Unit]     = P(CharIn("\u0009\u0020"))
-  private def lineTerminator[_: P]: P[Unit] = P("\u000A" | "\u000D" ~~ !"\u000A" | "\u000D\u000A")
-  private def comma[_: P]: P[Unit]          = P(",")
-  private def commentChar[_: P]: P[Unit]    = P(sourceCharacterWithoutLineTerminator)
-  private def comment[_: P]: P[Unit]        = P("#" ~~ commentChar.repX)
-  private def ignored[_: P]: P[Unit]        = P(unicodeBOM | whiteSpace | lineTerminator | comment | comma).repX
+  private implicit val whitespace: P[_] => P[Unit] = new (P[_] => P[Unit]) {
 
-  implicit val whitespace: P[_] => P[Unit] = { implicit ctx: ParsingRun[_] => ignored }
+    type State = Int
+
+    // statuses
+    private final val Normal                  = 0
+    private final val InsideLineComment       = 1
+    private final val DetermineLineBreakStart = 2
+
+    private final val UnicodeBOM   = '\uFEFF'
+    private final val Tab          = '\u0009'
+    private final val Space        = '\u0020'
+    private final val LF           = '\u000A'
+    private final val CR           = '\u000D'
+    private final val Comma        = ','
+    private final val CommentStart = '#'
+
+    override def apply(p: P[_]): P[Unit] =
+      loop(p.index, state = Normal)(p, p.input)
+
+    @tailrec def loop(index: Int, state: State)(implicit ctx: P[_], input: ParserInput): ParsingRun[Unit] =
+      if (input.isReachable(index)) {
+        val currentChar = input(index)
+        (state: @switch) match {
+          case Normal =>
+            (currentChar: @switch) match {
+              case Space | LF | Comma | Tab | UnicodeBOM => loop(index + 1, state = Normal)
+              case CommentStart                          => loop(index + 1, state = InsideLineComment)
+              case CR                                    => loop(index + 1, state = DetermineLineBreakStart)
+              case _                                     => ctx.freshSuccessUnit(index)
+            }
+          case InsideLineComment =>
+            loop(
+              index + 1,
+              state = (currentChar: @switch) match {
+                case CR => DetermineLineBreakStart
+                case LF => Normal
+                case _  => InsideLineComment
+              }
+            )
+          case DetermineLineBreakStart =>
+            (currentChar: @switch) match {
+              case LF => loop(index + 1, state = Normal)
+              case _  => loop(index, state = Normal)
+            }
+        }
+      } else ctx.freshSuccessUnit(index)
+  }
 
   private def name[_: P]: P[String] = P(CharIn("_A-Za-z") ~~ CharIn("_0-9A-Za-z").repX).!
 
@@ -482,7 +523,7 @@ object Parser {
   private def definition[_: P]: P[Definition] = executableDefinition | typeSystemDefinition | typeSystemExtension
 
   private def document[_: P]: P[ParsedDocument] =
-    P(Start ~ ignored ~ definition.rep ~ ignored ~ End).map(seq => ParsedDocument(seq.toList))
+    P(Start ~ definition.rep ~ End).map(seq => ParsedDocument(seq.toList))
 
   /**
    * Parses the given string into a [[caliban.parsing.adt.Document]] object or fails with a [[caliban.CalibanError.ParsingError]].

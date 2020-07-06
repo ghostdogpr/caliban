@@ -294,8 +294,8 @@ lazy val benchmarks = project
   .enablePlugins(JmhPlugin)
   .settings(
     libraryDependencies ++= Seq(
-      "org.sangria-graphql" %% "sangria"       % "1.4.2",
-      "org.sangria-graphql" %% "sangria-circe" % "1.2.1"
+      "org.sangria-graphql" %% "sangria"       % "2.0.0",
+      "org.sangria-graphql" %% "sangria-circe" % "1.3.0"
     )
   )
 
