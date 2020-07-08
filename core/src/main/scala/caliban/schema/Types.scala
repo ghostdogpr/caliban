@@ -104,8 +104,18 @@ object Types {
           t.name.fold(existingTypes)(_ =>
             if (existingTypes.exists(same(t, _))) {
               existingTypes.map {
-                case ex if ex.name == t.name && t.interfaces().nonEmpty => t
-                case other                                              => other
+                case ex if same(ex, t) =>
+                  ex.copy(interfaces =
+                    () =>
+                      (ex.interfaces(), t.interfaces()) match {
+                        case (None, None)             => None
+                        case (Some(interfaces), None) => Some(interfaces)
+                        case (None, Some(interfaces)) => Some(interfaces)
+                        case (Some(left), Some(right)) =>
+                          Some(left ++ right.filterNot(t => left.exists(_.name == t.name)))
+                      }
+                  )
+                case other => other
               }
             } else t :: existingTypes
           )
