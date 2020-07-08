@@ -101,7 +101,14 @@ object Types {
         t.ofType.fold(existingTypes)(collectTypes(_, existingTypes))
       case _ =>
         val list1 =
-          t.name.fold(existingTypes)(_ => if (existingTypes.exists(same(t, _))) existingTypes else t :: existingTypes)
+          t.name.fold(existingTypes)(_ =>
+            if (existingTypes.exists(same(t, _))) {
+              existingTypes.map {
+                case ex if ex.name == t.name && t.interfaces().nonEmpty => t
+                case other                                              => other
+              }
+            } else t :: existingTypes
+          )
         val embeddedTypes =
           t.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).flatMap(f => f.`type` :: f.args.map(_.`type`)) ++
             t.inputFields.getOrElse(Nil).map(_.`type`)
