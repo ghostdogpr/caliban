@@ -9,6 +9,7 @@ import akka.http.scaladsl.server.{ RequestContext, Route }
 import akka.http.scaladsl.unmarshalling.FromEntityUnmarshaller
 import akka.stream.scaladsl.{ Flow, Sink, Source, SourceQueueWithComplete }
 import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
+import caliban.AkkaHttpAdapter.Around
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
 import zio._
@@ -62,8 +63,7 @@ trait AkkaHttpAdapter {
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
-    around: RequestContext => URIO[R, HttpResponse] => URIO[R, HttpResponse] = (_: RequestContext) =>
-      (e: URIO[R, HttpResponse]) => e
+    around: Around = Around.empty
   )(request: GraphQLRequest)(implicit ec: ExecutionContext, runtime: Runtime[R]): Route =
     extractRequestContext { ctx =>
       complete(
@@ -86,8 +86,7 @@ trait AkkaHttpAdapter {
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
-    around: RequestContext => URIO[R, HttpResponse] => URIO[R, HttpResponse] = (_: RequestContext) =>
-      (e: URIO[R, HttpResponse]) => e
+    around: Around = Around.empty
   )(implicit ec: ExecutionContext, runtime: Runtime[R]): Route = {
     import akka.http.scaladsl.server.Directives._
 
@@ -219,6 +218,17 @@ trait AkkaHttpAdapter {
 }
 
 object AkkaHttpAdapter {
+
+  trait Around {
+    def apply[R](ctx: RequestContext)(e: URIO[R, HttpResponse]): URIO[R, HttpResponse]
+  }
+
+  object Around {
+    def empty: Around = new Around {
+      override def apply[R](ctx: RequestContext)(effect: URIO[R, HttpResponse]): URIO[R, HttpResponse] =
+        effect
+    }
+  }
 
   /**
    * @see [[AkkaHttpAdapter]]
