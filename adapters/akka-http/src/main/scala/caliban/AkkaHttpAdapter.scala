@@ -62,7 +62,8 @@ trait AkkaHttpAdapter {
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
-    around: RequestContext => URIO[R, HttpResponse] => URIO[R, HttpResponse] = _ => identity
+    around: RequestContext => URIO[R, HttpResponse] => URIO[R, HttpResponse] = (_: RequestContext) =>
+      (e: URIO[R, HttpResponse]) => e
   )(request: GraphQLRequest)(implicit ec: ExecutionContext, runtime: Runtime[R]): Route =
     extractRequestContext { ctx =>
       complete(
@@ -85,7 +86,8 @@ trait AkkaHttpAdapter {
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
-    around: RequestContext => URIO[R, HttpResponse] => URIO[R, HttpResponse] = _ => identity
+    around: RequestContext => URIO[R, HttpResponse] => URIO[R, HttpResponse] = (_: RequestContext) =>
+      (e: URIO[R, HttpResponse]) => e
   )(implicit ec: ExecutionContext, runtime: Runtime[R]): Route = {
     import akka.http.scaladsl.server.Directives._
 
