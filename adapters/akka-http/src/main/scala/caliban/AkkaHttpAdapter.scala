@@ -4,8 +4,8 @@ import scala.concurrent.ExecutionContext
 import akka.http.scaladsl.model.MediaTypes.`application/json`
 import akka.http.scaladsl.model.ws.{ Message, TextMessage }
 import akka.http.scaladsl.model.{ HttpEntity, HttpResponse, StatusCodes }
-import akka.http.scaladsl.server.Directives.complete
-import akka.http.scaladsl.server.{ Route, StandardRoute }
+import akka.http.scaladsl.server.Directives.{ complete, extractRequestContext }
+import akka.http.scaladsl.server.{ RequestContext, Route, StandardRoute }
 import akka.http.scaladsl.unmarshalling.FromEntityUnmarshaller
 import akka.stream.scaladsl.{ Flow, Sink, Source, SourceQueueWithComplete }
 import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
@@ -61,25 +61,31 @@ trait AkkaHttpAdapter {
   def completeRequest[R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true
-  )(request: GraphQLRequest)(implicit ec: ExecutionContext, runtime: Runtime[R]): StandardRoute =
-    complete(
-      runtime
-        .unsafeRunToFuture(
-          executeHttpResponse(
-            interpreter,
-            request,
-            skipValidation = skipValidation,
-            enableIntrospection = enableIntrospection
+    enableIntrospection: Boolean = true,
+    around: RequestContext => URIO[R, HttpResponse] => URIO[R, HttpResponse] = _ => identity
+  )(request: GraphQLRequest)(implicit ec: ExecutionContext, runtime: Runtime[R]): Route =
+    extractRequestContext { ctx =>
+      complete(
+        runtime
+          .unsafeRunToFuture(
+            around(ctx) {
+              executeHttpResponse(
+                interpreter,
+                request,
+                skipValidation = skipValidation,
+                enableIntrospection = enableIntrospection
+              )
+            }
           )
-        )
-        .future
-    )
+          .future
+      )
+    }
 
   def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true
+    enableIntrospection: Boolean = true,
+    around: RequestContext => URIO[R, HttpResponse] => URIO[R, HttpResponse] = _ => identity
   )(implicit ec: ExecutionContext, runtime: Runtime[R]): Route = {
     import akka.http.scaladsl.server.Directives._
 
@@ -90,13 +96,23 @@ trait AkkaHttpAdapter {
             .parseHttpRequest(query, op, vars, ext)
             .fold(
               failWith,
-              completeRequest(interpreter, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
+              completeRequest(
+                interpreter,
+                skipValidation = skipValidation,
+                enableIntrospection = enableIntrospection,
+                around = around
+              )
             )
       }
     } ~
       post {
         entity(as[GraphQLRequest])(
-          completeRequest(interpreter, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
+          completeRequest(
+            interpreter,
+            skipValidation = skipValidation,
+            enableIntrospection = enableIntrospection,
+            around = around
+          )
         )
       }
   }
