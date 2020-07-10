@@ -9,7 +9,7 @@ import akka.http.scaladsl.server.{ RequestContext, Route }
 import akka.http.scaladsl.unmarshalling.FromEntityUnmarshaller
 import akka.stream.scaladsl.{ Flow, Sink, Source, SourceQueueWithComplete }
 import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
-import caliban.AkkaHttpAdapter.Around
+import caliban.AkkaHttpAdapter.ContextWrapper
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
 import zio._
@@ -63,13 +63,13 @@ trait AkkaHttpAdapter {
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
-    around: Around = Around.empty
+    contextWrapper: ContextWrapper = ContextWrapper.empty
   )(request: GraphQLRequest)(implicit ec: ExecutionContext, runtime: Runtime[R]): Route =
     extractRequestContext { ctx =>
       complete(
         runtime
           .unsafeRunToFuture(
-            around(ctx) {
+            contextWrapper(ctx) {
               executeHttpResponse(
                 interpreter,
                 request,
@@ -86,7 +86,7 @@ trait AkkaHttpAdapter {
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
-    around: Around = Around.empty
+    contextWrapper: ContextWrapper = ContextWrapper.empty
   )(implicit ec: ExecutionContext, runtime: Runtime[R]): Route = {
     import akka.http.scaladsl.server.Directives._
 
@@ -101,7 +101,7 @@ trait AkkaHttpAdapter {
                 interpreter,
                 skipValidation = skipValidation,
                 enableIntrospection = enableIntrospection,
-                around = around
+                contextWrapper = contextWrapper
               )
             )
       }
@@ -112,7 +112,7 @@ trait AkkaHttpAdapter {
             interpreter,
             skipValidation = skipValidation,
             enableIntrospection = enableIntrospection,
-            around = around
+            contextWrapper = contextWrapper
           )
         )
       }
@@ -219,12 +219,20 @@ trait AkkaHttpAdapter {
 
 object AkkaHttpAdapter {
 
-  trait Around {
+  /**
+   * ContextWrapper provides a way to pass context from http request into Caliban's query handling.
+   */
+  trait ContextWrapper { self =>
     def apply[R](ctx: RequestContext)(e: URIO[R, HttpResponse]): URIO[R, HttpResponse]
+
+    def |+|(that: ContextWrapper): ContextWrapper = new ContextWrapper {
+      override def apply[R](ctx: RequestContext)(e: URIO[R, HttpResponse]): URIO[R, HttpResponse] =
+        that.apply(ctx)(self.apply(ctx)(e))
+    }
   }
 
-  object Around {
-    def empty: Around = new Around {
+  object ContextWrapper {
+    def empty: ContextWrapper = new ContextWrapper {
       override def apply[R](ctx: RequestContext)(effect: URIO[R, HttpResponse]): URIO[R, HttpResponse] =
         effect
     }
