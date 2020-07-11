@@ -180,7 +180,9 @@ object ClientWriter {
         """
 
   def safeName(name: String): String =
-    if (reservedKeywords.contains(name)) s"`$name`" else name
+    if (reservedKeywords.contains(name)) s"`$name`"
+    else if (caseClassReservedFields.contains(name)) s"${name}_"
+    else name
 
   @tailrec
   def getTypeLetter(typesMap: Map[String, TypeDefinition], letter: String = "A"): String =
@@ -289,7 +291,7 @@ object ClientWriter {
   }
 
   def writeArgumentFields(args: List[InputValueDefinition]): String =
-    s"${args.map(arg => s"${safeName(arg.name)}: ${writeType(arg.ofType)}${writeDefaultArgument(arg)}").mkString(", ")}"
+    s"${args.map(arg => s"${safeName(arg.name)} : ${writeType(arg.ofType)}${writeDefaultArgument(arg)}").mkString(", ")}"
 
   def writeDefaultArgument(arg: InputValueDefinition): String =
     arg.ofType match {
@@ -380,4 +382,7 @@ object ClientWriter {
     "yield",
     "_"
   )
+
+  val caseClassReservedFields =
+    Set("wait", "notify", "toString", "notifyAll", "hashCode", "getClass", "finalize", "equals", "clone")
 }
