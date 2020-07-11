@@ -2,6 +2,7 @@ package caliban
 
 import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
 import akka.stream.scaladsl.{ Flow, Sink, Source, SourceQueueWithComplete }
+import caliban.PlayAdapter.RequestWrapper
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
 import caliban.interop.play.json.parsingException
@@ -9,9 +10,10 @@ import play.api.http.Writeable
 import play.api.libs.json.{ JsValue, Json, Writes }
 import play.api.mvc.{ Action, ActionBuilder, AnyContent, PlayBodyParsers, Request, RequestHeader, Result, WebSocket }
 import play.api.mvc.Results.Ok
-import zio.{ CancelableFuture, Fiber, IO, RIO, Ref, Runtime, Schedule, Task, ZIO }
+import zio.{ CancelableFuture, Fiber, IO, RIO, Ref, Runtime, Schedule, Task, URIO, ZIO }
 import zio.clock.Clock
 import zio.duration.Duration
+
 import scala.concurrent.{ ExecutionContext, Future }
 import scala.util.Try
 
@@ -19,6 +21,7 @@ trait PlayAdapter {
 
   def actionBuilder: ActionBuilder[Request, AnyContent]
   def parse: PlayBodyParsers
+  def requestWrapper: RequestWrapper
 
   implicit def writableGraphQLResponse[E](implicit wr: Writes[GraphQLResponse[E]]): Writeable[GraphQLResponse[E]] =
     Writeable.writeableOf_JsValue.map(wr.writes)
@@ -49,15 +52,17 @@ trait PlayAdapter {
 
   private def executeRequest[R, E](
     interpreter: GraphQLInterpreter[R, E],
-    request: GraphQLRequest,
+    request: Request[GraphQLRequest],
     skipValidation: Boolean,
     enableIntrospection: Boolean
   )(implicit runtime: Runtime[R]): CancelableFuture[Result] =
     runtime.unsafeRunToFuture(
-      interpreter
-        .executeRequest(request, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
-        .catchAllCause(cause => ZIO.succeed(GraphQLResponse[Throwable](NullValue, cause.defects)))
-        .map(Ok(_))
+      requestWrapper(request)(
+        interpreter
+          .executeRequest(request.body, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
+          .catchAllCause(cause => ZIO.succeed(GraphQLResponse[Throwable](NullValue, cause.defects)))
+          .map(Ok(_))
+      )
     )
 
   def makePostAction[R, E](
@@ -68,7 +73,7 @@ trait PlayAdapter {
     actionBuilder.async(parse.json[GraphQLRequest])(req =>
       executeRequest(
         interpreter,
-        req.body,
+        req,
         skipValidation,
         enableIntrospection
       )
@@ -84,7 +89,7 @@ trait PlayAdapter {
     operation: Option[String],
     extensions: Option[String]
   )(implicit runtime: Runtime[R]): Action[AnyContent] =
-    actionBuilder.async(
+    actionBuilder.async(req =>
       getGraphQLRequest(
         query,
         operation,
@@ -92,7 +97,7 @@ trait PlayAdapter {
         extensions
       ).fold(
         Future.failed,
-        executeRequest(interpreter, _, skipValidation, enableIntrospection)
+        body => executeRequest(interpreter, req.withBody(body), skipValidation, enableIntrospection)
       )
     )
 
@@ -211,10 +216,27 @@ trait PlayAdapter {
 object PlayAdapter {
   def apply(
     playBodyParsers: PlayBodyParsers,
-    _actionBuilder: ActionBuilder[Request, AnyContent]
+    _actionBuilder: ActionBuilder[Request, AnyContent],
+    wrapper: RequestWrapper = RequestWrapper.empty
   ): PlayAdapter =
     new PlayAdapter {
       override def parse: PlayBodyParsers                            = playBodyParsers
       override def actionBuilder: ActionBuilder[Request, AnyContent] = _actionBuilder
+      override def requestWrapper: RequestWrapper                    = wrapper
     }
+
+  trait RequestWrapper { self =>
+    def apply[R](ctx: RequestHeader)(e: URIO[R, Result]): URIO[R, Result]
+
+    def |+|(that: RequestWrapper): RequestWrapper = new RequestWrapper {
+      override def apply[R](ctx: RequestHeader)(e: URIO[R, Result]): URIO[R, Result] =
+        that.apply(ctx)(self.apply(ctx)(e))
+    }
+  }
+
+  object RequestWrapper {
+    lazy val empty: RequestWrapper = new RequestWrapper {
+      override def apply[R](ctx: RequestHeader)(effect: URIO[R, Result]): URIO[R, Result] = effect
+    }
+  }
 }
