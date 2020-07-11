@@ -28,6 +28,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
         val typeCaseClass = Parser
           .parseQuery(schema)
           .map(_.objectTypeDefinitions.map(SchemaWriter.writeObject).mkString("\n"))
+          .flatMap(Formatter.format(_, None).map(_.trim))
 
         val typeCaseClassArgs = Parser
           .parseQuery(schema)
@@ -38,6 +39,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
               argClass     = SchemaWriter.writeArguments(typeDefField) if argClass.length > 0
             } yield argClass).mkString("\n")
           }
+          .flatMap(Formatter.format(_, None).map(_.trim))
 
         assertM(typeCaseClass)(
           equalTo(
@@ -67,13 +69,13 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
           .map(
             _.objectTypeDefinition("Query").map(SchemaWriter.writeRootQueryOrMutationDef(_, "zio.UIO")).mkString("\n")
           )
+          .flatMap(Formatter.format(_, None).map(_.trim))
 
         assertM(result)(
           equalTo(
-            """
-case class Query(
-user: UserArgs => zio.UIO[Option[User]],
-userList: zio.UIO[List[Option[User]]]
+            """case class Query(
+  user: UserArgs => zio.UIO[Option[User]],
+  userList: zio.UIO[List[Option[User]]]
 )""".stripMargin
           )
         )
@@ -92,12 +94,12 @@ userList: zio.UIO[List[Option[User]]]
               .map(SchemaWriter.writeRootQueryOrMutationDef(_, "zio.UIO"))
               .mkString("\n")
           )
+          .flatMap(Formatter.format(_, None).map(_.trim))
 
         assertM(result)(
           equalTo(
-            """
-              |case class Mutation(
-              |setMessage: SetMessageArgs => zio.UIO[Option[String]]
+            """case class Mutation(
+              |  setMessage: SetMessageArgs => zio.UIO[Option[String]]
               |)""".stripMargin
           )
         )
@@ -337,6 +339,25 @@ object Types {
             """object Types {
 
   case class Character(`private`: String, `object`: String, `type`: String)
+
+}
+"""
+          )
+        )
+      },
+      testM("case class reserved field name used") {
+        val schema =
+          """
+             type Character {
+               wait: String!
+             }
+            """.stripMargin
+
+        assertM(gen(schema))(
+          equalTo(
+            """object Types {
+
+  case class Character(wait_ : String)
 
 }
 """

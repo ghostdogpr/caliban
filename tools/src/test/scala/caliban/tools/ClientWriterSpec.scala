@@ -268,6 +268,35 @@ object Client {
           )
         )
       },
+      testM("input object with reserved name") {
+        val schema =
+          """
+             input CharacterInput {
+               wait: String!
+             }
+            """.stripMargin
+
+        assertM(gen(schema))(
+          equalTo(
+            """import caliban.client._
+import caliban.client.Value._
+
+object Client {
+
+  case class CharacterInput(wait_ : String)
+  object CharacterInput {
+    implicit val encoder: ArgEncoder[CharacterInput] = new ArgEncoder[CharacterInput] {
+      override def encode(value: CharacterInput): Value =
+        ObjectValue(List("wait" -> implicitly[ArgEncoder[String]].encode(value.wait_)))
+      override def typeName: String = "CharacterInput"
+    }
+  }
+
+}
+"""
+          )
+        )
+      },
       testM("union") {
         val schema =
           """
@@ -377,7 +406,7 @@ object Client {
     /**
      * name
      */
-    @deprecated(${tripleQuotes}foo\nbar${tripleQuotes}, "")
+    @deprecated(${tripleQuotes}foo\nbar$tripleQuotes, "")
     def name: SelectionBuilder[Character, String] = Field("name", Scalar())
   }
 
