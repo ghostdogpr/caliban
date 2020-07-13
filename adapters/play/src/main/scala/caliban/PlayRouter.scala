@@ -1,7 +1,7 @@
 package caliban
 
 import akka.stream.Materializer
-
+import caliban.PlayAdapter.RequestWrapper
 import play.api.mvc.{ ActionBuilder, AnyContent, ControllerComponents, PlayBodyParsers, Request, Results }
 import play.api.routing.Router.Routes
 import play.api.routing.SimpleRouter
@@ -21,7 +21,8 @@ case class PlayRouter[R <: Blocking with Random, E](
   subscriptions: Boolean = true,
   skipValidation: Boolean = false,
   enableIntrospection: Boolean = true,
-  keepAliveTime: Option[Duration] = None
+  keepAliveTime: Option[Duration] = None,
+  requestWrapper: RequestWrapper = RequestWrapper.empty
 )(implicit runtime: Runtime[R], materializer: Materializer)
     extends SimpleRouter
     with PlayAdapter {

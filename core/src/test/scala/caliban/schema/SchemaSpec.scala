@@ -108,6 +108,6 @@ object SchemaSpec extends DefaultRunnableSpec {
     case class B(common: Int, different: Boolean) extends MyInterface
   }
 
-  def introspect[Q](implicit schema: Schema[Any, Q]): __Type             = schema.toType()
-  def introspectSubscription[Q](implicit schema: Schema[Any, Q]): __Type = schema.toType(isSubscription = true)
+  def introspect[Q](implicit schema: Schema[Any, Q]): __Type             = schema.toType_()
+  def introspectSubscription[Q](implicit schema: Schema[Any, Q]): __Type = schema.toType_(isSubscription = true)
 }

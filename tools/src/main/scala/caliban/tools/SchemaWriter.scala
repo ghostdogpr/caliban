@@ -93,7 +93,7 @@ object SchemaWriter {
 
   def writeRootField(field: FieldDefinition, effect: String): String = {
     val argsName = if (field.args.nonEmpty) s" ${field.name.capitalize}Args =>" else ""
-    s"${safeName(field.name)}:$argsName $effect[${writeType(field.ofType)}]"
+    s"${safeName(field.name)} :$argsName $effect[${writeType(field.ofType)}]"
   }
 
   def writeRootQueryOrMutationDef(op: ObjectTypeDefinition, effect: String): String =
@@ -122,7 +122,7 @@ object SchemaWriter {
 
   def writeInputObject(typedef: InputObjectTypeDefinition): String =
     s"""${writeDescription(typedef.description)}case class ${typedef.name}(${typedef.fields
-      .map(writeInputValue(_, typedef))
+      .map(writeInputValue)
       .mkString(", ")})"""
 
   def writeEnum(typedef: EnumTypeDefinition): String =
@@ -147,17 +147,17 @@ object SchemaWriter {
 
   def writeField(field: FieldDefinition, of: ObjectTypeDefinition): String =
     if (field.args.nonEmpty) {
-      s"${writeDescription(field.description)}${safeName(field.name)}: ${of.name.capitalize}${field.name.capitalize}Args => ${writeType(field.ofType)}"
+      s"${writeDescription(field.description)}${safeName(field.name)} : ${of.name.capitalize}${field.name.capitalize}Args => ${writeType(field.ofType)}"
     } else {
-      s"""${writeDescription(field.description)}${safeName(field.name)}: ${writeType(field.ofType)}"""
+      s"""${writeDescription(field.description)}${safeName(field.name)} : ${writeType(field.ofType)}"""
     }
 
-  def writeInputValue(value: InputValueDefinition, of: InputObjectTypeDefinition): String =
-    s"""${writeDescription(value.description)}${safeName(value.name)}: ${writeType(value.ofType)}"""
+  def writeInputValue(value: InputValueDefinition): String =
+    s"""${writeDescription(value.description)}${safeName(value.name)} : ${writeType(value.ofType)}"""
 
   def writeArguments(field: FieldDefinition): String = {
     def fields(args: List[InputValueDefinition]): String =
-      s"${args.map(arg => s"${safeName(arg.name)}: ${writeType(arg.ofType)}").mkString(", ")}"
+      s"${args.map(arg => s"${safeName(arg.name)} : ${writeType(arg.ofType)}").mkString(", ")}"
 
     if (field.args.nonEmpty) {
       s"case class ${field.name.capitalize}Args(${fields(field.args)})"
@@ -166,13 +166,16 @@ object SchemaWriter {
     }
   }
 
+  def escapeDoubleQuotes(input: String): String =
+    input.replace("\"", "\\\"")
+
   def writeDescription(description: Option[String]): String =
     description.fold("") {
       case d if d.contains("\n") =>
-        s"""@GQLDescription(\"\"\"$d\"\"\")
+        s"""@GQLDescription(\"\"\"${escapeDoubleQuotes(d)}\"\"\")
            |""".stripMargin
       case d =>
-        s"""@GQLDescription("$d")
+        s"""@GQLDescription("${escapeDoubleQuotes(d)}")
            |""".stripMargin
     }
 

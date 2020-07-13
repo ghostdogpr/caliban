@@ -144,19 +144,29 @@ object Validator {
     }
 
   private def collectVariablesUsed(context: Context, selectionSet: List[Selection]): Set[String] = {
-    def collectValues(selectionSet: List[Selection]): List[InputValue] =
-      selectionSet.flatMap {
+    def collectValues(selectionSet: List[Selection]): List[InputValue] = {
+      // ugly mutable code but it's worth it for the speed ;)
+      val inputValues = List.newBuilder[InputValue]
+      selectionSet.foreach {
         case FragmentSpread(name, directives) =>
-          directives.flatMap(_.arguments.values) ++ context.fragments
+          directives.foreach(inputValues ++= _.arguments.values)
+          context.fragments
             .get(name)
-            .fold(List.empty[InputValue])(f =>
-              f.directives.flatMap(_.arguments.values) ++ collectValues(f.selectionSet)
-            )
+            .foreach { f =>
+              f.directives.foreach(inputValues ++= _.arguments.values)
+              inputValues ++= collectValues(f.selectionSet)
+            }
         case Field(_, _, arguments, directives, selectionSet, _) =>
-          arguments.values ++ directives.flatMap(_.arguments.values) ++ collectValues(selectionSet)
+          inputValues ++= arguments.values
+          directives.foreach(inputValues ++= _.arguments.values)
+          inputValues ++= collectValues(selectionSet)
         case InlineFragment(_, directives, selectionSet) =>
-          directives.flatMap(_.arguments.values) ++ collectValues(selectionSet)
+          directives.foreach(inputValues ++= _.arguments.values)
+          inputValues ++= collectValues(selectionSet)
       }
+      inputValues.result()
+    }
+
     def collectVariableValues(values: List[InputValue]): List[VariableValue] =
       values.flatMap({
         case InputValue.ListValue(values)   => collectVariableValues(values)
@@ -169,12 +179,19 @@ object Validator {
     varValues.map(_.name).toSet
   }
 
-  private def collectSelectionSets(selectionSet: List[Selection]): List[Selection] =
-    selectionSet ++ selectionSet.flatMap {
-      case _: FragmentSpread => Nil
-      case f: Field          => collectSelectionSets(f.selectionSet)
-      case f: InlineFragment => collectSelectionSets(f.selectionSet)
+  private def collectSelectionSets(selectionSet: List[Selection]): List[Selection] = {
+    val sets = List.newBuilder[Selection]
+    def loop(selectionSet: List[Selection]): Unit = {
+      sets ++= selectionSet
+      selectionSet.foreach {
+        case f: Field          => loop(f.selectionSet)
+        case f: InlineFragment => loop(f.selectionSet)
+        case _: FragmentSpread => ()
+      }
     }
+    loop(selectionSet)
+    sets.result()
+  }
 
   private def collectAllDirectives(context: Context): IO[ValidationError, List[(Directive, __DirectiveLocation)]] =
     for {

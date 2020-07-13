@@ -105,11 +105,11 @@ package object tapir {
             __Field(
               extractPath(serverEndpoint.endpoint.info.name, serverEndpoint.endpoint.input),
               serverEndpoint.endpoint.info.description,
-              getArgs(inputSchema.toType(true), inputSchema.optional),
+              getArgs(inputSchema.toType_(isInput = true), inputSchema.optional),
               () =>
                 if (serverEndpoint.endpoint.errorOutput == EndpointOutput.Void())
-                  Types.makeNonNull(outputSchema.toType())
-                else outputSchema.toType(),
+                  Types.makeNonNull(outputSchema.toType_())
+                else outputSchema.toType_(),
               serverEndpoint.endpoint.info.deprecated
             )
           ),

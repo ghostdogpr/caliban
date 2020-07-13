@@ -71,7 +71,7 @@ object Wrappers {
 
   private def calculateDepth(field: Field): UIO[Int] = {
     val self     = if (field.name.nonEmpty) 1 else 0
-    val children = field.fields ++ field.conditionalFields.values.flatten
+    val children = field.fields
     ZIO
       .foreach(children)(calculateDepth)
       .map {
@@ -96,13 +96,7 @@ object Wrappers {
     }
 
   private def countFields(field: Field): UIO[Int] =
-    for {
-      inner <- innerFields(field.fields)
-      conditional <- IO.foreach(field.conditionalFields.values)(innerFields).map {
-                      case Nil  => 0
-                      case list => list.max
-                    }
-    } yield inner + conditional
+    innerFields(field.fields)
 
   private def innerFields(fields: List[Field]): UIO[Int] =
     IO.foreach(fields)(countFields).map(_.sum + fields.length)

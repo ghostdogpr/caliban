@@ -1,5 +1,8 @@
 package caliban.schema
 
+import java.time.{ Instant, LocalDate, LocalDateTime, LocalTime, OffsetDateTime, ZoneOffset, ZonedDateTime }
+import java.time.format.DateTimeFormatter
+import java.time.temporal.Temporal
 import java.util.UUID
 
 import caliban.CalibanError.ExecutionError
@@ -27,19 +30,36 @@ import zio.Chunk
  */
 @implicitNotFound(
   """Cannot find a Schema for type ${T}.
-     Caliban derives a Schema automatically for basic Scala types, case classes and sealed traits, but
-     you need to manually provide an implicit Schema for other types that could be nested in ${T}.
-     If you use a custom type as an argument, you also need to provide an implicit ArgBuilder for that type.
-     See https://ghostdogpr.github.io/caliban/docs/schema.html for more information.
+
+Caliban derives a Schema automatically for basic Scala types, case classes and sealed traits, but
+you need to manually provide an implicit Schema for other types that could be nested in ${T}.
+If you use a custom type as an argument, you also need to provide an implicit ArgBuilder for that type.
+See https://ghostdogpr.github.io/caliban/docs/schema.html for more information.
 """
 )
 trait Schema[-R, T] { self =>
 
+  private lazy val asType: __Type             = toType()
+  private lazy val asInputType: __Type        = toType(isInput = true)
+  private lazy val asSubscriptionType: __Type = toType(isSubscription = true)
+
+  /**
+   * Generates a GraphQL type object from `T`.
+   * Unlike `toType`, this function is optimized and will not re-generate the type at each call.
+   * @param isInput indicates if the type is passed as an argument. This is needed because GraphQL differentiates `InputType` from `ObjectType`.
+   * @param isSubscription indicates if the type is used in a subscription operation.
+   *                       For example, ZStream gives a different GraphQL type depending whether it is used in a subscription or elsewhere.
+   */
+  final def toType_(isInput: Boolean = false, isSubscription: Boolean = false): __Type =
+    if (isInput) asInputType else if (isSubscription) asSubscriptionType else asType
+
   /**
    * Generates a GraphQL type object from `T`.
    * @param isInput indicates if the type is passed as an argument. This is needed because GraphQL differentiates `InputType` from `ObjectType`.
+   * @param isSubscription indicates if the type is used in a subscription operation.
+   *                       For example, ZStream gives a different GraphQL type depending whether it is used in a subscription or elsewhere.
    */
-  def toType(isInput: Boolean = false, isSubscription: Boolean = false): __Type
+  protected[this] def toType(isInput: Boolean = false, isSubscription: Boolean = false): __Type
 
   /**
    * Resolves `T` by turning a value of type `T` into an execution step that describes how to resolve the value.
@@ -64,14 +84,14 @@ trait Schema[-R, T] { self =>
   def contramap[A](f: A => T): Schema[R, A] = new Schema[R, A] {
     override def optional: Boolean                                         = self.optional
     override def arguments: List[__InputValue]                             = self.arguments
-    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = self.toType(isInput, isSubscription)
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = self.toType_(isInput, isSubscription)
     override def resolve(value: A): Step[R]                                = self.resolve(f(value))
   }
 }
 
 object Schema extends GenericSchema[Any]
 
-trait GenericSchema[R] extends DerivationSchema[R] {
+trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
 
   /**
    * Creates a scalar schema for a type `A`
@@ -123,7 +143,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
 
   implicit def optionSchema[A](implicit ev: Schema[R, A]): Schema[R, Option[A]] = new Schema[R, Option[A]] {
     override def optional: Boolean                                         = true
-    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType(isInput, isSubscription)
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
 
     override def resolve(value: Option[A]): Step[R] =
       value match {
@@ -133,7 +153,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
   }
   implicit def listSchema[A](implicit ev: Schema[R, A]): Schema[R, List[A]] = new Schema[R, List[A]] {
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
-      val t = ev.toType(isInput, isSubscription)
+      val t = ev.toType_(isInput, isSubscription)
       makeList(if (ev.optional) t else makeNonNull(t))
     }
 
@@ -146,7 +166,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
   implicit def functionUnitSchema[A](implicit ev: Schema[R, A]): Schema[R, () => A] =
     new Schema[R, () => A] {
       override def optional: Boolean                                         = ev.optional
-      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType(isInput, isSubscription)
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: () => A): Step[R]                          = FunctionStep(_ => ev.resolve(value()))
     }
 
@@ -154,8 +174,8 @@ trait GenericSchema[R] extends DerivationSchema[R] {
     implicit evA: Schema[RA, A],
     evB: Schema[RB, B]
   ): Schema[RA with RB, Either[A, B]] = {
-    lazy val typeAName: String   = Types.name(evA.toType())
-    lazy val typeBName: String   = Types.name(evB.toType())
+    lazy val typeAName: String   = Types.name(evA.toType_())
+    lazy val typeBName: String   = Types.name(evB.toType_())
     lazy val name: String        = s"Either${typeAName}Or$typeBName"
     lazy val description: String = s"Either $typeAName or $typeBName"
 
@@ -164,11 +184,11 @@ trait GenericSchema[R] extends DerivationSchema[R] {
       Some(description),
       (isInput, isSubscription) =>
         List(
-          __Field("left", Some("Left element of the Either"), Nil, () => evA.toType(isInput, isSubscription)) -> {
+          __Field("left", Some("Left element of the Either"), Nil, () => evA.toType_(isInput, isSubscription)) -> {
             case Left(value) => evA.resolve(value)
             case Right(_)    => NullStep
           },
-          __Field("right", Some("Right element of the Either"), Nil, () => evB.toType(isInput, isSubscription)) -> {
+          __Field("right", Some("Right element of the Either"), Nil, () => evB.toType_(isInput, isSubscription)) -> {
             case Left(_)      => NullStep
             case Right(value) => evB.resolve(value)
           }
@@ -179,8 +199,8 @@ trait GenericSchema[R] extends DerivationSchema[R] {
     implicit evA: Schema[RA, A],
     evB: Schema[RB, B]
   ): Schema[RA with RB, (A, B)] = {
-    lazy val typeAName: String = Types.name(evA.toType())
-    lazy val typeBName: String = Types.name(evB.toType())
+    lazy val typeAName: String = Types.name(evA.toType_())
+    lazy val typeBName: String = Types.name(evB.toType_())
 
     objectSchema(
       s"Tuple${typeAName}And$typeBName",
@@ -192,8 +212,8 @@ trait GenericSchema[R] extends DerivationSchema[R] {
             Some("First element of the tuple"),
             Nil,
             () =>
-              if (evA.optional) evA.toType(isInput, isSubscription)
-              else makeNonNull(evA.toType(isInput, isSubscription))
+              if (evA.optional) evA.toType_(isInput, isSubscription)
+              else makeNonNull(evA.toType_(isInput, isSubscription))
           ) ->
             ((tuple: (A, B)) => evA.resolve(tuple._1)),
           __Field(
@@ -201,8 +221,8 @@ trait GenericSchema[R] extends DerivationSchema[R] {
             Some("Second element of the tuple"),
             Nil,
             () =>
-              if (evB.optional) evB.toType(isInput, isSubscription)
-              else makeNonNull(evB.toType(isInput, isSubscription))
+              if (evB.optional) evB.toType_(isInput, isSubscription)
+              else makeNonNull(evB.toType_(isInput, isSubscription))
           ) ->
             ((tuple: (A, B)) => evB.resolve(tuple._2))
         )
@@ -210,8 +230,8 @@ trait GenericSchema[R] extends DerivationSchema[R] {
   }
   implicit def mapSchema[RA, RB, A, B](implicit evA: Schema[RA, A], evB: Schema[RB, B]): Schema[RA with RB, Map[A, B]] =
     new Schema[RA with RB, Map[A, B]] {
-      lazy val typeAName: String   = Types.name(evA.toType())
-      lazy val typeBName: String   = Types.name(evB.toType())
+      lazy val typeAName: String   = Types.name(evA.toType_())
+      lazy val typeBName: String   = Types.name(evB.toType_())
       lazy val name: String        = s"KV$typeAName$typeBName"
       lazy val description: String = s"A key-value pair of $typeAName and $typeBName"
 
@@ -225,8 +245,8 @@ trait GenericSchema[R] extends DerivationSchema[R] {
               Some("Key"),
               Nil,
               () =>
-                if (evA.optional) evA.toType(isInput, isSubscription)
-                else makeNonNull(evA.toType(isInput, isSubscription))
+                if (evA.optional) evA.toType_(isInput, isSubscription)
+                else makeNonNull(evA.toType_(isInput, isSubscription))
             )
               -> ((kv: (A, B)) => evA.resolve(kv._1)),
             __Field(
@@ -234,15 +254,15 @@ trait GenericSchema[R] extends DerivationSchema[R] {
               Some("Value"),
               Nil,
               () =>
-                if (evB.optional) evB.toType(isInput, isSubscription)
-                else makeNonNull(evB.toType(isInput, isSubscription))
+                if (evB.optional) evB.toType_(isInput, isSubscription)
+                else makeNonNull(evB.toType_(isInput, isSubscription))
             )
               -> ((kv: (A, B)) => evB.resolve(kv._2))
           )
       )
 
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-        makeList(makeNonNull(kvSchema.toType(isInput, isSubscription)))
+        makeList(makeNonNull(kvSchema.toType_(isInput, isSubscription)))
 
       override def resolve(value: Map[A, B]): Step[RA with RB] = ListStep(value.toList.map(kvSchema.resolve))
     }
@@ -253,7 +273,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
   ): Schema[RA with RB, A => B] =
     new Schema[RA with RB, A => B] {
       override def arguments: List[__InputValue] = {
-        val t = ev1.toType(true)
+        val t = ev1.toType_(true)
         t.inputFields.getOrElse(t.kind match {
           case __TypeKind.SCALAR | __TypeKind.ENUM | __TypeKind.LIST =>
             // argument was not wrapped in a case class, give it an arbitrary name
@@ -262,7 +282,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
         })
       }
       override def optional: Boolean                                         = ev2.optional
-      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev2.toType(isInput, isSubscription)
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev2.toType_(isInput, isSubscription)
 
       override def resolve(f: A => B): Step[RA with RB] =
         FunctionStep(args =>
@@ -277,13 +297,13 @@ trait GenericSchema[R] extends DerivationSchema[R] {
   implicit def infallibleEffectSchema[R1 >: R, R2 >: R, A](implicit ev: Schema[R2, A]): Schema[R, URIO[R1, A]] =
     new Schema[R, URIO[R1, A]] {
       override def optional: Boolean                                         = ev.optional
-      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType(isInput, isSubscription)
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: URIO[R1, A]): Step[R]                      = QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
     }
   implicit def effectSchema[R1 >: R, R2 >: R, E <: Throwable, A](implicit ev: Schema[R2, A]): Schema[R, ZIO[R1, E, A]] =
     new Schema[R, ZIO[R1, E, A]] {
       override def optional: Boolean                                         = true
-      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType(isInput, isSubscription)
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: ZIO[R1, E, A]): Step[R]                    = QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
     }
   implicit def infallibleQuerySchema[R1 >: R, R2 >: R, A](
@@ -291,7 +311,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
   ): Schema[R, ZQuery[R1, Nothing, A]] =
     new Schema[R, ZQuery[R1, Nothing, A]] {
       override def optional: Boolean                                         = ev.optional
-      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType(isInput, isSubscription)
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: ZQuery[R1, Nothing, A]): Step[R]           = QueryStep(value.map(ev.resolve))
     }
   implicit def querySchema[R1 >: R, R2 >: R, E <: Throwable, A](
@@ -299,7 +319,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
   ): Schema[R, ZQuery[R1, E, A]] =
     new Schema[R, ZQuery[R1, E, A]] {
       override def optional: Boolean                                         = true
-      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType(isInput, isSubscription)
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: ZQuery[R1, E, A]): Step[R]                 = QueryStep(value.map(ev.resolve))
     }
   implicit def infallibleStreamSchema[R1 >: R, R2 >: R, A](
@@ -308,7 +328,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
     new Schema[R, ZStream[R1, Nothing, A]] {
       override def optional: Boolean = false
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
-        val t = ev.toType(isInput, isSubscription)
+        val t = ev.toType_(isInput, isSubscription)
         if (isSubscription) t else makeList(if (ev.optional) t else makeNonNull(t))
       }
       override def resolve(value: ZStream[R1, Nothing, A]): Step[R] = StreamStep(value.map(ev.resolve))
@@ -319,7 +339,7 @@ trait GenericSchema[R] extends DerivationSchema[R] {
     new Schema[R, ZStream[R1, E, A]] {
       override def optional: Boolean = true
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
-        val t = ev.toType(isInput, isSubscription)
+        val t = ev.toType_(isInput, isSubscription)
         if (isSubscription) t else makeList(if (ev.optional) t else makeNonNull(t))
       }
       override def resolve(value: ZStream[R1, E, A]): Step[R] = StreamStep(value.map(ev.resolve))
@@ -341,7 +361,7 @@ trait DerivationSchema[R] {
 
   def combine[T](ctx: ReadOnlyCaseClass[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-      if (ctx.isValueClass && ctx.parameters.nonEmpty) ctx.parameters.head.typeclass.toType(isInput, isSubscription)
+      if (ctx.isValueClass && ctx.parameters.nonEmpty) ctx.parameters.head.typeclass.toType_(isInput, isSubscription)
       else if (isInput)
         makeInputObject(
           Some(ctx.annotations.collectFirst { case GQLInputName(suffix) => suffix }
@@ -353,8 +373,8 @@ trait DerivationSchema[R] {
                 p.label,
                 getDescription(p),
                 () =>
-                  if (p.typeclass.optional) p.typeclass.toType(isInput, isSubscription)
-                  else makeNonNull(p.typeclass.toType(isInput, isSubscription)),
+                  if (p.typeclass.optional) p.typeclass.toType_(isInput, isSubscription)
+                  else makeNonNull(p.typeclass.toType_(isInput, isSubscription)),
                 None,
                 Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
               )
@@ -373,8 +393,8 @@ trait DerivationSchema[R] {
                 getDescription(p),
                 p.typeclass.arguments,
                 () =>
-                  if (p.typeclass.optional) p.typeclass.toType(isInput, isSubscription)
-                  else makeNonNull(p.typeclass.toType(isInput, isSubscription)),
+                  if (p.typeclass.optional) p.typeclass.toType_(isInput, isSubscription)
+                  else makeNonNull(p.typeclass.toType_(isInput, isSubscription)),
                 p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
                 p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
                 Option(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
@@ -390,15 +410,18 @@ trait DerivationSchema[R] {
       else if (ctx.isValueClass && ctx.parameters.nonEmpty) {
         val head = ctx.parameters.head
         head.typeclass.resolve(head.dereference(value))
-      } else
-        ObjectStep(getName(ctx), ctx.parameters.map(p => p.label -> p.typeclass.resolve(p.dereference(value))).toMap)
+      } else {
+        val fields = Map.newBuilder[String, Step[R]]
+        ctx.parameters.foreach(p => fields += p.label -> p.typeclass.resolve(p.dereference(value)))
+        ObjectStep(getName(ctx), fields.result())
+      }
   }
 
   def dispatch[T](ctx: SealedTrait[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
       val subtypes =
         ctx.subtypes
-          .map(s => s.typeclass.toType() -> s.annotations)
+          .map(s => s.typeclass.toType_(isInput = false, isSubscription = false) -> s.annotations)
           .toList
           .sortBy {
             case (tpe, _) => tpe.name.getOrElse("")
@@ -513,5 +536,100 @@ trait DerivationSchema[R] {
     getDescription(ctx.annotations)
 
   implicit def gen[T]: Typeclass[T] = macro Magnolia.gen[T]
+
+}
+
+trait TemporalSchema {
+
+  private[schema] abstract class TemporalSchema[T <: Temporal](
+    name: String,
+    description: Option[String]
+  ) extends Schema[Any, T] {
+
+    protected def format(temporal: T): ResponseValue
+
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
+      makeScalar(name, description)
+
+    override def resolve(value: T): Step[Any] =
+      PureStep(format(value))
+  }
+
+  def temporalSchema[A <: Temporal](name: String, description: Option[String] = None)(
+    f: A => ResponseValue
+  ): Schema[Any, A] = new TemporalSchema[A](name, description) {
+    override protected def format(temporal: A): ResponseValue = f(temporal)
+  }
+
+  def temporalSchemaWithFormatter[A <: Temporal](name: String, description: Option[String] = None)(
+    formatter: DateTimeFormatter
+  ): Schema[Any, A] =
+    temporalSchema[A](name, description)(a => StringValue(formatter.format(a)))
+
+  implicit lazy val instantSchema: Schema[Any, Instant] =
+    temporalSchema(
+      "Instant",
+      Some("An instantaneous point on the time-line represented by a standard date time string")
+    )(a => StringValue(a.toString))
+
+  lazy val instantEpochSchema: Schema[Any, Instant] =
+    temporalSchema(
+      "Instant",
+      Some("An instantaneous point on the time-line represented by a numerical millisecond since epoch")
+    )(a => IntValue.LongNumber(a.toEpochMilli))
+
+  implicit lazy val localDateTimeSchema: Schema[Any, LocalDateTime] =
+    localDateTimeSchemaWithFormatter(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+
+  def localDateTimeSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, LocalDateTime] =
+    temporalSchemaWithFormatter(
+      "LocalDateTime",
+      Some(s"A date-time without a time-zone in the ISO-8601 calendar system in the format of $formatter")
+    )(formatter)
+
+  implicit lazy val offsetDateTimeSchema: Schema[Any, OffsetDateTime] =
+    offsetDateTimeSchemaWithFormatter(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+
+  def offsetDateTimeSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, OffsetDateTime] =
+    temporalSchemaWithFormatter(
+      "OffsetDateTime",
+      Some(s"A date-time with an offset from UTC/Greenwich in the ISO-8601 calendar system using the format $formatter")
+    )(formatter)
+
+  implicit lazy val zonedDateTimeSchema: Schema[Any, ZonedDateTime] =
+    zonedDateTimeSchemaWithFormatter(DateTimeFormatter.ISO_ZONED_DATE_TIME)
+
+  val localDateTimeEpochSchema: Schema[Any, LocalDateTime] =
+    temporalSchema("LocalDateTime")(a => IntValue.LongNumber(a.toInstant(ZoneOffset.UTC).toEpochMilli))
+
+  def zonedDateTimeSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, ZonedDateTime] =
+    temporalSchemaWithFormatter(
+      "ZonedDateTime",
+      Some(s"A date-time with a time-zone in the ISO-8601 calendar system using the format $formatter")
+    )(formatter)
+
+  implicit lazy val localDateSchema: Schema[Any, LocalDate] =
+    localDateSchemaWithFormatter(DateTimeFormatter.ISO_LOCAL_DATE)
+
+  val localDateEpochSchema: Schema[Any, LocalDate] =
+    temporalSchema(
+      "LocalDate",
+      Some("A date without a time-zone in the ISO-8601 calendar system represented as a millisecond value since epoch")
+    )(a => IntValue.LongNumber(a.atStartOfDay.toInstant(ZoneOffset.UTC).toEpochMilli))
+
+  def localDateSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, LocalDate] =
+    temporalSchemaWithFormatter(
+      "LocalDate",
+      Some(s"A date without a time-zone in the ISO-8601 calendar system using the format $formatter")
+    )(formatter)
+
+  implicit lazy val localTimeSchema: Schema[Any, LocalTime] =
+    localTimeSchemaWithFormatter(DateTimeFormatter.ISO_LOCAL_TIME)
+
+  def localTimeSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, LocalTime] =
+    temporalSchemaWithFormatter(
+      "LocalTime",
+      Some(s"A time without a time-zone in the ISO-8601 calendar system using the format $formatter")
+    )(formatter)
 
 }

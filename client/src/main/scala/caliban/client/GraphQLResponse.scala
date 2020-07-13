@@ -1,12 +1,16 @@
 package caliban.client
 
 import caliban.client.Value.ObjectValue
-import io.circe.{ Decoder, HCursor }
+import io.circe.{ Decoder, HCursor, Json }
 
 /**
  * Represents the result of a GraphQL query, containing a data object and a list of errors.
  */
-case class GraphQLResponse(data: Option[Value], errors: List[GraphQLResponseError] = Nil)
+case class GraphQLResponse(
+  data: Option[Value],
+  errors: List[GraphQLResponseError] = Nil,
+  extensions: Option[Json] = None
+)
 
 object GraphQLResponse {
 
@@ -17,8 +21,9 @@ object GraphQLResponse {
 
   implicit val decoder: Decoder[GraphQLResponse] = (c: HCursor) =>
     for {
-      data   <- c.downField("data").as[Option[Value]]
-      errors <- c.downField("errors").as[Option[List[GraphQLResponseError]]]
-    } yield GraphQLResponse(data, errors.getOrElse(Nil))
+      data       <- c.downField("data").as[Option[Value]]
+      errors     <- c.downField("errors").as[Option[List[GraphQLResponseError]]]
+      extensions <- c.downField("extensions").as[Option[Json]]
+    } yield GraphQLResponse(data, errors.getOrElse(Nil), extensions)
 
 }

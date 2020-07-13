@@ -180,11 +180,16 @@ object ClientWriter {
         """
 
   def safeName(name: String): String =
-    if (reservedKeywords.contains(name)) s"`$name`" else name
+    if (reservedKeywords.contains(name)) s"`$name`"
+    else if (caseClassReservedFields.contains(name)) s"${name}_"
+    else name
 
   @tailrec
   def getTypeLetter(typesMap: Map[String, TypeDefinition], letter: String = "A"): String =
     if (!typesMap.contains(letter)) letter else getTypeLetter(typesMap, letter + "A")
+
+  private val tripleQuotes = "\"\"\""
+  private val doubleQuotes = "\""
 
   def writeField(field: FieldDefinition, typeName: String, typesMap: Map[String, TypeDefinition]): String = {
     val name = safeName(field.name)
@@ -195,9 +200,16 @@ object ClientWriter {
     val deprecated = field.directives.find(_.name == "deprecated") match {
       case None => ""
       case Some(directive) =>
-        s"@deprecated(${directive.arguments.collectFirst {
-          case ("reason", StringValue(reason)) => reason
-        }.fold(""""",""""")(r => s""""$r",""""")})\n"
+        val body =
+          directive.arguments.collectFirst {
+            case ("reason", StringValue(reason)) => reason
+          }.getOrElse("")
+
+        val quotes =
+          if (body.contains("\n")) tripleQuotes
+          else doubleQuotes
+
+        "@deprecated(" + quotes + body + quotes + """, "")""" + "\n"
     }
     val fieldType = getTypeName(field.ofType)
     val isScalar = typesMap
@@ -279,7 +291,7 @@ object ClientWriter {
   }
 
   def writeArgumentFields(args: List[InputValueDefinition]): String =
-    s"${args.map(arg => s"${safeName(arg.name)}: ${writeType(arg.ofType)}${writeDefaultArgument(arg)}").mkString(", ")}"
+    s"${args.map(arg => s"${safeName(arg.name)} : ${writeType(arg.ofType)}${writeDefaultArgument(arg)}").mkString(", ")}"
 
   def writeDefaultArgument(arg: InputValueDefinition): String =
     arg.ofType match {
@@ -370,4 +382,7 @@ object ClientWriter {
     "yield",
     "_"
   )
+
+  val caseClassReservedFields =
+    Set("wait", "notify", "toString", "notifyAll", "hashCode", "getClass", "finalize", "equals", "clone")
 }
