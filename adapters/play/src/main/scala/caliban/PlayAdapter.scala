@@ -5,6 +5,7 @@ import java.util.Locale
 import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
 import akka.stream.scaladsl.{ Flow, Sink, Source, SourceQueueWithComplete }
 
+import caliban.PlayAdapter.RequestWrapper
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.interop.play.json.parsingException
 import play.api.http.Writeable
@@ -22,7 +23,7 @@ import play.api.mvc.{
   WebSocket
 }
 import play.api.mvc.Results.Ok
-import zio.{ random, CancelableFuture, Fiber, Has, IO, RIO, Ref, Runtime, Schedule, Task, ZIO, ZLayer }
+import zio.{ random, CancelableFuture, Fiber, Has, IO, RIO, Ref, Runtime, Schedule, Task, URIO, ZIO, ZLayer }
 import zio.clock.Clock
 import zio.duration.Duration
 import scala.concurrent.{ ExecutionContext, Future }
@@ -31,18 +32,16 @@ import scala.util.Try
 import caliban.Uploads.{ FileMeta, Uploads }
 import caliban.Value.NullValue
 import zio.blocking.Blocking
-import zio.console.Console
 import zio.random.Random
 
 trait PlayAdapter {
 
   def actionBuilder: ActionBuilder[Request, AnyContent]
   def parse: PlayBodyParsers
+  def requestWrapper: RequestWrapper
 
   implicit def writableGraphQLResponse[E](implicit wr: Writes[GraphQLResponse[E]]): Writeable[GraphQLResponse[E]] =
     Writeable.writeableOf_JsValue.map(wr.writes)
-
-  type ExampleEnv = Clock with Console with Blocking with Random
 
   def makePostAction[R <: Blocking with Random, E](
     interpreter: GraphQLInterpreter[R, E],
@@ -54,7 +53,7 @@ trait PlayAdapter {
         case Left(value) =>
           executeRequest[R, E](
             interpreter,
-            value.remap,
+            req.withBody(value.remap),
             skipValidation,
             enableIntrospection,
             value.fileHandle.toLayerMany
@@ -63,7 +62,7 @@ trait PlayAdapter {
         case Right(value) =>
           executeRequest[R, E](
             interpreter,
-            value,
+            req.withBody(value),
             skipValidation,
             enableIntrospection
           )
@@ -72,17 +71,19 @@ trait PlayAdapter {
 
   private def executeRequest[R <: Has[_], E](
     interpreter: GraphQLInterpreter[R, E],
-    request: GraphQLRequest,
+    request: Request[GraphQLRequest],
     skipValidation: Boolean,
     enableIntrospection: Boolean,
     fileHandle: ZLayer[Any, Nothing, Uploads] = Uploads.Service.empty
   )(implicit runtime: Runtime[R]): CancelableFuture[Result] =
     runtime.unsafeRunToFuture(
-      interpreter
-        .executeRequest(request, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
-        .catchAllCause(cause => ZIO.succeed(GraphQLResponse[Throwable](NullValue, cause.defects)))
-        .map(Ok(_))
-        .provideSomeLayer[R](fileHandle)
+      requestWrapper(request)(
+        interpreter
+          .executeRequest(request.body, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
+          .catchAllCause(cause => ZIO.succeed(GraphQLResponse[Throwable](NullValue, cause.defects)))
+          .map(Ok(_))
+          .provideSomeLayer[R](fileHandle)
+      )
     )
 
   private def makeParser(
@@ -168,7 +169,7 @@ trait PlayAdapter {
     operation: Option[String],
     extensions: Option[String]
   )(implicit runtime: Runtime[R]): Action[AnyContent] =
-    actionBuilder.async(
+    actionBuilder.async(req =>
       getGraphQLRequest(
         query,
         operation,
@@ -176,7 +177,7 @@ trait PlayAdapter {
         extensions
       ).fold(
         Future.failed,
-        executeRequest(interpreter, _, skipValidation, enableIntrospection)
+        body => executeRequest(interpreter, req.withBody(body), skipValidation, enableIntrospection)
       )
     )
 
@@ -316,10 +317,27 @@ trait PlayAdapter {
 object PlayAdapter {
   def apply(
     playBodyParsers: PlayBodyParsers,
-    _actionBuilder: ActionBuilder[Request, AnyContent]
+    _actionBuilder: ActionBuilder[Request, AnyContent],
+    wrapper: RequestWrapper = RequestWrapper.empty
   ): PlayAdapter =
     new PlayAdapter {
       override def parse: PlayBodyParsers                            = playBodyParsers
       override def actionBuilder: ActionBuilder[Request, AnyContent] = _actionBuilder
+      override def requestWrapper: RequestWrapper                    = wrapper
     }
+
+  trait RequestWrapper { self =>
+    def apply[R](ctx: RequestHeader)(e: URIO[R, Result]): URIO[R, Result]
+
+    def |+|(that: RequestWrapper): RequestWrapper = new RequestWrapper {
+      override def apply[R](ctx: RequestHeader)(e: URIO[R, Result]): URIO[R, Result] =
+        that.apply(ctx)(self.apply(ctx)(e))
+    }
+  }
+
+  object RequestWrapper {
+    lazy val empty: RequestWrapper = new RequestWrapper {
+      override def apply[R](ctx: RequestHeader)(effect: URIO[R, Result]): URIO[R, Result] = effect
+    }
+  }
 }

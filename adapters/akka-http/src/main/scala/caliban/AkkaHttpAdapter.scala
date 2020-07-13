@@ -4,11 +4,12 @@ import scala.concurrent.ExecutionContext
 import akka.http.scaladsl.model.MediaTypes.`application/json`
 import akka.http.scaladsl.model.ws.{ Message, TextMessage }
 import akka.http.scaladsl.model.{ HttpEntity, HttpResponse, StatusCodes }
-import akka.http.scaladsl.server.Directives.complete
-import akka.http.scaladsl.server.{ Route, StandardRoute }
+import akka.http.scaladsl.server.Directives.{ complete, extractRequestContext }
+import akka.http.scaladsl.server.{ RequestContext, Route }
 import akka.http.scaladsl.unmarshalling.FromEntityUnmarshaller
 import akka.stream.scaladsl.{ Flow, Sink, Source, SourceQueueWithComplete }
 import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
+import caliban.AkkaHttpAdapter.ContextWrapper
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
 import zio._
@@ -61,25 +62,31 @@ trait AkkaHttpAdapter {
   def completeRequest[R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true
-  )(request: GraphQLRequest)(implicit ec: ExecutionContext, runtime: Runtime[R]): StandardRoute =
-    complete(
-      runtime
-        .unsafeRunToFuture(
-          executeHttpResponse(
-            interpreter,
-            request,
-            skipValidation = skipValidation,
-            enableIntrospection = enableIntrospection
+    enableIntrospection: Boolean = true,
+    contextWrapper: ContextWrapper = ContextWrapper.empty
+  )(request: GraphQLRequest)(implicit ec: ExecutionContext, runtime: Runtime[R]): Route =
+    extractRequestContext { ctx =>
+      complete(
+        runtime
+          .unsafeRunToFuture(
+            contextWrapper(ctx) {
+              executeHttpResponse(
+                interpreter,
+                request,
+                skipValidation = skipValidation,
+                enableIntrospection = enableIntrospection
+              )
+            }
           )
-        )
-        .future
-    )
+          .future
+      )
+    }
 
   def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true
+    enableIntrospection: Boolean = true,
+    contextWrapper: ContextWrapper = ContextWrapper.empty
   )(implicit ec: ExecutionContext, runtime: Runtime[R]): Route = {
     import akka.http.scaladsl.server.Directives._
 
@@ -90,13 +97,23 @@ trait AkkaHttpAdapter {
             .parseHttpRequest(query, op, vars, ext)
             .fold(
               failWith,
-              completeRequest(interpreter, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
+              completeRequest(
+                interpreter,
+                skipValidation = skipValidation,
+                enableIntrospection = enableIntrospection,
+                contextWrapper = contextWrapper
+              )
             )
       }
     } ~
       post {
         entity(as[GraphQLRequest])(
-          completeRequest(interpreter, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
+          completeRequest(
+            interpreter,
+            skipValidation = skipValidation,
+            enableIntrospection = enableIntrospection,
+            contextWrapper = contextWrapper
+          )
         )
       }
   }
@@ -190,7 +207,7 @@ trait AkkaHttpAdapter {
           case _ => ()
         }
 
-        val flow = Flow.fromSinkAndSource(sink, source).watchTermination() { (_, f) =>
+        val flow = Flow.fromSinkAndSourceCoupled(sink, source).watchTermination() { (_, f) =>
           f.onComplete(_ => runtime.unsafeRun(subscriptions.get.flatMap(m => IO.foreach(m.values)(_.interrupt).unit)))
         }
 
@@ -201,6 +218,25 @@ trait AkkaHttpAdapter {
 }
 
 object AkkaHttpAdapter {
+
+  /**
+   * ContextWrapper provides a way to pass context from http request into Caliban's query handling.
+   */
+  trait ContextWrapper { self =>
+    def apply[R](ctx: RequestContext)(e: URIO[R, HttpResponse]): URIO[R, HttpResponse]
+
+    def |+|(that: ContextWrapper): ContextWrapper = new ContextWrapper {
+      override def apply[R](ctx: RequestContext)(e: URIO[R, HttpResponse]): URIO[R, HttpResponse] =
+        that.apply(ctx)(self.apply(ctx)(e))
+    }
+  }
+
+  object ContextWrapper {
+    def empty: ContextWrapper = new ContextWrapper {
+      override def apply[R](ctx: RequestContext)(effect: URIO[R, HttpResponse]): URIO[R, HttpResponse] =
+        effect
+    }
+  }
 
   /**
    * @see [[AkkaHttpAdapter]]

@@ -201,10 +201,10 @@ object GraphQL {
     subscriptionSchema: Schema[R, S]
   ): GraphQL[R] = new GraphQL[R] {
     val schemaBuilder: RootSchemaBuilder[R] = RootSchemaBuilder(
-      resolver.queryResolver.map(r => Operation(querySchema.toType(), querySchema.resolve(r))),
-      resolver.mutationResolver.map(r => Operation(mutationSchema.toType(), mutationSchema.resolve(r))),
+      resolver.queryResolver.map(r => Operation(querySchema.toType_(), querySchema.resolve(r))),
+      resolver.mutationResolver.map(r => Operation(mutationSchema.toType_(), mutationSchema.resolve(r))),
       resolver.subscriptionResolver.map(r =>
-        Operation(subscriptionSchema.toType(isSubscription = true), subscriptionSchema.resolve(r))
+        Operation(subscriptionSchema.toType_(isSubscription = true), subscriptionSchema.resolve(r))
       )
     )
     val wrappers: List[Wrapper[R]]              = Nil

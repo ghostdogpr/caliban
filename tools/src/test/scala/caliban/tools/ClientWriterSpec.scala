@@ -268,6 +268,35 @@ object Client {
           )
         )
       },
+      testM("input object with reserved name") {
+        val schema =
+          """
+             input CharacterInput {
+               wait: String!
+             }
+            """.stripMargin
+
+        assertM(gen(schema))(
+          equalTo(
+            """import caliban.client._
+import caliban.client.Value._
+
+object Client {
+
+  case class CharacterInput(wait_ : String)
+  object CharacterInput {
+    implicit val encoder: ArgEncoder[CharacterInput] = new ArgEncoder[CharacterInput] {
+      override def encode(value: CharacterInput): Value =
+        ObjectValue(List("wait" -> implicitly[ArgEncoder[String]].encode(value.wait_)))
+      override def typeName: String = "CharacterInput"
+    }
+  }
+
+}
+"""
+          )
+        )
+      },
       testM("union") {
         val schema =
           """
@@ -346,6 +375,39 @@ object Client {
     def name: SelectionBuilder[Character, String] = Field("name", Scalar())
     @deprecated("", "")
     def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
+  }
+
+}
+"""
+          )
+        )
+      },
+      testM("deprecated field + comment newline") {
+        val tripleQuotes = "\"\"\""
+        val schema =
+          """
+             type Character {
+               "name"
+               name: String! @deprecated(reason: "foo\nbar")
+             }
+            """.stripMargin
+
+        assertM(gen(schema))(
+          equalTo(
+            s"""import caliban.client.FieldBuilder._
+import caliban.client.SelectionBuilder._
+import caliban.client._
+
+object Client {
+
+  type Character
+  object Character {
+
+    /**
+     * name
+     */
+    @deprecated(${tripleQuotes}foo\nbar$tripleQuotes, "")
+    def name: SelectionBuilder[Character, String] = Field("name", Scalar())
   }
 
 }

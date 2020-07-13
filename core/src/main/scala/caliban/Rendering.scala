@@ -52,7 +52,7 @@ object Rendering {
     t.interfaces()
       .fold("")(_.flatMap(_.name) match {
         case Nil  => ""
-        case list => s" implements ${list.mkString("& ")}"
+        case list => s" implements ${list.mkString(" & ")}"
       })
 
   private def renderKind(kind: __TypeKind): String =

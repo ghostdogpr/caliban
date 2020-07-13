@@ -15,11 +15,13 @@ case class Field(
   parentType: Option[__Type],
   alias: Option[String] = None,
   fields: List[Field] = Nil,
-  conditionalFields: Map[String, List[Field]] = Map(),
+  condition: Option[String] = None,
   arguments: Map[String, InputValue] = Map(),
-  locationInfo: LocationInfo = LocationInfo.origin,
+  _locationInfo: () => LocationInfo = () => LocationInfo.origin,
   directives: List[Directive] = List.empty
-)
+) {
+  lazy val locationInfo: LocationInfo = _locationInfo()
+}
 
 object Field {
   def apply(
@@ -32,8 +34,9 @@ object Field {
   ): Field = {
 
     def loop(selectionSet: List[Selection], fieldType: __Type): Field = {
+      val fieldList = List.newBuilder[Field]
       val innerType = Types.innerType(fieldType)
-      val (fields, cFields) = selectionSet.map {
+      selectionSet.foreach {
         case F(alias, name, arguments, directives, selectionSet, index)
             if checkDirectives(directives, variableValues) =>
           val selected = innerType
@@ -42,35 +45,28 @@ object Field {
 
           val schemaDirectives = selected.flatMap(_.directives).getOrElse(Nil)
 
-          val t = selected
-            .fold(Types.string)(_.`type`()) // default only case where it's not found is __typename
+          val t = selected.fold(Types.string)(_.`type`()) // default only case where it's not found is __typename
 
           val field = loop(selectionSet, t)
-          (
-            List(
-              Field(
-                name,
-                t,
-                Some(innerType),
-                alias,
-                field.fields,
-                field.conditionalFields,
-                arguments,
-                sourceMapper.getLocation(index),
-                directives ++ schemaDirectives
-              )
-            ),
-            Map.empty[String, List[Field]]
-          )
+          fieldList +=
+            Field(
+              name,
+              t,
+              Some(innerType),
+              alias,
+              field.fields,
+              None,
+              arguments,
+              () => sourceMapper.getLocation(index),
+              directives ++ schemaDirectives
+            )
         case FragmentSpread(name, directives) if checkDirectives(directives, variableValues) =>
-          lazy val default = (Nil, Map.empty[String, List[Field]])
           fragments
             .get(name)
-            .fold(default) { f =>
+            .foreach { f =>
               val t =
                 innerType.possibleTypes.flatMap(_.find(_.name.contains(f.typeCondition.name))).getOrElse(fieldType)
-              val field = loop(f.selectionSet, t)
-              (Nil, combineMaps(List(field.conditionalFields, Map(f.typeCondition.name -> field.fields))))
+              fieldList ++= loop(f.selectionSet, t).fields.map(_.copy(condition = Some(f.typeCondition.name)))
             }
         case InlineFragment(typeCondition, directives, selectionSet) if checkDirectives(directives, variableValues) =>
           val t = innerType.possibleTypes
@@ -78,22 +74,16 @@ object Field {
             .getOrElse(fieldType)
           val field = loop(selectionSet, t)
           typeCondition match {
-            case None           => (field.fields, field.conditionalFields)
-            case Some(typeName) => (Nil, combineMaps(List(field.conditionalFields, Map(typeName.name -> field.fields))))
+            case None           => fieldList ++= field.fields
+            case Some(typeName) => fieldList ++= field.fields.map(_.copy(condition = Some(typeName.name)))
           }
-        case _ => (Nil, Map.empty[String, List[Field]])
-      }.unzip
-      Field("", fieldType, None, fields = fields.flatten, conditionalFields = combineMaps(cFields))
+        case _ =>
+      }
+      Field("", fieldType, None, fields = fieldList.result())
     }
 
     loop(selectionSet, fieldType)
   }
-
-  private def combineMaps[A, B](maps: List[Map[A, List[B]]]): Map[A, List[B]] =
-    maps.foldLeft(Map.empty[A, List[B]]) {
-      case (result, map) =>
-        map.foldLeft(result) { case (result, (k, v)) => result.updated(k, result.getOrElse(k, Nil) ++ v) }
-    }
 
   private def checkDirectives(directives: List[Directive], variableValues: Map[String, InputValue]): Boolean =
     !checkDirective("skip", default = false, directives, variableValues) &&
