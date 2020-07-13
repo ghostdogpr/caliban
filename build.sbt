@@ -244,11 +244,20 @@ lazy val play = project
   .settings(name := "caliban-play")
   .settings(commonSettings)
   .settings(
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "com.typesafe.play" %% "play" % playVersion
+      "dev.zio"           %% "zio"                   % zioVersion,
+      "com.typesafe.play" %% "play"                  % playVersion,
+      "dev.zio"           %%% "zio-test"             % zioVersion % "test",
+      "com.typesafe.play" %% "play-akka-http-server" % playVersion % "test",
+      "org.http4s"        %% "http4s-client"         % "0.21.6" % "test",
+      "io.circe"          %% "circe-core"            % circeVersion % "test",
+      "io.circe"          %% "circe-generic"         % circeVersion % "test",
+      "org.http4s"        %% "http4s-blaze-client"   % "0.21.6" % "test",
+      "org.http4s"        %% "http4s-circe"          % "0.21.6" % "test"
     )
   )
-  .dependsOn(core)
+  .dependsOn(core, catsInterop)
 
 lazy val client = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)

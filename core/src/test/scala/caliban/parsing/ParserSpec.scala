@@ -1009,6 +1009,35 @@ object ParserSpec extends DefaultRunnableSpec {
             )
           )
         )
+      },
+      testM("upload mutation") {
+//        val query = """mutation { uploadFile(file: "Upload") { id } }""".stripMargin
+        val query = """mutation ($file: Upload!) { uploadFile(file: $file) { id } }"""
+        assertM(Parser.parseQuery(query))(
+          equalTo(
+            Document(
+              List(
+                OperationDefinition(
+                  Mutation,
+                  None,
+                  Nil,
+                  Nil,
+                  List(
+                    simpleField(
+                      "uploadFile",
+                      arguments = Map("file" -> StringValue("Upload")),
+                      selectionSet = List(
+                        simpleField("id", selectionSet = List(), index = 40)
+                      ),
+                      index = 11
+                    )
+                  )
+                )
+              ),
+              SourceMapper(query)
+            )
+          )
+        )
       }
     )
 
