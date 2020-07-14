@@ -1,7 +1,7 @@
 package caliban.client
 
 import caliban.client.GraphQLResponseError.Location
-import io.circe.{ Decoder, DecodingFailure, HCursor }
+import io.circe.{ Decoder, DecodingFailure, HCursor, Json}
 
 /**
  * An GraphQL error as returned by the server.
@@ -12,7 +12,8 @@ import io.circe.{ Decoder, DecodingFailure, HCursor }
 case class GraphQLResponseError(
   message: String,
   locations: Option[List[Location]],
-  path: Option[List[Either[String, Int]]]
+  path: Option[List[Either[String, Int]]],
+  extensions: Option[Json]
 )
 
 object GraphQLResponseError {
@@ -34,6 +35,7 @@ object GraphQLResponseError {
       message   <- c.downField("message").as[String]
       locations <- c.downField("locations").as[Option[List[Location]]]
       path      <- c.downField("path").as[Option[List[Either[String, Int]]]]
-    } yield GraphQLResponseError(message, locations, path)
+      extensions  <- c.downField("extensions").as[Option[Json]]
+    } yield GraphQLResponseError(message, locations, path, extensions)
 
 }
