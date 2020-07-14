@@ -26,6 +26,7 @@ object GraphQLResponseSpec extends DefaultRunnableSpec {
                   GraphQLResponseError(
                     "Parse error on \"direction\" (STRING) at [1, 107]",
                     Some(List(Location(1, 107))),
+                    None,
                     None
                   )
                 )
