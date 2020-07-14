@@ -1,7 +1,7 @@
 package caliban.client
 
 import caliban.client.GraphQLResponseError.Location
-import io.circe.{ Decoder, DecodingFailure, HCursor, Json}
+import io.circe.{ Decoder, DecodingFailure, HCursor, Json }
 
 /**
  * An GraphQL error as returned by the server.
@@ -32,10 +32,10 @@ object GraphQLResponseError {
 
   implicit val decoder: Decoder[GraphQLResponseError] = (c: HCursor) =>
     for {
-      message   <- c.downField("message").as[String]
-      locations <- c.downField("locations").as[Option[List[Location]]]
-      path      <- c.downField("path").as[Option[List[Either[String, Int]]]]
-      extensions  <- c.downField("extensions").as[Option[Json]]
+      message    <- c.downField("message").as[String]
+      locations  <- c.downField("locations").as[Option[List[Location]]]
+      path       <- c.downField("path").as[Option[List[Either[String, Int]]]]
+      extensions <- c.downField("extensions").as[Option[Json]]
     } yield GraphQLResponseError(message, locations, path, extensions)
 
 }
