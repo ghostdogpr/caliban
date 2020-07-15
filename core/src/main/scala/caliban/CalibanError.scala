@@ -10,6 +10,7 @@ import caliban.parsing.adt.LocationInfo
  */
 sealed trait CalibanError extends Throwable with Product with Serializable {
   def msg: String
+  override def getMessage: String = msg
 }
 
 object CalibanError {
@@ -23,7 +24,8 @@ object CalibanError {
     innerThrowable: Option[Throwable] = None,
     extensions: Option[ObjectValue] = None
   ) extends CalibanError {
-    override def toString: String = s"Parsing Error: $msg ${innerThrowable.fold("")(_.toString)}"
+    override def toString: String    = s"Parsing Error: $msg ${innerThrowable.fold("")(_.toString)}"
+    override def getCause: Throwable = innerThrowable.orNull
   }
 
   /**
@@ -48,7 +50,8 @@ object CalibanError {
     innerThrowable: Option[Throwable] = None,
     extensions: Option[ObjectValue] = None
   ) extends CalibanError {
-    override def toString: String = s"Execution Error: $msg ${innerThrowable.fold("")(_.toString)}"
+    override def toString: String    = s"Execution Error: $msg ${innerThrowable.fold("")(_.toString)}"
+    override def getCause: Throwable = innerThrowable.orNull
   }
 
   implicit def circeEncoder[F[_]](implicit ev: IsCirceEncoder[F]): F[CalibanError] =
