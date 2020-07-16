@@ -189,7 +189,11 @@ object ExecutionSpec extends DefaultRunnableSpec {
 
         assertM(
           api.interpreter.flatMap(_.execute(query, None, Map("term" -> StringValue("search")))).map(_.asJson.noSpaces)
-        )(equalTo("""{"data":{"getId":null},"errors":[{"message":"Can't build a String from input null"}]}"""))
+        )(
+          equalTo(
+            """{"data":{"getId":null},"errors":[{"message":"Can't build a String from input null","locations":[{"line":1,"column":44}],"path":["getId"]}]}"""
+          )
+        )
       },
       testM("variable in list") {
         val interpreter = graphQL(resolver).interpreter
