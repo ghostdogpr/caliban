@@ -227,7 +227,7 @@ object Executor {
     cause.failureOrCause match {
       case Left(e) =>
         e match {
-          case e: ExecutionError => Cause.fail(e)
+          case e: ExecutionError => Cause.fail(e.copy(path = path.reverse, locationInfo = locationInfo))
           case other             => Cause.fail(ExecutionError("Effect failure", path.reverse, locationInfo, Some(other)))
         }
       case Right(cause) =>
