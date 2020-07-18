@@ -189,9 +189,10 @@ package object tapir {
     override def map[T, T2](fa: ZIO[R, E, T])(f: T => T2): ZIO[R, E, T2]                = fa.map(f)
     override def flatMap[T, T2](fa: ZIO[R, E, T])(f: T => ZIO[R, E, T2]): ZIO[R, E, T2] = fa.flatMap(f)
     override def error[T](t: Throwable): ZIO[R, E, T]                                   = ZIO.die(t)
-    override protected def handleWrappedError[T](rt: ZIO[R, E, T])(
-      h: PartialFunction[Throwable, ZIO[R, E, T]]
-    ): ZIO[R, E, T] = rt
+    override def handleError[T](rt: ZIO[R, E, T])(h: PartialFunction[Throwable, ZIO[R, E, T]]): ZIO[R, E, T] =
+      rt.catchSome {
+        case e: Throwable => h(e)
+      }
   }
 
   private def queryMonadError[R, E]: MonadError[ZQuery[R, E, *]] = new MonadError[ZQuery[R, E, *]] {
@@ -199,8 +200,7 @@ package object tapir {
     override def map[T, T2](fa: ZQuery[R, E, T])(f: T => T2): ZQuery[R, E, T2]                   = fa.map(f)
     override def flatMap[T, T2](fa: ZQuery[R, E, T])(f: T => ZQuery[R, E, T2]): ZQuery[R, E, T2] = fa.flatMap(f)
     override def error[T](t: Throwable): ZQuery[R, E, T]                                         = ZQuery.die(t)
-    override protected def handleWrappedError[T](rt: ZQuery[R, E, T])(
-      h: PartialFunction[Throwable, ZQuery[R, E, T]]
-    ): ZQuery[R, E, T] = rt
+    override def handleError[T](rt: ZQuery[R, E, T])(h: PartialFunction[Throwable, ZQuery[R, E, T]]): ZQuery[R, E, T] =
+      rt
   }
 }
