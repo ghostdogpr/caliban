@@ -1,18 +1,19 @@
 package caliban
 
-import scala.language.postfixOps
 import caliban.ExampleData._
 import caliban.ExampleService.ExampleService
 import caliban.GraphQL.graphQL
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.GenericSchema
 import caliban.wrappers.ApolloTracing.apolloTracing
-import caliban.wrappers.Wrappers.{ maxDepth, maxFields, printSlowQueries, timeout }
+import caliban.wrappers.Wrappers._
 import zio.URIO
 import zio.clock.Clock
 import zio.console.Console
 import zio.duration._
 import zio.stream.ZStream
+
+import scala.language.postfixOps
 
 object ExampleApi extends GenericSchema[ExampleService] {
 
@@ -45,6 +46,7 @@ object ExampleApi extends GenericSchema[ExampleService] {
       maxDepth(30) @@                 // query analyzer that limit query depth
       timeout(3 seconds) @@           // wrapper that fails slow queries
       printSlowQueries(500 millis) @@ // wrapper that logs slow queries
-      apolloTracing // wrapper for https://github.com/apollographql/apollo-tracing
+      printErrors @@                  // wrapper that logs errors
+      apolloTracing                   // wrapper for https://github.com/apollographql/apollo-tracing
 
 }

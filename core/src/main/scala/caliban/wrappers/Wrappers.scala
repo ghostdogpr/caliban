@@ -14,6 +14,14 @@ import zio.{ IO, UIO, URIO, ZIO }
 object Wrappers {
 
   /**
+   * Returns a wrapper that prints errors to the console
+   */
+  lazy val printErrors: OverallWrapper[Console] =
+    OverallWrapper { process => request =>
+      process(request).tap(response => ZIO.when(response.errors.nonEmpty)(putStrLn(response.errors.mkString("\n"))))
+    }
+
+  /**
    * Returns a wrapper that prints slow queries
    * @param duration threshold above which queries are considered slow
    */
