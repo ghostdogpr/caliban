@@ -3,14 +3,15 @@ package caliban
 import java.net.URL
 
 import caliban.HttpClient.HttpClient
+import play.core.server.Server
+import zio.Has
 import zio.random.Random
-//import caliban.Service.HService
 import caliban.schema.GenericSchema
 import cats.effect.Blocker
 import org.http4s.MediaType
 import org.http4s.headers.`Content-Type`
 import org.http4s.multipart.{ Multipart, Part }
-import zio.{ /*Has, */ Runtime, Task, UIO /*, URIO*/, ZIO, ZLayer }
+import zio.{ Runtime, Task, UIO, ZIO, ZLayer }
 import zio.internal.Platform
 import play.api.mvc.DefaultControllerComponents
 import play.api.Mode
@@ -95,41 +96,39 @@ object TestAPI extends GenericSchema[Blocking with Uploads with Console with Clo
 object AdapterSpec extends DefaultRunnableSpec {
   val httpCliLayer: ZLayer[Any, Throwable, HttpClient] =
     HttpClient.makeHttpClient.toLayer >>> HttpClient.make("127.0.0.1", 8088)
-  val interpLayer: ZLayer[Any, Any, Console with Clock] = Console.live ++ Clock.live
+
   val runtime: Runtime[Console with Clock with Blocking with Random with Uploads] =
     Runtime.unsafeFromLayer(
       Console.live ++ Clock.live ++ Blocking.live ++ Random.live ++ Uploads.Service.empty,
       Platform.default
     )
 
-  // THIS BLOCKS INDEFINTELY DUE TO httpCliLayer
-  //  val runtime: Runtime[HService with HttpClient with Console with Clock] =
-  //    Runtime.unsafeFromLayer(
-  //      (Service.make ++ httpCliLayer ++ Console.live ++ Clock.live),
-  //      Platform.default
-  //    )
-
-  val interpreter: GraphQLInterpreter[Blocking with Uploads with Console with Clock, CalibanError] =
-    runtime.unsafeRun(TestAPI.api.interpreter)
-  val server = AkkaHttpServer.fromRouterWithComponents(
-    ServerConfig(
-      mode = Mode.Dev,
-      port = Some(8088),
-      address = "127.0.0.1"
-    )
-  ) { components =>
-    PlayRouter(
-      interpreter,
-      DefaultControllerComponents(
-        components.defaultActionBuilder,
-        components.playBodyParsers,
-        components.messagesApi,
-        components.langs,
-        components.fileMimeTypes,
-        components.executionContext
+  val apiLayer = ZLayer.fromEffect(
+    for {
+      interpreter <- TestAPI.api.interpreter
+    } yield AkkaHttpServer.fromRouterWithComponents(
+      ServerConfig(
+        mode = Mode.Dev,
+        port = Some(8088),
+        address = "127.0.0.1"
       )
-    )(runtime, components.materializer).routes
-  }
+    ) { components =>
+      PlayRouter(
+        interpreter,
+        DefaultControllerComponents(
+          components.defaultActionBuilder,
+          components.playBodyParsers,
+          components.messagesApi,
+          components.langs,
+          components.fileMimeTypes,
+          components.executionContext
+        )
+      )(runtime, components.materializer).routes
+    }
+  )
+
+  val specLayer: ZLayer[Any with zio.ZEnv, CalibanError.ValidationError, Has[Server]] =
+    (Uploads.Service.empty ++ zio.ZEnv.any) >>> apiLayer
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("Requests")(
@@ -139,7 +138,7 @@ object AdapterSpec extends DefaultRunnableSpec {
         val fileURL: URL     = getClass.getResource(s"/$fileName")
 
         val query: String =
-          """{ "query": "mutation ($file: Upload!) { uploadFile(file: $file) { hash, path, filename, mimetype } }",   "variables": {  "file": "File" }}"""
+          """{ "query": "mutation ($file: Upload!) { uploadFile(file: $file) { hash, path, filename, mimetype } }",   "variables": {  "file": null }}"""
 
         val multipart =
           for {
@@ -175,7 +174,7 @@ object AdapterSpec extends DefaultRunnableSpec {
         val file2URL: URL     = getClass.getResource(s"/$file2Name")
 
         val query: String =
-          """{ "query": "mutation ($files: [Upload!]!) { uploadFiles(files: $files) { hash, path, filename, mimetype } }",   "variables": {  "files": ["File", "File"] }}"""
+          """{ "query": "mutation ($files: [Upload!]!) { uploadFiles(files: $files) { hash, path, filename, mimetype } }",   "variables": {  "files": [null, null] }}"""
 
         val multipart =
           for {
@@ -215,7 +214,8 @@ object AdapterSpec extends DefaultRunnableSpec {
             hasField("mimetype", (fl: List[TestAPI.File]) => fl(1).mimetype, equalTo("text/plain"))
         )
       }
-    ).provideCustomLayer(httpCliLayer ++ interpLayer)
+    ).provideCustomLayer(httpCliLayer)
+      .provideCustomLayerShared(specLayer)
       .mapError(TestFailure.fail _)
 
 }

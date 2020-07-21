@@ -96,15 +96,6 @@ case class GraphQLUploadRequest(
           case (key, values) if values.lengthCompare(1) > 0 => (key, ListValue(values.map(_._2)))
           case (key, List(value))                           => (key, value._2)
         }
-
-//        files.foldLeft(vars) {
-//          case (acc, (key, StringValue(value))) => acc.get(key) match {
-//            case Some(ListValue(mv)) => acc.updated(key, mv.patch(value, List(mv), 1))
-//          }
-//          case (acc, _) => acc
-//
-//        }
-//        vars ++ files
       }
     )
 
