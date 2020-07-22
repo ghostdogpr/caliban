@@ -1,20 +1,21 @@
 package caliban
 
-import scala.concurrent.ExecutionContext
 import akka.http.scaladsl.model.MediaTypes.`application/json`
 import akka.http.scaladsl.model.ws.{ Message, TextMessage }
-import akka.http.scaladsl.model.{ HttpEntity, HttpResponse, StatusCodes }
+import akka.http.scaladsl.model._
 import akka.http.scaladsl.server.Directives.{ complete, extractRequestContext }
 import akka.http.scaladsl.server.{ RequestContext, Route }
 import akka.http.scaladsl.unmarshalling.FromEntityUnmarshaller
 import akka.stream.scaladsl.{ Flow, Sink, Source, SourceQueueWithComplete }
 import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
-import caliban.AkkaHttpAdapter.ContextWrapper
+import caliban.AkkaHttpAdapter.{ `application/graphql`, ContextWrapper }
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
 import zio._
 import zio.clock.Clock
 import zio.duration._
+
+import scala.concurrent.ExecutionContext
 
 /**
  * Akka-http adapter for caliban with pluggable json backend.
@@ -107,14 +108,40 @@ trait AkkaHttpAdapter {
       }
     } ~
       post {
-        entity(as[GraphQLRequest])(
-          completeRequest(
-            interpreter,
-            skipValidation = skipValidation,
-            enableIntrospection = enableIntrospection,
-            contextWrapper = contextWrapper
-          )
-        )
+        extractRequestEntity { requestEntity =>
+          parameters((Symbol("query").?, Symbol("operationName").?, Symbol("variables").?, Symbol("extensions").?)) {
+            case (query @ Some(_), op, vars, ext) =>
+              json
+                .parseHttpRequest(query, op, vars, ext)
+                .fold(
+                  failWith,
+                  completeRequest(
+                    interpreter,
+                    skipValidation = skipValidation,
+                    enableIntrospection = enableIntrospection,
+                    contextWrapper = contextWrapper
+                  )
+                )
+            case _ if requestEntity.contentType.mediaType == `application/graphql` =>
+              entity(as[String])(query =>
+                completeRequest(
+                  interpreter,
+                  skipValidation = skipValidation,
+                  enableIntrospection = enableIntrospection,
+                  contextWrapper = contextWrapper
+                )(GraphQLRequest(Some(query)))
+              )
+            case _ =>
+              entity(as[GraphQLRequest])(
+                completeRequest(
+                  interpreter,
+                  skipValidation = skipValidation,
+                  enableIntrospection = enableIntrospection,
+                  contextWrapper = contextWrapper
+                )
+              )
+          }
+        }
       }
   }
 
@@ -218,6 +245,8 @@ trait AkkaHttpAdapter {
 }
 
 object AkkaHttpAdapter {
+
+  val `application/graphql`: MediaType = MediaType.applicationWithFixedCharset("graphql", HttpCharsets.`UTF-8`)
 
   /**
    * ContextWrapper provides a way to pass context from http request into Caliban's query handling.
