@@ -11,6 +11,7 @@ import io.circe.syntax._
 import uzhttp.HTTPError.BadRequest
 import uzhttp.Request.Method
 import uzhttp.Status.Ok
+import uzhttp.header.Headers
 import uzhttp.websocket.{ Close, Frame, Text }
 import uzhttp.{ HTTPError, Request, Response }
 import zio.clock.Clock
@@ -34,7 +35,10 @@ object UzHttpAdapter {
                  case Some(value) => value.transduce(ZTransducer.utf8Decode).runHead
                  case None        => ZIO.fail(BadRequest("Missing body"))
                }
-        req <- ZIO.fromEither(decode[GraphQLRequest](body.getOrElse(""))).mapError(e => BadRequest(e.getMessage))
+        req <- if (req.headers.get(Headers.ContentType).exists(_.startsWith("application/graphql")))
+                ZIO.succeed(GraphQLRequest(query = body))
+              else
+                ZIO.fromEither(decode[GraphQLRequest](body.getOrElse(""))).mapError(e => BadRequest(e.getMessage))
         res <- executeHttpResponse(
                 interpreter,
                 req,
