@@ -34,7 +34,10 @@ object UzHttpAdapter {
                  case Some(value) => value.transduce(ZTransducer.utf8Decode).runHead
                  case None        => ZIO.fail(BadRequest("Missing body"))
                }
-        req <- ZIO.fromEither(decode[GraphQLRequest](body.getOrElse(""))).mapError(e => BadRequest(e.getMessage))
+        req <- if (req.headers.get("Content-Type").exists(_.startsWith("application/graphql")))
+                ZIO.succeed(GraphQLRequest(query = body))
+              else
+                ZIO.fromEither(decode[GraphQLRequest](body.getOrElse(""))).mapError(e => BadRequest(e.getMessage))
         res <- executeHttpResponse(
                 interpreter,
                 req,
