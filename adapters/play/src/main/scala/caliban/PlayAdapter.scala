@@ -17,11 +17,11 @@ import zio.duration.Duration
 import scala.concurrent.{ ExecutionContext, Future }
 import scala.util.Try
 
-trait PlayAdapter {
+trait PlayAdapter[R] {
 
   def actionBuilder: ActionBuilder[Request, AnyContent]
   def parse: PlayBodyParsers
-  def requestWrapper: RequestWrapper
+  def requestWrapper: RequestWrapper[R, Result]
 
   implicit def writableGraphQLResponse[E](implicit wr: Writes[GraphQLResponse[E]]): Writeable[GraphQLResponse[E]] =
     Writeable.writeableOf_JsValue.map(wr.writes)
@@ -50,7 +50,7 @@ trait PlayAdapter {
       .map(parsingException)
   }
 
-  private def executeRequest[R, E](
+  private def executeRequest[E](
     interpreter: GraphQLInterpreter[R, E],
     request: Request[GraphQLRequest],
     skipValidation: Boolean,
@@ -65,7 +65,7 @@ trait PlayAdapter {
       )
     )
 
-  def makePostAction[R, E](
+  def makePostAction[E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true
@@ -79,7 +79,7 @@ trait PlayAdapter {
       )
     )
 
-  def makeGetAction[R, E](
+  def makeGetAction[E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true
@@ -101,7 +101,7 @@ trait PlayAdapter {
       )
     )
 
-  private def webSocketFlow[R, E](
+  private def webSocketFlow[E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean,
     enableIntrospection: Boolean,
@@ -191,7 +191,7 @@ trait PlayAdapter {
     }
   }
 
-  def makeWebSocket[R, E](
+  def makeWebSocket[E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
@@ -199,7 +199,7 @@ trait PlayAdapter {
   )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): WebSocket =
     WebSocket.accept(_ => webSocketFlow(interpreter, skipValidation, enableIntrospection, keepAliveTime))
 
-  def makeWakeSocketOrResult[R, E](
+  def makeWakeSocketOrResult[E](
     interpreter: GraphQLInterpreter[R, E],
     handleRequestHeader: RequestHeader => Future[Either[Result, Unit]],
     skipValidation: Boolean = false,
@@ -214,29 +214,29 @@ trait PlayAdapter {
 }
 
 object PlayAdapter {
-  def apply(
+  def apply[R](
     playBodyParsers: PlayBodyParsers,
     _actionBuilder: ActionBuilder[Request, AnyContent],
-    wrapper: RequestWrapper = RequestWrapper.empty
-  ): PlayAdapter =
-    new PlayAdapter {
+    wrapper: RequestWrapper[R, Result] = RequestWrapper.empty
+  ): PlayAdapter[R] =
+    new PlayAdapter[R] {
       override def parse: PlayBodyParsers                            = playBodyParsers
       override def actionBuilder: ActionBuilder[Request, AnyContent] = _actionBuilder
-      override def requestWrapper: RequestWrapper                    = wrapper
+      override def requestWrapper: RequestWrapper[R, Result]         = wrapper
     }
 
-  trait RequestWrapper { self =>
-    def apply[R](ctx: RequestHeader)(e: URIO[R, Result]): URIO[R, Result]
+  trait RequestWrapper[-R, +A >: Result] { self =>
+    def apply[R1 <: R, A1 >: A](ctx: RequestHeader)(e: URIO[R1, A1]): URIO[R1, A1]
 
-    def |+|(that: RequestWrapper): RequestWrapper = new RequestWrapper {
-      override def apply[R](ctx: RequestHeader)(e: URIO[R, Result]): URIO[R, Result] =
-        that.apply(ctx)(self.apply(ctx)(e))
+    def |+|[R1 <: R, A1 >: A](that: RequestWrapper[R1, A1]): RequestWrapper[R1, A1] = new RequestWrapper[R1, A1] {
+      override def apply[R2 <: R1, A2 >: A1](ctx: RequestHeader)(e: URIO[R2, A2]): URIO[R2, A2] =
+        that.apply[R2, A2](ctx)(self.apply[R2, A2](ctx)(e))
     }
   }
 
   object RequestWrapper {
-    lazy val empty: RequestWrapper = new RequestWrapper {
-      override def apply[R](ctx: RequestHeader)(effect: URIO[R, Result]): URIO[R, Result] = effect
+    lazy val empty: RequestWrapper[Any, Result] = new RequestWrapper[Any, Result] {
+      override def apply[R, Result](ctx: RequestHeader)(effect: URIO[R, Result]): URIO[R, Result] = effect
     }
   }
 }
