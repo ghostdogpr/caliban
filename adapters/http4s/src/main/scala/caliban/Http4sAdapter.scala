@@ -16,6 +16,7 @@ import io.circe.syntax._
 import org.http4s._
 import org.http4s.circe.CirceEntityCodec._
 import org.http4s.dsl.Http4sDsl
+import org.http4s.implicits._
 import org.http4s.server.websocket.WebSocketBuilder
 import org.http4s.websocket.WebSocketFrame
 import org.http4s.websocket.WebSocketFrame.Text
@@ -25,6 +26,8 @@ import zio.duration.Duration
 import zio.interop.catz._
 
 object Http4sAdapter {
+
+  val `application/graphql`: MediaType = mediaType"application/graphql"
 
   private def executeToJson[R, E](
     interpreter: GraphQLInterpreter[R, E],
@@ -42,9 +45,9 @@ object Http4sAdapter {
 
   private def getGraphQLRequest(
     query: String,
-    op: Option[String],
-    vars: Option[String],
-    exts: Option[String]
+    op: Option[String] = None,
+    vars: Option[String] = None,
+    exts: Option[String] = None
   ): Result[GraphQLRequest] = {
     val variablesJs  = vars.flatMap(parse(_).toOption)
     val extensionsJs = exts.flatMap(parse(_).toOption)
@@ -76,7 +79,15 @@ object Http4sAdapter {
     HttpRoutes.of[RIO[R, *]] {
       case req @ POST -> Root =>
         for {
-          query <- req.attemptAs[GraphQLRequest].value.absolve
+          query <- if (req.params.contains("query"))
+                    Task.fromEither(getGraphQLRequest(req.params))
+                  else if (req.contentType.exists(_.mediaType == `application/graphql`))
+                    for {
+                      body   <- req.attemptAs[String](EntityDecoder.text).value.absolve
+                      parsed <- Task.fromEither(getGraphQLRequest(body))
+                    } yield parsed
+                  else
+                    req.attemptAs[GraphQLRequest].value.absolve
           result <- executeToJson(
                      interpreter,
                      query,
