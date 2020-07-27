@@ -17,8 +17,8 @@ object AuthExampleApp extends App {
 
   type Auth = Has[FiberRef[Option[AuthToken]]]
 
-  object AuthWrapper extends RequestWrapper[Auth, Result] {
-    override def apply[R <: Auth, A >: Result](ctx: RequestHeader)(effect: URIO[R, A]): URIO[R, A] =
+  object AuthWrapper extends RequestWrapper[Auth] {
+    override def apply[R <: Auth](ctx: RequestHeader)(effect: URIO[R, Result]): URIO[R, Result] =
       ctx.headers.get("token") match {
         case Some(token) => ZIO.accessM[Auth](_.get.set(Some(AuthToken(token)))) *> effect
         case _           => ZIO.succeed(Results.Forbidden)
@@ -32,7 +32,7 @@ object AuthExampleApp extends App {
   private val api      = graphQL(resolver)
 
   // Note that we must initialize the runtime with any FiberRefs we intend to
-  // pass on so that they are present in the environment for our ContextWrapper(s)
+  // pass on so that they are present in the environment for our ResultWrapper(s)
   // For the auth we wrap in an option, but you could just as well use something
   // like AuthToken("__INVALID") or a sealed trait hierarchy with an invalid member
   val initLayer                       = ZLayer.fromEffect(FiberRef.make(Option.empty[AuthToken]))

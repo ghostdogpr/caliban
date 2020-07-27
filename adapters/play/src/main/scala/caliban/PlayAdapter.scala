@@ -21,7 +21,7 @@ trait PlayAdapter[R] {
 
   def actionBuilder: ActionBuilder[Request, AnyContent]
   def parse: PlayBodyParsers
-  def requestWrapper: RequestWrapper[R, Result]
+  def requestWrapper: RequestWrapper[R]
 
   implicit def writableGraphQLResponse[E](implicit wr: Writes[GraphQLResponse[E]]): Writeable[GraphQLResponse[E]] =
     Writeable.writeableOf_JsValue.map(wr.writes)
@@ -217,26 +217,26 @@ object PlayAdapter {
   def apply[R](
     playBodyParsers: PlayBodyParsers,
     _actionBuilder: ActionBuilder[Request, AnyContent],
-    wrapper: RequestWrapper[R, Result] = RequestWrapper.empty
+    wrapper: RequestWrapper[R] = RequestWrapper.empty
   ): PlayAdapter[R] =
     new PlayAdapter[R] {
       override def parse: PlayBodyParsers                            = playBodyParsers
       override def actionBuilder: ActionBuilder[Request, AnyContent] = _actionBuilder
-      override def requestWrapper: RequestWrapper[R, Result]         = wrapper
+      override def requestWrapper: RequestWrapper[R]                 = wrapper
     }
 
-  trait RequestWrapper[-R, +A >: Result] { self =>
-    def apply[R1 <: R, A1 >: A](ctx: RequestHeader)(e: URIO[R1, A1]): URIO[R1, A1]
+  trait RequestWrapper[-R] { self =>
+    def apply[R1 <: R](ctx: RequestHeader)(e: URIO[R1, Result]): URIO[R1, Result]
 
-    def |+|[R1 <: R, A1 >: A](that: RequestWrapper[R1, A1]): RequestWrapper[R1, A1] = new RequestWrapper[R1, A1] {
-      override def apply[R2 <: R1, A2 >: A1](ctx: RequestHeader)(e: URIO[R2, A2]): URIO[R2, A2] =
-        that.apply[R2, A2](ctx)(self.apply[R2, A2](ctx)(e))
+    def |+|[R1 <: R](that: RequestWrapper[R1]): RequestWrapper[R1] = new RequestWrapper[R1] {
+      override def apply[R2 <: R1](ctx: RequestHeader)(e: URIO[R2, Result]): URIO[R2, Result] =
+        that.apply[R2](ctx)(self.apply[R2](ctx)(e))
     }
   }
 
   object RequestWrapper {
-    lazy val empty: RequestWrapper[Any, Result] = new RequestWrapper[Any, Result] {
-      override def apply[R, Result](ctx: RequestHeader)(effect: URIO[R, Result]): URIO[R, Result] = effect
+    lazy val empty: RequestWrapper[Any] = new RequestWrapper[Any] {
+      override def apply[R](ctx: RequestHeader)(effect: URIO[R, Result]): URIO[R, Result] = effect
     }
   }
 }
