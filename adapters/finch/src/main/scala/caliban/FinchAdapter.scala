@@ -42,11 +42,11 @@ object FinchAdapter extends Endpoint.Module[Task] {
       .future
 
   private def createRequest[R, E](
-     request: GraphQLRequest,
-     interpreter: GraphQLInterpreter[R, E],
-     skipValidation: Boolean,
-     enableIntrospection: Boolean
-   )(implicit runtime: Runtime[R]): URIO[R, Output[Json]] =
+    request: GraphQLRequest,
+    interpreter: GraphQLInterpreter[R, E],
+    skipValidation: Boolean,
+    enableIntrospection: Boolean
+  )(implicit runtime: Runtime[R]): URIO[R, Output[Json]] =
     interpreter
       .executeRequest(request, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
       .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
@@ -78,14 +78,19 @@ object FinchAdapter extends Endpoint.Module[Task] {
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true
   )(implicit runtime: Runtime[R]): Endpoint[Task, Json :+: Json :+: CNil] =
-    post(stringBody :: header("content-type") ) { (body: String, contentType: String) =>
+    post(stringBody :: header("content-type")) { (body: String, contentType: String) =>
       if (contentType == "application/graphql") {
         val request = GraphQLRequest(Some(body))
         executeRequest(request, interpreter, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
       } else {
         val result = for {
           query <- ZIO.fromEither(parse(body).flatMap(_.as[GraphQLRequest]))
-          result <- createRequest(query, interpreter, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
+          result <- createRequest(
+                     query,
+                     interpreter,
+                     skipValidation = skipValidation,
+                     enableIntrospection = enableIntrospection
+                   )
         } yield result
         runtime.unsafeRunToFuture(result).future
       }
