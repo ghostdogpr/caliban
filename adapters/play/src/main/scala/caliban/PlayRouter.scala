@@ -20,10 +20,10 @@ case class PlayRouter[R, E](
   skipValidation: Boolean = false,
   enableIntrospection: Boolean = true,
   keepAliveTime: Option[Duration] = None,
-  requestWrapper: RequestWrapper = RequestWrapper.empty
+  requestWrapper: RequestWrapper[R] = RequestWrapper.empty
 )(implicit runtime: Runtime[R], materializer: Materializer)
     extends SimpleRouter
-    with PlayAdapter {
+    with PlayAdapter[R] {
 
   override val actionBuilder: ActionBuilder[Request, AnyContent] = controllerComponents.actionBuilder
   override val parse: PlayBodyParsers                            = controllerComponents.parsers
