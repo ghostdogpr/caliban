@@ -48,7 +48,8 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def toGraphQL[A1 >: A, Origin1 <: Origin](
     useVariables: Boolean = false,
-    queryName: Option[String] = None
+    queryName: Option[String] = None,
+    extensions: Option[ObjectValue] = None
   )(implicit ev: IsOperation[Origin1]): GraphQLRequest = {
     val (fields, variables) = SelectionBuilder.toGraphQL(toSelectionSet, useVariables)
     val variableDef =
@@ -57,7 +58,7 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
       else ""
     val nameDef   = queryName.fold("")(name => s" $name ")
     val operation = s"${ev.operationName}$nameDef$variableDef{$fields}"
-    GraphQLRequest(operation, variables.map { case (k, (v, _)) => k -> v })
+    GraphQLRequest(operation, variables.map { case (k, (v, _)) => k -> v }, extensions.map(_.fields.toMap))
   }
 
   /**
@@ -69,9 +70,10 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
   def toRequest[A1 >: A, Origin1 <: Origin](
     uri: Uri,
     useVariables: Boolean = false,
-    queryName: Option[String] = None
+    queryName: Option[String] = None,
+    extensions: Option[ObjectValue] = None
   )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, A1], Nothing] =
-    toRequestWithExtensions[A1, Origin1](uri, useVariables, queryName)(ev).mapResponse {
+    toRequestWithExtensions[A1, Origin1](uri, useVariables, queryName, extensions)(ev).mapResponse {
       case Right((r, _)) => Right(r)
       case Left(l)       => Left(l)
     }
@@ -85,11 +87,12 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
   def toRequestWithExtensions[A1 >: A, Origin1 <: Origin](
     uri: Uri,
     useVariables: Boolean = false,
-    queryName: Option[String] = None
+    queryName: Option[String] = None,
+    extensions: Option[ObjectValue] = None
   )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, (A1, Option[Json])], Nothing] =
     basicRequest
       .post(uri)
-      .body(toGraphQL(useVariables, queryName))
+      .body(toGraphQL(useVariables, queryName, extensions))
       .mapResponse { response =>
         for {
           resp <- response.left.map(CommunicationError(_))
