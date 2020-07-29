@@ -105,6 +105,10 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
           assert(s)(equalTo("""character(name:$name) @yo(value:$value){name}""")) &&
           assert(variables.get("name"))(isSome(equalTo((StringValue("Amos Burton"), "String!")))) &&
           assert(variables.get("value"))(isSome(equalTo((StringValue("what's up"), "String!"))))
+        },
+        test("query name") {
+          val query = Queries.character("Amos Burton")(Character.name) toGraphQL (queryName = Some("GetCharacter"))
+          assert(query.query)(equalTo("""query GetCharacter {character(name:"Amos Burton"){name}}"""))
         }
       ),
       suite("response parsing")(
