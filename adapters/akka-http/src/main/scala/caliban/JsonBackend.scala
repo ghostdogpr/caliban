@@ -16,7 +16,7 @@ trait JsonBackend {
 
   def parseWSMessage(text: String): Either[Throwable, WSMessage]
   def encodeWSResponse[E](id: String, data: ResponseValue, errors: List[E]): String
-  def encodeWSError(id: String, error: Throwable): String
+  def encodeWSError(id: String, error: String): String
 
   def reqUnmarshaller: FromEntityUnmarshaller[GraphQLRequest]
 
