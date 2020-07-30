@@ -78,22 +78,35 @@ object FinchAdapter extends Endpoint.Module[Task] {
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true
   )(implicit runtime: Runtime[R]): Endpoint[Task, Json :+: Json :+: CNil] =
-    post(stringBody :: header("content-type")) { (body: String, contentType: String) =>
-      if (contentType == "application/graphql") {
-        val request = GraphQLRequest(Some(body))
-        executeRequest(request, interpreter, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
-      } else {
-        val result = for {
-          query <- ZIO.fromEither(parse(body).flatMap(_.as[GraphQLRequest]))
-          result <- createRequest(
-                     query,
-                     interpreter,
-                     skipValidation = skipValidation,
-                     enableIntrospection = enableIntrospection
-                   )
-        } yield result
-        runtime.unsafeRunToFuture(result).future
-      }
+    post(queryParams :: stringBodyOption :: header("content-type")) {
+      (queryRequest: GraphQLRequest, body: Option[String], contentType: String) =>
+        (queryRequest, body, contentType) match {
+          case (queryRequest, _, _) if queryRequest.query.isDefined =>
+            executeRequest(
+              queryRequest,
+              interpreter,
+              skipValidation = skipValidation,
+              enableIntrospection = enableIntrospection
+            )
+          case (_, Some(_), contentType) if contentType == "application/graphql" =>
+            executeRequest(
+              GraphQLRequest(body),
+              interpreter,
+              skipValidation = skipValidation,
+              enableIntrospection = enableIntrospection
+            )
+          case (_, Some(bodyValue), contentType) if contentType == "application/json" =>
+            val result = for {
+              query <- ZIO.fromEither(parse(bodyValue).flatMap(_.as[GraphQLRequest]))
+              result <- createRequest(
+                         query,
+                         interpreter,
+                         skipValidation = skipValidation,
+                         enableIntrospection = enableIntrospection
+                       )
+            } yield result
+            runtime.unsafeRunToFuture(result).future
+        }
     } :+: get(queryParams) { request: GraphQLRequest =>
       executeRequest(request, interpreter, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
     }
