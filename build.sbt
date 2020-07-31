@@ -1,4 +1,5 @@
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
+import org.scalajs.sbtplugin.ScalaJSPlugin.autoImport._
 
 val mainScala = "2.12.11"
 val allScala  = Seq("2.13.2", mainScala)
@@ -70,6 +71,8 @@ lazy val root = project
     tapirInterop,
     clientJVM,
     clientJS,
+    clientPersistedQueriesJVM,
+    clientPersistedQueriesJS,
     tools,
     codegenSbt,
     federation
@@ -269,6 +272,30 @@ lazy val clientJVM = client.jvm
 lazy val clientJS = client.js.settings(
   libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.0.0" % Test
 )
+
+lazy val clientAPQ = crossProject(JSPlatform, JVMPlatform)
+  .crossType(CrossType.Full)
+  .dependsOn(client % "compile->compile;test->test")
+  .in(file("client-apq"))
+  .settings(name := "caliban-client-persisted-queries")
+  .settings(commonSettings)
+  .settings(
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    libraryDependencies ++= Seq(
+      "dev.zio"    %%% "zio-test"     % zioVersion % "test",
+      "dev.zio"    %%% "zio-test-sbt" % zioVersion % "test",
+      "org.scodec" %%% "scodec-core"  % "1.11.7",
+      compilerPlugin(("org.typelevel" %% "kind-projector" % "0.11.0").cross(CrossVersion.full))
+    )
+  )
+
+lazy val clientPersistedQueriesJVM = clientAPQ.jvm
+lazy val clientPersistedQueriesJS = clientAPQ.js
+  .enablePlugins(ScalaJSBundlerPlugin)
+  .settings(
+    npmDependencies in Compile += "hash.js"    -> "1.1.7",
+    libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.0.0" % Test
+  )
 
 lazy val examples = project
   .in(file("examples"))

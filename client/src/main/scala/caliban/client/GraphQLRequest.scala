@@ -17,6 +17,6 @@ object GraphQLRequest {
         case (k, v) => k -> v.asJson
       }.toList: _*),
       "extensions" -> req.extensions.asJson
-  )
+    )
 
 }

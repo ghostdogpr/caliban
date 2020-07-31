@@ -27,24 +27,26 @@ object CalibanClientError {
   case class ServerError(errors: List[GraphQLResponseError]) extends CalibanClientError {
     override def toString: String =
       s"Server Error: ${errors
-        .map(
-          e =>
-            s"${e.message} ${e.locations
-              .getOrElse(Nil)
-              .map(loc => s" at line ${loc.line} and column ${loc.column}")
-              .mkString(" ")}${e.path.fold("")(
-              p =>
-                s" at path ${p.map {
-                  case Left(value)  => s"/$value"
-                  case Right(value) => s"[$value]"
-                }.mkString("")}"
-            )}"
+        .map(e =>
+          s"${e.message} ${e.locations
+            .getOrElse(Nil)
+            .map(loc => s" at line ${loc.line} and column ${loc.column}")
+            .mkString(" ")}${e.path.fold("")(p =>
+            s" at path ${p.map {
+              case Left(value)  => s"/$value"
+              case Right(value) => s"[$value]"
+            }.mkString("")}"
+          )}"
         )
         .mkString("\n")}"
   }
 
   case object PersistedQueryNotFound extends CalibanClientError {
     override def toString: String = "PersistedQueryNotFound"
+  }
+
+  case class ClientError(msg: String, innerThrowable: Option[Throwable] = None) extends CalibanClientError {
+    override def toString: String = s"Client Error: $msg ${innerThrowable.fold("")(_.toString)}"
   }
 
 }
