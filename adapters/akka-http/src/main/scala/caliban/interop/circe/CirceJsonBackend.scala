@@ -52,12 +52,12 @@ final class CirceJsonBackend extends JsonBackend with FailFastCirceSupport {
       )
       .noSpaces
 
-  def encodeWSError(id: String, error: Throwable): String =
+  def encodeWSError(id: String, error: String): String =
     Json
       .obj(
         "id"      -> Json.fromString(id),
-        "type"    -> Json.fromString("complete"),
-        "payload" -> Json.fromString(error.toString)
+        "type"    -> Json.fromString("error"),
+        "payload" -> Json.obj("message" -> Json.fromString(error))
       )
       .noSpaces
 

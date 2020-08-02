@@ -10,6 +10,7 @@ import play.api.http.Writeable
 import play.api.libs.json.{ JsValue, Json, Writes }
 import play.api.mvc.{ Action, ActionBuilder, AnyContent, PlayBodyParsers, Request, RequestHeader, Result, WebSocket }
 import play.api.mvc.Results.Ok
+import zio.Exit.Failure
 import zio.{ CancelableFuture, Fiber, IO, RIO, Ref, Runtime, Schedule, Task, URIO, ZIO }
 import zio.clock.Clock
 import zio.duration.Duration
@@ -135,6 +136,15 @@ trait PlayAdapter[R] {
               case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
                 stream
                   .foreach(item => sendMessage(sendTo, messageId, ObjectValue(List(fieldName -> item)), result.errors))
+                  .onExit {
+                    case Failure(cause) if !cause.interrupted =>
+                      IO.fromFuture(_ =>
+                          sendTo.offer(PlayWSMessage("error", messageId, Json.obj("message" -> cause.squash.toString)))
+                        )
+                        .orDie
+                    case _ =>
+                      IO.fromFuture(_ => sendTo.offer(PlayWSMessage("complete", messageId))).orDie
+                  }
                   .forkDaemon
                   .flatMap(fiber => subscriptions.update(_.updated(messageId, fiber)))
               case other =>
@@ -168,7 +178,9 @@ trait PlayAdapter[R] {
                   case Some(req) =>
                     startSubscription(msg.id, req, queue, subscriptions)
                       .catchAll(error =>
-                        IO.fromFuture(_ => queue.offer(PlayWSMessage("complete", Some(error.toString))))
+                        IO.fromFuture(_ =>
+                          queue.offer(PlayWSMessage("error", msg.id, Json.obj("message" -> error.toString)))
+                        )
                       )
                 }
               case "stop" =>
@@ -176,9 +188,7 @@ trait PlayAdapter[R] {
                   .modify(map => (map.get(msg.id), map - msg.id))
                   .flatMap(fiber =>
                     IO.whenCase(fiber) {
-                      case Some(fiber) =>
-                        fiber.interrupt *>
-                          IO.fromFuture(_ => queue.offer(PlayWSMessage("complete", msg.id)))
+                      case Some(fiber) => fiber.interrupt
                     }
                   )
             }

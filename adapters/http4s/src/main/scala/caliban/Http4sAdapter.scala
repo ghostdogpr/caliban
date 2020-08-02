@@ -20,6 +20,7 @@ import org.http4s.implicits._
 import org.http4s.server.websocket.WebSocketBuilder
 import org.http4s.websocket.WebSocketFrame
 import org.http4s.websocket.WebSocketFrame.Text
+import zio.Exit.Failure
 import zio._
 import zio.clock.Clock
 import zio.duration.Duration
@@ -143,17 +144,17 @@ object Http4sAdapter {
 
     def sendMessage(
       sendQueue: fs2.concurrent.Queue[Task, WebSocketFrame],
+      messageType: String,
       id: String,
-      data: ResponseValue,
-      errors: List[E]
+      payload: Json
     ): RIO[R, Unit] =
       sendQueue.enqueue1(
         WebSocketFrame.Text(
           Json
             .obj(
               "id"      -> Json.fromString(id),
-              "type"    -> Json.fromString("data"),
-              "payload" -> GraphQLResponse(data, errors).asJson
+              "type"    -> Json.fromString(messageType),
+              "payload" -> payload
             )
             .noSpaces
         )
@@ -197,24 +198,32 @@ object Http4sAdapter {
                           _ <- result.data match {
                                 case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
                                   stream.foreach { item =>
-                                    sendMessage(sendQueue, id, ObjectValue(List(fieldName -> item)), result.errors)
-                                  }.fork.flatMap(fiber => subscriptions.update(_.updated(id, fiber)))
+                                    sendMessage(
+                                      sendQueue,
+                                      "data",
+                                      id,
+                                      GraphQLResponse(ObjectValue(List(fieldName -> item)), result.errors).asJson
+                                    )
+                                  }.onExit {
+                                    case Failure(cause) if !cause.interrupted =>
+                                      sendMessage(
+                                        sendQueue,
+                                        "error",
+                                        id,
+                                        Json.obj("message" -> Json.fromString(cause.squash.toString))
+                                      ).orDie
+                                    case _ =>
+                                      sendQueue
+                                        .enqueue1(WebSocketFrame.Text(s"""{"type":"complete","id":"$id"}"""))
+                                        .orDie
+                                  }.fork
+                                    .flatMap(fiber => subscriptions.update(_.updated(id, fiber)))
                                 case other =>
-                                  sendMessage(sendQueue, id, other, result.errors) *>
+                                  sendMessage(sendQueue, "data", id, GraphQLResponse(other, result.errors).asJson) *>
                                     sendQueue.enqueue1(WebSocketFrame.Text(s"""{"type":"complete","id":"$id"}"""))
                               }
                         } yield ()).catchAll(error =>
-                          sendQueue.enqueue1(
-                            WebSocketFrame.Text(
-                              Json
-                                .obj(
-                                  "id"      -> Json.fromString(id),
-                                  "type"    -> Json.fromString("complete"),
-                                  "payload" -> Json.fromString(error.toString)
-                                )
-                                .noSpaces
-                            )
-                          )
+                          sendMessage(sendQueue, "error", id, Json.obj("message" -> Json.fromString(error.toString)))
                         )
                     }
                   case "stop" =>
@@ -223,9 +232,7 @@ object Http4sAdapter {
                       .modify(map => (map.get(id), map - id))
                       .flatMap(fiber =>
                         IO.whenCase(fiber) {
-                          case Some(fiber) =>
-                            fiber.interrupt *>
-                              sendQueue.enqueue1(WebSocketFrame.Text(s"""{"type":"complete","id":"$id"}"""))
+                          case Some(fiber) => fiber.interrupt
                         }
                       )
                 }

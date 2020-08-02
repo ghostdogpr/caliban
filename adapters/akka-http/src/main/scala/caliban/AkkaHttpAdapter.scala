@@ -11,6 +11,7 @@ import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
 import caliban.AkkaHttpAdapter.{ `application/graphql`, ContextWrapper }
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
+import zio.Exit.Failure
 import zio._
 import zio.clock.Clock
 import zio.duration._
@@ -182,6 +183,15 @@ trait AkkaHttpAdapter {
               case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
                 stream
                   .foreach(item => sendMessage(sendTo, messageId, ObjectValue(List(fieldName -> item)), result.errors))
+                  .onExit {
+                    case Failure(cause) if !cause.interrupted =>
+                      IO.fromFuture(_ =>
+                          sendTo.offer(TextMessage(json.encodeWSError(messageId, cause.squash.toString)))
+                        )
+                        .orDie
+                    case _ =>
+                      IO.fromFuture(_ => sendTo.offer(TextMessage(s"""{"type":"complete","id":"$messageId"}"""))).orDie
+                  }
                   .forkDaemon
                   .flatMap(fiber => subscriptions.update(_.updated(Option(messageId), fiber)))
               case other =>
@@ -219,7 +229,7 @@ trait AkkaHttpAdapter {
                         RIO.whenCase(msg.request) {
                           case Some(req) =>
                             startSubscription(msg.id, req, queue, subscriptions, ctx).catchAll(error =>
-                              IO.fromFuture(_ => queue.offer(TextMessage(json.encodeWSError(msg.id, error))))
+                              IO.fromFuture(_ => queue.offer(TextMessage(json.encodeWSError(msg.id, error.toString))))
                             )
                         }
                       case "stop" =>
@@ -227,11 +237,7 @@ trait AkkaHttpAdapter {
                           .modify(map => (map.get(Option(msg.id)), map - Option(msg.id)))
                           .flatMap(fiber =>
                             IO.whenCase(fiber) {
-                              case Some(fiber) =>
-                                fiber.interrupt *>
-                                  IO.fromFuture(_ =>
-                                    queue.offer(TextMessage(s"""{"type":"complete","id":"${msg.id}"}"""))
-                                  )
+                              case Some(fiber) => fiber.interrupt
                             }
                           )
                     }
