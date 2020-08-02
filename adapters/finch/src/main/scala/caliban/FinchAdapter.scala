@@ -8,7 +8,7 @@ import io.circe.parser._
 import io.finch._
 import shapeless._
 import zio.interop.catz._
-import zio.{ Runtime, Task, URIO, ZIO }
+import zio.{ Runtime, Task, URIO }
 
 object FinchAdapter extends Endpoint.Module[Task] {
 
@@ -80,33 +80,23 @@ object FinchAdapter extends Endpoint.Module[Task] {
   )(implicit runtime: Runtime[R]): Endpoint[Task, Json :+: Json :+: CNil] =
     post(queryParams :: stringBodyOption :: header("content-type")) {
       (queryRequest: GraphQLRequest, body: Option[String], contentType: String) =>
-        (queryRequest, body, contentType) match {
+        val request: GraphQLRequest = (queryRequest, body, contentType) match {
+          case (_, Some(bodyValue), "application/json") =>
+            parse(bodyValue).flatMap(_.as[GraphQLRequest]).getOrElse(GraphQLRequest())
+          case (_, Some(_), "application/graphql") =>
+            GraphQLRequest(body)
           case (queryRequest, _, _) if queryRequest.query.isDefined =>
-            executeRequest(
-              queryRequest,
-              interpreter,
-              skipValidation = skipValidation,
-              enableIntrospection = enableIntrospection
-            )
-          case (_, Some(_), contentType) if contentType == "application/graphql" =>
-            executeRequest(
-              GraphQLRequest(body),
-              interpreter,
-              skipValidation = skipValidation,
-              enableIntrospection = enableIntrospection
-            )
-          case (_, Some(bodyValue), contentType) if contentType == "application/json" =>
-            val result = for {
-              query <- ZIO.fromEither(parse(bodyValue).flatMap(_.as[GraphQLRequest]))
-              result <- createRequest(
-                         query,
-                         interpreter,
-                         skipValidation = skipValidation,
-                         enableIntrospection = enableIntrospection
-                       )
-            } yield result
-            runtime.unsafeRunToFuture(result).future
+            queryRequest
+          // treat unmatched content-type as same as None of body.
+          case _ =>
+            GraphQLRequest()
         }
+        executeRequest(
+          request,
+          interpreter,
+          skipValidation = skipValidation,
+          enableIntrospection = enableIntrospection
+        )
     } :+: get(queryParams) { request: GraphQLRequest =>
       executeRequest(request, interpreter, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
     }
