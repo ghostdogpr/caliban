@@ -112,6 +112,27 @@ object ExecutionSpec extends DefaultRunnableSpec {
           equalTo("""{"amos":{"name":"Amos Burton"}}""")
         )
       },
+      testM("fragment on union") {
+        val interpreter = graphQL(resolver).interpreter
+        val query       = gqldoc("""
+             {
+               amos: character(name: "Amos Burton") {
+                 role {
+                   ...roleF
+                 }
+               }
+             }
+
+             fragment roleF on Role {
+               ... on Mechanic {
+                 shipName
+               }
+             }""")
+
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
+          equalTo("""{"amos":{"role":{"shipName":"Rocinante"}}}""")
+        )
+      },
       testM("inline fragment") {
         val interpreter = graphQL(resolver).interpreter
         val query       = gqldoc("""

@@ -66,7 +66,9 @@ object Field {
             .foreach { f =>
               val t =
                 innerType.possibleTypes.flatMap(_.find(_.name.contains(f.typeCondition.name))).getOrElse(fieldType)
-              fieldList ++= loop(f.selectionSet, t).fields.map(_.copy(condition = Some(f.typeCondition.name)))
+              fieldList ++= loop(f.selectionSet, t).fields.map(field =>
+                if (field.condition.isDefined) field else field.copy(condition = Some(f.typeCondition.name))
+              )
             }
         case InlineFragment(typeCondition, directives, selectionSet) if checkDirectives(directives, variableValues) =>
           val t = innerType.possibleTypes
@@ -74,8 +76,11 @@ object Field {
             .getOrElse(fieldType)
           val field = loop(selectionSet, t)
           typeCondition match {
-            case None           => fieldList ++= field.fields
-            case Some(typeName) => fieldList ++= field.fields.map(_.copy(condition = Some(typeName.name)))
+            case None => fieldList ++= field.fields
+            case Some(typeName) =>
+              fieldList ++= field.fields.map(field =>
+                if (field.condition.isDefined) field else field.copy(condition = Some(typeName.name))
+              )
           }
         case _ =>
       }
