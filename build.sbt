@@ -12,7 +12,7 @@ val silencerVersion       = "1.6.0"
 val sttpVersion           = "2.2.3"
 val tapirVersion          = "0.16.10"
 val zioVersion            = "1.0.0-RC21-2"
-val zioInteropCatsVersion = "2.1.4.0-RC17"
+val zioInteropCatsVersion = "2.1.4.0"
 val zioConfigVersion      = "1.0.0-RC25"
 val zqueryVersion         = "0.2.3"
 
