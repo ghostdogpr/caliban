@@ -8,7 +8,7 @@ import io.circe.parser._
 import io.finch._
 import shapeless._
 import zio.interop.catz._
-import zio.{ Runtime, Task, URIO, ZIO }
+import zio.{ Runtime, Task, URIO }
 
 object FinchAdapter extends Endpoint.Module[Task] {
 
@@ -78,22 +78,26 @@ object FinchAdapter extends Endpoint.Module[Task] {
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true
   )(implicit runtime: Runtime[R]): Endpoint[Task, Json :+: Json :+: CNil] =
-    post(stringBody :: header("content-type")) { (body: String, contentType: String) =>
-      if (contentType == "application/graphql") {
-        val request = GraphQLRequest(Some(body))
-        executeRequest(request, interpreter, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
-      } else {
-        val result = for {
-          query <- ZIO.fromEither(parse(body).flatMap(_.as[GraphQLRequest]))
-          result <- createRequest(
-                     query,
-                     interpreter,
-                     skipValidation = skipValidation,
-                     enableIntrospection = enableIntrospection
-                   )
-        } yield result
-        runtime.unsafeRunToFuture(result).future
-      }
+    post(queryParams :: stringBodyOption :: header("content-type")) {
+      (queryRequest: GraphQLRequest, body: Option[String], contentType: String) =>
+        val queryTask = (queryRequest, body, contentType) match {
+          case (_, Some(bodyValue), "application/json") =>
+            Task.fromEither(parse(bodyValue).flatMap(_.as[GraphQLRequest]))
+          case (_, Some(_), "application/graphql") =>
+            Task(GraphQLRequest(body))
+          case (queryRequest, _, _) if queryRequest.query.isDefined =>
+            Task(queryRequest)
+          // treat unmatched content-type as same as None of body.
+          case _ =>
+            Task.fail(new Exception("Query was not found"))
+        }
+        runtime
+          .unsafeRunToFuture(
+            queryTask
+              .flatMap(createRequest(_, interpreter, skipValidation, enableIntrospection))
+              .catchAll(error => Task(Ok(GraphQLResponse(NullValue, List(error.getMessage)).asJson)))
+          )
+          .future
     } :+: get(queryParams) { request: GraphQLRequest =>
       executeRequest(request, interpreter, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
     }
