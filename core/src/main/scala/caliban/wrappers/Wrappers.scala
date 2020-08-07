@@ -8,7 +8,7 @@ import caliban.parsing.adt.Document
 import caliban.wrappers.Wrapper.{ OverallWrapper, ValidationWrapper }
 import zio.clock.Clock
 import zio.console.{ putStrLn, Console }
-import zio.duration.Duration
+import zio.duration._
 import zio.{ IO, UIO, URIO, ZIO }
 
 object Wrappers {

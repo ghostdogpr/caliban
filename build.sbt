@@ -9,12 +9,12 @@ val circeVersion          = "0.13.0"
 val http4sVersion         = "0.21.6"
 val playVersion           = "2.8.1"
 val silencerVersion       = "1.6.0"
-val sttpVersion           = "2.2.3"
+val sttpVersion           = "2.2.4"
 val tapirVersion          = "0.16.10"
-val zioVersion            = "1.0.0-RC21-2"
-val zioInteropCatsVersion = "2.1.4.0-RC17"
-val zioConfigVersion      = "1.0.0-RC25"
-val zqueryVersion         = "0.2.3"
+val zioVersion            = "1.0.0"
+val zioInteropCatsVersion = "2.1.4.0"
+val zioConfigVersion      = "1.0.0-RC26"
+val zqueryVersion         = "0.2.4"
 
 inThisBuild(
   List(
@@ -63,7 +63,7 @@ lazy val root = project
     finch,
     http4s,
     akkaHttp,
-    uzhttp,
+//    uzhttp,
     play,
     catsInterop,
     monixInterop,
@@ -227,17 +227,17 @@ lazy val finch = project
   )
   .dependsOn(core)
 
-lazy val uzhttp = project
-  .in(file("adapters/uzhttp"))
-  .settings(name := "caliban-uzhttp")
-  .settings(commonSettings)
-  .settings(
-    libraryDependencies ++= Seq(
-      "org.polynote" %% "uzhttp"       % "0.2.4",
-      "io.circe"     %% "circe-parser" % "0.13.0"
-    )
-  )
-  .dependsOn(core)
+//lazy val uzhttp = project
+//  .in(file("adapters/uzhttp"))
+//  .settings(name := "caliban-uzhttp")
+//  .settings(commonSettings)
+//  .settings(
+//    libraryDependencies ++= Seq(
+//      "org.polynote" %% "uzhttp"       % "0.2.4",
+//      "io.circe"     %% "circe-parser" % "0.13.0"
+//    )
+//  )
+//  .dependsOn(core)
 
 lazy val play = project
   .in(file("adapters/play"))
@@ -284,7 +284,7 @@ lazy val examples = project
       "com.typesafe.akka"            %% "akka-actor-typed"              % akkaVersion
     )
   )
-  .dependsOn(akkaHttp, http4s, catsInterop, finch, uzhttp, play, monixInterop, tapirInterop, clientJVM, federation)
+  .dependsOn(akkaHttp, http4s, catsInterop, finch, /*uzhttp,*/ play, monixInterop, tapirInterop, clientJVM, federation)
 
 lazy val benchmarks = project
   .in(file("benchmarks"))
