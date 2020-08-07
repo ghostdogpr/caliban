@@ -174,7 +174,7 @@ trait PlayAdapter[R] {
               case "connection_terminate" =>
                 IO.effect(queue.complete())
               case "start" =>
-                Task.whenCase(msg.request) {
+                RIO.whenCase(msg.request) {
                   case Some(req) =>
                     startSubscription(msg.id, req, queue, subscriptions)
                       .catchAll(error =>
