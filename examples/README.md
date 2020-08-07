@@ -12,7 +12,6 @@ libraryDependencies ++= Seq(
   "com.github.ghostdogpr"        %% "caliban-cats" % "0.9.0",
   "com.github.ghostdogpr"        %% "caliban-monix" % "0.9.0",
   "com.github.ghostdogpr"        %% "caliban-finch" % "0.9.0",
-  "com.github.ghostdogpr"        %% "caliban-uzhttp" % "0.9.0",
   "com.github.ghostdogpr"        %% "caliban-federation" % "0.9.0",
   "com.github.ghostdogpr"        %% "caliban-tapir" % "0.9.0",
   "com.softwaremill.sttp.tapir"  %% "tapir-json-circe" % "0.14.3",
