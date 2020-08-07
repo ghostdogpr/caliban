@@ -258,7 +258,7 @@ object Validator {
 
   private def validateVariables(context: Context): IO[ValidationError, Unit] =
     IO.foreach(context.operations)(op =>
-        IO.foreach(op.variableDefinitions.groupBy(_.name)) {
+        IO.foreach(op.variableDefinitions.groupBy(_.name).toList) {
           case (name, variables) =>
             IO.when(variables.length > 1)(
               failValidation(
@@ -419,7 +419,7 @@ object Validator {
     }
 
   private def validateArguments(field: Field, f: __Field, currentType: __Type): IO[ValidationError, List[Unit]] =
-    IO.foreach(field.arguments) {
+    IO.foreach(field.arguments.toIterable) {
       case (arg, argValue) =>
         f.args.find(_.name == arg) match {
           case None =>
@@ -446,7 +446,7 @@ object Validator {
     val inputFields = inputType.inputFields.getOrElse(Nil)
     argValue match {
       case InputValue.ObjectValue(fields) if inputType.kind == __TypeKind.INPUT_OBJECT =>
-        IO.foreach(fields) {
+        IO.foreach(fields.toIterable) {
           case (k, v) =>
             inputFields.find(_.name == k) match {
               case None =>
