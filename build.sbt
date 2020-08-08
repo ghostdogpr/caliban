@@ -18,6 +18,8 @@ val zqueryVersion         = "0.2.4"
 
 inThisBuild(
   List(
+    scalaVersion := mainScala,
+    crossScalaVersions := allScala,
     organization := "com.github.ghostdogpr",
     homepage := Some(url("https://github.com/ghostdogpr/caliban")),
     licenses := List(
@@ -312,8 +314,6 @@ lazy val federation = project
   )
 
 val commonSettings = Def.settings(
-  scalaVersion := mainScala,
-  crossScalaVersions := allScala,
   scalacOptions ++= Seq(
     "-deprecation",
     "-encoding",
