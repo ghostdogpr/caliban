@@ -26,9 +26,6 @@ inThisBuild(
       "Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0")
     ),
     parallelExecution in Test := false,
-    pgpPassphrase := sys.env.get("PGP_PASSWORD").map(_.toArray),
-    pgpPublicRing := file("/tmp/public.asc"),
-    pgpSecretRing := file("/tmp/secret.asc"),
     scmInfo := Some(
       ScmInfo(
         url("https://github.com/ghostdogpr/caliban/"),
@@ -46,8 +43,6 @@ inThisBuild(
     ConsoleHelper.welcomeMessage
   )
 )
-
-ThisBuild / publishTo := sonatypePublishToBundle.value
 
 name := "caliban"
 addCommandAlias("fmt", "all scalafmtSbt scalafmt test:scalafmt")
