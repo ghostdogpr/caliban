@@ -55,7 +55,7 @@ lazy val root = project
   .in(file("."))
   .enablePlugins(ScalaJSPlugin)
   .settings(skip in publish := true)
-  .settings(historyPath := None)
+  .settings(crossScalaVersions := Nil)
   .aggregate(
     core,
     finch,
