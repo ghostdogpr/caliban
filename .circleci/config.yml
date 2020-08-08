@@ -64,10 +64,7 @@ jobs:
       - run: git fetch --tags
       - restore_cache:
           key: sbtcache
-      - run: echo "credentials += Credentials(\"Sonatype Nexus Repository Manager\", \"oss.sonatype.org\", \"$SONATYPE_USER\", \"$SONATYPE_PASSWORD\")" > ~/.sbt/1.0/sonatype.sbt
-      - run: echo -n "${PGP_PUBLIC}" | base64 -d > /tmp/public.asc
-      - run: echo -n "${PGP_SECRET}" | base64 -d > /tmp/secret.asc
-      - run: sbt ++${SCALA_VERSION}! clean sonatypeBundleClean +publishSigned sonatypeBundleRelease
+      - run: sbt ci-release
 
   microsite:
     docker:
@@ -123,7 +120,8 @@ workflows:
             - test212_js
           filters:
             branches:
-              ignore: /.*/
+              only:
+                - master
             tags:
               only: /^v[0-9]+(\.[0-9]+)*$/
       - microsite:
