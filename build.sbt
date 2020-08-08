@@ -40,7 +40,8 @@ inThisBuild(
         "ghostdogpr@gmail.com",
         url("https://github.com/ghostdogpr")
       )
-    )
+    ),
+    ConsoleHelper.welcomeMessage
   )
 )
 
