@@ -64,7 +64,7 @@ jobs:
       - run: git fetch --tags
       - restore_cache:
           key: sbtcache
-      - run: sbt ci-release
+      - run: sbt clean ci-release
 
   microsite:
     docker:
