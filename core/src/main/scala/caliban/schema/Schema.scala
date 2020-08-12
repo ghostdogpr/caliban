@@ -370,7 +370,7 @@ trait DerivationSchema[R] {
           ctx.parameters
             .map(p =>
               __InputValue(
-                p.label,
+                getName(p),
                 getDescription(p),
                 () =>
                   if (p.typeclass.optional) p.typeclass.toType_(isInput, isSubscription)
@@ -389,7 +389,7 @@ trait DerivationSchema[R] {
           ctx.parameters
             .map(p =>
               __Field(
-                p.label,
+                getName(p),
                 getDescription(p),
                 p.typeclass.arguments,
                 () =>
@@ -412,7 +412,7 @@ trait DerivationSchema[R] {
         head.typeclass.resolve(head.dereference(value))
       } else {
         val fields = Map.newBuilder[String, Step[R]]
-        ctx.parameters.foreach(p => fields += p.label -> p.typeclass.resolve(p.dereference(value)))
+        ctx.parameters.foreach(p => fields += getName(p) -> p.typeclass.resolve(p.dereference(value)))
         ObjectStep(getName(ctx), fields.result())
       }
   }
@@ -522,6 +522,9 @@ trait DerivationSchema[R] {
 
   private def getName[Typeclass[_], Type](ctx: SealedTrait[Typeclass, Type]): String =
     getName(ctx.annotations, ctx.typeName)
+
+  private def getName[Typeclass[_], Type](ctx: ReadOnlyParam[Typeclass, Type]): String =
+    ctx.annotations.collectFirst { case GQLName(name) => name }.getOrElse(ctx.label)
 
   private def getDescription(annotations: Seq[Any]): Option[String] =
     annotations.collectFirst { case GQLDescription(desc) => desc }
