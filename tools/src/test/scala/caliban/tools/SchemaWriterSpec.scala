@@ -367,13 +367,13 @@ object Types {
       testM("args unique class names") {
         val schema =
           """
-             |type Hero {
-             |  callAllies(number: Int!): [Hero!]!
-             |}
-             |
-             |type Villain {
-             |  callAllies(number: Int!, w: String!): [Villain!]!
-             |}
+            |type Hero {
+            |  callAllies(number: Int!): [Hero!]!
+            |}
+            |
+            |type Villain {
+            |  callAllies(number: Int!, w: String!): [Villain!]!
+            |}
             """.stripMargin
 
         assertM(gen(schema))(

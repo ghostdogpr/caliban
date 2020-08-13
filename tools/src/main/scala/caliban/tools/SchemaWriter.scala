@@ -160,7 +160,7 @@ object SchemaWriter {
       s"${args.map(arg => s"${safeName(arg.name)} : ${writeType(arg.ofType)}").mkString(", ")}"
 
     if (field.args.nonEmpty) {
-      val prefix = if(reservedType(of)) "" else of.name.capitalize
+      val prefix = if (reservedType(of)) "" else of.name.capitalize
       s"case class $prefix${field.name.capitalize}Args(${fields(field.args)})"
     } else {
       ""
