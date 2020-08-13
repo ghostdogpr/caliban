@@ -15,7 +15,7 @@ object SchemaWriter {
     val schemaDef = schema.schemaDefinition
 
     val argsTypes = schema.objectTypeDefinitions
-      .flatMap(_.fields.filter(_.args.nonEmpty).map(writeArguments))
+      .flatMap(typeDef => typeDef.fields.filter(_.args.nonEmpty).map(writeArguments(_, typeDef)))
       .mkString("\n")
 
     val unionTypes = schema.unionTypeDefinitions
@@ -155,12 +155,13 @@ object SchemaWriter {
   def writeInputValue(value: InputValueDefinition): String =
     s"""${writeDescription(value.description)}${safeName(value.name)} : ${writeType(value.ofType)}"""
 
-  def writeArguments(field: FieldDefinition): String = {
+  def writeArguments(field: FieldDefinition, of: ObjectTypeDefinition): String = {
     def fields(args: List[InputValueDefinition]): String =
       s"${args.map(arg => s"${safeName(arg.name)} : ${writeType(arg.ofType)}").mkString(", ")}"
 
     if (field.args.nonEmpty) {
-      s"case class ${field.name.capitalize}Args(${fields(field.args)})"
+      val prefix = if(reservedType(of)) "" else of.name.capitalize
+      s"case class $prefix${field.name.capitalize}Args(${fields(field.args)})"
     } else {
       ""
     }
