@@ -204,8 +204,10 @@ object ArgBuilder {
     (input: InputValue) => {
       ctx.constructMonadic { p =>
         input match {
-          case InputValue.ObjectValue(fields) => p.typeclass.build(fields.getOrElse(p.label, NullValue))
-          case value                          => p.typeclass.build(value)
+          case InputValue.ObjectValue(fields) =>
+            val label = p.annotations.collectFirst { case GQLName(name) => name }.getOrElse(p.label)
+            p.typeclass.build(fields.getOrElse(label, NullValue))
+          case value => p.typeclass.build(value)
         }
       }
     }

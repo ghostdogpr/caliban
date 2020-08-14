@@ -93,7 +93,7 @@ trait AkkaHttpAdapter {
     import akka.http.scaladsl.server.Directives._
 
     get {
-      parameters((Symbol("query").?, Symbol("operationName").?, Symbol("variables").?, Symbol("extensions").?)) {
+      parameters(Symbol("query").?, Symbol("operationName").?, Symbol("variables").?, Symbol("extensions").?) {
         case (query, op, vars, ext) =>
           json
             .parseHttpRequest(query, op, vars, ext)
@@ -110,7 +110,7 @@ trait AkkaHttpAdapter {
     } ~
       post {
         extractRequestEntity { requestEntity =>
-          parameters((Symbol("query").?, Symbol("operationName").?, Symbol("variables").?, Symbol("extensions").?)) {
+          parameters(Symbol("query").?, Symbol("operationName").?, Symbol("variables").?, Symbol("extensions").?) {
             case (query @ Some(_), op, vars, ext) =>
               json
                 .parseHttpRequest(query, op, vars, ext)
@@ -202,7 +202,7 @@ trait AkkaHttpAdapter {
 
     get {
       extractRequestContext { ctx =>
-        extractUpgradeToWebSocket { upgrade =>
+        extractWebSocketUpgrade { upgrade =>
           val (queue, source) = Source.queue[Message](0, OverflowStrategy.fail).preMaterialize()
           val subscriptions   = runtime.unsafeRun(Ref.make(Map.empty[Option[String], Fiber[Throwable, Unit]]))
           val sink = Sink.foreach[Message] {

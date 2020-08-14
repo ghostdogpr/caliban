@@ -6,11 +6,11 @@ val allScala  = Seq("2.13.2", mainScala)
 val akkaVersion           = "2.6.8"
 val catsEffectVersion     = "2.1.4"
 val circeVersion          = "0.13.0"
-val http4sVersion         = "0.21.6"
+val http4sVersion         = "0.21.7"
 val playVersion           = "2.8.1"
 val silencerVersion       = "1.7.1"
 val sttpVersion           = "2.2.4"
-val tapirVersion          = "0.16.11"
+val tapirVersion          = "0.16.13"
 val zioVersion            = "1.0.0"
 val zioInteropCatsVersion = "2.1.4.0"
 val zioConfigVersion      = "1.0.0-RC26"
@@ -198,7 +198,7 @@ lazy val akkaHttp = project
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "com.typesafe.akka" %% "akka-http"           % "10.1.12",
+      "com.typesafe.akka" %% "akka-http"           % "10.2.0",
       "com.typesafe.akka" %% "akka-stream"         % akkaVersion,
       "de.heikoseeberger" %% "akka-http-circe"     % "1.34.0" % Optional,
       "de.heikoseeberger" %% "akka-http-play-json" % "1.34.0" % Optional,

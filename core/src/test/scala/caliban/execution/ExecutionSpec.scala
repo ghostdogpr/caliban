@@ -9,6 +9,7 @@ import caliban.RootResolver
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, StringValue }
 import caliban.parsing.adt.LocationInfo
+import caliban.schema.Annotations.GQLName
 import zio.IO
 import zio.stream.ZStream
 import zio.test.Assertion._
@@ -455,6 +456,16 @@ object ExecutionSpec extends DefaultRunnableSpec {
             """{"events":[{"organizationId":7,"title":"Frida Kahlo exhibition"}],"painters":[{"name":"Claude Monet","movement":"Impressionism"}]}"""
           )
         )
+      },
+      testM("field name customization") {
+        case class Query(@GQLName("test2") test: Int)
+        val api         = graphQL(RootResolver(Query(1)))
+        val interpreter = api.interpreter
+        val query =
+          """query{
+            |  test2
+            |}""".stripMargin
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test2":1}"""))
       }
     )
 }
