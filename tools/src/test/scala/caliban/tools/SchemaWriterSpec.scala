@@ -36,18 +36,18 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
             (for {
               typeDef      <- doc.objectTypeDefinitions
               typeDefField <- typeDef.fields
-              argClass     = SchemaWriter.writeArguments(typeDefField) if argClass.length > 0
+              argClass     = SchemaWriter.writeArguments(typeDefField, typeDef) if argClass.length > 0
             } yield argClass).mkString("\n")
           }
           .flatMap(Formatter.format(_, None).map(_.trim))
 
         assertM(typeCaseClass)(
           equalTo(
-            "case class Hero(name: NameArgs () => String, nick: String, bday: Option[Int])"
+            "case class Hero(name: HeroNameArgs () => String, nick: String, bday: Option[Int])"
           )
         ) andThen assertM(typeCaseClassArgs)(
           equalTo(
-            "case class NameArgs(pad: Int)"
+            "case class HeroNameArgs(pad: Int)"
           )
         )
       },
@@ -361,6 +361,31 @@ object Types {
 
 }
 """
+          )
+        )
+      },
+      testM("args unique class names") {
+        val schema =
+          """
+            |type Hero {
+            |  callAllies(number: Int!): [Hero!]!
+            |}
+            |
+            |type Villain {
+            |  callAllies(number: Int!, w: String!): [Villain!]!
+            |}
+            """.stripMargin
+
+        assertM(gen(schema))(
+          equalTo(
+            """object Types {
+              |  case class HeroCallAlliesArgs(number: Int)
+              |  case class VillainCallAlliesArgs(number: Int, w: String)
+              |  case class Hero(callAllies: HeroCallAlliesArgs => List[Hero])
+              |  case class Villain(callAllies: VillainCallAlliesArgs => List[Villain])
+              |
+              |}
+              |""".stripMargin
           )
         )
       }
