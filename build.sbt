@@ -293,7 +293,8 @@ lazy val benchmarks = project
   .settings(
     libraryDependencies ++= Seq(
       "org.sangria-graphql" %% "sangria"       % "2.0.0",
-      "org.sangria-graphql" %% "sangria-circe" % "1.3.0"
+      "org.sangria-graphql" %% "sangria-circe" % "1.3.0",
+      "org.sangria-graphql" %% "sangria-slowlog" % "2.0.0-M1"
     )
   )
 
