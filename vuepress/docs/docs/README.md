@@ -155,3 +155,4 @@ val api = graphQL(RootResolver(queries, mutations, subscriptions))
 ```
 
 All the fields of the subscription root case class MUST return `ZStream` or `? => ZStream` objects. When a subscription request is received, an output stream of `ResponseValue` (a `StreamValue`) will be returned wrapped inside an `ObjectValue`.
+
