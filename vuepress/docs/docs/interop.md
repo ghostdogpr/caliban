@@ -11,7 +11,7 @@ You first need to import `caliban.interop.cats.implicits._` and have an implicit
 - the `GraphQLInterpreter` object is enriched with `executeAsync` and `checkAsync`, variants of `execute` and `check` that return an `F[_]: Async` instead of a `ZIO`.
 - the `Http4sAdapter` also has cats-effect variants named `makeRestServiceF` and `makeWebSocketServiceF`.
 
-In addition to that, a `Schema` for any `F[_]: Effect` is provided. That means you can include fields returning Monix Task for Cats IO in your queries, mutations or subscriptions.
+In addition to that, a `Schema` for any `F[_]: Effect` is provided. That means you can include fields with results wrapped in `F` in your queries, mutations or subscriptions.
 
 The following example shows how to create an interpreter and run a query while only using Cats IO.
 
