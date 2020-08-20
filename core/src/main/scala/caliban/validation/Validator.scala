@@ -237,7 +237,7 @@ object Validator {
   private def validateDirectives(context: Context): IO[ValidationError, Unit] =
     for {
       directives <- collectAllDirectives(context)
-      _ <- IO.foreach(directives) {
+      _ <- IO.foreach_(directives) {
             case (d, location) =>
               Introspector.directives.find(_.name == d.name) match {
                 case None =>
@@ -257,44 +257,43 @@ object Validator {
     } yield ()
 
   private def validateVariables(context: Context): IO[ValidationError, Unit] =
-    IO.foreach(context.operations)(op =>
-        IO.foreach(op.variableDefinitions.groupBy(_.name).toList) {
-          case (name, variables) =>
-            IO.when(variables.length > 1)(
-              failValidation(
-                s"Variable '$name' is defined more than once.",
-                "If any operation defines more than one variable with the same name, it is ambiguous and invalid. It is invalid even if the type of the duplicate variable is the same."
-              )
-            )
-        } *> IO.foreach(op.variableDefinitions) { v =>
-          val t = Type.innerType(v.variableType)
-          IO.whenCase(context.rootType.types.get(t).map(_.kind)) {
-            case Some(__TypeKind.OBJECT) | Some(__TypeKind.UNION) | Some(__TypeKind.INTERFACE) =>
-              failValidation(
-                s"Type of variable '${v.name}' is not a valid input type.",
-                "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
-              )
-          }
-        } *> {
-          val variableUsages = collectVariablesUsed(context, op.selectionSet)
-          IO.foreach(variableUsages)(v =>
-            IO.when(!op.variableDefinitions.exists(_.name == v))(
-              failValidation(
-                s"Variable '$v' is not defined.",
-                "Variables are scoped on a per‐operation basis. That means that any variable used within the context of an operation must be defined at the top level of that operation"
-              )
-            )
-          ) *> IO.foreach(op.variableDefinitions)(v =>
-            IO.when(!variableUsages.contains(v.name))(
-              failValidation(
-                s"Variable '${v.name}' is not used.",
-                "All variables defined by an operation must be used in that operation or a fragment transitively included by that operation. Unused variables cause a validation error."
-              )
+    IO.foreach_(context.operations)(op =>
+      IO.foreach_(op.variableDefinitions.groupBy(_.name)) {
+        case (name, variables) =>
+          IO.when(variables.length > 1)(
+            failValidation(
+              s"Variable '$name' is defined more than once.",
+              "If any operation defines more than one variable with the same name, it is ambiguous and invalid. It is invalid even if the type of the duplicate variable is the same."
             )
           )
+      } *> IO.foreach_(op.variableDefinitions) { v =>
+        val t = Type.innerType(v.variableType)
+        IO.whenCase(context.rootType.types.get(t).map(_.kind)) {
+          case Some(__TypeKind.OBJECT) | Some(__TypeKind.UNION) | Some(__TypeKind.INTERFACE) =>
+            failValidation(
+              s"Type of variable '${v.name}' is not a valid input type.",
+              "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
+            )
         }
-      )
-      .unit
+      } *> {
+        val variableUsages = collectVariablesUsed(context, op.selectionSet)
+        IO.foreach_(variableUsages)(v =>
+          IO.when(!op.variableDefinitions.exists(_.name == v))(
+            failValidation(
+              s"Variable '$v' is not defined.",
+              "Variables are scoped on a per‐operation basis. That means that any variable used within the context of an operation must be defined at the top level of that operation"
+            )
+          )
+        ) *> IO.foreach_(op.variableDefinitions)(v =>
+          IO.when(!variableUsages.contains(v.name))(
+            failValidation(
+              s"Variable '${v.name}' is not used.",
+              "All variables defined by an operation must be used in that operation or a fragment transitively included by that operation. Unused variables cause a validation error."
+            )
+          )
+        )
+      }
+    )
 
   private def collectFragmentSpreads(selectionSet: List[Selection]): List[FragmentSpread] =
     selectionSet.collect { case f: FragmentSpread => f }
@@ -302,19 +301,18 @@ object Validator {
   private def validateFragmentSpreads(context: Context): IO[ValidationError, Unit] = {
     val spreads     = collectFragmentSpreads(context.selectionSets)
     val spreadNames = spreads.map(_.name).toSet
-    IO.foreach(context.fragments.values)(f =>
-        if (!spreadNames.contains(f.name))
-          failValidation(
-            s"Fragment '${f.name}' is not used in any spread.",
-            "Defined fragments must be used within a document."
-          )
-        else
-          failValidation(
-            s"Fragment '${f.name}' forms a cycle.",
-            "The graph of fragment spreads must not form any cycles including spreading itself. Otherwise an operation could infinitely spread or infinitely execute on cycles in the underlying data."
-          ).when(detectCycles(context, f))
-      )
-      .unit
+    IO.foreach_(context.fragments.values)(f =>
+      if (!spreadNames.contains(f.name))
+        failValidation(
+          s"Fragment '${f.name}' is not used in any spread.",
+          "Defined fragments must be used within a document."
+        )
+      else
+        failValidation(
+          s"Fragment '${f.name}' forms a cycle.",
+          "The graph of fragment spreads must not form any cycles including spreading itself. Otherwise an operation could infinitely spread or infinitely execute on cycles in the underlying data."
+        ).when(detectCycles(context, f))
+    )
   }
 
   private def detectCycles(context: Context, fragment: FragmentDefinition, visited: Set[String] = Set()): Boolean = {
@@ -327,31 +325,30 @@ object Validator {
   }
 
   private def validateDocumentFields(context: Context): IO[ValidationError, Unit] =
-    IO.foreach(context.document.definitions) {
-        case OperationDefinition(opType, _, _, _, selectionSet) =>
-          opType match {
-            case OperationType.Query => validateFields(context, selectionSet, context.rootType.queryType)
-            case OperationType.Mutation =>
-              context.rootType.mutationType.fold[IO[ValidationError, Unit]](
-                failValidation("Mutation operations are not supported on this schema.", "")
-              )(validateFields(context, selectionSet, _))
-            case OperationType.Subscription =>
-              context.rootType.subscriptionType.fold[IO[ValidationError, Unit]](
-                failValidation("Subscription operations are not supported on this schema.", "")
-              )(validateFields(context, selectionSet, _))
-          }
-        case _: FragmentDefinition   => IO.unit
-        case _: TypeSystemDefinition => IO.unit
-        case _: TypeSystemExtension  => IO.unit
-      }
-      .unit
+    IO.foreach_(context.document.definitions) {
+      case OperationDefinition(opType, _, _, _, selectionSet) =>
+        opType match {
+          case OperationType.Query => validateFields(context, selectionSet, context.rootType.queryType)
+          case OperationType.Mutation =>
+            context.rootType.mutationType.fold[IO[ValidationError, Unit]](
+              failValidation("Mutation operations are not supported on this schema.", "")
+            )(validateFields(context, selectionSet, _))
+          case OperationType.Subscription =>
+            context.rootType.subscriptionType.fold[IO[ValidationError, Unit]](
+              failValidation("Subscription operations are not supported on this schema.", "")
+            )(validateFields(context, selectionSet, _))
+        }
+      case _: FragmentDefinition   => IO.unit
+      case _: TypeSystemDefinition => IO.unit
+      case _: TypeSystemExtension  => IO.unit
+    }
 
   private def validateFields(
     context: Context,
     selectionSet: List[Selection],
     currentType: __Type
   ): IO[ValidationError, Unit] =
-    IO.foreach(selectionSet) {
+    IO.foreach_(selectionSet) {
       case f: Field => validateField(context, f, currentType)
       case FragmentSpread(name, _) =>
         context.fragments.get(name) match {
@@ -418,8 +415,8 @@ object Validator {
         }
     }
 
-  private def validateArguments(field: Field, f: __Field, currentType: __Type): IO[ValidationError, List[Unit]] =
-    IO.foreach(field.arguments.toList) {
+  private def validateArguments(field: Field, f: __Field, currentType: __Type): IO[ValidationError, Unit] =
+    IO.foreach_(field.arguments) {
       case (arg, argValue) =>
         f.args.find(_.name == arg) match {
           case None =>
@@ -430,7 +427,7 @@ object Validator {
           case Some(inputValue) => validateInputValues(inputValue, argValue)
         }
     } *>
-      IO.foreach(f.args.filter(a => a.`type`().kind == __TypeKind.NON_NULL && a.defaultValue.isEmpty))(arg =>
+      IO.foreach_(f.args.filter(a => a.`type`().kind == __TypeKind.NON_NULL && a.defaultValue.isEmpty))(arg =>
         IO.when(field.arguments.get(arg.name).forall(_ == NullValue))(
           failValidation(
             s"Required argument '${arg.name}' is null or missing on field '${field.name}' of type '${currentType.name
@@ -446,7 +443,7 @@ object Validator {
     val inputFields = inputType.inputFields.getOrElse(Nil)
     argValue match {
       case InputValue.ObjectValue(fields) if inputType.kind == __TypeKind.INPUT_OBJECT =>
-        IO.foreach(fields.toList) {
+        IO.foreach_(fields) {
           case (k, v) =>
             inputFields.find(_.name == k) match {
               case None =>
@@ -457,7 +454,7 @@ object Validator {
               case Some(value) => validateInputValues(value, v)
             }
         } *> IO
-          .foreach(inputFields)(inputField =>
+          .foreach_(inputFields)(inputField =>
             IO.when(
               inputField.defaultValue.isEmpty &&
                 inputField.`type`().kind == __TypeKind.NON_NULL &&
@@ -469,7 +466,6 @@ object Validator {
               )
             )
           )
-          .unit
       case _ => IO.unit
     }
   }
@@ -600,7 +596,7 @@ object Validator {
 
     def validateFields(fields: List[__InputValue]): IO[ValidationError, Unit] =
       noDuplicateInputValueName(fields, inputObjectContext) <*
-        IO.foreach(fields)(validateInputValue(_, inputObjectContext))
+        IO.foreach_(fields)(validateInputValue(_, inputObjectContext))
 
     t.inputFields match {
       case None | Some(Nil) =>
@@ -750,12 +746,12 @@ object Validator {
 
   private[caliban] def validateFields(fields: List[__Field], context: String): IO[ValidationError, Unit] =
     noDuplicateFieldName(fields, context) <*
-      IO.foreach(fields) { field =>
+      IO.foreach_(fields) { field =>
         val fieldContext = s"Field '${field.name}' of $context"
         for {
           _ <- doesNotStartWithUnderscore(field, fieldContext)
           _ <- onlyOutputType(field.`type`(), fieldContext)
-          _ <- IO.foreach(field.args)(validateInputValue(_, fieldContext))
+          _ <- IO.foreach_(field.args)(validateInputValue(_, fieldContext))
         } yield ()
       }
 
