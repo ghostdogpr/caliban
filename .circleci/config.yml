@@ -7,7 +7,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.12.11! check
+      - run: sbt ++2.12.12! check
       - save_cache:
           key: sbtcache
           paths:
@@ -21,7 +21,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.12.11! core/test http4s/compile akkaHttp/compile finch/compile play/compile examples/compile catsInterop/compile benchmarks/compile tools/test codegenSbt/test clientJVM/test monixInterop/compile tapirInterop/test federation/test
+      - run: sbt ++2.12.12! core/test http4s/compile akkaHttp/compile finch/compile play/compile examples/compile catsInterop/compile benchmarks/compile tools/test codegenSbt/test clientJVM/test monixInterop/compile tapirInterop/test federation/test
       - save_cache:
           key: sbtcache
           paths:
@@ -35,7 +35,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.2! core/test http4s/compile akkaHttp/compile finch/compile play/compile examples/compile catsInterop/compile monixInterop/compile tapirInterop/test clientJVM/test federation/test
+      - run: sbt ++2.13.3! core/test http4s/compile akkaHttp/compile finch/compile play/compile examples/compile catsInterop/compile monixInterop/compile tapirInterop/test clientJVM/test federation/test
       - save_cache:
           key: sbtcache
           paths:
@@ -49,7 +49,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.12.11! clientJS/test
+      - run: sbt ++2.12.12! clientJS/test
       - save_cache:
           key: sbtcache
           paths:

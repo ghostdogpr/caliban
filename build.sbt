@@ -1,7 +1,7 @@
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
-val mainScala = "2.12.11"
-val allScala  = Seq("2.13.2", mainScala)
+val mainScala = "2.12.12"
+val allScala  = Seq("2.13.3", mainScala)
 
 val akkaVersion           = "2.6.8"
 val catsEffectVersion     = "2.1.4"
@@ -122,7 +122,7 @@ lazy val codegenSbt = project
   .settings(commonSettings)
   .settings(
     sbtPlugin := true,
-    crossScalaVersions := Seq("2.12.11"),
+    crossScalaVersions := Seq("2.12.12"),
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio-test-sbt" % zioVersion % "test"
@@ -343,6 +343,10 @@ val commonSettings = Def.settings(
         "-opt-inline-from:<source>",
         "-opt-warnings",
         "-opt:l:inline"
+      )
+    case Some((2, 13)) =>
+      Seq(
+        "-Xlint:-byname-implicit"
       )
     case _ => Nil
   })
