@@ -101,21 +101,20 @@ object Executor {
 
     def makeQuery(step: ReducedStep[R], errors: Ref[List[CalibanError]]): ZQuery[R, Nothing, ResponseValue] = {
 
-      def eraseError(error: CalibanError): UQuery[ResponseValue] =
+      def handleError(error: CalibanError): UQuery[ResponseValue] =
         ZQuery.fromEffect(errors.update(error :: _)).as(NullValue)
 
       @tailrec
-      def wrap(query: ZQuery[R, ExecutionError, ResponseValue])(
+      def wrap(query: ZQuery[R, CalibanError, ResponseValue])(
         wrappers: List[FieldWrapper[R]],
         fieldInfo: FieldInfo
-      ): ZQuery[R, ExecutionError, ResponseValue] =
+      ): ZQuery[R, CalibanError, ResponseValue] =
         wrappers match {
           case Nil => query
           case wrapper :: tail =>
             wrap(
               wrapper
                 .f(query, fieldInfo)
-                .foldM(eraseError, ZQuery.succeed(_))
             )(tail, fieldInfo)
 
         }
@@ -124,17 +123,15 @@ object Executor {
         step match {
           case PureStep(value) => ZQuery.succeed(Right(value))
           case ReducedStep.ListStep(steps) =>
-            val queries = steps.map(
-              loop(_)
-                .flatMap(_.fold(eraseError, ZQuery.succeed(_)))
-            )
+            val queries = steps.map(loop(_).flatMap(_.fold(handleError, ZQuery.succeed(_))))
+
             (if (allowParallelism) ZQuery.collectAllPar(queries) else ZQuery.collectAll(queries))
               .map(s => Right(ListValue(s)))
           case ReducedStep.ObjectStep(steps) =>
             val queries = steps.map {
               case (name, step, info) =>
                 wrap(loop(step).flatMap(_.fold(ZQuery.fail(_), ZQuery.succeed(_))))(fieldWrappers, info)
-                  .foldM(eraseError, ZQuery.succeed(_))
+                  .foldM(handleError, ZQuery.succeed(_))
                   .map(name -> _)
             }
             (if (allowParallelism) ZQuery.collectAllPar(queries) else ZQuery.collectAll(queries))
@@ -157,7 +154,7 @@ object Executor {
                 )
               )
         }
-      loop(step).flatMap(_.fold(eraseError, ZQuery.succeed(_)))
+      loop(step).flatMap(_.fold(handleError, ZQuery.succeed(_)))
     }
 
     (for {
