@@ -67,7 +67,7 @@ object Wrapper {
    * If false, simple pure values will be ignored.
    */
   case class FieldWrapper[R](
-    f: (ZQuery[R, Nothing, ResponseValue], FieldInfo) => ZQuery[R, CalibanError, ResponseValue],
+    f: (ZQuery[R, CalibanError, ResponseValue], FieldInfo) => ZQuery[R, CalibanError, ResponseValue],
     wrapPureValues: Boolean = false
   ) extends Wrapper[R]
 

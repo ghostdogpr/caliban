@@ -9,7 +9,7 @@ import caliban.schema.{ ReducedStep, Step }
 import caliban.wrappers.Wrapper.FieldWrapper
 import caliban._
 import zio._
-import zio.query.ZQuery
+import zio.query.{ UQuery, ZQuery }
 
 import scala.annotation.tailrec
 import scala.collection.mutable.ArrayBuffer
@@ -101,42 +101,60 @@ object Executor {
 
     def makeQuery(step: ReducedStep[R], errors: Ref[List[CalibanError]]): ZQuery[R, Nothing, ResponseValue] = {
 
+      def handleError(error: CalibanError): UQuery[ResponseValue] =
+        ZQuery.fromEffect(errors.update(error :: _)).as(NullValue)
+
       @tailrec
-      def wrap(query: ZQuery[R, Nothing, ResponseValue])(
+      def wrap(query: ZQuery[R, CalibanError, ResponseValue])(
         wrappers: List[FieldWrapper[R]],
         fieldInfo: FieldInfo
-      ): ZQuery[R, Nothing, ResponseValue] =
+      ): ZQuery[R, CalibanError, ResponseValue] =
         wrappers match {
           case Nil => query
           case wrapper :: tail =>
             wrap(
               wrapper
                 .f(query, fieldInfo)
-                .foldM(error => ZQuery.fromEffect(errors.update(error :: _)).as(NullValue), ZQuery.succeed(_))
             )(tail, fieldInfo)
 
         }
 
-      def loop(step: ReducedStep[R]): ZQuery[R, Nothing, ResponseValue] =
+      def loop(step: ReducedStep[R]): ZQuery[R, Nothing, Either[ExecutionError, ResponseValue]] =
         step match {
-          case PureStep(value) => ZQuery.succeed(value)
+          case PureStep(value) => ZQuery.succeed(Right(value))
           case ReducedStep.ListStep(steps) =>
-            val queries = steps.map(loop)
-            (if (allowParallelism) ZQuery.collectAllPar(queries) else ZQuery.collectAll(queries)).map(ListValue)
+            val queries = steps.map(loop(_).flatMap(_.fold(handleError, ZQuery.succeed(_))))
+
+            (if (allowParallelism) ZQuery.collectAllPar(queries) else ZQuery.collectAll(queries))
+              .map(s => Right(ListValue(s)))
           case ReducedStep.ObjectStep(steps) =>
-            val queries = steps.map { case (name, step, info) => wrap(loop(step))(fieldWrappers, info).map(name -> _) }
-            (if (allowParallelism) ZQuery.collectAllPar(queries) else ZQuery.collectAll(queries)).map(ObjectValue)
+            val queries = steps.map {
+              case (name, step, info) =>
+                wrap(loop(step).flatMap(_.fold(ZQuery.fail(_), ZQuery.succeed(_))))(fieldWrappers, info)
+                  .foldM(handleError, ZQuery.succeed(_))
+                  .map(name -> _)
+            }
+            (if (allowParallelism) ZQuery.collectAllPar(queries) else ZQuery.collectAll(queries))
+              .map(f => Right(ObjectValue(f)))
           case ReducedStep.QueryStep(step) =>
             step.foldM(
-              error => ZQuery.fromEffect(errors.update(error :: _)).as(NullValue),
+              error => ZQuery.succeed(Left(error)),
               query => loop(query)
             )
           case ReducedStep.StreamStep(stream) =>
             ZQuery
               .fromEffect(ZIO.environment[R])
-              .map(env => ResponseValue.StreamValue(stream.mapM(loop(_).run).provide(env)))
+              .map(env =>
+                Right(
+                  ResponseValue.StreamValue(
+                    stream
+                      .mapM(loop(_).flatMap(_.fold(_ => ZQuery.succeed(NullValue), ZQuery.succeed(_))).run)
+                      .provide(env)
+                  )
+                )
+              )
         }
-      loop(step)
+      loop(step).flatMap(_.fold(handleError, ZQuery.succeed(_)))
     }
 
     (for {
