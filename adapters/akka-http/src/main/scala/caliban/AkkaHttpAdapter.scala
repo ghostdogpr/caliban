@@ -188,9 +188,9 @@ trait AkkaHttpAdapter {
                       IO.fromFuture(_ =>
                           sendTo.offer(TextMessage(json.encodeWSError(messageId, cause.squash.toString)))
                         )
-                        .orDie
+                        .ignore
                     case _ =>
-                      IO.fromFuture(_ => sendTo.offer(TextMessage(s"""{"type":"complete","id":"$messageId"}"""))).orDie
+                      IO.fromFuture(_ => sendTo.offer(TextMessage(s"""{"type":"complete","id":"$messageId"}"""))).ignore
                   }
                   .forkDaemon
                   .flatMap(fiber => subscriptions.update(_.updated(Option(messageId), fiber)))
