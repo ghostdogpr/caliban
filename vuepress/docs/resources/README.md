@@ -15,4 +15,5 @@
 
 ## Related Projects
 
+- [caliban-extras](https://github.com/niqdev/caliban-extras): a project bringing some goodies to caliban, including [caliban-refined](https://github.com/niqdev/caliban-extras#caliban-refined), a module to automatically derive schemas for [refined](https://github.com/fthomas/refined) types.
 - [zio-akka-quickstart](https://github.com/ScalaConsultants/zio-akka-quickstart.g8): a Giter8 template for a basic Scala application built using ZIO, Akka HTTP, Slick and Caliban!
