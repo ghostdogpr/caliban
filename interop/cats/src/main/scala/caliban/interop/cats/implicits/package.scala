@@ -8,7 +8,6 @@ import zio.Runtime
 package object implicits {
 
   implicit class CatsEffectGraphQLInterpreter[R, E](underlying: GraphQLInterpreter[R, E]) {
-
     def executeAsync[F[_]: Async](
       query: String,
       operationName: Option[String] = None,
@@ -31,11 +30,10 @@ package object implicits {
   }
 
   implicit class CatsEffectGraphQL[R, E](underlying: GraphQL[R]) {
-
     def interpreterAsync[F[_]: Async](implicit runtime: Runtime[R]): F[GraphQLInterpreter[R, CalibanError]] =
       CatsInterop.interpreterAsync(underlying)
   }
 
-  implicit def effectSchema[F[_]: Effect, R, A](implicit ev: Schema[R, A]): Schema[R, F[A]] =
+  implicit def catsEffectSchema[F[_]: Effect, R, A](implicit ev: Schema[R, A]): Schema[R, F[A]] =
     CatsInterop.schema
 }
