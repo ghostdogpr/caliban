@@ -51,7 +51,7 @@ object Introspector {
   private[caliban] def isIntrospection(document: Document): Boolean =
     document.definitions.forall {
       case OperationDefinition(_, _, _, _, selectionSet) =>
-        selectionSet.forall {
+        selectionSet.nonEmpty && selectionSet.forall {
           case Field(_, name, _, _, _, _) => name == "__schema" || name == "__type"
           case _                          => true
         }
