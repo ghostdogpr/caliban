@@ -91,28 +91,28 @@ object SchemaWriter {
   def reservedType(typeDefinition: ObjectTypeDefinition): Boolean =
     typeDefinition.name == "Query" || typeDefinition.name == "Mutation" || typeDefinition.name == "Subscription"
 
-  def writeRootField(field: FieldDefinition, effect: String): String = {
-    val argsName = if (field.args.nonEmpty) s" ${field.name.capitalize}Args =>" else ""
+  def writeRootField(field: FieldDefinition, od: ObjectTypeDefinition, effect: String): String = {
+    val argsName = if (field.args.nonEmpty) s" ${generateArgsName(field, od)} =>" else ""
     s"${safeName(field.name)} :$argsName $effect[${writeType(field.ofType)}]"
   }
 
   def writeRootQueryOrMutationDef(op: ObjectTypeDefinition, effect: String): String =
     s"""
        |${writeDescription(op.description)}case class ${op.name}(
-       |${op.fields.map(c => writeRootField(c, effect)).mkString(",\n")}
+       |${op.fields.map(c => writeRootField(c, op, effect)).mkString(",\n")}
        |)""".stripMargin
 
-  def writeSubscriptionField(field: FieldDefinition): String =
+  def writeSubscriptionField(field: FieldDefinition, od: ObjectTypeDefinition): String =
     "%s:%s ZStream[Any, Nothing, %s]".format(
       safeName(field.name),
-      if (field.args.nonEmpty) s" ${field.name.capitalize}Args =>" else "",
+      if (field.args.nonEmpty) s" ${generateArgsName(field, od)} =>" else "",
       writeType(field.ofType)
     )
 
   def writeRootSubscriptionDef(op: ObjectTypeDefinition): String =
     s"""
        |${writeDescription(op.description)}case class ${op.name}(
-       |${op.fields.map(c => writeSubscriptionField(c)).mkString(",\n")}
+       |${op.fields.map(c => writeSubscriptionField(c, op)).mkString(",\n")}
        |)""".stripMargin
 
   def writeObject(typedef: ObjectTypeDefinition): String =
@@ -160,11 +160,16 @@ object SchemaWriter {
       s"${args.map(arg => s"${safeName(arg.name)} : ${writeType(arg.ofType)}").mkString(", ")}"
 
     if (field.args.nonEmpty) {
-      val prefix = if (reservedType(of)) "" else of.name.capitalize
-      s"case class $prefix${field.name.capitalize}Args(${fields(field.args)})"
+      s"case class ${generateArgsName(field, of)}(${fields(field.args)})"
     } else {
       ""
     }
+  }
+
+  private def generateArgsName(field: FieldDefinition, od: ObjectTypeDefinition): String = {
+//    val prefix = if (reservedType(od)) "" else od.name.capitalize
+//    s"$prefix${field.name.capitalize}Args"
+    s"${od.name.capitalize}${field.name.capitalize}Args"
   }
 
   def escapeDoubleQuotes(input: String): String =
