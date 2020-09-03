@@ -388,6 +388,55 @@ object Types {
               |""".stripMargin
           )
         )
+      },
+      testM("args names root level") {
+        val schema =
+          """
+            |schema {
+            |  query: Query
+            |  subscription: Subscription
+            |}
+            |
+            |type Params {
+            |  p: Int!
+            |}
+            |
+            |type Query {
+            |  characters(p: Params!): Int!
+            |}
+            |
+            |type Subscription {
+            |  characters(p: Params!): Int!
+            |}
+            """.stripMargin
+
+        assertM(gen(schema))(
+          equalTo(
+            """import Types._
+              |
+              |import zio.stream.ZStream
+              |
+              |object Types {
+              |  case class QueryCharactersArgs(p: Params)
+              |  case class SubscriptionCharactersArgs(p: Params)
+              |  case class Params(p: Int)
+              |
+              |}
+              |
+              |object Operations {
+              |
+              |  case class Query(
+              |    characters: QueryCharactersArgs => zio.UIO[Int]
+              |  )
+              |
+              |  case class Subscription(
+              |    characters: SubscriptionCharactersArgs => ZStream[Any, Nothing, Int]
+              |  )
+              |
+              |}
+              |""".stripMargin
+          )
+        )
       }
     ) @@ TestAspect.sequential
 }
