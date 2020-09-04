@@ -74,7 +74,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
         assertM(result)(
           equalTo(
             """case class Query(
-  user: UserArgs => zio.UIO[Option[User]],
+  user: QueryUserArgs => zio.UIO[Option[User]],
   userList: zio.UIO[List[Option[User]]]
 )""".stripMargin
           )
@@ -99,7 +99,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
         assertM(result)(
           equalTo(
             """case class Mutation(
-              |  setMessage: SetMessageArgs => zio.UIO[Option[String]]
+              |  setMessage: MutationSetMessageArgs => zio.UIO[Option[String]]
               |)""".stripMargin
           )
         )
@@ -120,7 +120,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
           equalTo(
             """
               |case class Subscription(
-              |UserWatch: UserWatchArgs => ZStream[Any, Nothing, String]
+              |UserWatch: SubscriptionUserWatchArgs => ZStream[Any, Nothing, String]
               |)""".stripMargin
           )
         )
@@ -150,7 +150,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
               |import zio.stream.ZStream
               |
               |object Types {
-              |  case class AddPostArgs(author: Option[String], comment: Option[String])
+              |  case class MutationAddPostArgs(author: Option[String], comment: Option[String])
               |  case class Post(author: Option[String], comment: Option[String])
               |
               |}
@@ -162,7 +162,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
               |  )
               |
               |  case class Mutation(
-              |    addPost: AddPostArgs => zio.UIO[Option[Post]]
+              |    addPost: MutationAddPostArgs => zio.UIO[Option[Post]]
               |  )
               |
               |  case class Subscription(

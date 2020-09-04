@@ -92,8 +92,8 @@ object SchemaWriter {
     typeDefinition.name == "Query" || typeDefinition.name == "Mutation" || typeDefinition.name == "Subscription"
 
   def writeRootField(field: FieldDefinition, od: ObjectTypeDefinition, effect: String): String = {
-    val argsName = if (field.args.nonEmpty) s" ${generateArgsName(field, od)} =>" else ""
-    s"${safeName(field.name)} :$argsName $effect[${writeType(field.ofType)}]"
+    val argsTypeName = if (field.args.nonEmpty) s" ${argsName(field, od)} =>" else ""
+    s"${safeName(field.name)} :$argsTypeName $effect[${writeType(field.ofType)}]"
   }
 
   def writeRootQueryOrMutationDef(op: ObjectTypeDefinition, effect: String): String =
@@ -105,7 +105,7 @@ object SchemaWriter {
   def writeSubscriptionField(field: FieldDefinition, od: ObjectTypeDefinition): String =
     "%s:%s ZStream[Any, Nothing, %s]".format(
       safeName(field.name),
-      if (field.args.nonEmpty) s" ${generateArgsName(field, od)} =>" else "",
+      if (field.args.nonEmpty) s" ${argsName(field, od)} =>" else "",
       writeType(field.ofType)
     )
 
@@ -147,7 +147,7 @@ object SchemaWriter {
 
   def writeField(field: FieldDefinition, of: ObjectTypeDefinition): String =
     if (field.args.nonEmpty) {
-      s"${writeDescription(field.description)}${safeName(field.name)} : ${of.name.capitalize}${field.name.capitalize}Args => ${writeType(field.ofType)}"
+      s"${writeDescription(field.description)}${safeName(field.name)} : ${argsName(field, of)} => ${writeType(field.ofType)}"
     } else {
       s"""${writeDescription(field.description)}${safeName(field.name)} : ${writeType(field.ofType)}"""
     }
@@ -160,17 +160,14 @@ object SchemaWriter {
       s"${args.map(arg => s"${safeName(arg.name)} : ${writeType(arg.ofType)}").mkString(", ")}"
 
     if (field.args.nonEmpty) {
-      s"case class ${generateArgsName(field, of)}(${fields(field.args)})"
+      s"case class ${argsName(field, of)}(${fields(field.args)})"
     } else {
       ""
     }
   }
 
-  private def generateArgsName(field: FieldDefinition, od: ObjectTypeDefinition): String = {
-//    val prefix = if (reservedType(od)) "" else od.name.capitalize
-//    s"$prefix${field.name.capitalize}Args"
+  private def argsName(field: FieldDefinition, od: ObjectTypeDefinition): String =
     s"${od.name.capitalize}${field.name.capitalize}Args"
-  }
 
   def escapeDoubleQuotes(input: String): String =
     input.replace("\"", "\\\"")
