@@ -295,34 +295,36 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
         )
     }
   implicit def futureSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Future[A]] =
-    effectSchema[R0, R0, Throwable, A].contramap[Future[A]](future => ZIO.fromFuture(_ => future))
-  implicit def infallibleEffectSchema[R1, R2 >: R1, A](implicit ev: Schema[R2, A]): Schema[R1, URIO[R1, A]] =
-    new Schema[R1, URIO[R1, A]] {
+    effectSchema[R0, R0, R0, Throwable, A].contramap[Future[A]](future => ZIO.fromFuture(_ => future))
+  implicit def infallibleEffectSchema[R0, R1 >: R0, R2 >: R0, A](implicit ev: Schema[R2, A]): Schema[R0, URIO[R1, A]] =
+    new Schema[R0, URIO[R1, A]] {
       override def optional: Boolean                                         = ev.optional
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
-      override def resolve(value: URIO[R1, A]): Step[R1]                     = QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
+      override def resolve(value: URIO[R1, A]): Step[R0]                     = QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
     }
-  implicit def effectSchema[R1, R2 >: R1, E <: Throwable, A](implicit ev: Schema[R2, A]): Schema[R1, ZIO[R1, E, A]] =
-    new Schema[R1, ZIO[R1, E, A]] {
+  implicit def effectSchema[R0, R1 >: R0, R2 >: R0, E <: Throwable, A](
+    implicit ev: Schema[R2, A]
+  ): Schema[R0, ZIO[R1, E, A]] =
+    new Schema[R0, ZIO[R1, E, A]] {
       override def optional: Boolean                                         = true
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
-      override def resolve(value: ZIO[R1, E, A]): Step[R1]                   = QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
+      override def resolve(value: ZIO[R1, E, A]): Step[R0]                   = QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
     }
-  implicit def infallibleQuerySchema[R1, R2 >: R1, A](
+  implicit def infallibleQuerySchema[R0, R1 >: R0, R2 >: R0, A](
     implicit ev: Schema[R2, A]
-  ): Schema[R1, ZQuery[R1, Nothing, A]] =
-    new Schema[R1, ZQuery[R1, Nothing, A]] {
+  ): Schema[R0, ZQuery[R1, Nothing, A]] =
+    new Schema[R0, ZQuery[R1, Nothing, A]] {
       override def optional: Boolean                                         = ev.optional
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
-      override def resolve(value: ZQuery[R1, Nothing, A]): Step[R1]          = QueryStep(value.map(ev.resolve))
+      override def resolve(value: ZQuery[R1, Nothing, A]): Step[R0]          = QueryStep(value.map(ev.resolve))
     }
-  implicit def querySchema[R1, R2 >: R1, E <: Throwable, A](
+  implicit def querySchema[R0, R1 >: R0, R2 >: R0, E <: Throwable, A](
     implicit ev: Schema[R2, A]
-  ): Schema[R1, ZQuery[R1, E, A]] =
-    new Schema[R1, ZQuery[R1, E, A]] {
+  ): Schema[R0, ZQuery[R1, E, A]] =
+    new Schema[R0, ZQuery[R1, E, A]] {
       override def optional: Boolean                                         = true
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
-      override def resolve(value: ZQuery[R1, E, A]): Step[R1]                = QueryStep(value.map(ev.resolve))
+      override def resolve(value: ZQuery[R1, E, A]): Step[R0]                = QueryStep(value.map(ev.resolve))
     }
   implicit def infallibleStreamSchema[R1, R2 >: R1, A](
     implicit ev: Schema[R2, A]
@@ -335,16 +337,16 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
       }
       override def resolve(value: ZStream[R1, Nothing, A]): Step[R1] = StreamStep(value.map(ev.resolve))
     }
-  implicit def streamSchema[R1, R2 >: R1, E <: Throwable, A](
+  implicit def streamSchema[R0, R1 >: R0, R2 >: R0, E <: Throwable, A](
     implicit ev: Schema[R2, A]
-  ): Schema[R1, ZStream[R1, E, A]] =
-    new Schema[R1, ZStream[R1, E, A]] {
+  ): Schema[R0, ZStream[R1, E, A]] =
+    new Schema[R0, ZStream[R1, E, A]] {
       override def optional: Boolean = true
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
         val t = ev.toType_(isInput, isSubscription)
         if (isSubscription) t else makeList(if (ev.optional) t else makeNonNull(t))
       }
-      override def resolve(value: ZStream[R1, E, A]): Step[R1] = StreamStep(value.map(ev.resolve))
+      override def resolve(value: ZStream[R1, E, A]): Step[R0] = StreamStep(value.map(ev.resolve))
     }
 
 }
