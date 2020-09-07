@@ -4,7 +4,7 @@ val mainScala = "2.12.12"
 val allScala  = Seq("2.13.3", mainScala)
 
 val akkaVersion           = "2.6.8"
-val catsEffectVersion     = "2.1.4"
+val catsEffectVersion     = "2.2.0"
 val circeVersion          = "0.13.0"
 val http4sVersion         = "0.21.7"
 val playVersion           = "2.8.1"
