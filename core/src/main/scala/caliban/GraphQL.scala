@@ -88,35 +88,36 @@ trait GraphQL[-R] { self =>
           ): URIO[R, GraphQLResponse[CalibanError]] =
             decompose(wrappers).flatMap {
               case (overallWrappers, parsingWrappers, validationWrappers, executionWrappers, fieldWrappers) =>
-                wrap((request: GraphQLRequest) =>
-                  (for {
-                    doc   <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
-                    intro = Introspector.isIntrospection(doc)
-                    _ <- IO.when(intro && !enableIntrospection) {
-                          IO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
-                        }
-                    typeToValidate  = if (intro) introspectionRootType else rootType
-                    schemaToExecute = if (intro) introspectionRootSchema else schema
-                    validate = (doc: Document) =>
-                      Validator
-                        .prepare(
-                          doc,
-                          typeToValidate,
-                          schemaToExecute,
-                          request.operationName,
-                          request.variables.getOrElse(Map()),
-                          skipValidation
+                wrap(
+                  (request: GraphQLRequest) =>
+                    (for {
+                      doc   <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
+                      intro = Introspector.isIntrospection(doc)
+                      _ <- IO.when(intro && !enableIntrospection) {
+                            IO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
+                          }
+                      typeToValidate  = if (intro) introspectionRootType else rootType
+                      schemaToExecute = if (intro) introspectionRootSchema else schema
+                      validate = (doc: Document) =>
+                        Validator
+                          .prepare(
+                            doc,
+                            typeToValidate,
+                            schemaToExecute,
+                            request.operationName,
+                            request.variables.getOrElse(Map()),
+                            skipValidation
                         )
-                    executionRequest <- wrap(validate)(validationWrappers, doc)
-                    op = executionRequest.operationType match {
-                      case OperationType.Query        => schemaToExecute.query
-                      case OperationType.Mutation     => schemaToExecute.mutation.getOrElse(schemaToExecute.query)
-                      case OperationType.Subscription => schemaToExecute.subscription.getOrElse(schemaToExecute.query)
-                    }
-                    execute = (req: ExecutionRequest) =>
-                      Executor.executeRequest(req, op.plan, request.variables.getOrElse(Map()), fieldWrappers)
-                    result <- wrap(execute)(executionWrappers, executionRequest)
-                  } yield result).catchAll(Executor.fail)
+                      executionRequest <- wrap(validate)(validationWrappers, doc)
+                      op = executionRequest.operationType match {
+                        case OperationType.Query        => schemaToExecute.query
+                        case OperationType.Mutation     => schemaToExecute.mutation.getOrElse(schemaToExecute.query)
+                        case OperationType.Subscription => schemaToExecute.subscription.getOrElse(schemaToExecute.query)
+                      }
+                      execute = (req: ExecutionRequest) =>
+                        Executor.executeRequest(req, op.plan, request.variables.getOrElse(Map()), fieldWrappers)
+                      result <- wrap(execute)(executionWrappers, executionRequest)
+                    } yield result).catchAll(Executor.fail)
                 )(overallWrappers, request)
             }
         }
@@ -172,16 +173,28 @@ trait GraphQL[-R] { self =>
     subscriptionsName: Option[String] = None
   ): GraphQL[R] = new GraphQL[R] {
     override protected val schemaBuilder: RootSchemaBuilder[R] = self.schemaBuilder.copy(
-      query = queriesName.fold(self.schemaBuilder.query)(name =>
-        self.schemaBuilder.query.map(m => m.copy(opType = m.opType.copy(name = Some(name))))
+      query = queriesName.fold(self.schemaBuilder.query)(
+        name => self.schemaBuilder.query.map(m => m.copy(opType = m.opType.copy(name = Some(name))))
       ),
-      mutation = mutationsName.fold(self.schemaBuilder.mutation)(name =>
-        self.schemaBuilder.mutation.map(m => m.copy(opType = m.opType.copy(name = Some(name))))
+      mutation = mutationsName.fold(self.schemaBuilder.mutation)(
+        name => self.schemaBuilder.mutation.map(m => m.copy(opType = m.opType.copy(name = Some(name))))
       ),
-      subscription = subscriptionsName.fold(self.schemaBuilder.subscription)(name =>
-        self.schemaBuilder.subscription.map(m => m.copy(opType = m.opType.copy(name = Some(name))))
+      subscription = subscriptionsName.fold(self.schemaBuilder.subscription)(
+        name => self.schemaBuilder.subscription.map(m => m.copy(opType = m.opType.copy(name = Some(name))))
       )
     )
+    override protected val wrappers: List[Wrapper[R]]              = self.wrappers
+    override protected val additionalDirectives: List[__Directive] = self.additionalDirectives
+  }
+
+  /**
+   * Adds linking to additional types which are unreachable from the root query.
+   *
+   * @note This is for advanced usage only i.e. when declaring federation type links
+   * @param types The type definitions to add.
+   */
+  final def withAdditionalTypes(types: List[__Type]): GraphQL[R] = new GraphQL[R] {
+    override protected val schemaBuilder: RootSchemaBuilder[R]     = self.schemaBuilder.copy(additionalTypes = types)
     override protected val wrappers: List[Wrapper[R]]              = self.wrappers
     override protected val additionalDirectives: List[__Directive] = self.additionalDirectives
   }
@@ -203,8 +216,8 @@ object GraphQL {
     val schemaBuilder: RootSchemaBuilder[R] = RootSchemaBuilder(
       resolver.queryResolver.map(r => Operation(querySchema.toType_(), querySchema.resolve(r))),
       resolver.mutationResolver.map(r => Operation(mutationSchema.toType_(), mutationSchema.resolve(r))),
-      resolver.subscriptionResolver.map(r =>
-        Operation(subscriptionSchema.toType_(isSubscription = true), subscriptionSchema.resolve(r))
+      resolver.subscriptionResolver.map(
+        r => Operation(subscriptionSchema.toType_(isSubscription = true), subscriptionSchema.resolve(r))
       )
     )
     val wrappers: List[Wrapper[R]]              = Nil
