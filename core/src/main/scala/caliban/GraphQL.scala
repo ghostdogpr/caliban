@@ -185,6 +185,18 @@ trait GraphQL[-R] { self =>
     override protected val wrappers: List[Wrapper[R]]              = self.wrappers
     override protected val additionalDirectives: List[__Directive] = self.additionalDirectives
   }
+
+  /**
+   * Adds linking to additional types which are unreachable from the root query.
+   *
+   * @note This is for advanced usage only i.e. when declaring federation type links
+   * @param types The type definitions to add.
+   */
+  final def withAdditionalTypes(types: List[__Type]): GraphQL[R] = new GraphQL[R] {
+    override protected val schemaBuilder: RootSchemaBuilder[R]     = self.schemaBuilder.copy(additionalTypes = types)
+    override protected val wrappers: List[Wrapper[R]]              = self.wrappers
+    override protected val additionalDirectives: List[__Directive] = self.additionalDirectives
+  }
 }
 
 object GraphQL {
