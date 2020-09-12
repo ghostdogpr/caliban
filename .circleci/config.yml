@@ -64,6 +64,14 @@ jobs:
       - run: git fetch --tags
       - restore_cache:
           key: sbtcache
+      - run: |
+          mkdir ~/.gnupg && chmod 700 ~/.gnupg
+          echo use-agent >> ~/.gnupg/gpg.conf
+          echo pinentry-mode loopback >> ~/.gnupg/gpg.conf
+          echo allow-loopback-pinentry >> ~/.gnupg/gpg-agent.conf
+          chmod 600 ~/.gnupg/*
+          echo RELOADAGENT | gpg-connect-agent
+          echo $PGP_SECRET | base64 --decode | gpg --import --no-tty --batch --yes
       - run: sbt clean ci-release
 
   microsite:
