@@ -8,6 +8,7 @@ val catsEffectVersion     = "2.2.0"
 val circeVersion          = "0.13.0"
 val http4sVersion         = "0.21.7"
 val playVersion           = "2.8.1"
+val playJsonVersion       = "2.9.1"
 val silencerVersion       = "1.7.1"
 val sttpVersion           = "2.2.8"
 val tapirVersion          = "0.16.16"
@@ -89,7 +90,7 @@ lazy val core = project
       "dev.zio"           %% "zio-test"     % zioVersion % "test",
       "dev.zio"           %% "zio-test-sbt" % zioVersion % "test",
       "io.circe"          %% "circe-core"   % circeVersion % Optional,
-      "com.typesafe.play" %% "play-json"    % playVersion % Optional,
+      "com.typesafe.play" %% "play-json"    % playJsonVersion % Optional,
       compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
     )
   )
