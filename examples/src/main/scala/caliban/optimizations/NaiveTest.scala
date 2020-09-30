@@ -73,13 +73,13 @@ object NaiveTest extends App with GenericSchema[Console] {
       )
     )
 
-  implicit val viewerMetadataSchema: Schema[Any, ViewerMetadata] = Schema.gen[ViewerMetadata]
-  implicit val tagSchema: Schema[Any, Tag]                       = Schema.gen[Tag]
-  implicit val venueSchema: Schema[Any, Venue]                   = Schema.gen[Venue]
-  implicit val userArgsSchema: Schema[Any, UserArgs]             = Schema.gen[UserArgs]
-  implicit val sizeArgsSchema: Schema[Any, SizeArgs]             = Schema.gen[SizeArgs]
-  implicit val firstArgsSchema: Schema[Any, FirstArgs]           = Schema.gen[FirstArgs]
-  implicit lazy val user: Schema[Console, User]                  = gen[User]
+  implicit val viewerMetadataSchema: Schema[Any, ViewerMetadata] = Schema.gen[ViewerMetadata].instance
+  implicit val tagSchema: Schema[Any, Tag]                       = Schema.gen[Tag].instance
+  implicit val venueSchema: Schema[Any, Venue]                   = Schema.gen[Venue].instance
+  implicit val userArgsSchema: Schema[Any, UserArgs]             = Schema.gen[UserArgs].instance
+  implicit val sizeArgsSchema: Schema[Any, SizeArgs]             = Schema.gen[SizeArgs].instance
+  implicit val firstArgsSchema: Schema[Any, FirstArgs]           = Schema.gen[FirstArgs].instance
+  implicit lazy val user: Schema[Console, User]                  = gen[User].instance
 
   val resolver = Queries(args => getUser(args.id))
   val api      = GraphQL.graphQL(RootResolver(resolver))

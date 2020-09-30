@@ -44,12 +44,12 @@ object FederatedApi {
     case class Mutations(deleteCharacter: CharacterArgs => URIO[CharacterService, Boolean])
     case class Subscriptions(characterDeleted: ZStream[CharacterService, Nothing, String])
 
-    implicit val roleSchema                                            = gen[Role]
-    implicit lazy val episodeSchema: Schema[CharacterService, Episode] = gen[Episode]
-    implicit val characterSchema                                       = gen[Character]
-    implicit val characterArgsSchema                                   = gen[CharacterArgs]
-    implicit val charactersArgsSchema                                  = gen[CharactersArgs]
-    implicit val episodeArgs                                           = gen[EpisodeArgs]
+    implicit val roleSchema                                            = gen[Role].instance
+    implicit lazy val episodeSchema: Schema[CharacterService, Episode] = gen[Episode].instance
+    implicit val characterSchema                                       = gen[Character].instance
+    implicit val characterArgsSchema                                   = gen[CharacterArgs].instance
+    implicit val charactersArgsSchema                                  = gen[CharactersArgs].instance
+    implicit val episodeArgs                                           = gen[EpisodeArgs].instance
     implicit val episodeArgBuilder: ArgBuilder[EpisodeArgs]            = ArgBuilder.gen[EpisodeArgs]
 
     val api: GraphQL[Console with Clock with CharacterService] =
@@ -88,9 +88,9 @@ object FederatedApi {
       episodes: EpisodesArgs => URIO[EpisodeService, List[Episode]]
     )
 
-    implicit val episodeArgsSchema  = gen[EpisodeArgs]
-    implicit val episodesArgsSchema = gen[EpisodesArgs]
-    implicit val episodeSchema      = gen[Episode]
+    implicit val episodeArgsSchema  = gen[EpisodeArgs].instance
+    implicit val episodesArgsSchema = gen[EpisodesArgs].instance
+    implicit val episodeSchema      = gen[Episode].instance
 
     val api: GraphQL[Console with Clock with EpisodeService] =
       federate(
