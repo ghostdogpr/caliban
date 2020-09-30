@@ -35,7 +35,7 @@ object SchemaSpec extends DefaultRunnableSpec {
         case class Field(value: ZQuery[Console, Nothing, String])
         case class Queries(field: ZQuery[Blocking, Nothing, Field])
         object MySchema extends GenericSchema[Console with Blocking] {
-          implicit lazy val queriesSchema = gen[Queries]
+          implicit lazy val queriesSchema = gen[Queries].instance
         }
         assert(MySchema.queriesSchema.toType_().fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
           isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.NON_NULL)))
@@ -67,13 +67,13 @@ object SchemaSpec extends DefaultRunnableSpec {
 
         case class A(s: String)
         object A {
-          implicit val aSchema: Schema[Blocking, A] = blockingSchema.gen[A]
+          implicit val aSchema: Schema[Blocking, A] = blockingSchema.gen[A].instance
         }
         case class B(a: List[Option[A]])
 
         A.aSchema.toType_()
 
-        val schema: Schema[Blocking, B] = blockingSchema.gen[B]
+        val schema: Schema[Blocking, B] = blockingSchema.gen[B].instance
 
         assert(Types.collectTypes(schema.toType_()).map(_.name.getOrElse("")))(
           not(contains("SomeA")) && not(contains("OptionA")) && not(contains("None"))

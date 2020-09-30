@@ -16,7 +16,7 @@ object FederationSpec extends DefaultRunnableSpec {
   case class Orphan(@GQLDirective(External) name: String, nicknames: List[String])
 
   object Orphan {
-    implicit val schema: Schema[Any, Orphan] = Schema.gen[Orphan]
+    implicit val schema: Schema[Any, Orphan] = Schema.gen[Orphan].instance
   }
 
   case class OrphanArgs(name: String)

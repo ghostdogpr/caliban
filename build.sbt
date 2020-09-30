@@ -74,6 +74,18 @@ lazy val root = project
     federation
   )
 
+lazy val macros = project
+  .in(file("macros"))
+  .settings(name := "caliban")
+  .settings(commonSettings)
+  .settings(
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    libraryDependencies ++= Seq(
+      "com.propensive" %% "magnolia" % "0.17.0",
+      "com.propensive" %% "mercator" % "0.2.1"
+    )
+  )
+
 lazy val core = project
   .in(file("core"))
   .settings(name := "caliban")
@@ -94,6 +106,7 @@ lazy val core = project
       compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
     )
   )
+  .dependsOn(macros)
   .settings(
     fork in Test := true,
     fork in run := true

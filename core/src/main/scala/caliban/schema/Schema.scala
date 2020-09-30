@@ -89,7 +89,11 @@ trait Schema[-R, T] { self =>
   }
 }
 
-object Schema extends GenericSchema[Any]
+object Schema extends GenericSchema[Any] with LowPriorityExportedSchema
+
+private[schema] trait LowPriorityExportedSchema {
+  implicit def exportedSchema[R, T](implicit exported: Exported[Schema[R, T]]): Schema[R, T] = exported.instance
+}
 
 trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
 
@@ -542,8 +546,7 @@ trait DerivationSchema[R] {
   private def getDescription[Typeclass[_], Type](ctx: ReadOnlyParam[Typeclass, Type]): Option[String] =
     getDescription(ctx.annotations)
 
-  implicit def gen[T]: Typeclass[T] = macro Magnolia.gen[T]
-
+  implicit def gen[T]: Exported[Typeclass[T]] = macro ExportedMagnolia.exportedMagnolia[Typeclass, T]
 }
 
 trait TemporalSchema {

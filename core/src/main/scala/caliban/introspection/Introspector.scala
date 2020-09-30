@@ -8,7 +8,7 @@ import caliban.schema.{ Operation, RootSchema, RootType, Schema, Types }
 
 object Introspector {
 
-  implicit lazy val typeSchema: Schema[Any, __Type] = Schema.gen[__Type]
+  implicit lazy val typeSchema: Schema[Any, __Type] = Schema.gen[__Type].instance
 
   private[caliban] val directives = List(
     __Directive(
@@ -44,7 +44,7 @@ object Introspector {
       ),
       args => types.find(_.name.contains(args.name)).get
     )
-    val introspectionSchema = Schema.gen[__Introspection]
+    val introspectionSchema = Schema.gen[__Introspection].instance
     RootSchema(Operation(introspectionSchema.toType_(), introspectionSchema.resolve(resolver)), None, None)
   }
 

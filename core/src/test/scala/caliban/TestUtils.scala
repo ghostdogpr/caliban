@@ -61,7 +61,7 @@ object TestUtils {
   )
 
   object Character {
-    implicit val schema: Schema[Any, Character] = Schema.gen[Character]
+    implicit val schema: Schema[Any, Character] = Schema.gen[Character].instance
   }
 
   val characters = List(

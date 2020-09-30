@@ -26,10 +26,10 @@ object ExampleApi extends GenericSchema[ExampleService] {
   case class Mutations(deleteCharacter: CharacterArgs => URIO[ExampleService, Boolean])
   case class Subscriptions(characterDeleted: ZStream[ExampleService, Nothing, String])
 
-  implicit val roleSchema           = gen[Role]
-  implicit val characterSchema      = gen[Character]
-  implicit val characterArgsSchema  = gen[CharacterArgs]
-  implicit val charactersArgsSchema = gen[CharactersArgs]
+  implicit val roleSchema           = gen[Role].instance
+  implicit val characterSchema      = gen[Character].instance
+  implicit val characterArgsSchema  = gen[CharacterArgs].instance
+  implicit val charactersArgsSchema = gen[CharactersArgs].instance
 
   val api: GraphQL[Console with Clock with ExampleService] =
     graphQL(
