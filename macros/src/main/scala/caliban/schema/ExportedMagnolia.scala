@@ -3,7 +3,6 @@ package caliban.schema
 object ExportedMagnolia {
   import magnolia.Magnolia
 
-  import scala.language.higherKinds
   import scala.reflect.macros.whitebox
 
   // Wrap the output of Magnolia in an Exported to force it to a lower priority.
