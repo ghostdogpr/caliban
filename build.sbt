@@ -199,7 +199,7 @@ lazy val akkaHttp = project
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "com.typesafe.akka" %% "akka-http"           % "10.2.0",
+      "com.typesafe.akka" %% "akka-http"           % "10.2.1",
       "com.typesafe.akka" %% "akka-stream"         % akkaVersion,
       "de.heikoseeberger" %% "akka-http-circe"     % "1.35.0" % Optional,
       "de.heikoseeberger" %% "akka-http-play-json" % "1.35.0" % Optional,
