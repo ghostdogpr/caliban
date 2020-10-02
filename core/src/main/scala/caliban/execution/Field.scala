@@ -87,7 +87,7 @@ object Field {
       Field("", fieldType, None, fields = fieldList.result())
     }
 
-    loop(selectionSet, fieldType)
+    loop(selectionSet, fieldType).copy(directives = directives)
   }
 
   private def checkDirectives(directives: List[Directive], variableValues: Map[String, InputValue]): Boolean =
