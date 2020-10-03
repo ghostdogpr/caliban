@@ -97,7 +97,7 @@ object Validator {
               }
           }).map(operation =>
             ExecutionRequest(
-              F(op.selectionSet, fragments, variables, operation.opType, document.sourceMapper, Nil),
+              F(op.selectionSet, fragments, variables, operation.opType, document.sourceMapper, op.directives),
               op.operationType,
               op.variableDefinitions
             )
@@ -239,7 +239,7 @@ object Validator {
       directives <- collectAllDirectives(context)
       _ <- IO.foreach_(directives) {
             case (d, location) =>
-              Introspector.directives.find(_.name == d.name) match {
+              (Introspector.directives ++ context.rootType.additionalDirectives).find(_.name == d.name) match {
                 case None =>
                   failValidation(
                     s"Directive '${d.name}' is not supported.",
