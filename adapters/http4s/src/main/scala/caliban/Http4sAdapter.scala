@@ -292,7 +292,7 @@ object Http4sAdapter {
    */
   def provideSomeLayerFromRequest[R <: Has[_], R1 <: Has[_]](
     route: HttpRoutes[RIO[R with R1, *]],
-    f: Request[RIO[R, *]] => TaskLayer[R1]
+    f: Request[RIO[R, *]] => RLayer[R, R1]
   )(implicit tagged: Tag[R1]): HttpRoutes[RIO[R, *]] =
     Kleisli { req: Request[RIO[R, *]] =>
       val to: RIO[R, *] ~> RIO[R with R1, *] = FunctionK.lift[RIO[R, *], RIO[R with R1, *]](identity)
