@@ -334,6 +334,7 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
 object SelectionBuilder {
 
   val __typename: SelectionBuilder[Any, String] = Field("__typename", Scalar[String]())
+  def pure[A](a: A): SelectionBuilder[Any, A]   = Pure(a)
 
   case class Field[Origin, A](
     name: String,
@@ -385,6 +386,21 @@ object SelectionBuilder {
     override def toSelectionSet: List[Selection] = builder.toSelectionSet
 
     override def withAlias(alias: String): SelectionBuilder[Origin, B] = Mapping(builder.withAlias(alias), f)
+  }
+  case class Pure[A](a: A) extends SelectionBuilder[Any, A] { self =>
+    override private[caliban] def toSelectionSet = Nil
+
+    override private[caliban] def fromGraphQL(value: Value) = Right(a)
+
+    /**
+     * Add the given directive to the selection
+     */
+    override def withDirective(directive: Directive): SelectionBuilder[Any, A] = self
+
+    /**
+     * Use the given alias for this selection
+     */
+    override def withAlias(alias: String): SelectionBuilder[Any, A] = self
   }
 
   def combineAll[Origin, A](
