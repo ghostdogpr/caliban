@@ -111,7 +111,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
           assert(query.query)(equalTo("""query GetCharacter {character(name:"Amos Burton"){name}}"""))
         },
         test("pure fields") {
-          val query = Queries.character("Amos Burton")(Character.name ~ SelectionBuilder.pure("Fake")) toGraphQL ()
+          val query = Queries.character("Amos Burton")(Character.name ~ SelectionBuilder.pure("Fake")).toGraphQL()
           assert(query.query)(equalTo("""query{character(name:"Amos Burton"){name}}"""))
         }
       ),
@@ -221,6 +221,13 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
             List("character" -> ObjectValue(List("name" -> StringValue("Amos Burton"))))
           )
           assert(query.fromGraphQL(response))(isRight(equalTo((Some("Amos Burton"), "Fake"))))
+        },
+        test("skip") {
+          val query = Queries.character("Amos Burton")(if (false) Character.name else SelectionBuilder.pure("Fake"))
+          val response = ObjectValue(
+            List("character" -> ObjectValue(List("name" -> StringValue("Amos Burton"))))
+          )
+          assert(query.fromGraphQL(response))(isRight(equalTo(Some("Fake"))))
         }
       )
     )
