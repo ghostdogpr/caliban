@@ -249,6 +249,12 @@ object Executor {
           case other             => Cause.fail(ExecutionError("Effect failure", path.reverse, locationInfo, Some(other)))
         }
       case Right(cause) =>
-        Cause.die(ExecutionError("Effect failure", path.reverse, locationInfo, cause.defects.headOption))
+        cause.defects.headOption.fold(
+          Cause.die(ExecutionError("Effect failure", path.reverse, locationInfo, None))
+        ) {
+          case e: ExecutionError => Cause.die(e.copy(path = path.reverse, locationInfo = locationInfo))
+          case other             => Cause.die(ExecutionError("Effect failure", path.reverse, locationInfo, Some(other)))
+        }
+
     }
 }
