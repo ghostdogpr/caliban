@@ -11,9 +11,15 @@ import zio.test._
 import zio.query.ZQuery
 
 object FederationSpec extends DefaultRunnableSpec {
+  case class OrphanChild(id: String)
+
+  object OrphanChild {
+    implicit val schema: Schema[Any, Orphan] = Schema.gen[Orphan]
+  }
+
   @GQLDirective(Key("name"))
   @GQLDirective(Extend)
-  case class Orphan(@GQLDirective(External) name: String, nicknames: List[String])
+  case class Orphan(@GQLDirective(External) name: String, nicknames: List[String], child: OrphanChild)
 
   object Orphan {
     implicit val schema: Schema[Any, Orphan] = Schema.gen[Orphan]
@@ -26,7 +32,7 @@ object FederationSpec extends DefaultRunnableSpec {
 
   val orphanResolver =
     EntityResolver[Any, OrphanArgs, Orphan](args =>
-      ZQuery.succeed(characters.find(_.name == args.name).map(c => Orphan(c.name, c.nicknames)))
+      ZQuery.succeed(characters.find(_.name == args.name).map(c => Orphan(c.name, c.nicknames, OrphanChild("abc"))))
     )
 
   override def spec = suite("FederationSpec")(
@@ -77,8 +83,11 @@ object FederationSpec extends DefaultRunnableSpec {
       val query = gqldoc("""{ _service { sdl } }""")
       assertM(interpreter.flatMap(_.execute(query)).map(d => d.data.toString))(
         containsString(
-          """type Orphan @key(fields: \"name\") @extends {\n  name: String! @external\n  nicknames: [String!]!\n}"""
-        )
+          """type Orphan @key(fields: \"name\") @extends {\n  name: String! @external\n  nicknames: [String!]!\n  child: OrphanChild!\n}"""
+        ) &&
+          containsString(
+            """type OrphanChild {\n  id: String!\n}"""
+          )
       )
     }
   )

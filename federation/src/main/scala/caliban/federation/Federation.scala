@@ -96,7 +96,7 @@ trait Federation {
       _fieldSet: FieldSet = FieldSet("")
     )
 
-    val withSDL = original.withAdditionalTypes(resolvers.map(_.toType))
+    val withSDL = original.withAdditionalTypes(resolvers.map(_.toType).flatMap(Types.collectTypes(_)))
 
     GraphQL.graphQL(
       RootResolver(
