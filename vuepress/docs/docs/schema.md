@@ -211,12 +211,16 @@ Value classes (`case class SomeWrapper(self: SomeType) extends AnyVal`) will be 
 
 Caliban can automatically generate Scala code from a GraphQL schema.
 
-In order to use this feature, add the `caliban-codegen-sbt` sbt plugin to your project and enable it.
-
+In order to use this feature, add the `caliban-codegen-sbt` sbt plugin to your `project/plugins.sbt` file:
 ```scala
 addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "0.9.2")
+```
+
+And enable it in your `build.sbt` file:
+```scala
 enablePlugins(CodegenPlugin)
 ```
+
 Then call the `calibanGenSchema` sbt command.
 ```scala
 calibanGenSchema schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name] [--effect fqdn.Effect]
