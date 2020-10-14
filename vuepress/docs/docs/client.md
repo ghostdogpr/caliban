@@ -15,7 +15,11 @@ To use `caliban-client`, add the following line in your `build.sbt` file:
 libraryDependencies += "com.github.ghostdogpr" %% "caliban-client" % "0.9.2"
 ```
 
-Caliban-client is available for ScalaJS.
+Caliban-client is available for ScalaJS. To use it in a ScalaJS project, instead add this line to your `build.sbt` file:
+
+```
+libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client" % "0.9.2"
+```
 
 ## Code generation
 
