@@ -5,11 +5,13 @@ import java.util.UUID
 import caliban.CalibanError.ExecutionError
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
-import caliban.RootResolver
+import caliban.{ GraphQL, RootResolver }
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, StringValue }
+import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
-import caliban.schema.Annotations.GQLName
+import caliban.schema.Annotations.{ GQLInterface, GQLName }
+import caliban.schema.{ Schema, Step, Types }
 import zio.IO
 import zio.stream.ZStream
 import zio.test.Assertion._
@@ -466,6 +468,107 @@ object ExecutionSpec extends DefaultRunnableSpec {
             |  test2
             |}""".stripMargin
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test2":1}"""))
+      },
+      testM("complex interface case") {
+        @GQLInterface
+        sealed trait Character {
+          def id: String
+          def name: String
+        }
+        object Character {
+          case class Human(
+            id: String,
+            name: String,
+            height: Int
+          ) extends Character
+
+          case class Droid(
+            id: String,
+            name: String,
+            primaryFunction: String
+          ) extends Character
+        }
+
+        case class Starship(
+          id: String,
+          name: String,
+          length: Float
+        )
+
+        // union SearchResult = Human | Droid | Starship
+        type SearchResult = Either[Character, Starship]
+
+        def eitherUnionSchema[RL, RR, L, R](name: String)(
+          implicit
+          evL: Schema[RL, L],
+          evR: Schema[RR, R]
+        ): Schema[RL with RR, Either[L, R]] = new Schema[RL with RR, Either[L, R]] {
+
+          override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
+            val typeL = evL.toType_(isInput = isInput, isSubscription = isSubscription)
+            val typeR = evR.toType_(isInput = isInput, isSubscription = isSubscription)
+
+            Types.makeUnion(
+              name = Some(name),
+              description = None,
+              subTypes = typeR :: typeL.possibleTypes.getOrElse(Nil)
+            )
+          }
+
+          override def resolve(value: Either[L, R]): Step[RL with RR] =
+            value match {
+              case Left(value)  => evL.resolve(value)
+              case Right(value) => evR.resolve(value)
+            }
+        }
+
+        case class SearchArgs(text: String)
+        case class Query(search: SearchArgs => List[SearchResult])
+
+        object CustomSchema {
+          implicit val schemaSearchResult: Schema[Any, SearchResult] = eitherUnionSchema("SearchResult")
+          implicit val schemaQuery: Schema[Any, Query]               = Schema.gen[Query]
+        }
+
+        import CustomSchema._
+
+        val api: GraphQL[Any] =
+          graphQL(
+            RootResolver(
+              Query(_ =>
+                List(
+                  Left(Character.Human("id", "name", 1)),
+                  Left(Character.Droid("id", "name", "function")),
+                  Right(Starship("id", "name", 3.5f))
+                )
+              )
+            )
+          )
+        val interpreter = api.interpreter
+        val query =
+          """{
+            |  search(text: "a") {
+            |    __typename
+            |    ... on Character {
+            |      name
+            |    }
+            |    ... on Human {
+            |      height
+            |    }
+            |    ... on Droid {
+            |      primaryFunction
+            |    }
+            |    ... on Starship {
+            |      name
+            |      length
+            |    }
+            |  }
+            |}""".stripMargin
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
+          equalTo(
+            """{"search":[{"__typename":"Human","name":"name","height":1},{"__typename":"Droid","name":"name","primaryFunction":"function"},{"__typename":"Starship","name":"name","length":3.5}]}"""
+          )
+        )
       }
     )
 }
