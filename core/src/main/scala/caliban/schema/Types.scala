@@ -121,7 +121,8 @@ object Types {
           )
         val embeddedTypes =
           t.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).flatMap(f => f.`type` :: f.args.map(_.`type`)) ++
-            t.inputFields.getOrElse(Nil).map(_.`type`)
+            t.inputFields.getOrElse(Nil).map(_.`type`) ++
+            t.interfaces().getOrElse(Nil).map(() => _)
         val list2 = embeddedTypes.foldLeft(list1) {
           case (types, f) =>
             val t = innerType(f())

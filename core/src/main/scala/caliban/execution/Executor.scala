@@ -202,7 +202,7 @@ object Executor {
     val map   = collection.mutable.Map.empty[String, Int]
 
     field.fields.foreach { field =>
-      if (field.condition.forall(_ == typeName)) {
+      if (field.condition.forall(_.contains(typeName))) {
         val name = field.alias.getOrElse(field.name)
         map.get(name) match {
           case None =>
