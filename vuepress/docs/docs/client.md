@@ -12,13 +12,13 @@ Just like Caliban, `caliban-client` offers a purely functional interface and kee
 To use `caliban-client`, add the following line in your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-client" % "0.9.2"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-client" % "0.9.3"
 ```
 
 Caliban-client is available for ScalaJS. To use it in a ScalaJS project, instead add this line to your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client" % "0.9.2"
+libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client" % "0.9.3"
 ```
 
 ## Code generation
@@ -27,7 +27,7 @@ The first step for building GraphQL queries with `caliban-client` is to generate
 
 To use this feature, add the `caliban-codegen-sbt` sbt plugin to your `project/plugins.sbt` file:
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "0.9.2")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "0.9.3")
 ```
 
 And enable it in your `build.sbt` file:

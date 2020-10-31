@@ -14,6 +14,13 @@ Call directly `Schema.gen[YourType]` or just `gen[YourType]` if you extend `Gene
 
 That's not a problem! Caliban has interop modules that "hide" the ZIO details and expose Cats Effect or Monix types instead. Check the [interop docs](https://ghostdogpr.github.io/caliban/docs/interop.html#cats-effect) for more details.
 
+### My query fails with an "Effect failure" error. How can I get more details?
+
+When an error happens in one of the resolvers, Caliban doesn't expose the inner exception to the client by default (this might be unsafe to do so), but you can easily work around this by several ways:
+1. If you fail with a `CalibanError.ExecutionError`, it won't be wrapped by Caliban so the original message will be displayed
+2. Using the wrapper `@@ printErrors` will print the full error to the console
+3. Using `mapError` on your interpreter lets you unwrap the `CalibanError` and return your inner exception instead
+
 ### I have more than 22 fields in my Query, I can't create a case class for it.
 
 Instead of one huge case class with all your fields, you can create smaller case classes and combine `GraphQL` objects using `|+|`.
