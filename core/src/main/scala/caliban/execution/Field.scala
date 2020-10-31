@@ -7,7 +7,7 @@ import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.FragmentDefinition
 import caliban.parsing.adt.Selection.{ FragmentSpread, InlineFragment, Field => F }
 import caliban.parsing.adt.{ Directive, LocationInfo, Selection }
-import caliban.schema.Types
+import caliban.schema.{ RootType, Types }
 
 case class Field(
   name: String,
@@ -15,7 +15,7 @@ case class Field(
   parentType: Option[__Type],
   alias: Option[String] = None,
   fields: List[Field] = Nil,
-  condition: Option[String] = None,
+  condition: Option[List[String]] = None,
   arguments: Map[String, InputValue] = Map(),
   _locationInfo: () => LocationInfo = () => LocationInfo.origin,
   directives: List[Directive] = List.empty
@@ -30,7 +30,8 @@ object Field {
     variableValues: Map[String, InputValue],
     fieldType: __Type,
     sourceMapper: SourceMapper,
-    directives: List[Directive]
+    directives: List[Directive],
+    rootType: RootType
   ): Field = {
 
     def loop(selectionSet: List[Selection], fieldType: __Type): Field = {
@@ -66,7 +67,10 @@ object Field {
             .foreach { f =>
               val t =
                 innerType.possibleTypes.flatMap(_.find(_.name.contains(f.typeCondition.name))).getOrElse(fieldType)
-              fieldList ++= loop(f.selectionSet, t).fields.map(_.copy(condition = Some(f.typeCondition.name)))
+              fieldList ++= loop(f.selectionSet, t).fields.map(field =>
+                if (field.condition.isDefined) field
+                else field.copy(condition = subtypeNames(f.typeCondition.name, rootType))
+              )
             }
         case InlineFragment(typeCondition, directives, selectionSet) if checkDirectives(directives, variableValues) =>
           val t = innerType.possibleTypes
@@ -74,16 +78,28 @@ object Field {
             .getOrElse(fieldType)
           val field = loop(selectionSet, t)
           typeCondition match {
-            case None           => fieldList ++= field.fields
-            case Some(typeName) => fieldList ++= field.fields.map(_.copy(condition = Some(typeName.name)))
+            case None => fieldList ++= field.fields
+            case Some(typeName) =>
+              fieldList ++= field.fields.map(field =>
+                if (field.condition.isDefined) field else field.copy(condition = subtypeNames(typeName.name, rootType))
+              )
           }
         case _ =>
       }
       Field("", fieldType, None, fields = fieldList.result())
     }
 
-    loop(selectionSet, fieldType)
+    loop(selectionSet, fieldType).copy(directives = directives)
   }
+
+  private def subtypeNames(typeName: String, rootType: RootType): Option[List[String]] =
+    rootType.types
+      .get(typeName)
+      .map(t =>
+        typeName ::
+          t.possibleTypes
+            .fold(List.empty[String])(_.flatMap(_.name.map(subtypeNames(_, rootType).getOrElse(Nil))).flatten)
+      )
 
   private def checkDirectives(directives: List[Directive], variableValues: Map[String, InputValue]): Boolean =
     !checkDirective("skip", default = false, directives, variableValues) &&

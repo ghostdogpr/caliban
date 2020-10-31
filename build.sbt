@@ -1,32 +1,32 @@
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
-val mainScala = "2.12.11"
-val allScala  = Seq("2.13.2", mainScala)
+val mainScala = "2.12.12"
+val allScala  = Seq("2.13.3", mainScala)
 
-val akkaVersion           = "2.6.7"
-val catsEffectVersion     = "2.1.4"
+val akkaVersion           = "2.6.10"
+val catsEffectVersion     = "2.2.0"
 val circeVersion          = "0.13.0"
-val http4sVersion         = "0.21.6"
-val playVersion           = "2.8.1"
-val silencerVersion       = "1.6.0"
-val sttpVersion           = "2.2.1"
-val tapirVersion          = "0.16.1"
-val zioVersion            = "1.0.0-RC21-2"
-val zioInteropCatsVersion = "2.1.3.0-RC16"
-val zioConfigVersion      = "1.0.0-RC23-1"
-val zqueryVersion         = "0.2.3"
+val http4sVersion         = "0.21.8"
+val playVersion           = "2.8.3"
+val playJsonVersion       = "2.9.1"
+val silencerVersion       = "1.7.1"
+val sttpVersion           = "2.2.9"
+val tapirVersion          = "0.16.16"
+val zioVersion            = "1.0.3"
+val zioInteropCatsVersion = "2.2.0.1"
+val zioConfigVersion      = "1.0.0-RC29"
+val zqueryVersion         = "0.2.5"
 
 inThisBuild(
   List(
+    scalaVersion := mainScala,
+    crossScalaVersions := allScala,
     organization := "com.github.ghostdogpr",
     homepage := Some(url("https://github.com/ghostdogpr/caliban")),
     licenses := List(
       "Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0")
     ),
     parallelExecution in Test := false,
-    pgpPassphrase := sys.env.get("PGP_PASSWORD").map(_.toArray),
-    pgpPublicRing := file("/tmp/public.asc"),
-    pgpSecretRing := file("/tmp/secret.asc"),
     scmInfo := Some(
       ScmInfo(
         url("https://github.com/ghostdogpr/caliban/"),
@@ -40,11 +40,10 @@ inThisBuild(
         "ghostdogpr@gmail.com",
         url("https://github.com/ghostdogpr")
       )
-    )
+    ),
+    ConsoleHelper.welcomeMessage
   )
 )
-
-ThisBuild / publishTo := sonatypePublishToBundle.value
 
 name := "caliban"
 addCommandAlias("fmt", "all scalafmtSbt scalafmt test:scalafmt")
@@ -57,13 +56,13 @@ lazy val root = project
   .in(file("."))
   .enablePlugins(ScalaJSPlugin)
   .settings(skip in publish := true)
-  .settings(historyPath := None)
+  .settings(crossScalaVersions := Nil)
   .aggregate(
     core,
     finch,
     http4s,
     akkaHttp,
-    uzhttp,
+//    uzhttp,
     play,
     catsInterop,
     monixInterop,
@@ -83,7 +82,7 @@ lazy val core = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "com.lihaoyi"       %% "fastparse"    % "2.3.0",
-      "com.propensive"    %% "magnolia"     % "0.16.0",
+      "com.propensive"    %% "magnolia"     % "0.17.0",
       "com.propensive"    %% "mercator"     % "0.2.1",
       "dev.zio"           %% "zio"          % zioVersion,
       "dev.zio"           %% "zio-streams"  % zioVersion,
@@ -91,7 +90,7 @@ lazy val core = project
       "dev.zio"           %% "zio-test"     % zioVersion % "test",
       "dev.zio"           %% "zio-test-sbt" % zioVersion % "test",
       "io.circe"          %% "circe-core"   % circeVersion % Optional,
-      "com.typesafe.play" %% "play-json"    % playVersion % Optional,
+      "com.typesafe.play" %% "play-json"    % playJsonVersion % Optional,
       compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
     )
   )
@@ -124,7 +123,7 @@ lazy val codegenSbt = project
   .settings(commonSettings)
   .settings(
     sbtPlugin := true,
-    crossScalaVersions := Seq("2.12.11"),
+    crossScalaVersions := Seq("2.12.12"),
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio-test-sbt" % zioVersion % "test"
@@ -200,10 +199,10 @@ lazy val akkaHttp = project
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "com.typesafe.akka" %% "akka-http"           % "10.1.12",
+      "com.typesafe.akka" %% "akka-http"           % "10.2.1",
       "com.typesafe.akka" %% "akka-stream"         % akkaVersion,
-      "de.heikoseeberger" %% "akka-http-circe"     % "1.32.0" % Optional,
-      "de.heikoseeberger" %% "akka-http-play-json" % "1.32.0" % Optional,
+      "de.heikoseeberger" %% "akka-http-circe"     % "1.35.2" % Optional,
+      "de.heikoseeberger" %% "akka-http-play-json" % "1.35.2" % Optional,
       compilerPlugin(
         ("org.typelevel" %% "kind-projector" % "0.11.0")
           .cross(CrossVersion.full)
@@ -227,17 +226,17 @@ lazy val finch = project
   )
   .dependsOn(core)
 
-lazy val uzhttp = project
-  .in(file("adapters/uzhttp"))
-  .settings(name := "caliban-uzhttp")
-  .settings(commonSettings)
-  .settings(
-    libraryDependencies ++= Seq(
-      "org.polynote" %% "uzhttp"       % "0.2.4",
-      "io.circe"     %% "circe-parser" % "0.13.0"
-    )
-  )
-  .dependsOn(core)
+//lazy val uzhttp = project
+//  .in(file("adapters/uzhttp"))
+//  .settings(name := "caliban-uzhttp")
+//  .settings(commonSettings)
+//  .settings(
+//    libraryDependencies ++= Seq(
+//      "org.polynote" %% "uzhttp"       % "0.2.4",
+//      "io.circe"     %% "circe-parser" % "0.13.0"
+//    )
+//  )
+//  .dependsOn(core)
 
 lazy val play = project
   .in(file("adapters/play"))
@@ -285,7 +284,7 @@ lazy val examples = project
   .settings(skip in publish := true)
   .settings(
     libraryDependencies ++= Seq(
-      "de.heikoseeberger"            %% "akka-http-circe"               % "1.32.0",
+      "de.heikoseeberger"            %% "akka-http-circe"               % "1.35.2",
       "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion,
       "com.softwaremill.sttp.tapir"  %% "tapir-json-circe"              % tapirVersion,
       "io.circe"                     %% "circe-generic"                 % circeVersion,
@@ -293,7 +292,7 @@ lazy val examples = project
       "com.typesafe.akka"            %% "akka-actor-typed"              % akkaVersion
     )
   )
-  .dependsOn(akkaHttp, http4s, catsInterop, finch, uzhttp, play, monixInterop, tapirInterop, clientJVM, federation)
+  .dependsOn(akkaHttp, http4s, catsInterop, finch, /*uzhttp,*/ play, monixInterop, tapirInterop, clientJVM, federation)
 
 lazy val benchmarks = project
   .in(file("benchmarks"))
@@ -325,8 +324,6 @@ lazy val federation = project
   )
 
 val commonSettings = Def.settings(
-  scalaVersion := mainScala,
-  crossScalaVersions := allScala,
   scalacOptions ++= Seq(
     "-deprecation",
     "-encoding",
@@ -356,6 +353,10 @@ val commonSettings = Def.settings(
         "-opt-inline-from:<source>",
         "-opt-warnings",
         "-opt:l:inline"
+      )
+    case Some((2, 13)) =>
+      Seq(
+        "-Xlint:-byname-implicit"
       )
     case _ => Nil
   })

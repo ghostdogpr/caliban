@@ -180,7 +180,7 @@ For some time formats you can also specify a specific `DateTimeFormatter` to han
 
 Caliban provides auto-derivation for common types such as `Int`, `String`, `List`, `Option`, etc. but you can also support your own types by providing an implicit instance of `caliban.schema.Schema`.
 
-An easy way to do this is to reuse existing instances and use `contramap` to map from your type to the original type. Here's an example of creating an instance for [refined](https://github.com/fthomas/refined)'s `NonEmptyString` reusing existing instance for `String`:
+An easy way to do this is to reuse existing instances and use `contramap` to map from your type to the original type. Here's an example of creating an instance for [refined](https://github.com/fthomas/refined)'s `NonEmptyString` reusing existing instance for `String` (if you use `refined`, you might want to look at [caliban-refined](https://github.com/niqdev/caliban-extras#caliban-refined))):
 
 ```scala
 import caliban.schema._
@@ -211,12 +211,16 @@ Value classes (`case class SomeWrapper(self: SomeType) extends AnyVal`) will be 
 
 Caliban can automatically generate Scala code from a GraphQL schema.
 
-In order to use this feature, add the `caliban-codegen-sbt` sbt plugin to your project and enable it.
-
+In order to use this feature, add the `caliban-codegen-sbt` sbt plugin to your `project/plugins.sbt` file:
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "0.9.0")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "0.9.3")
+```
+
+And enable it in your `build.sbt` file:
+```scala
 enablePlugins(CodegenPlugin)
 ```
+
 Then call the `calibanGenSchema` sbt command.
 ```scala
 calibanGenSchema schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name] [--effect fqdn.Effect]

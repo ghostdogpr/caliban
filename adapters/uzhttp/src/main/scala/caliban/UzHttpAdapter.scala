@@ -11,8 +11,10 @@ import io.circe.syntax._
 import uzhttp.HTTPError.BadRequest
 import uzhttp.Request.Method
 import uzhttp.Status.Ok
+import uzhttp.header.Headers
 import uzhttp.websocket.{ Close, Frame, Text }
 import uzhttp.{ HTTPError, Request, Response }
+import zio.Exit.Failure
 import zio.clock.Clock
 import zio.duration.Duration
 import zio.stream.{ Take, ZStream, ZTransducer }
@@ -34,7 +36,10 @@ object UzHttpAdapter {
                  case Some(value) => value.transduce(ZTransducer.utf8Decode).runHead
                  case None        => ZIO.fail(BadRequest("Missing body"))
                }
-        req <- ZIO.fromEither(decode[GraphQLRequest](body.getOrElse(""))).mapError(e => BadRequest(e.getMessage))
+        req <- if (req.headers.get(Headers.ContentType).exists(_.startsWith("application/graphql")))
+                ZIO.succeed(GraphQLRequest(query = body))
+              else
+                ZIO.fromEither(decode[GraphQLRequest](body.getOrElse(""))).mapError(e => BadRequest(e.getMessage))
         res <- executeHttpResponse(
                 interpreter,
                 req,
@@ -116,13 +121,24 @@ object UzHttpAdapter {
                                       stream.foreach { item =>
                                         sendMessage(
                                           sendQueue,
+                                          "data",
                                           id,
-                                          ObjectValue(List(fieldName -> item)),
-                                          result.errors
+                                          GraphQLResponse(ObjectValue(List(fieldName -> item)), result.errors).asJson
                                         )
-                                      }.fork.flatMap(fiber => subscriptions.update(_.updated(id, fiber)))
+                                      }.onExit {
+                                        case Failure(cause) if !cause.interrupted =>
+                                          sendMessage(
+                                            sendQueue,
+                                            "error",
+                                            id,
+                                            Json.obj("message" -> Json.fromString(cause.squash.toString))
+                                          )
+                                        case _ =>
+                                          sendQueue.offer(Take.single(Text(s"""{"type":"complete","id":"$id"}""")))
+                                      }.fork
+                                        .flatMap(fiber => subscriptions.update(_.updated(id, fiber)))
                                     case other =>
-                                      sendMessage(sendQueue, id, other, result.errors) *>
+                                      sendMessage(sendQueue, "data", id, GraphQLResponse(other, result.errors).asJson) *>
                                         sendQueue.offer(
                                           Take.single(Text(s"""{"type":"complete","id":"$id"}"""))
                                         )
@@ -135,11 +151,7 @@ object UzHttpAdapter {
                           .modify(map => (map.get(id), map - id))
                           .flatMap(fiber =>
                             IO.whenCase(fiber) {
-                              case Some(fiber) =>
-                                fiber.interrupt *>
-                                  sendQueue.offer(
-                                    Take.single(Text(s"""{"type":"complete","id":"$id"}"""))
-                                  )
+                              case Some(fiber) => fiber.interrupt
                             }
                           )
                     }
@@ -153,11 +165,11 @@ object UzHttpAdapter {
       } yield ws
   }
 
-  private def sendMessage[E](
+  private def sendMessage(
     sendQueue: Queue[Take[Nothing, Frame]],
+    messageType: String,
     id: String,
-    data: ResponseValue,
-    errors: List[E]
+    payload: Json
   ): UIO[Unit] =
     sendQueue
       .offer(
@@ -166,8 +178,8 @@ object UzHttpAdapter {
             Json
               .obj(
                 "id"      -> Json.fromString(id),
-                "type"    -> Json.fromString("data"),
-                "payload" -> GraphQLResponse(data, errors).asJson
+                "type"    -> Json.fromString(messageType),
+                "payload" -> payload
               )
               .noSpaces
           )

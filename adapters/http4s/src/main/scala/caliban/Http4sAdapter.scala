@@ -16,15 +16,19 @@ import io.circe.syntax._
 import org.http4s._
 import org.http4s.circe.CirceEntityCodec._
 import org.http4s.dsl.Http4sDsl
+import org.http4s.implicits._
 import org.http4s.server.websocket.WebSocketBuilder
 import org.http4s.websocket.WebSocketFrame
 import org.http4s.websocket.WebSocketFrame.Text
+import zio.Exit.Failure
 import zio._
 import zio.clock.Clock
 import zio.duration.Duration
 import zio.interop.catz._
 
 object Http4sAdapter {
+
+  val `application/graphql`: MediaType = mediaType"application/graphql"
 
   private def executeToJson[R, E](
     interpreter: GraphQLInterpreter[R, E],
@@ -42,9 +46,9 @@ object Http4sAdapter {
 
   private def getGraphQLRequest(
     query: String,
-    op: Option[String],
-    vars: Option[String],
-    exts: Option[String]
+    op: Option[String] = None,
+    vars: Option[String] = None,
+    exts: Option[String] = None
   ): Result[GraphQLRequest] = {
     val variablesJs  = vars.flatMap(parse(_).toOption)
     val extensionsJs = exts.flatMap(parse(_).toOption)
@@ -76,7 +80,15 @@ object Http4sAdapter {
     HttpRoutes.of[RIO[R, *]] {
       case req @ POST -> Root =>
         for {
-          query <- req.attemptAs[GraphQLRequest].value.absolve
+          query <- if (req.params.contains("query"))
+                    Task.fromEither(getGraphQLRequest(req.params))
+                  else if (req.contentType.exists(_.mediaType == `application/graphql`))
+                    for {
+                      body   <- req.attemptAs[String](EntityDecoder.text).value.absolve
+                      parsed <- Task.fromEither(getGraphQLRequest(body))
+                    } yield parsed
+                  else
+                    req.attemptAs[GraphQLRequest].value.absolve
           result <- executeToJson(
                      interpreter,
                      query,
@@ -132,17 +144,17 @@ object Http4sAdapter {
 
     def sendMessage(
       sendQueue: fs2.concurrent.Queue[Task, WebSocketFrame],
+      messageType: String,
       id: String,
-      data: ResponseValue,
-      errors: List[E]
+      payload: Json
     ): RIO[R, Unit] =
       sendQueue.enqueue1(
         WebSocketFrame.Text(
           Json
             .obj(
               "id"      -> Json.fromString(id),
-              "type"    -> Json.fromString("data"),
-              "payload" -> GraphQLResponse(data, errors).asJson
+              "type"    -> Json.fromString(messageType),
+              "payload" -> payload
             )
             .noSpaces
         )
@@ -186,24 +198,32 @@ object Http4sAdapter {
                           _ <- result.data match {
                                 case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
                                   stream.foreach { item =>
-                                    sendMessage(sendQueue, id, ObjectValue(List(fieldName -> item)), result.errors)
-                                  }.fork.flatMap(fiber => subscriptions.update(_.updated(id, fiber)))
+                                    sendMessage(
+                                      sendQueue,
+                                      "data",
+                                      id,
+                                      GraphQLResponse(ObjectValue(List(fieldName -> item)), result.errors).asJson
+                                    )
+                                  }.onExit {
+                                    case Failure(cause) if !cause.interrupted =>
+                                      sendMessage(
+                                        sendQueue,
+                                        "error",
+                                        id,
+                                        Json.obj("message" -> Json.fromString(cause.squash.toString))
+                                      ).orDie
+                                    case _ =>
+                                      sendQueue
+                                        .enqueue1(WebSocketFrame.Text(s"""{"type":"complete","id":"$id"}"""))
+                                        .orDie
+                                  }.fork
+                                    .flatMap(fiber => subscriptions.update(_.updated(id, fiber)))
                                 case other =>
-                                  sendMessage(sendQueue, id, other, result.errors) *>
+                                  sendMessage(sendQueue, "data", id, GraphQLResponse(other, result.errors).asJson) *>
                                     sendQueue.enqueue1(WebSocketFrame.Text(s"""{"type":"complete","id":"$id"}"""))
                               }
                         } yield ()).catchAll(error =>
-                          sendQueue.enqueue1(
-                            WebSocketFrame.Text(
-                              Json
-                                .obj(
-                                  "id"      -> Json.fromString(id),
-                                  "type"    -> Json.fromString("complete"),
-                                  "payload" -> Json.fromString(error.toString)
-                                )
-                                .noSpaces
-                            )
-                          )
+                          sendMessage(sendQueue, "error", id, Json.obj("message" -> Json.fromString(error.toString)))
                         )
                     }
                   case "stop" =>
@@ -212,9 +232,7 @@ object Http4sAdapter {
                       .modify(map => (map.get(id), map - id))
                       .flatMap(fiber =>
                         IO.whenCase(fiber) {
-                          case Some(fiber) =>
-                            fiber.interrupt *>
-                              sendQueue.enqueue1(WebSocketFrame.Text(s"""{"type":"complete","id":"$id"}"""))
+                          case Some(fiber) => fiber.interrupt
                         }
                       )
                 }
@@ -274,7 +292,7 @@ object Http4sAdapter {
    */
   def provideSomeLayerFromRequest[R <: Has[_], R1 <: Has[_]](
     route: HttpRoutes[RIO[R with R1, *]],
-    f: Request[RIO[R, *]] => TaskLayer[R1]
+    f: Request[RIO[R, *]] => RLayer[R, R1]
   )(implicit tagged: Tag[R1]): HttpRoutes[RIO[R, *]] =
     Kleisli { req: Request[RIO[R, *]] =>
       val to: RIO[R, *] ~> RIO[R with R1, *] = FunctionK.lift[RIO[R, *], RIO[R with R1, *]](identity)

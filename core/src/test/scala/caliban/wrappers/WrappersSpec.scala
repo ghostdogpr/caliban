@@ -4,20 +4,23 @@ import caliban.CalibanError.{ ExecutionError, ValidationError }
 import caliban.GraphQL._
 import caliban.InputValue.ObjectValue
 import caliban.Macros.gqldoc
+import caliban.TestUtils.resolver
 import caliban.Value.StringValue
+import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
 import caliban.schema.Annotations.GQLDirective
 import caliban.schema.GenericSchema
 import caliban.wrappers.ApolloCaching.CacheControl
 import caliban.wrappers.ApolloPersistedQueries.apolloPersistedQueries
+import caliban.wrappers.Wrapper.ExecutionWrapper
 import caliban.wrappers.Wrappers._
-import caliban.{ GraphQL, GraphQLRequest, RootResolver }
+import caliban.{ GraphQL, GraphQLRequest, GraphQLResponse, RootResolver, Value }
 import io.circe.syntax._
 import zio.clock.Clock
 import zio.duration._
 import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.{ TestClock, TestEnvironment }
-import zio.{ clock, Promise, URIO, ZIO }
+import zio.{ clock, Promise, UIO, URIO, ZIO }
 
 import scala.language.postfixOps
 
@@ -222,6 +225,40 @@ object WrappersSpec extends DefaultRunnableSpec {
           } yield assert(result.asJson.noSpaces)(equalTo("""{"data":{"test":"ok"}}""")))
             .provideLayer(ApolloPersistedQueries.live)
         }
-      )
+      ),
+      testM("custom query directive") {
+        val customWrapper = ExecutionWrapper[Any](f =>
+          request => {
+            if (request.field.directives.exists(_.name == "customQueryDirective")) {
+              UIO {
+                GraphQLResponse(Value.BooleanValue(true), Nil)
+              }
+            } else f(request)
+          }
+        )
+        val customQueryDirective = __Directive(
+          "customQueryDirective",
+          None,
+          Set(
+            __DirectiveLocation.QUERY
+          ),
+          Nil
+        )
+        val interpreter = (graphQL(
+          resolver,
+          List(
+            customQueryDirective
+          )
+        ) @@ customWrapper).interpreter
+        val query = gqldoc("""
+            query @customQueryDirective {
+              characters {
+                name
+              }
+            }""")
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
+          equalTo("""true""")
+        )
+      }
     )
 }

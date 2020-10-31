@@ -10,7 +10,6 @@ import zio.Runtime
 package object implicits {
 
   implicit class MonixGraphQLInterpreter[R, E](underlying: GraphQLInterpreter[R, E]) {
-
     def executeAsync(
       query: String,
       operationName: Option[String] = None,
@@ -33,12 +32,11 @@ package object implicits {
   }
 
   implicit class MonixGraphQL[R, E](underlying: GraphQL[R]) {
-
     def interpreterAsync(implicit runtime: Runtime[R]): Task[GraphQLInterpreter[R, CalibanError]] =
       MonixInterop.interpreterAsync(underlying)
   }
 
-  implicit def effectSchema[R, A](implicit ev: Schema[R, A], ev2: ConcurrentEffect[Task]): Schema[R, Task[A]] =
+  implicit def monixEffectSchema[R, A](implicit ev: Schema[R, A], ev2: ConcurrentEffect[Task]): Schema[R, Task[A]] =
     MonixInterop.taskSchema
 
   implicit def observableSchema[R, A](

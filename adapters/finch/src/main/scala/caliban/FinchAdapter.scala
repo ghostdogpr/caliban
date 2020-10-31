@@ -6,10 +6,9 @@ import io.circe.Json
 import io.circe.syntax._
 import io.circe.parser._
 import io.finch._
-import io.finch.circe._
 import shapeless._
 import zio.interop.catz._
-import zio.{ Runtime, Task }
+import zio.{ Runtime, Task, URIO }
 
 object FinchAdapter extends Endpoint.Module[Task] {
 
@@ -38,12 +37,20 @@ object FinchAdapter extends Endpoint.Module[Task] {
   )(implicit runtime: Runtime[R]) =
     runtime
       .unsafeRunToFuture(
-        interpreter
-          .executeRequest(request, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
-          .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
-          .map(gqlResult => Ok(gqlResult))
+        createRequest(request, interpreter, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
       )
       .future
+
+  private def createRequest[R, E](
+    request: GraphQLRequest,
+    interpreter: GraphQLInterpreter[R, E],
+    skipValidation: Boolean,
+    enableIntrospection: Boolean
+  )(implicit runtime: Runtime[R]): URIO[R, Output[Json]] =
+    interpreter
+      .executeRequest(request, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
+      .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
+      .map(gqlResult => Ok(gqlResult))
 
   private val queryParams =
     (paramOption[String]("query") ::
@@ -71,8 +78,26 @@ object FinchAdapter extends Endpoint.Module[Task] {
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true
   )(implicit runtime: Runtime[R]): Endpoint[Task, Json :+: Json :+: CNil] =
-    post(jsonBody[GraphQLRequest]) { request: GraphQLRequest =>
-      executeRequest(request, interpreter, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
+    post(queryParams :: stringBodyOption :: header("content-type")) {
+      (queryRequest: GraphQLRequest, body: Option[String], contentType: String) =>
+        val queryTask = (queryRequest, body, contentType) match {
+          case (_, Some(bodyValue), "application/json") =>
+            Task.fromEither(parse(bodyValue).flatMap(_.as[GraphQLRequest]))
+          case (_, Some(_), "application/graphql") =>
+            Task(GraphQLRequest(body))
+          case (queryRequest, _, _) if queryRequest.query.isDefined =>
+            Task(queryRequest)
+          // treat unmatched content-type as same as None of body.
+          case _ =>
+            Task.fail(new Exception("Query was not found"))
+        }
+        runtime
+          .unsafeRunToFuture(
+            queryTask
+              .flatMap(createRequest(_, interpreter, skipValidation, enableIntrospection))
+              .catchAll(error => Task(Ok(GraphQLResponse(NullValue, List(error.getMessage)).asJson)))
+          )
+          .future
     } :+: get(queryParams) { request: GraphQLRequest =>
       executeRequest(request, interpreter, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
     }

@@ -1,185 +1,34 @@
 package caliban
 
-import java.util.Locale
-
 import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
 import akka.stream.scaladsl.{ Flow, Sink, Source, SourceQueueWithComplete }
-
 import caliban.PlayAdapter.RequestWrapper
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
+import caliban.Value.NullValue
 import caliban.interop.play.json.parsingException
 import play.api.http.Writeable
 import play.api.libs.json.{ JsValue, Json, Writes }
-import play.api.mvc.{
-  Action,
-  ActionBuilder,
-  AnyContent,
-  BodyParser,
-  PlayBodyParsers,
-  Request,
-  RequestHeader,
-  Result,
-  Results,
-  WebSocket
-}
+import play.api.mvc.{ Action, ActionBuilder, AnyContent, PlayBodyParsers, Request, RequestHeader, Result, WebSocket }
 import play.api.mvc.Results.Ok
-import zio.{ random, CancelableFuture, Fiber, Has, IO, RIO, Ref, Runtime, Schedule, Task, URIO, ZIO, ZLayer }
+import zio.Exit.Failure
+import zio.{ CancelableFuture, Fiber, IO, RIO, Ref, Runtime, Schedule, Task, URIO, ZIO }
 import zio.clock.Clock
 import zio.duration.Duration
+
 import scala.concurrent.{ ExecutionContext, Future }
 import scala.util.Try
 
-import caliban.Uploads.{ FileMeta, Uploads }
-import caliban.Value.NullValue
-import zio.blocking.Blocking
-import zio.random.Random
-
-trait PlayAdapter {
+trait PlayAdapter[R] {
 
   def actionBuilder: ActionBuilder[Request, AnyContent]
   def parse: PlayBodyParsers
-  def requestWrapper: RequestWrapper
+  def requestWrapper: RequestWrapper[R]
 
   implicit def writableGraphQLResponse[E](implicit wr: Writes[GraphQLResponse[E]]): Writeable[GraphQLResponse[E]] =
     Writeable.writeableOf_JsValue.map(wr.writes)
 
-  def makePostAction[R <: Blocking with Random, E](
-    interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true
-  )(implicit runtime: Runtime[R]): Action[Either[GraphQLUploadRequest, GraphQLRequest]] =
-    actionBuilder.async(makeParser(runtime)) { req =>
-      req.body match {
-        case Left(value) =>
-          executeRequest[R, E](
-            interpreter,
-            req.withBody(value.remap),
-            skipValidation,
-            enableIntrospection,
-            value.fileHandle.toLayerMany
-          )
-
-        case Right(value) =>
-          executeRequest[R, E](
-            interpreter,
-            req.withBody(value),
-            skipValidation,
-            enableIntrospection
-          )
-      }
-    }
-
-  private def executeRequest[R <: Has[_], E](
-    interpreter: GraphQLInterpreter[R, E],
-    request: Request[GraphQLRequest],
-    skipValidation: Boolean,
-    enableIntrospection: Boolean,
-    fileHandle: ZLayer[Any, Nothing, Uploads] = Uploads.Service.empty
-  )(implicit runtime: Runtime[R]): CancelableFuture[Result] =
-    runtime.unsafeRunToFuture(
-      requestWrapper(request)(
-        interpreter
-          .executeRequest(request.body, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
-          .catchAllCause(cause => ZIO.succeed(GraphQLResponse[Throwable](NullValue, cause.defects)))
-          .map(Ok(_))
-          .provideSomeLayer[R](fileHandle)
-      )
-    )
-
-  private def makeParser(
-    runtime: Runtime[Blocking with Random]
-  ): BodyParser[Either[GraphQLUploadRequest, GraphQLRequest]] =
-    parse.using { req =>
-      implicit val ec: ExecutionContext = runtime.platform.executor.asEC
-      req.contentType.map(_.toLowerCase(Locale.ENGLISH)) match {
-        case Some("text/json") | Some("application/json") =>
-          parse.json[GraphQLRequest].map(Right(_))
-        case Some("multipart/form-data") =>
-          uploadFormParser(runtime).map(Left(_))
-        case _ =>
-          parse.error(Future.successful(Results.BadRequest("Invalid content type")))
-      }
-    }
-
-  private def uploadFormParser(
-    runtime: Runtime[Random]
-  ): BodyParser[GraphQLUploadRequest] =
-    parse.multipartFormData.validateM { form =>
-      // First bit is always a standard graphql payload, it comes from the `operations` field
-      val tryOperations =
-        parseJson(form.dataParts("operations").head).map(_.as[GraphQLRequest])
-      // Second bit is the mapping field
-      val tryMap = parseJson(form.dataParts("map").head)
-        .map(_.as[Map[String, Seq[String]]])
-
-      runtime.unsafeRunToFuture(
-        (for {
-          operations <- ZIO
-                         .fromTry(tryOperations)
-                         .orElseFail(Results.BadRequest("Missing multipart field 'operations'"))
-          map <- ZIO
-                  .fromTry(tryMap)
-                  .orElseFail(Results.BadRequest("Missing multipart field 'map'"))
-          filePaths = map.map { case (key, value) => (key, value.map(parsePath).toList) }.toList
-            .flatMap(kv => kv._2.map(kv._1 -> _))
-          fileRef <- Ref.make(form.files.map(f => f.key -> f).toMap)
-          rand    <- ZIO.environment[Random]
-        } yield GraphQLUploadRequest(
-          operations,
-          filePaths,
-          Uploads.Service.handler(handle =>
-            fileRef.get
-              .map(_.get(handle))
-              .some
-              .flatMap(fp =>
-                random
-                  .nextString(16)
-                  .asSomeError
-                  .map(
-                    FileMeta(
-                      _,
-                      fp.ref.path,
-                      fp.dispositionType,
-                      fp.contentType,
-                      fp.filename,
-                      fp.fileSize
-                    )
-                  )
-              )
-              .optional
-              .provide(rand)
-          )
-        )).either
-      )
-    }(runtime.platform.executor.asEC)
-
   private def parseJson(s: String): Try[JsValue] =
     Try(Json.parse(s))
-
-  private def parsePath(path: String): List[Either[String, Int]] =
-    path.split('.').map(c => Try(c.toInt).toEither.left.map(_ => c)).toList
-
-  def makeGetAction[R <: Has[_], E](
-    interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true
-  )(
-    query: Option[String],
-    variables: Option[String],
-    operation: Option[String],
-    extensions: Option[String]
-  )(implicit runtime: Runtime[R]): Action[AnyContent] =
-    actionBuilder.async(req =>
-      getGraphQLRequest(
-        query,
-        operation,
-        variables,
-        extensions
-      ).fold(
-        Future.failed,
-        body => executeRequest(interpreter, req.withBody(body), skipValidation, enableIntrospection)
-      )
-    )
 
   private def getGraphQLRequest(
     query: Option[String],
@@ -202,15 +51,58 @@ trait PlayAdapter {
       .map(parsingException)
   }
 
-  def makeWebSocket[R, E](
+  private def executeRequest[E](
+    interpreter: GraphQLInterpreter[R, E],
+    request: Request[GraphQLRequest],
+    skipValidation: Boolean,
+    enableIntrospection: Boolean
+  )(implicit runtime: Runtime[R]): CancelableFuture[Result] =
+    runtime.unsafeRunToFuture(
+      requestWrapper(request)(
+        interpreter
+          .executeRequest(request.body, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
+          .catchAllCause(cause => ZIO.succeed(GraphQLResponse[Throwable](NullValue, cause.defects)))
+          .map(Ok(_))
+      )
+    )
+
+  def makePostAction[E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    keepAliveTime: Option[Duration] = None
-  )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): WebSocket =
-    WebSocket.accept(_ => webSocketFlow(interpreter, skipValidation, enableIntrospection, keepAliveTime))
+    enableIntrospection: Boolean = true
+  )(implicit runtime: Runtime[R]): Action[GraphQLRequest] =
+    actionBuilder.async(parse.json[GraphQLRequest])(req =>
+      executeRequest(
+        interpreter,
+        req,
+        skipValidation,
+        enableIntrospection
+      )
+    )
 
-  private def webSocketFlow[R, E](
+  def makeGetAction[E](
+    interpreter: GraphQLInterpreter[R, E],
+    skipValidation: Boolean = false,
+    enableIntrospection: Boolean = true
+  )(
+    query: Option[String],
+    variables: Option[String],
+    operation: Option[String],
+    extensions: Option[String]
+  )(implicit runtime: Runtime[R]): Action[AnyContent] =
+    actionBuilder.async(req =>
+      getGraphQLRequest(
+        query,
+        operation,
+        variables,
+        extensions
+      ).fold(
+        Future.failed,
+        body => executeRequest(interpreter, req.withBody(body), skipValidation, enableIntrospection)
+      )
+    )
+
+  private def webSocketFlow[E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean,
     enableIntrospection: Boolean,
@@ -244,6 +136,15 @@ trait PlayAdapter {
               case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
                 stream
                   .foreach(item => sendMessage(sendTo, messageId, ObjectValue(List(fieldName -> item)), result.errors))
+                  .onExit {
+                    case Failure(cause) if !cause.interrupted =>
+                      IO.fromFuture(_ =>
+                          sendTo.offer(PlayWSMessage("error", messageId, Json.obj("message" -> cause.squash.toString)))
+                        )
+                        .orDie
+                    case _ =>
+                      IO.fromFuture(_ => sendTo.offer(PlayWSMessage("complete", messageId))).orDie
+                  }
                   .forkDaemon
                   .flatMap(fiber => subscriptions.update(_.updated(messageId, fiber)))
               case other =>
@@ -273,11 +174,13 @@ trait PlayAdapter {
               case "connection_terminate" =>
                 IO.effect(queue.complete())
               case "start" =>
-                Task.whenCase(msg.request) {
+                RIO.whenCase(msg.request) {
                   case Some(req) =>
                     startSubscription(msg.id, req, queue, subscriptions)
                       .catchAll(error =>
-                        IO.fromFuture(_ => queue.offer(PlayWSMessage("complete", Some(error.toString))))
+                        IO.fromFuture(_ =>
+                          queue.offer(PlayWSMessage("error", msg.id, Json.obj("message" -> error.toString)))
+                        )
                       )
                 }
               case "stop" =>
@@ -285,9 +188,7 @@ trait PlayAdapter {
                   .modify(map => (map.get(msg.id), map - msg.id))
                   .flatMap(fiber =>
                     IO.whenCase(fiber) {
-                      case Some(fiber) =>
-                        fiber.interrupt *>
-                          IO.fromFuture(_ => queue.offer(PlayWSMessage("complete", msg.id)))
+                      case Some(fiber) => fiber.interrupt
                     }
                   )
             }
@@ -300,7 +201,15 @@ trait PlayAdapter {
     }
   }
 
-  def makeWakeSocketOrResult[R, E](
+  def makeWebSocket[E](
+    interpreter: GraphQLInterpreter[R, E],
+    skipValidation: Boolean = false,
+    enableIntrospection: Boolean = true,
+    keepAliveTime: Option[Duration] = None
+  )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): WebSocket =
+    WebSocket.accept(_ => webSocketFlow(interpreter, skipValidation, enableIntrospection, keepAliveTime))
+
+  def makeWakeSocketOrResult[E](
     interpreter: GraphQLInterpreter[R, E],
     handleRequestHeader: RequestHeader => Future[Either[Result, Unit]],
     skipValidation: Boolean = false,
@@ -315,28 +224,28 @@ trait PlayAdapter {
 }
 
 object PlayAdapter {
-  def apply(
+  def apply[R](
     playBodyParsers: PlayBodyParsers,
     _actionBuilder: ActionBuilder[Request, AnyContent],
-    wrapper: RequestWrapper = RequestWrapper.empty
-  ): PlayAdapter =
-    new PlayAdapter {
+    wrapper: RequestWrapper[R] = RequestWrapper.empty
+  ): PlayAdapter[R] =
+    new PlayAdapter[R] {
       override def parse: PlayBodyParsers                            = playBodyParsers
       override def actionBuilder: ActionBuilder[Request, AnyContent] = _actionBuilder
-      override def requestWrapper: RequestWrapper                    = wrapper
+      override def requestWrapper: RequestWrapper[R]                 = wrapper
     }
 
-  trait RequestWrapper { self =>
-    def apply[R](ctx: RequestHeader)(e: URIO[R, Result]): URIO[R, Result]
+  trait RequestWrapper[-R] { self =>
+    def apply[R1 <: R](ctx: RequestHeader)(e: URIO[R1, Result]): URIO[R1, Result]
 
-    def |+|(that: RequestWrapper): RequestWrapper = new RequestWrapper {
-      override def apply[R](ctx: RequestHeader)(e: URIO[R, Result]): URIO[R, Result] =
-        that.apply(ctx)(self.apply(ctx)(e))
+    def |+|[R1 <: R](that: RequestWrapper[R1]): RequestWrapper[R1] = new RequestWrapper[R1] {
+      override def apply[R2 <: R1](ctx: RequestHeader)(e: URIO[R2, Result]): URIO[R2, Result] =
+        that.apply[R2](ctx)(self.apply[R2](ctx)(e))
     }
   }
 
   object RequestWrapper {
-    lazy val empty: RequestWrapper = new RequestWrapper {
+    lazy val empty: RequestWrapper[Any] = new RequestWrapper[Any] {
       override def apply[R](ctx: RequestHeader)(effect: URIO[R, Result]): URIO[R, Result] = effect
     }
   }

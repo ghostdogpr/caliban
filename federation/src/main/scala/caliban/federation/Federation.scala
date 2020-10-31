@@ -96,11 +96,13 @@ trait Federation {
       _fieldSet: FieldSet = FieldSet("")
     )
 
+    val withSDL = original.withAdditionalTypes(resolvers.map(_.toType).flatMap(Types.collectTypes(_)))
+
     GraphQL.graphQL(
       RootResolver(
         Query(
           _entities = args => args.representations.map(rep => _Entity(rep.__typename, rep.fields)),
-          _service = ZQuery.succeed(_Service(original.render))
+          _service = ZQuery.succeed(_Service(withSDL.render))
         )
       ),
       federationDirectives

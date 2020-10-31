@@ -6,6 +6,9 @@ import caliban.TestUtils.{ OrganizationId, WrappedPainter }
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
 import caliban.schema.Annotations.GQLInterface
 import play.api.libs.json.JsValue
+import zio.blocking.Blocking
+import zio.console.Console
+import zio.query.ZQuery
 import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
@@ -25,6 +28,16 @@ object SchemaSpec extends DefaultRunnableSpec {
       },
       test("infallible effectful field") {
         assert(introspect[InfallibleFieldSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
+          isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.NON_NULL)))
+        )
+      },
+      test("tricky case with R") {
+        case class Field(value: ZQuery[Console, Nothing, String])
+        case class Queries(field: ZQuery[Blocking, Nothing, Field])
+        object MySchema extends GenericSchema[Console with Blocking] {
+          implicit lazy val queriesSchema = gen[Queries]
+        }
+        assert(MySchema.queriesSchema.toType_().fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
           isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.NON_NULL)))
         )
       },

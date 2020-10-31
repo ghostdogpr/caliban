@@ -61,13 +61,13 @@ final class PlayJsonBackend extends JsonBackend with PlayJsonSupport {
         )
     )
 
-  def encodeWSError(id: String, error: Throwable): String =
+  def encodeWSError(id: String, error: String): String =
     Json.stringify(
       Json
         .obj(
           "id"      -> id,
-          "type"    -> "complete",
-          "payload" -> error.toString
+          "type"    -> "error",
+          "payload" -> Json.obj("message" -> error)
         )
     )
 

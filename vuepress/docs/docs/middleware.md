@@ -52,6 +52,7 @@ Caliban comes with a few pre-made wrappers in `caliban.wrappers.Wrappers`:
 - `maxDepth` returns a wrapper that fails queries whose depth is higher than a given value
 - `maxFields` returns a wrapper that fails queries whose number of fields is higher than a given value
 - `timeout` returns a wrapper that fails queries taking more than a specified time
+- `printErrors` returns a wrapper that prints errors
 - `printSlowQueries` returns a wrapper that prints slow queries
 - `onSlowQueries` returns a wrapper that can run a given function on slow queries
 

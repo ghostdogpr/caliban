@@ -47,14 +47,16 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    * @param useVariables if true, all arguments will be passed as variables (default: false)
    */
   def toGraphQL[A1 >: A, Origin1 <: Origin](
-    useVariables: Boolean = false
+    useVariables: Boolean = false,
+    queryName: Option[String] = None
   )(implicit ev: IsOperation[Origin1]): GraphQLRequest = {
     val (fields, variables) = SelectionBuilder.toGraphQL(toSelectionSet, useVariables)
     val variableDef =
       if (variables.nonEmpty)
         s"(${variables.map { case (name, (_, typeName)) => s"$$$name: $typeName" }.mkString(",")})"
       else ""
-    val operation = s"${ev.operationName}$variableDef{$fields}"
+    val nameDef   = queryName.fold("")(name => s" $name ")
+    val operation = s"${ev.operationName}$nameDef$variableDef{$fields}"
     GraphQLRequest(operation, variables.map { case (k, (v, _)) => k -> v })
   }
 
@@ -66,9 +68,10 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def toRequest[A1 >: A, Origin1 <: Origin](
     uri: Uri,
-    useVariables: Boolean = false
+    useVariables: Boolean = false,
+    queryName: Option[String] = None
   )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, A1], Nothing] =
-    toRequestWithExtensions[A1, Origin1](uri, useVariables)(ev).mapResponse {
+    toRequestWithExtensions[A1, Origin1](uri, useVariables, queryName)(ev).mapResponse {
       case Right((r, _)) => Right(r)
       case Left(l)       => Left(l)
     }
@@ -81,11 +84,12 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def toRequestWithExtensions[A1 >: A, Origin1 <: Origin](
     uri: Uri,
-    useVariables: Boolean = false
+    useVariables: Boolean = false,
+    queryName: Option[String] = None
   )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, (A1, Option[Json])], Nothing] =
     basicRequest
       .post(uri)
-      .body(toGraphQL(useVariables))
+      .body(toGraphQL(useVariables, queryName))
       .mapResponse { response =>
         for {
           resp <- response.left.map(CommunicationError(_))
@@ -330,6 +334,7 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
 object SelectionBuilder {
 
   val __typename: SelectionBuilder[Any, String] = Field("__typename", Scalar[String]())
+  def pure[A](a: A): SelectionBuilder[Any, A]   = Pure(a)
 
   case class Field[Origin, A](
     name: String,
@@ -381,6 +386,21 @@ object SelectionBuilder {
     override def toSelectionSet: List[Selection] = builder.toSelectionSet
 
     override def withAlias(alias: String): SelectionBuilder[Origin, B] = Mapping(builder.withAlias(alias), f)
+  }
+  case class Pure[A](a: A) extends SelectionBuilder[Any, A] { self =>
+    override private[caliban] def toSelectionSet = Nil
+
+    override private[caliban] def fromGraphQL(value: Value) = Right(a)
+
+    /**
+     * Add the given directive to the selection
+     */
+    override def withDirective(directive: Directive): SelectionBuilder[Any, A] = self
+
+    /**
+     * Use the given alias for this selection
+     */
+    override def withAlias(alias: String): SelectionBuilder[Any, A] = self
   }
 
   def combineAll[Origin, A](
