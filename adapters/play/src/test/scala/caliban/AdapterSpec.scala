@@ -4,33 +4,28 @@ import java.io.File
 import java.net.URL
 
 import play.core.server.Server
-import zio.{ Has, Runtime, UIO, ZIO, ZLayer }
+import zio.{Has, Runtime, UIO, ZIO, ZLayer}
 import zio.random.Random
 import caliban.schema.GenericSchema
-//import cats.effect.Blocker
-//import org.http4s.{MediaType, Uri}
-//import org.http4s.headers.`Content-Type`
-//import sttp.model.Part
-//import org.http4s.multipart.{Multipart, Part}
 import zio.internal.Platform
 import play.api.mvc.DefaultControllerComponents
 import play.api.Mode
-import play.core.server.{ AkkaHttpServer, ServerConfig }
+import play.core.server.{AkkaHttpServer, ServerConfig}
 import zio.clock.Clock
-import zio.console.{ Console }
 import zio.test._
 import caliban.GraphQL.graphQL
 import zio.test.environment.TestEnvironment
 import zio.test.Assertion._
 import zio.blocking._
-//import zio.interop.catz._
 import java.security.MessageDigest
 import java.math.BigInteger
 
 import sttp.client._
-import sttp.client.asynchttpclient.zio.{ AsyncHttpClientZioBackend, SttpClient }
-import io.circe.generic.auto._, io.circe.parser._
+import sttp.client.asynchttpclient.zio.{AsyncHttpClientZioBackend, SttpClient}
+import io.circe.generic.auto._
+import io.circe.parser._
 import caliban.Uploads.Uploads
+import zio.console.Console
 
 case class Response[A](data: A)
 case class UploadFile(uploadFile: TestAPI.File)
@@ -91,9 +86,9 @@ object TestAPI extends GenericSchema[Blocking with Uploads with Console with Clo
   case class Queries(stub: Unit => UIO[String])
 
   case class Mutations(
-    uploadFile: UploadFileArgs => ZIO[Blocking with Uploads, Throwable, File],
-    uploadFiles: UploadFilesArgs => ZIO[Blocking with Uploads, Throwable, List[File]]
-  )
+                        uploadFile: UploadFileArgs => ZIO[Blocking with Uploads, Throwable, File],
+                        uploadFiles: UploadFilesArgs => ZIO[Blocking with Uploads, Throwable, List[File]]
+                      )
 }
 
 object AdapterSpec extends DefaultRunnableSpec {

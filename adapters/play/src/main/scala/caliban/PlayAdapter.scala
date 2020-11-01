@@ -125,22 +125,7 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
         )).either
       )
     }(runtime.platform.executor.asEC)
-
-//  private def executeRequest[E](
-//    interpreter: GraphQLInterpreter[R, E],
-//    request: Request[GraphQLRequest],
-//    skipValidation: Boolean,
-//    enableIntrospection: Boolean
-//  )(implicit runtime: Runtime[R]): CancelableFuture[Result] =
-//    runtime.unsafeRunToFuture(
-//      requestWrapper(request)(
-//        interpreter
-//          .executeRequest(request.body, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
-//          .catchAllCause(cause => ZIO.succeed(GraphQLResponse[Throwable](NullValue, cause.defects)))
-//          .map(Ok(_))
-//      )
-//    )
-
+  
   private def parsePath(path: String): List[Either[String, Int]] =
     path.split('.').map(c => Try(c.toInt).toEither.left.map(_ => c)).toList
 
@@ -166,23 +151,6 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
       )
     )
 
-//  private def executeRequest[R <: Has[_], E](
-//    interpreter: GraphQLInterpreter[R, E],
-//    request: Request[GraphQLRequest],
-//    skipValidation: Boolean,
-//    enableIntrospection: Boolean,
-//    fileHandle: ZLayer[Any, Nothing, Uploads] = Uploads.Service.empty
-//  )(implicit runtime: Runtime[R]): CancelableFuture[Result] =
-//    runtime.unsafeRunToFuture(
-//      requestWrapper(request)(
-//        interpreter
-//          .executeRequest(request.body, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
-//          .catchAllCause(cause => ZIO.succeed(GraphQLResponse[Throwable](NullValue, cause.defects)))
-//          .map(Ok(_))
-//          .provideSomeLayer[R](fileHandle)
-//      )
-//    )
-
   private def executeRequest[E](
     interpreter: GraphQLInterpreter[R, E],
     request: Request[GraphQLRequest],
@@ -199,23 +167,6 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
           .provideSomeLayer[R](fileHandle)
       )
     )
-
-//  private def executeRequest[R <: Has[_], E](
-//                                              interpreter: GraphQLInterpreter[R, E],
-//                                              request: Request[GraphQLRequest],
-//                                              skipValidation: Boolean,
-//                                              enableIntrospection: Boolean,
-//                                              fileHandle: ZLayer[Any, Nothing, Uploads] = Uploads.Service.empty
-//                                            )(implicit runtime: Runtime[R]): CancelableFuture[Result] =
-//    runtime.unsafeRunToFuture(
-//      requestWrapper(request)(
-//        interpreter
-//          .executeRequest(request.body, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
-//          .catchAllCause(cause => ZIO.succeed(GraphQLResponse[Throwable](NullValue, cause.defects)))
-//          .map(Ok(_))
-//          .provideSomeLayer[R](fileHandle)
-//      )
-//    )
 
   private def getGraphQLRequest(
     query: Option[String],
