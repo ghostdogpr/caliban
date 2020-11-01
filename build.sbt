@@ -252,8 +252,8 @@ lazy val play = project
       "org.http4s"        %% "http4s-client"         % "0.21.6" % "test",
       "io.circe"          %% "circe-core"            % circeVersion % "test",
       "io.circe"          %% "circe-generic"         % circeVersion % "test",
-      "org.http4s"        %% "http4s-blaze-client"   % "0.21.6" % "test",
-      "org.http4s"        %% "http4s-circe"          % "0.21.6" % "test"
+      "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion % "test",
+      "com.softwaremill.sttp.client" %%% "circe"        % sttpVersion % "test",
     )
   )
   .dependsOn(core, catsInterop)
