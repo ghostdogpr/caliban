@@ -4,13 +4,13 @@ import java.io.File
 import java.net.URL
 
 import play.core.server.Server
-import zio.{Has, Runtime, UIO, ZIO, ZLayer}
+import zio.{ Has, Runtime, UIO, ZIO, ZLayer }
 import zio.random.Random
 import caliban.schema.GenericSchema
 import zio.internal.Platform
 import play.api.mvc.DefaultControllerComponents
 import play.api.Mode
-import play.core.server.{AkkaHttpServer, ServerConfig}
+import play.core.server.{ AkkaHttpServer, ServerConfig }
 import zio.clock.Clock
 import zio.test._
 import caliban.GraphQL.graphQL
@@ -21,7 +21,7 @@ import java.security.MessageDigest
 import java.math.BigInteger
 
 import sttp.client._
-import sttp.client.asynchttpclient.zio.{AsyncHttpClientZioBackend, SttpClient}
+import sttp.client.asynchttpclient.zio.{ AsyncHttpClientZioBackend, SttpClient }
 import io.circe.generic.auto._
 import io.circe.parser._
 import caliban.Uploads.Uploads
@@ -86,9 +86,9 @@ object TestAPI extends GenericSchema[Blocking with Uploads with Console with Clo
   case class Queries(stub: Unit => UIO[String])
 
   case class Mutations(
-                        uploadFile: UploadFileArgs => ZIO[Blocking with Uploads, Throwable, File],
-                        uploadFiles: UploadFilesArgs => ZIO[Blocking with Uploads, Throwable, List[File]]
-                      )
+    uploadFile: UploadFileArgs => ZIO[Blocking with Uploads, Throwable, File],
+    uploadFiles: UploadFilesArgs => ZIO[Blocking with Uploads, Throwable, List[File]]
+  )
 }
 
 object AdapterSpec extends DefaultRunnableSpec {

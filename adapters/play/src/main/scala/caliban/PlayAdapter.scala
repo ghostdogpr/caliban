@@ -125,7 +125,7 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
         )).either
       )
     }(runtime.platform.executor.asEC)
-  
+
   private def parsePath(path: String): List[Either[String, Int]] =
     path.split('.').map(c => Try(c.toInt).toEither.left.map(_ => c)).toList
 
