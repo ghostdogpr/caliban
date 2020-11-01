@@ -158,7 +158,7 @@ object AdapterSpec extends DefaultRunnableSpec {
                      )
         } yield response.body
 
-        assertM(body.map(_.right.get.data.uploadFile))(
+        assertM(body.map(_.toOption.get.data.uploadFile))(
           hasField("hash", (f: TestAPI.File) => f.hash, equalTo(fileHash)) &&
             hasField("filename", (f: TestAPI.File) => f.filename, equalTo(fileName)) &&
             hasField("mimetype", (f: TestAPI.File) => f.mimetype, equalTo("image/png"))
@@ -198,7 +198,7 @@ object AdapterSpec extends DefaultRunnableSpec {
                      )
         } yield response.body
 
-        assertM(body.map(_.right.get.data.uploadFiles))(
+        assertM(body.map(_.toOption.get.data.uploadFiles))(
           hasField("hash", (fl: List[TestAPI.File]) => fl(0).hash, equalTo(file1Hash)) &&
             hasField("hash", (fl: List[TestAPI.File]) => fl(1).hash, equalTo(file2Hash)) &&
             hasField("filename", (fl: List[TestAPI.File]) => fl(0).filename, equalTo(file1Name)) &&
