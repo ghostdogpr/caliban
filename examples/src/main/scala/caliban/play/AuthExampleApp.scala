@@ -17,7 +17,7 @@ import zio.random.Random
 object AuthExampleApp extends App {
   case class AuthToken(value: String)
 
-  type Auth = Has[FiberRef[Option[AuthToken]]] with Blocking with Random
+  type Auth = Has[FiberRef[Option[AuthToken]]]
 
   object AuthWrapper extends RequestWrapper[Auth] {
     override def apply[R <: Auth](ctx: RequestHeader)(effect: URIO[R, Result]): URIO[R, Result] =
@@ -38,7 +38,7 @@ object AuthExampleApp extends App {
   // For the auth we wrap in an option, but you could just as well use something
   // like AuthToken("__INVALID") or a sealed trait hierarchy with an invalid member
   val initLayer                       = ZLayer.fromEffect(FiberRef.make(Option.empty[AuthToken])) ++ Blocking.live ++ Random.live
-  implicit val runtime: Runtime[Auth] = Runtime.unsafeFromLayer(initLayer, Platform.default)
+  implicit val runtime: Runtime[Auth with Blocking with Random] = Runtime.unsafeFromLayer(initLayer, Platform.default)
 
   val interpreter = runtime.unsafeRun(api.interpreter)
 
