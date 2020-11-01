@@ -1,32 +1,35 @@
 package caliban
 
+import java.io.File
 import java.net.URL
 
-import caliban.HttpClient.HttpClient
 import play.core.server.Server
-import zio.Has
+import zio.{ Has, Runtime, UIO, ZIO, ZLayer }
 import zio.random.Random
 import caliban.schema.GenericSchema
-import cats.effect.Blocker
-import org.http4s.MediaType
-import org.http4s.headers.`Content-Type`
-import org.http4s.multipart.{ Multipart, Part }
-import zio.{ Runtime, Task, UIO, ZIO, ZLayer }
+//import cats.effect.Blocker
+//import org.http4s.{MediaType, Uri}
+//import org.http4s.headers.`Content-Type`
+//import sttp.model.Part
+//import org.http4s.multipart.{Multipart, Part}
 import zio.internal.Platform
 import play.api.mvc.DefaultControllerComponents
 import play.api.Mode
 import play.core.server.{ AkkaHttpServer, ServerConfig }
 import zio.clock.Clock
-import zio.console.Console
+import zio.console.{ Console }
 import zio.test._
 import caliban.GraphQL.graphQL
 import zio.test.environment.TestEnvironment
 import zio.test.Assertion._
 import zio.blocking._
-import zio.interop.catz._
+//import zio.interop.catz._
 import java.security.MessageDigest
 import java.math.BigInteger
-import io.circe.generic.auto._
+
+import sttp.client._
+import sttp.client.asynchttpclient.zio.{ AsyncHttpClientZioBackend, SttpClient }
+import io.circe.generic.auto._, io.circe.parser._
 import caliban.Uploads.Uploads
 
 case class Response[A](data: A)
@@ -94,9 +97,6 @@ object TestAPI extends GenericSchema[Blocking with Uploads with Console with Clo
 }
 
 object AdapterSpec extends DefaultRunnableSpec {
-  val httpCliLayer: ZLayer[Any, Throwable, HttpClient] =
-    HttpClient.makeHttpClient.toLayer >>> HttpClient.make("127.0.0.1", 8088)
-
   val runtime: Runtime[Console with Clock with Blocking with Random with Uploads] =
     Runtime.unsafeFromLayer(
       Console.live ++ Clock.live ++ Blocking.live ++ Random.live ++ Uploads.Service.empty,
@@ -130,6 +130,8 @@ object AdapterSpec extends DefaultRunnableSpec {
   val specLayer: ZLayer[Any with zio.ZEnv, CalibanError.ValidationError, Has[Server]] =
     (Uploads.Service.empty ++ zio.ZEnv.any) >>> apiLayer
 
+  val uri = uri"http://localhost:8088/api/graphql"
+
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("Requests")(
       testM("multipart request with one file") {
@@ -140,25 +142,28 @@ object AdapterSpec extends DefaultRunnableSpec {
         val query: String =
           """{ "query": "mutation ($file: Upload!) { uploadFile(file: $file) { hash, path, filename, mimetype } }",   "variables": {  "file": null }}"""
 
-        val multipart =
-          for {
-            exec <- blockingExecutor
-          } yield Multipart[Task](
-            Vector(
-              Part.formData("operations", query, `Content-Type`(MediaType.application.json)),
-              Part.formData("map", """{ "0": ["variables.file"] }"""),
-              Part.fileData("0", fileURL, Blocker.liftExecutionContext(exec.asEC), `Content-Type`(MediaType.image.png))
-            )
+        val request = basicRequest
+          .post(uri)
+          .multipartBody(
+            multipart("operations", query).contentType("application/json"),
+            multipart("map", """{ "0": ["variables.file"] }"""),
+            multipartFile("0", new File(fileURL.getPath)).contentType("image/png")
           )
+          .contentType("multipart/form-data")
 
-        val resp = for {
-          mp   <- multipart
-          resp <- HttpClient.post[Response[UploadFile]]("/api/graphql", "", Map(), mp)
-        } yield (
-          resp.data.uploadFile
-        )
+        val body = for {
+          response <- SttpClient.send(
+                       request.mapResponse { strRespOrError =>
+                         for {
+                           resp           <- strRespOrError
+                           json           <- parse(resp)
+                           fileUploadResp <- json.as[Response[UploadFile]]
+                         } yield fileUploadResp
+                       }
+                     )
+        } yield response.body
 
-        assertM(resp)(
+        assertM(body.map(_.right.get.data.uploadFile))(
           hasField("hash", (f: TestAPI.File) => f.hash, equalTo(fileHash)) &&
             hasField("filename", (f: TestAPI.File) => f.filename, equalTo(fileName)) &&
             hasField("mimetype", (f: TestAPI.File) => f.mimetype, equalTo("image/png"))
@@ -176,36 +181,29 @@ object AdapterSpec extends DefaultRunnableSpec {
         val query: String =
           """{ "query": "mutation ($files: [Upload!]!) { uploadFiles(files: $files) { hash, path, filename, mimetype } }",   "variables": {  "files": [null, null] }}"""
 
-        val multipart =
-          for {
-            exec <- blockingExecutor
-          } yield Multipart[Task](
-            Vector(
-              Part.formData("operations", query, `Content-Type`(MediaType.application.json)),
-              Part.formData("map", """{ "0": ["variables.files.0"], "1":  ["variables.files.1"]}"""),
-              Part.fileData(
-                "0",
-                file1URL,
-                Blocker.liftExecutionContext(exec.asEC),
-                `Content-Type`(MediaType.image.png)
-              ),
-              Part.fileData(
-                "1",
-                file2URL,
-                Blocker.liftExecutionContext(exec.asEC),
-                `Content-Type`(MediaType.text.plain)
-              )
-            )
+        val request = basicRequest
+          .post(uri)
+          .contentType("multipart/form-data")
+          .multipartBody(
+            multipart("operations", query).contentType("application/json"),
+            multipart("map", """{ "0": ["variables.files.0"], "1":  ["variables.files.1"]}"""),
+            multipartFile("0", new File(file1URL.getPath)).contentType("image/png"),
+            multipartFile("1", new File(file2URL.getPath)).contentType("text/plain")
           )
 
-        val resp = for {
-          mp   <- multipart
-          resp <- HttpClient.post[Response[UploadFiles]]("/api/graphql", "", Map(), mp)
-        } yield (
-          resp.data.uploadFiles
-        )
+        val body = for {
+          response <- SttpClient.send(
+                       request.mapResponse { strRespOrError =>
+                         for {
+                           resp           <- strRespOrError
+                           json           <- parse(resp)
+                           fileUploadResp <- json.as[Response[UploadFiles]]
+                         } yield fileUploadResp
+                       }
+                     )
+        } yield response.body
 
-        assertM(resp)(
+        assertM(body.map(_.right.get.data.uploadFiles))(
           hasField("hash", (fl: List[TestAPI.File]) => fl(0).hash, equalTo(file1Hash)) &&
             hasField("hash", (fl: List[TestAPI.File]) => fl(1).hash, equalTo(file2Hash)) &&
             hasField("filename", (fl: List[TestAPI.File]) => fl(0).filename, equalTo(file1Name)) &&
@@ -214,7 +212,7 @@ object AdapterSpec extends DefaultRunnableSpec {
             hasField("mimetype", (fl: List[TestAPI.File]) => fl(1).mimetype, equalTo("text/plain"))
         )
       }
-    ).provideCustomLayer(httpCliLayer)
+    ).provideCustomLayer(AsyncHttpClientZioBackend.layer())
       .provideCustomLayerShared(specLayer)
       .mapError(TestFailure.fail _)
 

@@ -245,15 +245,15 @@ lazy val play = project
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "dev.zio"           %% "zio"                   % zioVersion,
-      "com.typesafe.play" %% "play"                  % playVersion,
-      "dev.zio"           %%% "zio-test"             % zioVersion % "test",
-      "com.typesafe.play" %% "play-akka-http-server" % playVersion % "test",
-      "org.http4s"        %% "http4s-client"         % "0.21.6" % "test",
-      "io.circe"          %% "circe-core"            % circeVersion % "test",
-      "io.circe"          %% "circe-generic"         % circeVersion % "test",
-      "org.http4s"        %% "http4s-blaze-client"   % "0.21.6" % "test",
-      "org.http4s"        %% "http4s-circe"          % "0.21.6" % "test"
+      "dev.zio"                      %% "zio"                           % zioVersion,
+      "com.typesafe.play"            %% "play"                          % playVersion,
+      "dev.zio"                      %%% "zio-test"                     % zioVersion % "test",
+      "com.typesafe.play"            %% "play-akka-http-server"         % playVersion % "test",
+      "org.http4s"                   %% "http4s-client"                 % "0.21.6" % "test",
+      "io.circe"                     %% "circe-core"                    % circeVersion % "test",
+      "io.circe"                     %% "circe-generic"                 % circeVersion % "test",
+      "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion % "test",
+      "com.softwaremill.sttp.client" %%% "circe"                        % sttpVersion % "test"
     )
   )
   .dependsOn(core, catsInterop)
