@@ -24,7 +24,7 @@ import sttp.client._
 import sttp.client.asynchttpclient.zio.{ AsyncHttpClientZioBackend, SttpClient }
 import io.circe.generic.auto._
 import io.circe.parser._
-import caliban.Uploads.Uploads
+import caliban.uploads._
 import zio.console.Console
 
 case class Response[A](data: A)
@@ -94,11 +94,11 @@ object TestAPI extends GenericSchema[Blocking with Uploads with Console with Clo
 object AdapterSpec extends DefaultRunnableSpec {
   val runtime: Runtime[Console with Clock with Blocking with Random with Uploads] =
     Runtime.unsafeFromLayer(
-      Console.live ++ Clock.live ++ Blocking.live ++ Random.live ++ Uploads.Service.empty,
+      Console.live ++ Clock.live ++ Blocking.live ++ Random.live ++ Uploads.empty,
       Platform.default
     )
 
-  val apiLayer = ZLayer.fromEffect(
+  val apiLayer = ZLayer.fromAcquireRelease(
     for {
       interpreter <- TestAPI.api.interpreter
     } yield AkkaHttpServer.fromRouterWithComponents(
@@ -120,10 +120,10 @@ object AdapterSpec extends DefaultRunnableSpec {
         )
       )(runtime, components.materializer).routes
     }
-  )
+  )(server => UIO(server.stop()))
 
-  val specLayer: ZLayer[Any with zio.ZEnv, CalibanError.ValidationError, Has[Server]] =
-    (Uploads.Service.empty ++ zio.ZEnv.any) >>> apiLayer
+  val specLayer: ZLayer[zio.ZEnv, CalibanError.ValidationError, Has[Server]] =
+    (Uploads.empty) >>> apiLayer
 
   val uri = uri"http://localhost:8088/api/graphql"
 
@@ -207,8 +207,7 @@ object AdapterSpec extends DefaultRunnableSpec {
             hasField("mimetype", (fl: List[TestAPI.File]) => fl(1).mimetype, equalTo("text/plain"))
         )
       }
-    ).provideCustomLayer(AsyncHttpClientZioBackend.layer())
-      .provideCustomLayerShared(specLayer)
+    ).provideCustomLayerShared(AsyncHttpClientZioBackend.layer() ++ specLayer)
       .mapError(TestFailure.fail _)
 
 }

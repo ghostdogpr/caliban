@@ -10,7 +10,7 @@ import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
 
 import caliban.PlayAdapter.RequestWrapper
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
-import caliban.Uploads.{ FileMeta, Uploads }
+import caliban.uploads._
 import caliban.Value.NullValue
 import caliban.interop.play.json.parsingException
 import play.api.http.Writeable
@@ -100,7 +100,7 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
         } yield GraphQLUploadRequest(
           operations,
           filePaths,
-          Uploads.Service.handler(handle =>
+          Uploads.handler(handle =>
             fileRef.get
               .map(_.get(handle))
               .some
@@ -156,7 +156,7 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
     request: Request[GraphQLRequest],
     skipValidation: Boolean,
     enableIntrospection: Boolean,
-    fileHandle: ZLayer[Any, Nothing, Uploads] = Uploads.Service.empty
+    fileHandle: ZLayer[Any, Nothing, Uploads] = Uploads.empty
   )(implicit runtime: Runtime[R]): CancelableFuture[Result] =
     runtime.unsafeRunToFuture(
       requestWrapper(request)(

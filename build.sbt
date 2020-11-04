@@ -247,16 +247,15 @@ lazy val play = project
     libraryDependencies ++= Seq(
       "dev.zio"                      %% "zio"                           % zioVersion,
       "com.typesafe.play"            %% "play"                          % playVersion,
-      "dev.zio"                      %%% "zio-test"                     % zioVersion % "test",
+      "dev.zio"                      %% "zio-test"                     % zioVersion % "test",
       "com.typesafe.play"            %% "play-akka-http-server"         % playVersion % "test",
-      "org.http4s"                   %% "http4s-client"                 % "0.21.6" % "test",
       "io.circe"                     %% "circe-core"                    % circeVersion % "test",
       "io.circe"                     %% "circe-generic"                 % circeVersion % "test",
       "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion % "test",
-      "com.softwaremill.sttp.client" %%% "circe"                        % sttpVersion % "test"
+      "com.softwaremill.sttp.client" %% "circe"                        % sttpVersion % "test"
     )
   )
-  .dependsOn(core, catsInterop)
+  .dependsOn(core)
 
 lazy val client = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)
