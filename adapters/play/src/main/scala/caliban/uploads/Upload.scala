@@ -3,12 +3,12 @@ package caliban.uploads
 import java.nio.file.Path
 
 import caliban.InputValue.ListValue
-import caliban.Value.{NullValue, StringValue}
-import caliban.{GraphQLRequest, InputValue}
+import caliban.Value.{ NullValue, StringValue }
 import caliban.schema.Annotations.GQLName
-import zio.{Chunk, RIO, UIO, URIO, ZIO}
+import caliban.{ GraphQLRequest, InputValue }
 import zio.blocking.Blocking
-import zio.stream.{ZSink, ZStream}
+import zio.stream.{ ZSink, ZStream }
+import zio.{ Chunk, RIO, UIO, URIO, ZIO }
 
 @GQLName("Upload")
 final case class Upload(name: String) {
@@ -22,19 +22,18 @@ final case class Upload(name: String) {
 }
 
 case class FileMeta(
-                     id: String,
-                     path: Path,
-                     dispositionType: String,
-                     contentType: Option[String],
-                     fileName: String,
-                     fileSize: Long
-                   )
+  id: String,
+  path: Path,
+  dispositionType: String,
+  contentType: Option[String],
+  fileName: String,
+  fileSize: Long
+)
 
 trait Multipart {
   def stream(name: String): ZStream[Blocking, Throwable, Byte]
   def file(name: String): ZIO[Any, Nothing, Option[FileMeta]]
 }
-
 
 /**
  * Wraps a request which included an upload request,
@@ -42,10 +41,10 @@ trait Multipart {
  * files at query time
  */
 case class GraphQLUploadRequest(
-                                 request: GraphQLRequest,
-                                 fileMap: List[(String, List[Either[String, Int]])], // This needs to be used to remap the input values
-                                 fileHandle: UIO[Uploads]
-                               ) {
+  request: GraphQLRequest,
+  fileMap: List[(String, List[Either[String, Int]])], // This needs to be used to remap the input values
+  fileHandle: UIO[Uploads]
+) {
 
   /**
    * Override the variables values with their respective targets
