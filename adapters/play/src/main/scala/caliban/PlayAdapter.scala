@@ -17,6 +17,7 @@ import play.api.http.Writeable
 import play.api.libs.json.{ JsValue, Json, Writes }
 import play.api.mvc.Results.Ok
 import play.api.mvc._
+import play.mvc.Http.MimeTypes
 import zio.Exit.Failure
 import zio.blocking.Blocking
 import zio.clock.Clock
@@ -65,7 +66,7 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
     parse.using { req =>
       implicit val ec: ExecutionContext = runtime.platform.executor.asEC
       req.contentType.map(_.toLowerCase(Locale.ENGLISH)) match {
-        case Some("text/json") | Some("application/json") =>
+        case Some("text/json") | Some(MimeTypes.JSON) =>
           parse.json[GraphQLRequest].map(Right(_))
         case Some("multipart/form-data") =>
           uploadFormParser(runtime).map(Left(_))

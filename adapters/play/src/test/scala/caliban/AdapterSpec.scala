@@ -25,6 +25,7 @@ import sttp.client.asynchttpclient.zio.{ AsyncHttpClientZioBackend, SttpClient }
 import io.circe.generic.auto._
 import io.circe.parser._
 import caliban.uploads._
+import play.mvc.Http.MimeTypes
 import zio.console.Console
 
 case class Response[A](data: A)
@@ -140,7 +141,7 @@ object AdapterSpec extends DefaultRunnableSpec {
         val request = basicRequest
           .post(uri)
           .multipartBody(
-            multipart("operations", query).contentType("application/json"),
+            multipart("operations", query).contentType(MimeTypes.JSON),
             multipart("map", """{ "0": ["variables.file"] }"""),
             multipartFile("0", new File(fileURL.getPath)).contentType("image/png")
           )
@@ -180,10 +181,10 @@ object AdapterSpec extends DefaultRunnableSpec {
           .post(uri)
           .contentType("multipart/form-data")
           .multipartBody(
-            multipart("operations", query).contentType("application/json"),
+            multipart("operations", query).contentType(MimeTypes.JSON),
             multipart("map", """{ "0": ["variables.files.0"], "1":  ["variables.files.1"]}"""),
             multipartFile("0", new File(file1URL.getPath)).contentType("image/png"),
-            multipartFile("1", new File(file2URL.getPath)).contentType("text/plain")
+            multipartFile("1", new File(file2URL.getPath)).contentType(MimeTypes.TEXT)
           )
 
         val body = for {
@@ -204,7 +205,7 @@ object AdapterSpec extends DefaultRunnableSpec {
             hasField("filename", (fl: List[TestAPI.File]) => fl(0).filename, equalTo(file1Name)) &&
             hasField("filename", (fl: List[TestAPI.File]) => fl(1).filename, equalTo(file2Name)) &&
             hasField("mimetype", (fl: List[TestAPI.File]) => fl(0).mimetype, equalTo("image/png")) &&
-            hasField("mimetype", (fl: List[TestAPI.File]) => fl(1).mimetype, equalTo("text/plain"))
+            hasField("mimetype", (fl: List[TestAPI.File]) => fl(1).mimetype, equalTo(MimeTypes.TEXT))
         )
       }
     ).provideCustomLayerShared(AsyncHttpClientZioBackend.layer() ++ specLayer)
