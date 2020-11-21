@@ -5,7 +5,7 @@ import caliban.client.CalibanClientError.{ CommunicationError, DecodingError, Se
 import caliban.client.FieldBuilder.Scalar
 import caliban.client.Operations.IsOperation
 import caliban.client.Selection.Directive
-import caliban.client.Value.ObjectValue
+import caliban.client.Value.__ObjectValue
 import io.circe.parser
 import sttp.client._
 import sttp.client.circe._
@@ -99,8 +99,8 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
                      .map(ex => DecodingError("Json deserialization error", Some(ex)))
           data <- if (parsed.errors.nonEmpty) Left(ServerError(parsed.errors)) else Right(parsed.data)
           objectValue <- data match {
-                          case Some(o: ObjectValue) => Right(o)
-                          case _                    => Left(DecodingError("Result is not an object"))
+                          case Some(o: __ObjectValue) => Right(o)
+                          case _                      => Left(DecodingError("Result is not an object"))
                         }
           result <- fromGraphQL(objectValue)
         } yield (result, parsed.extensions)
@@ -345,7 +345,7 @@ object SelectionBuilder {
   ) extends SelectionBuilder[Origin, A] { self =>
     override def fromGraphQL(value: Value): Either[DecodingError, A] =
       value match {
-        case ObjectValue(fields) =>
+        case __ObjectValue(fields) =>
           fields.find {
             case (o, _) => alias.getOrElse(name) + math.abs(self.hashCode) == o || alias.contains(o) || name == o
           }.toRight(DecodingError(s"Missing field $name"))

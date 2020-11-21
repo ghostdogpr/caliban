@@ -70,8 +70,8 @@ object ScalarDecoder {
     case other => Left(DecodingError(s"Can't build a UUID from input $other"))
   }
   implicit val unit: ScalarDecoder[Unit] = {
-    case ObjectValue(Nil) => Right(())
-    case other            => Left(DecodingError(s"Can't build Unit from input $other"))
+    case __ObjectValue(Nil) => Right(())
+    case other              => Left(DecodingError(s"Can't build Unit from input $other"))
   }
   implicit val json: ScalarDecoder[Json] = value => Right(Value.valueEncoder(value))
 }

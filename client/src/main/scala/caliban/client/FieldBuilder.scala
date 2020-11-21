@@ -27,8 +27,8 @@ object FieldBuilder {
   case class Obj[Origin, A](builder: SelectionBuilder[Origin, A]) extends FieldBuilder[A] {
     override def fromGraphQL(value: Value): Either[DecodingError, A] =
       value match {
-        case o: ObjectValue => builder.fromGraphQL(o)
-        case _              => Left(DecodingError(s"Field $value is not an object"))
+        case o: __ObjectValue => builder.fromGraphQL(o)
+        case _                => Left(DecodingError(s"Field $value is not an object"))
       }
     override def toSelectionSet: List[Selection] = builder.toSelectionSet
   }
@@ -54,7 +54,7 @@ object FieldBuilder {
   case class ChoiceOf[A](builderMap: Map[String, FieldBuilder[A]]) extends FieldBuilder[A] {
     override def fromGraphQL(value: Value): Either[DecodingError, A] =
       value match {
-        case ObjectValue(fields) =>
+        case __ObjectValue(fields) =>
           for {
             typeNameValue <- fields.find(_._1 == "__typename").map(_._2).toRight(DecodingError("__typename is missing"))
             typeName <- typeNameValue match {

@@ -1,6 +1,6 @@
 package caliban.client
 
-import caliban.client.Value.ObjectValue
+import caliban.client.Value.__ObjectValue
 import io.circe.{ Decoder, HCursor, Json }
 
 /**
@@ -14,9 +14,9 @@ case class GraphQLResponse(
 
 object GraphQLResponse {
 
-  implicit val objectValueDecoder: Decoder[ObjectValue] = Decoder[Value].emap {
-    case o @ ObjectValue(_) => Right(o)
-    case _                  => Left("Invalid value, should be an object.")
+  implicit val objectValueDecoder: Decoder[__ObjectValue] = Decoder[Value].emap {
+    case o @ __ObjectValue(_) => Right(o)
+    case _                    => Left("Invalid value, should be an object.")
   }
 
   implicit val decoder: Decoder[GraphQLResponse] = (c: HCursor) =>

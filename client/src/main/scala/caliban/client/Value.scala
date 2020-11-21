@@ -26,7 +26,7 @@ object Value {
   case class __ListValue(values: List[Value]) extends Value {
     override def toString: String = values.map(_.toString).mkString("[", ",", "]")
   }
-  case class ObjectValue(fields: List[(String, Value)]) extends Value {
+  case class __ObjectValue(fields: List[(String, Value)]) extends Value {
     override def toString: String =
       fields.map { case (name, value) => s"""$name:${value.toString}""" }.mkString("{", ",", "}")
   }
@@ -38,7 +38,7 @@ object Value {
       number => __NumberValue(number.toBigDecimal getOrElse BigDecimal(number.toDouble)),
       __StringValue,
       array => Value.__ListValue(array.toList.map(jsonToValue)),
-      obj => Value.ObjectValue(obj.toList.map { case (k, v) => k -> jsonToValue(v) })
+      obj => Value.__ObjectValue(obj.toList.map { case (k, v) => k -> jsonToValue(v) })
     )
 
   private def valueToJson(a: Value): Json = a match {
@@ -48,7 +48,7 @@ object Value {
     case __EnumValue(value)    => Json.fromString(value)
     case __BooleanValue(value) => Json.fromBoolean(value)
     case __ListValue(values)   => Json.fromValues(values.map(valueToJson))
-    case ObjectValue(fields)   => Json.obj(fields.map { case (k, v) => k -> valueToJson(v) }: _*)
+    case __ObjectValue(fields) => Json.obj(fields.map { case (k, v) => k -> valueToJson(v) }: _*)
   }
 
   implicit val valueDecoder: Decoder[Value] = Decoder.instance(hcursor => Right(jsonToValue(hcursor.value)))
