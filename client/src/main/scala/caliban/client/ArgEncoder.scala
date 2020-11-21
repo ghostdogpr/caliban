@@ -1,6 +1,6 @@
 package caliban.client
 
-import caliban.client.Value.{ BooleanValue, ListValue, NullValue, NumberValue, ObjectValue, StringValue }
+import caliban.client.Value.{ __NumberValue, BooleanValue, ListValue, NullValue, ObjectValue, StringValue }
 import io.circe.Json
 
 import scala.annotation.implicitNotFound
@@ -25,27 +25,27 @@ trait ArgEncoder[-A] {
 object ArgEncoder {
 
   implicit val int: ArgEncoder[Int] = new ArgEncoder[Int] {
-    override def encode(value: Int): Value = NumberValue(value)
+    override def encode(value: Int): Value = __NumberValue(value)
     override def typeName: String          = "Int"
   }
 
   implicit val long: ArgEncoder[Long] = new ArgEncoder[Long] {
-    override def encode(value: Long): Value = NumberValue(value)
+    override def encode(value: Long): Value = __NumberValue(value)
     override def typeName: String           = "Long"
   }
 
   implicit val bigInt: ArgEncoder[BigInt] = new ArgEncoder[BigInt] {
-    override def encode(value: BigInt): Value = NumberValue(BigDecimal(value))
+    override def encode(value: BigInt): Value = __NumberValue(BigDecimal(value))
     override def typeName: String             = "BigInt"
   }
 
   implicit val double: ArgEncoder[Double] = new ArgEncoder[Double] {
-    override def encode(value: Double): Value = NumberValue(value)
+    override def encode(value: Double): Value = __NumberValue(value)
     override def typeName: String             = "Double"
   }
 
   implicit val bigDecimal: ArgEncoder[BigDecimal] = new ArgEncoder[BigDecimal] {
-    override def encode(value: BigDecimal): Value = NumberValue(value)
+    override def encode(value: BigDecimal): Value = __NumberValue(value)
     override def typeName: String                 = "BigDecimal"
   }
 
