@@ -7,8 +7,18 @@ import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
 import caliban.interop.play.json.parsingException
 import play.api.http.Writeable
-import play.api.libs.json.{ JsValue, Json, Writes }
-import play.api.mvc.{ Action, ActionBuilder, AnyContent, PlayBodyParsers, Request, RequestHeader, Result, WebSocket }
+import play.api.libs.json.{ JsError, JsString, JsSuccess, JsValue, Json, Writes }
+import play.api.mvc.{
+  Action,
+  ActionBuilder,
+  AnyContent,
+  PlayBodyParsers,
+  Request,
+  RequestHeader,
+  Result,
+  Results,
+  WebSocket
+}
 import play.api.mvc.Results.Ok
 import zio.Exit.Failure
 import zio.{ CancelableFuture, Fiber, IO, RIO, Ref, Runtime, Schedule, Task, URIO, ZIO }
@@ -20,12 +30,15 @@ import scala.util.Try
 
 trait PlayAdapter[R] {
 
+  val `application/graphql` = "application/graphql"
   def actionBuilder: ActionBuilder[Request, AnyContent]
   def parse: PlayBodyParsers
   def requestWrapper: RequestWrapper[R]
 
   implicit def writableGraphQLResponse[E](implicit wr: Writes[GraphQLResponse[E]]): Writeable[GraphQLResponse[E]] =
     Writeable.writeableOf_JsValue.map(wr.writes)
+
+  implicit val graphQLReqReader = Json.reads[GraphQLRequest]
 
   private def parseJson(s: String): Try[JsValue] =
     Try(Json.parse(s))
@@ -70,15 +83,28 @@ trait PlayAdapter[R] {
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true
-  )(implicit runtime: Runtime[R]): Action[GraphQLRequest] =
-    actionBuilder.async(parse.json[GraphQLRequest])(req =>
-      executeRequest(
-        interpreter,
-        req,
-        skipValidation,
-        enableIntrospection
-      )
-    )
+  )(implicit runtime: Runtime[R]): Action[AnyContent] = actionBuilder.async { req =>
+    req.contentType match {
+      case Some(`application/graphql`) =>
+        executeRequest(
+          interpreter,
+          req.withBody(GraphQLRequest(query = req.body.asText)),
+          skipValidation,
+          enableIntrospection
+        )
+      case _ =>
+        Json.fromJson[GraphQLRequest](req.body.asJson.getOrElse(JsString("Empty request body"))) match {
+          case JsSuccess(graphQLRequest: GraphQLRequest, _) =>
+            executeRequest(
+              interpreter,
+              req.withBody(graphQLRequest),
+              skipValidation,
+              enableIntrospection
+            )
+          case e @ JsError(_) => Future.successful(Results.BadRequest(JsError.toJson(e)))
+        }
+    }
+  }
 
   def makeGetAction[E](
     interpreter: GraphQLInterpreter[R, E],
