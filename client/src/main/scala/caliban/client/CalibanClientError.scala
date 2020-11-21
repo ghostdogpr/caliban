@@ -13,14 +13,14 @@ object CalibanClientError {
    * An error while communicating with the backend (e.g. HTTP code 4xx or 5xx)
    */
   case class CommunicationError(msg: String, innerThrowable: Option[Throwable] = None) extends CalibanClientError {
-    override def toString: String = s"Communication Error: $msg ${innerThrowable.fold("")(_.toString)}"
+    override def toString: String = s"Communication Error: $msg${innerThrowable.fold("")(t => " " + t.toString)}"
   }
 
   /**
    * An error while parsing the response from the backend
    */
   case class DecodingError(msg: String, innerThrowable: Option[Throwable] = None) extends CalibanClientError {
-    override def toString: String = s"Decoding Error: $msg ${innerThrowable.fold("")(_.toString)}"
+    override def toString: String = s"Decoding Error: $msg${innerThrowable.fold("")(t => " " + t.toString)}"
   }
 
   /**

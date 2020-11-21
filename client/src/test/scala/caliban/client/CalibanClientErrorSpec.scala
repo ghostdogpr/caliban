@@ -11,15 +11,23 @@ object CalibanClientErrorSpec extends DefaultRunnableSpec {
     val msg = "SOME_MSG"
     suite("CalibanClientErrorSpec")(
       suite("CommunicationError")(
-        test("getMessage") {
+        test("getMessage - no innerThrowable") {
           val error = CommunicationError(msg = msg)
-          assert(error.getMessage)(equalTo("Communication Error: SOME_MSG "))
+          assert(error.getMessage)(equalTo("Communication Error: SOME_MSG"))
+        },
+        test("getMessage - innerThrowable") {
+          val error = CommunicationError(msg = msg, innerThrowable = Option(CommunicationError("INNER")))
+          assert(error.getMessage)(equalTo("Communication Error: SOME_MSG Communication Error: INNER"))
         }
       ),
       suite("DecodingError")(
-        test("getMessage") {
+        test("getMessage - no innerThrowable") {
           val error = DecodingError(msg = msg)
-          assert(error.getMessage)(equalTo("Decoding Error: SOME_MSG "))
+          assert(error.getMessage)(equalTo("Decoding Error: SOME_MSG"))
+        },
+        test("getMessage - innerThrowable") {
+          val error = DecodingError(msg = msg, innerThrowable = Option(DecodingError("INNER")))
+          assert(error.getMessage)(equalTo("Decoding Error: SOME_MSG Decoding Error: INNER"))
         }
       ),
       suite("ServerError")(
