@@ -23,7 +23,7 @@ object Value {
   case class __BooleanValue(value: Boolean) extends Value {
     override def toString: String = value.toString
   }
-  case class ListValue(values: List[Value]) extends Value {
+  case class __ListValue(values: List[Value]) extends Value {
     override def toString: String = values.map(_.toString).mkString("[", ",", "]")
   }
   case class ObjectValue(fields: List[(String, Value)]) extends Value {
@@ -37,7 +37,7 @@ object Value {
       __BooleanValue,
       number => __NumberValue(number.toBigDecimal getOrElse BigDecimal(number.toDouble)),
       __StringValue,
-      array => Value.ListValue(array.toList.map(jsonToValue)),
+      array => Value.__ListValue(array.toList.map(jsonToValue)),
       obj => Value.ObjectValue(obj.toList.map { case (k, v) => k -> jsonToValue(v) })
     )
 
@@ -47,7 +47,7 @@ object Value {
     case __StringValue(value)  => Json.fromString(value)
     case __EnumValue(value)    => Json.fromString(value)
     case __BooleanValue(value) => Json.fromBoolean(value)
-    case ListValue(values)     => Json.fromValues(values.map(valueToJson))
+    case __ListValue(values)   => Json.fromValues(values.map(valueToJson))
     case ObjectValue(fields)   => Json.obj(fields.map { case (k, v) => k -> valueToJson(v) }: _*)
   }
 

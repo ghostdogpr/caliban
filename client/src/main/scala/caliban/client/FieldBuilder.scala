@@ -35,7 +35,7 @@ object FieldBuilder {
   case class ListOf[A](builder: FieldBuilder[A]) extends FieldBuilder[List[A]] {
     override def fromGraphQL(value: Value): Either[DecodingError, List[A]] =
       value match {
-        case ListValue(items) =>
+        case __ListValue(items) =>
           items.map(builder.fromGraphQL).foldRight(Right(Nil): Either[DecodingError, List[A]]) { (e, acc) =>
             for (xs <- acc; x <- e) yield x :: xs
           }

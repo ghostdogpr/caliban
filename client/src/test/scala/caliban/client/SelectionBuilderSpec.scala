@@ -3,7 +3,7 @@ package caliban.client
 import caliban.client.Operations.RootQuery
 import caliban.client.Selection.Directive
 import caliban.client.TestData._
-import caliban.client.Value.{ __StringValue, ListValue, ObjectValue }
+import caliban.client.Value.{ __ListValue, __StringValue, ObjectValue }
 import zio.test.Assertion._
 import zio.test.environment.TestEnvironment
 import zio.test._
@@ -122,7 +122,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
               Character.name
             }
           val response =
-            ObjectValue(List("characters" -> ListValue(List(ObjectValue(List("name" -> __StringValue("Amos")))))))
+            ObjectValue(List("characters" -> __ListValue(List(ObjectValue(List("name" -> __StringValue("Amos")))))))
           assert(query.fromGraphQL(response))(isRight(equalTo(List("Amos"))))
         },
         test("combine 2 fields") {
@@ -133,12 +133,12 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
           val response =
             ObjectValue(
               List(
-                "characters" -> ListValue(
+                "characters" -> __ListValue(
                   List(
                     ObjectValue(
                       List(
                         "name"      -> __StringValue("Amos Burton"),
-                        "nicknames" -> ListValue(List(__StringValue("Amos")))
+                        "nicknames" -> __ListValue(List(__StringValue("Amos")))
                       )
                     )
                   )
@@ -161,12 +161,12 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
           val response =
             ObjectValue(
               List(
-                "characters" -> ListValue(
+                "characters" -> __ListValue(
                   List(
                     ObjectValue(
                       List(
                         "name"      -> __StringValue("Amos Burton"),
-                        "nicknames" -> ListValue(List(__StringValue("Amos"))),
+                        "nicknames" -> __ListValue(List(__StringValue("Amos"))),
                         "role" -> ObjectValue(
                           List(
                             "__typename" -> __StringValue("Mechanic"),

@@ -1,6 +1,6 @@
 package caliban.client
 
-import caliban.client.Value.{ __BooleanValue, __NumberValue, __StringValue, ListValue, NullValue, ObjectValue }
+import caliban.client.Value.{ __BooleanValue, __ListValue, __NumberValue, __StringValue, NullValue, ObjectValue }
 import io.circe.Json
 
 import scala.annotation.implicitNotFound
@@ -71,7 +71,7 @@ object ArgEncoder {
   }
 
   implicit def list[A](implicit ev: ArgEncoder[A]): ArgEncoder[List[A]] = new ArgEncoder[List[A]] {
-    override def encode(value: List[A]): Value = ListValue(value.map(ev.encode))
+    override def encode(value: List[A]): Value = __ListValue(value.map(ev.encode))
     override def typeName: String              = s"[${ev.typeName}]"
   }
 
