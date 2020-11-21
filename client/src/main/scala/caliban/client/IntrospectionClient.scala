@@ -4,7 +4,7 @@ import caliban.client.CalibanClientError.DecodingError
 import caliban.client.FieldBuilder.{ ListOf, Obj, OptionOf, Scalar }
 import caliban.client.Operations.RootQuery
 import caliban.client.SelectionBuilder.Field
-import caliban.client.Value.{ __EnumValue => EnumValue, StringValue }
+import caliban.client.Value.{ __EnumValue => EnumValue, __StringValue }
 
 object IntrospectionClient {
 
@@ -20,15 +20,15 @@ object IntrospectionClient {
     case object NON_NULL     extends __TypeKind
 
     implicit val decoder: ScalarDecoder[__TypeKind] = {
-      case StringValue("SCALAR")       => Right(__TypeKind.SCALAR)
-      case StringValue("OBJECT")       => Right(__TypeKind.OBJECT)
-      case StringValue("INTERFACE")    => Right(__TypeKind.INTERFACE)
-      case StringValue("UNION")        => Right(__TypeKind.UNION)
-      case StringValue("ENUM")         => Right(__TypeKind.ENUM)
-      case StringValue("INPUT_OBJECT") => Right(__TypeKind.INPUT_OBJECT)
-      case StringValue("LIST")         => Right(__TypeKind.LIST)
-      case StringValue("NON_NULL")     => Right(__TypeKind.NON_NULL)
-      case other                       => Left(DecodingError(s"Can't build __TypeKind from input $other"))
+      case __StringValue("SCALAR")       => Right(__TypeKind.SCALAR)
+      case __StringValue("OBJECT")       => Right(__TypeKind.OBJECT)
+      case __StringValue("INTERFACE")    => Right(__TypeKind.INTERFACE)
+      case __StringValue("UNION")        => Right(__TypeKind.UNION)
+      case __StringValue("ENUM")         => Right(__TypeKind.ENUM)
+      case __StringValue("INPUT_OBJECT") => Right(__TypeKind.INPUT_OBJECT)
+      case __StringValue("LIST")         => Right(__TypeKind.LIST)
+      case __StringValue("NON_NULL")     => Right(__TypeKind.NON_NULL)
+      case other                         => Left(DecodingError(s"Can't build __TypeKind from input $other"))
     }
     implicit val encoder: ArgEncoder[__TypeKind] = new ArgEncoder[__TypeKind] {
       override def encode(value: __TypeKind): Value = value match {
@@ -67,25 +67,25 @@ object IntrospectionClient {
     case object INPUT_FIELD_DEFINITION extends __DirectiveLocation
 
     implicit val decoder: ScalarDecoder[__DirectiveLocation] = {
-      case StringValue("QUERY")                  => Right(__DirectiveLocation.QUERY)
-      case StringValue("MUTATION")               => Right(__DirectiveLocation.MUTATION)
-      case StringValue("SUBSCRIPTION")           => Right(__DirectiveLocation.SUBSCRIPTION)
-      case StringValue("FIELD")                  => Right(__DirectiveLocation.FIELD)
-      case StringValue("FRAGMENT_DEFINITION")    => Right(__DirectiveLocation.FRAGMENT_DEFINITION)
-      case StringValue("FRAGMENT_SPREAD")        => Right(__DirectiveLocation.FRAGMENT_SPREAD)
-      case StringValue("INLINE_FRAGMENT")        => Right(__DirectiveLocation.INLINE_FRAGMENT)
-      case StringValue("SCHEMA")                 => Right(__DirectiveLocation.SCHEMA)
-      case StringValue("SCALAR")                 => Right(__DirectiveLocation.SCALAR)
-      case StringValue("OBJECT")                 => Right(__DirectiveLocation.OBJECT)
-      case StringValue("FIELD_DEFINITION")       => Right(__DirectiveLocation.FIELD_DEFINITION)
-      case StringValue("ARGUMENT_DEFINITION")    => Right(__DirectiveLocation.ARGUMENT_DEFINITION)
-      case StringValue("INTERFACE")              => Right(__DirectiveLocation.INTERFACE)
-      case StringValue("UNION")                  => Right(__DirectiveLocation.UNION)
-      case StringValue("ENUM")                   => Right(__DirectiveLocation.ENUM)
-      case StringValue("ENUM_VALUE")             => Right(__DirectiveLocation.ENUM_VALUE)
-      case StringValue("INPUT_OBJECT")           => Right(__DirectiveLocation.INPUT_OBJECT)
-      case StringValue("INPUT_FIELD_DEFINITION") => Right(__DirectiveLocation.INPUT_FIELD_DEFINITION)
-      case other                                 => Left(DecodingError(s"Can't build __DirectiveLocation from input $other"))
+      case __StringValue("QUERY")                  => Right(__DirectiveLocation.QUERY)
+      case __StringValue("MUTATION")               => Right(__DirectiveLocation.MUTATION)
+      case __StringValue("SUBSCRIPTION")           => Right(__DirectiveLocation.SUBSCRIPTION)
+      case __StringValue("FIELD")                  => Right(__DirectiveLocation.FIELD)
+      case __StringValue("FRAGMENT_DEFINITION")    => Right(__DirectiveLocation.FRAGMENT_DEFINITION)
+      case __StringValue("FRAGMENT_SPREAD")        => Right(__DirectiveLocation.FRAGMENT_SPREAD)
+      case __StringValue("INLINE_FRAGMENT")        => Right(__DirectiveLocation.INLINE_FRAGMENT)
+      case __StringValue("SCHEMA")                 => Right(__DirectiveLocation.SCHEMA)
+      case __StringValue("SCALAR")                 => Right(__DirectiveLocation.SCALAR)
+      case __StringValue("OBJECT")                 => Right(__DirectiveLocation.OBJECT)
+      case __StringValue("FIELD_DEFINITION")       => Right(__DirectiveLocation.FIELD_DEFINITION)
+      case __StringValue("ARGUMENT_DEFINITION")    => Right(__DirectiveLocation.ARGUMENT_DEFINITION)
+      case __StringValue("INTERFACE")              => Right(__DirectiveLocation.INTERFACE)
+      case __StringValue("UNION")                  => Right(__DirectiveLocation.UNION)
+      case __StringValue("ENUM")                   => Right(__DirectiveLocation.ENUM)
+      case __StringValue("ENUM_VALUE")             => Right(__DirectiveLocation.ENUM_VALUE)
+      case __StringValue("INPUT_OBJECT")           => Right(__DirectiveLocation.INPUT_OBJECT)
+      case __StringValue("INPUT_FIELD_DEFINITION") => Right(__DirectiveLocation.INPUT_FIELD_DEFINITION)
+      case other                                   => Left(DecodingError(s"Can't build __DirectiveLocation from input $other"))
     }
     implicit val encoder: ArgEncoder[__DirectiveLocation] = new ArgEncoder[__DirectiveLocation] {
       override def encode(value: __DirectiveLocation): Value = value match {

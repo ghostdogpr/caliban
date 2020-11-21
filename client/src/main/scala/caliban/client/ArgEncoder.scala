@@ -1,6 +1,6 @@
 package caliban.client
 
-import caliban.client.Value.{ __NumberValue, BooleanValue, ListValue, NullValue, ObjectValue, StringValue }
+import caliban.client.Value.{ __NumberValue, __StringValue, BooleanValue, ListValue, NullValue, ObjectValue }
 import io.circe.Json
 
 import scala.annotation.implicitNotFound
@@ -50,7 +50,7 @@ object ArgEncoder {
   }
 
   implicit val string: ArgEncoder[String] = new ArgEncoder[String] {
-    override def encode(value: String): Value = StringValue(value)
+    override def encode(value: String): Value = __StringValue(value)
     override def typeName: String             = "String"
   }
 

@@ -17,7 +17,7 @@ object Value {
   case class __EnumValue(value: String) extends Value {
     override def toString: String = value
   }
-  case class StringValue(value: String) extends Value {
+  case class __StringValue(value: String) extends Value {
     override def toString: String = s""""${value.replace("\"", "\\\"")}""""
   }
   case class BooleanValue(value: Boolean) extends Value {
@@ -36,7 +36,7 @@ object Value {
       NullValue,
       BooleanValue,
       number => __NumberValue(number.toBigDecimal getOrElse BigDecimal(number.toDouble)),
-      StringValue,
+      __StringValue,
       array => Value.ListValue(array.toList.map(jsonToValue)),
       obj => Value.ObjectValue(obj.toList.map { case (k, v) => k -> jsonToValue(v) })
     )
@@ -44,7 +44,7 @@ object Value {
   private def valueToJson(a: Value): Json = a match {
     case NullValue            => Json.Null
     case __NumberValue(value) => Json.fromBigDecimal(value)
-    case StringValue(value)   => Json.fromString(value)
+    case __StringValue(value) => Json.fromString(value)
     case __EnumValue(value)   => Json.fromString(value)
     case BooleanValue(value)  => Json.fromBoolean(value)
     case ListValue(values)    => Json.fromValues(values.map(valueToJson))

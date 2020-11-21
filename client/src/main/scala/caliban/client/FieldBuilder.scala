@@ -58,8 +58,8 @@ object FieldBuilder {
           for {
             typeNameValue <- fields.find(_._1 == "__typename").map(_._2).toRight(DecodingError("__typename is missing"))
             typeName <- typeNameValue match {
-                         case StringValue(value) => Right(value)
-                         case _                  => Left(DecodingError("__typename is not a String"))
+                         case __StringValue(value) => Right(value)
+                         case _                    => Left(DecodingError("__typename is not a String"))
                        }
             fieldType <- builderMap.get(typeName).toRight(DecodingError(s"type $typeName is unknown"))
             result    <- fieldType.fromGraphQL(value)

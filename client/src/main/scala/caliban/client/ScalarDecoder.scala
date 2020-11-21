@@ -60,11 +60,11 @@ object ScalarDecoder {
     case other               => Left(DecodingError(s"Can't build a Boolean from input $other"))
   }
   implicit val string: ScalarDecoder[String] = {
-    case StringValue(value) => Right(value)
-    case other              => Left(DecodingError(s"Can't build a String from input $other"))
+    case __StringValue(value) => Right(value)
+    case other                => Left(DecodingError(s"Can't build a String from input $other"))
   }
   implicit val uuid: ScalarDecoder[UUID] = {
-    case StringValue(value) =>
+    case __StringValue(value) =>
       Try(UUID.fromString(value)).toEither.left
         .map(ex => DecodingError(s"Can't build a UUID from input $value", Some(ex)))
     case other => Left(DecodingError(s"Can't build a UUID from input $other"))

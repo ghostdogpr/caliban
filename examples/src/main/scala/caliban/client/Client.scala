@@ -15,10 +15,10 @@ object Client {
     case object MARS  extends Origin
 
     implicit val decoder: ScalarDecoder[Origin] = {
-      case StringValue("BELT")  => Right(Origin.BELT)
-      case StringValue("EARTH") => Right(Origin.EARTH)
-      case StringValue("MARS")  => Right(Origin.MARS)
-      case other                => Left(DecodingError(s"Can't build Origin from input $other"))
+      case __StringValue("BELT")  => Right(Origin.BELT)
+      case __StringValue("EARTH") => Right(Origin.EARTH)
+      case __StringValue("MARS")  => Right(Origin.MARS)
+      case other                  => Left(DecodingError(s"Can't build Origin from input $other"))
     }
     implicit val encoder: ArgEncoder[Origin] = new ArgEncoder[Origin] {
       override def encode(value: Origin): Value = value match {
