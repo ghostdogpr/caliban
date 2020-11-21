@@ -33,7 +33,7 @@ object CalibanClientError {
         .map(e =>
           s"${e.message} ${e.locations
             .getOrElse(Nil)
-            .map(loc => s" at line ${loc.line} and column ${loc.column}")
+            .map(loc => s"at line ${loc.line} and column ${loc.column}")
             .mkString(" ")}${e.path.fold("")(p =>
             s" at path ${p.map {
               case Left(value)  => s"/$value"

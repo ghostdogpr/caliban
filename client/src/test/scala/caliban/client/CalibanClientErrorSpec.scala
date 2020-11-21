@@ -36,12 +36,22 @@ object CalibanClientErrorSpec extends DefaultRunnableSpec {
             GraphQLResponseError(
               message = "Error1",
               locations = Option(List(Location(line = 1, column = 1))),
+              path = Option(List(Left("somewhere"), Right(1))),
+              extensions = Option.empty
+            ),
+            GraphQLResponseError(
+              message = "Error2",
+              locations = Option(List(Location(line = 1, column = 1))),
               path = Option(List(Left("somewhere"))),
               extensions = Option.empty
             )
           )
           val error = ServerError(graphQLResponseErrors)
-          assert(error.getMessage)(equalTo("Server Error: Error1  at line 1 and column 1 at path /somewhere"))
+          assert(error.getMessage)(
+            equalTo(
+              "Server Error: Error1 at line 1 and column 1 at path /somewhere[1]\nError2 at line 1 and column 1 at path /somewhere"
+            )
+          )
         }
       )
     )
