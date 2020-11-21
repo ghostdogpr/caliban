@@ -1,7 +1,7 @@
 package caliban.client
 
 import scala.annotation.tailrec
-import caliban.client.Value.NullValue
+import caliban.client.Value.__NullValue
 
 /**
  * Represents an argument in a GraphQL query. Requires an encoder for the argument type.
@@ -12,7 +12,7 @@ case class Argument[+A](name: String, value: A)(implicit encoder: ArgEncoder[A])
     variables: Map[String, (Value, String)]
   ): (String, Map[String, (Value, String)]) =
     encoder.encode(value) match {
-      case NullValue => ("", variables)
+      case `__NullValue` => ("", variables)
       case v =>
         if (useVariables) {
           val variableName = Argument.generateVariableName(name, v, variables)

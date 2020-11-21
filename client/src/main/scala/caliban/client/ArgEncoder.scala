@@ -1,6 +1,6 @@
 package caliban.client
 
-import caliban.client.Value.{ __BooleanValue, __ListValue, __NumberValue, __ObjectValue, __StringValue, NullValue }
+import caliban.client.Value.{ __BooleanValue, __ListValue, __NullValue, __NumberValue, __ObjectValue, __StringValue }
 import io.circe.Json
 
 import scala.annotation.implicitNotFound
@@ -65,7 +65,7 @@ object ArgEncoder {
   }
 
   implicit def option[A](implicit ev: ArgEncoder[A]): ArgEncoder[Option[A]] = new ArgEncoder[Option[A]] {
-    override def encode(value: Option[A]): Value = value.fold(NullValue: Value)(ev.encode)
+    override def encode(value: Option[A]): Value = value.fold(__NullValue: Value)(ev.encode)
     override def typeName: String                = ev.typeName
     override def optional: Boolean               = true
   }
@@ -76,7 +76,7 @@ object ArgEncoder {
   }
 
   implicit val json: ArgEncoder[Json] = new ArgEncoder[Json] {
-    override def encode(value: Json): Value = Value.valueDecoder.decodeJson(value).getOrElse(NullValue)
+    override def encode(value: Json): Value = Value.valueDecoder.decodeJson(value).getOrElse(__NullValue)
     override def typeName: String           = "Json"
   }
 }

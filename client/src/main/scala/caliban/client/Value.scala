@@ -8,7 +8,7 @@ import io.circe.{ Decoder, Encoder, Json }
 sealed trait Value
 
 object Value {
-  case object NullValue extends Value {
+  case object __NullValue extends Value {
     override def toString: String = "null"
   }
   case class __NumberValue(value: BigDecimal) extends Value {
@@ -33,7 +33,7 @@ object Value {
 
   private def jsonToValue(json: Json): Value =
     json.fold(
-      NullValue,
+      __NullValue,
       __BooleanValue,
       number => __NumberValue(number.toBigDecimal getOrElse BigDecimal(number.toDouble)),
       __StringValue,
@@ -42,7 +42,7 @@ object Value {
     )
 
   private def valueToJson(a: Value): Json = a match {
-    case NullValue             => Json.Null
+    case `__NullValue`         => Json.Null
     case __NumberValue(value)  => Json.fromBigDecimal(value)
     case __StringValue(value)  => Json.fromString(value)
     case __EnumValue(value)    => Json.fromString(value)

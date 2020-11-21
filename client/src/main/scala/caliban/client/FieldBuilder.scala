@@ -46,8 +46,8 @@ object FieldBuilder {
   case class OptionOf[A](builder: FieldBuilder[A]) extends FieldBuilder[Option[A]] {
     override def fromGraphQL(value: Value): Either[DecodingError, Option[A]] =
       value match {
-        case NullValue => Right(None)
-        case other     => builder.fromGraphQL(other).map(Some(_))
+        case `__NullValue` => Right(None)
+        case other         => builder.fromGraphQL(other).map(Some(_))
       }
     override def toSelectionSet: List[Selection] = builder.toSelectionSet
   }
