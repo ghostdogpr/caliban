@@ -87,6 +87,21 @@ trait Schema[-R, T] { self =>
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = self.toType_(isInput, isSubscription)
     override def resolve(value: A): Step[R]                                = self.resolve(f(value))
   }
+
+  /**
+   * Changes the name of the generated graphql type.
+   * @param name new name for the type
+   */
+  def rename(name: String): Schema[R, T] = new Schema[R, T] {
+    override def optional: Boolean             = self.optional
+    override def arguments: List[__InputValue] = self.arguments
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
+      self.toType_(isInput, isSubscription).copy(name = Some(name))
+    override def resolve(value: T): Step[R] = self.resolve(value) match {
+      case ObjectStep(_, fields) => ObjectStep(name, fields)
+      case other                 => other
+    }
+  }
 }
 
 object Schema extends GenericSchema[Any]
