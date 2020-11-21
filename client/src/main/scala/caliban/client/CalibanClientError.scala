@@ -4,8 +4,7 @@ package caliban.client
  * The base type for all Caliban Client errors.
  */
 sealed trait CalibanClientError extends Throwable with Product with Serializable {
-  def msg: String
-  override def getMessage: String = msg
+  override def getMessage: String = toString
 }
 
 object CalibanClientError {
@@ -28,8 +27,6 @@ object CalibanClientError {
    * A GraphQL error returned by the backend (e.g. failure during query parsing, validation or execution)
    */
   case class ServerError(errors: List[GraphQLResponseError]) extends CalibanClientError {
-
-    override def msg: String = toString
 
     override def toString: String =
       s"Server Error: ${errors

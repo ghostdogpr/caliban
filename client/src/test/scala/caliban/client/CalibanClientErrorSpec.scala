@@ -8,18 +8,18 @@ import zio.test.Assertion.equalTo
 
 object CalibanClientErrorSpec extends DefaultRunnableSpec {
   override def spec: ZSpec[TestEnvironment, Any] = {
-    val expectedMsg = "COMM_ERROR_MSG"
+    val msg = "SOME_MSG"
     suite("CalibanClientErrorSpec")(
       suite("CommunicationError")(
         test("getMessage") {
-          val error = CommunicationError(msg = expectedMsg)
-          assert(error.getMessage)(equalTo(expectedMsg))
+          val error = CommunicationError(msg = msg)
+          assert(error.getMessage)(equalTo("Communication Error: SOME_MSG "))
         }
       ),
       suite("DecodingError")(
         test("getMessage") {
-          val error = DecodingError(msg = expectedMsg)
-          assert(error.getMessage)(equalTo(expectedMsg))
+          val error = DecodingError(msg = msg)
+          assert(error.getMessage)(equalTo("Decoding Error: SOME_MSG "))
         }
       ),
       suite("ServerError")(
@@ -33,7 +33,7 @@ object CalibanClientErrorSpec extends DefaultRunnableSpec {
             )
           )
           val error = ServerError(graphQLResponseErrors)
-          assert(error.getMessage)(equalTo(error.toString))
+          assert(error.getMessage)(equalTo("Server Error: Error1  at line 1 and column 1 at path /somewhere"))
         }
       )
     )
