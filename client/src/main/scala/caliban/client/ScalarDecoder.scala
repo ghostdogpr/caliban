@@ -56,8 +56,8 @@ object ScalarDecoder {
     case other                => Left(DecodingError(s"Can't build a BigDecimal from input $other"))
   }
   implicit val boolean: ScalarDecoder[Boolean] = {
-    case BooleanValue(value) => Right(value)
-    case other               => Left(DecodingError(s"Can't build a Boolean from input $other"))
+    case __BooleanValue(value) => Right(value)
+    case other                 => Left(DecodingError(s"Can't build a Boolean from input $other"))
   }
   implicit val string: ScalarDecoder[String] = {
     case __StringValue(value) => Right(value)

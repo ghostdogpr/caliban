@@ -20,7 +20,7 @@ object Value {
   case class __StringValue(value: String) extends Value {
     override def toString: String = s""""${value.replace("\"", "\\\"")}""""
   }
-  case class BooleanValue(value: Boolean) extends Value {
+  case class __BooleanValue(value: Boolean) extends Value {
     override def toString: String = value.toString
   }
   case class ListValue(values: List[Value]) extends Value {
@@ -34,7 +34,7 @@ object Value {
   private def jsonToValue(json: Json): Value =
     json.fold(
       NullValue,
-      BooleanValue,
+      __BooleanValue,
       number => __NumberValue(number.toBigDecimal getOrElse BigDecimal(number.toDouble)),
       __StringValue,
       array => Value.ListValue(array.toList.map(jsonToValue)),
@@ -42,13 +42,13 @@ object Value {
     )
 
   private def valueToJson(a: Value): Json = a match {
-    case NullValue            => Json.Null
-    case __NumberValue(value) => Json.fromBigDecimal(value)
-    case __StringValue(value) => Json.fromString(value)
-    case __EnumValue(value)   => Json.fromString(value)
-    case BooleanValue(value)  => Json.fromBoolean(value)
-    case ListValue(values)    => Json.fromValues(values.map(valueToJson))
-    case ObjectValue(fields)  => Json.obj(fields.map { case (k, v) => k -> valueToJson(v) }: _*)
+    case NullValue             => Json.Null
+    case __NumberValue(value)  => Json.fromBigDecimal(value)
+    case __StringValue(value)  => Json.fromString(value)
+    case __EnumValue(value)    => Json.fromString(value)
+    case __BooleanValue(value) => Json.fromBoolean(value)
+    case ListValue(values)     => Json.fromValues(values.map(valueToJson))
+    case ObjectValue(fields)   => Json.obj(fields.map { case (k, v) => k -> valueToJson(v) }: _*)
   }
 
   implicit val valueDecoder: Decoder[Value] = Decoder.instance(hcursor => Right(jsonToValue(hcursor.value)))
