@@ -91,12 +91,16 @@ trait Schema[-R, T] { self =>
   /**
    * Changes the name of the generated graphql type.
    * @param name new name for the type
+   * @param inputName new name for the type when it's an input type (by default "Input" is added after the name)
    */
-  def rename(name: String): Schema[R, T] = new Schema[R, T] {
+  def rename(name: String, inputName: Option[String] = None): Schema[R, T] = new Schema[R, T] {
     override def optional: Boolean             = self.optional
     override def arguments: List[__InputValue] = self.arguments
-    override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-      self.toType_(isInput, isSubscription).copy(name = Some(name))
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
+      val newName = if (isInput) inputName.getOrElse(Schema.customizeInputTypeName(name)) else name
+      self.toType_(isInput, isSubscription).copy(name = Some(newName))
+    }
+
     override def resolve(value: T): Step[R] = self.resolve(value) match {
       case ObjectStep(_, fields) => ObjectStep(name, fields)
       case other                 => other
