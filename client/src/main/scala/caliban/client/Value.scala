@@ -14,7 +14,7 @@ object Value {
   case class NumberValue(value: BigDecimal) extends Value {
     override def toString: String = s"$value"
   }
-  case class EnumValue(value: String) extends Value {
+  case class __EnumValue(value: String) extends Value {
     override def toString: String = value
   }
   case class StringValue(value: String) extends Value {
@@ -45,7 +45,7 @@ object Value {
     case NullValue           => Json.Null
     case NumberValue(value)  => Json.fromBigDecimal(value)
     case StringValue(value)  => Json.fromString(value)
-    case EnumValue(value)    => Json.fromString(value)
+    case __EnumValue(value)  => Json.fromString(value)
     case BooleanValue(value) => Json.fromBoolean(value)
     case ListValue(values)   => Json.fromValues(values.map(valueToJson))
     case ObjectValue(fields) => Json.obj(fields.map { case (k, v) => k -> valueToJson(v) }: _*)

@@ -4,7 +4,7 @@ import caliban.client.CalibanClientError.DecodingError
 import caliban.client.FieldBuilder.{ ListOf, Obj, OptionOf, Scalar }
 import caliban.client.Operations.RootQuery
 import caliban.client.SelectionBuilder.Field
-import caliban.client.Value.{ EnumValue, StringValue }
+import caliban.client.Value.{ __EnumValue => EnumValue, StringValue }
 
 object IntrospectionClient {
 
