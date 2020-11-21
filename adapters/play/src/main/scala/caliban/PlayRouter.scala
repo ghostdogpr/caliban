@@ -2,7 +2,7 @@ package caliban
 
 import akka.stream.Materializer
 import caliban.PlayAdapter.RequestWrapper
-import play.api.mvc._
+import play.api.mvc.{ ActionBuilder, AnyContent, ControllerComponents, PlayBodyParsers, Request, Results }
 import play.api.routing.Router.Routes
 import play.api.routing.SimpleRouter
 import play.api.routing.sird._
