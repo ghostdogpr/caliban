@@ -8,5 +8,7 @@ $ mkdir src/main/scala/client
 $ exists src/main/scala/Client.scala
 > calibanGenClient project/schema-to-check-name-uniqueness.graphql src/main/scala/client/ClientNameUniqueness.scala --packageName client
 $ exists src/main/scala/client/ClientNameUniqueness.scala
+> calibanGenClient https://gitlab.com/api/graphql src/main/scala/client/ClientGitLab.scala --packageName client
+$ exists src/main/scala/client/ClientGitLab.scala
 
 > compile
