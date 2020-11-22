@@ -1,25 +1,26 @@
 package caliban
 
-import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
 import akka.stream.scaladsl.{ Flow, Sink, Source, SourceQueueWithComplete }
+import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
 import caliban.PlayAdapter.RequestWrapper
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
 import caliban.interop.play.json.parsingException
 import play.api.http.Writeable
 import play.api.libs.json.{ JsValue, Json, Writes }
-import play.api.mvc.{ Action, ActionBuilder, AnyContent, PlayBodyParsers, Request, RequestHeader, Result, WebSocket }
 import play.api.mvc.Results.Ok
+import play.api.mvc._
 import zio.Exit.Failure
-import zio.{ CancelableFuture, Fiber, IO, RIO, Ref, Runtime, Schedule, Task, URIO, ZIO }
 import zio.clock.Clock
 import zio.duration.Duration
+import zio.{ CancelableFuture, Fiber, IO, RIO, Ref, Runtime, Schedule, Task, URIO, ZIO }
 
 import scala.concurrent.{ ExecutionContext, Future }
 import scala.util.Try
 
 trait PlayAdapter[R] {
 
+  val `application/graphql` = "application/graphql"
   def actionBuilder: ActionBuilder[Request, AnyContent]
   def parse: PlayBodyParsers
   def requestWrapper: RequestWrapper[R]
@@ -66,19 +67,26 @@ trait PlayAdapter[R] {
       )
     )
 
+  private def graphqlBodyParser(implicit ec: ExecutionContext): BodyParser[GraphQLRequest] = parse.using { rh =>
+    rh.contentType match {
+      case Some(`application/graphql`) => parse.text.map(text => GraphQLRequest(query = Some(text)))
+      case _                           => parse.json[GraphQLRequest]
+    }
+  }
+
   def makePostAction[E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true
   )(implicit runtime: Runtime[R]): Action[GraphQLRequest] =
-    actionBuilder.async(parse.json[GraphQLRequest])(req =>
+    actionBuilder.async(graphqlBodyParser(runtime.platform.executor.asEC)) { req =>
       executeRequest(
         interpreter,
         req,
         skipValidation,
         enableIntrospection
       )
-    )
+    }
 
   def makeGetAction[E](
     interpreter: GraphQLInterpreter[R, E],
