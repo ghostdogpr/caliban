@@ -1,0 +1,73 @@
+interface Character {
+  name: String!
+}
+
+interface character {
+  name: String!
+}
+
+enum Episode {
+  NEWHOPE
+  EMPIRE
+  JEDI
+  jedi
+}
+
+input MessageInput {
+    content: String
+    author: String
+  }
+
+input messageInput {
+    content: String
+    author: String
+}
+
+input MessageInpuT {
+    content: String
+    author: String
+}
+
+type Human implements Character {
+  name:String!
+}
+
+type human implements character {
+  name:String!
+}
+
+type humaN implements character {
+  name:String!
+}
+
+type Droid {
+  name:Human!
+}
+
+type Starship {
+  name:human!
+}
+
+union SearchResult = Human | human
+union searchResult = Human | human
+
+type Mutation {
+  createMessage(input: messageInput): String!
+  createMessage2(input: messageInput): human!
+  createMessage3(input: messageInput): Human!
+  createMessage4(input: MessageInpuT): humaN!
+  createMessage5(input: MessageInpuT): Character!
+  createMessage6(input: MessageInpuT): character!
+  createMessage7(input: MessageInpuT): SearchResult!
+  createMessage8(input: MessageInpuT): searchResult!
+}
+
+type Query {
+  episode(tpe: Episode = jedi): human!
+  episode2(tpe: Episode = JEDI): Human
+  episode3(tpe: Episode = JEDI): humaN
+  episode4(tpe: Episode = JEDI): Character!
+  episode5(tpe: Episode = JEDI): character!
+  episode6(tpe: Episode = JEDI): SearchResult!
+  episode7(tpe: Episode = JEDI): searchResult!
+}

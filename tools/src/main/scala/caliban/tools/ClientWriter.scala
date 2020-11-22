@@ -107,18 +107,18 @@ object ClientWriter {
        |}""".stripMargin
   }
 
-  private def addSuffixesClashesNames(list: List[String]): Map[String, String] = {
+  private def addSufixesClashesNames(list: List[String]): Map[String, String] = {
 
-    def addSuffix(str: String, index: Int) = {
-      val suffix = "_" * index
-      s"$str$suffix"
+    def addSufix(str: String, index: Int) = {
+      val sufix = "_" * index
+      s"$str$sufix"
     }
 
     @tailrec
     def loop(index: Int, remaining: List[String], acc: Map[String, String]): Map[String, String] =
       remaining match {
         case Nil            => acc
-        case (head :: tail) => loop(index + 1, tail, acc + (head -> addSuffix(head, index)))
+        case (head :: tail) => loop(index + 1, tail, acc + (head -> addSufix(head, index)))
       }
 
     loop(1, list, Map.empty)
@@ -131,7 +131,7 @@ object ClientWriter {
       .flatMap {
         case (_, it) =>
           if (it.size > 1) {
-            Some(addSuffixesClashesNames(it.sorted.tail.map(_._2)))
+            Some(addSufixesClashesNames(it.sorted.tail.map(_._2)))
           } else None
       }
       .reduceOption(_ ++ _)
@@ -188,7 +188,6 @@ object ClientWriter {
        |}
        |""".stripMargin
   }
-
 
   def writeInputObject(typedef: InputObjectTypeDefinition, mappingClashedTypeNames: Map[String, String]): String = {
     val inputObjectName = safeTypeName(typedef.name, mappingClashedTypeNames)
