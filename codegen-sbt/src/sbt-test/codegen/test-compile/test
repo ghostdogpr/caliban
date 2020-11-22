@@ -1,0 +1,8 @@
+$ exists project/schema.graphql
+$ absent src/main/scala/Client.scala
+$ mkdir src/main/scala
+
+> calibanGenClient project/schema.graphql src/main/scala/Client.scala
+$ exists src/main/scala/Client.scala
+
+> compile

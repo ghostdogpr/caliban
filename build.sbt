@@ -129,6 +129,20 @@ lazy val codegenSbt = project
       "dev.zio" %% "zio-test-sbt" % zioVersion % "test"
     )
   )
+  .enablePlugins(SbtPlugin)
+  .settings(
+    scriptedLaunchOpts := {
+      scriptedLaunchOpts.value ++
+        Seq("-Xmx1024M", "-Dplugin.version=" + version.value)
+    },
+    scriptedBufferLog := false,
+    scriptedDependencies := {
+      (core / publishLocal).value
+      (clientJVM / publishLocal).value
+      (tools / publishLocal).value
+      publishLocal.value
+    }
+  )
   .dependsOn(tools)
 
 lazy val catsInterop = project
