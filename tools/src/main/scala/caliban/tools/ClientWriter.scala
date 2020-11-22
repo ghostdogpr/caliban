@@ -237,7 +237,7 @@ object ClientWriter {
     )
 
     def safeEnumValue(enumValue: String): String =
-      mappingClashedenumValues.getOrElse(enumValue, enumValue)
+      safeName(mappingClashedenumValues.getOrElse(enumValue, enumValue))
 
     s"""sealed trait $enumName extends scala.Product with scala.Serializable
         object $enumName {
