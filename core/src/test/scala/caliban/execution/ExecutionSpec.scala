@@ -203,6 +203,35 @@ object ExecutionSpec extends DefaultRunnableSpec {
           api.interpreter.flatMap(_.execute(query, None, Map("term" -> StringValue("search")))).map(_.asJson.noSpaces)
         )(equalTo("""{"data":{"getId":null}}"""))
       },
+      testM("field function") {
+        import io.circe.syntax._
+
+        case class Character(name: String = "Bob")
+        case class Test(character: Field => Character)
+        val api = graphQL(RootResolver(Test(field => {
+          Character()
+        })))
+        val query = """query test { character { name } }"""
+
+        assertM(
+          api.interpreter.flatMap(_.execute(query, None, Map())).map(_.asJson.noSpaces)
+        )(equalTo("""{"data":{"character":{"name":"Bob"}}}"""))
+      },
+      testM("field function with input") {
+        import io.circe.syntax._
+
+        case class NameInput(name: String)
+        case class Character(name: String)
+        case class Test(character: Field => (NameInput => Character))
+        val api = graphQL(RootResolver(Test(field => { (input) =>
+          Character(input.name)
+        })))
+        val query = """query test { character(name: "Bob") { name }}"""
+
+        assertM(
+          api.interpreter.flatMap(_.execute(query, None, Map())).map(_.asJson.noSpaces)
+        )(equalTo("""{"data":{"character":{"name":"Bob"}}}"""))
+      },
       testM("error on missing required variables") {
         import io.circe.syntax._
 
@@ -323,8 +352,9 @@ object ExecutionSpec extends DefaultRunnableSpec {
         for {
           interpreter <- api.interpreter
           result      <- interpreter.mapError(_ => "my custom error").execute(query)
-        } yield assert(result.errors)(equalTo(List("my custom error"))) &&
-          assert(result.asJson.noSpaces)(equalTo("""{"data":null,"errors":[{"message":"my custom error"}]}"""))
+        } yield
+          assert(result.errors)(equalTo(List("my custom error"))) &&
+            assert(result.asJson.noSpaces)(equalTo("""{"data":null,"errors":[{"message":"my custom error"}]}"""))
       },
       testM("merge 2 APIs") {
         case class Test(name: String)
@@ -535,11 +565,12 @@ object ExecutionSpec extends DefaultRunnableSpec {
         val api: GraphQL[Any] =
           graphQL(
             RootResolver(
-              Query(_ =>
-                List(
-                  Left(Character.Human("id", "name", 1)),
-                  Left(Character.Droid("id", "name", "function")),
-                  Right(Starship("id", "name", 3.5f))
+              Query(
+                _ =>
+                  List(
+                    Left(Character.Human("id", "name", 1)),
+                    Left(Character.Droid("id", "name", "function")),
+                    Right(Starship("id", "name", 3.5f))
                 )
               )
             )

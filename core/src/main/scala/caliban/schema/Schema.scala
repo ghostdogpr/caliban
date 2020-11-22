@@ -8,6 +8,8 @@ import java.util.UUID
 import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue._
 import caliban.Value._
+import caliban.execution.Field
+//import caliban.execution.Field
 import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
@@ -171,6 +173,13 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: () => A): Step[R0]                         = FunctionStep(_ => ev.resolve(value()))
     }
+  implicit def metadataFunctionSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Field => A] =
+    new Schema[R0, Field => A] {
+      override def arguments: List[__InputValue]                             = ev.arguments
+      override def optional: Boolean                                         = ev.optional
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
+      override def resolve(value: Field => A): Step[R0]                      = MetadataFunctionStep(field => ev.resolve(value(field)))
+    }
 
   implicit def eitherSchema[RA, RB, A, B](
     implicit evA: Schema[RA, A],
@@ -194,7 +203,7 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
             case Left(_)      => NullStep
             case Right(value) => evB.resolve(value)
           }
-        )
+      )
     )
   }
   implicit def tupleSchema[RA, RB, A, B](
@@ -227,7 +236,7 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
               else makeNonNull(evB.toType_(isInput, isSubscription))
           ) ->
             ((tuple: (A, B)) => evB.resolve(tuple._2))
-        )
+      )
     )
   }
   implicit def mapSchema[RA, RB, A, B](implicit evA: Schema[RA, A], evB: Schema[RB, B]): Schema[RA with RB, Map[A, B]] =
@@ -260,7 +269,7 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
                 else makeNonNull(evB.toType_(isInput, isSubscription))
             )
               -> ((kv: (A, B)) => evB.resolve(kv._2))
-          )
+        )
       )
 
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
@@ -287,13 +296,15 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev2.toType_(isInput, isSubscription)
 
       override def resolve(f: A => B): Step[RA with RB] =
-        FunctionStep(args =>
-          arg1
-            .build(InputValue.ObjectValue(args))
-            .fold(error => args.get("value").fold[Either[ExecutionError, A]](Left(error))(arg1.build), Right(_))
-            .fold(error => QueryStep(ZQuery.fail(error)), value => ev2.resolve(f(value)))
+        FunctionStep(
+          args =>
+            arg1
+              .build(InputValue.ObjectValue(args))
+              .fold(error => args.get("value").fold[Either[ExecutionError, A]](Left(error))(arg1.build), Right(_))
+              .fold(error => QueryStep(ZQuery.fail(error)), value => ev2.resolve(f(value)))
         )
     }
+
   implicit def futureSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Future[A]] =
     effectSchema[R0, R0, R0, Throwable, A].contramap[Future[A]](future => ZIO.fromFuture(_ => future))
   implicit def infallibleEffectSchema[R0, R1 >: R0, R2 >: R0, A](implicit ev: Schema[R2, A]): Schema[R0, URIO[R1, A]] =
@@ -372,15 +383,16 @@ trait DerivationSchema[R] {
             .getOrElse(customizeInputTypeName(getName(ctx)))),
           getDescription(ctx),
           ctx.parameters
-            .map(p =>
-              __InputValue(
-                getName(p),
-                getDescription(p),
-                () =>
-                  if (p.typeclass.optional) p.typeclass.toType_(isInput, isSubscription)
-                  else makeNonNull(p.typeclass.toType_(isInput, isSubscription)),
-                None,
-                Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
+            .map(
+              p =>
+                __InputValue(
+                  getName(p),
+                  getDescription(p),
+                  () =>
+                    if (p.typeclass.optional) p.typeclass.toType_(isInput, isSubscription)
+                    else makeNonNull(p.typeclass.toType_(isInput, isSubscription)),
+                  None,
+                  Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
               )
             )
             .toList,
@@ -391,17 +403,18 @@ trait DerivationSchema[R] {
           Some(getName(ctx)),
           getDescription(ctx),
           ctx.parameters
-            .map(p =>
-              __Field(
-                getName(p),
-                getDescription(p),
-                p.typeclass.arguments,
-                () =>
-                  if (p.typeclass.optional) p.typeclass.toType_(isInput, isSubscription)
-                  else makeNonNull(p.typeclass.toType_(isInput, isSubscription)),
-                p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
-                p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
-                Option(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
+            .map(
+              p =>
+                __Field(
+                  getName(p),
+                  getDescription(p),
+                  p.typeclass.arguments,
+                  () =>
+                    if (p.typeclass.optional) p.typeclass.toType_(isInput, isSubscription)
+                    else makeNonNull(p.typeclass.toType_(isInput, isSubscription)),
+                  p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
+                  p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
+                  Option(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
               )
             )
             .toList,
@@ -498,7 +511,7 @@ trait DerivationSchema[R] {
                     () => makeScalar("Boolean")
                   )
                 )
-              )
+            )
           )
         case _ => t
       }

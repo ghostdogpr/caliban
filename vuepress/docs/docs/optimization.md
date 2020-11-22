@@ -9,6 +9,8 @@ We might want to:
 
 This is possible in Caliban using the [`ZQuery`](https://github.com/zio/zquery) data type.
 
+Additionally, one may want to perform optimizations based on the fields selected by the client. 
+This optimization can be achieved by field metadata from Caliban that can be referenced in your query classes.   
 ## Introducing ZQuery
 
 A `ZQuery[R, E, A]` is a purely functional description of an effectual query that may contain requests to one or more data sources. Similarly to `ZIO[R, E, A]`, it requires an environment `R`, may fail with an `E` or succeed with an `A`. All requests that do not need to be performed sequentially will automatically be batched, allowing for aggressive data source specific optimizations. Requests will also automatically be deduplicated and cached.
@@ -117,6 +119,43 @@ case class Queries(
 ```
 
 During the query execution, Caliban will merge all the requested fields that return a `ZQuery` into a single `ZQuery` and run it, so that all the possible optimizations are applied.
+
+## Using field metadata 
+
+To reference field metadata in your queries you can simply use a function that takes the `caliban.execution.Field` type in your queries.
+
+```scala
+case class User(name: String, expensiveOperation: String)
+case class Queries(
+  user: Field => User
+)
+```
+
+You can also do this with functions that take inputs.
+
+```scala
+case class UserInput(id: String)
+case class User(name: String, expensiveOperation: String)
+case class Queries(
+  user: Field => (UserInput => User)
+)
+```
+
+In the resulting GraphQL Schema the *Field* will be ignored giving you the equivalent of just the returned type of the function.
+
+The implementation of the function can then take the field metadata into account for optimization.
+For instance one could modify a database query to only select certain columns or do joins to additional tables depending on what the client requests.
+
+For example:
+```scala
+Queries( (field) => {
+  if(field.fields.map(_.name).contains("expensiveOperation")) {
+    expensiveUserRequest()
+  } else {
+    efficientUserRequest()
+  }
+})
+``` 
 
 The [examples](https://github.com/ghostdogpr/caliban/tree/master/examples) project provides 2 versions of the problem described in [this article about GraphQL query optimization](https://blog.apollographql.com/optimizing-your-graphql-request-waterfalls-7c3f3360b051):
 

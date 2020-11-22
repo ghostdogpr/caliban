@@ -55,6 +55,7 @@ object Executor {
             case _ => s
           }
         case FunctionStep(step) => reduceStep(step(arguments), currentField, Map(), path)
+        case MetadataFunctionStep(step) => reduceStep(step(currentField), currentField, arguments, path)
         case ListStep(steps) =>
           reduceList(steps.zipWithIndex.map {
             case (step, i) => reduceStep(step, currentField, arguments, Right(i) :: path)
