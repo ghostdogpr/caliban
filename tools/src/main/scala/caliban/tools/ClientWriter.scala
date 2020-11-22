@@ -16,7 +16,7 @@ object ClientWriter {
     effect: String = "zio.UIO"
   ): String = {
     val schemaDef = schema.schemaDefinition
-    
+
     val mappingClashedTypeNames = getMappingsClashedNames(
       schema.definitions.collect {
         case ObjectTypeDefinition(_, name, _, _, _)   => name
