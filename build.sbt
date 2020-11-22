@@ -81,7 +81,7 @@ lazy val core = project
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "com.lihaoyi"       %% "fastparse"    % "2.3.0",
+      "org.typelevel"     %% "cats-parse"   % "0.1.0",
       "com.propensive"    %% "magnolia"     % "0.17.0",
       "com.propensive"    %% "mercator"     % "0.2.1",
       "dev.zio"           %% "zio"          % zioVersion,
