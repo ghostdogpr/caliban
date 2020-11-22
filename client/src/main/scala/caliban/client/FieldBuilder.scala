@@ -1,7 +1,7 @@
 package caliban.client
 
 import caliban.client.CalibanClientError.DecodingError
-import caliban.client.Value._
+import caliban.client.__Value._
 
 /**
  * Represents a single field that returns a result of type `A`.
@@ -11,7 +11,7 @@ trait FieldBuilder[+A] {
   /**
    * Parses a GraphQL response into a value of type `A`, or fail with a `DecodingError`.
    */
-  def fromGraphQL(value: Value): Either[DecodingError, A]
+  def fromGraphQL(value: __Value): Either[DecodingError, A]
 
   /**
    * Returns a selection set from this field builder
@@ -21,11 +21,11 @@ trait FieldBuilder[+A] {
 
 object FieldBuilder {
   case class Scalar[A]()(implicit decoder: ScalarDecoder[A]) extends FieldBuilder[A] {
-    override def fromGraphQL(value: Value): Either[DecodingError, A] = decoder.decode(value)
-    override def toSelectionSet: List[Selection]                     = Nil
+    override def fromGraphQL(value: __Value): Either[DecodingError, A] = decoder.decode(value)
+    override def toSelectionSet: List[Selection]                       = Nil
   }
   case class Obj[Origin, A](builder: SelectionBuilder[Origin, A]) extends FieldBuilder[A] {
-    override def fromGraphQL(value: Value): Either[DecodingError, A] =
+    override def fromGraphQL(value: __Value): Either[DecodingError, A] =
       value match {
         case o: __ObjectValue => builder.fromGraphQL(o)
         case _                => Left(DecodingError(s"Field $value is not an object"))
@@ -33,7 +33,7 @@ object FieldBuilder {
     override def toSelectionSet: List[Selection] = builder.toSelectionSet
   }
   case class ListOf[A](builder: FieldBuilder[A]) extends FieldBuilder[List[A]] {
-    override def fromGraphQL(value: Value): Either[DecodingError, List[A]] =
+    override def fromGraphQL(value: __Value): Either[DecodingError, List[A]] =
       value match {
         case __ListValue(items) =>
           items.map(builder.fromGraphQL).foldRight(Right(Nil): Either[DecodingError, List[A]]) { (e, acc) =>
@@ -44,7 +44,7 @@ object FieldBuilder {
     override def toSelectionSet: List[Selection] = builder.toSelectionSet
   }
   case class OptionOf[A](builder: FieldBuilder[A]) extends FieldBuilder[Option[A]] {
-    override def fromGraphQL(value: Value): Either[DecodingError, Option[A]] =
+    override def fromGraphQL(value: __Value): Either[DecodingError, Option[A]] =
       value match {
         case `__NullValue` => Right(None)
         case other         => builder.fromGraphQL(other).map(Some(_))
@@ -52,7 +52,7 @@ object FieldBuilder {
     override def toSelectionSet: List[Selection] = builder.toSelectionSet
   }
   case class ChoiceOf[A](builderMap: Map[String, FieldBuilder[A]]) extends FieldBuilder[A] {
-    override def fromGraphQL(value: Value): Either[DecodingError, A] =
+    override def fromGraphQL(value: __Value): Either[DecodingError, A] =
       value match {
         case __ObjectValue(fields) =>
           for {

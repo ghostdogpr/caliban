@@ -4,7 +4,7 @@ import scala.util.Try
 import java.util.UUID
 
 import caliban.client.CalibanClientError.DecodingError
-import caliban.client.Value._
+import caliban.client.__Value._
 import io.circe.Json
 
 import scala.annotation.implicitNotFound
@@ -19,7 +19,7 @@ Caliban needs it to know how to decode a scalar of type ${A}.
 """
 )
 trait ScalarDecoder[+A] {
-  def decode(value: Value): Either[DecodingError, A]
+  def decode(value: __Value): Either[DecodingError, A]
 }
 
 object ScalarDecoder {
@@ -73,5 +73,5 @@ object ScalarDecoder {
     case __ObjectValue(Nil) => Right(())
     case other              => Left(DecodingError(s"Can't build Unit from input $other"))
   }
-  implicit val json: ScalarDecoder[Json] = value => Right(Value.valueEncoder(value))
+  implicit val json: ScalarDecoder[Json] = value => Right(__Value.valueEncoder(value))
 }

@@ -5,7 +5,7 @@ import caliban.client.FieldBuilder._
 import caliban.client.Operations.RootQuery
 import caliban.client.SelectionBuilder.Field
 import caliban.client.TestData.Role._
-import caliban.client.Value.__StringValue
+import caliban.client.__Value.__StringValue
 
 object TestData {
 
@@ -22,7 +22,7 @@ object TestData {
       case other                  => Left(DecodingError(s"Can't build an Origin from input $other"))
     }
     implicit val originEncoder: ArgEncoder[Origin] = new ArgEncoder[Origin] {
-      override def encode(value: Origin): Value = value match {
+      override def encode(value: Origin): __Value = value match {
         case EARTH => __StringValue("EARTH")
         case MARS  => __StringValue("MARS")
         case BELT  => __StringValue("BELT")

@@ -202,7 +202,7 @@ object Client {
           equalTo(
             """import caliban.client.CalibanClientError.DecodingError
 import caliban.client._
-import caliban.client.Value._
+import caliban.client.__Value._
 
 object Client {
 
@@ -219,7 +219,7 @@ object Client {
       case other                  => Left(DecodingError(s"Can't build Origin from input $other"))
     }
     implicit val encoder: ArgEncoder[Origin] = new ArgEncoder[Origin] {
-      override def encode(value: Origin): Value = value match {
+      override def encode(value: Origin): __Value = value match {
         case Origin.EARTH => __EnumValue("EARTH")
         case Origin.MARS  => __EnumValue("MARS")
         case Origin.BELT  => __EnumValue("BELT")
@@ -245,14 +245,14 @@ object Client {
         assertM(gen(schema))(
           equalTo(
             """import caliban.client._
-import caliban.client.Value._
+import caliban.client.__Value._
 
 object Client {
 
   case class CharacterInput(name: String, nicknames: List[String] = Nil)
   object CharacterInput {
     implicit val encoder: ArgEncoder[CharacterInput] = new ArgEncoder[CharacterInput] {
-      override def encode(value: CharacterInput): Value =
+      override def encode(value: CharacterInput): __Value =
         __ObjectValue(
           List(
             "name"      -> implicitly[ArgEncoder[String]].encode(value.name),
@@ -279,14 +279,14 @@ object Client {
         assertM(gen(schema))(
           equalTo(
             """import caliban.client._
-import caliban.client.Value._
+import caliban.client.__Value._
 
 object Client {
 
   case class CharacterInput(wait_ : String)
   object CharacterInput {
     implicit val encoder: ArgEncoder[CharacterInput] = new ArgEncoder[CharacterInput] {
-      override def encode(value: CharacterInput): Value =
+      override def encode(value: CharacterInput): __Value =
         __ObjectValue(List("wait" -> implicitly[ArgEncoder[String]].encode(value.wait_)))
       override def typeName: String = "CharacterInput"
     }

@@ -3,7 +3,7 @@ package caliban.client
 import caliban.client.Operations.RootQuery
 import caliban.client.Selection.Directive
 import caliban.client.TestData._
-import caliban.client.Value.{ __ListValue, __ObjectValue, __StringValue }
+import caliban.client.__Value.{ __ListValue, __ObjectValue, __StringValue }
 import zio.test.Assertion._
 import zio.test.environment.TestEnvironment
 import zio.test._

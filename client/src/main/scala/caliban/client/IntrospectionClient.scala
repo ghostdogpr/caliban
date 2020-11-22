@@ -4,7 +4,7 @@ import caliban.client.CalibanClientError.DecodingError
 import caliban.client.FieldBuilder.{ ListOf, Obj, OptionOf, Scalar }
 import caliban.client.Operations.RootQuery
 import caliban.client.SelectionBuilder.Field
-import caliban.client.Value.{ __EnumValue => EnumValue, __StringValue }
+import caliban.client.__Value.{ __EnumValue => EnumValue, __StringValue }
 
 object IntrospectionClient {
 
@@ -31,7 +31,7 @@ object IntrospectionClient {
       case other                         => Left(DecodingError(s"Can't build __TypeKind from input $other"))
     }
     implicit val encoder: ArgEncoder[__TypeKind] = new ArgEncoder[__TypeKind] {
-      override def encode(value: __TypeKind): Value = value match {
+      override def encode(value: __TypeKind): __Value = value match {
         case __TypeKind.SCALAR       => EnumValue("SCALAR")
         case __TypeKind.OBJECT       => EnumValue("OBJECT")
         case __TypeKind.INTERFACE    => EnumValue("INTERFACE")
@@ -88,7 +88,7 @@ object IntrospectionClient {
       case other                                   => Left(DecodingError(s"Can't build __DirectiveLocation from input $other"))
     }
     implicit val encoder: ArgEncoder[__DirectiveLocation] = new ArgEncoder[__DirectiveLocation] {
-      override def encode(value: __DirectiveLocation): Value = value match {
+      override def encode(value: __DirectiveLocation): __Value = value match {
         case __DirectiveLocation.QUERY                  => EnumValue("QUERY")
         case __DirectiveLocation.MUTATION               => EnumValue("MUTATION")
         case __DirectiveLocation.SUBSCRIPTION           => EnumValue("SUBSCRIPTION")

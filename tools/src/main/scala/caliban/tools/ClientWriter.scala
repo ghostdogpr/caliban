@@ -75,7 +75,7 @@ object ClientWriter {
       """import caliban.client.Operations._
         |""".stripMargin
     else ""}${if (enums.nonEmpty || inputs.nonEmpty)
-      """import caliban.client.Value._
+      """import caliban.client.__Value._
         |""".stripMargin
     else ""}"""
 
@@ -129,7 +129,7 @@ object ClientWriter {
     s"""case class ${typedef.name}(${writeArgumentFields(typedef.fields)})
        |object ${typedef.name} {
        |  implicit val encoder: ArgEncoder[${typedef.name}] = new ArgEncoder[${typedef.name}] {
-       |    override def encode(value: ${typedef.name}): Value =
+       |    override def encode(value: ${typedef.name}): __Value =
        |      __ObjectValue(List(${typedef.fields
          .map(f => s""""${f.name}" -> ${writeInputValue(f.ofType, s"value.${safeName(f.name)}", typedef.name)}""")
          .mkString(", ")}))
@@ -143,11 +143,11 @@ object ClientWriter {
         if (name == typeName) s"encode($fieldName)"
         else s"implicitly[ArgEncoder[${mapTypeName(name)}]].encode($fieldName)"
       case NamedType(name, false) =>
-        s"$fieldName.fold(__NullValue: Value)(value => ${writeInputValue(NamedType(name, nonNull = true), "value", typeName)})"
+        s"$fieldName.fold(__NullValue: __Value)(value => ${writeInputValue(NamedType(name, nonNull = true), "value", typeName)})"
       case ListType(ofType, true) =>
         s"__ListValue($fieldName.map(value => ${writeInputValue(ofType, "value", typeName)}))"
       case ListType(ofType, false) =>
-        s"$fieldName.fold(__NullValue: Value)(value => ${writeInputValue(ListType(ofType, nonNull = true), "value", typeName)})"
+        s"$fieldName.fold(__NullValue: __Value)(value => ${writeInputValue(ListType(ofType, nonNull = true), "value", typeName)})"
     }
 
   def writeEnum(typedef: EnumTypeDefinition): String =
@@ -164,7 +164,7 @@ object ClientWriter {
             case other => Left(DecodingError(s"Can't build ${typedef.name} from input $$other"))
           }
           implicit val encoder: ArgEncoder[${typedef.name}] = new ArgEncoder[${typedef.name}] {
-            override def encode(value: ${typedef.name}): Value = value match {
+            override def encode(value: ${typedef.name}): __Value = value match {
               ${typedef.enumValuesDefinition
       .map(v => s"""case ${typedef.name}.${safeName(v.enumValue)} => __EnumValue("${v.enumValue}")""")
       .mkString("\n")}

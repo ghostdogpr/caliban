@@ -5,43 +5,43 @@ import io.circe.{ Decoder, Encoder, Json }
 /**
  * Value that can be returned by the server or sent as an argument.
  */
-sealed trait Value
+sealed trait __Value
 
-object Value {
-  case object __NullValue extends Value {
+object __Value {
+  case object __NullValue extends __Value {
     override def toString: String = "null"
   }
-  case class __NumberValue(value: BigDecimal) extends Value {
+  case class __NumberValue(value: BigDecimal) extends __Value {
     override def toString: String = s"$value"
   }
-  case class __EnumValue(value: String) extends Value {
+  case class __EnumValue(value: String) extends __Value {
     override def toString: String = value
   }
-  case class __StringValue(value: String) extends Value {
+  case class __StringValue(value: String) extends __Value {
     override def toString: String = s""""${value.replace("\"", "\\\"")}""""
   }
-  case class __BooleanValue(value: Boolean) extends Value {
+  case class __BooleanValue(value: Boolean) extends __Value {
     override def toString: String = value.toString
   }
-  case class __ListValue(values: List[Value]) extends Value {
+  case class __ListValue(values: List[__Value]) extends __Value {
     override def toString: String = values.map(_.toString).mkString("[", ",", "]")
   }
-  case class __ObjectValue(fields: List[(String, Value)]) extends Value {
+  case class __ObjectValue(fields: List[(String, __Value)]) extends __Value {
     override def toString: String =
       fields.map { case (name, value) => s"""$name:${value.toString}""" }.mkString("{", ",", "}")
   }
 
-  private def jsonToValue(json: Json): Value =
+  private def jsonToValue(json: Json): __Value =
     json.fold(
       __NullValue,
       __BooleanValue,
       number => __NumberValue(number.toBigDecimal getOrElse BigDecimal(number.toDouble)),
       __StringValue,
-      array => Value.__ListValue(array.toList.map(jsonToValue)),
-      obj => Value.__ObjectValue(obj.toList.map { case (k, v) => k -> jsonToValue(v) })
+      array => __Value.__ListValue(array.toList.map(jsonToValue)),
+      obj => __Value.__ObjectValue(obj.toList.map { case (k, v) => k -> jsonToValue(v) })
     )
 
-  private def valueToJson(a: Value): Json = a match {
+  private def valueToJson(a: __Value): Json = a match {
     case `__NullValue`         => Json.Null
     case __NumberValue(value)  => Json.fromBigDecimal(value)
     case __StringValue(value)  => Json.fromString(value)
@@ -51,7 +51,7 @@ object Value {
     case __ObjectValue(fields) => Json.obj(fields.map { case (k, v) => k -> valueToJson(v) }: _*)
   }
 
-  implicit val valueDecoder: Decoder[Value] = Decoder.instance(hcursor => Right(jsonToValue(hcursor.value)))
+  implicit val valueDecoder: Decoder[__Value] = Decoder.instance(hcursor => Right(jsonToValue(hcursor.value)))
 
-  implicit val valueEncoder: Encoder[Value] = (a: Value) => valueToJson(a)
+  implicit val valueEncoder: Encoder[__Value] = (a: __Value) => valueToJson(a)
 }

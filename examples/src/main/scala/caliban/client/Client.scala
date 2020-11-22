@@ -4,7 +4,7 @@ import caliban.client.CalibanClientError.DecodingError
 import caliban.client.FieldBuilder._
 import caliban.client.SelectionBuilder._
 import caliban.client.Operations._
-import caliban.client.Value._
+import caliban.client.__Value._
 
 object Client {
 
@@ -21,7 +21,7 @@ object Client {
       case other                  => Left(DecodingError(s"Can't build Origin from input $other"))
     }
     implicit val encoder: ArgEncoder[Origin] = new ArgEncoder[Origin] {
-      override def encode(value: Origin): Value = value match {
+      override def encode(value: Origin): __Value = value match {
         case Origin.BELT  => __EnumValue("BELT")
         case Origin.EARTH => __EnumValue("EARTH")
         case Origin.MARS  => __EnumValue("MARS")
