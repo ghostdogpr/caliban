@@ -483,6 +483,93 @@ object Client {
 """
           )
         )
+      },
+      testM("case-sensitive name uniqueness in enum's values") {
+        val schema =
+          """
+              enum Episode {
+                NEWHOPE
+                EMPIRE
+                JEDI
+                jedi
+              }
+            """.stripMargin
+        assertM(gen(schema))(
+          equalTo(
+            """import caliban.client.CalibanClientError.DecodingError
+import caliban.client._
+import caliban.client.__Value._
+
+object Client {
+
+  sealed trait Episode extends scala.Product with scala.Serializable
+  object Episode {
+    case object NEWHOPE extends Episode
+    case object EMPIRE  extends Episode
+    case object JEDI    extends Episode
+    case object jedi_   extends Episode
+
+    implicit val decoder: ScalarDecoder[Episode] = {
+      case __StringValue("NEWHOPE") => Right(Episode.NEWHOPE)
+      case __StringValue("EMPIRE")  => Right(Episode.EMPIRE)
+      case __StringValue("JEDI")    => Right(Episode.JEDI)
+      case __StringValue("jedi")    => Right(Episode.jedi_)
+      case other                    => Left(DecodingError(s"Can't build Episode from input $other"))
+    }
+    implicit val encoder: ArgEncoder[Episode] = new ArgEncoder[Episode] {
+      override def encode(value: Episode): __Value = value match {
+        case Episode.NEWHOPE => __EnumValue("NEWHOPE")
+        case Episode.EMPIRE  => __EnumValue("EMPIRE")
+        case Episode.JEDI    => __EnumValue("JEDI")
+        case Episode.jedi_   => __EnumValue("jedi")
+      }
+      override def typeName: String = "Episode"
+    }
+  }
+
+}
+"""
+          )
+        )
+      },
+      testM("case-insensitive name uniqueness in 2 basic objects") {
+        val schema =
+          """
+             type Character {
+               name: String!
+               nicknames: [String!]!
+             }
+
+             type character {
+               name: String!
+               nicknames: [String!]!
+             }
+            """.stripMargin
+
+        assertM(gen(schema))(
+          equalTo(
+            """import caliban.client.FieldBuilder._
+import caliban.client.SelectionBuilder._
+import caliban.client._
+
+object Client {
+
+  type Character
+  object Character {
+    def name: SelectionBuilder[Character, String]            = Field("name", Scalar())
+    def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
+  }
+
+  type character_
+  object character_ {
+    def name: SelectionBuilder[character_, String]            = Field("name", Scalar())
+    def nicknames: SelectionBuilder[character_, List[String]] = Field("nicknames", ListOf(Scalar()))
+  }
+
+}
+"""
+          )
+        )
       }
     ) @@ TestAspect.sequential
 }
