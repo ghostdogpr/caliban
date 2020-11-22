@@ -1,8 +1,10 @@
 package caliban
 
 import caliban.ResponseValue.ObjectValue
+import caliban.Value.{ IntValue, StringValue }
 import caliban.interop.circe.IsCirceEncoder
 import caliban.interop.play.IsPlayJsonWrites
+import caliban.interop.zio.IsZIOJsonEncoder
 import caliban.parsing.adt.LocationInfo
 
 /**
@@ -59,6 +61,9 @@ object CalibanError {
 
   implicit def playJsonWrites[F[_]](implicit ev: IsPlayJsonWrites[F]): F[CalibanError] =
     ErrorPlayJson.errorValueWrites.asInstanceOf[F[CalibanError]]
+
+  implicit def zioJsonEncoder[F[_]](implicit ev: IsZIOJsonEncoder[F]): F[CalibanError] =
+    ErrorZioJson.errorValueEncoder.asInstanceOf[F[CalibanError]]
 }
 
 private object ErrorCirce {
@@ -147,4 +152,47 @@ private object ErrorPlayJson {
       )
   }
 
+}
+
+private object ErrorZioJson {
+  import zio.json._
+  import zio.json.internal.Write
+
+  private def locationToResponse(li: LocationInfo): ResponseValue =
+    ResponseValue.ListValue(
+      List(ResponseValue.ObjectValue(List("line" -> IntValue(li.line), "column" -> IntValue(li.column))))
+    )
+
+  private[caliban] def errorToResponseValue(e: CalibanError): ResponseValue =
+    ResponseValue.ObjectValue(e match {
+      case CalibanError.ParsingError(msg, locationInfo, _, extensions) =>
+        List(
+          "message"                                               -> StringValue(s"Parsing Error: $msg")
+        ) ++ (extensions: Option[ResponseValue]).map("extensions" -> _) ++
+          locationInfo.map(locationToResponse).map("locations"    -> _)
+      case CalibanError.ValidationError(msg, _, locationInfo, extensions) =>
+        List(
+          "message"                                               -> StringValue(msg)
+        ) ++ (extensions: Option[ResponseValue]).map("extensions" -> _) ++
+          locationInfo.map(locationToResponse).map("locations"    -> _)
+      case CalibanError.ExecutionError(msg, path, locationInfo, _, extensions) =>
+        List(
+          "message"                                               -> StringValue(msg)
+        ) ++ (extensions: Option[ResponseValue]).map("extensions" -> _) ++
+          locationInfo.map(locationToResponse).map("locations"    -> _) ++
+          Some(path).collect {
+            case p if p.nonEmpty =>
+              "path" -> ResponseValue.ListValue(p.map {
+                case Left(value)  => StringValue(value)
+                case Right(value) => IntValue(value)
+              })
+          }
+    })
+
+  val errorValueEncoder: JsonEncoder[CalibanError] = (a: CalibanError, indent: Option[Int], out: Write) =>
+    ValueZIOJson.responseValueEncoder.unsafeEncode(
+      errorToResponseValue(a),
+      indent,
+      out
+    )
 }

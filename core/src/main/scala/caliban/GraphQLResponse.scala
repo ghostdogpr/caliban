@@ -1,8 +1,10 @@
 package caliban
 
 import caliban.ResponseValue.ObjectValue
+import caliban.Value.StringValue
 import caliban.interop.circe._
 import caliban.interop.play._
+import caliban.interop.zio.IsZIOJsonEncoder
 
 /**
  * Represents the result of a GraphQL query, containing a data object and a list of errors.
@@ -14,6 +16,8 @@ object GraphQLResponse {
     GraphQLResponseCirce.graphQLResponseEncoder.asInstanceOf[F[GraphQLResponse[E]]]
   implicit def playJsonWrites[F[_]: IsPlayJsonWrites, E]: F[GraphQLResponse[E]] =
     GraphQLResponsePlayJson.graphQLResponseWrites.asInstanceOf[F[GraphQLResponse[E]]]
+  implicit def zioJsonEncoder[F[_]: IsZIOJsonEncoder, E]: F[GraphQLResponse[E]] =
+    GraphQLResponseZioJson.graphQLResponseEncoder.asInstanceOf[F[GraphQLResponse[E]]]
 }
 
 private object GraphQLResponseCirce {
@@ -66,4 +70,46 @@ private object GraphQLResponsePlayJson {
       case _                => Json.obj("message" -> err.toString)
     }
 
+}
+
+private object GraphQLResponseZioJson {
+  import zio.json._
+  import zio.json.internal.Write
+
+  private def handleError(err: Any): ResponseValue =
+    err match {
+      case ce: CalibanError => ErrorZioJson.errorToResponseValue(ce)
+      case _                => ResponseValue.ObjectValue(List("message" -> StringValue(err.toString)))
+    }
+
+  val graphQLResponseEncoder: JsonEncoder[GraphQLResponse[Any]] =
+    (a: GraphQLResponse[Any], indent: Option[Int], out: Write) => {
+      val responseEncoder = JsonEncoder.map[String, ResponseValue]
+      a match {
+        case GraphQLResponse(data, Nil, None) =>
+          responseEncoder.unsafeEncode(Map("data" -> data), indent, out)
+        case GraphQLResponse(data, Nil, Some(extensions)) =>
+          responseEncoder.unsafeEncode(
+            Map("data" -> data, "extension" -> extensions.asInstanceOf[ResponseValue]),
+            indent,
+            out
+          )
+        case GraphQLResponse(data, errors, None) =>
+          responseEncoder.unsafeEncode(
+            Map("data" -> data, "errors" -> ResponseValue.ListValue(errors.map(handleError))),
+            indent,
+            out
+          )
+        case GraphQLResponse(data, errors, Some(extensions)) =>
+          responseEncoder.unsafeEncode(
+            Map(
+              "data"       -> data,
+              "errors"     -> ResponseValue.ListValue(errors.map(handleError)),
+              "extensions" -> extensions.asInstanceOf[ResponseValue]
+            ),
+            indent,
+            out
+          )
+      }
+    }
 }

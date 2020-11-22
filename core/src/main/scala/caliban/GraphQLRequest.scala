@@ -2,6 +2,7 @@ package caliban
 
 import caliban.interop.circe._
 import caliban.interop.play.IsPlayJsonReads
+import caliban.interop.zio.IsZIOJsonDecoder
 
 /**
  * Represents a GraphQL request, containing a query, an operation name and a map of variables.
@@ -18,6 +19,8 @@ object GraphQLRequest {
     GraphQLRequestCirce.graphQLRequestDecoder.asInstanceOf[F[GraphQLRequest]]
   implicit def playJsonReads[F[_]: IsPlayJsonReads]: F[GraphQLRequest] =
     GraphQLRequestPlayJson.graphQLRequestReads.asInstanceOf[F[GraphQLRequest]]
+  implicit def zioJsonDecoder[F[_]: IsZIOJsonDecoder]: F[GraphQLRequest] =
+    GraphQLRequestZioJson.graphQLRequestDecoder.asInstanceOf[F[GraphQLRequest]]
 }
 
 private object GraphQLRequestCirce {
@@ -36,4 +39,10 @@ private object GraphQLRequestPlayJson {
   import play.api.libs.json._
 
   val graphQLRequestReads: Reads[GraphQLRequest] = Json.reads[GraphQLRequest]
+}
+
+private object GraphQLRequestZioJson {
+  import zio.json._
+
+  val graphQLRequestDecoder: JsonDecoder[GraphQLRequest] = DeriveJsonDecoder.gen[GraphQLRequest]
 }

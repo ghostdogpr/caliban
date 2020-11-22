@@ -18,6 +18,7 @@ val zioVersion            = "1.0.3"
 val zioInteropCatsVersion = "2.2.0.1"
 val zioConfigVersion      = "1.0.0-RC31-1"
 val zqueryVersion         = "0.2.6"
+val zioJsonVersion        = "0.0.1"
 
 inThisBuild(
   List(
@@ -105,6 +106,7 @@ lazy val core = project
       "dev.zio"           %% "zio-test-sbt" % zioVersion % "test",
       "io.circe"          %% "circe-core"   % circeVersion % Optional,
       "com.typesafe.play" %% "play-json"    % playJsonVersion % Optional,
+      "dev.zio"           %% "zio-json"     % zioJsonVersion % Optional,
       compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
     )
   )

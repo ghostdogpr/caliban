@@ -4,7 +4,11 @@ import scala.util.Try
 import caliban.Value._
 import caliban.interop.circe._
 import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
+import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
+import zio.Chunk
 import zio.stream.Stream
+
+import scala.annotation.switch
 
 sealed trait InputValue
 object InputValue {
@@ -28,6 +32,11 @@ object InputValue {
     ValuePlayJson.inputValueWrites.asInstanceOf[F[InputValue]]
   implicit def playJsonReads[F[_]: IsPlayJsonReads]: F[InputValue] =
     ValuePlayJson.inputValueReads.asInstanceOf[F[InputValue]]
+
+  implicit def zioJsonEncoder[F[_]: IsZIOJsonEncoder]: F[InputValue] =
+    ValueZIOJson.inputValueEncoder.asInstanceOf[F[InputValue]]
+  implicit def zioJsonDecoder[F[_]: IsZIOJsonDecoder]: F[InputValue] =
+    ValueZIOJson.inputValueDecoder.asInstanceOf[F[InputValue]]
 }
 
 sealed trait ResponseValue
@@ -52,6 +61,12 @@ object ResponseValue {
     ValuePlayJson.responseValueWrites.asInstanceOf[F[ResponseValue]]
   implicit def playJsonReads[F[_]: IsPlayJsonReads]: F[ResponseValue] =
     ValuePlayJson.responseValueReads.asInstanceOf[F[ResponseValue]]
+
+  implicit def zioJsonEncoder[F[_]: IsZIOJsonEncoder]: F[ResponseValue] =
+    ValueZIOJson.responseValueEncoder.asInstanceOf[F[ResponseValue]]
+  implicit def zioJsonDecoder[F[_]: IsZIOJsonDecoder]: F[ResponseValue] =
+    ValueZIOJson.responseValueDecoder.asInstanceOf[F[ResponseValue]]
+
 }
 
 sealed trait Value extends InputValue with ResponseValue
@@ -271,4 +286,147 @@ private object ValuePlayJson {
       JsObject(fields.map { case (k, v) => k -> responseValueWrites.writes(v) })
     case s: ResponseValue.StreamValue => JsString(s.toString)
   }
+}
+
+private object ValueZIOJson {
+  import zio.json._
+  import zio.json.internal.{ Lexer, RetractReader, Write }
+
+  val valueEncoder: JsonEncoder[Value] = (a: Value, indent: Option[Int], out: Write) =>
+    a match {
+      case Value.NullValue => Null.encoder.unsafeEncode(NullValue, indent, out)
+      case v: IntValue =>
+        v match {
+          case IntValue.IntNumber(value)    => JsonEncoder.int.unsafeEncode(value, indent, out)
+          case IntValue.LongNumber(value)   => JsonEncoder.long.unsafeEncode(value, indent, out)
+          case IntValue.BigIntNumber(value) => JsonEncoder.bigInteger.unsafeEncode(value.bigInteger, indent, out)
+        }
+      case v: FloatValue =>
+        v match {
+          case FloatValue.FloatNumber(value)      => JsonEncoder.float.unsafeEncode(value, indent, out)
+          case FloatValue.DoubleNumber(value)     => JsonEncoder.double.unsafeEncode(value, indent, out)
+          case FloatValue.BigDecimalNumber(value) => JsonEncoder.bigDecimal.unsafeEncode(value.bigDecimal, indent, out)
+        }
+      case StringValue(value)  => JsonEncoder.string.unsafeEncode(value, indent, out)
+      case BooleanValue(value) => JsonEncoder.boolean.unsafeEncode(value, indent, out)
+      case EnumValue(value)    => JsonEncoder.string.unsafeEncode(value, indent, out)
+  }
+
+  object Null {
+    private[this] val nullChars: Array[Char] = "null".toCharArray
+    val encoder: JsonEncoder[NullValue.type] = (a: NullValue.type, indent: Option[Int], out: Write) => out.write("null")
+    implicit val decoder: JsonDecoder[NullValue.type] =
+      (trace: List[JsonDecoder.JsonError], in: RetractReader) => {
+        Lexer.readChars(trace, in, nullChars, "null")
+        NullValue
+      }
+  }
+
+  object Bool {
+    implicit val decoder: JsonDecoder[BooleanValue] = JsonDecoder.boolean.map(BooleanValue)
+  }
+
+  object Obj {
+    val decoder: JsonDecoder[InputValue.ObjectValue] = {
+      val objd = JsonDecoder.keyValueChunk[String, InputValue]
+      (trace: List[JsonDecoder.JsonError], in: RetractReader) =>
+        InputValue.ObjectValue(objd.unsafeDecode(trace, in).toMap)
+    }
+
+    val responseDecoder: JsonDecoder[ResponseValue.ObjectValue] = {
+      val objd = JsonDecoder.keyValueChunk[String, ResponseValue]
+      (trace: List[JsonDecoder.JsonError], in: RetractReader) =>
+        ResponseValue.ObjectValue(objd.unsafeDecode(trace, in).toList)
+    }
+
+    val responseEncoder: JsonEncoder[List[(String, ResponseValue)]] = {
+      val obje = JsonEncoder.keyValueChunk[String, ResponseValue]
+      (a: List[(String, ResponseValue)], indent: Option[Int], out: Write) =>
+        obje.unsafeEncode(Chunk.fromIterable(a), indent, out)
+    }
+  }
+
+  object Arr {
+    val decoder: JsonDecoder[InputValue.ListValue] = {
+      val arrd = JsonDecoder.list[InputValue]
+      (trace: List[JsonDecoder.JsonError], in: RetractReader) =>
+        InputValue.ListValue(arrd.unsafeDecode(trace, in))
+    }
+
+    val responseDecoder: JsonDecoder[ResponseValue.ListValue] = {
+      val arrd = JsonDecoder.list[ResponseValue]
+      (trace: List[JsonDecoder.JsonError], in: RetractReader) =>
+        ResponseValue.ListValue(arrd.unsafeDecode(trace, in))
+    }
+
+    val responseEncoder: JsonEncoder[List[ResponseValue]] =
+      JsonEncoder.list[ResponseValue]
+
+  }
+
+  object Str {
+    val decoder: JsonDecoder[StringValue] = JsonDecoder.string.map(StringValue)
+  }
+
+  object Num {
+    val decoder: JsonDecoder[Value] = (trace: List[JsonDecoder.JsonError], in: RetractReader) => {
+      val bd = BigDecimal(JsonDecoder.bigDecimal.unsafeDecode(trace, in))
+      if (bd.isValidInt) IntValue(bd.toIntExact)
+      else if (bd.isValidLong) IntValue(bd.toLongExact)
+      else bd.toBigIntExact.fold[Value](FloatValue(bd))(IntValue(_))
+    }
+  }
+
+  implicit val inputValueDecoder: JsonDecoder[InputValue] = (trace: List[JsonDecoder.JsonError], in: RetractReader) => {
+    val c = in.nextNonWhitespace()
+    in.retract()
+    (c: @switch) match {
+      case 'n'       => Null.decoder.unsafeDecode(trace, in)
+      case 'f' | 't' => Bool.decoder.unsafeDecode(trace, in)
+      case '{'       => Obj.decoder.unsafeDecode(trace, in)
+      case '['       => Arr.decoder.unsafeDecode(trace, in)
+      case '"'       => Str.decoder.unsafeDecode(trace, in)
+      case '-' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' =>
+        Num.decoder.unsafeDecode(trace, in)
+      case c =>
+        throw JsonDecoder.UnsafeJson(JsonDecoder.JsonError.Message(s"unexpected '$c'") :: trace)
+    }
+
+  }
+
+  val inputValueEncoder: JsonEncoder[InputValue] = (a: InputValue, indent: Option[Int], out: Write) =>
+    a match {
+      case value: Value                 => valueEncoder.unsafeEncode(value, indent, out)
+      case InputValue.ListValue(values) => JsonEncoder.list(inputValueEncoder).unsafeEncode(values, indent, out)
+      case InputValue.ObjectValue(fields) =>
+        JsonEncoder.map(JsonFieldEncoder.string, inputValueEncoder).unsafeEncode(fields, indent, out)
+      case InputValue.VariableValue(name) => JsonEncoder.string.unsafeEncode(name, indent, out)
+  }
+
+  val responseValueDecoder: JsonDecoder[ResponseValue] = (trace: List[JsonDecoder.JsonError], in: RetractReader) => {
+    val c = in.nextNonWhitespace()
+    in.retract()
+    (c: @switch) match {
+      case 'n'       => Null.decoder.unsafeDecode(trace, in)
+      case 'f' | 't' => Bool.decoder.unsafeDecode(trace, in)
+      case '{'       => Obj.responseDecoder.unsafeDecode(trace, in)
+      case '['       => Arr.responseDecoder.unsafeDecode(trace, in)
+      case '"'       => Str.decoder.unsafeDecode(trace, in)
+      case '-' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' =>
+        Num.decoder.unsafeDecode(trace, in)
+      case c =>
+        throw JsonDecoder.UnsafeJson(JsonDecoder.JsonError.Message(s"unexpected '$c'") :: trace)
+    }
+
+  }
+
+  implicit val responseValueEncoder: JsonEncoder[ResponseValue] =
+    (a: ResponseValue, indent: Option[Int], out: Write) =>
+      a match {
+        case value: Value                      => valueEncoder.unsafeEncode(value, indent, out)
+        case ResponseValue.ListValue(values)   => Arr.responseEncoder.unsafeEncode(values, indent, out)
+        case ResponseValue.ObjectValue(fields) => Obj.responseEncoder.unsafeEncode(fields, indent, out)
+        case s: ResponseValue.StreamValue      => JsonEncoder.string.unsafeEncode(s.toString, indent, out)
+    }
+
 }
