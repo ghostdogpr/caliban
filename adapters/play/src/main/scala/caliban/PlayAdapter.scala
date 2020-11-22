@@ -69,32 +69,26 @@ trait PlayAdapter[R] {
       )
     )
 
+  private def graphqlBodyParser(implicit ec: ExecutionContext): BodyParser[GraphQLRequest] = parse.using { rh =>
+    rh.contentType match {
+      case Some(`application/graphql`) => parse.text.map(text => GraphQLRequest(query = Some(text)))
+      case _                           => parse.json[GraphQLRequest]
+    }
+  }
+
   def makePostAction[E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true
-  )(implicit runtime: Runtime[R]): Action[AnyContent] = actionBuilder.async { req =>
-    req.contentType match {
-      case Some(`application/graphql`) =>
-        executeRequest(
-          interpreter,
-          req.withBody(GraphQLRequest(query = req.body.asText)),
-          skipValidation,
-          enableIntrospection
-        )
-      case _ =>
-        Json.fromJson[GraphQLRequest](req.body.asJson.getOrElse(JsString("Empty request body"))) match {
-          case JsSuccess(graphQLRequest: GraphQLRequest, _) =>
-            executeRequest(
-              interpreter,
-              req.withBody(graphQLRequest),
-              skipValidation,
-              enableIntrospection
-            )
-          case e @ JsError(_) => Future.successful(Results.BadRequest(JsError.toJson(e)))
-        }
+  )(implicit runtime: Runtime[R]): Action[GraphQLRequest] =
+    actionBuilder.async(graphqlBodyParser(runtime.platform.executor.asEC)) { req =>
+      executeRequest(
+        interpreter,
+        req,
+        skipValidation,
+        enableIntrospection
+      )
     }
-  }
 
   def makeGetAction[E](
     interpreter: GraphQLInterpreter[R, E],
