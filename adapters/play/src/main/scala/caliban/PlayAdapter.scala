@@ -28,8 +28,6 @@ trait PlayAdapter[R] {
   implicit def writableGraphQLResponse[E](implicit wr: Writes[GraphQLResponse[E]]): Writeable[GraphQLResponse[E]] =
     Writeable.writeableOf_JsValue.map(wr.writes)
 
-  implicit val graphQLReqReader = Json.reads[GraphQLRequest]
-
   private def parseJson(s: String): Try[JsValue] =
     Try(Json.parse(s))
 
