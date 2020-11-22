@@ -213,16 +213,16 @@ object Client {
     case object BELT  extends Origin
 
     implicit val decoder: ScalarDecoder[Origin] = {
-      case StringValue("EARTH") => Right(Origin.EARTH)
-      case StringValue("MARS")  => Right(Origin.MARS)
-      case StringValue("BELT")  => Right(Origin.BELT)
-      case other                => Left(DecodingError(s"Can't build Origin from input $other"))
+      case __StringValue("EARTH") => Right(Origin.EARTH)
+      case __StringValue("MARS")  => Right(Origin.MARS)
+      case __StringValue("BELT")  => Right(Origin.BELT)
+      case other                  => Left(DecodingError(s"Can't build Origin from input $other"))
     }
     implicit val encoder: ArgEncoder[Origin] = new ArgEncoder[Origin] {
       override def encode(value: Origin): Value = value match {
-        case Origin.EARTH => EnumValue("EARTH")
-        case Origin.MARS  => EnumValue("MARS")
-        case Origin.BELT  => EnumValue("BELT")
+        case Origin.EARTH => __EnumValue("EARTH")
+        case Origin.MARS  => __EnumValue("MARS")
+        case Origin.BELT  => __EnumValue("BELT")
       }
       override def typeName: String = "Origin"
     }
@@ -253,10 +253,10 @@ object Client {
   object CharacterInput {
     implicit val encoder: ArgEncoder[CharacterInput] = new ArgEncoder[CharacterInput] {
       override def encode(value: CharacterInput): Value =
-        ObjectValue(
+        __ObjectValue(
           List(
             "name"      -> implicitly[ArgEncoder[String]].encode(value.name),
-            "nicknames" -> ListValue(value.nicknames.map(value => implicitly[ArgEncoder[String]].encode(value)))
+            "nicknames" -> __ListValue(value.nicknames.map(value => implicitly[ArgEncoder[String]].encode(value)))
           )
         )
       override def typeName: String = "CharacterInput"
@@ -287,7 +287,7 @@ object Client {
   object CharacterInput {
     implicit val encoder: ArgEncoder[CharacterInput] = new ArgEncoder[CharacterInput] {
       override def encode(value: CharacterInput): Value =
-        ObjectValue(List("wait" -> implicitly[ArgEncoder[String]].encode(value.wait_)))
+        __ObjectValue(List("wait" -> implicitly[ArgEncoder[String]].encode(value.wait_)))
       override def typeName: String = "CharacterInput"
     }
   }
