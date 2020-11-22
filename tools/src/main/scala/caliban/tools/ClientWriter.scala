@@ -75,7 +75,7 @@ object ClientWriter {
       """import caliban.client.Operations._
         |""".stripMargin
     else ""}${if (enums.nonEmpty || inputs.nonEmpty)
-      """import caliban.client.Value._
+      """import caliban.client.__Value._
         |""".stripMargin
     else ""}"""
 
@@ -129,8 +129,8 @@ object ClientWriter {
     s"""case class ${typedef.name}(${writeArgumentFields(typedef.fields)})
        |object ${typedef.name} {
        |  implicit val encoder: ArgEncoder[${typedef.name}] = new ArgEncoder[${typedef.name}] {
-       |    override def encode(value: ${typedef.name}): Value =
-       |      ObjectValue(List(${typedef.fields
+       |    override def encode(value: ${typedef.name}): __Value =
+       |      __ObjectValue(List(${typedef.fields
          .map(f => s""""${f.name}" -> ${writeInputValue(f.ofType, s"value.${safeName(f.name)}", typedef.name)}""")
          .mkString(", ")}))
        |    override def typeName: String = "${typedef.name}"
@@ -143,11 +143,11 @@ object ClientWriter {
         if (name == typeName) s"encode($fieldName)"
         else s"implicitly[ArgEncoder[${mapTypeName(name)}]].encode($fieldName)"
       case NamedType(name, false) =>
-        s"$fieldName.fold(NullValue: Value)(value => ${writeInputValue(NamedType(name, nonNull = true), "value", typeName)})"
+        s"$fieldName.fold(__NullValue: __Value)(value => ${writeInputValue(NamedType(name, nonNull = true), "value", typeName)})"
       case ListType(ofType, true) =>
-        s"ListValue($fieldName.map(value => ${writeInputValue(ofType, "value", typeName)}))"
+        s"__ListValue($fieldName.map(value => ${writeInputValue(ofType, "value", typeName)}))"
       case ListType(ofType, false) =>
-        s"$fieldName.fold(NullValue: Value)(value => ${writeInputValue(ListType(ofType, nonNull = true), "value", typeName)})"
+        s"$fieldName.fold(__NullValue: __Value)(value => ${writeInputValue(ListType(ofType, nonNull = true), "value", typeName)})"
     }
 
   def writeEnum(typedef: EnumTypeDefinition): String =
@@ -159,14 +159,14 @@ object ClientWriter {
       
           implicit val decoder: ScalarDecoder[${typedef.name}] = {
             ${typedef.enumValuesDefinition
-      .map(v => s"""case StringValue ("${v.enumValue}") => Right(${typedef.name}.${safeName(v.enumValue)})""")
+      .map(v => s"""case __StringValue ("${v.enumValue}") => Right(${typedef.name}.${safeName(v.enumValue)})""")
       .mkString("\n")}
             case other => Left(DecodingError(s"Can't build ${typedef.name} from input $$other"))
           }
           implicit val encoder: ArgEncoder[${typedef.name}] = new ArgEncoder[${typedef.name}] {
-            override def encode(value: ${typedef.name}): Value = value match {
+            override def encode(value: ${typedef.name}): __Value = value match {
               ${typedef.enumValuesDefinition
-      .map(v => s"""case ${typedef.name}.${safeName(v.enumValue)} => EnumValue("${v.enumValue}")""")
+      .map(v => s"""case ${typedef.name}.${safeName(v.enumValue)} => __EnumValue("${v.enumValue}")""")
       .mkString("\n")}
             }
             override def typeName: String = "${typedef.name}"
