@@ -19,6 +19,7 @@ object ConsoleHelper {
             |${item("~compile")} - Compile all modules with file-watch enabled
             |${item("test")} - Run the unit test suite
             |${item("fmt")} - Run scalafmt on the entire project
+            |${item("scripted")} - Run the scripted test suite
             |${item("examples/runMain caliban.http4s.ExampleApp")} - Start the example server (http4s based)
             |${item("examples/runMain caliban.akkahttp.ExampleApp")} - Start the example server (akka-http based)
             |${item("benchmarks/jmh:run")} - Run the benchmarks
