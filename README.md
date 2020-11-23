@@ -35,3 +35,4 @@ Here is a partial list of companies using Caliban in production.
 Want to see your company here? [Submit a PR](https://github.com/ghostdogpr/caliban/edit/master/README.md)!
 
 * [sanjagh.pro](https://sanjagh.pro)
+* [LeadIQ](https://leadiq.com)
