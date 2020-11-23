@@ -30,7 +30,13 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
   /**
    * Maps the result of this selection to a new type `B`
    */
-  def map[B](f: A => B): SelectionBuilder[Origin, B] = SelectionBuilder.Mapping(self, f)
+  def map[B](f: A => B): SelectionBuilder[Origin, B] = mapEither(f andThen (Right(_)))
+
+  /**
+   * Maps the result of this selection to a new type `B` or make the decoding fail with a DecodingError
+   */
+  def mapEither[B](f: A => Either[DecodingError, B]): SelectionBuilder[Origin, B] =
+    SelectionBuilder.Mapping(self, f)
 
   /**
    * Add the given directive to the selection
@@ -376,9 +382,9 @@ object SelectionBuilder {
 
     override def withAlias(alias: String): SelectionBuilder[Origin, (A, B)] = self // makes no sense, do nothing
   }
-  case class Mapping[Origin, A, B](builder: SelectionBuilder[Origin, A], f: A => B)
+  case class Mapping[Origin, A, B](builder: SelectionBuilder[Origin, A], f: A => Either[DecodingError, B])
       extends SelectionBuilder[Origin, B] {
-    override def fromGraphQL(value: __Value): Either[DecodingError, B] = builder.fromGraphQL(value).map(f)
+    override def fromGraphQL(value: __Value): Either[DecodingError, B] = builder.fromGraphQL(value).flatMap(f)
 
     override def withDirective(directive: Directive): SelectionBuilder[Origin, B] =
       Mapping(builder.withDirective(directive), f)
