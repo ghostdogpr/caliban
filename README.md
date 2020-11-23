@@ -27,3 +27,11 @@ The design principles behind the library are the following:
 ### Consult the [Documentation](https://ghostdogpr.github.io/caliban/docs/) to learn how to use Caliban.
 
 ### Any questions? Head up to the [#caliban](https://discordapp.com/channels/629491597070827530/633200096393166868) channel on [ZIO Discord](https://discord.gg/EYpumuv).
+
+### Adopters
+
+Here is a partial list of companies using Caliban in production.
+
+Want to see your company here? [Submit a PR](https://github.com/ghostdogpr/caliban/edit/master/README.md)!
+
+* [sanjagh.pro](https://sanjagh.pro)
