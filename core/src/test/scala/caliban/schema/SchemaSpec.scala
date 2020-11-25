@@ -106,6 +106,14 @@ object SchemaSpec extends DefaultRunnableSpec {
         assert(introspectSubscription[Query].fields(__DeprecatedArgs()).flatMap(_.headOption).map(_.`type`().kind))(
           isSome(equalTo(__TypeKind.SCALAR))
         )
+      },
+      test("rename") {
+        case class Something(b: Int)
+        case class Query(something: Something)
+
+        implicit val somethingSchema: Schema[Any, Something] = Schema.gen[Something].rename("SomethingElse")
+
+        assert(Types.innerType(introspectSubscription[Something]).name)(isSome(equalTo("SomethingElse")))
       }
     )
 
