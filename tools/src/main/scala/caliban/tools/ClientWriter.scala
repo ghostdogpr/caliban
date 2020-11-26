@@ -107,35 +107,20 @@ object ClientWriter {
        |}""".stripMargin
   }
 
-  private def addSufixesClashesNames(list: List[String]): Map[String, String] = {
-
-    def addSufix(str: String, index: Int) = {
-      val sufix = "_" * index
-      s"$str$sufix"
-    }
-
-    @tailrec
-    def loop(index: Int, remaining: List[String], acc: Map[String, String]): Map[String, String] =
-      remaining match {
-        case Nil            => acc
-        case (head :: tail) => loop(index + 1, tail, acc + (head -> addSufix(head, index)))
-      }
-
-    loop(1, list, Map.empty)
-  }
-
   private def getMappingsClashedNames(typeNames: List[String]): Map[String, String] =
     typeNames
       .map(name => name.toLowerCase -> name)
       .groupBy(_._1)
-      .flatMap {
-        case (_, it) =>
-          if (it.size > 1) {
-            Some(addSufixesClashesNames(it.sorted.tail.map(_._2)))
-          } else None
+      .collect {
+        case (_, (_ :: typeNamesToRename)) if typeNamesToRename.nonEmpty =>
+          typeNamesToRename.zipWithIndex.map {
+            case (((_, originalTypeName), index)) =>
+              val suffix = "_" * (index + 1)
+              originalTypeName -> s"$originalTypeName$suffix"
+          }.toMap
       }
       .reduceOption(_ ++ _)
-      .getOrElse(Map.empty[String, String])
+      .getOrElse(Map.empty)
 
   private def safeTypeName(typeName: String, mappingClashedTypeNames: Map[String, String]): String =
     mappingClashedTypeNames.getOrElse(typeName, typeName)
