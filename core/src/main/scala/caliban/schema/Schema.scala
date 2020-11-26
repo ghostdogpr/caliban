@@ -379,7 +379,7 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
 
 }
 
-trait DerivationSchema[R] extends LowPriorityExportedSchema {
+trait DerivationSchema[R] extends LowPriorityDerivedSchema {
 
   /**
    * Default naming logic for input types.
@@ -570,14 +570,14 @@ trait DerivationSchema[R] extends LowPriorityExportedSchema {
   private def getDescription[Typeclass[_], Type](ctx: ReadOnlyParam[Typeclass, Type]): Option[String] =
     getDescription(ctx.annotations)
 
-  implicit def autogen[T]: Exported[Typeclass[T]] = macro ExportedMagnolia.exportedMagnolia[Typeclass, T]
+  implicit def autogen[T]: Derived[Typeclass[T]] = macro DerivedMagnolia.derivedMagnolia[Typeclass, T]
 
-  def gen[T](implicit schema: Exported[Typeclass[T]]): Typeclass[T] = schema.instance
+  def gen[T](implicit schema: Derived[Typeclass[T]]): Typeclass[T] = schema.instance
 
 }
 
-private[schema] trait LowPriorityExportedSchema {
-  implicit def exportedSchema[R, T](implicit exported: Exported[Schema[R, T]]): Schema[R, T] = exported.instance
+private[schema] trait LowPriorityDerivedSchema {
+  implicit def derivedSchema[R, T](implicit derived: Derived[Schema[R, T]]): Schema[R, T] = derived.instance
 }
 
 trait TemporalSchema {
