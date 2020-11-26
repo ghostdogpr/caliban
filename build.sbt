@@ -7,6 +7,8 @@ val akkaVersion           = "2.6.10"
 val catsEffectVersion     = "2.2.0"
 val circeVersion          = "0.13.0"
 val http4sVersion         = "0.21.12"
+val magnoliaVersion       = "0.17.0"
+val mercatorVersion       = "0.2.1"
 val playVersion           = "2.8.5"
 val playJsonVersion       = "2.9.1"
 val silencerVersion       = "1.7.1"
@@ -58,6 +60,7 @@ lazy val root = project
   .settings(skip in publish := true)
   .settings(crossScalaVersions := Nil)
   .aggregate(
+    macros,
     core,
     finch,
     http4s,
@@ -74,6 +77,17 @@ lazy val root = project
     federation
   )
 
+lazy val macros = project
+  .in(file("macros"))
+  .settings(name := "caliban-macros")
+  .settings(commonSettings)
+  .settings(
+    libraryDependencies ++= Seq(
+      "com.propensive" %% "magnolia" % magnoliaVersion,
+      "com.propensive" %% "mercator" % mercatorVersion
+    )
+  )
+
 lazy val core = project
   .in(file("core"))
   .settings(name := "caliban")
@@ -82,8 +96,8 @@ lazy val core = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "com.lihaoyi"       %% "fastparse"    % "2.3.0",
-      "com.propensive"    %% "magnolia"     % "0.17.0",
-      "com.propensive"    %% "mercator"     % "0.2.1",
+      "com.propensive"    %% "magnolia"     % magnoliaVersion,
+      "com.propensive"    %% "mercator"     % mercatorVersion,
       "dev.zio"           %% "zio"          % zioVersion,
       "dev.zio"           %% "zio-streams"  % zioVersion,
       "dev.zio"           %% "zio-query"    % zqueryVersion,
@@ -94,6 +108,7 @@ lazy val core = project
       compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
     )
   )
+  .dependsOn(macros)
   .settings(
     fork in Test := true,
     fork in run := true
