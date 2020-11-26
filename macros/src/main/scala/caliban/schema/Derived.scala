@@ -11,4 +11,4 @@ If you use a custom type as an argument, you also need to provide an implicit Ar
 See https://ghostdogpr.github.io/caliban/docs/schema.html for more information.
 """
 )
-case class Derived[T](instance: T) extends AnyVal
+case class Derived[T](schema: T) extends AnyVal

@@ -572,12 +572,12 @@ trait DerivationSchema[R] extends LowPriorityDerivedSchema {
 
   implicit def autogen[T]: Derived[Typeclass[T]] = macro DerivedMagnolia.derivedMagnolia[Typeclass, T]
 
-  def gen[T](implicit schema: Derived[Schema[R, T]]): Schema[R, T] = schema.instance
+  def gen[T](implicit derived: Derived[Schema[R, T]]): Schema[R, T] = derived.schema
 
 }
 
 private[schema] trait LowPriorityDerivedSchema {
-  implicit def derivedSchema[R, T](implicit derived: Derived[Schema[R, T]]): Schema[R, T] = derived.instance
+  implicit def derivedSchema[R, T](implicit derived: Derived[Schema[R, T]]): Schema[R, T] = derived.schema
 }
 
 trait TemporalSchema {
