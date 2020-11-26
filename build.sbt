@@ -152,6 +152,7 @@ lazy val codegenSbt = project
     },
     scriptedBufferLog := false,
     scriptedDependencies := {
+      (macros / publishLocal).value
       (core / publishLocal).value
       (clientJVM / publishLocal).value
       (tools / publishLocal).value
