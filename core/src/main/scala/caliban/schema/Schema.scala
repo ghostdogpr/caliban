@@ -570,8 +570,17 @@ trait DerivationSchema[R] extends LowPriorityDerivedSchema {
   private def getDescription[Typeclass[_], Type](ctx: ReadOnlyParam[Typeclass, Type]): Option[String] =
     getDescription(ctx.annotations)
 
-  implicit def autogen[T]: Derived[Typeclass[T]] = macro DerivedMagnolia.derivedMagnolia[Typeclass, T]
+  /**
+   * Generates an instance of `Schema` for the given type T.
+   * This should be used only if T is a case class or a sealed trait.
+   */
+  implicit def genMacro[T]: Derived[Typeclass[T]] = macro DerivedMagnolia.derivedMagnolia[Typeclass, T]
 
+  /**
+   * Returns an instance of `Schema` for the given type T.
+   * For a case class or sealed trait, you can call `genMacro[T].schema` instead to get more details if the
+   * schema can't be derived.
+   */
   def gen[T](implicit derived: Derived[Schema[R, T]]): Schema[R, T] = derived.schema
 
 }
