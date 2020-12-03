@@ -35,6 +35,7 @@ Here is a partial list of companies using Caliban in production.
 Want to see your company here? [Submit a PR](https://github.com/ghostdogpr/caliban/edit/master/README.md)!
 
 * [Carvana](https://www.carvana.com)
+* [Credimi](https://www.credimi.com)
 * [LeadIQ](https://leadiq.com)
 * [Sanjagh.pro](https://sanjagh.pro)
 
