@@ -27,12 +27,39 @@ import zio.{ random, CancelableFuture, Fiber, Has, IO, RIO, Ref, Runtime, Schedu
 
 trait PlayAdapter[R <: Has[_] with Blocking with Random] {
 
+  val `application/graphql` = "application/graphql"
   def actionBuilder: ActionBuilder[Request, AnyContent]
   def parse: PlayBodyParsers
   def requestWrapper: RequestWrapper[R]
 
   implicit def writableGraphQLResponse[E](implicit wr: Writes[GraphQLResponse[E]]): Writeable[GraphQLResponse[E]] =
     Writeable.writeableOf_JsValue.map(wr.writes)
+
+
+  /**
+   *
+   * private def graphqlBodyParser(implicit ec: ExecutionContext): BodyParser[GraphQLRequest] = parse.using { rh =>
+   *     rh.contentType match {
+   * case Some(`application/graphql`) => parse.text.map(text => GraphQLRequest(query = Some(text)))
+   * case _                           => parse.json[GraphQLRequest]
+   * }
+   * }
+   *
+   *
+   * def makePostAction[E](
+   * interpreter: GraphQLInterpreter[R, E],
+   * skipValidation: Boolean = false,
+   * enableIntrospection: Boolean = true
+   * )(implicit runtime: Runtime[R]): Action[GraphQLRequest] =
+   *actionBuilder.async(graphqlBodyParser(runtime.platform.executor.asEC)) { req =>
+   * executeRequest(
+   * interpreter,
+   * req,
+   * skipValidation,
+   * enableIntrospection
+   * )
+   * }
+   */
 
   def makePostAction[E](
     interpreter: GraphQLInterpreter[R, E],

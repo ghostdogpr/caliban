@@ -202,7 +202,7 @@ object Client {
           equalTo(
             """import caliban.client.CalibanClientError.DecodingError
 import caliban.client._
-import caliban.client.Value._
+import caliban.client.__Value._
 
 object Client {
 
@@ -213,16 +213,16 @@ object Client {
     case object BELT  extends Origin
 
     implicit val decoder: ScalarDecoder[Origin] = {
-      case StringValue("EARTH") => Right(Origin.EARTH)
-      case StringValue("MARS")  => Right(Origin.MARS)
-      case StringValue("BELT")  => Right(Origin.BELT)
-      case other                => Left(DecodingError(s"Can't build Origin from input $other"))
+      case __StringValue("EARTH") => Right(Origin.EARTH)
+      case __StringValue("MARS")  => Right(Origin.MARS)
+      case __StringValue("BELT")  => Right(Origin.BELT)
+      case other                  => Left(DecodingError(s"Can't build Origin from input $other"))
     }
     implicit val encoder: ArgEncoder[Origin] = new ArgEncoder[Origin] {
-      override def encode(value: Origin): Value = value match {
-        case Origin.EARTH => EnumValue("EARTH")
-        case Origin.MARS  => EnumValue("MARS")
-        case Origin.BELT  => EnumValue("BELT")
+      override def encode(value: Origin): __Value = value match {
+        case Origin.EARTH => __EnumValue("EARTH")
+        case Origin.MARS  => __EnumValue("MARS")
+        case Origin.BELT  => __EnumValue("BELT")
       }
       override def typeName: String = "Origin"
     }
@@ -245,18 +245,18 @@ object Client {
         assertM(gen(schema))(
           equalTo(
             """import caliban.client._
-import caliban.client.Value._
+import caliban.client.__Value._
 
 object Client {
 
   case class CharacterInput(name: String, nicknames: List[String] = Nil)
   object CharacterInput {
     implicit val encoder: ArgEncoder[CharacterInput] = new ArgEncoder[CharacterInput] {
-      override def encode(value: CharacterInput): Value =
-        ObjectValue(
+      override def encode(value: CharacterInput): __Value =
+        __ObjectValue(
           List(
             "name"      -> implicitly[ArgEncoder[String]].encode(value.name),
-            "nicknames" -> ListValue(value.nicknames.map(value => implicitly[ArgEncoder[String]].encode(value)))
+            "nicknames" -> __ListValue(value.nicknames.map(value => implicitly[ArgEncoder[String]].encode(value)))
           )
         )
       override def typeName: String = "CharacterInput"
@@ -279,15 +279,15 @@ object Client {
         assertM(gen(schema))(
           equalTo(
             """import caliban.client._
-import caliban.client.Value._
+import caliban.client.__Value._
 
 object Client {
 
   case class CharacterInput(wait_ : String)
   object CharacterInput {
     implicit val encoder: ArgEncoder[CharacterInput] = new ArgEncoder[CharacterInput] {
-      override def encode(value: CharacterInput): Value =
-        ObjectValue(List("wait" -> implicitly[ArgEncoder[String]].encode(value.wait_)))
+      override def encode(value: CharacterInput): __Value =
+        __ObjectValue(List("wait" -> implicitly[ArgEncoder[String]].encode(value.wait_)))
       override def typeName: String = "CharacterInput"
     }
   }
@@ -477,6 +477,93 @@ object Client {
   type Query = RootQuery
   object Query {
     def test: SelectionBuilder[RootQuery, Json] = Field("test", Scalar())
+  }
+
+}
+"""
+          )
+        )
+      },
+      testM("case-sensitive name uniqueness in enum's values") {
+        val schema =
+          """
+              enum Episode {
+                NEWHOPE
+                EMPIRE
+                JEDI
+                jedi
+              }
+            """.stripMargin
+        assertM(gen(schema))(
+          equalTo(
+            """import caliban.client.CalibanClientError.DecodingError
+import caliban.client._
+import caliban.client.__Value._
+
+object Client {
+
+  sealed trait Episode extends scala.Product with scala.Serializable
+  object Episode {
+    case object NEWHOPE extends Episode
+    case object EMPIRE  extends Episode
+    case object JEDI    extends Episode
+    case object jedi_   extends Episode
+
+    implicit val decoder: ScalarDecoder[Episode] = {
+      case __StringValue("NEWHOPE") => Right(Episode.NEWHOPE)
+      case __StringValue("EMPIRE")  => Right(Episode.EMPIRE)
+      case __StringValue("JEDI")    => Right(Episode.JEDI)
+      case __StringValue("jedi")    => Right(Episode.jedi_)
+      case other                    => Left(DecodingError(s"Can't build Episode from input $other"))
+    }
+    implicit val encoder: ArgEncoder[Episode] = new ArgEncoder[Episode] {
+      override def encode(value: Episode): __Value = value match {
+        case Episode.NEWHOPE => __EnumValue("NEWHOPE")
+        case Episode.EMPIRE  => __EnumValue("EMPIRE")
+        case Episode.JEDI    => __EnumValue("JEDI")
+        case Episode.jedi_   => __EnumValue("jedi")
+      }
+      override def typeName: String = "Episode"
+    }
+  }
+
+}
+"""
+          )
+        )
+      },
+      testM("case-insensitive name uniqueness in 2 basic objects") {
+        val schema =
+          """
+             type Character {
+               name: String!
+               nicknames: [String!]!
+             }
+
+             type character {
+               name: String!
+               nicknames: [String!]!
+             }
+            """.stripMargin
+
+        assertM(gen(schema))(
+          equalTo(
+            """import caliban.client.FieldBuilder._
+import caliban.client.SelectionBuilder._
+import caliban.client._
+
+object Client {
+
+  type Character
+  object Character {
+    def name: SelectionBuilder[Character, String]            = Field("name", Scalar())
+    def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
+  }
+
+  type character_
+  object character_ {
+    def name: SelectionBuilder[character_, String]            = Field("name", Scalar())
+    def nicknames: SelectionBuilder[character_, List[String]] = Field("nicknames", ListOf(Scalar()))
   }
 
 }

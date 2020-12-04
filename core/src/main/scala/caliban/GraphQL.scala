@@ -26,6 +26,9 @@ trait GraphQL[-R] { self =>
   protected val wrappers: List[Wrapper[R]]
   protected val additionalDirectives: List[__Directive]
 
+  private[caliban] def validateRootSchema: IO[ValidationError, RootSchema[R]] =
+    Validator.validateSchema(schemaBuilder)
+
   /**
    * Returns a string that renders the API types into the GraphQL format.
    */
@@ -59,68 +62,66 @@ trait GraphQL[-R] { self =>
    * Fails with a [[caliban.CalibanError.ValidationError]] if the schema is invalid.
    */
   final def interpreter: IO[ValidationError, GraphQLInterpreter[R, CalibanError]] =
-    Validator
-      .validateSchema(schemaBuilder)
-      .map { schema =>
-        lazy val rootType =
-          RootType(
-            schema.query.opType,
-            schema.mutation.map(_.opType),
-            schema.subscription.map(_.opType),
-            additionalDirectives
-          )
-        lazy val introspectionRootSchema: RootSchema[Any] = Introspector.introspect(rootType)
-        lazy val introspectionRootType: RootType          = RootType(introspectionRootSchema.query.opType, None, None)
+    validateRootSchema.map { schema =>
+      lazy val rootType =
+        RootType(
+          schema.query.opType,
+          schema.mutation.map(_.opType),
+          schema.subscription.map(_.opType),
+          additionalDirectives
+        )
+      lazy val introspectionRootSchema: RootSchema[Any] = Introspector.introspect(rootType)
+      lazy val introspectionRootType: RootType          = RootType(introspectionRootSchema.query.opType, None, None)
 
-        new GraphQLInterpreter[R, CalibanError] {
-          override def check(query: String): IO[CalibanError, Unit] =
-            for {
-              document       <- Parser.parseQuery(query)
-              intro          = Introspector.isIntrospection(document)
-              typeToValidate = if (intro) introspectionRootType else rootType
-              _              <- Validator.validate(document, typeToValidate)
-            } yield ()
+      new GraphQLInterpreter[R, CalibanError] {
+        override def check(query: String): IO[CalibanError, Unit] =
+          for {
+            document       <- Parser.parseQuery(query)
+            intro          = Introspector.isIntrospection(document)
+            typeToValidate = if (intro) introspectionRootType else rootType
+            _              <- Validator.validate(document, typeToValidate)
+          } yield ()
 
-          override def executeRequest(
-            request: GraphQLRequest,
-            skipValidation: Boolean,
-            enableIntrospection: Boolean
-          ): URIO[R, GraphQLResponse[CalibanError]] =
-            decompose(wrappers).flatMap {
-              case (overallWrappers, parsingWrappers, validationWrappers, executionWrappers, fieldWrappers) =>
-                wrap((request: GraphQLRequest) =>
-                  (for {
-                    doc   <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
-                    intro = Introspector.isIntrospection(doc)
-                    _ <- IO.when(intro && !enableIntrospection) {
-                          IO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
-                        }
-                    typeToValidate  = if (intro) introspectionRootType else rootType
-                    schemaToExecute = if (intro) introspectionRootSchema else schema
-                    validate = (doc: Document) =>
-                      Validator
-                        .prepare(
-                          doc,
-                          typeToValidate,
-                          schemaToExecute,
-                          request.operationName,
-                          request.variables.getOrElse(Map()),
-                          skipValidation
-                        )
-                    executionRequest <- wrap(validate)(validationWrappers, doc)
-                    op = executionRequest.operationType match {
-                      case OperationType.Query        => schemaToExecute.query
-                      case OperationType.Mutation     => schemaToExecute.mutation.getOrElse(schemaToExecute.query)
-                      case OperationType.Subscription => schemaToExecute.subscription.getOrElse(schemaToExecute.query)
-                    }
-                    execute = (req: ExecutionRequest) =>
-                      Executor.executeRequest(req, op.plan, request.variables.getOrElse(Map()), fieldWrappers)
-                    result <- wrap(execute)(executionWrappers, executionRequest)
-                  } yield result).catchAll(Executor.fail)
-                )(overallWrappers, request)
-            }
-        }
+        override def executeRequest(
+          request: GraphQLRequest,
+          skipValidation: Boolean,
+          enableIntrospection: Boolean
+        ): URIO[R, GraphQLResponse[CalibanError]] =
+          decompose(wrappers).flatMap {
+            case (overallWrappers, parsingWrappers, validationWrappers, executionWrappers, fieldWrappers) =>
+              wrap((request: GraphQLRequest) =>
+                (for {
+                  doc   <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
+                  intro = Introspector.isIntrospection(doc)
+                  _ <- IO.when(intro && !enableIntrospection) {
+                        IO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
+                      }
+                  typeToValidate  = if (intro) introspectionRootType else rootType
+                  schemaToExecute = if (intro) introspectionRootSchema else schema
+                  validate = (doc: Document) =>
+                    Validator
+                      .prepare(
+                        doc,
+                        typeToValidate,
+                        schemaToExecute,
+                        request.operationName,
+                        request.variables.getOrElse(Map()),
+                        skipValidation
+                      )
+                  executionRequest <- wrap(validate)(validationWrappers, doc)
+                  op = executionRequest.operationType match {
+                    case OperationType.Query        => schemaToExecute.query
+                    case OperationType.Mutation     => schemaToExecute.mutation.getOrElse(schemaToExecute.query)
+                    case OperationType.Subscription => schemaToExecute.subscription.getOrElse(schemaToExecute.query)
+                  }
+                  execute = (req: ExecutionRequest) =>
+                    Executor.executeRequest(req, op.plan, request.variables.getOrElse(Map()), fieldWrappers)
+                  result <- wrap(execute)(executionWrappers, executionRequest)
+                } yield result).catchAll(Executor.fail)
+              )(overallWrappers, request)
+          }
       }
+    }
 
   /**
    * Attaches a function that will wrap one of the stages of query processing

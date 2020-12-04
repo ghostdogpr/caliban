@@ -203,6 +203,31 @@ object ExecutionSpec extends DefaultRunnableSpec {
           api.interpreter.flatMap(_.execute(query, None, Map("term" -> StringValue("search")))).map(_.asJson.noSpaces)
         )(equalTo("""{"data":{"getId":null}}"""))
       },
+      testM("field function") {
+        import io.circe.syntax._
+
+        case class Character(name: String = "Bob")
+        case class Test(character: Field => Character)
+        val api   = graphQL(RootResolver(Test(field => Character())))
+        val query = """query test { character { name } }"""
+
+        assertM(
+          api.interpreter.flatMap(_.execute(query, None, Map())).map(_.asJson.noSpaces)
+        )(equalTo("""{"data":{"character":{"name":"Bob"}}}"""))
+      },
+      testM("field function with input") {
+        import io.circe.syntax._
+
+        case class NameInput(name: String)
+        case class Character(name: String)
+        case class Test(character: Field => NameInput => Character)
+        val api   = graphQL(RootResolver(Test(field => (input) => Character(input.name))))
+        val query = """query test { character(name: "Bob") { name }}"""
+
+        assertM(
+          api.interpreter.flatMap(_.execute(query, None, Map())).map(_.asJson.noSpaces)
+        )(equalTo("""{"data":{"character":{"name":"Bob"}}}"""))
+      },
       testM("error on missing required variables") {
         import io.circe.syntax._
 

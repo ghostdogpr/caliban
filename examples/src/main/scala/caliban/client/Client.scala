@@ -4,7 +4,7 @@ import caliban.client.CalibanClientError.DecodingError
 import caliban.client.FieldBuilder._
 import caliban.client.SelectionBuilder._
 import caliban.client.Operations._
-import caliban.client.Value._
+import caliban.client.__Value._
 
 object Client {
 
@@ -15,16 +15,16 @@ object Client {
     case object MARS  extends Origin
 
     implicit val decoder: ScalarDecoder[Origin] = {
-      case StringValue("BELT")  => Right(Origin.BELT)
-      case StringValue("EARTH") => Right(Origin.EARTH)
-      case StringValue("MARS")  => Right(Origin.MARS)
-      case other                => Left(DecodingError(s"Can't build Origin from input $other"))
+      case __StringValue("BELT")  => Right(Origin.BELT)
+      case __StringValue("EARTH") => Right(Origin.EARTH)
+      case __StringValue("MARS")  => Right(Origin.MARS)
+      case other                  => Left(DecodingError(s"Can't build Origin from input $other"))
     }
     implicit val encoder: ArgEncoder[Origin] = new ArgEncoder[Origin] {
-      override def encode(value: Origin): Value = value match {
-        case Origin.BELT  => EnumValue("BELT")
-        case Origin.EARTH => EnumValue("EARTH")
-        case Origin.MARS  => EnumValue("MARS")
+      override def encode(value: Origin): __Value = value match {
+        case Origin.BELT  => __EnumValue("BELT")
+        case Origin.EARTH => __EnumValue("EARTH")
+        case Origin.MARS  => __EnumValue("MARS")
       }
       override def typeName: String = "Origin"
     }

@@ -1,0 +1,73 @@
+# Schema
+schema {
+    query: Q
+}
+
+# Query
+type Q {
+    # nested object type
+    characters: [Character!]!
+    # nested object type with argument
+    character(name: String!): Character
+
+    # default arguments for optional and list arguments
+    characters2(
+        first: Int!
+        last: Int
+        origins: [String]!
+    ): String
+
+    testJson: Json!
+}
+
+# Input object
+input CharacterInput {
+    name: String!
+    nicknames: [String!]!
+    nicknames2: [String]!
+    nicknames3: [String!]
+    nicknames4: [String]
+
+    # reserved name
+    wait: String!
+}
+
+# Object
+type Character {
+    name: String!
+    nicknames: [String!]!
+
+    # reserved name
+    type: String!
+
+    # enum
+    origin: Origin
+
+    # union
+    role: Role
+
+    # Deperecated field + comment
+    oldName: String! @deprecated(reason: "blah")
+    oldNicknames: [String!]! @deprecated
+    # Deprecated field + comment newline
+    oldName2: String! @deprecated(reason: "foo\nbar")
+}
+
+# Enum
+enum Origin {
+    EARTH
+    MARS
+    BELT
+}
+
+# Union
+union Role = Captain | Pilot
+type Captain {
+    shipName: String!
+}
+type Pilot {
+    shipName: String!
+}
+
+# Json
+scalar Json

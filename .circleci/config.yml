@@ -21,7 +21,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.12.12! core/test http4s/compile akkaHttp/compile finch/compile play/compile examples/compile catsInterop/compile benchmarks/compile tools/test codegenSbt/test clientJVM/test monixInterop/compile tapirInterop/test federation/test
+      - run: sbt ++2.12.12! core/test http4s/compile akkaHttp/compile finch/compile play/compile examples/compile catsInterop/compile benchmarks/compile tools/test codegenSbt/test clientJVM/test monixInterop/compile tapirInterop/test federation/test codegenSbt/scripted
       - save_cache:
           key: sbtcache
           paths:
