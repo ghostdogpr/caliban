@@ -2,19 +2,22 @@ package caliban.akkahttp
 
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
-import akka.http.scaladsl.model.{ HttpResponse, StatusCodes }
-import akka.http.scaladsl.server.Directives.{ getFromResource, path, _ }
+import akka.http.scaladsl.model.{HttpResponse, StatusCodes}
+import akka.http.scaladsl.server.Directives.{getFromResource, path, _}
 import akka.http.scaladsl.server.RequestContext
+
 import caliban.AkkaHttpAdapter.ContextWrapper
 import caliban.GraphQL._
 import caliban.RootResolver
 import caliban.interop.circe.AkkaHttpCirceAdapter
 import caliban.schema.GenericSchema
 import zio.internal.Platform
-import zio.{ FiberRef, Has, RIO, Runtime, URIO, ZIO, ZLayer }
-
+import zio.{FiberRef, Has, RIO, Runtime, URIO, ZIO, ZLayer}
 import scala.concurrent.ExecutionContextExecutor
 import scala.io.StdIn
+
+import zio.blocking.Blocking
+import zio.random.Random
 
 object AuthExampleApp extends App with AkkaHttpCirceAdapter {
 
@@ -47,8 +50,8 @@ object AuthExampleApp extends App with AkkaHttpCirceAdapter {
   // pass on so that they are present in the environment for our ContextWrapper(s)
   // For the auth we wrap in an option, but you could just as well use something
   // like AuthToken("__INVALID") or a sealed trait hierarchy with an invalid member
-  val initLayer                       = ZLayer.fromEffect(FiberRef.make(Option.empty[AuthToken]))
-  implicit val runtime: Runtime[Auth] = Runtime.unsafeFromLayer(initLayer, Platform.default)
+  val initLayer                       = ZLayer.fromEffect(FiberRef.make(Option.empty[AuthToken])) ++ Blocking.live ++ Random.live
+  implicit val runtime: Runtime[Auth with Blocking with Random] = Runtime.unsafeFromLayer(initLayer, Platform.default)
 
   val interpreter = runtime.unsafeRun(api.interpreter)
 

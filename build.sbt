@@ -257,8 +257,13 @@ lazy val play = project
   .settings(name := "caliban-play")
   .settings(commonSettings)
   .settings(
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "com.typesafe.play" %% "play" % playVersion
+      "com.typesafe.play"            %% "play"                          % playVersion,
+      "com.typesafe.play"            %% "play-akka-http-server"         % playVersion % "test",
+      "io.circe"                     %% "circe-generic"                 % circeVersion % "test",
+      "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion % "test",
+      "com.softwaremill.sttp.client" %% "circe"                         % sttpVersion % "test"
     )
   )
   .dependsOn(core)

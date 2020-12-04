@@ -3,14 +3,16 @@ package caliban.play
 import caliban.GraphQL.graphQL
 import caliban.PlayAdapter.RequestWrapper
 import caliban.schema.GenericSchema
-import caliban.{ PlayRouter, RootResolver }
+import caliban.{PlayRouter, RootResolver}
 import play.api.Mode
-import play.api.mvc.{ DefaultControllerComponents, RequestHeader, Result, Results }
-import play.core.server.{ AkkaHttpServer, ServerConfig }
+import play.api.mvc.{DefaultControllerComponents, RequestHeader, Result, Results}
+import play.core.server.{AkkaHttpServer, ServerConfig}
 import zio.internal.Platform
-import zio.{ FiberRef, Has, RIO, Runtime, URIO, ZIO, ZLayer }
-
+import zio.{FiberRef, Has, RIO, Runtime, URIO, ZIO, ZLayer}
 import scala.io.StdIn.readLine
+
+import zio.blocking.Blocking
+import zio.random.Random
 
 object AuthExampleApp extends App {
   case class AuthToken(value: String)
@@ -35,8 +37,8 @@ object AuthExampleApp extends App {
   // pass on so that they are present in the environment for our ResultWrapper(s)
   // For the auth we wrap in an option, but you could just as well use something
   // like AuthToken("__INVALID") or a sealed trait hierarchy with an invalid member
-  val initLayer                       = ZLayer.fromEffect(FiberRef.make(Option.empty[AuthToken]))
-  implicit val runtime: Runtime[Auth] = Runtime.unsafeFromLayer(initLayer, Platform.default)
+  val initLayer                       = ZLayer.fromEffect(FiberRef.make(Option.empty[AuthToken])) ++ Blocking.live ++ Random.live
+  implicit val runtime: Runtime[Auth with Blocking with Random] = Runtime.unsafeFromLayer(initLayer, Platform.default)
 
   val interpreter = runtime.unsafeRun(api.interpreter)
 

@@ -8,10 +8,12 @@ import play.api.routing.SimpleRouter
 import play.api.routing.sird._
 import zio.Runtime
 import zio.duration.Duration
-
 import scala.concurrent.ExecutionContext
 
-case class PlayRouter[R, E](
+import zio.blocking.Blocking
+import zio.random.Random
+
+case class PlayRouter[R <: Blocking with Random, E](
   interpreter: GraphQLInterpreter[R, E],
   controllerComponents: ControllerComponents,
   playground: Boolean = true,
