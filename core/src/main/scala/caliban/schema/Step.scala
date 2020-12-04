@@ -35,7 +35,13 @@ object Step {
   }
 }
 
-sealed trait ReducedStep[-R]
+sealed trait ReducedStep[-R] { self =>
+  def isPure: Boolean =
+    self match {
+      case _: PureStep => true
+      case _           => false
+    }
+}
 
 object ReducedStep {
   case class ListStep[-R](steps: List[ReducedStep[R]])                         extends ReducedStep[R]
