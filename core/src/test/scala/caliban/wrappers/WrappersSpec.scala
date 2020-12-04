@@ -42,7 +42,7 @@ object WrappersSpec extends DefaultRunnableSpec {
           counter     <- ref.get
         } yield assert(counter)(equalTo(1))
       },
-      testM("wrapPureValues false") {
+      testM("wrapPureValues true") {
         case class Test(a: Int, b: UIO[Int])
         for {
           ref <- Ref.make[Int](0)
