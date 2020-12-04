@@ -260,6 +260,8 @@ lazy val play = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "com.typesafe.play"            %% "play"                          % playVersion,
+      "dev.zio"                      %% "zio-test"                      % zioVersion % "test",
+      "dev.zio"                      %% "zio-test-sbt"                  % zioVersion % "test",
       "com.typesafe.play"            %% "play-akka-http-server"         % playVersion % "test",
       "io.circe"                     %% "circe-generic"                 % circeVersion % "test",
       "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion % "test",

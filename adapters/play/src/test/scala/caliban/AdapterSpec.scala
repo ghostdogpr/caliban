@@ -1,32 +1,30 @@
 package caliban
 
 import java.io.File
-import java.net.URL
-
-import play.core.server.Server
-import zio.{ Has, Runtime, UIO, ZIO, ZLayer }
-import zio.random.Random
-import caliban.schema.GenericSchema
-import zio.internal.Platform
-import play.api.mvc.DefaultControllerComponents
-import play.api.Mode
-import play.core.server.{ AkkaHttpServer, ServerConfig }
-import zio.clock.Clock
-import zio.test._
-import caliban.GraphQL.graphQL
-import zio.test.environment.TestEnvironment
-import zio.test.Assertion._
-import zio.blocking._
-import java.security.MessageDigest
 import java.math.BigInteger
+import java.net.URL
+import java.security.MessageDigest
 
-import sttp.client._
-import sttp.client.asynchttpclient.zio.{ AsyncHttpClientZioBackend, SttpClient }
+import caliban.GraphQL.graphQL
+import caliban.schema.GenericSchema
+import caliban.uploads._
 import io.circe.generic.auto._
 import io.circe.parser._
-import caliban.uploads._
+import play.api.Mode
+import play.api.mvc.DefaultControllerComponents
+import play.core.server.{ AkkaHttpServer, Server, ServerConfig }
 import play.mvc.Http.MimeTypes
+import sttp.client._
+import sttp.client.asynchttpclient.zio.{ AsyncHttpClientZioBackend, SttpClient }
+import zio.blocking._
+import zio.clock.Clock
 import zio.console.Console
+import zio.internal.Platform
+import zio.random.Random
+import zio.test.Assertion._
+import zio.test._
+import zio.test.environment.TestEnvironment
+import zio.{ Has, Runtime, UIO, ZIO, ZLayer }
 
 case class Response[A](data: A)
 case class UploadFile(uploadFile: TestAPI.File)
@@ -124,7 +122,7 @@ object AdapterSpec extends DefaultRunnableSpec {
   )(server => UIO(server.stop()))
 
   val specLayer: ZLayer[zio.ZEnv, CalibanError.ValidationError, Has[Server]] =
-    (Uploads.empty) >>> apiLayer
+    Uploads.empty >>> apiLayer
 
   val uri = uri"http://localhost:8088/api/graphql"
 
@@ -209,6 +207,6 @@ object AdapterSpec extends DefaultRunnableSpec {
         )
       }
     ).provideCustomLayerShared(AsyncHttpClientZioBackend.layer() ++ specLayer)
-      .mapError(TestFailure.fail _)
+      .mapError(TestFailure.fail)
 
 }
