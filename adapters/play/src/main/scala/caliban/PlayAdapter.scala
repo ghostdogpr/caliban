@@ -10,9 +10,9 @@ import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
 
 import caliban.PlayAdapter.RequestWrapper
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
-import caliban.uploads._
 import caliban.Value.NullValue
 import caliban.interop.play.json.parsingException
+import caliban.uploads._
 import play.api.http.Writeable
 import play.api.libs.json.{ JsValue, Json, Writes }
 import play.api.mvc.Results.Ok
@@ -34,32 +34,6 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
 
   implicit def writableGraphQLResponse[E](implicit wr: Writes[GraphQLResponse[E]]): Writeable[GraphQLResponse[E]] =
     Writeable.writeableOf_JsValue.map(wr.writes)
-
-
-  /**
-   *
-   * private def graphqlBodyParser(implicit ec: ExecutionContext): BodyParser[GraphQLRequest] = parse.using { rh =>
-   *     rh.contentType match {
-   * case Some(`application/graphql`) => parse.text.map(text => GraphQLRequest(query = Some(text)))
-   * case _                           => parse.json[GraphQLRequest]
-   * }
-   * }
-   *
-   *
-   * def makePostAction[E](
-   * interpreter: GraphQLInterpreter[R, E],
-   * skipValidation: Boolean = false,
-   * enableIntrospection: Boolean = true
-   * )(implicit runtime: Runtime[R]): Action[GraphQLRequest] =
-   *actionBuilder.async(graphqlBodyParser(runtime.platform.executor.asEC)) { req =>
-   * executeRequest(
-   * interpreter,
-   * req,
-   * skipValidation,
-   * enableIntrospection
-   * )
-   * }
-   */
 
   def makePostAction[E](
     interpreter: GraphQLInterpreter[R, E],
@@ -84,21 +58,6 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
             skipValidation,
             enableIntrospection
           )
-      }
-    }
-
-  private def makeParser(
-    runtime: Runtime[Blocking with Random]
-  ): BodyParser[Either[GraphQLUploadRequest, GraphQLRequest]] =
-    parse.using { req =>
-      implicit val ec: ExecutionContext = runtime.platform.executor.asEC
-      req.contentType.map(_.toLowerCase(Locale.ENGLISH)) match {
-        case Some("text/json") | Some(MimeTypes.JSON) =>
-          parse.json[GraphQLRequest].map(Right(_))
-        case Some("multipart/form-data") =>
-          uploadFormParser(runtime).map(Left(_))
-        case _ =>
-          parse.error(Future.successful(Results.BadRequest("Invalid content type")))
       }
     }
 
@@ -228,19 +187,6 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
   )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): WebSocket =
     WebSocket.accept(_ => webSocketFlow(interpreter, skipValidation, enableIntrospection, keepAliveTime))
 
-  def makeWakeSocketOrResult[E](
-    interpreter: GraphQLInterpreter[R, E],
-    handleRequestHeader: RequestHeader => Future[Either[Result, Unit]],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    keepAliveTime: Option[Duration] = None
-  )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): WebSocket =
-    WebSocket
-      .acceptOrResult(requestHeader =>
-        handleRequestHeader(requestHeader)
-          .map(_.map(_ => webSocketFlow(interpreter, skipValidation, enableIntrospection, keepAliveTime)))
-      )
-
   private def webSocketFlow[E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean,
@@ -339,6 +285,35 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
       f.onComplete(_ => runtime.unsafeRun(subscriptions.get.flatMap(m => IO.foreach(m.values)(_.interrupt).unit)))
     }
   }
+
+  def makeWakeSocketOrResult[E](
+    interpreter: GraphQLInterpreter[R, E],
+    handleRequestHeader: RequestHeader => Future[Either[Result, Unit]],
+    skipValidation: Boolean = false,
+    enableIntrospection: Boolean = true,
+    keepAliveTime: Option[Duration] = None
+  )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): WebSocket =
+    WebSocket
+      .acceptOrResult(requestHeader =>
+        handleRequestHeader(requestHeader)
+          .map(_.map(_ => webSocketFlow(interpreter, skipValidation, enableIntrospection, keepAliveTime)))
+      )
+
+  private def makeParser(
+    runtime: Runtime[Blocking with Random]
+  ): BodyParser[Either[GraphQLUploadRequest, GraphQLRequest]] =
+    parse.using { req =>
+      implicit val ec: ExecutionContext = runtime.platform.executor.asEC
+      req.contentType.map(_.toLowerCase(Locale.ENGLISH)) match {
+        case Some(`application/graphql`) => parse.text.map(text => GraphQLRequest(query = Some(text))).map(Right(_))
+        case Some("text/json") | Some(MimeTypes.JSON) =>
+          parse.json[GraphQLRequest].map(Right(_))
+        case Some("multipart/form-data") =>
+          uploadFormParser(runtime).map(Left(_))
+        case _ =>
+          parse.error(Future.successful(Results.BadRequest("Invalid content type")))
+      }
+    }
 }
 
 object PlayAdapter {
