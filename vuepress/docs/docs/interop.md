@@ -65,11 +65,11 @@ import caliban.interop.monix.implicits._
 import cats.effect.ExitCode
 import monix.eval.{ Task, TaskApp }
 import monix.execution.Scheduler
-import zio.DefaultRuntime
+import zio.Runtime
 
 object ExampleMonixInterop extends TaskApp {
 
-  implicit val runtime = new DefaultRuntime {}
+  implicit val runtime = Runtime.default
   implicit val monixScheduler: Scheduler = scheduler
 
   case class Queries(numbers: List[Int], randomNumber: Task[Int])
