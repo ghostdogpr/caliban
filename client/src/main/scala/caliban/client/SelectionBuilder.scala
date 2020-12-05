@@ -5,7 +5,7 @@ import caliban.client.CalibanClientError.{ CommunicationError, DecodingError, Se
 import caliban.client.FieldBuilder.Scalar
 import caliban.client.Operations.IsOperation
 import caliban.client.Selection.Directive
-import caliban.client.Value.ObjectValue
+import caliban.client.__Value.__ObjectValue
 import io.circe.parser
 import sttp.client._
 import sttp.client.circe._
@@ -18,7 +18,7 @@ import io.circe.Json
 sealed trait SelectionBuilder[-Origin, +A] { self =>
 
   private[caliban] def toSelectionSet: List[Selection]
-  private[caliban] def fromGraphQL(value: Value): Either[DecodingError, A]
+  private[caliban] def fromGraphQL(value: __Value): Either[DecodingError, A]
 
   /**
    * Combines this selection with another selection, returning a tuple of both results.
@@ -30,7 +30,13 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
   /**
    * Maps the result of this selection to a new type `B`
    */
-  def map[B](f: A => B): SelectionBuilder[Origin, B] = SelectionBuilder.Mapping(self, f)
+  def map[B](f: A => B): SelectionBuilder[Origin, B] = mapEither(f andThen (Right(_)))
+
+  /**
+   * Maps the result of this selection to a new type `B` or make the decoding fail with a DecodingError
+   */
+  def mapEither[B](f: A => Either[DecodingError, B]): SelectionBuilder[Origin, B] =
+    SelectionBuilder.Mapping(self, f)
 
   /**
    * Add the given directive to the selection
@@ -99,8 +105,8 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
                      .map(ex => DecodingError("Json deserialization error", Some(ex)))
           data <- if (parsed.errors.nonEmpty) Left(ServerError(parsed.errors)) else Right(parsed.data)
           objectValue <- data match {
-                          case Some(o: ObjectValue) => Right(o)
-                          case _                    => Left(DecodingError("Result is not an object"))
+                          case Some(o: __ObjectValue) => Right(o)
+                          case _                      => Left(DecodingError("Result is not an object"))
                         }
           result <- fromGraphQL(objectValue)
         } yield (result, parsed.extensions)
@@ -343,9 +349,9 @@ object SelectionBuilder {
     arguments: List[Argument[_]] = Nil,
     directives: List[Directive] = Nil
   ) extends SelectionBuilder[Origin, A] { self =>
-    override def fromGraphQL(value: Value): Either[DecodingError, A] =
+    override def fromGraphQL(value: __Value): Either[DecodingError, A] =
       value match {
-        case ObjectValue(fields) =>
+        case __ObjectValue(fields) =>
           fields.find {
             case (o, _) => alias.getOrElse(name) + math.abs(self.hashCode) == o || alias.contains(o) || name == o
           }.toRight(DecodingError(s"Missing field $name"))
@@ -363,7 +369,7 @@ object SelectionBuilder {
   }
   case class Concat[Origin, A, B](first: SelectionBuilder[Origin, A], second: SelectionBuilder[Origin, B])
       extends SelectionBuilder[Origin, (A, B)] { self =>
-    override def fromGraphQL(value: Value): Either[DecodingError, (A, B)] =
+    override def fromGraphQL(value: __Value): Either[DecodingError, (A, B)] =
       for {
         v1 <- first.fromGraphQL(value)
         v2 <- second.fromGraphQL(value)
@@ -376,9 +382,9 @@ object SelectionBuilder {
 
     override def withAlias(alias: String): SelectionBuilder[Origin, (A, B)] = self // makes no sense, do nothing
   }
-  case class Mapping[Origin, A, B](builder: SelectionBuilder[Origin, A], f: A => B)
+  case class Mapping[Origin, A, B](builder: SelectionBuilder[Origin, A], f: A => Either[DecodingError, B])
       extends SelectionBuilder[Origin, B] {
-    override def fromGraphQL(value: Value): Either[DecodingError, B] = builder.fromGraphQL(value).map(f)
+    override def fromGraphQL(value: __Value): Either[DecodingError, B] = builder.fromGraphQL(value).flatMap(f)
 
     override def withDirective(directive: Directive): SelectionBuilder[Origin, B] =
       Mapping(builder.withDirective(directive), f)
@@ -390,7 +396,7 @@ object SelectionBuilder {
   case class Pure[A](a: A) extends SelectionBuilder[Any, A] { self =>
     override private[caliban] def toSelectionSet = Nil
 
-    override private[caliban] def fromGraphQL(value: Value) = Right(a)
+    override private[caliban] def fromGraphQL(value: __Value) = Right(a)
 
     /**
      * Add the given directive to the selection
@@ -416,8 +422,8 @@ object SelectionBuilder {
   def toGraphQL(
     fields: List[Selection],
     useVariables: Boolean,
-    variables: SMap[String, (Value, String)] = SMap()
-  ): (String, SMap[String, (Value, String)]) = {
+    variables: SMap[String, (__Value, String)] = SMap()
+  ): (String, SMap[String, (__Value, String)]) = {
     val fieldNames = fields.collect { case f: Selection.Field => f }.groupBy(_.name).map { case (k, v) => k -> v.size }
     val (fields2, variables2) = fields
       .foldLeft((List.empty[String], variables)) {

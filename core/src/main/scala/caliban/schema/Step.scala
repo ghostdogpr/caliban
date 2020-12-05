@@ -2,7 +2,7 @@ package caliban.schema
 
 import caliban.CalibanError.ExecutionError
 import caliban.Value.NullValue
-import caliban.execution.FieldInfo
+import caliban.execution.{ Field, FieldInfo }
 import caliban.{ InputValue, ResponseValue }
 import zio.stream.ZStream
 import zio.query.ZQuery
@@ -12,6 +12,7 @@ sealed trait Step[-R]
 object Step {
   case class ListStep[-R](steps: List[Step[R]])                         extends Step[R]
   case class FunctionStep[-R](step: Map[String, InputValue] => Step[R]) extends Step[R]
+  case class MetadataFunctionStep[-R](step: Field => Step[R])           extends Step[R]
   case class ObjectStep[-R](name: String, fields: Map[String, Step[R]]) extends Step[R]
   case class QueryStep[-R](query: ZQuery[R, Throwable, Step[R]])        extends Step[R]
   case class StreamStep[-R](inner: ZStream[R, Throwable, Step[R]])      extends Step[R]
@@ -34,7 +35,13 @@ object Step {
   }
 }
 
-sealed trait ReducedStep[-R]
+sealed trait ReducedStep[-R] { self =>
+  def isPure: Boolean =
+    self match {
+      case _: PureStep => true
+      case _           => false
+    }
+}
 
 object ReducedStep {
   case class ListStep[-R](steps: List[ReducedStep[R]])                         extends ReducedStep[R]

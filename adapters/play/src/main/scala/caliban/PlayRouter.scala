@@ -8,10 +8,12 @@ import play.api.routing.SimpleRouter
 import play.api.routing.sird._
 import zio.Runtime
 import zio.duration.Duration
-
 import scala.concurrent.ExecutionContext
 
-case class PlayRouter[R, E](
+import zio.blocking.Blocking
+import zio.random.Random
+
+case class PlayRouter[R <: Blocking with Random, E](
   interpreter: GraphQLInterpreter[R, E],
   controllerComponents: ControllerComponents,
   playground: Boolean = true,
@@ -30,7 +32,14 @@ case class PlayRouter[R, E](
   implicit val ec: ExecutionContext                              = controllerComponents.executionContext
 
   override def routes: Routes = {
-    case POST(p"/api/graphql") => makePostAction(interpreter, skipValidation, enableIntrospection)
+    case POST(
+        p"/api/graphql" ? q_o"query=$query" & q_o"variables=$variables" & q_o"operationName=$operation" & q_o"extensions=$extensions"
+        ) =>
+      query match {
+        case Some(_) =>
+          makeGetAction(interpreter, skipValidation, enableIntrospection)(query, variables, operation, extensions)
+        case None => makePostAction(interpreter, skipValidation, enableIntrospection)
+      }
     case GET(
         p"/api/graphql" ? q_o"query=$query" & q_o"variables=$variables" & q_o"operationName=$operation" & q_o"extensions=$extensions"
         ) if allowGETRequests =>

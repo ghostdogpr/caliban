@@ -1,0 +1,14 @@
+$ exists project/schema.graphql
+$ absent src/main/scala/Client.scala
+$ absent src/main/scala/client/ClientNameUniqueness.scala
+$ mkdir src/main/scala
+$ mkdir src/main/scala/client
+
+> calibanGenClient project/schema.graphql src/main/scala/Client.scala
+$ exists src/main/scala/Client.scala
+> calibanGenClient project/schema-to-check-name-uniqueness.graphql src/main/scala/client/ClientNameUniqueness.scala --packageName client
+$ exists src/main/scala/client/ClientNameUniqueness.scala
+> calibanGenClient project/gitlab-schema.graphql src/main/scala/client/ClientGitLab.scala --packageName client
+$ exists src/main/scala/client/ClientGitLab.scala
+
+> compile

@@ -54,7 +54,8 @@ object Executor {
               obj.fold(s)(PureStep(_))
             case _ => s
           }
-        case FunctionStep(step) => reduceStep(step(arguments), currentField, Map(), path)
+        case FunctionStep(step)         => reduceStep(step(arguments), currentField, Map(), path)
+        case MetadataFunctionStep(step) => reduceStep(step(currentField), currentField, arguments, path)
         case ListStep(steps) =>
           reduceList(steps.zipWithIndex.map {
             case (step, i) => reduceStep(step, currentField, arguments, Right(i) :: path)
@@ -105,18 +106,15 @@ object Executor {
         ZQuery.fromEffect(errors.update(error :: _)).as(NullValue)
 
       @tailrec
-      def wrap(query: ZQuery[R, CalibanError, ResponseValue])(
+      def wrap(query: ZQuery[R, CalibanError, ResponseValue], isPure: Boolean)(
         wrappers: List[FieldWrapper[R]],
         fieldInfo: FieldInfo
       ): ZQuery[R, CalibanError, ResponseValue] =
         wrappers match {
           case Nil => query
           case wrapper :: tail =>
-            wrap(
-              wrapper
-                .f(query, fieldInfo)
-            )(tail, fieldInfo)
-
+            val q = if (isPure && !wrapper.wrapPureValues) query else wrapper.f(query, fieldInfo)
+            wrap(q, isPure)(tail, fieldInfo)
         }
 
       def loop(step: ReducedStep[R]): ZQuery[R, Nothing, Either[ExecutionError, ResponseValue]] =
@@ -130,7 +128,7 @@ object Executor {
           case ReducedStep.ObjectStep(steps) =>
             val queries = steps.map {
               case (name, step, info) =>
-                wrap(loop(step).flatMap(_.fold(ZQuery.fail(_), ZQuery.succeed(_))))(fieldWrappers, info)
+                wrap(loop(step).flatMap(_.fold(ZQuery.fail(_), ZQuery.succeed(_))), step.isPure)(fieldWrappers, info)
                   .foldM(handleError, ZQuery.succeed(_))
                   .map(name -> _)
             }

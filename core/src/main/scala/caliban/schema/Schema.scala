@@ -8,6 +8,7 @@ import java.util.UUID
 import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue._
 import caliban.Value._
+import caliban.execution.Field
 import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
@@ -86,6 +87,25 @@ trait Schema[-R, T] { self =>
     override def arguments: List[__InputValue]                             = self.arguments
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = self.toType_(isInput, isSubscription)
     override def resolve(value: A): Step[R]                                = self.resolve(f(value))
+  }
+
+  /**
+   * Changes the name of the generated graphql type.
+   * @param name new name for the type
+   * @param inputName new name for the type when it's an input type (by default "Input" is added after the name)
+   */
+  def rename(name: String, inputName: Option[String] = None): Schema[R, T] = new Schema[R, T] {
+    override def optional: Boolean             = self.optional
+    override def arguments: List[__InputValue] = self.arguments
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
+      val newName = if (isInput) inputName.getOrElse(Schema.customizeInputTypeName(name)) else name
+      self.toType_(isInput, isSubscription).copy(name = Some(newName))
+    }
+
+    override def resolve(value: T): Step[R] = self.resolve(value) match {
+      case ObjectStep(_, fields) => ObjectStep(name, fields)
+      case other                 => other
+    }
   }
 }
 
@@ -170,6 +190,13 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
       override def optional: Boolean                                         = ev.optional
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: () => A): Step[R0]                         = FunctionStep(_ => ev.resolve(value()))
+    }
+  implicit def metadataFunctionSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Field => A] =
+    new Schema[R0, Field => A] {
+      override def arguments: List[__InputValue]                             = ev.arguments
+      override def optional: Boolean                                         = ev.optional
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
+      override def resolve(value: Field => A): Step[R0]                      = MetadataFunctionStep(field => ev.resolve(value(field)))
     }
 
   implicit def eitherSchema[RA, RB, A, B](
@@ -294,6 +321,7 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
             .fold(error => QueryStep(ZQuery.fail(error)), value => ev2.resolve(f(value)))
         )
     }
+
   implicit def futureSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Future[A]] =
     effectSchema[R0, R0, R0, Throwable, A].contramap[Future[A]](future => ZIO.fromFuture(_ => future))
   implicit def infallibleEffectSchema[R0, R1 >: R0, R2 >: R0, A](implicit ev: Schema[R2, A]): Schema[R0, URIO[R1, A]] =

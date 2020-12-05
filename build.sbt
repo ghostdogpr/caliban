@@ -4,9 +4,9 @@ val mainScala = "2.12.12"
 val allScala  = Seq("2.13.3", mainScala)
 
 val akkaVersion           = "2.6.10"
-val catsEffectVersion     = "2.2.0"
+val catsEffectVersion     = "2.3.0"
 val circeVersion          = "0.13.0"
-val http4sVersion         = "0.21.11"
+val http4sVersion         = "0.21.13"
 val playVersion           = "2.8.5"
 val playJsonVersion       = "2.9.1"
 val silencerVersion       = "1.7.1"
@@ -14,7 +14,7 @@ val sttpVersion           = "2.2.9"
 val tapirVersion          = "0.16.16"
 val zioVersion            = "1.0.3"
 val zioInteropCatsVersion = "2.2.0.1"
-val zioConfigVersion      = "1.0.0-RC29-1"
+val zioConfigVersion      = "1.0.0-RC31"
 val zqueryVersion         = "0.2.5"
 
 inThisBuild(
@@ -129,6 +129,20 @@ lazy val codegenSbt = project
       "dev.zio" %% "zio-test-sbt" % zioVersion % "test"
     )
   )
+  .enablePlugins(SbtPlugin)
+  .settings(
+    scriptedLaunchOpts := {
+      scriptedLaunchOpts.value ++
+        Seq("-Xmx1024M", "-Dplugin.version=" + version.value)
+    },
+    scriptedBufferLog := false,
+    scriptedDependencies := {
+      (core / publishLocal).value
+      (clientJVM / publishLocal).value
+      (tools / publishLocal).value
+      publishLocal.value
+    }
+  )
   .dependsOn(tools)
 
 lazy val catsInterop = project
@@ -166,7 +180,7 @@ lazy val tapirInterop = project
       "com.softwaremill.sttp.tapir" %% "tapir-core"   % tapirVersion,
       "dev.zio"                     %% "zio-test"     % zioVersion % "test",
       "dev.zio"                     %% "zio-test-sbt" % zioVersion % "test",
-      compilerPlugin(("org.typelevel" %% "kind-projector" % "0.11.1").cross(CrossVersion.full))
+      compilerPlugin(("org.typelevel" %% "kind-projector" % "0.11.2").cross(CrossVersion.full))
     )
   )
   .dependsOn(core)
@@ -184,7 +198,7 @@ lazy val http4s = project
       "org.http4s"    %% "http4s-blaze-server" % http4sVersion,
       "io.circe"      %% "circe-parser"        % circeVersion,
       compilerPlugin(
-        ("org.typelevel" %% "kind-projector" % "0.11.1")
+        ("org.typelevel" %% "kind-projector" % "0.11.2")
           .cross(CrossVersion.full)
       ),
       compilerPlugin("com.github.ghik" % "silencer-plugin" % silencerVersion cross CrossVersion.full),
@@ -204,7 +218,7 @@ lazy val akkaHttp = project
       "de.heikoseeberger" %% "akka-http-circe"     % "1.35.2" % Optional,
       "de.heikoseeberger" %% "akka-http-play-json" % "1.35.2" % Optional,
       compilerPlugin(
-        ("org.typelevel" %% "kind-projector" % "0.11.1")
+        ("org.typelevel" %% "kind-projector" % "0.11.2")
           .cross(CrossVersion.full)
       )
     )
@@ -243,8 +257,15 @@ lazy val play = project
   .settings(name := "caliban-play")
   .settings(commonSettings)
   .settings(
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "com.typesafe.play" %% "play" % playVersion
+      "com.typesafe.play"            %% "play"                          % playVersion,
+      "dev.zio"                      %% "zio-test"                      % zioVersion % "test",
+      "dev.zio"                      %% "zio-test-sbt"                  % zioVersion % "test",
+      "com.typesafe.play"            %% "play-akka-http-server"         % playVersion % "test",
+      "io.circe"                     %% "circe-generic"                 % circeVersion % "test",
+      "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion % "test",
+      "com.softwaremill.sttp.client" %% "circe"                         % sttpVersion % "test"
     )
   )
   .dependsOn(core)
