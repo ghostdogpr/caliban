@@ -494,6 +494,28 @@ object ExecutionSpec extends DefaultRunnableSpec {
             |}""".stripMargin
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test2":1}"""))
       },
+      testM("fake field") {
+        sealed trait A
+        object A {
+          case class B(b: Int) extends A
+          case object C        extends A
+        }
+        case class Query(test: A)
+        val interpreter = graphQL(RootResolver(Query(A.C))).interpreter
+        val query       = gqldoc("""
+            {
+              test {
+                ... on C {
+                  _  
+                }
+                ... on B {
+                  b
+                }
+              }
+            }""")
+
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":null}"""))
+      },
       testM("complex interface case") {
         @GQLInterface
         sealed trait Character {
