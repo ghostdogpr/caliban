@@ -379,7 +379,7 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
 
 }
 
-trait DerivationSchema[R] {
+trait DerivationSchema[R] extends LowPriorityDerivedSchema {
 
   /**
    * Default naming logic for input types.
@@ -570,8 +570,23 @@ trait DerivationSchema[R] {
   private def getDescription[Typeclass[_], Type](ctx: ReadOnlyParam[Typeclass, Type]): Option[String] =
     getDescription(ctx.annotations)
 
-  implicit def gen[T]: Typeclass[T] = macro Magnolia.gen[T]
+  /**
+   * Generates an instance of `Schema` for the given type T.
+   * This should be used only if T is a case class or a sealed trait.
+   */
+  implicit def genMacro[T]: Derived[Typeclass[T]] = macro DerivedMagnolia.derivedMagnolia[Typeclass, T]
 
+  /**
+   * Returns an instance of `Schema` for the given type T.
+   * For a case class or sealed trait, you can call `genMacro[T].schema` instead to get more details if the
+   * schema can't be derived.
+   */
+  def gen[T](implicit derived: Derived[Schema[R, T]]): Schema[R, T] = derived.schema
+
+}
+
+private[schema] trait LowPriorityDerivedSchema {
+  implicit def derivedSchema[R, T](implicit derived: Derived[Schema[R, T]]): Schema[R, T] = derived.schema
 }
 
 trait TemporalSchema {
