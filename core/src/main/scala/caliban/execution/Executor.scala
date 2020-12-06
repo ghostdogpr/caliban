@@ -50,6 +50,8 @@ object Executor {
               val obj = mergeFields(currentField, v).collectFirst {
                 case f: Field if f.name == "__typename" =>
                   ObjectValue(List(f.alias.getOrElse(f.name) -> StringValue(v)))
+                case f: Field if f.name == "_" =>
+                  NullValue
               }
               obj.fold(s)(PureStep(_))
             case _ => s
