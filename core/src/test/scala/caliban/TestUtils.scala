@@ -8,6 +8,7 @@ import caliban.Value.StringValue
 import caliban.introspection.adt.{ __Field, __InputValue, __Type, __TypeKind }
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
+import caliban.schema.Schema.scalarSchema
 import caliban.schema.{ Schema, Types }
 import zio.stream.ZStream
 import zio.{ Task, UIO }
@@ -32,11 +33,20 @@ object TestUtils {
 
   sealed trait Role
 
+  case class CaptainShipName(value: String)
+  object CaptainShipName {
+    implicit val captainShipNameSchema: Schema[Any, CaptainShipName] = scalarSchema(
+      "CaptainShipName",
+      Some("Description of custom scalar emphasizing proper captain ship names"),
+      name => StringValue(name.value)
+    )
+  }
+
   object Role {
-    case class Captain(shipName: String)  extends Role
-    case class Pilot(shipName: String)    extends Role
-    case class Engineer(shipName: String) extends Role
-    case class Mechanic(shipName: String) extends Role
+    case class Captain(shipName: CaptainShipName) extends Role
+    case class Pilot(shipName: String)            extends Role
+    case class Engineer(shipName: String)         extends Role
+    case class Mechanic(shipName: String)         extends Role
   }
 
   @GQLDirective(Directive("key", Map("name" -> StringValue("name"))))
@@ -65,7 +75,7 @@ object TestUtils {
   }
 
   val characters = List(
-    Character("James Holden", List("Jim", "Hoss"), EARTH, Some(Captain("Rocinante"))),
+    Character("James Holden", List("Jim", "Hoss"), EARTH, Some(Captain(CaptainShipName("Rocinante")))),
     Character("Naomi Nagata", Nil, BELT, Some(Engineer("Rocinante"))),
     Character("Amos Burton", Nil, EARTH, Some(Mechanic("Rocinante"))),
     Character("Alex Kamal", Nil, MARS, Some(Pilot("Rocinante"))),
