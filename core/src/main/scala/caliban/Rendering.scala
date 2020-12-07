@@ -15,7 +15,11 @@ object Rendering {
       .sorted(typeOrdering)
       .flatMap { t =>
         t.kind match {
-          case __TypeKind.SCALAR   => t.name.flatMap(name => if (isBuiltinScalar(name)) None else Some(s"scalar $name"))
+          case __TypeKind.SCALAR =>
+            t.name.flatMap(name =>
+              if (isBuiltinScalar(name)) None
+              else Some(s"""${renderDescription(t.description)}scalar $name""".stripMargin)
+            )
           case __TypeKind.NON_NULL => None
           case __TypeKind.LIST     => None
           case __TypeKind.UNION =>
@@ -30,7 +34,12 @@ object Rendering {
             val renderedDirectives: String = renderDirectives(t.directives)
             val renderedFields: String = t
               .fields(__DeprecatedArgs())
-              .fold(List.empty[String])(_.map(renderField))
+              .fold(List.empty[String])(
+                _.map(field =>
+                  List(field.description.map(_ => renderDescription(field.description)), Some(renderField(field))).flatten
+                    .mkString(("  "))
+                )
+              )
               .mkString("\n  ")
             val renderedInputFields: String = t.inputFields
               .fold(List.empty[String])(_.map(renderInputValue))
