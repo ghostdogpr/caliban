@@ -62,24 +62,6 @@ object SchemaSpec extends DefaultRunnableSpec {
           contains("GenericOptionDouble") && contains("GenericOptionInt")
         )
       },
-      test("nested types with explicit schema in companion object") {
-        object blockingSchema extends GenericSchema[Blocking]
-        import blockingSchema._
-
-        case class A(s: String)
-        object A {
-          implicit val aSchema: Schema[Blocking, A] = blockingSchema.gen[A]
-        }
-        case class B(a: List[Option[A]])
-
-        A.aSchema.toType_()
-
-        val schema: Schema[Blocking, B] = blockingSchema.gen[B]
-
-        assert(Types.collectTypes(schema.toType_()).map(_.name.getOrElse("")))(
-          not(contains("SomeA")) && not(contains("OptionA")) && not(contains("None"))
-        )
-      },
       test("UUID field should be converted to ID") {
         assert(introspect[IDSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
           isSome(hasField[__Type, String]("id", _.ofType.flatMap(_.name).get, equalTo("ID")))
