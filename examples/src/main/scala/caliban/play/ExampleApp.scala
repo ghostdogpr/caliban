@@ -1,11 +1,11 @@
 package caliban.play
 
-import caliban.{ExampleApi, ExampleService, PlayRouter}
+import caliban.{ ExampleApi, ExampleService, PlayRouter }
 import caliban.ExampleData.sampleCharacters
 import caliban.ExampleService.ExampleService
 import play.api.Mode
 import play.api.mvc.DefaultControllerComponents
-import play.core.server.{AkkaHttpServer, ServerConfig}
+import play.core.server.{ AkkaHttpServer, ServerConfig }
 import zio.clock.Clock
 import zio.console.Console
 import zio.internal.Platform
@@ -18,7 +18,10 @@ import zio.random.Random
 object ExampleApp extends App {
 
   implicit val runtime: Runtime[ExampleService with Console with Clock with Blocking with Random] =
-    Runtime.unsafeFromLayer(ExampleService.make(sampleCharacters) ++ Console.live ++ Clock.live ++ Random.live ++ Blocking.live, Platform.default)
+    Runtime.unsafeFromLayer(
+      ExampleService.make(sampleCharacters) ++ Console.live ++ Clock.live ++ Random.live ++ Blocking.live,
+      Platform.default
+    )
 
   val interpreter = runtime.unsafeRun(ExampleApi.api.interpreter)
 
