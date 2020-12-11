@@ -29,6 +29,8 @@ object TestUtils {
     case object EARTH extends Origin
     case object MARS  extends Origin
     case object BELT  extends Origin
+    @GQLDeprecated("Use: EARTH | MARS | BELT")
+    case object MOON extends Origin
   }
 
   sealed trait Role
