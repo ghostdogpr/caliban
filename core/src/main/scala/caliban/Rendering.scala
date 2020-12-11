@@ -33,7 +33,7 @@ object Rendering {
           case _ =>
             val renderedDirectives: String = renderDirectives(t.directives)
             val renderedFields: String = t
-              .fields(__DeprecatedArgs())
+              .fields(__DeprecatedArgs(Some(true)))
               .fold(List.empty[String])(
                 _.map(field =>
                   List(field.description.map(_ => renderDescription(field.description)), Some(renderField(field))).flatten
@@ -45,7 +45,7 @@ object Rendering {
               .fold(List.empty[String])(_.map(renderInputValue))
               .mkString("\n  ")
             val renderedEnumValues = t
-              .enumValues(__DeprecatedArgs())
+              .enumValues(__DeprecatedArgs(Some(true)))
               .fold(List.empty[String])(_.map(renderEnumValue))
               .mkString("\n  ")
             Some(

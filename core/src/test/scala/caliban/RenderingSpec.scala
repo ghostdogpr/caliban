@@ -25,6 +25,7 @@ object RenderingSpec extends DefaultRunnableSpec {
                     |  BELT
                     |  EARTH
                     |  MARS
+                    |  MOON @deprecated(reason: "Use: EARTH | MARS | BELT")
                     |}
                     |
                     |input CharacterInput {
@@ -60,6 +61,7 @@ object RenderingSpec extends DefaultRunnableSpec {
                     |type Query {
                     |  "Return all characters from a given origin"
                     |  characters(origin: Origin): [Character!]!
+                    |  character(name: String!): Character @deprecated(reason: "Use `characters`")
                     |  charactersIn(names: [String!]!): [Character!]!
                     |  exists(character: CharacterInput!): Boolean!
                     |}""".stripMargin.trim)
