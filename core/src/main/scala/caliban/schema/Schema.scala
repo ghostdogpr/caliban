@@ -4,7 +4,6 @@ import java.time.{ Instant, LocalDate, LocalDateTime, LocalTime, OffsetDateTime,
 import java.time.format.DateTimeFormatter
 import java.time.temporal.Temporal
 import java.util.UUID
-
 import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue._
 import caliban.Value._
@@ -18,12 +17,11 @@ import caliban.{ InputValue, ResponseValue }
 import magnolia._
 import zio.query.ZQuery
 import zio.stream.ZStream
-import zio.{ URIO, ZIO }
+import zio.{ Chunk, NonEmptyChunk, URIO, ZIO }
 
 import scala.annotation.implicitNotFound
 import scala.concurrent.Future
 import scala.language.experimental.macros
-import zio.Chunk
 
 /**
  * Typeclass that defines how to map the type `T` to the according GraphQL concepts: how to introspect it and how to resolve it.
@@ -150,6 +148,70 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
         ObjectStep(name, fields(false, false).map { case (f, plan) => f.name -> plan(value) }.toMap)
     }
 
+  def field[V](
+    name: String,
+    description: Option[String] = None,
+    directives: List[Directive] = List.empty
+  ): PartiallyAppliedField[V] =
+    PartiallyAppliedField[V](name, description, directives)
+
+  def fieldWithArgs[V, A](
+    name: String,
+    description: Option[String] = None,
+    directives: List[Directive] = Nil
+  ): PartiallyAppliedFieldWithArgs[V, A] =
+    PartiallyAppliedFieldWithArgs[V, A](name, description, directives)
+
+  /**
+   * Creates a new hand-rolled schema. For normal usage use the derived schemas, this is primarily for schemas
+   * which can't be resolved by derivation.
+   * @param name The name of the type
+   * @param description An optional description of the type
+   * @param directives The directives to add to the type
+   * @param fields The fields to add to this object
+   *
+   * {{{
+   *  case class Group(id: String, users: UQuery[List[User]], parent: UQuery[Option[Group]], organization: UQuery[Organization])
+   *  case class Organization(id: String, groups: UQuery[List[Group]])
+   *  case class User(id: String, group: UQuery[Group])
+   *
+   *  implicit val groupSchema: Schema[Any, Group] = obj("Group", Some("A group of users"))(implicit ft =>
+   *    NonEmptyChunk(
+   *      field("id")(_.id),
+   *      field("users")(_.users),
+   *      field("parent")(_.parent),
+   *      field("organization")(_.organization)
+   *    )
+   *  )
+   *
+   *  implicit val orgSchema: Schema[Any, Organization] = obj("Organization", Some("An organization of groups"))(implicit ft =>
+   *    NonEmptyChunk(
+   *      field("id")(_.id),
+   *      field("groups")(_.groups)
+   *    )
+   *  )
+   *
+   *  implicit val userSchema: Schema[Any, User] = obj("User", Some("A user of the service"))(implicit ft =>
+   *    NonEmptyChunk(
+   *      field("id")(_.id),
+   *      field("group")(_.group)
+   *    )
+   *  )
+   *
+   * }}}
+   *
+   */
+  def obj[R1, V](name: String, description: Option[String] = None, directives: List[Directive] = Nil)(
+    fields: FieldType => NonEmptyChunk[(__Field, V => Step[R1])]
+  ): Schema[R1, V] =
+    objectSchema(
+      name,
+      description,
+      fields =
+        (isInput, isSubscription) => fields(FieldType(isInput = isInput, isSubscription = isSubscription)).toList,
+      directives
+    )
+
   implicit val unitSchema: Schema[Any, Unit]             = scalarSchema("Unit", None, _ => ObjectValue(Nil))
   implicit val booleanSchema: Schema[Any, Boolean]       = scalarSchema("Boolean", None, BooleanValue)
   implicit val stringSchema: Schema[Any, String]         = scalarSchema("String", None, StringValue)
@@ -231,30 +293,14 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
     lazy val typeAName: String = Types.name(evA.toType_())
     lazy val typeBName: String = Types.name(evB.toType_())
 
-    objectSchema(
+    obj[RA with RB, (A, B)](
       s"Tuple${typeAName}And$typeBName",
-      Some(s"A tuple of $typeAName and $typeBName"),
-      (isInput, isSubscription) =>
-        List(
-          __Field(
-            "_1",
-            Some("First element of the tuple"),
-            Nil,
-            () =>
-              if (evA.optional) evA.toType_(isInput, isSubscription)
-              else makeNonNull(evA.toType_(isInput, isSubscription))
-          ) ->
-            ((tuple: (A, B)) => evA.resolve(tuple._1)),
-          __Field(
-            "_2",
-            Some("Second element of the tuple"),
-            Nil,
-            () =>
-              if (evB.optional) evB.toType_(isInput, isSubscription)
-              else makeNonNull(evB.toType_(isInput, isSubscription))
-          ) ->
-            ((tuple: (A, B)) => evB.resolve(tuple._2))
-        )
+      Some(s"A tuple of $typeAName and $typeBName")
+    )(implicit ft =>
+      NonEmptyChunk(
+        field[(A, B)]("_1", Some("First element of the tuple"))(_._1),
+        field[(A, B)]("_2", Some("Second element of the tuple"))(_._2)
+      )
     )
   }
   implicit def mapSchema[RA, RB, A, B](implicit evA: Schema[RA, A], evB: Schema[RB, B]): Schema[RA with RB, Map[A, B]] =
@@ -682,4 +728,57 @@ trait TemporalSchema {
       Some(s"A time without a time-zone in the ISO-8601 calendar system using the format $formatter")
     )(formatter)
 
+}
+
+case class FieldType(isInput: Boolean, isSubscription: Boolean)
+
+case class PartiallyAppliedField[V](
+  name: String,
+  description: Option[String],
+  directives: List[Directive]
+) {
+  def apply[R, V1](fn: V => V1)(implicit ev: Schema[R, V1], ft: FieldType): (__Field, V => Step[R]) =
+    (
+      __Field(
+        name,
+        description,
+        Nil,
+        () =>
+          if (ev.optional) ev.toType_(ft.isInput, ft.isSubscription)
+          else Types.makeNonNull(ev.toType_(ft.isInput, ft.isSubscription)),
+        directives = Some(directives).filter(_.nonEmpty)
+      ),
+      (v: V) => ev.resolve(fn(v))
+    )
+}
+
+case class PartiallyAppliedFieldWithArgs[V, A](
+  name: String,
+  description: Option[String],
+  directives: List[Directive]
+) {
+  def apply[R, V1](
+    fn: V => V1
+  )(implicit ev1: Schema[R, V1], ev2: Schema[R, A], ft: FieldType): (__Field, V => Step[R]) = {
+    val args = {
+      val t = ev2.toType_(true)
+      t.inputFields.getOrElse(t.kind match {
+        case __TypeKind.SCALAR | __TypeKind.ENUM | __TypeKind.LIST =>
+          List(__InputValue("value", None, () => if (ev2.optional) t else Types.makeNonNull(t), None))
+        case _ => Nil
+      })
+    }
+    (
+      __Field(
+        name,
+        description,
+        args,
+        () =>
+          if (ev1.optional) ev1.toType_(ft.isInput, ft.isSubscription)
+          else Types.makeNonNull(ev1.toType_(ft.isInput, ft.isSubscription)),
+        directives = Some(directives).filter(_.nonEmpty)
+      ),
+      (v: V) => ev1.resolve(fn(v))
+    )
+  }
 }

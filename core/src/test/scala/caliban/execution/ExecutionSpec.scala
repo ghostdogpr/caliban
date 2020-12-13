@@ -1,7 +1,6 @@
 package caliban.execution
 
 import java.util.UUID
-
 import caliban.CalibanError.ExecutionError
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
@@ -12,7 +11,7 @@ import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
 import caliban.schema.Annotations.{ GQLInterface, GQLName }
 import caliban.schema.{ Schema, Step, Types }
-import zio.IO
+import zio.{ IO, NonEmptyChunk, UIO, ZIO }
 import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
@@ -614,6 +613,69 @@ object ExecutionSpec extends DefaultRunnableSpec {
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
           equalTo(
             """{"search":[{"__typename":"Human","name":"name","height":1},{"__typename":"Droid","name":"name","primaryFunction":"function"},{"__typename":"Starship","name":"name","length":3.5}]}"""
+          )
+        )
+      },
+      testM("hand-rolled recursive schema") {
+        import Schema._
+        case class Group(
+          id: String,
+          parent: UIO[Option[Group]],
+          organization: UIO[Organization]
+        )
+        case class Organization(id: String, groups: UIO[List[Group]])
+
+        case class Query(
+          organization: String => UIO[Organization]
+        )
+
+        implicit lazy val groupSchema: Schema[Any, Group] = obj("Group", Some("A group of users"))(implicit ft =>
+          NonEmptyChunk(
+            field("id")(_.id),
+            field("parent")(_.parent),
+            field("organization")(_.organization)
+          )
+        )
+        implicit lazy val orgSchema: Schema[Any, Organization] =
+          obj("Organization", Some("An organization of groups"))(implicit ft =>
+            NonEmptyChunk(
+              field("id")(_.id),
+              field("groups")(_.groups)
+            )
+          )
+
+        val organizations: Map[String, List[String]] = Map("abc" -> List("group1", "group2"))
+        val groups: Map[String, (Option[String], String)] = Map(
+          "group1" -> (None           -> "abc"),
+          "group2" -> (Some("group1") -> "abc")
+        )
+
+        def getGroup(id: String): UIO[Group] = UIO(groups(id)).map {
+          case (parent, org) =>
+            Group(
+              id,
+              ZIO.fromOption(parent).flatMap(getGroup(_).asSomeError).optional,
+              organization = getOrg(org)
+            )
+        }
+
+        def getOrg(id: String) =
+          UIO(organizations(id)).map(groups => Organization(id, ZIO.foreach(groups)(getGroup)))
+
+        val interpreter = graphQL(RootResolver(Query(getOrg))).interpreter
+        val query       = gqldoc("""{
+             organization(value: "abc") {
+               groups {
+                 id
+                 organization { id }
+                 parent { id }
+               }
+             }
+            }""")
+
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
+          equalTo(
+            """{"organization":{"groups":[{"id":"group1","organization":{"id":"abc"},"parent":null},{"id":"group2","organization":{"id":"abc"},"parent":{"id":"group1"}}]}}"""
           )
         )
       }
