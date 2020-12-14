@@ -11,7 +11,7 @@ import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
 import caliban.schema.Annotations.{ GQLInterface, GQLName }
 import caliban.schema.{ Schema, Step, Types }
-import zio.{ IO, NonEmptyChunk, UIO, ZIO }
+import zio.{ IO, UIO, ZIO }
 import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
@@ -630,7 +630,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         )
 
         implicit lazy val groupSchema: Schema[Any, Group] = obj("Group", Some("A group of users"))(implicit ft =>
-          NonEmptyChunk(
+          List(
             field("id")(_.id),
             field("parent")(_.parent),
             field("organization")(_.organization)
@@ -638,9 +638,16 @@ object ExecutionSpec extends DefaultRunnableSpec {
         )
         implicit lazy val orgSchema: Schema[Any, Organization] =
           obj("Organization", Some("An organization of groups"))(implicit ft =>
-            NonEmptyChunk(
+            List(
               field("id")(_.id),
               field("groups")(_.groups)
+            )
+          )
+
+        implicit val querySchema: Schema[Any, Query] =
+          obj("Query")(implicit ft =>
+            List(
+              fieldWithArgs[Query, String]("organization")(_.organization)
             )
           )
 

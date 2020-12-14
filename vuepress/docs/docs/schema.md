@@ -263,7 +263,7 @@ import caliban.schema.Schema.{obj, field}
 
 implicit lazy val groupSchema: Schema[Any, Group] = obj("Group", Some("A group of users"))(
   implicit ft =>
-    NonEmptyChunk(
+    List(
       field("id")(_.id),
       field("users")(_.users),
       field("parent")(_.parent),
@@ -272,7 +272,7 @@ implicit lazy val groupSchema: Schema[Any, Group] = obj("Group", Some("A group o
 )
 implicit lazy val orgSchema: Schema[Any, Organization] = obj("Organization", Some("An organization of groups"))(
   implicit ft =>
-    NonEmptyChunk(
+    List(
       field("id")(_.id),
       field("groups")(_.groups)
     )
@@ -280,7 +280,7 @@ implicit lazy val orgSchema: Schema[Any, Organization] = obj("Organization", Som
 
 implicit lazy val userSchema: Schema[Any, User] = obj("User", Some("A user of the service"))(
   implicit ft =>
-    NonEmptyChunk(
+    List(
       field("id")(_.id),
       field("group")(_.group)
     )

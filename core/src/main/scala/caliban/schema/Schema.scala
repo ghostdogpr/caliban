@@ -17,7 +17,7 @@ import caliban.{ InputValue, ResponseValue }
 import magnolia._
 import zio.query.ZQuery
 import zio.stream.ZStream
-import zio.{ Chunk, NonEmptyChunk, URIO, ZIO }
+import zio.{ Chunk, URIO, ZIO }
 
 import scala.annotation.implicitNotFound
 import scala.concurrent.Future
@@ -176,7 +176,7 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
    *  case class User(id: String, group: UQuery[Group])
    *
    *  implicit val groupSchema: Schema[Any, Group] = obj("Group", Some("A group of users"))(implicit ft =>
-   *    NonEmptyChunk(
+   *    List(
    *      field("id")(_.id),
    *      field("users")(_.users),
    *      field("parent")(_.parent),
@@ -185,14 +185,14 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
    *  )
    *
    *  implicit val orgSchema: Schema[Any, Organization] = obj("Organization", Some("An organization of groups"))(implicit ft =>
-   *    NonEmptyChunk(
+   *    List(
    *      field("id")(_.id),
    *      field("groups")(_.groups)
    *    )
    *  )
    *
    *  implicit val userSchema: Schema[Any, User] = obj("User", Some("A user of the service"))(implicit ft =>
-   *    NonEmptyChunk(
+   *    List(
    *      field("id")(_.id),
    *      field("group")(_.group)
    *    )
@@ -202,13 +202,12 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
    *
    */
   def obj[R1, V](name: String, description: Option[String] = None, directives: List[Directive] = Nil)(
-    fields: FieldType => NonEmptyChunk[(__Field, V => Step[R1])]
+    fields: FieldAttributes => List[(__Field, V => Step[R1])]
   ): Schema[R1, V] =
     objectSchema(
       name,
       description,
-      fields =
-        (isInput, isSubscription) => fields(FieldType(isInput = isInput, isSubscription = isSubscription)).toList,
+      fields = (isInput, isSubscription) => fields(FieldAttributes(isInput = isInput, isSubscription = isSubscription)),
       directives
     )
 
@@ -270,20 +269,11 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
     lazy val name: String        = s"Either${typeAName}Or$typeBName"
     lazy val description: String = s"Either $typeAName or $typeBName"
 
-    objectSchema(
-      name,
-      Some(description),
-      (isInput, isSubscription) =>
-        List(
-          __Field("left", Some("Left element of the Either"), Nil, () => evA.toType_(isInput, isSubscription)) -> {
-            case Left(value) => evA.resolve(value)
-            case Right(_)    => NullStep
-          },
-          __Field("right", Some("Right element of the Either"), Nil, () => evB.toType_(isInput, isSubscription)) -> {
-            case Left(_)      => NullStep
-            case Right(value) => evB.resolve(value)
-          }
-        )
+    obj[RA with RB, Either[A, B]](name, Some(description))(implicit ft =>
+      List(
+        field[Either[A, B]]("left", Some("Left element of the Either")).either[RA, A](_.map(_ => NullStep)),
+        field[Either[A, B]]("right", Some("Right element of the Either")).either[RB, B](_.swap.map(_ => NullStep))
+      )
     )
   }
   implicit def tupleSchema[RA, RB, A, B](
@@ -297,7 +287,7 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
       s"Tuple${typeAName}And$typeBName",
       Some(s"A tuple of $typeAName and $typeBName")
     )(implicit ft =>
-      NonEmptyChunk(
+      List(
         field[(A, B)]("_1", Some("First element of the tuple"))(_._1),
         field[(A, B)]("_2", Some("Second element of the tuple"))(_._2)
       )
@@ -310,30 +300,11 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
       lazy val name: String        = s"KV$typeAName$typeBName"
       lazy val description: String = s"A key-value pair of $typeAName and $typeBName"
 
-      lazy val kvSchema: Schema[RA with RB, (A, B)] = objectSchema(
-        name,
-        Some(description),
-        (isInput, isSubscription) =>
-          List(
-            __Field(
-              "key",
-              Some("Key"),
-              Nil,
-              () =>
-                if (evA.optional) evA.toType_(isInput, isSubscription)
-                else makeNonNull(evA.toType_(isInput, isSubscription))
-            )
-              -> ((kv: (A, B)) => evA.resolve(kv._1)),
-            __Field(
-              "value",
-              Some("Value"),
-              Nil,
-              () =>
-                if (evB.optional) evB.toType_(isInput, isSubscription)
-                else makeNonNull(evB.toType_(isInput, isSubscription))
-            )
-              -> ((kv: (A, B)) => evB.resolve(kv._2))
-          )
+      lazy val kvSchema: Schema[RA with RB, (A, B)] = obj[RA with RB, (A, B)](name, Some(description))(implicit ft =>
+        List(
+          field("key", Some("Key"))(_._1),
+          field("value", Some("Value"))(_._2)
+        )
       )
 
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
@@ -730,14 +701,19 @@ trait TemporalSchema {
 
 }
 
-case class FieldType(isInput: Boolean, isSubscription: Boolean)
+case class FieldAttributes(isInput: Boolean, isSubscription: Boolean)
 
 case class PartiallyAppliedField[V](
   name: String,
   description: Option[String],
   directives: List[Directive]
 ) {
-  def apply[R, V1](fn: V => V1)(implicit ev: Schema[R, V1], ft: FieldType): (__Field, V => Step[R]) =
+  def apply[R, V1](fn: V => V1)(implicit ev: Schema[R, V1], ft: FieldAttributes): (__Field, V => Step[R]) =
+    either[R, V1](v => Left(fn(v)))(ev, ft)
+
+  def either[R, V1](
+    fn: V => Either[V1, Step[R]]
+  )(implicit ev: Schema[R, V1], ft: FieldAttributes): (__Field, V => Step[R]) =
     (
       __Field(
         name,
@@ -748,7 +724,7 @@ case class PartiallyAppliedField[V](
           else Types.makeNonNull(ev.toType_(ft.isInput, ft.isSubscription)),
         directives = Some(directives).filter(_.nonEmpty)
       ),
-      (v: V) => ev.resolve(fn(v))
+      (v: V) => fn(v).fold(ev.resolve, identity)
     )
 }
 
@@ -758,27 +734,15 @@ case class PartiallyAppliedFieldWithArgs[V, A](
   directives: List[Directive]
 ) {
   def apply[R, V1](
-    fn: V => V1
-  )(implicit ev1: Schema[R, V1], ev2: Schema[R, A], ft: FieldType): (__Field, V => Step[R]) = {
-    val args = {
-      val t = ev2.toType_(true)
-      t.inputFields.getOrElse(t.kind match {
-        case __TypeKind.SCALAR | __TypeKind.ENUM | __TypeKind.LIST =>
-          List(__InputValue("value", None, () => if (ev2.optional) t else Types.makeNonNull(t), None))
-        case _ => Nil
-      })
-    }
+    fn: V => (A => V1)
+  )(implicit ev1: Schema[R, A => V1], fa: FieldAttributes): (__Field, V => Step[R]) =
     (
       __Field(
         name,
         description,
-        args,
-        () =>
-          if (ev1.optional) ev1.toType_(ft.isInput, ft.isSubscription)
-          else Types.makeNonNull(ev1.toType_(ft.isInput, ft.isSubscription)),
-        directives = Some(directives).filter(_.nonEmpty)
+        ev1.arguments,
+        () => ev1.toType_(fa.isInput, fa.isSubscription)
       ),
       (v: V) => ev1.resolve(fn(v))
     )
-  }
 }
