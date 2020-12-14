@@ -244,7 +244,7 @@ By default, each Query and Mutation will be wrapped into a `zio.UIO` effect. Thi
 
 ## Building Schemas by hand
 
-Sometimes the for what ever reason schema generation fails. This can sometimes happen if your schema has co-recursive types and Magnolia is unable
+Sometimes for whatever reason schema generation fails. This can happen if your schema has co-recursive types and Magnolia is unable
 to generate a schema for them. In cases like these you may need to instead create your own schema by hand.
 
 Consider the case where you have three types which create cyclical dependencies on one another
