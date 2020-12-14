@@ -59,8 +59,8 @@ case class GraphQLUploadRequest(
         }
 
         vars ++ files.groupBy(_._1).map {
-          case (key, values) if values.lengthCompare(1) > 0 => (key, ListValue(values.map(_._2)))
-          case (key, List(value))                           => (key, value._2)
+          case (key, value :: Nil) => (key, value._2)
+          case (key, values)       => (key, ListValue(values.map(_._2)))
         }
       }
     )
