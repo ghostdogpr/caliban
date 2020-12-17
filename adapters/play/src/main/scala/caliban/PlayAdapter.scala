@@ -1,16 +1,14 @@
 package caliban
 
 import java.util.Locale
-
 import scala.concurrent.{ ExecutionContext, Future }
 import scala.util.Try
-
 import akka.stream.scaladsl.{ Flow, Sink, Source, SourceQueueWithComplete }
 import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
-
 import caliban.PlayAdapter.RequestWrapper
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
+import caliban.execution.QueryExecution
 import caliban.interop.play.json.parsingException
 import caliban.uploads._
 import play.api.http.Writeable
@@ -38,7 +36,8 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
   def makePostAction[E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true
+    enableIntrospection: Boolean = true,
+    queryExecution: QueryExecution = QueryExecution.Parallel
   )(implicit runtime: Runtime[R]): Action[Either[GraphQLUploadRequest, GraphQLRequest]] =
     actionBuilder.async(makeParser(runtime)) { req =>
       req.body match {
@@ -48,6 +47,7 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
             req.withBody(value.remap),
             skipValidation,
             enableIntrospection,
+            queryExecution,
             value.fileHandle.toLayerMany
           )
 
@@ -56,7 +56,8 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
             interpreter,
             req.withBody(value),
             skipValidation,
-            enableIntrospection
+            enableIntrospection,
+            queryExecution
           )
       }
     }
@@ -119,7 +120,8 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
   def makeGetAction[E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true
+    enableIntrospection: Boolean = true,
+    queryExecution: QueryExecution = QueryExecution.Parallel
   )(
     query: Option[String],
     variables: Option[String],
@@ -134,7 +136,7 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
         extensions
       ).fold(
         Future.failed,
-        body => executeRequest(interpreter, req.withBody(body), skipValidation, enableIntrospection)
+        body => executeRequest(interpreter, req.withBody(body), skipValidation, enableIntrospection, queryExecution)
       )
     )
 
@@ -143,12 +145,18 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
     request: Request[GraphQLRequest],
     skipValidation: Boolean,
     enableIntrospection: Boolean,
+    queryExecution: QueryExecution,
     fileHandle: ZLayer[Any, Nothing, Uploads] = Uploads.empty
   )(implicit runtime: Runtime[R]): CancelableFuture[Result] =
     runtime.unsafeRunToFuture(
       requestWrapper(request)(
         interpreter
-          .executeRequest(request.body, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
+          .executeRequest(
+            request.body,
+            skipValidation = skipValidation,
+            enableIntrospection = enableIntrospection,
+            queryExecution
+          )
           .catchAllCause(cause => ZIO.succeed(GraphQLResponse[Throwable](NullValue, cause.defects)))
           .map(Ok(_))
           .provideSomeLayer[R](fileHandle)
@@ -183,15 +191,19 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
-    keepAliveTime: Option[Duration] = None
+    keepAliveTime: Option[Duration] = None,
+    queryExecution: QueryExecution = QueryExecution.Parallel
   )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): WebSocket =
-    WebSocket.accept(_ => webSocketFlow(interpreter, skipValidation, enableIntrospection, keepAliveTime))
+    WebSocket.accept(_ =>
+      webSocketFlow(interpreter, skipValidation, enableIntrospection, keepAliveTime, queryExecution)
+    )
 
   private def webSocketFlow[E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean,
     enableIntrospection: Boolean,
-    keepAliveTime: Option[Duration]
+    keepAliveTime: Option[Duration],
+    queryExecution: QueryExecution
   )(
     implicit ec: ExecutionContext,
     materializer: Materializer,
@@ -215,7 +227,8 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
         result <- interpreter.executeRequest(
                    request,
                    skipValidation = skipValidation,
-                   enableIntrospection = enableIntrospection
+                   enableIntrospection = enableIntrospection,
+                   queryExecution
                  )
         _ <- result.data match {
               case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
@@ -291,12 +304,15 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
     handleRequestHeader: RequestHeader => Future[Either[Result, Unit]],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
-    keepAliveTime: Option[Duration] = None
+    keepAliveTime: Option[Duration] = None,
+    queryExecution: QueryExecution = QueryExecution.Parallel
   )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): WebSocket =
     WebSocket
       .acceptOrResult(requestHeader =>
         handleRequestHeader(requestHeader)
-          .map(_.map(_ => webSocketFlow(interpreter, skipValidation, enableIntrospection, keepAliveTime)))
+          .map(
+            _.map(_ => webSocketFlow(interpreter, skipValidation, enableIntrospection, keepAliveTime, queryExecution))
+          )
       )
 
   private def makeParser(

@@ -9,7 +9,7 @@ import play.api.routing.sird._
 import zio.Runtime
 import zio.duration.Duration
 import scala.concurrent.ExecutionContext
-
+import caliban.execution.QueryExecution
 import zio.blocking.Blocking
 import zio.random.Random
 
@@ -22,7 +22,8 @@ case class PlayRouter[R <: Blocking with Random, E](
   skipValidation: Boolean = false,
   enableIntrospection: Boolean = true,
   keepAliveTime: Option[Duration] = None,
-  requestWrapper: RequestWrapper[R] = RequestWrapper.empty
+  requestWrapper: RequestWrapper[R] = RequestWrapper.empty,
+  queryExecution: QueryExecution = QueryExecution.Parallel
 )(implicit runtime: Runtime[R], materializer: Materializer)
     extends SimpleRouter
     with PlayAdapter[R] {
@@ -37,15 +38,25 @@ case class PlayRouter[R <: Blocking with Random, E](
         ) =>
       query match {
         case Some(_) =>
-          makeGetAction(interpreter, skipValidation, enableIntrospection)(query, variables, operation, extensions)
-        case None => makePostAction(interpreter, skipValidation, enableIntrospection)
+          makeGetAction(interpreter, skipValidation, enableIntrospection, queryExecution)(
+            query,
+            variables,
+            operation,
+            extensions
+          )
+        case None => makePostAction(interpreter, skipValidation, enableIntrospection, queryExecution)
       }
     case GET(
         p"/api/graphql" ? q_o"query=$query" & q_o"variables=$variables" & q_o"operationName=$operation" & q_o"extensions=$extensions"
         ) if allowGETRequests =>
-      makeGetAction(interpreter, skipValidation, enableIntrospection)(query, variables, operation, extensions)
+      makeGetAction(interpreter, skipValidation, enableIntrospection, queryExecution)(
+        query,
+        variables,
+        operation,
+        extensions
+      )
     case GET(p"/ws/graphql") if subscriptions =>
-      makeWebSocket(interpreter, skipValidation, enableIntrospection, keepAliveTime)
+      makeWebSocket(interpreter, skipValidation, enableIntrospection, keepAliveTime, queryExecution)
     case GET(p"/graphiql") if playground =>
       actionBuilder(
         Results.Ok

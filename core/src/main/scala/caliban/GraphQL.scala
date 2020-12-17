@@ -2,7 +2,7 @@ package caliban
 
 import caliban.CalibanError.ValidationError
 import caliban.Rendering.renderTypes
-import caliban.execution.{ ExecutionRequest, Executor }
+import caliban.execution.{ ExecutionRequest, Executor, QueryExecution }
 import caliban.introspection.Introspector
 import caliban.introspection.adt._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.SchemaDefinition
@@ -85,7 +85,8 @@ trait GraphQL[-R] { self =>
         override def executeRequest(
           request: GraphQLRequest,
           skipValidation: Boolean,
-          enableIntrospection: Boolean
+          enableIntrospection: Boolean,
+          queryExecution: QueryExecution
         ): URIO[R, GraphQLResponse[CalibanError]] =
           decompose(wrappers).flatMap {
             case (overallWrappers, parsingWrappers, validationWrappers, executionWrappers, fieldWrappers) =>
@@ -115,7 +116,8 @@ trait GraphQL[-R] { self =>
                     case OperationType.Subscription => schemaToExecute.subscription.getOrElse(schemaToExecute.query)
                   }
                   execute = (req: ExecutionRequest) =>
-                    Executor.executeRequest(req, op.plan, request.variables.getOrElse(Map()), fieldWrappers)
+                    Executor
+                      .executeRequest(req, op.plan, request.variables.getOrElse(Map()), fieldWrappers, queryExecution)
                   result <- wrap(execute)(executionWrappers, executionRequest)
                 } yield result).catchAll(Executor.fail)
               )(overallWrappers, request)

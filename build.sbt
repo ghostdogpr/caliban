@@ -256,18 +256,6 @@ lazy val finch = project
   )
   .dependsOn(core)
 
-//lazy val uzhttp = project
-//  .in(file("adapters/uzhttp"))
-//  .settings(name := "caliban-uzhttp")
-//  .settings(commonSettings)
-//  .settings(
-//    libraryDependencies ++= Seq(
-//      "org.polynote" %% "uzhttp"       % "0.2.4",
-//      "io.circe"     %% "circe-parser" % "0.13.0"
-//    )
-//  )
-//  .dependsOn(core)
-
 lazy val play = project
   .in(file("adapters/play"))
   .settings(name := "caliban-play")
@@ -320,7 +308,7 @@ lazy val examples = project
       "com.typesafe.akka"            %% "akka-actor-typed"              % akkaVersion
     )
   )
-  .dependsOn(akkaHttp, http4s, catsInterop, finch, /*uzhttp,*/ play, monixInterop, tapirInterop, clientJVM, federation)
+  .dependsOn(akkaHttp, http4s, catsInterop, finch, play, monixInterop, tapirInterop, clientJVM, federation)
 
 lazy val benchmarks = project
   .in(file("benchmarks"))

@@ -1,5 +1,6 @@
 package caliban.interop.monix
 
+import caliban.execution.QueryExecution
 import caliban.introspection.adt.__Type
 import caliban.schema.Step.{ QueryStep, StreamStep }
 import caliban.schema.{ Schema, Step, Types }
@@ -21,7 +22,8 @@ object MonixInterop {
     variables: Map[String, InputValue] = Map(),
     extensions: Map[String, InputValue] = Map(),
     skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true
+    enableIntrospection: Boolean = true,
+    queryExecution: QueryExecution = QueryExecution.Parallel
   )(implicit runtime: Runtime[R]): MonixTask[GraphQLResponse[E]] =
     MonixTask.async { cb =>
       val execution = graphQL.execute(
@@ -30,7 +32,8 @@ object MonixInterop {
         variables,
         extensions,
         skipValidation = skipValidation,
-        enableIntrospection = enableIntrospection
+        enableIntrospection = enableIntrospection,
+        queryExecution
       )
       runtime.unsafeRunAsync(execution)(exit => cb(exit.toEither))
     }
