@@ -128,7 +128,7 @@ The [examples](https://github.com/ghostdogpr/caliban/tree/master/examples) proje
 
 ::: tip
 When all your effects are wrapped with `ZQuery.fromRequest`, it is recommended to use `queryExecution = QueryExecution.Batched` instead of the default `QueryExecution.Parallel`.
-Doing do will provide better performance as it will avoid forking unnecessary fibers.
+Doing so will provide better performance as it will avoid forking unnecessary fibers.
 This setting is available in `executeRequest` as well as all the adapters.
 :::
 
