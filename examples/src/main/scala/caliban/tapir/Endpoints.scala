@@ -2,6 +2,7 @@ package caliban.tapir
 
 import io.circe.generic.auto._
 import sttp.tapir._
+import sttp.tapir.generic.auto._
 import sttp.tapir.json.circe._
 import zio.{ IO, UIO }
 
@@ -19,10 +20,10 @@ object Endpoints {
     Book("Lords and Ladies", 1992)
   )
 
-  val baseEndpoint: Endpoint[Unit, String, Unit, Nothing] = endpoint.errorOut(stringBody).in("books")
+  val baseEndpoint: Endpoint[Unit, String, Unit, Any] = endpoint.errorOut(stringBody).in("books")
 
   // POST /books
-  val addBook: Endpoint[(Book, String), String, Unit, Nothing] =
+  val addBook: Endpoint[(Book, String), String, Unit, Any] =
     baseEndpoint.post
       .in("add")
       .in(
@@ -36,7 +37,7 @@ object Endpoints {
     query[String]("title").description("The title of the book")
 
   // DELETE /books
-  val deleteBook: Endpoint[(String, String), String, Unit, Nothing] =
+  val deleteBook: Endpoint[(String, String), String, Unit, Any] =
     baseEndpoint.delete
       .in("delete")
       .in(titleParameter)
@@ -49,7 +50,7 @@ object Endpoints {
     query[Option[Int]]("limit").description("Maximum number of books to retrieve")
 
   // GET /books
-  val booksListing: Endpoint[(Option[Int], Option[Int]), Nothing, List[Book], Nothing] =
+  val booksListing: Endpoint[(Option[Int], Option[Int]), Nothing, List[Book], Any] =
     infallibleEndpoint
       .in("books")
       .get
