@@ -1,15 +1,17 @@
 package caliban.wrappers
 
 import caliban.CalibanError.{ ExecutionError, ValidationError }
-import caliban.{ GraphQLRequest, GraphQLResponse }
 import caliban.Value.NullValue
 import caliban.execution.Field
 import caliban.parsing.adt.Document
 import caliban.wrappers.Wrapper.{ OverallWrapper, ValidationWrapper }
+import caliban.{ GraphQLRequest, GraphQLResponse }
 import zio.clock.Clock
-import zio.console.{ putStrLn, Console }
+import zio.console.{ putStrLn, putStrLnErr, Console }
 import zio.duration._
-import zio.{ IO, UIO, URIO, ZIO }
+import zio.{ Chunk, IO, UIO, URIO, ZIO }
+
+import scala.annotation.tailrec
 
 object Wrappers {
 
@@ -18,8 +20,19 @@ object Wrappers {
    */
   lazy val printErrors: OverallWrapper[Console] =
     OverallWrapper { process => request =>
-      process(request).tap(response => ZIO.when(response.errors.nonEmpty)(putStrLn(response.errors.mkString("\n"))))
+      process(request).tap(response =>
+        ZIO.when(response.errors.nonEmpty)(
+          putStrLnErr(response.errors.flatMap(prettyStackStrace).mkString("", "\n", "\n"))
+        )
+      )
     }
+
+  private def prettyStackStrace(t: Throwable): Chunk[String] = {
+    @tailrec def go(acc: Chunk[String], t: Throwable): Chunk[String] =
+      if (t == null) acc
+      else go(acc ++ (t.toString +: Chunk.fromArray(t.getStackTrace).map("\tat " + _.toString)), t.getCause)
+    go(Chunk(""), t)
+  }
 
   /**
    * Returns a wrapper that prints slow queries
