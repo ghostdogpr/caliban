@@ -1,5 +1,6 @@
 package caliban.interop.cats
 
+import caliban.execution.QueryExecution
 import caliban.introspection.adt.__Type
 import caliban.schema.Step.QueryStep
 import caliban.schema.{ Schema, Step }
@@ -18,7 +19,8 @@ object CatsInterop {
     variables: Map[String, InputValue] = Map(),
     extensions: Map[String, InputValue] = Map(),
     skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true
+    enableIntrospection: Boolean = true,
+    queryExecution: QueryExecution = QueryExecution.Parallel
   )(implicit runtime: Runtime[R]): F[GraphQLResponse[E]] =
     Async[F].async { cb =>
       val execution = graphQL.execute(
@@ -27,7 +29,8 @@ object CatsInterop {
         variables,
         extensions,
         skipValidation = skipValidation,
-        enableIntrospection = enableIntrospection
+        enableIntrospection = enableIntrospection,
+        queryExecution
       )
 
       runtime.unsafeRunAsync(execution)(exit => cb(exit.toEither))

@@ -1,6 +1,7 @@
 package caliban
 
 import caliban.Value.NullValue
+import caliban.execution.QueryExecution
 import io.circe.Decoder.Result
 import io.circe.Json
 import io.circe.syntax._
@@ -33,11 +34,18 @@ object FinchAdapter extends Endpoint.Module[Task] {
     request: GraphQLRequest,
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean,
-    enableIntrospection: Boolean
+    enableIntrospection: Boolean,
+    queryExecution: QueryExecution
   )(implicit runtime: Runtime[R]) =
     runtime
       .unsafeRunToFuture(
-        createRequest(request, interpreter, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
+        createRequest(
+          request,
+          interpreter,
+          skipValidation = skipValidation,
+          enableIntrospection = enableIntrospection,
+          queryExecution
+        )
       )
       .future
 
@@ -45,10 +53,16 @@ object FinchAdapter extends Endpoint.Module[Task] {
     request: GraphQLRequest,
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean,
-    enableIntrospection: Boolean
+    enableIntrospection: Boolean,
+    queryExecution: QueryExecution
   )(implicit runtime: Runtime[R]): URIO[R, Output[Json]] =
     interpreter
-      .executeRequest(request, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
+      .executeRequest(
+        request,
+        skipValidation = skipValidation,
+        enableIntrospection = enableIntrospection,
+        queryExecution
+      )
       .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
       .map(gqlResult => Ok(gqlResult))
 
@@ -76,7 +90,8 @@ object FinchAdapter extends Endpoint.Module[Task] {
   def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true
+    enableIntrospection: Boolean = true,
+    queryExecution: QueryExecution = QueryExecution.Parallel
   )(implicit runtime: Runtime[R]): Endpoint[Task, Json :+: Json :+: CNil] =
     post(queryParams :: stringBodyOption :: header("content-type")) {
       (queryRequest: GraphQLRequest, body: Option[String], contentType: String) =>
@@ -94,11 +109,17 @@ object FinchAdapter extends Endpoint.Module[Task] {
         runtime
           .unsafeRunToFuture(
             queryTask
-              .flatMap(createRequest(_, interpreter, skipValidation, enableIntrospection))
+              .flatMap(createRequest(_, interpreter, skipValidation, enableIntrospection, queryExecution))
               .catchAll(error => Task(Ok(GraphQLResponse(NullValue, List(error.getMessage)).asJson)))
           )
           .future
     } :+: get(queryParams) { request: GraphQLRequest =>
-      executeRequest(request, interpreter, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
+      executeRequest(
+        request,
+        interpreter,
+        skipValidation = skipValidation,
+        enableIntrospection = enableIntrospection,
+        queryExecution
+      )
     }
 }

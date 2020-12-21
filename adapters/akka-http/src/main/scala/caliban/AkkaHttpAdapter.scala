@@ -15,8 +15,8 @@ import zio.Exit.Failure
 import zio._
 import zio.clock.Clock
 import zio.duration._
-
 import scala.concurrent.ExecutionContext
+import caliban.execution.QueryExecution
 
 /**
  * Akka-http adapter for caliban with pluggable json backend.
@@ -51,10 +51,16 @@ trait AkkaHttpAdapter {
     interpreter: GraphQLInterpreter[R, E],
     request: GraphQLRequest,
     skipValidation: Boolean,
-    enableIntrospection: Boolean
+    enableIntrospection: Boolean,
+    queryExecution: QueryExecution
   ): URIO[R, HttpResponse] =
     interpreter
-      .executeRequest(request, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
+      .executeRequest(
+        request,
+        skipValidation = skipValidation,
+        enableIntrospection = enableIntrospection,
+        queryExecution = queryExecution
+      )
       .foldCause(
         cause => json.encodeGraphQLResponse(GraphQLResponse(NullValue, cause.defects)),
         json.encodeGraphQLResponse
@@ -65,7 +71,8 @@ trait AkkaHttpAdapter {
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
-    contextWrapper: ContextWrapper[R, HttpResponse] = ContextWrapper.empty
+    contextWrapper: ContextWrapper[R, HttpResponse] = ContextWrapper.empty,
+    queryExecution: QueryExecution = QueryExecution.Parallel
   )(request: GraphQLRequest)(implicit ec: ExecutionContext, runtime: Runtime[R]): Route =
     extractRequestContext { ctx =>
       complete(
@@ -76,7 +83,8 @@ trait AkkaHttpAdapter {
                 interpreter,
                 request,
                 skipValidation = skipValidation,
-                enableIntrospection = enableIntrospection
+                enableIntrospection = enableIntrospection,
+                queryExecution = queryExecution
               )
             }
           )
@@ -88,7 +96,8 @@ trait AkkaHttpAdapter {
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
-    contextWrapper: ContextWrapper[R, HttpResponse] = ContextWrapper.empty
+    contextWrapper: ContextWrapper[R, HttpResponse] = ContextWrapper.empty,
+    queryExecution: QueryExecution = QueryExecution.Parallel
   )(implicit ec: ExecutionContext, runtime: Runtime[R]): Route = {
     import akka.http.scaladsl.server.Directives._
 
@@ -103,7 +112,8 @@ trait AkkaHttpAdapter {
                 interpreter,
                 skipValidation = skipValidation,
                 enableIntrospection = enableIntrospection,
-                contextWrapper = contextWrapper
+                contextWrapper = contextWrapper,
+                queryExecution = queryExecution
               )
             )
       }
@@ -151,7 +161,8 @@ trait AkkaHttpAdapter {
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     keepAliveTime: Option[Duration] = None,
-    contextWrapper: ContextWrapper[R, GraphQLResponse[E]] = ContextWrapper.empty
+    contextWrapper: ContextWrapper[R, GraphQLResponse[E]] = ContextWrapper.empty,
+    queryExecution: QueryExecution = QueryExecution.Parallel
   )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): Route = {
 
     def sendMessage(
@@ -176,7 +187,8 @@ trait AkkaHttpAdapter {
                    interpreter.executeRequest(
                      request,
                      skipValidation = skipValidation,
-                     enableIntrospection = enableIntrospection
+                     enableIntrospection = enableIntrospection,
+                     queryExecution = queryExecution
                    )
                  )
         _ <- result.data match {

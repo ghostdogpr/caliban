@@ -22,19 +22,27 @@ object Executor {
    * @param plan an execution plan
    * @param variables a list of variables
    * @param fieldWrappers a list of field wrappers
+   * @param queryExecution a strategy for executing queries in parallel or not
    */
   def executeRequest[R](
     request: ExecutionRequest,
     plan: Step[R],
     variables: Map[String, InputValue] = Map(),
-    fieldWrappers: List[FieldWrapper[R]] = Nil
+    fieldWrappers: List[FieldWrapper[R]] = Nil,
+    queryExecution: QueryExecution = QueryExecution.Parallel
   ): URIO[R, GraphQLResponse[CalibanError]] = {
 
-    val allowParallelism = request.operationType match {
-      case OperationType.Query        => true
-      case OperationType.Mutation     => false
-      case OperationType.Subscription => false
+    val execution = request.operationType match {
+      case OperationType.Query        => queryExecution
+      case OperationType.Mutation     => QueryExecution.Sequential
+      case OperationType.Subscription => QueryExecution.Sequential
     }
+    def collectAll[E, A](as: List[ZQuery[R, E, A]]): ZQuery[R, E, List[A]] =
+      execution match {
+        case QueryExecution.Sequential => ZQuery.collectAll(as)
+        case QueryExecution.Parallel   => ZQuery.collectAllPar(as)
+        case QueryExecution.Batched    => ZQuery.collectAllBatched(as)
+      }
 
     def reduceStep(
       step: Step[R],
@@ -124,9 +132,7 @@ object Executor {
           case PureStep(value) => ZQuery.succeed(Right(value))
           case ReducedStep.ListStep(steps) =>
             val queries = steps.map(loop(_).flatMap(_.fold(handleError, ZQuery.succeed(_))))
-
-            (if (allowParallelism) ZQuery.collectAllPar(queries) else ZQuery.collectAll(queries))
-              .map(s => Right(ListValue(s)))
+            collectAll(queries).map(s => Right(ListValue(s)))
           case ReducedStep.ObjectStep(steps) =>
             val queries = steps.map {
               case (name, step, info) =>
@@ -134,8 +140,7 @@ object Executor {
                   .foldM(handleError, ZQuery.succeed(_))
                   .map(name -> _)
             }
-            (if (allowParallelism) ZQuery.collectAllPar(queries) else ZQuery.collectAll(queries))
-              .map(f => Right(ObjectValue(f)))
+            collectAll(queries).map(f => Right(ObjectValue(f)))
           case ReducedStep.QueryStep(step) =>
             step.foldM(
               error => ZQuery.succeed(Left(error)),

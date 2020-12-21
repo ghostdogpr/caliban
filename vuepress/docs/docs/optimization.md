@@ -126,6 +126,12 @@ The [examples](https://github.com/ghostdogpr/caliban/tree/master/examples) proje
 - a [naive](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/caliban/optimizations/NaiveTest.scala) version where fields are just returning `IO`, resulting in 47 requests
 - an [optimized](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/caliban/optimizations/OptimizedTest.scala) version where fields are returning `ZQuery`, resulting in 8 requests only
 
+::: tip
+When all your effects are wrapped with `ZQuery.fromRequest`, it is recommended to use `queryExecution = QueryExecution.Batched` instead of the default `QueryExecution.Parallel`.
+Doing so will provide better performance as it will avoid forking unnecessary fibers.
+This setting is available in `executeRequest` as well as all the adapters.
+:::
+
 ## Using field metadata 
 
 To reference field metadata in your queries you can simply use a function that takes the `caliban.execution.Field` type in your queries.
