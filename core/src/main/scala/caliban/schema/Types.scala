@@ -140,6 +140,13 @@ object Types {
 
   def innerType(t: __Type): __Type = t.ofType.fold(t)(innerType)
 
+  def listOf(t: __Type): Option[__Type] =
+    t.kind match {
+      case __TypeKind.LIST     => t.ofType
+      case __TypeKind.NON_NULL => t.ofType.flatMap(listOf)
+      case _                   => None
+    }
+
   def name(t: __Type): String =
     (t.kind match {
       case __TypeKind.LIST     => t.ofType.map("ListOf" + name(_))

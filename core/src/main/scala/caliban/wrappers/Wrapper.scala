@@ -1,7 +1,7 @@
 package caliban.wrappers
 
 import scala.annotation.tailrec
-import caliban.CalibanError.{ ParsingError, ValidationError }
+import caliban.CalibanError.{ ExecutionError, ParsingError, ValidationError }
 import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.parsing.adt.Document
 import caliban.wrappers.Wrapper.CombinedWrapper
@@ -67,7 +67,7 @@ object Wrapper {
    * If false, simple pure values will be ignored.
    */
   case class FieldWrapper[R](
-    f: (ZQuery[R, CalibanError, ResponseValue], FieldInfo) => ZQuery[R, CalibanError, ResponseValue],
+    f: (ZQuery[R, ExecutionError, ResponseValue], FieldInfo) => ZQuery[R, ExecutionError, ResponseValue],
     wrapPureValues: Boolean = false
   ) extends Wrapper[R]
 
