@@ -15,6 +15,12 @@ import zio.query.ZQuery
 import java.util.Base64
 import java.util.concurrent.TimeUnit
 
+/**
+ * Implements the federated tracing specification detailed here:
+ * https://www.apollographql.com/docs/federation/metrics/#how-tracing-data-is-exposed-from-a-federated-service
+ *
+ *
+ */
 object ApolloFederatedTracing {
 
   val wrapper: EffectfulWrapper[Clock with IncludeApolloTracing] =
@@ -73,26 +79,27 @@ object ApolloFederatedTracing {
                   ((startTime, endTime), summarized) <- query.either.summarized(clock.nanoTime)((_, _))
                   id                                 = Node.Id.ResponseName(fieldInfo.name)
                   result <- ZQuery.fromEffect(
-                             ref.update(
-                               state =>
-                                 state.copy(
-                                   root = state.root.insert(
-                                     (Left(fieldInfo.name) :: fieldInfo.path).toVector,
-                                     Node(
-                                       id = id,
-                                       startTime = startTime - state.startTime,
-                                       endTime = endTime - state.startTime,
-                                       `type` = fieldInfo.details.fieldType.toType().toString,
-                                       parentType = fieldInfo.details.parentType.map(_.toType().toString) getOrElse "",
-                                       originalFieldName = fieldInfo.details.alias
-                                         .map(_ => fieldInfo.details.name) getOrElse "",
-                                       error = summarized.left.toOption.collectFirst {
-                                         case e: ExecutionError =>
-                                           Error(e.getMessage(),
-                                                 location = e.locationInfo.map(l => Location(l.line, l.column)).toSeq)
-                                       }.toSeq
-                                     )
+                             ref.update(state =>
+                               state.copy(
+                                 root = state.root.insert(
+                                   (Left(fieldInfo.name) :: fieldInfo.path).toVector,
+                                   Node(
+                                     id = id,
+                                     startTime = startTime - state.startTime,
+                                     endTime = endTime - state.startTime,
+                                     `type` = fieldInfo.details.fieldType.toType().toString,
+                                     parentType = fieldInfo.details.parentType.map(_.toType().toString) getOrElse "",
+                                     originalFieldName = fieldInfo.details.alias
+                                       .map(_ => fieldInfo.details.name) getOrElse "",
+                                     error = summarized.left.toOption.collectFirst {
+                                       case e: ExecutionError =>
+                                         Error(
+                                           e.getMessage(),
+                                           location = e.locationInfo.map(l => Location(l.line, l.column)).toSeq
+                                         )
+                                     }.toSeq
                                    )
+                                 )
                                )
                              ) *> ZIO.fromEither(summarized)
                            )
@@ -108,7 +115,7 @@ object ApolloFederatedTracing {
   private final case class NodeTrie(node: Option[Node], children: Map[Either[String, Int], NodeTrie]) {
     def insert(path: VPath, node: Node): NodeTrie = NodeTrie.loopInsert(this, path, node, path.length - 1)
     def reduce(initial: Node = Node()): Node =
-      node.getOrElse(initial).copy(child = children.values.map(_.reduce()).toList)
+      node.getOrElse(initial).copy(child = children.values.map(_.reduce(Node())).toList)
   }
 
   private object NodeTrie {

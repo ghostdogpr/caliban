@@ -336,11 +336,15 @@ lazy val federation = project
       "dev.zio" %% "zio"          % zioVersion,
       "dev.zio" %% "zio-test"     % zioVersion % Test,
       "dev.zio" %% "zio-test-sbt" % zioVersion % Test,
-      "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion % "protobuf",
       compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
     ),
     PB.targets in Compile := Seq(
       scalapb.gen(grpc = false) -> (sourceManaged in Compile).value / "scalapb"
+    ),
+    libraryDependencies ++= Seq(
+      "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion % "protobuf"
+//      "com.thesamet.scalapb.common-protos" %% "proto-google-common-protos-scalapb_1.0" % "1.17.0-0" % "protobuf",
+//      "com.thesamet.scalapb.common-protos" %% "proto-google-common-protos-scalapb_1.0" % "1.17.0-0"
     ),
     scalacOptions += "-Ywarn-unused:-locals"
   )
