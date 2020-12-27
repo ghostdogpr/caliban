@@ -11,7 +11,7 @@ import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
 import caliban.schema.Annotations.{ GQLInterface, GQLName }
 import caliban.schema.{ Schema, Step, Types }
-import zio.{ IO, UIO, ZIO }
+import zio.{ IO, Task, UIO, ZIO }
 import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
@@ -220,7 +220,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         case class NameInput(name: String)
         case class Character(name: String)
         case class Test(character: Field => NameInput => Character)
-        val api   = graphQL(RootResolver(Test(field => (input) => Character(input.name))))
+        val api   = graphQL(RootResolver(Test(field => input => Character(input.name))))
         val query = """query test { character(name: "Bob") { name }}"""
 
         assertM(
@@ -239,7 +239,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
           api.interpreter.flatMap(_.execute(query, None, Map("term" -> StringValue("search")))).map(_.asJson.noSpaces)
         )(
           equalTo(
-            """{"data":{"getId":null},"errors":[{"message":"Can't build a String from input null","locations":[{"line":1,"column":44}],"path":["getId"]}]}"""
+            """{"data":null,"errors":[{"message":"Can't build a String from input null","locations":[{"line":1,"column":44}],"path":["getId"]}]}"""
           )
         )
       },
@@ -492,6 +492,70 @@ object ExecutionSpec extends DefaultRunnableSpec {
             |  test2
             |}""".stripMargin
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test2":1}"""))
+      },
+      testM("die bubbles to the parent") {
+        case class UserArgs(id: Int)
+        case class User(name: String, friends: ZIO[Any, Nothing, List[String]])
+        case class Queries(user: UserArgs => ZIO[Any, Throwable, User])
+        val api = graphQL(
+          RootResolver(
+            Queries(args =>
+              ZIO.succeed(
+                User(
+                  "user",
+                  if (args.id == 2) ZIO.die(new Exception("Boom"))
+                  else ZIO.succeed(List("friend"))
+                )
+              )
+            )
+          )
+        )
+        val interpreter = api.interpreter
+        val query =
+          """query{
+            |  user1: user(id: 1) {
+            |    name
+            |    friends
+            |  }
+            |  user2: user(id: 2) {
+            |    name
+            |    friends
+            |  }
+            |}""".stripMargin
+        interpreter
+          .flatMap(_.execute(query))
+          .map(result =>
+            assert(result.data.toString)(
+              equalTo("""{"user1":{"name":"user","friends":["friend"]},"user2":null}""")
+            ) &&
+              assert(result.errors.collectFirst { case e: ExecutionError => e }.map(_.path))(
+                isSome(equalTo(List(Left("user2"), Left("friends"))))
+              )
+          )
+      },
+      testM("die inside a nullable list") {
+        case class Queries(test: List[Task[String]])
+        val api         = graphQL(RootResolver(Queries(List(ZIO.succeed("a"), ZIO.die(new Exception("Boom"))))))
+        val interpreter = api.interpreter
+        val query =
+          """query{
+            |  test
+            |}""".stripMargin
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
+          equalTo("""{"test":["a",null]}""")
+        )
+      },
+      testM("die inside a non-nullable list") {
+        case class Queries(test: Task[List[UIO[String]]])
+        val api         = graphQL(RootResolver(Queries(Task(List(ZIO.succeed("a"), ZIO.die(new Exception("Boom")))))))
+        val interpreter = api.interpreter
+        val query =
+          """query{
+            |  test
+            |}""".stripMargin
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
+          equalTo("""{"test":null}""")
+        )
       },
       testM("fake field") {
         sealed trait A

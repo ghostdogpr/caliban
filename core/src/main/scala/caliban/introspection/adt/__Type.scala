@@ -95,4 +95,10 @@ case class __Type(
         )
       case _ => None
     }
+
+  def isNullable: Boolean =
+    kind match {
+      case __TypeKind.NON_NULL => false
+      case _                   => true
+    }
 }

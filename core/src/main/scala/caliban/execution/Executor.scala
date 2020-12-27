@@ -1,18 +1,17 @@
 package caliban.execution
 
+import scala.annotation.tailrec
+import scala.collection.mutable.ArrayBuffer
 import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue._
 import caliban.Value._
+import caliban._
 import caliban.parsing.adt._
 import caliban.schema.Step._
-import caliban.schema.{ ReducedStep, Step }
+import caliban.schema.{ ReducedStep, Step, Types }
 import caliban.wrappers.Wrapper.FieldWrapper
-import caliban._
 import zio._
-import zio.query.{ UQuery, ZQuery }
-
-import scala.annotation.tailrec
-import scala.collection.mutable.ArrayBuffer
+import zio.query.ZQuery
 
 object Executor {
 
@@ -67,9 +66,12 @@ object Executor {
         case FunctionStep(step)         => reduceStep(step(arguments), currentField, Map(), path)
         case MetadataFunctionStep(step) => reduceStep(step(currentField), currentField, arguments, path)
         case ListStep(steps) =>
-          reduceList(steps.zipWithIndex.map {
-            case (step, i) => reduceStep(step, currentField, arguments, Right(i) :: path)
-          })
+          reduceList(
+            steps.zipWithIndex.map {
+              case (step, i) => reduceStep(step, currentField, arguments, Right(i) :: path)
+            },
+            Types.listOf(currentField.fieldType).fold(false)(_.isNullable)
+          )
         case ObjectStep(objectName, fields) =>
           val mergedFields = mergeFields(currentField, objectName)
           val items = mergedFields.map {
@@ -112,14 +114,15 @@ object Executor {
 
     def makeQuery(step: ReducedStep[R], errors: Ref[List[CalibanError]]): ZQuery[R, Nothing, ResponseValue] = {
 
-      def handleError(error: CalibanError): UQuery[ResponseValue] =
-        ZQuery.fromEffect(errors.update(error :: _)).as(NullValue)
+      def handleError(error: ExecutionError, isNullable: Boolean): ZQuery[Any, ExecutionError, ResponseValue] =
+        if (isNullable) ZQuery.fromEffect(errors.update(error :: _)).as(NullValue)
+        else ZQuery.fail(error)
 
       @tailrec
-      def wrap(query: ZQuery[R, CalibanError, ResponseValue], isPure: Boolean)(
+      def wrap(query: ZQuery[R, ExecutionError, ResponseValue], isPure: Boolean)(
         wrappers: List[FieldWrapper[R]],
         fieldInfo: FieldInfo
-      ): ZQuery[R, CalibanError, ResponseValue] =
+      ): ZQuery[R, ExecutionError, ResponseValue] =
         wrappers match {
           case Nil => query
           case wrapper :: tail =>
@@ -130,17 +133,17 @@ object Executor {
       def loop(step: ReducedStep[R]): ZQuery[R, Nothing, Either[ExecutionError, ResponseValue]] =
         step match {
           case PureStep(value) => ZQuery.succeed(Right(value))
-          case ReducedStep.ListStep(steps) =>
-            val queries = steps.map(loop(_).flatMap(_.fold(handleError, ZQuery.succeed(_))))
-            collectAll(queries).map(s => Right(ListValue(s)))
+          case ReducedStep.ListStep(steps, areItemsNullable) =>
+            val queries = steps.map(loop(_).flatMap(_.fold(handleError(_, areItemsNullable), ZQuery.succeed(_))))
+            collectAll(queries).map(s => ListValue(s)).either
           case ReducedStep.ObjectStep(steps) =>
             val queries = steps.map {
               case (name, step, info) =>
                 wrap(loop(step).flatMap(_.fold(ZQuery.fail(_), ZQuery.succeed(_))), step.isPure)(fieldWrappers, info)
-                  .foldM(handleError, ZQuery.succeed(_))
+                  .foldM(handleError(_, info.details.fieldType.isNullable), ZQuery.succeed(_))
                   .map(name -> _)
             }
-            collectAll(queries).map(f => Right(ObjectValue(f)))
+            collectAll(queries).map(f => ObjectValue(f)).either
           case ReducedStep.QueryStep(step) =>
             step.foldM(
               error => ZQuery.succeed(Left(error)),
@@ -159,22 +162,16 @@ object Executor {
                 )
               )
         }
-      loop(step).flatMap(_.fold(handleError, ZQuery.succeed(_)))
+      loop(step).flatMap(_.fold(error => ZQuery.fromEffect(errors.update(error :: _)).as(NullValue), ZQuery.succeed(_)))
     }
 
-    (for {
+    for {
       errors       <- Ref.make(List.empty[CalibanError])
       reduced      = reduceStep(plan, request.field, Map(), Nil)
       query        = makeQuery(reduced, errors)
       result       <- query.run
       resultErrors <- errors.get
-    } yield GraphQLResponse(result, resultErrors.reverse))
-      .catchAllCause(cause =>
-        IO.succeed(GraphQLResponse(NullValue, cause.defects.map {
-          case e: CalibanError => e
-          case other           => ExecutionError("Effect failure", innerThrowable = Some(other))
-        }))
-      )
+    } yield GraphQLResponse(result, resultErrors.reverse)
   }
 
   private[caliban] def fail(error: CalibanError): UIO[GraphQLResponse[CalibanError]] =
@@ -227,10 +224,10 @@ object Executor {
   private def fieldInfo(field: Field, path: List[Either[String, Int]], fieldDirectives: List[Directive]): FieldInfo =
     FieldInfo(field.alias.getOrElse(field.name), field, path, fieldDirectives)
 
-  private def reduceList[R](list: List[ReducedStep[R]]): ReducedStep[R] =
+  private def reduceList[R](list: List[ReducedStep[R]], areItemsNullable: Boolean): ReducedStep[R] =
     if (list.forall(_.isInstanceOf[PureStep]))
       PureStep(ListValue(list.asInstanceOf[List[PureStep]].map(_.value)))
-    else ReducedStep.ListStep(list)
+    else ReducedStep.ListStep(list, areItemsNullable)
 
   private def reduceObject[R](
     items: List[(String, ReducedStep[R], FieldInfo)],
@@ -247,16 +244,8 @@ object Executor {
     locationInfo: Option[LocationInfo],
     cause: Cause[Throwable]
   ): Cause[ExecutionError] =
-    cause.failureOrCause match {
-      case Left(e) =>
-        e match {
-          case e: ExecutionError => Cause.fail(e.copy(path = path.reverse, locationInfo = locationInfo))
-          case other             => Cause.fail(ExecutionError("Effect failure", path.reverse, locationInfo, Some(other)))
-        }
-      case Right(cause) =>
-        cause.defects.headOption match {
-          case Some(e: ExecutionError) => Cause.die(e.copy(path = path.reverse, locationInfo = locationInfo))
-          case other                   => Cause.die(ExecutionError("Effect failure", path.reverse, locationInfo, other))
-        }
+    cause.failureOption orElse cause.defects.headOption match {
+      case Some(e: ExecutionError) => Cause.fail(e.copy(path = path.reverse, locationInfo = locationInfo))
+      case other                   => Cause.fail(ExecutionError("Effect failure", path.reverse, locationInfo, other))
     }
 }
