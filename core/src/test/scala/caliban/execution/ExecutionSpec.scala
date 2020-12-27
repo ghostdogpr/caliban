@@ -493,7 +493,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
             |}""".stripMargin
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test2":1}"""))
       },
-      testM("die bubble to the parent") {
+      testM("die bubbles to the parent") {
         case class UserArgs(id: Int)
         case class User(name: String, friends: ZIO[Any, Nothing, List[String]])
         case class Queries(user: UserArgs => ZIO[Any, Throwable, User])
@@ -522,9 +522,16 @@ object ExecutionSpec extends DefaultRunnableSpec {
             |    friends
             |  }
             |}""".stripMargin
-        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
-          equalTo("""{"user1":{"name":"user","friends":["friend"]},"user2":null}""")
-        )
+        interpreter
+          .flatMap(_.execute(query))
+          .map(result =>
+            assert(result.data.toString)(
+              equalTo("""{"user1":{"name":"user","friends":["friend"]},"user2":null}""")
+            ) &&
+              assert(result.errors.collectFirst { case e: ExecutionError => e }.map(_.path))(
+                isSome(equalTo(List(Left("user2"), Left("friends"))))
+              )
+          )
       },
       testM("die inside a nullable list") {
         case class Queries(test: List[Task[String]])
