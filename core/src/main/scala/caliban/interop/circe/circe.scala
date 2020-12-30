@@ -6,7 +6,7 @@ import caliban.parsing.adt.LocationInfo
 import caliban.schema.Step.QueryStep
 import caliban.schema.Types.makeScalar
 import caliban.schema.{ ArgBuilder, PureStep, Schema, Step }
-import caliban.{ CalibanError, GraphQLResponse, InputValue, ResponseValue, Value }
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue, ResponseValue, Value }
 import io.circe._
 import zio.ZIO
 import zio.query.ZQuery
@@ -175,6 +175,18 @@ object json {
         case ce: CalibanError => ce.asJson
         case _                => Json.obj("message" -> Json.fromString(err.toString))
       }
+
+  }
+
+  private[caliban] object GraphQLRequestCirce {
+    import io.circe._
+    val graphQLRequestDecoder: Decoder[GraphQLRequest] = (c: HCursor) =>
+      for {
+        query         <- c.downField("query").as[Option[String]]
+        operationName <- c.downField("operationName").as[Option[String]]
+        variables     <- c.downField("variables").as[Option[Map[String, InputValue]]]
+        extensions    <- c.downField("extensions").as[Option[Map[String, InputValue]]]
+      } yield GraphQLRequest(query, operationName, variables, extensions)
 
   }
 

@@ -1,6 +1,6 @@
 package caliban.interop.zio
 
-import caliban.{ CalibanError, GraphQLResponse, InputValue, ResponseValue, Value }
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue, ResponseValue, Value }
 import caliban.Value.{ BooleanValue, EnumValue, FloatValue, IntValue, NullValue, StringValue }
 import caliban.parsing.adt.LocationInfo
 import zio.Chunk
@@ -452,4 +452,10 @@ private[caliban] object GraphQLResponseZioJson {
           )
       }
     }
+}
+
+private[caliban] object GraphQLRequestZioJson {
+  import zio.json._
+
+  val graphQLRequestDecoder: JsonDecoder[GraphQLRequest] = DeriveJsonDecoder.gen[GraphQLRequest]
 }

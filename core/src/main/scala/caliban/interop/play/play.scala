@@ -6,7 +6,7 @@ import caliban.parsing.adt.LocationInfo
 import caliban.schema.Step.QueryStep
 import caliban.schema.Types.makeScalar
 import caliban.schema.{ ArgBuilder, PureStep, Schema, Step }
-import caliban.{ CalibanError, GraphQLResponse, InputValue, ResponseValue, Value }
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue, ResponseValue, Value }
 import play.api.libs.json.{ JsPath, JsValue, Json, JsonValidationError, Reads, Writes }
 import zio.ZIO
 import zio.query.ZQuery
@@ -186,6 +186,12 @@ object json {
         case _                => Json.obj("message" -> err.toString)
       }
 
+  }
+
+  private[caliban] object GraphQLRequestPlayJson {
+    import play.api.libs.json._
+
+    val graphQLRequestReads: Reads[GraphQLRequest] = Json.reads[GraphQLRequest]
   }
 
 }

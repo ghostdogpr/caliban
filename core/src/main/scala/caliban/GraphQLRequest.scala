@@ -1,6 +1,6 @@
 package caliban
 
-import caliban.interop.circe._
+import caliban.interop.circe.IsCirceDecoder
 import caliban.interop.play.IsPlayJsonReads
 import caliban.interop.zio.IsZIOJsonDecoder
 
@@ -16,33 +16,9 @@ case class GraphQLRequest(
 
 object GraphQLRequest {
   implicit def circeDecoder[F[_]: IsCirceDecoder]: F[GraphQLRequest] =
-    GraphQLRequestCirce.graphQLRequestDecoder.asInstanceOf[F[GraphQLRequest]]
+    caliban.interop.circe.json.GraphQLRequestCirce.graphQLRequestDecoder.asInstanceOf[F[GraphQLRequest]]
   implicit def playJsonReads[F[_]: IsPlayJsonReads]: F[GraphQLRequest] =
-    GraphQLRequestPlayJson.graphQLRequestReads.asInstanceOf[F[GraphQLRequest]]
+    caliban.interop.play.json.GraphQLRequestPlayJson.graphQLRequestReads.asInstanceOf[F[GraphQLRequest]]
   implicit def zioJsonDecoder[F[_]: IsZIOJsonDecoder]: F[GraphQLRequest] =
-    GraphQLRequestZioJson.graphQLRequestDecoder.asInstanceOf[F[GraphQLRequest]]
-}
-
-private object GraphQLRequestCirce {
-  import io.circe._
-  val graphQLRequestDecoder: Decoder[GraphQLRequest] = (c: HCursor) =>
-    for {
-      query         <- c.downField("query").as[Option[String]]
-      operationName <- c.downField("operationName").as[Option[String]]
-      variables     <- c.downField("variables").as[Option[Map[String, InputValue]]]
-      extensions    <- c.downField("extensions").as[Option[Map[String, InputValue]]]
-    } yield GraphQLRequest(query, operationName, variables, extensions)
-
-}
-
-private object GraphQLRequestPlayJson {
-  import play.api.libs.json._
-
-  val graphQLRequestReads: Reads[GraphQLRequest] = Json.reads[GraphQLRequest]
-}
-
-private object GraphQLRequestZioJson {
-  import zio.json._
-
-  val graphQLRequestDecoder: JsonDecoder[GraphQLRequest] = DeriveJsonDecoder.gen[GraphQLRequest]
+    caliban.interop.zio.GraphQLRequestZioJson.graphQLRequestDecoder.asInstanceOf[F[GraphQLRequest]]
 }
