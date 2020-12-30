@@ -10,8 +10,8 @@ import sttp.monad.MonadError
 import sttp.tapir.internal._
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.{ Endpoint, EndpointIO, EndpointInput, EndpointOutput }
-import zio.query.{ URQuery, ZQuery }
-import zio.{ IO, URIO, ZIO }
+import _root_.zio.query.{ URQuery, ZQuery }
+import _root_.zio.{ IO, URIO, ZIO }
 
 package object tapir {
 
