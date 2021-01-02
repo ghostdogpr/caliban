@@ -1,8 +1,8 @@
 package caliban
 
 import akka.http.scaladsl.model.MediaTypes.`application/json`
-import akka.http.scaladsl.model.ws.{ Message, TextMessage }
 import akka.http.scaladsl.model._
+import akka.http.scaladsl.model.ws.{ Message, TextMessage }
 import akka.http.scaladsl.server.Directives.{ complete, extractRequestContext }
 import akka.http.scaladsl.server.{ RequestContext, Route }
 import akka.http.scaladsl.unmarshalling.FromEntityUnmarshaller
@@ -67,6 +67,13 @@ trait AkkaHttpAdapter {
       )
       .map(gqlResult => HttpResponse(StatusCodes.OK, entity = HttpEntity(`application/json`, gqlResult)))
 
+  private def supportFederatedTracing(context: RequestContext, request: GraphQLRequest): GraphQLRequest =
+    if (context.request.headers.exists(h =>
+          h.is(GraphQLRequest.`apollo-federation-include-trace`) && h.value() == GraphQLRequest.ftv1
+        )) {
+      request.withFederatedTracing
+    } else request
+
   def completeRequest[R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
@@ -81,7 +88,7 @@ trait AkkaHttpAdapter {
             contextWrapper(ctx) {
               executeHttpResponse(
                 interpreter,
-                request,
+                supportFederatedTracing(ctx, request),
                 skipValidation = skipValidation,
                 enableIntrospection = enableIntrospection,
                 queryExecution = queryExecution

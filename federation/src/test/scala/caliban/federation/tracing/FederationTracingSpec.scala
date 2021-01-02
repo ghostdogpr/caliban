@@ -3,9 +3,7 @@ package caliban.federation.tracing
 import caliban.Macros.gqldoc
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ IntValue, StringValue }
-import caliban.{ GraphQL, RootResolver }
-import caliban.federation.tracing
-import caliban.federation.tracing.IncludeApolloTracing.Enabled
+import caliban.{ GraphQL, GraphQLRequest, RootResolver }
 import caliban.schema.GenericSchema
 import mdg.engine.proto.reports.Trace
 import zio.{ UIO, URIO }
@@ -36,7 +34,7 @@ object FederationTracingSpec extends DefaultRunnableSpec with GenericSchema[Cloc
 
   case class Queries(me: ZQuery[Any, Nothing, User])
 
-  val api: GraphQL[Clock with IncludeApolloTracing] = GraphQL.graphQL(
+  val api: GraphQL[Clock] = GraphQL.graphQL(
     RootResolver(
       Queries(
         me = ZQuery.succeed(
@@ -97,8 +95,14 @@ object FederationTracingSpec extends DefaultRunnableSpec with GenericSchema[Cloc
               )), 
               Node(ResponseName("username"),"","Name!","User",None,0,100000000,Vector(),
                 Vector(
-                  Node(ResponseName("first"),"","String!","Name",None,100000000,100000000), 
-                  Node(ResponseName("family"),"last","String","Name",None,100000000,100000000)))))))
+                  Node(ResponseName("family"),"last","String","Name",None,100000000,100000000),
+                  Node(ResponseName("first"),"","String!","Name",None,100000000,100000000)
+                )
+              )
+            )
+          )
+        )
+      )
     )
   )
   // format: on
@@ -107,9 +111,8 @@ object FederationTracingSpec extends DefaultRunnableSpec with GenericSchema[Cloc
 
   override def spec =
     suite("Federation Tracing")(
-      testM("disabled") {
+      testM("disabled by default") {
         for {
-          _           <- tracing.disable
           _           <- TestClock.setTime(1.second)
           interpreter <- api.interpreter
           resultFiber <- interpreter.execute(query).fork
@@ -124,9 +127,15 @@ object FederationTracingSpec extends DefaultRunnableSpec with GenericSchema[Cloc
         for {
           _           <- TestClock.setTime(1.second)
           interpreter <- api.interpreter
-          resultFiber <- interpreter.execute(query).fork
-          result      <- TestClock.adjust(1.second) *> resultFiber.join
-          actualBody  = result.data
+          resultFiber <- interpreter
+                          .execute(
+                            query,
+                            extensions =
+                              Map(GraphQLRequest.`apollo-federation-include-trace` -> StringValue(GraphQLRequest.ftv1))
+                          )
+                          .fork
+          result     <- TestClock.adjust(1.second) *> resultFiber.join
+          actualBody = result.data
           actualExtension = result.extensions.flatMap(_.fields.collectFirst {
             case ("ftv1", StringValue(ftv1)) => parseTrace(ftv1)
           })
@@ -138,5 +147,5 @@ object FederationTracingSpec extends DefaultRunnableSpec with GenericSchema[Cloc
           )
         )
       }
-    ).provideCustomLayer(IncludeApolloTracing.make(Enabled).toLayer) @@ flaky(3) @@ timed
+    ) @@ flaky(10) @@ timed
 }

@@ -23,11 +23,12 @@ import java.util.concurrent.TimeUnit
  */
 object ApolloFederatedTracing {
 
-  val wrapper: EffectfulWrapper[Clock with IncludeApolloTracing] =
+  val wrapper: EffectfulWrapper[Clock] =
     EffectfulWrapper(
-      Ref
-        .make(Tracing(NodeTrie.empty))
-        .map(ref => apolloTracingOverall(ref) |+| apolloTracingField(ref))
+      for {
+        tracing <- Ref.make(Tracing(NodeTrie.empty))
+        enabled <- Ref.make(false)
+      } yield apolloTracingOverall(tracing, enabled) |+| apolloTracingField(tracing, enabled)
     )
 
   private def toTimestamp(epochMilli: Long): Timestamp =
@@ -36,9 +37,15 @@ object ApolloFederatedTracing {
       (epochMilli % 1000).toInt * 1000000
     )
 
-  private def apolloTracingOverall(ref: Ref[Tracing]): OverallWrapper[Clock with IncludeApolloTracing] =
+  private def apolloTracingOverall(ref: Ref[Tracing], enabled: Ref[Boolean]): OverallWrapper[Clock] =
     OverallWrapper { process => (request: GraphQLRequest) =>
-      ZIO.ifM(isTracingEnabled)(
+      ZIO.ifM(
+        enabled.updateAndGet(_ =>
+          request.extensions.exists(
+            _.get(GraphQLRequest.`apollo-federation-include-trace`).contains(StringValue(GraphQLRequest.ftv1))
+          )
+        )
+      )(
         for {
           startNano              <- clock.nanoTime
           _                      <- ref.update(_.copy(startTime = startNano))
@@ -67,12 +74,12 @@ object ApolloFederatedTracing {
       )
     }
 
-  private def apolloTracingField(ref: Ref[Tracing]): FieldWrapper[Clock with IncludeApolloTracing] =
+  private def apolloTracingField(ref: Ref[Tracing], enabled: Ref[Boolean]): FieldWrapper[Clock] =
     FieldWrapper(
       {
         case (query, fieldInfo) =>
           ZQuery
-            .fromEffect(isTracingEnabled)
+            .fromEffect(enabled.get)
             .flatMap(
               if (_)
                 for {

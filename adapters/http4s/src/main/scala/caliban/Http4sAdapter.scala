@@ -97,9 +97,12 @@ object Http4sAdapter {
                     } yield parsed
                   else
                     req.attemptAs[GraphQLRequest].value.absolve
+          queryWithTracing = req.headers
+            .find(r => r.name == GraphQLRequest.`apollo-federation-include-trace` && r.value == GraphQLRequest.ftv1)
+            .foldLeft(query)((q, _) => q.withFederatedTracing)
           result <- executeToJson(
                      interpreter,
-                     query,
+                     queryWithTracing,
                      skipValidation = skipValidation,
                      enableIntrospection = enableIntrospection,
                      queryExecution

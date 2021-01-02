@@ -1,8 +1,5 @@
 package caliban
 
-import java.util.Locale
-import scala.concurrent.{ ExecutionContext, Future }
-import scala.util.Try
 import akka.stream.scaladsl.{ Flow, Sink, Source, SourceQueueWithComplete }
 import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
 import caliban.PlayAdapter.RequestWrapper
@@ -22,6 +19,10 @@ import zio.clock.Clock
 import zio.duration.Duration
 import zio.random.Random
 import zio.{ random, CancelableFuture, Fiber, Has, IO, RIO, Ref, Runtime, Schedule, Task, URIO, ZIO, ZLayer }
+
+import java.util.Locale
+import scala.concurrent.{ ExecutionContext, Future }
+import scala.util.Try
 
 trait PlayAdapter[R <: Has[_] with Blocking with Random] {
 
@@ -140,6 +141,11 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
       )
     )
 
+  private def supportFederatedTracing(request: Request[GraphQLRequest]): Request[GraphQLRequest] =
+    if (request.headers.get(GraphQLRequest.`apollo-federation-include-trace`).contains(GraphQLRequest.ftv1)) {
+      request.map(_.withFederatedTracing)
+    } else request
+
   private def executeRequest[E](
     interpreter: GraphQLInterpreter[R, E],
     request: Request[GraphQLRequest],
@@ -152,7 +158,7 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
       requestWrapper(request)(
         interpreter
           .executeRequest(
-            request.body,
+            supportFederatedTracing(request).body,
             skipValidation = skipValidation,
             enableIntrospection = enableIntrospection,
             queryExecution
