@@ -234,7 +234,7 @@ lazy val akkaHttp = project
       "com.typesafe.akka" %% "akka-http"           % "10.2.2",
       "com.typesafe.akka" %% "akka-stream"         % akkaVersion,
       "de.heikoseeberger" %% "akka-http-circe"     % "1.35.3" % Optional,
-      "de.heikoseeberger" %% "akka-http-play-json" % "1.35.2" % Optional,
+      "de.heikoseeberger" %% "akka-http-play-json" % "1.35.3" % Optional,
       compilerPlugin(
         ("org.typelevel" %% "kind-projector" % "0.11.2")
           .cross(CrossVersion.full)
