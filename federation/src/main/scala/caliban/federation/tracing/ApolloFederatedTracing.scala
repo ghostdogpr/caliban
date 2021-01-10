@@ -1,16 +1,16 @@
 package caliban.federation.tracing
 
 import caliban.CalibanError.ExecutionError
-import caliban.{ GraphQLRequest, ResponseValue }
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.StringValue
 import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper }
-import zio.{ clock, Ref, ZIO }
-import zio.clock.Clock
+import caliban.{ GraphQLRequest, ResponseValue }
+import com.google.protobuf.timestamp.Timestamp
 import mdg.engine.proto.reports.Trace
 import mdg.engine.proto.reports.Trace.{ Error, Location, Node }
-import com.google.protobuf.timestamp.Timestamp
+import zio.clock.Clock
 import zio.query.ZQuery
+import zio.{ clock, Ref, ZIO }
 
 import java.util.Base64
 import java.util.concurrent.TimeUnit

@@ -147,5 +147,5 @@ object FederationTracingSpec extends DefaultRunnableSpec with GenericSchema[Cloc
           )
         )
       }
-    ) @@ flaky(10) @@ timed
+    ) @@ flaky @@ timed
 }

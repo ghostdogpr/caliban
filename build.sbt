@@ -343,8 +343,6 @@ lazy val federation = project
     ),
     libraryDependencies ++= Seq(
       "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion % "protobuf"
-//      "com.thesamet.scalapb.common-protos" %% "proto-google-common-protos-scalapb_1.0" % "1.17.0-0" % "protobuf",
-//      "com.thesamet.scalapb.common-protos" %% "proto-google-common-protos-scalapb_1.0" % "1.17.0-0"
     ),
     scalacOptions += "-Ywarn-unused:-locals"
   )
