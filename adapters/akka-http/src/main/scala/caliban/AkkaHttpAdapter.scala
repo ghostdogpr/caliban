@@ -6,7 +6,7 @@ import akka.http.scaladsl.model.ws.{ Message, TextMessage }
 import akka.http.scaladsl.server.Directives.{ complete, extractRequestContext }
 import akka.http.scaladsl.server.{ RequestContext, Route }
 import akka.http.scaladsl.unmarshalling.FromEntityUnmarshaller
-import akka.stream.scaladsl.{ Flow, Sink, Source, SourceQueueWithComplete }
+import akka.stream.scaladsl.{ Flow, Keep, Sink, Source, SourceQueueWithComplete }
 import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
 import caliban.AkkaHttpAdapter.{ `application/graphql`, ContextWrapper }
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
@@ -15,6 +15,8 @@ import zio.Exit.Failure
 import zio._
 import zio.clock.Clock
 import zio.duration._
+
+import scala.concurrent.duration.{ Duration => ScalaDuration }
 import scala.concurrent.ExecutionContext
 import caliban.execution.QueryExecution
 
@@ -169,7 +171,8 @@ trait AkkaHttpAdapter {
     enableIntrospection: Boolean = true,
     keepAliveTime: Option[Duration] = None,
     contextWrapper: ContextWrapper[R, GraphQLResponse[E]] = ContextWrapper.empty,
-    queryExecution: QueryExecution = QueryExecution.Parallel
+    queryExecution: QueryExecution = QueryExecution.Parallel,
+    wsChunkTimeout: Duration = 5.seconds
   )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): Route = {
 
     def sendMessage(
@@ -224,8 +227,9 @@ trait AkkaHttpAdapter {
         extractWebSocketUpgrade { upgrade =>
           val (queue, source) = Source.queue[Message](0, OverflowStrategy.fail).preMaterialize()
           val subscriptions   = runtime.unsafeRun(Ref.make(Map.empty[Option[String], Fiber[Throwable, Unit]]))
-          val sink = Sink.foreach[Message] {
-            case TextMessage.Strict(text) =>
+          val sink = Flow[Message].collect { case tm: TextMessage => tm }
+            .mapAsync(1)(_.toStrict(ScalaDuration.fromNanos(wsChunkTimeout.toNanos)).map(_.text))
+            .toMat(Sink.foreach { text =>
               val io = for {
                 msg     <- Task.fromEither(json.parseWSMessage(text))
                 msgType = msg.messageType
@@ -262,8 +266,7 @@ trait AkkaHttpAdapter {
                     }
               } yield ()
               runtime.unsafeRun(io)
-            case _ => ()
-          }
+            })(Keep.right)
 
           val flow = Flow.fromSinkAndSourceCoupled(sink, source).watchTermination() { (_, f) =>
             f.onComplete(_ => runtime.unsafeRun(subscriptions.get.flatMap(m => IO.foreach(m.values)(_.interrupt).unit)))
