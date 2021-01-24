@@ -53,7 +53,7 @@ object Introspector {
       case OperationDefinition(_, _, _, _, selectionSet) =>
         selectionSet.nonEmpty && selectionSet.forall {
           case Field(_, name, _, _, _, _) => name == "__schema" || name == "__type"
-          case _                          => true
+          case _                          => false
         }
       case _ => true
     }
