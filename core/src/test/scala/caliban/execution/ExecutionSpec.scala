@@ -450,6 +450,70 @@ object ExecutionSpec extends DefaultRunnableSpec {
 
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"i":{"id":"ok"}}"""))
       },
+      testM("rename on a union child") {
+        sealed trait Union
+        object Union {
+          case class Child(field: String) extends Union
+        }
+        case class Obj(union: Union)
+        case class Query(test: Obj)
+
+        object Schemas {
+          implicit val schemaUnionChild: Schema[Any, Union.Child] = Schema.gen[Union.Child].rename("UnionChild")
+          implicit val schemaTestUnion: Schema[Any, Union]        = Schema.gen[Union]
+          implicit val schemaQuery: Schema[Any, Query]            = Schema.gen[Query]
+        }
+        import Schemas._
+
+        val interpreter = graphQL(RootResolver(Query(Obj(Union.Child("f"))))).interpreter
+        val query       = gqldoc("""
+             {
+               test {
+                 union {
+                   __typename
+                   ... on UnionChild {
+                     field
+                   }
+                 }
+               }
+             }""")
+
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
+          equalTo("""{"test":{"union":{"__typename":"UnionChild","field":"f"}}}""".stripMargin)
+        )
+      },
+      testM("rename on a union child and parent") {
+        sealed trait Union
+        object Union {
+          case class Child(field: String) extends Union
+        }
+        case class Obj(union: Union)
+        case class Query(test: Obj)
+
+        object Schemas {
+          implicit val schemaUnionChild: Schema[Any, Union.Child] = Schema.gen[Union.Child].rename("UnionChild")
+          implicit val schemaTestUnion: Schema[Any, Union]        = Schema.gen[Union].rename("UnionRenamed")
+          implicit val schemaQuery: Schema[Any, Query]            = Schema.gen[Query]
+        }
+        import Schemas._
+
+        val interpreter = graphQL(RootResolver(Query(Obj(Union.Child("f"))))).interpreter
+        val query       = gqldoc("""
+             {
+               test {
+                 union {
+                   __typename
+                   ... on UnionChild {
+                     field
+                   }
+                 }
+               }
+             }""")
+
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
+          equalTo("""{"test":{"union":{"__typename":"UnionChild","field":"f"}}}""".stripMargin)
+        )
+      },
       testM("argument not wrapped in a case class") {
         case class Query(test: Int => Int)
         val api         = graphQL(RootResolver(Query(identity)))
