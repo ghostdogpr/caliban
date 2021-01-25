@@ -269,10 +269,23 @@ trait GenericSchema[R] extends DerivationSchema[R] with TemporalSchema {
     lazy val name: String        = s"Either${typeAName}Or$typeBName"
     lazy val description: String = s"Either $typeAName or $typeBName"
 
+    implicit val leftSchema: Schema[RA, A] = new Schema[RA, A] {
+      override def optional: Boolean                                         = true
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = evA.toType_(isInput, isSubscription)
+      override def resolve(value: A): Step[RA]                               = evA.resolve(value)
+    }
+    implicit val rightSchema: Schema[RB, B] = new Schema[RB, B] {
+      override def optional: Boolean                                         = true
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = evB.toType_(isInput, isSubscription)
+      override def resolve(value: B): Step[RB]                               = evB.resolve(value)
+    }
+
     obj[RA with RB, Either[A, B]](name, Some(description))(implicit ft =>
       List(
-        field[Either[A, B]]("left", Some("Left element of the Either")).either[RA, A](_.map(_ => NullStep)),
-        field[Either[A, B]]("right", Some("Right element of the Either")).either[RB, B](_.swap.map(_ => NullStep))
+        field[Either[A, B]]("left", Some("Left element of the Either"))
+          .either[RA, A](_.map(_ => NullStep))(leftSchema, ft),
+        field[Either[A, B]]("right", Some("Right element of the Either"))
+          .either[RB, B](_.swap.map(_ => NullStep))(rightSchema, ft)
       )
     )
   }
