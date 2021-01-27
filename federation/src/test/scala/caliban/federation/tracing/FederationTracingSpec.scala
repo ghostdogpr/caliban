@@ -50,18 +50,18 @@ object FederationTracingSpec extends DefaultRunnableSpec with GenericSchema[Cloc
   ) @@ ApolloFederatedTracing.wrapper
 
   val query = gqldoc("query { me { id username { first, family: last } parents { name } age } }")
-  val body = ObjectValue(
+  val body  = ObjectValue(
     List(
       "me" -> ObjectValue(
         List(
-          "id" -> StringValue("abc123"),
+          "id"       -> StringValue("abc123"),
           "username" -> ObjectValue(
             List(
               "first"  -> StringValue("my_first"),
               "family" -> StringValue("my_last")
             )
           ),
-          "parents" -> ListValue(
+          "parents"  -> ListValue(
             List(
               ObjectValue(
                 List(
@@ -70,7 +70,7 @@ object FederationTracingSpec extends DefaultRunnableSpec with GenericSchema[Cloc
               )
             )
           ),
-          "age" -> IntValue(42)
+          "age"      -> IntValue(42)
         )
       )
     )
@@ -125,20 +125,20 @@ object FederationTracingSpec extends DefaultRunnableSpec with GenericSchema[Cloc
       },
       testM("enabled") {
         for {
-          _           <- TestClock.setTime(1.second)
-          interpreter <- api.interpreter
-          resultFiber <- interpreter
-                          .execute(
-                            query,
-                            extensions =
-                              Map(GraphQLRequest.`apollo-federation-include-trace` -> StringValue(GraphQLRequest.ftv1))
-                          )
-                          .fork
-          result     <- TestClock.adjust(1.second) *> resultFiber.join
-          actualBody = result.data
-          actualExtension = result.extensions.flatMap(_.fields.collectFirst {
-            case ("ftv1", StringValue(ftv1)) => parseTrace(ftv1)
-          })
+          _              <- TestClock.setTime(1.second)
+          interpreter    <- api.interpreter
+          resultFiber    <-
+            interpreter
+              .execute(
+                query,
+                extensions = Map(GraphQLRequest.`apollo-federation-include-trace` -> StringValue(GraphQLRequest.ftv1))
+              )
+              .fork
+          result         <- TestClock.adjust(1.second) *> resultFiber.join
+          actualBody      = result.data
+          actualExtension = result.extensions.flatMap(_.fields.collectFirst { case ("ftv1", StringValue(ftv1)) =>
+                              parseTrace(ftv1)
+                            })
         } yield assert(actualBody)(equalTo(body)) && assert(actualExtension)(
           isSome(
             equalTo(

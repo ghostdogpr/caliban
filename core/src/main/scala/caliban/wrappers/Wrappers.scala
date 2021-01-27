@@ -38,7 +38,7 @@ object Wrappers {
    * Returns a wrapper that prints slow queries
    * @param duration threshold above which queries are considered slow
    */
-  def printSlowQueries(duration: Duration): OverallWrapper[Console with Clock] =
+  def printSlowQueries(duration: Duration): OverallWrapper[Console with Clock]                                  =
     onSlowQueries(duration) { case (time, query) => putStrLn(s"Slow query took ${time.render}:\n$query") }
 
   /**
@@ -47,9 +47,8 @@ object Wrappers {
    */
   def onSlowQueries[R](duration: Duration)(f: (Duration, String) => URIO[R, Any]): OverallWrapper[R with Clock] =
     OverallWrapper { process => (request: GraphQLRequest) =>
-      process(request).timed.flatMap {
-        case (time, res) =>
-          ZIO.when(time > duration)(f(time, request.query.getOrElse(""))).as(res)
+      process(request).timed.flatMap { case (time, res) =>
+        ZIO.when(time > duration)(f(time, request.query.getOrElse(""))).as(res)
       }
     }
 
@@ -84,9 +83,9 @@ object Wrappers {
       for {
         req   <- process(doc)
         depth <- calculateDepth(req.field)
-        _ <- IO.when(depth > maxDepth)(
-              IO.fail(ValidationError(s"Query is too deep: $depth. Max depth: $maxDepth.", ""))
-            )
+        _     <- IO.when(depth > maxDepth)(
+                   IO.fail(ValidationError(s"Query is too deep: $depth. Max depth: $maxDepth.", ""))
+                 )
       } yield req
     }
 
@@ -110,9 +109,9 @@ object Wrappers {
       for {
         req    <- process(doc)
         fields <- countFields(req.field)
-        _ <- IO.when(fields > maxFields)(
-              IO.fail(ValidationError(s"Query has too many fields: $fields. Max fields: $maxFields.", ""))
-            )
+        _      <- IO.when(fields > maxFields)(
+                    IO.fail(ValidationError(s"Query has too many fields: $fields. Max fields: $maxFields.", ""))
+                  )
       } yield req
     }
 

@@ -19,10 +19,10 @@ object ApolloCaching {
 
   object CacheControl {
 
-    def apply(scope: ApolloCaching.CacheScope): Directive =
+    def apply(scope: ApolloCaching.CacheScope): Directive                   =
       Directive(directiveName, Map("scope" -> EnumValue(scope.toString)))
 
-    def apply(maxAge: Duration): Directive =
+    def apply(maxAge: Duration): Directive                                  =
       Directive(directiveName, Map("maxAge" -> IntValue(maxAge.toMillis / 1000)))
 
     def apply(maxAge: Duration, scope: ApolloCaching.CacheScope): Directive =
@@ -61,7 +61,7 @@ object ApolloCaching {
         List(
           "path"   -> ListValue((Left(fieldName) :: path).reverse.map(_.fold(StringValue, IntValue(_)))),
           "maxAge" -> IntValue(maxAge.toMillis / 1000),
-          "scope" -> StringValue(scope match {
+          "scope"  -> StringValue(scope match {
             case CacheScope.Private => "PRIVATE"
             case CacheScope.Public  => "PUBLIC"
           })
@@ -89,8 +89,8 @@ object ApolloCaching {
           case StringValue("PUBLIC") | EnumValue("PUBLIC")   => CacheScope.Public
         }
 
-        val maxAge = d.arguments.get("maxAge").collectFirst {
-          case i: IntValue => Duration(i.toLong, TimeUnit.SECONDS)
+        val maxAge = d.arguments.get("maxAge").collectFirst { case i: IntValue =>
+          Duration(i.toLong, TimeUnit.SECONDS)
         }
 
         CacheDirective(scope, maxAge)
@@ -114,27 +114,25 @@ object ApolloCaching {
 
   private def apolloCachingField(ref: Ref[Caching]): FieldWrapper[Any] =
     FieldWrapper(
-      {
-        case (query, fieldInfo) =>
-          val cacheDirectives = extractCacheDirective(
-            fieldInfo.directives ++ fieldInfo.details.fieldType.ofType.flatMap(_.directives).getOrElse(Nil)
-          )
+      { case (query, fieldInfo) =>
+        val cacheDirectives = extractCacheDirective(
+          fieldInfo.directives ++ fieldInfo.details.fieldType.ofType.flatMap(_.directives).getOrElse(Nil)
+        )
 
-          cacheDirectives.foldLeft(query) {
-            case (q, cacheDirective) =>
-              q <* ZQuery.fromEffect(
-                ref.update(state =>
-                  state.copy(
-                    hints = CacheHint(
-                      path = fieldInfo.path,
-                      fieldName = fieldInfo.name,
-                      maxAge = cacheDirective.maxAge getOrElse Duration.Zero,
-                      scope = cacheDirective.scope getOrElse CacheScope.Private
-                    ) :: state.hints
-                  )
-                )
+        cacheDirectives.foldLeft(query) { case (q, cacheDirective) =>
+          q <* ZQuery.fromEffect(
+            ref.update(state =>
+              state.copy(
+                hints = CacheHint(
+                  path = fieldInfo.path,
+                  fieldName = fieldInfo.name,
+                  maxAge = cacheDirective.maxAge getOrElse Duration.Zero,
+                  scope = cacheDirective.scope getOrElse CacheScope.Private
+                ) :: state.hints
               )
-          }
+            )
+          )
+        }
       },
       wrapPureValues = true
     )

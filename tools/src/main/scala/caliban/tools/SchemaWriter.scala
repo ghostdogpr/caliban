@@ -177,7 +177,7 @@ object SchemaWriter {
       case d if d.contains("\n") =>
         s"""@GQLDescription(\"\"\"${escapeDoubleQuotes(d)}\"\"\")
            |""".stripMargin
-      case d =>
+      case d                     =>
         s"""@GQLDescription("${escapeDoubleQuotes(d)}")
            |""".stripMargin
     }

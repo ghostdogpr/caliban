@@ -38,7 +38,7 @@ object ApolloPersistedQueries {
             .accessM[ApolloPersistence](_.get.get(hash))
             .flatMap {
               case Some(query) => UIO(request.copy(query = Some(query)))
-              case None =>
+              case None        =>
                 request.query match {
                   case Some(value) => ZIO.accessM[ApolloPersistence](_.get.add(hash, value)).as(request)
                   case None        => ZIO.fail(ValidationError("PersistedQueryNotFound", ""))
@@ -47,7 +47,7 @@ object ApolloPersistedQueries {
             }
             .flatMap(process)
             .catchAll(ex => UIO(GraphQLResponse(NullValue, List(ex))))
-        case None => process(request)
+        case None       => process(request)
       }
     }
 
@@ -56,9 +56,9 @@ object ApolloPersistedQueries {
       .flatMap(_.get("persistedQuery"))
       .flatMap {
         case InputValue.ObjectValue(fields) =>
-          fields.get("sha256Hash").collectFirst {
-            case StringValue(hash) => hash
+          fields.get("sha256Hash").collectFirst { case StringValue(hash) =>
+            hash
           }
-        case _ => None
+        case _                              => None
       }
 }

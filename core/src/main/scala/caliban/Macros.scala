@@ -19,7 +19,7 @@ object Macros {
       document.tree match {
         case Literal(Constant(s: String)) =>
           Parser.check(s).fold(document)(e => c.abort(c.enclosingPosition, s"GraphQL document is invalid: $e"))
-        case _ =>
+        case _                            =>
           c.abort(c.enclosingPosition, s"This macro can only be used with string literals.")
       }
   }

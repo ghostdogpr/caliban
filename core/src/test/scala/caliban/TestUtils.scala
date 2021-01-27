@@ -30,7 +30,7 @@ object TestUtils {
     case object MARS  extends Origin
     case object BELT  extends Origin
     @GQLDeprecated("Use: EARTH | MARS | BELT")
-    case object MOON extends Origin
+    case object MOON  extends Origin
   }
 
   sealed trait Role
@@ -110,7 +110,7 @@ object TestUtils {
 
   case class SubscriptionIO(deleteCharacters: ZStream[Any, Nothing, String])
 
-  val resolver = RootResolver(
+  val resolver                 = RootResolver(
     Query(
       args => characters.filter(c => args.origin.forall(c.origin == _)),
       args => characters.find(c => c.name == args.name),
@@ -118,13 +118,13 @@ object TestUtils {
       args => characters.contains(args.character)
     )
   )
-  val resolverIO = RootResolver(
+  val resolverIO               = RootResolver(
     QueryIO(
       args => UIO(characters.filter(c => args.origin.forall(c.origin == _))),
       args => UIO(characters.find(c => c.name == args.name))
     )
   )
-  val resolverWithMutation = RootResolver(
+  val resolverWithMutation     = RootResolver(
     resolverIO.queryResolver,
     MutationIO(_ => UIO.unit)
   )
@@ -314,7 +314,7 @@ object TestUtils {
                 name = "a",
                 description = None,
                 args = Nil,
-                `type` = () => Types.int // bad type, interface type is string
+                `type` = () => Types.int     // bad type, interface type is string
               ),
               __Field(
                 name = "b",
@@ -343,7 +343,7 @@ object TestUtils {
       sealed trait FieldInterface {
         val a: String
       }
-      object FieldInterface {
+      object FieldInterface       {
         case class FieldObject(a: String, b: Int) extends FieldInterface
       }
       case class TestFieldObject(fieldInterface: FieldObject)
@@ -362,19 +362,19 @@ object TestUtils {
       case class TestListInterfaceSubtype(fieldInterfaces: List[FieldObject]) extends WithListFieldInterface
       val resolverListInterfaceSubtype = RootResolver(TestListInterfaceSubtype(List(FieldObject("a", 1))))
 
-      val fieldInterface = Types.makeInterface(
+      val fieldInterface             = Types.makeInterface(
         name = Some("FieldInterface"),
         description = None,
         fields = List(__Field("a", None, Nil, () => Types.string)),
         subTypes = Nil
       )
-      val fieldObject = __Type(
+      val fieldObject                = __Type(
         kind = __TypeKind.OBJECT,
         name = Some("FieldObject"),
         interfaces = () => Some(List(fieldInterface)),
         fields = _ => Some(List(__Field("a", None, Nil, () => Types.string)))
       )
-      val withListFieldInterface = Types.makeInterface(
+      val withListFieldInterface     = Types.makeInterface(
         name = Some("WithListFieldInterface"),
         description = None,
         fields = List(__Field("a", None, Nil, () => Types.makeList(fieldInterface))),

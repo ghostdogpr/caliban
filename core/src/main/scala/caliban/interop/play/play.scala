@@ -32,7 +32,7 @@ private[caliban] object IsPlayJsonReads {
 }
 
 object json {
-  implicit val jsonSchema: Schema[Any, JsValue] = new Schema[Any, JsValue] {
+  implicit val jsonSchema: Schema[Any, JsValue]    = new Schema[Any, JsValue] {
     private def parse(value: JsValue) =
       implicitly[Reads[ResponseValue]]
         .reads(value)
@@ -41,7 +41,7 @@ object json {
         .map(parsingException)
 
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = makeScalar("Json")
-    override def resolve(value: JsValue): Step[Any] =
+    override def resolve(value: JsValue): Step[Any]                        =
       QueryStep(ZQuery.fromEffect(ZIO.fromEither(parse(value))).map(PureStep))
   }
   implicit val jsonArgBuilder: ArgBuilder[JsValue] = (input: InputValue) => Right(Json.toJson(input))
@@ -55,14 +55,14 @@ object json {
     import play.api.libs.json._
 
     val valueWrites: Writes[Value] = Writes {
-      case NullValue => JsNull
-      case v: IntValue =>
+      case NullValue           => JsNull
+      case v: IntValue         =>
         v match {
           case IntValue.IntNumber(value)    => JsNumber(BigDecimal(value))
           case IntValue.LongNumber(value)   => JsNumber(BigDecimal(value))
           case IntValue.BigIntNumber(value) => JsNumber(BigDecimal(value))
         }
-      case v: FloatValue =>
+      case v: FloatValue       =>
         v match {
           case FloatValue.FloatNumber(value)      => JsNumber(BigDecimal(value.toDouble))
           case FloatValue.DoubleNumber(value)     => JsNumber(BigDecimal(value))
@@ -78,7 +78,7 @@ object json {
         case JsObject(fields)  => InputValue.ObjectValue(fields.map { case (k, v) => k -> jsonToInputValue(v) }.toMap)
         case JsArray(elements) => InputValue.ListValue(elements.toList.map(jsonToInputValue))
         case JsString(value)   => StringValue(value)
-        case JsNumber(value) =>
+        case JsNumber(value)   =>
           Try(value.toIntExact)
             .map(IntValue.apply)
             .getOrElse(FloatValue(value))
@@ -87,10 +87,10 @@ object json {
         case JsNull       => NullValue
       }
 
-    val inputValueReads: Reads[InputValue] = Reads(json => JsSuccess(jsonToInputValue(json)))
+    val inputValueReads: Reads[InputValue]   = Reads(json => JsSuccess(jsonToInputValue(json)))
     val inputValueWrites: Writes[InputValue] = Writes {
-      case value: Value                 => valueWrites.writes(value)
-      case InputValue.ListValue(values) => JsArray(values.map(inputValueWrites.writes))
+      case value: Value                   => valueWrites.writes(value)
+      case InputValue.ListValue(values)   => JsArray(values.map(inputValueWrites.writes))
       case InputValue.ObjectValue(fields) =>
         JsObject(fields.map { case (k, v) => k -> inputValueWrites.writes(v) })
       case InputValue.VariableValue(name) => JsString(name)
@@ -98,11 +98,11 @@ object json {
 
     private def jsonToResponseValue(json: JsValue): ResponseValue =
       json match {
-        case JsObject(fields) =>
+        case JsObject(fields)  =>
           ResponseValue.ObjectValue(fields.map { case (k, v) => k -> jsonToResponseValue(v) }.toList)
         case JsArray(elements) => ResponseValue.ListValue(elements.toList.map(jsonToResponseValue))
         case JsString(value)   => StringValue(value)
-        case JsNumber(value) =>
+        case JsNumber(value)   =>
           Try(value.toIntExact)
             .map(IntValue.apply)
             .getOrElse(FloatValue(value))
@@ -115,11 +115,11 @@ object json {
       Reads(json => JsSuccess(jsonToResponseValue(json)))
 
     val responseValueWrites: Writes[ResponseValue] = Writes {
-      case value: Value                    => valueWrites.writes(value)
-      case ResponseValue.ListValue(values) => JsArray(values.map(responseValueWrites.writes))
+      case value: Value                      => valueWrites.writes(value)
+      case ResponseValue.ListValue(values)   => JsArray(values.map(responseValueWrites.writes))
       case ResponseValue.ObjectValue(fields) =>
         JsObject(fields.map { case (k, v) => k -> responseValueWrites.writes(v) })
-      case s: ResponseValue.StreamValue => JsString(s.toString)
+      case s: ResponseValue.StreamValue      => JsString(s.toString)
     }
   }
 
@@ -167,10 +167,10 @@ object json {
     import play.api.libs.json.Json.toJson
 
     val graphQLResponseWrites: Writes[GraphQLResponse[Any]] = Writes {
-      case GraphQLResponse(data, Nil, None) => Json.obj("data" -> data)
-      case GraphQLResponse(data, Nil, Some(extensions)) =>
+      case GraphQLResponse(data, Nil, None)                => Json.obj("data" -> data)
+      case GraphQLResponse(data, Nil, Some(extensions))    =>
         Json.obj("data" -> data, "extensions" -> extensions.asInstanceOf[ResponseValue])
-      case GraphQLResponse(data, errors, None) =>
+      case GraphQLResponse(data, errors, None)             =>
         Json.obj("data" -> data, "errors" -> JsArray(errors.map(handleError)))
       case GraphQLResponse(data, errors, Some(extensions)) =>
         Json.obj(

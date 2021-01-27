@@ -30,8 +30,8 @@ object Step {
   def mergeRootSteps[R](step1: Step[R], step2: Step[R]): Step[R] = (step1, step2) match {
     case (ObjectStep(name, fields1), ObjectStep(_, fields2)) =>
       ObjectStep(name, fields1 ++ fields2) // fields2 override fields1 in case of conflict
-    case (ObjectStep(_, _), _) => step1 // if only step1 is an object, keep it
-    case _                     => step2 // otherwise keep step2
+    case (ObjectStep(_, _), _)                               => step1 // if only step1 is an object, keep it
+    case _                                                   => step2 // otherwise keep step2
   }
 }
 

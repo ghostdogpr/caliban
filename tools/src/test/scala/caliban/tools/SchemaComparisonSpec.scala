@@ -40,8 +40,8 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
             |""".stripMargin
 
         assertM(for {
-          s1   <- Parser.parseQuery(schema1)
-          s2   <- Parser.parseQuery(schema2)
+          s1  <- Parser.parseQuery(schema1)
+          s2  <- Parser.parseQuery(schema2)
           diff = compareDocuments(s1, s2)
         } yield diff.map(_.toString))(
           equalTo(
@@ -72,8 +72,8 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
             |""".stripMargin
 
         assertM(for {
-          s1   <- Parser.parseQuery(schema1)
-          s2   <- Parser.parseQuery(schema2)
+          s1  <- Parser.parseQuery(schema1)
+          s2  <- Parser.parseQuery(schema2)
           diff = compareDocuments(s1, s2)
         } yield diff.map(_.toString))(equalTo(List("Type 'HeroInput' was added.")))
       },
@@ -101,8 +101,8 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
             |""".stripMargin
 
         assertM(for {
-          s1   <- Parser.parseQuery(schema1)
-          s2   <- Parser.parseQuery(schema2)
+          s1  <- Parser.parseQuery(schema1)
+          s2  <- Parser.parseQuery(schema2)
           diff = compareDocuments(s1, s2)
         } yield diff.map(_.toString))(
           equalTo(
@@ -139,8 +139,8 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
             |""".stripMargin
 
         assertM(for {
-          s1   <- Parser.parseQuery(schema1)
-          s2   <- Parser.parseQuery(schema2)
+          s1  <- Parser.parseQuery(schema1)
+          s2  <- Parser.parseQuery(schema2)
           diff = compareDocuments(s1, s2)
         } yield diff.map(_.toString))(
           equalTo(List("Directive 'deprecated' was deleted from field 'test' of type 'HeroInput'."))

@@ -24,22 +24,21 @@ object RootTypeSpec extends DefaultRunnableSpec {
 
         val graphQL: GraphQL[Any] = GraphQL.graphQL(resolver)
 
-        graphQL.validateRootSchema.map {
-          schema =>
-            val rootType =
-              RootType(
-                schema.query.opType,
-                schema.mutation.map(_.opType),
-                schema.subscription.map(_.opType),
-                Nil
-              )
+        graphQL.validateRootSchema.map { schema =>
+          val rootType =
+            RootType(
+              schema.query.opType,
+              schema.mutation.map(_.opType),
+              schema.subscription.map(_.opType),
+              Nil
+            )
 
-            def interfaceName(tpe: String): Option[List[String]] =
-              rootType.types.get(tpe).flatMap(_.interfaces()).map(_.flatMap(_.name))
+          def interfaceName(tpe: String): Option[List[String]] =
+            rootType.types.get(tpe).flatMap(_.interfaces()).map(_.flatMap(_.name))
 
-            assert(interfaceName("A"))(equalTo(Some(List("CommonInterface", "MyInterface")))) &&
-            assert(interfaceName("B"))(equalTo(Some(List("MyInterface")))) &&
-            assert(interfaceName("MyField"))(equalTo(Some(List("CommonInterface"))))
+          assert(interfaceName("A"))(equalTo(Some(List("CommonInterface", "MyInterface")))) &&
+          assert(interfaceName("B"))(equalTo(Some(List("MyInterface")))) &&
+          assert(interfaceName("MyField"))(equalTo(Some(List("CommonInterface"))))
         }
       }
     )
