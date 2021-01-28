@@ -6,6 +6,7 @@ import caliban.parsing.adt.Document
 import zio.{ Task, UIO }
 
 object Codegen {
+
   def generate(
     arguments: Options,
     writer: (Document, String, Option[String], String) => String

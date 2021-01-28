@@ -14,6 +14,14 @@ object ClientWriter {
     objectName: String = "Client",
     packageName: Option[String] = None,
     effect: String = "zio.UIO"
+  ): String =
+    write(schema, objectName, packageName, genView = false)
+
+  def write(
+    schema: Document,
+    objectName: String,
+    packageName: Option[String],
+    genView: Boolean
   ): String = {
     val schemaDef = schema.schemaDefinition
 
@@ -46,7 +54,7 @@ object ClientWriter {
           schemaDef.exists(_.mutation.getOrElse("Mutation") == obj.name) ||
           schemaDef.exists(_.subscription.getOrElse("Subscription") == obj.name)
       )
-      .map(writeObject(_, typesMap, mappingClashedTypeNames))
+      .map(writeObject(_, typesMap, mappingClashedTypeNames, genView))
       .mkString("\n")
 
     val inputs = schema.inputObjectTypeDefinitions.map(writeInputObject(_, mappingClashedTypeNames)).mkString("\n")
@@ -164,13 +172,108 @@ object ClientWriter {
   def writeObject(
     typedef: ObjectTypeDefinition,
     typesMap: Map[String, TypeDefinition],
-    mappingClashedTypeNames: Map[String, String]
+    mappingClashedTypeNames: Map[String, String],
+    genView: Boolean
   ): String = {
     val objectName: String = safeTypeName(typedef.name, mappingClashedTypeNames)
+    val fields             = typedef.fields.map(collectFieldInfo(_, objectName, typesMap, mappingClashedTypeNames))
+    val view               = if (genView) "\n  " + writeView(typedef.name, fields.map(_.typeInfo), mappingClashedTypeNames) else ""
+
     s"""type $objectName
-       |object $objectName {
-       |  ${typedef.fields.map(writeField(_, objectName, typesMap, mappingClashedTypeNames)).mkString("\n  ")}
+       |object $objectName {$view
+       |  ${fields.map(writeFieldInfo).mkString("\n  ")}
        |}
+       |""".stripMargin
+  }
+
+  def writeView(
+    objectName: String,
+    fields: List[FieldTypeInfo],
+    mappingClashedTypeNames: Map[String, String]
+  ): String = {
+    val viewName       = s"${objectName}View"
+    val safeObjectName = safeTypeName(objectName, mappingClashedTypeNames)
+
+    def argumentName(fieldName: String, argName: String): String =
+      fieldName + argName.capitalize
+
+    def withRoundBrackets(input: List[String]): String =
+      if (input.nonEmpty) input.mkString("(", ", ", ")") else ""
+
+    val genericSelectionFields =
+      fields.collect {
+        case field if field.owner.nonEmpty =>
+          field -> s"${field.name}Selection"
+      }
+
+    val genericSelectionFieldTypes =
+      genericSelectionFields.map { case (field, name) => (field, name.capitalize) }
+
+    val genericSelectionFieldsMap     = genericSelectionFields.toMap
+    val genericSelectionFieldTypesMap = genericSelectionFieldTypes.toMap
+
+    val viewFunctionArguments: List[String] =
+      fields.collect {
+        case field if field.arguments.nonEmpty =>
+          writeArgumentFields(
+            field.arguments.map(a => a.copy(name = argumentName(field.name, a.name))),
+            mappingClashedTypeNames
+          )
+      }
+
+    val viewFunctionSelectionArguments: List[String] =
+      genericSelectionFields.collect {
+        case (field @ FieldTypeInfo(_, _, _, Some(owner)), fieldName) =>
+          val tpe = genericSelectionFieldTypesMap(field)
+          s"$fieldName: SelectionBuilder[$owner, $tpe]"
+      }
+
+    val viewClassFields: List[String] =
+      fields.map {
+        case field @ FieldTypeInfo(_, outputType, _, Some(_)) =>
+          val tpeName = genericSelectionFieldTypesMap(field)
+          val tpe =
+            if (outputType.endsWith("[A]")) outputType.dropRight(3) + "[" + tpeName + "]"
+            else outputType.dropRight(1) + tpeName
+          s"${field.name}: $tpe"
+
+        case field @ FieldTypeInfo(_, outputType, _, _) =>
+          s"${field.name}: $outputType"
+      }
+
+    val viewFunctionBody: String =
+      fields.map { field =>
+        val argsPart      = withRoundBrackets(field.arguments.map(a => argumentName(field.name, a.name)))
+        val selectionPart = withRoundBrackets(genericSelectionFieldsMap.get(field).toList)
+        s"${field.name}$argsPart$selectionPart"
+      }.mkString(" ~ ")
+
+    val viewClassFieldParams: String = withRoundBrackets(viewClassFields)
+
+    val viewFunction: String =
+      fields match {
+        case head :: Nil =>
+          s"$viewFunctionBody.map(${head.name} => $viewName(${head.name}))"
+
+        case other =>
+          val unapply = fields.tail.foldLeft(fields.head.name) {
+            case (acc, field) => "(" + acc + ", " + field.name + ")"
+          }
+          s"($viewFunctionBody).map { case $unapply => $viewName(${other.map(_.name).mkString(", ")}) }"
+      }
+
+    val typeParams =
+      if (genericSelectionFieldTypes.nonEmpty) genericSelectionFieldTypes.map(_._2).mkString("[", ", ", "]") else ""
+
+    val viewFunctionArgs          = withRoundBrackets(viewFunctionArguments)
+    val viewFunctionSelectionArgs = withRoundBrackets(viewFunctionSelectionArguments)
+
+    s"""
+       |final case class $viewName$typeParams$viewClassFieldParams
+       |
+       |type ViewSelection$typeParams = SelectionBuilder[$safeObjectName, $viewName$typeParams]
+       |
+       |def view$typeParams$viewFunctionArgs$viewFunctionSelectionArgs: ViewSelection$typeParams = $viewFunction
        |""".stripMargin
   }
 
@@ -229,7 +332,7 @@ object ClientWriter {
           ${typedef.enumValuesDefinition
       .map(v => s"case object ${safeEnumValue(v.enumValue)} extends $enumName")
       .mkString("\n")}
-      
+
           implicit val decoder: ScalarDecoder[$enumName] = {
             ${typedef.enumValuesDefinition
       .map(v => s"""case __StringValue ("${v.enumValue}") => Right($enumName.${safeEnumValue(v.enumValue)})""")
@@ -269,7 +372,35 @@ object ClientWriter {
     typeName: String,
     typesMap: Map[String, TypeDefinition],
     mappingClashedTypeNames: Map[String, String]
-  ): String = {
+  ): String =
+    writeFieldInfo(collectFieldInfo(field, typeName, typesMap, mappingClashedTypeNames))
+
+  def writeFieldInfo(fieldInfo: FieldInfo): String = {
+    val FieldInfo(
+      name,
+      safeName,
+      description,
+      deprecated,
+      typeName,
+      typeParam,
+      args,
+      innerSelection,
+      outputType,
+      builder,
+      argBuilder,
+      _
+    ) =
+      fieldInfo
+
+    s"""$description${deprecated}def $safeName$typeParam$args$innerSelection: SelectionBuilder[$typeName, $outputType] = Field("$name", $builder$argBuilder)"""
+  }
+
+  def collectFieldInfo(
+    field: FieldDefinition,
+    typeName: String,
+    typesMap: Map[String, TypeDefinition],
+    mappingClashedTypeNames: Map[String, String]
+  ): FieldInfo = {
     val name = safeName(field.name)
     val description = field.description match {
       case Some(d) if d.trim.nonEmpty => s"/**\n * ${d.trim}\n */\n"
@@ -366,7 +497,22 @@ object ClientWriter {
         s", arguments = List(${list.map(arg => s"""Argument("${arg.name}", ${safeName(arg.name)})""").mkString(", ")})"
     }
 
-    s"""$description${deprecated}def $name$typeParam$args$innerSelection: SelectionBuilder[$typeName, $outputType] = Field("${field.name}", $builder$argBuilder)"""
+    val owner         = if (typeParam.nonEmpty) Some(fieldType) else None
+    val fieldTypeInfo = FieldTypeInfo(name, outputType, field.args, owner)
+    FieldInfo(
+      field.name,
+      name,
+      description,
+      deprecated,
+      typeName,
+      typeParam,
+      args,
+      innerSelection,
+      outputType,
+      builder,
+      argBuilder,
+      fieldTypeInfo
+    )
   }
 
   def writeArgumentFields(args: List[InputValueDefinition], mappingClashedTypeNames: Map[String, String]): String =
@@ -459,4 +605,26 @@ object ClientWriter {
 
   val caseClassReservedFields =
     Set("wait", "notify", "toString", "notifyAll", "hashCode", "getClass", "finalize", "equals", "clone")
+
+  final case class FieldTypeInfo(
+    name: String,
+    outputType: String,
+    arguments: List[InputValueDefinition],
+    owner: Option[String]
+  )
+
+  final case class FieldInfo(
+    name: String,
+    safeName: String,
+    description: String,
+    deprecated: String,
+    typeName: String,
+    typeParam: String,
+    args: String,
+    innerSelection: String,
+    outputType: String,
+    builder: String,
+    argBuilder: String,
+    typeInfo: FieldTypeInfo
+  )
 }
