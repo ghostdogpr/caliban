@@ -7,8 +7,8 @@ import caliban.client.Operations.IsOperation
 import caliban.client.Selection.Directive
 import caliban.client.__Value.__ObjectValue
 import io.circe.parser
-import sttp.client._
-import sttp.client.circe._
+import sttp.client3._
+import sttp.client3.circe._
 import sttp.model.Uri
 import io.circe.Json
 
@@ -76,7 +76,7 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
     uri: Uri,
     useVariables: Boolean = false,
     queryName: Option[String] = None
-  )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, A1], Nothing] =
+  )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, A1], Any] =
     toRequestWithExtensions[A1, Origin1](uri, useVariables, queryName)(ev).mapResponse {
       case Right((r, _)) => Right(r)
       case Left(l)       => Left(l)
@@ -92,7 +92,7 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
     uri: Uri,
     useVariables: Boolean = false,
     queryName: Option[String] = None
-  )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, (A1, Option[Json])], Nothing] =
+  )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, (A1, Option[Json])], Any] =
     basicRequest
       .post(uri)
       .body(toGraphQL(useVariables, queryName))

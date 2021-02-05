@@ -12,7 +12,7 @@ val mercatorVersion       = "0.2.1"
 val playVersion           = "2.8.7"
 val playJsonVersion       = "2.9.2"
 val silencerVersion       = "1.7.1"
-val sttpVersion           = "2.2.9"
+val sttpVersion           = "3.1.0"
 val tapirVersion          = "0.17.9"
 val zioVersion            = "1.0.4"
 val zioInteropCatsVersion = "2.2.0.1"
@@ -123,13 +123,13 @@ lazy val tools = project
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "org.scalameta"                %% "scalafmt-dynamic"              % "2.7.5",
-      "org.scalameta"                %% "scalafmt-core"                 % "2.7.5",
-      "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion,
-      "dev.zio"                      %% "zio-config"                    % zioConfigVersion,
-      "dev.zio"                      %% "zio-config-magnolia"           % zioConfigVersion,
-      "dev.zio"                      %% "zio-test"                      % zioVersion % "test",
-      "dev.zio"                      %% "zio-test-sbt"                  % zioVersion % "test"
+      "org.scalameta"                 %% "scalafmt-dynamic"              % "2.7.5",
+      "org.scalameta"                 %% "scalafmt-core"                 % "2.7.5",
+      "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
+      "dev.zio"                       %% "zio-config"                    % zioConfigVersion,
+      "dev.zio"                       %% "zio-config-magnolia"           % zioConfigVersion,
+      "dev.zio"                       %% "zio-test"                      % zioVersion % "test",
+      "dev.zio"                       %% "zio-test-sbt"                  % zioVersion % "test"
     )
   )
   .dependsOn(core, clientJVM)
@@ -266,13 +266,13 @@ lazy val play = project
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "com.typesafe.play"            %% "play"                          % playVersion,
-      "dev.zio"                      %% "zio-test"                      % zioVersion   % "test",
-      "dev.zio"                      %% "zio-test-sbt"                  % zioVersion   % "test",
-      "com.typesafe.play"            %% "play-akka-http-server"         % playVersion  % "test",
-      "io.circe"                     %% "circe-generic"                 % circeVersion % "test",
-      "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion  % "test",
-      "com.softwaremill.sttp.client" %% "circe"                         % sttpVersion  % "test"
+      "com.typesafe.play"             %% "play"                          % playVersion,
+      "dev.zio"                       %% "zio-test"                      % zioVersion   % "test",
+      "dev.zio"                       %% "zio-test-sbt"                  % zioVersion   % "test",
+      "com.typesafe.play"             %% "play-akka-http-server"         % playVersion  % "test",
+      "io.circe"                      %% "circe-generic"                 % circeVersion % "test",
+      "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion  % "test",
+      "com.softwaremill.sttp.client3" %% "circe"                         % sttpVersion  % "test"
     )
   )
   .dependsOn(core)
@@ -285,11 +285,11 @@ lazy val client    = crossProject(JSPlatform, JVMPlatform)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "io.circe"                     %%% "circe-core"   % circeVersion,
-      "com.softwaremill.sttp.client" %%% "core"         % sttpVersion,
-      "com.softwaremill.sttp.client" %%% "circe"        % sttpVersion,
-      "dev.zio"                      %%% "zio-test"     % zioVersion % "test",
-      "dev.zio"                      %%% "zio-test-sbt" % zioVersion % "test"
+      "io.circe"                      %%% "circe-core"   % circeVersion,
+      "com.softwaremill.sttp.client3" %%% "core"         % sttpVersion,
+      "com.softwaremill.sttp.client3" %%% "circe"        % sttpVersion,
+      "dev.zio"                       %%% "zio-test"     % zioVersion % "test",
+      "dev.zio"                       %%% "zio-test-sbt" % zioVersion % "test"
     )
   )
 lazy val clientJVM = client.jvm
@@ -303,12 +303,12 @@ lazy val examples = project
   .settings(skip in publish := true)
   .settings(
     libraryDependencies ++= Seq(
-      "de.heikoseeberger"            %% "akka-http-circe"               % "1.35.3",
-      "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % sttpVersion,
-      "com.softwaremill.sttp.tapir"  %% "tapir-json-circe"              % tapirVersion,
-      "io.circe"                     %% "circe-generic"                 % circeVersion,
-      "com.typesafe.play"            %% "play-akka-http-server"         % playVersion,
-      "com.typesafe.akka"            %% "akka-actor-typed"              % akkaVersion
+      "de.heikoseeberger"             %% "akka-http-circe"               % "1.35.3",
+      "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
+      "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % tapirVersion,
+      "io.circe"                      %% "circe-generic"                 % circeVersion,
+      "com.typesafe.play"             %% "play-akka-http-server"         % playVersion,
+      "com.typesafe.akka"             %% "akka-actor-typed"              % akkaVersion
     )
   )
   .dependsOn(akkaHttp, http4s, catsInterop, finch, play, monixInterop, tapirInterop, clientJVM, federation)

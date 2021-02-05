@@ -11,8 +11,9 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.{ DirectiveDefinition, SchemaDefinition, TypeDefinition }
 import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt.{ Directive, Document, Type }
-import sttp.client._
-import sttp.client.asynchttpclient.zio.{ AsyncHttpClientZioBackend, SttpClient }
+import sttp.client3._
+import sttp.client3.asynchttpclient.zio.AsyncHttpClientZioBackend
+import sttp.client3.asynchttpclient.zio._
 import sttp.model.Uri
 import zio.{ IO, RIO, Task }
 
@@ -23,11 +24,11 @@ object IntrospectionClient {
       parsedUri <- IO.fromEither(Uri.parse(uri)).mapError(cause => new Exception(s"Invalid URL: $cause"))
       baseReq    = introspection.toRequest(parsedUri)
       req        = headers.map(_.map(h => h.name -> h.value).toMap).fold(baseReq)(baseReq.headers)
-      result    <- send(req).provideLayer(AsyncHttpClientZioBackend.layer())
+      result    <- sendRequest(req).provideLayer(AsyncHttpClientZioBackend.layer())
     } yield result
 
-  private def send[T](req: Request[Either[CalibanClientError, T], Nothing]): RIO[SttpClient, T] =
-    SttpClient.send(req).map(_.body).absolve
+  private def sendRequest[T](req: Request[Either[CalibanClientError, T], Any]): RIO[SttpClient, T] =
+    send(req).map(_.body).absolve
 
   private def directives(isDeprecated: Boolean, deprecationReason: Option[String]): List[Directive] =
     if (isDeprecated)
