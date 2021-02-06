@@ -21,8 +21,8 @@ object IntrospectionClient {
   def introspect(uri: String, headers: Option[List[Options.Header]]): Task[Document] =
     for {
       parsedUri <- IO.fromEither(Uri.parse(uri)).mapError(cause => new Exception(s"Invalid URL: $cause"))
-      baseReq   = introspection.toRequest(parsedUri)
-      req       = headers.map(_.map(h => h.name -> h.value).toMap).fold(baseReq)(baseReq.headers)
+      baseReq    = introspection.toRequest(parsedUri)
+      req        = headers.map(_.map(h => h.name -> h.value).toMap).fold(baseReq)(baseReq.headers)
       result    <- send(req).provideLayer(AsyncHttpClientZioBackend.layer())
     } yield result
 
@@ -54,15 +54,15 @@ object IntrospectionClient {
     of match {
       case Some(value) =>
         kind match {
-          case __TypeKind.LIST => ListType(value, nonNull = false)
+          case __TypeKind.LIST     => ListType(value, nonNull = false)
           case __TypeKind.NON_NULL =>
             value match {
               case NamedType(name, _)  => NamedType(name, nonNull = true)
               case ListType(ofType, _) => ListType(ofType, nonNull = true)
             }
-          case _ => NamedType(name.getOrElse(""), nonNull = false)
+          case _                   => NamedType(name.getOrElse(""), nonNull = false)
         }
-      case None => NamedType(name.getOrElse(""), nonNull = false)
+      case None        => NamedType(name.getOrElse(""), nonNull = false)
     }
 
   private def mapTypeRefSimple(name: Option[String]): Type =
@@ -87,9 +87,9 @@ object IntrospectionClient {
     enumValues: Option[List[EnumValueDefinition]],
     possibleTypes: Option[List[Type]]
   ): Option[TypeDefinition] = kind match {
-    case __TypeKind.SCALAR =>
+    case __TypeKind.SCALAR                     =>
       Some(ScalarTypeDefinition(description, name.getOrElse(""), Nil))
-    case __TypeKind.OBJECT =>
+    case __TypeKind.OBJECT                     =>
       Some(
         ObjectTypeDefinition(
           description,
@@ -99,15 +99,22 @@ object IntrospectionClient {
           fields.getOrElse(Nil)
         )
       )
-    case __TypeKind.INTERFACE =>
+    case __TypeKind.INTERFACE                  =>
       Some(InterfaceTypeDefinition(description, name.getOrElse(""), Nil, fields.getOrElse(Nil)))
-    case __TypeKind.UNION =>
-      Some(UnionTypeDefinition(description, name.getOrElse(""), Nil, possibleTypes.getOrElse(Nil).collect {
-        case NamedType(name, _) => name
-      }))
-    case __TypeKind.ENUM =>
+    case __TypeKind.UNION                      =>
+      Some(
+        UnionTypeDefinition(
+          description,
+          name.getOrElse(""),
+          Nil,
+          possibleTypes.getOrElse(Nil).collect { case NamedType(name, _) =>
+            name
+          }
+        )
+      )
+    case __TypeKind.ENUM                       =>
       Some(EnumTypeDefinition(description, name.getOrElse(""), Nil, enumValues.getOrElse(Nil)))
-    case __TypeKind.INPUT_OBJECT =>
+    case __TypeKind.INPUT_OBJECT               =>
       Some(InputObjectTypeDefinition(description, name.getOrElse(""), Nil, inputFields.getOrElse(Nil)))
     case __TypeKind.LIST | __TypeKind.NON_NULL => None
   }

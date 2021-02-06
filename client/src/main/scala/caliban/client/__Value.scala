@@ -8,22 +8,22 @@ import io.circe.{ Decoder, Encoder, Json }
 sealed trait __Value
 
 object __Value {
-  case object __NullValue extends __Value {
+  case object __NullValue                                   extends __Value {
     override def toString: String = "null"
   }
-  case class __NumberValue(value: BigDecimal) extends __Value {
+  case class __NumberValue(value: BigDecimal)               extends __Value {
     override def toString: String = s"$value"
   }
-  case class __EnumValue(value: String) extends __Value {
+  case class __EnumValue(value: String)                     extends __Value {
     override def toString: String = value
   }
-  case class __StringValue(value: String) extends __Value {
+  case class __StringValue(value: String)                   extends __Value {
     override def toString: String = s""""${value.replace("\"", "\\\"")}""""
   }
-  case class __BooleanValue(value: Boolean) extends __Value {
+  case class __BooleanValue(value: Boolean)                 extends __Value {
     override def toString: String = value.toString
   }
-  case class __ListValue(values: List[__Value]) extends __Value {
+  case class __ListValue(values: List[__Value])             extends __Value {
     override def toString: String = values.map(_.toString).mkString("[", ",", "]")
   }
   case class __ObjectValue(fields: List[(String, __Value)]) extends __Value {

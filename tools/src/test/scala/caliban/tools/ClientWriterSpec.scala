@@ -218,13 +218,13 @@ object Client {
       case __StringValue("BELT")  => Right(Origin.BELT)
       case other                  => Left(DecodingError(s"Can't build Origin from input $other"))
     }
-    implicit val encoder: ArgEncoder[Origin] = new ArgEncoder[Origin] {
+    implicit val encoder: ArgEncoder[Origin]    = new ArgEncoder[Origin] {
       override def encode(value: Origin): __Value = value match {
         case Origin.EARTH => __EnumValue("EARTH")
         case Origin.MARS  => __EnumValue("MARS")
         case Origin.BELT  => __EnumValue("BELT")
       }
-      override def typeName: String = "Origin"
+      override def typeName: String               = "Origin"
     }
   }
 
@@ -259,7 +259,7 @@ object Client {
             "nicknames" -> __ListValue(value.nicknames.map(value => implicitly[ArgEncoder[String]].encode(value)))
           )
         )
-      override def typeName: String = "CharacterInput"
+      override def typeName: String                       = "CharacterInput"
     }
   }
 
@@ -288,7 +288,7 @@ object Client {
     implicit val encoder: ArgEncoder[CharacterInput] = new ArgEncoder[CharacterInput] {
       override def encode(value: CharacterInput): __Value =
         __ObjectValue(List("wait" -> implicitly[ArgEncoder[String]].encode(value.wait_)))
-      override def typeName: String = "CharacterInput"
+      override def typeName: String                       = "CharacterInput"
     }
   }
 
@@ -372,7 +372,7 @@ object Client {
      * name
      */
     @deprecated("blah", "")
-    def name: SelectionBuilder[Character, String] = Field("name", Scalar())
+    def name: SelectionBuilder[Character, String]            = Field("name", Scalar())
     @deprecated("", "")
     def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
   }
@@ -384,7 +384,7 @@ object Client {
       },
       testM("deprecated field + comment newline") {
         val tripleQuotes = "\"\"\""
-        val schema =
+        val schema       =
           """
              type Character {
                "name"
@@ -406,7 +406,11 @@ object Client {
     /**
      * name
      */
-    @deprecated(${tripleQuotes}foo\nbar$tripleQuotes, "")
+    @deprecated(
+      ${tripleQuotes}foo
+bar$tripleQuotes,
+      ""
+    )
     def name: SelectionBuilder[Character, String] = Field("name", Scalar())
   }
 
@@ -441,12 +445,11 @@ object Client {
       first: Int,
       last: Option[Int] = None,
       origins: List[Option[String]] = Nil
-    ): SelectionBuilder[RootQuery, Option[String]] =
-      Field(
-        "characters",
-        OptionOf(Scalar()),
-        arguments = List(Argument("first", first), Argument("last", last), Argument("origins", origins))
-      )
+    ): SelectionBuilder[RootQuery, Option[String]] = Field(
+      "characters",
+      OptionOf(Scalar()),
+      arguments = List(Argument("first", first), Argument("last", last), Argument("origins", origins))
+    )
   }
 
 }
@@ -516,14 +519,14 @@ object Client {
       case __StringValue("jedi")    => Right(Episode.jedi_)
       case other                    => Left(DecodingError(s"Can't build Episode from input $other"))
     }
-    implicit val encoder: ArgEncoder[Episode] = new ArgEncoder[Episode] {
+    implicit val encoder: ArgEncoder[Episode]    = new ArgEncoder[Episode] {
       override def encode(value: Episode): __Value = value match {
         case Episode.NEWHOPE => __EnumValue("NEWHOPE")
         case Episode.EMPIRE  => __EnumValue("EMPIRE")
         case Episode.JEDI    => __EnumValue("JEDI")
         case Episode.jedi_   => __EnumValue("jedi")
       }
-      override def typeName: String = "Episode"
+      override def typeName: String                = "Episode"
     }
   }
 

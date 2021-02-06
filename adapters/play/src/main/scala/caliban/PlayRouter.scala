@@ -34,7 +34,7 @@ case class PlayRouter[R <: Blocking with Random, E](
 
   override def routes: Routes = {
     case POST(
-        p"/api/graphql" ? q_o"query=$query" & q_o"variables=$variables" & q_o"operationName=$operation" & q_o"extensions=$extensions"
+          p"/api/graphql" ? q_o"query=$query" & q_o"variables=$variables" & q_o"operationName=$operation" & q_o"extensions=$extensions"
         ) =>
       query match {
         case Some(_) =>
@@ -44,10 +44,10 @@ case class PlayRouter[R <: Blocking with Random, E](
             operation,
             extensions
           )
-        case None => makePostAction(interpreter, skipValidation, enableIntrospection, queryExecution)
+        case None    => makePostAction(interpreter, skipValidation, enableIntrospection, queryExecution)
       }
     case GET(
-        p"/api/graphql" ? q_o"query=$query" & q_o"variables=$variables" & q_o"operationName=$operation" & q_o"extensions=$extensions"
+          p"/api/graphql" ? q_o"query=$query" & q_o"variables=$variables" & q_o"operationName=$operation" & q_o"extensions=$extensions"
         ) if allowGETRequests =>
       makeGetAction(interpreter, skipValidation, enableIntrospection, queryExecution)(
         query,
@@ -57,7 +57,7 @@ case class PlayRouter[R <: Blocking with Random, E](
       )
     case GET(p"/ws/graphql") if subscriptions =>
       makeWebSocket(interpreter, skipValidation, enableIntrospection, keepAliveTime, queryExecution)
-    case GET(p"/graphiql") if playground =>
+    case GET(p"/graphiql") if playground      =>
       actionBuilder(
         Results.Ok
           .sendResource("graphiql.html")(controllerComponents.executionContext, controllerComponents.fileMimeTypes)

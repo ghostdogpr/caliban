@@ -43,10 +43,10 @@ object Service {
     )
 
   def uploadFiles(files: List[Upload]): ZIO[Uploads with Blocking, Throwable, List[TestAPI.File]] =
-    ZIO.collectAllPar(for {
-      file <- files
-    } yield {
+    ZIO.collectAllPar(
       for {
+        file <- files
+      } yield for {
         bytes <- file.allBytes
         meta  <- file.meta
       } yield TestAPI.File(
@@ -55,7 +55,7 @@ object Service {
         meta.map(_.fileName).getOrElse(""),
         meta.flatMap(_.contentType).getOrElse("")
       )
-    })
+    )
 
   def sha256(b: Array[Byte]) =
     MessageDigest.getInstance("SHA-256").digest(b)
@@ -147,14 +147,14 @@ object AdapterSpec extends DefaultRunnableSpec {
 
         val body = for {
           response <- SttpClient.send(
-                       request.mapResponse { strRespOrError =>
-                         for {
-                           resp           <- strRespOrError
-                           json           <- parse(resp)
-                           fileUploadResp <- json.as[Response[UploadFile]]
-                         } yield fileUploadResp
-                       }
-                     )
+                        request.mapResponse { strRespOrError =>
+                          for {
+                            resp           <- strRespOrError
+                            json           <- parse(resp)
+                            fileUploadResp <- json.as[Response[UploadFile]]
+                          } yield fileUploadResp
+                        }
+                      )
         } yield response.body
 
         assertM(body.map(_.toOption.get.data.uploadFile))(
@@ -187,14 +187,14 @@ object AdapterSpec extends DefaultRunnableSpec {
 
         val body = for {
           response <- SttpClient.send(
-                       request.mapResponse { strRespOrError =>
-                         for {
-                           resp           <- strRespOrError
-                           json           <- parse(resp)
-                           fileUploadResp <- json.as[Response[UploadFiles]]
-                         } yield fileUploadResp
-                       }
-                     )
+                        request.mapResponse { strRespOrError =>
+                          for {
+                            resp           <- strRespOrError
+                            json           <- parse(resp)
+                            fileUploadResp <- json.as[Response[UploadFiles]]
+                          } yield fileUploadResp
+                        }
+                      )
         } yield response.body
 
         assertM(body.map(_.toOption.get.data.uploadFiles))(

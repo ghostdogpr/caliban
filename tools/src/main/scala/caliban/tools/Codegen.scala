@@ -18,10 +18,10 @@ object Codegen {
     val loader      = getSchemaLoader(arguments.schemaPath, arguments.headers)
     for {
       schema    <- loader.load
-      code      = writer(schema, objectName, packageName, effect)
+      code       = writer(schema, objectName, packageName, effect)
       formatted <- Formatter.format(code, arguments.fmtPath)
-      _ <- Task(new PrintWriter(new File(arguments.toPath)))
-            .bracket(q => UIO(q.close()), pw => Task(pw.println(formatted)))
+      _         <- Task(new PrintWriter(new File(arguments.toPath)))
+                     .bracket(q => UIO(q.close()), pw => Task(pw.println(formatted)))
     } yield ()
   }
 

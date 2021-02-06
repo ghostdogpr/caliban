@@ -50,7 +50,7 @@ object MonixInterop {
     new Schema[R, MonixTask[A]] {
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def optional: Boolean                                         = ev.optional
-      override def resolve(value: MonixTask[A]): Step[R] =
+      override def resolve(value: MonixTask[A]): Step[R]                     =
         QueryStep(ZQuery.fromEffect(value.to[Task].map(ev.resolve)))
     }
 
@@ -58,7 +58,7 @@ object MonixInterop {
     queueSize: Int
   )(implicit ev: Schema[R, A], ev2: ConcurrentEffect[MonixTask]): Schema[R, Observable[A]] =
     new Schema[R, Observable[A]] {
-      override def optional: Boolean = true
+      override def optional: Boolean                      = true
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
         val t = ev.toType_(isInput, isSubscription)
         if (isSubscription) t else Types.makeList(if (ev.optional) t else Types.makeNonNull(t))

@@ -48,14 +48,14 @@ object Parser {
       if (input.isReachable(index)) {
         val currentChar = input(index)
         (state: @switch) match {
-          case Normal =>
+          case Normal                  =>
             (currentChar: @switch) match {
               case Space | LF | Comma | Tab | UnicodeBOM => loop(index + 1, state = Normal)
               case CommentStart                          => loop(index + 1, state = InsideLineComment)
               case CR                                    => loop(index + 1, state = DetermineLineBreakStart)
               case _                                     => ctx.freshSuccessUnit(index)
             }
-          case InsideLineComment =>
+          case InsideLineComment       =>
             loop(
               index + 1,
               state = (currentChar: @switch) match {
@@ -90,11 +90,13 @@ object Parser {
   private def fractionalPart[_: P]: P[Unit]    = P("." ~~ digit.repX(1))
 
   private def floatValue[_: P]: P[FloatValue] =
-    P((integerPart ~~ fractionalPart) | (integerPart ~~ exponentPart) | (integerPart ~~ fractionalPart ~~ exponentPart)).!.map(
+    P(
+      (integerPart ~~ fractionalPart) | (integerPart ~~ exponentPart) | (integerPart ~~ fractionalPart ~~ exponentPart)
+    ).!.map(
       FloatValue(_)
     )
 
-  private def hexDigit[_: P]: P[Unit] = P(CharIn("0-9a-fA-F"))
+  private def hexDigit[_: P]: P[Unit]         = P(CharIn("0-9a-fA-F"))
   private def escapedUnicode[_: P]: P[String] =
     P(hexDigit ~~ hexDigit ~~ hexDigit ~~ hexDigit).!.map(Integer.parseInt(_, 16).toChar.toString)
 
@@ -109,7 +111,9 @@ object Parser {
 
   private def stringCharacter[_: P]: P[String] =
     P(
-      sourceCharacterWithoutLineTerminator.!.filter(c => c != "\"" && c != "\\") | "\\u" ~~ escapedUnicode | "\\" ~~ escapedCharacter
+      sourceCharacterWithoutLineTerminator.!.filter(c =>
+        c != "\"" && c != "\\"
+      ) | "\\u" ~~ escapedUnicode | "\\" ~~ escapedCharacter
     )
 
   private def blockStringCharacter[_: P]: P[String] = P("\\\"\"\"".!.map(_ => "\"\"\"") | sourceCharacter.!)
@@ -121,25 +125,24 @@ object Parser {
     ).map(v => StringValue(v))
 
   private def blockStringValue(rawValue: String): String = {
-    val l1 = rawValue.split("\r?\n").toList
+    val l1           = rawValue.split("\r?\n").toList
     val commonIndent = l1 match {
-      case Nil => None
+      case Nil       => None
       case _ :: tail =>
-        tail.foldLeft(Option.empty[Int]) {
-          case (commonIndent, line) =>
-            val indent = "[ \t]*".r.findPrefixOf(line).fold(0)(_.length)
-            if (indent < line.length && commonIndent.fold(true)(_ > indent)) Some(indent) else commonIndent
+        tail.foldLeft(Option.empty[Int]) { case (commonIndent, line) =>
+          val indent = "[ \t]*".r.findPrefixOf(line).fold(0)(_.length)
+          if (indent < line.length && commonIndent.fold(true)(_ > indent)) Some(indent) else commonIndent
         }
     }
     // remove indentation
-    val l2 = (commonIndent, l1) match {
+    val l2           = (commonIndent, l1) match {
       case (Some(value), head :: tail) => head :: tail.map(_.drop(value))
       case _                           => l1
     }
     // remove start lines that are only whitespaces
-    val l3 = l2.dropWhile("[ \t]*".r.replaceAllIn(_, "").isEmpty)
+    val l3           = l2.dropWhile("[ \t]*".r.replaceAllIn(_, "").isEmpty)
     // remove end lines that are only whitespaces
-    val l4 = l3.reverse.dropWhile("[ \t]*".r.replaceAllIn(_, "").isEmpty).reverse
+    val l4           = l3.reverse.dropWhile("[ \t]*".r.replaceAllIn(_, "").isEmpty).reverse
     l4.mkString("\n")
   }
 
@@ -148,7 +151,7 @@ object Parser {
   private def listValue[_: P]: P[ListValue]  = P("[" ~/ value.rep ~ "]").map(values => ListValue(values.toList))
 
   private def objectField[_: P]: P[(String, InputValue)] = P(name ~ ":" ~/ value)
-  private def objectValue[_: P]: P[ObjectValue] =
+  private def objectValue[_: P]: P[ObjectValue]          =
     P("{" ~ objectField.rep ~ "}").map(values => ObjectValue(values.toMap))
 
   private def value[_: P]: P[InputValue] =
@@ -159,8 +162,8 @@ object Parser {
   private def argument[_: P]: P[(String, InputValue)]     = P(name ~ ":" ~ value)
   private def arguments[_: P]: P[Map[String, InputValue]] = P("(" ~/ argument.rep ~ ")").map(_.toMap)
 
-  private def directive[_: P]: P[Directive] = P(Index ~ "@" ~ name ~ arguments.?).map {
-    case (index, name, arguments) => Directive(name, arguments.getOrElse(Map()), index)
+  private def directive[_: P]: P[Directive]        = P(Index ~ "@" ~ name ~ arguments.?).map { case (index, name, arguments) =>
+    Directive(name, arguments.getOrElse(Map()), index)
   }
   private def directives[_: P]: P[List[Directive]] = P(directive.rep).map(_.toList)
 
@@ -170,7 +173,7 @@ object Parser {
   private def namedType[_: P]: P[NamedType] = P(name.filter(_ != "null")).map(NamedType(_, nonNull = false))
   private def listType[_: P]: P[ListType]   = P("[" ~ type_ ~ "]").map(t => ListType(t, nonNull = false))
 
-  private def argumentDefinition[_: P]: P[InputValueDefinition] =
+  private def argumentDefinition[_: P]: P[InputValueDefinition]        =
     P(stringValue.? ~ name ~ ":" ~ type_ ~ defaultValue.? ~ directives.?).map {
       case (description, name, type_, defaultValue, directives) =>
         InputValueDefinition(description.map(_.value), name, type_, defaultValue, directives.getOrElse(Nil))
@@ -188,17 +191,17 @@ object Parser {
     case t: NamedType => t.copy(nonNull = true)
     case t: ListType  => t.copy(nonNull = true)
   }
-  private def type_[_: P]: P[Type] = P(nonNullType | namedType | listType)
+  private def type_[_: P]: P[Type]       = P(nonNullType | namedType | listType)
 
-  private def variable[_: P]: P[VariableValue] = P("$" ~/ name).map(VariableValue)
+  private def variable[_: P]: P[VariableValue]                       = P("$" ~/ name).map(VariableValue)
   private def variableDefinitions[_: P]: P[List[VariableDefinition]] =
     P("(" ~/ variableDefinition.rep ~ ")").map(_.toList)
 
   private def variableDefinition[_: P]: P[VariableDefinition] =
-    P(variable ~ ":" ~/ type_ ~ defaultValue.? ~ directives).map {
-      case (v, t, default, dirs) => VariableDefinition(v.name, t, default, dirs)
+    P(variable ~ ":" ~/ type_ ~ defaultValue.? ~ directives).map { case (v, t, default, dirs) =>
+      VariableDefinition(v.name, t, default, dirs)
     }
-  private def defaultValue[_: P]: P[InputValue] = P("=" ~/ value)
+  private def defaultValue[_: P]: P[InputValue]               = P("=" ~/ value)
 
   private def field[_: P]: P[Field] = P(Index ~ alias.? ~ name ~ arguments.? ~ directives.? ~ selectionSet.?).map {
     case (index, alias, name, args, dirs, sels) =>
@@ -214,8 +217,8 @@ object Parser {
 
   private def fragmentName[_: P]: P[String] = P(name).filter(_ != "on")
 
-  private def fragmentSpread[_: P]: P[FragmentSpread] = P("..." ~ fragmentName ~ directives).map {
-    case (name, dirs) => FragmentSpread(name, dirs)
+  private def fragmentSpread[_: P]: P[FragmentSpread] = P("..." ~ fragmentName ~ directives).map { case (name, dirs) =>
+    FragmentSpread(name, dirs)
   }
 
   private def typeCondition[_: P]: P[NamedType] = P("on" ~/ namedType)
@@ -269,9 +272,8 @@ object Parser {
     }
 
   private def enumValueDefinition[_: P]: P[EnumValueDefinition] =
-    P(stringValue.? ~ name ~ directives.?).map {
-      case (description, enumValue, directives) =>
-        EnumValueDefinition(description.map(_.value), enumValue, directives.getOrElse(Nil))
+    P(stringValue.? ~ name ~ directives.?).map { case (description, enumValue, directives) =>
+      EnumValueDefinition(description.map(_.value), enumValue, directives.getOrElse(Nil))
     }
 
   private def enumName[_: P]: P[String] = name.filter(s => s != "true" && s != "false" && s != "null")
@@ -289,35 +291,32 @@ object Parser {
     }
 
   private def scalarTypeDefinition[_: P]: P[ScalarTypeDefinition] =
-    P(stringValue.? ~ "scalar" ~/ name ~ directives.?).map {
-      case (description, name, directives) =>
-        ScalarTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil))
+    P(stringValue.? ~ "scalar" ~/ name ~ directives.?).map { case (description, name, directives) =>
+      ScalarTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil))
     }
 
   private def rootOperationTypeDefinition[_: P]: P[(OperationType, NamedType)] = P(operationType ~ ":" ~ namedType)
 
   private def schemaDefinition[_: P]: P[SchemaDefinition] =
-    P("schema" ~/ directives.? ~ "{" ~ rootOperationTypeDefinition.rep ~ "}").map {
-      case (directives, ops) =>
-        val opsMap = ops.toMap
-        SchemaDefinition(
-          directives.getOrElse(Nil),
-          opsMap.get(OperationType.Query).map(_.name),
-          opsMap.get(OperationType.Mutation).map(_.name),
-          opsMap.get(OperationType.Subscription).map(_.name)
-        )
+    P("schema" ~/ directives.? ~ "{" ~ rootOperationTypeDefinition.rep ~ "}").map { case (directives, ops) =>
+      val opsMap = ops.toMap
+      SchemaDefinition(
+        directives.getOrElse(Nil),
+        opsMap.get(OperationType.Query).map(_.name),
+        opsMap.get(OperationType.Mutation).map(_.name),
+        opsMap.get(OperationType.Subscription).map(_.name)
+      )
     }
 
   private def schemaExtensionWithOptionalDirectivesAndOperations[_: P]: P[SchemaExtension] =
-    P(directives.? ~ "{" ~ rootOperationTypeDefinition.rep ~ "}").map {
-      case (directives, ops) =>
-        val opsMap = ops.toMap
-        SchemaExtension(
-          directives.getOrElse(Nil),
-          opsMap.get(OperationType.Query).map(_.name),
-          opsMap.get(OperationType.Mutation).map(_.name),
-          opsMap.get(OperationType.Subscription).map(_.name)
-        )
+    P(directives.? ~ "{" ~ rootOperationTypeDefinition.rep ~ "}").map { case (directives, ops) =>
+      val opsMap = ops.toMap
+      SchemaExtension(
+        directives.getOrElse(Nil),
+        opsMap.get(OperationType.Query).map(_.name),
+        opsMap.get(OperationType.Mutation).map(_.name),
+        opsMap.get(OperationType.Subscription).map(_.name)
+      )
     }
 
   private def schemaExtensionWithDirectives[_: P]: P[SchemaExtension] =
@@ -327,9 +326,8 @@ object Parser {
     P("extend schema" ~/ (schemaExtensionWithOptionalDirectivesAndOperations | schemaExtensionWithDirectives))
 
   private def scalarTypeExtension[_: P]: P[ScalarTypeExtension] =
-    P("extend scalar" ~/ name ~ directives).map {
-      case (name, directives) =>
-        ScalarTypeExtension(name, directives)
+    P("extend scalar" ~/ name ~ directives).map { case (name, directives) =>
+      ScalarTypeExtension(name, directives)
     }
 
   private def objectTypeExtensionWithOptionalInterfacesOptionalDirectivesAndFields[_: P]: P[ObjectTypeExtension] =
@@ -355,14 +353,13 @@ object Parser {
     }
 
   private def objectTypeExtensionWithInterfaces[_: P]: P[ObjectTypeExtension] =
-    P(name ~ implements).map {
-      case (name, implements) =>
-        ObjectTypeExtension(
-          name,
-          implements,
-          Nil,
-          Nil
-        )
+    P(name ~ implements).map { case (name, implements) =>
+      ObjectTypeExtension(
+        name,
+        implements,
+        Nil,
+        Nil
+      )
     }
 
   private def objectTypeExtension[_: P]: P[ObjectTypeExtension] =
@@ -375,15 +372,13 @@ object Parser {
     )
 
   private def interfaceTypeExtensionWithOptionalDirectivesAndFields[_: P]: P[InterfaceTypeExtension] =
-    P(name ~ directives.? ~ "{" ~ fieldDefinition.rep ~ "}").map {
-      case (name, directives, fields) =>
-        InterfaceTypeExtension(name, directives.getOrElse(Nil), fields.toList)
+    P(name ~ directives.? ~ "{" ~ fieldDefinition.rep ~ "}").map { case (name, directives, fields) =>
+      InterfaceTypeExtension(name, directives.getOrElse(Nil), fields.toList)
     }
 
   private def interfaceTypeExtensionWithDirectives[_: P]: P[InterfaceTypeExtension] =
-    P(name ~ directives).map {
-      case (name, directives) =>
-        InterfaceTypeExtension(name, directives, Nil)
+    P(name ~ directives).map { case (name, directives) =>
+      InterfaceTypeExtension(name, directives, Nil)
     }
 
   private def interfaceTypeExtension[_: P]: P[InterfaceTypeExtension] =
@@ -395,15 +390,13 @@ object Parser {
     )
 
   private def unionTypeExtensionWithOptionalDirectivesAndUnionMembers[_: P]: P[UnionTypeExtension] =
-    P(name ~ directives.? ~ "=" ~ ("|".? ~ namedType) ~ ("|" ~ namedType).rep).map {
-      case (name, directives, m, ms) =>
-        UnionTypeExtension(name, directives.getOrElse(Nil), (m :: ms.toList).map(_.name))
+    P(name ~ directives.? ~ "=" ~ ("|".? ~ namedType) ~ ("|" ~ namedType).rep).map { case (name, directives, m, ms) =>
+      UnionTypeExtension(name, directives.getOrElse(Nil), (m :: ms.toList).map(_.name))
     }
 
   private def unionTypeExtensionWithDirectives[_: P]: P[UnionTypeExtension] =
-    P(name ~ directives).map {
-      case (name, directives) =>
-        UnionTypeExtension(name, directives, Nil)
+    P(name ~ directives).map { case (name, directives) =>
+      UnionTypeExtension(name, directives, Nil)
     }
 
   private def unionTypeExtension[_: P]: P[UnionTypeExtension] =
@@ -416,24 +409,21 @@ object Parser {
     }
 
   private def enumTypeExtensionWithDirectives[_: P]: P[EnumTypeExtension] =
-    P(enumName ~ directives).map {
-      case (name, directives) =>
-        EnumTypeExtension(name, directives, Nil)
+    P(enumName ~ directives).map { case (name, directives) =>
+      EnumTypeExtension(name, directives, Nil)
     }
 
   private def enumTypeExtension[_: P]: P[EnumTypeExtension] =
     P("extend enum" ~/ (enumTypeExtensionWithOptionalDirectivesAndValues | enumTypeExtensionWithDirectives))
 
   private def inputObjectTypeExtensionWithOptionalDirectivesAndFields[_: P]: P[InputObjectTypeExtension] =
-    P(name ~ directives.? ~ "{" ~ argumentDefinition.rep ~ "}").map {
-      case (name, directives, fields) =>
-        InputObjectTypeExtension(name, directives.getOrElse(Nil), fields.toList)
+    P(name ~ directives.? ~ "{" ~ argumentDefinition.rep ~ "}").map { case (name, directives, fields) =>
+      InputObjectTypeExtension(name, directives.getOrElse(Nil), fields.toList)
     }
 
   private def inputObjectTypeExtensionWithDirectives[_: P]: P[InputObjectTypeExtension] =
-    P(name ~ directives).map {
-      case (name, directives) =>
-        InputObjectTypeExtension(name, directives, Nil)
+    P(name ~ directives).map { case (name, directives) =>
+      InputObjectTypeExtension(name, directives, Nil)
     }
 
   private def inputObjectTypeExtension[_: P]: P[InputObjectTypeExtension] =
@@ -490,9 +480,8 @@ object Parser {
   private def directiveDefinition[_: P]: P[DirectiveDefinition] =
     P(
       stringValue.? ~ "directive @" ~/ name ~ argumentDefinitions.? ~ "on" ~ ("|".? ~ directiveLocation) ~ ("|" ~ directiveLocation).rep
-    ).map {
-      case (description, name, args, firstLoc, otherLoc) =>
-        DirectiveDefinition(description.map(_.value), name, args.getOrElse(Nil), otherLoc.toSet + firstLoc)
+    ).map { case (description, name, args, firstLoc, otherLoc) =>
+      DirectiveDefinition(description.map(_.value), name, args.getOrElse(Nil), otherLoc.toSet + firstLoc)
     }
 
   private def typeDefinition[_: P]: P[TypeDefinition] =

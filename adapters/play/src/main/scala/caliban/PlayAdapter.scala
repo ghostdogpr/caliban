@@ -71,21 +71,21 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
       val tryOperations =
         parseJson(form.dataParts("operations").head).map(_.as[GraphQLRequest])
       // Second bit is the mapping field
-      val tryMap = parseJson(form.dataParts("map").head)
+      val tryMap        = parseJson(form.dataParts("map").head)
         .map(_.as[Map[String, Seq[String]]])
 
       runtime.unsafeRunToFuture(
         (for {
           operations <- ZIO
-                         .fromTry(tryOperations)
-                         .orElseFail(Results.BadRequest("Missing multipart field 'operations'"))
-          map <- ZIO
-                  .fromTry(tryMap)
-                  .orElseFail(Results.BadRequest("Missing multipart field 'map'"))
-          filePaths = map.map { case (key, value) => (key, value.map(parsePath).toList) }.toList
-            .flatMap(kv => kv._2.map(kv._1 -> _))
-          fileRef <- Ref.make(form.files.map(f => f.key -> f).toMap)
-          rand    <- ZIO.environment[Random]
+                          .fromTry(tryOperations)
+                          .orElseFail(Results.BadRequest("Missing multipart field 'operations'"))
+          map        <- ZIO
+                          .fromTry(tryMap)
+                          .orElseFail(Results.BadRequest("Missing multipart field 'map'"))
+          filePaths   = map.map { case (key, value) => (key, value.map(parsePath).toList) }.toList
+                          .flatMap(kv => kv._2.map(kv._1 -> _))
+          fileRef    <- Ref.make(form.files.map(f => f.key -> f).toMap)
+          rand       <- ZIO.environment[Random]
         } yield GraphQLUploadRequest(
           operations,
           filePaths,
@@ -210,8 +210,8 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
     enableIntrospection: Boolean,
     keepAliveTime: Option[Duration],
     queryExecution: QueryExecution
-  )(
-    implicit ec: ExecutionContext,
+  )(implicit
+    ec: ExecutionContext,
     materializer: Materializer,
     runtime: Runtime[R]
   ): Flow[PlayWSMessage, PlayWSMessage, Unit] = {
@@ -231,30 +231,29 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
     ): RIO[R, Unit] =
       for {
         result <- interpreter.executeRequest(
-                   request,
-                   skipValidation = skipValidation,
-                   enableIntrospection = enableIntrospection,
-                   queryExecution
-                 )
-        _ <- result.data match {
-              case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
-                stream
-                  .foreach(item => sendMessage(sendTo, messageId, ObjectValue(List(fieldName -> item)), result.errors))
-                  .onExit {
-                    case Failure(cause) if !cause.interrupted =>
-                      IO.fromFuture(_ =>
-                          sendTo.offer(PlayWSMessage("error", messageId, Json.obj("message" -> cause.squash.toString)))
-                        )
-                        .orDie
-                    case _ =>
-                      IO.fromFuture(_ => sendTo.offer(PlayWSMessage("complete", messageId))).orDie
+                    request,
+                    skipValidation = skipValidation,
+                    enableIntrospection = enableIntrospection,
+                    queryExecution
+                  )
+        _      <- result.data match {
+                    case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
+                      stream
+                        .foreach(item => sendMessage(sendTo, messageId, ObjectValue(List(fieldName -> item)), result.errors))
+                        .onExit {
+                          case Failure(cause) if !cause.interrupted =>
+                            IO.fromFuture(_ =>
+                              sendTo.offer(PlayWSMessage("error", messageId, Json.obj("message" -> cause.squash.toString)))
+                            ).orDie
+                          case _                                    =>
+                            IO.fromFuture(_ => sendTo.offer(PlayWSMessage("complete", messageId))).orDie
+                        }
+                        .forkDaemon
+                        .flatMap(fiber => subscriptions.update(_.updated(messageId, fiber)))
+                    case other                                                =>
+                      sendMessage(sendTo, messageId, other, result.errors) *>
+                        IO.fromFuture(_ => sendTo.offer(PlayWSMessage("complete", messageId)))
                   }
-                  .forkDaemon
-                  .flatMap(fiber => subscriptions.update(_.updated(messageId, fiber)))
-              case other =>
-                sendMessage(sendTo, messageId, other, result.errors) *>
-                  IO.fromFuture(_ => sendTo.offer(PlayWSMessage("complete", messageId)))
-            }
       } yield ()
 
     val (queue, source) = Source.queue[PlayWSMessage](0, OverflowStrategy.fail).preMaterialize()
@@ -263,39 +262,37 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
     val sink = Sink.foreach[PlayWSMessage] { msg =>
       val io = for {
         _ <- RIO.whenCase(msg.messageType) {
-              case "connection_init" =>
-                Task.fromFuture(_ => queue.offer(PlayWSMessage("connection_ack"))) *>
-                  Task.whenCase(keepAliveTime) {
-                    case Some(time) =>
-                      // Save the keep-alive fiber with a key of None so that it's interrupted later
-                      IO.fromFuture(_ => queue.offer(PlayWSMessage("ka")))
-                        .repeat(Schedule.spaced(time))
-                        .provideLayer(Clock.live)
-                        .unit
-                        .forkDaemon
-                        .flatMap(keepAliveFiber => subscriptions.update(_.updated(None, keepAliveFiber)))
-                  }
-              case "connection_terminate" =>
-                IO.effect(queue.complete())
-              case "start" =>
-                RIO.whenCase(msg.request) {
-                  case Some(req) =>
-                    startSubscription(msg.id, req, queue, subscriptions)
-                      .catchAll(error =>
-                        IO.fromFuture(_ =>
-                          queue.offer(PlayWSMessage("error", msg.id, Json.obj("message" -> error.toString)))
-                        )
-                      )
-                }
-              case "stop" =>
-                subscriptions
-                  .modify(map => (map.get(msg.id), map - msg.id))
-                  .flatMap(fiber =>
-                    IO.whenCase(fiber) {
-                      case Some(fiber) => fiber.interrupt
-                    }
-                  )
-            }
+               case "connection_init"      =>
+                 Task.fromFuture(_ => queue.offer(PlayWSMessage("connection_ack"))) *>
+                   Task.whenCase(keepAliveTime) { case Some(time) =>
+                     // Save the keep-alive fiber with a key of None so that it's interrupted later
+                     IO.fromFuture(_ => queue.offer(PlayWSMessage("ka")))
+                       .repeat(Schedule.spaced(time))
+                       .provideLayer(Clock.live)
+                       .unit
+                       .forkDaemon
+                       .flatMap(keepAliveFiber => subscriptions.update(_.updated(None, keepAliveFiber)))
+                   }
+               case "connection_terminate" =>
+                 IO.effect(queue.complete())
+               case "start"                =>
+                 RIO.whenCase(msg.request) { case Some(req) =>
+                   startSubscription(msg.id, req, queue, subscriptions)
+                     .catchAll(error =>
+                       IO.fromFuture(_ =>
+                         queue.offer(PlayWSMessage("error", msg.id, Json.obj("message" -> error.toString)))
+                       )
+                     )
+                 }
+               case "stop"                 =>
+                 subscriptions
+                   .modify(map => (map.get(msg.id), map - msg.id))
+                   .flatMap(fiber =>
+                     IO.whenCase(fiber) { case Some(fiber) =>
+                       fiber.interrupt
+                     }
+                   )
+             }
       } yield ()
       runtime.unsafeRun(io)
     }
@@ -327,12 +324,12 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
     parse.using { req =>
       implicit val ec: ExecutionContext = runtime.platform.executor.asEC
       req.contentType.map(_.toLowerCase(Locale.ENGLISH)) match {
-        case Some(`application/graphql`) => parse.text.map(text => GraphQLRequest(query = Some(text))).map(Right(_))
+        case Some(`application/graphql`)              => parse.text.map(text => GraphQLRequest(query = Some(text))).map(Right(_))
         case Some("text/json") | Some(MimeTypes.JSON) =>
           parse.json[GraphQLRequest].map(Right(_))
-        case Some("multipart/form-data") =>
+        case Some("multipart/form-data")              =>
           uploadFormParser(runtime).map(Left(_))
-        case _ =>
+        case _                                        =>
           parse.error(Future.successful(Results.BadRequest("Invalid content type")))
       }
     }
