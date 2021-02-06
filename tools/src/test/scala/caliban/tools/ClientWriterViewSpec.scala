@@ -40,8 +40,8 @@ object Client {
 
     type ViewSelection = SelectionBuilder[Character, CharacterView]
 
-    def view: ViewSelection = (name ~ age ~ nicknames).map {
-      case ((name, age), nicknames) => CharacterView(name, age, nicknames)
+    def view: ViewSelection = (name ~ age ~ nicknames).map { case ((name, age), nicknames) =>
+      CharacterView(name, age, nicknames)
     }
 
     def name: SelectionBuilder[Character, String]            = Field("name", Scalar())
@@ -105,8 +105,8 @@ object Client {
       case ((name, age), nicknames) => CharacterView(name, age, nicknames)
     }
 
-    def name: SelectionBuilder[Character, String] = Field("name", Scalar())
-    def age: SelectionBuilder[Character, Int]     = Field("age", Scalar())
+    def name: SelectionBuilder[Character, String]                                     = Field("name", Scalar())
+    def age: SelectionBuilder[Character, Int]                                         = Field("age", Scalar())
     def nicknames(arg: Option[Int] = None): SelectionBuilder[Character, List[String]] =
       Field("nicknames", ListOf(Scalar()), arguments = List(Argument("arg", arg)))
   }
@@ -163,8 +163,8 @@ object Client {
       case ((name, age), friends) => CharacterView(name, age, friends)
     }
 
-    def name: SelectionBuilder[Character, String] = Field("name", Scalar())
-    def age: SelectionBuilder[Character, Int]     = Field("age", Scalar())
+    def name: SelectionBuilder[Character, String]                                           = Field("name", Scalar())
+    def age: SelectionBuilder[Character, Int]                                               = Field("age", Scalar())
     def friends[A](
       filter: Option[String] = None
     )(innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[Character, List[A]] =
