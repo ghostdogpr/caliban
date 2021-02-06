@@ -100,10 +100,20 @@ trait Schema[-R, T] { self =>
       self.toType_(isInput, isSubscription).copy(name = Some(newName))
     }
 
-    override def resolve(value: T): Step[R] = self.resolve(value) match {
-      case ObjectStep(_, fields) => ObjectStep(name, fields)
-      case other                 => other
+    lazy val renameTypename: Boolean = self.toType().kind match {
+      case __TypeKind.UNION | __TypeKind.ENUM | __TypeKind.INTERFACE => false
+      case _                                                         => true
     }
+
+    override def resolve(value: T): Step[R] =
+      self.resolve(value) match {
+        case o @ ObjectStep(_, fields)  =>
+          if (renameTypename) ObjectStep(name, fields) else o
+        case p @ PureStep(EnumValue(_)) =>
+          if (renameTypename) PureStep(EnumValue(name)) else p
+        case other                      =>
+          other
+      }
   }
 }
 
