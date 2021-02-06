@@ -9,10 +9,10 @@ sealed trait SchemaComparisonChange {
 }
 
 object SchemaComparisonChange {
-  case class TypeAdded(name: String) extends SchemaComparisonChange {
+  case class TypeAdded(name: String)                                     extends SchemaComparisonChange {
     override def toString: String = s"Type '$name' was added."
   }
-  case class TypeDeleted(name: String) extends SchemaComparisonChange {
+  case class TypeDeleted(name: String)                                   extends SchemaComparisonChange {
     override def toString: String  = s"Type '$name' was deleted."
     override def breaking: Boolean = true
   }
@@ -21,7 +21,7 @@ object SchemaComparisonChange {
     override def breaking: Boolean = true
   }
 
-  case class EnumValueAdded(typeName: String, value: String) extends SchemaComparisonChange {
+  case class EnumValueAdded(typeName: String, value: String)   extends SchemaComparisonChange {
     override def toString: String = s"Enum value '$value' was added on enum type '$typeName'."
   }
   case class EnumValueDeleted(typeName: String, value: String) extends SchemaComparisonChange {
@@ -29,7 +29,7 @@ object SchemaComparisonChange {
     override def breaking: Boolean = true
   }
 
-  case class UnionMemberAdded(typeName: String, member: String) extends SchemaComparisonChange {
+  case class UnionMemberAdded(typeName: String, member: String)   extends SchemaComparisonChange {
     override def toString: String = s"Member '$member' was added on union type '$typeName'."
   }
   case class UnionMemberDeleted(typeName: String, member: String) extends SchemaComparisonChange {
@@ -37,7 +37,7 @@ object SchemaComparisonChange {
     override def breaking: Boolean = true
   }
 
-  case class ObjectImplementsAdded(typeName: String, implements: String) extends SchemaComparisonChange {
+  case class ObjectImplementsAdded(typeName: String, implements: String)   extends SchemaComparisonChange {
     override def toString: String = s"Object type '$typeName' now implements interface: '$implements'."
   }
   case class ObjectImplementsDeleted(typeName: String, implements: String) extends SchemaComparisonChange {
@@ -45,23 +45,23 @@ object SchemaComparisonChange {
     override def breaking: Boolean = true
   }
 
-  case class SchemaQueryTypeChanged(from: Option[String], to: Option[String]) extends SchemaComparisonChange {
-    override def toString: String =
+  case class SchemaQueryTypeChanged(from: Option[String], to: Option[String])        extends SchemaComparisonChange {
+    override def toString: String  =
       s"Root query type was changed from ${renderRootType(from)} to ${renderRootType(to)}."
     override def breaking: Boolean = true
   }
-  case class SchemaMutationTypeChanged(from: Option[String], to: Option[String]) extends SchemaComparisonChange {
-    override def toString: String =
+  case class SchemaMutationTypeChanged(from: Option[String], to: Option[String])     extends SchemaComparisonChange {
+    override def toString: String  =
       s"Root mutation type was changed from ${renderRootType(from)} to ${renderRootType(to)}."
     override def breaking: Boolean = true
   }
   case class SchemaSubscriptionTypeChanged(from: Option[String], to: Option[String]) extends SchemaComparisonChange {
-    override def toString: String =
+    override def toString: String  =
       s"Root subscription type was changed from ${renderRootType(from)} to ${renderRootType(to)}."
     override def breaking: Boolean = true
   }
 
-  case class FieldAdded(typeName: String, field: String) extends SchemaComparisonChange {
+  case class FieldAdded(typeName: String, field: String)   extends SchemaComparisonChange {
     override def toString: String = s"Field '$field' was added on type '$typeName'."
   }
   case class FieldDeleted(typeName: String, field: String) extends SchemaComparisonChange {
@@ -69,10 +69,10 @@ object SchemaComparisonChange {
     override def breaking: Boolean = true
   }
 
-  case class DirectiveDefinitionAdded(directiveName: String) extends SchemaComparisonChange {
+  case class DirectiveDefinitionAdded(directiveName: String)                            extends SchemaComparisonChange {
     override def toString: String = s"Directive '$directiveName' was added."
   }
-  case class DirectiveDefinitionDeleted(directiveName: String) extends SchemaComparisonChange {
+  case class DirectiveDefinitionDeleted(directiveName: String)                          extends SchemaComparisonChange {
     override def toString: String  = s"Directive '$directiveName' was deleted."
     override def breaking: Boolean = true
   }
@@ -85,7 +85,7 @@ object SchemaComparisonChange {
     override def breaking: Boolean = true
   }
 
-  case class DescriptionAdded(target: Target) extends SchemaComparisonChange {
+  case class DescriptionAdded(target: Target)   extends SchemaComparisonChange {
     override def toString: String = s"Description was added on $target."
   }
   case class DescriptionDeleted(target: Target) extends SchemaComparisonChange {
@@ -95,7 +95,7 @@ object SchemaComparisonChange {
     override def toString: String = s"Description was changed on $target."
   }
 
-  case class DirectiveAdded(directiveName: String, target: Target) extends SchemaComparisonChange {
+  case class DirectiveAdded(directiveName: String, target: Target)   extends SchemaComparisonChange {
     override def toString: String = s"Directive '$directiveName' was added on $target."
   }
   case class DirectiveDeleted(directiveName: String, target: Target) extends SchemaComparisonChange {
@@ -117,13 +117,13 @@ object SchemaComparisonChange {
     from: InputValue,
     to: InputValue,
     target: Target
-  ) extends SchemaComparisonChange {
-    override def toString: String =
+  )                                                                  extends SchemaComparisonChange {
+    override def toString: String  =
       s"Argument '$argName' was changed from '$from' to '$to' on directive '$directiveName' on $target."
     override def breaking: Boolean = true
   }
 
-  case class ArgumentAdded(argName: String, target: Target) extends SchemaComparisonChange {
+  case class ArgumentAdded(argName: String, target: Target)   extends SchemaComparisonChange {
     override def toString: String = s"Argument '$argName' was added on $target."
   }
   case class ArgumentDeleted(argName: String, target: Target) extends SchemaComparisonChange {
@@ -143,19 +143,19 @@ object SchemaComparisonChange {
 
   sealed trait Target
   object Target {
-    case class Directive(name: String) extends Target {
+    case class Directive(name: String)                    extends Target {
       override def toString: String = s"directive '$name'"
     }
-    case class Type(name: String) extends Target {
+    case class Type(name: String)                         extends Target {
       override def toString: String = s"type '$name'"
     }
-    case class Field(name: String, typeName: String) extends Target {
+    case class Field(name: String, typeName: String)      extends Target {
       override def toString: String = s"field '$name' of type '$typeName'"
     }
     case class EnumValue(value: String, typeName: String) extends Target {
       override def toString: String = s"enum value '$value' of type '$typeName'"
     }
-    case class Argument(name: String, target: Target) extends Target {
+    case class Argument(name: String, target: Target)     extends Target {
       override def toString: String = s"argument '$name' of $target"
     }
   }

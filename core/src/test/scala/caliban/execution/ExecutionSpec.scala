@@ -356,7 +356,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         val api1        = graphQL(RootResolver(Test("name")))
         val api2        = graphQL(RootResolver(Test2(2)))
         val interpreter = (api1 |+| api2).interpreter
-        val query =
+        val query       =
           """query{
             |  name
             |  id
@@ -405,7 +405,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         case class Subscriptions(test: ZStream[Any, Throwable, Int])
         val interpreter =
           graphQL(RootResolver(Queries(1), Option.empty[Unit], Subscriptions(ZStream(1, 2, 3)))).interpreter
-        val query = gqldoc("""
+        val query       = gqldoc("""
              subscription {
                test
              }""")
@@ -518,7 +518,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         case class Query(test: Int => Int)
         val api         = graphQL(RootResolver(Query(identity)))
         val interpreter = api.interpreter
-        val query =
+        val query       =
           """query{
             |  test(value: 1)
             |}""".stripMargin
@@ -530,7 +530,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         val painter     = Painter("Claude Monet", "Impressionism")
         val api         = graphQL(RootResolver(Queries(event :: Nil, WrappedPainter(painter) :: Nil)))
         val interpreter = api.interpreter
-        val query =
+        val query       =
           """query {
             |  events {
             |    organizationId
@@ -551,7 +551,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         case class Query(@GQLName("test2") test: Int)
         val api         = graphQL(RootResolver(Query(1)))
         val interpreter = api.interpreter
-        val query =
+        val query       =
           """query{
             |  test2
             |}""".stripMargin
@@ -561,7 +561,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         case class UserArgs(id: Int)
         case class User(name: String, friends: ZIO[Any, Nothing, List[String]])
         case class Queries(user: UserArgs => ZIO[Any, Throwable, User])
-        val api = graphQL(
+        val api         = graphQL(
           RootResolver(
             Queries(args =>
               ZIO.succeed(
@@ -575,7 +575,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
           )
         )
         val interpreter = api.interpreter
-        val query =
+        val query       =
           """query{
             |  user1: user(id: 1) {
             |    name
@@ -601,7 +601,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         case class Queries(test: List[Task[String]])
         val api         = graphQL(RootResolver(Queries(List(ZIO.succeed("a"), ZIO.die(new Exception("Boom"))))))
         val interpreter = api.interpreter
-        val query =
+        val query       =
           """query{
             |  test
             |}""".stripMargin
@@ -613,7 +613,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         case class Queries(test: Task[List[UIO[String]]])
         val api         = graphQL(RootResolver(Queries(Task(List(ZIO.succeed("a"), ZIO.die(new Exception("Boom")))))))
         val interpreter = api.interpreter
-        val query =
+        val query       =
           """query{
             |  test
             |}""".stripMargin
@@ -629,7 +629,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         }
         case class Query(test: A)
         val interpreter = graphQL(RootResolver(Query(A.C))).interpreter
-        val query       = gqldoc("""
+        val query = gqldoc("""
             {
               test {
                 ... on C {
@@ -649,7 +649,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
           def id: String
           def name: String
         }
-        object Character {
+        object Character       {
           case class Human(
             id: String,
             name: String,
@@ -672,8 +672,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         // union SearchResult = Human | Droid | Starship
         type SearchResult = Either[Character, Starship]
 
-        def eitherUnionSchema[RL, RR, L, R](name: String)(
-          implicit
+        def eitherUnionSchema[RL, RR, L, R](name: String)(implicit
           evL: Schema[RL, L],
           evR: Schema[RR, R]
         ): Schema[RL with RR, Either[L, R]] = new Schema[RL with RR, Either[L, R]] {
@@ -718,8 +717,8 @@ object ExecutionSpec extends DefaultRunnableSpec {
               )
             )
           )
-        val interpreter = api.interpreter
-        val query =
+        val interpreter       = api.interpreter
+        val query             =
           """{
             |  search(text: "a") {
             |    __typename
@@ -757,7 +756,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
           organization: String => UIO[Organization]
         )
 
-        implicit lazy val groupSchema: Schema[Any, Group] = obj("Group", Some("A group of users"))(implicit ft =>
+        implicit lazy val groupSchema: Schema[Any, Group]      = obj("Group", Some("A group of users"))(implicit ft =>
           List(
             field("id")(_.id),
             field("parent")(_.parent),
@@ -779,19 +778,18 @@ object ExecutionSpec extends DefaultRunnableSpec {
             )
           )
 
-        val organizations: Map[String, List[String]] = Map("abc" -> List("group1", "group2"))
+        val organizations: Map[String, List[String]]      = Map("abc" -> List("group1", "group2"))
         val groups: Map[String, (Option[String], String)] = Map(
           "group1" -> (None           -> "abc"),
           "group2" -> (Some("group1") -> "abc")
         )
 
-        def getGroup(id: String): UIO[Group] = UIO(groups(id)).map {
-          case (parent, org) =>
-            Group(
-              id,
-              ZIO.fromOption(parent).flatMap(getGroup(_).asSomeError).optional,
-              organization = getOrg(org)
-            )
+        def getGroup(id: String): UIO[Group] = UIO(groups(id)).map { case (parent, org) =>
+          Group(
+            id,
+            ZIO.fromOption(parent).flatMap(getGroup(_).asSomeError).optional,
+            organization = getOrg(org)
+          )
         }
 
         def getOrg(id: String) =

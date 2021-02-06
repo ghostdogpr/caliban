@@ -56,7 +56,7 @@ object ApolloTracing {
     def toResponseValue: ResponseValue =
       ObjectValue(
         List(
-          "path" -> ListValue((Left(fieldName) :: path).reverse.map {
+          "path"        -> ListValue((Left(fieldName) :: path).reverse.map {
             case Left(s)  => StringValue(s)
             case Right(i) => IntValue(i)
           }),
@@ -108,21 +108,20 @@ object ApolloTracing {
         nanoTime    <- clock.nanoTime
         currentTime <- clock.currentTime(TimeUnit.MILLISECONDS)
         _           <- ref.update(_.copy(startTime = currentTime, startTimeMonotonic = nanoTime))
-        result <- process(request).timed.flatMap {
-                   case (duration, result) =>
-                     for {
-                       endTime <- clock.currentTime(TimeUnit.MILLISECONDS)
-                       _       <- ref.update(_.copy(duration = duration, endTime = endTime))
-                       tracing <- ref.get
-                     } yield result.copy(
-                       extensions = Some(
-                         ObjectValue(
-                           ("tracing" -> tracing.toResponseValue) ::
-                             result.extensions.fold(List.empty[(String, ResponseValue)])(_.fields)
+        result      <- process(request).timed.flatMap { case (duration, result) =>
+                         for {
+                           endTime <- clock.currentTime(TimeUnit.MILLISECONDS)
+                           _       <- ref.update(_.copy(duration = duration, endTime = endTime))
+                           tracing <- ref.get
+                         } yield result.copy(
+                           extensions = Some(
+                             ObjectValue(
+                               ("tracing" -> tracing.toResponseValue) ::
+                                 result.extensions.fold(List.empty[(String, ResponseValue)])(_.fields)
+                             )
+                           )
                          )
-                       )
-                     )
-                 }
+                       }
       } yield result
     }
 
@@ -131,11 +130,11 @@ object ApolloTracing {
       for {
         start              <- clock.nanoTime
         (duration, result) <- process(query).timed
-        _ <- ref.update(state =>
-              state.copy(
-                parsing = state.parsing.copy(startOffset = start - state.startTimeMonotonic, duration = duration)
-              )
-            )
+        _                  <- ref.update(state =>
+                                state.copy(
+                                  parsing = state.parsing.copy(startOffset = start - state.startTimeMonotonic, duration = duration)
+                                )
+                              )
       } yield result
     }
 
@@ -144,41 +143,39 @@ object ApolloTracing {
       for {
         start              <- clock.nanoTime
         (duration, result) <- process(doc).timed
-        _ <- ref.update(state =>
-              state.copy(
-                validation = state.validation.copy(startOffset = start - state.startTimeMonotonic, duration = duration)
-              )
-            )
+        _                  <- ref.update(state =>
+                                state.copy(
+                                  validation = state.validation.copy(startOffset = start - state.startTimeMonotonic, duration = duration)
+                                )
+                              )
       } yield result
     }
 
   private def apolloTracingField(ref: Ref[Tracing]): FieldWrapper[Clock] =
     FieldWrapper(
-      {
-        case (query, fieldInfo) =>
-          for {
-            summarized             <- query.summarized(clock.nanoTime)((_, _))
-            ((start, end), result) = summarized
-            duration               = Duration.fromNanos(end - start)
-            _ <- ZQuery.fromEffect(
-                  ref
-                    .update(state =>
-                      state.copy(
-                        execution = state.execution.copy(
-                          resolvers =
-                            Resolver(
-                              path = fieldInfo.path,
-                              parentType = fieldInfo.details.parentType.fold("")(Rendering.renderTypeName),
-                              fieldName = fieldInfo.name,
-                              returnType = Rendering.renderTypeName(fieldInfo.details.fieldType),
-                              startOffset = start - state.startTimeMonotonic,
-                              duration = duration
-                            ) :: state.execution.resolvers
-                        )
-                      )
-                    )
-                )
-          } yield result
+      { case (query, fieldInfo) =>
+        for {
+          summarized            <- query.summarized(clock.nanoTime)((_, _))
+          ((start, end), result) = summarized
+          duration               = Duration.fromNanos(end - start)
+          _                     <- ZQuery.fromEffect(
+                                     ref
+                                       .update(state =>
+                                         state.copy(
+                                           execution = state.execution.copy(
+                                             resolvers = Resolver(
+                                               path = fieldInfo.path,
+                                               parentType = fieldInfo.details.parentType.fold("")(Rendering.renderTypeName),
+                                               fieldName = fieldInfo.name,
+                                               returnType = Rendering.renderTypeName(fieldInfo.details.fieldType),
+                                               startOffset = start - state.startTimeMonotonic,
+                                               duration = duration
+                                             ) :: state.execution.resolvers
+                                           )
+                                         )
+                                       )
+                                   )
+        } yield result
       },
       wrapPureValues = true
     )

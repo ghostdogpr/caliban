@@ -35,8 +35,8 @@ object ClientWriter {
       case op @ UnionTypeDefinition(_, name, _, _)       => name -> op
       case op @ ScalarTypeDefinition(_, name, _)         => name -> op
       case op @ InterfaceTypeDefinition(_, name, _, _)   => name -> op
-    }.map {
-      case (name, op) => safeTypeName(name, mappingClashedTypeNames) -> op
+    }.map { case (name, op) =>
+      safeTypeName(name, mappingClashedTypeNames) -> op
     }.toMap
 
     val objects = schema.objectTypeDefinitions
@@ -81,7 +81,9 @@ object ClientWriter {
         |import caliban.client.SelectionBuilder._
         |""".stripMargin
     else
-      ""}${if (enums.nonEmpty || objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty || inputs.nonEmpty)
+      ""}${if (
+      enums.nonEmpty || objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty || inputs.nonEmpty
+    )
       """import caliban.client._
         |""".stripMargin
     else ""}${if (queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty)
@@ -113,10 +115,9 @@ object ClientWriter {
       .groupBy(_._1)
       .collect {
         case (_, (_ :: typeNamesToRename)) if typeNamesToRename.nonEmpty =>
-          typeNamesToRename.zipWithIndex.map {
-            case (((_, originalTypeName), index)) =>
-              val suffix = "_" * (index + 1)
-              originalTypeName -> s"$originalTypeName$suffix"
+          typeNamesToRename.zipWithIndex.map { case (((_, originalTypeName), index)) =>
+            val suffix = "_" * (index + 1)
+            originalTypeName -> s"$originalTypeName$suffix"
           }.toMap
       }
       .reduceOption(_ ++ _)
@@ -181,15 +182,15 @@ object ClientWriter {
        |  implicit val encoder: ArgEncoder[$inputObjectName] = new ArgEncoder[$inputObjectName] {
        |    override def encode(value: $inputObjectName): __Value =
        |      __ObjectValue(List(${typedef.fields
-         .map(f =>
-           s""""${f.name}" -> ${writeInputValue(
+      .map(f =>
+        s""""${f.name}" -> ${writeInputValue(
              f.ofType,
              s"value.${safeName(f.name)}",
              inputObjectName,
              mappingClashedTypeNames
            )}"""
-         )
-         .mkString(", ")}))
+      )
+      .mkString(", ")}))
        |    override def typeName: String = "$inputObjectName"
        |  }
        |}""".stripMargin
@@ -202,12 +203,12 @@ object ClientWriter {
     mappingClashedTypeNames: Map[String, String]
   ): String =
     t match {
-      case NamedType(name, true) =>
+      case NamedType(name, true)   =>
         if (name == typeName) s"encode($fieldName)"
         else s"implicitly[ArgEncoder[${mapTypeName(name, mappingClashedTypeNames)}]].encode($fieldName)"
-      case NamedType(name, false) =>
+      case NamedType(name, false)  =>
         s"$fieldName.fold(__NullValue: __Value)(value => ${writeInputValue(NamedType(name, nonNull = true), "value", typeName, mappingClashedTypeNames)})"
-      case ListType(ofType, true) =>
+      case ListType(ofType, true)  =>
         s"__ListValue($fieldName.map(value => ${writeInputValue(ofType, "value", typeName, mappingClashedTypeNames)}))"
       case ListType(ofType, false) =>
         s"$fieldName.fold(__NullValue: __Value)(value => ${writeInputValue(ListType(ofType, nonNull = true), "value", typeName, mappingClashedTypeNames)})"
@@ -253,7 +254,7 @@ object ClientWriter {
     else s"""type ${safeTypeName(typedef.name, mappingClashedTypeNames)} = String
         """
 
-  def safeName(name: String): String =
+  def safeName(name: String): String                                                     =
     if (reservedKeywords.contains(name)) s"`$name`"
     else if (caseClassReservedFields.contains(name)) s"${name}_"
     else name
@@ -270,17 +271,17 @@ object ClientWriter {
     typesMap: Map[String, TypeDefinition],
     mappingClashedTypeNames: Map[String, String]
   ): String = {
-    val name = safeName(field.name)
-    val description = field.description match {
+    val name                                             = safeName(field.name)
+    val description                                      = field.description match {
       case Some(d) if d.trim.nonEmpty => s"/**\n * ${d.trim}\n */\n"
       case _                          => ""
     }
-    val deprecated = field.directives.find(_.name == "deprecated") match {
-      case None => ""
+    val deprecated                                       = field.directives.find(_.name == "deprecated") match {
+      case None            => ""
       case Some(directive) =>
         val body =
-          directive.arguments.collectFirst {
-            case ("reason", StringValue(reason)) => reason
+          directive.arguments.collectFirst { case ("reason", StringValue(reason)) =>
+            reason
           }.getOrElse("")
 
         val quotes =
@@ -289,8 +290,8 @@ object ClientWriter {
 
         "@deprecated(" + quotes + body + quotes + """, "")""" + "\n"
     }
-    val fieldType = safeTypeName(getTypeName(field.ofType), mappingClashedTypeNames)
-    val isScalar = typesMap
+    val fieldType                                        = safeTypeName(getTypeName(field.ofType), mappingClashedTypeNames)
+    val isScalar                                         = typesMap
       .get(fieldType)
       .collect {
         case _: ScalarTypeDefinition => true
@@ -298,20 +299,19 @@ object ClientWriter {
         case _                       => false
       }
       .getOrElse(true)
-    val unionTypes = typesMap
+    val unionTypes                                       = typesMap
       .get(fieldType)
-      .collect {
-        case UnionTypeDefinition(_, _, _, memberTypes) =>
-          memberTypes.flatMap(name => typesMap.get(safeTypeName(name, mappingClashedTypeNames)))
+      .collect { case UnionTypeDefinition(_, _, _, memberTypes) =>
+        memberTypes.flatMap(name => typesMap.get(safeTypeName(name, mappingClashedTypeNames)))
       }
       .getOrElse(Nil)
-      .collect {
-        case o: ObjectTypeDefinition => o
+      .collect { case o: ObjectTypeDefinition =>
+        o
       }
-    val interfaceTypes = typesMap
+    val interfaceTypes                                   = typesMap
       .get(fieldType)
-      .collect {
-        case InterfaceTypeDefinition(_, name, _, _) => name
+      .collect { case InterfaceTypeDefinition(_, name, _, _) =>
+        name
       }
       .map(interface =>
         typesMap.values.collect {
@@ -319,7 +319,7 @@ object ClientWriter {
         }
       )
       .getOrElse(Nil)
-    val typeLetter = getTypeLetter(typesMap)
+    val typeLetter                                       = getTypeLetter(typesMap)
     val (typeParam, innerSelection, outputType, builder) =
       if (isScalar) {
         (
@@ -356,12 +356,12 @@ object ClientWriter {
           writeTypeBuilder(field.ofType, "Obj(innerSelection)")
         )
       }
-    val args = field.args match {
+    val args                                             = field.args match {
       case Nil  => ""
       case list => s"(${writeArgumentFields(list, mappingClashedTypeNames)})"
     }
-    val argBuilder = field.args match {
-      case Nil => ""
+    val argBuilder                                       = field.args match {
+      case Nil  => ""
       case list =>
         s", arguments = List(${list.map(arg => s"""Argument("${arg.name}", ${safeName(arg.name)})""").mkString(", ")})"
     }

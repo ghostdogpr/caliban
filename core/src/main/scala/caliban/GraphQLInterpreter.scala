@@ -116,7 +116,7 @@ trait GraphQLInterpreter[-R, +E] { self =>
       skipValidation: Boolean,
       enableIntrospection: Boolean,
       queryExecution: QueryExecution
-    ): URIO[R2, GraphQLResponse[E2]] =
+    ): URIO[R2, GraphQLResponse[E2]]                          =
       f(self.executeRequest(request, skipValidation = skipValidation, enableIntrospection, queryExecution))
   }
 

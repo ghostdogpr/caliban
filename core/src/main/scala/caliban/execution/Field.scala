@@ -61,7 +61,7 @@ object Field {
               () => sourceMapper.getLocation(index),
               directives ++ schemaDirectives
             )
-        case FragmentSpread(name, directives) if checkDirectives(directives, variableValues) =>
+        case FragmentSpread(name, directives) if checkDirectives(directives, variableValues)                        =>
           fragments
             .get(name)
             .foreach { f =>
@@ -73,18 +73,18 @@ object Field {
               )
             }
         case InlineFragment(typeCondition, directives, selectionSet) if checkDirectives(directives, variableValues) =>
-          val t = innerType.possibleTypes
+          val t     = innerType.possibleTypes
             .flatMap(_.find(_.name.exists(typeCondition.map(_.name).contains)))
             .getOrElse(fieldType)
           val field = loop(selectionSet, t)
           typeCondition match {
-            case None => fieldList ++= field.fields
+            case None           => fieldList ++= field.fields
             case Some(typeName) =>
               fieldList ++= field.fields.map(field =>
                 if (field.condition.isDefined) field else field.copy(condition = subtypeNames(typeName.name, rootType))
               )
           }
-        case _ =>
+        case _                                                                                                      =>
       }
       Field("", fieldType, None, fields = fieldList.result())
     }
@@ -114,13 +114,13 @@ object Field {
     directives
       .find(_.name == name)
       .flatMap(_.arguments.get("if")) match {
-      case Some(BooleanValue(value)) => value
+      case Some(BooleanValue(value))            => value
       case Some(InputValue.VariableValue(name)) =>
         variableValues
           .get(name) match {
           case Some(BooleanValue(value)) => value
           case _                         => default
         }
-      case _ => default
+      case _                                    => default
     }
 }

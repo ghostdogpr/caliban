@@ -11,8 +11,11 @@ case class GraphQLRequest(query: String, variables: Map[String, __Value])
 object GraphQLRequest {
 
   implicit val encoder: Encoder[GraphQLRequest] = (req: GraphQLRequest) =>
-    Json.obj("query" -> Json.fromString(req.query), "variables" -> Json.obj(req.variables.map {
-      case (k, v) => k -> v.asJson
-    }.toList: _*))
+    Json.obj(
+      "query"     -> Json.fromString(req.query),
+      "variables" -> Json.obj(req.variables.map { case (k, v) =>
+        k -> v.asJson
+      }.toList: _*)
+    )
 
 }

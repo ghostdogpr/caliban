@@ -23,9 +23,9 @@ final class CirceJsonBackend extends JsonBackend with FailFastCirceSupport {
   ): Either[Throwable, GraphQLRequest] = {
     val variablesJs  = vars.flatMap(parse(_).toOption)
     val extensionsJs = exts.flatMap(parse(_).toOption)
-    val fields = query.map(js => "query" -> Json.fromString(js)) ++
-      op.map(o => "operationName"         -> Json.fromString(o)) ++
-      variablesJs.map(js => "variables"   -> js) ++
+    val fields       = query.map(js => "query" -> Json.fromString(js)) ++
+      op.map(o => "operationName" -> Json.fromString(o)) ++
+      variablesJs.map(js => "variables" -> js) ++
       extensionsJs.map(js => "extensions" -> js)
     Json
       .fromFields(fields)

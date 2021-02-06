@@ -120,7 +120,7 @@ object Federation {
     while (error.isEmpty && iterator.hasNext) {
       val b = iterator.next()
       b match {
-        case Left(value) =>
+        case Left(value)  =>
           result.clear()
           error = Some(value)
         case Right(value) => result += value
@@ -165,12 +165,11 @@ object Federation {
     case v @ InputValue.ObjectValue(fields) =>
       fields
         .get("__typename")
-        .collect {
-          case StringValue(__typename) =>
-            _Any(__typename, v)
+        .collect { case StringValue(__typename) =>
+          _Any(__typename, v)
         }
         .toRight(ExecutionError("_Any must contain a __typename value"))
-    case other => Left(ExecutionError(s"Can't build a _Any from input $other"))
+    case other                              => Left(ExecutionError(s"Can't build a _Any from input $other"))
   }
 
   case class RepresentationsArgs(representations: List[_Any])
@@ -180,9 +179,9 @@ object Federation {
       fields.get("representations").toRight(ExecutionError("_Any must contain a __typename value")).flatMap {
         case InputValue.ListValue(values) =>
           traverseEither(values.map(anyArgBuilder.build)).map(RepresentationsArgs)
-        case other => Left(ExecutionError(s"Can't build a representations from input $other"))
+        case other                        => Left(ExecutionError(s"Can't build a representations from input $other"))
       }
-    case other => Left(ExecutionError(s"Can't build a representations from input $other"))
+    case other                          => Left(ExecutionError(s"Can't build a representations from input $other"))
 
   }
 

@@ -21,10 +21,10 @@ You can only transform a SelectionBuilder into a GraphQL request if it's a root 
   }
 
   object IsOperation {
-    implicit val query: IsOperation[RootQuery] = new IsOperation[RootQuery] {
+    implicit val query: IsOperation[RootQuery]               = new IsOperation[RootQuery] {
       override def operationName: String = "query"
     }
-    implicit val mutation: IsOperation[RootMutation] = new IsOperation[RootMutation] {
+    implicit val mutation: IsOperation[RootMutation]         = new IsOperation[RootMutation] {
       override def operationName: String = "mutation"
     }
     implicit val subscription: IsOperation[RootSubscription] = new IsOperation[RootSubscription] {

@@ -21,9 +21,9 @@ object FinchAdapter extends Endpoint.Module[Task] {
   ): Result[GraphQLRequest] = {
     val variablesJs  = vars.flatMap(parse(_).toOption)
     val extensionsJs = exts.flatMap(parse(_).toOption)
-    val fields = query.map(js => "query" -> Json.fromString(js)) ++
-      op.map(o => "operationName"         -> Json.fromString(o)) ++
-      variablesJs.map(js => "variables"   -> js) ++
+    val fields       = query.map(js => "query" -> Json.fromString(js)) ++
+      op.map(o => "operationName" -> Json.fromString(o)) ++
+      variablesJs.map(js => "variables" -> js) ++
       extensionsJs.map(js => "extensions" -> js)
     Json
       .fromFields(fields)
@@ -70,9 +70,8 @@ object FinchAdapter extends Endpoint.Module[Task] {
     (paramOption[String]("query") ::
       paramOption[String]("operationName") ::
       paramOption[String]("variables") ::
-      paramOption[String]("extensions")).mapAsync {
-      case (query :: op :: vars :: exts :: HNil) =>
-        Task.fromEither(getGraphQLRequest(query, op, vars, exts))
+      paramOption[String]("extensions")).mapAsync { case (query :: op :: vars :: exts :: HNil) =>
+      Task.fromEither(getGraphQLRequest(query, op, vars, exts))
     }
 
   /**
@@ -99,14 +98,14 @@ object FinchAdapter extends Endpoint.Module[Task] {
       )
     ) { (queryRequest: GraphQLRequest, body: Option[String], contentType: String, federatedTracing: Option[String]) =>
       val queryTask = (queryRequest, body, contentType) match {
-        case (_, Some(bodyValue), "application/json") =>
+        case (_, Some(bodyValue), "application/json")             =>
           Task.fromEither(parse(bodyValue).flatMap(_.as[GraphQLRequest]))
-        case (_, Some(_), "application/graphql") =>
+        case (_, Some(_), "application/graphql")                  =>
           Task(GraphQLRequest(body))
         case (queryRequest, _, _) if queryRequest.query.isDefined =>
           Task(queryRequest)
         // treat unmatched content-type as same as None of body.
-        case _ =>
+        case _                                                    =>
           Task.fail(new Exception("Query was not found"))
       }
       runtime

@@ -10,10 +10,10 @@ object Formatter {
   def format(str: String, fmtPath: Option[String]): Task[String] = Task {
     val scalafmt          = Scalafmt.create(this.getClass.getClassLoader)
     val defaultConfigPath = Paths.get(".scalafmt.conf")
-    val defaultConfig =
+    val defaultConfig     =
       if (Files.exists(defaultConfigPath)) defaultConfigPath else Paths.get("")
-    val config = fmtPath.fold(defaultConfig)(Paths.get(_))
-    val result = scalafmt
+    val config            = fmtPath.fold(defaultConfig)(Paths.get(_))
+    val result            = scalafmt
       .withRespectVersion(false)
       .format(config, Paths.get("Nil.scala"), str)
     scalafmt.clear()

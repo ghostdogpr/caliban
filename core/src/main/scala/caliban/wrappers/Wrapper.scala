@@ -124,9 +124,9 @@ object Wrapper {
       case ((o, p, v, e, f), wrapper: ValidationWrapper[R]) => UIO.succeed((o, p, wrapper.f :: v, e, f))
       case ((o, p, v, e, f), wrapper: ExecutionWrapper[R])  => UIO.succeed((o, p, v, wrapper.f :: e, f))
       case ((o, p, v, e, f), wrapper: FieldWrapper[R])      => UIO.succeed((o, p, v, e, wrapper :: f))
-      case ((o, p, v, e, f), CombinedWrapper(wrappers)) =>
+      case ((o, p, v, e, f), CombinedWrapper(wrappers))     =>
         decompose(wrappers).map { case (o2, p2, v2, e2, f2) => (o2 ++ o, p2 ++ p, v2 ++ v, e2 ++ e, f2 ++ f) }
-      case ((o, p, v, e, f), EffectfulWrapper(wrapper)) =>
+      case ((o, p, v, e, f), EffectfulWrapper(wrapper))     =>
         wrapper.flatMap(w =>
           decompose(List(w)).map { case (o2, p2, v2, e2, f2) => (o2 ++ o, p2 ++ p, v2 ++ v, e2 ++ e, f2 ++ f) }
         )

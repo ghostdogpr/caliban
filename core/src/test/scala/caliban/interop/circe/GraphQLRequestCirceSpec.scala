@@ -4,7 +4,7 @@ import caliban.GraphQLRequest
 import io.circe._
 import zio.test.Assertion._
 import zio.test.environment.TestEnvironment
-import zio.test.{ test, _ }
+import zio.test._
 
 object GraphQLRequestCirceSpec extends DefaultRunnableSpec {
 
