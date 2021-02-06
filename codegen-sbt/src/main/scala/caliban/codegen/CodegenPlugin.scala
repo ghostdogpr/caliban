@@ -72,6 +72,6 @@ object CodegenPlugin extends AutoPlugin {
           _ <- Codegen.generate(arguments, writer)
           _ <- putStrLn(s"Code generation done")
         } yield ()
-      case None => putStrLn(helpMsg)
+      case None            => putStrLn(helpMsg)
     }
 }

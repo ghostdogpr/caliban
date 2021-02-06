@@ -8,14 +8,14 @@ import zio.stream.Stream
 
 sealed trait InputValue
 object InputValue {
-  case class ListValue(values: List[InputValue]) extends InputValue {
+  case class ListValue(values: List[InputValue])          extends InputValue {
     override def toString: String = values.mkString("[", ",", "]")
   }
   case class ObjectValue(fields: Map[String, InputValue]) extends InputValue {
     override def toString: String =
       fields.map { case (name, value) => s""""$name":${value.toString}""" }.mkString("{", ",", "}")
   }
-  case class VariableValue(name: String) extends InputValue {
+  case class VariableValue(name: String)                  extends InputValue {
     override def toString: String = s"$$$name"
   }
 
@@ -26,7 +26,7 @@ object InputValue {
 
   implicit def playJsonWrites[F[_]: IsPlayJsonWrites]: F[InputValue] =
     caliban.interop.play.json.ValuePlayJson.inputValueWrites.asInstanceOf[F[InputValue]]
-  implicit def playJsonReads[F[_]: IsPlayJsonReads]: F[InputValue] =
+  implicit def playJsonReads[F[_]: IsPlayJsonReads]: F[InputValue]   =
     caliban.interop.play.json.ValuePlayJson.inputValueReads.asInstanceOf[F[InputValue]]
 
   implicit def zioJsonEncoder[F[_]: IsZIOJsonEncoder]: F[InputValue] =
@@ -37,10 +37,10 @@ object InputValue {
 
 sealed trait ResponseValue
 object ResponseValue {
-  case class ListValue(values: List[ResponseValue]) extends ResponseValue {
+  case class ListValue(values: List[ResponseValue])                extends ResponseValue {
     override def toString: String = values.mkString("[", ",", "]")
   }
-  case class ObjectValue(fields: List[(String, ResponseValue)]) extends ResponseValue {
+  case class ObjectValue(fields: List[(String, ResponseValue)])    extends ResponseValue {
     override def toString: String =
       fields.map { case (name, value) => s""""$name":${value.toString}""" }.mkString("{", ",", "}")
   }
@@ -55,7 +55,7 @@ object ResponseValue {
 
   implicit def playJsonWrites[F[_]: IsPlayJsonWrites]: F[ResponseValue] =
     caliban.interop.play.json.ValuePlayJson.responseValueWrites.asInstanceOf[F[ResponseValue]]
-  implicit def playJsonReads[F[_]: IsPlayJsonReads]: F[ResponseValue] =
+  implicit def playJsonReads[F[_]: IsPlayJsonReads]: F[ResponseValue]   =
     caliban.interop.play.json.ValuePlayJson.responseValueReads.asInstanceOf[F[ResponseValue]]
 
   implicit def zioJsonEncoder[F[_]: IsZIOJsonEncoder]: F[ResponseValue] =
@@ -67,26 +67,26 @@ object ResponseValue {
 
 sealed trait Value extends InputValue with ResponseValue
 object Value {
-  case object NullValue extends Value {
+  case object NullValue                   extends Value {
     override def toString: String = "null"
   }
-  sealed trait IntValue extends Value {
+  sealed trait IntValue                   extends Value {
     def toInt: Int
     def toLong: Long
     def toBigInt: BigInt
   }
-  sealed trait FloatValue extends Value {
+  sealed trait FloatValue                 extends Value {
     def toFloat: Float
     def toDouble: Double
     def toBigDecimal: BigDecimal
   }
-  case class StringValue(value: String) extends Value {
+  case class StringValue(value: String)   extends Value {
     override def toString: String = s""""${value.replace("\"", "\\\"").replace("\n", "\\n")}""""
   }
   case class BooleanValue(value: Boolean) extends Value {
     override def toString: String = if (value) "true" else "false"
   }
-  case class EnumValue(value: String) extends Value {
+  case class EnumValue(value: String)     extends Value {
     override def toString: String = s""""${value.replace("\"", "\\\"")}""""
   }
 
@@ -99,13 +99,13 @@ object Value {
         Try(LongNumber(s.toLong)) getOrElse
         BigIntNumber(BigInt(s))
 
-    case class IntNumber(value: Int) extends IntValue {
+    case class IntNumber(value: Int)       extends IntValue {
       override def toInt: Int       = value
       override def toLong: Long     = value.toLong
       override def toBigInt: BigInt = BigInt(value)
       override def toString: String = value.toString
     }
-    case class LongNumber(value: Long) extends IntValue {
+    case class LongNumber(value: Long)     extends IntValue {
       override def toInt: Int       = value.toInt
       override def toLong: Long     = value
       override def toBigInt: BigInt = BigInt(value)
@@ -125,13 +125,13 @@ object Value {
     def apply(v: BigDecimal): FloatValue = BigDecimalNumber(v)
     def apply(s: String): FloatValue     = BigDecimalNumber(BigDecimal(s))
 
-    case class FloatNumber(value: Float) extends FloatValue {
+    case class FloatNumber(value: Float)           extends FloatValue {
       override def toFloat: Float           = value
       override def toDouble: Double         = value.toDouble
       override def toBigDecimal: BigDecimal = BigDecimal.decimal(value)
       override def toString: String         = value.toString
     }
-    case class DoubleNumber(value: Double) extends FloatValue {
+    case class DoubleNumber(value: Double)         extends FloatValue {
       override def toFloat: Float           = value.toFloat
       override def toDouble: Double         = value
       override def toBigDecimal: BigDecimal = BigDecimal(value)

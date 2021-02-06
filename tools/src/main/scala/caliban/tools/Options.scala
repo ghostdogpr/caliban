@@ -24,7 +24,7 @@ object Options {
   def fromArgs(args: List[String]): Option[Options] =
     args match {
       case schemaPath :: toPath :: other =>
-        val configSource: ConfigSource =
+        val configSource: ConfigSource                     =
           ConfigSource.fromCommandLineArgs(
             args = other,
             keyDelimiter = Some('.'),
@@ -49,6 +49,6 @@ object Options {
             rawOpts.effect
           )
         }
-      case _ => None
+      case _                             => None
     }
 }

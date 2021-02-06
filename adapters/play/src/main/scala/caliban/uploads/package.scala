@@ -28,9 +28,9 @@ package object uploads {
         .succeed(new Multipart {
           override def stream(name: String): ZStream[Blocking, Throwable, Byte] =
             for {
-              ref <- ZStream.fromEffectOption(fileHandle(name).some)
+              ref   <- ZStream.fromEffectOption(fileHandle(name).some)
               bytes <- ZStream
-                        .fromInputStream(Files.newInputStream(ref.path))
+                         .fromInputStream(Files.newInputStream(ref.path))
             } yield bytes
 
           override def file(name: String): ZIO[Any, Nothing, Option[FileMeta]] =

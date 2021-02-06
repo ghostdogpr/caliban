@@ -33,8 +33,8 @@ object Introspector {
    * Generates a schema for introspecting the given type.
    */
   def introspect(rootType: RootType): RootSchema[Any] = {
-    val types = rootType.types.updated("Boolean", Types.boolean).values.toList.sortBy(_.name.getOrElse(""))
-    val resolver = __Introspection(
+    val types               = rootType.types.updated("Boolean", Types.boolean).values.toList.sortBy(_.name.getOrElse(""))
+    val resolver            = __Introspection(
       __Schema(
         rootType.queryType,
         rootType.mutationType,
@@ -55,6 +55,6 @@ object Introspector {
           case Field(_, name, _, _, _, _) => name == "__schema" || name == "__type"
           case _                          => false
         }
-      case _ => true
+      case _                                             => true
     }
 }

@@ -40,7 +40,7 @@ object GraphQLResponsePlaySpec extends DefaultRunnableSpec {
         assert(writer.writes(response))(
           equalTo(
             Json.obj(
-              "data" -> JsString("data"),
+              "data"   -> JsString("data"),
               "errors" -> Json.arr(
                 Json.obj(
                   "message"    -> JsString("Resolution failed"),

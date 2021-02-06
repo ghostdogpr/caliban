@@ -72,25 +72,25 @@ object ArgBuilder {
 
   type Typeclass[T] = ArgBuilder[T]
 
-  implicit lazy val unit: ArgBuilder[Unit] = _ => Right(())
-  implicit lazy val int: ArgBuilder[Int] = {
+  implicit lazy val unit: ArgBuilder[Unit]             = _ => Right(())
+  implicit lazy val int: ArgBuilder[Int]               = {
     case value: IntValue => Right(value.toInt)
     case other           => Left(ExecutionError(s"Can't build an Int from input $other"))
   }
-  implicit lazy val long: ArgBuilder[Long] = {
+  implicit lazy val long: ArgBuilder[Long]             = {
     case value: IntValue => Right(value.toLong)
     case other           => Left(ExecutionError(s"Can't build a Long from input $other"))
   }
-  implicit lazy val bigInt: ArgBuilder[BigInt] = {
+  implicit lazy val bigInt: ArgBuilder[BigInt]         = {
     case value: IntValue => Right(value.toBigInt)
     case other           => Left(ExecutionError(s"Can't build a BigInt from input $other"))
   }
-  implicit lazy val float: ArgBuilder[Float] = {
+  implicit lazy val float: ArgBuilder[Float]           = {
     case value: IntValue   => Right(value.toLong.toFloat)
     case value: FloatValue => Right(value.toFloat)
     case other             => Left(ExecutionError(s"Can't build a Float from input $other"))
   }
-  implicit lazy val double: ArgBuilder[Double] = {
+  implicit lazy val double: ArgBuilder[Double]         = {
     case value: IntValue   => Right(value.toLong.toDouble)
     case value: FloatValue => Right(value.toDouble)
     case other             => Left(ExecutionError(s"Can't build a Double from input $other"))
@@ -100,17 +100,17 @@ object ArgBuilder {
     case value: FloatValue => Right(value.toBigDecimal)
     case other             => Left(ExecutionError(s"Can't build a BigDecimal from input $other"))
   }
-  implicit lazy val string: ArgBuilder[String] = {
+  implicit lazy val string: ArgBuilder[String]         = {
     case StringValue(value) => Right(value)
     case other              => Left(ExecutionError(s"Can't build a String from input $other"))
   }
-  implicit lazy val uuid: ArgBuilder[UUID] = {
+  implicit lazy val uuid: ArgBuilder[UUID]             = {
     case StringValue(value) =>
       Try(UUID.fromString(value))
         .fold(ex => Left(ExecutionError(s"Can't parse $value into a UUID", innerThrowable = Some(ex))), Right(_))
-    case other => Left(ExecutionError(s"Can't build a UUID from input $other"))
+    case other              => Left(ExecutionError(s"Can't build a UUID from input $other"))
   }
-  implicit lazy val boolean: ArgBuilder[Boolean] = {
+  implicit lazy val boolean: ArgBuilder[Boolean]       = {
     case BooleanValue(value) => Right(value)
     case other               => Left(ExecutionError(s"Can't build a Boolean from input $other"))
   }
@@ -127,7 +127,7 @@ object ArgBuilder {
             if (message.eq(null)) Left(ExecutionError(s"Can't build a $name from $value", innerThrowable = Some(e)))
             else Left(ExecutionError(s"Can't build a $name from $value ($message)", innerThrowable = Some(e)))
         }
-      case _ =>
+      case _                  =>
         Left(ExecutionError(s"Can't build a $name from $input"))
     }
   }
@@ -138,17 +138,17 @@ object ArgBuilder {
     }
   }
 
-  final def localDateWithFormatter(formatter: DateTimeFormatter): ArgBuilder[LocalDate] =
+  final def localDateWithFormatter(formatter: DateTimeFormatter): ArgBuilder[LocalDate]           =
     TemporalDecoder("LocalDate")(LocalDate.parse(_, formatter))
-  final def localTimeWithFormatter(formatter: DateTimeFormatter): ArgBuilder[LocalTime] =
+  final def localTimeWithFormatter(formatter: DateTimeFormatter): ArgBuilder[LocalTime]           =
     TemporalDecoder("LocalTime")(LocalTime.parse(_, formatter))
-  final def localDateTimeWithFormatter(formatter: DateTimeFormatter): ArgBuilder[LocalDateTime] =
+  final def localDateTimeWithFormatter(formatter: DateTimeFormatter): ArgBuilder[LocalDateTime]   =
     TemporalDecoder("LocalDateTime")(LocalDateTime.parse(_, formatter))
-  final def offsetTimeWithFormatter(formatter: DateTimeFormatter): ArgBuilder[OffsetTime] =
+  final def offsetTimeWithFormatter(formatter: DateTimeFormatter): ArgBuilder[OffsetTime]         =
     TemporalDecoder("OffsetTime")(OffsetTime.parse(_, formatter))
   final def offsetDateTimeWithFormatter(formatter: DateTimeFormatter): ArgBuilder[OffsetDateTime] =
     TemporalDecoder("OffsetDateTime")(OffsetDateTime.parse(_, formatter))
-  final def zonedDateTimeWithFormatter(formatter: DateTimeFormatter): ArgBuilder[ZonedDateTime] =
+  final def zonedDateTimeWithFormatter(formatter: DateTimeFormatter): ArgBuilder[ZonedDateTime]   =
     TemporalDecoder("ZonedDateTime")(ZonedDateTime.parse(_, formatter))
 
   lazy val instantEpoch: ArgBuilder[Instant] = {
@@ -168,11 +168,11 @@ object ArgBuilder {
     case NullValue => Right(None)
     case value     => ev.build(value).map(Some(_))
   }
-  implicit def list[A](implicit ev: ArgBuilder[A]): ArgBuilder[List[A]] = {
+  implicit def list[A](implicit ev: ArgBuilder[A]): ArgBuilder[List[A]]     = {
     case InputValue.ListValue(items) =>
       items
         .foldLeft[Either[ExecutionError, List[A]]](Right(Nil)) {
-          case (res @ Left(_), _) => res
+          case (res @ Left(_), _)  => res
           case (Right(res), value) =>
             ev.build(value) match {
               case Left(error)  => Left(error)
@@ -180,7 +180,7 @@ object ArgBuilder {
             }
         }
         .map(_.reverse)
-    case other => ev.build(other).map(List(_))
+    case other                       => ev.build(other).map(List(_))
   }
 
   implicit def seq[A](implicit ev: ArgBuilder[A]): ArgBuilder[Seq[A]]       = list[A].map(_.toSeq)
@@ -207,7 +207,7 @@ object ArgBuilder {
           case InputValue.ObjectValue(fields) =>
             val label = p.annotations.collectFirst { case GQLName(name) => name }.getOrElse(p.label)
             p.typeclass.build(fields.getOrElse(label, NullValue))
-          case value => p.typeclass.build(value)
+          case value                          => p.typeclass.build(value)
         }
       }
     }
@@ -226,7 +226,7 @@ object ArgBuilder {
           case Some(subtype) => subtype.typeclass.build(InputValue.ObjectValue(Map()))
           case None          => Left(ExecutionError(s"Invalid value $value for trait ${ctx.typeName.short}"))
         }
-      case None => Left(ExecutionError(s"Can't build a trait from input $input"))
+      case None        => Left(ExecutionError(s"Can't build a trait from input $input"))
     }
   }
 

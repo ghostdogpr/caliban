@@ -42,8 +42,8 @@ package object implicits {
   implicit def monixEffectSchema[R, A](implicit ev: Schema[R, A], ev2: ConcurrentEffect[Task]): Schema[R, Task[A]] =
     MonixInterop.taskSchema
 
-  implicit def observableSchema[R, A](
-    implicit ev: Schema[R, A],
+  implicit def observableSchema[R, A](implicit
+    ev: Schema[R, A],
     ev2: ConcurrentEffect[Task]
   ): Schema[R, Observable[A]] =
     MonixInterop.observableSchema(16) // Size of the internal buffer. Use a power of 2 for best performance.

@@ -14,7 +14,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
     suite("SelectionBuilderSpec")(
       suite("query generation")(
         test("simple object") {
-          val query =
+          val query  =
             Queries.characters() {
               Character.name
             }
@@ -22,7 +22,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
           assert(s)(equalTo("characters{name}"))
         },
         test("combine 2 fields") {
-          val query =
+          val query  =
             Queries.characters() {
               Character.name ~ Character.nicknames
             }
@@ -30,7 +30,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
           assert(s)(equalTo("characters{name nicknames}"))
         },
         test("union type") {
-          val query =
+          val query  =
             Queries.characters() {
               Character.name ~
                 Character.nicknames ~
@@ -45,7 +45,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
           )
         },
         test("argument") {
-          val query =
+          val query  =
             Queries.characters(Some(Origin.MARS)) {
               Character.name
             }
@@ -53,7 +53,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
           assert(s)(equalTo("""characters(origin:"MARS"){name}"""))
         },
         test("aliases") {
-          val query =
+          val query  =
             Queries
               .character("Amos Burton") {
                 Character.name
@@ -68,7 +68,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
           assert(s)(equalTo("""amos:character(name:"Amos Burton"){name} naomi:character(name:"Naomi Nagata"){name}"""))
         },
         test("variables") {
-          val query =
+          val query          =
             Queries
               .character("Amos Burton") {
                 Character.name
@@ -85,7 +85,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
           assert(variables.get("name1"))(isSome(equalTo((__StringValue("Naomi Nagata"), "String!"))))
         },
         test("directives") {
-          val query =
+          val query  =
             Queries
               .character("Amos Burton") {
                 Character.name
@@ -95,7 +95,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
           assert(s)(equalTo("""character(name:"Amos Burton") @yo(value:"what's up"){name}"""))
         },
         test("directives + variables") {
-          val query =
+          val query          =
             Queries
               .character("Amos Burton") {
                 Character.name
@@ -117,7 +117,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
       ),
       suite("response parsing")(
         test("simple object") {
-          val query =
+          val query    =
             Queries.characters() {
               Character.name
             }
@@ -126,7 +126,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
           assert(query.fromGraphQL(response))(isRight(equalTo(List("Amos"))))
         },
         test("combine 2 fields") {
-          val query =
+          val query    =
             Queries.characters() {
               Character.name ~ Character.nicknames
             }
@@ -167,7 +167,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
                       List(
                         "name"      -> __StringValue("Amos Burton"),
                         "nicknames" -> __ListValue(List(__StringValue("Amos"))),
-                        "role" -> __ObjectValue(
+                        "role"      -> __ObjectValue(
                           List(
                             "__typename" -> __StringValue("Mechanic"),
                             "shipName"   -> __StringValue("Rocinante")
@@ -184,7 +184,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
           )
         },
         test("aliases") {
-          val query =
+          val query    =
             Queries
               .character("Amos Burton") {
                 Character.name
@@ -209,7 +209,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
             Queries.character("Amos Burton")(Character.name).copy(alias = Some("amos")),
             Queries.character("Naomi Nagata")(Character.name).copy(alias = Some("naomi"))
           )
-          val response =
+          val response                                                 =
             __ObjectValue(
               List(
                 "amos"  -> __ObjectValue(List("name" -> __StringValue("Amos Burton"))),
@@ -219,14 +219,14 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
           assert(query.fromGraphQL(response))(isRight(equalTo(List(Some("Amos Burton"), Some("Naomi Nagata")))))
         },
         test("pure") {
-          val query = Queries.character("Amos Burton")(Character.name) ~ SelectionBuilder.pure("Fake")
+          val query    = Queries.character("Amos Burton")(Character.name) ~ SelectionBuilder.pure("Fake")
           val response = __ObjectValue(
             List("character" -> __ObjectValue(List("name" -> __StringValue("Amos Burton"))))
           )
           assert(query.fromGraphQL(response))(isRight(equalTo((Some("Amos Burton"), "Fake"))))
         },
         test("skip") {
-          val query = Queries.character("Amos Burton")(if (false) Character.name else SelectionBuilder.pure("Fake"))
+          val query    = Queries.character("Amos Burton")(if (false) Character.name else SelectionBuilder.pure("Fake"))
           val response = __ObjectValue(
             List("character" -> __ObjectValue(List("name" -> __StringValue("Amos Burton"))))
           )
