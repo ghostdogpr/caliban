@@ -207,7 +207,7 @@ object ClientWriter {
           field -> s"${field.name}Selection"
       }
 
-    val genericSelectionFieldTypes =
+    val genericSelectionFieldTypes    =
       genericSelectionFields.map { case (field, name) => (field, name.capitalize) }
 
     val genericSelectionFieldsMap     = genericSelectionFields.toMap
@@ -223,17 +223,16 @@ object ClientWriter {
       }
 
     val viewFunctionSelectionArguments: List[String] =
-      genericSelectionFields.collect {
-        case (field @ FieldTypeInfo(_, _, _, Some(owner)), fieldName) =>
-          val tpe = genericSelectionFieldTypesMap(field)
-          s"$fieldName: SelectionBuilder[$owner, $tpe]"
+      genericSelectionFields.collect { case (field @ FieldTypeInfo(_, _, _, Some(owner)), fieldName) =>
+        val tpe = genericSelectionFieldTypesMap(field)
+        s"$fieldName: SelectionBuilder[$owner, $tpe]"
       }
 
     val viewClassFields: List[String] =
       fields.map {
         case field @ FieldTypeInfo(_, outputType, _, Some(_)) =>
           val tpeName = genericSelectionFieldTypesMap(field)
-          val tpe =
+          val tpe     =
             if (outputType.endsWith("[A]")) outputType.dropRight(3) + "[" + tpeName + "]"
             else outputType.dropRight(1) + tpeName
           s"${field.name}: $tpe"
@@ -257,8 +256,8 @@ object ClientWriter {
           s"$viewFunctionBody.map(${head.name} => $viewName(${head.name}))"
 
         case other =>
-          val unapply = fields.tail.foldLeft(fields.head.name) {
-            case (acc, field) => "(" + acc + ", " + field.name + ")"
+          val unapply = fields.tail.foldLeft(fields.head.name) { case (acc, field) =>
+            "(" + acc + ", " + field.name + ")"
           }
           s"($viewFunctionBody).map { case $unapply => $viewName(${other.map(_.name).mkString(", ")}) }"
       }

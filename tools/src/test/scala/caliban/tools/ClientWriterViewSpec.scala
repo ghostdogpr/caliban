@@ -175,6 +175,6 @@ object Client {
 """
           )
         )
-      },
+      }
     ) @@ TestAspect.sequential
 }
