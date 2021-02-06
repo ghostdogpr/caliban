@@ -101,14 +101,19 @@ trait Schema[-R, T] { self =>
     }
 
     lazy val renameTypename: Boolean = self.toType().kind match {
-      case __TypeKind.UNION | __TypeKind.ENUM | __TypeKind.INTERFACE => true
-      case _                                                         => false
+      case __TypeKind.UNION | __TypeKind.ENUM | __TypeKind.INTERFACE => false
+      case _                                                         => true
     }
 
-    override def resolve(value: T): Step[R] = self.resolve(value) match {
-      case o @ ObjectStep(_, fields) => if (renameTypename) o else ObjectStep(name, fields)
-      case other                     => other
-    }
+    override def resolve(value: T): Step[R] =
+      self.resolve(value) match {
+        case o @ ObjectStep(_, fields)  =>
+          if (renameTypename) ObjectStep(name, fields) else o
+        case p @ PureStep(EnumValue(_)) =>
+          if (renameTypename) PureStep(EnumValue(name)) else p
+        case other                      =>
+          other
+      }
   }
 }
 
