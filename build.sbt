@@ -16,7 +16,7 @@ val sttpVersion           = "2.2.9"
 val tapirVersion          = "0.17.9"
 val zioVersion            = "1.0.4"
 val zioInteropCatsVersion = "2.2.0.1"
-val zioConfigVersion      = "1.0.0-RC32"
+val zioConfigVersion      = "1.0.0"
 val zqueryVersion         = "0.2.6"
 val zioJsonVersion        = "0.0.1"
 
