@@ -121,8 +121,8 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
-                Some(false),
-                Some("cats.effect.IO")
+                Some(true),
+                None
               )
             )
           )
