@@ -178,7 +178,7 @@ object Client {
       },
       testM("generic view for Option[List[Option[A]] types") {
         val schema =
-        """
+          """
             type ProjectMember {
               id: Int
               name: String
@@ -203,8 +203,9 @@ object Client {
             }
             """
 
-        assertM(gen(schema))(equalTo(
-        """import caliban.client.FieldBuilder._
+        assertM(gen(schema))(
+          equalTo(
+            """import caliban.client.FieldBuilder._
 import caliban.client.SelectionBuilder._
 import caliban.client._
 
@@ -301,11 +302,12 @@ object Client {
 
 }
 """
-        ))
+          )
+        )
       },
       testM("generic view for scala keywords") {
         val schema =
-        """
+          """
           type package {
             name: String
           }
@@ -316,7 +318,8 @@ object Client {
           }
             """
 
-          assertM(gen(schema))(equalTo(
+        assertM(gen(schema))(
+          equalTo(
             """import caliban.client.FieldBuilder._
 import caliban.client.SelectionBuilder._
 import caliban.client._
@@ -355,7 +358,8 @@ object Client {
 
 }
 """
-          ))
+          )
+        )
       },
       testM("union case") {
         val schema =
@@ -375,8 +379,9 @@ object Client {
           }
             """
 
-        assertM(gen(schema))(equalTo(
-          """import caliban.client.FieldBuilder._
+        assertM(gen(schema))(
+          equalTo(
+            """import caliban.client.FieldBuilder._
 import caliban.client.SelectionBuilder._
 import caliban.client._
 
@@ -431,7 +436,8 @@ object Client {
 
 }
 """
-        ))
+          )
+        )
       }
     ) @@ TestAspect.sequential
 }

@@ -180,7 +180,10 @@ object ClientWriter {
   ): String = {
     val objectName: String = safeTypeName(typedef.name, mappingClashedTypeNames)
     val fields             = typedef.fields.map(collectFieldInfo(_, objectName, typesMap, mappingClashedTypeNames))
-    val view               = if (genView && typedef.fields.length <= MaxTupleLength) "\n  " + writeView(typedef.name, fields.map(_.typeInfo), mappingClashedTypeNames) else ""
+    val view               =
+      if (genView && typedef.fields.length <= MaxTupleLength)
+        "\n  " + writeView(typedef.name, fields.map(_.typeInfo), mappingClashedTypeNames)
+      else ""
 
     s"""type $objectName
        |object $objectName {$view
@@ -241,32 +244,31 @@ object ClientWriter {
 
     val viewClassFields: List[String] =
       fields.map {
-        case field @ FieldTypeInfo(_, _, outputType, _, _,  _, Some(_)) =>
+        case field @ FieldTypeInfo(_, _, outputType, _, _, _, Some(_)) =>
           val tpeName = genericSelectionFieldTypesMap(field)
           val tpe     =
             if (outputType.contains("[A]")) outputType.replace("[A]", s"[$tpeName]")
             else outputType.dropRight(1) + tpeName
           s"${field.name}: $tpe"
 
-        case field @ FieldTypeInfo(_, _, outputType, _, _,  _, _) =>
+        case field @ FieldTypeInfo(_, _, outputType, _, _, _, _) =>
           s"${field.name}: $outputType"
       }
 
     val viewFunctionBody: String =
-      fields.map {
-        case field @ FieldTypeInfo(_, _, _, interfaceTypes, unionTypes, _, _) =>
-          val argsPart      = withRoundBrackets(field.arguments.map(a => argumentName(field.name, a.name)))
-          val selectionType = genericSelectionFieldsMap.get(field)
-          val selectionPart = {
-            val parts =
-              if (unionTypes.nonEmpty) unionTypes.map(unionType => s"${selectionType.head}On$unionType")
-              else if (interfaceTypes.nonEmpty) interfaceTypes.map(tpe => s"${selectionType.head}On$tpe")
-              else selectionType.toList
+      fields.map { case field @ FieldTypeInfo(_, _, _, interfaceTypes, unionTypes, _, _) =>
+        val argsPart      = withRoundBrackets(field.arguments.map(a => argumentName(field.name, a.name)))
+        val selectionType = genericSelectionFieldsMap.get(field)
+        val selectionPart = {
+          val parts =
+            if (unionTypes.nonEmpty) unionTypes.map(unionType => s"${selectionType.head}On$unionType")
+            else if (interfaceTypes.nonEmpty) interfaceTypes.map(tpe => s"${selectionType.head}On$tpe")
+            else selectionType.toList
 
-            withRoundBrackets(parts)
-          }
+          withRoundBrackets(parts)
+        }
 
-          s"${field.name}$argsPart$selectionPart"
+        s"${field.name}$argsPart$selectionPart"
       }.mkString(" ~ ")
 
     val viewClassFieldParams: String = withRoundBrackets(viewClassFields)
@@ -381,7 +383,7 @@ object ClientWriter {
     if (reservedKeywords.contains(name)) s"${name}_"
     else name
 
-  def safeName(name: String): String                                                     =
+  def safeName(name: String): String =
     if (reservedKeywords.contains(name)) s"`$name`"
     else if (caseClassReservedFields.contains(name)) s"${name}_"
     else name
@@ -523,7 +525,15 @@ object ClientWriter {
     }
 
     val owner         = if (typeParam.nonEmpty) Some(fieldType) else None
-    val fieldTypeInfo = FieldTypeInfo(field.name, name, outputType, interfaceTypes.map(_.name).toList, unionTypes.map(_.name), field.args, owner)
+    val fieldTypeInfo = FieldTypeInfo(
+      field.name,
+      name,
+      outputType,
+      interfaceTypes.map(_.name).toList,
+      unionTypes.map(_.name),
+      field.args,
+      owner
+    )
     FieldInfo(
       field.name,
       name,

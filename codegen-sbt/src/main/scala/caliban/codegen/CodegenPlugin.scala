@@ -10,18 +10,25 @@ import zio.{ RIO, Runtime }
 object CodegenPlugin extends AutoPlugin {
   override lazy val projectSettings = Seq(commands ++= Seq(genSchemaCommand, genClientCommand))
 
-  lazy val genSchemaCommand         =
-    genCommand("calibanGenSchema", genSchemaHelpMsg, (schema, objectName, packageName, _, effect) => {
-      SchemaWriter.write(schema, objectName, packageName, effect)
-    })
+  lazy val genSchemaCommand =
+    genCommand(
+      "calibanGenSchema",
+      genSchemaHelpMsg,
+      (schema, objectName, packageName, _, effect) => SchemaWriter.write(schema, objectName, packageName, effect)
+    )
 
-  lazy val genClientCommand         =
-    genCommand("calibanGenClient", genClientHelpMsg, (schema, objectName, packageName, genView, _) => {
-      ClientWriter.write(schema, objectName, packageName, genView)
-    })
+  lazy val genClientCommand =
+    genCommand(
+      "calibanGenClient",
+      genClientHelpMsg,
+      (schema, objectName, packageName, genView, _) => ClientWriter.write(schema, objectName, packageName, genView)
+    )
 
-
-  def genCommand(name: String, helpMsg: String, writer: (Document, String, Option[String], Boolean, String) => String): Command =
+  def genCommand(
+    name: String,
+    helpMsg: String,
+    writer: (Document, String, Option[String], Boolean, String) => String
+  ): Command =
     Command.args(name, helpMsg) { (state: State, args: Seq[String]) =>
       Runtime.default.unsafeRun(
         execGenCommand(helpMsg, args.toList, writer)
