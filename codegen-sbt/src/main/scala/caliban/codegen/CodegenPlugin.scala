@@ -53,7 +53,7 @@ object CodegenPlugin extends AutoPlugin {
 
   private val genSchemaHelpMsg =
     s"""
-       |calibanGenSchema schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name] [--genView true|false] [--effect fqdn.Effect]
+       |calibanGenSchema schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name] [--effect fqdn.Effect]
        |
        |This command will create a Scala file in `outputPath` containing all the types
        |defined in the provided GraphQL schema defined at `schemaPath`. Instead of a path,

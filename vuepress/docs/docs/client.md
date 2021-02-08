@@ -195,10 +195,10 @@ object Character {
 Then you can build a query the way you want:
 ```scala
 val characterWithOriginAllFields: SelectionBuilder[Character, Character.CharacterView[Origin.View]] =
-  Character.view(Some("some filter 2"))(Origin.view)
+  Character.view(None)(Origin.view)
 
 val characterWithOriginOnlyDetails: SelectionBuilder[Character, Character.CharacterView[String]] =
-  Character.view(Some("some filter 2"))(Origin.details)
+  Character.view(Some("some filter"))(Origin.details)
 ```
 
 ## Request execution
