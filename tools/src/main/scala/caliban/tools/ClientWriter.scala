@@ -9,6 +9,8 @@ import caliban.parsing.adt.{ Document, Type }
 
 object ClientWriter {
 
+  private val MaxTupleLength = 22
+
   def write(
     schema: Document,
     objectName: String = "Client",
@@ -178,7 +180,7 @@ object ClientWriter {
   ): String = {
     val objectName: String = safeTypeName(typedef.name, mappingClashedTypeNames)
     val fields             = typedef.fields.map(collectFieldInfo(_, objectName, typesMap, mappingClashedTypeNames))
-    val view               = if (genView) "\n  " + writeView(typedef.name, fields.map(_.typeInfo), mappingClashedTypeNames) else ""
+    val view               = if (genView && typedef.fields.length <= MaxTupleLength) "\n  " + writeView(typedef.name, fields.map(_.typeInfo), mappingClashedTypeNames) else ""
 
     s"""type $objectName
        |object $objectName {$view
@@ -224,36 +226,45 @@ object ClientWriter {
 
     val viewFunctionSelectionArguments: List[String] =
       genericSelectionFields.collect {
-        case (field @ FieldTypeInfo(_, _, _, Nil, _, Some(owner)), fieldName) =>
+        case (field @ FieldTypeInfo(_, _, _, Nil, Nil, _, Some(owner)), fieldName) =>
           val tpe = genericSelectionFieldTypesMap(field)
           List(s"$fieldName: SelectionBuilder[$owner, $tpe]")
 
-        case (field @ FieldTypeInfo(_, _, _, unionTypes, _, Some(_)), fieldName) =>
+        case (field @ FieldTypeInfo(_, _, _, _, unionTypes, _, Some(_)), fieldName) if unionTypes.nonEmpty =>
           val tpe = genericSelectionFieldTypesMap(field)
           unionTypes.map(unionType => s"${fieldName}On$unionType: SelectionBuilder[$unionType, $tpe]")
+
+        case (field @ FieldTypeInfo(_, _, _, interfaceTypes, _, _, Some(_)), fieldName) if interfaceTypes.nonEmpty =>
+          val tpe = genericSelectionFieldTypesMap(field)
+          interfaceTypes.map(intType => s"${fieldName}On$intType: Option[SelectionBuilder[$intType, $tpe]] = None")
       }.flatten
 
     val viewClassFields: List[String] =
       fields.map {
-        case field @ FieldTypeInfo(_, _, outputType, _,  _, Some(_)) =>
+        case field @ FieldTypeInfo(_, _, outputType, _, _,  _, Some(_)) =>
           val tpeName = genericSelectionFieldTypesMap(field)
           val tpe     =
             if (outputType.contains("[A]")) outputType.replace("[A]", s"[$tpeName]")
             else outputType.dropRight(1) + tpeName
           s"${field.name}: $tpe"
 
-        case field @ FieldTypeInfo(_, _, outputType, _,  _, _) =>
+        case field @ FieldTypeInfo(_, _, outputType, _, _,  _, _) =>
           s"${field.name}: $outputType"
       }
 
     val viewFunctionBody: String =
       fields.map {
-        case field @ FieldTypeInfo(_, _, _, unionTypes, _, _) =>
+        case field @ FieldTypeInfo(_, _, _, interfaceTypes, unionTypes, _, _) =>
           val argsPart      = withRoundBrackets(field.arguments.map(a => argumentName(field.name, a.name)))
           val selectionType = genericSelectionFieldsMap.get(field)
-          val selectionPart =
-            if (unionTypes.nonEmpty) withRoundBrackets(unionTypes.map(unionType => s"${selectionType.head}On$unionType"))
-            else withRoundBrackets(selectionType.toList)
+          val selectionPart = {
+            val parts =
+              if (unionTypes.nonEmpty) unionTypes.map(unionType => s"${selectionType.head}On$unionType")
+              else if (interfaceTypes.nonEmpty) interfaceTypes.map(tpe => s"${selectionType.head}On$tpe")
+              else selectionType.toList
+
+            withRoundBrackets(parts)
+          }
 
           s"${field.name}$argsPart$selectionPart"
       }.mkString(" ~ ")
@@ -512,7 +523,7 @@ object ClientWriter {
     }
 
     val owner         = if (typeParam.nonEmpty) Some(fieldType) else None
-    val fieldTypeInfo = FieldTypeInfo(field.name, name, outputType, unionTypes.map(_.name), field.args, owner)
+    val fieldTypeInfo = FieldTypeInfo(field.name, name, outputType, interfaceTypes.map(_.name).toList, unionTypes.map(_.name), field.args, owner)
     FieldInfo(
       field.name,
       name,
@@ -624,6 +635,7 @@ object ClientWriter {
     rawName: String,
     name: String,
     outputType: String,
+    interfaceTypes: List[String],
     unionTypes: List[String],
     arguments: List[InputValueDefinition],
     owner: Option[String]
