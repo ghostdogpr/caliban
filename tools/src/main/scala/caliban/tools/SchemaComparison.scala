@@ -151,8 +151,8 @@ object SchemaComparison {
     target: Target
   ): List[SchemaComparisonChange] =
     (left, right) match {
-      case (Some(_), None)              => List(DescriptionAdded(target))
-      case (None, Some(_))              => List(DescriptionDeleted(target))
+      case (Some(_), None)              => List(DescriptionDeleted(target))
+      case (None, Some(_))              => List(DescriptionAdded(target))
       case (Some(l), Some(r)) if l != r => List(DescriptionChanged(target))
       case _                            => Nil
     }
