@@ -1,8 +1,8 @@
 package caliban.client
 
 import caliban.client.Client._
-import sttp.client._
-import sttp.client.asynchttpclient.zio.{ AsyncHttpClientZioBackend, SttpClient }
+import sttp.client3._
+import sttp.client3.asynchttpclient.zio._
 import zio.console.{ putStrLn, Console }
 import zio.{ App, ExitCode, RIO, ZIO }
 
@@ -43,12 +43,12 @@ object ExampleApp extends App {
         }
     val mutation = Mutations.deleteCharacter("James Holden")
 
-    def send[T](req: Request[Either[CalibanClientError, T], Nothing]): RIO[Console with SttpClient, T] =
-      SttpClient.send(req).map(_.body).absolve.tap(res => putStrLn(s"Result: $res"))
+    def sendRequest[T](req: Request[Either[CalibanClientError, T], Any]): RIO[Console with SttpClient, T] =
+      send(req).map(_.body).absolve.tap(res => putStrLn(s"Result: $res"))
 
     val uri   = uri"http://localhost:8088/api/graphql"
-    val call1 = send(mutation.toRequest(uri))
-    val call2 = send(query.toRequest(uri, useVariables = true))
+    val call1 = sendRequest(mutation.toRequest(uri))
+    val call2 = sendRequest(query.toRequest(uri, useVariables = true))
 
     (call1 *> call2)
       .provideCustomLayer(AsyncHttpClientZioBackend.layer())

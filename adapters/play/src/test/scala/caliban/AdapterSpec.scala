@@ -14,17 +14,17 @@ import play.api.Mode
 import play.api.mvc.DefaultControllerComponents
 import play.core.server.{ AkkaHttpServer, Server, ServerConfig }
 import play.mvc.Http.MimeTypes
-import sttp.client._
-import sttp.client.asynchttpclient.zio.{ AsyncHttpClientZioBackend, SttpClient }
+import sttp.client3._
+import sttp.client3.asynchttpclient.zio.{ AsyncHttpClientZioBackend, _ }
+import zio.{ Has, Runtime, UIO, ZIO, ZLayer }
 import zio.blocking._
 import zio.clock.Clock
 import zio.console.Console
 import zio.internal.Platform
 import zio.random.Random
-import zio.test.Assertion._
 import zio.test._
+import zio.test.Assertion._
 import zio.test.environment.TestEnvironment
-import zio.{ Has, Runtime, UIO, ZIO, ZLayer }
 
 case class Response[A](data: A)
 case class UploadFile(uploadFile: TestAPI.File)
@@ -146,7 +146,7 @@ object AdapterSpec extends DefaultRunnableSpec {
           .contentType("multipart/form-data")
 
         val body = for {
-          response <- SttpClient.send(
+          response <- send(
                         request.mapResponse { strRespOrError =>
                           for {
                             resp           <- strRespOrError
@@ -186,7 +186,7 @@ object AdapterSpec extends DefaultRunnableSpec {
           )
 
         val body = for {
-          response <- SttpClient.send(
+          response <- send(
                         request.mapResponse { strRespOrError =>
                           for {
                             resp           <- strRespOrError
