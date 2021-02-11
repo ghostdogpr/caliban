@@ -10,12 +10,13 @@ Caliban allows you to perform additional actions at various levels of a query pr
 
 ## Wrapper types
 
-There are 5 basic types of wrappers:
+There are 6 basic types of wrappers:
  - `OverallWrapper` to wrap the whole query processing
  - `ParsingWrapper` to wrap the query parsing only
  - `ValidationWrapper` to wrap the query validation only
  - `ExecutionWrapper` to wrap the query execution only
  - `FieldWrapper` to wrap each field execution
+ - `IntrospectionWrapper` to wrap the introspection query only
 
 Each one requires a function that takes a `ZIO` or `ZQuery` computation together with some contextual information (e.g. the query string) and should return another computation.
 
