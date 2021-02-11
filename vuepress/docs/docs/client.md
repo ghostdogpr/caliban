@@ -37,9 +37,9 @@ enablePlugins(CodegenPlugin)
 
 Then call the `calibanGenClient` sbt command.
 ```scala
-calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2]
+calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--genView true|false]
 
-calibanGenClient project/schema.graphql src/main/Client.scala
+calibanGenClient project/schema.graphql src/main/client/Client.scala --genView true  
 ```
 This command will generate a Scala file in `outputPath` containing helper functions for all the types defined in the provided GraphQL schema defined at `schemaPath`.
 Instead of a file, you can provide a URL and the schema will be obtained using introspection.
@@ -48,6 +48,7 @@ If you provide a URL for `schemaPath`, you can provide request headers with `--h
 The package of the generated code is derived from the folder of `outputPath`.
 This can be overridden by providing an alternative package with the `--packageName`
 option.
+Provide `--genView true` option if you want to generate a view for the GraphQL types. 
 
 ## Query building
 
@@ -132,6 +133,72 @@ val query: SelectionBuilder[RootQuery, List[CharacterView]] =
   Query.characters(Origin.MARS) {
     character
   }
+```
+
+## Automated generation of a view projection
+
+`ClientWriter` can generate a view projection for a GraphQL type. 
+
+For example, given the following schema:
+```graphql
+type Origin {
+  description: String
+  details: String  
+}
+
+type Character {
+  name: String!
+  nicknames: [String!]!
+  origin(filter: String): Origin!
+}
+```
+
+Your generated code will have the following:
+```scala
+type Origin
+object Origin {
+
+  final case class OriginView(description: Option[String], details: Option[String])
+
+  type ViewSelection = SelectionBuilder[Origin, OriginView]
+
+  def view: ViewSelection = (description ~ details).map { case (description, details) =>
+    OriginView(description, details)
+   }
+
+  def description: SelectionBuilder[Origin, Option[String]] = Field("description", OptionOf(Scalar()))
+  def details: SelectionBuilder[Origin, Option[String]]     = Field("details", OptionOf(Scalar()))
+}
+
+type Character
+object Character {
+
+  final case class CharacterView[OriginSelection](name: String, nicknames: List[String], origin: OriginSelection)
+
+  type ViewSelection[OriginSelection] = SelectionBuilder[Character, CharacterView[OriginSelection]]
+
+  def view[OriginSelection](originFilter: Option[String] = None)(
+    originSelection: SelectionBuilder[Origin, OriginSelection]
+  ): ViewSelection[OriginSelection] = (name ~ nicknames ~ origin(originFilter)(originSelection)).map {
+    case ((name, nicknames), origin) => CharacterView(name, nicknames, origin)
+  }
+
+  def name: SelectionBuilder[Character, String]            = Field("name", Scalar())
+  def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
+  def origin[A](
+    filter: Option[String] = None
+  )(innerSelection: SelectionBuilder[Origin, A]): SelectionBuilder[Character, A] =
+    Field("origin", Obj(innerSelection), arguments = List(Argument("filter", filter)))
+}
+```
+
+Then you can build a query the way you want:
+```scala
+val characterWithOriginAllFields: SelectionBuilder[Character, Character.CharacterView[Origin.View]] =
+  Character.view(None)(Origin.view)
+
+val characterWithOriginOnlyDetails: SelectionBuilder[Character, Character.CharacterView[String]] =
+  Character.view(Some("some filter"))(Origin.details)
 ```
 
 ## Request execution
