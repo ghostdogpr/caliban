@@ -63,15 +63,17 @@ trait GraphQL[-R] { self =>
    */
   final def interpreter: IO[ValidationError, GraphQLInterpreter[R, CalibanError]] =
     validateRootSchema.map { schema =>
-      lazy val rootType                                 =
+      lazy val rootType =
         RootType(
           schema.query.opType,
           schema.mutation.map(_.opType),
           schema.subscription.map(_.opType),
           additionalDirectives
         )
-      lazy val introspectionRootSchema: RootSchema[Any] = Introspector.introspect(rootType)
-      lazy val introspectionRootType: RootType          = RootType(introspectionRootSchema.query.opType, None, None)
+
+      val introWrappers                               = wrappers.collect { case w: IntrospectionWrapper[R] => w }
+      lazy val introspectionRootSchema: RootSchema[R] = Introspector.introspect(rootType, introWrappers)
+      lazy val introspectionRootType: RootType        = RootType(introspectionRootSchema.query.opType, None, None)
 
       new GraphQLInterpreter[R, CalibanError] {
         override def check(query: String): IO[CalibanError, Unit] =
@@ -89,7 +91,7 @@ trait GraphQL[-R] { self =>
           queryExecution: QueryExecution
         ): URIO[R, GraphQLResponse[CalibanError]] =
           decompose(wrappers).flatMap {
-            case (overallWrappers, parsingWrappers, validationWrappers, executionWrappers, fieldWrappers) =>
+            case (overallWrappers, parsingWrappers, validationWrappers, executionWrappers, fieldWrappers, _) =>
               wrap((request: GraphQLRequest) =>
                 (for {
                   doc              <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
