@@ -45,7 +45,15 @@ object Rendering {
               )
               .mkString("\n  ")
             val renderedInputFields: String = t.inputFields
-              .fold(List.empty[String])(_.map(renderInputValue))
+              .fold(List.empty[String])(
+                _.map(field =>
+                  List(
+                    field.description.map(_ => renderDescription(field.description)),
+                    Some(renderInputValue(field))
+                  ).flatten
+                    .mkString(("  "))
+                )
+              )
               .mkString("\n  ")
             val renderedEnumValues          = t
               .enumValues(__DeprecatedArgs(Some(true)))

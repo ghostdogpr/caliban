@@ -66,6 +66,34 @@ object RenderingSpec extends DefaultRunnableSpec {
                     |  exists(character: CharacterInput!): Boolean!
                     |}""".stripMargin.trim)
         )
+      },
+      test("it should render descriptions") {
+        import RenderingSpecSchema._
+        val generated = graphQL(resolverSchema).render.trim
+        assert(generated)(equalTo("""|schema {
+                                     |  query: QueryTest
+                                     |  mutation: MutationTest
+                                     |}
+                                     |
+                                     |input UserTestInput {
+                                     |  name: String!
+                                     |  "field-description"
+                                     |  age: Int!
+                                     |}
+                                     |
+                                     |type MutationTest {
+                                     |  id(id: Int!, user: UserTestInput!): Boolean!
+                                     |}
+                                     |
+                                     |type QueryTest {
+                                     |  allUsers: [UserTest!]!
+                                     |}
+                                     |
+                                     |type UserTest {
+                                     |  name: String!
+                                     |  "field-description"
+                                     |  age: Int!
+                                     |}""".stripMargin.trim))
       }
     )
 }
