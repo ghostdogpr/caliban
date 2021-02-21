@@ -3,7 +3,7 @@ package caliban.tools
 import caliban.parsing.Parser
 import zio.Task
 import zio.test.Assertion._
-import zio.test.{ assertM, suite, testM, DefaultRunnableSpec, TestAspect, ZSpec }
+import zio.test._
 import zio.test.environment.TestEnvironment
 
 object ClientWriterSpec extends DefaultRunnableSpec {
