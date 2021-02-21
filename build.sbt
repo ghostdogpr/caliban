@@ -14,11 +14,11 @@ val playJsonVersion       = "2.9.2"
 val silencerVersion       = "1.7.1"
 val sttpVersion           = "3.1.3"
 val tapirVersion          = "0.17.12"
-val zioVersion            = "1.0.4"
+val zioVersion            = "1.0.4-2"
 val zioInteropCatsVersion = "2.3.1.0"
 val zioConfigVersion      = "1.0.0"
 val zqueryVersion         = "0.2.6"
-val zioJsonVersion        = "0.0.1"
+val zioJsonVersion        = "0.1"
 
 inThisBuild(
   List(
