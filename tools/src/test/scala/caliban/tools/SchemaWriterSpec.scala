@@ -338,7 +338,7 @@ object Types {
           equalTo(
             """object Types {
 
-  case class Character(`private`: String, `object`: String, `type`: String)
+  case class Character(private$ : String, object$ : String, type$ : String)
 
 }
 """
@@ -357,7 +357,7 @@ object Types {
           equalTo(
             """object Types {
 
-  case class Character(wait_ : String)
+  case class Character(wait$ : String)
 
 }
 """

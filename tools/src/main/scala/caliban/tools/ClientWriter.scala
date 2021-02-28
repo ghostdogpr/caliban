@@ -380,12 +380,12 @@ object ClientWriter {
         """
 
   def safeUnapplyName(name: String): String =
-    if (reservedKeywords.contains(name)) s"${name}_"
+    if (reservedKeywords.contains(name) || name.endsWith("_")) s"$name$$"
     else name
 
   def safeName(name: String): String =
-    if (reservedKeywords.contains(name)) s"`$name`"
-    else if (caseClassReservedFields.contains(name)) s"${name}_"
+    if (reservedKeywords.contains(name) || name.endsWith("_")) s"$name$$"
+    else if (caseClassReservedFields.contains(name)) s"$name$$"
     else name
 
   @tailrec

@@ -326,34 +326,34 @@ import caliban.client._
 
 object Client {
 
-  type `package`
-  object `package` {
+  type package$
+  object package$ {
 
     final case class packageView(name: Option[String])
 
-    type ViewSelection = SelectionBuilder[`package`, packageView]
+    type ViewSelection = SelectionBuilder[package$, packageView]
 
     def view: ViewSelection = name.map(name => packageView(name))
 
-    def name: SelectionBuilder[`package`, Option[String]] = Field("name", OptionOf(Scalar()))
+    def name: SelectionBuilder[package$, Option[String]] = Field("name", OptionOf(Scalar()))
   }
 
-  type `match`
-  object `match` {
+  type match$
+  object match$ {
 
-    final case class matchView[PackageSelection](`package`: Option[PackageSelection], version: Option[String])
+    final case class matchView[PackageSelection](package$ : Option[PackageSelection], version: Option[String])
 
-    type ViewSelection[PackageSelection] = SelectionBuilder[`match`, matchView[PackageSelection]]
+    type ViewSelection[PackageSelection] = SelectionBuilder[match$, matchView[PackageSelection]]
 
     def view[PackageSelection](
-      packageSelection: SelectionBuilder[`package`, PackageSelection]
-    ): ViewSelection[PackageSelection] = (`package`(packageSelection) ~ version).map { case (package_, version) =>
-      matchView(package_, version)
+      packageSelection: SelectionBuilder[package$, PackageSelection]
+    ): ViewSelection[PackageSelection] = (package$(packageSelection) ~ version).map { case (package$, version) =>
+      matchView(package$, version)
     }
 
-    def `package`[A](innerSelection: SelectionBuilder[`package`, A]): SelectionBuilder[`match`, Option[A]] =
+    def package$[A](innerSelection: SelectionBuilder[package$, A]): SelectionBuilder[match$, Option[A]] =
       Field("package", OptionOf(Obj(innerSelection)))
-    def version: SelectionBuilder[`match`, Option[String]]                                                 = Field("version", OptionOf(Scalar()))
+    def version: SelectionBuilder[match$, Option[String]]                                               = Field("version", OptionOf(Scalar()))
   }
 
 }
