@@ -18,7 +18,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
             Queries.characters() {
               Character.name
             }
-          val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
+          val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false, filterNullValues = false)
           assert(s)(equalTo("characters{name}"))
         },
         test("combine 2 fields") {
@@ -26,7 +26,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
             Queries.characters() {
               Character.name ~ Character.nicknames
             }
-          val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
+          val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false, filterNullValues = false)
           assert(s)(equalTo("characters{name nicknames}"))
         },
         test("union type") {
@@ -37,7 +37,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
                 Character
                   .role(Role.Captain.shipName, Role.Pilot.shipName, Role.Mechanic.shipName, Role.Engineer.shipName)
             }
-          val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
+          val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false, filterNullValues = false)
           assert(s)(
             equalTo(
               "characters{name nicknames role{__typename ... on Captain{shipName} ... on Pilot{shipName} ... on Mechanic{shipName} ... on Engineer{shipName}}}"
@@ -49,7 +49,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
             Queries.characters(Some(Origin.MARS)) {
               Character.name
             }
-          val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
+          val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false, filterNullValues = false)
           assert(s)(equalTo("""characters(origin:"MARS"){name}"""))
         },
         test("aliases") {
@@ -64,7 +64,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
                   Character.name
                 }
                 .copy(alias = Some("naomi"))
-          val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
+          val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false, filterNullValues = false)
           assert(s)(equalTo("""amos:character(name:"Amos Burton"){name} naomi:character(name:"Naomi Nagata"){name}"""))
         },
         test("variables") {
@@ -79,7 +79,8 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
                   Character.name
                 }
                 .withAlias("naomi")
-          val (s, variables) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = true)
+          val (s, variables) =
+            SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = true, filterNullValues = false)
           assert(s)(equalTo("""amos:character(name:$name){name} naomi:character(name:$name1){name}""")) &&
           assert(variables.get("name"))(isSome(equalTo((__StringValue("Amos Burton"), "String!")))) &&
           assert(variables.get("name1"))(isSome(equalTo((__StringValue("Naomi Nagata"), "String!"))))
@@ -91,7 +92,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
                 Character.name
               }
               .withDirective(Directive("yo", List(Argument("value", "what's up"))))
-          val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
+          val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false, filterNullValues = false)
           assert(s)(equalTo("""character(name:"Amos Burton") @yo(value:"what's up"){name}"""))
         },
         test("directives + variables") {
@@ -101,7 +102,8 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
                 Character.name
               }
               .withDirective(Directive("yo", List(Argument("value", "what's up"))))
-          val (s, variables) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = true)
+          val (s, variables) =
+            SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = true, filterNullValues = false)
           assert(s)(equalTo("""character(name:$name) @yo(value:$value){name}""")) &&
           assert(variables.get("name"))(isSome(equalTo((__StringValue("Amos Burton"), "String!")))) &&
           assert(variables.get("value"))(isSome(equalTo((__StringValue("what's up"), "String!"))))
