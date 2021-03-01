@@ -75,7 +75,7 @@ object Client {
              type Q {
                characters: [Character!]!
              }
-             
+
              type Character {
                name: String!
                nicknames: [String!]!
@@ -113,7 +113,7 @@ object Client {
              type Q {
                character(name: String!): Character
              }
-             
+
              type Character {
                name: String!
                nicknames: [String!]!
@@ -151,11 +151,11 @@ object Client {
              schema {
                query: Q
              }
-             
+
              type Q {
                characters: [Character!]!
              }
-             
+
              type Character {
                name: String!
                nicknames: [String!]!
@@ -301,15 +301,15 @@ object Client {
         val schema =
           """
              union Role = Captain | Pilot
-             
+
              type Captain {
                shipName: String!
              }
-             
+
              type Pilot {
                shipName: String!
              }
-             
+
              type Character {
                role: Role
              }
@@ -461,7 +461,7 @@ object Client {
         val schema =
           """
               scalar Json
-              
+
               type Query {
                 test: Json!
               }""".stripMargin
@@ -567,6 +567,34 @@ object Client {
   object character_ {
     def name: SelectionBuilder[character_, String]            = Field("name", Scalar())
     def nicknames: SelectionBuilder[character_, List[String]] = Field("nicknames", ListOf(Scalar()))
+  }
+
+}
+"""
+          )
+        )
+      },
+      testM("safe names with leading and tailing _") {
+        val schema =
+          """
+             type Character {
+               _name_: String
+               _nickname: String
+             }
+            """.stripMargin
+
+        assertM(gen(schema))(
+          equalTo(
+            """import caliban.client.FieldBuilder._
+import caliban.client.SelectionBuilder._
+import caliban.client._
+
+object Client {
+
+  type Character
+  object Character {
+    def `_name_` : SelectionBuilder[Character, Option[String]] = Field("_name_", OptionOf(Scalar()))
+    def _nickname: SelectionBuilder[Character, Option[String]] = Field("_nickname", OptionOf(Scalar()))
   }
 
 }
