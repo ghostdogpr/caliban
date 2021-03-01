@@ -83,26 +83,27 @@ object ClientWriter {
       .map(t => writeRootSubscription(t, typesMap, mappingClashedTypeNames))
       .getOrElse("")
 
-    val imports = s"""${if (enums.nonEmpty)
-      """import caliban.client.CalibanClientError.DecodingError
-        |""".stripMargin
-    else ""}${if (objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty)
-      """import caliban.client.FieldBuilder._
-        |import caliban.client.SelectionBuilder._
-        |""".stripMargin
-    else
-      ""}${if (
-      enums.nonEmpty || objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty || inputs.nonEmpty
-    )
-      """import caliban.client._
-        |""".stripMargin
-    else ""}${if (queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty)
-      """import caliban.client.Operations._
-        |""".stripMargin
-    else ""}${if (enums.nonEmpty || inputs.nonEmpty)
-      """import caliban.client.__Value._
-        |""".stripMargin
-    else ""}"""
+    val imports =
+      s"""${if (enums.nonEmpty)
+        """import caliban.client.CalibanClientError.DecodingError
+          |""".stripMargin
+      else ""}${if (objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty)
+        """import caliban.client.FieldBuilder._
+          |import caliban.client.SelectionBuilder._
+          |""".stripMargin
+      else
+        ""}${if (
+        enums.nonEmpty || objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty || inputs.nonEmpty
+      )
+        """import caliban.client._
+          |""".stripMargin
+      else ""}${if (queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty)
+        """import caliban.client.Operations._
+          |""".stripMargin
+      else ""}${if (enums.nonEmpty || inputs.nonEmpty)
+        """import caliban.client.__Value._
+          |""".stripMargin
+      else ""}"""
 
     s"""${packageName.fold("")(p => s"package $p\n\n")}$imports
        |
@@ -376,7 +377,8 @@ object ClientWriter {
 
   def writeScalar(typedef: ScalarTypeDefinition, mappingClashedTypeNames: Map[String, String]): String =
     if (typedef.name == "Json") "type Json = io.circe.Json"
-    else s"""type ${safeTypeName(typedef.name, mappingClashedTypeNames)} = String
+    else
+      s"""type ${safeTypeName(typedef.name, mappingClashedTypeNames)} = String
         """
 
   def safeUnapplyName(name: String): String =
@@ -384,7 +386,7 @@ object ClientWriter {
     else name
 
   def safeName(name: String): String =
-    if (reservedKeywords.contains(name) || name.endsWith("_")) s"$name$$"
+    if (reservedKeywords.contains(name) || name.endsWith("_")) s"`$name`"
     else if (caseClassReservedFields.contains(name)) s"$name$$"
     else name
 
@@ -665,4 +667,5 @@ object ClientWriter {
     argBuilder: String,
     typeInfo: FieldTypeInfo
   )
+
 }
