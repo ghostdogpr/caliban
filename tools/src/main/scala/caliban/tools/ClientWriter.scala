@@ -125,10 +125,9 @@ object ClientWriter {
       .map(name => name.toLowerCase -> name)
       .groupBy(_._1)
       .collect {
-        case (_, (_ :: typeNamesToRename)) if typeNamesToRename.nonEmpty =>
-          typeNamesToRename.zipWithIndex.map { case (((_, originalTypeName), index)) =>
-            val suffix = "_" * (index + 1)
-            originalTypeName -> s"$originalTypeName$suffix"
+        case (_, _ :: typeNamesToRename) if typeNamesToRename.nonEmpty =>
+          typeNamesToRename.map { case (_, originalTypeName) =>
+            originalTypeName -> s"`$originalTypeName`"
           }.toMap
       }
       .reduceOption(_ ++ _)
