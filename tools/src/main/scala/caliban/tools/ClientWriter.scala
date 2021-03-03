@@ -83,27 +83,26 @@ object ClientWriter {
       .map(t => writeRootSubscription(t, typesMap, mappingClashedTypeNames))
       .getOrElse("")
 
-    val imports =
-      s"""${if (enums.nonEmpty)
-        """import caliban.client.CalibanClientError.DecodingError
-          |""".stripMargin
-      else ""}${if (objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty)
-        """import caliban.client.FieldBuilder._
-          |import caliban.client.SelectionBuilder._
-          |""".stripMargin
-      else
-        ""}${if (
-        enums.nonEmpty || objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty || inputs.nonEmpty
-      )
-        """import caliban.client._
-          |""".stripMargin
-      else ""}${if (queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty)
-        """import caliban.client.Operations._
-          |""".stripMargin
-      else ""}${if (enums.nonEmpty || inputs.nonEmpty)
-        """import caliban.client.__Value._
-          |""".stripMargin
-      else ""}"""
+    val imports = s"""${if (enums.nonEmpty)
+      """import caliban.client.CalibanClientError.DecodingError
+        |""".stripMargin
+    else ""}${if (objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty)
+      """import caliban.client.FieldBuilder._
+        |import caliban.client.SelectionBuilder._
+        |""".stripMargin
+    else
+      ""}${if (
+      enums.nonEmpty || objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty || inputs.nonEmpty
+    )
+      """import caliban.client._
+        |""".stripMargin
+    else ""}${if (queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty)
+      """import caliban.client.Operations._
+        |""".stripMargin
+    else ""}${if (enums.nonEmpty || inputs.nonEmpty)
+      """import caliban.client.__Value._
+        |""".stripMargin
+    else ""}"""
 
     s"""${packageName.fold("")(p => s"package $p\n\n")}$imports
        |
@@ -125,9 +124,10 @@ object ClientWriter {
       .map(name => name.toLowerCase -> name)
       .groupBy(_._1)
       .collect {
-        case (_, _ :: typeNamesToRename) if typeNamesToRename.nonEmpty =>
-          typeNamesToRename.map { case (_, originalTypeName) =>
-            originalTypeName -> s"`$originalTypeName`"
+        case (_, (_ :: typeNamesToRename)) if typeNamesToRename.nonEmpty =>
+          typeNamesToRename.zipWithIndex.map { case (((_, originalTypeName), index)) =>
+            val suffix = "_" * (index + 1)
+            originalTypeName -> s"$originalTypeName$suffix"
           }.toMap
       }
       .reduceOption(_ ++ _)
@@ -376,18 +376,15 @@ object ClientWriter {
 
   def writeScalar(typedef: ScalarTypeDefinition, mappingClashedTypeNames: Map[String, String]): String =
     if (typedef.name == "Json") "type Json = io.circe.Json"
-    else
-      s"""type ${safeTypeName(typedef.name, mappingClashedTypeNames)} = String
+    else s"""type ${safeTypeName(typedef.name, mappingClashedTypeNames)} = String
         """
 
   def safeUnapplyName(name: String): String =
-    if (reservedKeywords.contains(name) || name.endsWith("_")) s"$name$$"
+    if (reservedKeywords.contains(name)) s"${name}_"
     else name
 
   def safeName(name: String): String =
-    if (reservedKeywords.contains(name) || name.endsWith("_")) s"`$name`"
-    else if (caseClassReservedFields.contains(name)) s"$name$$"
-    else name
+    if (reservedKeywords.contains(name)) s"`$name`" else name
 
   @tailrec
   def getTypeLetter(typesMap: Map[String, TypeDefinition], letter: String = "A"): String =
@@ -400,14 +397,16 @@ object ClientWriter {
     field: FieldDefinition,
     typeName: String,
     typesMap: Map[String, TypeDefinition],
-    mappingClashedTypeNames: Map[String, String]
+    mappingClashedTypeNames: Map[String, String],
+    optionalType: Boolean = false
   ): String =
-    writeFieldInfo(collectFieldInfo(field, typeName, typesMap, mappingClashedTypeNames))
+    writeFieldInfo(collectFieldInfo(field, typeName, typesMap, mappingClashedTypeNames, optionalType))
 
   def writeFieldInfo(fieldInfo: FieldInfo): String = {
     val FieldInfo(
       name,
       safeName,
+      optionName,
       description,
       deprecated,
       typeName,
@@ -421,16 +420,18 @@ object ClientWriter {
     ) =
       fieldInfo
 
-    s"""$description${deprecated}def $safeName$typeParam$args$innerSelection: SelectionBuilder[$typeName, $outputType] = Field("$name", $builder$argBuilder)"""
+    s"""$description${deprecated}def $safeName${optionName}$typeParam$args$innerSelection: SelectionBuilder[$typeName, $outputType] = Field("$name", $builder$argBuilder)"""
   }
 
   def collectFieldInfo(
     field: FieldDefinition,
     typeName: String,
     typesMap: Map[String, TypeDefinition],
-    mappingClashedTypeNames: Map[String, String]
+    mappingClashedTypeNames: Map[String, String],
+    optionalType: Boolean = false
   ): FieldInfo = {
     val name                                             = safeName(field.name)
+    val optionName                                       = if (optionalType) "Option" else ""
     val description                                      = field.description match {
       case Some(d) if d.trim.nonEmpty => s"/**\n * ${d.trim}\n */\n"
       case _                          => ""
@@ -488,15 +489,27 @@ object ClientWriter {
           writeTypeBuilder(field.ofType, "Scalar()")
         )
       } else if (unionTypes.nonEmpty) {
-        (
-          s"[$typeLetter]",
-          s"(${unionTypes.map(t => s"""on${t.name}: SelectionBuilder[${safeTypeName(t.name, mappingClashedTypeNames)}, $typeLetter]""").mkString(", ")})",
-          writeType(field.ofType, mappingClashedTypeNames).replace(fieldType, typeLetter),
-          writeTypeBuilder(
-            field.ofType,
-            s"ChoiceOf(Map(${unionTypes.map(t => s""""${t.name}" -> Obj(on${t.name})""").mkString(", ")}))"
+        if (optionalType) {
+          (
+            s"[$typeLetter]",
+            s"(${unionTypes.map(t => s"""on${t.name}: Option[SelectionBuilder[${safeTypeName(t.name, mappingClashedTypeNames)}, $typeLetter]] = None""").mkString(", ")})",
+            s"Option[${writeType(field.ofType, mappingClashedTypeNames).replace(fieldType, typeLetter)}]",
+            writeTypeBuilder(
+              field.ofType,
+              s"ChoiceOf(Map(${unionTypes.map(t => s""""${t.name}" -> on${t.name}.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))""").mkString(", ")}))"
+            )
           )
-        )
+        } else {
+          (
+            s"[$typeLetter]",
+            s"(${unionTypes.map(t => s"""on${t.name}: SelectionBuilder[${safeTypeName(t.name, mappingClashedTypeNames)}, $typeLetter]""").mkString(", ")})",
+            writeType(field.ofType, mappingClashedTypeNames).replace(fieldType, typeLetter),
+            writeTypeBuilder(
+              field.ofType,
+              s"ChoiceOf(Map(${unionTypes.map(t => s""""${t.name}" -> Obj(on${t.name})""").mkString(", ")}))"
+            )
+          )
+        }
       } else if (interfaceTypes.nonEmpty) {
         (
           s"[$typeLetter]",
@@ -538,6 +551,7 @@ object ClientWriter {
     FieldInfo(
       field.name,
       name,
+      optionName,
       description,
       deprecated,
       typeName,
@@ -655,6 +669,7 @@ object ClientWriter {
   final case class FieldInfo(
     name: String,
     safeName: String,
+    optionName: String,
     description: String,
     deprecated: String,
     typeName: String,
@@ -666,5 +681,4 @@ object ClientWriter {
     argBuilder: String,
     typeInfo: FieldTypeInfo
   )
-
 }

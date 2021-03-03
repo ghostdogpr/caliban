@@ -35,12 +35,32 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
               Character.name ~
                 Character.nicknames ~
                 Character
-                  .role(Role.Captain.shipName, Role.Pilot.shipName, Role.Mechanic.shipName, Role.Engineer.shipName)
+                  .role(
+                    onCaptain = Role.Captain.shipName,
+                    onPilot = Role.Pilot.shipName,
+                    onMechanic = Role.Mechanic.shipName,
+                    onEngineer = Role.Engineer.shipName
+                  )
             }
           val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
           assert(s)(
             equalTo(
               "characters{name nicknames role{__typename ... on Captain{shipName} ... on Pilot{shipName} ... on Mechanic{shipName} ... on Engineer{shipName}}}"
+            )
+          )
+        },
+        test("union type with optional parameters") {
+          val query  =
+            Queries.characters() {
+              Character.name ~
+                Character.nicknames ~
+                Character
+                  .roleOption(onEngineer = Some(Role.Engineer.shipName))
+            }
+          val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
+          assert(s)(
+            equalTo(
+              "characters{name nicknames role{__typename ... on Engineer{shipName}}}"
             )
           )
         },
@@ -154,7 +174,12 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
               (Character.name ~
                 Character.nicknames ~
                 Character
-                  .role(Role.Captain.shipName, Role.Pilot.shipName, Role.Mechanic.shipName, Role.Engineer.shipName))
+                  .role(
+                    onCaptain = Role.Captain.shipName,
+                    onPilot = Role.Pilot.shipName,
+                    onMechanic = Role.Mechanic.shipName,
+                    onEngineer = Role.Engineer.shipName
+                  ))
                 .mapN(CharacterView)
             }
 
@@ -181,6 +206,44 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
             )
           assert(query.fromGraphQL(response))(
             isRight(equalTo(List(CharacterView("Amos Burton", List("Amos"), Some("Rocinante")))))
+          )
+        },
+        test("union type with optional parameters") {
+          case class CharacterView(name: String, nicknames: List[String], role: Option[Option[String]])
+          val query =
+            Queries.characters() {
+              (Character.name ~
+                Character.nicknames ~
+                Character
+                  .roleOption(
+                    onMechanic = Some(Role.Mechanic.shipName)
+                  ))
+                .mapN(CharacterView)
+            }
+
+          val response =
+            __ObjectValue(
+              List(
+                "characters" -> __ListValue(
+                  List(
+                    __ObjectValue(
+                      List(
+                        "name"      -> __StringValue("Amos Burton"),
+                        "nicknames" -> __ListValue(List(__StringValue("Amos"))),
+                        "role"      -> __ObjectValue(
+                          List(
+                            "__typename" -> __StringValue("Mechanic"),
+                            "shipName"   -> __StringValue("Rocinante")
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          assert(query.fromGraphQL(response))(
+            isRight(equalTo(List(CharacterView("Amos Burton", List("Amos"), Some(Some("Rocinante"))))))
           )
         },
         test("aliases") {

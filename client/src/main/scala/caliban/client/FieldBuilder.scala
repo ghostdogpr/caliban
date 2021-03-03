@@ -67,8 +67,21 @@ object FieldBuilder {
         case _                     => Left(DecodingError(s"Field $value is not an object"))
       }
 
-    override def toSelectionSet: List[Selection] =
+    override def toSelectionSet: List[Selection] = {
+      val filteredBuilderMap = builderMap.filter((f) => !isNullField(f._2));
       Selection.Field(None, "__typename", Nil, Nil, Nil, 0) ::
-        builderMap.map { case (k, v) => Selection.InlineFragment(k, v.toSelectionSet) }.toList
+        filteredBuilderMap.map { case (k, v) =>
+          Selection.InlineFragment(k, v.toSelectionSet)
+        }.toList
+    }
+  }
+  case object NullField extends FieldBuilder[Option[Nothing]] {
+    override def fromGraphQL(value: __Value): Either[DecodingError, Option[Nothing]] = Right(None)
+    override def toSelectionSet: List[Selection]                                     = Nil
+  }
+
+  def isNullField(p: Any): Boolean = p match {
+    case NullField => true
+    case _         => false
   }
 }
