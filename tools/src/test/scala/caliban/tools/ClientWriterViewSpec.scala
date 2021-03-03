@@ -347,8 +347,8 @@ object Client {
 
     def view[PackageSelection](
       packageSelection: SelectionBuilder[`package`, PackageSelection]
-    ): ViewSelection[PackageSelection] = (`package`(packageSelection) ~ version).map { case (package_, version) =>
-      matchView(package_, version)
+    ): ViewSelection[PackageSelection] = (`package`(packageSelection) ~ version).map { case (package$, version) =>
+      matchView(package$, version)
     }
 
     def `package`[A](innerSelection: SelectionBuilder[`package`, A]): SelectionBuilder[`match`, Option[A]] =
