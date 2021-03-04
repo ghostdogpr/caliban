@@ -83,7 +83,7 @@ object ClientWriter {
       .map(t => writeRootSubscription(t, typesMap, mappingClashedTypeNames))
       .getOrElse("")
 
-        val imports =
+    val imports =
       s"""${if (enums.nonEmpty)
         """import caliban.client.CalibanClientError.DecodingError
           |""".stripMargin
@@ -376,7 +376,7 @@ object ClientWriter {
 
   def writeScalar(typedef: ScalarTypeDefinition, mappingClashedTypeNames: Map[String, String]): String =
     if (typedef.name == "Json") "type Json = io.circe.Json"
-    else 
+    else
       s"""type ${safeTypeName(typedef.name, mappingClashedTypeNames)} = String
         """
 
@@ -388,7 +388,6 @@ object ClientWriter {
     if (reservedKeywords.contains(name) || name.endsWith("_")) s"`$name`"
     else if (caseClassReservedFields.contains(name)) s"$name$$"
     else name
-
 
   @tailrec
   def getTypeLetter(typesMap: Map[String, TypeDefinition], letter: String = "A"): String =
