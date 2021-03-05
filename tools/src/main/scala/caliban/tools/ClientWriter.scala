@@ -182,7 +182,7 @@ object ClientWriter {
     val unionTypes         = typesMap.filter(_._2.isInstanceOf[UnionTypeDefinition]).keys
     val fields             = typedef.fields.map(field => {
       val isOptionalUnionType  = unionTypes.exists(_.compareToIgnoreCase(field.ofType.toString)==0)
-      collectFieldInfo(_, objectName, typesMap, mappingClashedTypeNames, isOptionalUnionType) 
+      collectFieldInfo(field, objectName, typesMap, mappingClashedTypeNames, isOptionalUnionType) 
     })
     val view               =
       if (genView && typedef.fields.length <= MaxTupleLength)
@@ -524,7 +524,7 @@ object ClientWriter {
               s"ChoiceOf(Map(${unionTypes.map(t => s""""${t.name}" -> on${t.name}.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))""").mkString(", ")}))"
             )
           )
-        } else {
+        } 
           (
             s"[$typeLetter]",
             s"(${unionTypes.map(t => s"""on${t.name}: SelectionBuilder[${safeTypeName(t.name, mappingClashedTypeNames)}, $typeLetter]""").mkString(", ")})",
@@ -534,7 +534,7 @@ object ClientWriter {
               s"ChoiceOf(Map(${unionTypes.map(t => s""""${t.name}" -> Obj(on${t.name})""").mkString(", ")}))"
             )
           )
-        }
+        
       } else if (interfaceTypes.nonEmpty) {
         (
           s"[$typeLetter]",
