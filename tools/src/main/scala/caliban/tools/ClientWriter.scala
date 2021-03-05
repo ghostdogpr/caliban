@@ -179,7 +179,11 @@ object ClientWriter {
     genView: Boolean
   ): String = {
     val objectName: String = safeTypeName(typedef.name, mappingClashedTypeNames)
-    val fields             = typedef.fields.map(collectFieldInfo(_, objectName, typesMap, mappingClashedTypeNames))
+    val unionTypes         = typesMap.filter(_._2.isInstanceOf[UnionTypeDefinition]).keys
+    val fields             = typedef.fields.map(field => {
+      val isOptionalUnionType  = unionTypes.exists(_.compareToIgnoreCase(field.ofType.toString)==0)
+      collectFieldInfo(_, objectName, typesMap, mappingClashedTypeNames, isOptionalUnionType) 
+    })
     val view               =
       if (genView && typedef.fields.length <= MaxTupleLength)
         "\n  " + writeView(typedef.name, fields.map(_.typeInfo), mappingClashedTypeNames)
@@ -409,7 +413,6 @@ object ClientWriter {
     val FieldInfo(
       name,
       safeName,
-      optionName,
       description,
       deprecated,
       typeName,
@@ -423,8 +426,29 @@ object ClientWriter {
     ) =
       fieldInfo
 
-    s"""$description${deprecated}def $safeName${optionName}$typeParam$args$innerSelection: SelectionBuilder[$typeName, $outputType] = Field("$name", $builder$argBuilder)"""
+    s"""$description${deprecated}def $safeName$typeParam$args$innerSelection: SelectionBuilder[$typeName, $outputType] = Field("$name", $builder$argBuilder)"""
   }
+
+  def isOptionalUnionType(
+    field: FieldDefinition,
+    typeName: String,
+    typesMap: Map[String, TypeDefinition],
+    mappingClashedTypeNames: Map[String, String],
+    optionalType: Boolean = false
+  ): Boolean = {
+    val fieldType                                        = safeTypeName(getTypeName(field.ofType), mappingClashedTypeNames)
+    val unionTypes                                       = typesMap
+      .get(fieldType)
+      .collect { case UnionTypeDefinition(_, _, _, memberTypes) =>
+        memberTypes.flatMap(name => typesMap.get(safeTypeName(name, mappingClashedTypeNames)))
+      }
+      .getOrElse(Nil)
+      .collect { case o: ObjectTypeDefinition =>
+        o
+      }
+    unionTypes.nonEmpty
+  }
+
 
   def collectFieldInfo(
     field: FieldDefinition,
@@ -433,8 +457,6 @@ object ClientWriter {
     mappingClashedTypeNames: Map[String, String],
     optionalType: Boolean = false
   ): FieldInfo = {
-    val name                                             = safeName(field.name)
-    val optionName                                       = if (optionalType) "Option" else ""
     val description                                      = field.description match {
       case Some(d) if d.trim.nonEmpty => s"/**\n * ${d.trim}\n */\n"
       case _                          => ""
@@ -542,6 +564,7 @@ object ClientWriter {
     }
 
     val owner         = if (typeParam.nonEmpty) Some(fieldType) else None
+    val name          = if (optionalType && unionTypes.nonEmpty) safeName(field.name+"Option") else safeName(field.name)
     val fieldTypeInfo = FieldTypeInfo(
       field.name,
       name,
@@ -554,7 +577,6 @@ object ClientWriter {
     FieldInfo(
       field.name,
       name,
-      optionName,
       description,
       deprecated,
       typeName,
@@ -672,7 +694,6 @@ object ClientWriter {
   final case class FieldInfo(
     name: String,
     safeName: String,
-    optionName: String,
     description: String,
     deprecated: String,
     typeName: String,
