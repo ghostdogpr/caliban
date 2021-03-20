@@ -62,7 +62,7 @@ object Introspector {
         types,
         directives ++ rootType.additionalDirectives
       ),
-      args => types.find(_.name.contains(args.name)).get
+      args => types.find(_.name.contains(args.name))
     )
 
     val introspectionSchema = Schema.gen[__Introspection]
