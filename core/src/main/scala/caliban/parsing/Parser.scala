@@ -17,16 +17,29 @@ import caliban.parsing.adt._
 import cats.parse.{Numbers, Parser => P, Parser1 => P1}
 import cats.parse._
 import cats.implicits._
-import cats.parse.Parser.string
-import zio.{IO, Task}
-
-import scala.annotation.{switch, tailrec}
+import cats.parse.Parser.{not, string1}
+import zio.IO
 
 object Parser {
 
-  private def sourceCharacter: P[Unit]                      = P.charIn("\u0009\u000A\u000D\u0020-\uFFFF")
-  private def sourceCharacterWithoutLineTerminator: P[Unit] = P.charIn("\u0009\u0020-\uFFFF")
+  private val sourceCharacter: P1[Char]                      = P.charIn("\u0009\u000A\u000D\u0020-\uFFFF")
+  private val sourceCharacterWithoutLineTerminator: P1[Char] = P.charIn("\u0009\u0020-\uFFFF")
 
+/*
+  private val whitespace = {
+    val UnicodeBOM   = '\uFEFF'
+    val Tab          = '\u0009'
+    val Space        = '\u0020'
+    val LF           = '\u000A'
+    val CR           = '\u000D'
+    val Comma        = ','
+    val CommentStart = '#'
+
+    val normal = P.charIn(Space, Comma, Tab, UnicodeBOM)
+  }
+*/
+
+/*
   private implicit val whitespace: P[_] => P[Unit] = new (P[_] => P[Unit]) {
 
     type State = Int
@@ -75,30 +88,25 @@ object Parser {
         }
       } else ctx.freshSuccessUnit(index)
   }
+*/
 
-  private def name: P[String] = P.defer(P.charIn("_A-Za-z") ~~ P.charIn("_0-9A-Za-z").repX).!
+  private val name: P1[String] = string1(P.charIn("_A-Za-z").void ~ P.charIn("_0-9A-Za-z").void.rep)
 
-  private def booleanValue: P[BooleanValue] =
+  private val booleanValue: P1[BooleanValue] =
     P.string1("true").as(BooleanValue(true)) orElse1 P.string1("false").as(BooleanValue(false))
 
-//  private def negativeSign[_: P]: P[Unit] = P("-")
-//  private def nonZeroDigit[_: P]: P[Unit] = P(CharIn("1-9"))
-//  private def digit: P[Unit]        = P("0" | nonZeroDigit)
-//  private def integerPart: P[Unit]  = Numbers.signedIntString
-  private def intValue: P[IntValue] = Numbers.signedIntString.map(IntValue(_))
+  private val intValue: P1[IntValue] = Numbers.signedIntString.map(IntValue(_))
 
-//  private def sign: P1[Char]              = P.charIn("-+")
-//  private def exponentIndicator: P1[Char] = P.charIn("eE")
-//  private def exponentPart: P[String]     = string((exponentIndicator ~ sign.? ~ Numbers.nonNegativeIntString))
-//  private def fractionalPart: P[String]   = ("." ~ Numbers.nonNegativeIntString).string
+  private val floatValue: P1[FloatValue] = Numbers.jsonNumber.map(FloatValue(_))
 
-  private def floatValue: P[FloatValue] = Numbers.jsonNumber.map(FloatValue(_))
+  private val hexdig: Parser1[Char] = Numbers.digit.orElse1(P.ignoreCaseCharIn('A' to 'F'))
+  //todo: simplify
+  private lazy val escapedUnicode: P1[String] =
+    (hexdig, hexdig, hexdig, hexdig).tupled.map {
+      case (h1, h2, h3, h4) => Integer.parseInt(String.valueOf(Array(h1, h2, h3, h4)), 16).toChar.toString
+    }
 
-  private def hexDigit: P[Unit] = P.charIn("0-9a-fA-F")
-  private def escapedUnicode: P[String] =
-    P.defer(hexDigit ~ hexDigit ~ hexDigit ~ hexDigit).!.map(Integer.parseInt(_, 16).toChar.toString)
-
-  private def escapedCharacter: P[String] = P.charIn("\"\\/bfnrt").!.map {
+  private val escapedCharacter: P1[String] = string1(P.charIn("\"\\/bfnrt")).map {
     case "b"   => "\b"
     case "n"   => "\n"
     case "f"   => "\f"
@@ -107,17 +115,19 @@ object Parser {
     case other => other
   }
 
-  private def stringCharacter: P[String] =
-    P(
-      sourceCharacterWithoutLineTerminator.!.filter(c => c != "\"" && c != "\\") | "\\u" ~~ escapedUnicode | "\\" ~~ escapedCharacter
-    )
+  private val stringCharacter: P1[String] =
+    string1(P.oneOf1(List(
+      sourceCharacterWithoutLineTerminator.flatMap(c => if (c != '\"' && c != '\\') P.pure(c) else P.fail).void,
+      (P.string1("\\u") ~ escapedUnicode).void,
+      (P.string1("\\") ~ escapedCharacter).void
+    )))
 
-  private def blockStringCharacter: P[String] = P.defer("\\\"\"\"".!.map(_ => "\"\"\"") | sourceCharacter.!)
+  private val blockStringCharacter: P1[String] = P.string1("\\\"\"\"").as("\"\"\"") orElse1 sourceCharacter.map(_.toString)
 
-  private def stringValue: P[StringValue] =
-    P.defer(
-      ("\"\"\"" ~~ ((!"\"\"\"") ~~ blockStringCharacter).repX.map(s => blockStringValue(s.mkString)) ~~ "\"\"\"") |
-        ("\"" ~~ stringCharacter.repX.map(_.mkString) ~~ "\"")
+  private val stringValue: P1[StringValue] =
+    (
+      (P.string1("\"\"\"") *> blockStringCharacter.rep <* P.string1("\"\"\"")).map(s => blockStringValue(s.mkString)) orElse1
+        (P.string1("\"") *> stringCharacter.rep <* P.string1("\"")).map(_.mkString)
     ).map(v => StringValue(v))
 
   private def blockStringValue(rawValue: String): String = {
@@ -143,161 +153,164 @@ object Parser {
     l4.mkString("\n")
   }
 
-  private def nullValue: P[InputValue] = P.string1("null").as(NullValue)
-  private def enumValue: P[InputValue] = P.string1(name).map(EnumValue)
-  private def listValue: P[ListValue]  = P("[" ~/ value.rep ~ "]").map(values => ListValue(values.toList))
+  private val nullValue: P1[InputValue] = P.string1("null").as(NullValue)
+  private lazy val enumValue: P1[InputValue] = name.map(EnumValue)
+  private lazy val listValue: P1[ListValue]  = (P.char('[') *> P.defer1(value).rep <* P.char(']')).map(ListValue)
 
-  private def objectField: P[(String, InputValue)] = P(name ~ ":" ~/ value)
-  private def objectValue: P[ObjectValue] =
-    P("{" ~ objectField.rep ~ "}").map(values => ObjectValue(values.toMap))
+  private lazy val objectField: P1[(String, InputValue)] = (name <* P.char(':')) ~ P.defer1(value)
+  private lazy val objectValue: P1[ObjectValue] =
+    (P.char('{') *> objectField.rep <* P.char('}')).map(values => ObjectValue(values.toMap))
 
-  private def value: P[InputValue] =
-    P(floatValue | intValue | booleanValue | stringValue | nullValue | enumValue | listValue | objectValue | variable)
+  private lazy val variable: P1[VariableValue] = (P.char('$') *> name).map(VariableValue)
 
-  private def alias: P[String] = P(name ~ ":")
+  private lazy val value: P1[InputValue] =
+    P.oneOf1(floatValue :: intValue :: booleanValue :: stringValue :: nullValue :: enumValue :: listValue :: objectValue :: variable :: Nil)
 
-  private def argument: P[(String, InputValue)]     = P(name ~ ":" ~ value)
-  private def arguments: P[Map[String, InputValue]] = P("(" ~/ argument.rep ~ ")").map(_.toMap)
+  private lazy val argument: P1[(String, InputValue)]     = (name ~ P.char(':') ~ value).map(t => (t._1._1, t._2))
+  private lazy val arguments: P1[Map[String, InputValue]] = (P.char('(') *> argument.rep <* P.char(')')).map(_.toMap)
 
-  private def directive: P[Directive] = P(Index ~ "@" ~ name ~ arguments.?).map {
-    case (index, name, arguments) => Directive(name, arguments.getOrElse(Map()), index)
+  private lazy val directive: P1[Directive] = (P.index.with1 ~ P.char('@') ~ name ~ arguments.?).map {
+    case (((index, _), name), arguments) => Directive(name, arguments.getOrElse(Map()), index)
   }
-  private def directives: P[List[Directive]] = P(directive.rep).map(_.toList)
+  private lazy val directives: P[List[Directive]] = directive.rep
 
-  private def selection: P[Selection]          = P(field | fragmentSpread | inlineFragment)
-  private def selectionSet: P[List[Selection]] = P("{" ~/ selection.rep ~ "}").map(_.toList)
+  private lazy val defaultValue: P1[InputValue] = P.char('=') *> value
+  private lazy val variableDefinition: P1[VariableDefinition] =
+    ((variable <* P.char(':')) ~ _type ~ defaultValue.? ~ directives).map {
+      case (((v, t), default), dirs) => VariableDefinition(v.name, t, default, dirs)
+    }
+  private lazy val variableDefinitions: P1[List[VariableDefinition]] = P.char('(') *> variableDefinition.rep <* P.char(')')
 
-  private def namedType: P[NamedType] = P(name.filter(_ != "null")).map(NamedType(_, nonNull = false))
-  private def listType: P[ListType]   = P("[" ~ type_ ~ "]").map(t => ListType(t, nonNull = false))
+  private lazy val alias: P1[String] = string1(name ~ P.char(':'))
 
-  private def argumentDefinition: P[InputValueDefinition] =
-    P(stringValue.? ~ name ~ ":" ~ type_ ~ defaultValue.? ~ directives.?).map {
-      case (description, name, type_, defaultValue, directives) =>
+  private lazy val selection: P1[Selection]          = P.defer1(field) orElse1 P.defer1(fragmentSpread) orElse1 P.defer1(inlineFragment)
+  private lazy val selectionSet: P1[List[Selection]] = (P.char('{') *> selection.rep1 <* P.char('}')).map(_.toList)
+
+  private lazy val namedType: P1[NamedType] = name.flatMap(s => if (s == "null") P.fail else P.pure(s)).map(NamedType(_, nonNull = false))
+  private lazy val listType: P1[ListType]   = (P.char('[') *> P.defer(_type) <* P.char(']')).map(t => ListType(t, nonNull = false))
+
+  private lazy val argumentDefinition: P1[InputValueDefinition] =
+    (stringValue.?.with1 ~ (name <* P.char(':')) ~ _type ~ defaultValue.? ~ directives.?).map {
+      case ((((description, name), type_), defaultValue), directives) =>
         InputValueDefinition(description.map(_.value), name, type_, defaultValue, directives.getOrElse(Nil))
     }
-  private def argumentDefinitions: P[List[InputValueDefinition]] =
-    P("(" ~/ argumentDefinition.rep ~ ")").map(_.toList)
+  private lazy val argumentDefinitions: P[List[InputValueDefinition]] = P.char('(') *> argumentDefinition.rep <* P.char(')')
 
-  private def fieldDefinition: P[FieldDefinition] =
-    P(stringValue.? ~ name ~ argumentDefinitions.? ~ ":" ~ type_ ~ directives.?).map {
-      case (description, name, args, type_, directives) =>
-        FieldDefinition(description.map(_.value), name, args.getOrElse(Nil), type_, directives.getOrElse(Nil))
+  private lazy val fieldDefinition: P1[FieldDefinition] =
+    (stringValue.?.with1 ~ name ~ argumentDefinitions.? ~ (P.char(':') *> _type) ~ directives.?).map {
+      case ((((description, name), args), type$), directives) =>
+        FieldDefinition(description.map(_.value), name, args.getOrElse(Nil), type$, directives.getOrElse(Nil))
     }
 
-  private def nonNullType: P[Type] = P((namedType | listType) ~ "!").map {
+  private lazy val nonNullType: P1[Type] = ((namedType orElse1 listType) <* P.char('!')).map {
     case t: NamedType => t.copy(nonNull = true)
     case t: ListType  => t.copy(nonNull = true)
   }
-  private def type_: P[Type] = P(nonNullType | namedType | listType)
+  private lazy val _type: P1[Type] = nonNullType orElse1 namedType orElse1 listType
 
-  private def variable: P[VariableValue] = P("$" ~/ name).map(VariableValue)
-  private def variableDefinitions: P[List[VariableDefinition]] =
-    P("(" ~/ variableDefinition.rep ~ ")").map(_.toList)
-
-  private def variableDefinition: P[VariableDefinition] =
-    P(variable ~ ":" ~/ type_ ~ defaultValue.? ~ directives).map {
-      case (v, t, default, dirs) => VariableDefinition(v.name, t, default, dirs)
-    }
-  private def defaultValue: P[InputValue] = P("=" ~/ value)
-
-  private def field: P[Field] = P(Index ~ alias.? ~ name ~ arguments.? ~ directives.? ~ selectionSet.?).map {
-    case (index, alias, name, args, dirs, sels) =>
+  private lazy val field: P1[Field] = (P.index.with1 ~ (alias.?.with1 ~ name ~ arguments.? ~ directives.? ~ selectionSet.?)).map {
+    case (index, ((((alias, name), args), dirs), sels)) =>
       Field(
         alias,
         name,
         args.getOrElse(Map()),
-        dirs.getOrElse(Nil),
+        dirs.map(_.toList).getOrElse(Nil),
         sels.getOrElse(Nil),
         index
       )
   }
 
-  private def fragmentName: P[String] = P(name).filter(_ != "on")
+  private lazy val fragmentName: P1[String] = name.flatMap(n => if (n != "on") P.pure(n) else P.fail)
 
-  private def fragmentSpread: P[FragmentSpread] = P("..." ~ fragmentName ~ directives).map {
-    case (name, dirs) => FragmentSpread(name, dirs)
-  }
-
-  private def typeCondition: P[NamedType] = P("on" ~/ namedType)
-
-  private def inlineFragment: P[InlineFragment] = P("..." ~ typeCondition.? ~ directives ~ selectionSet).map {
-    case (typeCondition, dirs, sel) => InlineFragment(typeCondition, dirs, sel)
-  }
-
-  private def operationType: P[OperationType] =
-    P("query").map(_ => OperationType.Query) | P("mutation").map(_ => OperationType.Mutation) | P("subscription").map(
-      _ => OperationType.Subscription
-    )
-
-  private def operationDefinition: P[OperationDefinition] =
-    P(operationType ~/ name.? ~ variableDefinitions.? ~ directives ~ selectionSet).map {
-      case (operationType, name, variableDefinitions, directives, selection) =>
-        OperationDefinition(operationType, name, variableDefinitions.getOrElse(Nil), directives, selection)
-    } | P(selectionSet).map(selection => OperationDefinition(OperationType.Query, None, Nil, Nil, selection))
-
-  private def fragmentDefinition: P[FragmentDefinition] =
-    P("fragment" ~/ fragmentName ~ typeCondition ~ directives ~ selectionSet).map {
-      case (name, typeCondition, dirs, sel) => FragmentDefinition(name, typeCondition, dirs, sel)
+  private lazy val fragmentSpread: P1[FragmentSpread] =
+    (P.string1("...") *> (fragmentName ~ directives)).map {
+      case (name, dirs) => FragmentSpread(name, dirs)
     }
 
-  private def objectTypeDefinition: P[ObjectTypeDefinition] =
-    P(stringValue.? ~ "type" ~/ name ~ implements.? ~ directives.? ~ "{" ~ fieldDefinition.rep ~ "}").map {
-      case (description, name, implements, directives, fields) =>
+  private lazy val typeCondition: P[NamedType] = P.string1("on") *> namedType
+
+  private lazy val inlineFragment: P1[InlineFragment] =
+    (P.string1("...") *> typeCondition.? ~ directives ~ selectionSet).map {
+      case ((typeCondition, dirs), sel) => InlineFragment(typeCondition, dirs, sel)
+    }
+
+  private lazy val operationType: P1[OperationType] =
+    P.oneOf1(List[P1[OperationType]](
+      P.string1("query").as(OperationType.Query),
+      P.string1("mutation").as(OperationType.Mutation),
+      P.string1("subscription").as(OperationType.Subscription)
+    ))
+
+  private lazy val operationDefinition: P1[OperationDefinition] =
+    (operationType ~ name.? ~ variableDefinitions.? ~ directives ~ selectionSet).map {
+      case ((((operationType, name), variableDefinitions), directives), selection) =>
+        OperationDefinition(operationType, name, variableDefinitions.getOrElse(Nil), directives, selection)
+    } orElse1 selectionSet.map(selection => OperationDefinition(OperationType.Query, None, Nil, Nil, selection))
+
+  private lazy val fragmentDefinition: P1[FragmentDefinition] =
+    (P.string1("fragment") *> fragmentName ~ typeCondition ~ directives ~ selectionSet).map {
+      case (((name, typeCondition), dirs), sel) => FragmentDefinition(name, typeCondition, dirs, sel)
+    }
+
+  private lazy val implements: P1[List[NamedType]] =
+    (P.string1("implements") *> ((P.char('&').? *> namedType) ~ (P.char('&') *> namedType).rep)).map {
+      case (head, tail) => head :: tail
+    }
+
+  private lazy val objectTypeDefinition: P1[ObjectTypeDefinition] =
+    (stringValue.?.with1 ~ (P.string1("type") *> name) ~ implements.? ~ directives.? ~ (P.char('{') *> fieldDefinition.rep <* P.char('}'))).map {
+      case ((((description, name), implements), directives), fields) =>
         ObjectTypeDefinition(
           description.map(_.value),
           name,
           implements.getOrElse(Nil),
           directives.getOrElse(Nil),
-          fields.toList
+          fields
         )
     }
 
-  private def implements: P[List[NamedType]] = P("implements" ~ ("&".? ~ namedType) ~ ("&" ~ namedType).rep).map {
-    case (head, tail) => head :: tail.toList
-  }
-
-  private def interfaceTypeDefinition: P[InterfaceTypeDefinition] =
-    P(stringValue.? ~ "interface" ~/ name ~ directives.? ~ "{" ~ fieldDefinition.rep ~ "}").map {
-      case (description, name, directives, fields) =>
-        InterfaceTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), fields.toList)
+  private lazy val interfaceTypeDefinition: P1[InterfaceTypeDefinition] =
+    (stringValue.?.with1 ~ (P.string1("interface") *> name) ~ directives.? ~ (P.char('{') *> fieldDefinition.rep <* P.char('{'))).map {
+      case (((description, name), directives), fields) =>
+        InterfaceTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), fields)
     }
 
-  private def inputObjectTypeDefinition: P[InputObjectTypeDefinition] =
-    P(stringValue.? ~ "input" ~/ name ~ directives.? ~ "{" ~ argumentDefinition.rep ~ "}").map {
-      case (description, name, directives, fields) =>
-        InputObjectTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), fields.toList)
+  private lazy val inputObjectTypeDefinition: P1[InputObjectTypeDefinition] =
+    (stringValue.?.with1 ~ (P.string1("input") *> name) ~ directives.? ~ (P.char('{') *> argumentDefinition.rep <* P.char('}'))).map {
+      case (((description, name), directives), fields) =>
+        InputObjectTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), fields)
     }
 
-  private def enumValueDefinition: P[EnumValueDefinition] =
-    P(stringValue.? ~ name ~ directives.?).map {
-      case (description, enumValue, directives) =>
+  private lazy val enumValueDefinition: P1[EnumValueDefinition] =
+    (stringValue.?.with1 ~ name ~ directives.?).map {
+      case ((description, enumValue), directives) =>
         EnumValueDefinition(description.map(_.value), enumValue, directives.getOrElse(Nil))
     }
 
-  private def enumName: P[String] = name.filter(s => s != "true" && s != "false" && s != "null")
+  private lazy val enumName: P1[String] = name.flatMap(s => if (s != "true" && s != "false" && s != "null") P.pure(s) else P.fail)
 
-  private def enumTypeDefinition: P[EnumTypeDefinition] =
-    P(stringValue.? ~ "enum" ~/ enumName ~ directives.? ~ "{" ~ enumValueDefinition.rep ~ "}").map {
-      case (description, name, directives, enumValuesDefinition) =>
-        EnumTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), enumValuesDefinition.toList)
+  private lazy val enumTypeDefinition: P1[EnumTypeDefinition] =
+    (stringValue.?.with1 ~ (P.string1("enum") *> enumName) ~ directives.? ~ (P.char('{') *> enumValueDefinition.rep <* P.char('}'))).map {
+      case (((description, name), directives), enumValuesDefinition) =>
+        EnumTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), enumValuesDefinition)
     }
 
-  private def unionTypeDefinition: P[UnionTypeDefinition] =
-    P(stringValue.? ~ "union" ~/ name ~ directives.? ~ "=" ~ ("|".? ~ namedType) ~ ("|" ~ namedType).rep).map {
-      case (description, name, directives, m, ms) =>
-        UnionTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), (m :: ms.toList).map(_.name))
+  private lazy val unionTypeDefinition: P1[UnionTypeDefinition] =
+    (stringValue.?.with1 ~ (P.string1("union") *> name) ~ (directives.? <* P.char('=')) ~ (P.char('|').? *> namedType) ~ (P.char('|') *> namedType).rep).map {
+      case ((((description, name), directives), m), ms) =>
+        UnionTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), (m :: ms).map(_.name))
     }
 
-  private def scalarTypeDefinition: P[ScalarTypeDefinition] =
-    P(stringValue.? ~ "scalar" ~/ name ~ directives.?).map {
-      case (description, name, directives) =>
+  private lazy val scalarTypeDefinition: P1[ScalarTypeDefinition] =
+    (stringValue.?.with1 ~ (P.string1("scalar") *> name) ~ directives.?).map {
+      case ((description, name), directives) =>
         ScalarTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil))
     }
 
-  private def rootOperationTypeDefinition: P[(OperationType, NamedType)] = P(operationType ~ ":" ~ namedType)
+  private lazy val rootOperationTypeDefinition: P1[(OperationType, NamedType)] = (operationType ~ P.char(':') ~ namedType).map(t => (t._1._1, t._2))
 
-  private def schemaDefinition: P[SchemaDefinition] =
-    P("schema" ~/ directives.? ~ "{" ~ rootOperationTypeDefinition.rep ~ "}").map {
+  private lazy val schemaDefinition: P1[SchemaDefinition] =
+    (P.string1("schema") *> directives.? ~ (P.char('{') *> rootOperationTypeDefinition.rep <* P.char('}'))).map {
       case (directives, ops) =>
         val opsMap = ops.toMap
         SchemaDefinition(
@@ -308,8 +321,8 @@ object Parser {
         )
     }
 
-  private def schemaExtensionWithOptionalDirectivesAndOperations: P[SchemaExtension] =
-    P(directives.? ~ "{" ~ rootOperationTypeDefinition.rep ~ "}").map {
+  private lazy val schemaExtensionWithOptionalDirectivesAndOperations: P[SchemaExtension] =
+    (directives.? ~ (P.char('{') *> rootOperationTypeDefinition.rep <* P.char('}'))).map {
       case (directives, ops) =>
         val opsMap = ops.toMap
         SchemaExtension(
@@ -320,32 +333,32 @@ object Parser {
         )
     }
 
-  private def schemaExtensionWithDirectives: P[SchemaExtension] =
-    P(directives).map(SchemaExtension(_, None, None, None))
+  private lazy val schemaExtensionWithDirectives: P[SchemaExtension] =
+    directives.map(l => SchemaExtension(l, None, None, None))
 
-  private def schemaExtension: P[SchemaExtension] =
-    P("extend schema" ~/ (schemaExtensionWithOptionalDirectivesAndOperations | schemaExtensionWithDirectives))
+  private lazy val schemaExtension: P1[SchemaExtension] =
+    P.string1("extend schema") *> (schemaExtensionWithOptionalDirectivesAndOperations orElse schemaExtensionWithDirectives)
 
-  private def scalarTypeExtension: P[ScalarTypeExtension] =
-    P("extend scalar" ~/ name ~ directives).map {
+  private lazy val scalarTypeExtension: P1[ScalarTypeExtension] =
+    (P.string1("extend scalar") *> (name ~ directives)).map {
       case (name, directives) =>
         ScalarTypeExtension(name, directives)
     }
 
-  private def objectTypeExtensionWithOptionalInterfacesOptionalDirectivesAndFields: P[ObjectTypeExtension] =
-    P(name ~ implements.? ~ directives.? ~ "{" ~ fieldDefinition.rep ~ "}").map {
-      case (name, implements, directives, fields) =>
+  private lazy val objectTypeExtensionWithOptionalInterfacesOptionalDirectivesAndFields: P1[ObjectTypeExtension] =
+    (name ~ implements.? ~ directives.? ~ (P.char('{') *> fieldDefinition.rep <* P.char('}'))).map {
+      case (((name, implements), directives), fields) =>
         ObjectTypeExtension(
           name,
           implements.getOrElse(Nil),
           directives.getOrElse(Nil),
-          fields.toList
+          fields
         )
     }
 
-  private def objectTypeExtensionWithOptionalInterfacesAndDirectives: P[ObjectTypeExtension] =
-    P(name ~ implements.? ~ directives ~ !("{" ~ fieldDefinition.rep ~ "}")).map {
-      case (name, implements, directives) =>
+  private lazy val objectTypeExtensionWithOptionalInterfacesAndDirectives: P[ObjectTypeExtension] =
+    (name ~ implements.? ~ directives <* not(P.char('{') *> fieldDefinition.rep <* P.char('}'))).map {
+      case ((name, implements), directives) =>
         ObjectTypeExtension(
           name,
           implements.getOrElse(Nil),
@@ -354,8 +367,8 @@ object Parser {
         )
     }
 
-  private def objectTypeExtensionWithInterfaces: P[ObjectTypeExtension] =
-    P(name ~ implements).map {
+  private lazy val objectTypeExtensionWithInterfaces: P[ObjectTypeExtension] =
+    (name ~ implements).map {
       case (name, implements) =>
         ObjectTypeExtension(
           name,
@@ -365,165 +378,142 @@ object Parser {
         )
     }
 
-  private def objectTypeExtension: P[ObjectTypeExtension] =
-    P(
-      "extend type" ~/ (
-        objectTypeExtensionWithOptionalInterfacesOptionalDirectivesAndFields orElse
-          objectTypeExtensionWithOptionalInterfacesAndDirectives orElse
-          objectTypeExtensionWithInterfaces
-      )
+  private lazy val objectTypeExtension: P1[ObjectTypeExtension] =
+    P.string1("extend type") *> (
+      objectTypeExtensionWithOptionalInterfacesOptionalDirectivesAndFields orElse
+        objectTypeExtensionWithOptionalInterfacesAndDirectives orElse
+        objectTypeExtensionWithInterfaces
     )
 
-  private def interfaceTypeExtensionWithOptionalDirectivesAndFields: P[InterfaceTypeExtension] =
-    P(name ~ directives.? ~ "{" ~ fieldDefinition.rep ~ "}").map {
-      case (name, directives, fields) =>
-        InterfaceTypeExtension(name, directives.getOrElse(Nil), fields.toList)
+  private lazy val interfaceTypeExtensionWithOptionalDirectivesAndFields: P1[InterfaceTypeExtension] =
+    (name ~ directives.? ~ (P.char('{') *> fieldDefinition.rep <* P.char('}'))).map {
+      case ((name, directives), fields) =>
+        InterfaceTypeExtension(name, directives.getOrElse(Nil), fields)
     }
 
-  private def interfaceTypeExtensionWithDirectives: P[InterfaceTypeExtension] =
-    P(name ~ directives).map {
+  private lazy val interfaceTypeExtensionWithDirectives: P1[InterfaceTypeExtension] =
+    (name ~ directives).map {
       case (name, directives) =>
         InterfaceTypeExtension(name, directives, Nil)
     }
 
-  private def interfaceTypeExtension: P[InterfaceTypeExtension] =
-    P(
-      "extend interface" ~/ (
-        interfaceTypeExtensionWithOptionalDirectivesAndFields |
-          interfaceTypeExtensionWithDirectives
-      )
+  private lazy val interfaceTypeExtension: P1[InterfaceTypeExtension] =
+    P.string1("extend interface") *> (
+      interfaceTypeExtensionWithOptionalDirectivesAndFields orElse1
+        interfaceTypeExtensionWithDirectives
     )
 
-  private def unionTypeExtensionWithOptionalDirectivesAndUnionMembers: P[UnionTypeExtension] =
-    P(name ~ directives.? ~ "=" ~ ("|".? ~ namedType) ~ ("|" ~ namedType).rep).map {
-      case (name, directives, m, ms) =>
-        UnionTypeExtension(name, directives.getOrElse(Nil), (m :: ms.toList).map(_.name))
+  private lazy val unionTypeExtensionWithOptionalDirectivesAndUnionMembers: P1[UnionTypeExtension] =
+    (name ~ (directives.? <* P.char('=')) ~ (P.char('|').? *> namedType) ~ (P.char('|') *> namedType).rep).map {
+      case (((name, directives), m), ms) =>
+        UnionTypeExtension(name, directives.getOrElse(Nil), (m :: ms).map(_.name))
     }
 
-  private def unionTypeExtensionWithDirectives: P[UnionTypeExtension] =
-    P(name ~ directives).map {
+  private val unionTypeExtensionWithDirectives: P1[UnionTypeExtension] =
+    (name ~ directives).map {
       case (name, directives) =>
         UnionTypeExtension(name, directives, Nil)
     }
 
-  private def unionTypeExtension: P[UnionTypeExtension] =
-    P("extend union" ~/ (unionTypeExtensionWithOptionalDirectivesAndUnionMembers | unionTypeExtensionWithDirectives))
+  private val unionTypeExtension: P1[UnionTypeExtension] =
+    P.string1("extend union") *> (
+      unionTypeExtensionWithOptionalDirectivesAndUnionMembers orElse1
+        unionTypeExtensionWithDirectives
+    )
 
-  private def enumTypeExtensionWithOptionalDirectivesAndValues: P[EnumTypeExtension] =
-    P(enumName ~ directives.? ~ "{" ~ enumValueDefinition.rep ~ "}").map {
-      case (name, directives, enumValuesDefinition) =>
+  private val enumTypeExtensionWithOptionalDirectivesAndValues: P[EnumTypeExtension] =
+    (enumName ~ directives.? ~ (P.char('{') *> enumValueDefinition.rep <* P.char('}'))).map {
+      case ((name, directives), enumValuesDefinition) =>
         EnumTypeExtension(name, directives.getOrElse(Nil), enumValuesDefinition.toList)
     }
 
-  private def enumTypeExtensionWithDirectives: P[EnumTypeExtension] =
-    P(enumName ~ directives).map {
+  private val enumTypeExtensionWithDirectives: P[EnumTypeExtension] =
+    (enumName ~ directives).map {
       case (name, directives) =>
         EnumTypeExtension(name, directives, Nil)
     }
 
-  private def enumTypeExtension: P[EnumTypeExtension] =
-    P("extend enum" ~/ (enumTypeExtensionWithOptionalDirectivesAndValues | enumTypeExtensionWithDirectives))
+  private val enumTypeExtension: P1[EnumTypeExtension] =
+    P.string1("extend enum") *> (enumTypeExtensionWithOptionalDirectivesAndValues orElse enumTypeExtensionWithDirectives)
 
-  private def inputObjectTypeExtensionWithOptionalDirectivesAndFields: P[InputObjectTypeExtension] =
-    P(name ~ directives.? ~ "{" ~ argumentDefinition.rep ~ "}").map {
-      case (name, directives, fields) =>
-        InputObjectTypeExtension(name, directives.getOrElse(Nil), fields.toList)
+  private val inputObjectTypeExtensionWithOptionalDirectivesAndFields: P[InputObjectTypeExtension] =
+    (name ~ directives.? ~ (P.char('{') *> argumentDefinition.rep <* P.char('}'))).map {
+      case ((name, directives), fields) =>
+        InputObjectTypeExtension(name, directives.getOrElse(Nil), fields)
     }
 
-  private def inputObjectTypeExtensionWithDirectives: P[InputObjectTypeExtension] =
-    P(name ~ directives).map {
+  private val inputObjectTypeExtensionWithDirectives: P[InputObjectTypeExtension] =
+    (name ~ directives).map {
       case (name, directives) =>
         InputObjectTypeExtension(name, directives, Nil)
     }
 
-  private def inputObjectTypeExtension: P[InputObjectTypeExtension] =
-    P(
-      "extend input" ~/ (
-        inputObjectTypeExtensionWithOptionalDirectivesAndFields orElse
-          inputObjectTypeExtensionWithDirectives
-      )
+  private val inputObjectTypeExtension: P1[InputObjectTypeExtension] =
+    P.string1("extend input") *> (
+      inputObjectTypeExtensionWithOptionalDirectivesAndFields orElse
+        inputObjectTypeExtensionWithDirectives
     )
 
-  private def directiveLocation[_: P: P[DirectiveLocation] =
-    P(
-      StringIn(
-        "QUERY",
-        "MUTATION",
-        "SUBSCRIPTION",
-        "FIELD",
-        "FRAGMENT_DEFINITION",
-        "FRAGMENT_SPREAD",
-        "INLINE_FRAGMENT",
-        "SCHEMA",
-        "SCALAR",
-        "OBJECT",
-        "FIELD_DEFINITION",
-        "ARGUMENT_DEFINITION",
-        "INTERFACE",
-        "UNION",
-        "ENUM",
-        "ENUM_VALUE",
-        "INPUT_OBJECT",
-        "INPUT_FIELD_DEFINITION"
-      ).!
-    ).map {
-      case "QUERY"                  => ExecutableDirectiveLocation.QUERY
-      case "MUTATION"               => ExecutableDirectiveLocation.MUTATION
-      case "SUBSCRIPTION"           => ExecutableDirectiveLocation.SUBSCRIPTION
-      case "FIELD"                  => ExecutableDirectiveLocation.FIELD
-      case "FRAGMENT_DEFINITION"    => ExecutableDirectiveLocation.FRAGMENT_DEFINITION
-      case "FRAGMENT_SPREAD"        => ExecutableDirectiveLocation.FRAGMENT_SPREAD
-      case "INLINE_FRAGMENT"        => ExecutableDirectiveLocation.INLINE_FRAGMENT
-      case "SCHEMA"                 => TypeSystemDirectiveLocation.SCHEMA
-      case "SCALAR"                 => TypeSystemDirectiveLocation.SCALAR
-      case "OBJECT"                 => TypeSystemDirectiveLocation.OBJECT
-      case "FIELD_DEFINITION"       => TypeSystemDirectiveLocation.FIELD_DEFINITION
-      case "ARGUMENT_DEFINITION"    => TypeSystemDirectiveLocation.ARGUMENT_DEFINITION
-      case "INTERFACE"              => TypeSystemDirectiveLocation.INTERFACE
-      case "UNION"                  => TypeSystemDirectiveLocation.UNION
-      case "ENUM"                   => TypeSystemDirectiveLocation.ENUM
-      case "ENUM_VALUE"             => TypeSystemDirectiveLocation.ENUM_VALUE
-      case "INPUT_OBJECT"           => TypeSystemDirectiveLocation.INPUT_OBJECT
-      case "INPUT_FIELD_DEFINITION" => TypeSystemDirectiveLocation.INPUT_FIELD_DEFINITION
-    }
+  private val directiveLocation: P1[DirectiveLocation] =
+    P.oneOf1(List(
+      P.string1("QUERY").as(ExecutableDirectiveLocation.QUERY),
+      P.string1("MUTATION").as(ExecutableDirectiveLocation.MUTATION),
+      P.string1("SUBSCRIPTION").as(ExecutableDirectiveLocation.SUBSCRIPTION),
+      P.string1("FIELD").as(ExecutableDirectiveLocation.FIELD),
+      P.string1("FRAGMENT_DEFINITION").as(ExecutableDirectiveLocation.FRAGMENT_DEFINITION),
+      P.string1("FRAGMENT_SPREAD").as(ExecutableDirectiveLocation.FRAGMENT_SPREAD),
+      P.string1("INLINE_FRAGMENT").as(ExecutableDirectiveLocation.INLINE_FRAGMENT),
+      P.string1("SCHEMA").as(TypeSystemDirectiveLocation.SCHEMA),
+      P.string1("SCALAR").as(TypeSystemDirectiveLocation.SCALAR),
+      P.string1("OBJECT").as(TypeSystemDirectiveLocation.OBJECT),
+      P.string1("FIELD_DEFINITION").as(TypeSystemDirectiveLocation.FIELD_DEFINITION),
+      P.string1("ARGUMENT_DEFINITION").as(TypeSystemDirectiveLocation.ARGUMENT_DEFINITION),
+      P.string1("INTERFACE").as(TypeSystemDirectiveLocation.INTERFACE),
+      P.string1("UNION").as(TypeSystemDirectiveLocation.UNION),
+      P.string1("ENUM").as(TypeSystemDirectiveLocation.ENUM),
+      P.string1("ENUM_VALUE").as(TypeSystemDirectiveLocation.ENUM_VALUE),
+      P.string1("INPUT_OBJECT").as(TypeSystemDirectiveLocation.INPUT_OBJECT),
+      P.string1("INPUT_FIELD_DEFINITION").as(TypeSystemDirectiveLocation.INPUT_FIELD_DEFINITION)
+    ))
 
-  private def directiveDefinition: P[DirectiveDefinition] =
-    P(
-      stringValue.? ~ "directive @" ~/ name ~ argumentDefinitions.? ~ "on" ~ ("|".? ~ directiveLocation) ~ ("|" ~ directiveLocation).rep
+  private val directiveDefinition: P1[DirectiveDefinition] =
+    (
+      stringValue.?.with1 ~ (P.string1("directive @") *> name) ~ argumentDefinitions.? ~ (P.string1("on") *> ((P.char('|').soft *> directiveLocation) ~ (P.char('|') *> directiveLocation).rep))
     ).map {
-      case (description, name, args, firstLoc, otherLoc) =>
+      case (((description, name), args), (firstLoc, otherLoc)) =>
         DirectiveDefinition(description.map(_.value), name, args.getOrElse(Nil), otherLoc.toSet + firstLoc)
     }
 
-  private def typeDefinition: P[TypeDefinition] =
-    objectTypeDefinition orElse
-      interfaceTypeDefinition orElse
-      inputObjectTypeDefinition orElse
-      enumTypeDefinition orElse
-      unionTypeDefinition orElse
-      scalarTypeDefinition
+  private val typeDefinition: P1[TypeDefinition] = P.oneOf1(List(
+    objectTypeDefinition,
+    interfaceTypeDefinition,
+    inputObjectTypeDefinition,
+    enumTypeDefinition,
+    unionTypeDefinition,
+    scalarTypeDefinition
+  ))
 
-  private def typeSystemDefinition: P[TypeSystemDefinition] =
-    typeDefinition orElse schemaDefinition orElse directiveDefinition
+  private val typeSystemDefinition: P1[TypeSystemDefinition] =
+    P.oneOf1(typeDefinition :: schemaDefinition :: directiveDefinition :: Nil)
 
-  private def executableDefinition: P[ExecutableDefinition] =
-    P.defer(operationDefinition orElse fragmentDefinition)
+  private val executableDefinition: P1[ExecutableDefinition] =
+    operationDefinition orElse1 fragmentDefinition
 
-  private def typeExtension: P[TypeExtension] =
-    objectTypeExtension orElse
-      interfaceTypeExtension orElse
-      inputObjectTypeExtension orElse
-      enumTypeExtension orElse
-      unionTypeExtension orElse
-      scalarTypeExtension
+  private val typeExtension: P1[TypeExtension] = P.oneOf1(List(
+    objectTypeExtension,
+    interfaceTypeExtension,
+    inputObjectTypeExtension,
+    enumTypeExtension,
+    unionTypeExtension,
+    scalarTypeExtension
+  ))
 
-  private def typeSystemExtension: P[TypeSystemExtension] =
-    schemaExtension orElse typeExtension
+  private val typeSystemExtension: P1[TypeSystemExtension] =
+    schemaExtension orElse1 typeExtension
 
-  private def definition: P[Definition] = executableDefinition orElse typeSystemDefinition orElse typeSystemExtension
+  private val definition: P1[Definition] = P.oneOf1(executableDefinition :: typeSystemDefinition :: typeSystemExtension :: Nil)
 
-  private def document: P[ParsedDocument] =
-    P.defer(Start ~ definition.rep ~ End).map(seq => ParsedDocument(seq.toList))
+  private val document: P[List[Definition]] = P.start *> definition.rep <* P.end
 
   /**
    * Parses the given string into a [[caliban.parsing.adt.Document]] object or fails with a [[caliban.CalibanError.ParsingError]].
@@ -531,8 +521,8 @@ object Parser {
   def parseQuery(query: String): IO[ParsingError, Document] = {
     val sm = SourceMapper(query)
     IO.fromEither(document.parse(query))
-      .fold(
-        error  => ParsingError(error.failedAtOffset.toString, Some(sm.getLocation(error.failedAtOffset))), //fixme: should be replaced with error msg
+      .bimap(
+        error  => ParsingError(error.toString, Some(sm.getLocation(error.failedAtOffset))), //fixme: should be replaced with error msg
         result => Document(result._2, sm)
       )
   }
@@ -545,5 +535,3 @@ object Parser {
     case Right(_)    => None
   }
 }
-
-case class ParsedDocument(definitions: List[Definition], index: Int = 0)

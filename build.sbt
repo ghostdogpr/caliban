@@ -1,7 +1,7 @@
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
 val mainScala = "2.12.12"
-val allScala  = Seq("2.13.3", mainScala)
+val allScala  = Seq("2.13.4", mainScala)
 
 val akkaVersion           = "2.6.10"
 val catsEffectVersion     = "2.3.0"
@@ -81,7 +81,7 @@ lazy val core = project
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "org.typelevel"     %% "cats-parse"   % "0.1.0",
+      "org.typelevel"     %% "cats-parse"   % "0.2.0",
       "com.propensive"    %% "magnolia"     % "0.17.0",
       "com.propensive"    %% "mercator"     % "0.2.1",
       "dev.zio"           %% "zio"          % zioVersion,
