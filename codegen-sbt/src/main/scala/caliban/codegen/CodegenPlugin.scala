@@ -1,6 +1,6 @@
 package caliban.codegen
 
-import caliban.parsing.adt.Document
+import caliban.tools.Codegen.{ Client, GenType, Schema }
 import caliban.tools._
 import sbt.Keys.commands
 import sbt.{ AutoPlugin, Command, State }
@@ -14,24 +14,24 @@ object CodegenPlugin extends AutoPlugin {
     genCommand(
       "calibanGenSchema",
       genSchemaHelpMsg,
-      (schema, objectName, packageName, _, effect) => SchemaWriter.write(schema, objectName, packageName, effect)
+      Schema
     )
 
   lazy val genClientCommand =
     genCommand(
       "calibanGenClient",
       genClientHelpMsg,
-      (schema, objectName, packageName, genView, _) => ClientWriter.write(schema, objectName, packageName, genView)
+      Client
     )
 
   def genCommand(
     name: String,
     helpMsg: String,
-    writer: (Document, String, Option[String], Boolean, String) => String
+    genType: GenType
   ): Command =
     Command.args(name, helpMsg) { (state: State, args: Seq[String]) =>
       Runtime.default.unsafeRun(
-        execGenCommand(helpMsg, args.toList, writer)
+        execGenCommand(helpMsg, args.toList, genType)
           .catchAll(reason => putStrLn(reason.toString) *> putStrLn(reason.getStackTrace.mkString("\n")))
           .as(1)
       )
@@ -79,13 +79,13 @@ object CodegenPlugin extends AutoPlugin {
   def execGenCommand(
     helpMsg: String,
     args: List[String],
-    writer: (Document, String, Option[String], Boolean, String) => String
+    genType: GenType
   ): RIO[Console, Unit] =
     Options.fromArgs(args) match {
       case Some(arguments) =>
         for {
           _ <- putStrLn(s"Generating code for ${arguments.schemaPath}")
-          _ <- Codegen.generate(arguments, writer)
+          _ <- Codegen.generate(arguments, genType)
           _ <- putStrLn(s"Code generation done")
         } yield ()
       case None            => putStrLn(helpMsg)

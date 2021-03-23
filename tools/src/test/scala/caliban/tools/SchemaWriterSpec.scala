@@ -1,17 +1,19 @@
 package caliban.tools
 
 import caliban.parsing.Parser
-import zio.Task
+import caliban.tools.implicits.ScalarMappings
+import zio.{ Task, ZIO }
 import zio.test.Assertion.equalTo
 import zio.test._
 import zio.test.environment.TestEnvironment
 
 object SchemaWriterSpec extends DefaultRunnableSpec {
 
-  val gen: String => Task[String] = (schema: String) =>
-    Parser
-      .parseQuery(schema)
-      .flatMap(doc => Formatter.format(SchemaWriter.write(doc), None))
+  implicit val scalarMappings: ScalarMappings = ScalarMappings(None)
+
+  def gen(schema: String, scalarMappings: Map[String, String] = Map.empty): Task[String] = Parser
+    .parseQuery(schema)
+    .flatMap(doc => Formatter.format(SchemaWriter.write(doc)(ScalarMappings(Some(scalarMappings))), None))
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("SchemaWriterSpec")(
@@ -173,9 +175,6 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
               |""".stripMargin
           )
         )
-      },
-      testM("empty schema test") {
-        assertM(gen(""))(equalTo("\n"))
       },
       testM("enum type") {
         val schema =
@@ -431,6 +430,58 @@ object Types {
               |
               |  case class Subscription(
               |    characters: SubscriptionCharactersArgs => ZStream[Any, Nothing, Int]
+              |  )
+              |
+              |}
+              |""".stripMargin
+          )
+        )
+      },
+      testM("add scalar mappings") {
+        val schema =
+          """
+            |  scalar OffsetDateTime
+            |
+            |  type Subscription {
+            |    postAdded: Post
+            |  }
+            |  type Query {
+            |    posts: [Post]
+            |  }
+            |  type Mutation {
+            |    addPost(author: String, comment: String): Post
+            |  }
+            |  type Post {
+            |    date: OffsetDateTime!
+            |    author: String
+            |    comment: String
+            |  }
+            |""".stripMargin
+
+        assertM(gen(schema, Map("OffsetDateTime" -> "java.time.OffsetDateTime")))(
+          equalTo(
+            """import Types._
+              |
+              |import zio.stream.ZStream
+              |
+              |object Types {
+              |  case class MutationAddPostArgs(author: Option[String], comment: Option[String])
+              |  case class Post(date: java.time.OffsetDateTime, author: Option[String], comment: Option[String])
+              |
+              |}
+              |
+              |object Operations {
+              |
+              |  case class Query(
+              |    posts: zio.UIO[Option[List[Option[Post]]]]
+              |  )
+              |
+              |  case class Mutation(
+              |    addPost: MutationAddPostArgs => zio.UIO[Option[Post]]
+              |  )
+              |
+              |  case class Subscription(
+              |    postAdded: ZStream[Any, Nothing, Option[Post]]
               |  )
               |
               |}

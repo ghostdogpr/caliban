@@ -1,7 +1,7 @@
 package caliban.tools
 
-import zio.config.{ read, ConfigDescriptor, ConfigSource }
 import zio.config.magnolia.DeriveConfigDescriptor.descriptor
+import zio.config.{ read, ConfigDescriptor, ConfigSource }
 
 final case class Options(
   schemaPath: String,
@@ -10,7 +10,8 @@ final case class Options(
   headers: Option[List[Options.Header]],
   packageName: Option[String],
   genView: Option[Boolean],
-  effect: Option[String]
+  effect: Option[String],
+  scalarMappings: Option[Map[String, String]]
 )
 
 object Options {
@@ -20,7 +21,8 @@ object Options {
     headers: Option[List[String]],
     packageName: Option[String],
     genView: Option[Boolean],
-    effect: Option[String]
+    effect: Option[String],
+    scalarMappings: Option[List[String]]
   )
 
   def fromArgs(args: List[String]): Option[Options] =
@@ -49,7 +51,15 @@ object Options {
             },
             rawOpts.packageName,
             rawOpts.genView,
-            rawOpts.effect
+            rawOpts.effect,
+            rawOpts.scalarMappings.map {
+              _.flatMap { rawMapping =>
+                rawMapping.split(":").toList match {
+                  case name :: value :: Nil => Some(name -> value)
+                  case _                    => None
+                }
+              }.toMap
+            }
           )
         }
       case _                             => None

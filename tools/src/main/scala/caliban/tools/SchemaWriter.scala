@@ -3,15 +3,16 @@ package caliban.tools
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt.{ Document, Type }
+import caliban.tools.implicits.Implicits._
+import caliban.tools.implicits.ScalarMappings
 
 object SchemaWriter {
 
   def write(
     schema: Document,
-    objectName: String = "",
     packageName: Option[String] = None,
     effect: String = "zio.UIO"
-  ): String = {
+  )(implicit scalarMappings: ScalarMappings): String = {
     val schemaDef = schema.schemaDefinition
 
     val argsTypes = schema.objectTypeDefinitions
@@ -91,36 +92,42 @@ object SchemaWriter {
   def reservedType(typeDefinition: ObjectTypeDefinition): Boolean =
     typeDefinition.name == "Query" || typeDefinition.name == "Mutation" || typeDefinition.name == "Subscription"
 
-  def writeRootField(field: FieldDefinition, od: ObjectTypeDefinition, effect: String): String = {
+  def writeRootField(field: FieldDefinition, od: ObjectTypeDefinition, effect: String)(implicit
+    scalarMappings: ScalarMappings
+  ): String = {
     val argsTypeName = if (field.args.nonEmpty) s" ${argsName(field, od)} =>" else ""
     s"${safeName(field.name)} :$argsTypeName $effect[${writeType(field.ofType)}]"
   }
 
-  def writeRootQueryOrMutationDef(op: ObjectTypeDefinition, effect: String): String =
+  def writeRootQueryOrMutationDef(op: ObjectTypeDefinition, effect: String)(implicit
+    scalarMappings: ScalarMappings
+  ): String =
     s"""
        |${writeDescription(op.description)}case class ${op.name}(
        |${op.fields.map(c => writeRootField(c, op, effect)).mkString(",\n")}
        |)""".stripMargin
 
-  def writeSubscriptionField(field: FieldDefinition, od: ObjectTypeDefinition): String =
+  def writeSubscriptionField(field: FieldDefinition, od: ObjectTypeDefinition)(implicit
+    scalarMappings: ScalarMappings
+  ): String =
     "%s:%s ZStream[Any, Nothing, %s]".format(
       safeName(field.name),
       if (field.args.nonEmpty) s" ${argsName(field, od)} =>" else "",
       writeType(field.ofType)
     )
 
-  def writeRootSubscriptionDef(op: ObjectTypeDefinition): String =
+  def writeRootSubscriptionDef(op: ObjectTypeDefinition)(implicit scalarMappings: ScalarMappings): String =
     s"""
        |${writeDescription(op.description)}case class ${op.name}(
        |${op.fields.map(c => writeSubscriptionField(c, op)).mkString(",\n")}
        |)""".stripMargin
 
-  def writeObject(typedef: ObjectTypeDefinition): String =
+  def writeObject(typedef: ObjectTypeDefinition)(implicit scalarMappings: ScalarMappings): String =
     s"""${writeDescription(typedef.description)}case class ${typedef.name}(${typedef.fields
       .map(writeField(_, typedef))
       .mkString(", ")})"""
 
-  def writeInputObject(typedef: InputObjectTypeDefinition): String =
+  def writeInputObject(typedef: InputObjectTypeDefinition)(implicit scalarMappings: ScalarMappings): String =
     s"""${writeDescription(typedef.description)}case class ${typedef.name}(${typedef.fields
       .map(writeInputValue)
       .mkString(", ")})"""
@@ -135,7 +142,9 @@ object SchemaWriter {
           }
        """
 
-  def writeUnion(typedef: UnionTypeDefinition, objects: List[ObjectTypeDefinition]): String =
+  def writeUnion(typedef: UnionTypeDefinition, objects: List[ObjectTypeDefinition])(implicit
+    scalarMappings: ScalarMappings
+  ): String =
     s"""${writeDescription(typedef.description)}sealed trait ${typedef.name} extends scala.Product with scala.Serializable
 
           object ${typedef.name} {
@@ -145,17 +154,19 @@ object SchemaWriter {
           }
        """
 
-  def writeField(field: FieldDefinition, of: ObjectTypeDefinition): String =
+  def writeField(field: FieldDefinition, of: ObjectTypeDefinition)(implicit scalarMappings: ScalarMappings): String =
     if (field.args.nonEmpty) {
       s"${writeDescription(field.description)}${safeName(field.name)} : ${argsName(field, of)} => ${writeType(field.ofType)}"
     } else {
       s"""${writeDescription(field.description)}${safeName(field.name)} : ${writeType(field.ofType)}"""
     }
 
-  def writeInputValue(value: InputValueDefinition): String =
+  def writeInputValue(value: InputValueDefinition)(implicit scalarMappings: ScalarMappings): String =
     s"""${writeDescription(value.description)}${safeName(value.name)} : ${writeType(value.ofType)}"""
 
-  def writeArguments(field: FieldDefinition, of: ObjectTypeDefinition): String = {
+  def writeArguments(field: FieldDefinition, of: ObjectTypeDefinition)(implicit
+    scalarMappings: ScalarMappings
+  ): String = {
     def fields(args: List[InputValueDefinition]): String =
       s"${args.map(arg => s"${safeName(arg.name)} : ${writeType(arg.ofType)}").mkString(", ")}"
 
@@ -182,12 +193,10 @@ object SchemaWriter {
            |""".stripMargin
     }
 
-  def writeType(t: Type): String =
-    t match {
-      case NamedType(name, true)   => name
-      case NamedType(name, false)  => s"Option[$name]"
-      case ListType(ofType, true)  => s"List[${writeType(ofType)}]"
-      case ListType(ofType, false) => s"Option[List[${writeType(ofType)}]]"
-    }
-
+  def writeType(t: Type)(implicit scalarMappings: ScalarMappings): String = t match {
+    case NamedType(name, true)   => scalarMappings.flatMap(m => m.get(name)).getOrElse(name)
+    case NamedType(name, false)  => s"Option[${scalarMappings.flatMap(m => m.get(name)).getOrElse(name)}]"
+    case ListType(ofType, true)  => s"List[${writeType(ofType)}]"
+    case ListType(ofType, false) => s"Option[List[${writeType(ofType)}]]"
+  }
 }

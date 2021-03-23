@@ -21,6 +21,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 Some(List(Header("header1", "value1"), Header("header2", "value2"))),
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -40,6 +41,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 Some(List(Header("header1", "value1"), Header("header2", "value2"))),
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -52,7 +54,7 @@ object OptionsSpec extends DefaultRunnableSpec {
         assert(result)(
           equalTo(
             Some(
-              Options("schema", "output", None, None, None, None, None)
+              Options("schema", "output", None, None, None, None, None, None)
             )
           )
         )
@@ -84,6 +86,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 Some("com.github.ghostdogpr"),
                 None,
+                None,
                 None
               )
             )
@@ -103,7 +106,8 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
-                Some("cats.effect.IO")
+                Some("cats.effect.IO"),
+                None
               )
             )
           )
@@ -122,7 +126,28 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 Some(true),
+                None,
                 None
+              )
+            )
+          )
+        )
+      },
+      test("provide scalarMappings") {
+        val input  = List("schema", "output", "--scalarMappings", "Long:scala.Long")
+        val result = Options.fromArgs(input)
+        assert(result)(
+          equalTo(
+            Some(
+              Options(
+                "schema",
+                "output",
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(Map("Long" -> "scala.Long"))
               )
             )
           )
