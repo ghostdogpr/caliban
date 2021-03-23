@@ -12,8 +12,7 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.{ DirectiveDefinition
 import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt.{ Directive, Document, Type }
 import sttp.client3._
-import sttp.client3.asynchttpclient.zio.AsyncHttpClientZioBackend
-import sttp.client3.asynchttpclient.zio._
+import sttp.client3.asynchttpclient.zio.{ AsyncHttpClientZioBackend, _ }
 import sttp.model.Uri
 import zio.{ IO, RIO, Task }
 

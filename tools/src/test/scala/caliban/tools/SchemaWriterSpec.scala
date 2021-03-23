@@ -2,7 +2,7 @@ package caliban.tools
 
 import caliban.parsing.Parser
 import caliban.tools.implicits.ScalarMappings
-import zio.{ Task, ZIO }
+import zio.Task
 import zio.test.Assertion.equalTo
 import zio.test._
 import zio.test.environment.TestEnvironment
