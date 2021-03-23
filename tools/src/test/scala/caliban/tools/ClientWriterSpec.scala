@@ -3,7 +3,7 @@ package caliban.tools
 import caliban.parsing.Parser
 import zio.Task
 import zio.test.Assertion._
-import zio.test.{ assertM, suite, testM, DefaultRunnableSpec, TestAspect, ZSpec }
+import zio.test._
 import zio.test.environment.TestEnvironment
 
 object ClientWriterSpec extends DefaultRunnableSpec {
@@ -75,7 +75,7 @@ object Client {
              type Q {
                characters: [Character!]!
              }
-             
+
              type Character {
                name: String!
                nicknames: [String!]!
@@ -113,7 +113,7 @@ object Client {
              type Q {
                character(name: String!): Character
              }
-             
+
              type Character {
                name: String!
                nicknames: [String!]!
@@ -151,11 +151,11 @@ object Client {
              schema {
                query: Q
              }
-             
+
              type Q {
                characters: [Character!]!
              }
-             
+
              type Character {
                name: String!
                nicknames: [String!]!
@@ -218,13 +218,13 @@ object Client {
       case __StringValue("BELT")  => Right(Origin.BELT)
       case other                  => Left(DecodingError(s"Can't build Origin from input $other"))
     }
-    implicit val encoder: ArgEncoder[Origin] = new ArgEncoder[Origin] {
+    implicit val encoder: ArgEncoder[Origin]    = new ArgEncoder[Origin] {
       override def encode(value: Origin): __Value = value match {
         case Origin.EARTH => __EnumValue("EARTH")
         case Origin.MARS  => __EnumValue("MARS")
         case Origin.BELT  => __EnumValue("BELT")
       }
-      override def typeName: String = "Origin"
+      override def typeName: String               = "Origin"
     }
   }
 
@@ -259,7 +259,7 @@ object Client {
             "nicknames" -> __ListValue(value.nicknames.map(value => implicitly[ArgEncoder[String]].encode(value)))
           )
         )
-      override def typeName: String = "CharacterInput"
+      override def typeName: String                       = "CharacterInput"
     }
   }
 
@@ -283,12 +283,12 @@ import caliban.client.__Value._
 
 object Client {
 
-  case class CharacterInput(wait_ : String)
+  case class CharacterInput(wait$ : String)
   object CharacterInput {
     implicit val encoder: ArgEncoder[CharacterInput] = new ArgEncoder[CharacterInput] {
       override def encode(value: CharacterInput): __Value =
-        __ObjectValue(List("wait" -> implicitly[ArgEncoder[String]].encode(value.wait_)))
-      override def typeName: String = "CharacterInput"
+        __ObjectValue(List("wait" -> implicitly[ArgEncoder[String]].encode(value.wait$)))
+      override def typeName: String                       = "CharacterInput"
     }
   }
 
@@ -301,15 +301,15 @@ object Client {
         val schema =
           """
              union Role = Captain | Pilot
-             
+
              type Captain {
                shipName: String!
              }
-             
+
              type Pilot {
                shipName: String!
              }
-             
+
              type Character {
                role: Role
              }
@@ -372,7 +372,7 @@ object Client {
      * name
      */
     @deprecated("blah", "")
-    def name: SelectionBuilder[Character, String] = Field("name", Scalar())
+    def name: SelectionBuilder[Character, String]            = Field("name", Scalar())
     @deprecated("", "")
     def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
   }
@@ -384,7 +384,7 @@ object Client {
       },
       testM("deprecated field + comment newline") {
         val tripleQuotes = "\"\"\""
-        val schema =
+        val schema       =
           """
              type Character {
                "name"
@@ -406,7 +406,11 @@ object Client {
     /**
      * name
      */
-    @deprecated(${tripleQuotes}foo\nbar$tripleQuotes, "")
+    @deprecated(
+      ${tripleQuotes}foo
+bar$tripleQuotes,
+      ""
+    )
     def name: SelectionBuilder[Character, String] = Field("name", Scalar())
   }
 
@@ -441,12 +445,11 @@ object Client {
       first: Int,
       last: Option[Int] = None,
       origins: List[Option[String]] = Nil
-    ): SelectionBuilder[RootQuery, Option[String]] =
-      Field(
-        "characters",
-        OptionOf(Scalar()),
-        arguments = List(Argument("first", first), Argument("last", last), Argument("origins", origins))
-      )
+    ): SelectionBuilder[RootQuery, Option[String]] = Field(
+      "characters",
+      OptionOf(Scalar()),
+      arguments = List(Argument("first", first), Argument("last", last), Argument("origins", origins))
+    )
   }
 
 }
@@ -458,7 +461,7 @@ object Client {
         val schema =
           """
               scalar Json
-              
+
               type Query {
                 test: Json!
               }""".stripMargin
@@ -507,23 +510,23 @@ object Client {
     case object NEWHOPE extends Episode
     case object EMPIRE  extends Episode
     case object JEDI    extends Episode
-    case object jedi_   extends Episode
+    case object `jedi`  extends Episode
 
     implicit val decoder: ScalarDecoder[Episode] = {
       case __StringValue("NEWHOPE") => Right(Episode.NEWHOPE)
       case __StringValue("EMPIRE")  => Right(Episode.EMPIRE)
       case __StringValue("JEDI")    => Right(Episode.JEDI)
-      case __StringValue("jedi")    => Right(Episode.jedi_)
+      case __StringValue("jedi")    => Right(Episode.`jedi`)
       case other                    => Left(DecodingError(s"Can't build Episode from input $other"))
     }
-    implicit val encoder: ArgEncoder[Episode] = new ArgEncoder[Episode] {
+    implicit val encoder: ArgEncoder[Episode]    = new ArgEncoder[Episode] {
       override def encode(value: Episode): __Value = value match {
         case Episode.NEWHOPE => __EnumValue("NEWHOPE")
         case Episode.EMPIRE  => __EnumValue("EMPIRE")
         case Episode.JEDI    => __EnumValue("JEDI")
-        case Episode.jedi_   => __EnumValue("jedi")
+        case Episode.`jedi`  => __EnumValue("jedi")
       }
-      override def typeName: String = "Episode"
+      override def typeName: String                = "Episode"
     }
   }
 
@@ -560,10 +563,38 @@ object Client {
     def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
   }
 
-  type character_
-  object character_ {
-    def name: SelectionBuilder[character_, String]            = Field("name", Scalar())
-    def nicknames: SelectionBuilder[character_, List[String]] = Field("nicknames", ListOf(Scalar()))
+  type `character`
+  object `character` {
+    def name: SelectionBuilder[`character`, String]            = Field("name", Scalar())
+    def nicknames: SelectionBuilder[`character`, List[String]] = Field("nicknames", ListOf(Scalar()))
+  }
+
+}
+"""
+          )
+        )
+      },
+      testM("safe names with leading and tailing _") {
+        val schema =
+          """
+             type Character {
+               _name_: String
+               _nickname: String
+             }
+            """.stripMargin
+
+        assertM(gen(schema))(
+          equalTo(
+            """import caliban.client.FieldBuilder._
+import caliban.client.SelectionBuilder._
+import caliban.client._
+
+object Client {
+
+  type Character
+  object Character {
+    def `_name_` : SelectionBuilder[Character, Option[String]] = Field("_name_", OptionOf(Scalar()))
+    def _nickname: SelectionBuilder[Character, Option[String]] = Field("_nickname", OptionOf(Scalar()))
   }
 
 }

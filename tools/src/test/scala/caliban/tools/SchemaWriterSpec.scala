@@ -3,7 +3,7 @@ package caliban.tools
 import caliban.parsing.Parser
 import zio.Task
 import zio.test.Assertion.equalTo
-import zio.test.{ assertM, suite, testM, DefaultRunnableSpec, TestAspect, ZSpec }
+import zio.test._
 import zio.test.environment.TestEnvironment
 
 object SchemaWriterSpec extends DefaultRunnableSpec {
@@ -36,7 +36,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
             (for {
               typeDef      <- doc.objectTypeDefinitions
               typeDefField <- typeDef.fields
-              argClass     = SchemaWriter.writeArguments(typeDefField, typeDef) if argClass.length > 0
+              argClass      = SchemaWriter.writeArguments(typeDefField, typeDef) if argClass.length > 0
             } yield argClass).mkString("\n")
           }
           .flatMap(Formatter.format(_, None).map(_.trim))
@@ -205,7 +205,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
         )
       },
       testM("union type") {
-        val role =
+        val role   =
           s"""
               \"\"\"
              role
@@ -242,7 +242,7 @@ object Types {
     case class Captain(
       @GQLDescription("ship")
       shipName: String
-    ) extends Role
+    )                                  extends Role
     case class Pilot(shipName: String) extends Role
   }
 
@@ -357,7 +357,7 @@ object Types {
           equalTo(
             """object Types {
 
-  case class Character(wait_ : String)
+  case class Character(wait$ : String)
 
 }
 """

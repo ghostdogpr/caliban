@@ -59,8 +59,8 @@ case class GraphQLUploadRequest(
         }
 
         vars ++ files.groupBy(_._1).map {
-          case (key, values) if values.lengthCompare(1) > 0 => (key, ListValue(values.map(_._2)))
-          case (key, List(value))                           => (key, value._2)
+          case (key, value :: Nil) => (key, value._2)
+          case (key, values)       => (key, ListValue(values.map(_._2)))
         }
       }
     )
@@ -71,19 +71,19 @@ case class GraphQLUploadRequest(
    */
   private def loop(value: InputValue, path: List[Either[String, Int]], name: String): InputValue =
     path.headOption match {
-      case Some(Left(key)) =>
+      case Some(Left(key))  =>
         value match {
           case InputValue.ObjectValue(fields) =>
             fields.get(key).fold[InputValue](NullValue)(loop(_, path.drop(1), name))
-          case _ => NullValue
+          case _                              => NullValue
         }
       case Some(Right(idx)) =>
         value match {
           case InputValue.ListValue(values) =>
             values.lift(idx).fold[InputValue](NullValue)(loop(_, path.drop(1), name))
-          case _ => NullValue
+          case _                            => NullValue
         }
-      case None =>
+      case None             =>
         // If we are out of values then we are at the end of the path, so we need to replace this current node
         // with a string node containing the file name
         StringValue(name)

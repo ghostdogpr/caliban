@@ -1,7 +1,6 @@
 package caliban.execution
 
 import java.util.UUID
-
 import caliban.CalibanError.ExecutionError
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
@@ -12,7 +11,7 @@ import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
 import caliban.schema.Annotations.{ GQLInterface, GQLName }
 import caliban.schema.{ Schema, Step, Types }
-import zio.IO
+import zio.{ IO, Task, UIO, ZIO }
 import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
@@ -221,7 +220,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         case class NameInput(name: String)
         case class Character(name: String)
         case class Test(character: Field => NameInput => Character)
-        val api   = graphQL(RootResolver(Test(field => (input) => Character(input.name))))
+        val api   = graphQL(RootResolver(Test(field => input => Character(input.name))))
         val query = """query test { character(name: "Bob") { name }}"""
 
         assertM(
@@ -240,7 +239,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
           api.interpreter.flatMap(_.execute(query, None, Map("term" -> StringValue("search")))).map(_.asJson.noSpaces)
         )(
           equalTo(
-            """{"data":{"getId":null},"errors":[{"message":"Can't build a String from input null","locations":[{"line":1,"column":44}],"path":["getId"]}]}"""
+            """{"data":null,"errors":[{"message":"Can't build a String from input null","locations":[{"line":1,"column":44}],"path":["getId"]}]}"""
           )
         )
       },
@@ -357,7 +356,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         val api1        = graphQL(RootResolver(Test("name")))
         val api2        = graphQL(RootResolver(Test2(2)))
         val interpreter = (api1 |+| api2).interpreter
-        val query =
+        val query       =
           """query{
             |  name
             |  id
@@ -406,7 +405,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         case class Subscriptions(test: ZStream[Any, Throwable, Int])
         val interpreter =
           graphQL(RootResolver(Queries(1), Option.empty[Unit], Subscriptions(ZStream(1, 2, 3)))).interpreter
-        val query = gqldoc("""
+        val query       = gqldoc("""
              subscription {
                test
              }""")
@@ -451,11 +450,107 @@ object ExecutionSpec extends DefaultRunnableSpec {
 
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"i":{"id":"ok"}}"""))
       },
+      testM("rename on a union child") {
+        sealed trait Union
+        object Union {
+          case class Child(field: String) extends Union
+        }
+        case class Obj(union: Union)
+        case class Query(test: Obj)
+
+        object Schemas {
+          implicit val schemaUnionChild: Schema[Any, Union.Child] = Schema.gen[Union.Child].rename("UnionChild")
+          implicit val schemaTestUnion: Schema[Any, Union]        = Schema.gen[Union]
+          implicit val schemaQuery: Schema[Any, Query]            = Schema.gen[Query]
+        }
+        import Schemas._
+
+        val interpreter = graphQL(RootResolver(Query(Obj(Union.Child("f"))))).interpreter
+        val query       = gqldoc("""
+             {
+               test {
+                 union {
+                   __typename
+                   ... on UnionChild {
+                     field
+                   }
+                 }
+               }
+             }""")
+
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
+          equalTo("""{"test":{"union":{"__typename":"UnionChild","field":"f"}}}""".stripMargin)
+        )
+      },
+      testM("rename on a union child and parent") {
+        sealed trait Union
+        object Union {
+          case class Child(field: String) extends Union
+        }
+        case class Obj(union: Union)
+        case class Query(test: Obj)
+
+        object Schemas {
+          implicit val schemaUnionChild: Schema[Any, Union.Child] = Schema.gen[Union.Child].rename("UnionChild")
+          implicit val schemaTestUnion: Schema[Any, Union]        = Schema.gen[Union].rename("UnionRenamed")
+          implicit val schemaQuery: Schema[Any, Query]            = Schema.gen[Query]
+        }
+        import Schemas._
+
+        val interpreter = graphQL(RootResolver(Query(Obj(Union.Child("f"))))).interpreter
+        val query       = gqldoc("""
+             {
+               test {
+                 union {
+                   __typename
+                   ... on UnionChild {
+                     field
+                   }
+                 }
+               }
+             }""")
+
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
+          equalTo("""{"test":{"union":{"__typename":"UnionChild","field":"f"}}}""".stripMargin)
+        )
+      },
+      testM("rename on a union child and parent") {
+        sealed trait Union
+        object Union {
+          case class Child(field: String) extends Union
+          case object ChildO              extends Union
+        }
+        case class Obj(union: Union)
+        case class Query(test: Obj)
+
+        object Schemas {
+          implicit val schemaUnionChild: Schema[Any, Union.Child]        = Schema.gen[Union.Child].rename("UnionChild")
+          implicit val schemaUnionChildO: Schema[Any, Union.ChildO.type] =
+            Schema.gen[Union.ChildO.type].rename("UnionChildO")
+          implicit val schemaTestUnion: Schema[Any, Union]               = Schema.gen[Union].rename("UnionRenamed")
+          implicit val schemaQuery: Schema[Any, Query]                   = Schema.gen[Query]
+        }
+        import Schemas._
+
+        val interpreter = graphQL(RootResolver(Query(Obj(Union.ChildO)))).interpreter
+        val query       = gqldoc("""
+             {
+               test {
+                 union {
+                   __typename
+                 }
+               }
+             }""")
+
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
+          equalTo("""{"test":{"union":{"__typename":"UnionChildO"}}}""".stripMargin)
+        )
+      },
       testM("argument not wrapped in a case class") {
         case class Query(test: Int => Int)
         val api         = graphQL(RootResolver(Query(identity)))
         val interpreter = api.interpreter
-        val query =
+        val query       =
           """query{
             |  test(value: 1)
             |}""".stripMargin
@@ -467,7 +562,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         val painter     = Painter("Claude Monet", "Impressionism")
         val api         = graphQL(RootResolver(Queries(event :: Nil, WrappedPainter(painter) :: Nil)))
         val interpreter = api.interpreter
-        val query =
+        val query       =
           """query {
             |  events {
             |    organizationId
@@ -488,11 +583,97 @@ object ExecutionSpec extends DefaultRunnableSpec {
         case class Query(@GQLName("test2") test: Int)
         val api         = graphQL(RootResolver(Query(1)))
         val interpreter = api.interpreter
-        val query =
+        val query       =
           """query{
             |  test2
             |}""".stripMargin
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test2":1}"""))
+      },
+      testM("die bubbles to the parent") {
+        case class UserArgs(id: Int)
+        case class User(name: String, friends: ZIO[Any, Nothing, List[String]])
+        case class Queries(user: UserArgs => ZIO[Any, Throwable, User])
+        val api         = graphQL(
+          RootResolver(
+            Queries(args =>
+              ZIO.succeed(
+                User(
+                  "user",
+                  if (args.id == 2) ZIO.die(new Exception("Boom"))
+                  else ZIO.succeed(List("friend"))
+                )
+              )
+            )
+          )
+        )
+        val interpreter = api.interpreter
+        val query       =
+          """query{
+            |  user1: user(id: 1) {
+            |    name
+            |    friends
+            |  }
+            |  user2: user(id: 2) {
+            |    name
+            |    friends
+            |  }
+            |}""".stripMargin
+        interpreter
+          .flatMap(_.execute(query))
+          .map(result =>
+            assert(result.data.toString)(
+              equalTo("""{"user1":{"name":"user","friends":["friend"]},"user2":null}""")
+            ) &&
+              assert(result.errors.collectFirst { case e: ExecutionError => e }.map(_.path))(
+                isSome(equalTo(List(Left("user2"), Left("friends"))))
+              )
+          )
+      },
+      testM("die inside a nullable list") {
+        case class Queries(test: List[Task[String]])
+        val api         = graphQL(RootResolver(Queries(List(ZIO.succeed("a"), ZIO.die(new Exception("Boom"))))))
+        val interpreter = api.interpreter
+        val query       =
+          """query{
+            |  test
+            |}""".stripMargin
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
+          equalTo("""{"test":["a",null]}""")
+        )
+      },
+      testM("die inside a non-nullable list") {
+        case class Queries(test: Task[List[UIO[String]]])
+        val api         = graphQL(RootResolver(Queries(Task(List(ZIO.succeed("a"), ZIO.die(new Exception("Boom")))))))
+        val interpreter = api.interpreter
+        val query       =
+          """query{
+            |  test
+            |}""".stripMargin
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
+          equalTo("""{"test":null}""")
+        )
+      },
+      testM("fake field") {
+        sealed trait A
+        object A {
+          case class B(b: Int) extends A
+          case object C        extends A
+        }
+        case class Query(test: A)
+        val interpreter = graphQL(RootResolver(Query(A.C))).interpreter
+        val query = gqldoc("""
+            {
+              test {
+                ... on C {
+                  _  
+                }
+                ... on B {
+                  b
+                }
+              }
+            }""")
+
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":null}"""))
       },
       testM("complex interface case") {
         @GQLInterface
@@ -500,7 +681,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
           def id: String
           def name: String
         }
-        object Character {
+        object Character       {
           case class Human(
             id: String,
             name: String,
@@ -523,8 +704,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         // union SearchResult = Human | Droid | Starship
         type SearchResult = Either[Character, Starship]
 
-        def eitherUnionSchema[RL, RR, L, R](name: String)(
-          implicit
+        def eitherUnionSchema[RL, RR, L, R](name: String)(implicit
           evL: Schema[RL, L],
           evR: Schema[RR, R]
         ): Schema[RL with RR, Either[L, R]] = new Schema[RL with RR, Either[L, R]] {
@@ -569,8 +749,8 @@ object ExecutionSpec extends DefaultRunnableSpec {
               )
             )
           )
-        val interpreter = api.interpreter
-        val query =
+        val interpreter       = api.interpreter
+        val query             =
           """{
             |  search(text: "a") {
             |    __typename
@@ -592,6 +772,75 @@ object ExecutionSpec extends DefaultRunnableSpec {
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
           equalTo(
             """{"search":[{"__typename":"Human","name":"name","height":1},{"__typename":"Droid","name":"name","primaryFunction":"function"},{"__typename":"Starship","name":"name","length":3.5}]}"""
+          )
+        )
+      },
+      testM("hand-rolled recursive schema") {
+        import Schema._
+        case class Group(
+          id: String,
+          parent: UIO[Option[Group]],
+          organization: UIO[Organization]
+        )
+        case class Organization(id: String, groups: UIO[List[Group]])
+
+        case class Query(
+          organization: String => UIO[Organization]
+        )
+
+        implicit lazy val groupSchema: Schema[Any, Group]      = obj("Group", Some("A group of users"))(implicit ft =>
+          List(
+            field("id")(_.id),
+            field("parent")(_.parent),
+            field("organization")(_.organization)
+          )
+        )
+        implicit lazy val orgSchema: Schema[Any, Organization] =
+          obj("Organization", Some("An organization of groups"))(implicit ft =>
+            List(
+              field("id")(_.id),
+              field("groups")(_.groups)
+            )
+          )
+
+        implicit val querySchema: Schema[Any, Query] =
+          obj("Query")(implicit ft =>
+            List(
+              fieldWithArgs[Query, String]("organization")(_.organization)
+            )
+          )
+
+        val organizations: Map[String, List[String]]      = Map("abc" -> List("group1", "group2"))
+        val groups: Map[String, (Option[String], String)] = Map(
+          "group1" -> (None           -> "abc"),
+          "group2" -> (Some("group1") -> "abc")
+        )
+
+        def getGroup(id: String): UIO[Group] = UIO(groups(id)).map { case (parent, org) =>
+          Group(
+            id,
+            ZIO.fromOption(parent).flatMap(getGroup(_).asSomeError).optional,
+            organization = getOrg(org)
+          )
+        }
+
+        def getOrg(id: String) =
+          UIO(organizations(id)).map(groups => Organization(id, ZIO.foreach(groups)(getGroup)))
+
+        val interpreter = graphQL(RootResolver(Query(getOrg))).interpreter
+        val query       = gqldoc("""{
+             organization(value: "abc") {
+               groups {
+                 id
+                 organization { id }
+                 parent { id }
+               }
+             }
+            }""")
+
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
+          equalTo(
+            """{"organization":{"groups":[{"id":"group1","organization":{"id":"abc"},"parent":null},{"id":"group2","organization":{"id":"abc"},"parent":{"id":"group1"}}]}}"""
           )
         )
       }

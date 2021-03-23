@@ -3,6 +3,7 @@ package caliban
 import caliban.ResponseValue.ObjectValue
 import caliban.interop.circe.IsCirceEncoder
 import caliban.interop.play.IsPlayJsonWrites
+import caliban.interop.zio.IsZIOJsonEncoder
 import caliban.parsing.adt.LocationInfo
 
 /**
@@ -55,96 +56,11 @@ object CalibanError {
   }
 
   implicit def circeEncoder[F[_]](implicit ev: IsCirceEncoder[F]): F[CalibanError] =
-    ErrorCirce.errorValueEncoder.asInstanceOf[F[CalibanError]]
+    caliban.interop.circe.json.ErrorCirce.errorValueEncoder.asInstanceOf[F[CalibanError]]
 
   implicit def playJsonWrites[F[_]](implicit ev: IsPlayJsonWrites[F]): F[CalibanError] =
-    ErrorPlayJson.errorValueWrites.asInstanceOf[F[CalibanError]]
-}
+    caliban.interop.play.json.ErrorPlayJson.errorValueWrites.asInstanceOf[F[CalibanError]]
 
-private object ErrorCirce {
-  import io.circe._
-  import io.circe.syntax._
-
-  private def locationToJson(li: LocationInfo): Json =
-    Json.obj("line" -> li.line.asJson, "column" -> li.column.asJson)
-
-  val errorValueEncoder: Encoder[CalibanError] = Encoder.instance[CalibanError] {
-    case CalibanError.ParsingError(msg, locationInfo, _, extensions) =>
-      Json
-        .obj(
-          "message" -> s"Parsing Error: $msg".asJson,
-          "locations" -> Some(locationInfo).collect {
-            case Some(li) => Json.arr(locationToJson(li))
-          }.asJson,
-          "extensions" -> (extensions: Option[ResponseValue]).asJson.dropNullValues
-        )
-        .dropNullValues
-    case CalibanError.ValidationError(msg, _, locationInfo, extensions) =>
-      Json
-        .obj(
-          "message" -> msg.asJson,
-          "locations" -> Some(locationInfo).collect {
-            case Some(li) => Json.arr(locationToJson(li))
-          }.asJson,
-          "extensions" -> (extensions: Option[ResponseValue]).asJson.dropNullValues
-        )
-        .dropNullValues
-    case CalibanError.ExecutionError(msg, path, locationInfo, _, extensions) =>
-      Json
-        .obj(
-          "message" -> msg.asJson,
-          "locations" -> Some(locationInfo).collect {
-            case Some(li) => Json.arr(locationToJson(li))
-          }.asJson,
-          "path" -> Some(path).collect {
-            case p if p.nonEmpty =>
-              Json.fromValues(p.map {
-                case Left(value)  => value.asJson
-                case Right(value) => value.asJson
-              })
-          }.asJson,
-          "extensions" -> (extensions: Option[ResponseValue]).asJson.dropNullValues
-        )
-        .dropNullValues
-  }
-
-}
-
-private object ErrorPlayJson {
-  import play.api.libs.json._
-
-  private final case class ErrorDTO(
-    message: String,
-    extensions: Option[ResponseValue],
-    locations: Option[LocationInfo],
-    path: Option[JsArray]
-  )
-
-  implicit val locationInfoWrites: Writes[LocationInfo] =
-    Json.writes[LocationInfo].transform((v: JsValue) => Json.arr(v))
-
-  private implicit val errorDTOWrites = Json.writes[ErrorDTO]
-
-  val errorValueWrites: Writes[CalibanError] = errorDTOWrites.contramap[CalibanError] {
-    case CalibanError.ParsingError(msg, locationInfo, _, extensions) =>
-      ErrorDTO(s"Parsing Error: $msg", extensions, locationInfo, None)
-
-    case CalibanError.ValidationError(msg, _, locationInfo, extensions) =>
-      ErrorDTO(msg, extensions, locationInfo, None)
-
-    case CalibanError.ExecutionError(msg, path, locationInfo, _, extensions) =>
-      ErrorDTO(
-        msg,
-        extensions,
-        locationInfo,
-        Some(path).collect {
-          case p if p.nonEmpty =>
-            JsArray(p.map {
-              case Left(value)  => JsString(value)
-              case Right(value) => JsNumber(value)
-            })
-        }
-      )
-  }
-
+  implicit def zioJsonEncoder[F[_]](implicit ev: IsZIOJsonEncoder[F]): F[CalibanError] =
+    caliban.interop.zio.ErrorZioJson.errorValueEncoder.asInstanceOf[F[CalibanError]]
 }

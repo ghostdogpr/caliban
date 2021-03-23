@@ -40,14 +40,14 @@ case class __Type(
           case __TypeKind.NON_NULL => of.toType(true)
           case _                   => NamedType(name.getOrElse(""), nonNull)
         }
-      case None => NamedType(name.getOrElse(""), nonNull)
+      case None     => NamedType(name.getOrElse(""), nonNull)
     }
 
   def toTypeDefinition: Option[TypeDefinition] =
     kind match {
-      case __TypeKind.SCALAR =>
+      case __TypeKind.SCALAR       =>
         Some(ScalarTypeDefinition(description, name.getOrElse(""), directives.getOrElse(Nil)))
-      case __TypeKind.OBJECT =>
+      case __TypeKind.OBJECT       =>
         Some(
           ObjectTypeDefinition(
             description,
@@ -57,7 +57,7 @@ case class __Type(
             fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).map(_.toFieldDefinition)
           )
         )
-      case __TypeKind.INTERFACE =>
+      case __TypeKind.INTERFACE    =>
         Some(
           InterfaceTypeDefinition(
             description,
@@ -66,7 +66,7 @@ case class __Type(
             fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).map(_.toFieldDefinition)
           )
         )
-      case __TypeKind.UNION =>
+      case __TypeKind.UNION        =>
         Some(
           UnionTypeDefinition(
             description,
@@ -75,7 +75,7 @@ case class __Type(
             possibleTypes.getOrElse(Nil).flatMap(_.name)
           )
         )
-      case __TypeKind.ENUM =>
+      case __TypeKind.ENUM         =>
         Some(
           EnumTypeDefinition(
             description,
@@ -90,9 +90,15 @@ case class __Type(
             description,
             name.getOrElse(""),
             directives.getOrElse(Nil),
-            fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).map(_.toInputValueDefinition)
+            inputFields.getOrElse(Nil).map(_.toInputValueDefinition)
           )
         )
-      case _ => None
+      case _                       => None
+    }
+
+  def isNullable: Boolean =
+    kind match {
+      case __TypeKind.NON_NULL => false
+      case _                   => true
     }
 }

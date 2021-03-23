@@ -251,14 +251,13 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
           },
           testM("must include a field of the same name for every field defined in an interface") {
             IO.collectAll(
-                List(
-                  checkTypeError(objectWithFields("a"), "Object 'FieldsA' is missing field(s): b"),
-                  checkTypeError(objectWithFields("b"), "Object 'FieldsB' is missing field(s): a"),
-                  checkTypeError(objectWithFields("c"), "Object 'FieldsC' is missing field(s): a, b"),
-                  checkTypeError(objectWithFields("a", "c"), "Object 'FieldsAC' is missing field(s): b")
-                )
+              List(
+                checkTypeError(objectWithFields("a"), "Object 'FieldsA' is missing field(s): b"),
+                checkTypeError(objectWithFields("b"), "Object 'FieldsB' is missing field(s): a"),
+                checkTypeError(objectWithFields("c"), "Object 'FieldsC' is missing field(s): a, b"),
+                checkTypeError(objectWithFields("a", "c"), "Object 'FieldsAC' is missing field(s): b")
               )
-              .map(_.reduce(_ && _))
+            ).map(_.reduce(_ && _))
           },
           testM("field type when equal to interface field type is a valid sub-type") {
             assertM(graphQL(resolverTwoInterfaces).interpreter.run)(succeeds(anything))

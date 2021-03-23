@@ -95,12 +95,12 @@ object Types {
    */
   def collectTypes(t: __Type, existingTypes: List[__Type] = Nil): List[__Type] =
     t.kind match {
-      case __TypeKind.SCALAR | __TypeKind.ENUM =>
+      case __TypeKind.SCALAR | __TypeKind.ENUM   =>
         t.name.fold(existingTypes)(_ => if (existingTypes.exists(same(t, _))) existingTypes else t :: existingTypes)
       case __TypeKind.LIST | __TypeKind.NON_NULL =>
         t.ofType.fold(existingTypes)(collectTypes(_, existingTypes))
-      case _ =>
-        val list1 =
+      case _                                     =>
+        val list1         =
           t.name.fold(existingTypes)(_ =>
             if (existingTypes.exists(same(t, _))) {
               existingTypes.map {
@@ -108,14 +108,14 @@ object Types {
                   ex.copy(interfaces =
                     () =>
                       (ex.interfaces(), t.interfaces()) match {
-                        case (None, None)             => None
-                        case (Some(interfaces), None) => Some(interfaces)
-                        case (None, Some(interfaces)) => Some(interfaces)
+                        case (None, None)              => None
+                        case (Some(interfaces), None)  => Some(interfaces)
+                        case (None, Some(interfaces))  => Some(interfaces)
                         case (Some(left), Some(right)) =>
                           Some(left ++ right.filterNot(t => left.exists(_.name == t.name)))
                       }
                   )
-                case other => other
+                case other             => other
               }
             } else t :: existingTypes
           )
@@ -123,10 +123,9 @@ object Types {
           t.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).flatMap(f => f.`type` :: f.args.map(_.`type`)) ++
             t.inputFields.getOrElse(Nil).map(_.`type`) ++
             t.interfaces().getOrElse(Nil).map(() => _)
-        val list2 = embeddedTypes.foldLeft(list1) {
-          case (types, f) =>
-            val t = innerType(f())
-            t.name.fold(types)(_ => if (existingTypes.exists(same(t, _))) types else collectTypes(t, types))
+        val list2         = embeddedTypes.foldLeft(list1) { case (types, f) =>
+          val t = innerType(f())
+          t.name.fold(types)(_ => if (existingTypes.exists(same(t, _))) types else collectTypes(t, types))
         }
         t.possibleTypes.getOrElse(Nil).foldLeft(list2) { case (types, subtype) => collectTypes(subtype, types) }
     }
@@ -139,6 +138,13 @@ object Types {
       t1.name == t2.name && t1.kind == t2.kind && (t1.origin.isEmpty || t2.origin.isEmpty || t1.origin == t2.origin)
 
   def innerType(t: __Type): __Type = t.ofType.fold(t)(innerType)
+
+  def listOf(t: __Type): Option[__Type] =
+    t.kind match {
+      case __TypeKind.LIST     => t.ofType
+      case __TypeKind.NON_NULL => t.ofType.flatMap(listOf)
+      case _                   => None
+    }
 
   def name(t: __Type): String =
     (t.kind match {

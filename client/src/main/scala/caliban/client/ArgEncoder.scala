@@ -72,7 +72,7 @@ object ArgEncoder {
 
   implicit def list[A](implicit ev: ArgEncoder[A]): ArgEncoder[List[A]] = new ArgEncoder[List[A]] {
     override def encode(value: List[A]): __Value = __ListValue(value.map(ev.encode))
-    override def typeName: String                = s"[${ev.typeName}]"
+    override def typeName: String                = s"[${ev.formatTypeName}]"
   }
 
   implicit val json: ArgEncoder[Json] = new ArgEncoder[Json] {

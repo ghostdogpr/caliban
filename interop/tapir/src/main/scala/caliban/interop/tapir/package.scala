@@ -6,59 +6,59 @@ import caliban.schema._
 import caliban.wrappers.Wrapper
 import caliban.{ GraphQL, InputValue }
 import sttp.model.Method
+import sttp.monad.MonadError
 import sttp.tapir.internal._
-import sttp.tapir.monad.MonadError
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.{ Endpoint, EndpointIO, EndpointInput, EndpointOutput }
-import zio.query.{ URQuery, ZQuery }
-import zio.{ IO, URIO, ZIO }
+import _root_.zio.query.{ URQuery, ZQuery }
+import _root_.zio.{ IO, URIO, ZIO }
 
 package object tapir {
 
-  implicit class GraphQLInfallibleEndpoint[I, O](e: Endpoint[I, Nothing, O, Nothing]) {
-    def toGraphQL[R](logic: I => URIO[R, O])(
-      implicit inputSchema: caliban.schema.Schema[R, I],
+  implicit class GraphQLInfallibleEndpoint[I, O](e: Endpoint[I, Nothing, O, Any]) {
+    def toGraphQL[R](logic: I => URIO[R, O])(implicit
+      inputSchema: caliban.schema.Schema[R, I],
       outputSchema: caliban.schema.Schema[R, O],
       argBuilder: ArgBuilder[I]
     ): GraphQL[R] =
       tapir.toGraphQL(e.serverLogic[URQuery[R, *]](input => ZQuery.fromEffect(logic(input).map(Right(_)))))
 
-    def toGraphQLQuery[R](logic: I => URQuery[R, O])(
-      implicit inputSchema: caliban.schema.Schema[R, I],
+    def toGraphQLQuery[R](logic: I => URQuery[R, O])(implicit
+      inputSchema: caliban.schema.Schema[R, I],
       outputSchema: caliban.schema.Schema[R, O],
       argBuilder: ArgBuilder[I]
     ): GraphQL[R] =
       tapir.toGraphQL(e.serverLogic[URQuery[R, *]](input => logic(input).map(Right(_))))
   }
 
-  implicit class GraphQLEndpoint[I, E, O](e: Endpoint[I, E, O, Nothing]) {
-    def toGraphQL[R](logic: I => ZIO[R, E, O])(
-      implicit inputSchema: caliban.schema.Schema[R, I],
+  implicit class GraphQLEndpoint[I, E, O](e: Endpoint[I, E, O, Any]) {
+    def toGraphQL[R](logic: I => ZIO[R, E, O])(implicit
+      inputSchema: caliban.schema.Schema[R, I],
       outputSchema: caliban.schema.Schema[R, O],
       argBuilder: ArgBuilder[I]
     ): GraphQL[R] =
       tapir.toGraphQL(e.serverLogic[URQuery[R, *]](input => ZQuery.fromEffect(logic(input).either)))
 
-    def toGraphQLQuery[R](logic: I => ZQuery[R, E, O])(
-      implicit inputSchema: caliban.schema.Schema[R, I],
+    def toGraphQLQuery[R](logic: I => ZQuery[R, E, O])(implicit
+      inputSchema: caliban.schema.Schema[R, I],
       outputSchema: caliban.schema.Schema[R, O],
       argBuilder: ArgBuilder[I]
     ): GraphQL[R] =
       tapir.toGraphQL(e.serverLogic[URQuery[R, *]](logic(_).either))
   }
 
-  implicit class GraphQLInfallibleServerEndpoint[R, I, O](e: ServerEndpoint[I, Nothing, O, Nothing, URIO[R, *]]) {
-    def toGraphQL(
-      implicit inputSchema: caliban.schema.Schema[R, I],
+  implicit class GraphQLInfallibleServerEndpoint[R, I, O](e: ServerEndpoint[I, Nothing, O, Any, URIO[R, *]]) {
+    def toGraphQL(implicit
+      inputSchema: caliban.schema.Schema[R, I],
       outputSchema: caliban.schema.Schema[R, O],
       argBuilder: ArgBuilder[I]
     ): GraphQL[R] =
       tapir.toGraphQL(e.endpoint.serverLogic(input => ZQuery.fromEffect(e.logic(monadError)(input))))
   }
 
-  implicit class GraphQLServerEndpoint[R, I, E, O](e: ServerEndpoint[I, E, O, Nothing, ZIO[R, E, *]]) {
-    def toGraphQL(
-      implicit inputSchema: caliban.schema.Schema[R, I],
+  implicit class GraphQLServerEndpoint[R, I, E, O](e: ServerEndpoint[I, E, O, Any, ZIO[R, E, *]]) {
+    def toGraphQL(implicit
+      inputSchema: caliban.schema.Schema[R, I],
       outputSchema: caliban.schema.Schema[R, O],
       argBuilder: ArgBuilder[I]
     ): GraphQL[R] =
@@ -67,8 +67,8 @@ package object tapir {
       )
   }
 
-  def toGraphQL[R, I, E, O, S](serverEndpoint: ServerEndpoint[I, E, O, S, URQuery[R, *]])(
-    implicit inputSchema: caliban.schema.Schema[R, I],
+  def toGraphQL[R, I, E, O, S](serverEndpoint: ServerEndpoint[I, E, O, S, URQuery[R, *]])(implicit
+    inputSchema: caliban.schema.Schema[R, I],
     outputSchema: caliban.schema.Schema[R, O],
     argBuilder: ArgBuilder[I]
   ): GraphQL[R] = new GraphQL[R] {
@@ -88,11 +88,10 @@ package object tapir {
               }
             )
           } else fields
-        case _ =>
+        case _                       =>
           argNames.values.headOption.flatten
-            .fold(List.empty[__InputValue]) {
-              case (name, desc) =>
-                List(__InputValue(name, desc, () => if (optional) t else Types.makeNonNull(t), None))
+            .fold(List.empty[__InputValue]) { case (name, desc) =>
+              List(__InputValue(name, desc, () => if (optional) t else Types.makeNonNull(t), None))
             }
       }
 
@@ -140,7 +139,7 @@ package object tapir {
       serverEndpoint.endpoint.httpMethod.getOrElse(Method.GET) match {
         case Method.PUT | Method.POST | Method.DELETE =>
           RootSchemaBuilder(None, Some(makeOperation("Mutation")), None)
-        case _ =>
+        case _                                        =>
           RootSchemaBuilder(Some(makeOperation("Query")), None, None)
       }
 
@@ -154,8 +153,8 @@ package object tapir {
       .getOrElse(
         input
           .asVectorOfBasicInputs(includeAuth = false)
-          .collect {
-            case EndpointInput.FixedPath(s, _, _) => s
+          .collect { case EndpointInput.FixedPath(s, _, _) =>
+            s
           }
           .toList match {
           case Nil          => "root"
@@ -176,31 +175,32 @@ package object tapir {
       case EndpointIO.Body(_, _, info)                    => Vector(Some(("body", info.description)))
       case _: EndpointInput.MappedPair[_, _, _, _]        => Vector(None)
       case _: EndpointIO.MappedPair[_, _, _, _]           => Vector(None)
-    }.zipWithIndex.map {
-      case (v, index) =>
-        s"_${index + 1}" -> (v match {
-          case None               => None
-          case Some((name, desc)) => Some((name.replace("-", "_"), desc))
-        })
+    }.zipWithIndex.map { case (v, index) =>
+      s"_${index + 1}" -> (v match {
+        case None               => None
+        case Some((name, desc)) => Some((name.replace("-", "_"), desc))
+      })
     }.toMap
 
   private def monadError[R, E]: MonadError[ZIO[R, E, *]] = new MonadError[ZIO[R, E, *]] {
-    override def unit[T](t: T): ZIO[R, E, T]                                            = ZIO.succeed(t)
-    override def map[T, T2](fa: ZIO[R, E, T])(f: T => T2): ZIO[R, E, T2]                = fa.map(f)
-    override def flatMap[T, T2](fa: ZIO[R, E, T])(f: T => ZIO[R, E, T2]): ZIO[R, E, T2] = fa.flatMap(f)
-    override def error[T](t: Throwable): ZIO[R, E, T]                                   = ZIO.die(t)
-    override def handleError[T](rt: ZIO[R, E, T])(h: PartialFunction[Throwable, ZIO[R, E, T]]): ZIO[R, E, T] =
-      rt.catchSome {
-        case e: Throwable => h(e)
+    def unit[T](t: T): ZIO[R, E, T]                                                                        = ZIO.succeed(t)
+    def map[T, T2](fa: ZIO[R, E, T])(f: T => T2): ZIO[R, E, T2]                                            = fa.map(f)
+    def flatMap[T, T2](fa: ZIO[R, E, T])(f: T => ZIO[R, E, T2]): ZIO[R, E, T2]                             = fa.flatMap(f)
+    def error[T](t: Throwable): ZIO[R, E, T]                                                               = ZIO.die(t)
+    def handleWrappedError[T](rt: ZIO[R, E, T])(h: PartialFunction[Throwable, ZIO[R, E, T]]): ZIO[R, E, T] =
+      rt.catchSome { case e: Throwable =>
+        h(e)
       }
+    def ensure[T](f: ZIO[R, E, T], e: => ZIO[R, E, Unit]): ZIO[R, E, T]                                    = f.ensuring(e.ignore)
   }
 
   private def queryMonadError[R, E]: MonadError[ZQuery[R, E, *]] = new MonadError[ZQuery[R, E, *]] {
-    override def unit[T](t: T): ZQuery[R, E, T]                                                  = ZQuery.succeed(t)
-    override def map[T, T2](fa: ZQuery[R, E, T])(f: T => T2): ZQuery[R, E, T2]                   = fa.map(f)
-    override def flatMap[T, T2](fa: ZQuery[R, E, T])(f: T => ZQuery[R, E, T2]): ZQuery[R, E, T2] = fa.flatMap(f)
-    override def error[T](t: Throwable): ZQuery[R, E, T]                                         = ZQuery.die(t)
-    override def handleError[T](rt: ZQuery[R, E, T])(h: PartialFunction[Throwable, ZQuery[R, E, T]]): ZQuery[R, E, T] =
-      rt
+    def unit[T](t: T): ZQuery[R, E, T]                                                                              = ZQuery.succeed(t)
+    def map[T, T2](fa: ZQuery[R, E, T])(f: T => T2): ZQuery[R, E, T2]                                               = fa.map(f)
+    def flatMap[T, T2](fa: ZQuery[R, E, T])(f: T => ZQuery[R, E, T2]): ZQuery[R, E, T2]                             = fa.flatMap(f)
+    def error[T](t: Throwable): ZQuery[R, E, T]                                                                     = ZQuery.die(t)
+    def handleWrappedError[T](rt: ZQuery[R, E, T])(h: PartialFunction[Throwable, ZQuery[R, E, T]]): ZQuery[R, E, T] = rt
+    def ensure[T](f: ZQuery[R, E, T], e: => ZQuery[R, E, Unit]): ZQuery[R, E, T]                                    =
+      f.foldCauseM(cause => e.catchAll(_ => ZQuery.succeed(())) *> ZQuery.halt(cause), res => e.as(res))
   }
 }

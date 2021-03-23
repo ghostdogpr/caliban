@@ -1,8 +1,9 @@
 package caliban.wrappers
 
 import scala.annotation.tailrec
-import caliban.CalibanError.{ ParsingError, ValidationError }
+import caliban.CalibanError.{ ExecutionError, ParsingError, ValidationError }
 import caliban.execution.{ ExecutionRequest, FieldInfo }
+import caliban.introspection.adt.__Introspection
 import caliban.parsing.adt.Document
 import caliban.wrappers.Wrapper.CombinedWrapper
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
@@ -67,8 +68,17 @@ object Wrapper {
    * If false, simple pure values will be ignored.
    */
   case class FieldWrapper[R](
-    f: (ZQuery[R, CalibanError, ResponseValue], FieldInfo) => ZQuery[R, CalibanError, ResponseValue],
+    f: (ZQuery[R, ExecutionError, ResponseValue], FieldInfo) => ZQuery[R, ExecutionError, ResponseValue],
     wrapPureValues: Boolean = false
+  ) extends Wrapper[R]
+
+  /**
+   * Wrapper for the introspection query processing.
+   * Takes a function from a `ZIO[R, ExecutionError, __Introspection]` and that returns a
+   * `ZIO[R, ExecutionError, __Introspection]`.
+   */
+  case class IntrospectionWrapper[R](
+    f: ZIO[R, ExecutionError, __Introspection] => ZIO[R, ExecutionError, __Introspection]
   ) extends Wrapper[R]
 
   /**
@@ -107,7 +117,8 @@ object Wrapper {
       List[WrappingFunction[R, ParsingError, Document, String]],
       List[WrappingFunction[R, ValidationError, ExecutionRequest, Document]],
       List[WrappingFunction[R, Nothing, GraphQLResponse[CalibanError], ExecutionRequest]],
-      List[FieldWrapper[R]]
+      List[FieldWrapper[R]],
+      List[IntrospectionWrapper[R]]
     )
   ] =
     ZIO.foldLeft(wrappers)(
@@ -116,19 +127,25 @@ object Wrapper {
         List.empty[WrappingFunction[R, ParsingError, Document, String]],
         List.empty[WrappingFunction[R, ValidationError, ExecutionRequest, Document]],
         List.empty[WrappingFunction[R, Nothing, GraphQLResponse[CalibanError], ExecutionRequest]],
-        List.empty[FieldWrapper[R]]
+        List.empty[FieldWrapper[R]],
+        List.empty[IntrospectionWrapper[R]]
       )
     ) {
-      case ((o, p, v, e, f), wrapper: OverallWrapper[R])    => UIO.succeed((wrapper.f :: o, p, v, e, f))
-      case ((o, p, v, e, f), wrapper: ParsingWrapper[R])    => UIO.succeed((o, wrapper.f :: p, v, e, f))
-      case ((o, p, v, e, f), wrapper: ValidationWrapper[R]) => UIO.succeed((o, p, wrapper.f :: v, e, f))
-      case ((o, p, v, e, f), wrapper: ExecutionWrapper[R])  => UIO.succeed((o, p, v, wrapper.f :: e, f))
-      case ((o, p, v, e, f), wrapper: FieldWrapper[R])      => UIO.succeed((o, p, v, e, wrapper :: f))
-      case ((o, p, v, e, f), CombinedWrapper(wrappers)) =>
-        decompose(wrappers).map { case (o2, p2, v2, e2, f2) => (o2 ++ o, p2 ++ p, v2 ++ v, e2 ++ e, f2 ++ f) }
-      case ((o, p, v, e, f), EffectfulWrapper(wrapper)) =>
+      case ((o, p, v, e, f, i), wrapper: OverallWrapper[R])       => UIO.succeed((wrapper.f :: o, p, v, e, f, i))
+      case ((o, p, v, e, f, i), wrapper: ParsingWrapper[R])       => UIO.succeed((o, wrapper.f :: p, v, e, f, i))
+      case ((o, p, v, e, f, i), wrapper: ValidationWrapper[R])    => UIO.succeed((o, p, wrapper.f :: v, e, f, i))
+      case ((o, p, v, e, f, i), wrapper: ExecutionWrapper[R])     => UIO.succeed((o, p, v, wrapper.f :: e, f, i))
+      case ((o, p, v, e, f, i), wrapper: FieldWrapper[R])         => UIO.succeed((o, p, v, e, wrapper :: f, i))
+      case ((o, p, v, e, f, i), wrapper: IntrospectionWrapper[R]) => UIO.succeed((o, p, v, e, f, wrapper :: i))
+      case ((o, p, v, e, f, i), CombinedWrapper(wrappers))        =>
+        decompose(wrappers).map { case (o2, p2, v2, e2, f2, i2) =>
+          (o2 ++ o, p2 ++ p, v2 ++ v, e2 ++ e, f2 ++ f, i2 ++ i)
+        }
+      case ((o, p, v, e, f, i), EffectfulWrapper(wrapper))        =>
         wrapper.flatMap(w =>
-          decompose(List(w)).map { case (o2, p2, v2, e2, f2) => (o2 ++ o, p2 ++ p, v2 ++ v, e2 ++ e, f2 ++ f) }
+          decompose(List(w)).map { case (o2, p2, v2, e2, f2, i2) =>
+            (o2 ++ o, p2 ++ p, v2 ++ v, e2 ++ e, f2 ++ f, i2 ++ i)
+          }
         )
     }
 

@@ -1,6 +1,7 @@
 package caliban
 
 import caliban.Value.NullValue
+import caliban.execution.QueryExecution
 import zio.{ Has, IO, NeedsEnv, Tag, URIO, ZEnv, ZLayer }
 
 /**
@@ -24,12 +25,14 @@ trait GraphQLInterpreter[-R, +E] { self =>
    * @param request a GraphQL request
    * @param skipValidation skips the validation step if true
    * @param enableIntrospection returns an error for introspection queries when false
+   * @param queryExecution a strategy for executing queries in parallel or not
    * @return an effect that either fails with an `E` or succeeds with a [[ResponseValue]]
    */
   def executeRequest(
     request: GraphQLRequest,
     skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true
+    enableIntrospection: Boolean = true,
+    queryExecution: QueryExecution = QueryExecution.Parallel
   ): URIO[R, GraphQLResponse[E]]
 
   /**
@@ -40,6 +43,7 @@ trait GraphQLInterpreter[-R, +E] { self =>
    * @param extensions a map of extensions
    * @param skipValidation skips the validation step if true
    * @param enableIntrospection returns an error for introspection queries when false
+   * @param queryExecution a strategy for executing queries in parallel or not
    * @return an effect that either fails with an `E` or succeeds with a [[ResponseValue]]
    */
   def execute(
@@ -48,12 +52,14 @@ trait GraphQLInterpreter[-R, +E] { self =>
     variables: Map[String, InputValue] = Map(),
     extensions: Map[String, InputValue] = Map(),
     skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true
+    enableIntrospection: Boolean = true,
+    queryExecution: QueryExecution = QueryExecution.Parallel
   ): URIO[R, GraphQLResponse[E]] =
     executeRequest(
       GraphQLRequest(Some(query), operationName, Some(variables), Some(extensions)),
       skipValidation = skipValidation,
-      enableIntrospection = enableIntrospection
+      enableIntrospection = enableIntrospection,
+      queryExecution = queryExecution
     )
 
   /**
@@ -108,9 +114,10 @@ trait GraphQLInterpreter[-R, +E] { self =>
     override def executeRequest(
       request: GraphQLRequest,
       skipValidation: Boolean,
-      enableIntrospection: Boolean
-    ): URIO[R2, GraphQLResponse[E2]] =
-      f(self.executeRequest(request, skipValidation = skipValidation, enableIntrospection))
+      enableIntrospection: Boolean,
+      queryExecution: QueryExecution
+    ): URIO[R2, GraphQLResponse[E2]]                          =
+      f(self.executeRequest(request, skipValidation = skipValidation, enableIntrospection, queryExecution))
   }
 
 }

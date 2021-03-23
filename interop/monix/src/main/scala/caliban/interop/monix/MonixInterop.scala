@@ -1,5 +1,6 @@
 package caliban.interop.monix
 
+import caliban.execution.QueryExecution
 import caliban.introspection.adt.__Type
 import caliban.schema.Step.{ QueryStep, StreamStep }
 import caliban.schema.{ Schema, Step, Types }
@@ -21,7 +22,8 @@ object MonixInterop {
     variables: Map[String, InputValue] = Map(),
     extensions: Map[String, InputValue] = Map(),
     skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true
+    enableIntrospection: Boolean = true,
+    queryExecution: QueryExecution = QueryExecution.Parallel
   )(implicit runtime: Runtime[R]): MonixTask[GraphQLResponse[E]] =
     MonixTask.async { cb =>
       val execution = graphQL.execute(
@@ -30,7 +32,8 @@ object MonixInterop {
         variables,
         extensions,
         skipValidation = skipValidation,
-        enableIntrospection = enableIntrospection
+        enableIntrospection = enableIntrospection,
+        queryExecution
       )
       runtime.unsafeRunAsync(execution)(exit => cb(exit.toEither))
     }
@@ -47,7 +50,7 @@ object MonixInterop {
     new Schema[R, MonixTask[A]] {
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def optional: Boolean                                         = ev.optional
-      override def resolve(value: MonixTask[A]): Step[R] =
+      override def resolve(value: MonixTask[A]): Step[R]                     =
         QueryStep(ZQuery.fromEffect(value.to[Task].map(ev.resolve)))
     }
 
@@ -55,7 +58,7 @@ object MonixInterop {
     queueSize: Int
   )(implicit ev: Schema[R, A], ev2: ConcurrentEffect[MonixTask]): Schema[R, Observable[A]] =
     new Schema[R, Observable[A]] {
-      override def optional: Boolean = true
+      override def optional: Boolean                      = true
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
         val t = ev.toType_(isInput, isSubscription)
         if (isSubscription) t else Types.makeList(if (ev.optional) t else Types.makeNonNull(t))

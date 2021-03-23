@@ -7,8 +7,8 @@ import caliban.client.Operations.IsOperation
 import caliban.client.Selection.Directive
 import caliban.client.__Value.__ObjectValue
 import io.circe.parser
-import sttp.client._
-import sttp.client.circe._
+import sttp.client3._
+import sttp.client3.circe._
 import sttp.model.Uri
 import io.circe.Json
 
@@ -57,12 +57,12 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
     queryName: Option[String] = None
   )(implicit ev: IsOperation[Origin1]): GraphQLRequest = {
     val (fields, variables) = SelectionBuilder.toGraphQL(toSelectionSet, useVariables)
-    val variableDef =
+    val variableDef         =
       if (variables.nonEmpty)
         s"(${variables.map { case (name, (_, typeName)) => s"$$$name: $typeName" }.mkString(",")})"
       else ""
-    val nameDef   = queryName.fold("")(name => s" $name ")
-    val operation = s"${ev.operationName}$nameDef$variableDef{$fields}"
+    val nameDef             = queryName.fold("")(name => s" $name ")
+    val operation           = s"${ev.operationName}$nameDef$variableDef{$fields}"
     GraphQLRequest(operation, variables.map { case (k, (v, _)) => k -> v })
   }
 
@@ -76,7 +76,7 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
     uri: Uri,
     useVariables: Boolean = false,
     queryName: Option[String] = None
-  )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, A1], Nothing] =
+  )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, A1], Any] =
     toRequestWithExtensions[A1, Origin1](uri, useVariables, queryName)(ev).mapResponse {
       case Right((r, _)) => Right(r)
       case Left(l)       => Left(l)
@@ -92,30 +92,30 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
     uri: Uri,
     useVariables: Boolean = false,
     queryName: Option[String] = None
-  )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, (A1, Option[Json])], Nothing] =
+  )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, (A1, Option[Json])], Any] =
     basicRequest
       .post(uri)
       .body(toGraphQL(useVariables, queryName))
       .mapResponse { response =>
         for {
-          resp <- response.left.map(CommunicationError(_))
-          parsed <- parser
-                     .decode[GraphQLResponse](resp)
-                     .left
-                     .map(ex => DecodingError("Json deserialization error", Some(ex)))
-          data <- if (parsed.errors.nonEmpty) Left(ServerError(parsed.errors)) else Right(parsed.data)
+          resp        <- response.left.map(CommunicationError(_))
+          parsed      <- parser
+                           .decode[GraphQLResponse](resp)
+                           .left
+                           .map(ex => DecodingError("Json deserialization error", Some(ex)))
+          data        <- if (parsed.errors.nonEmpty) Left(ServerError(parsed.errors)) else Right(parsed.data)
           objectValue <- data match {
-                          case Some(o: __ObjectValue) => Right(o)
-                          case _                      => Left(DecodingError("Result is not an object"))
-                        }
-          result <- fromGraphQL(objectValue)
+                           case Some(o: __ObjectValue) => Right(o)
+                           case _                      => Left(DecodingError("Result is not an object"))
+                         }
+          result      <- fromGraphQL(objectValue)
         } yield (result, parsed.extensions)
       }
 
   /**
    * Maps a tupled result to a type `Res` using a  function `f` with 2 parameters
    */
-  def mapN[B, C, Res](f: (B, C) => Res)(implicit ev: A <:< (B, C)): SelectionBuilder[Origin, Res] =
+  def mapN[B, C, Res](f: (B, C) => Res)(implicit ev: A <:< (B, C)): SelectionBuilder[Origin, Res]            =
     self.map(ev.andThen { case (b, c) => f(b, c) })
 
   /**
@@ -129,7 +129,7 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, Res](
     f: (B, C, D, E) => Res
-  )(implicit ev: A <:< (((B, C), D), E)): SelectionBuilder[Origin, Res] =
+  )(implicit ev: A <:< (((B, C), D), E)): SelectionBuilder[Origin, Res]                                      =
     self.map(ev.andThen { case (((b, c), d), e) => f(b, c, d, e) })
 
   /**
@@ -137,7 +137,7 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, F, Res](
     f: (B, C, D, E, F) => Res
-  )(implicit ev: A <:< ((((B, C), D), E), F)): SelectionBuilder[Origin, Res] =
+  )(implicit ev: A <:< ((((B, C), D), E), F)): SelectionBuilder[Origin, Res]                                 =
     self.map(ev.andThen { case ((((b, c), d), e), ff) => f(b, c, d, e, ff) })
 
   /**
@@ -145,7 +145,7 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, F, G, Res](
     f: (B, C, D, E, F, G) => Res
-  )(implicit ev: A <:< (((((B, C), D), E), F), G)): SelectionBuilder[Origin, Res] =
+  )(implicit ev: A <:< (((((B, C), D), E), F), G)): SelectionBuilder[Origin, Res]                            =
     self.map(ev.andThen { case (((((b, c), d), e), ff), g) => f(b, c, d, e, ff, g) })
 
   /**
@@ -153,7 +153,7 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, F, G, H, Res](
     f: (B, C, D, E, F, G, H) => Res
-  )(implicit ev: A <:< ((((((B, C), D), E), F), G), H)): SelectionBuilder[Origin, Res] =
+  )(implicit ev: A <:< ((((((B, C), D), E), F), G), H)): SelectionBuilder[Origin, Res]                       =
     self.map(ev.andThen { case ((((((b, c), d), e), ff), g), h) => f(b, c, d, e, ff, g, h) })
 
   /**
@@ -161,7 +161,7 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, F, G, H, I, Res](
     f: (B, C, D, E, F, G, H, I) => Res
-  )(implicit ev: A <:< (((((((B, C), D), E), F), G), H), I)): SelectionBuilder[Origin, Res] =
+  )(implicit ev: A <:< (((((((B, C), D), E), F), G), H), I)): SelectionBuilder[Origin, Res]                  =
     self.map(ev.andThen { case (((((((b, c), d), e), ff), g), h), i) => f(b, c, d, e, ff, g, h, i) })
 
   /**
@@ -169,7 +169,7 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, F, G, H, I, J, Res](
     f: (B, C, D, E, F, G, H, I, J) => Res
-  )(implicit ev: A <:< ((((((((B, C), D), E), F), G), H), I), J)): SelectionBuilder[Origin, Res] =
+  )(implicit ev: A <:< ((((((((B, C), D), E), F), G), H), I), J)): SelectionBuilder[Origin, Res]             =
     self.map(ev.andThen { case ((((((((b, c), d), e), ff), g), h), i), j) => f(b, c, d, e, ff, g, h, i, j) })
 
   /**
@@ -177,7 +177,7 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, F, G, H, I, J, K, Res](
     f: (B, C, D, E, F, G, H, I, J, K) => Res
-  )(implicit ev: A <:< (((((((((B, C), D), E), F), G), H), I), J), K)): SelectionBuilder[Origin, Res] =
+  )(implicit ev: A <:< (((((((((B, C), D), E), F), G), H), I), J), K)): SelectionBuilder[Origin, Res]        =
     self.map(ev.andThen { case (((((((((b, c), d), e), ff), g), h), i), j), k) => f(b, c, d, e, ff, g, h, i, j, k) })
 
   /**
@@ -185,9 +185,9 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L) => Res
-  )(implicit ev: A <:< ((((((((((B, C), D), E), F), G), H), I), J), K), L)): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen {
-      case ((((((((((b, c), d), e), ff), g), h), i), j), k), l) => f(b, c, d, e, ff, g, h, i, j, k, l)
+  )(implicit ev: A <:< ((((((((((B, C), D), E), F), G), H), I), J), K), L)): SelectionBuilder[Origin, Res]   =
+    self.map(ev.andThen { case ((((((((((b, c), d), e), ff), g), h), i), j), k), l) =>
+      f(b, c, d, e, ff, g, h, i, j, k, l)
     })
 
   /**
@@ -196,8 +196,8 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M) => Res
   )(implicit ev: A <:< (((((((((((B, C), D), E), F), G), H), I), J), K), L), M)): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen {
-      case (((((((((((b, c), d), e), ff), g), h), i), j), k), l), m) => f(b, c, d, e, ff, g, h, i, j, k, l, m)
+    self.map(ev.andThen { case (((((((((((b, c), d), e), ff), g), h), i), j), k), l), m) =>
+      f(b, c, d, e, ff, g, h, i, j, k, l, m)
     })
 
   /**
@@ -206,8 +206,8 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N) => Res
   )(implicit ev: A <:< ((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N)): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen {
-      case ((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n) => f(b, c, d, e, ff, g, h, i, j, k, l, m, n)
+    self.map(ev.andThen { case ((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n) =>
+      f(b, c, d, e, ff, g, h, i, j, k, l, m, n)
     })
 
   /**
@@ -215,12 +215,11 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O) => Res
-  )(
-    implicit ev: A <:< (((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O)
+  )(implicit
+    ev: A <:< (((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O)
   ): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen {
-      case (((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o) =>
-        f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o)
+    self.map(ev.andThen { case (((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o) =>
+      f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o)
     })
 
   /**
@@ -228,12 +227,11 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P) => Res
-  )(
-    implicit ev: A <:< ((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P)
+  )(implicit
+    ev: A <:< ((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P)
   ): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen {
-      case ((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p) =>
-        f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p)
+    self.map(ev.andThen { case ((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p) =>
+      f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p)
     })
 
   /**
@@ -241,12 +239,11 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q) => Res
-  )(
-    implicit ev: A <:< (((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q)
+  )(implicit
+    ev: A <:< (((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q)
   ): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen {
-      case (((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q) =>
-        f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q)
+    self.map(ev.andThen { case (((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q) =>
+      f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q)
     })
 
   /**
@@ -254,12 +251,11 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R) => Res
-  )(
-    implicit ev: A <:< ((((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q), R)
+  )(implicit
+    ev: A <:< ((((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q), R)
   ): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen {
-      case ((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r) =>
-        f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r)
+    self.map(ev.andThen { case ((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r) =>
+      f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r)
     })
 
   /**
@@ -267,8 +263,8 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S) => Res
-  )(
-    implicit ev: A <:< (((((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q), R), S)
+  )(implicit
+    ev: A <:< (((((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q), R), S)
   ): SelectionBuilder[Origin, Res] =
     self.map(ev.andThen {
       case (((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r), s) =>
@@ -280,8 +276,8 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T) => Res
-  )(
-    implicit ev: A <:< ((((((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q), R), S), T)
+  )(implicit
+    ev: A <:< ((((((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q), R), S), T)
   ): SelectionBuilder[Origin, Res] =
     self.map(ev.andThen {
       case ((((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r), s), t) =>
@@ -293,8 +289,8 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U) => Res
-  )(
-    implicit ev: A <:< (((((((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q), R), S), T), U)
+  )(implicit
+    ev: A <:< (((((((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q), R), S), T), U)
   ): SelectionBuilder[Origin, Res] =
     self.map(ev.andThen {
       case (((((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r), s), t), u) =>
@@ -306,8 +302,8 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V) => Res
-  )(
-    implicit ev: A <:< (
+  )(implicit
+    ev: A <:< (
       (((((((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q), R), S), T), U),
       V
     )
@@ -322,16 +318,16 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W) => Res
-  )(
-    implicit ev: A <:< (
+  )(implicit
+    ev: A <:< (
       ((((((((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q), R), S), T), U), V),
       W
     )
   ): SelectionBuilder[Origin, Res] =
     self.map(ev.andThen {
       case (
-          ((((((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r), s), t), u), v),
-          w
+            ((((((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r), s), t), u), v),
+            w
           ) =>
         f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w)
     })
@@ -348,15 +344,15 @@ object SelectionBuilder {
     alias: Option[String] = None,
     arguments: List[Argument[_]] = Nil,
     directives: List[Directive] = Nil
-  ) extends SelectionBuilder[Origin, A] { self =>
+  )                        extends SelectionBuilder[Origin, A] { self =>
     override def fromGraphQL(value: __Value): Either[DecodingError, A] =
       value match {
         case __ObjectValue(fields) =>
-          fields.find {
-            case (o, _) => alias.getOrElse(name) + math.abs(self.hashCode) == o || alias.contains(o) || name == o
+          fields.find { case (o, _) =>
+            alias.getOrElse(name) + math.abs(self.hashCode) == o || alias.contains(o) || name == o
           }.toRight(DecodingError(s"Missing field $name"))
             .flatMap(v => builder.fromGraphQL(v._2))
-        case _ => Left(DecodingError(s"Invalid field type $name"))
+        case _                     => Left(DecodingError(s"Invalid field type $name"))
       }
 
     override def withDirective(directive: Directive): SelectionBuilder[Origin, A] =
@@ -393,7 +389,7 @@ object SelectionBuilder {
 
     override def withAlias(alias: String): SelectionBuilder[Origin, B] = Mapping(builder.withAlias(alias), f)
   }
-  case class Pure[A](a: A) extends SelectionBuilder[Any, A] { self =>
+  case class Pure[A](a: A) extends SelectionBuilder[Any, A]    { self =>
     override private[caliban] def toSelectionSet = Nil
 
     override private[caliban] def fromGraphQL(value: __Value) = Right(a)
@@ -414,8 +410,8 @@ object SelectionBuilder {
     tail: SelectionBuilder[Origin, A]*
   ): SelectionBuilder[Origin, List[A]] =
     tail
-      .foldLeft(head.map(List(_))) {
-        case (res, sel) => (res ~ sel).map { case (as, a) => a :: as }
+      .foldLeft(head.map(List(_))) { case (res, sel) =>
+        (res ~ sel).map { case (as, a) => a :: as }
       }
       .map(_.reverse)
 
@@ -424,7 +420,7 @@ object SelectionBuilder {
     useVariables: Boolean,
     variables: SMap[String, (__Value, String)] = SMap()
   ): (String, SMap[String, (__Value, String)]) = {
-    val fieldNames = fields.collect { case f: Selection.Field => f }.groupBy(_.name).map { case (k, v) => k -> v.size }
+    val fieldNames            = fields.collect { case f: Selection.Field => f }.groupBy(_.name).map { case (k, v) => k -> v.size }
     val (fields2, variables2) = fields
       .foldLeft((List.empty[String], variables)) {
         case ((fields, variables), Selection.InlineFragment(onType, selection)) =>
@@ -434,24 +430,22 @@ object SelectionBuilder {
         case ((fields, variables), Selection.Field(alias, name, arguments, directives, selection, code)) =>
           // format arguments
           val (args, variables2) = arguments
-            .foldLeft((List.empty[String], variables)) {
-              case ((args, variables), a) =>
-                val (a2, v2) = a.toGraphQL(useVariables, variables)
-                (a2 :: args, v2)
+            .foldLeft((List.empty[String], variables)) { case ((args, variables), a) =>
+              val (a2, v2) = a.toGraphQL(useVariables, variables)
+              (a2 :: args, v2)
             }
-          val argString = args.filterNot(_.isEmpty).reverse.mkString(",") match {
+          val argString          = args.filterNot(_.isEmpty).reverse.mkString(",") match {
             case ""   => ""
             case args => s"($args)"
           }
 
           // format directives
           val (dirs, variables3) = directives
-            .foldLeft((List.empty[String], variables2)) {
-              case ((dirs, variables), d) =>
-                val (d2, v2) = d.toGraphQL(useVariables, variables)
-                (d2 :: dirs, v2)
+            .foldLeft((List.empty[String], variables2)) { case ((dirs, variables), d) =>
+              val (d2, v2) = d.toGraphQL(useVariables, variables)
+              (d2 :: dirs, v2)
             }
-          val dirString = dirs.reverse.mkString(" ") match {
+          val dirString          = dirs.reverse.mkString(" ") match {
             case ""   => ""
             case dirs => s" $dirs"
           }

@@ -14,17 +14,17 @@ import play.api.Mode
 import play.api.mvc.DefaultControllerComponents
 import play.core.server.{ AkkaHttpServer, Server, ServerConfig }
 import play.mvc.Http.MimeTypes
-import sttp.client._
-import sttp.client.asynchttpclient.zio.{ AsyncHttpClientZioBackend, SttpClient }
+import sttp.client3._
+import sttp.client3.asynchttpclient.zio.{ AsyncHttpClientZioBackend, _ }
+import zio.{ Has, Runtime, UIO, ZIO, ZLayer }
 import zio.blocking._
 import zio.clock.Clock
 import zio.console.Console
 import zio.internal.Platform
 import zio.random.Random
-import zio.test.Assertion._
 import zio.test._
+import zio.test.Assertion._
 import zio.test.environment.TestEnvironment
-import zio.{ Has, Runtime, UIO, ZIO, ZLayer }
 
 case class Response[A](data: A)
 case class UploadFile(uploadFile: TestAPI.File)
@@ -43,10 +43,10 @@ object Service {
     )
 
   def uploadFiles(files: List[Upload]): ZIO[Uploads with Blocking, Throwable, List[TestAPI.File]] =
-    ZIO.collectAllPar(for {
-      file <- files
-    } yield {
+    ZIO.collectAllPar(
       for {
+        file <- files
+      } yield for {
         bytes <- file.allBytes
         meta  <- file.meta
       } yield TestAPI.File(
@@ -55,7 +55,7 @@ object Service {
         meta.map(_.fileName).getOrElse(""),
         meta.flatMap(_.contentType).getOrElse("")
       )
-    })
+    )
 
   def sha256(b: Array[Byte]) =
     MessageDigest.getInstance("SHA-256").digest(b)
@@ -146,15 +146,15 @@ object AdapterSpec extends DefaultRunnableSpec {
           .contentType("multipart/form-data")
 
         val body = for {
-          response <- SttpClient.send(
-                       request.mapResponse { strRespOrError =>
-                         for {
-                           resp           <- strRespOrError
-                           json           <- parse(resp)
-                           fileUploadResp <- json.as[Response[UploadFile]]
-                         } yield fileUploadResp
-                       }
-                     )
+          response <- send(
+                        request.mapResponse { strRespOrError =>
+                          for {
+                            resp           <- strRespOrError
+                            json           <- parse(resp)
+                            fileUploadResp <- json.as[Response[UploadFile]]
+                          } yield fileUploadResp
+                        }
+                      )
         } yield response.body
 
         assertM(body.map(_.toOption.get.data.uploadFile))(
@@ -186,15 +186,15 @@ object AdapterSpec extends DefaultRunnableSpec {
           )
 
         val body = for {
-          response <- SttpClient.send(
-                       request.mapResponse { strRespOrError =>
-                         for {
-                           resp           <- strRespOrError
-                           json           <- parse(resp)
-                           fileUploadResp <- json.as[Response[UploadFiles]]
-                         } yield fileUploadResp
-                       }
-                     )
+          response <- send(
+                        request.mapResponse { strRespOrError =>
+                          for {
+                            resp           <- strRespOrError
+                            json           <- parse(resp)
+                            fileUploadResp <- json.as[Response[UploadFiles]]
+                          } yield fileUploadResp
+                        }
+                      )
         } yield response.body
 
         assertM(body.map(_.toOption.get.data.uploadFiles))(

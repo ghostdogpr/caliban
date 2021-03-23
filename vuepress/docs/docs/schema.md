@@ -45,7 +45,7 @@ If you want Caliban to support other standard types, feel free to [file an issue
 
 ::: warning Schema derivation issues
 Magnolia (the library used to derive the schema at compile-time) sometimes has some trouble generating schemas with a lot of nested types, or types reused in multiple places.
-to deal with this, you can declare schemas for your case classes and sealed traits explicitly:
+To deal with this, you can declare schemas for your case classes and sealed traits explicitly:
 
 ```scala
 implicit val roleSchema      = Schema.gen[Role]
@@ -54,6 +54,13 @@ implicit val characterSchema = Schema.gen[Character]
 
 Make sure those implicits are in scope when you call `graphQL(...)`. This will make Magnolia's job easier by pre-generating schemas for those classes and re-using them when needed.
 This will also improve compilation times and generate less bytecode.
+
+If the derivation fails and you're not sure why, you can also call Magnolia's macro directly by using `genMacro`.
+The compilation will return better error messages in case something is missing:
+
+```scala
+implicit val characterSchema = Schema.genMacro[Character].schema
+```
 :::
 
 ## Enums, unions, interfaces
@@ -213,7 +220,7 @@ Caliban can automatically generate Scala code from a GraphQL schema.
 
 In order to use this feature, add the `caliban-codegen-sbt` sbt plugin to your `project/plugins.sbt` file:
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "0.9.3")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "0.9.5")
 ```
 
 And enable it in your `build.sbt` file:
@@ -234,3 +241,48 @@ The generated code will be formatted with Scalafmt using the configuration defin
 The package of the generated code is derived from the folder of `outputPath`. This can be overridden by providing an alternative package with the `--packageName` option.
 
 By default, each Query and Mutation will be wrapped into a `zio.UIO` effect. This can be overridden by providing an alternative effect with the `--effect` option.
+
+## Building Schemas by hand
+
+Sometimes for whatever reason schema generation fails. This can happen if your schema has co-recursive types and Magnolia is unable
+to generate a schema for them. In cases like these you may need to instead create your own schema by hand.
+
+Consider the case where you have three types which create cyclical dependencies on one another
+
+```scala
+case class Group(id: String, users: UIO[List[User]], parent: UIO[Option[Group]], organization: UIO[Organization])
+case class Organization(id: String, groups: UIO[List[Group]])
+case class User(id: String, group: UIO[Group])
+```
+
+These three types all depend on one another and if you attempt to generate a schema from them you will either end up with compiler errors or you will end up with a nasty runtime
+error from a `NullPointerException`. To help the compiler out we can hand generate the types for these case classes instead.
+
+```scala
+import caliban.schema.Schema.{obj, field}
+
+implicit lazy val groupSchema: Schema[Any, Group] = obj("Group", Some("A group of users"))(
+  implicit ft =>
+    List(
+      field("id")(_.id),
+      field("users")(_.users),
+      field("parent")(_.parent),
+      field("organization")(_.organization)
+    )
+)
+implicit lazy val orgSchema: Schema[Any, Organization] = obj("Organization", Some("An organization of groups"))(
+  implicit ft =>
+    List(
+      field("id")(_.id),
+      field("groups")(_.groups)
+    )
+)
+
+implicit lazy val userSchema: Schema[Any, User] = obj("User", Some("A user of the service"))(
+  implicit ft =>
+    List(
+      field("id")(_.id),
+      field("group")(_.group)
+    )
+)
+```

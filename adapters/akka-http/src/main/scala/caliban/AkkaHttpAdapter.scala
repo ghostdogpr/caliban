@@ -1,12 +1,12 @@
 package caliban
 
 import akka.http.scaladsl.model.MediaTypes.`application/json`
-import akka.http.scaladsl.model.ws.{ Message, TextMessage }
 import akka.http.scaladsl.model._
+import akka.http.scaladsl.model.ws.{ Message, TextMessage }
 import akka.http.scaladsl.server.Directives.{ complete, extractRequestContext }
 import akka.http.scaladsl.server.{ RequestContext, Route }
 import akka.http.scaladsl.unmarshalling.FromEntityUnmarshaller
-import akka.stream.scaladsl.{ Flow, Sink, Source, SourceQueueWithComplete }
+import akka.stream.scaladsl.{ Flow, Keep, Sink, Source, SourceQueueWithComplete }
 import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
 import caliban.AkkaHttpAdapter.{ `application/graphql`, ContextWrapper }
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
@@ -16,7 +16,9 @@ import zio._
 import zio.clock.Clock
 import zio.duration._
 
+import scala.concurrent.duration.{ Duration => ScalaDuration }
 import scala.concurrent.ExecutionContext
+import caliban.execution.QueryExecution
 
 /**
  * Akka-http adapter for caliban with pluggable json backend.
@@ -51,21 +53,36 @@ trait AkkaHttpAdapter {
     interpreter: GraphQLInterpreter[R, E],
     request: GraphQLRequest,
     skipValidation: Boolean,
-    enableIntrospection: Boolean
+    enableIntrospection: Boolean,
+    queryExecution: QueryExecution
   ): URIO[R, HttpResponse] =
     interpreter
-      .executeRequest(request, skipValidation = skipValidation, enableIntrospection = enableIntrospection)
+      .executeRequest(
+        request,
+        skipValidation = skipValidation,
+        enableIntrospection = enableIntrospection,
+        queryExecution = queryExecution
+      )
       .foldCause(
         cause => json.encodeGraphQLResponse(GraphQLResponse(NullValue, cause.defects)),
         json.encodeGraphQLResponse
       )
       .map(gqlResult => HttpResponse(StatusCodes.OK, entity = HttpEntity(`application/json`, gqlResult)))
 
+  private def supportFederatedTracing(context: RequestContext, request: GraphQLRequest): GraphQLRequest =
+    if (
+      context.request.headers
+        .exists(h => h.is(GraphQLRequest.`apollo-federation-include-trace`) && h.value() == GraphQLRequest.ftv1)
+    ) {
+      request.withFederatedTracing
+    } else request
+
   def completeRequest[R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
-    contextWrapper: ContextWrapper[R, HttpResponse] = ContextWrapper.empty
+    contextWrapper: ContextWrapper[R, HttpResponse] = ContextWrapper.empty,
+    queryExecution: QueryExecution = QueryExecution.Parallel
   )(request: GraphQLRequest)(implicit ec: ExecutionContext, runtime: Runtime[R]): Route =
     extractRequestContext { ctx =>
       complete(
@@ -74,9 +91,10 @@ trait AkkaHttpAdapter {
             contextWrapper(ctx) {
               executeHttpResponse(
                 interpreter,
-                request,
+                supportFederatedTracing(ctx, request),
                 skipValidation = skipValidation,
-                enableIntrospection = enableIntrospection
+                enableIntrospection = enableIntrospection,
+                queryExecution = queryExecution
               )
             }
           )
@@ -88,7 +106,8 @@ trait AkkaHttpAdapter {
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
-    contextWrapper: ContextWrapper[R, HttpResponse] = ContextWrapper.empty
+    contextWrapper: ContextWrapper[R, HttpResponse] = ContextWrapper.empty,
+    queryExecution: QueryExecution = QueryExecution.Parallel
   )(implicit ec: ExecutionContext, runtime: Runtime[R]): Route = {
     import akka.http.scaladsl.server.Directives._
 
@@ -103,7 +122,8 @@ trait AkkaHttpAdapter {
                 interpreter,
                 skipValidation = skipValidation,
                 enableIntrospection = enableIntrospection,
-                contextWrapper = contextWrapper
+                contextWrapper = contextWrapper,
+                queryExecution = queryExecution
               )
             )
       }
@@ -111,7 +131,7 @@ trait AkkaHttpAdapter {
       post {
         extractRequestEntity { requestEntity =>
           parameters(Symbol("query").?, Symbol("operationName").?, Symbol("variables").?, Symbol("extensions").?) {
-            case (query @ Some(_), op, vars, ext) =>
+            case (query @ Some(_), op, vars, ext)                                  =>
               json
                 .parseHttpRequest(query, op, vars, ext)
                 .fold(
@@ -132,7 +152,7 @@ trait AkkaHttpAdapter {
                   contextWrapper = contextWrapper
                 )(GraphQLRequest(Some(query)))
               )
-            case _ =>
+            case _                                                                 =>
               entity(as[GraphQLRequest])(
                 completeRequest(
                   interpreter,
@@ -151,7 +171,9 @@ trait AkkaHttpAdapter {
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     keepAliveTime: Option[Duration] = None,
-    contextWrapper: ContextWrapper[R, GraphQLResponse[E]] = ContextWrapper.empty
+    contextWrapper: ContextWrapper[R, GraphQLResponse[E]] = ContextWrapper.empty,
+    queryExecution: QueryExecution = QueryExecution.Parallel,
+    wsChunkTimeout: Duration = 5.seconds
   )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): Route = {
 
     def sendMessage(
@@ -173,31 +195,32 @@ trait AkkaHttpAdapter {
     ): RIO[R, Unit] =
       for {
         result <- contextWrapper(ctx)(
-                   interpreter.executeRequest(
-                     request,
-                     skipValidation = skipValidation,
-                     enableIntrospection = enableIntrospection
-                   )
-                 )
-        _ <- result.data match {
-              case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
-                stream
-                  .foreach(item => sendMessage(sendTo, messageId, ObjectValue(List(fieldName -> item)), result.errors))
-                  .onExit {
-                    case Failure(cause) if !cause.interrupted =>
-                      IO.fromFuture(_ =>
-                          sendTo.offer(TextMessage(json.encodeWSError(messageId, cause.squash.toString)))
-                        )
-                        .ignore
-                    case _ =>
-                      IO.fromFuture(_ => sendTo.offer(TextMessage(s"""{"type":"complete","id":"$messageId"}"""))).ignore
+                    interpreter.executeRequest(
+                      request,
+                      skipValidation = skipValidation,
+                      enableIntrospection = enableIntrospection,
+                      queryExecution = queryExecution
+                    )
+                  )
+        _      <- result.data match {
+                    case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
+                      stream
+                        .foreach(item => sendMessage(sendTo, messageId, ObjectValue(List(fieldName -> item)), result.errors))
+                        .onExit {
+                          case Failure(cause) if !cause.interrupted =>
+                            IO.fromFuture(_ =>
+                              sendTo.offer(TextMessage(json.encodeWSError(messageId, cause.squash.toString)))
+                            ).ignore
+                          case _                                    =>
+                            IO.fromFuture(_ => sendTo.offer(TextMessage(s"""{"type":"complete","id":"$messageId"}""")))
+                              .ignore
+                        }
+                        .forkDaemon
+                        .flatMap(fiber => subscriptions.update(_.updated(Option(messageId), fiber)))
+                    case other                                                =>
+                      sendMessage(sendTo, messageId, other, result.errors) *>
+                        IO.fromFuture(_ => sendTo.offer(TextMessage(s"""{"type":"complete","id":"$messageId"}""")))
                   }
-                  .forkDaemon
-                  .flatMap(fiber => subscriptions.update(_.updated(Option(messageId), fiber)))
-              case other =>
-                sendMessage(sendTo, messageId, other, result.errors) *>
-                  IO.fromFuture(_ => sendTo.offer(TextMessage(s"""{"type":"complete","id":"$messageId"}""")))
-            }
       } yield ()
 
     get {
@@ -205,46 +228,44 @@ trait AkkaHttpAdapter {
         extractWebSocketUpgrade { upgrade =>
           val (queue, source) = Source.queue[Message](0, OverflowStrategy.fail).preMaterialize()
           val subscriptions   = runtime.unsafeRun(Ref.make(Map.empty[Option[String], Fiber[Throwable, Unit]]))
-          val sink = Sink.foreach[Message] {
-            case TextMessage.Strict(text) =>
+          val sink            = Flow[Message].collect { case tm: TextMessage => tm }
+            .mapAsync(1)(_.toStrict(ScalaDuration.fromNanos(wsChunkTimeout.toNanos)).map(_.text))
+            .toMat(Sink.foreach { text =>
               val io = for {
-                msg     <- Task.fromEither(json.parseWSMessage(text))
+                msg    <- Task.fromEither(json.parseWSMessage(text))
                 msgType = msg.messageType
-                _ <- RIO.whenCase(msgType) {
-                      case "connection_init" =>
-                        Task.fromFuture(_ => queue.offer(TextMessage("""{"type":"connection_ack"}"""))) *>
-                          Task.whenCase(keepAliveTime) {
-                            case Some(time) =>
-                              // Save the keep-alive fiber with a key of None so that it's interrupted later
-                              IO.fromFuture(_ => queue.offer(TextMessage("""{"type":"ka"}""")))
-                                .repeat(Schedule.spaced(time))
-                                .provideLayer(Clock.live)
-                                .unit
-                                .forkDaemon
-                                .flatMap(keepAliveFiber => subscriptions.update(_.updated(None, keepAliveFiber)))
+                _      <- RIO.whenCase(msgType) {
+                            case "connection_init"      =>
+                              Task.fromFuture(_ => queue.offer(TextMessage("""{"type":"connection_ack"}"""))) *>
+                                Task.whenCase(keepAliveTime) { case Some(time) =>
+                                  // Save the keep-alive fiber with a key of None so that it's interrupted later
+                                  IO.fromFuture(_ => queue.offer(TextMessage("""{"type":"ka"}""")))
+                                    .repeat(Schedule.spaced(time))
+                                    .provideLayer(Clock.live)
+                                    .unit
+                                    .forkDaemon
+                                    .flatMap(keepAliveFiber => subscriptions.update(_.updated(None, keepAliveFiber)))
+                                }
+                            case "connection_terminate" =>
+                              IO.effect(queue.complete())
+                            case "start"                =>
+                              RIO.whenCase(msg.request) { case Some(req) =>
+                                startSubscription(msg.id, req, queue, subscriptions, ctx).catchAll(error =>
+                                  IO.fromFuture(_ => queue.offer(TextMessage(json.encodeWSError(msg.id, error.toString))))
+                                )
+                              }
+                            case "stop"                 =>
+                              subscriptions
+                                .modify(map => (map.get(Option(msg.id)), map - Option(msg.id)))
+                                .flatMap(fiber =>
+                                  IO.whenCase(fiber) { case Some(fiber) =>
+                                    fiber.interrupt
+                                  }
+                                )
                           }
-                      case "connection_terminate" =>
-                        IO.effect(queue.complete())
-                      case "start" =>
-                        RIO.whenCase(msg.request) {
-                          case Some(req) =>
-                            startSubscription(msg.id, req, queue, subscriptions, ctx).catchAll(error =>
-                              IO.fromFuture(_ => queue.offer(TextMessage(json.encodeWSError(msg.id, error.toString))))
-                            )
-                        }
-                      case "stop" =>
-                        subscriptions
-                          .modify(map => (map.get(Option(msg.id)), map - Option(msg.id)))
-                          .flatMap(fiber =>
-                            IO.whenCase(fiber) {
-                              case Some(fiber) => fiber.interrupt
-                            }
-                          )
-                    }
               } yield ()
               runtime.unsafeRun(io)
-            case _ => ()
-          }
+            })(Keep.right)
 
           val flow = Flow.fromSinkAndSourceCoupled(sink, source).watchTermination() { (_, f) =>
             f.onComplete(_ => runtime.unsafeRun(subscriptions.get.flatMap(m => IO.foreach(m.values)(_.interrupt).unit)))

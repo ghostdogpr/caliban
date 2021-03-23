@@ -14,12 +14,12 @@ object SubscriptionSchema {
 
   type Typeclass[T] = SubscriptionSchema[T]
 
-  implicit val unitSubscriptionSchema: Typeclass[Unit]                        = new Typeclass[Unit]             {}
-  implicit def streamSubscriptionSchema[R, E, A]: Typeclass[ZStream[R, E, A]] = new Typeclass[ZStream[R, E, A]] {}
+  implicit val unitSubscriptionSchema: Typeclass[Unit]                                      = new Typeclass[Unit] {}
+  implicit def streamSubscriptionSchema[R, E, A]: Typeclass[ZStream[R, E, A]]               = new Typeclass[ZStream[R, E, A]] {}
   implicit def functionSubscriptionSchema[R, E, A, ARG]: Typeclass[ARG => ZStream[R, E, A]] =
     new Typeclass[ARG => ZStream[R, E, A]] {}
 
-  def combine[T](ctx: CaseClass[SubscriptionSchema, T]): Typeclass[T] = new Typeclass[T] {}
+  def combine[T](ctx: CaseClass[SubscriptionSchema, T]): Typeclass[T]                       = new Typeclass[T] {}
 
   implicit def gen[T]: Typeclass[T] = macro Magnolia.gen[T]
 

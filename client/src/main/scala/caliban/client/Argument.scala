@@ -13,7 +13,7 @@ case class Argument[+A](name: String, value: A)(implicit encoder: ArgEncoder[A])
   ): (String, Map[String, (__Value, String)]) =
     encoder.encode(value) match {
       case `__NullValue` => ("", variables)
-      case v =>
+      case v             =>
         if (useVariables) {
           val variableName = Argument.generateVariableName(name, v, variables)
           (s"$name:$$$variableName", variables.updated(variableName, (v, encoder.formatTypeName)))
@@ -36,7 +36,7 @@ object Argument {
     variables.get(formattedName) match {
       case None                       => formattedName
       case Some((v, _)) if v == value => formattedName
-      case Some(_) =>
+      case Some(_)                    =>
         generateVariableName(name, value, variables, index + 1)
     }
   }

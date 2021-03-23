@@ -40,7 +40,7 @@ object GraphQLResponseCirceSpec extends DefaultRunnableSpec {
         assert(response.asJson)(
           equalTo(
             Json.obj(
-              "data" -> Json.fromString("data"),
+              "data"   -> Json.fromString("data"),
               "errors" -> Json.arr(
                 Json.obj(
                   "message"    -> Json.fromString("Resolution failed"),

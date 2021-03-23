@@ -15,13 +15,13 @@ object SchemaComparison {
     } yield compareDocuments(docLeft, docRight)
 
   private[caliban] def compareDocuments(left: Document, right: Document): List[SchemaComparisonChange] = {
-    val schemaChanges = compareSchemas(left.schemaDefinition, right.schemaDefinition)
-    val typeChanges = compareAllTypes(
-      left.typeDefinitions.map(t => t.name  -> t).toMap,
+    val schemaChanges    = compareSchemas(left.schemaDefinition, right.schemaDefinition)
+    val typeChanges      = compareAllTypes(
+      left.typeDefinitions.map(t => t.name -> t).toMap,
       right.typeDefinitions.map(t => t.name -> t).toMap
     )
     val directiveChanges = compareAllDirectiveDefinitions(
-      left.directiveDefinitions.map(t => t.name  -> t).toMap,
+      left.directiveDefinitions.map(t => t.name -> t).toMap,
       right.directiveDefinitions.map(t => t.name -> t).toMap
     )
     schemaChanges ++ typeChanges ++ directiveChanges
@@ -32,11 +32,11 @@ object SchemaComparison {
     left: EnumValueDefinition,
     right: EnumValueDefinition
   ): List[SchemaComparisonChange] = {
-    val enumTarget = Target.EnumValue(left.enumValue, typeName)
+    val enumTarget         = Target.EnumValue(left.enumValue, typeName)
     val descriptionChanges =
       compareDescriptions(left.description, right.description, enumTarget)
-    val directiveChanges = compareAllDirectives(
-      left.directives.map(d => d.name  -> d).toMap,
+    val directiveChanges   = compareAllDirectives(
+      left.directives.map(d => d.name -> d).toMap,
       right.directives.map(d => d.name -> d).toMap,
       enumTarget
     )
@@ -62,7 +62,7 @@ object SchemaComparison {
   private def compareEnums(left: EnumTypeDefinition, right: EnumTypeDefinition): List[SchemaComparisonChange] =
     compareAllEnumValues(
       left.name,
-      left.enumValuesDefinition.map(d => d.enumValue  -> d).toMap,
+      left.enumValuesDefinition.map(d => d.enumValue -> d).toMap,
       right.enumValuesDefinition.map(d => d.enumValue -> d).toMap
     )
 
@@ -85,7 +85,7 @@ object SchemaComparison {
     val added        = (rightKeys -- leftKeys).map(DirectiveArgumentAdded(left.name, _, target)).toList
     val deleted      = (leftKeys -- rightKeys).map(DirectiveArgumentDeleted(left.name, _, target)).toList
     val commonFields = leftKeys intersect rightKeys
-    val changes = commonFields.toList.flatMap(key =>
+    val changes      = commonFields.toList.flatMap(key =>
       if (left == right) Nil
       else List(DirectiveArgumentChanged(left.name, key, left.arguments(key), right.arguments(key), target))
     )
@@ -113,17 +113,17 @@ object SchemaComparison {
     right: InputValueDefinition,
     target: Target
   ): List[SchemaComparisonChange] = {
-    val argTarget = target match {
+    val argTarget          = target match {
       case Target.Type(name) => Target.Field(left.name, name) // input object => InputValueDefinition is a field
       case _                 => Target.Argument(left.name, target)
     }
     val descriptionChanges = compareDescriptions(left.description, right.description, argTarget)
-    val directiveChanges = compareAllDirectives(
-      left.directives.map(d => d.name  -> d).toMap,
+    val directiveChanges   = compareAllDirectives(
+      left.directives.map(d => d.name -> d).toMap,
       right.directives.map(d => d.name -> d).toMap,
       argTarget
     )
-    val ofTypeChanges =
+    val ofTypeChanges      =
       if (left.ofType != right.ofType) List(TypeChanged(left.ofType, right.ofType, argTarget)) else Nil
 
     // default values are not supported so far
@@ -151,8 +151,8 @@ object SchemaComparison {
     target: Target
   ): List[SchemaComparisonChange] =
     (left, right) match {
-      case (Some(_), None)              => List(DescriptionAdded(target))
-      case (None, Some(_))              => List(DescriptionDeleted(target))
+      case (Some(_), None)              => List(DescriptionDeleted(target))
+      case (None, Some(_))              => List(DescriptionAdded(target))
       case (Some(l), Some(r)) if l != r => List(DescriptionChanged(target))
       case _                            => Nil
     }
@@ -164,17 +164,17 @@ object SchemaComparison {
   ): List[SchemaComparisonChange] = {
     val fieldTarget        = Target.Field(left.name, typeName)
     val descriptionChanges = compareDescriptions(left.description, right.description, fieldTarget)
-    val directiveChanges = compareAllDirectives(
-      left.directives.map(d => d.name  -> d).toMap,
+    val directiveChanges   = compareAllDirectives(
+      left.directives.map(d => d.name -> d).toMap,
       right.directives.map(d => d.name -> d).toMap,
       fieldTarget
     )
-    val ofTypeChanges =
+    val ofTypeChanges      =
       if (left.ofType != right.ofType) List(TypeChanged(left.ofType, right.ofType, fieldTarget)) else Nil
 
     val argumentChanges =
       compareArguments(
-        left.args.map(a => a.name  -> a).toMap,
+        left.args.map(a => a.name -> a).toMap,
         right.args.map(a => a.name -> a).toMap,
         fieldTarget
       )
@@ -198,9 +198,9 @@ object SchemaComparison {
   }
 
   private def compareObjects(left: ObjectTypeDefinition, right: ObjectTypeDefinition): List[SchemaComparisonChange] = {
-    val leftImplements  = left.implements.toSet
-    val rightImplements = left.implements.toSet
-    val implementsAdded =
+    val leftImplements    = left.implements.toSet
+    val rightImplements   = left.implements.toSet
+    val implementsAdded   =
       (rightImplements -- leftImplements).map(name => ObjectImplementsAdded(left.name, name.name)).toList
     val implementsDeleted =
       (leftImplements -- rightImplements).map(name => ObjectImplementsDeleted(left.name, name.name)).toList
@@ -216,7 +216,7 @@ object SchemaComparison {
     right: InputObjectTypeDefinition
   ): List[SchemaComparisonChange] =
     compareArguments(
-      left.fields.map(f => f.name  -> f).toMap,
+      left.fields.map(f => f.name -> f).toMap,
       right.fields.map(f => f.name -> f).toMap,
       Target.Type(left.name)
     )
@@ -230,8 +230,8 @@ object SchemaComparison {
   private def compareTypes(left: TypeDefinition, right: TypeDefinition): List[SchemaComparisonChange] = {
     val typeTarget         = Target.Type(left.name)
     val descriptionChanges = compareDescriptions(left.description, right.description, typeTarget)
-    val directiveChanges = compareAllDirectives(
-      left.directives.map(d => d.name  -> d).toMap,
+    val directiveChanges   = compareAllDirectives(
+      left.directives.map(d => d.name -> d).toMap,
       right.directives.map(d => d.name -> d).toMap,
       typeTarget
     )
@@ -273,12 +273,12 @@ object SchemaComparison {
   ): List[SchemaComparisonChange] = {
     val target             = Target.Directive(left.name)
     val descriptionChanges = compareDescriptions(left.description, right.description, target)
-    val argChanges =
+    val argChanges         =
       compareArguments(left.args.map(a => a.name -> a).toMap, right.args.map(a => a.name -> a).toMap, target)
 
-    val locationAdded =
+    val locationAdded      =
       (right.locations -- left.locations).map(l => DirectiveLocationAdded(l, left.name)).toList
-    val locationDeleted =
+    val locationDeleted    =
       (left.locations -- right.locations).map(l => DirectiveLocationDeleted(l, left.name)).toList
 
     descriptionChanges ++ argChanges ++ locationAdded ++ locationDeleted

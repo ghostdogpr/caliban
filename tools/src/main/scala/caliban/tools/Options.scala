@@ -9,6 +9,7 @@ final case class Options(
   fmtPath: Option[String],
   headers: Option[List[Options.Header]],
   packageName: Option[String],
+  genView: Option[Boolean],
   effect: Option[String]
 )
 
@@ -18,13 +19,14 @@ object Options {
     scalafmtPath: Option[String],
     headers: Option[List[String]],
     packageName: Option[String],
+    genView: Option[Boolean],
     effect: Option[String]
   )
 
   def fromArgs(args: List[String]): Option[Options] =
     args match {
       case schemaPath :: toPath :: other =>
-        val configSource: ConfigSource =
+        val configSource: ConfigSource                     =
           ConfigSource.fromCommandLineArgs(
             args = other,
             keyDelimiter = Some('.'),
@@ -46,9 +48,10 @@ object Options {
               }
             },
             rawOpts.packageName,
+            rawOpts.genView,
             rawOpts.effect
           )
         }
-      case _ => None
+      case _                             => None
     }
 }

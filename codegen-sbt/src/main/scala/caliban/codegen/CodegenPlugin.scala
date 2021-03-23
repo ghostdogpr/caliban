@@ -9,10 +9,26 @@ import zio.{ RIO, Runtime }
 
 object CodegenPlugin extends AutoPlugin {
   override lazy val projectSettings = Seq(commands ++= Seq(genSchemaCommand, genClientCommand))
-  lazy val genSchemaCommand         = genCommand("calibanGenSchema", genSchemaHelpMsg, SchemaWriter.write)
-  lazy val genClientCommand         = genCommand("calibanGenClient", genClientHelpMsg, ClientWriter.write)
 
-  def genCommand(name: String, helpMsg: String, writer: (Document, String, Option[String], String) => String): Command =
+  lazy val genSchemaCommand =
+    genCommand(
+      "calibanGenSchema",
+      genSchemaHelpMsg,
+      (schema, objectName, packageName, _, effect) => SchemaWriter.write(schema, objectName, packageName, effect)
+    )
+
+  lazy val genClientCommand =
+    genCommand(
+      "calibanGenClient",
+      genClientHelpMsg,
+      (schema, objectName, packageName, genView, _) => ClientWriter.write(schema, objectName, packageName, genView)
+    )
+
+  def genCommand(
+    name: String,
+    helpMsg: String,
+    writer: (Document, String, Option[String], Boolean, String) => String
+  ): Command =
     Command.args(name, helpMsg) { (state: State, args: Seq[String]) =>
       Runtime.default.unsafeRun(
         execGenCommand(helpMsg, args.toList, writer)
@@ -51,7 +67,7 @@ object CodegenPlugin extends AutoPlugin {
 
   private val genClientHelpMsg =
     s"""
-       |calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name]
+       |calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name] [--genView true|false]
        |
        |This command will create a Scala file in `outputPath` containing client code for all the
        |typed defined in the provided GraphQL schema defined at `schemaPath`. Instead of a path,
@@ -63,7 +79,7 @@ object CodegenPlugin extends AutoPlugin {
   def execGenCommand(
     helpMsg: String,
     args: List[String],
-    writer: (Document, String, Option[String], String) => String
+    writer: (Document, String, Option[String], Boolean, String) => String
   ): RIO[Console, Unit] =
     Options.fromArgs(args) match {
       case Some(arguments) =>
@@ -72,6 +88,6 @@ object CodegenPlugin extends AutoPlugin {
           _ <- Codegen.generate(arguments, writer)
           _ <- putStrLn(s"Code generation done")
         } yield ()
-      case None => putStrLn(helpMsg)
+      case None            => putStrLn(helpMsg)
     }
 }

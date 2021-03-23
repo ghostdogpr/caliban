@@ -15,10 +15,14 @@ object Rendering {
       .sorted(typeOrdering)
       .flatMap { t =>
         t.kind match {
-          case __TypeKind.SCALAR   => t.name.flatMap(name => if (isBuiltinScalar(name)) None else Some(s"scalar $name"))
+          case __TypeKind.SCALAR   =>
+            t.name.flatMap(name =>
+              if (isBuiltinScalar(name)) None
+              else Some(s"""${renderDescription(t.description)}scalar $name""".stripMargin)
+            )
           case __TypeKind.NON_NULL => None
           case __TypeKind.LIST     => None
-          case __TypeKind.UNION =>
+          case __TypeKind.UNION    =>
             val renderedTypes: String =
               t.possibleTypes
                 .fold(List.empty[String])(_.flatMap(_.name))
@@ -26,17 +30,33 @@ object Rendering {
             Some(
               s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} = $renderedTypes"""
             )
-          case _ =>
-            val renderedDirectives: String = renderDirectives(t.directives)
-            val renderedFields: String = t
-              .fields(__DeprecatedArgs())
-              .fold(List.empty[String])(_.map(renderField))
+          case _                   =>
+            val renderedDirectives: String  = renderDirectives(t.directives)
+            val renderedFields: String      = t
+              .fields(__DeprecatedArgs(Some(true)))
+              .fold(List.empty[String])(
+                _.map(field =>
+                  List(
+                    field.description.map(_ => renderDescription(field.description)),
+                    Some(renderField(field))
+                  ).flatten
+                    .mkString(("  "))
+                )
+              )
               .mkString("\n  ")
             val renderedInputFields: String = t.inputFields
-              .fold(List.empty[String])(_.map(renderInputValue))
+              .fold(List.empty[String])(
+                _.map(field =>
+                  List(
+                    field.description.map(_ => renderDescription(field.description)),
+                    Some(renderInputValue(field))
+                  ).flatten
+                    .mkString(("  "))
+                )
+              )
               .mkString("\n  ")
-            val renderedEnumValues = t
-              .enumValues(__DeprecatedArgs())
+            val renderedEnumValues          = t
+              .enumValues(__DeprecatedArgs(Some(true)))
               .fold(List.empty[String])(_.map(renderEnumValue))
               .mkString("\n  ")
             Some(
@@ -71,24 +91,24 @@ object Rendering {
   }
 
   private def renderDirectiveArgument(value: InputValue): Option[String] = value match {
-    case InputValue.ListValue(values) =>
+    case InputValue.ListValue(values)   =>
       Some(values.flatMap(renderDirectiveArgument).mkString("[", ",", "]"))
     case InputValue.ObjectValue(fields) =>
       Some(
         fields.map { case (key, value) => renderDirectiveArgument(value).map(v => s"$key: $v") }.mkString("{", ",", "}")
       )
-    case NullValue                   => Some("null")
-    case StringValue(value)          => Some("\"" + value + "\"")
-    case i: IntValue                 => Some(i.toInt.toString)
-    case f: FloatValue               => Some(f.toFloat.toString)
-    case BooleanValue(value)         => Some(value.toString)
-    case EnumValue(value)            => Some(value)
-    case InputValue.VariableValue(_) => None
+    case NullValue                      => Some("null")
+    case StringValue(value)             => Some("\"" + value + "\"")
+    case i: IntValue                    => Some(i.toInt.toString)
+    case f: FloatValue                  => Some(f.toFloat.toString)
+    case BooleanValue(value)            => Some(value.toString)
+    case EnumValue(value)               => Some(value)
+    case InputValue.VariableValue(_)    => None
   }
 
   private def renderDirective(directive: Directive) =
-    s"@${directive.name}${if (directive.arguments.nonEmpty) s"""(${directive.arguments.flatMap {
-      case (key, value) => renderDirectiveArgument(value).map(v => s"$key: $v")
+    s"@${directive.name}${if (directive.arguments.nonEmpty) s"""(${directive.arguments.flatMap { case (key, value) =>
+      renderDirectiveArgument(value).map(v => s"$key: $v")
     }.mkString(",")})"""
     else ""}"
 
@@ -104,7 +124,8 @@ object Rendering {
     else ""}${renderDirectives(field.directives)}"
 
   private def renderInputValue(inputValue: __InputValue): String =
-    s"${inputValue.name}: ${renderTypeName(inputValue.`type`())}${inputValue.defaultValue.fold("")(d => s" = $d")}${renderDirectives(inputValue.directives)}"
+    s"${inputValue.name}: ${renderTypeName(inputValue.`type`())}${inputValue.defaultValue
+      .fold("")(d => s" = $d")}${renderDirectives(inputValue.directives)}"
 
   private def renderEnumValue(v: __EnumValue): String =
     s"${renderDescription(v.description)}${v.name}${if (v.isDeprecated)
