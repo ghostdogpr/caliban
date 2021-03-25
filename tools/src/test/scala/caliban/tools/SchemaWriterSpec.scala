@@ -17,7 +17,10 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
     customImports: List[String] = List.empty
   ): Task[String] = Parser
     .parseQuery(schema)
-    .flatMap(doc => Formatter.format(SchemaWriter.write(doc, imports = Some(customImports))(ScalarMappings(Some(scalarMappings))), None))
+    .flatMap(doc =>
+      Formatter
+        .format(SchemaWriter.write(doc, imports = Some(customImports))(ScalarMappings(Some(scalarMappings))), None)
+    )
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("SchemaWriterSpec")(

@@ -174,7 +174,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
-                Some(List("a.b.Clazz", "b.c._")),
+                Some(List("a.b.Clazz", "b.c._"))
               )
             )
           )
