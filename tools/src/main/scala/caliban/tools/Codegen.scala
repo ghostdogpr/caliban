@@ -27,9 +27,12 @@ object Codegen {
     for {
       schema    <- loader.load
       code       = genType match {
-                     case Schema => SchemaWriter.write(schema, packageName, effect)(ScalarMappings(scalarMappings))
+                     case Schema =>
+                       SchemaWriter.write(schema, packageName, effect, arguments.imports)(ScalarMappings(scalarMappings))
                      case Client =>
-                       ClientWriter.write(schema, genView, objectName, packageName)(ScalarMappings(scalarMappings))
+                       ClientWriter.write(schema, genView, objectName, packageName, arguments.imports)(
+                         ScalarMappings(scalarMappings)
+                       )
                    }
       formatted <- Formatter.format(code, arguments.fmtPath)
       _         <- Task(new PrintWriter(new File(arguments.toPath)))

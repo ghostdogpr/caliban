@@ -18,7 +18,8 @@ object ClientWriter {
     schema: Document,
     genView: Boolean,
     objectName: String = "Client",
-    packageName: Option[String] = None
+    packageName: Option[String] = None,
+    additionalImports: Option[List[String]] = None
   )(implicit scalarMappings: ScalarMappings): String = {
     val schemaDef = schema.schemaDefinition
 
@@ -80,6 +81,8 @@ object ClientWriter {
       .map(writeRootSubscription)
       .getOrElse("")
 
+    val additionalImportsString = additionalImports.fold("")(_.map(i => s"import $i").mkString("\n"))
+
     val imports =
       s"""${if (enums.nonEmpty)
         """import caliban.client.CalibanClientError.DecodingError
@@ -102,7 +105,8 @@ object ClientWriter {
           |""".stripMargin
       else ""}"""
 
-    s"""${packageName.fold("")(p => s"package $p\n\n")}$imports
+    s"""${packageName.fold("")(p => s"package $p\n\n")}$imports\n
+       |$additionalImportsString
        |
        |object $objectName {
        |

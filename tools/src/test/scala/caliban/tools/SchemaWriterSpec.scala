@@ -11,9 +11,13 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
 
   implicit val scalarMappings: ScalarMappings = ScalarMappings(None)
 
-  def gen(schema: String, scalarMappings: Map[String, String] = Map.empty): Task[String] = Parser
+  def gen(
+    schema: String,
+    scalarMappings: Map[String, String] = Map.empty,
+    customImports: List[String] = List.empty
+  ): Task[String] = Parser
     .parseQuery(schema)
-    .flatMap(doc => Formatter.format(SchemaWriter.write(doc)(ScalarMappings(Some(scalarMappings))), None))
+    .flatMap(doc => Formatter.format(SchemaWriter.write(doc, imports = Some(customImports))(ScalarMappings(Some(scalarMappings))), None))
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("SchemaWriterSpec")(
@@ -437,7 +441,7 @@ object Types {
           )
         )
       },
-      testM("add scalar mappings") {
+      testM("add scalar mappings and additional imports") {
         val schema =
           """
             |  scalar OffsetDateTime
@@ -458,11 +462,14 @@ object Types {
             |  }
             |""".stripMargin
 
-        assertM(gen(schema, Map("OffsetDateTime" -> "java.time.OffsetDateTime")))(
+        assertM(gen(schema, Map("OffsetDateTime" -> "java.time.OffsetDateTime"), List("java.util.UUID", "a.b._")))(
           equalTo(
             """import Types._
               |
               |import zio.stream.ZStream
+              |
+              |import java.util.UUID
+              |import a.b._
               |
               |object Types {
               |  case class MutationAddPostArgs(author: Option[String], comment: Option[String])

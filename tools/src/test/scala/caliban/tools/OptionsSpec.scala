@@ -22,6 +22,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -42,6 +43,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -54,7 +56,7 @@ object OptionsSpec extends DefaultRunnableSpec {
         assert(result)(
           equalTo(
             Some(
-              Options("schema", "output", None, None, None, None, None, None)
+              Options("schema", "output", None, None, None, None, None, None, None)
             )
           )
         )
@@ -87,6 +89,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 Some("com.github.ghostdogpr"),
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -107,6 +110,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 Some("cats.effect.IO"),
+                None,
                 None
               )
             )
@@ -126,6 +130,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 Some(true),
+                None,
                 None,
                 None
               )
@@ -147,7 +152,29 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
-                Some(Map("Long" -> "scala.Long"))
+                Some(Map("Long" -> "scala.Long")),
+                None
+              )
+            )
+          )
+        )
+      },
+      test("provide imports") {
+        val input  = List("schema", "output", "--imports", "a.b.Clazz,b.c._")
+        val result = Options.fromArgs(input)
+        assert(result)(
+          equalTo(
+            Some(
+              Options(
+                "schema",
+                "output",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(List("a.b.Clazz", "b.c._")),
               )
             )
           )

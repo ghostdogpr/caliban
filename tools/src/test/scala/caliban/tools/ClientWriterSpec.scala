@@ -9,9 +9,20 @@ import zio.test.environment.TestEnvironment
 
 object ClientWriterSpec extends DefaultRunnableSpec {
 
-  def gen(schema: String, scalarMappings: Map[String, String] = Map.empty): Task[String] = Parser
+  def gen(
+    schema: String,
+    scalarMappings: Map[String, String] = Map.empty,
+    additionalImports: List[String] = List.empty
+  ): Task[String] = Parser
     .parseQuery(schema)
-    .flatMap(doc => Formatter.format(ClientWriter.write(doc, false)(ScalarMappings(Some(scalarMappings))), None))
+    .flatMap(doc =>
+      Formatter.format(
+        ClientWriter.write(doc, genView = false, additionalImports = Some(additionalImports))(
+          ScalarMappings(Some(scalarMappings))
+        ),
+        None
+      )
+    )
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("ClientWriterSpec")(
@@ -600,7 +611,7 @@ object Client {
           )
         )
       },
-      testM("add scalar mappings") {
+      testM("add scalar mappings and additional imports") {
         val schema =
           """
              scalar OffsetDateTime
@@ -610,11 +621,14 @@ object Client {
              }
             """.stripMargin
 
-        assertM(gen(schema, Map("OffsetDateTime" -> "java.time.OffsetDateTime"))) {
+        assertM(gen(schema, Map("OffsetDateTime" -> "java.time.OffsetDateTime"), List("java.util.UUID", "a.b._"))) {
           equalTo(
             """import caliban.client.FieldBuilder._
 import caliban.client.SelectionBuilder._
 import caliban.client._
+
+import java.util.UUID
+import a.b._
 
 object Client {
 

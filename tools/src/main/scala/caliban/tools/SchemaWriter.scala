@@ -11,7 +11,8 @@ object SchemaWriter {
   def write(
     schema: Document,
     packageName: Option[String] = None,
-    effect: String = "zio.UIO"
+    effect: String = "zio.UIO",
+    imports: Option[List[String]] = None
   )(implicit scalarMappings: ScalarMappings): String = {
     val schemaDef = schema.schemaDefinition
 
@@ -55,6 +56,8 @@ object SchemaWriter {
       .map(t => writeRootSubscriptionDef(t))
       .getOrElse("")
 
+    val additionalImportsString = imports.fold("")(_.map(i => s"import $i").mkString("\n"))
+
     val hasSubscriptions = subscriptions.nonEmpty
     val hasTypes         = argsTypes.length + objects.length + enums.length + unions.length + inputs.length > 0
     val hasOperations    = queries.length + mutations.length + subscriptions.length > 0
@@ -81,7 +84,8 @@ object SchemaWriter {
 
     s"""${packageName.fold("")(p => s"package $p\n\n")}${if (hasTypes && hasOperations) "import Types._\n" else ""}
           ${if (typesAndOperations.contains("@GQL")) "import caliban.schema.Annotations._\n" else ""}
-          ${if (hasSubscriptions) "import zio.stream.ZStream" else ""}
+          ${if (hasSubscriptions) "import zio.stream.ZStream\n" else ""}
+          $additionalImportsString
 
       $typesAndOperations
       """
