@@ -390,16 +390,26 @@ object Client {
   type Character
   object Character {
 
-    final case class CharacterView[RoleSelection](name: String, nicknames: List[String], role: Option[RoleSelection])
+    final case class CharacterView[RoleSelection, RoleSelection](
+      name: String,
+      nicknames: List[String],
+      role: Option[RoleSelection],
+      roleOption: Option[Option[RoleSelection]]
+    )
 
-    type ViewSelection[RoleSelection] = SelectionBuilder[Character, CharacterView[RoleSelection]]
+    type ViewSelection[RoleSelection, RoleSelection] =
+      SelectionBuilder[Character, CharacterView[RoleSelection, RoleSelection]]
 
-    def view[RoleSelection](
+    def view[RoleSelection, RoleSelection](
+      roleSelectionOnCaptain: SelectionBuilder[Captain, RoleSelection],
+      roleSelectionOnPilot: SelectionBuilder[Pilot, RoleSelection],
       roleSelectionOnCaptain: SelectionBuilder[Captain, RoleSelection],
       roleSelectionOnPilot: SelectionBuilder[Pilot, RoleSelection]
-    ): ViewSelection[RoleSelection] = (name ~ nicknames ~ role(roleSelectionOnCaptain, roleSelectionOnPilot)).map {
-      case ((name, nicknames), role) => CharacterView(name, nicknames, role)
-    }
+    ): ViewSelection[RoleSelection, RoleSelection]           =
+      (name ~ nicknames ~ role(roleSelectionOnCaptain, roleSelectionOnPilot) ~ roleOption(
+        roleSelectionOnCaptain,
+        roleSelectionOnPilot
+      )).map { case (((name, nicknames), role), role) => CharacterView(name, nicknames, role, role) }
 
     def name: SelectionBuilder[Character, String]            = Field("name", Scalar())
     def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
@@ -408,6 +418,20 @@ object Client {
       onPilot: SelectionBuilder[Pilot, A]
     ): SelectionBuilder[Character, Option[A]]                =
       Field("role", OptionOf(ChoiceOf(Map("Captain" -> Obj(onCaptain), "Pilot" -> Obj(onPilot)))))
+    def roleOption[A](
+      onCaptain: Option[SelectionBuilder[Captain, A]] = None,
+      onPilot: Option[SelectionBuilder[Pilot, A]] = None
+    ): SelectionBuilder[Character, Option[Option[A]]]        = Field(
+      "role",
+      OptionOf(
+        ChoiceOf(
+          Map(
+            "Captain" -> onCaptain.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a))),
+            "Pilot"   -> onPilot.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))
+          )
+        )
+      )
+    )
   }
 
   type Captain

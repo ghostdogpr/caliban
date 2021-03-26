@@ -52,10 +52,11 @@ Provide `--genView true` option if you want to generate a view for the GraphQL t
 
 ## Query building
 
-Once the boilerplate code is generated, you can start building queries. For each *type* in your schema, a corresponding Scala object has been created. For each *field* in your schema, a corresponding Scala function has been created.
-
+Once the boilerplate code is generated, you can start building queries. For each *type* in your schema, a corresponding Scala object has been created. For each *field* in your schema, a corresponding Scala function has been created. For a `Union` type *field* two Scala functions are created (in this example `role` and `roleOption`). For the generated `role` function you must provide all of the `Object Type` parameters `onCaptain`, `onEngineer`, and `onMechanic`. If you do not want to specify all of the parameters and are only interested in some or one of the `Object Types` you should use the generated `[field name]*Option` field (`roleOption`).
 For example, given the following schema:
 ```graphql
+union Role = Captain | Engineer | Mechanic
+
 type Character {
   name: String!
   nicknames: [String!]!
@@ -66,9 +67,17 @@ type Character {
 Your generated code will have the following:
 ```scala
 object Character {
-  def name: SelectionBuilder[Character, String]            = ???
-  def nicknames: SelectionBuilder[Character, List[String]] = ???
-  def origin: SelectionBuilder[Character, Origin]          = ???
+  def name: SelectionBuilder[Character, String]                   = ???
+  def nicknames: SelectionBuilder[Character, List[String]]        = ???
+  def origin: SelectionBuilder[Character, Origin]                 = ???
+  def role[A](
+        onCaptain: SelectionBuilder[Captain, A],
+        onEngineer: SelectionBuilder[Engineer, A],
+        onMechanic: SelectionBuilder[Mechanic, A])                = ???
+  def roleOption[A](
+        onCaptain: Option[SelectionBuilder[Captain, A]] = None,
+        onEngineer: Option[SelectionBuilder[Engineer, A]] = None,
+        onMechanic: Option[SelectionBuilder[Mechanic, A]] = None) = ???
 }
 ```
 
@@ -133,6 +142,37 @@ val query: SelectionBuilder[RootQuery, List[CharacterView]] =
   Query.characters(Origin.MARS) {
     character
   }
+```
+
+You can also execute queries on `Union` types. The `role` attribute on `Character` is of type `Role`, a `GraphQL` `union` type. The `role` attribute can be either `Captain`, `Engineer`, or `Mechanic` (or `null` since it is not a required field).
+
+```scala
+case class CharacterRoleView(name: String, nicknames: List[String], role: Option[String])
+
+val query =
+  Queries.characters() {
+     (Character.name ~ 
+      Character.nicknames ~ 
+      Character.role(
+        onCaptain  = Role.Captain.shipName, 
+        onEngineer = Role.Engineer.specialty, 
+        onMechanic = Role.Mechanic.assignedShip)
+    ).mapN(CharacterRoleView)
+  }
+```
+
+With the `role` function you must provide all of the parameters `onCaptain`, `onEngineer`, and `onMechanic`. If you do not want to specify all of the parameters and are only interested in some or one of the `Object Types` you should use the generated `[field name]*Option` field (in this case `roleOption`)
+
+```scala
+case class CharacterRoleOptionView(name: String, nicknames: List[String], role: Option[Option[String]])
+val query =
+  Queries.characters() {
+     (Character.name ~
+      Character.nicknames ~
+      Character.roleOption(
+        onMechanic = Some(Role.Engineer.specialty)
+      )
+    ).mapN(CharacterRoleOptionView)
 ```
 
 ## Automated generation of a view projection
