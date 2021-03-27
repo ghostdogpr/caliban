@@ -9,9 +9,11 @@ object Codegen {
 
   sealed trait GenType
 
-  object Schema extends GenType
+  object GenType {
+    object Schema extends GenType
 
-  object Client extends GenType
+    object Client extends GenType
+  }
 
   def generate(
     arguments: Options,
@@ -27,10 +29,10 @@ object Codegen {
     for {
       schema    <- loader.load
       code       = genType match {
-                     case Schema =>
+                     case GenType.Schema =>
                        SchemaWriter.write(schema, packageName, effect, arguments.imports)(ScalarMappings(scalarMappings))
-                     case Client =>
-                       ClientWriter.write(schema, genView, objectName, packageName, arguments.imports)(
+                     case GenType.Client =>
+                       ClientWriter.write(schema, objectName, packageName, genView, arguments.imports)(
                          ScalarMappings(scalarMappings)
                        )
                    }

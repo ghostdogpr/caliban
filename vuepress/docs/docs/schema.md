@@ -243,7 +243,7 @@ The package of the generated code is derived from the folder of `outputPath`. Th
 By default, each Query and Mutation will be wrapped into a `zio.UIO` effect. This can be overridden by providing an alternative effect with the `--effect` option.
 
 If you want to force a mapping between a GraphQL type and a Scala class (such as scalars), you can use the
-`--scalarMappings` option. Also you can add imports for example for your ScalarDecoder implicits by providing `--imports` option.
+`--scalarMappings` option. Also you can add additional imports by providing `--imports` option.
 
 ## Building Schemas by hand
 

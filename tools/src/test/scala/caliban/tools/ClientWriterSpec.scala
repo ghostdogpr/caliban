@@ -17,7 +17,7 @@ object ClientWriterSpec extends DefaultRunnableSpec {
     .parseQuery(schema)
     .flatMap(doc =>
       Formatter.format(
-        ClientWriter.write(doc, genView = false, additionalImports = Some(additionalImports))(
+        ClientWriter.write(doc, additionalImports = Some(additionalImports))(
           ScalarMappings(Some(scalarMappings))
         ),
         None

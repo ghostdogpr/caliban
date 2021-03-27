@@ -16,9 +16,9 @@ object ClientWriter {
 
   def write(
     schema: Document,
-    genView: Boolean,
     objectName: String = "Client",
     packageName: Option[String] = None,
+    genView: Boolean = false,
     additionalImports: Option[List[String]] = None
   )(implicit scalarMappings: ScalarMappings): String = {
     val schemaDef = schema.schemaDefinition

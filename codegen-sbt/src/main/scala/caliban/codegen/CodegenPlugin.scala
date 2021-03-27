@@ -1,6 +1,6 @@
 package caliban.codegen
 
-import caliban.tools.Codegen.{ Client, GenType, Schema }
+import caliban.tools.Codegen.GenType
 import caliban.tools._
 import sbt.Keys.commands
 import sbt.{ AutoPlugin, Command, State }
@@ -14,14 +14,14 @@ object CodegenPlugin extends AutoPlugin {
     genCommand(
       "calibanGenSchema",
       genSchemaHelpMsg,
-      Schema
+      GenType.Schema
     )
 
   lazy val genClientCommand =
     genCommand(
       "calibanGenClient",
       genClientHelpMsg,
-      Client
+      GenType.Client
     )
 
   def genCommand(
