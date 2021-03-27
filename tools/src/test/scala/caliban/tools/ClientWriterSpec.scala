@@ -510,13 +510,13 @@ object Client {
     case object NEWHOPE extends Episode
     case object EMPIRE  extends Episode
     case object JEDI    extends Episode
-    case object `jedi`  extends Episode
+    case object jedi_1  extends Episode
 
     implicit val decoder: ScalarDecoder[Episode] = {
       case __StringValue("NEWHOPE") => Right(Episode.NEWHOPE)
       case __StringValue("EMPIRE")  => Right(Episode.EMPIRE)
       case __StringValue("JEDI")    => Right(Episode.JEDI)
-      case __StringValue("jedi")    => Right(Episode.`jedi`)
+      case __StringValue("jedi")    => Right(Episode.jedi_1)
       case other                    => Left(DecodingError(s"Can't build Episode from input $other"))
     }
     implicit val encoder: ArgEncoder[Episode]    = new ArgEncoder[Episode] {
@@ -524,7 +524,7 @@ object Client {
         case Episode.NEWHOPE => __EnumValue("NEWHOPE")
         case Episode.EMPIRE  => __EnumValue("EMPIRE")
         case Episode.JEDI    => __EnumValue("JEDI")
-        case Episode.`jedi`  => __EnumValue("jedi")
+        case Episode.jedi_1  => __EnumValue("jedi")
       }
       override def typeName: String                = "Episode"
     }
@@ -563,10 +563,10 @@ object Client {
     def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
   }
 
-  type `character`
-  object `character` {
-    def name: SelectionBuilder[`character`, String]            = Field("name", Scalar())
-    def nicknames: SelectionBuilder[`character`, List[String]] = Field("nicknames", ListOf(Scalar()))
+  type character_1
+  object character_1 {
+    def name: SelectionBuilder[character_1, String]            = Field("name", Scalar())
+    def nicknames: SelectionBuilder[character_1, List[String]] = Field("nicknames", ListOf(Scalar()))
   }
 
 }
