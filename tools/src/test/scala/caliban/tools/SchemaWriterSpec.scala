@@ -183,6 +183,9 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
           )
         )
       },
+      testM("empty schema test") {
+        assertM(gen(""))(equalTo(System.lineSeparator))
+      },
       testM("enum type") {
         val schema =
           """
