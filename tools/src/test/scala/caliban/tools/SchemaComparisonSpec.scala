@@ -1,10 +1,9 @@
 package caliban.tools
 
-import caliban.CalibanError
 import caliban.GraphQL.graphQL
-import caliban.RootResolver
 import caliban.parsing.Parser
 import caliban.tools.SchemaComparison.compareDocuments
+import caliban.{ CalibanError, RootResolver }
 import zio.ZIO
 import zio.test.Assertion._
 import zio.test._

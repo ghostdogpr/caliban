@@ -37,7 +37,7 @@ enablePlugins(CodegenPlugin)
 
 Then call the `calibanGenClient` sbt command.
 ```scala
-calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--genView true|false]
+calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--genView true|false] [--scalarMappings gqlType:f.q.d.n.Type,gqlType2:f.q.d.n.Type2] [--imports a.b.c._,c.d.E]
 
 calibanGenClient project/schema.graphql src/main/client/Client.scala --genView true  
 ```
@@ -49,6 +49,8 @@ The package of the generated code is derived from the folder of `outputPath`.
 This can be overridden by providing an alternative package with the `--packageName`
 option.
 Provide `--genView true` option if you want to generate a view for the GraphQL types. 
+If you want to force a mapping between a GraphQL type and a Scala class (such as scalars), you can use the
+`--scalarMappings` option. Also you can add imports for example for your ArgEncoder implicits by providing `--imports` option.
 
 ## Query building
 

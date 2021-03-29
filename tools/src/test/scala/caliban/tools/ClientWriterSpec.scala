@@ -1,6 +1,7 @@
 package caliban.tools
 
 import caliban.parsing.Parser
+import caliban.tools.implicits.ScalarMappings
 import zio.Task
 import zio.test.Assertion._
 import zio.test._
@@ -8,10 +9,20 @@ import zio.test.environment.TestEnvironment
 
 object ClientWriterSpec extends DefaultRunnableSpec {
 
-  val gen: String => Task[String] = (schema: String) =>
-    Parser
-      .parseQuery(schema)
-      .flatMap(doc => Formatter.format(ClientWriter.write(doc), None))
+  def gen(
+    schema: String,
+    scalarMappings: Map[String, String] = Map.empty,
+    additionalImports: List[String] = List.empty
+  ): Task[String] = Parser
+    .parseQuery(schema)
+    .flatMap(doc =>
+      Formatter.format(
+        ClientWriter.write(doc, additionalImports = Some(additionalImports))(
+          ScalarMappings(Some(scalarMappings))
+        ),
+        None
+      )
+    )
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("ClientWriterSpec")(
@@ -466,7 +477,7 @@ object Client {
                 test: Json!
               }""".stripMargin
 
-        assertM(gen(schema))(
+        assertM(gen(schema, Map("Json" -> "io.circe.Json")))(
           equalTo(
             """import caliban.client.FieldBuilder._
 import caliban.client.SelectionBuilder._
@@ -475,11 +486,9 @@ import caliban.client.Operations._
 
 object Client {
 
-  type Json = io.circe.Json
-
   type Query = RootQuery
   object Query {
-    def test: SelectionBuilder[RootQuery, Json] = Field("test", Scalar())
+    def test: SelectionBuilder[RootQuery, io.circe.Json] = Field("test", Scalar())
   }
 
 }
@@ -601,6 +610,37 @@ object Client {
 """
           )
         )
+      },
+      testM("add scalar mappings and additional imports") {
+        val schema =
+          """
+             scalar OffsetDateTime
+
+             type Order {
+               date: OffsetDateTime!
+             }
+            """.stripMargin
+
+        assertM(gen(schema, Map("OffsetDateTime" -> "java.time.OffsetDateTime"), List("java.util.UUID", "a.b._"))) {
+          equalTo(
+            """import caliban.client.FieldBuilder._
+import caliban.client.SelectionBuilder._
+import caliban.client._
+
+import java.util.UUID
+import a.b._
+
+object Client {
+
+  type Order
+  object Order {
+    def date: SelectionBuilder[Order, java.time.OffsetDateTime] = Field("date", Scalar())
+  }
+
+}
+"""
+          )
+        }
       }
     ) @@ TestAspect.sequential
 }
