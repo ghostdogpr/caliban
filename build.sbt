@@ -3,7 +3,7 @@ import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 val mainScala = "2.12.13"
 val allScala  = Seq("2.13.5", mainScala)
 
-val akkaVersion           = "2.6.13"
+val akkaVersion           = "2.6.14"
 val catsEffectVersion     = "2.4.1"
 val circeVersion          = "0.13.0"
 val http4sVersion         = "0.21.22"
