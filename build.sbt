@@ -29,7 +29,7 @@ inThisBuild(
     licenses := List(
       "Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0")
     ),
-    parallelExecution in Test := false,
+    Test / parallelExecution := false,
     scmInfo := Some(
       ScmInfo(
         url("https://github.com/ghostdogpr/caliban/"),
@@ -58,7 +58,7 @@ addCommandAlias(
 lazy val root = project
   .in(file("."))
   .enablePlugins(ScalaJSPlugin)
-  .settings(skip in publish := true)
+  .settings(publish / skip := true)
   .settings(crossScalaVersions := Nil)
   .aggregate(
     macros,
@@ -66,7 +66,6 @@ lazy val root = project
     finch,
     http4s,
     akkaHttp,
-//    uzhttp,
     play,
     catsInterop,
     monixInterop,
@@ -112,8 +111,8 @@ lazy val core = project
   )
   .dependsOn(macros)
   .settings(
-    fork in Test := true,
-    fork in run := true
+    Test / fork := true,
+    run / fork := true
   )
 
 lazy val tools = project
@@ -300,7 +299,7 @@ lazy val clientJS  = client.js.settings(
 lazy val examples = project
   .in(file("examples"))
   .settings(commonSettings)
-  .settings(skip in publish := true)
+  .settings(publish / skip := true)
   .settings(
     libraryDependencies ++= Seq(
       "de.heikoseeberger"             %% "akka-http-circe"               % "1.36.0",
@@ -316,7 +315,7 @@ lazy val examples = project
 lazy val benchmarks = project
   .in(file("benchmarks"))
   .settings(commonSettings)
-  .settings(skip in publish := true)
+  .settings(publish / skip := true)
   .dependsOn(core)
   .enablePlugins(JmhPlugin)
   .settings(
@@ -339,8 +338,8 @@ lazy val federation = project
       "dev.zio" %% "zio-test-sbt" % zioVersion % Test,
       compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
     ),
-    PB.targets in Compile := Seq(
-      scalapb.gen(grpc = false) -> (sourceManaged in Compile).value / "scalapb"
+    Compile / PB.targets := Seq(
+      scalapb.gen(grpc = false) -> (Compile / sourceManaged).value / "scalapb"
     ),
     libraryDependencies ++= Seq(
       "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion % "protobuf"
@@ -373,6 +372,7 @@ val commonSettings = Def.settings(
         "-Ywarn-extra-implicit",
         "-Ywarn-inaccessible",
         "-Ywarn-infer-any",
+        "-Ywarn-unused:-nowarn",
         "-Ywarn-nullary-override",
         "-Ywarn-nullary-unit",
         "-opt-inline-from:<source>",
