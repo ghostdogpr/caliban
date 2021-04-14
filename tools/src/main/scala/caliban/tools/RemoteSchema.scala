@@ -45,7 +45,7 @@ object RemoteSchema {
       interfaces = toInterfaces(definition.implements, definitions),
       directives = toDirectives(definition.directives),
       fields = (args: __DeprecatedArgs) => {
-        if (definition.fields.length > 0)
+        if (definition.fields.nonEmpty)
           Some(
             definition.fields
               .map(toField(_, definitions))
@@ -127,9 +127,12 @@ object RemoteSchema {
       case None        => __Type(kind = __TypeKind.SCALAR, name = Some(name))
     }
 
-  private def toDirectives(directives: List[Directive]): Option[List[Directive]] =
-    if (directives.length > 0) Some(directives.filter(_.name != "deprecated"))
+  private def toDirectives(directives: List[Directive]): Option[List[Directive]] = {
+    val filtered = directives.filter(_.name != "deprecated")
+
+    if (filtered.nonEmpty) Some(filtered)
     else None
+  }
 
   private def toInterfaces(
     interfaces: List[Type.NamedType],
@@ -150,7 +153,7 @@ object RemoteSchema {
       name = Some(definition.name),
       description = definition.description,
       fields = (args: __DeprecatedArgs) =>
-        if (definition.fields.length > 0)
+        if (definition.fields.nonEmpty)
           Some(
             definition.fields
               .map(t => toField(t, definitions))
@@ -179,7 +182,7 @@ object RemoteSchema {
       kind = __TypeKind.ENUM,
       name = Some(definition.name),
       enumValues = (args: __DeprecatedArgs) =>
-        if (definition.enumValuesDefinition.length > 0)
+        if (definition.enumValuesDefinition.nonEmpty)
           Some(definition.enumValuesDefinition.map(toEnumValue(_)).filter(filterDeprecated(_, args)))
         else None,
       directives = toDirectives(definition.directives)
@@ -204,7 +207,7 @@ object RemoteSchema {
       name = Some(definition.name),
       description = definition.description,
       inputFields =
-        if (definition.fields.length > 0)
+        if (definition.fields.nonEmpty)
           Some(
             definition.fields
               .map(f => toInputValue(f, definitions))
@@ -222,7 +225,7 @@ object RemoteSchema {
       name = Some(definition.name),
       description = definition.description,
       possibleTypes =
-        if (definition.memberTypes.length > 0)
+        if (definition.memberTypes.nonEmpty)
           Some(
             definition.memberTypes
               .map(t => toType(t, definitions))
@@ -305,9 +308,9 @@ object RemoteSchema {
       case d if (d.name == "deprecated") =>
         d.arguments
           .get("reason")
-          .collect({ case StringValue(value) =>
+          .collect { case StringValue(value) =>
             value
-          })
+          }
           .getOrElse("deprecated")
     }
 }
