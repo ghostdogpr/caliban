@@ -80,6 +80,7 @@ lazy val root = project
   )
 
 lazy val macros = crossProject(JVMPlatform)
+  .crossType(CrossType.Pure)
   .in(file("macros"))
   .settings(name := "caliban-macros")
   .settings(commonSettings)
@@ -98,6 +99,7 @@ lazy val macros = crossProject(JVMPlatform)
   )
 
 lazy val core = crossProject(JVMPlatform)
+  .crossType(CrossType.Pure)
   .in(file("core"))
   .settings(name := "caliban")
   .settings(commonSettings)
@@ -411,12 +413,13 @@ val commonSettings = Def.settings(
   })
 )
 
-def platformSpecificSources(platform: String, conf: String, baseDirectory: File)(versions: String*) = for {
-  platform <- List("shared", platform)
-  version  <- "scala" :: versions.toList.map("scala-" + _)
-  result    = baseDirectory.getParentFile / platform.toLowerCase / "src" / conf / version
-  if result.exists
-} yield result
+def platformSpecificSources(platform: String, conf: String, baseDirectory: File)(versions: String*) =
+  for {
+    platform <- List("src", platform + "/src")
+    version  <- "scala" :: versions.toList.map("scala-" + _)
+    result    = baseDirectory.getParentFile / platform.toLowerCase / conf / version
+    if result.exists
+  } yield result
 
 def crossPlatformSources(scalaVer: String, platform: String, conf: String, baseDir: File) = {
   val versions = CrossVersion.partialVersion(scalaVer) match {
