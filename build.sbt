@@ -63,8 +63,8 @@ lazy val root = project
   .settings(publish / skip := true)
   .settings(crossScalaVersions := Nil)
   .aggregate(
-    macros.jvm,
-    core.jvm,
+    macros,
+    core,
     finch,
     http4s,
     akkaHttp,
@@ -79,12 +79,10 @@ lazy val root = project
     federation
   )
 
-lazy val macros = crossProject(JVMPlatform)
-  .crossType(CrossType.Pure)
+lazy val macros = project
   .in(file("macros"))
   .settings(name := "caliban-macros")
   .settings(commonSettings)
-  .settings(crossProjectSettings)
   .settings(
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) {
@@ -98,12 +96,10 @@ lazy val macros = crossProject(JVMPlatform)
     }
   )
 
-lazy val core = crossProject(JVMPlatform)
-  .crossType(CrossType.Pure)
+lazy val core = project
   .in(file("core"))
   .settings(name := "caliban")
   .settings(commonSettings)
-  .settings(crossProjectSettings)
   .settings(
     resolvers += Resolver.sonatypeRepo("snapshots"),
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
@@ -152,7 +148,7 @@ lazy val tools = project
       "dev.zio"                       %% "zio-test-sbt"                  % zioVersion % "test"
     )
   )
-  .dependsOn(core.jvm, clientJVM)
+  .dependsOn(core, clientJVM)
 
 lazy val codegenSbt = project
   .in(file("codegen-sbt"))
@@ -174,8 +170,8 @@ lazy val codegenSbt = project
     },
     scriptedBufferLog := false,
     scriptedDependencies := {
-      (macros.jvm / publishLocal).value
-      (core.jvm / publishLocal).value
+      (macros / publishLocal).value
+      (core / publishLocal).value
       (clientJVM / publishLocal).value
       (tools / publishLocal).value
       publishLocal.value
@@ -194,7 +190,7 @@ lazy val catsInterop = project
       "org.typelevel" %% "cats-effect"      % catsEffectVersion
     )
   )
-  .dependsOn(core.jvm)
+  .dependsOn(core)
 
 lazy val monixInterop = project
   .in(file("interop/monix"))
@@ -208,7 +204,7 @@ lazy val monixInterop = project
       "io.monix" %% "monix"                       % "3.3.0"
     )
   )
-  .dependsOn(core.jvm)
+  .dependsOn(core)
 
 lazy val tapirInterop = project
   .in(file("interop/tapir"))
@@ -224,7 +220,7 @@ lazy val tapirInterop = project
       compilerPlugin(("org.typelevel" %% "kind-projector" % "0.11.3").cross(CrossVersion.full))
     )
   )
-  .dependsOn(core.jvm)
+  .dependsOn(core)
 
 lazy val http4s = project
   .in(file("adapters/http4s"))
@@ -244,7 +240,7 @@ lazy val http4s = project
       "com.github.ghik"                % "silencer-lib"        % silencerVersion % Provided cross CrossVersion.full
     )
   )
-  .dependsOn(core.jvm)
+  .dependsOn(core)
 
 lazy val akkaHttp = project
   .in(file("adapters/akka-http"))
@@ -261,7 +257,7 @@ lazy val akkaHttp = project
       compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.11.3").cross(CrossVersion.full))
     )
   )
-  .dependsOn(core.jvm)
+  .dependsOn(core)
 
 lazy val finch = project
   .in(file("adapters/finch"))
@@ -277,7 +273,7 @@ lazy val finch = project
       "io.circe"           %% "circe-parser"     % circeVersion
     )
   )
-  .dependsOn(core.jvm)
+  .dependsOn(core)
 
 lazy val play = project
   .in(file("adapters/play"))
@@ -296,7 +292,7 @@ lazy val play = project
       "com.softwaremill.sttp.client3" %% "circe"                         % sttpVersion  % "test"
     )
   )
-  .dependsOn(core.jvm)
+  .dependsOn(core)
 
 lazy val client    = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)
@@ -340,7 +336,7 @@ lazy val benchmarks = project
   .in(file("benchmarks"))
   .settings(commonSettings)
   .settings(publish / skip := true)
-  .dependsOn(core.jvm)
+  .dependsOn(core)
   .enablePlugins(JmhPlugin)
   .settings(
     crossScalaVersions -= scala3,
@@ -354,7 +350,7 @@ lazy val federation = project
   .in(file("federation"))
   .settings(name := "caliban-federation")
   .settings(commonSettings)
-  .dependsOn(core.jvm % "compile->compile;test->test")
+  .dependsOn(core % "compile->compile;test->test")
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
@@ -411,47 +407,4 @@ val commonSettings = Def.settings(
       )
     case _            => Nil
   })
-)
-
-def platformSpecificSources(platform: String, conf: String, baseDirectory: File)(versions: String*) =
-  for {
-    platform <- List("src", platform + "/src")
-    version  <- "scala" :: versions.toList.map("scala-" + _)
-    result    = baseDirectory.getParentFile / platform.toLowerCase / conf / version
-    if result.exists
-  } yield result
-
-def crossPlatformSources(scalaVer: String, platform: String, conf: String, baseDir: File) = {
-  val versions = CrossVersion.partialVersion(scalaVer) match {
-    case Some((2, 11)) =>
-      List("2.11", "2.11+", "2.11-2.12", "2.x")
-    case Some((2, 12)) =>
-      List("2.12", "2.11+", "2.12+", "2.11-2.12", "2.12-2.13", "2.x")
-    case Some((2, 13)) =>
-      List("2.13", "2.11+", "2.12+", "2.13+", "2.12-2.13", "2.x")
-    case Some((3, 0))  =>
-      List("dotty", "2.11+", "2.12+", "2.13+", "3.x")
-    case _             =>
-      List()
-  }
-  platformSpecificSources(platform, conf, baseDir)(versions: _*)
-}
-
-lazy val crossProjectSettings = Seq(
-  Compile / unmanagedSourceDirectories ++= {
-    crossPlatformSources(
-      scalaVersion.value,
-      crossProjectPlatform.value.identifier,
-      "main",
-      baseDirectory.value
-    )
-  },
-  Test / unmanagedSourceDirectories ++= {
-    crossPlatformSources(
-      scalaVersion.value,
-      crossProjectPlatform.value.identifier,
-      "test",
-      baseDirectory.value
-    )
-  }
 )
