@@ -1,6 +1,6 @@
 package caliban.introspection
 
-import caliban.CalibanError.{ExecutionError, ValidationError}
+import caliban.CalibanError.{ ExecutionError, ValidationError }
 import caliban.GraphQL._
 import caliban.GraphQLResponse
 import caliban.Macros.gqldoc
@@ -130,7 +130,9 @@ object IntrospectionSpec extends DefaultRunnableSpec {
       },
       testM("introspect schema with wrapper") {
         val hideWrapper = new IntrospectionWrapper[Any] {
-          def wrap[R1 <: Any](effect: ZIO[R1, ExecutionError, __Introspection]): ZIO[R1, ExecutionError, __Introspection] =
+          def wrap[R1 <: Any](
+            effect: ZIO[R1, ExecutionError, __Introspection]
+          ): ZIO[R1, ExecutionError, __Introspection] =
             effect.map { intro =>
               intro.copy(__schema =
                 intro.__schema.copy(
@@ -138,7 +140,7 @@ object IntrospectionSpec extends DefaultRunnableSpec {
                     case ttp if ttp.name.contains("QueryIO") =>
                       // hide all methods except first
                       ttp.copy(fields = ttp.fields.andThen(_.map(fields => fields.headOption.toList)))
-                    case other => other
+                    case other                               => other
                   }
                 )
               )
