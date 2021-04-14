@@ -1,10 +1,12 @@
 package caliban.federation.tracing
 
+import caliban.CalibanError
 import caliban.CalibanError.ExecutionError
+import caliban.execution.FieldInfo
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.StringValue
 import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper }
-import caliban.{ GraphQLRequest, ResponseValue }
+import caliban.{ GraphQLRequest, GraphQLResponse, ResponseValue }
 import com.google.protobuf.timestamp.Timestamp
 import mdg.engine.proto.reports.Trace
 import mdg.engine.proto.reports.Trace.{ Error, Location, Node }
@@ -36,45 +38,52 @@ object ApolloFederatedTracing {
     )
 
   private def apolloTracingOverall(ref: Ref[Tracing], enabled: Ref[Boolean]): OverallWrapper[Clock] =
-    OverallWrapper { process => (request: GraphQLRequest) =>
-      ZIO.ifM(
-        enabled.updateAndGet(_ =>
-          request.extensions.exists(
-            _.get(GraphQLRequest.`apollo-federation-include-trace`).contains(StringValue(GraphQLRequest.ftv1))
-          )
-        )
-      )(
-        for {
-          startNano              <- clock.nanoTime
-          _                      <- ref.update(_.copy(startTime = startNano))
-          ((start, end), result) <- process(request).summarized(clock.currentTime(TimeUnit.MILLISECONDS))((_, _))
-          endNano                <- clock.nanoTime
-          tracing                <- ref.get
-        } yield {
-          val root = Trace(
-            startTime = Some(toTimestamp(start)),
-            endTime = Some(toTimestamp(end)),
-            durationNs = endNano - startNano,
-            root = Some(tracing.root.reduce())
-          )
-
-          result.copy(
-            extensions = Some(
-              ObjectValue(
-                (
-                  "ftv1" -> (StringValue(new String(Base64.getEncoder.encode(root.toByteArray))): ResponseValue)
-                ) :: result.extensions.fold(List.empty[(String, ResponseValue)])(_.fields)
+    new OverallWrapper[Clock] {
+      def wrap[R1 <: Clock](
+        process: GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]]
+      ): GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] =
+        (request: GraphQLRequest) =>
+          ZIO.ifM(
+            enabled.updateAndGet(_ =>
+              request.extensions.exists(
+                _.get(GraphQLRequest.`apollo-federation-include-trace`).contains(StringValue(GraphQLRequest.ftv1))
               )
             )
+          )(
+            for {
+              startNano              <- clock.nanoTime
+              _                      <- ref.update(_.copy(startTime = startNano))
+              ((start, end), result) <- process(request).summarized(clock.currentTime(TimeUnit.MILLISECONDS))((_, _))
+              endNano                <- clock.nanoTime
+              tracing                <- ref.get
+            } yield {
+              val root = Trace(
+                startTime = Some(toTimestamp(start)),
+                endTime = Some(toTimestamp(end)),
+                durationNs = endNano - startNano,
+                root = Some(tracing.root.reduce())
+              )
+
+              result.copy(
+                extensions = Some(
+                  ObjectValue(
+                    (
+                      "ftv1" -> (StringValue(new String(Base64.getEncoder.encode(root.toByteArray))): ResponseValue)
+                    ) :: result.extensions.fold(List.empty[(String, ResponseValue)])(_.fields)
+                  )
+                )
+              )
+            },
+            process(request)
           )
-        },
-        process(request)
-      )
     }
 
   private def apolloTracingField(ref: Ref[Tracing], enabled: Ref[Boolean]): FieldWrapper[Clock] =
-    FieldWrapper(
-      { case (query, fieldInfo) =>
+    new FieldWrapper[Clock](true) {
+      def wrap[R1 <: Clock](
+        query: ZQuery[R1, CalibanError.ExecutionError, ResponseValue],
+        fieldInfo: FieldInfo
+      ): ZQuery[R1, CalibanError.ExecutionError, ResponseValue] =
         ZQuery
           .fromEffect(enabled.get)
           .flatMap(
@@ -109,9 +118,7 @@ object ApolloFederatedTracing {
               } yield result
             else query
           )
-      },
-      wrapPureValues = true
-    )
+    }
 
   private type VPath = Vector[Either[String, Int]]
   private final case class Tracing(root: NodeTrie, startTime: Long = 0)
