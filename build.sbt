@@ -293,7 +293,7 @@ lazy val client    = crossProject(JSPlatform, JVMPlatform)
   )
 lazy val clientJVM = client.jvm
 lazy val clientJS  = client.js.settings(
-  libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.2.1" % Test
+  libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.2.2" % Test
 )
 
 lazy val examples = project
