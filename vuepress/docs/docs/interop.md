@@ -46,7 +46,7 @@ object ExampleCatsInterop extends IOApp {
 }
 ```
 
-You can find this example within the [examples](https://github.com/ghostdogpr/caliban/blob/master/examples/src/main/scala/caliban/interop/cats/ExampleCatsInterop.scala) project.
+You can find this example within the [examples](https://github.com/ghostdogpr/caliban/blob/master/examples/src/main/scala/example/interop/cats/ExampleCatsInterop.scala) project.
 
 ## Monix
 You first need to import `caliban.interop.monix.implicits._` and have an implicit `zio.Runtime` in scope. Then a few helpers are available:
@@ -92,7 +92,7 @@ object ExampleMonixInterop extends TaskApp {
 }
 ```
 
-You can find this example within the [examples](https://github.com/ghostdogpr/caliban/blob/master/examples/src/main/scala/caliban/interop/monix/ExampleMonixInterop.scala) project.
+You can find this example within the [examples](https://github.com/ghostdogpr/caliban/blob/master/examples/src/main/scala/example/interop/monix/ExampleMonixInterop.scala) project.
 
 ## Tapir
 
@@ -142,7 +142,7 @@ This can then be used to generate both an HTTP route (e.g. `toRoutes` with http4
 val api: GraphQL[Any] = addBookEndpoint.toGraphQL
 ```
 
-You can find a [full example](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/caliban/tapir) on github.
+You can find a [full example](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/example/tapir) on github.
 
 ### GraphQL restrictions
 

@@ -123,8 +123,8 @@ During the query execution, Caliban will merge all the requested fields that ret
 
 The [examples](https://github.com/ghostdogpr/caliban/tree/master/examples) project provides 2 versions of the problem described in [this article about GraphQL query optimization](https://blog.apollographql.com/optimizing-your-graphql-request-waterfalls-7c3f3360b051):
 
-- a [naive](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/caliban/optimizations/NaiveTest.scala) version where fields are just returning `IO`, resulting in 47 requests
-- an [optimized](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/caliban/optimizations/OptimizedTest.scala) version where fields are returning `ZQuery`, resulting in 8 requests only
+- a [naive](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/example/optimizations/NaiveTest.scala) version where fields are just returning `IO`, resulting in 47 requests
+- an [optimized](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/example/optimizations/OptimizedTest.scala) version where fields are returning `ZQuery`, resulting in 8 requests only
 
 ::: tip
 When all your effects are wrapped with `ZQuery.fromRequest`, it is recommended to use `queryExecution = QueryExecution.Batched` instead of the default `QueryExecution.Parallel`.
