@@ -300,8 +300,8 @@ object TestUtils {
             )
           )
 
-      val interfaceA = Types.makeInterface(Some("InterfaceA"), None, makeFields("a"), Nil)
-      val interfaceB = Types.makeInterface(Some("InterfaceB"), None, makeFields("b"), Nil)
+      val interfaceA = Types.makeInterface(Some("InterfaceA"), None, () => makeFields("a"), Nil)
+      val interfaceB = Types.makeInterface(Some("InterfaceB"), None, () => makeFields("b"), Nil)
 
       val objectWrongInterfaceFieldType = __Type(
         name = Some("ObjectWrongInterfaceFieldType"),
@@ -365,7 +365,7 @@ object TestUtils {
       val fieldInterface             = Types.makeInterface(
         name = Some("FieldInterface"),
         description = None,
-        fields = List(__Field("a", None, Nil, () => Types.string)),
+        fields = () => List(__Field("a", None, Nil, () => Types.string)),
         subTypes = Nil
       )
       val fieldObject                = __Type(
@@ -377,7 +377,7 @@ object TestUtils {
       val withListFieldInterface     = Types.makeInterface(
         name = Some("WithListFieldInterface"),
         description = None,
-        fields = List(__Field("a", None, Nil, () => Types.makeList(fieldInterface))),
+        fields = () => List(__Field("a", None, Nil, () => Types.makeList(fieldInterface))),
         subTypes = Nil
       )
       val objectWrongListItemSubtype = __Type(
@@ -456,15 +456,16 @@ object TestUtils {
       val withNullableExtraArgs: __Type = Types.makeInterface(
         name = Some("WithNullableExtraArgs"),
         description = None,
-        fields = List(
-          __Field(
-            name = "fieldWithArg",
-            description = None,
-            `type` = () => Types.string,
-            args =
-              List(__InputValue(name = "arg", description = None, `type` = () => Types.string, defaultValue = None))
-          )
-        ),
+        fields = () =>
+          List(
+            __Field(
+              name = "fieldWithArg",
+              description = None,
+              `type` = () => Types.string,
+              args =
+                List(__InputValue(name = "arg", description = None, `type` = () => Types.string, defaultValue = None))
+            )
+          ),
         subTypes = List(nullableExtraArgsObject)
       )
     }
