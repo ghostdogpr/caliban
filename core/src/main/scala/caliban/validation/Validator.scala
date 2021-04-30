@@ -676,7 +676,10 @@ object Validator {
           val fieldContext = s"Field '${objField.name}'"
 
           IO.whenCase(supertypeFields.find(_.name == objField.name)) { case Some(superField) =>
-            val extraArgs = objField.args.filterNot(superField.args.toSet)
+            val superArgs = superField.args.map(arg => (arg.name, arg)).toMap
+            val extraArgs = objField.args.filter { arg =>
+              superArgs.get(arg.name).fold(true)(superArg => !Types.same(arg.`type`(), superArg.`type`()))
+            }
 
             def fieldTypeIsValid = isValidSubtype(superField.`type`(), objField.`type`())
 

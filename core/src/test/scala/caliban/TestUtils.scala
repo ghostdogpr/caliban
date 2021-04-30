@@ -400,9 +400,10 @@ object TestUtils {
       sealed trait WithFieldWithArg {
         val fieldWithArg: FieldArg => String
       }
-      case class FieldWithArgObject(fieldWithArg: FieldArg => String) extends WithFieldWithArg
-      case class TestFieldWithArgObject(obj: FieldWithArgObject)
-      val resolverFieldWithArg = RootResolver(TestFieldWithArgObject(FieldWithArgObject(_ => "a")))
+      case class FieldWithArgObject1(fieldWithArg: FieldArg => String) extends WithFieldWithArg
+      case class FieldWithArgObject2(fieldWithArg: FieldArg => String) extends WithFieldWithArg
+      case class TestFieldWithArgObject(obj: WithFieldWithArg)
+      val resolverFieldWithArg = RootResolver(TestFieldWithArgObject(FieldWithArgObject1(_ => "a")))
 
       val nullableExtraArgsObject = __Type(
         name = Some("NullableExtraArgsObject"),
