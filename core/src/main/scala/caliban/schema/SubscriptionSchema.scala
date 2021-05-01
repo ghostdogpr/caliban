@@ -5,7 +5,7 @@ import zio.stream.ZStream
 /**
  * Typeclass used to guarantee that the Subscriptions type is either `Unit` or a case class with `zio.stream.ZStream` for fields.
  */
-trait SubscriptionSchema[-T]
+trait SubscriptionSchema[T]
 
 object SubscriptionSchema extends SubscriptionSchemaDerivation {
 

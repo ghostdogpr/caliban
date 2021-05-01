@@ -402,7 +402,8 @@ val commonSettings = Def.settings(
 
     case Some((3, _)) =>
       Seq(
-        "-explain-types"
+        "-explain-types",
+        "-Ykind-projector"
       )
     case _            => Nil
   })
