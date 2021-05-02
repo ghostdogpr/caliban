@@ -2,12 +2,12 @@ import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
 val scala212 = "2.12.13"
 val scala213 = "2.13.5"
-val scala3   = "3.0.0-RC2"
+val scala3   = "3.0.0-RC3"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion           = "2.6.14"
 val catsEffectVersion     = "2.4.1"
-val circeVersion          = "0.14.0-M5"
+val circeVersion          = "0.14.0-M6"
 val http4sVersion         = "0.21.22"
 val magnoliaVersion       = "0.17.0"
 val mercatorVersion       = "0.2.1"
@@ -16,10 +16,10 @@ val playJsonVersion       = "2.9.2"
 val silencerVersion       = "1.7.3"
 val sttpVersion           = "3.2.3"
 val tapirVersion          = "0.17.18"
-val zioVersion            = "1.0.6"
+val zioVersion            = "1.0.7"
 val zioInteropCatsVersion = "2.4.0.0"
 val zioConfigVersion      = "1.0.4"
-val zqueryVersion         = "0.2.7"
+val zqueryVersion         = "0.2.8"
 val zioJsonVersion        = "0.1.4"
 
 inThisBuild(

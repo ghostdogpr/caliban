@@ -49,7 +49,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++3.0.0-RC2! core/compile
+      - run: sbt ++3.0.0-RC3! core/compile
       - save_cache:
           key: sbtcache
           paths:
