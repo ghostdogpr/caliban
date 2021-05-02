@@ -14,7 +14,7 @@ trait ArgBuilderDerivation {
     inline erasedValue[(Label, A)] match {
       case (_: (name *: names), _: (t *: ts)) =>
         val label = constValue[name].toString
-        val annotations = Macros.anns[t]
+        val annotations = Macros.annotations[t]
         val builder = summonInline[ArgBuilder[t]].asInstanceOf[ArgBuilder[Any]]
         (label, annotations, builder) :: recurse[names, ts]
       case (_: EmptyTuple, _) => Nil
@@ -47,7 +47,7 @@ trait ArgBuilderDerivation {
 
       case m: Mirror.ProductOf[A] =>
         lazy val fields = recurse[m.MirroredElemLabels, m.MirroredElemTypes]
-        lazy val annotations = Macros.paramAnns[A].to(Map)
+        lazy val annotations = Macros.paramAnnotations[A].to(Map)
         new ArgBuilder[A] {
           def build(input: InputValue): Either[ExecutionError, A] = {
             fields.map { (label, _, builder) =>
