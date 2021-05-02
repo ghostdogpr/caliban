@@ -69,5 +69,5 @@ trait ArgBuilderDerivation {
         }
     }
 
-  inline given argBuilder[A]: ArgBuilder[A] = derived
+  inline given gen[A]: ArgBuilder[A] = derived
 }

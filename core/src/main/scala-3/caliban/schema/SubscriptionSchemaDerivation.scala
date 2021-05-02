@@ -19,5 +19,5 @@ trait SubscriptionSchemaDerivation {
         new SubscriptionSchema[A] {}
     }
 
-  inline given subscriptionSchema[A]: SubscriptionSchema[A] = derived
+  inline given gen[A]: SubscriptionSchema[A] = derived
 }
