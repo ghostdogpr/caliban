@@ -14,7 +14,7 @@ object Parser {
   /**
    * Checks if the query is valid, if not returns an error string.
    */
-  def check(query: String): Option[String] = ???
+  def check(query: String): Option[String] = None
 }
 
 case class ParsedDocument(definitions: List[Definition], index: Int = 0)

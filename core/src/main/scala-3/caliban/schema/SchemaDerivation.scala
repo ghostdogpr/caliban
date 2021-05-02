@@ -108,6 +108,7 @@ trait SchemaDerivation[R] {
         lazy val isObject = Macros.isObject[A]
         lazy val info = Macros.typeInfo[A]
         lazy val annotations = Macros.annotations[A]
+        lazy val paramAnnotations = Macros.paramAnnotations[A].toMap
         new Schema[R, A] {
           def toType(isInput: Boolean, isSubscription: Boolean): __Type =
             if (isValueClass && fields.nonEmpty) fields.head._4.toType_(isInput, isSubscription)
@@ -117,9 +118,10 @@ trait SchemaDerivation[R] {
                   .getOrElse(customizeInputTypeName(getName(annotations, info)))),
                 getDescription(annotations),
                 fields
-                  .map { case (label, fieldAnnotations, _, schema, _) =>
+                  .map { case (label, _, _, schema, _) =>
+                    val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
                     __InputValue(
-                      getName(fieldAnnotations, label),
+                      getName(paramAnnotations.getOrElse(label, Nil), label),
                       getDescription(fieldAnnotations),
                       () =>
                         if (schema.optional) schema.toType_(isInput, isSubscription)
@@ -135,7 +137,8 @@ trait SchemaDerivation[R] {
                 Some(getName(annotations, info)),
                 getDescription(annotations),
                 fields
-                  .map { case (label, fieldAnnotations, _, schema, _) =>
+                  .map { case (label, _, _, schema, _) =>
+                    val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
                     __Field(
                       getName(fieldAnnotations, label),
                       getDescription(fieldAnnotations),
@@ -159,7 +162,8 @@ trait SchemaDerivation[R] {
               schema.resolve(value.asInstanceOf[Product].productElement(index))
             } else {
               val fieldsBuilder = Map.newBuilder[String, Step[R]]
-              fields.foreach { case (label, fieldAnnotations, _, schema, index) =>
+              fields.foreach { case (label, _, _, schema, index) =>
+                val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
                 fieldsBuilder += getName(fieldAnnotations, label) -> schema.resolve(value.asInstanceOf[Product].productElement(index))
               }
               ObjectStep(getName(annotations, info), fieldsBuilder.result())
