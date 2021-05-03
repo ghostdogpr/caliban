@@ -8,7 +8,6 @@ private[caliban] object Macros {
 
   inline def annotations[T]: List[Any] = ${annotationsImpl[T]}
   inline def paramAnnotations[T]: List[(String, List[Any])] = ${paramAnnotationsImpl[T]}
-  inline def isValueClass[T]: Boolean = ${isValueClassImpl[T]}
   inline def typeInfo[T]: TypeInfo = ${typeInfoImpl[T]}
   inline def isObject[T]: Boolean = ${isObjectImpl[T]}
 
@@ -35,30 +34,25 @@ private[caliban] object Macros {
     }
   }
 
-  def isValueClassImpl[T: Type](using qctx: Quotes): Expr[Boolean] = {
-    import qctx.reflect.*
-    Expr(TypeRepr.of[T].baseClasses.contains(Symbol.classSymbol("scala.AnyVal")))
+  def typeInfoImpl[T: Type](using qctx: Quotes): Expr[TypeInfo] = {
+    import qctx.reflect._
+
+    def normalizedName(s: Symbol): String = if s.flags.is(Flags.Module) then s.name.stripSuffix("$") else s.name
+    def name(tpe: TypeRepr) : Expr[String] = Expr(normalizedName(tpe.typeSymbol))
+
+    def owner(tpe: TypeRepr): Expr[String] =
+      if tpe.typeSymbol.maybeOwner.isNoSymbol then Expr("<no owner>")
+      else if (tpe.typeSymbol.owner == defn.EmptyPackageClass) Expr("")
+      else Expr(tpe.typeSymbol.owner.name)
+
+    def typeInfo(tpe: TypeRepr): Expr[TypeInfo] = tpe match
+      case AppliedType(tpe, args) =>
+        '{TypeInfo(${owner(tpe)}, ${name(tpe)}, ${Expr.ofList(args.map(typeInfo))})}
+      case _ =>
+        '{TypeInfo(${owner(tpe)}, ${name(tpe)}, Nil)}
+
+    typeInfo(TypeRepr.of[T])
   }
-
-    def typeInfoImpl[T: Type](using qctx: Quotes): Expr[TypeInfo] = {
-      import qctx.reflect._
-
-      def normalizedName(s: Symbol): String = if s.flags.is(Flags.Module) then s.name.stripSuffix("$") else s.name
-      def name(tpe: TypeRepr) : Expr[String] = Expr(normalizedName(tpe.typeSymbol))
-
-      def owner(tpe: TypeRepr): Expr[String] =
-        if tpe.typeSymbol.maybeOwner.isNoSymbol then Expr("<no owner>")
-        else if (tpe.typeSymbol.owner == defn.EmptyPackageClass) Expr("")
-        else Expr(tpe.typeSymbol.owner.name)
-
-      def typeInfo(tpe: TypeRepr): Expr[TypeInfo] = tpe match
-        case AppliedType(tpe, args) =>
-          '{TypeInfo(${owner(tpe)}, ${name(tpe)}, ${Expr.ofList(args.map(typeInfo))})}
-        case _ =>
-          '{TypeInfo(${owner(tpe)}, ${name(tpe)}, Nil)}
-
-      typeInfo(TypeRepr.of[T])
-    }
 
   def isObjectImpl[T](using qctx: Quotes, tpe: Type[T]): Expr[Boolean] = {
     import qctx.reflect.*

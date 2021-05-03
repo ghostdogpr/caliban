@@ -104,15 +104,13 @@ trait SchemaDerivation[R] {
         }
       case m: Mirror.ProductOf[A] =>
         lazy val fields = recurse[m.MirroredElemLabels, m.MirroredElemTypes]()
-        lazy val isValueClass = Macros.isValueClass[A]
         lazy val isObject = Macros.isObject[A]
         lazy val info = Macros.typeInfo[A]
         lazy val annotations = Macros.annotations[A]
         lazy val paramAnnotations = Macros.paramAnnotations[A].toMap
         new Schema[R, A] {
           def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-            if (isValueClass && fields.nonEmpty) fields.head._4.toType_(isInput, isSubscription)
-            else if (isInput)
+            if (isInput)
               makeInputObject(
                 Some(annotations.collectFirst { case GQLInputName(suffix) => suffix }
                   .getOrElse(customizeInputTypeName(getName(annotations, info)))),
@@ -157,10 +155,7 @@ trait SchemaDerivation[R] {
 
           def resolve(value: A): Step[R] =
             if (isObject) PureStep(EnumValue(getName(annotations, info)))
-            else if (isValueClass && fields.nonEmpty) {
-              val (_, _, _, schema, index) = fields.head
-              schema.resolve(value.asInstanceOf[Product].productElement(index))
-            } else {
+            else {
               val fieldsBuilder = Map.newBuilder[String, Step[R]]
               fields.foreach { case (label, _, _, schema, index) =>
                 val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
