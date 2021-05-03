@@ -305,5 +305,5 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
           }
         )
       }
-    ) @@ exceptDotty
+    )
 }
