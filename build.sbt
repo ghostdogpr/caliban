@@ -14,7 +14,7 @@ val mercatorVersion       = "0.2.1"
 val playVersion           = "2.8.8"
 val playJsonVersion       = "2.9.2"
 val silencerVersion       = "1.7.3"
-val sttpVersion           = "3.2.3"
+val sttpVersion           = "3.3.0"
 val tapirVersion          = "0.17.18"
 val zioVersion            = "1.0.7"
 val zioInteropCatsVersion = "2.4.0.0"
@@ -299,7 +299,6 @@ lazy val client    = crossProject(JSPlatform, JVMPlatform)
   .settings(name := "caliban-client")
   .settings(commonSettings)
   .settings(
-    crossScalaVersions -= scala3,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "io.circe"                      %%% "circe-core"   % circeVersion,
@@ -311,7 +310,8 @@ lazy val client    = crossProject(JSPlatform, JVMPlatform)
   )
 lazy val clientJVM = client.jvm
 lazy val clientJS  = client.js.settings(
-  libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.2.1" % Test
+  crossScalaVersions -= scala3,
+  libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.2.2" % Test
 )
 
 lazy val examples = project

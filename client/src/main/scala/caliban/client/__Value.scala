@@ -34,9 +34,9 @@ object __Value {
   private def jsonToValue(json: Json): __Value =
     json.fold(
       __NullValue,
-      __BooleanValue,
+      __BooleanValue.apply,
       number => __NumberValue(number.toBigDecimal getOrElse BigDecimal(number.toDouble)),
-      __StringValue,
+      __StringValue.apply,
       array => __Value.__ListValue(array.toList.map(jsonToValue)),
       obj => __Value.__ObjectValue(obj.toList.map { case (k, v) => k -> jsonToValue(v) })
     )
