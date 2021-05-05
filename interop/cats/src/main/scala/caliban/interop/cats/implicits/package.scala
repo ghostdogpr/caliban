@@ -28,12 +28,12 @@ package object implicits {
         queryExecution
       )
 
-    def checkAsync[F[_]: Async](query: String)(implicit runtime: Runtime[R]): F[Unit] =
+    def checkAsync[F[_]: Async](query: String)(implicit runtime: Runtime[Any]): F[Unit] =
       CatsInterop.checkAsync(underlying)(query)
   }
 
   implicit class CatsEffectGraphQL[R, E](underlying: GraphQL[R]) {
-    def interpreterAsync[F[_]: Async](implicit runtime: Runtime[R]): F[GraphQLInterpreter[R, CalibanError]] =
+    def interpreterAsync[F[_]: Async](implicit runtime: Runtime[Any]): F[GraphQLInterpreter[R, CalibanError]] =
       CatsInterop.interpreterAsync(underlying)
   }
 
