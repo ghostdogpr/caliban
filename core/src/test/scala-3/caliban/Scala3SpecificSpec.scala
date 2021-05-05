@@ -2,7 +2,6 @@ package caliban
 
 import caliban.GraphQL._
 import caliban.schema.Annotations.GQLInterface
-import caliban.schema.Schema
 import zio.test.Assertion._
 import zio.test.TestAspect.exceptDotty
 import zio.test._
