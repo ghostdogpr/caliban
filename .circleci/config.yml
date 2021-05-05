@@ -49,7 +49,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++3.0.0-RC3! core/test clientJVM/test
+      - run: sbt ++3.0.0-RC3! core/test clientJVM/test clientJS/compile
       - save_cache:
           key: sbtcache
           paths:
