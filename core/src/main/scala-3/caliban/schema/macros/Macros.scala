@@ -9,7 +9,6 @@ private[caliban] object Macros {
   inline def annotations[T]: List[Any] = ${annotationsImpl[T]}
   inline def paramAnnotations[T]: List[(String, List[Any])] = ${paramAnnotationsImpl[T]}
   inline def typeInfo[T]: TypeInfo = ${typeInfoImpl[T]}
-  inline def isObject[T]: Boolean = ${isObjectImpl[T]}
 
   def annotationsImpl[T: Type](using qctx: Quotes): Expr[List[Any]] = {
     import qctx.reflect.*
@@ -60,10 +59,5 @@ private[caliban] object Macros {
         '{TypeInfo(${owner(tpe)}, ${name(tpe)}, Nil)}
 
     typeInfo(TypeRepr.of[T])
-  }
-
-  def isObjectImpl[T](using qctx: Quotes, tpe: Type[T]): Expr[Boolean] = {
-    import qctx.reflect.*
-    Expr(TypeRepr.of[T].typeSymbol.flags.is(Flags.Module))
   }
 }
