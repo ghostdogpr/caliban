@@ -38,12 +38,14 @@ object MonixInterop {
       runtime.unsafeRunAsync(execution)(exit => cb(exit.toEither))
     }
 
-  def checkAsync[R](graphQL: GraphQLInterpreter[R, Any])(query: String)(implicit runtime: Runtime[R]): MonixTask[Unit] =
+  def checkAsync[R](
+    graphQL: GraphQLInterpreter[R, Any]
+  )(query: String)(implicit runtime: Runtime[Any]): MonixTask[Unit] =
     MonixTask.async(cb => runtime.unsafeRunAsync(graphQL.check(query))(exit => cb(exit.toEither)))
 
   def interpreterAsync[R](
     graphQL: GraphQL[R]
-  )(implicit runtime: Runtime[R]): MonixTask[GraphQLInterpreter[R, CalibanError]] =
+  )(implicit runtime: Runtime[Any]): MonixTask[GraphQLInterpreter[R, CalibanError]] =
     MonixTask.async(cb => runtime.unsafeRunAsync(graphQL.interpreter)(exit => cb(exit.toEither)))
 
   def taskSchema[R, A](implicit ev: Schema[R, A], ev2: ConcurrentEffect[MonixTask]): Schema[R, MonixTask[A]] =
