@@ -326,6 +326,10 @@ lazy val clientJS  = client.js.settings(
 lazy val examples = project
   .in(file("examples"))
   .settings(commonSettings)
+  .settings(
+    scalaVersion := scala13,
+    crossScalaVersions := Seq(scala13)
+  )
   .settings(publish / skip := true)
   .settings(
     libraryDependencies ++= Seq(
