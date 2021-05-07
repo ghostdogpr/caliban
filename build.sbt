@@ -1,7 +1,8 @@
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
 val mainScala = "2.12.13"
-val allScala  = Seq("2.13.5", mainScala)
+val scala13   = "2.13.5"
+val allScala  = Seq(scala13, mainScala)
 
 val akkaVersion           = "2.6.14"
 val catsEffectVersion     = "2.5.0"
@@ -19,6 +20,8 @@ val zioInteropCatsVersion = "2.4.1.0"
 val zioConfigVersion      = "1.0.4"
 val zqueryVersion         = "0.2.8"
 val zioJsonVersion        = "0.1.4"
+// needs to be snapshot right now.
+val zioHttpVersion        = "1.0.0.0-RC15+33-c11af52b-SNAPSHOT"
 
 inThisBuild(
   List(
@@ -224,6 +227,28 @@ lazy val http4s = project
   )
   .dependsOn(core)
 
+lazy val zioHttp = project
+  .in(file("adapters/zio-http"))
+  .settings(scalaVersion := scala13)
+  .settings(name := "caliban-zio-http")
+  .settings(commonSettings)
+  .settings(
+    resolvers ++= Seq(
+      "Sonatype OSS Snapshots" at "https://s01.oss.sonatype.org/content/repositories/snapshots"
+    ),
+    libraryDependencies ++= Seq(
+      "io.d11"           %% "zhttp"          % zioHttpVersion,
+      "io.circe"         %% "circe-parser"   % circeVersion,
+      compilerPlugin(
+        ("org.typelevel" %% "kind-projector" % "0.11.3")
+          .cross(CrossVersion.full)
+      ),
+      compilerPlugin("com.github.ghik" % "silencer-plugin" % silencerVersion cross CrossVersion.full),
+      "com.github.ghik"   % "silencer-lib"   % silencerVersion % Provided cross CrossVersion.full
+    )
+  )
+  .dependsOn(core)
+
 lazy val akkaHttp = project
   .in(file("adapters/akka-http"))
   .settings(name := "caliban-akka-http")
@@ -306,11 +331,12 @@ lazy val examples = project
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % tapirVersion,
       "io.circe"                      %% "circe-generic"                 % circeVersion,
+      "io.d11"                        %% "zhttp"                         % zioHttpVersion,
       "com.typesafe.play"             %% "play-akka-http-server"         % playVersion,
       "com.typesafe.akka"             %% "akka-actor-typed"              % akkaVersion
     )
   )
-  .dependsOn(akkaHttp, http4s, catsInterop, finch, play, monixInterop, tapirInterop, clientJVM, federation)
+  .dependsOn(akkaHttp, http4s, catsInterop, finch, play, monixInterop, tapirInterop, clientJVM, federation, zioHttp)
 
 lazy val benchmarks = project
   .in(file("benchmarks"))
