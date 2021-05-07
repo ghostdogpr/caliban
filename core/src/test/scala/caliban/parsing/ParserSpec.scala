@@ -13,6 +13,7 @@ import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt._
 import zio.test.Assertion._
+import zio.test.TestAspect.exceptDotty
 import zio.test._
 import zio.test.environment.TestEnvironment
 
@@ -1010,7 +1011,7 @@ object ParserSpec extends DefaultRunnableSpec {
           )
         )
       }
-    )
+    ) @@ exceptDotty
 
   def simpleQuery(
     name: Option[String] = None,

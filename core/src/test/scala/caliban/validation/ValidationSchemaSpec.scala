@@ -8,6 +8,7 @@ import caliban.schema.Types
 import caliban.{ GraphQL, RootResolver }
 import zio.IO
 import zio.test.Assertion._
+import zio.test.TestAspect.exceptDotty
 import zio.test._
 import zio.test.environment.TestEnvironment
 

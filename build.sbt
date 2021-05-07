@@ -2,24 +2,24 @@ import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
 val scala212 = "2.12.13"
 val scala213 = "2.13.5"
-val scala3   = "3.0.0-RC2"
+val scala3   = "3.0.0-RC3"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion           = "2.6.14"
 val catsEffectVersion     = "2.4.1"
-val circeVersion          = "0.14.0-M5"
+val circeVersion          = "0.14.0-M6"
 val http4sVersion         = "0.21.22"
 val magnoliaVersion       = "0.17.0"
 val mercatorVersion       = "0.2.1"
 val playVersion           = "2.8.8"
 val playJsonVersion       = "2.9.2"
 val silencerVersion       = "1.7.3"
-val sttpVersion           = "3.2.3"
+val sttpVersion           = "3.3.0"
 val tapirVersion          = "0.17.18"
-val zioVersion            = "1.0.6"
+val zioVersion            = "1.0.7"
 val zioInteropCatsVersion = "2.4.0.0"
 val zioConfigVersion      = "1.0.4"
-val zqueryVersion         = "0.2.7"
+val zqueryVersion         = "0.2.8"
 val zioJsonVersion        = "0.1.4"
 
 inThisBuild(
@@ -302,19 +302,32 @@ lazy val client    = crossProject(JSPlatform, JVMPlatform)
   .settings(name := "caliban-client")
   .settings(commonSettings)
   .settings(
-    crossScalaVersions -= scala3,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "io.circe"                      %%% "circe-core"   % circeVersion,
-      "com.softwaremill.sttp.client3" %%% "core"         % sttpVersion,
-      "com.softwaremill.sttp.client3" %%% "circe"        % sttpVersion,
-      "dev.zio"                       %%% "zio-test"     % zioVersion % "test",
-      "dev.zio"                       %%% "zio-test-sbt" % zioVersion % "test"
+      "io.circe"                      %%% "circe-core" % circeVersion,
+      "com.softwaremill.sttp.client3" %%% "core"       % sttpVersion,
+      "com.softwaremill.sttp.client3" %%% "circe"      % sttpVersion
     )
   )
-lazy val clientJVM = client.jvm
+lazy val clientJVM = client.jvm.settings(
+  libraryDependencies ++= Seq(
+    "dev.zio" %%% "zio-test"     % zioVersion % "test",
+    "dev.zio" %%% "zio-test-sbt" % zioVersion % "test"
+  )
+)
 lazy val clientJS  = client.js.settings(
-  libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.2.1" % Test
+  libraryDependencies ++= {
+    // ZIO test is not published for Scala 3 on Scala.js yet
+    if (scalaVersion.value == scala3) {
+      Seq.empty
+    } else {
+      Seq(
+        "dev.zio"           %%% "zio-test"        % zioVersion % "test",
+        "dev.zio"           %%% "zio-test-sbt"    % zioVersion % "test",
+        "io.github.cquiroz" %%% "scala-java-time" % "2.2.2"    % Test
+      )
+    }
+  }
 )
 
 lazy val examples = project
@@ -354,6 +367,7 @@ lazy val federation = project
   .settings(commonSettings)
   .dependsOn(core % "compile->compile;test->test")
   .settings(
+    crossScalaVersions -= scala3,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio"          % zioVersion,
@@ -405,7 +419,8 @@ val commonSettings = Def.settings(
 
     case Some((3, _)) =>
       Seq(
-        "-explain-types"
+        "-explain-types",
+        "-Ykind-projector"
       )
     case _            => Nil
   })

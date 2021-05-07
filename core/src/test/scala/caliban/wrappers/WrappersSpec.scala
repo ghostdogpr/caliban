@@ -10,7 +10,7 @@ import caliban._
 import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
 import caliban.schema.Annotations.GQLDirective
-import caliban.schema.GenericSchema
+import caliban.schema.{ GenericSchema, Schema }
 import caliban.wrappers.ApolloCaching.CacheControl
 import caliban.wrappers.ApolloPersistedQueries.apolloPersistedQueries
 import caliban.wrappers.Wrapper.{ ExecutionWrapper, FieldWrapper }
@@ -20,6 +20,7 @@ import zio.clock.Clock
 import zio.duration._
 import zio.query.ZQuery
 import zio.test.Assertion._
+import zio.test.TestAspect.exceptDotty
 import zio.test._
 import zio.test.environment.{ TestClock, TestEnvironment }
 import zio.{ clock, Promise, Ref, UIO, URIO, ZIO }
@@ -91,10 +92,10 @@ object WrappersSpec extends DefaultRunnableSpec {
                   ...f
                 }
               }
-              
+
               fragment f on A {
                 b {
-                  c 
+                  c
                 }
               }
               """)
@@ -122,17 +123,17 @@ object WrappersSpec extends DefaultRunnableSpec {
       testM("Timeout") {
         case class Test(a: URIO[Clock, Int])
 
-        object schema extends GenericSchema[Clock]
-        import schema._
+        object schema extends GenericSchema[Clock] {
+          val interpreter =
+            (graphQL(RootResolver(Test(clock.sleep(2 minutes).as(0)))) @@ timeout(1 minute)).interpreter
+        }
 
-        val interpreter =
-          (graphQL(RootResolver(Test(clock.sleep(2 minutes).as(0)))) @@ timeout(1 minute)).interpreter
-        val query       = gqldoc("""
+        val query = gqldoc("""
               {
                 a
               }""")
         assertM(for {
-          fiber <- interpreter.flatMap(_.execute(query)).map(_.errors).fork
+          fiber <- schema.interpreter.flatMap(_.execute(query)).map(_.errors).fork
           _     <- TestClock.adjust(1 minute)
           res   <- fiber.join
         } yield res)(equalTo(List(ExecutionError("""Query was interrupted after timeout of 1 m:
@@ -145,24 +146,25 @@ object WrappersSpec extends DefaultRunnableSpec {
         case class Query(hero: Hero)
         case class Hero(name: URIO[Clock, String], friends: List[Hero] = Nil)
 
-        object schema extends GenericSchema[Clock]
-        import schema._
+        object schema extends GenericSchema[Clock] {
+          implicit lazy val heroSchema: Schema[Clock, Hero] = schema.gen[Hero]
 
-        def api(latch: Promise[Nothing, Unit]): GraphQL[Clock] =
-          graphQL(
-            RootResolver(
-              Query(
-                Hero(
-                  latch.succeed(()) *> ZIO.sleep(1 second).as("R2-D2"),
-                  List(
-                    Hero(ZIO.sleep(2 second).as("Luke Skywalker")),
-                    Hero(ZIO.sleep(3 second).as("Han Solo")),
-                    Hero(ZIO.sleep(4 second).as("Leia Organa"))
+          def api(latch: Promise[Nothing, Unit]): GraphQL[Clock] =
+            graphQL(
+              RootResolver(
+                Query(
+                  Hero(
+                    latch.succeed(()) *> ZIO.sleep(1 second).as("R2-D2"),
+                    List(
+                      Hero(ZIO.sleep(2 second).as("Luke Skywalker")),
+                      Hero(ZIO.sleep(3 second).as("Han Solo")),
+                      Hero(ZIO.sleep(4 second).as("Leia Organa"))
+                    )
                   )
                 )
               )
-            )
-          ) @@ ApolloTracing.apolloTracing
+            ) @@ ApolloTracing.apolloTracing
+        }
 
         val query = gqldoc("""
               {
@@ -175,7 +177,7 @@ object WrappersSpec extends DefaultRunnableSpec {
               }""")
         assertM(for {
           latch       <- Promise.make[Nothing, Unit]
-          interpreter <- api(latch).interpreter
+          interpreter <- schema.api(latch).interpreter
           fiber       <- interpreter.execute(query).map(_.extensions.map(_.toString)).fork
           _           <- latch.await
           _           <- TestClock.adjust(4 seconds)
@@ -194,24 +196,24 @@ object WrappersSpec extends DefaultRunnableSpec {
         @GQLDirective(CacheControl(2.seconds))
         case class Hero(name: URIO[Clock, String], friends: List[Hero] = Nil)
 
-        object schema extends GenericSchema[Clock]
-        import schema._
-
-        def api: GraphQL[Clock] =
-          graphQL(
-            RootResolver(
-              Query(
-                Hero(
-                  ZIO.succeed("R2-D2"),
-                  List(
-                    Hero(ZIO.succeed("Luke Skywalker")),
-                    Hero(ZIO.succeed("Han Solo")),
-                    Hero(ZIO.succeed("Leia Organa"))
+        object schema extends GenericSchema[Clock] {
+          implicit lazy val heroSchema: Schema[Clock, Hero] = schema.gen[Hero]
+          def api: GraphQL[Clock]                           =
+            graphQL(
+              RootResolver(
+                Query(
+                  Hero(
+                    ZIO.succeed("R2-D2"),
+                    List(
+                      Hero(ZIO.succeed("Luke Skywalker")),
+                      Hero(ZIO.succeed("Han Solo")),
+                      Hero(ZIO.succeed("Leia Organa"))
+                    )
                   )
                 )
               )
-            )
-          ) @@ ApolloCaching.apolloCaching
+            ) @@ ApolloCaching.apolloCaching
+        }
 
         val query = gqldoc("""
               {
@@ -223,7 +225,7 @@ object WrappersSpec extends DefaultRunnableSpec {
                 }
               }""")
         assertM(for {
-          interpreter <- api.interpreter
+          interpreter <- schema.api.interpreter
           result      <- interpreter.execute(query).map(_.extensions.map(_.toString))
         } yield result)(
           isSome(
@@ -299,5 +301,5 @@ object WrappersSpec extends DefaultRunnableSpec {
           equalTo("""true""")
         )
       }
-    )
+    ) @@ exceptDotty
 }
