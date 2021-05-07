@@ -104,7 +104,9 @@ lazy val core = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) {
-        Seq.empty
+        Seq(
+          "org.typelevel" %% "cats-parse" % "0.3.3"
+        )
       } else {
         Seq(
           "com.propensive"    %% "magnolia"  % magnoliaVersion,
