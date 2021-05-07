@@ -10,7 +10,6 @@ import caliban.introspection.adt.__Introspection
 import caliban.wrappers.Wrapper.IntrospectionWrapper
 import zio.ZIO
 import zio.test.Assertion._
-import zio.test.TestAspect.exceptDotty
 import zio.test._
 import zio.test.environment.TestEnvironment
 
@@ -184,5 +183,5 @@ object IntrospectionSpec extends DefaultRunnableSpec {
           equalTo("""{"__type":null}""")
         )
       }
-    ) @@ exceptDotty
+    )
 }

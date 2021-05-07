@@ -14,7 +14,6 @@ import caliban.schema.{ Schema, Step, Types }
 import zio.{ IO, Task, UIO, ZIO }
 import zio.stream.ZStream
 import zio.test.Assertion._
-import zio.test.TestAspect.exceptDotty
 import zio.test._
 import zio.test.environment.TestEnvironment
 
@@ -814,5 +813,5 @@ object ExecutionSpec extends DefaultRunnableSpec {
           )
         )
       }
-    ) @@ exceptDotty
+    )
 }

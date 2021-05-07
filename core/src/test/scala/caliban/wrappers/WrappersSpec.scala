@@ -20,7 +20,6 @@ import zio.clock.Clock
 import zio.duration._
 import zio.query.ZQuery
 import zio.test.Assertion._
-import zio.test.TestAspect.exceptDotty
 import zio.test._
 import zio.test.environment.{ TestClock, TestEnvironment }
 import zio.{ clock, Promise, Ref, UIO, URIO, ZIO }
@@ -301,5 +300,5 @@ object WrappersSpec extends DefaultRunnableSpec {
           equalTo("""true""")
         )
       }
-    ) @@ exceptDotty
+    )
 }

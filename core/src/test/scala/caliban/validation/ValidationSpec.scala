@@ -8,7 +8,6 @@ import caliban.TestUtils._
 import caliban.Value.StringValue
 import zio.IO
 import zio.test.Assertion._
-import zio.test.TestAspect.exceptDotty
 import zio.test.environment.TestEnvironment
 import zio.test._
 
@@ -289,5 +288,5 @@ object ValidationSpec extends DefaultRunnableSpec {
              }""")
         check(query, "Directive 'skip' is defined twice.")
       }
-    ) @@ exceptDotty
+    )
 }

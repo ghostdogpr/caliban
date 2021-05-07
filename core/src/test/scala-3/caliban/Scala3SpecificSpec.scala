@@ -3,7 +3,6 @@ package caliban
 import caliban.GraphQL._
 import caliban.schema.Annotations.GQLInterface
 import zio.test.Assertion._
-import zio.test.TestAspect.exceptDotty
 import zio.test._
 import zio.test.environment.TestEnvironment
 
@@ -71,5 +70,5 @@ object Scala3SpecificSpec extends DefaultRunnableSpec {
           equalTo("""{"item":{"a":1}}""")
         )
       }
-    ) @@ exceptDotty
+    )
 }

@@ -432,7 +432,7 @@ object ParserSpec extends DefaultRunnableSpec {
         assertM(Parser.parseQuery(query).run)(
           fails(equalTo(ParsingError("Position 4:3, found \"}\\n}\"", locationInfo = Some(LocationInfo(3, 4)))))
         )
-      },
+      } @@ exceptDotty,
       testM("type") {
         val gqltype =
           """type Hero {
@@ -1011,7 +1011,7 @@ object ParserSpec extends DefaultRunnableSpec {
           )
         )
       }
-    ) @@ exceptDotty
+    )
 
   def simpleQuery(
     name: Option[String] = None,

@@ -351,8 +351,8 @@ object Parser {
   private def interfaceTypeDefinition(description: Option[String]): P[InterfaceTypeDefinition] =
     ((P.string("interface") *> whitespaceWithComment1 *> name <* whitespaceWithComment) ~
       (directives <* whitespaceWithComment).? ~ wrapBrackets(
-      fieldDefinition.repSep0(whitespaceWithComment)
-    )).map { case ((name, directives), fields) =>
+        fieldDefinition.repSep0(whitespaceWithComment)
+      )).map { case ((name, directives), fields) =>
       InterfaceTypeDefinition(description, name, directives.getOrElse(Nil), fields)
     }
 
@@ -375,8 +375,8 @@ object Parser {
   private def enumTypeDefinition(description: Option[String]): P[EnumTypeDefinition] =
     ((P.string("enum") *> whitespaceWithComment1 *> enumName <* whitespaceWithComment) ~
       (directives <* whitespaceWithComment).? ~ wrapBrackets(
-      enumValueDefinition.repSep0(whitespaceWithComment)
-    )).map { case ((name, directives), enumValuesDefinition) =>
+        enumValueDefinition.repSep0(whitespaceWithComment)
+      )).map { case ((name, directives), enumValuesDefinition) =>
       EnumTypeDefinition(description, name, directives.getOrElse(Nil), enumValuesDefinition)
     }
 
@@ -569,12 +569,6 @@ object Parser {
    */
   def parseQuery(query: String): IO[ParsingError, Document] = {
     val sm = SourceMapper(query)
-    //    document.parse(query) match {
-    //      case Left(error) =>
-    //        IO.fail(ParsingError(error.toString, Some(sm.getLocation(error.failedAtOffset))))
-    //      case Right(result) =>
-    //        IO.succeed(Document(result._2.definitions,sm))
-    //    }
     Task(document.parse(query))
       .mapError(ex => ParsingError(s"Internal parsing error", innerThrowable = Some(ex)))
       .flatMap {
