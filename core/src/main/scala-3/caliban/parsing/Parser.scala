@@ -193,7 +193,7 @@ object Parser {
   }
 
   private val nullValue: P[InputValue] = P.string("null").as(NullValue)
-  private val enumValue: P[InputValue] = name.map(EnumValue)
+  private val enumValue: P[InputValue] = name.map(EnumValue.apply)
 
   private val listValue: P[ListValue] =
     wrapSquareBrackets(value.repSep0(whitespaceWithComment)).map(values => ListValue(values))
