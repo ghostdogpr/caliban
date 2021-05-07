@@ -150,11 +150,20 @@ object json {
           .dropNullValues
     }
 
+    implicit val errorValueDecoder: Decoder[CalibanError] =
+      Decoder.instance(cursor =>
+        cursor
+          .downField("message")
+          .as[String]
+          .map(e => CalibanError.ExecutionError(e))
+      )
+
   }
 
   private[caliban] object GraphQLResponseCirce {
     import io.circe._
     import io.circe.syntax._
+
     val graphQLResponseEncoder: Encoder[GraphQLResponse[Any]] = Encoder
       .instance[GraphQLResponse[Any]] {
         case GraphQLResponse(data, Nil, None)                => Json.obj("data" -> data.asJson)
@@ -170,6 +179,22 @@ object json {
           )
       }
 
+    implicit val graphQLRespondeDecoder: Decoder[GraphQLResponse[CalibanError]] =
+      Decoder.instance(cursor =>
+        for {
+          data   <- cursor
+                      .downField("data")
+                      .as[ResponseValue]
+          errors <- cursor
+                      .downField("errors")
+                      .as[Option[List[CalibanError]]]
+        } yield GraphQLResponse[CalibanError](
+          data = data,
+          errors = errors.getOrElse(List()),
+          extensions = None
+        )
+      )
+
     private def handleError(err: Any): Json =
       err match {
         case ce: CalibanError => ce.asJson
@@ -180,6 +205,8 @@ object json {
 
   private[caliban] object GraphQLRequestCirce {
     import io.circe._
+    import io.circe.syntax._
+
     val graphQLRequestDecoder: Decoder[GraphQLRequest] = (c: HCursor) =>
       for {
         query         <- c.downField("query").as[Option[String]]
@@ -188,6 +215,14 @@ object json {
         extensions    <- c.downField("extensions").as[Option[Map[String, InputValue]]]
       } yield GraphQLRequest(query, operationName, variables, extensions)
 
+    implicit val graphQLRequestEncoder: Encoder[GraphQLRequest] =
+      Encoder.instance[GraphQLRequest](r =>
+        Json.obj(
+          "query"         -> r.query.asJson,
+          "operationName" -> r.operationName.asJson,
+          "variables"     -> r.variables.asJson,
+          "extensions"    -> r.extensions.asJson
+        )
+      )
   }
-
 }

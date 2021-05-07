@@ -2,7 +2,7 @@ package caliban
 
 import caliban.GraphQLRequest.{ `apollo-federation-include-trace`, ftv1 }
 import caliban.Value.StringValue
-import caliban.interop.circe.IsCirceDecoder
+import caliban.interop.circe.{ IsCirceDecoder, IsCirceEncoder }
 
 /**
  * Represents a GraphQL request, containing a query, an operation name and a map of variables.
@@ -25,6 +25,8 @@ case class GraphQLRequest(
 object GraphQLRequest extends GraphQLRequestJsonCompat {
   implicit def circeDecoder[F[_]: IsCirceDecoder]: F[GraphQLRequest] =
     caliban.interop.circe.json.GraphQLRequestCirce.graphQLRequestDecoder.asInstanceOf[F[GraphQLRequest]]
+  implicit def circeEncoder[F[_]: IsCirceEncoder]: F[GraphQLRequest] =
+    caliban.interop.circe.json.GraphQLRequestCirce.graphQLRequestEncoder.asInstanceOf[F[GraphQLRequest]]
 
   private[caliban] val ftv1                              = "ftv1"
   private[caliban] val `apollo-federation-include-trace` = "apollo-federation-include-trace"
