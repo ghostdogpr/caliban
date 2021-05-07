@@ -84,10 +84,10 @@ object ZHttpAdapter {
   private def socketHandler[R <: Has[_], E](
     subscriptions: Ref[Map[String, Promise[Any, Unit]]],
     interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    keepAliveTime: Option[Duration] = None,
-    queryExecution: QueryExecution = QueryExecution.Parallel
+    skipValidation: Boolean,
+    enableIntrospection: Boolean,
+    keepAliveTime: Option[Duration],
+    queryExecution: QueryExecution
   ): SocketApp[R with Clock, E] = {
     val routes = Socket.collect[WebSocketFrame] { case Text(text) =>
       ZStream

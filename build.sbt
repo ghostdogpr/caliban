@@ -243,6 +243,7 @@ lazy val zioHttp = project
     libraryDependencies ++= Seq(
       "io.d11"           %% "zhttp"          % zioHttpVersion,
       "io.circe"         %% "circe-parser"   % circeVersion,
+      "io.circe"         %% "circe-generic"  % circeVersion,
       compilerPlugin(
         ("org.typelevel" %% "kind-projector" % "0.11.3")
           .cross(CrossVersion.full)
