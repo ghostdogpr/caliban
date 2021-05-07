@@ -70,6 +70,7 @@ lazy val root = project
     http4s,
     akkaHttp,
     play,
+    zioHttp,
     catsInterop,
     monixInterop,
     tapirInterop,
@@ -77,8 +78,7 @@ lazy val root = project
     clientJS,
     tools,
     codegenSbt,
-    federation,
-    zioHttp
+    federation
   )
 
 lazy val macros = project
