@@ -203,7 +203,7 @@ object Parser {
   private val objectValue: P[ObjectValue] =
     wrapBrackets(objectField.repSep0(whitespaceWithComment)).map(values => ObjectValue(values.toMap))
 
-  private val variable: P[VariableValue] = (P.char('$') *> name).map(VariableValue)
+  private val variable: P[VariableValue] = (P.char('$') *> name).map(VariableValue.apply)
 
   private lazy val value: P[InputValue] =
     P.defer(
