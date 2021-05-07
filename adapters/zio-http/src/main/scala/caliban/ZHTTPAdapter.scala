@@ -178,13 +178,11 @@ object ZHttpAdapter {
   private val protocol = SocketProtocol.subProtocol("graphql-ws")
 
   private val keepAlive                                                                                            = (keepAlive: Option[Duration]) =>
-    keepAlive match {
-      case None          => ZStream.empty
-      case Some(timeout) =>
-        ZStream
-          .succeed(Text("""{"type":"ka"}"""))
-          .repeat(Schedule.spaced(timeout))
-    }
+    keepAlive.fold(ZStream.empty)(duration =>
+      ZStream
+        .succeed(Text("""{"type":"ka"}"""))
+        .repeat(Schedule.spaced(duration))
+    )
   private val connectionError                                                                                      = ZStream.succeed(Text("""{"type":"connection_error"}"""))
   private val connectionAck                                                                                        = ZStream.succeed(Text("""{"type":"connection_ack"}"""))
   private val close                                                                                                = ZStream.succeed(WebSocketFrame.close(1000))
