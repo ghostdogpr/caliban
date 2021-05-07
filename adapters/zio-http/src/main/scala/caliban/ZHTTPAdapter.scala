@@ -14,7 +14,6 @@ import io.circe._
 import io.circe.parser._
 import io.circe.syntax._
 import zhttp.http._
-import zhttp.service._
 import zhttp.socket.SocketApp
 import zhttp.socket.WebSocketFrame.Text
 import zhttp.socket._
@@ -55,7 +54,7 @@ object ZHttpAdapter {
           resp  <- executeToJson(interpreter, query, skipValidation, enableIntrospection, queryExecution)
         } yield Response.jsonString(resp.toString())).handleHTTPError
 
-      case req @ Method.OPTIONS -> _ =>
+      case _ @Method.OPTIONS -> _ =>
         ZIO.succeed(Response.http(Status.NO_CONTENT))
     }
 
@@ -167,7 +166,7 @@ object ZHttpAdapter {
 
   implicit class HttpErrorOps[R, E <: Throwable, A](private val zio: ZIO[R, io.circe.Error, A]) extends AnyVal {
     def handleHTTPError: ZIO[R, HttpError, A] = zio.mapError({
-      case DecodingFailure(error)     =>
+      case DecodingFailure(error, _)  =>
         HttpError.BadRequest.apply(s"Invalid json: $error")
       case ParsingFailure(message, _) =>
         HttpError.BadRequest.apply(message)
