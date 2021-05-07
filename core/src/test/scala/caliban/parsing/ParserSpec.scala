@@ -13,7 +13,6 @@ import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt._
 import zio.test.Assertion._
-import zio.test.TestAspect.exceptDotty
 import zio.test._
 import zio.test.environment.TestEnvironment
 
@@ -430,9 +429,9 @@ object ParserSpec extends DefaultRunnableSpec {
                       |  }
                       |}""".stripMargin
         assertM(Parser.parseQuery(query).run)(
-          fails(equalTo(ParsingError("Position 4:3, found \"}\\n}\"", locationInfo = Some(LocationInfo(3, 4)))))
+          fails(isSubtype[ParsingError](hasField("locationInfo", _.locationInfo, isSome(equalTo(LocationInfo(3, 4))))))
         )
-      } @@ exceptDotty,
+      },
       testM("type") {
         val gqltype =
           """type Hero {

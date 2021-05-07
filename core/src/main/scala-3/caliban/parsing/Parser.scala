@@ -573,7 +573,12 @@ object Parser {
       .mapError(ex => ParsingError(s"Internal parsing error", innerThrowable = Some(ex)))
       .flatMap {
         case Left(error)   =>
-          IO.fail(ParsingError(error.toString, Some(sm.getLocation(error.failedAtOffset))))
+          IO.fail(
+            ParsingError(
+              s"Parsing error at offset ${error.failedAtOffset}, expected: ${error.expected.toList.mkString(";")}",
+              Some(sm.getLocation(error.failedAtOffset))
+            )
+          )
         case Right(result) =>
           IO.succeed(Document(result._2.definitions, sm))
       }
