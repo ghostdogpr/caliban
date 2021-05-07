@@ -77,7 +77,8 @@ lazy val root = project
     clientJS,
     tools,
     codegenSbt,
-    federation
+    federation,
+    zioHttp
   )
 
 lazy val macros = project
@@ -229,9 +230,12 @@ lazy val http4s = project
 
 lazy val zioHttp = project
   .in(file("adapters/zio-http"))
-  .settings(scalaVersion := scala13)
   .settings(name := "caliban-zio-http")
   .settings(commonSettings)
+  .settings(
+    scalaVersion := scala13,
+    crossScalaVersions := Seq(scala13)
+  )
   .settings(
     resolvers ++= Seq(
       "Sonatype OSS Snapshots" at "https://s01.oss.sonatype.org/content/repositories/snapshots"
@@ -242,9 +246,7 @@ lazy val zioHttp = project
       compilerPlugin(
         ("org.typelevel" %% "kind-projector" % "0.11.3")
           .cross(CrossVersion.full)
-      ),
-      compilerPlugin("com.github.ghik" % "silencer-plugin" % silencerVersion cross CrossVersion.full),
-      "com.github.ghik"   % "silencer-lib"   % silencerVersion % Provided cross CrossVersion.full
+      )
     )
   )
   .dependsOn(core)
