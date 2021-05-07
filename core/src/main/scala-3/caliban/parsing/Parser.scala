@@ -592,7 +592,6 @@ object Parser {
     case Left(error) => Some(error.toString)
     case Right(_)    => None
   }
-
 }
 
 case class ParsedDocument(definitions: List[Definition], index: Int = 0)
