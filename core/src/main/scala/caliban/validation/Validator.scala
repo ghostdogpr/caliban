@@ -800,18 +800,21 @@ object Validator {
       .collectFirst { case (_, f :: _ :: _) => f }
       .fold[IO[ValidationError, Unit]](IO.unit)(duplicate => failValidation(messageBuilder(duplicate), explanatoryText))
 
-  private[caliban] def doesNotStartWithUnderscore(field: __Field, errorContext: String) = {
+  private[caliban] def doesNotStartWithUnderscore(field: __Field, errorContext: String): IO[ValidationError, Unit] = {
     val explanatory = s"""The field must not have a name which begins with the characters {"__"} (two underscores)"""
     doesNotStartWithUnderscore[__Field](field, _.name, errorContext, explanatory)
   }
 
-  private[caliban] def doesNotStartWithUnderscore(inputValue: __InputValue, errorContext: String) = {
+  private[caliban] def doesNotStartWithUnderscore(
+    inputValue: __InputValue,
+    errorContext: String
+  ): IO[ValidationError, Unit] = {
     val explanatory =
       s"""The input field must not have a name which begins with the characters "__" (two underscores)"""
     doesNotStartWithUnderscore[__InputValue](inputValue, _.name, errorContext, explanatory)
   }
 
-  private def doesNotStartWithUnderscore(directive: Directive, errorContext: String) = {
+  private def doesNotStartWithUnderscore(directive: Directive, errorContext: String): IO[ValidationError, Unit] = {
     val explanatory =
       s"""The directive must not have a name which begins with the characters "__" (two underscores)"""
     doesNotStartWithUnderscore[Directive](directive, _.name, errorContext, explanatory)

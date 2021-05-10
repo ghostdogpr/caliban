@@ -5,10 +5,11 @@ import java.time.{ Instant, ZoneId }
 import java.util.concurrent.TimeUnit
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ IntValue, StringValue }
+import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.parsing.adt.Document
 import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper, ParsingWrapper, ValidationWrapper }
-import caliban.{ GraphQLRequest, Rendering, ResponseValue }
-import zio.{ clock, Ref }
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, Rendering, ResponseValue }
+import zio.{ clock, Ref, ZIO }
 import zio.clock.Clock
 import zio.duration.Duration
 import zio.query.ZQuery
@@ -103,57 +104,75 @@ object ApolloTracing {
   }
 
   private def apolloTracingOverall(ref: Ref[Tracing]): OverallWrapper[Clock] =
-    OverallWrapper { process => (request: GraphQLRequest) =>
-      for {
-        nanoTime    <- clock.nanoTime
-        currentTime <- clock.currentTime(TimeUnit.MILLISECONDS)
-        _           <- ref.update(_.copy(startTime = currentTime, startTimeMonotonic = nanoTime))
-        result      <- process(request).timed.flatMap { case (duration, result) =>
-                         for {
-                           endTime <- clock.currentTime(TimeUnit.MILLISECONDS)
-                           _       <- ref.update(_.copy(duration = duration, endTime = endTime))
-                           tracing <- ref.get
-                         } yield result.copy(
-                           extensions = Some(
-                             ObjectValue(
-                               ("tracing" -> tracing.toResponseValue) ::
-                                 result.extensions.fold(List.empty[(String, ResponseValue)])(_.fields)
+    new OverallWrapper[Clock] {
+      def wrap[R1 <: Clock](
+        process: GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]]
+      ): GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] =
+        (request: GraphQLRequest) =>
+          for {
+            nanoTime    <- clock.nanoTime
+            currentTime <- clock.currentTime(TimeUnit.MILLISECONDS)
+            _           <- ref.update(_.copy(startTime = currentTime, startTimeMonotonic = nanoTime))
+            result      <- process(request).timed.flatMap { case (duration, result) =>
+                             for {
+                               endTime <- clock.currentTime(TimeUnit.MILLISECONDS)
+                               _       <- ref.update(_.copy(duration = duration, endTime = endTime))
+                               tracing <- ref.get
+                             } yield result.copy(
+                               extensions = Some(
+                                 ObjectValue(
+                                   ("tracing" -> tracing.toResponseValue) ::
+                                     result.extensions.fold(List.empty[(String, ResponseValue)])(_.fields)
+                                 )
+                               )
                              )
-                           )
-                         )
-                       }
-      } yield result
+                           }
+          } yield result
     }
 
   private def apolloTracingParsing(ref: Ref[Tracing]): ParsingWrapper[Clock] =
-    ParsingWrapper { process => (query: String) =>
-      for {
-        start              <- clock.nanoTime
-        (duration, result) <- process(query).timed
-        _                  <- ref.update(state =>
-                                state.copy(
-                                  parsing = state.parsing.copy(startOffset = start - state.startTimeMonotonic, duration = duration)
-                                )
-                              )
-      } yield result
+    new ParsingWrapper[Clock] {
+      def wrap[R1 <: Clock](
+        process: String => ZIO[R1, CalibanError.ParsingError, Document]
+      ): String => ZIO[R1, CalibanError.ParsingError, Document] =
+        (query: String) =>
+          for {
+            start              <- clock.nanoTime
+            resultWithDuration <- process(query).timed
+            (duration, result)  = resultWithDuration
+            _                  <- ref.update(state =>
+                                    state.copy(
+                                      parsing = state.parsing.copy(startOffset = start - state.startTimeMonotonic, duration = duration)
+                                    )
+                                  )
+          } yield result
     }
 
   private def apolloTracingValidation(ref: Ref[Tracing]): ValidationWrapper[Clock] =
-    ValidationWrapper { process => (doc: Document) =>
-      for {
-        start              <- clock.nanoTime
-        (duration, result) <- process(doc).timed
-        _                  <- ref.update(state =>
-                                state.copy(
-                                  validation = state.validation.copy(startOffset = start - state.startTimeMonotonic, duration = duration)
-                                )
-                              )
-      } yield result
+    new ValidationWrapper[Clock] {
+      def wrap[R1 <: Clock](
+        process: Document => ZIO[R1, CalibanError.ValidationError, ExecutionRequest]
+      ): Document => ZIO[R1, CalibanError.ValidationError, ExecutionRequest] =
+        (doc: Document) =>
+          for {
+            start              <- clock.nanoTime
+            resultWithDuration <- process(doc).timed
+            (duration, result)  = resultWithDuration
+            _                  <- ref.update(state =>
+                                    state.copy(
+                                      validation =
+                                        state.validation.copy(startOffset = start - state.startTimeMonotonic, duration = duration)
+                                    )
+                                  )
+          } yield result
     }
 
   private def apolloTracingField(ref: Ref[Tracing]): FieldWrapper[Clock] =
-    FieldWrapper(
-      { case (query, fieldInfo) =>
+    new FieldWrapper[Clock](true) {
+      def wrap[R1 <: Clock](
+        query: ZQuery[R1, CalibanError.ExecutionError, ResponseValue],
+        fieldInfo: FieldInfo
+      ): ZQuery[R1, CalibanError.ExecutionError, ResponseValue] =
         for {
           summarized            <- query.summarized(clock.nanoTime)((_, _))
           ((start, end), result) = summarized
@@ -176,8 +195,6 @@ object ApolloTracing {
                                        )
                                    )
         } yield result
-      },
-      wrapPureValues = true
-    )
+    }
 
 }

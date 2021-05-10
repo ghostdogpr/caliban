@@ -13,10 +13,7 @@ import zio.query.ZQuery
 
 import scala.annotation.tailrec
 
-object Introspector {
-
-  implicit lazy val typeSchema: Schema[Any, __Type] = Schema.gen[__Type]
-
+object Introspector extends IntrospectionDerivation {
   private[caliban] val directives = List(
     __Directive(
       "skip",
@@ -50,7 +47,7 @@ object Introspector {
     )(wrappers: List[IntrospectionWrapper[R]]): ZIO[R, ExecutionError, __Introspection] =
       wrappers match {
         case Nil             => query
-        case wrapper :: tail => wrap(wrapper.f(query))(tail)
+        case wrapper :: tail => wrap(wrapper.wrap(query))(tail)
       }
 
     val types    = rootType.types.updated("Boolean", Types.boolean).values.toList.sortBy(_.name.getOrElse(""))
@@ -65,7 +62,6 @@ object Introspector {
       args => types.find(_.name.contains(args.name))
     )
 
-    val introspectionSchema = Schema.gen[__Introspection]
     RootSchema(
       Operation(
         introspectionSchema.toType_(),

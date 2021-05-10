@@ -1,21 +1,17 @@
 package caliban.schema
 
-import java.time.format.DateTimeFormatter
-import java.time.temporal.Temporal
-import java.time.{ Instant, LocalDate, LocalDateTime, LocalTime, OffsetDateTime, OffsetTime, ZonedDateTime }
-import java.util.UUID
-
-import scala.annotation.implicitNotFound
-import scala.language.experimental.macros
-import scala.util.Try
-import scala.util.control.NonFatal
 import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.Value._
-import caliban.schema.Annotations.GQLName
-import magnolia._
-import mercator.Monadic
 import zio.Chunk
+
+import java.time.format.DateTimeFormatter
+import java.time.temporal.Temporal
+import java.time._
+import java.util.UUID
+import scala.annotation.implicitNotFound
+import scala.util.Try
+import scala.util.control.NonFatal
 
 /**
  * Typeclass that defines how to build an argument of type `T` from an input [[caliban.InputValue]].
@@ -68,10 +64,7 @@ trait ArgBuilder[T] { self =>
     orElse(fallback)
 }
 
-object ArgBuilder {
-
-  type Typeclass[T] = ArgBuilder[T]
-
+object ArgBuilder extends ArgBuilderDerivation {
   implicit lazy val unit: ArgBuilder[Unit]             = _ => Right(())
   implicit lazy val int: ArgBuilder[Int]               = {
     case value: IntValue => Right(value.toInt)
@@ -187,49 +180,4 @@ object ArgBuilder {
   implicit def set[A](implicit ev: ArgBuilder[A]): ArgBuilder[Set[A]]       = list[A].map(_.toSet)
   implicit def vector[A](implicit ev: ArgBuilder[A]): ArgBuilder[Vector[A]] = list[A].map(_.toVector)
   implicit def chunk[A](implicit ev: ArgBuilder[A]): ArgBuilder[Chunk[A]]   = list[A].map(Chunk.fromIterable)
-
-  type EitherExecutionError[A] = Either[ExecutionError, A]
-
-  implicit val eitherMonadic: Monadic[EitherExecutionError] = new Monadic[EitherExecutionError] {
-    override def flatMap[A, B](from: EitherExecutionError[A])(
-      fn: A => EitherExecutionError[B]
-    ): EitherExecutionError[B] = from.flatMap(fn)
-
-    override def point[A](value: A): EitherExecutionError[A] = Right(value)
-
-    override def map[A, B](from: EitherExecutionError[A])(fn: A => B): EitherExecutionError[B] = from.map(fn)
-  }
-
-  def combine[T](ctx: CaseClass[ArgBuilder, T]): ArgBuilder[T] =
-    (input: InputValue) => {
-      ctx.constructMonadic { p =>
-        input match {
-          case InputValue.ObjectValue(fields) =>
-            val label = p.annotations.collectFirst { case GQLName(name) => name }.getOrElse(p.label)
-            p.typeclass.build(fields.getOrElse(label, NullValue))
-          case value                          => p.typeclass.build(value)
-        }
-      }
-    }
-
-  def dispatch[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] = input => {
-    (input match {
-      case EnumValue(value)   => Some(value)
-      case StringValue(value) => Some(value)
-      case _                  => None
-    }) match {
-      case Some(value) =>
-        ctx.subtypes
-          .find(t =>
-            t.annotations.collectFirst { case GQLName(name) => name }.contains(value) || t.typeName.short == value
-          ) match {
-          case Some(subtype) => subtype.typeclass.build(InputValue.ObjectValue(Map()))
-          case None          => Left(ExecutionError(s"Invalid value $value for trait ${ctx.typeName.short}"))
-        }
-      case None        => Left(ExecutionError(s"Can't build a trait from input $input"))
-    }
-  }
-
-  implicit def gen[T]: Typeclass[T] = macro Magnolia.gen[T]
-
 }

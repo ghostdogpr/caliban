@@ -1,14 +1,17 @@
 package caliban.wrappers
 
-import java.util.concurrent.TimeUnit
-import caliban.{ GraphQLRequest, ResponseValue }
+import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ EnumValue, IntValue, StringValue }
+import caliban.execution.FieldInfo
 import caliban.parsing.adt.Directive
 import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper }
-import zio.Ref
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
 import zio.duration.Duration
 import zio.query.ZQuery
+import zio.{ Ref, ZIO }
+
+import java.util.concurrent.TimeUnit
 
 /**
  * Returns a wrapper which applies apollo caching response extensions
@@ -59,7 +62,7 @@ object ApolloCaching {
     def toResponseValue: ResponseValue =
       ObjectValue(
         List(
-          "path"   -> ListValue((Left(fieldName) :: path).reverse.map(_.fold(StringValue, IntValue(_)))),
+          "path"   -> ListValue((Left(fieldName) :: path).reverse.map(_.fold(StringValue.apply, IntValue(_)))),
           "maxAge" -> IntValue(maxAge.toMillis / 1000),
           "scope"  -> StringValue(scope match {
             case CacheScope.Private => "PRIVATE"
@@ -97,24 +100,31 @@ object ApolloCaching {
     }
 
   private def apolloCachingOverall(ref: Ref[Caching]): OverallWrapper[Any] =
-    OverallWrapper { process => (request: GraphQLRequest) =>
-      for {
-        result <- process(request)
-        cache  <- ref.get
-      } yield result.copy(
-        extensions = Some(
-          ObjectValue(
-            ("cacheControl" -> cache.toResponseValue) :: result.extensions.fold(
-              List.empty[(String, ResponseValue)]
-            )(_.fields)
+    new OverallWrapper[Any] {
+      def wrap[R1 <: Any](
+        process: GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]]
+      ): GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] =
+        (request: GraphQLRequest) =>
+          for {
+            result <- process(request)
+            cache  <- ref.get
+          } yield result.copy(
+            extensions = Some(
+              ObjectValue(
+                ("cacheControl" -> cache.toResponseValue) :: result.extensions.fold(
+                  List.empty[(String, ResponseValue)]
+                )(_.fields)
+              )
+            )
           )
-        )
-      )
     }
 
   private def apolloCachingField(ref: Ref[Caching]): FieldWrapper[Any] =
-    FieldWrapper(
-      { case (query, fieldInfo) =>
+    new FieldWrapper(true) {
+      def wrap[R1 <: Any](
+        query: ZQuery[R1, ExecutionError, ResponseValue],
+        fieldInfo: FieldInfo
+      ): ZQuery[R1, ExecutionError, ResponseValue] = {
         val cacheDirectives = extractCacheDirective(
           fieldInfo.directives ++ fieldInfo.details.fieldType.ofType.flatMap(_.directives).getOrElse(Nil)
         )
@@ -133,8 +143,6 @@ object ApolloCaching {
             )
           )
         }
-      },
-      wrapPureValues = true
-    )
-
+      }
+    }
 }

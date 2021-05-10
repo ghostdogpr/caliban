@@ -110,6 +110,11 @@ object TestUtils {
 
   case class SubscriptionIO(deleteCharacters: ZStream[Any, Nothing, String])
 
+  implicit val querySchema: Schema[Any, Query]                   = Schema.gen
+  implicit val queryIOSchema: Schema[Any, QueryIO]               = Schema.gen
+  implicit val mutationIOSchema: Schema[Any, MutationIO]         = Schema.gen
+  implicit val subscriptionIOSchema: Schema[Any, SubscriptionIO] = Schema.gen
+
   val resolver                 = RootResolver(
     Query(
       args => characters.filter(c => args.origin.forall(c.origin == _)),

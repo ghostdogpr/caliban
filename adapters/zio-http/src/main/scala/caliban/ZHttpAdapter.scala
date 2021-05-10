@@ -28,7 +28,8 @@ object ZHttpAdapter {
 
   type Subscriptions = Ref[Map[String, Promise[Any, Unit]]]
 
-  val contentTypeApplicationGraphQL = Header.custom(HttpHeaderNames.CONTENT_TYPE.toString(), "application/graphql")
+  private val contentTypeApplicationGraphQL: Header =
+    Header.custom(HttpHeaderNames.CONTENT_TYPE.toString(), "application/graphql")
 
   def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E],
@@ -62,7 +63,7 @@ object ZHttpAdapter {
     enableIntrospection: Boolean = true,
     keepAliveTime: Option[Duration] = None,
     queryExecution: QueryExecution = QueryExecution.Parallel
-  ) =
+  ): HttpApp[R with Clock, E] =
     HttpApp.responseM(
       for {
         ref <- Ref.make(Map.empty[String, Promise[Any, Unit]])
@@ -107,8 +108,7 @@ object ZHttpAdapter {
               case None      => connectionError
             }
           case GraphQLWSRequest("stop", id, _)                =>
-            removeSubscription(id, subscriptions)
-              .flatMap(_ => ZStream.empty)
+            removeSubscription(id, subscriptions) *> ZStream.empty
 
         })
         .flatten
@@ -186,7 +186,7 @@ object ZHttpAdapter {
         HttpError.BadRequest.apply(s"Invalid json: $error")
       case ParsingFailure(message, _) =>
         HttpError.BadRequest.apply(message)
-      case t: Throwable               => HttpError.InternalServerError.apply("Internal Server Error", Some(t.getCause()))
+      case t: Throwable               => HttpError.InternalServerError.apply("Internal Server Error", Some(t.getCause))
     })
   }
 
@@ -210,7 +210,7 @@ object ZHttpAdapter {
         .obj(
           "id"      -> Json.fromString(id.getOrElse("")),
           "type"    -> Json.fromString("error"),
-          "message" -> Json.fromString(e.toString())
+          "message" -> Json.fromString(e.toString)
         )
         .toString()
     )

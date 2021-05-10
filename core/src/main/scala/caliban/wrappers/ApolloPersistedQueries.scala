@@ -3,8 +3,8 @@ package caliban.wrappers
 import caliban.CalibanError.ValidationError
 import caliban.Value.{ NullValue, StringValue }
 import caliban.wrappers.Wrapper.OverallWrapper
-import caliban.{ GraphQLRequest, GraphQLResponse, InputValue }
-import zio.{ Has, Layer, Ref, UIO, ZIO, ZLayer }
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue }
+import zio.{ Has, Layer, Ref, UIO, ZIO }
 
 object ApolloPersistedQueries {
 
@@ -24,31 +24,35 @@ object ApolloPersistedQueries {
     }
   }
 
-  val live: Layer[Nothing, ApolloPersistence] = ZLayer.fromEffect(Service.live)
+  val live: Layer[Nothing, ApolloPersistence] = Service.live.toLayer
 
   /**
    * Returns a wrapper that persists and retrieves queries based on a hash
    * following Apollo Persisted Queries spec: https://github.com/apollographql/apollo-link-persisted-queries.
    */
   val apolloPersistedQueries: OverallWrapper[ApolloPersistence] =
-    OverallWrapper { process => (request: GraphQLRequest) =>
-      readHash(request) match {
-        case Some(hash) =>
-          ZIO
-            .accessM[ApolloPersistence](_.get.get(hash))
-            .flatMap {
-              case Some(query) => UIO(request.copy(query = Some(query)))
-              case None        =>
-                request.query match {
-                  case Some(value) => ZIO.accessM[ApolloPersistence](_.get.add(hash, value)).as(request)
-                  case None        => ZIO.fail(ValidationError("PersistedQueryNotFound", ""))
-                }
+    new OverallWrapper[ApolloPersistence] {
+      def wrap[R1 <: ApolloPersistence](
+        process: GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]]
+      ): GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] =
+        (request: GraphQLRequest) =>
+          readHash(request) match {
+            case Some(hash) =>
+              ZIO
+                .accessM[ApolloPersistence](_.get.get(hash))
+                .flatMap {
+                  case Some(query) => UIO(request.copy(query = Some(query)))
+                  case None        =>
+                    request.query match {
+                      case Some(value) => ZIO.accessM[ApolloPersistence](_.get.add(hash, value)).as(request)
+                      case None        => ZIO.fail(ValidationError("PersistedQueryNotFound", ""))
+                    }
 
-            }
-            .flatMap(process)
-            .catchAll(ex => UIO(GraphQLResponse(NullValue, List(ex))))
-        case None       => process(request)
-      }
+                }
+                .flatMap(process)
+                .catchAll(ex => UIO(GraphQLResponse(NullValue, List(ex))))
+            case None       => process(request)
+          }
     }
 
   private def readHash(request: GraphQLRequest): Option[String] =

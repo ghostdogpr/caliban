@@ -29,7 +29,7 @@ object ValidationSpec extends DefaultRunnableSpec {
                  name
                }
              }
-             
+
              query a {
                characters {
                  name
@@ -65,7 +65,7 @@ object ValidationSpec extends DefaultRunnableSpec {
                  ...f
                }
              }
-             
+
              fragment f on Character {
                unknown
               }""")
@@ -114,7 +114,7 @@ object ValidationSpec extends DefaultRunnableSpec {
                  ...f
                }
              }
-             
+
              fragment f on Character {
                name
              }
@@ -160,7 +160,7 @@ object ValidationSpec extends DefaultRunnableSpec {
                  name
                }
              }
-             
+
              fragment f on Character {
                name
               }""")
@@ -182,7 +182,7 @@ object ValidationSpec extends DefaultRunnableSpec {
                  ...f1
                }
              }
-             
+
              fragment f1 on Character {
                ...f2
              }

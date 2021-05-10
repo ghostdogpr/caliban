@@ -425,19 +425,6 @@ object ExecutionSpec extends DefaultRunnableSpec {
 
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":{"a":333}}"""))
       },
-      testM("Play Json scalar") {
-        import caliban.interop.play.json._
-        import play.api.libs.json._
-        case class Queries(test: JsValue)
-
-        val interpreter = graphQL(RootResolver(Queries(Json.obj(("a", JsNumber(333)))))).interpreter
-        val query       = gqldoc("""
-             {
-               test
-             }""")
-
-        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":{"a":333}}"""))
-      },
       testM("test Interface") {
         case class Test(i: Interface)
         val interpreter = graphQL(RootResolver(Test(Interface.B("ok")))).interpreter
@@ -556,29 +543,6 @@ object ExecutionSpec extends DefaultRunnableSpec {
             |}""".stripMargin
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":1}"""))
       },
-      testM("value classes") {
-        case class Queries(events: List[Event], painters: List[WrappedPainter])
-        val event       = Event(OrganizationId(7), "Frida Kahlo exhibition")
-        val painter     = Painter("Claude Monet", "Impressionism")
-        val api         = graphQL(RootResolver(Queries(event :: Nil, WrappedPainter(painter) :: Nil)))
-        val interpreter = api.interpreter
-        val query       =
-          """query {
-            |  events {
-            |    organizationId
-            |    title
-            |  }
-            |  painters {
-            |    name
-            |    movement
-            |  }
-            |}""".stripMargin
-        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
-          equalTo(
-            """{"events":[{"organizationId":7,"title":"Frida Kahlo exhibition"}],"painters":[{"name":"Claude Monet","movement":"Impressionism"}]}"""
-          )
-        )
-      },
       testM("field name customization") {
         case class Query(@GQLName("test2") test: Int)
         val api         = graphQL(RootResolver(Query(1)))
@@ -660,12 +624,15 @@ object ExecutionSpec extends DefaultRunnableSpec {
           case object C        extends A
         }
         case class Query(test: A)
-        val interpreter = graphQL(RootResolver(Query(A.C))).interpreter
-        val query = gqldoc("""
+        implicit val schemaB: Schema[Any, A.B] = Schema.gen
+        implicit val schemaC: Schema[Any, A.C.type]          = Schema.gen
+        implicit val schemaCharacter: Schema[Any, Character] = Schema.gen
+        val interpreter                                      = graphQL(RootResolver(Query(A.C))).interpreter
+        val query                                            = gqldoc("""
             {
               test {
                 ... on C {
-                  _  
+                  _
                 }
                 ... on B {
                   b
@@ -731,6 +698,8 @@ object ExecutionSpec extends DefaultRunnableSpec {
         case class Query(search: SearchArgs => List[SearchResult])
 
         object CustomSchema {
+          implicit val schemaHuman: Schema[Any, Character.Human]     = Schema.gen
+          implicit val schemaDroid: Schema[Any, Character.Droid]     = Schema.gen
           implicit val schemaSearchResult: Schema[Any, SearchResult] = eitherUnionSchema("SearchResult")
           implicit val schemaQuery: Schema[Any, Query]               = Schema.gen[Query]
         }
