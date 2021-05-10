@@ -8,6 +8,7 @@ libraryDependencies ++= Seq(
   "com.github.ghostdogpr"         %% "caliban-http4s"                % "0.9.5",
   "com.github.ghostdogpr"         %% "caliban-play"                  % "0.9.5",
   "com.github.ghostdogpr"         %% "caliban-akka-http"             % "0.9.5",
+  "com.github.ghostdogpr"         %% "caliban-zio-http"              % "0.9.5",
   "com.github.ghostdogpr"         %% "caliban-cats"                  % "0.9.5",
   "com.github.ghostdogpr"         %% "caliban-monix"                 % "0.9.5",
   "com.github.ghostdogpr"         %% "caliban-finch"                 % "0.9.5",

@@ -26,6 +26,7 @@ libraryDependencies += "com.github.ghostdogpr" %% "caliban-http4s"     % "0.9.5"
 libraryDependencies += "com.github.ghostdogpr" %% "caliban-akka-http"  % "0.9.5" // routes for akka-http
 libraryDependencies += "com.github.ghostdogpr" %% "caliban-play"       % "0.9.5" // routes for play
 libraryDependencies += "com.github.ghostdogpr" %% "caliban-finch"      % "0.9.5" // routes for finch
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-zio-http"   % "0.9.5" // routes for zio-http
 libraryDependencies += "com.github.ghostdogpr" %% "caliban-cats"       % "0.9.5" // interop with cats effect
 libraryDependencies += "com.github.ghostdogpr" %% "caliban-monix"      % "0.9.5" // interop with monix
 libraryDependencies += "com.github.ghostdogpr" %% "caliban-federation" % "0.9.5" // interop with apollo federation
@@ -118,7 +119,7 @@ A `CalibanError` can be:
 - a `ValidationError`: the query was parsed but does not match the schema
 - an `ExecutionError`: an error happened while executing the query
 
-Caliban itself is not tied to any web framework, you are free to expose this function using the protocol and library of your choice. The [caliban-http4s](https://github.com/ghostdogpr/caliban/tree/master/adapters/http4s) module provides an `Http4sAdapter` that exposes an interpreter over HTTP and WebSocket using http4s. There are also similar adapters for Akka HTTP, Play and Finch.
+Caliban itself is not tied to any web framework, you are free to expose this function using the protocol and library of your choice. The [caliban-http4s](https://github.com/ghostdogpr/caliban/tree/master/adapters/http4s) module provides an `Http4sAdapter` that exposes an interpreter over HTTP and WebSocket using http4s. There are also similar adapters for Akka HTTP, Play, Finch and zio-http.
 
 ::: tip Combining GraphQL APIs
 You don't have to define all your root fields into a single case class: you can use smaller case classes and combine `GraphQL` objects using the `|+|` operator.
