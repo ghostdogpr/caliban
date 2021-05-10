@@ -28,7 +28,8 @@ object ZHttpAdapter {
 
   type Subscriptions = Ref[Map[String, Promise[Any, Unit]]]
 
-  private val contentTypeApplicationGraphQL: Header = Header.custom(HttpHeaderNames.CONTENT_TYPE.toString(), "application/graphql")
+  private val contentTypeApplicationGraphQL: Header =
+    Header.custom(HttpHeaderNames.CONTENT_TYPE.toString(), "application/graphql")
 
   def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E],
