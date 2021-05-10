@@ -27,6 +27,8 @@ object ZHttpAdapter {
     implicit val decodeGraphQLWSRequest: Decoder[GraphQLWSRequest] = deriveDecoder[GraphQLWSRequest]
   }
 
+  type Subscriptions = Ref[Map[String, Promise[Any, Unit]]]
+
   def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
@@ -81,7 +83,7 @@ object ZHttpAdapter {
     )
 
   private def socketHandler[R <: Has[_], E](
-    subscriptions: Ref[Map[String, Promise[Any, Unit]]],
+    subscriptions: Subscriptions,
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean,
     enableIntrospection: Boolean,
@@ -128,8 +130,8 @@ object ZHttpAdapter {
     enableIntrospection: Boolean,
     queryExecution: QueryExecution,
     subscriptions: Subscriptions
-  ): ZStream[R, E, Text] =
-    ZStream
+  ): ZStream[R, E, Text] = {
+    val resp = ZStream
       .fromEffect(
         interpreter
           .executeRequest(payload, skipValidation, enableIntrospection, queryExecution)
@@ -144,9 +146,11 @@ object ZHttpAdapter {
             ZStream.succeed(toResponse(id, GraphQLResponse(other, res.errors)))
         }
       )
-      .catchAll { _ =>
-        connectionError
-      }
+
+    (resp ++ complete(id)).catchAll { _ =>
+      connectionError
+    }
+  }
 
   private def executeToJson[R, E](
     interpreter: GraphQLInterpreter[R, E],
@@ -200,6 +204,8 @@ object ZHttpAdapter {
     )
   )
 
+  private def complete(id: String) = ZStream.succeed(WebSocketFrame.Text(s"""{"type":"complete","id":"$id"}"""))
+
   private def toResponse[E](id: String, fieldName: String, r: ResponseValue, errors: List[E]): WebSocketFrame.Text =
     toResponse(
       id,
@@ -214,8 +220,6 @@ object ZHttpAdapter {
       .obj("id" -> Json.fromString(id), "type" -> Json.fromString("data"), "payload" -> r.asJson)
       .toString()
   )
-
-  type Subscriptions = Ref[Map[String, Promise[Any, Unit]]]
 
   private def trackSubscription(id: String, subs: Subscriptions) =
     ZStream
@@ -232,7 +236,7 @@ object ZHttpAdapter {
             .modify(map => (map.get(id), map - id))
             .flatMap { p =>
               IO.whenCase(p) { case Some(p) =>
-                p.interrupt
+                p.succeed(())
               }
             }
         ).getOrElse(ZIO.unit)
