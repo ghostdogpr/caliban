@@ -4,6 +4,7 @@ The [examples](https://github.com/ghostdogpr/caliban/tree/master/examples/) proj
 - [GraphQL API exposed with Akka HTTP](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/example/akkahttp)
 - [GraphQL API exposed with finch](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/example/finch)
 - [GraphQL API exposed with play](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/example/play)
+- [GraphQL API exposed with zio-http](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/example/ziohttp)
 - [GraphQL Client usage](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/example/client)
 - [Optimization with ZQuery](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/example/optimizations)
 - [Interop with Cats Effect](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/example/interop/cats)
