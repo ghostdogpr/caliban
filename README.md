@@ -7,7 +7,7 @@
 [![Badge-Discord]][Link-Discord]
 
 [Link-Circle]: https://circleci.com/gh/ghostdogpr/caliban "circleci"
-[Badge-Circle]: https://circleci.com/gh/ghostdogpr/caliban.svg?style=svg "circleci"
+[Badge-Circle]: https://circleci.com/gh/ghostdogpr/caliban.svg?style=shield "circleci"
 [Link-SonatypeReleases]: https://oss.sonatype.org/content/repositories/releases/com/github/ghostdogpr/caliban_2.12/ "Sonatype Releases"
 [Badge-SonatypeReleases]: https://img.shields.io/nexus/r/https/oss.sonatype.org/com.github.ghostdogpr/caliban_2.12.svg "Sonatype Releases"
 [Link-SonatypeSnapshots]: https://oss.sonatype.org/content/repositories/snapshots/com/github/ghostdogpr/caliban_2.12/ "Sonatype Snapshots"

@@ -6,7 +6,7 @@ val scala3   = "3.0.0-RC3"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion           = "2.6.14"
-val catsEffectVersion     = "2.4.1"
+val catsEffectVersion     = "2.5.0"
 val circeVersion          = "0.14.0-M6"
 val http4sVersion         = "0.21.22"
 val magnoliaVersion       = "0.17.0"
@@ -14,13 +14,14 @@ val mercatorVersion       = "0.2.1"
 val playVersion           = "2.8.8"
 val playJsonVersion       = "2.9.2"
 val silencerVersion       = "1.7.3"
-val sttpVersion           = "3.3.0"
+val sttpVersion           = "3.3.1"
 val tapirVersion          = "0.17.18"
 val zioVersion            = "1.0.7"
-val zioInteropCatsVersion = "2.4.0.0"
+val zioInteropCatsVersion = "2.4.1.0"
 val zioConfigVersion      = "1.0.4"
 val zqueryVersion         = "0.2.8"
 val zioJsonVersion        = "0.1.4"
+val zioHttpVersion        = "1.0.0.0-RC16"
 
 inThisBuild(
   List(
@@ -69,6 +70,7 @@ lazy val root = project
     http4s,
     akkaHttp,
     play,
+    zioHttp,
     catsInterop,
     monixInterop,
     tapirInterop,
@@ -243,6 +245,19 @@ lazy val http4s = project
   )
   .dependsOn(core)
 
+lazy val zioHttp = project
+  .in(file("adapters/zio-http"))
+  .settings(name := "caliban-zio-http")
+  .settings(commonSettings)
+  .settings(
+    libraryDependencies ++= Seq(
+      "io.d11"   %% "zhttp"         % zioHttpVersion,
+      "io.circe" %% "circe-parser"  % circeVersion,
+      "io.circe" %% "circe-generic" % circeVersion
+    )
+  )
+  .dependsOn(core)
+
 lazy val akkaHttp = project
   .in(file("adapters/akka-http"))
   .settings(name := "caliban-akka-http")
@@ -340,11 +355,12 @@ lazy val examples = project
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % tapirVersion,
       "io.circe"                      %% "circe-generic"                 % circeVersion,
+      "io.d11"                        %% "zhttp"                         % zioHttpVersion,
       "com.typesafe.play"             %% "play-akka-http-server"         % playVersion,
       "com.typesafe.akka"             %% "akka-actor-typed"              % akkaVersion
     )
   )
-  .dependsOn(akkaHttp, http4s, catsInterop, finch, play, monixInterop, tapirInterop, clientJVM, federation)
+  .dependsOn(akkaHttp, http4s, catsInterop, finch, play, monixInterop, tapirInterop, clientJVM, federation, zioHttp)
 
 lazy val benchmarks = project
   .in(file("benchmarks"))

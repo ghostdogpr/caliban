@@ -85,9 +85,10 @@ object Rendering {
       case _                       => ""
     }
 
-  private def renderDescription(description: Option[String]): String = description match {
-    case None        => ""
-    case Some(value) => if (value.contains("\n")) s"""\"\"\"\n$value\"\"\"\n""" else s""""$value"\n"""
+  private def renderDescription(description: Option[String], newline: Boolean = true): String = description match {
+    case None                   => ""
+    case Some(value) if newline => if (value.contains("\n")) s"""\"\"\"\n$value\"\"\"\n""" else s""""$value"\n"""
+    case Some(value)            => if (value.contains("\n")) s"""\"\"\"$value\"\"\" """ else s""""$value" """
   }
 
   private def renderDirectiveArgument(value: InputValue): Option[String] = value match {
@@ -134,7 +135,8 @@ object Rendering {
 
   private def renderArguments(arguments: List[__InputValue]): String = arguments match {
     case Nil  => ""
-    case list => s"(${list.map(a => s"${a.name}: ${renderTypeName(a.`type`())}").mkString(", ")})"
+    case list =>
+      s"(${list.map(a => s"${renderDescription(a.description, newline = false)}${a.name}: ${renderTypeName(a.`type`())}").mkString(", ")})"
   }
 
   private def isBuiltinScalar(name: String): Boolean =

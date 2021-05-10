@@ -76,7 +76,7 @@ trait SchemaDerivation[R] {
                 )
               ) { _ =>
                 val impl = subTypes.map(_._2.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
-                val commonFields = impl
+                val commonFields = () => impl
                   .flatMap(_.fields(__DeprecatedArgs(Some(true))))
                   .flatten
                   .groupBy(_.name)
@@ -87,8 +87,9 @@ trait SchemaDerivation[R] {
                       list.headOption
                   }
                   .flatten
+                  .toList
 
-                makeInterface(Some(getName(annotations, info)), getDescription(annotations), commonFields.toList, impl, Some(info.full))
+                makeInterface(Some(getName(annotations, info)), getDescription(annotations), commonFields, impl, Some(info.full))
               }
             }
           }

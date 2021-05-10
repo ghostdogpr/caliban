@@ -76,7 +76,7 @@ object Types {
   def makeInterface(
     name: Option[String],
     description: Option[String],
-    fields: List[__Field],
+    fields: () => List[__Field],
     subTypes: List[__Type],
     origin: Option[String] = None
   ): __Type =
@@ -85,7 +85,7 @@ object Types {
       name,
       description,
       fields =
-        args => if (args.includeDeprecated.getOrElse(false)) Some(fields) else Some(fields.filter(!_.isDeprecated)),
+        args => if (args.includeDeprecated.getOrElse(false)) Some(fields()) else Some(fields().filter(!_.isDeprecated)),
       possibleTypes = Some(subTypes),
       origin = origin
     )

@@ -83,6 +83,7 @@ object RenderingSpec extends DefaultRunnableSpec {
                                      |
                                      |type MutationTest {
                                      |  id(id: Int!, user: UserTestInput!): Boolean!
+                                     |  fetch(nameLike: String!, "is user active currently" active: Boolean!): Boolean!
                                      |}
                                      |
                                      |type QueryTest {
