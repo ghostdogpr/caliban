@@ -15,6 +15,7 @@ import zhttp.http._
 import zhttp.socket.SocketApp
 import zhttp.socket.WebSocketFrame.Text
 import zhttp.socket._
+import io.netty.handler.codec.http.HttpHeaderNames
 
 object ZHttpAdapter {
   case class GraphQLWSRequest(`type`: String, id: Option[String], payload: Option[GraphQLRequest])
@@ -27,6 +28,8 @@ object ZHttpAdapter {
 
   type Subscriptions = Ref[Map[String, Promise[Any, Unit]]]
 
+  val contentTypeApplicationGraphQL = Header.custom(HttpHeaderNames.CONTENT_TYPE.toString(), "application/graphql")
+
   def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
@@ -36,21 +39,16 @@ object ZHttpAdapter {
     Http.collectM {
       case req @ Method.POST -> _ =>
         (for {
-          query           <- ZIO.fromEither(decode[GraphQLRequest](req.getBodyAsString.getOrElse("")))
-          queryWithTracing = req.headers
-                               .find(r => r.name == "apollo-federation-include-trace" && r.value == "ftv1")
-                               .foldLeft(query)((q, _) => q.withFederatedTracing)
+          query           <- queryFromRequest(req)
+          queryWithTracing =
+            req.headers
+              .find(r => r.name == GraphQLRequest.`apollo-federation-include-trace` && r.value == GraphQLRequest.ftv1)
+              .foldLeft(query)((q, _) => q.withFederatedTracing)
           resp            <- executeToJson(interpreter, queryWithTracing, skipValidation, enableIntrospection, queryExecution)
         } yield Response.jsonString(resp.toString)).handleHTTPError
       case req @ Method.GET -> _  =>
-        val params = List("query", "operationName", "variables", "extensions")
-          .collect({ case k =>
-            k -> req.url.queryParams.get(k).flatMap(_.headOption).getOrElse("")
-          })
-          .toMap
-
         (for {
-          query <- ZIO.fromEither(decode[GraphQLRequest](params.asJson.noSpaces))
+          query <- queryFromQueryParams(req)
           resp  <- executeToJson(interpreter, query, skipValidation, enableIntrospection, queryExecution)
         } yield Response.jsonString(resp.toString())).handleHTTPError
 
@@ -119,6 +117,24 @@ object ZHttpAdapter {
 
     SocketApp.message(routes) ++ SocketApp.protocol(protocol)
   }
+
+  private def queryFromQueryParams(req: Request) = {
+    val params = List("query", "operationName", "variables", "extensions")
+      .collect({ case k =>
+        k -> req.url.queryParams.get(k).flatMap(_.headOption).getOrElse("")
+      })
+      .toMap
+    ZIO.fromEither(decode[GraphQLRequest](params.asJson.noSpaces))
+  }
+
+  private def queryFromRequest(req: Request) =
+    if (req.url.queryParams.contains("query")) {
+      queryFromQueryParams(req)
+    } else if (req.headers.contains(contentTypeApplicationGraphQL)) {
+      ZIO.succeed(GraphQLRequest(query = req.getBodyAsString))
+    } else {
+      ZIO.fromEither(decode[GraphQLRequest](req.getBodyAsString.getOrElse("")))
+    }
 
   private def generateGraphQLResponse[R, E](
     payload: GraphQLRequest,
