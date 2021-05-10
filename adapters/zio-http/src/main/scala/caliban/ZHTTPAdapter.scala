@@ -242,15 +242,11 @@ object ZHttpAdapter {
 
   private def removeSubscription(id: Option[String], subs: Subscriptions) =
     ZStream
-      .fromEffect(
-        id.map(id =>
-          subs
-            .modify(map => (map.get(id), map - id))
-            .flatMap { p =>
-              IO.whenCase(p) { case Some(p) =>
-                p.succeed(())
-              }
-            }
-        ).getOrElse(ZIO.unit)
-      )
+      .fromEffect(IO.whenCase(id) { case Some(id) =>
+        subs.modify(map => (map.get(id), map - id)).flatMap { p =>
+          IO.whenCase(p) { case Some(p) =>
+            p.succeed(())
+          }
+        }
+      })
 }
