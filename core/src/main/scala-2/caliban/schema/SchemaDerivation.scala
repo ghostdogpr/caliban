@@ -122,19 +122,21 @@ trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
           )
         ) { _ =>
           val impl         = subtypes.map(_._1.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
-          val commonFields = impl
-            .flatMap(_.fields(__DeprecatedArgs(Some(true))))
-            .flatten
-            .groupBy(_.name)
-            .collect {
-              case (name, list)
-                  if impl.forall(_.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).exists(_.name == name)) &&
-                    list.map(t => Types.name(t.`type`())).distinct.length == 1 =>
-                list.headOption
-            }
-            .flatten
+          val commonFields = () =>
+            impl
+              .flatMap(_.fields(__DeprecatedArgs(Some(true))))
+              .flatten
+              .groupBy(_.name)
+              .collect {
+                case (name, list)
+                    if impl.forall(_.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).exists(_.name == name)) &&
+                      list.map(t => Types.name(t.`type`())).distinct.length == 1 =>
+                  list.headOption
+              }
+              .flatten
+              .toList
 
-          makeInterface(Some(getName(ctx)), getDescription(ctx), commonFields.toList, impl, Some(ctx.typeName.full))
+          makeInterface(Some(getName(ctx)), getDescription(ctx), commonFields, impl, Some(ctx.typeName.full))
         }
       }
     }

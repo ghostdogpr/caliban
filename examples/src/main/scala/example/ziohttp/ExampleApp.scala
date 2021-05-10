@@ -1,4 +1,4 @@
-package example.zhttp
+package example.ziohttp
 
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
@@ -20,8 +20,7 @@ object ExampleApp extends App {
                          8088,
                          Http.route {
                            case _ -> Root / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
-                           case _ -> Root / "ws" / "graphql"  =>
-                             ZHttpAdapter.makeWebSocketService(interpreter)
+                           case _ -> Root / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
                            case _ -> Root / "graphiql"        => graphiql
                          }
                        )
