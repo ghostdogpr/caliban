@@ -161,9 +161,7 @@ object ZHttpAdapter {
         }
       )
 
-    (resp ++ complete(id)).catchAll { _ =>
-      connectionError
-    }
+    (resp ++ complete(id)).catchAll(toStreamError(Option(id), _))
   }
 
   private def executeToJson[R, E](
