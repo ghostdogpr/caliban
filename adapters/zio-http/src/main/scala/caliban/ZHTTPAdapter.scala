@@ -5,9 +5,7 @@ import zio.clock.Clock
 import zio.duration._
 import zio.stream._
 
-import caliban.{ GraphQLInterpreter, GraphQLRequest, GraphQLResponse }
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
-import caliban.ResponseValue
 import caliban.Value.NullValue
 import caliban.execution.QueryExecution
 import io.circe._

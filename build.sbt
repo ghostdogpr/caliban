@@ -21,7 +21,7 @@ val zioConfigVersion      = "1.0.4"
 val zqueryVersion         = "0.2.8"
 val zioJsonVersion        = "0.1.4"
 // needs to be snapshot right now.
-val zioHttpVersion        = "1.0.0.0-RC15+33-c11af52b-SNAPSHOT"
+val zioHttpVersion        = "1.0.0.0-RC16"
 
 inThisBuild(
   List(
@@ -233,13 +233,6 @@ lazy val zioHttp = project
   .settings(name := "caliban-zio-http")
   .settings(commonSettings)
   .settings(
-    scalaVersion := scala13,
-    crossScalaVersions := Seq(scala13)
-  )
-  .settings(
-    resolvers ++= Seq(
-      "Sonatype OSS Snapshots" at "https://s01.oss.sonatype.org/content/repositories/snapshots"
-    ),
     libraryDependencies ++= Seq(
       "io.d11"           %% "zhttp"          % zioHttpVersion,
       "io.circe"         %% "circe-parser"   % circeVersion,
@@ -327,10 +320,6 @@ lazy val clientJS  = client.js.settings(
 lazy val examples = project
   .in(file("examples"))
   .settings(commonSettings)
-  .settings(
-    scalaVersion := scala13,
-    crossScalaVersions := Seq(scala13)
-  )
   .settings(publish / skip := true)
   .settings(
     libraryDependencies ++= Seq(
