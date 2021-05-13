@@ -43,6 +43,9 @@ object ExampleApp extends App {
         } ~
         Queries.character("Naomi Nagata") {
           character
+        } ~
+        Queries.character("Alex Kamal") {
+          character
         }
     val mutation = Mutations.deleteCharacter("James Holden")
 
