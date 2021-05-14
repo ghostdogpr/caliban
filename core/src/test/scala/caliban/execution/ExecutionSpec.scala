@@ -4,13 +4,13 @@ import java.util.UUID
 import caliban.CalibanError.ExecutionError
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
-import caliban.{ GraphQL, RootResolver }
+import caliban.{ CalibanError, GraphQL, RootResolver }
 import caliban.TestUtils._
-import caliban.Value.{ BooleanValue, StringValue }
+import caliban.Value.{ BooleanValue, IntValue, StringValue }
 import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
 import caliban.schema.Annotations.{ GQLInterface, GQLName }
-import caliban.schema.{ Schema, Step, Types }
+import caliban.schema.{ ArgBuilder, Schema, Step, Types }
 import zio.{ IO, Task, UIO, ZIO }
 import zio.stream.ZStream
 import zio.test.Assertion._
@@ -240,6 +240,30 @@ object ExecutionSpec extends DefaultRunnableSpec {
         )(
           equalTo(
             """{"data":null,"errors":[{"message":"Can't build a String from input null","locations":[{"line":1,"column":44}],"path":["getId"]}]}"""
+          )
+        )
+      },
+      testM("""input can contain field named "value"""") {
+        import io.circe.syntax._
+        case class NonNegInt(value: Int)
+        object NonNegInt {
+          implicit val nonNegIntArgBuilder: ArgBuilder[NonNegInt] = ArgBuilder.int.flatMap {
+            case i if i > 0 => Right(NonNegInt(i))
+            case neg        => Left(CalibanError.ExecutionError(s"$neg is negative"))
+          }
+        }
+        case class Args(int: NonNegInt, value: String)
+        case class Test(q: Args => Unit)
+
+        val api   = graphQL(RootResolver(Test(_ => ())))
+        val query = """query {q(int: -1, value: "value")}"""
+        assertM(
+          api.interpreter
+            .flatMap(_.execute(query, None, Map("int" -> IntValue(-1), "value" -> StringValue("str value"))))
+            .map(_.asJson.noSpaces)
+        )(
+          equalTo(
+            """{"data":null,"errors":[{"message":"-1 is negative","locations":[{"line":1,"column":8}],"path":["q"]}]}"""
           )
         )
       },
