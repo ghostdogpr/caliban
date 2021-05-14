@@ -341,25 +341,43 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     ev2: Schema[RB, B]
   ): Schema[RA with RB, A => B]                                                                                        =
     new Schema[RA with RB, A => B] {
-      override def arguments: List[__InputValue] = {
-        val t = ev1.toType_(true)
-        t.inputFields.getOrElse(t.kind match {
-          case __TypeKind.SCALAR | __TypeKind.ENUM | __TypeKind.LIST =>
-            // argument was not wrapped in a case class, give it an arbitrary name
-            List(__InputValue("value", None, () => if (ev1.optional) t else makeNonNull(t), None))
-          case _                                                     => Nil
-        })
-      }
+      private val inputType                                                  = ev1.toType_(true)
+      private val unwrappedArgumentName                                      = "value"
+      override def arguments: List[__InputValue]                             =
+        inputType.inputFields.getOrElse(
+          handleInput(List.empty[__InputValue])(
+            List(
+              __InputValue(
+                unwrappedArgumentName,
+                None,
+                () => if (ev1.optional) inputType else makeNonNull(inputType),
+                None
+              )
+            )
+          )
+        )
       override def optional: Boolean                                         = ev2.optional
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev2.toType_(isInput, isSubscription)
 
-      override def resolve(f: A => B): Step[RA with RB] =
-        FunctionStep(args =>
-          arg1
-            .build(InputValue.ObjectValue(args))
-            .fold(error => args.get("value").fold[Either[ExecutionError, A]](Left(error))(arg1.build), Right(_))
+      override def resolve(f: A => B): Step[RA with RB]                 =
+        FunctionStep { args =>
+          val builder = arg1.build(InputValue.ObjectValue(args))
+          handleInput(builder)(
+            builder.fold(
+              error => args.get(unwrappedArgumentName).fold[Either[ExecutionError, A]](Left(error))(arg1.build),
+              Right(_)
+            )
+          )
             .fold(error => QueryStep(ZQuery.fail(error)), value => ev2.resolve(f(value)))
-        )
+
+        }
+      private def handleInput[A](onWrapped: => A)(onUnwrapped: => A): A =
+        inputType.kind match {
+          case __TypeKind.SCALAR | __TypeKind.ENUM | __TypeKind.LIST =>
+            // argument was not wrapped in a case class
+            onUnwrapped
+          case _                                                     => onWrapped
+        }
     }
 
   implicit def futureSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Future[A]]                                 =
