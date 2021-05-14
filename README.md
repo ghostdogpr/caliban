@@ -37,5 +37,6 @@ Want to see your company here? [Submit a PR](https://github.com/ghostdogpr/calib
 * [AutoScout24](https://www.autoscout24.de)
 * [Carvana](https://www.carvana.com)
 * [Credimi](https://www.credimi.com)
+* [Devsisters](https://www.devsisters.com)
 * [LeadIQ](https://leadiq.com)
 * [Sanjagh.pro](https://sanjagh.pro)
