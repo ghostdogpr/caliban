@@ -341,7 +341,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     ev2: Schema[RB, B]
   ): Schema[RA with RB, A => B]                                                                                        =
     new Schema[RA with RB, A => B] {
-      private val inputType                                                  = ev1.toType_(true)
+      private lazy val inputType                                             = ev1.toType_(true)
       private val unwrappedArgumentName                                      = "value"
       override def arguments: List[__InputValue]                             =
         inputType.inputFields.getOrElse(
