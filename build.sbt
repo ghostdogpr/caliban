@@ -220,7 +220,7 @@ lazy val tapirInterop = project
       "com.softwaremill.sttp.tapir"   %% "tapir-core"     % tapirVersion,
       "dev.zio"                       %% "zio-test"       % zioVersion % "test",
       "dev.zio"                       %% "zio-test-sbt"   % zioVersion % "test",
-      compilerPlugin(("org.typelevel" %% "kind-projector" % "0.12.0").cross(CrossVersion.full))
+      compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.0").cross(CrossVersion.full))
     )
   )
   .dependsOn(core)
@@ -238,7 +238,7 @@ lazy val http4s = project
       "org.http4s"                    %% "http4s-circe"        % http4sVersion,
       "org.http4s"                    %% "http4s-blaze-server" % http4sVersion,
       "io.circe"                      %% "circe-parser"        % circeVersion,
-      compilerPlugin(("org.typelevel" %% "kind-projector"      % "0.12.0").cross(CrossVersion.full)),
+      compilerPlugin(("org.typelevel" %% "kind-projector"      % "0.13.0").cross(CrossVersion.full)),
       compilerPlugin("com.github.ghik" % "silencer-plugin" % silencerVersion cross CrossVersion.full),
       "com.github.ghik"                % "silencer-lib"        % silencerVersion % Provided cross CrossVersion.full
     )
@@ -270,7 +270,7 @@ lazy val akkaHttp = project
       "com.typesafe.akka"             %% "akka-stream"                % akkaVersion,
       "de.heikoseeberger"             %% "akka-http-circe"            % "1.36.0" % Optional,
       "de.heikoseeberger"             %% "akka-http-play-json"        % "1.36.0" % Optional,
-      compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.12.0").cross(CrossVersion.full))
+      compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.0").cross(CrossVersion.full))
     )
   )
   .dependsOn(core)
