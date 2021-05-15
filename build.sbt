@@ -338,7 +338,7 @@ lazy val clientJS  = client.js.settings(
       Seq(
         "dev.zio"           %%% "zio-test"        % zioVersion % "test",
         "dev.zio"           %%% "zio-test-sbt"    % zioVersion % "test",
-        "io.github.cquiroz" %%% "scala-java-time" % "2.2.2"    % Test
+        "io.github.cquiroz" %%% "scala-java-time" % "2.3.0"    % Test
       )
     }
   }
