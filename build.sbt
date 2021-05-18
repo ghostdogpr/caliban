@@ -238,9 +238,7 @@ lazy val http4s = project
       "org.http4s"                    %% "http4s-circe"        % http4sVersion,
       "org.http4s"                    %% "http4s-blaze-server" % http4sVersion,
       "io.circe"                      %% "circe-parser"        % circeVersion,
-      compilerPlugin(("org.typelevel" %% "kind-projector"      % "0.13.0").cross(CrossVersion.full)),
-      compilerPlugin("com.github.ghik" % "silencer-plugin" % silencerVersion cross CrossVersion.full),
-      "com.github.ghik"                % "silencer-lib"        % silencerVersion % Provided cross CrossVersion.full
+      compilerPlugin(("org.typelevel" %% "kind-projector"      % "0.13.0").cross(CrossVersion.full))
     )
   )
   .dependsOn(core)

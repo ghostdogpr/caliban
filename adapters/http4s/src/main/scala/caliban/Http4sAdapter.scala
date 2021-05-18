@@ -8,7 +8,6 @@ import cats.data.{ Kleisli, OptionT }
 import cats.effect.Effect
 import cats.effect.syntax.all._
 import cats.~>
-import com.github.ghik.silencer.silent
 import fs2.{ Pipe, Stream }
 import io.circe.Decoder.Result
 import io.circe.Json
@@ -76,7 +75,7 @@ object Http4sAdapter {
       params.get("extensions")
     )
 
-  @silent def makeHttpService[R, E](
+  def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
