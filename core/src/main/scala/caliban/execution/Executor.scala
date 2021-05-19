@@ -78,12 +78,11 @@ object Executor {
             case f @ Field(name @ "__typename", _, _, alias, _, _, _, _, directives) =>
               (alias.getOrElse(name), PureStep(StringValue(objectName)), fieldInfo(f, path, directives))
             case f @ Field(name, _, _, alias, _, _, args, _, directives)             =>
-              val arguments = resolveVariables(args, request.variableDefinitions, variables)
               (
                 alias.getOrElse(name),
                 fields
                   .get(name)
-                  .fold(NullStep: ReducedStep[R])(reduceStep(_, f, arguments, Left(alias.getOrElse(name)) :: path)),
+                  .fold(NullStep: ReducedStep[R])(reduceStep(_, f, args, Left(alias.getOrElse(name)) :: path)),
                 fieldInfo(f, path, directives)
               )
           }
@@ -175,27 +174,6 @@ object Executor {
 
   private[caliban] def fail(error: CalibanError): UIO[GraphQLResponse[CalibanError]] =
     IO.succeed(GraphQLResponse(NullValue, List(error)))
-
-  private def resolveVariables(
-    arguments: Map[String, InputValue],
-    variableDefinitions: List[VariableDefinition],
-    variableValues: Map[String, InputValue]
-  ): Map[String, InputValue] = {
-    def resolveVariable(value: InputValue): InputValue =
-      value match {
-        case InputValue.ListValue(values)   => InputValue.ListValue(values.map(resolveVariable))
-        case InputValue.ObjectValue(fields) =>
-          InputValue.ObjectValue(fields.map({ case (k, v) => k -> resolveVariable(v) }))
-        case InputValue.VariableValue(name) =>
-          lazy val defaultInputValue = (for {
-            definition <- variableDefinitions.find(_.name == name)
-            inputValue <- definition.defaultValue
-          } yield inputValue) getOrElse NullValue
-          variableValues.getOrElse(name, defaultInputValue)
-        case value: Value                   => value
-      }
-    arguments.map({ case (k, v) => k -> resolveVariable(v) })
-  }
 
   private[caliban] def mergeFields(field: Field, typeName: String): List[Field] = {
     // ugly mutable code but it's worth it for the speed ;)
