@@ -319,27 +319,15 @@ lazy val client    = crossProject(JSPlatform, JVMPlatform)
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "io.circe"                      %%% "circe-parser" % circeVersion,
-      "com.softwaremill.sttp.client3" %%% "core"         % sttpVersion
+      "com.softwaremill.sttp.client3" %%% "core"         % sttpVersion,
+      "dev.zio"                       %%% "zio-test"     % zioVersion % "test",
+      "dev.zio"                       %%% "zio-test-sbt" % zioVersion % "test"
     )
   )
-lazy val clientJVM = client.jvm.settings(
-  libraryDependencies ++= Seq(
-    "dev.zio" %%% "zio-test"     % zioVersion % "test",
-    "dev.zio" %%% "zio-test-sbt" % zioVersion % "test"
-  )
-)
+lazy val clientJVM = client.jvm
 lazy val clientJS  = client.js.settings(
   libraryDependencies ++= {
-    // ZIO test is not published for Scala 3 on Scala.js yet
-    if (scalaVersion.value == scala3) {
-      Seq.empty
-    } else {
-      Seq(
-        "dev.zio"           %%% "zio-test"        % zioVersion % "test",
-        "dev.zio"           %%% "zio-test-sbt"    % zioVersion % "test",
-        "io.github.cquiroz" %%% "scala-java-time" % "2.2.2"    % Test
-      )
-    }
+    Seq("io.github.cquiroz" %%% "scala-java-time" % "2.3.0" % Test)
   }
 )
 
