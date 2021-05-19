@@ -57,5 +57,5 @@ object CalibanError extends CalibanErrorJsonCompat {
     caliban.interop.circe.json.ErrorCirce.errorValueEncoder.asInstanceOf[F[CalibanError]]
 
   implicit def circeDecoder[F[_]](implicit ev: IsCirceDecoder[F]): F[CalibanError] =
-    caliban.interop.circe.json.ErrorCirce.errorValueEncoder.asInstanceOf[F[CalibanError]]
+    caliban.interop.circe.json.ErrorCirce.errorValueDecoder.asInstanceOf[F[CalibanError]]
 }
