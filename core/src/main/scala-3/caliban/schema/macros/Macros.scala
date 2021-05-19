@@ -39,18 +39,14 @@ private[caliban] object Macros {
     def normalizedName(s: Symbol): String = if s.flags.is(Flags.Module) then s.name.stripSuffix("$") else s.name
     def name(tpe: TypeRepr) : Expr[String] = Expr(normalizedName(tpe.typeSymbol))
 
-    def owner(tpe: TypeRepr): Expr[String] = {
-      def loop(s: Symbol): String =
-        if s.maybeOwner.isNoSymbol then ""
-        else if (s.owner == defn.EmptyPackageClass) ""
-        else if (s.owner == defn.RootClass) ""
-        else {
-          val parent = loop(s.owner)
-          val self = normalizedName(s.owner)
-          if(parent.isEmpty) self else s"$parent.$self"
-        }
-      Expr(loop(tpe.typeSymbol))
-    }
+    def ownerNameChain(sym: Symbol): List[String] =
+      if sym.isNoSymbol then List.empty
+      else if sym == defn.EmptyPackageClass then List.empty
+      else if sym == defn.RootPackage then List.empty
+      else if sym == defn.RootClass then List.empty
+      else ownerNameChain(sym.owner) :+ normalizedName(sym)
+
+    def owner(tpe: TypeRepr): Expr[String] = Expr(ownerNameChain(tpe.typeSymbol.maybeOwner).mkString("."))
 
     def typeInfo(tpe: TypeRepr): Expr[TypeInfo] = tpe match
       case AppliedType(tpe, args) =>
