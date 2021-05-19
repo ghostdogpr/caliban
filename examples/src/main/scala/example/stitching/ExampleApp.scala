@@ -13,7 +13,7 @@ import sttp.client3.asynchttpclient.zio._
 object StitchingExample extends GenericSchema[ZEnv] {
   val GITHUB_API = "https://api.github.com/graphql"
 
-  case class User(username: String)
+  case class User(login: String)
   case class AppUser(id: String, name: String, githubProfile: User)
 
   case class Queries(
@@ -45,14 +45,14 @@ object StitchingExample extends GenericSchema[ZEnv] {
       remoteResolvers.toQuery >>> remoteResolvers.request >>> RemoteResolver.fromEffect((r: HttpRequest) =>
         for {
           config <- ZIO.service[Configuration]
-        } yield r.header("Authrization", s"Basic ${config.githubToken}")
+        } yield r.header("Authorization", s"Bearer ${config.githubToken}")
       ) >>> remoteResolvers.execute >>> remoteResolvers.unwrap
 
     implicit val githubProfileSchema: Schema[ZEnv, User] =
       remoteSchemaResolvers
         .remoteResolver("User")(
           RemoteResolver.fromFunction((r: ResolveRequest[User]) =>
-            r.field.copy(name = "user", arguments = Map("login" -> caliban.Value.StringValue(r.args.username)))
+            r.field.copy(name = "user", arguments = Map("login" -> caliban.Value.StringValue(r.args.login)))
           ) >>> apiRequest
         )
         .provide(sttpClient ++ config)

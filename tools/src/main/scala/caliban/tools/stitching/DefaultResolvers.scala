@@ -33,7 +33,8 @@ class DefaultResolvers(apiURL: String) {
             resp.fold(
               err =>
                 err match {
-                  case DeserializationException(body, error) => Left(CalibanError.ExecutionError(error.getMessage()))
+                  case DeserializationException(body, error) =>
+                    Left(CalibanError.ExecutionError(s"${error.getMessage()}: ${body}"))
                   case HttpError(body, statusCode)           => Left(CalibanError.ExecutionError(s"HTTP Error: $statusCode"))
                 },
               resp => Right(resp.data)
