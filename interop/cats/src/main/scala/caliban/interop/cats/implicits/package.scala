@@ -38,6 +38,6 @@ package object implicits {
       CatsInterop.interpreterAsync(underlying)
   }
 
-  implicit def catsEffectSchema[F[_]: Async, R, A](implicit F: Dispatcher[F], ev: Schema[R, A]): Schema[R, F[A]] =
+  implicit def catsEffectSchema[F[_], R, A](implicit F: Dispatcher[F], ev: Schema[R, A]): Schema[R, F[A]] =
     CatsInterop.schema
 }
