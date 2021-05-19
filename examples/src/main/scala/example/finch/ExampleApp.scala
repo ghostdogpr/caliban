@@ -1,4 +1,5 @@
 package example.finch
+/*
 
 import example.ExampleData.sampleCharacters
 import example.ExampleService.ExampleService
@@ -54,3 +55,4 @@ object ExampleApp extends App with Endpoint.Module[Task] {
   Await.ready(server)
 
 }
+*/

@@ -9,10 +9,9 @@ import org.http4s.dsl.Http4sDsl
 import org.http4s.implicits._
 import org.http4s.server.blaze.BlazeServerBuilder
 import org.http4s.server.{ Router, ServiceErrorHandler }
-import org.http4s.util.CaseInsensitiveString
+import org.typelevel.ci.CIString
 import zio._
 import zio.interop.catz._
-import zio.interop.catz.implicits._
 
 import scala.concurrent.ExecutionContext
 
@@ -34,8 +33,8 @@ object AuthExampleApp extends CatsApp {
     def apply(route: HttpRoutes[AuthTask]): HttpRoutes[Task] =
       Http4sAdapter.provideLayerFromRequest(
         route,
-        _.headers.get(CaseInsensitiveString("token")) match {
-          case Some(value) => ZLayer.succeed(new Auth.Service { override def token: String = value.value })
+        _.headers.get(CIString("token")) match {
+          case Some(value) => ZLayer.succeed(new Auth.Service { override def token: String = value.head.value })
           case None        => ZLayer.fail(MissingToken())
         }
       )
@@ -62,7 +61,7 @@ object AuthExampleApp extends CatsApp {
             .bindHttp(8088, "localhost")
             .withHttpApp(Router[Task]("/api/graphql" -> route).orNotFound)
             .resource
-            .toManaged
+            .toManagedZIO
             .useForever
     } yield ()).exitCode
 }

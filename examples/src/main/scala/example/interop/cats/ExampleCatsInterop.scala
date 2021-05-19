@@ -4,13 +4,14 @@ import caliban.GraphQL.graphQL
 import caliban.RootResolver
 
 import cats.effect.{ ExitCode, IO, IOApp }
+import cats.effect.std.Dispatcher
 import zio.{ Runtime, ZEnv }
 
 object ExampleCatsInterop extends IOApp {
 
   import caliban.interop.cats.implicits._
 
-  implicit val runtime: Runtime[ZEnv] = Runtime.default
+  implicit val zioRuntime: Runtime[ZEnv] = Runtime.default
 
   case class Number(value: Int)
 
@@ -20,7 +21,6 @@ object ExampleCatsInterop extends IOApp {
   val randomNumber = IO(scala.util.Random.nextInt()).map(Number)
 
   val queries = Queries(numbers, randomNumber)
-  val api     = graphQL(RootResolver(queries))
 
   val query = """
   {
@@ -34,10 +34,14 @@ object ExampleCatsInterop extends IOApp {
   }"""
 
   override def run(args: List[String]): IO[ExitCode] =
-    for {
-      interpreter <- api.interpreterAsync[IO]
-      _           <- interpreter.checkAsync[IO](query)
-      result      <- interpreter.executeAsync[IO](query)
-      _           <- IO(println(result.data))
-    } yield ExitCode.Success
+    Dispatcher[IO].use { implicit dispatcher => // required for a derivation of the schema
+      val api = graphQL(RootResolver(queries))
+
+      for {
+        interpreter <- api.interpreterAsync[IO]
+        _           <- interpreter.checkAsync[IO](query)
+        result      <- interpreter.executeAsync[IO](query)
+        _           <- IO(println(result.data))
+      } yield ExitCode.Success
+    }
 }

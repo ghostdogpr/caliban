@@ -5,11 +5,15 @@ import caliban.introspection.adt.__Type
 import caliban.schema.Step.QueryStep
 import caliban.schema.{ Schema, Step }
 import caliban.{ CalibanError, GraphQL, GraphQLInterpreter, GraphQLResponse, InputValue }
-import cats.effect.implicits._
-import cats.effect.{ Async, Effect }
-import zio.interop.catz._
+import cats.~>
+import cats.effect.Async
+import cats.effect.std.Dispatcher
+import cats.syntax.flatMap._
+import cats.syntax.functor._
 import zio.{ Runtime, _ }
 import zio.query.ZQuery
+
+import scala.concurrent.Future
 
 object CatsInterop {
 
@@ -21,32 +25,31 @@ object CatsInterop {
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel
-  )(implicit runtime: Runtime[R]): F[GraphQLResponse[E]] =
-    Async[F].async { cb =>
-      val execution = graphQL.execute(
-        query,
-        operationName,
-        variables,
-        extensions,
-        skipValidation = skipValidation,
-        enableIntrospection = enableIntrospection,
-        queryExecution
-      )
+  )(implicit runtime: Runtime[R]): F[GraphQLResponse[E]] = {
+    val execution = graphQL.execute(
+      query,
+      operationName,
+      variables,
+      extensions,
+      skipValidation = skipValidation,
+      enableIntrospection = enableIntrospection,
+      queryExecution
+    )
 
-      runtime.unsafeRunAsync(execution)(exit => cb(exit.toEither))
-    }
+    toEffect(execution)
+  }
 
   def checkAsync[F[_]: Async, R](
     graphQL: GraphQLInterpreter[R, Any]
   )(query: String)(implicit runtime: Runtime[Any]): F[Unit] =
-    Async[F].async(cb => runtime.unsafeRunAsync(graphQL.check(query))(exit => cb(exit.toEither)))
+    toEffect(graphQL.check(query))
 
   def interpreterAsync[F[_]: Async, R](
     graphQL: GraphQL[R]
   )(implicit runtime: Runtime[Any]): F[GraphQLInterpreter[R, CalibanError]] =
-    Async[F].async(cb => runtime.unsafeRunAsync(graphQL.interpreter)(exit => cb(exit.toEither)))
+    toEffect(graphQL.interpreter)
 
-  def schema[F[_]: Effect, R, A](implicit ev: Schema[R, A]): Schema[R, F[A]] =
+  def schema[F[_], R, A](implicit F: Dispatcher[F], ev: Schema[R, A]): Schema[R, F[A]] =
     new Schema[R, F[A]] {
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
         ev.toType_(isInput, isSubscription)
@@ -55,6 +58,32 @@ object CatsInterop {
         ev.optional
 
       override def resolve(value: F[A]): Step[R] =
-        QueryStep(ZQuery.fromEffect(value.toIO.to[Task].map(ev.resolve)))
+        QueryStep(ZQuery.fromEffect(fromEffect(value).map(ev.resolve)))
     }
+
+  def fromEffect[F[_], A](fa: F[A])(implicit F: Dispatcher[F]): Task[A] =
+    ZIO
+      .effectTotal(F.unsafeToFutureCancelable(fa))
+      .flatMap { case (future, cancel) =>
+        ZIO.fromFuture(_ => future).onInterrupt(ZIO.fromFuture(_ => cancel()).orDie).interruptible
+      }
+      .uninterruptible
+
+  def toEffect[F[_], R, A](rio: RIO[R, A])(implicit F: Async[F], R: Runtime[R]): F[A] =
+    F.uncancelable { poll =>
+      F.delay(R.unsafeRunToFuture(rio)).flatMap { future =>
+        poll(F.onCancel(F.fromFuture(F.pure[Future[A]](future)), F.fromFuture(F.delay(future.cancel())).void))
+      }
+    }
+
+  def fromEffectK[F[_]](implicit F: Dispatcher[F]): F ~> Task =
+    new (F ~> Task) {
+      def apply[A](fa: F[A]): Task[A] = fromEffect(fa)
+    }
+
+  def toEffectK[F[_], R](implicit F: Async[F], R: Runtime[R]): RIO[R, *] ~> F =
+    new (RIO[R, *] ~> F) {
+      def apply[A](rio: RIO[R, A]): F[A] = toEffect(rio)
+    }
+
 }
