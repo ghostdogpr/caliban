@@ -38,20 +38,20 @@ object NaiveTest extends App with GenericSchema[Console] {
   )
 
   def getUpcomingEventIdsForUser(id: Int, first: Int): MyIO[List[Int]] =
-    putStrLn("getUpcomingEventIdsForUser").as((1 to first).toList)
+    putStrLn("getUpcomingEventIdsForUser").orDie.as((1 to first).toList)
 
   def getViewerMetadataForEvent(id: Int): MyIO[ViewerMetadata] =
-    putStrLn("getViewerMetadataForEvent").as(ViewerMetadata(""))
+    putStrLn("getViewerMetadataForEvent").orDie.as(ViewerMetadata(""))
 
-  def getVenue(id: Int): MyIO[Venue] = putStrLn("getVenue").as(Venue("venue"))
+  def getVenue(id: Int): MyIO[Venue] = putStrLn("getVenue").orDie.as(Venue("venue"))
 
-  def getTags(ids: List[Int]): MyIO[List[Tag]] = putStrLn("getTags").as(ids.map(id => Tag(id.toString)))
+  def getTags(ids: List[Int]): MyIO[List[Tag]] = putStrLn("getTags").orDie.as(ids.map(id => Tag(id.toString)))
 
   def getViewerFriendIdsAttendingEvent(id: Int, first: Int): MyIO[List[Int]] =
-    putStrLn("getViewerFriendIdsAttendingEvent").as((1 to first).toList)
+    putStrLn("getViewerFriendIdsAttendingEvent").orDie.as((1 to first).toList)
 
   def getEvent(id: Int): MyIO[Event] =
-    putStrLn("getEvent").as(
+    putStrLn("getEvent").orDie.as(
       Event(
         id,
         "name",
@@ -66,7 +66,7 @@ object NaiveTest extends App with GenericSchema[Console] {
     )
 
   def getUser(id: Int): MyIO[User] =
-    putStrLn("getUser").as(
+    putStrLn("getUser").orDie.as(
       User(
         "name",
         "name",
