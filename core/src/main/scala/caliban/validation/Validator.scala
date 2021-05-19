@@ -667,10 +667,20 @@ object Validator {
         val objectFields    = fields(obj)
         val supertypeFields = supertype.flatMap(fields)
 
+        def isNonNullableSubtype(supertypeFieldType: __Type, objectFieldType: __Type) = {
+          import __TypeKind._
+          objectFieldType.kind match {
+            case NON_NULL => objectFieldType.ofType.exists(Types.same(supertypeFieldType, _))
+            case _        => false
+          }
+        }
+
         def isValidSubtype(supertypeFieldType: __Type, objectFieldType: __Type) = {
           val supertypePossibleTypes = supertypeFieldType.possibleTypes.toList.flatten
+
           Types.same(supertypeFieldType, objectFieldType) ||
-          supertypePossibleTypes.exists(Types.same(_, objectFieldType))
+          supertypePossibleTypes.exists(Types.same(_, objectFieldType)) ||
+          isNonNullableSubtype(supertypeFieldType, objectFieldType)
         }
 
         IO.foreach_(objectFields) { objField =>
