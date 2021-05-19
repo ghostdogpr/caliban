@@ -26,7 +26,6 @@ object Executor {
   def executeRequest[R](
     request: ExecutionRequest,
     plan: Step[R],
-    variables: Map[String, InputValue] = Map(),
     fieldWrappers: List[FieldWrapper[R]] = Nil,
     queryExecution: QueryExecution = QueryExecution.Parallel
   ): URIO[R, GraphQLResponse[CalibanError]] = {

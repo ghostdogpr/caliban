@@ -107,8 +107,7 @@ object Validator {
                 op.directives,
                 rootType
               ),
-              op.operationType,
-              op.variableDefinitions
+              op.operationType
             )
           )
       }
