@@ -6,7 +6,6 @@ import example.federation.FederationData.episodes.sampleEpisodes
 import caliban.Http4sAdapter
 
 import cats.data.Kleisli
-import cats.effect.Blocker
 import org.http4s.StaticFile
 import org.http4s.implicits._
 import org.http4s.server.Router
