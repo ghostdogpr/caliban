@@ -1,16 +1,15 @@
 package caliban.client
 
-import scala.collection.immutable.{ Map => SMap }
 import caliban.client.CalibanClientError.{ CommunicationError, DecodingError, ServerError }
 import caliban.client.FieldBuilder.Scalar
 import caliban.client.Operations.IsOperation
 import caliban.client.Selection.Directive
 import caliban.client.__Value.__ObjectValue
-import io.circe.parser
+import io.circe.{ parser, Encoder, Json }
 import sttp.client3._
-import sttp.client3.circe._
-import sttp.model.Uri
-import io.circe.Json
+import sttp.model.{ MediaType, Uri }
+
+import scala.collection.immutable.{ Map => SMap }
 
 /**
  * Represents a selection from parent type `Origin` that returns a result of type `A`.
@@ -81,6 +80,9 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
       case Right((r, _)) => Right(r)
       case Left(l)       => Left(l)
     }
+
+  implicit private def circeBodySerializer[B](implicit encoder: Encoder[B]): BodySerializer[B] =
+    b => StringBody(encoder(b).noSpaces, "utf-8", MediaType.ApplicationJson)
 
   /**
    * Transforms a root selection into an STTP request ready to be run.
