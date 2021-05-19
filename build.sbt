@@ -360,7 +360,19 @@ lazy val examples = project
       "com.typesafe.akka"             %% "akka-actor-typed"              % akkaVersion
     )
   )
-  .dependsOn(akkaHttp, http4s, catsInterop, finch, play, monixInterop, tapirInterop, clientJVM, federation, zioHttp)
+  .dependsOn(
+    akkaHttp,
+    http4s,
+    catsInterop,
+    finch,
+    play,
+    monixInterop,
+    tapirInterop,
+    clientJVM,
+    federation,
+    zioHttp,
+    tools
+  )
 
 lazy val benchmarks = project
   .in(file("benchmarks"))
