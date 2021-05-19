@@ -26,7 +26,7 @@ object Wrappers {
         request =>
           process(request).tap(response =>
             ZIO.when(response.errors.nonEmpty)(
-              putStrLnErr(response.errors.flatMap(prettyStackStrace).mkString("", "\n", "\n"))
+              putStrLnErr(response.errors.flatMap(prettyStackStrace).mkString("", "\n", "\n")).orDie
             )
           )
     }
@@ -43,7 +43,7 @@ object Wrappers {
    * @param duration threshold above which queries are considered slow
    */
   def printSlowQueries(duration: Duration): OverallWrapper[Console with Clock]                                  =
-    onSlowQueries(duration) { case (time, query) => putStrLn(s"Slow query took ${time.render}:\n$query") }
+    onSlowQueries(duration) { case (time, query) => putStrLn(s"Slow query took ${time.render}:\n$query").orDie }
 
   /**
    * Returns a wrapper that runs a given function in case of slow queries

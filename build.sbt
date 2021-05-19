@@ -2,26 +2,25 @@ import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
 val scala212 = "2.12.13"
 val scala213 = "2.13.6"
-val scala3   = "3.0.0-RC3"
+val scala3   = "3.0.0"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion           = "2.6.14"
 val catsEffectVersion     = "2.5.1"
-val circeVersion          = "0.14.0-M6"
+val circeVersion          = "0.14.0-M7"
 val http4sVersion         = "0.21.23"
 val magnoliaVersion       = "0.17.0"
 val mercatorVersion       = "0.2.1"
 val playVersion           = "2.8.8"
 val playJsonVersion       = "2.9.2"
-val silencerVersion       = "1.7.3"
-val sttpVersion           = "3.3.2"
+val sttpVersion           = "3.3.3"
 val tapirVersion          = "0.17.18"
-val zioVersion            = "1.0.7"
+val zioVersion            = "1.0.8"
 val zioInteropCatsVersion = "2.4.1.0"
 val zioConfigVersion      = "1.0.5"
-val zqueryVersion         = "0.2.8"
+val zqueryVersion         = "0.2.9"
 val zioJsonVersion        = "0.1.4"
-val zioHttpVersion        = "1.0.0.0-RC16"
+val zioHttpVersion        = "1.0.0.0-RC16+7-b49cc822-SNAPSHOT"
 
 inThisBuild(
   List(
@@ -107,7 +106,7 @@ lazy val core = project
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) {
         Seq(
-          "org.typelevel" %% "cats-parse" % "0.3.3"
+          "org.typelevel" %% "cats-parse" % "0.3.4"
         )
       } else {
         Seq(
@@ -248,6 +247,9 @@ lazy val zioHttp = project
   .settings(name := "caliban-zio-http")
   .settings(commonSettings)
   .settings(
+    resolvers ++= Seq(
+      "Sonatype OSS Snapshots" at "https://s01.oss.sonatype.org/content/repositories/snapshots"
+    ),
     libraryDependencies ++= Seq(
       "io.d11"   %% "zhttp"         % zioHttpVersion,
       "io.circe" %% "circe-parser"  % circeVersion,
