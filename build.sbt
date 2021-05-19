@@ -16,7 +16,7 @@ val playJsonVersion       = "2.9.2"
 val sttpVersion           = "3.3.4"
 val tapirVersion          = "0.17.18"
 val zioVersion            = "1.0.8"
-val zioInteropCatsVersion = "2.4.1.0"
+val zioInteropCatsVersion = "2.5.1.0"
 val zioConfigVersion      = "1.0.5"
 val zqueryVersion         = "0.2.9"
 val zioJsonVersion        = "0.1.4"
@@ -186,7 +186,6 @@ lazy val catsInterop = project
   .settings(name := "caliban-cats")
   .settings(commonSettings)
   .settings(
-    crossScalaVersions -= scala3,
     libraryDependencies ++= Seq(
       "dev.zio"       %% "zio-interop-cats" % zioInteropCatsVersion,
       "org.typelevel" %% "cats-effect"      % catsEffectVersion
@@ -199,9 +198,8 @@ lazy val monixInterop = project
   .settings(name := "caliban-monix")
   .settings(commonSettings)
   .settings(
-    crossScalaVersions -= scala3,
     libraryDependencies ++= Seq(
-      "dev.zio"  %% "zio-interop-reactivestreams" % "1.0.3.5-RC12",
+      "dev.zio"  %% "zio-interop-reactivestreams" % "1.3.5",
       "dev.zio"  %% "zio-interop-cats"            % zioInteropCatsVersion,
       "io.monix" %% "monix"                       % "3.4.0"
     )
