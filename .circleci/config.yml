@@ -49,7 +49,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++3.0.0! core/test clientJVM/test clientJS/compile zioHttp/compile
+      - run: sbt ++3.0.0! core/test clientJVM/test clientJS/test zioHttp/compile
       - save_cache:
           key: sbtcache
           paths:
