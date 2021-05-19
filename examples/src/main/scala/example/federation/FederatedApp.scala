@@ -13,7 +13,6 @@ import org.http4s.server.Router
 import org.http4s.server.blaze.BlazeServerBuilder
 import org.http4s.server.middleware.CORS
 import zio._
-import zio.blocking.Blocking
 import zio.interop.catz._
 
 import scala.concurrent.ExecutionContext
@@ -26,18 +25,17 @@ object FederatedApp extends CatsApp {
     .memoize
     .use(layer =>
       for {
-        blocker     <- ZIO.access[Blocking](_.get.blockingExecutor.asEC).map(Blocker.liftExecutionContext)
         interpreter <- FederatedApi.Characters.api.interpreter.map(_.provideCustomLayer(layer))
         _ <- BlazeServerBuilder[ExampleTask](ExecutionContext.global)
               .bindHttp(8089, "localhost")
               .withHttpApp(
                 Router[ExampleTask](
                   "/api/graphql" -> CORS(Http4sAdapter.makeHttpService(interpreter)),
-                  "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", blocker, None))
+                  "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
                 ).orNotFound
               )
               .resource
-              .toManaged
+              .toManagedZIO
               .useForever
       } yield ()
     )
@@ -47,18 +45,17 @@ object FederatedApp extends CatsApp {
     .memoize
     .use(layer =>
       for {
-        blocker     <- ZIO.access[Blocking](_.get.blockingExecutor.asEC).map(Blocker.liftExecutionContext)
         interpreter <- FederatedApi.Episodes.api.interpreter.map(_.provideCustomLayer(layer))
         _ <- BlazeServerBuilder[ExampleTask](ExecutionContext.global)
               .bindHttp(8088, "localhost")
               .withHttpApp(
                 Router[ExampleTask](
                   "/api/graphql" -> CORS(Http4sAdapter.makeHttpService(interpreter)),
-                  "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", blocker, None))
+                  "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
                 ).orNotFound
               )
               .resource
-              .toManaged
+              .toManagedZIO
               .useForever
       } yield ()
     )

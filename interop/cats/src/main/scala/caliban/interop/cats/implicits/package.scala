@@ -3,7 +3,8 @@ package caliban.interop.cats
 import caliban.execution.QueryExecution
 import caliban.schema.Schema
 import caliban.{ CalibanError, GraphQL, GraphQLInterpreter, GraphQLResponse, InputValue }
-import cats.effect.{ Async, Effect }
+import cats.effect.Async
+import cats.effect.std.Dispatcher
 import zio.Runtime
 
 package object implicits {
@@ -37,6 +38,6 @@ package object implicits {
       CatsInterop.interpreterAsync(underlying)
   }
 
-  implicit def catsEffectSchema[F[_]: Effect, R, A](implicit ev: Schema[R, A]): Schema[R, F[A]] =
+  implicit def catsEffectSchema[F[_]: Async, R, A](implicit F: Dispatcher[F], ev: Schema[R, A]): Schema[R, F[A]] =
     CatsInterop.schema
 }

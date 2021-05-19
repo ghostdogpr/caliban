@@ -3,10 +3,11 @@ package caliban
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
 import caliban.execution.QueryExecution
+import caliban.interop.cats.CatsInterop
 import cats.arrow.FunctionK
 import cats.data.{ Kleisli, OptionT }
-import cats.effect.Effect
-import cats.effect.syntax.all._
+import cats.effect.kernel.Async
+import cats.effect.std.{ Dispatcher, Queue => CatsQueue }
 import cats.~>
 import fs2.{ Pipe, Stream }
 import io.circe.Decoder.Result
@@ -20,6 +21,7 @@ import org.http4s.implicits._
 import org.http4s.server.websocket.WebSocketBuilder
 import org.http4s.websocket.WebSocketFrame
 import org.http4s.websocket.WebSocketFrame.Text
+import org.typelevel.ci.CIString
 import zio.Exit.Failure
 import zio._
 import zio.clock.Clock
@@ -97,7 +99,7 @@ object Http4sAdapter {
                              else
                                req.attemptAs[GraphQLRequest].value.absolve
           queryWithTracing =
-            req.headers
+            req.headers.headers
               .find(r => r.name == GraphQLRequest.`apollo-federation-include-trace` && r.value == GraphQLRequest.ftv1)
               .foldLeft(query)((q, _) => q.withFederatedTracing)
           result          <- executeToJson(
@@ -159,12 +161,12 @@ object Http4sAdapter {
     import dsl._
 
     def sendMessage(
-      sendQueue: fs2.concurrent.Queue[Task, WebSocketFrame],
+      sendQueue: CatsQueue[Task, WebSocketFrame],
       messageType: String,
       id: String,
       payload: Json
     ): RIO[R, Unit] =
-      sendQueue.enqueue1(
+      sendQueue.offer(
         WebSocketFrame.Text(
           Json
             .obj(
@@ -177,103 +179,111 @@ object Http4sAdapter {
       )
 
     def processMessage(
-      receivingQueue: fs2.concurrent.Queue[Task, WebSocketFrame],
-      sendQueue: fs2.concurrent.Queue[Task, WebSocketFrame],
+      receivingQueue: CatsQueue[Task, WebSocketFrame],
+      sendQueue: CatsQueue[Task, WebSocketFrame],
       subscriptions: Ref[Map[String, Fiber[Throwable, Unit]]]
     ) =
-      receivingQueue.dequeue.collect { case Text(text, _) => text }.flatMap { text =>
-        Stream.eval {
-          for {
-            msg    <- Task.fromEither(decode[Json](text))
-            msgType = msg.hcursor.downField("type").success.flatMap(_.value.asString).getOrElse("")
-            _      <- RIO.whenCase(msgType) {
-                        case "connection_init"      =>
-                          sendQueue.enqueue1(WebSocketFrame.Text("""{"type":"connection_ack"}""")) *>
-                            Task.whenCase(keepAliveTime) { case Some(time) =>
-                              // Save the keep-alive fiber with a key of None so that it's interrupted later
-                              sendQueue
-                                .enqueue1(WebSocketFrame.Text("""{"type":"ka"}"""))
-                                .repeat(Schedule.spaced(time))
-                                .provideLayer(Clock.live)
-                                .unit
-                                .fork
-                            }
-                        case "connection_terminate" => Task.fromEither(WebSocketFrame.Close(1000)) >>= sendQueue.enqueue1
-                        case "start"                =>
-                          val payload = msg.hcursor.downField("payload")
-                          val id      = msg.hcursor.downField("id").success.flatMap(_.value.asString).getOrElse("")
-                          RIO.whenCase(payload.as[GraphQLRequest]) { case Right(req) =>
-                            (for {
-                              result <- interpreter.executeRequest(
-                                          req,
-                                          skipValidation = skipValidation,
-                                          enableIntrospection = enableIntrospection,
-                                          queryExecution
-                                        )
-                              _      <- result.data match {
-                                          case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
-                                            stream.foreach { item =>
-                                              sendMessage(
-                                                sendQueue,
-                                                "data",
-                                                id,
-                                                GraphQLResponse(ObjectValue(List(fieldName -> item)), result.errors).asJson
-                                              )
-                                            }.onExit {
-                                              case Failure(cause) if !cause.interrupted =>
+      Stream
+        .repeatEval(receivingQueue.take)
+        .collect { case Text(text, _) => text }
+        .flatMap { text =>
+          Stream.eval {
+            for {
+              msg    <- Task.fromEither(decode[Json](text))
+              msgType = msg.hcursor.downField("type").success.flatMap(_.value.asString).getOrElse("")
+              _      <- RIO.whenCase(msgType) {
+                          case "connection_init"      =>
+                            sendQueue.offer(WebSocketFrame.Text("""{"type":"connection_ack"}""")) *>
+                              Task.whenCase(keepAliveTime) { case Some(time) =>
+                                // Save the keep-alive fiber with a key of None so that it's interrupted later
+                                sendQueue
+                                  .offer(WebSocketFrame.Text("""{"type":"ka"}"""))
+                                  .repeat(Schedule.spaced(time))
+                                  .provideLayer(Clock.live)
+                                  .unit
+                                  .fork
+                              }
+                          case "connection_terminate" => Task.fromEither(WebSocketFrame.Close(1000)) >>= sendQueue.offer
+                          case "start"                =>
+                            val payload = msg.hcursor.downField("payload")
+                            val id      = msg.hcursor.downField("id").success.flatMap(_.value.asString).getOrElse("")
+                            RIO.whenCase(payload.as[GraphQLRequest]) { case Right(req) =>
+                              (for {
+                                result <- interpreter.executeRequest(
+                                            req,
+                                            skipValidation = skipValidation,
+                                            enableIntrospection = enableIntrospection,
+                                            queryExecution
+                                          )
+                                _      <- result.data match {
+                                            case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
+                                              stream.foreach { item =>
                                                 sendMessage(
                                                   sendQueue,
-                                                  "error",
+                                                  "data",
                                                   id,
-                                                  Json.obj("message" -> Json.fromString(cause.squash.toString))
-                                                ).orDie
-                                              case _                                    =>
-                                                sendQueue
-                                                  .enqueue1(WebSocketFrame.Text(s"""{"type":"complete","id":"$id"}"""))
-                                                  .orDie
-                                            }.fork
-                                              .flatMap(fiber => subscriptions.update(_.updated(id, fiber)))
-                                          case other                                                =>
-                                            sendMessage(sendQueue, "data", id, GraphQLResponse(other, result.errors).asJson) *>
-                                              sendQueue.enqueue1(WebSocketFrame.Text(s"""{"type":"complete","id":"$id"}"""))
-                                        }
-                            } yield ()).catchAll(error =>
-                              sendMessage(sendQueue, "error", id, Json.obj("message" -> Json.fromString(error.toString)))
-                            )
-                          }
-                        case "stop"                 =>
-                          val id = msg.hcursor.downField("id").success.flatMap(_.value.asString).getOrElse("")
-                          subscriptions
-                            .modify(map => (map.get(id), map - id))
-                            .flatMap(fiber =>
-                              IO.whenCase(fiber) { case Some(fiber) =>
-                                fiber.interrupt
-                              }
-                            )
-                      }
-          } yield ()
+                                                  GraphQLResponse(ObjectValue(List(fieldName -> item)), result.errors).asJson
+                                                )
+                                              }.onExit {
+                                                case Failure(cause) if !cause.interrupted =>
+                                                  sendMessage(
+                                                    sendQueue,
+                                                    "error",
+                                                    id,
+                                                    Json.obj("message" -> Json.fromString(cause.squash.toString))
+                                                  ).orDie
+                                                case _                                    =>
+                                                  sendQueue
+                                                    .offer(WebSocketFrame.Text(s"""{"type":"complete","id":"$id"}"""))
+                                                    .orDie
+                                              }.fork
+                                                .flatMap(fiber => subscriptions.update(_.updated(id, fiber)))
+                                            case other                                                =>
+                                              sendMessage(sendQueue, "data", id, GraphQLResponse(other, result.errors).asJson) *>
+                                                sendQueue.offer(WebSocketFrame.Text(s"""{"type":"complete","id":"$id"}"""))
+                                          }
+                              } yield ()).catchAll(error =>
+                                sendMessage(sendQueue, "error", id, Json.obj("message" -> Json.fromString(error.toString)))
+                              )
+                            }
+                          case "stop"                 =>
+                            val id = msg.hcursor.downField("id").success.flatMap(_.value.asString).getOrElse("")
+                            subscriptions
+                              .modify(map => (map.get(id), map - id))
+                              .flatMap(fiber =>
+                                IO.whenCase(fiber) { case Some(fiber) =>
+                                  fiber.interrupt
+                                }
+                              )
+                        }
+            } yield ()
+          }
         }
-      }.compile.drain
+        .compile
+        .drain
 
     def passThroughPipe(
-      receivingQueue: fs2.concurrent.Queue[Task, WebSocketFrame]
-    ): Pipe[RIO[R, *], WebSocketFrame, Unit] = _.evalMap(receivingQueue.enqueue1)
+      receivingQueue: CatsQueue[Task, WebSocketFrame]
+    ): Pipe[RIO[R, *], WebSocketFrame, Unit] = _.evalMap(receivingQueue.offer)
 
     HttpRoutes.of[RIO[R, *]] { case GET -> Root =>
       for {
-        receivingQueue      <- fs2.concurrent.Queue.unbounded[Task, WebSocketFrame]
-        sendQueue           <- fs2.concurrent.Queue.unbounded[Task, WebSocketFrame]
+        receivingQueue      <- CatsQueue.unbounded[Task, WebSocketFrame]
+        sendQueue           <- CatsQueue.unbounded[Task, WebSocketFrame]
         subscriptions       <- Ref.make(Map.empty[String, Fiber[Throwable, Unit]])
         // We provide fiber to process messages, which inherits the context of WebSocket connection request,
         // so that we can pass information available at connection request, such as authentication information,
         // to execution of subscription.
         processMessageFiber <- processMessage(receivingQueue, sendQueue, subscriptions).forkDaemon
-        builder             <- WebSocketBuilder[RIO[R, *]].build(
-                                 sendQueue.dequeue,
-                                 passThroughPipe(receivingQueue),
-                                 headers = Headers.of(Header("Sec-WebSocket-Protocol", "graphql-ws")),
-                                 onClose = processMessageFiber.interrupt.unit
-                               )
+        builder             <- new WebSocketBuilder[RIO[R, *]](
+                                 headers = Headers(Header.Raw(CIString("Sec-WebSocket-Protocol"), "graphql-ws")),
+                                 onNonWebSocketRequest =
+                                   RIO(Response[RIO[R, *]](Status.NotImplemented).withEntity("This is a WebSocket route.")),
+                                 onHandshakeFailure =
+                                   RIO(Response[RIO[R, *]](Status.BadRequest).withEntity("WebSocket handshake failed.")),
+                                 onClose = processMessageFiber.interrupt.unit,
+                                 filterPingPongs = true
+                               ).build(Stream.repeatEval(sendQueue.take), passThroughPipe(receivingQueue))
       } yield builder
     }
   }
@@ -315,18 +325,22 @@ object Http4sAdapter {
       route(req.mapK(to)).mapK(from).map(_.mapK(from))
     }
 
-  private def wrapRoute[F[_]: Effect](route: HttpRoutes[Task])(implicit runtime: Runtime[Any]): HttpRoutes[F] = {
-    val toF: Task ~> F    = λ[Task ~> F](_.toIO.to[F])
-    val toTask: F ~> Task = λ[F ~> Task](_.toIO.to[Task])
+  private def wrapRoute[F[_]: Async](
+    route: HttpRoutes[Task]
+  )(implicit dispatcher: Dispatcher[F], runtime: Runtime[Any]): HttpRoutes[F] = {
+    val toF: Task ~> F    = CatsInterop.toEffectK
+    val toTask: F ~> Task = CatsInterop.fromEffectK
 
     route
       .mapK(λ[OptionT[Task, *] ~> OptionT[F, *]](_.mapK(toF)))
       .dimap((req: Request[F]) => req.mapK(toTask))((res: Response[Task]) => res.mapK(toF))
   }
 
-  private def wrapApp[F[_]: Effect](app: HttpApp[Task])(implicit runtime: Runtime[Any]): HttpApp[F] = {
-    val toF: Task ~> F    = λ[Task ~> F](_.toIO.to[F])
-    val toTask: F ~> Task = λ[F ~> Task](_.toIO.to[Task])
+  private def wrapApp[F[_]: Async](
+    app: HttpApp[Task]
+  )(implicit dispatcher: Dispatcher[F], runtime: Runtime[Any]): HttpApp[F] = {
+    val toF: Task ~> F    = CatsInterop.toEffectK
+    val toTask: F ~> Task = CatsInterop.fromEffectK
 
     app
       .mapK(toF)
@@ -339,7 +353,7 @@ object Http4sAdapter {
     enableIntrospection: Boolean = true,
     keepAliveTime: Option[Duration] = None,
     queryExecution: QueryExecution = QueryExecution.Parallel
-  )(implicit F: Effect[F], runtime: Runtime[Any]): HttpRoutes[F] =
+  )(implicit F: Async[F], dispatcher: Dispatcher[F], runtime: Runtime[Any]): HttpRoutes[F] =
     wrapRoute(
       makeWebSocketService[Any, E](
         interpreter,
@@ -353,7 +367,7 @@ object Http4sAdapter {
   @deprecated("Use makeHttpServiceF instead", "0.4.0")
   def makeRestServiceF[F[_], E](
     interpreter: GraphQLInterpreter[Any, E]
-  )(implicit F: Effect[F], runtime: Runtime[Any]): HttpRoutes[F] =
+  )(implicit F: Async[F], dispatcher: Dispatcher[F], runtime: Runtime[Any]): HttpRoutes[F] =
     makeHttpServiceF(interpreter)
 
   def makeHttpServiceF[F[_], E](
@@ -361,7 +375,7 @@ object Http4sAdapter {
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel
-  )(implicit F: Effect[F], runtime: Runtime[Any]): HttpRoutes[F] =
+  )(implicit F: Async[F], dispatcher: Dispatcher[F], runtime: Runtime[Any]): HttpRoutes[F] =
     wrapRoute(
       makeHttpService[Any, E](
         interpreter,
@@ -376,7 +390,7 @@ object Http4sAdapter {
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel
-  )(implicit F: Effect[F], runtime: Runtime[Any]): HttpApp[F] =
+  )(implicit F: Async[F], dispatcher: Dispatcher[F], runtime: Runtime[Any]): HttpApp[F] =
     wrapApp(
       executeRequest[Any, Any, E](
         interpreter,

@@ -6,9 +6,9 @@ val scala3   = "3.0.0-RC3"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion           = "2.6.14"
-val catsEffectVersion     = "2.5.1"
+val catsEffectVersion     = "3.1.0"
 val circeVersion          = "0.14.0-M6"
-val http4sVersion         = "0.21.23"
+val http4sVersion         = "1.0.0-M21"
 val magnoliaVersion       = "0.17.0"
 val mercatorVersion       = "0.2.1"
 val playVersion           = "2.8.8"
@@ -17,7 +17,7 @@ val silencerVersion       = "1.7.3"
 val sttpVersion           = "3.3.2"
 val tapirVersion          = "0.17.18"
 val zioVersion            = "1.0.7"
-val zioInteropCatsVersion = "2.4.1.0"
+val zioInteropCatsVersion = "3.0.2.0"
 val zioConfigVersion      = "1.0.5"
 val zqueryVersion         = "0.2.8"
 val zioJsonVersion        = "0.1.4"
@@ -66,13 +66,13 @@ lazy val root = project
   .aggregate(
     macros,
     core,
-    finch,
+    /*finch,*/
     http4s,
     akkaHttp,
     play,
     zioHttp,
     catsInterop,
-    monixInterop,
+    /*monixInterop,*/
     tapirInterop,
     clientJVM,
     clientJS,
@@ -187,15 +187,22 @@ lazy val catsInterop = project
   .settings(name := "caliban-cats")
   .settings(commonSettings)
   .settings(
-    crossScalaVersions -= scala3,
-    libraryDependencies ++= Seq(
-      "dev.zio"       %% "zio-interop-cats" % zioInteropCatsVersion,
-      "org.typelevel" %% "cats-effect"      % catsEffectVersion
-    )
+    libraryDependencies ++= {
+      if (scalaVersion.value == scala3) {
+        Seq(
+          "org.typelevel" %% "cats-effect" % catsEffectVersion
+        )
+      } else {
+        Seq(
+          "org.typelevel"                 %% "cats-effect"    % catsEffectVersion,
+          compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.0").cross(CrossVersion.full))
+        )
+      }
+    }
   )
   .dependsOn(core)
 
-lazy val monixInterop = project
+/*lazy val monixInterop = project
   .in(file("interop/monix"))
   .settings(name := "caliban-monix")
   .settings(commonSettings)
@@ -207,7 +214,7 @@ lazy val monixInterop = project
       "io.monix" %% "monix"                       % "3.4.0"
     )
   )
-  .dependsOn(core)
+  .dependsOn(core)*/
 
 lazy val tapirInterop = project
   .in(file("interop/tapir"))
@@ -241,7 +248,7 @@ lazy val http4s = project
       compilerPlugin(("org.typelevel" %% "kind-projector"      % "0.13.0").cross(CrossVersion.full))
     )
   )
-  .dependsOn(core)
+  .dependsOn(core, catsInterop)
 
 lazy val zioHttp = project
   .in(file("adapters/zio-http"))
@@ -273,7 +280,7 @@ lazy val akkaHttp = project
   )
   .dependsOn(core)
 
-lazy val finch = project
+/*lazy val finch = project
   .in(file("adapters/finch"))
   .settings(name := "caliban-finch")
   .settings(commonSettings)
@@ -287,7 +294,7 @@ lazy val finch = project
       "io.circe"           %% "circe-parser"     % circeVersion
     )
   )
-  .dependsOn(core)
+  .dependsOn(core)*/
 
 lazy val play = project
   .in(file("adapters/play"))
@@ -314,6 +321,7 @@ lazy val client    = crossProject(JSPlatform, JVMPlatform)
   .settings(name := "caliban-client")
   .settings(commonSettings)
   .settings(
+    crossScalaVersions -= scala3,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "io.circe"                      %%% "circe-core" % circeVersion,
@@ -358,7 +366,14 @@ lazy val examples = project
       "com.typesafe.akka"             %% "akka-actor-typed"              % akkaVersion
     )
   )
-  .dependsOn(akkaHttp, http4s, catsInterop, finch, play, monixInterop, tapirInterop, clientJVM, federation, zioHttp)
+  .dependsOn(
+    akkaHttp,
+    http4s,
+    catsInterop, /*finch,*/ play, /*monixInterop,*/ tapirInterop,
+    clientJVM,
+    federation,
+    zioHttp
+  )
 
 lazy val benchmarks = project
   .in(file("benchmarks"))
