@@ -23,7 +23,7 @@ class DefaultResolvers(apiURL: String) {
     )
 
   val request: RemoteResolver[Any, CalibanError.ExecutionError, GraphQLRequest, HttpRequest] =
-    RemoteResolver((q: GraphQLRequest) =>
+    RemoteResolver.fromFunctionM((q: GraphQLRequest) =>
       ZIO.succeed(
         basicRequest
           .post(uri"$apiURL")
