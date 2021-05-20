@@ -13,11 +13,13 @@ import sttp.client3.asynchttpclient.zio._
 object StitchingExample extends GenericSchema[ZEnv] {
   val GITHUB_API = "https://api.github.com/graphql"
 
-  case class User(login: String)
-  case class AppUser(id: String, name: String, githubProfile: User)
+  case class AppUser(id: String, name: String, featuredRepository: Repository)
+  case class Repository(owner: String, name: String)
+
+  case class GetUserQuery(name: String, repository: String)
 
   case class Queries(
-    GetUser: String => URIO[ZEnv, AppUser]
+    GetUser: GetUserQuery => URIO[ZEnv, AppUser]
   )
 
   val api = for {
@@ -48,11 +50,17 @@ object StitchingExample extends GenericSchema[ZEnv] {
         } yield r.header("Authorization", s"Bearer ${config.githubToken}")
       ) >>> remoteResolvers.execute >>> remoteResolvers.unwrap
 
-    implicit val githubProfileSchema: Schema[ZEnv, User] =
+    implicit val githubProfileSchema: Schema[ZEnv, Repository] =
       remoteSchemaResolvers
-        .remoteResolver("User")(
-          RemoteResolver.fromFunction((r: ResolveRequest[User]) =>
-            r.field.copy(name = "user", arguments = Map("login" -> caliban.Value.StringValue(r.args.login)))
+        .remoteResolver("Repository")(
+          RemoteResolver.fromFunction((r: ResolveRequest[Repository]) =>
+            r.field.copy(
+              name = "repository",
+              arguments = Map(
+                "owner" -> Value.StringValue(r.args.owner),
+                "name"  -> Value.StringValue(r.args.name)
+              )
+            )
           ) >>> apiRequest
         )
         .provide(sttpClient ++ config)
@@ -60,8 +68,14 @@ object StitchingExample extends GenericSchema[ZEnv] {
     graphQL(
       RootResolver(
         Queries(
-          GetUser =
-            name => random.nextUUID.map(uuid => AppUser(id = uuid.toString(), name = name, githubProfile = User(name)))
+          GetUser = query =>
+            random.nextUUID.map(uuid =>
+              AppUser(
+                id = uuid.toString(),
+                name = query.name,
+                featuredRepository = Repository(query.name, query.repository)
+              )
+            )
         )
       )
     )
