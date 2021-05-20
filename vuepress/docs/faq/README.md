@@ -34,7 +34,7 @@ val api = api1 |+| api2
 
 ### How to deal with authentication/authorization?
 
-This is typically handled with the help of ZIO environment. You can make your field require an `Auth` service by returning a `ZIO[Auth, E, A]`. Then, in your resolver, access the `Auth` service to check you have the appropriate permissions. You can inject the authentication information using a middleware in your HTTP server library. Check [here](https://github.com/ghostdogpr/caliban/blob/master/examples/src/main/scala/caliban/http4s/AuthExampleApp.scala) for a full example using http4s.
+This is typically handled with the help of ZIO environment. You can make your field require an `Auth` service by returning a `ZIO[Auth, E, A]`. Then, in your resolver, access the `Auth` service to check you have the appropriate permissions. You can inject the authentication information using a middleware in your HTTP server library. Check [here](https://github.com/ghostdogpr/caliban/blob/master/examples/src/main/scala/example/http4s/AuthExampleApp.scala) for a full example using http4s.
 
 ### I have 2 case classes with the same name (different packages). How to avoid conflicts?
  
@@ -50,7 +50,7 @@ Unfortunately, it is not supported by the GraphQL spec. See [https://github.com/
 
 ### How to deal with recursive types?
 
-Recursive types can be a little tricky. This is not a silver bullet but usually the trick is to add an `implicit lazy val` instance of `Schema` for the type that is recursive. See [here](https://github.com/ghostdogpr/caliban/blob/master/examples/src/main/scala/caliban/optimizations/NaiveTest.scala#L82) for an example.
+Recursive types can be a little tricky. This is not a silver bullet but usually the trick is to add an `implicit lazy val` instance of `Schema` for the type that is recursive. See [here](https://github.com/ghostdogpr/caliban/blob/master/examples/src/main/scala/example/optimizations/NaiveTest.scala#L82) for an example.
 
 ### I'm getting a "Method too large" compiler error.
 

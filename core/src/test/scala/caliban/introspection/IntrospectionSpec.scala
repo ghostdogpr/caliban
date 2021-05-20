@@ -1,15 +1,17 @@
 package caliban.introspection
 
-import caliban.CalibanError.ValidationError
-import caliban.Value._
-import caliban.{ GraphQLResponse }
+import caliban.CalibanError.{ ExecutionError, ValidationError }
 import caliban.GraphQL._
+import caliban.GraphQLResponse
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
+import caliban.Value._
+import caliban.introspection.adt.__Introspection
 import caliban.wrappers.Wrapper.IntrospectionWrapper
+import zio.ZIO
 import zio.test.Assertion._
-import zio.test.environment.TestEnvironment
 import zio.test._
+import zio.test.environment.TestEnvironment
 
 object IntrospectionSpec extends DefaultRunnableSpec {
 
@@ -127,19 +129,22 @@ object IntrospectionSpec extends DefaultRunnableSpec {
         )
       },
       testM("introspect schema with wrapper") {
-        val hideWrapper = IntrospectionWrapper[Any] {
-          _.map { intro =>
-            intro.copy(__schema =
-              intro.__schema.copy(
-                types = intro.__schema.types.collect {
-                  case ttp if ttp.name.contains("QueryIO") =>
-                    // hide all methods except first
-                    ttp.copy(fields = ttp.fields.andThen(_.map(fields => fields.headOption.toList)))
-                  case other                               => other
-                }
+        val hideWrapper = new IntrospectionWrapper[Any] {
+          def wrap[R1 <: Any](
+            effect: ZIO[R1, ExecutionError, __Introspection]
+          ): ZIO[R1, ExecutionError, __Introspection] =
+            effect.map { intro =>
+              intro.copy(__schema =
+                intro.__schema.copy(
+                  types = intro.__schema.types.collect {
+                    case ttp if ttp.name.contains("QueryIO") =>
+                      // hide all methods except first
+                      ttp.copy(fields = ttp.fields.andThen(_.map(fields => fields.headOption.toList)))
+                    case other                               => other
+                  }
+                )
               )
-            )
-          }
+            }
         }
 
         val interpreter = (graphQL(resolverIO) @@ hideWrapper).interpreter

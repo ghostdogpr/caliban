@@ -33,7 +33,7 @@ object json {
   implicit val jsonSchema: Schema[Any, Json]    = new Schema[Any, Json] {
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = makeScalar("Json")
     override def resolve(value: Json): Step[Any]                           =
-      QueryStep(ZQuery.fromEffect(ZIO.fromEither(Decoder[ResponseValue].decodeJson(value))).map(PureStep))
+      QueryStep(ZQuery.fromEffect(ZIO.fromEither(Decoder[ResponseValue].decodeJson(value))).map(PureStep.apply))
   }
   implicit val jsonArgBuilder: ArgBuilder[Json] = (input: InputValue) => Right(Encoder[InputValue].apply(input))
 
@@ -61,12 +61,12 @@ object json {
     private def jsonToInputValue(json: Json): InputValue       =
       json.fold(
         NullValue,
-        BooleanValue,
+        BooleanValue.apply,
         number =>
           number.toBigInt.map(IntValue.apply) orElse
             number.toBigDecimal.map(FloatValue.apply) getOrElse
             FloatValue(number.toDouble),
-        StringValue,
+        StringValue.apply,
         array => InputValue.ListValue(array.toList.map(jsonToInputValue)),
         obj => InputValue.ObjectValue(obj.toMap.map { case (k, v) => k -> jsonToInputValue(v) })
       )
@@ -82,12 +82,12 @@ object json {
     private def jsonToResponseValue(json: Json): ResponseValue =
       json.fold(
         NullValue,
-        BooleanValue,
+        BooleanValue.apply,
         number =>
           number.toBigInt.map(IntValue.apply) orElse
             number.toBigDecimal.map(FloatValue.apply) getOrElse
             FloatValue(number.toDouble),
-        StringValue,
+        StringValue.apply,
         array => ResponseValue.ListValue(array.toList.map(jsonToResponseValue)),
         obj => ResponseValue.ObjectValue(obj.toList.map { case (k, v) => k -> jsonToResponseValue(v) })
       )

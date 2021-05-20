@@ -20,21 +20,25 @@ There are 6 basic types of wrappers:
 
 Each one requires a function that takes a `ZIO` or `ZQuery` computation together with some contextual information (e.g. the query string) and should return another computation.
 
-Let's see how to implement a wrapper that times out the whole query if its processing takes longer that 1 minute.
+Let's see how to implement a wrapper that times out the whole query if its processing takes longer than 1 minute.
 
 ```scala
-val wrapper = OverallWrapper { process => (request: GraphQLRequest) =>
-  process(request)
-    .timeout(1 minute)
-    .map(
-      _.getOrElse(
-        GraphQLResponse(
-          NullValue,
-          List(ExecutionError(s"Query was interrupted after timeout of ${duration.render}:\n$query"))
+val wrapper = new OverallWrapper[Clock] {
+  def wrap[R <: Clock](
+    process: GraphQLRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]]
+  ): GraphQLRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]] =
+    (request: GraphQLRequest) =>
+      process(request)
+        .timeout(1 minute)
+        .map(
+          _.getOrElse(
+            GraphQLResponse(
+              NullValue,
+              List(ExecutionError(s"Query was interrupted after 1 minute:\n${request.query}"))
+            )
+          )
         )
-      )
-    )
-  }
+}
 ```
 
 You can also combine wrappers using `|+|` and create a wrapper that requires an effect to be run at each query using `EffectfulWrapper`.

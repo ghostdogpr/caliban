@@ -155,7 +155,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
                 Character.nicknames ~
                 Character
                   .role(Role.Captain.shipName, Role.Pilot.shipName, Role.Mechanic.shipName, Role.Engineer.shipName))
-                .mapN(CharacterView)
+                .mapN(CharacterView(_, _, _))
             }
 
           val response =

@@ -44,7 +44,7 @@ See the [Custom Types](#custom-types) section to find out how to support your ow
 If you want Caliban to support other standard types, feel free to [file an issue](https://github.com/ghostdogpr/caliban/issues) or even a PR.
 
 ::: warning Schema derivation issues
-Magnolia (the library used to derive the schema at compile-time) sometimes has some trouble generating schemas with a lot of nested types, or types reused in multiple places.
+The schema derivation sometimes has some trouble generating schemas with a lot of nested types, or types reused in multiple places.
 To deal with this, you can declare schemas for your case classes and sealed traits explicitly:
 
 ```scala
@@ -52,15 +52,17 @@ implicit val roleSchema      = Schema.gen[Role]
 implicit val characterSchema = Schema.gen[Character]
 ```
 
-Make sure those implicits are in scope when you call `graphQL(...)`. This will make Magnolia's job easier by pre-generating schemas for those classes and re-using them when needed.
+Make sure those implicits are in scope when you call `graphQL(...)`. This will make derivation's job easier by pre-generating schemas for those classes and re-using them when needed.
 This will also improve compilation times and generate less bytecode.
 
-If the derivation fails and you're not sure why, you can also call Magnolia's macro directly by using `genMacro`.
+In Scala 2, if the derivation fails and you're not sure why, you can also call Magnolia's macro directly by using `genMacro`.
 The compilation will return better error messages in case something is missing:
 
 ```scala
 implicit val characterSchema = Schema.genMacro[Character].schema
 ```
+
+In Scala 3, derivation doesn't support value classes, opaque types and nested sealed traits.
 :::
 
 ## Enums, unions, interfaces
@@ -212,7 +214,7 @@ implicit val localDateArgBuilder: ArgBuilder[LocalDate] = {
 }
 ```
 
-Value classes (`case class SomeWrapper(self: SomeType) extends AnyVal`) will be unwrapped by default.
+Value classes (`case class SomeWrapper(self: SomeType) extends AnyVal`) will be unwrapped by default in Scala 2 (this is not supported by Scala 3 derivation).
 
 ## Code generation
 
@@ -220,7 +222,7 @@ Caliban can automatically generate Scala code from a GraphQL schema.
 
 In order to use this feature, add the `caliban-codegen-sbt` sbt plugin to your `project/plugins.sbt` file:
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "0.9.5")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "0.10.1")
 ```
 
 And enable it in your `build.sbt` file:
@@ -230,7 +232,7 @@ enablePlugins(CodegenPlugin)
 
 Then call the `calibanGenSchema` sbt command.
 ```scala
-calibanGenSchema schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name] [--effect fqdn.Effect]
+calibanGenSchema schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name] [--effect fqdn.Effect] [--scalarMappings gqlType:f.q.d.n.Type,gqlType2:f.q.d.n.Type2] [--imports a.b.c._,c.d.E]
 
 calibanGenSchema project/schema.graphql src/main/MyAPI.scala
 ```
@@ -241,6 +243,9 @@ The generated code will be formatted with Scalafmt using the configuration defin
 The package of the generated code is derived from the folder of `outputPath`. This can be overridden by providing an alternative package with the `--packageName` option.
 
 By default, each Query and Mutation will be wrapped into a `zio.UIO` effect. This can be overridden by providing an alternative effect with the `--effect` option.
+
+If you want to force a mapping between a GraphQL type and a Scala class (such as scalars), you can use the
+`--scalarMappings` option. Also you can add additional imports by providing `--imports` option.
 
 ## Building Schemas by hand
 

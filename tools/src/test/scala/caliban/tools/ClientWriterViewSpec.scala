@@ -1,17 +1,18 @@
 package caliban.tools
 
 import caliban.parsing.Parser
+import caliban.tools.implicits.ScalarMappings
 import zio.Task
 import zio.test.Assertion._
-import zio.test.environment.TestEnvironment
 import zio.test._
+import zio.test.environment.TestEnvironment
 
 object ClientWriterViewSpec extends DefaultRunnableSpec {
 
   val gen: String => Task[String] = (schema: String) =>
     Parser
       .parseQuery(schema)
-      .flatMap(doc => Formatter.format(ClientWriter.write(doc, "Client", None, genView = true), None))
+      .flatMap(doc => Formatter.format(ClientWriter.write(doc, genView = true)(ScalarMappings(None)), None))
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("ClientWriterViewSpec")(

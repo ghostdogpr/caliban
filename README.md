@@ -7,7 +7,7 @@
 [![Badge-Discord]][Link-Discord]
 
 [Link-Circle]: https://circleci.com/gh/ghostdogpr/caliban "circleci"
-[Badge-Circle]: https://circleci.com/gh/ghostdogpr/caliban.svg?style=svg "circleci"
+[Badge-Circle]: https://circleci.com/gh/ghostdogpr/caliban.svg?style=shield "circleci"
 [Link-SonatypeReleases]: https://oss.sonatype.org/content/repositories/releases/com/github/ghostdogpr/caliban_2.12/ "Sonatype Releases"
 [Badge-SonatypeReleases]: https://img.shields.io/nexus/r/https/oss.sonatype.org/com.github.ghostdogpr/caliban_2.12.svg "Sonatype Releases"
 [Link-SonatypeSnapshots]: https://oss.sonatype.org/content/repositories/snapshots/com/github/ghostdogpr/caliban_2.12/ "Sonatype Snapshots"
@@ -37,5 +37,6 @@ Want to see your company here? [Submit a PR](https://github.com/ghostdogpr/calib
 * [AutoScout24](https://www.autoscout24.de)
 * [Carvana](https://www.carvana.com)
 * [Credimi](https://www.credimi.com)
+* [Devsisters](https://www.devsisters.com)
 * [LeadIQ](https://leadiq.com)
 * [Sanjagh.pro](https://sanjagh.pro)

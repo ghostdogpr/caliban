@@ -38,12 +38,12 @@ object CatsInterop {
 
   def checkAsync[F[_]: Async, R](
     graphQL: GraphQLInterpreter[R, Any]
-  )(query: String)(implicit runtime: Runtime[R]): F[Unit] =
+  )(query: String)(implicit runtime: Runtime[Any]): F[Unit] =
     Async[F].async(cb => runtime.unsafeRunAsync(graphQL.check(query))(exit => cb(exit.toEither)))
 
   def interpreterAsync[F[_]: Async, R](
     graphQL: GraphQL[R]
-  )(implicit runtime: Runtime[R]): F[GraphQLInterpreter[R, CalibanError]] =
+  )(implicit runtime: Runtime[Any]): F[GraphQLInterpreter[R, CalibanError]] =
     Async[F].async(cb => runtime.unsafeRunAsync(graphQL.interpreter)(exit => cb(exit.toEither)))
 
   def schema[F[_]: Effect, R, A](implicit ev: Schema[R, A]): Schema[R, F[A]] =

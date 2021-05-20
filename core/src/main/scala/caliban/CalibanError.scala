@@ -2,8 +2,6 @@ package caliban
 
 import caliban.ResponseValue.ObjectValue
 import caliban.interop.circe.IsCirceEncoder
-import caliban.interop.play.IsPlayJsonWrites
-import caliban.interop.zio.IsZIOJsonEncoder
 import caliban.parsing.adt.LocationInfo
 
 /**
@@ -14,7 +12,7 @@ sealed trait CalibanError extends Throwable with Product with Serializable {
   override def getMessage: String = msg
 }
 
-object CalibanError {
+object CalibanError extends CalibanErrorJsonCompat {
 
   /**
    * Describes an error that happened while parsing a query.
@@ -57,10 +55,4 @@ object CalibanError {
 
   implicit def circeEncoder[F[_]](implicit ev: IsCirceEncoder[F]): F[CalibanError] =
     caliban.interop.circe.json.ErrorCirce.errorValueEncoder.asInstanceOf[F[CalibanError]]
-
-  implicit def playJsonWrites[F[_]](implicit ev: IsPlayJsonWrites[F]): F[CalibanError] =
-    caliban.interop.play.json.ErrorPlayJson.errorValueWrites.asInstanceOf[F[CalibanError]]
-
-  implicit def zioJsonEncoder[F[_]](implicit ev: IsZIOJsonEncoder[F]): F[CalibanError] =
-    caliban.interop.zio.ErrorZioJson.errorValueEncoder.asInstanceOf[F[CalibanError]]
 }

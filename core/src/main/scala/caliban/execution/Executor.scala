@@ -126,7 +126,7 @@ object Executor {
         wrappers match {
           case Nil             => query
           case wrapper :: tail =>
-            val q = if (isPure && !wrapper.wrapPureValues) query else wrapper.f(query, fieldInfo)
+            val q = if (isPure && !wrapper.wrapPureValues) query else wrapper.wrap(query, fieldInfo)
             wrap(q, isPure)(tail, fieldInfo)
         }
 

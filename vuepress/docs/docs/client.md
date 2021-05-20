@@ -12,13 +12,13 @@ Just like Caliban, `caliban-client` offers a purely functional interface and kee
 To use `caliban-client`, add the following line in your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-client" % "0.9.5"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-client" % "0.10.1"
 ```
 
 Caliban-client is available for ScalaJS. To use it in a ScalaJS project, instead add this line to your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client" % "0.9.5"
+libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client" % "0.10.1"
 ```
 
 ## Code generation
@@ -27,7 +27,7 @@ The first step for building GraphQL queries with `caliban-client` is to generate
 
 To use this feature, add the `caliban-codegen-sbt` sbt plugin to your `project/plugins.sbt` file:
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "0.9.5")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "0.10.1")
 ```
 
 And enable it in your `build.sbt` file:
@@ -37,7 +37,7 @@ enablePlugins(CodegenPlugin)
 
 Then call the `calibanGenClient` sbt command.
 ```scala
-calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--genView true|false]
+calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--genView true|false] [--scalarMappings gqlType:f.q.d.n.Type,gqlType2:f.q.d.n.Type2] [--imports a.b.c._,c.d.E]
 
 calibanGenClient project/schema.graphql src/main/client/Client.scala --genView true  
 ```
@@ -49,6 +49,8 @@ The package of the generated code is derived from the folder of `outputPath`.
 This can be overridden by providing an alternative package with the `--packageName`
 option.
 Provide `--genView true` option if you want to generate a view for the GraphQL types. 
+If you want to force a mapping between a GraphQL type and a Scala class (such as scalars), you can use the
+`--scalarMappings` option. Also you can add imports for example for your ArgEncoder implicits by providing `--imports` option.
 
 ## Query building
 

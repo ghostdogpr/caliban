@@ -2,10 +2,8 @@ package caliban.schema
 
 import java.util.UUID
 
-import caliban.TestUtils.{ OrganizationId, WrappedPainter }
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
 import caliban.schema.Annotations.GQLInterface
-import play.api.libs.json.JsValue
 import zio.blocking.Blocking
 import zio.console.Console
 import zio.query.ZQuery
@@ -35,7 +33,7 @@ object SchemaSpec extends DefaultRunnableSpec {
         case class Field(value: ZQuery[Console, Nothing, String])
         case class Queries(field: ZQuery[Blocking, Nothing, Field])
         object MySchema extends GenericSchema[Console with Blocking] {
-          implicit lazy val queriesSchema = gen[Queries]
+          implicit lazy val queriesSchema: Schema[Console with Blocking, Queries] = gen
         }
         assert(MySchema.queriesSchema.toType_().fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
           isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.NON_NULL)))
@@ -63,20 +61,20 @@ object SchemaSpec extends DefaultRunnableSpec {
         )
       },
       test("nested types with explicit schema in companion object") {
-        object blockingSchema extends GenericSchema[Blocking]
-        import blockingSchema._
+        object blockingSchema extends GenericSchema[Blocking] {
 
-        case class A(s: String)
-        object A {
-          implicit val aSchema: Schema[Blocking, A] = blockingSchema.gen[A]
+          case class A(s: String)
+          object A {
+            implicit val aSchema: Schema[Blocking, A] = gen[A]
+          }
+          case class B(a: List[Option[A]])
+
+          A.aSchema.toType_()
+
+          val schema: Schema[Blocking, B] = gen[B]
         }
-        case class B(a: List[Option[A]])
 
-        A.aSchema.toType_()
-
-        val schema: Schema[Blocking, B] = blockingSchema.gen[B]
-
-        assert(Types.collectTypes(schema.toType_()).map(_.name.getOrElse("")))(
+        assert(Types.collectTypes(blockingSchema.schema.toType_()).map(_.name.getOrElse("")))(
           not(contains("SomeA")) && not(contains("OptionA")) && not(contains("None"))
         )
       },
@@ -97,19 +95,6 @@ object SchemaSpec extends DefaultRunnableSpec {
         assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
           isSome(hasField[__Type, String]("to", _.ofType.flatMap(_.name).get, equalTo("Json")))
         )
-      },
-      test("field with Json object [play]") {
-        import caliban.interop.play.json._
-        case class Queries(to: JsValue, from: JsValue => Unit)
-
-        assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
-          isSome(hasField[__Type, String]("to", _.ofType.flatMap(_.name).get, equalTo("Json")))
-        )
-      },
-      test("value classes should unwrap") {
-        case class Queries(organizationId: OrganizationId, painter: WrappedPainter)
-        val fieldTypes = introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.map(_.`type`())
-        assert(fieldTypes.map(_.ofType.flatMap(_.name)))(equalTo(Some("Long") :: Some("Painter") :: Nil))
       },
       test("ZStream in a Query returns a list type") {
         case class Query(a: ZStream[Any, Throwable, Int])

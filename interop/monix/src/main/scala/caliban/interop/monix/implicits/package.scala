@@ -30,12 +30,12 @@ package object implicits {
         queryExecution
       )
 
-    def checkAsync(query: String)(implicit runtime: Runtime[R]): Task[Unit] =
+    def checkAsync(query: String)(implicit runtime: Runtime[Any]): Task[Unit] =
       MonixInterop.checkAsync(underlying)(query)
   }
 
   implicit class MonixGraphQL[R, E](underlying: GraphQL[R]) {
-    def interpreterAsync(implicit runtime: Runtime[R]): Task[GraphQLInterpreter[R, CalibanError]] =
+    def interpreterAsync(implicit runtime: Runtime[Any]): Task[GraphQLInterpreter[R, CalibanError]] =
       MonixInterop.interpreterAsync(underlying)
   }
 
