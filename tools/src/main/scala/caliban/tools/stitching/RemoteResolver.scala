@@ -46,7 +46,7 @@ object RemoteResolver {
               err =>
                 err match {
                   case DeserializationException(body, error) =>
-                    Left(CalibanError.ExecutionError(s"${error.getMessage()}: ${body}"))
+                    Left(CalibanError.ExecutionError(s"${error.getMessage()}: ${body}", innerThrowable = Some(error)))
                   case HttpError(body, statusCode)           => Left(CalibanError.ExecutionError(s"HTTP Error: $statusCode"))
                 },
               resp => Right(resp.data)
@@ -60,7 +60,7 @@ object RemoteResolver {
       (for {
         res  <- send(r)
         body <- ZIO.fromEither(res.body)
-      } yield body).mapError(e => CalibanError.ExecutionError(e.toString))
+      } yield body).mapError(e => CalibanError.ExecutionError(e.toString, innerThrowable = Some(e)))
     )
 
   val toQuery: RemoteResolver[Any, Nothing, Field, GraphQLRequest] =
