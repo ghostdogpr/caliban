@@ -160,10 +160,10 @@ implicit val githubProfileSchema: Schema[ZEnv, Repository] =
       r.field.copy(
           name = "repository",
           arguments = Map(
-          "owner" -> Value.StringValue(r.args.owner),
-          "name"  -> Value.StringValue(r.args.name)
+            "owner" -> Value.StringValue(r.args.owner),
+            "name"  -> Value.StringValue(r.args.name)
           )
-      )
+        )
       ) >>> apiRequest
   )
   .provide(sttpClient ++ config)
