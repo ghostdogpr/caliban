@@ -19,7 +19,7 @@ val zioVersion            = "1.0.8"
 val zioInteropCatsVersion = "2.5.1.0"
 val zioConfigVersion      = "1.0.5"
 val zqueryVersion         = "0.2.9"
-val zioJsonVersion        = "0.1.4"
+val zioJsonVersion        = "0.1.5"
 val zioHttpVersion        = "1.0.0.0-RC16+7-b49cc822-SNAPSHOT"
 
 inThisBuild(
