@@ -145,7 +145,7 @@ In order to make this code easier, we can extract the mechanics around sending t
 
 ```scala
 val apiRequest =
-    remoteResolvers.toQuery >>> remoteResolvers.request >>> RemoteResolver.fromEffect((r: HttpRequest) =>
+    remoteResolvers.toQuery >>> remoteResolvers.request >>> RemoteResolver.fromFunctionM((r: HttpRequest) =>
     for {
         config <- ZIO.service[Configuration]
     } yield r.header("Authorization", s"Bearer ${config.githubToken}")

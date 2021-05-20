@@ -19,5 +19,7 @@ case class RemoteResolver[-R, +E, -A, +B](
 object RemoteResolver {
   def fromFunction[A, B](f: A => B): RemoteResolver[Any, Nothing, A, B] = RemoteResolver((a: A) => ZIO.succeed(f(a)))
 
-  def fromEffect[A, R, E, B](f: A => ZIO[R, E, B]): RemoteResolver[R, E, A, B] = RemoteResolver((a: A) => f(a))
+  def fromFunctionM[A, R, E, B](f: A => ZIO[R, E, B]): RemoteResolver[R, E, A, B] = RemoteResolver((a: A) => f(a))
+
+  def fromEffect[A, R, E, B](effect: ZIO[R, E, B]): RemoteResolver[R, E, A, B] = RemoteResolver((_: Any) => effect)
 }

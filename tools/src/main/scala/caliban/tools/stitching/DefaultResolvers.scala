@@ -44,7 +44,7 @@ class DefaultResolvers(apiURL: String) {
     )
 
   def execute: RemoteResolver[SttpClient, CalibanError.ExecutionError, HttpRequest, ResponseValue] =
-    RemoteResolver.fromEffect((r: HttpRequest) =>
+    RemoteResolver.fromFunctionM((r: HttpRequest) =>
       (for {
         res  <- send(r)
         body <- ZIO.fromEither(res.body)

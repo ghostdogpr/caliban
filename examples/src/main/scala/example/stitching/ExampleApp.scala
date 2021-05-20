@@ -44,7 +44,7 @@ object StitchingExample extends GenericSchema[ZEnv] {
   } yield {
     val remoteResolvers = remoteSchemaResolvers.resolvers
     val apiRequest      =
-      remoteResolvers.toQuery >>> remoteResolvers.request >>> RemoteResolver.fromEffect((r: HttpRequest) =>
+      remoteResolvers.toQuery >>> remoteResolvers.request >>> RemoteResolver.fromFunctionM((r: HttpRequest) =>
         for {
           config <- ZIO.service[Configuration]
         } yield r.header("Authorization", s"Bearer ${config.githubToken}")
