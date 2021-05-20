@@ -5,7 +5,7 @@ import zio._
 case class RemoteResolver[-R, +E, -A, +B](
   run: A => ZIO[R, E, B]
 ) { self =>
-  def flatMap[R1 <: R, E1 >: E, A1 <: A, C1](bc: B => ZIO[R1, E1, C1]): RemoteResolver[R1, E1, A, C1] =
+  def mapM[R1 <: R, E1 >: E, A1 <: A, C1](bc: B => ZIO[R1, E1, C1]): RemoteResolver[R1, E1, A, C1] =
     RemoteResolver((x: A) => self.run(x).flatMap(bc))
 
   def map[C](bc: B => C): RemoteResolver[R, E, A, C] = RemoteResolver((x: A) => self.run(x).map(bc))
