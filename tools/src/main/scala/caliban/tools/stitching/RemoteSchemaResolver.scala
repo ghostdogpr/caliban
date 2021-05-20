@@ -11,8 +11,6 @@ import caliban.{ CalibanError, ResponseValue }
 import CalibanError.ExecutionError
 
 case class RemoteSchemaResolver(schema: __Schema, typeMap: Map[String, __Type], apiURL: String) {
-  val resolvers = new DefaultResolvers(apiURL)
-
   def remoteResolver[R, R0 <: Has[_], A](typeName: String)(
     resolver: RemoteResolver[
       R0,

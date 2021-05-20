@@ -42,13 +42,12 @@ object StitchingExample extends GenericSchema[ZEnv] {
     remoteSchema         <- ZIO.fromOption(RemoteSchema.parseRemoteSchema(schema))
     remoteSchemaResolvers = RemoteSchemaResolver.fromSchema(remoteSchema, GITHUB_API)
   } yield {
-    val remoteResolvers = remoteSchemaResolvers.resolvers
-    val apiRequest      =
-      remoteResolvers.toQuery >>> remoteResolvers.request >>> RemoteResolver.fromFunctionM((r: HttpRequest) =>
+    val apiRequest =
+      RemoteResolver.toQuery >>> RemoteResolver.request(GITHUB_API) >>> RemoteResolver.fromFunctionM((r: HttpRequest) =>
         for {
           config <- ZIO.service[Configuration]
         } yield r.header("Authorization", s"Bearer ${config.githubToken}")
-      ) >>> remoteResolvers.execute >>> remoteResolvers.unwrap
+      ) >>> RemoteResolver.execute >>> RemoteResolver.unwrap
 
     implicit val githubProfileSchema: Schema[ZEnv, Repository] =
       remoteSchemaResolvers

@@ -68,8 +68,6 @@ In order to do this we're going to do a couple of things:
     remoteSchema         <- ZIO.fromOption(RemoteSchema.parseRemoteSchema(schema))
     remoteSchemaResolvers = RemoteSchemaResolver.fromSchema(remoteSchema, GITHUB_API)
   } yield {
-    val remoteResolvers = remoteSchemaResolvers.resolvers
-
     // 3
     implicit val githubProfileSchema: Schema[ZEnv, Repository] =
       remoteSchemaResolvers
@@ -94,7 +92,7 @@ In order to do this we're going to do a couple of things:
                 "name"  -> Value.StringValue(r.args.name)
               )
             )
-          ) >>> remoteResolvers.default
+          ) >>> RemoteResolver.fromUrl(GITHUB_API)
         )
         .provide(sttpClient)
   }
@@ -145,11 +143,11 @@ In order to make this code easier, we can extract the mechanics around sending t
 
 ```scala
 val apiRequest =
-    remoteResolvers.toQuery >>> remoteResolvers.request >>> RemoteResolver.fromFunctionM((r: HttpRequest) =>
+    RemoteResolver.toQuery >>> RemoteResolver.request(GITHUB_API) >>> RemoteResolver.fromFunctionM((r: HttpRequest) =>
     for {
         config <- ZIO.service[Configuration]
     } yield r.header("Authorization", s"Bearer ${config.githubToken}")
-    ) >>> remoteResolvers.execute >>> remoteResolvers.unwrap
+    ) >>> RemoteResolver.execute >>> RemoteResolver.unwrap
 ```
 
 And now we can use our new `apiRequest` when resolving our `Schema[ZEnv, Repository]`:
