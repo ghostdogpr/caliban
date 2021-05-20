@@ -1,7 +1,8 @@
 package caliban.interop.ziojson
 
 import akka.http.scaladsl.unmarshalling.FromEntityUnmarshaller
-import caliban._
+import caliban.{ GraphQLRequest, GraphQLResponse, JsonBackend, ResponseValue, WSMessage }
+import caliban.interop.zio.GraphQLResponseZioJson
 import de.heikoseeberger.akkahttpziojson.ZioJsonSupport
 import zio.Chunk
 import zio.json._
@@ -38,7 +39,8 @@ final class ZioJsonBackend extends JsonBackend with ZioJsonSupport {
     req.left.map(new RuntimeException(_))
   }
 
-  def encodeGraphQLResponse(r: GraphQLResponse[Any]): String = r.toJson
+  def encodeGraphQLResponse(r: GraphQLResponse[Any]): String =
+    GraphQLResponseZioJson.graphQLResponseEncoder.encodeJson(r, None).toString()
 
   def parseWSMessage(text: String): Either[Throwable, WSMessage] =
     text.fromJson[ZioWSMessage].left.map(new RuntimeException(_))
