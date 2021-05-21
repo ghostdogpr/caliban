@@ -288,45 +288,9 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
               "Field 'a' in Object 'ObjectWrongListItemSubtype' is an invalid list item subtype"
             )
           },
-          /* I think this test is broken, I can't get it to generate anything other than
-
-          schema {
-            query: TestNonNullableObject
-          }
-
-          interface WithNullable {
-            field: String!
-          }
-
-          type IsNonNullable implements WithNullable {
-            field: String!
-          }
-
-          type IsNullable implements WithNullable {
-            field: String
-          }
-
-          type TestNonNullableObject {
-            nonNullable: WithNullable!
-          }
-
-          which obviously isn't testing what we want.
-
-          The previous test generated an empty interface since
-          it only had a single case class so no field intersection
-          could be found.
-
-          Not sure how to make it so that the interface becomes
-
-          interface WithNullable {
-            field: String
-          }
-
-          though.
-
           testM("field type that is a Non-Null variant of a valid interface field type is valid") {
             assertM(graphQL(resolverNonNullableSubtype).interpreter.run)(succeeds(anything))
-          },*/
+          },
           testM("fields including arguments of the same name and type defined in an interface are valid") {
             assertM(graphQL(resolverFieldWithArg).interpreter.run)(succeeds(anything))
           },

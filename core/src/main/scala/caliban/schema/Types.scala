@@ -130,6 +130,18 @@ object Types {
         t.possibleTypes.getOrElse(Nil).foldLeft(list2) { case (types, subtype) => collectTypes(subtype, types) }
     }
 
+  def unify(l: List[__Type]): Option[__Type] =
+    l.headOption.flatMap(first => l.drop(1).foldLeft(Option(first))((acc, t) => acc.flatMap(unify(_, t))))
+
+  def unify(t1: __Type, t2: __Type): Option[__Type] =
+    if (same(t1, t2)) Option(t1)
+    else
+      (t1.kind, t2.kind) match {
+        case (__TypeKind.NON_NULL, _) => t1.ofType.map(unify(_, t2)).getOrElse(None)
+        case (_, __TypeKind.NON_NULL) => t2.ofType.map(unify(_, t1)).getOrElse(None)
+        case _                        => None
+      }
+
   @tailrec
   def same(t1: __Type, t2: __Type): Boolean =
     if (t1.kind == t2.kind && t1.ofType.nonEmpty)
