@@ -262,12 +262,16 @@ lazy val akkaHttp = project
   .settings(commonSettings)
   .settings(
     crossScalaVersions -= scala3,
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "com.typesafe.akka"             %% "akka-http"                  % "10.2.4",
       "com.typesafe.akka"             %% "akka-serialization-jackson" % akkaVersion,
       "com.typesafe.akka"             %% "akka-stream"                % akkaVersion,
-      "de.heikoseeberger"             %% "akka-http-circe"            % "1.36.0" % Optional,
-      "de.heikoseeberger"             %% "akka-http-play-json"        % "1.36.0" % Optional,
+      "de.heikoseeberger"             %% "akka-http-circe"            % "1.36.0"   % Optional,
+      "de.heikoseeberger"             %% "akka-http-play-json"        % "1.36.0"   % Optional,
+      "de.heikoseeberger"             %% "akka-http-zio-json"         % "1.36.0"   % Optional,
+      "dev.zio"                       %% "zio-test"                   % zioVersion % "test",
+      "dev.zio"                       %% "zio-test-sbt"               % zioVersion % "test",
       compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.0").cross(CrossVersion.full))
     )
   )
