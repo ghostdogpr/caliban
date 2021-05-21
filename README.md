@@ -38,6 +38,6 @@ Want to see your company here? [Submit a PR](https://github.com/ghostdogpr/calib
 * [Carvana](https://www.carvana.com)
 * [Credimi](https://www.credimi.com)
 * [Devsisters](https://www.devsisters.com)
+* [Fugo.ai](https://www.fugo.ai)
 * [LeadIQ](https://leadiq.com)
 * [Sanjagh.pro](https://sanjagh.pro)
-* [Fugo.ai](https://www.fugo.ai)
