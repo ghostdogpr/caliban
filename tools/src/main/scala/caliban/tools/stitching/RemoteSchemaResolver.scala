@@ -10,7 +10,7 @@ import caliban.schema._
 import caliban.{ CalibanError, ResponseValue }
 import CalibanError.ExecutionError
 
-case class RemoteSchemaResolver(schema: __Schema, typeMap: Map[String, __Type], apiURL: String) {
+case class RemoteSchemaResolver(schema: __Schema, typeMap: Map[String, __Type]) {
   def remoteResolver[R, R0 <: Has[_], A](typeName: String)(
     resolver: RemoteResolver[
       R0,
@@ -44,7 +44,7 @@ case class RemoteSchemaResolver(schema: __Schema, typeMap: Map[String, __Type], 
 }
 
 object RemoteSchemaResolver {
-  def fromSchema(schema: __Schema, apiURL: String): RemoteSchemaResolver = {
+  def fromSchema(schema: __Schema): RemoteSchemaResolver = {
     val typeMap = schema.types
       .collect({ t =>
         (t.name) match {
@@ -53,6 +53,6 @@ object RemoteSchemaResolver {
       })
       .toMap
 
-    RemoteSchemaResolver(schema, typeMap, apiURL)
+    RemoteSchemaResolver(schema, typeMap)
   }
 }

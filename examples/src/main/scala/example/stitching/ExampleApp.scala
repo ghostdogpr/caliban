@@ -39,7 +39,7 @@ object StitchingExample extends GenericSchema[ZEnv] {
 
     schema               <- schemaLoader.load
     remoteSchema         <- ZIO.fromOption(RemoteSchema.parseRemoteSchema(schema))
-    remoteSchemaResolvers = RemoteSchemaResolver.fromSchema(remoteSchema, GITHUB_API)
+    remoteSchemaResolvers = RemoteSchemaResolver.fromSchema(remoteSchema)
   } yield {
     val apiRequest =
       RemoteResolver.toQuery >>> RemoteResolver.request(GITHUB_API) >>> RemoteResolver.fromFunctionM((r: HttpRequest) =>

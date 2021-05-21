@@ -66,7 +66,7 @@ In order to do this we're going to do a couple of things:
     schema               <- schemaLoader.load
     // 2
     remoteSchema         <- ZIO.fromOption(RemoteSchema.parseRemoteSchema(schema))
-    remoteSchemaResolvers = RemoteSchemaResolver.fromSchema(remoteSchema, GITHUB_API)
+    remoteSchemaResolvers = RemoteSchemaResolver.fromSchema(remoteSchema)
   } yield {
     // 3
     implicit val githubProfileSchema: Schema[ZEnv, Repository] =
