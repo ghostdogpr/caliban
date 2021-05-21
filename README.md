@@ -40,3 +40,4 @@ Want to see your company here? [Submit a PR](https://github.com/ghostdogpr/calib
 * [Devsisters](https://www.devsisters.com)
 * [LeadIQ](https://leadiq.com)
 * [Sanjagh.pro](https://sanjagh.pro)
+* [Fugo.ai](https://www.fugo.ai)
