@@ -59,6 +59,7 @@ module.exports = {
               'interop',
               'client',
               'federation',
+              'stitching',
               'tools',
               'examples',
             ]
