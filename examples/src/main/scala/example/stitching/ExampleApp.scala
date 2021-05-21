@@ -1,7 +1,5 @@
 package example.stitching
 
-import zio._
-
 import caliban._
 import caliban.GraphQL.graphQL
 import caliban.schema._
@@ -9,6 +7,7 @@ import caliban.tools.{ Options, RemoteSchema, SchemaLoader }
 import caliban.tools.stitching.{ HttpRequest, RemoteResolver, RemoteSchemaResolver, ResolveRequest }
 
 import sttp.client3.asynchttpclient.zio._
+import zio._
 
 object StitchingExample extends GenericSchema[ZEnv] {
   val GITHUB_API = "https://api.github.com/graphql"
