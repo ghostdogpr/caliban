@@ -262,6 +262,7 @@ lazy val akkaHttp = project
   .settings(commonSettings)
   .settings(
     crossScalaVersions -= scala3,
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "com.typesafe.akka"             %% "akka-http"                  % "10.2.4",
       "com.typesafe.akka"             %% "akka-serialization-jackson" % akkaVersion,
