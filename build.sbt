@@ -1,3 +1,4 @@
+import org.scalajs.linker.interface.ModuleSplitStyle
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
 val scala212 = "2.12.13"
@@ -328,6 +329,32 @@ lazy val clientJS  = client.js.settings(
     Seq("io.github.cquiroz" %%% "scala-java-time" % "2.3.0" % Test)
   }
 )
+
+lazy val clientLaminext = crossProject(JSPlatform)
+  .crossType(CrossType.Pure)
+  .js
+  .in(file("client-laminext"))
+  .settings(name := "caliban-client-laminext")
+  .settings(commonSettings)
+  .dependsOn(clientJS)
+  .settings(
+    crossScalaVersions -= scala212,
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    Test / scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.ESModule) },
+    Test / scalaJSLinkerConfig ~= { _.withModuleSplitStyle(ModuleSplitStyle.FewestModules) },
+    Test / scalaJSLinkerConfig ~= { _.withSourceMap(false) },
+    Test / scalaJSUseMainModuleInitializer := true,
+    Test / scalaJSUseTestModuleInitializer := false,
+    libraryDependencies ++= Seq(
+      "io.laminext" %%% "core"            % "0.13.1",
+      "io.laminext" %%% "fetch"           % "0.13.1",
+      "io.laminext" %%% "fetch-circe"     % "0.13.1",
+      "io.laminext" %%% "websocket"       % "0.13.1",
+      "io.laminext" %%% "websocket-circe" % "0.13.1",
+      "dev.zio"     %%% "zio-test"        % zioVersion % "test",
+      "dev.zio"     %%% "zio-test-sbt"    % zioVersion % "test"
+    )
+  )
 
 lazy val examples = project
   .in(file("examples"))
