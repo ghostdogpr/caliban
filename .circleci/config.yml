@@ -63,7 +63,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.6! clientJS/test clientLaminextJS/test
+      - run: sbt ++2.13.6! clientJS/test clientLaminextJS/Test/fastLinkJS
       - save_cache:
           key: sbtcache
           paths:
