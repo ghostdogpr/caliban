@@ -1,10 +1,9 @@
 {
-  "name": "formula",
+  "name": "caliban-client-demo",
   "version": "1.0.0",
   "main": "index.js",
   "license": "MIT",
   "devDependencies": {
-    "sass": "^1.32.8",
     "vite": "^2.1.5",
     "vite-plugin-html": "^2.0.6"
   }

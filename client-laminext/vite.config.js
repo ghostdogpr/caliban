@@ -13,11 +13,6 @@ export default ({ mode }) => {
           injectScript: `<script type="module" src="${mainJS}"></script>`
         }
       })
-    ],
-    resolve: {
-      alias: {
-        'stylesheets': resolve(__dirname, './main/static/stylesheets'),
-      }
-    }
+    ]
   }
 }
