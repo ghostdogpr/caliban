@@ -1,3 +1,4 @@
+import org.scalajs.linker.interface.ModuleSplitStyle
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
 val scala212 = "2.12.13"
@@ -9,6 +10,7 @@ val akkaVersion           = "2.6.14"
 val catsEffectVersion     = "2.5.1"
 val circeVersion          = "0.14.0-M7"
 val http4sVersion         = "0.21.23"
+val laminextVersion       = "0.13.2"
 val magnoliaVersion       = "0.17.0"
 val mercatorVersion       = "0.2.1"
 val playVersion           = "2.8.8"
@@ -327,11 +329,40 @@ lazy val client    = crossProject(JSPlatform, JVMPlatform)
     )
   )
 lazy val clientJVM = client.jvm
-lazy val clientJS  = client.js.settings(
-  libraryDependencies ++= {
-    Seq("io.github.cquiroz" %%% "scala-java-time" % "2.3.0" % Test)
-  }
-)
+lazy val clientJS  = client.js
+  .settings(
+    libraryDependencies ++= {
+      Seq("io.github.cquiroz" %%% "scala-java-time" % "2.3.0" % Test)
+    }
+  )
+  .settings(scalaVersion := scala213)
+
+lazy val clientLaminext = crossProject(JSPlatform)
+  .crossType(CrossType.Pure)
+  .js
+  .in(file("client-laminext"))
+  .settings(scalaVersion := scala213)
+  .settings(name := "caliban-client-laminext")
+  .settings(commonSettings)
+  .dependsOn(clientJS)
+  .settings(
+    crossScalaVersions -= scala212,
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    Test / scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.ESModule) },
+    Test / scalaJSLinkerConfig ~= { _.withModuleSplitStyle(ModuleSplitStyle.FewestModules) },
+    Test / scalaJSLinkerConfig ~= { _.withSourceMap(false) },
+    Test / scalaJSUseMainModuleInitializer := true,
+    Test / scalaJSUseTestModuleInitializer := false,
+    libraryDependencies ++= Seq(
+      "io.laminext" %%% "core"            % laminextVersion,
+      "io.laminext" %%% "fetch"           % laminextVersion,
+      "io.laminext" %%% "fetch-circe"     % laminextVersion,
+      "io.laminext" %%% "websocket"       % laminextVersion,
+      "io.laminext" %%% "websocket-circe" % laminextVersion,
+      "dev.zio"     %%% "zio-test"        % zioVersion % "test",
+      "dev.zio"     %%% "zio-test-sbt"    % zioVersion % "test"
+    )
+  )
 
 lazy val examples = project
   .in(file("examples"))

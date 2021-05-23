@@ -56,14 +56,14 @@ jobs:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
-  test212_js:
+  test213_js:
     docker:
       - image: circleci/openjdk:8-jdk-node
     steps:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.12.13! clientJS/test
+      - run: sbt ++2.13.6! clientJS/test clientLaminextJS/Test/fastLinkJS
       - save_cache:
           key: sbtcache
           paths:
@@ -122,7 +122,7 @@ workflows:
           filters:
             tags:
               only: /^v[0-9]+(\.[0-9]+)*$/
-      - test212_js:
+      - test213_js:
           requires:
             - lint
           filters:
@@ -145,7 +145,7 @@ workflows:
           requires:
             - test212_jdk8
             - test213_jdk11
-            - test212_js
+            - test213_js
             - test3_jdk11
           filters:
             branches:

@@ -48,6 +48,23 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
   def withAlias(alias: String): SelectionBuilder[Origin, A]
 
   /**
+   * Parse the given response payload into the excepted return type, with an optional extensions object
+   */
+  def decode(payload: String): Either[CalibanClientError, (A, Option[Json])] =
+    for {
+      parsed      <- parser
+                       .decode[GraphQLResponse](payload)
+                       .left
+                       .map(ex => DecodingError("Json deserialization error", Some(ex)))
+      data        <- if (parsed.errors.nonEmpty) Left(ServerError(parsed.errors)) else Right(parsed.data)
+      objectValue <- data match {
+                       case Some(o: __ObjectValue) => Right(o)
+                       case _                      => Left(DecodingError("Result is not an object"))
+                     }
+      result      <- self.fromGraphQL(objectValue)
+    } yield (result, parsed.extensions)
+
+  /**
    * Transforms a root selection into a GraphQL request.
    * @param useVariables if true, all arguments will be passed as variables (default: false)
    */
@@ -98,21 +115,7 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
     basicRequest
       .post(uri)
       .body(toGraphQL(useVariables, queryName))
-      .mapResponse { response =>
-        for {
-          resp        <- response.left.map(CommunicationError(_))
-          parsed      <- parser
-                           .decode[GraphQLResponse](resp)
-                           .left
-                           .map(ex => DecodingError("Json deserialization error", Some(ex)))
-          data        <- if (parsed.errors.nonEmpty) Left(ServerError(parsed.errors)) else Right(parsed.data)
-          objectValue <- data match {
-                           case Some(o: __ObjectValue) => Right(o)
-                           case _                      => Left(DecodingError("Result is not an object"))
-                         }
-          result      <- fromGraphQL(objectValue)
-        } yield (result, parsed.extensions)
-      }
+      .mapResponse(_.left.map(CommunicationError(_)).flatMap(decode))
 
   /**
    * Maps a tupled result to a type `Res` using a  function `f` with 2 parameters
