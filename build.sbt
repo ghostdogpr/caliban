@@ -328,12 +328,13 @@ lazy val clientJS  = client.js.settings(
   libraryDependencies ++= {
     Seq("io.github.cquiroz" %%% "scala-java-time" % "2.3.0" % Test)
   }
-)
+).settings(scalaVersion := scala213)
 
 lazy val clientLaminext = crossProject(JSPlatform)
   .crossType(CrossType.Pure)
   .js
   .in(file("client-laminext"))
+  .settings(scalaVersion := scala213)
   .settings(name := "caliban-client-laminext")
   .settings(commonSettings)
   .dependsOn(clientJS)
