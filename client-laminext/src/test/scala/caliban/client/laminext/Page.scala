@@ -8,7 +8,7 @@ object Page {
   private val characters: Var[List[String]] = Var(Nil)
 
   private val uri = "http://localhost:8088/api/graphql"
-  private val ws  = WebSocket.url("ws://localhost:8088/ws/graphql").graphql.build()
+  private val ws  = WebSocket.url("ws://localhost:8088/ws/graphql", "graphql-ws").graphql.build()
 
   private val getCharacters                 = Client.Queries.characters(None)(Client.Character.name).toEventStream(uri)
   private def deleteCharacter(name: String) = Client.Mutations.deleteCharacter(name).toEventStream(uri)

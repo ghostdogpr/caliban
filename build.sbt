@@ -10,6 +10,7 @@ val akkaVersion           = "2.6.14"
 val catsEffectVersion     = "2.5.1"
 val circeVersion          = "0.14.0-M7"
 val http4sVersion         = "0.21.23"
+val laminextVersion       = "0.13.2"
 val magnoliaVersion       = "0.17.0"
 val mercatorVersion       = "0.2.1"
 val playVersion           = "2.8.8"
@@ -349,11 +350,11 @@ lazy val clientLaminext = crossProject(JSPlatform)
     Test / scalaJSUseMainModuleInitializer := true,
     Test / scalaJSUseTestModuleInitializer := false,
     libraryDependencies ++= Seq(
-      "io.laminext" %%% "core"            % "0.13.1",
-      "io.laminext" %%% "fetch"           % "0.13.1",
-      "io.laminext" %%% "fetch-circe"     % "0.13.1",
-      "io.laminext" %%% "websocket"       % "0.13.1",
-      "io.laminext" %%% "websocket-circe" % "0.13.1",
+      "io.laminext" %%% "core"            % laminextVersion,
+      "io.laminext" %%% "fetch"           % laminextVersion,
+      "io.laminext" %%% "fetch-circe"     % laminextVersion,
+      "io.laminext" %%% "websocket"       % laminextVersion,
+      "io.laminext" %%% "websocket-circe" % laminextVersion,
       "dev.zio"     %%% "zio-test"        % zioVersion % "test",
       "dev.zio"     %%% "zio-test-sbt"    % zioVersion % "test"
     )

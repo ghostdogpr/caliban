@@ -265,10 +265,10 @@ val view: Div =
   )
 ```
 
-To use subscriptions, you first need to create a `WebSocket`. Use the extension method `.graphql` instead of `.text` or `.json`.
+To use subscriptions, you first need to create a `WebSocket` with protocol `graphql-ws`. Use the extension method `.graphql` instead of `.text` or `.json`.
 Then use the extension method `toSubscription` on your `SelectionBuilder` and pass the `WebSocket` object.
 ```scala
-val ws = WebSocket.url("ws://localhost:8088/ws/graphql").graphql.build()
+val ws = WebSocket.url("ws://localhost:8088/ws/graphql", "graphql-ws").graphql.build()
 
 val deletedCharacters = Subscriptions.characterDeleted.toSubscription(ws)
 ```
