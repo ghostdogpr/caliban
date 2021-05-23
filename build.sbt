@@ -77,6 +77,7 @@ lazy val root = project
     tapirInterop,
     clientJVM,
     clientJS,
+    clientLaminext,
     tools,
     codegenSbt,
     federation
