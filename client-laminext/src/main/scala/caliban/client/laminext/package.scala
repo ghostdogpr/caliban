@@ -14,12 +14,13 @@ import java.util.UUID
 package object laminext {
 
   implicit class WebSocketReceiveBuilderOps(self: WebSocketReceiveBuilder) {
-    def graphql: WebSocketBuilder[GraphQLWSResponse, GraphQLWSRequest] = self
-      .json[GraphQLWSResponse, GraphQLWSRequest]
+    def graphql: WebSocketBuilder[GraphQLWSResponse, GraphQLWSRequest] =
+      self.json[GraphQLWSResponse, GraphQLWSRequest]
   }
 
   implicit class WebSocketOps(self: WebSocket[GraphQLWSResponse, GraphQLWSRequest]) {
-    def init(): Unit = self.sendOne(GraphQLWSRequest("connection_init", None, None))
+    def init(): Unit =
+      self.sendOne(GraphQLWSRequest("connection_init", None, None))
   }
 
   implicit class SelectionBuilderOps[Origin, A](self: SelectionBuilder[Origin, A]) {
