@@ -1,9 +1,8 @@
 package example
 
 import example.ExampleData._
-
 import zio.stream.ZStream
-import zio.{ Has, Queue, Ref, UIO, URIO, ZLayer }
+import zio.{ Has, Hub, Ref, UIO, URIO, ZLayer }
 
 object ExampleService {
 
@@ -20,21 +19,21 @@ object ExampleService {
   }
 
   def getCharacters(origin: Option[Origin]): URIO[ExampleService, List[Character]] =
-    URIO.accessM(_.get.getCharacters(origin))
+    URIO.serviceWith(_.getCharacters(origin))
 
   def findCharacter(name: String): URIO[ExampleService, Option[Character]] =
-    URIO.accessM(_.get.findCharacter(name))
+    URIO.serviceWith(_.findCharacter(name))
 
   def deleteCharacter(name: String): URIO[ExampleService, Boolean] =
-    URIO.accessM(_.get.deleteCharacter(name))
+    URIO.serviceWith(_.deleteCharacter(name))
 
   def deletedEvents: ZStream[ExampleService, Nothing, String] =
     ZStream.accessStream(_.get.deletedEvents)
 
-  def make(initial: List[Character]): ZLayer[Any, Nothing, ExampleService] = ZLayer.fromEffect {
-    for {
+  def make(initial: List[Character]): ZLayer[Any, Nothing, ExampleService] =
+    (for {
       characters  <- Ref.make(initial)
-      subscribers <- Ref.make(List.empty[Queue[String]])
+      subscribers <- Hub.unbounded[String]
     } yield new Service {
 
       def getCharacters(origin: Option[Origin]): UIO[List[Character]] =
@@ -48,28 +47,9 @@ object ExampleService {
             if (list.exists(_.name == name)) (true, list.filterNot(_.name == name))
             else (false, list)
           )
-          .tap(deleted =>
-            UIO.when(deleted)(
-              subscribers.get.flatMap(
-                // add item to all subscribers
-                UIO.foreach(_)(queue =>
-                  queue
-                    .offer(name)
-                    .catchSomeCause {
-                      case cause if cause.interrupted =>
-                        subscribers.update(_.filterNot(_ == queue)).as(false)
-                    } // if queue was shutdown, remove from subscribers
-                )
-              )
-            )
-          )
+          .tap(deleted => UIO.when(deleted)(subscribers.publish(name)))
 
-      def deletedEvents: ZStream[Any, Nothing, String] = ZStream.unwrap {
-        for {
-          queue <- Queue.unbounded[String]
-          _     <- subscribers.update(queue :: _)
-        } yield ZStream.fromQueue(queue).ensuring(queue.shutdown)
-      }
-    }
-  }
+      def deletedEvents: ZStream[Any, Nothing, String] =
+        ZStream.unwrapManaged(subscribers.subscribe.map(ZStream.fromQueue(_)))
+    }).toLayer
 }
