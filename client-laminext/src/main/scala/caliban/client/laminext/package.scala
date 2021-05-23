@@ -1,10 +1,10 @@
 package caliban.client
 
-import caliban.client.CalibanClientError.{ CommunicationError, DecodingError, ServerError }
+import caliban.client.CalibanClientError.CommunicationError
 import caliban.client.Operations.{ IsOperation, RootSubscription }
-import caliban.client.__Value.__ObjectValue
+import caliban.client.ws.{ GraphQLWSRequest, GraphQLWSResponse }
 import com.raquo.airstream.core.EventStream
-import io.circe.{ parser, Json }
+import io.circe.Json
 import io.laminext.fetch.circe._
 import io.laminext.websocket.circe._
 import io.laminext.websocket.{ WebSocket, WebSocketBuilder, WebSocketReceiveBuilder }
@@ -41,7 +41,7 @@ package object laminext {
       middleware(Fetch.post(uri))
         .body(self.toGraphQL(useVariables, queryName))
         .text
-        .map(response => decode(response.data))
+        .map(response => self.decode(response.data))
         .recover {
           case err: CalibanClientError => Some(Left(err))
           case other                   => Some(Left(CommunicationError("", Some(other))))
@@ -69,26 +69,12 @@ package object laminext {
       new Subscription[(A, Option[Json])] {
         def received: EventStream[Either[CalibanClientError, (A, Option[Json])]] =
           ws.received.collect { case GraphQLWSResponse("data", Some(`id`), Some(payload)) =>
-            decode(payload.noSpaces)
+            self.decode(payload.noSpaces)
           }
 
         def unsubscribe(): Unit =
           ws.sendOne(GraphQLWSRequest("stop", Some(id), None))
       }
     }
-
-    private def decode(payload: String): Either[CalibanClientError, (A, Option[Json])] =
-      for {
-        parsed      <- parser
-                         .decode[GraphQLResponse](payload)
-                         .left
-                         .map(ex => DecodingError("Json deserialization error", Some(ex)))
-        data        <- if (parsed.errors.nonEmpty) Left(ServerError(parsed.errors)) else Right(parsed.data)
-        objectValue <- data match {
-                         case Some(o: __ObjectValue) => Right(o)
-                         case _                      => Left(DecodingError("Result is not an object"))
-                       }
-        result      <- self.fromGraphQL(objectValue)
-      } yield (result, parsed.extensions)
   }
 }

@@ -1,4 +1,4 @@
-package caliban.client.laminext
+package caliban.client.ws
 
 import io.circe.{ Decoder, HCursor, Json }
 

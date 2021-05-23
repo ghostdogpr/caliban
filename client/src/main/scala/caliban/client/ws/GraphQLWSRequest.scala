@@ -1,8 +1,8 @@
-package caliban.client.laminext
+package caliban.client.ws
 
 import caliban.client.GraphQLRequest
-import io.circe.{ Encoder, Json }
 import io.circe.syntax._
+import io.circe.{ Encoder, Json }
 
 case class GraphQLWSRequest(`type`: String, id: Option[String], payload: Option[GraphQLRequest])
 
