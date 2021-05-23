@@ -337,17 +337,18 @@ lazy val clientJS  = client.js
     }
   )
   .settings(scalaVersion := scala213)
+  .settings(crossScalaVersions := allScala)
 
 lazy val clientLaminext = crossProject(JSPlatform)
   .crossType(CrossType.Pure)
   .js
   .in(file("client-laminext"))
   .settings(scalaVersion := scala213)
+  .settings(crossScalaVersions := Seq(scala213, scala3))
   .settings(name := "caliban-client-laminext")
   .settings(commonSettings)
   .dependsOn(clientJS)
   .settings(
-    crossScalaVersions -= scala212,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     Test / scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.ESModule) },
     Test / scalaJSLinkerConfig ~= { _.withModuleSplitStyle(ModuleSplitStyle.FewestModules) },
