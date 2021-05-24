@@ -134,7 +134,7 @@ object Types {
    * Tries to find a common widened type among a list of types.
    *
    * @example {{{unify(List(string, makeNonNull(string))) // => Some(__Type(SCALAR, Some("String")))}}}
-   * @param a list the types to unify
+   * @param l a list of types to unify
    * @return the unified type if one could be found
    */
   def unify(l: List[__Type]): Option[__Type] =
@@ -144,8 +144,8 @@ object Types {
    * Tries to unify two types by widening them to a common supertype.
    *
    * @example {{{unify(string, makeNonNull(string)) // => Some(__Type(SCALAR, Some("String")))}}}
-   * @param a type to unify
-   * @param a type to unify
+   * @param t1 type second type to unify
+   * @param t2 the first type to unify
    * @return the unified type if one could be found
    */
   def unify(t1: __Type, t2: __Type): Option[__Type] =
