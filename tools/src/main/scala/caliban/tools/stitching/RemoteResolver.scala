@@ -66,6 +66,9 @@ object RemoteResolver {
   val toQuery: RemoteResolver[Any, Nothing, Field, GraphQLRequest] =
     RemoteResolver.fromFunction((f: Field) => RemoteQuery(f).toGraphQLRequest)
 
+  val toMutation: RemoteResolver[Any, Nothing, Field, GraphQLRequest] =
+    RemoteResolver.fromFunction((f: Field) => RemoteMutation(f).toGraphQLRequest)
+
   val unwrap: RemoteResolver[Any, Nothing, ResponseValue, ResponseValue] =
     RemoteResolver.fromFunction((v: ResponseValue) =>
       v match {
