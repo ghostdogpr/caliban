@@ -16,9 +16,19 @@ case class RemoteQuery(field: Field) { self =>
     )
 }
 
+case class RemoteMutation(field: Field) { self =>
+  def toGraphQLRequest: GraphQLRequest =
+    GraphQLRequest(query =
+      Some(
+        RemoteQuery.QueryRenderer.render(self)
+      )
+    )
+}
+
 object RemoteQuery {
   object QueryRenderer {
-    def render(r: RemoteQuery): String = s"query { ${renderField(r.field)} }"
+    def render(r: RemoteMutation): String = s"mutation { ${renderField(r.field)} }"
+    def render(r: RemoteQuery): String    = s"query { ${renderField(r.field)} }"
 
     private def renderField(field: Field): String = {
       val children = renderFields(field)
