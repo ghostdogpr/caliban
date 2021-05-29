@@ -267,7 +267,6 @@ object Client {
             "nicknames" -> __ListValue(value.nicknames.map(value => implicitly[ArgEncoder[String]].encode(value)))
           )
         )
-      override def typeName: String                       = "CharacterInput"
     }
   }
 
@@ -296,7 +295,6 @@ object Client {
     implicit val encoder: ArgEncoder[CharacterInput] = new ArgEncoder[CharacterInput] {
       override def encode(value: CharacterInput): __Value =
         __ObjectValue(List("wait" -> implicitly[ArgEncoder[String]].encode(value.wait$)))
-      override def typeName: String                       = "CharacterInput"
     }
   }
 

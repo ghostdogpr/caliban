@@ -331,7 +331,6 @@ object ClientWriter {
            )}"""
       )
       .mkString(", ")}))
-       |    override def typeName: String = "$inputObjectName"
        |  }
        |}""".stripMargin
   }
