@@ -21,13 +21,10 @@ object TestData {
       case __StringValue("BELT")  => Right(Origin.BELT)
       case other                  => Left(DecodingError(s"Can't build an Origin from input $other"))
     }
-    implicit val originEncoder: ArgEncoder[Origin]    = new ArgEncoder[Origin] {
-      override def encode(value: Origin): __Value = value match {
-        case EARTH => __StringValue("EARTH")
-        case MARS  => __StringValue("MARS")
-        case BELT  => __StringValue("BELT")
-      }
-      override def typeName: String               = "Origin"
+    implicit val originEncoder: ArgEncoder[Origin]    = {
+      case EARTH => __StringValue("EARTH")
+      case MARS  => __StringValue("MARS")
+      case BELT  => __StringValue("BELT")
     }
   }
 
@@ -81,10 +78,10 @@ object TestData {
     def characters[A](
       origin: Option[Origin] = None
     )(sel: SelectionBuilder[Character, A]): SelectionBuilder[RootQuery, List[A]] =
-      Field("characters", ListOf(Obj(sel)), arguments = List(Argument("origin", origin)))
+      Field("characters", ListOf(Obj(sel)), arguments = List(Argument("origin", origin, "Origin")))
 
     def character[A](name: String)(sel: SelectionBuilder[Character, A]): Field[RootQuery, Option[A]] =
-      Field("character", OptionOf(Obj(sel)), arguments = List(Argument("name", name)))
+      Field("character", OptionOf(Obj(sel)), arguments = List(Argument("name", name, "String!")))
   }
 
 }

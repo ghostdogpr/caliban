@@ -30,18 +30,15 @@ object IntrospectionClient {
       case __StringValue("NON_NULL")     => Right(__TypeKind.NON_NULL)
       case other                         => Left(DecodingError(s"Can't build __TypeKind from input $other"))
     }
-    implicit val encoder: ArgEncoder[__TypeKind]    = new ArgEncoder[__TypeKind] {
-      override def encode(value: __TypeKind): __Value = value match {
-        case __TypeKind.SCALAR       => EnumValue("SCALAR")
-        case __TypeKind.OBJECT       => EnumValue("OBJECT")
-        case __TypeKind.INTERFACE    => EnumValue("INTERFACE")
-        case __TypeKind.UNION        => EnumValue("UNION")
-        case __TypeKind.ENUM         => EnumValue("ENUM")
-        case __TypeKind.INPUT_OBJECT => EnumValue("INPUT_OBJECT")
-        case __TypeKind.LIST         => EnumValue("LIST")
-        case __TypeKind.NON_NULL     => EnumValue("NON_NULL")
-      }
-      override def typeName: String                   = "__TypeKind"
+    implicit val encoder: ArgEncoder[__TypeKind]    = {
+      case __TypeKind.SCALAR       => EnumValue("SCALAR")
+      case __TypeKind.OBJECT       => EnumValue("OBJECT")
+      case __TypeKind.INTERFACE    => EnumValue("INTERFACE")
+      case __TypeKind.UNION        => EnumValue("UNION")
+      case __TypeKind.ENUM         => EnumValue("ENUM")
+      case __TypeKind.INPUT_OBJECT => EnumValue("INPUT_OBJECT")
+      case __TypeKind.LIST         => EnumValue("LIST")
+      case __TypeKind.NON_NULL     => EnumValue("NON_NULL")
     }
   }
 
@@ -87,28 +84,25 @@ object IntrospectionClient {
       case __StringValue("INPUT_FIELD_DEFINITION") => Right(__DirectiveLocation.INPUT_FIELD_DEFINITION)
       case other                                   => Left(DecodingError(s"Can't build __DirectiveLocation from input $other"))
     }
-    implicit val encoder: ArgEncoder[__DirectiveLocation]    = new ArgEncoder[__DirectiveLocation] {
-      override def encode(value: __DirectiveLocation): __Value = value match {
-        case __DirectiveLocation.QUERY                  => EnumValue("QUERY")
-        case __DirectiveLocation.MUTATION               => EnumValue("MUTATION")
-        case __DirectiveLocation.SUBSCRIPTION           => EnumValue("SUBSCRIPTION")
-        case __DirectiveLocation.FIELD                  => EnumValue("FIELD")
-        case __DirectiveLocation.FRAGMENT_DEFINITION    => EnumValue("FRAGMENT_DEFINITION")
-        case __DirectiveLocation.FRAGMENT_SPREAD        => EnumValue("FRAGMENT_SPREAD")
-        case __DirectiveLocation.INLINE_FRAGMENT        => EnumValue("INLINE_FRAGMENT")
-        case __DirectiveLocation.SCHEMA                 => EnumValue("SCHEMA")
-        case __DirectiveLocation.SCALAR                 => EnumValue("SCALAR")
-        case __DirectiveLocation.OBJECT                 => EnumValue("OBJECT")
-        case __DirectiveLocation.FIELD_DEFINITION       => EnumValue("FIELD_DEFINITION")
-        case __DirectiveLocation.ARGUMENT_DEFINITION    => EnumValue("ARGUMENT_DEFINITION")
-        case __DirectiveLocation.INTERFACE              => EnumValue("INTERFACE")
-        case __DirectiveLocation.UNION                  => EnumValue("UNION")
-        case __DirectiveLocation.ENUM                   => EnumValue("ENUM")
-        case __DirectiveLocation.ENUM_VALUE             => EnumValue("ENUM_VALUE")
-        case __DirectiveLocation.INPUT_OBJECT           => EnumValue("INPUT_OBJECT")
-        case __DirectiveLocation.INPUT_FIELD_DEFINITION => EnumValue("INPUT_FIELD_DEFINITION")
-      }
-      override def typeName: String                            = "__DirectiveLocation"
+    implicit val encoder: ArgEncoder[__DirectiveLocation]    = {
+      case __DirectiveLocation.QUERY                  => EnumValue("QUERY")
+      case __DirectiveLocation.MUTATION               => EnumValue("MUTATION")
+      case __DirectiveLocation.SUBSCRIPTION           => EnumValue("SUBSCRIPTION")
+      case __DirectiveLocation.FIELD                  => EnumValue("FIELD")
+      case __DirectiveLocation.FRAGMENT_DEFINITION    => EnumValue("FRAGMENT_DEFINITION")
+      case __DirectiveLocation.FRAGMENT_SPREAD        => EnumValue("FRAGMENT_SPREAD")
+      case __DirectiveLocation.INLINE_FRAGMENT        => EnumValue("INLINE_FRAGMENT")
+      case __DirectiveLocation.SCHEMA                 => EnumValue("SCHEMA")
+      case __DirectiveLocation.SCALAR                 => EnumValue("SCALAR")
+      case __DirectiveLocation.OBJECT                 => EnumValue("OBJECT")
+      case __DirectiveLocation.FIELD_DEFINITION       => EnumValue("FIELD_DEFINITION")
+      case __DirectiveLocation.ARGUMENT_DEFINITION    => EnumValue("ARGUMENT_DEFINITION")
+      case __DirectiveLocation.INTERFACE              => EnumValue("INTERFACE")
+      case __DirectiveLocation.UNION                  => EnumValue("UNION")
+      case __DirectiveLocation.ENUM                   => EnumValue("ENUM")
+      case __DirectiveLocation.ENUM_VALUE             => EnumValue("ENUM_VALUE")
+      case __DirectiveLocation.INPUT_OBJECT           => EnumValue("INPUT_OBJECT")
+      case __DirectiveLocation.INPUT_FIELD_DEFINITION => EnumValue("INPUT_FIELD_DEFINITION")
     }
   }
 
@@ -138,7 +132,7 @@ object IntrospectionClient {
       Field(
         "fields",
         OptionOf(ListOf(Obj(innerSelection))),
-        arguments = List(Argument("includeDeprecated", includeDeprecated))
+        arguments = List(Argument("includeDeprecated", includeDeprecated, "Boolean"))
       )
     def interfaces[A](innerSelection: SelectionBuilder[__Type, A]): SelectionBuilder[__Type, Option[List[A]]]        =
       Field("interfaces", OptionOf(ListOf(Obj(innerSelection))))
@@ -150,7 +144,7 @@ object IntrospectionClient {
       Field(
         "enumValues",
         OptionOf(ListOf(Obj(innerSelection))),
-        arguments = List(Argument("includeDeprecated", includeDeprecated))
+        arguments = List(Argument("includeDeprecated", includeDeprecated, "Boolean"))
       )
     def inputFields[A](innerSelection: SelectionBuilder[__InputValue, A]): SelectionBuilder[__Type, Option[List[A]]] =
       Field("inputFields", OptionOf(ListOf(Obj(innerSelection))))
@@ -203,7 +197,7 @@ object IntrospectionClient {
     def __schema[A](innerSelection: SelectionBuilder[__Schema, A]): SelectionBuilder[RootQuery, A]                   =
       Field("__schema", Obj(innerSelection))
     def __type[A](name: String)(innerSelection: SelectionBuilder[__Type, A]): SelectionBuilder[RootQuery, Option[A]] =
-      Field("__type", OptionOf(Obj(innerSelection)), arguments = List(Argument("name", name)))
+      Field("__type", OptionOf(Obj(innerSelection)), arguments = List(Argument("name", name, "String!")))
   }
 
 }

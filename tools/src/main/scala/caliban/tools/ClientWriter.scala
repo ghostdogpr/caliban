@@ -358,12 +358,12 @@ object ClientWriter {
 
     val enumName = safeTypeName(typedef.name)
 
-    val mappingClashedenumValues = getMappingsClashedNames(
+    val mappingClashedEnumValues = getMappingsClashedNames(
       typedef.enumValuesDefinition.map(_.enumValue)
     )
 
     def safeEnumValue(enumValue: String): String =
-      safeName(mappingClashedenumValues.getOrElse(enumValue, enumValue))
+      safeName(mappingClashedEnumValues.getOrElse(enumValue, enumValue))
 
     s"""sealed trait $enumName extends scala.Product with scala.Serializable
         object $enumName {
@@ -377,13 +377,10 @@ object ClientWriter {
       .mkString("\n")}
             case other => Left(DecodingError(s"Can't build ${typedef.name} from input $$other"))
           }
-          implicit val encoder: ArgEncoder[${typedef.name}] = new ArgEncoder[${typedef.name}] {
-            override def encode(value: ${enumName}): __Value = value match {
-              ${typedef.enumValuesDefinition
+          implicit val encoder: ArgEncoder[${typedef.name}] = {
+            ${typedef.enumValuesDefinition
       .map(v => s"""case ${typedef.name}.${safeEnumValue(v.enumValue)} => __EnumValue("${v.enumValue}")""")
       .mkString("\n")}
-            }
-            override def typeName: String = "$enumName"
           }
         }
        """
@@ -541,7 +538,7 @@ object ClientWriter {
     val argBuilder                                       = field.args match {
       case Nil  => ""
       case list =>
-        s", arguments = List(${list.map(arg => s"""Argument("${arg.name}", ${safeName(arg.name)})""").mkString(", ")})"
+        s", arguments = List(${list.map(arg => s"""Argument("${arg.name}", ${safeName(arg.name)}, "${arg.ofType.toString}")""").mkString(", ")})"
     }
 
     val owner         = if (typeParam.nonEmpty) Some(fieldType) else None
@@ -619,7 +616,7 @@ object ClientWriter {
   val supportedScalars =
     Set("Int", "Float", "Double", "Long", "Unit", "String", "Boolean", "BigInt", "BigDecimal")
 
-  def isScalarSupported(scalar: String)(implicit scalarMappings: ScalarMappings) =
+  def isScalarSupported(scalar: String)(implicit scalarMappings: ScalarMappings): Boolean =
     supportedScalars.contains(scalar) || scalarMappings.map(_.contains(scalar)).getOrElse(false)
 
   val reservedKeywords = Set(
