@@ -395,8 +395,8 @@ object TestUtils {
       @GQLInterface
       sealed trait WithNullable {}
 
-      case class IsNonNullable(field: UIO[String])      extends WithNullable
       case class IsNullable(field: UIO[Option[String]]) extends WithNullable
+      case class IsNonNullable(field: UIO[String])      extends WithNullable
 
       case class TestNonNullableObject(nonNullable: WithNullable)
       val resolverNonNullableSubtype = RootResolver(TestNonNullableObject(IsNonNullable(UIO.succeed("a"))))

@@ -32,6 +32,26 @@ object GraphQLRequestZIOSpec extends DefaultRunnableSpec {
           )
         )
       )
+    },
+    test("can encode to JSON by zio-json") {
+      val res = GraphQLRequest(
+        query = Some("{}"),
+        operationName = Some("op"),
+        variables = Some(
+          Map(
+            "hello"     -> StringValue("world"),
+            "answer"    -> IntValue(42),
+            "isAwesome" -> BooleanValue(true),
+            "name"      -> NullValue
+          )
+        )
+      )
+
+      assert(res.toJson)(
+        equalTo(
+          """{"query":"{}","operationName":"op","variables":{"hello":"world","answer":42,"isAwesome":true,"name":null}}"""
+        )
+      )
     }
   )
 }
