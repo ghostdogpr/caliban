@@ -8,6 +8,8 @@ import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment
 import play.api.libs.json._
+import caliban.Value
+import caliban.CalibanError
 
 object GraphQLResponsePlaySpec extends DefaultRunnableSpec {
 
@@ -61,6 +63,20 @@ object GraphQLResponsePlaySpec extends DefaultRunnableSpec {
           equalTo(
             Json.obj(
               "data" -> JsString("data")
+            )
+          )
+        )
+      },
+      test("reads a graphql response [play]") {
+        val req = """{"data":{"value": 42},"errors":[{"message":"boom"}]}"""
+
+        assert(Json.parse(req).validate[GraphQLResponse[CalibanError]].asEither)(
+          isRight(
+            equalTo(
+              GraphQLResponse(
+                data = ObjectValue(List("value" -> Value.IntValue("42"))),
+                errors = List(ExecutionError("boom"))
+              )
             )
           )
         )
