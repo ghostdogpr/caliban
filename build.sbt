@@ -125,7 +125,8 @@ lazy val core = project
         "dev.zio"  %% "zio-query"    % zqueryVersion,
         "dev.zio"  %% "zio-test"     % zioVersion   % "test",
         "dev.zio"  %% "zio-test-sbt" % zioVersion   % "test",
-        "io.circe" %% "circe-core"   % circeVersion % Optional
+        "io.circe" %% "circe-core"   % circeVersion % Optional,
+        "io.circe" %% "circe-parser" % circeVersion % Test
       )
   )
   .dependsOn(macros)

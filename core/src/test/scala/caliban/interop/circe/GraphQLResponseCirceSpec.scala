@@ -1,14 +1,18 @@
 package caliban.interop.circe
 
+import caliban.CalibanError
 import caliban.CalibanError.ExecutionError
 import caliban.GraphQLResponse
 import caliban.ResponseValue.ObjectValue
+import caliban.Value.IntValue
 import caliban.Value.StringValue
+import caliban.Value.FloatValue
+import io.circe._
+import io.circe.syntax._
+import io.circe.parser.decode
 import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment
-import io.circe._
-import io.circe.syntax._
 
 object GraphQLResponseCirceSpec extends DefaultRunnableSpec {
 
@@ -61,6 +65,20 @@ object GraphQLResponseCirceSpec extends DefaultRunnableSpec {
           equalTo(
             Json.obj(
               "data" -> Json.fromString("data")
+            )
+          )
+        )
+      },
+      test("can be parsed from JSON [circe]") {
+        val req = """{"data":{"value": 42},"errors":[{"message":"boom"}]}"""
+
+        assert(decode[GraphQLResponse[CalibanError]](req))(
+          equalTo(
+            Right(
+              GraphQLResponse(
+                data = ObjectValue(List("value" -> IntValue(BigInt(42)))),
+                errors = List(ExecutionError("boom"))
+              )
             )
           )
         )

@@ -10,6 +10,8 @@ import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue, Resp
 import io.circe._
 import zio.ZIO
 import zio.query.ZQuery
+import io.circe.Json.JString
+import io.circe.Json.JNumber
 
 /**
  * This class is an implementation of the pattern described in https://blog.7mind.io/no-more-orphans.html
@@ -150,14 +152,32 @@ object json {
           .dropNullValues
     }
 
-    implicit val errorValueDecoder: Decoder[CalibanError] =
-      Decoder.instance(cursor =>
-        cursor
-          .downField("message")
-          .as[String]
-          .map(e => CalibanError.ExecutionError(e))
-      )
+    private implicit val locationInfoDecoder: Decoder[LocationInfo] = Decoder.instance(cursor =>
+      for {
+        column <- cursor.downField("column").as[Int]
+        line   <- cursor.downField("line").as[Int]
+      } yield LocationInfo(column, line)
+    )
 
+    private implicit val pathEitherDecoder: Decoder[Either[String, Int]] = Decoder.instance { cursor =>
+      (cursor.as[String].toOption, cursor.as[Int].toOption) match {
+        case (Some(s), _) => Right(Left(s))
+        case (_, Some(n)) => Right(Right(n))
+        case _            => Left(DecodingFailure("failed to decode as string or int", cursor.history))
+      }
+    }
+
+    implicit val errorValueDecoder: Decoder[CalibanError] = Decoder.instance(cursor =>
+      for {
+        message   <- cursor.downField("message").as[String]
+        path      <- cursor.downField("path").as[Option[List[Either[String, Int]]]]
+        locations <- cursor.downField("locations").as[Option[LocationInfo]]
+      } yield CalibanError.ExecutionError(
+        message,
+        path.getOrElse(Nil),
+        locations
+      )
+    )
   }
 
   private[caliban] object GraphQLResponseCirce {
@@ -179,7 +199,7 @@ object json {
           )
       }
 
-    implicit val graphQLRespondeDecoder: Decoder[GraphQLResponse[CalibanError]] =
+    implicit val graphQLRespondDecoder: Decoder[GraphQLResponse[CalibanError]] =
       Decoder.instance(cursor =>
         for {
           data   <- cursor
