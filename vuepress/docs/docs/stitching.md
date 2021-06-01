@@ -60,9 +60,9 @@ In order to do this we're going to do a couple of things:
   val GITHUB_API = "https://api.github.com/graphql"
 
   val api = for {
-    sttpClient <- ZIO.environment[SttpClient]
+    sttpClient           <- ZIO.environment[SttpClient]
     // 1
-    schemaLoader = SchemaLoader.fromIntrospection(GITHUB_API, None)
+    schemaLoader          = SchemaLoader.fromIntrospection(GITHUB_API, None)
     schema               <- schemaLoader.load
     // 2
     remoteSchema         <- ZIO.fromOption(RemoteSchema.parseRemoteSchema(schema))
