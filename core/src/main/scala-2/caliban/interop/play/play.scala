@@ -161,9 +161,9 @@ object json {
         )
     }
 
-    private implicit val locaionInfoReads: Reads[LocationInfo] = Json.reads[LocationInfo]
-    private implicit val errorDTOReads: Reads[ErrorDTO]        = Json.reads[ErrorDTO]
-    val errorValueReads: Reads[CalibanError]                   = Json
+    private implicit val locationInfoReads: Reads[LocationInfo] = Json.reads[LocationInfo]
+    private implicit val errorDTOReads: Reads[ErrorDTO]         = Json.reads[ErrorDTO]
+    val errorValueReads: Reads[CalibanError]                    = Json
       .reads[ErrorDTO]
       .map(e =>
         CalibanError.ExecutionError(
