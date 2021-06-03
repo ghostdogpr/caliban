@@ -1,6 +1,6 @@
 # Stitching
 
-**Stitching** is a part of `caliban-tools` which can be used to use parts of another GraphQL API from an API you're bulding in situations where using Apollo federation isn't an option. You can also use it to fully subsume and proxy another GraphQL schema.
+**Stitching** is a part of `caliban-tools` which can be used to use parts of another GraphQL API from an API you're building in situations where using Apollo federation isn't an option. You can also use it to fully subsume and proxy another GraphQL schema.
 
 In general, Federation should be your preferred choice.
 
