@@ -130,6 +130,33 @@ object Types {
         t.possibleTypes.getOrElse(Nil).foldLeft(list2) { case (types, subtype) => collectTypes(subtype, types) }
     }
 
+  /**
+   * Tries to find a common widened type among a list of types.
+   *
+   * @example {{{unify(List(string, makeNonNull(string))) // => Some(__Type(SCALAR, Some("String")))}}}
+   * @param l a list of types to unify
+   * @return the unified type if one could be found
+   */
+  def unify(l: List[__Type]): Option[__Type] =
+    l.headOption.flatMap(first => l.drop(1).foldLeft(Option(first))((acc, t) => acc.flatMap(unify(_, t))))
+
+  /**
+   * Tries to unify two types by widening them to a common supertype.
+   *
+   * @example {{{unify(string, makeNonNull(string)) // => Some(__Type(SCALAR, Some("String")))}}}
+   * @param t1 type second type to unify
+   * @param t2 the first type to unify
+   * @return the unified type if one could be found
+   */
+  def unify(t1: __Type, t2: __Type): Option[__Type] =
+    if (same(t1, t2)) Option(t1)
+    else
+      (t1.kind, t2.kind) match {
+        case (__TypeKind.NON_NULL, _) => t1.ofType.map(unify(_, t2)).getOrElse(None)
+        case (_, __TypeKind.NON_NULL) => t2.ofType.map(unify(_, t1)).getOrElse(None)
+        case _                        => None
+      }
+
   @tailrec
   def same(t1: __Type, t2: __Type): Boolean =
     if (t1.kind == t2.kind && t1.ofType.nonEmpty)

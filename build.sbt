@@ -127,7 +127,8 @@ lazy val core = project
         "dev.zio"  %% "zio-query"    % zqueryVersion,
         "dev.zio"  %% "zio-test"     % zioVersion   % "test",
         "dev.zio"  %% "zio-test-sbt" % zioVersion   % "test",
-        "io.circe" %% "circe-core"   % circeVersion % Optional
+        "io.circe" %% "circe-core"   % circeVersion % Optional,
+        "io.circe" %% "circe-parser" % circeVersion % Test
       )
   )
   .dependsOn(macros)
@@ -369,7 +370,10 @@ lazy val clientLaminext = crossProject(JSPlatform)
 lazy val examples = project
   .in(file("examples"))
   .settings(commonSettings)
-  .settings(publish / skip := true)
+  .settings(
+    publish / skip := true,
+    run / fork := true
+  )
   .settings(
     crossScalaVersions -= scala3,
     libraryDependencies ++= Seq(
@@ -382,7 +386,19 @@ lazy val examples = project
       "com.typesafe.akka"             %% "akka-actor-typed"              % akkaVersion
     )
   )
-  .dependsOn(akkaHttp, http4s, catsInterop, finch, play, monixInterop, tapirInterop, clientJVM, federation, zioHttp)
+  .dependsOn(
+    akkaHttp,
+    http4s,
+    catsInterop,
+    finch,
+    play,
+    monixInterop,
+    tapirInterop,
+    clientJVM,
+    federation,
+    zioHttp,
+    tools
+  )
 
 lazy val benchmarks = project
   .in(file("benchmarks"))

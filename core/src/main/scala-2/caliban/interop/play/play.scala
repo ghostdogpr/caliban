@@ -8,6 +8,7 @@ import caliban.schema.Types.makeScalar
 import caliban.schema.{ ArgBuilder, PureStep, Schema, Step }
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue, ResponseValue, Value }
 import play.api.libs.json.{ JsPath, JsValue, Json, JsonValidationError, Reads, Writes }
+import play.api.libs.functional.syntax._
 import zio.ZIO
 import zio.query.ZQuery
 
@@ -160,6 +161,27 @@ object json {
         )
     }
 
+    private implicit val locationInfoReads: Reads[LocationInfo] = Json.reads[LocationInfo]
+    private implicit val errorDTOReads: Reads[ErrorDTO]         = Json.reads[ErrorDTO]
+    val errorValueReads: Reads[CalibanError]                    = Json
+      .reads[ErrorDTO]
+      .map(e =>
+        CalibanError.ExecutionError(
+          msg = e.message,
+          path = e.path
+            .getOrElse(JsArray())
+            .value
+            .toList
+            .map(el =>
+              el match {
+                case JsString(s)  => Left(s)
+                case JsNumber(bd) => Right(bd.toInt)
+                case _            => throw new Exception("invalid json")
+              }
+            ),
+          locationInfo = e.locations
+        )
+      )
   }
 
   private[caliban] object GraphQLResponsePlayJson {
@@ -186,12 +208,28 @@ object json {
         case _                => Json.obj("message" -> err.toString)
       }
 
+    implicit val errorReads                                        = ErrorPlayJson.errorValueReads
+    val graphQLResponseReads: Reads[GraphQLResponse[CalibanError]] =
+      ((JsPath \ "data")
+        .read[ResponseValue]
+        .and(
+          (JsPath \ "errors")
+            .read[List[CalibanError]]
+        )
+        .tupled)
+        .map({ case (data, errors) =>
+          GraphQLResponse[CalibanError](
+            data = data,
+            errors = errors
+          )
+        })
   }
 
   private[caliban] object GraphQLRequestPlayJson {
     import play.api.libs.json._
 
-    val graphQLRequestReads: Reads[GraphQLRequest] = Json.reads[GraphQLRequest]
+    val graphQLRequestReads: Reads[GraphQLRequest]   = Json.reads[GraphQLRequest]
+    val graphQLRequestWrites: Writes[GraphQLRequest] = Json.writes[GraphQLRequest]
   }
 
 }

@@ -1,12 +1,14 @@
 package caliban.interop.zio
 
 import caliban.GraphQLResponse
-import zio.json.{ EncoderOps, JsonEncoder }
+import zio.json._
 import zio.test._
 import Assertion._
+import caliban.CalibanError
 import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.StringValue
+import caliban.Value.IntValue
 
 object GraphQLResponseZIOSpec extends DefaultRunnableSpec {
   implicit val encoder: JsonEncoder[GraphQLResponse[Any]] = GraphQLResponse.zioJsonEncoder
@@ -46,6 +48,20 @@ object GraphQLResponseZIOSpec extends DefaultRunnableSpec {
         )
 
         assert(response.toJson)(equalTo("""{"data":"data"}"""))
+      },
+      test("can be parsed from JSON [zio]") {
+        val req = """{"data":{"value": 42},"errors":[{"message":"boom"}]}"""
+
+        assert(req.fromJson[GraphQLResponse[CalibanError]])(
+          isRight(
+            equalTo(
+              GraphQLResponse(
+                data = ObjectValue(List("value" -> IntValue("42"))),
+                errors = List(ExecutionError("boom"))
+              )
+            )
+          )
+        )
       }
     )
 }

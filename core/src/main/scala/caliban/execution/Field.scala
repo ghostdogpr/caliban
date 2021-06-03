@@ -1,12 +1,13 @@
 package caliban.execution
 
 import caliban.InputValue
-import caliban.Value.BooleanValue
+import caliban.Value
+import caliban.Value.{ BooleanValue, NullValue }
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type }
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.FragmentDefinition
 import caliban.parsing.adt.Selection.{ FragmentSpread, InlineFragment, Field => F }
-import caliban.parsing.adt.{ Directive, LocationInfo, Selection }
+import caliban.parsing.adt.{ Directive, LocationInfo, Selection, VariableDefinition }
 import caliban.schema.{ RootType, Types }
 
 case class Field(
@@ -28,12 +29,12 @@ object Field {
     selectionSet: List[Selection],
     fragments: Map[String, FragmentDefinition],
     variableValues: Map[String, InputValue],
+    variableDefinitions: List[VariableDefinition],
     fieldType: __Type,
     sourceMapper: SourceMapper,
     directives: List[Directive],
     rootType: RootType
   ): Field = {
-
     def loop(selectionSet: List[Selection], fieldType: __Type): Field = {
       val fieldList = List.newBuilder[Field]
       val innerType = Types.innerType(fieldType)
@@ -57,7 +58,7 @@ object Field {
               alias,
               field.fields,
               None,
-              arguments,
+              resolveVariables(arguments, variableDefinitions, variableValues),
               () => sourceMapper.getLocation(index),
               directives ++ schemaDirectives
             )
@@ -90,6 +91,27 @@ object Field {
     }
 
     loop(selectionSet, fieldType).copy(directives = directives)
+  }
+
+  private def resolveVariables(
+    arguments: Map[String, InputValue],
+    variableDefinitions: List[VariableDefinition],
+    variableValues: Map[String, InputValue]
+  ): Map[String, InputValue] = {
+    def resolveVariable(value: InputValue): InputValue =
+      value match {
+        case InputValue.ListValue(values)   => InputValue.ListValue(values.map(resolveVariable))
+        case InputValue.ObjectValue(fields) =>
+          InputValue.ObjectValue(fields.map({ case (k, v) => k -> resolveVariable(v) }))
+        case InputValue.VariableValue(name) =>
+          lazy val defaultInputValue = (for {
+            definition <- variableDefinitions.find(_.name == name)
+            inputValue <- definition.defaultValue
+          } yield inputValue) getOrElse NullValue
+          variableValues.getOrElse(name, defaultInputValue)
+        case value: Value                   => value
+      }
+    arguments.map({ case (k, v) => k -> resolveVariable(v) })
   }
 
   private def subtypeNames(typeName: String, rootType: RootType): Option[List[String]] =
