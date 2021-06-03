@@ -6,7 +6,7 @@ import caliban.client.__Value.__NullValue
 /**
  * Represents an argument in a GraphQL query. Requires an encoder for the argument type.
  */
-case class Argument[+A](name: String, value: A)(implicit encoder: ArgEncoder[A]) {
+case class Argument[+A](name: String, value: A, typeInfo: String)(implicit encoder: ArgEncoder[A]) {
   def toGraphQL(
     useVariables: Boolean,
     variables: Map[String, (__Value, String)]
@@ -16,7 +16,7 @@ case class Argument[+A](name: String, value: A)(implicit encoder: ArgEncoder[A])
       case v             =>
         if (useVariables) {
           val variableName = Argument.generateVariableName(name, v, variables)
-          (s"$name:$$$variableName", variables.updated(variableName, (v, encoder.formatTypeName)))
+          (s"$name:$$$variableName", variables.updated(variableName, (v, typeInfo)))
         } else {
           (s"$name:${v.toString}", variables)
         }

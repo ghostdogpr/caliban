@@ -142,7 +142,7 @@ object Client {
   type Q
   object Q {
     def character[A](name: String)(innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[Q, Option[A]] =
-      Field("character", OptionOf(Obj(innerSelection)), arguments = List(Argument("name", name)))
+      Field("character", OptionOf(Obj(innerSelection)), arguments = List(Argument("name", name, "String!")))
   }
 
   type Character
@@ -229,13 +229,10 @@ object Client {
       case __StringValue("BELT")  => Right(Origin.BELT)
       case other                  => Left(DecodingError(s"Can't build Origin from input $other"))
     }
-    implicit val encoder: ArgEncoder[Origin]    = new ArgEncoder[Origin] {
-      override def encode(value: Origin): __Value = value match {
-        case Origin.EARTH => __EnumValue("EARTH")
-        case Origin.MARS  => __EnumValue("MARS")
-        case Origin.BELT  => __EnumValue("BELT")
-      }
-      override def typeName: String               = "Origin"
+    implicit val encoder: ArgEncoder[Origin]    = {
+      case Origin.EARTH => __EnumValue("EARTH")
+      case Origin.MARS  => __EnumValue("MARS")
+      case Origin.BELT  => __EnumValue("BELT")
     }
   }
 
@@ -270,7 +267,6 @@ object Client {
             "nicknames" -> __ListValue(value.nicknames.map(value => implicitly[ArgEncoder[String]].encode(value)))
           )
         )
-      override def typeName: String                       = "CharacterInput"
     }
   }
 
@@ -299,7 +295,6 @@ object Client {
     implicit val encoder: ArgEncoder[CharacterInput] = new ArgEncoder[CharacterInput] {
       override def encode(value: CharacterInput): __Value =
         __ObjectValue(List("wait" -> implicitly[ArgEncoder[String]].encode(value.wait$)))
-      override def typeName: String                       = "CharacterInput"
     }
   }
 
@@ -459,7 +454,8 @@ object Client {
     ): SelectionBuilder[RootQuery, Option[String]] = Field(
       "characters",
       OptionOf(Scalar()),
-      arguments = List(Argument("first", first), Argument("last", last), Argument("origins", origins))
+      arguments =
+        List(Argument("first", first, "Int!"), Argument("last", last, "Int"), Argument("origins", origins, "[String]!"))
     )
   }
 
@@ -528,14 +524,11 @@ object Client {
       case __StringValue("jedi")    => Right(Episode.jedi_1)
       case other                    => Left(DecodingError(s"Can't build Episode from input $other"))
     }
-    implicit val encoder: ArgEncoder[Episode]    = new ArgEncoder[Episode] {
-      override def encode(value: Episode): __Value = value match {
-        case Episode.NEWHOPE => __EnumValue("NEWHOPE")
-        case Episode.EMPIRE  => __EnumValue("EMPIRE")
-        case Episode.JEDI    => __EnumValue("JEDI")
-        case Episode.jedi_1  => __EnumValue("jedi")
-      }
-      override def typeName: String                = "Episode"
+    implicit val encoder: ArgEncoder[Episode]    = {
+      case Episode.NEWHOPE => __EnumValue("NEWHOPE")
+      case Episode.EMPIRE  => __EnumValue("EMPIRE")
+      case Episode.JEDI    => __EnumValue("JEDI")
+      case Episode.jedi_1  => __EnumValue("jedi")
     }
   }
 

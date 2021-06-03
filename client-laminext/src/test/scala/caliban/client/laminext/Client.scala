@@ -21,13 +21,10 @@ object Client {
       case __StringValue("MARS")  => Right(Origin.MARS)
       case other                  => Left(DecodingError(s"Can't build Origin from input $other"))
     }
-    implicit val encoder: ArgEncoder[Origin]    = new ArgEncoder[Origin] {
-      override def encode(value: Origin): __Value = value match {
-        case Origin.BELT  => __EnumValue("BELT")
-        case Origin.EARTH => __EnumValue("EARTH")
-        case Origin.MARS  => __EnumValue("MARS")
-      }
-      override def typeName: String               = "Origin"
+    implicit val encoder: ArgEncoder[Origin]    = {
+      case Origin.BELT  => __EnumValue("BELT")
+      case Origin.EARTH => __EnumValue("EARTH")
+      case Origin.MARS  => __EnumValue("MARS")
     }
   }
 
@@ -135,18 +132,18 @@ object Client {
     def characters[A](
       origin: Option[Origin] = None
     )(innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[RootQuery, List[A]]   =
-      Field("characters", ListOf(Obj(innerSelection)), arguments = List(Argument("origin", origin)))
+      Field("characters", ListOf(Obj(innerSelection)), arguments = List(Argument("origin", origin, "Origin")))
     @deprecated("Use `characters`", "")
     def character[A](
       name: String
     )(innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[RootQuery, Option[A]] =
-      Field("character", OptionOf(Obj(innerSelection)), arguments = List(Argument("name", name)))
+      Field("character", OptionOf(Obj(innerSelection)), arguments = List(Argument("name", name, "String!")))
   }
 
   type Mutations = RootMutation
   object Mutations {
     def deleteCharacter(name: String): SelectionBuilder[RootMutation, Boolean] =
-      Field("deleteCharacter", Scalar(), arguments = List(Argument("name", name)))
+      Field("deleteCharacter", Scalar(), arguments = List(Argument("name", name, "String!")))
   }
 
   type Subscriptions = RootSubscription

@@ -90,7 +90,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
               .character("Amos Burton") {
                 Character.name
               }
-              .withDirective(Directive("yo", List(Argument("value", "what's up"))))
+              .withDirective(Directive("yo", List(Argument("value", "what's up", "String!"))))
           val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
           assert(s)(equalTo("""character(name:"Amos Burton") @yo(value:"what's up"){name}"""))
         },
@@ -100,7 +100,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
               .character("Amos Burton") {
                 Character.name
               }
-              .withDirective(Directive("yo", List(Argument("value", "what's up"))))
+              .withDirective(Directive("yo", List(Argument("value", "what's up", "String!"))))
           val (s, variables) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = true)
           assert(s)(equalTo("""character(name:$name) @yo(value:$value){name}""")) &&
           assert(variables.get("name"))(isSome(equalTo((__StringValue("Amos Burton"), "String!")))) &&

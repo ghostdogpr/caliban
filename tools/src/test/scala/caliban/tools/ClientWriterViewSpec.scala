@@ -109,7 +109,7 @@ object Client {
     def name: SelectionBuilder[Character, String]                                     = Field("name", Scalar())
     def age: SelectionBuilder[Character, Int]                                         = Field("age", Scalar())
     def nicknames(arg: Option[Int] = None): SelectionBuilder[Character, List[String]] =
-      Field("nicknames", ListOf(Scalar()), arguments = List(Argument("arg", arg)))
+      Field("nicknames", ListOf(Scalar()), arguments = List(Argument("arg", arg, "Int")))
   }
 
   type User
@@ -125,7 +125,7 @@ object Client {
       characters(charactersName)(charactersSelection).map(characters => UserView(characters))
 
     def characters[A](name: String)(innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[User, List[A]] =
-      Field("characters", ListOf(Obj(innerSelection)), arguments = List(Argument("name", name)))
+      Field("characters", ListOf(Obj(innerSelection)), arguments = List(Argument("name", name, "String!")))
   }
 
 }
@@ -169,7 +169,7 @@ object Client {
     def friends[A](
       filter: Option[String] = None
     )(innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[Character, List[A]] =
-      Field("friends", ListOf(Obj(innerSelection)), arguments = List(Argument("filter", filter)))
+      Field("friends", ListOf(Obj(innerSelection)), arguments = List(Argument("filter", filter, "String")))
   }
 
 }
