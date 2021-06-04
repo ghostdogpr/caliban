@@ -19,7 +19,6 @@ object Executor {
    * Executes the given query against a schema. It returns either an [[caliban.CalibanError.ExecutionError]] or a [[ResponseValue]].
    * @param request a request object containing all information needed
    * @param plan an execution plan
-   * @param variables a list of variables
    * @param fieldWrappers a list of field wrappers
    * @param queryExecution a strategy for executing queries in parallel or not
    */
