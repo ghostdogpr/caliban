@@ -43,12 +43,11 @@ object RemoteResolver {
           .response(asJson[GraphQLResponse[CalibanError]])
           .mapResponse(resp =>
             resp.fold(
-              err =>
-                err match {
-                  case DeserializationException(body, error) =>
-                    Left(CalibanError.ExecutionError(s"${error.getMessage()}: ${body}", innerThrowable = Some(error)))
-                  case HttpError(body, statusCode)           => Left(CalibanError.ExecutionError(s"HTTP Error: $statusCode"))
-                },
+              {
+                case DeserializationException(body, error) =>
+                  Left(CalibanError.ExecutionError(s"${error.getMessage}: $body", innerThrowable = Some(error)))
+                case HttpError(_, statusCode)              => Left(CalibanError.ExecutionError(s"HTTP Error: $statusCode"))
+              },
               resp => Right(resp.data)
             )
           )
@@ -70,10 +69,8 @@ object RemoteResolver {
     RemoteResolver.fromFunction((f: Field) => RemoteMutation(f).toGraphQLRequest)
 
   val unwrap: RemoteResolver[Any, Nothing, ResponseValue, ResponseValue] =
-    RemoteResolver.fromFunction((v: ResponseValue) =>
-      v match {
-        case ObjectValue(fields) => fields.headOption.map(_._2).getOrElse(v)
-        case x                   => x
-      }
-    )
+    RemoteResolver.fromFunction {
+      case v @ ObjectValue(fields) => fields.headOption.map(_._2).getOrElse(v)
+      case x                       => x
+    }
 }

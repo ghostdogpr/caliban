@@ -120,7 +120,7 @@ object TestUtils {
       args => characters.filter(c => args.origin.forall(c.origin == _)),
       args => characters.find(c => c.name == args.name),
       args => characters.filter(c => args.names.contains(c.name)),
-      args => characters.contains(args.character)
+      args => characters.exists(_.name == args.character.name)
     )
   )
   val resolverIO               = RootResolver(

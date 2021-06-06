@@ -18,15 +18,17 @@ object EpisodeService {
   def getEpisodes(season: Option[Int] = None): URIO[EpisodeService, List[Episode]] =
     URIO.accessM[EpisodeService](_.get.getEpisodes(season))
 
-  def make(initial: List[Episode]): ZLayer[Any, Nothing, EpisodeService] = ZLayer.fromEffect {
-    Ref.make(initial).map { episodes =>
-      new Service {
-        override def getEpisode(season: Int, episode: Int): UIO[Option[Episode]] =
-          episodes.get.map(_.find(e => e.season == season && e.episode == episode))
+  def make(initial: List[Episode]): ZLayer[Any, Nothing, EpisodeService] =
+    Ref
+      .make(initial)
+      .map { episodes =>
+        new Service {
+          override def getEpisode(season: Int, episode: Int): UIO[Option[Episode]] =
+            episodes.get.map(_.find(e => e.season == season && e.episode == episode))
 
-        override def getEpisodes(season: Option[Int]): UIO[List[Episode]] =
-          episodes.get.map(_.filter(e => season.forall(_ == e.season)))
+          override def getEpisodes(season: Option[Int]): UIO[List[Episode]] =
+            episodes.get.map(_.filter(e => season.forall(_ == e.season)))
+        }
       }
-    }
-  }
+      .toLayer
 }

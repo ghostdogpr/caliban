@@ -371,7 +371,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
             .fold(error => QueryStep(ZQuery.fail(error)), value => ev2.resolve(f(value)))
 
         }
-      private def handleInput[A](onWrapped: => A)(onUnwrapped: => A): A =
+      private def handleInput[T](onWrapped: => T)(onUnwrapped: => T): T =
         inputType.kind match {
           case __TypeKind.SCALAR | __TypeKind.ENUM | __TypeKind.LIST =>
             // argument was not wrapped in a case class

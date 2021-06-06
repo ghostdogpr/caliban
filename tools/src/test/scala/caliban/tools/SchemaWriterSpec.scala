@@ -45,7 +45,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
             (for {
               typeDef      <- doc.objectTypeDefinitions
               typeDefField <- typeDef.fields
-              argClass      = SchemaWriter.writeArguments(typeDefField, typeDef) if argClass.length > 0
+              argClass      = SchemaWriter.writeArguments(typeDefField, typeDef) if argClass.nonEmpty
             } yield argClass).mkString("\n")
           }
           .flatMap(Formatter.format(_, None).map(_.trim))

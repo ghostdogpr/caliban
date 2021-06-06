@@ -127,8 +127,8 @@ trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
               .flatMap(_.fields(__DeprecatedArgs(Some(true))))
               .flatten
               .groupBy(_.name)
-              .filter({ case (name, list) => list.lengthCompare(impl.size) == 0 })
-              .collect { case (name, list) =>
+              .filter({ case (_, list) => list.lengthCompare(impl.size) == 0 })
+              .collect { case (_, list) =>
                 Types
                   .unify(list.map(_.`type`()))
                   .flatMap(t => list.headOption.map(_.copy(`type` = () => t)))
