@@ -152,8 +152,8 @@ object Types {
     if (same(t1, t2)) Option(t1)
     else
       (t1.kind, t2.kind) match {
-        case (__TypeKind.NON_NULL, _) => t1.ofType.map(unify(_, t2)).getOrElse(None)
-        case (_, __TypeKind.NON_NULL) => t2.ofType.map(unify(_, t1)).getOrElse(None)
+        case (__TypeKind.NON_NULL, _) => t1.ofType.flatMap(unify(_, t2))
+        case (_, __TypeKind.NON_NULL) => t2.ofType.flatMap(unify(_, t1))
         case _                        => None
       }
 

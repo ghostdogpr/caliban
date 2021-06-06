@@ -8,7 +8,7 @@ import caliban.client.__Value.__ObjectValue
 import io.circe.{ parser, Json }
 import sttp.client3._
 import sttp.client3.circe._
-import sttp.model.{ MediaType, Uri }
+import sttp.model.Uri
 
 import scala.collection.immutable.{ Map => SMap }
 

@@ -1,25 +1,17 @@
 package caliban.tools.stitching
 
-import zio._
-import zio.query._
-
-import caliban.GraphQL
-import caliban.GraphQLResponse
+import caliban.CalibanError.ExecutionError
 import caliban.execution.Field
 import caliban.introspection.adt._
 import caliban.schema._
-import caliban.{ CalibanError, ResponseValue }
-import CalibanError.ExecutionError
+import caliban.{ CalibanError, GraphQL, ResponseValue }
+import zio._
+import zio.query._
 
 case class RemoteSchemaResolver(schema: __Schema, typeMap: Map[String, __Type]) {
   def remoteResolver[R, R0 <: Has[_], A](typeName: String)(
-    resolver: RemoteResolver[
-      R0,
-      CalibanError.ExecutionError,
-      ResolveRequest[A],
-      ResponseValue
-    ]
-  ) = new PartialRemoteSchema[R0, R, A] {
+    resolver: RemoteResolver[R0, CalibanError.ExecutionError, ResolveRequest[A], ResponseValue]
+  ): PartialRemoteSchema[R0, R, A] = new PartialRemoteSchema[R0, R, A] {
     def resolve(a: A, args: caliban.execution.Field): ZIO[R0, CalibanError, ResponseValue] =
       resolver.run(ResolveRequest(a, args))
 
@@ -44,12 +36,12 @@ case class RemoteSchemaResolver(schema: __Schema, typeMap: Map[String, __Type]) 
                 .fields(__DeprecatedArgs(Some(true)))
                 .getOrElse(List())
                 .map { field =>
-                  (field.name ->
+                  field.name ->
                     Step.MetadataFunctionStep((args: caliban.execution.Field) =>
                       Step.QueryStep(
                         ZQuery.fromEffect(resolver.run(args)).map(Step.PureStep)
                       )
-                    ))
+                    )
                 }
                 .toMap
             )
@@ -74,7 +66,7 @@ object RemoteSchemaResolver {
   def fromSchema(schema: __Schema): RemoteSchemaResolver = {
     val typeMap = schema.types
       .collect({ t =>
-        (t.name) match {
+        t.name match {
           case Some(name) => name -> t
         }
       })

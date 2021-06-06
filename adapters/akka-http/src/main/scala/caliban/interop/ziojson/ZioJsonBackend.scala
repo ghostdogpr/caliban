@@ -40,7 +40,7 @@ final class ZioJsonBackend extends JsonBackend with ZioJsonSupport {
   }
 
   def encodeGraphQLResponse(r: GraphQLResponse[Any]): String =
-    GraphQLResponseZioJson.graphQLResponseEncoder.encodeJson(r, None).toString()
+    GraphQLResponseZioJson.graphQLResponseEncoder.encodeJson(r, None).toString
 
   def parseWSMessage(text: String): Either[Throwable, WSMessage] =
     text.fromJson[ZioWSMessage].left.map(new RuntimeException(_))

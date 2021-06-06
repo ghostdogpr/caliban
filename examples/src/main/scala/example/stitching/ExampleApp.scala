@@ -69,7 +69,7 @@ object StitchingExample extends GenericSchema[ZEnv] {
           GetUser = query =>
             random.nextUUID.map(uuid =>
               AppUser(
-                id = uuid.toString(),
+                id = uuid.toString,
                 name = query.name,
                 featuredRepository = Repository(query.name, query.repository)
               )

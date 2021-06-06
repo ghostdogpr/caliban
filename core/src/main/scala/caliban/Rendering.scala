@@ -40,7 +40,7 @@ object Rendering {
                     field.description.map(_ => renderDescription(field.description)),
                     Some(renderField(field))
                   ).flatten
-                    .mkString(("  "))
+                    .mkString("  ")
                 )
               )
               .mkString("\n  ")
@@ -51,7 +51,7 @@ object Rendering {
                     field.description.map(_ => renderDescription(field.description)),
                     Some(renderInputValue(field))
                   ).flatten
-                    .mkString(("  "))
+                    .mkString("  ")
                 )
               )
               .mkString("\n  ")

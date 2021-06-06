@@ -3,17 +3,16 @@ package example.play
 import caliban.GraphQL.graphQL
 import caliban.PlayAdapter.RequestWrapper
 import caliban.schema.GenericSchema
-import caliban.{PlayRouter, RootResolver}
-
+import caliban.{ PlayRouter, RootResolver }
 import play.api.Mode
-import play.api.mvc.{DefaultControllerComponents, RequestHeader, Result, Results}
-import play.core.server.{AkkaHttpServer, ServerConfig}
-import zio.internal.Platform
-import zio.{FiberRef, Has, RIO, Runtime, URIO, ZIO, ZLayer}
-import scala.io.StdIn.readLine
-
+import play.api.mvc.{ DefaultControllerComponents, RequestHeader, Result, Results }
+import play.core.server.{ AkkaHttpServer, ServerConfig }
 import zio.blocking.Blocking
+import zio.internal.Platform
 import zio.random.Random
+import zio.{ FiberRef, Has, RIO, Runtime, URIO, ZIO }
+
+import scala.io.StdIn.readLine
 
 object AuthExampleApp extends App {
   case class AuthToken(value: String)
@@ -31,14 +30,14 @@ object AuthExampleApp extends App {
   val schema: GenericSchema[Auth] = new GenericSchema[Auth] {}
   import schema._
   case class Query(token: RIO[Auth, Option[String]])
-  private val resolver = RootResolver(Query(ZIO.accessM[Auth](_.get.get).map(_.map(_.value))))
-  private val api      = graphQL(resolver)
+  private val resolver            = RootResolver(Query(ZIO.accessM[Auth](_.get.get).map(_.map(_.value))))
+  private val api                 = graphQL(resolver)
 
   // Note that we must initialize the runtime with any FiberRefs we intend to
   // pass on so that they are present in the environment for our ResultWrapper(s)
   // For the auth we wrap in an option, but you could just as well use something
   // like AuthToken("__INVALID") or a sealed trait hierarchy with an invalid member
-  val initLayer                       = ZLayer.fromEffect(FiberRef.make(Option.empty[AuthToken])) ++ Blocking.live ++ Random.live
+  val initLayer                                                 = FiberRef.make(Option.empty[AuthToken]).toLayer ++ Blocking.live ++ Random.live
   implicit val runtime: Runtime[Auth with Blocking with Random] = Runtime.unsafeFromLayer(initLayer, Platform.default)
 
   val interpreter = runtime.unsafeRun(api.interpreter)

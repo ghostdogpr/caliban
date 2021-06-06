@@ -63,7 +63,7 @@ object RemoteQuery {
     private def renderFields(f: Field): String =
       if (f.fields.isEmpty) ""
       else
-        f.fields.map(renderField(_)).mkString(" { ", " ", " }")
+        f.fields.map(renderField).mkString(" { ", " ", " }")
 
     private def renderArguments(args: Map[String, InputValue]): String =
       if (args.isEmpty) ""

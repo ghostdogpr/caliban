@@ -172,13 +172,11 @@ object json {
             .getOrElse(JsArray())
             .value
             .toList
-            .map(el =>
-              el match {
-                case JsString(s)  => Left(s)
-                case JsNumber(bd) => Right(bd.toInt)
-                case _            => throw new Exception("invalid json")
-              }
-            ),
+            .map {
+              case JsString(s)  => Left(s)
+              case JsNumber(bd) => Right(bd.toInt)
+              case _            => throw new Exception("invalid json")
+            },
           locationInfo = e.locations
         )
       )
@@ -210,13 +208,13 @@ object json {
 
     implicit val errorReads                                        = ErrorPlayJson.errorValueReads
     val graphQLResponseReads: Reads[GraphQLResponse[CalibanError]] =
-      ((JsPath \ "data")
+      (JsPath \ "data")
         .read[ResponseValue]
         .and(
           (JsPath \ "errors")
             .read[List[CalibanError]]
         )
-        .tupled)
+        .tupled
         .map({ case (data, errors) =>
           GraphQLResponse[CalibanError](
             data = data,

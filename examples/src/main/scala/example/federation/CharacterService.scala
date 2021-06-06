@@ -36,8 +36,8 @@ object CharacterService {
   def getCharactersByEpisode(season: Int, episode: Int): URIO[CharacterService, List[Character]] =
     URIO.accessM(_.get.getCharactersByEpisode(season, episode))
 
-  def make(initial: List[Character]): ZLayer[Any, Nothing, CharacterService] = ZLayer.fromEffect {
-    for {
+  def make(initial: List[Character]): ZLayer[Any, Nothing, CharacterService] =
+    (for {
       characters  <- Ref.make(initial)
       subscribers <- Ref.make(List.empty[Queue[String]])
     } yield new Service {
@@ -78,6 +78,5 @@ object CharacterService {
 
       override def getCharactersByEpisode(season: Int, episode: Int): UIO[List[Character]] =
         characters.get.map(_.filter(c => c.starredIn.exists(e => e.episode == episode && e.season == season)))
-    }
-  }
+    }).toLayer
 }
