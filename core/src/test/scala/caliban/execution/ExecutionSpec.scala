@@ -289,7 +289,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
 
         assertM(
           interpreter.flatMap(_.execute(query, None, Map("name" -> StringValue("Amos Burton")))).map(_.data.toString)
-        )(equalTo("""{"exists":false}"""))
+        )(equalTo("""{"exists":true}"""))
       },
       testM("skip directive") {
         val interpreter = graphQL(resolver).interpreter
