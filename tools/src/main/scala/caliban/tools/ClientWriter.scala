@@ -89,7 +89,6 @@ object ClientWriter {
           |""".stripMargin
       else ""}${if (objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty)
         """import caliban.client.FieldBuilder._
-          |import caliban.client.SelectionBuilder._
           |""".stripMargin
       else
         ""}${if (
@@ -434,7 +433,7 @@ object ClientWriter {
     ) =
       fieldInfo
 
-    s"""$description${deprecated}def $safeName$typeParam$args$innerSelection: SelectionBuilder[$typeName, $outputType] = Field("$name", $builder$argBuilder)"""
+    s"""$description${deprecated}def $safeName$typeParam$args$innerSelection: SelectionBuilder[$typeName, $outputType] = _root_.caliban.client.SelectionBuilder.Field("$name", $builder$argBuilder)"""
   }
 
   def collectFieldInfo(

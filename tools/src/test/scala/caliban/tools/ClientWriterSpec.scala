@@ -38,15 +38,15 @@ object ClientWriterSpec extends DefaultRunnableSpec {
         assertM(gen(schema))(
           equalTo(
             """import caliban.client.FieldBuilder._
-import caliban.client.SelectionBuilder._
 import caliban.client._
 
 object Client {
 
   type Character
   object Character {
-    def name: SelectionBuilder[Character, String]            = Field("name", Scalar())
-    def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
+    def name: SelectionBuilder[Character, String]            = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
+    def nicknames: SelectionBuilder[Character, List[String]] =
+      _root_.caliban.client.SelectionBuilder.Field("nicknames", ListOf(Scalar()))
   }
 
 }
@@ -65,14 +65,13 @@ object Client {
         assertM(gen(schema))(
           equalTo(
             """import caliban.client.FieldBuilder._
-import caliban.client.SelectionBuilder._
 import caliban.client._
 
 object Client {
 
   type Character
   object Character {
-    def `type`: SelectionBuilder[Character, String] = Field("type", Scalar())
+    def `type`: SelectionBuilder[Character, String] = _root_.caliban.client.SelectionBuilder.Field("type", Scalar())
   }
 
 }
@@ -96,7 +95,6 @@ object Client {
         assertM(gen(schema))(
           equalTo(
             """import caliban.client.FieldBuilder._
-import caliban.client.SelectionBuilder._
 import caliban.client._
 
 object Client {
@@ -104,13 +102,14 @@ object Client {
   type Q
   object Q {
     def characters[A](innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[Q, List[A]] =
-      Field("characters", ListOf(Obj(innerSelection)))
+      _root_.caliban.client.SelectionBuilder.Field("characters", ListOf(Obj(innerSelection)))
   }
 
   type Character
   object Character {
-    def name: SelectionBuilder[Character, String]            = Field("name", Scalar())
-    def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
+    def name: SelectionBuilder[Character, String]            = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
+    def nicknames: SelectionBuilder[Character, List[String]] =
+      _root_.caliban.client.SelectionBuilder.Field("nicknames", ListOf(Scalar()))
   }
 
 }
@@ -134,7 +133,6 @@ object Client {
         assertM(gen(schema))(
           equalTo(
             """import caliban.client.FieldBuilder._
-import caliban.client.SelectionBuilder._
 import caliban.client._
 
 object Client {
@@ -142,13 +140,15 @@ object Client {
   type Q
   object Q {
     def character[A](name: String)(innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[Q, Option[A]] =
-      Field("character", OptionOf(Obj(innerSelection)), arguments = List(Argument("name", name, "String!")))
+      _root_.caliban.client.SelectionBuilder
+        .Field("character", OptionOf(Obj(innerSelection)), arguments = List(Argument("name", name, "String!")))
   }
 
   type Character
   object Character {
-    def name: SelectionBuilder[Character, String]            = Field("name", Scalar())
-    def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
+    def name: SelectionBuilder[Character, String]            = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
+    def nicknames: SelectionBuilder[Character, List[String]] =
+      _root_.caliban.client.SelectionBuilder.Field("nicknames", ListOf(Scalar()))
   }
 
 }
@@ -176,7 +176,6 @@ object Client {
         assertM(gen(schema))(
           equalTo(
             """import caliban.client.FieldBuilder._
-import caliban.client.SelectionBuilder._
 import caliban.client._
 import caliban.client.Operations._
 
@@ -184,14 +183,15 @@ object Client {
 
   type Character
   object Character {
-    def name: SelectionBuilder[Character, String]            = Field("name", Scalar())
-    def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
+    def name: SelectionBuilder[Character, String]            = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
+    def nicknames: SelectionBuilder[Character, List[String]] =
+      _root_.caliban.client.SelectionBuilder.Field("nicknames", ListOf(Scalar()))
   }
 
   type Q = RootQuery
   object Q {
     def characters[A](innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[RootQuery, List[A]] =
-      Field("characters", ListOf(Obj(innerSelection)))
+      _root_.caliban.client.SelectionBuilder.Field("characters", ListOf(Obj(innerSelection)))
   }
 
 }
@@ -324,19 +324,18 @@ object Client {
         assertM(gen(schema))(
           equalTo(
             """import caliban.client.FieldBuilder._
-import caliban.client.SelectionBuilder._
 import caliban.client._
 
 object Client {
 
   type Captain
   object Captain {
-    def shipName: SelectionBuilder[Captain, String] = Field("shipName", Scalar())
+    def shipName: SelectionBuilder[Captain, String] = _root_.caliban.client.SelectionBuilder.Field("shipName", Scalar())
   }
 
   type Pilot
   object Pilot {
-    def shipName: SelectionBuilder[Pilot, String] = Field("shipName", Scalar())
+    def shipName: SelectionBuilder[Pilot, String] = _root_.caliban.client.SelectionBuilder.Field("shipName", Scalar())
   }
 
   type Character
@@ -344,8 +343,8 @@ object Client {
     def role[A](
       onCaptain: SelectionBuilder[Captain, A],
       onPilot: SelectionBuilder[Pilot, A]
-    ): SelectionBuilder[Character, Option[A]] =
-      Field("role", OptionOf(ChoiceOf(Map("Captain" -> Obj(onCaptain), "Pilot" -> Obj(onPilot)))))
+    ): SelectionBuilder[Character, Option[A]] = _root_.caliban.client.SelectionBuilder
+      .Field("role", OptionOf(ChoiceOf(Map("Captain" -> Obj(onCaptain), "Pilot" -> Obj(onPilot)))))
   }
 
 }
@@ -366,7 +365,6 @@ object Client {
         assertM(gen(schema))(
           equalTo(
             """import caliban.client.FieldBuilder._
-import caliban.client.SelectionBuilder._
 import caliban.client._
 
 object Client {
@@ -378,9 +376,10 @@ object Client {
      * name
      */
     @deprecated("blah", "")
-    def name: SelectionBuilder[Character, String]            = Field("name", Scalar())
+    def name: SelectionBuilder[Character, String]            = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
     @deprecated("", "")
-    def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
+    def nicknames: SelectionBuilder[Character, List[String]] =
+      _root_.caliban.client.SelectionBuilder.Field("nicknames", ListOf(Scalar()))
   }
 
 }
@@ -401,7 +400,6 @@ object Client {
         assertM(gen(schema))(
           equalTo(
             s"""import caliban.client.FieldBuilder._
-import caliban.client.SelectionBuilder._
 import caliban.client._
 
 object Client {
@@ -417,7 +415,7 @@ object Client {
 bar$tripleQuotes,
       ""
     )
-    def name: SelectionBuilder[Character, String] = Field("name", Scalar())
+    def name: SelectionBuilder[Character, String] = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
   }
 
 }
@@ -439,7 +437,6 @@ bar$tripleQuotes,
         assertM(gen(schema))(
           equalTo(
             """import caliban.client.FieldBuilder._
-import caliban.client.SelectionBuilder._
 import caliban.client._
 import caliban.client.Operations._
 
@@ -451,7 +448,7 @@ object Client {
       first: Int,
       last: Option[Int] = None,
       origins: List[Option[String]] = Nil
-    ): SelectionBuilder[RootQuery, Option[String]] = Field(
+    ): SelectionBuilder[RootQuery, Option[String]] = _root_.caliban.client.SelectionBuilder.Field(
       "characters",
       OptionOf(Scalar()),
       arguments =
@@ -476,7 +473,6 @@ object Client {
         assertM(gen(schema, Map("Json" -> "io.circe.Json")))(
           equalTo(
             """import caliban.client.FieldBuilder._
-import caliban.client.SelectionBuilder._
 import caliban.client._
 import caliban.client.Operations._
 
@@ -484,7 +480,8 @@ object Client {
 
   type Query = RootQuery
   object Query {
-    def test: SelectionBuilder[RootQuery, io.circe.Json] = Field("test", Scalar())
+    def test: SelectionBuilder[RootQuery, io.circe.Json] =
+      _root_.caliban.client.SelectionBuilder.Field("test", Scalar())
   }
 
 }
@@ -554,21 +551,22 @@ object Client {
         assertM(gen(schema))(
           equalTo(
             """import caliban.client.FieldBuilder._
-import caliban.client.SelectionBuilder._
 import caliban.client._
 
 object Client {
 
   type Character
   object Character {
-    def name: SelectionBuilder[Character, String]            = Field("name", Scalar())
-    def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
+    def name: SelectionBuilder[Character, String]            = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
+    def nicknames: SelectionBuilder[Character, List[String]] =
+      _root_.caliban.client.SelectionBuilder.Field("nicknames", ListOf(Scalar()))
   }
 
   type character_1
   object character_1 {
-    def name: SelectionBuilder[character_1, String]            = Field("name", Scalar())
-    def nicknames: SelectionBuilder[character_1, List[String]] = Field("nicknames", ListOf(Scalar()))
+    def name: SelectionBuilder[character_1, String]            = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
+    def nicknames: SelectionBuilder[character_1, List[String]] =
+      _root_.caliban.client.SelectionBuilder.Field("nicknames", ListOf(Scalar()))
   }
 
 }
@@ -588,15 +586,16 @@ object Client {
         assertM(gen(schema))(
           equalTo(
             """import caliban.client.FieldBuilder._
-import caliban.client.SelectionBuilder._
 import caliban.client._
 
 object Client {
 
   type Character
   object Character {
-    def `_name_` : SelectionBuilder[Character, Option[String]] = Field("_name_", OptionOf(Scalar()))
-    def _nickname: SelectionBuilder[Character, Option[String]] = Field("_nickname", OptionOf(Scalar()))
+    def `_name_` : SelectionBuilder[Character, Option[String]] =
+      _root_.caliban.client.SelectionBuilder.Field("_name_", OptionOf(Scalar()))
+    def _nickname: SelectionBuilder[Character, Option[String]] =
+      _root_.caliban.client.SelectionBuilder.Field("_nickname", OptionOf(Scalar()))
   }
 
 }
@@ -617,7 +616,6 @@ object Client {
         assertM(gen(schema, Map("OffsetDateTime" -> "java.time.OffsetDateTime"), List("java.util.UUID", "a.b._"))) {
           equalTo(
             """import caliban.client.FieldBuilder._
-import caliban.client.SelectionBuilder._
 import caliban.client._
 
 import java.util.UUID
@@ -627,7 +625,8 @@ object Client {
 
   type Order
   object Order {
-    def date: SelectionBuilder[Order, java.time.OffsetDateTime] = Field("date", Scalar())
+    def date: SelectionBuilder[Order, java.time.OffsetDateTime] =
+      _root_.caliban.client.SelectionBuilder.Field("date", Scalar())
   }
 
 }

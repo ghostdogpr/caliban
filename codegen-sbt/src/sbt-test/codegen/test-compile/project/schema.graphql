@@ -60,6 +60,13 @@ enum Origin {
     BELT
 }
 
+# Regression test for a conflict with SelectionBuilder.Field (#917)
+enum Field {
+    name
+    nicknames
+    origin
+}
+
 # Union
 union Role = Captain | Pilot
 type Captain {

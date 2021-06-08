@@ -29,7 +29,6 @@ object ClientWriterViewSpec extends DefaultRunnableSpec {
         assertM(gen(schema))(
           equalTo(
             """import caliban.client.FieldBuilder._
-import caliban.client.SelectionBuilder._
 import caliban.client._
 
 object Client {
@@ -45,9 +44,10 @@ object Client {
       CharacterView(name, age, nicknames)
     }
 
-    def name: SelectionBuilder[Character, String]            = Field("name", Scalar())
-    def age: SelectionBuilder[Character, Int]                = Field("age", Scalar())
-    def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
+    def name: SelectionBuilder[Character, String]            = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
+    def age: SelectionBuilder[Character, Int]                = _root_.caliban.client.SelectionBuilder.Field("age", Scalar())
+    def nicknames: SelectionBuilder[Character, List[String]] =
+      _root_.caliban.client.SelectionBuilder.Field("nicknames", ListOf(Scalar()))
   }
 
 }
@@ -76,7 +76,6 @@ object Client {
         assertM(gen(schema))(
           equalTo(
             """import caliban.client.FieldBuilder._
-import caliban.client.SelectionBuilder._
 import caliban.client._
 
 object Client {
@@ -92,7 +91,7 @@ object Client {
       users(usersSelection).map(users => QView(users))
 
     def users[A](innerSelection: SelectionBuilder[User, A]): SelectionBuilder[Q, List[A]] =
-      Field("users", ListOf(Obj(innerSelection)))
+      _root_.caliban.client.SelectionBuilder.Field("users", ListOf(Obj(innerSelection)))
   }
 
   type Character
@@ -106,10 +105,11 @@ object Client {
       case ((name, age), nicknames) => CharacterView(name, age, nicknames)
     }
 
-    def name: SelectionBuilder[Character, String]                                     = Field("name", Scalar())
-    def age: SelectionBuilder[Character, Int]                                         = Field("age", Scalar())
+    def name: SelectionBuilder[Character, String]                                     = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
+    def age: SelectionBuilder[Character, Int]                                         = _root_.caliban.client.SelectionBuilder.Field("age", Scalar())
     def nicknames(arg: Option[Int] = None): SelectionBuilder[Character, List[String]] =
-      Field("nicknames", ListOf(Scalar()), arguments = List(Argument("arg", arg, "Int")))
+      _root_.caliban.client.SelectionBuilder
+        .Field("nicknames", ListOf(Scalar()), arguments = List(Argument("arg", arg, "Int")))
   }
 
   type User
@@ -125,7 +125,8 @@ object Client {
       characters(charactersName)(charactersSelection).map(characters => UserView(characters))
 
     def characters[A](name: String)(innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[User, List[A]] =
-      Field("characters", ListOf(Obj(innerSelection)), arguments = List(Argument("name", name, "String!")))
+      _root_.caliban.client.SelectionBuilder
+        .Field("characters", ListOf(Obj(innerSelection)), arguments = List(Argument("name", name, "String!")))
   }
 
 }
@@ -146,7 +147,6 @@ object Client {
         assertM(gen(schema))(
           equalTo(
             """import caliban.client.FieldBuilder._
-import caliban.client.SelectionBuilder._
 import caliban.client._
 
 object Client {
@@ -164,12 +164,12 @@ object Client {
       case ((name, age), friends) => CharacterView(name, age, friends)
     }
 
-    def name: SelectionBuilder[Character, String]                                           = Field("name", Scalar())
-    def age: SelectionBuilder[Character, Int]                                               = Field("age", Scalar())
-    def friends[A](
-      filter: Option[String] = None
-    )(innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[Character, List[A]] =
-      Field("friends", ListOf(Obj(innerSelection)), arguments = List(Argument("filter", filter, "String")))
+    def name: SelectionBuilder[Character, String] = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
+    def age: SelectionBuilder[Character, Int]     = _root_.caliban.client.SelectionBuilder.Field("age", Scalar())
+    def friends[A](filter: Option[String] = None)(
+      innerSelection: SelectionBuilder[Character, A]
+    ): SelectionBuilder[Character, List[A]]       = _root_.caliban.client.SelectionBuilder
+      .Field("friends", ListOf(Obj(innerSelection)), arguments = List(Argument("filter", filter, "String")))
   }
 
 }
@@ -207,7 +207,6 @@ object Client {
         assertM(gen(schema))(
           equalTo(
             """import caliban.client.FieldBuilder._
-import caliban.client.SelectionBuilder._
 import caliban.client._
 
 object Client {
@@ -221,8 +220,10 @@ object Client {
 
     def view: ViewSelection = (id ~ name).map { case (id, name) => ProjectMemberView(id, name) }
 
-    def id: SelectionBuilder[ProjectMember, Option[Int]]      = Field("id", OptionOf(Scalar()))
-    def name: SelectionBuilder[ProjectMember, Option[String]] = Field("name", OptionOf(Scalar()))
+    def id: SelectionBuilder[ProjectMember, Option[Int]]      =
+      _root_.caliban.client.SelectionBuilder.Field("id", OptionOf(Scalar()))
+    def name: SelectionBuilder[ProjectMember, Option[String]] =
+      _root_.caliban.client.SelectionBuilder.Field("name", OptionOf(Scalar()))
   }
 
   type ProjectMemberEdge
@@ -238,9 +239,10 @@ object Client {
       ProjectMemberEdgeView(cursor, node)
     }
 
-    def cursor: SelectionBuilder[ProjectMemberEdge, String]                                                         = Field("cursor", Scalar())
+    def cursor: SelectionBuilder[ProjectMemberEdge, String]                                                         =
+      _root_.caliban.client.SelectionBuilder.Field("cursor", Scalar())
     def node[A](innerSelection: SelectionBuilder[ProjectMember, A]): SelectionBuilder[ProjectMemberEdge, Option[A]] =
-      Field("node", OptionOf(Obj(innerSelection)))
+      _root_.caliban.client.SelectionBuilder.Field("node", OptionOf(Obj(innerSelection)))
   }
 
   type PageInfo
@@ -260,10 +262,14 @@ object Client {
         PageInfoView(endCursor, hasNextPage, hasPreviousPage, startCursor)
     }
 
-    def endCursor: SelectionBuilder[PageInfo, Option[String]]   = Field("endCursor", OptionOf(Scalar()))
-    def hasNextPage: SelectionBuilder[PageInfo, Boolean]        = Field("hasNextPage", Scalar())
-    def hasPreviousPage: SelectionBuilder[PageInfo, Boolean]    = Field("hasPreviousPage", Scalar())
-    def startCursor: SelectionBuilder[PageInfo, Option[String]] = Field("startCursor", OptionOf(Scalar()))
+    def endCursor: SelectionBuilder[PageInfo, Option[String]]   =
+      _root_.caliban.client.SelectionBuilder.Field("endCursor", OptionOf(Scalar()))
+    def hasNextPage: SelectionBuilder[PageInfo, Boolean]        =
+      _root_.caliban.client.SelectionBuilder.Field("hasNextPage", Scalar())
+    def hasPreviousPage: SelectionBuilder[PageInfo, Boolean]    =
+      _root_.caliban.client.SelectionBuilder.Field("hasPreviousPage", Scalar())
+    def startCursor: SelectionBuilder[PageInfo, Option[String]] =
+      _root_.caliban.client.SelectionBuilder.Field("startCursor", OptionOf(Scalar()))
   }
 
   type ProjectMemberConnection
@@ -292,13 +298,13 @@ object Client {
     def edges[A](
       innerSelection: SelectionBuilder[ProjectMemberEdge, A]
     ): SelectionBuilder[ProjectMemberConnection, Option[List[Option[A]]]]                                        =
-      Field("edges", OptionOf(ListOf(OptionOf(Obj(innerSelection)))))
+      _root_.caliban.client.SelectionBuilder.Field("edges", OptionOf(ListOf(OptionOf(Obj(innerSelection)))))
     def nodes[A](
       innerSelection: SelectionBuilder[ProjectMember, A]
     ): SelectionBuilder[ProjectMemberConnection, Option[List[Option[A]]]]                                        =
-      Field("nodes", OptionOf(ListOf(OptionOf(Obj(innerSelection)))))
+      _root_.caliban.client.SelectionBuilder.Field("nodes", OptionOf(ListOf(OptionOf(Obj(innerSelection)))))
     def pageInfo[A](innerSelection: SelectionBuilder[PageInfo, A]): SelectionBuilder[ProjectMemberConnection, A] =
-      Field("pageInfo", Obj(innerSelection))
+      _root_.caliban.client.SelectionBuilder.Field("pageInfo", Obj(innerSelection))
   }
 
 }
@@ -322,7 +328,6 @@ object Client {
         assertM(gen(schema))(
           equalTo(
             """import caliban.client.FieldBuilder._
-import caliban.client.SelectionBuilder._
 import caliban.client._
 
 object Client {
@@ -336,7 +341,8 @@ object Client {
 
     def view: ViewSelection = name.map(name => packageView(name))
 
-    def name: SelectionBuilder[`package`, Option[String]] = Field("name", OptionOf(Scalar()))
+    def name: SelectionBuilder[`package`, Option[String]] =
+      _root_.caliban.client.SelectionBuilder.Field("name", OptionOf(Scalar()))
   }
 
   type `match`
@@ -353,8 +359,9 @@ object Client {
     }
 
     def `package`[A](innerSelection: SelectionBuilder[`package`, A]): SelectionBuilder[`match`, Option[A]] =
-      Field("package", OptionOf(Obj(innerSelection)))
-    def version: SelectionBuilder[`match`, Option[String]]                                                 = Field("version", OptionOf(Scalar()))
+      _root_.caliban.client.SelectionBuilder.Field("package", OptionOf(Obj(innerSelection)))
+    def version: SelectionBuilder[`match`, Option[String]]                                                 =
+      _root_.caliban.client.SelectionBuilder.Field("version", OptionOf(Scalar()))
   }
 
 }
@@ -383,7 +390,6 @@ object Client {
         assertM(gen(schema))(
           equalTo(
             """import caliban.client.FieldBuilder._
-import caliban.client.SelectionBuilder._
 import caliban.client._
 
 object Client {
@@ -402,13 +408,14 @@ object Client {
       case ((name, nicknames), role) => CharacterView(name, nicknames, role)
     }
 
-    def name: SelectionBuilder[Character, String]            = Field("name", Scalar())
-    def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
+    def name: SelectionBuilder[Character, String]            = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
+    def nicknames: SelectionBuilder[Character, List[String]] =
+      _root_.caliban.client.SelectionBuilder.Field("nicknames", ListOf(Scalar()))
     def role[A](
       onCaptain: SelectionBuilder[Captain, A],
       onPilot: SelectionBuilder[Pilot, A]
-    ): SelectionBuilder[Character, Option[A]]                =
-      Field("role", OptionOf(ChoiceOf(Map("Captain" -> Obj(onCaptain), "Pilot" -> Obj(onPilot)))))
+    ): SelectionBuilder[Character, Option[A]]                = _root_.caliban.client.SelectionBuilder
+      .Field("role", OptionOf(ChoiceOf(Map("Captain" -> Obj(onCaptain), "Pilot" -> Obj(onPilot)))))
   }
 
   type Captain
@@ -420,7 +427,7 @@ object Client {
 
     def view: ViewSelection = shipName.map(shipName => CaptainView(shipName))
 
-    def shipName: SelectionBuilder[Captain, String] = Field("shipName", Scalar())
+    def shipName: SelectionBuilder[Captain, String] = _root_.caliban.client.SelectionBuilder.Field("shipName", Scalar())
   }
 
   type Pilot
@@ -432,7 +439,7 @@ object Client {
 
     def view: ViewSelection = shipName.map(shipName => PilotView(shipName))
 
-    def shipName: SelectionBuilder[Pilot, String] = Field("shipName", Scalar())
+    def shipName: SelectionBuilder[Pilot, String] = _root_.caliban.client.SelectionBuilder.Field("shipName", Scalar())
   }
 
 }
