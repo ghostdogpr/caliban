@@ -159,6 +159,11 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
         ObjectStep(name, fields(false, false).map { case (f, plan) => f.name -> plan(value) }.toMap)
     }
 
+  /**
+   * Manually defines a field from a name, a description, some directives and a resolver.
+   * If the field is a function that should be called lazily, use `fieldLazy` instead.
+   * If the field takes arguments, use `fieldWithArgs` instead.
+   */
   def field[V](
     name: String,
     description: Option[String] = None,
@@ -166,6 +171,19 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   ): PartiallyAppliedField[V] =
     PartiallyAppliedField[V](name, description, directives)
 
+  /**
+   * Manually defines a lazy field from a name, a description, some directives and a resolver.
+   */
+  def fieldLazy[V](
+    name: String,
+    description: Option[String] = None,
+    directives: List[Directive] = List.empty
+  ): PartiallyAppliedFieldLazy[V] =
+    PartiallyAppliedFieldLazy[V](name, description, directives)
+
+  /**
+   * Manually defines a field with arguments from a name, a description, some directives and a resolver.
+   */
   def fieldWithArgs[V, A](
     name: String,
     description: Option[String] = None,
@@ -534,46 +552,46 @@ trait TemporalSchema {
 
 case class FieldAttributes(isInput: Boolean, isSubscription: Boolean)
 
-case class PartiallyAppliedField[V](
-  name: String,
-  description: Option[String],
-  directives: List[Directive]
-) {
+abstract class PartiallyAppliedFieldBase[V](name: String, description: Option[String], directives: List[Directive]) {
   def apply[R, V1](fn: V => V1)(implicit ev: Schema[R, V1], ft: FieldAttributes): (__Field, V => Step[R]) =
     either[R, V1](v => Left(fn(v)))(ev, ft)
 
   def either[R, V1](
     fn: V => Either[V1, Step[R]]
-  )(implicit ev: Schema[R, V1], ft: FieldAttributes): (__Field, V => Step[R]) =
-    (
-      __Field(
-        name,
-        description,
-        Nil,
-        () =>
-          if (ev.optional) ev.toType_(ft.isInput, ft.isSubscription)
-          else Types.makeNonNull(ev.toType_(ft.isInput, ft.isSubscription)),
-        directives = Some(directives).filter(_.nonEmpty)
-      ),
-      (v: V) => fn(v).fold(ev.resolve, identity)
+  )(implicit ev: Schema[R, V1], ft: FieldAttributes): (__Field, V => Step[R])
+
+  protected def makeField[R, V1](implicit ev: Schema[R, V1], ft: FieldAttributes): __Field =
+    __Field(
+      name,
+      description,
+      Nil,
+      () =>
+        if (ev.optional) ev.toType_(ft.isInput, ft.isSubscription)
+        else Types.makeNonNull(ev.toType_(ft.isInput, ft.isSubscription)),
+      directives = Some(directives).filter(_.nonEmpty)
     )
 }
 
-case class PartiallyAppliedFieldWithArgs[V, A](
-  name: String,
-  description: Option[String],
-  directives: List[Directive]
-) {
-  def apply[R, V1](
-    fn: V => (A => V1)
-  )(implicit ev1: Schema[R, A => V1], fa: FieldAttributes): (__Field, V => Step[R]) =
+case class PartiallyAppliedField[V](name: String, description: Option[String], directives: List[Directive])
+    extends PartiallyAppliedFieldBase[V](name, description, directives) {
+  def either[R, V1](
+    fn: V => Either[V1, Step[R]]
+  )(implicit ev: Schema[R, V1], ft: FieldAttributes): (__Field, V => Step[R]) =
+    (makeField, (v: V) => fn(v).fold(ev.resolve, identity))
+}
+
+case class PartiallyAppliedFieldLazy[V](name: String, description: Option[String], directives: List[Directive])
+    extends PartiallyAppliedFieldBase[V](name, description, directives) {
+  def either[R, V1](
+    fn: V => Either[V1, Step[R]]
+  )(implicit ev: Schema[R, V1], ft: FieldAttributes): (__Field, V => Step[R]) =
+    (makeField, (v: V) => FunctionStep(_ => fn(v).fold(ev.resolve, identity)))
+}
+
+case class PartiallyAppliedFieldWithArgs[V, A](name: String, description: Option[String], directives: List[Directive]) {
+  def apply[R, V1](fn: V => (A => V1))(implicit ev1: Schema[R, A => V1], fa: FieldAttributes): (__Field, V => Step[R]) =
     (
-      __Field(
-        name,
-        description,
-        ev1.arguments,
-        () => ev1.toType_(fa.isInput, fa.isSubscription)
-      ),
+      __Field(name, description, ev1.arguments, () => ev1.toType_(fa.isInput, fa.isSubscription)),
       (v: V) => ev1.resolve(fn(v))
     )
 }
