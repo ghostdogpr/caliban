@@ -872,6 +872,52 @@ object ExecutionSpec extends DefaultRunnableSpec {
             """{"organization":{"groups":[{"id":"group1","organization":{"id":"abc"},"parent":null},{"id":"group2","organization":{"id":"abc"},"parent":{"id":"group1"}}]}}"""
           )
         )
+      },
+      testM("hand-rolled recursive lazy schema") {
+        import Schema._
+        case class Foo(id: Int) {
+          def bar(): Bar = Bar(234)
+        }
+
+        case class Bar(id: Int) {
+          def foo(): Foo = Foo(123)
+        }
+
+        implicit lazy val fooSchema: Schema[Any, Foo] = obj("Foo", None)(implicit ft =>
+          List(
+            field("id")(_.id),
+            fieldLazy("bar")(_.bar())
+          )
+        )
+
+        implicit lazy val barSchema: Schema[Any, Bar] = obj("Bar", None)(implicit ft =>
+          List(
+            field("id")(_.id),
+            fieldLazy("foo")(_.foo())
+          )
+        )
+
+        case class Queries(foos: Seq[Foo])
+
+        val queries: Queries = Queries(Seq(Foo(123)))
+
+        val calibanApi: GraphQL[Any] = GraphQL.graphQL(RootResolver(queries))
+
+        val interpreter = calibanApi.interpreter
+        val query       = gqldoc("""{
+            foos {
+              id
+              bar {
+                id
+              }
+            }
+          }""")
+
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
+          equalTo(
+            """{"foos":[{"id":123,"bar":{"id":234}}]}"""
+          )
+        )
       }
     )
 }
