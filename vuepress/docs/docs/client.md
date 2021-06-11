@@ -233,7 +233,7 @@ Subscriptions are supported in the laminext module, and this code can easily be 
 Type extensions are not supported by the codegen tool.
 :::
 
-## Laminext Module
+## Laminext Integration
 
 If you are using the Scala.js framework [Laminar](https://laminar.dev), there is a module that makes the integration even nicer, with support for subscriptions.
 It is depending on [Laminext](https://laminext.dev), a library that provides nice little helpers for Laminar, in particular for using `Fetch` and `WebSocket`.
