@@ -448,7 +448,7 @@ object Client {
       first: Int,
       last: Option[Int] = None,
       origins: List[Option[String]] = Nil
-    ): SelectionBuilder[_root_.caliban.client.Operations.RootQuery, Option[String]] = 
+    ): SelectionBuilder[_root_.caliban.client.Operations.RootQuery, Option[String]] =
       _root_.caliban.client.SelectionBuilder.Field(
         "characters",
         OptionOf(Scalar()),
