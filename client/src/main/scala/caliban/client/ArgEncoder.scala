@@ -15,8 +15,10 @@ import scala.annotation.implicitNotFound
 Caliban needs it to know how to encode arguments of type ${A}.
 """
 )
-trait ArgEncoder[-A] {
+trait ArgEncoder[-A] { self =>
   def encode(value: A): __Value
+
+  def dropNullValues: ArgEncoder[A] = (value: A) => self.encode(value).dropNullValues
 }
 
 object ArgEncoder {

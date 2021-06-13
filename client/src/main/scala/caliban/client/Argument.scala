@@ -9,16 +9,18 @@ import caliban.client.__Value.__NullValue
 case class Argument[+A](name: String, value: A, typeInfo: String)(implicit encoder: ArgEncoder[A]) {
   def toGraphQL(
     useVariables: Boolean,
+    dropInputNullValues: Boolean,
     variables: Map[String, (__Value, String)]
   ): (String, Map[String, (__Value, String)]) =
     encoder.encode(value) match {
       case `__NullValue` => ("", variables)
       case v             =>
+        val value = if (dropInputNullValues) v.dropNullValues else v
         if (useVariables) {
-          val variableName = Argument.generateVariableName(name, v, variables)
-          (s"$name:$$$variableName", variables.updated(variableName, (v, typeInfo)))
+          val variableName = Argument.generateVariableName(name, value, variables)
+          (s"$name:$$$variableName", variables.updated(variableName, (value, typeInfo)))
         } else {
-          (s"$name:${v.toString}", variables)
+          (s"$name:${value.toString}", variables)
         }
     }
 }

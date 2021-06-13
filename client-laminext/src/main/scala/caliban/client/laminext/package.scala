@@ -29,18 +29,20 @@ package object laminext {
       uri: String,
       useVariables: Boolean = false,
       queryName: Option[String] = None,
+      dropInputNullValues: Boolean = false,
       middleware: FetchEventStreamBuilder => FetchEventStreamBuilder = identity
     )(implicit ev: IsOperation[Origin]): EventStream[Either[CalibanClientError, A]] =
-      toEventStreamWithExtensions[A1](uri, useVariables, queryName, middleware).map(_.map(_._1))
+      toEventStreamWithExtensions[A1](uri, useVariables, queryName, dropInputNullValues, middleware).map(_.map(_._1))
 
     def toEventStreamWithExtensions[A1 >: A](
       uri: String,
       useVariables: Boolean = false,
       queryName: Option[String] = None,
+      dropInputNullValues: Boolean = false,
       middleware: FetchEventStreamBuilder => FetchEventStreamBuilder = identity
     )(implicit ev: IsOperation[Origin]): EventStream[Either[CalibanClientError, (A, Option[Json])]] =
       middleware(Fetch.post(uri))
-        .body(self.toGraphQL(useVariables, queryName))
+        .body(self.toGraphQL(useVariables, queryName, dropInputNullValues))
         .text
         .map(response => self.decode(response.data))
         .recover {
