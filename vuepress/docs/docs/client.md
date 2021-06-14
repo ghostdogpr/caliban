@@ -210,7 +210,7 @@ Once your query or mutation is created, it is time to execute it. To do that, yo
 This function takes the URL of your GraphQL server and some options:
 - a boolean `useVariables` that determines if arguments should be using variables or not (default: false)
 - an optional string `queryName` if you want to name your query (default: no name)
-- a boolean `dropInputNullValues` that determines if null fields from input objects should be dropped (default: false)
+- a boolean `dropNullInputValues` that determines if null fields from input objects should be dropped (default: false)
 
 You can then simply run the `sttp` request with the backend of your choice. See the [sttp docs](https://sttp.readthedocs.io/en/latest/) if you are not familiar with it.
 

@@ -264,7 +264,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
 
           val query = Query.addCharacter(CharacterInput("name", None, Nil))(Character.name)
 
-          assert(query.toGraphQL(dropInputNullValues = true).query)(
+          assert(query.toGraphQL(dropNullInputValues = true).query)(
             equalTo("""query{addCharacter(character:{name:"name",nicknames:[]}){name}}""")
           )
         },
