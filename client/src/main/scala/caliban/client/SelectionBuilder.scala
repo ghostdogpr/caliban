@@ -49,21 +49,23 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
   def withAlias(alias: String): SelectionBuilder[Origin, A]
 
   /**
-   * Parse the given response payload into the excepted return type, with an optional extensions object
+   * Parse the given response payload into the expected return type,
+   * with an potential list of partial errors and an optional extensions object
    */
-  def decode(payload: String): Either[CalibanClientError, (A, Option[Json])] =
+  def decode(payload: String): Either[CalibanClientError, (A, List[GraphQLResponseError], Option[Json])] =
     for {
       parsed      <- parser
                        .decode[GraphQLResponse](payload)
                        .left
                        .map(ex => DecodingError("Json deserialization error", Some(ex)))
-      data        <- if (parsed.errors.nonEmpty) Left(ServerError(parsed.errors)) else Right(parsed.data)
+      data        <- if (parsed.errors.nonEmpty && parsed.data.contains(__Value.__NullValue)) Left(ServerError(parsed.errors))
+                     else Right(parsed.data)
       objectValue <- data match {
                        case Some(o: __ObjectValue) => Right(o)
                        case _                      => Left(DecodingError("Result is not an object"))
                      }
       result      <- self.fromGraphQL(objectValue)
-    } yield (result, parsed.extensions)
+    } yield (result, parsed.errors, parsed.extensions)
 
   /**
    * Transforms a root selection into a GraphQL request.
@@ -89,6 +91,7 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
 
   /**
    * Transforms a root selection into an STTP request ready to be run.
+   * To access partial errors and extensions, use `toRequestWith`.
    * @param uri the URL of the GraphQL server
    * @param useVariables if true, all arguments will be passed as variables (default: false)
    * @param queryName if specified, use the given query name
@@ -101,29 +104,33 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
     queryName: Option[String] = None,
     dropNullInputValues: Boolean = false
   )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, A1], Any] =
-    toRequestWithExtensions[A1, Origin1](uri, useVariables, queryName, dropNullInputValues)(ev).mapResponse {
-      case Right((r, _)) => Right(r)
-      case Left(l)       => Left(l)
-    }
+    toRequestWith[A1, A1, Origin1](uri, useVariables, queryName, dropNullInputValues)((res, _, _) => res)(ev)
 
   /**
    * Transforms a root selection into an STTP request ready to be run.
+   * More powerful than `toRequest`, it gives you access to partial errors and extensions.
    * @param uri the URL of the GraphQL server
    * @param useVariables if true, all arguments will be passed as variables (default: false)
    * @param queryName if specified, use the given query name
    * @param dropNullInputValues if true, drop all null values from input object arguments (default: false)
    * @return an STTP request
    */
-  def toRequestWithExtensions[A1 >: A, Origin1 <: Origin](
+  def toRequestWith[A1 >: A, B, Origin1 <: Origin](
     uri: Uri,
     useVariables: Boolean = false,
     queryName: Option[String] = None,
     dropNullInputValues: Boolean = false
-  )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, (A1, Option[Json])], Any] =
+  )(
+    mapResponse: (A, List[GraphQLResponseError], Option[Json]) => B
+  )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, B], Any] =
     basicRequest
       .post(uri)
       .body(toGraphQL(useVariables, queryName, dropNullInputValues))
-      .mapResponse(_.left.map(CommunicationError(_)).flatMap(decode))
+      .mapResponse(
+        _.left
+          .map(CommunicationError(_))
+          .flatMap(decode(_).map { case (result, errors, extensions) => mapResponse(result, errors, extensions) })
+      )
 
   /**
    * Maps a tupled result to a type `Res` using a  function `f` with 2 parameters
