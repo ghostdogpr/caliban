@@ -104,7 +104,7 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
     queryName: Option[String] = None,
     dropNullInputValues: Boolean = false
   )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, A1], Any] =
-    toRequestWith[A1, A1, Origin1](uri, useVariables, queryName, dropNullInputValues)((res, _, _) => res)(ev)
+    toRequestWith[A1, Origin1](uri, useVariables, queryName, dropNullInputValues)((res, _, _) => res)(ev)
 
   /**
    * Transforms a root selection into an STTP request ready to be run.
@@ -115,7 +115,7 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    * @param dropNullInputValues if true, drop all null values from input object arguments (default: false)
    * @return an STTP request
    */
-  def toRequestWith[A1 >: A, B, Origin1 <: Origin](
+  def toRequestWith[B, Origin1 <: Origin](
     uri: Uri,
     useVariables: Boolean = false,
     queryName: Option[String] = None,

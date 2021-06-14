@@ -25,16 +25,16 @@ package object laminext {
 
   implicit class SelectionBuilderOps[Origin, A](self: SelectionBuilder[Origin, A]) {
 
-    def toEventStream[A1 >: A](
+    def toEventStream(
       uri: String,
       useVariables: Boolean = false,
       queryName: Option[String] = None,
       dropNullInputValues: Boolean = false,
       middleware: FetchEventStreamBuilder => FetchEventStreamBuilder = identity
     )(implicit ev: IsOperation[Origin]): EventStream[Either[CalibanClientError, A]] =
-      toEventStreamWith[A1, A](uri, useVariables, queryName, dropNullInputValues, middleware)((res, _, _) => res)
+      toEventStreamWith(uri, useVariables, queryName, dropNullInputValues, middleware)((res, _, _) => res)
 
-    def toEventStreamWith[A1 >: A, B](
+    def toEventStreamWith[B](
       uri: String,
       useVariables: Boolean = false,
       queryName: Option[String] = None,
@@ -56,19 +56,19 @@ package object laminext {
           case other                   => Some(Left(CommunicationError("", Some(other))))
         }
 
-    def toSubscription[A1 >: A](
+    def toSubscription(
       ws: WebSocket[GraphQLWSResponse, GraphQLWSRequest],
       useVariables: Boolean = false,
       queryName: Option[String] = None
     )(implicit ev1: IsOperation[Origin], ev2: Origin <:< RootSubscription): Subscription[A] = {
-      val subscription = toSubscriptionWith[A1, A](ws, useVariables, queryName)((res, _, _) => res)
+      val subscription = toSubscriptionWith(ws, useVariables, queryName)((res, _, _) => res)
       new Subscription[A] {
         def received: EventStream[Either[CalibanClientError, A]] = subscription.received
         def unsubscribe(): Unit                                  = subscription.unsubscribe()
       }
     }
 
-    def toSubscriptionWith[A1 >: A, B](
+    def toSubscriptionWith[B](
       ws: WebSocket[GraphQLWSResponse, GraphQLWSRequest],
       useVariables: Boolean = false,
       queryName: Option[String] = None
