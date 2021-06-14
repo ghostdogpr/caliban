@@ -471,6 +471,8 @@ trait TemporalSchema {
       PureStep(format(value))
   }
 
+  lazy val sampleDate: ZonedDateTime = ZonedDateTime.ofInstant(Instant.EPOCH, ZoneId.ofOffset("UTC", ZoneOffset.UTC))
+
   def temporalSchema[A <: Temporal](name: String, description: Option[String] = None)(
     f: A => ResponseValue
   ): Schema[Any, A] = new TemporalSchema[A](name, description) {
@@ -500,7 +502,9 @@ trait TemporalSchema {
   def localDateTimeSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, LocalDateTime] =
     temporalSchemaWithFormatter(
       "LocalDateTime",
-      Some(s"A date-time without a time-zone in the ISO-8601 calendar system in the format of $formatter")
+      Some(
+        s"A date-time without a time-zone in the ISO-8601 calendar system in the format of ${formatter.format(sampleDate)}"
+      )
     )(formatter)
 
   implicit lazy val offsetDateTimeSchema: Schema[Any, OffsetDateTime] =
@@ -509,7 +513,9 @@ trait TemporalSchema {
   def offsetDateTimeSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, OffsetDateTime] =
     temporalSchemaWithFormatter(
       "OffsetDateTime",
-      Some(s"A date-time with an offset from UTC/Greenwich in the ISO-8601 calendar system using the format $formatter")
+      Some(
+        s"A date-time with an offset from UTC/Greenwich in the ISO-8601 calendar system using the format ${formatter.format(sampleDate)}"
+      )
     )(formatter)
 
   implicit lazy val zonedDateTimeSchema: Schema[Any, ZonedDateTime] =
@@ -521,7 +527,9 @@ trait TemporalSchema {
   def zonedDateTimeSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, ZonedDateTime] =
     temporalSchemaWithFormatter(
       "ZonedDateTime",
-      Some(s"A date-time with a time-zone in the ISO-8601 calendar system using the format $formatter")
+      Some(
+        s"A date-time with a time-zone in the ISO-8601 calendar system using the format ${formatter.format(sampleDate)}"
+      )
     )(formatter)
 
   implicit lazy val localDateSchema: Schema[Any, LocalDate] =
@@ -536,7 +544,9 @@ trait TemporalSchema {
   def localDateSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, LocalDate] =
     temporalSchemaWithFormatter(
       "LocalDate",
-      Some(s"A date without a time-zone in the ISO-8601 calendar system using the format $formatter")
+      Some(
+        s"A date without a time-zone in the ISO-8601 calendar system using the format ${formatter.format(sampleDate)}"
+      )
     )(formatter)
 
   implicit lazy val localTimeSchema: Schema[Any, LocalTime] =
@@ -545,7 +555,9 @@ trait TemporalSchema {
   def localTimeSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, LocalTime] =
     temporalSchemaWithFormatter(
       "LocalTime",
-      Some(s"A time without a time-zone in the ISO-8601 calendar system using the format $formatter")
+      Some(
+        s"A time without a time-zone in the ISO-8601 calendar system using the format ${formatter.format(sampleDate)}"
+      )
     )(formatter)
 
 }
