@@ -449,7 +449,7 @@ object Client {
       encoder0: ArgEncoder[Int],
       encoder1: ArgEncoder[Option[Int]],
       encoder2: ArgEncoder[List[Option[String]]]
-    ): SelectionBuilder[_root_.caliban.client.RootQuery, Option[String]] =
+    ): SelectionBuilder[_root_.caliban.client.Operations.RootQuery, Option[String]] =
       _root_.caliban.client.SelectionBuilder.Field(
         "characters",
         OptionOf(Scalar()),
