@@ -96,9 +96,6 @@ object ClientWriter {
       )
         """import caliban.client._
           |""".stripMargin
-      else ""}${if (queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty)
-        """import caliban.client.Operations._
-          |""".stripMargin
       else ""}${if (enums.nonEmpty || inputs.nonEmpty)
         """import caliban.client.__Value._
           |""".stripMargin
@@ -152,9 +149,9 @@ object ClientWriter {
     mappingClashedTypeNames: MappingClashedTypeNames,
     scalarMappings: ScalarMappings
   ): String =
-    s"""type ${typedef.name} = RootQuery
+    s"""type ${typedef.name} = _root_.caliban.client.Operations.RootQuery
        |object ${typedef.name} {
-       |  ${typedef.fields.map(writeField(_, "RootQuery")).mkString("\n  ")}
+       |  ${typedef.fields.map(writeField(_, "_root_.caliban.client.Operations.RootQuery")).mkString("\n  ")}
        |}
        |""".stripMargin
 
@@ -165,9 +162,9 @@ object ClientWriter {
     mappingClashedTypeNames: MappingClashedTypeNames,
     scalarMappings: ScalarMappings
   ): String =
-    s"""type ${typedef.name} = RootMutation
+    s"""type ${typedef.name} = _root_.caliban.client.Operations.RootMutation
        |object ${typedef.name} {
-       |  ${typedef.fields.map(writeField(_, "RootMutation")).mkString("\n  ")}
+       |  ${typedef.fields.map(writeField(_, "_root_.caliban.client.Operations.RootMutation")).mkString("\n  ")}
        |}
        |""".stripMargin
 
@@ -178,9 +175,9 @@ object ClientWriter {
     mappingClashedTypeNames: MappingClashedTypeNames,
     scalarMappings: ScalarMappings
   ): String =
-    s"""type ${typedef.name} = RootSubscription
+    s"""type ${typedef.name} = _root_.caliban.client.Operations.RootSubscription
        |object ${typedef.name} {
-       |  ${typedef.fields.map(writeField(_, "RootSubscription")).mkString("\n  ")}
+       |  ${typedef.fields.map(writeField(_, "_root_.caliban.client.Operations.RootSubscription")).mkString("\n  ")}
        |}
        |""".stripMargin
 

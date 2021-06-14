@@ -178,7 +178,6 @@ object Client {
           equalTo(
             """import caliban.client.FieldBuilder._
 import caliban.client._
-import caliban.client.Operations._
 
 object Client {
 
@@ -189,9 +188,11 @@ object Client {
       _root_.caliban.client.SelectionBuilder.Field("nicknames", ListOf(Scalar()))
   }
 
-  type Q = RootQuery
+  type Q = _root_.caliban.client.Operations.RootQuery
   object Q {
-    def characters[A](innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[RootQuery, List[A]] =
+    def characters[A](
+      innerSelection: SelectionBuilder[Character, A]
+    ): SelectionBuilder[_root_.caliban.client.Operations.RootQuery, List[A]] =
       _root_.caliban.client.SelectionBuilder.Field("characters", ListOf(Obj(innerSelection)))
   }
 
@@ -439,25 +440,25 @@ bar$tripleQuotes,
           equalTo(
             """import caliban.client.FieldBuilder._
 import caliban.client._
-import caliban.client.Operations._
 
 object Client {
 
-  type Query = RootQuery
+  type Query = _root_.caliban.client.Operations.RootQuery
   object Query {
     def characters(first: Int, last: Option[Int] = None, origins: List[Option[String]] = Nil)(implicit
       encoder0: ArgEncoder[Int],
       encoder1: ArgEncoder[Option[Int]],
       encoder2: ArgEncoder[List[Option[String]]]
-    ): SelectionBuilder[RootQuery, Option[String]] = _root_.caliban.client.SelectionBuilder.Field(
-      "characters",
-      OptionOf(Scalar()),
-      arguments = List(
-        Argument("first", first, "Int!")(encoder0),
-        Argument("last", last, "Int")(encoder1),
-        Argument("origins", origins, "[String]!")(encoder2)
+    ): SelectionBuilder[_root_.caliban.client.RootQuery, Option[String]] =
+      _root_.caliban.client.SelectionBuilder.Field(
+        "characters",
+        OptionOf(Scalar()),
+        arguments = List(
+          Argument("first", first, "Int!")(encoder0),
+          Argument("last", last, "Int")(encoder1),
+          Argument("origins", origins, "[String]!")(encoder2)
+        )
       )
-    )
   }
 
 }
@@ -478,13 +479,12 @@ object Client {
           equalTo(
             """import caliban.client.FieldBuilder._
 import caliban.client._
-import caliban.client.Operations._
 
 object Client {
 
-  type Query = RootQuery
+  type Query = _root_.caliban.client.Operations.RootQuery
   object Query {
-    def test: SelectionBuilder[RootQuery, io.circe.Json] =
+    def test: SelectionBuilder[_root_.caliban.client.Operations.RootQuery, io.circe.Json] =
       _root_.caliban.client.SelectionBuilder.Field("test", Scalar())
   }
 
