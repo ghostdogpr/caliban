@@ -139,9 +139,10 @@ object Client {
 
   type Q
   object Q {
-    def character[A](name: String)(innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[Q, Option[A]] =
-      _root_.caliban.client.SelectionBuilder
-        .Field("character", OptionOf(Obj(innerSelection)), arguments = List(Argument("name", name, "String!")))
+    def character[A](name: String)(
+      innerSelection: SelectionBuilder[Character, A]
+    )(implicit encoder0: ArgEncoder[String]): SelectionBuilder[Q, Option[A]] = _root_.caliban.client.SelectionBuilder
+      .Field("character", OptionOf(Obj(innerSelection)), arguments = List(Argument("name", name, "String!")(encoder0)))
   }
 
   type Character
@@ -444,18 +445,18 @@ object Client {
 
   type Query = _root_.caliban.client.Operations.RootQuery
   object Query {
-    def characters(
-      first: Int,
-      last: Option[Int] = None,
-      origins: List[Option[String]] = Nil
+    def characters(first: Int, last: Option[Int] = None, origins: List[Option[String]] = Nil)(implicit
+      encoder0: ArgEncoder[Int],
+      encoder1: ArgEncoder[Option[Int]],
+      encoder2: ArgEncoder[List[Option[String]]]
     ): SelectionBuilder[_root_.caliban.client.Operations.RootQuery, Option[String]] =
       _root_.caliban.client.SelectionBuilder.Field(
         "characters",
         OptionOf(Scalar()),
         arguments = List(
-          Argument("first", first, "Int!"),
-          Argument("last", last, "Int"),
-          Argument("origins", origins, "[String]!")
+          Argument("first", first, "Int!")(encoder0),
+          Argument("last", last, "Int")(encoder1),
+          Argument("origins", origins, "[String]!")(encoder2)
         )
       )
   }

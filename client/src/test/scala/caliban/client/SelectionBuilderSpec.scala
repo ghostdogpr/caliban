@@ -1,7 +1,9 @@
 package caliban.client
 
+import caliban.client.FieldBuilder._
 import caliban.client.Operations.RootQuery
 import caliban.client.Selection.Directive
+import caliban.client.SelectionBuilder.Field
 import caliban.client.TestData._
 import caliban.client.__Value.{ __ListValue, __ObjectValue, __StringValue }
 import zio.test.Assertion._
@@ -231,6 +233,77 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
             List("character" -> __ObjectValue(List("name" -> __StringValue("Amos Burton"))))
           )
           assert(query.fromGraphQL(response))(isRight(equalTo(Some("Fake"))))
+        },
+        test("drop null values in input object") {
+          import caliban.client.__Value._
+
+          case class CharacterInput(name: String, description: Option[String], nicknames: List[String] = Nil)
+          object CharacterInput {
+            implicit val encoder: ArgEncoder[CharacterInput] = (value: CharacterInput) =>
+              __ObjectValue(
+                List(
+                  "name"        -> implicitly[ArgEncoder[String]].encode(value.name),
+                  "description" -> implicitly[ArgEncoder[Option[String]]].encode(value.description),
+                  "nicknames"   -> __ListValue(value.nicknames.map(value => implicitly[ArgEncoder[String]].encode(value)))
+                )
+              )
+          }
+
+          object Query {
+            def addCharacter[A](
+              character: CharacterInput
+            )(sel: SelectionBuilder[Character, A])(implicit
+              encoder: ArgEncoder[CharacterInput]
+            ): Field[RootQuery, Option[A]] =
+              Field(
+                "addCharacter",
+                OptionOf(Obj(sel)),
+                arguments = List(Argument("character", character, "CharacterInput!")(encoder))
+              )
+          }
+
+          val query = Query.addCharacter(CharacterInput("name", None, Nil))(Character.name)
+
+          assert(query.toGraphQL(dropNullInputValues = true).query)(
+            equalTo("""query{addCharacter(character:{name:"name",nicknames:[]}){name}}""")
+          )
+        },
+        test("drop null values in input object by explicit ArgEncoder") {
+          import caliban.client.__Value._
+
+          case class CharacterInput(name: String, description: Option[String], nicknames: List[String] = Nil)
+          object CharacterInput {
+            implicit val encoder: ArgEncoder[CharacterInput] = (value: CharacterInput) =>
+              __ObjectValue(
+                List(
+                  "name"        -> implicitly[ArgEncoder[String]].encode(value.name),
+                  "description" -> implicitly[ArgEncoder[Option[String]]].encode(value.description),
+                  "nicknames"   -> __ListValue(value.nicknames.map(value => implicitly[ArgEncoder[String]].encode(value)))
+                )
+              )
+          }
+
+          object Query {
+            def addCharacter[A](
+              character: CharacterInput
+            )(sel: SelectionBuilder[Character, A])(implicit
+              encoder: ArgEncoder[CharacterInput]
+            ): Field[RootQuery, Option[A]] =
+              Field(
+                "addCharacter",
+                OptionOf(Obj(sel)),
+                arguments = List(Argument("character", character, "CharacterInput!")(encoder))
+              )
+          }
+
+          implicit val encoderWithoutNull: ArgEncoder[CharacterInput] =
+            CharacterInput.encoder.dropNullValues
+
+          val query = Query.addCharacter(CharacterInput("name", None, Nil))(Character.name)
+
+          assert(query.toGraphQL().query)(
+            equalTo("""query{addCharacter(character:{name:"name",nicknames:[]}){name}}""")
+          )
         }
       )
     )

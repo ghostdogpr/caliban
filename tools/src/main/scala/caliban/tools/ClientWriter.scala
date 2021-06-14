@@ -422,6 +422,7 @@ object ClientWriter {
       typeName,
       typeParam,
       args,
+      implicits,
       innerSelection,
       outputType,
       builder,
@@ -430,7 +431,7 @@ object ClientWriter {
     ) =
       fieldInfo
 
-    s"""$description${deprecated}def $safeName$typeParam$args$innerSelection: SelectionBuilder[$typeName, $outputType] = _root_.caliban.client.SelectionBuilder.Field("$name", $builder$argBuilder)"""
+    s"""$description${deprecated}def $safeName$typeParam$args$innerSelection$implicits: SelectionBuilder[$typeName, $outputType] = _root_.caliban.client.SelectionBuilder.Field("$name", $builder$argBuilder)"""
   }
 
   def collectFieldInfo(
@@ -533,7 +534,16 @@ object ClientWriter {
     val argBuilder                                       = field.args match {
       case Nil  => ""
       case list =>
-        s", arguments = List(${list.map(arg => s"""Argument("${arg.name}", ${safeName(arg.name)}, "${arg.ofType.toString}")""").mkString(", ")})"
+        s", arguments = List(${list.zipWithIndex.map { case (arg, idx) =>
+          s"""Argument("${arg.name}", ${safeName(arg.name)}, "${arg.ofType.toString}")(encoder$idx)"""
+        }.mkString(", ")})"
+    }
+    val implicits                                        = field.args match {
+      case Nil  => ""
+      case list =>
+        s"(implicit ${list.zipWithIndex.map { case (arg, idx) =>
+          s"""encoder$idx: ArgEncoder[${writeType(arg.ofType)}]"""
+        }.mkString(", ")})"
     }
 
     val owner         = if (typeParam.nonEmpty) Some(fieldType) else None
@@ -554,6 +564,7 @@ object ClientWriter {
       typeName,
       typeParam,
       args,
+      implicits,
       innerSelection,
       outputType,
       builder,
@@ -678,6 +689,7 @@ object ClientWriter {
     typeName: String,
     typeParam: String,
     args: String,
+    implicits: String,
     innerSelection: String,
     outputType: String,
     builder: String,

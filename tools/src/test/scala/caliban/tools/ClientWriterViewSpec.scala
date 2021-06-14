@@ -105,11 +105,12 @@ object Client {
       case ((name, age), nicknames) => CharacterView(name, age, nicknames)
     }
 
-    def name: SelectionBuilder[Character, String]                                     = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
-    def age: SelectionBuilder[Character, Int]                                         = _root_.caliban.client.SelectionBuilder.Field("age", Scalar())
-    def nicknames(arg: Option[Int] = None): SelectionBuilder[Character, List[String]] =
-      _root_.caliban.client.SelectionBuilder
-        .Field("nicknames", ListOf(Scalar()), arguments = List(Argument("arg", arg, "Int")))
+    def name: SelectionBuilder[Character, String] = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
+    def age: SelectionBuilder[Character, Int]     = _root_.caliban.client.SelectionBuilder.Field("age", Scalar())
+    def nicknames(arg: Option[Int] = None)(implicit
+      encoder0: ArgEncoder[Option[Int]]
+    ): SelectionBuilder[Character, List[String]]  = _root_.caliban.client.SelectionBuilder
+      .Field("nicknames", ListOf(Scalar()), arguments = List(Argument("arg", arg, "Int")(encoder0)))
   }
 
   type User
@@ -124,9 +125,10 @@ object Client {
     )(charactersSelection: SelectionBuilder[Character, CharactersSelection]): ViewSelection[CharactersSelection] =
       characters(charactersName)(charactersSelection).map(characters => UserView(characters))
 
-    def characters[A](name: String)(innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[User, List[A]] =
-      _root_.caliban.client.SelectionBuilder
-        .Field("characters", ListOf(Obj(innerSelection)), arguments = List(Argument("name", name, "String!")))
+    def characters[A](name: String)(
+      innerSelection: SelectionBuilder[Character, A]
+    )(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, List[A]] = _root_.caliban.client.SelectionBuilder
+      .Field("characters", ListOf(Obj(innerSelection)), arguments = List(Argument("name", name, "String!")(encoder0)))
   }
 
 }
@@ -166,10 +168,10 @@ object Client {
 
     def name: SelectionBuilder[Character, String] = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
     def age: SelectionBuilder[Character, Int]     = _root_.caliban.client.SelectionBuilder.Field("age", Scalar())
-    def friends[A](filter: Option[String] = None)(
-      innerSelection: SelectionBuilder[Character, A]
+    def friends[A](filter: Option[String] = None)(innerSelection: SelectionBuilder[Character, A])(implicit
+      encoder0: ArgEncoder[Option[String]]
     ): SelectionBuilder[Character, List[A]]       = _root_.caliban.client.SelectionBuilder
-      .Field("friends", ListOf(Obj(innerSelection)), arguments = List(Argument("filter", filter, "String")))
+      .Field("friends", ListOf(Obj(innerSelection)), arguments = List(Argument("filter", filter, "String")(encoder0)))
   }
 
 }
