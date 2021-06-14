@@ -471,7 +471,7 @@ trait TemporalSchema {
       PureStep(format(value))
   }
 
-  lazy val sampleDate: ZonedDateTime = ZonedDateTime.ofInstant(Instant.EPOCH, ZoneId.systemDefault())
+  lazy val sampleDate: ZonedDateTime = ZonedDateTime.ofInstant(Instant.EPOCH, ZoneId.ofOffset("UTC", ZoneOffset.UTC))
 
   def temporalSchema[A <: Temporal](name: String, description: Option[String] = None)(
     f: A => ResponseValue
