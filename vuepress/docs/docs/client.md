@@ -12,13 +12,13 @@ Just like Caliban, `caliban-client` offers a purely functional interface and kee
 To use `caliban-client`, add the following line in your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-client" % "0.10.1"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-client" % "1.0.0"
 ```
 
 Caliban-client is available for ScalaJS. To use it in a ScalaJS project, instead add this line to your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client" % "0.10.1"
+libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client" % "1.0.0"
 ```
 
 ## Code generation
@@ -27,7 +27,7 @@ The first step for building GraphQL queries with `caliban-client` is to generate
 
 To use this feature, add the `caliban-codegen-sbt` sbt plugin to your `project/plugins.sbt` file:
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "0.10.1")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "1.0.0")
 ```
 
 And enable it in your `build.sbt` file:
@@ -245,7 +245,7 @@ It is depending on [Laminext](https://laminext.dev), a library that provides nic
 
 To use it, import the `caliban-client-laminext` module:
 ```
-libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client-laminext" % "<not yet released, use snapshot>"
+libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client-laminext" % "1.0.0"
 ```
 
 Add the following import to your code:
