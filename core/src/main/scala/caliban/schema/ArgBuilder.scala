@@ -33,6 +33,8 @@ trait ArgBuilder[T] { self =>
    */
   def build(input: InputValue): Either[ExecutionError, T]
 
+  def buildMissing: Either[ExecutionError, T] = build(NullValue)
+
   /**
    * Builds a new `ArgBuilder` of `A` from an existing `ArgBuilder` of `T` and a function from `T` to `A`.
    * @param f a function from `T` to `A`.

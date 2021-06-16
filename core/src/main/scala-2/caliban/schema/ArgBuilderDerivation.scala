@@ -31,7 +31,7 @@ trait ArgBuilderDerivation {
         input match {
           case InputValue.ObjectValue(fields) =>
             val label = p.annotations.collectFirst { case GQLName(name) => name }.getOrElse(p.label)
-            p.typeclass.build(fields.getOrElse(label, NullValue))
+            fields.get(label).fold(p.typeclass.buildMissing)(p.typeclass.build)
           case value                          => p.typeclass.build(value)
         }
       }

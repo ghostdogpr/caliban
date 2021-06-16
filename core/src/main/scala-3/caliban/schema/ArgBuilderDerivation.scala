@@ -51,14 +51,12 @@ trait ArgBuilderDerivation {
         new ArgBuilder[A] {
           def build(input: InputValue): Either[ExecutionError, A] = {
             fields.map { (label, _, builder) =>
-              val newInput =
-                input match {
-                  case InputValue.ObjectValue(fields) =>
-                    val finalLabel = annotations.getOrElse(label, Nil).collectFirst { case GQLName(name) => name }.getOrElse(label)
-                    fields.getOrElse(finalLabel, NullValue)
-                  case value => value
-                }
-              builder.build(newInput)
+              input match {
+                case InputValue.ObjectValue(fields) =>
+                  val finalLabel = annotations.getOrElse(label, Nil).collectFirst { case GQLName(name) => name }.getOrElse(label)
+                  fields.get(finalLabel).fold(builder.buildMissing)(builder.build)
+                case value => builder.build(value)
+              }
             }.foldRight[Either[ExecutionError, Tuple]](Right(EmptyTuple)) { case (item, acc) =>
               item match {
                 case error: Left[ExecutionError, Any] => error.asInstanceOf[Left[ExecutionError, Tuple]]
