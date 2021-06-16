@@ -58,7 +58,8 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
                        .decode[GraphQLResponse](payload)
                        .left
                        .map(ex => DecodingError("Json deserialization error", Some(ex)))
-      data        <- if (parsed.errors.nonEmpty && parsed.data.contains(__Value.__NullValue)) Left(ServerError(parsed.errors))
+      data        <- if (parsed.errors.nonEmpty && parsed.data.forall(_ == __Value.__NullValue))
+                       Left(ServerError(parsed.errors))
                      else Right(parsed.data)
       objectValue <- data match {
                        case Some(o: __ObjectValue) => Right(o)
