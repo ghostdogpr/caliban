@@ -50,7 +50,7 @@ object Scala2SpecificSpec extends DefaultRunnableSpec {
         case object NullNullable          extends Nullable[Nothing]
         case object MissingNullable       extends Nullable[Nothing]
 
-        implicit def nullableArgBuilder[A](implicit ev: ArgBuilder[A]) = new ArgBuilder[Nullable[A]] {
+        implicit def nullableArgBuilder[A](implicit ev: ArgBuilder[A]): ArgBuilder[Nullable[A]] = new ArgBuilder[Nullable[A]] {
           def build(input: InputValue): Either[ExecutionError, Nullable[A]] = input match {
             case NullValue => Right(NullNullable)
             case _         => ev.build(input).map(SomeNullable(_))
