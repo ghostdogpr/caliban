@@ -1,11 +1,7 @@
 package caliban
 
-import caliban.CalibanError.ExecutionError
 import caliban.GraphQL._
-import caliban.InputValue.ObjectValue
-import caliban.Value.{ NullValue, StringValue }
 import caliban.schema.Annotations.GQLInterface
-import caliban.schema.ArgBuilder
 import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment
