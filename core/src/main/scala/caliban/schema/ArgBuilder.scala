@@ -33,6 +33,11 @@ trait ArgBuilder[T] { self =>
    */
   def build(input: InputValue): Either[ExecutionError, T]
 
+  /**
+   * Builds a value of type `T` from a missing input value.
+   * By default, this delegates to [[build]], passing it NullValue.
+   * Fails with an [[caliban.CalibanError.ExecutionError]] if it was impossible to build the value.
+   */
   def buildMissing: Either[ExecutionError, T] = build(NullValue)
 
   /**
