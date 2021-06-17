@@ -1,10 +1,12 @@
 package caliban.schema
 
 import java.time.{ Instant, LocalDate, LocalDateTime, OffsetDateTime, OffsetTime, ZoneOffset, ZonedDateTime }
-
-import caliban.Value.{ IntValue, StringValue }
+import caliban.Value.{ IntValue, NullValue, StringValue }
 import zio.test._
 import Assertion._
+import caliban.CalibanError.ExecutionError
+import caliban.InputValue
+import caliban.InputValue.ObjectValue
 
 object ArgBuilderSpec extends DefaultRunnableSpec {
   def spec = suite("ArgBuilder")(
@@ -56,6 +58,32 @@ object ArgBuilderSpec extends DefaultRunnableSpec {
           isRight(equalTo(ZonedDateTime.ofInstant(Instant.ofEpochMilli(100), ZoneOffset.UTC)))
         )
       )
+    ),
+    suite("buildMissing")(
+      test("works with derived case class ArgBuilders") {
+        sealed abstract class Nullable[+T]
+        case class SomeNullable[+T](t: T) extends Nullable[T]
+        case object NullNullable          extends Nullable[Nothing]
+        case object MissingNullable       extends Nullable[Nothing]
+
+        implicit def nullableArgBuilder[A](implicit ev: ArgBuilder[A]): ArgBuilder[Nullable[A]] =
+          new ArgBuilder[Nullable[A]] {
+            def build(input: InputValue): Either[ExecutionError, Nullable[A]] = input match {
+              case NullValue => Right(NullNullable)
+              case _         => ev.build(input).map(SomeNullable(_))
+            }
+
+            override def buildMissing: Either[ExecutionError, Nullable[A]] = Right(MissingNullable)
+          }
+
+        case class Wrapper(a: Nullable[String])
+
+        val deriviedAB = implicitly[ArgBuilder[Wrapper]]
+
+        assert(deriviedAB.build(ObjectValue(Map())))(equalTo(Right(Wrapper(MissingNullable)))) &&
+        assert(deriviedAB.build(ObjectValue(Map("a" -> NullValue))))(equalTo(Right(Wrapper(NullNullable)))) &&
+        assert(deriviedAB.build(ObjectValue(Map("a" -> StringValue("x")))))(equalTo(Right(Wrapper(SomeNullable("x")))))
+      }
     )
   )
 }
