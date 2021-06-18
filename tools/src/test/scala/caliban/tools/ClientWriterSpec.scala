@@ -243,6 +243,74 @@ object Client {
           )
         )
       },
+      testM("scalar mapped enum") {
+        val schema =
+          """
+             enum Origin {
+               EARTH
+               MARS
+               BELT
+             }
+
+             enum Destination {
+               EARTH
+               MARS
+               BELT
+             }
+
+             input Routes {
+               origin: Origin!
+               destinations: [Destination!]!
+             }
+            """.stripMargin
+
+        assertM(gen(schema, scalarMappings = Map("Destination" -> "com.example.Destination")))(
+          equalTo(
+            """import caliban.client.CalibanClientError.DecodingError
+import caliban.client._
+import caliban.client.__Value._
+
+object Client {
+
+  sealed trait Origin extends scala.Product with scala.Serializable
+  object Origin {
+    case object EARTH extends Origin
+    case object MARS  extends Origin
+    case object BELT  extends Origin
+
+    implicit val decoder: ScalarDecoder[Origin] = {
+      case __StringValue("EARTH") => Right(Origin.EARTH)
+      case __StringValue("MARS")  => Right(Origin.MARS)
+      case __StringValue("BELT")  => Right(Origin.BELT)
+      case other                  => Left(DecodingError(s"Can't build Origin from input $other"))
+    }
+    implicit val encoder: ArgEncoder[Origin]    = {
+      case Origin.EARTH => __EnumValue("EARTH")
+      case Origin.MARS  => __EnumValue("MARS")
+      case Origin.BELT  => __EnumValue("BELT")
+    }
+  }
+
+  case class Routes(origin: Origin, destinations: List[com.example.Destination] = Nil)
+  object Routes {
+    implicit val encoder: ArgEncoder[Routes] = new ArgEncoder[Routes] {
+      override def encode(value: Routes): __Value =
+        __ObjectValue(
+          List(
+            "origin"       -> implicitly[ArgEncoder[Origin]].encode(value.origin),
+            "destinations" -> __ListValue(
+              value.destinations.map(value => implicitly[ArgEncoder[com.example.Destination]].encode(value))
+            )
+          )
+        )
+    }
+  }
+
+}
+"""
+          )
+        )
+      },
       testM("input object") {
         val schema =
           """
