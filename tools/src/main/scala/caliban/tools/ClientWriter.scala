@@ -59,7 +59,10 @@ object ClientWriter {
 
     val inputs = schema.inputObjectTypeDefinitions.map(writeInputObject).mkString("\n")
 
-    val enums = schema.enumTypeDefinitions.map(writeEnum).mkString("\n")
+    val enums = schema.enumTypeDefinitions
+      .filter(e => !scalarMappings.scalarMap.exists(_.contains(e.name)))
+      .map(writeEnum)
+      .mkString("\n")
 
     val scalars = schema.scalarTypeDefinitions
       .filterNot(s => isScalarSupported(s.name))
