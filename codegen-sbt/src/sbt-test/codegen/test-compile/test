@@ -8,6 +8,18 @@ $ exists src/main/scala/client/ClientNameUniqueness.scala
 > calibanGenClient project/gitlab-schema.graphql src/main/scala/client/ClientGitLab.scala --packageName client
 $ exists src/main/scala/client/ClientGitLab.scala
 
+$ mkdir src/main/scala/genview
+$ mkdir src/main/scala/genview/client
+
+> calibanGenClient src/main/graphql/schema.graphql src/main/scala/genview/Client.scala --genView true --packageName genview
+$ exists src/main/scala/genview/Client.scala
+$ exec sh verify.sh CharacterView ./src/main/scala/genview/Client.scala
+> calibanGenClient project/schema-to-check-name-uniqueness.graphql src/main/scala/genview/client/ClientNameUniqueness.scala --packageName genview.client --genView true
+$ exists src/main/scala/genview/client/ClientNameUniqueness.scala
+$ exec sh verify.sh StarshipView ./src/main/scala/genview/client/ClientNameUniqueness.scala
+> calibanGenClient project/gitlab-schema.graphql src/main/scala/genview/client/ClientGitLab.scala --packageName genview.client --genView true
+$ exists src/main/scala/genview/client/ClientGitLab.scala
+$ exec sh verify.sh VulnerableProjectsByGradeView ./src/main/scala/genview/client/ClientGitLab.scala
 > compile
 
 $ exists target/scala-2.12/src_managed/main/caliban-codegen-sbt/caliban/Client.scala
