@@ -43,7 +43,8 @@ object CalibanPlugin extends AutoPlugin {
   lazy val allSettings = baseSettings ++ calibanScopedSettings
 
   override lazy val projectSettings: Seq[Def.Setting[_]] =
-    CalibanCli.projectSettings ++ inConfig(Compile)(allSettings) ++ Seq(
-      Compile / sourceGenerators += (Compile / caliban).taskValue
+    CalibanCli.projectSettings ++ inConfig(Compile)(allSettings) ++ inConfig(Test)(allSettings) ++ Seq(
+      Compile / sourceGenerators += (Compile / caliban).taskValue,
+      Test / sourceGenerators += (Test / caliban).taskValue
     )
 }
