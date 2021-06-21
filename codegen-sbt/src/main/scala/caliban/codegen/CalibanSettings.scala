@@ -1,6 +1,7 @@
 package caliban.codegen
 
 case class CalibanSettings(
+  clientName: Option[String],
   scalafmtPath: Option[String],
   headers: Seq[(String, String)],
   packageName: Option[String],
@@ -11,6 +12,7 @@ case class CalibanSettings(
 ) {
   def append(other: CalibanSettings): CalibanSettings =
     CalibanSettings(
+      clientName = other.clientName.orElse(clientName),
       scalafmtPath = other.scalafmtPath.orElse(scalafmtPath),
       headers = headers ++ other.headers,
       packageName = other.packageName.orElse(packageName),
@@ -20,6 +22,7 @@ case class CalibanSettings(
       imports = imports ++ other.imports
     )
 
+  def clientName(value: String): CalibanSettings                 = this.copy(clientName = Some(value))
   def scalafmtPath(path: String): CalibanSettings                = this.copy(scalafmtPath = Some(path))
   def headers(pairs: (String, String)*): CalibanSettings         = this.copy(headers = this.headers ++ pairs)
   def packageName(name: String): CalibanSettings                 = this.copy(packageName = Some(name))
@@ -33,6 +36,7 @@ case class CalibanSettings(
 object CalibanSettings {
   type Transformer = CalibanSettings => CalibanSettings
   val empty = CalibanSettings(
+    clientName = Option.empty[String],
     scalafmtPath = Option.empty[String],
     headers = Seq.empty[(String, String)],
     packageName = Option.empty[String],

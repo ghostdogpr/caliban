@@ -13,10 +13,14 @@ object CalibanSourceGenerator {
   import zio._
   import zio.console._
 
-  def transformFile(sourceRoot: File, managedRoot: File): File => File = { graphqlFile =>
-    val interimPath = managedRoot.toPath.resolve(sourceRoot.toPath.relativize(graphqlFile.toPath))
-    val fname       = interimPath.getFileName().toString()
-    val scalaName   = fname.stripSuffix(".graphql") + ".scala"
+  def transformFile(sourceRoot: File, managedRoot: File, settings: CalibanSettings): File => File = { graphqlFile =>
+    val relativePath = settings.packageName.fold(sourceRoot.toPath.relativize(graphqlFile.toPath)) { pkg =>
+      val components = pkg.split('.').toList.map(file(_).toPath) :+ graphqlFile.toPath.getFileName()
+      components.reduceLeft(_.resolve(_))
+    }
+    val interimPath  = managedRoot.toPath.resolve(relativePath)
+    val clientName   = settings.clientName.getOrElse(interimPath.getFileName().toString().stripSuffix(".graphql"))
+    val scalaName    = clientName + ".scala"
     interimPath.getParent.resolve(scalaName).toFile
   }
 
@@ -65,7 +69,7 @@ object CalibanSourceGenerator {
 
     def generateSources: List[File] = {
       def generateSource(graphql: File, settings: CalibanSettings): IO[Option[Throwable], File] = for {
-        generatedSource <- ZIO.succeed(transformFile(sourceRoot, sourceManaged)(graphql))
+        generatedSource <- ZIO.succeed(transformFile(sourceRoot, sourceManaged, settings)(graphql))
         _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
         opts            <- ZIO.fromOption(Options.fromArgs(graphql.toString :: generatedSource.toString :: renderArgs(settings)))
         res             <- Codegen.generate(opts, GenType.Client).asSomeError
