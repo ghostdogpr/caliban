@@ -227,7 +227,7 @@ addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "1.0.1")
 
 And enable it in your `build.sbt` file:
 ```scala
-enablePlugins(CodegenPlugin)
+enablePlugins(CalibanPlugin)
 ```
 
 Then call the `calibanGenSchema` sbt command.
