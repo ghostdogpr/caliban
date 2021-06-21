@@ -34,11 +34,18 @@ object CalibanSourceGenerator {
     import sbt.util.CacheImplicits._
 
     def collectSettingsFor(source: File): CalibanSettings =
-      settings
-        .collect({ case (f, needle) if source.toPath.endsWith(f.toPath) => needle })
-        .foldLeft(CalibanSettings.empty) { case (acc, next) =>
-          acc.append(next)
-        }
+      // Supply a default packageName.
+      // If we do not, `src_managed.main.caliban-codegen-sbt` will be used,
+      // which is not only terrible, but invalid.
+      CalibanSettings.empty
+        .packageName("caliban")
+        .append(
+          settings
+            .collect({ case (f, needle) if source.toPath.endsWith(f.toPath) => needle })
+            .foldLeft(CalibanSettings.empty) { case (acc, next) =>
+              acc.append(next)
+            }
+        )
 
     def renderArgs(settings: CalibanSettings): List[String] = {
       def singleOpt(opt: String, value: Option[String]): List[String]        =
@@ -55,8 +62,12 @@ object CalibanSourceGenerator {
         } else Nil
       val scalafmtPath                                                       = singleOpt("--scalafmtPath", settings.scalafmtPath)
       val headers                                                            = pairList("--headers", settings.headers)
-      val packageName                                                        = singleOpt("--packageName", settings.packageName)
-      val genView                                                            = singleOpt(
+      val packageName                                                        = singleOpt(
+        "--packageName",
+        settings.packageName
+      )
+
+      val genView = singleOpt(
         "--genView",
         settings.genView.map(_.toString())
       ) // NB: Presuming zio-config can read toString'd booleans
