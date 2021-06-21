@@ -8,6 +8,7 @@ import _root_.caliban.tools._
 import _root_.caliban.tools.implicits.ScalarMappings
 
 import java.io.{ File, PrintWriter }
+import java.net.URL
 
 object CalibanSourceGenerator {
   import zio._
@@ -29,7 +30,7 @@ object CalibanSourceGenerator {
     sources: Seq[File],
     sourceManaged: File,
     cacheDirectory: File,
-    settings: Seq[(File, CalibanSettings)]
+    fileSettings: Seq[(File, CalibanFileSettings)]
   ): List[File] = {
     import sbt.util.CacheImplicits._
 
@@ -40,7 +41,7 @@ object CalibanSourceGenerator {
       CalibanSettings.empty
         .packageName("caliban")
         .append(
-          settings
+          fileSettings
             .collect({ case (f, needle) if source.toPath.endsWith(f.toPath) => needle })
             .foldLeft(CalibanSettings.empty) { case (acc, next) =>
               acc.append(next)

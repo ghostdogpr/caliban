@@ -35,7 +35,7 @@ object CalibanPlugin extends AutoPlugin {
         sources.value,
         sourceManaged.value,
         streams.value.cacheDirectory,
-        calibanSettings.value
+        calibanSettings.value.collect { case (file, x: CalibanFileSettings) => file -> x }
       )
     )
   )
