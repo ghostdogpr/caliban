@@ -10,6 +10,9 @@ trait CalibanKeys {
   lazy val calibanSettings                                                                      = settingKey[Seq[(File, CalibanSettings)]]("Settings that apply to individual GraphQL files")
   def calibanSetting(file: File)(setting: CalibanSettings.Transformer): (File, CalibanSettings) =
     file -> setting.apply(CalibanSettings.empty)
+
+  @deprecated("CodegenPlugin has been renamed to CalibanPlugin", "1.1.0")
+  val CodegenPlugin: CalibanPlugin.type = CalibanPlugin
 }
 
 object CalibanKeys extends CalibanKeys

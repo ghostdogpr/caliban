@@ -1,6 +1,6 @@
 lazy val root = project
   .in(file("."))
-  .enablePlugins(CalibanPlugin)
+  .enablePlugins(CodegenPlugin)  // Intentionally maintain the deprecated name
   .settings(
     libraryDependencies ++= Seq(
       "com.github.ghostdogpr" %% "caliban-client" % Version.pluginVersion
