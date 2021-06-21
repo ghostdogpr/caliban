@@ -30,20 +30,22 @@ object CalibanSourceGenerator {
     sources: Seq[File],
     sourceManaged: File,
     cacheDirectory: File,
-    fileSettings: Seq[(File, CalibanFileSettings)]
+    fileSettings: Seq[CalibanFileSettings],
+    urlSettings: Seq[CalibanUrlSettings]
   ): List[File] = {
     import sbt.util.CacheImplicits._
 
-    def collectSettingsFor(source: File): CalibanSettings =
+    def collectSettingsFor(source: File): CalibanFileSettings =
       // Supply a default packageName.
       // If we do not, `src_managed.main.caliban-codegen-sbt` will be used,
       // which is not only terrible, but invalid.
-      CalibanSettings.empty
+      CalibanSettings
+        .emptyFile(source)
         .packageName("caliban")
         .append(
           fileSettings
-            .collect({ case (f, needle) if source.toPath.endsWith(f.toPath) => needle })
-            .foldLeft(CalibanSettings.empty) { case (acc, next) =>
+            .collect({ case needle if source.toPath.endsWith(needle.file.toPath) => needle })
+            .foldLeft[CalibanFileSettings](CalibanSettings.emptyFile(source)) { case (acc, next) =>
               acc.append(next)
             }
         )
@@ -80,8 +82,18 @@ object CalibanSourceGenerator {
     }
 
     def generateSources: List[File] = {
-      def generateSource(graphql: File, settings: CalibanSettings): IO[Option[Throwable], File] = for {
+      def generateFileSource(graphql: File, settings: CalibanSettings): IO[Option[Throwable], File] = for {
         generatedSource <- ZIO.succeed(transformFile(sourceRoot, sourceManaged, settings)(graphql))
+        _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
+        opts            <- ZIO.fromOption(Options.fromArgs(graphql.toString :: generatedSource.toString :: renderArgs(settings)))
+        res             <- Codegen.generate(opts, GenType.Client).asSomeError
+      } yield new File(opts.toPath)
+
+      def generateUrlSource(graphql: URL, settings: CalibanSettings): IO[Option[Throwable], File] = for {
+        generatedSource <-
+          ZIO.succeed(
+            transformFile(sourceRoot, sourceManaged, settings)(new java.io.File(graphql.getPath().stripPrefix("/")))
+          )
         _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
         opts            <- ZIO.fromOption(Options.fromArgs(graphql.toString :: generatedSource.toString :: renderArgs(settings)))
         res             <- Codegen.generate(opts, GenType.Client).asSomeError
@@ -89,12 +101,22 @@ object CalibanSourceGenerator {
 
       Runtime.default
         .unsafeRun(
-          ZIO.foreach(sources.toList)(source =>
-            generateSource(source, collectSettingsFor(source)).asSome.catchAll {
-              case Some(reason) => putStrLn(reason.toString) *> putStrLn(reason.getStackTrace.mkString("\n")).as(None)
-              case None         => ZIO.none
-            }
-          )
+          for {
+            fromFiles <- ZIO.foreach(sources.toList)(source =>
+                           generateFileSource(source, collectSettingsFor(source)).asSome.catchAll {
+                             case Some(reason) =>
+                               putStrLn(reason.toString) *> putStrLn(reason.getStackTrace.mkString("\n")).as(None)
+                             case None         => ZIO.none
+                           }
+                         )
+            fromUrls  <- ZIO.foreach(urlSettings)(setting =>
+                           generateUrlSource(setting.url, setting).asSome.catchAll {
+                             case Some(reason) =>
+                               putStrLn(reason.toString) *> putStrLn(reason.getStackTrace.mkString("\n")).as(None)
+                             case None         => ZIO.none
+                           }
+                         )
+          } yield fromFiles ++ fromUrls
         )
         .flatten
     }
