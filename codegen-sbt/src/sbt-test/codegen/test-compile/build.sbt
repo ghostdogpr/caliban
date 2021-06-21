@@ -6,9 +6,15 @@ lazy val root = project
       "com.github.ghostdogpr" %% "caliban-client" % Version.pluginVersion
     ),
     Compile / caliban / calibanSettings ++= Seq(
-      calibanSetting(file("schema.graphql"))(
+      calibanSetting(file("src/main/graphql/schema.graphql"))(  // Explicitly constrain to disambiguate
         cs =>
           cs.clientName("Client")
+      ),
+      calibanSetting(file("src/main/graphql/genview/schema.graphql"))(
+        cs =>
+          cs.clientName("Client")
+            .packageName("genview")
+            .genView(true)
       )
     )
   )
