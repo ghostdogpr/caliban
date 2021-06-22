@@ -5,8 +5,6 @@ $ mkdir src/main/scala/client
 
 > calibanGenClient project/schema-to-check-name-uniqueness.graphql src/main/scala/client/ClientNameUniqueness.scala --packageName client
 $ exists src/main/scala/client/ClientNameUniqueness.scala
-> calibanGenClient project/gitlab-schema.graphql src/main/scala/client/ClientGitLab.scala --packageName client
-$ exists src/main/scala/client/ClientGitLab.scala
 
 $ mkdir src/main/scala/genview
 $ mkdir src/main/scala/genview/client
