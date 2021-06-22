@@ -35,7 +35,7 @@ And enable it in your `build.sbt` file:
 enablePlugins(CalibanPlugin)
 ```
 
-### File generation
+### From a schema file
 
 At this point, the `caliban` command will cause any files in `src/main/graphql` to be translated into a Caliban-generated client library. This happens automatically any time you `compile`.
 
@@ -59,7 +59,7 @@ In order to supply more configuration options to the code generator, you can use
       )
 ```
 
-### URL generation
+### From a server URL
 
 The `calibanSetting` function also permits generating clients for supplied `url`'s:
 ```scala
