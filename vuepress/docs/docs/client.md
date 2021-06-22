@@ -87,7 +87,7 @@ The settings available on the `cs` (`CalibanSettings`) builder are:
 
 ### `calibanGenClient`
 
-Should you prefer or otherwise need the previous style of manual client codegen, supplied by the `calibanGenClient` function, that command is still available. Documentation for that command is as follows:
+If you prefer to generate the client explicitly rather than automatically, you can use `calibanGenClient` on the SBT CLI as follows:
 
 ```scala
 calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--genView true|false] [--scalarMappings gqlType:f.q.d.n.Type,gqlType2:f.q.d.n.Type2] [--imports a.b.c._,c.d.E]
