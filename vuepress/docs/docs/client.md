@@ -74,11 +74,11 @@ The `calibanSetting` function also permits generating clients for supplied `url`
 
 The settings available on the `cs` (`CalibanSettings`) builder are:
 ```
-  def scalafmtPath(path: String): CalibanSettings
-  def packageName(name: String): CalibanSettings
-  def genView(value: Boolean): CalibanSettings
-  def scalarMapping(mapping: (String,String)*): CalibanSettings
-  def imports(values: String*): CalibanSettings
+  def scalafmtPath(path: String): CalibanSettings               // Path to a scalafmt config (default: .scalafmt.conf)
+  def packageName(name: String): CalibanSettings                // Which package to put the generated clients in (default: caliban)
+  def genView(value: Boolean): CalibanSettings                  // Provide a case class and helper method to select all fields on an object (default: false)
+  def scalarMapping(mapping: (String,String)*): CalibanSettings // A mapping from GraphQL scalar types to JVM types, as unknown scalar types are represented as String by default.
+  def imports(values: String*): CalibanSettings                 // A list of imports to be added to the top of a generated client
 
   // Only defined for `url` settings, for use in supplying extra headers when fetching the schema itself
   def headers(pairs: (String,String)*): CalibanSettings
