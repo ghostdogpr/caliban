@@ -77,7 +77,6 @@ The settings available on the `cs` (`CalibanSettings`) builder are:
   def scalafmtPath(path: String): CalibanSettings
   def packageName(name: String): CalibanSettings
   def genView(value: Boolean): CalibanSettings
-  def effect(tpe: String): CalibanSettings
   def scalarMapping(mapping: (String,String)*): CalibanSettings
   def imports(values: String*): CalibanSettings
 

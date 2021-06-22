@@ -74,11 +74,10 @@ object CalibanSourceGenerator {
         "--genView",
         settings.genView.map(_.toString())
       ) // NB: Presuming zio-config can read toString'd booleans
-      val effect         = singleOpt("--effect", settings.effect)
       val scalarMappings = pairList("--scalarMappings", settings.scalarMappings)
       val imports        = list("--imports", settings.imports)
 
-      scalafmtPath ++ headers ++ packageName ++ genView ++ effect ++ scalarMappings ++ imports
+      scalafmtPath ++ headers ++ packageName ++ genView ++ scalarMappings ++ imports
     }
 
     def generateSources: List[File] = {
