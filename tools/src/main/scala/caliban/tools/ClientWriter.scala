@@ -363,10 +363,12 @@ object ClientWriter {
     def safeEnumValue(enumValue: String): String =
       safeName(mappingClashedEnumValues.getOrElse(enumValue, enumValue))
 
-    s"""sealed trait $enumName extends scala.Product with scala.Serializable
+    s"""sealed trait $enumName extends scala.Product with scala.Serializable { def value: String }
         object $enumName {
           ${typedef.enumValuesDefinition
-      .map(v => s"case object ${safeEnumValue(v.enumValue)} extends $enumName")
+      .map(v =>
+        s"case object ${safeEnumValue(v.enumValue)} extends $enumName { val value: String = ${"\"" + safeEnumValue(v.enumValue) + "\""} }"
+      )
       .mkString("\n")}
 
           implicit val decoder: ScalarDecoder[$enumName] = {

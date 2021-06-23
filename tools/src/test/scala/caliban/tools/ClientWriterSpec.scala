@@ -219,11 +219,11 @@ import caliban.client.__Value._
 
 object Client {
 
-  sealed trait Origin extends scala.Product with scala.Serializable
+  sealed trait Origin extends scala.Product with scala.Serializable { def value: String }
   object Origin {
-    case object EARTH extends Origin
-    case object MARS  extends Origin
-    case object BELT  extends Origin
+    case object EARTH extends Origin { val value: String = "EARTH" }
+    case object MARS  extends Origin { val value: String = "MARS"  }
+    case object BELT  extends Origin { val value: String = "BELT"  }
 
     implicit val decoder: ScalarDecoder[Origin] = {
       case __StringValue("EARTH") => Right(Origin.EARTH)
@@ -272,11 +272,11 @@ import caliban.client.__Value._
 
 object Client {
 
-  sealed trait Origin extends scala.Product with scala.Serializable
+  sealed trait Origin extends scala.Product with scala.Serializable { def value: String }
   object Origin {
-    case object EARTH extends Origin
-    case object MARS  extends Origin
-    case object BELT  extends Origin
+    case object EARTH extends Origin { val value: String = "EARTH" }
+    case object MARS  extends Origin { val value: String = "MARS"  }
+    case object BELT  extends Origin { val value: String = "BELT"  }
 
     implicit val decoder: ScalarDecoder[Origin] = {
       case __StringValue("EARTH") => Right(Origin.EARTH)
@@ -579,12 +579,12 @@ import caliban.client.__Value._
 
 object Client {
 
-  sealed trait Episode extends scala.Product with scala.Serializable
+  sealed trait Episode extends scala.Product with scala.Serializable { def value: String }
   object Episode {
-    case object NEWHOPE extends Episode
-    case object EMPIRE  extends Episode
-    case object JEDI    extends Episode
-    case object jedi_1  extends Episode
+    case object NEWHOPE extends Episode { val value: String = "NEWHOPE" }
+    case object EMPIRE  extends Episode { val value: String = "EMPIRE"  }
+    case object JEDI    extends Episode { val value: String = "JEDI"    }
+    case object jedi_1  extends Episode { val value: String = "jedi_1"  }
 
     implicit val decoder: ScalarDecoder[Episode] = {
       case __StringValue("NEWHOPE") => Right(Episode.NEWHOPE)
