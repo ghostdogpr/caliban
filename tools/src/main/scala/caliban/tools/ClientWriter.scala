@@ -382,6 +382,10 @@ object ClientWriter {
       .map(v => s"""case ${typedef.name}.${safeEnumValue(v.enumValue)} => __EnumValue("${v.enumValue}")""")
       .mkString("\n")}
           }
+
+          val values: Vector[${enumName}] = Vector(${typedef.enumValuesDefinition
+      .map(v => safeEnumValue(v.enumValue))
+      .mkString(", ")})
         }
        """
   }

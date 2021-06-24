@@ -236,6 +236,8 @@ object Client {
       case Origin.MARS  => __EnumValue("MARS")
       case Origin.BELT  => __EnumValue("BELT")
     }
+
+    val values: Vector[Origin] = Vector(EARTH, MARS, BELT)
   }
 
 }
@@ -289,6 +291,8 @@ object Client {
       case Origin.MARS  => __EnumValue("MARS")
       case Origin.BELT  => __EnumValue("BELT")
     }
+
+    val values: Vector[Origin] = Vector(EARTH, MARS, BELT)
   }
 
   case class Routes(origin: Origin, destinations: List[com.example.Destination] = Nil)
@@ -599,6 +603,8 @@ object Client {
       case Episode.JEDI    => __EnumValue("JEDI")
       case Episode.jedi_1  => __EnumValue("jedi")
     }
+
+    val values: Vector[Episode] = Vector(NEWHOPE, EMPIRE, JEDI, jedi_1)
   }
 
 }
