@@ -179,6 +179,27 @@ object OptionsSpec extends DefaultRunnableSpec {
             )
           )
         )
+      },
+      test("header with a colon in the value") {
+        val input  = List("schema", "output", "--scalafmtPath", "fmtPath", "--headers", "aaa:bbb:ccc")
+        val result = Options.fromArgs(input)
+        assert(result)(
+          equalTo(
+            Some(
+              Options(
+                "schema",
+                "output",
+                Some("fmtPath"),
+                Some(List(Header("aaa", "bbb:ccc"))),
+                None,
+                None,
+                None,
+                None,
+                None
+              )
+            )
+          )
+        )
       }
     )
 }
