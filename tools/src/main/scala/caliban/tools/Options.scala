@@ -46,8 +46,8 @@ object Options {
             rawOpts.headers.map {
               _.flatMap { rawHeader =>
                 rawHeader.split(":").toList match {
-                  case name :: value :: Nil => Some(Header(name, value))
-                  case _                    => None
+                  case name :: values if values.nonEmpty => Some(Header(name, values.mkString(":")))
+                  case _                                 => None
                 }
               }
             },
