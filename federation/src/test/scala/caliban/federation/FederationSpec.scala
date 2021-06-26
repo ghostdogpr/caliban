@@ -1,9 +1,12 @@
 package caliban.federation
 
+import caliban.CalibanError
 import caliban.CalibanError.ValidationError
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
+import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.TestUtils._
+import caliban.Value.{ BooleanValue, StringValue }
 import caliban.schema.Annotations.GQLDirective
 import caliban.schema.Schema
 import zio.test.Assertion._
@@ -33,6 +36,18 @@ object FederationSpec extends DefaultRunnableSpec {
   val orphanResolver =
     EntityResolver[Any, OrphanArgs, Orphan](args =>
       ZQuery.succeed(characters.find(_.name == args.name).map(c => Orphan(c.name, c.nicknames, OrphanChild("abc"))))
+    )
+
+  val functionEntityResolver =
+    EntityResolver.fromMetadata[CharacterArgs](field =>
+      args =>
+        ZQuery.fromEither(
+          Either.cond(
+            !field.fields.exists(_.name == "nicknames"),
+            characters.find(_.name == args.name),
+            CalibanError.ExecutionError("AAAAAAHHHHH")
+          )
+        )
     )
 
   override def spec = suite("FederationSpec")(
@@ -89,6 +104,30 @@ object FederationSpec extends DefaultRunnableSpec {
             """type OrphanChild {\n  id: String!\n}"""
           )
       )
+    },
+    testM("should include field metadata") {
+      val interpreter = federate(graphQL(resolver), functionEntityResolver).interpreter
+      val query       = gqldoc("""
+           query Entities($withNicknames: Boolean = false) {
+            _entities(representations: [{__typename: "Character", name: "Amos Burton"}]) {
+              ... on Character {
+                name
+                nicknames @include(if: $withNicknames)
+              }
+            }
+          }
+          """)
+
+      def runQuery(withNicknames: Boolean) =
+        interpreter.flatMap(_.execute(query, variables = Map("withNicknames" -> BooleanValue(withNicknames))))
+
+      runQuery(true).zipWith(runQuery(false)) { (bad, good) =>
+        assertTrue(bad.errors.map(_.msg) == List("AAAAAAHHHHH")) && assertTrue(
+          good.data == ObjectValue(
+            List("_entities" -> ListValue(List(ObjectValue(List("name" -> StringValue("Amos Burton"))))))
+          )
+        )
+      }
     }
   )
 }
