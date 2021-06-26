@@ -7,9 +7,7 @@ import sbt.{ AutoPlugin, Command, State }
 import zio.console.{ putStrLn, Console }
 import zio.{ RIO, Runtime }
 
-object CodegenPlugin extends AutoPlugin {
-  override lazy val projectSettings = Seq(commands ++= Seq(genSchemaCommand, genClientCommand))
-
+object CalibanCli {
   lazy val genSchemaCommand =
     genCommand(
       "calibanGenSchema",
@@ -90,4 +88,6 @@ object CodegenPlugin extends AutoPlugin {
         } yield ()
       case None            => putStrLn(helpMsg)
     }
+
+  def projectSettings = Seq(commands ++= Seq(genSchemaCommand, genClientCommand))
 }

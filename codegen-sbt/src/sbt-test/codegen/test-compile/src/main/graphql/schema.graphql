@@ -46,7 +46,7 @@ type Character {
     # union
     role: Role
 
-    # Deperecated field + comment
+    # Deprecated field + comment
     oldName: String! @deprecated(reason: "blah")
     oldNicknames: [String!]! @deprecated
     # Deprecated field + comment newline

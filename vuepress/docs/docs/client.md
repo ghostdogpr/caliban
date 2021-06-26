@@ -32,16 +32,69 @@ addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "1.0.1")
 
 And enable it in your `build.sbt` file:
 ```scala
-enablePlugins(CodegenPlugin)
+enablePlugins(CalibanPlugin)
 ```
 
-Then call the `calibanGenClient` sbt command.
+### From a schema file
+
+At this point, the `caliban` command will cause any files in `src/main/graphql` to be translated into a Caliban-generated client library. This happens automatically any time you `compile`.
+
+By default, all clients are generated with the same client name as the source file, in the `caliban` top-level package.
+
+In order to supply more configuration options to the code generator, you can use the `calibanSettings` sbt setting, combined with the `calibanSetting` function to scope the settings to a particular file:
+```scala
+      // The `file("Service.graphql")` is a path suffix for some file in `src/main/graphql`
+      Compile / caliban / calibanSettings += calibanSetting(file("Service.graphql"))(
+        cs =>
+          cs.packageName("com.example.graphql.client")
+            .scalarMapping(
+              "LanguageCode" -> "com.example.models.LanguageCode",
+            )
+            .scalarMapping(
+              "Timestamp" -> "java.sql.Timestamp",
+              "DayOfWeek" -> "java.time.DayOfWeek",
+              "IntRange"  -> "com.github.tminglei.slickpg.Range[Int]"
+            )
+            .imports("com.example.graphql.client.implicits._")
+      )
+```
+
+### From a server URL
+
+The `calibanSetting` function also permits generating clients for supplied `url`'s:
+```scala
+      Compile / caliban / calibanSettings += calibanSetting(url("http://my-example-service/graphql"))(
+        cs =>
+          cs.clientName("ExampleServiceClient")
+            .packageName("com.example.graphql.client")
+      )
+```
+
+### `calibanSetting` config parameters
+
+The settings available on the `cs` (`CalibanSettings`) builder are:
+```
+  def scalafmtPath(path: String): CalibanSettings               // Path to a scalafmt config (default: .scalafmt.conf)
+  def packageName(name: String): CalibanSettings                // Which package to put the generated clients in (default: caliban)
+  def genView(value: Boolean): CalibanSettings                  // Provide a case class and helper method to select all fields on an object (default: false)
+  def scalarMapping(mapping: (String,String)*): CalibanSettings // A mapping from GraphQL scalar types to JVM types, as unknown scalar types are represented as String by default.
+  def imports(values: String*): CalibanSettings                 // A list of imports to be added to the top of a generated client
+
+  // Only defined for `url` settings, for use in supplying extra headers when fetching the schema itself
+  def headers(pairs: (String,String)*): CalibanSettings
+```
+
+### `calibanGenClient`
+
+If you prefer to generate the client explicitly rather than automatically, you can use `calibanGenClient` on the SBT CLI as follows:
+
 ```scala
 calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--genView true|false] [--scalarMappings gqlType:f.q.d.n.Type,gqlType2:f.q.d.n.Type2] [--imports a.b.c._,c.d.E]
 
 calibanGenClient project/schema.graphql src/main/client/Client.scala --genView true  
 ```
 This command will generate a Scala file in `outputPath` containing helper functions for all the types defined in the provided GraphQL schema defined at `schemaPath`.
+If you need to disable generating clients from `src/main/graphql`, please include `Compile / caliban / calibanGenerator := Seq.empty` in your project settings.
 Instead of a file, you can provide a URL and the schema will be obtained using introspection.
 The generated code will be formatted with Scalafmt using the configuration defined by `--scalafmtPath` option (default: `.scalafmt.conf`).
 If you provide a URL for `schemaPath`, you can provide request headers with `--headers` option.
