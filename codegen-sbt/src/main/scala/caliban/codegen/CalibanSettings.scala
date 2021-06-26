@@ -85,7 +85,7 @@ case class CalibanUrlSettings(
 
 object CalibanSettings {
   type Transformer = CalibanSettings => CalibanSettings
-  def emptyFile(file: File) = CalibanFileSettings(
+  def emptyFile(file: File): CalibanFileSettings = CalibanFileSettings(
     file = file,
     clientName = Option.empty[String],
     scalafmtPath = Option.empty[String],
@@ -95,7 +95,7 @@ object CalibanSettings {
     imports = Seq.empty[String]
   )
 
-  def emptyUrl(url: URL) = CalibanUrlSettings(
+  def emptyUrl(url: URL): CalibanUrlSettings = CalibanUrlSettings(
     url = url,
     clientName = Option.empty[String],
     scalafmtPath = Option.empty[String],

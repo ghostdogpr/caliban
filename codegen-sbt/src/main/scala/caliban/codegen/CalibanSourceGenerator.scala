@@ -1,13 +1,10 @@
 package caliban.codegen
 
-import sbt._
-import sbt.Keys._
-
 import _root_.caliban.tools.Codegen.GenType
 import _root_.caliban.tools._
-import _root_.caliban.tools.implicits.ScalarMappings
+import sbt._
 
-import java.io.{ File, PrintWriter }
+import java.io.File
 import java.net.URL
 
 object CalibanSourceGenerator {
@@ -16,11 +13,11 @@ object CalibanSourceGenerator {
 
   def transformFile(sourceRoot: File, managedRoot: File, settings: CalibanSettings): File => File = { graphqlFile =>
     val relativePath = settings.packageName.fold(sourceRoot.toPath.relativize(graphqlFile.toPath)) { pkg =>
-      val components = pkg.split('.').toList.map(file(_).toPath) :+ graphqlFile.toPath.getFileName()
+      val components = pkg.split('.').toList.map(file(_).toPath) :+ graphqlFile.toPath.getFileName
       components.reduceLeft(_.resolve(_))
     }
     val interimPath  = managedRoot.toPath.resolve(relativePath)
-    val clientName   = settings.clientName.getOrElse(interimPath.getFileName().toString().stripSuffix(".graphql"))
+    val clientName   = settings.clientName.getOrElse(interimPath.getFileName.toString.stripSuffix(".graphql"))
     val scalaName    = clientName + ".scala"
     interimPath.getParent.resolve(scalaName).toFile
   }
@@ -57,7 +54,7 @@ object CalibanSourceGenerator {
         } else Nil
       def pairList(opt: String, values: Seq[(String, String)]): List[String] =
         if (values.nonEmpty) {
-          opt :: values.map({ case (fst, snd) => s"${fst}:${snd}" }).mkString(",") :: Nil
+          opt :: values.map({ case (fst, snd) => s"$fst:$snd" }).mkString(",") :: Nil
         } else Nil
       def list(opt: String, values: Seq[String]): List[String]               =
         if (values.nonEmpty) {
@@ -85,17 +82,17 @@ object CalibanSourceGenerator {
         generatedSource <- ZIO.succeed(transformFile(sourceRoot, sourceManaged, settings)(graphql))
         _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
         opts            <- ZIO.fromOption(Options.fromArgs(graphql.toString :: generatedSource.toString :: renderArgs(settings)))
-        res             <- Codegen.generate(opts, GenType.Client).asSomeError
+        _               <- Codegen.generate(opts, GenType.Client).asSomeError
       } yield new File(opts.toPath)
 
       def generateUrlSource(graphql: URL, settings: CalibanSettings): IO[Option[Throwable], File] = for {
         generatedSource <-
           ZIO.succeed(
-            transformFile(sourceRoot, sourceManaged, settings)(new java.io.File(graphql.getPath().stripPrefix("/")))
+            transformFile(sourceRoot, sourceManaged, settings)(new java.io.File(graphql.getPath.stripPrefix("/")))
           )
         _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
         opts            <- ZIO.fromOption(Options.fromArgs(graphql.toString :: generatedSource.toString :: renderArgs(settings)))
-        res             <- Codegen.generate(opts, GenType.Client).asSomeError
+        _               <- Codegen.generate(opts, GenType.Client).asSomeError
       } yield new File(opts.toPath)
 
       Runtime.default

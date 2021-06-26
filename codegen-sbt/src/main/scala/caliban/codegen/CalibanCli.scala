@@ -3,7 +3,7 @@ package caliban.codegen
 import caliban.tools.Codegen.GenType
 import caliban.tools._
 import sbt.Keys.commands
-import sbt.{ AutoPlugin, Command, State }
+import sbt.{ Command, State }
 import zio.console.{ putStrLn, Console }
 import zio.{ RIO, Runtime }
 

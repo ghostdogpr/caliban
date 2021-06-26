@@ -2,7 +2,6 @@ package caliban.codegen
 
 import sbt._
 import sbt.Keys._
-import _root_.sbt.util.CacheImplicits._
 
 object CalibanPlugin extends AutoPlugin {
   override def requires = plugins.JvmPlugin
