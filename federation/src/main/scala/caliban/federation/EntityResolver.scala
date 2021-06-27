@@ -1,5 +1,6 @@
 package caliban.federation
 
+import caliban.execution.Field
 import caliban.introspection.adt.__Type
 import caliban.schema.{ ArgBuilder, Schema, Step }
 import caliban.{ CalibanError, InputValue }
@@ -30,7 +31,26 @@ object EntityResolver {
   def from[A]: EntityResolverPartiallyApplied[A] =
     new EntityResolverPartiallyApplied
 
-  class EntityResolverPartiallyApplied[A] {
+  def fromMetadata[A]: MetadataEntityResolverPartiallyApplied[A] =
+    new MetadataEntityResolverPartiallyApplied[A]
+
+  class MetadataEntityResolverPartiallyApplied[A](val dummy: Boolean = false) extends AnyVal {
+    def apply[R, T](
+      resolver: Field => A => ZQuery[R, CalibanError, Option[T]]
+    )(implicit schema: Schema[R, T], argBuilder: ArgBuilder[A]): EntityResolver[R] =
+      new EntityResolver[R] {
+        override def resolve(value: InputValue): ZQuery[R, CalibanError, Step[R]] =
+          ZQuery.fromEither(argBuilder.build(value)).map { arg =>
+            Step.MetadataFunctionStep(field =>
+              Step.QueryStep(resolver(field)(arg).map(_.fold[Step[R]](Step.NullStep)(schema.resolve)))
+            )
+          }
+
+        override def toType: __Type = schema.toType_()
+      }
+  }
+
+  class EntityResolverPartiallyApplied[A](val dummy: Boolean = false) {
     def apply[R, R1 <: R, T](
       resolver: A => ZQuery[R1, CalibanError, Option[T]]
     )(implicit schema: Schema[R, T], argBuilder: ArgBuilder[A]): EntityResolver[R1] =
