@@ -82,21 +82,30 @@ trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
 
   def dispatch[T](ctx: SealedTrait[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
-      val subtypes =
+      val subtypes    =
         ctx.subtypes
           .map(s => s.typeclass.toType_() -> s.annotations)
           .toList
           .sortBy { case (tpe, _) =>
             tpe.name.getOrElse("")
           }
-      val isEnum   = subtypes.forall {
+      val isEnum      = subtypes.forall {
         case (t, _)
             if t.fields(__DeprecatedArgs(Some(true))).forall(_.isEmpty)
               && t.inputFields.forall(_.isEmpty) =>
           true
         case _ => false
       }
-      if (isEnum && subtypes.nonEmpty)
+      val isInterface = ctx.annotations.exists {
+        case GQLInterface() => true
+        case _              => false
+      }
+      val isUnion     = ctx.annotations.exists {
+        case GQLUnion() => true
+        case _          => false
+      }
+
+      if (isEnum && subtypes.nonEmpty && !isInterface && !isUnion)
         makeEnum(
           Some(getName(ctx)),
           getDescription(ctx),
@@ -110,34 +119,30 @@ trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
           },
           Some(ctx.typeName.full)
         )
+      else if (!isInterface)
+        makeUnion(
+          Some(getName(ctx)),
+          getDescription(ctx),
+          subtypes.map { case (t, _) => fixEmptyUnionObject(t) },
+          Some(ctx.typeName.full)
+        )
       else {
-        ctx.annotations.collectFirst { case GQLInterface() =>
-          ()
-        }.fold(
-          makeUnion(
-            Some(getName(ctx)),
-            getDescription(ctx),
-            subtypes.map { case (t, _) => fixEmptyUnionObject(t) },
-            Some(ctx.typeName.full)
-          )
-        ) { _ =>
-          val impl         = subtypes.map(_._1.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
-          val commonFields = () =>
-            impl
-              .flatMap(_.fields(__DeprecatedArgs(Some(true))))
-              .flatten
-              .groupBy(_.name)
-              .filter({ case (_, list) => list.lengthCompare(impl.size) == 0 })
-              .collect { case (_, list) =>
-                Types
-                  .unify(list.map(_.`type`()))
-                  .flatMap(t => list.headOption.map(_.copy(`type` = () => t)))
-              }
-              .flatten
-              .toList
+        val impl         = subtypes.map(_._1.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
+        val commonFields = () =>
+          impl
+            .flatMap(_.fields(__DeprecatedArgs(Some(true))))
+            .flatten
+            .groupBy(_.name)
+            .filter({ case (_, list) => list.lengthCompare(impl.size) == 0 })
+            .collect { case (_, list) =>
+              Types
+                .unify(list.map(_.`type`()))
+                .flatMap(t => list.headOption.map(_.copy(`type` = () => t)))
+            }
+            .flatten
+            .toList
 
-          makeInterface(Some(getName(ctx)), getDescription(ctx), commonFields, impl, Some(ctx.typeName.full))
-        }
+        makeInterface(Some(getName(ctx)), getDescription(ctx), commonFields, impl, Some(ctx.typeName.full))
       }
     }
 

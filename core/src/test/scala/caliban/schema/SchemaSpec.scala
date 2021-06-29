@@ -1,9 +1,8 @@
 package caliban.schema
 
 import java.util.UUID
-
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
-import caliban.schema.Annotations.GQLInterface
+import caliban.schema.Annotations.{ GQLInterface, GQLUnion }
 import zio.blocking.Blocking
 import zio.console.Console
 import zio.query.ZQuery
@@ -88,6 +87,16 @@ object SchemaSpec extends DefaultRunnableSpec {
           equalTo(List("common"))
         )
       },
+      test("enum-like sealed traits annotated with GQLUnion") {
+        assert(introspect[EnumLikeUnion])(
+          hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.UNION))
+        )
+      },
+      test("enum-like sealed traits annotated with GQLInterface") {
+        assert(introspect[EnumLikeInterface])(
+          hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.INTERFACE))
+        )
+      },
       test("field with Json object [circe]") {
         import caliban.interop.circe.json._
         case class Queries(to: io.circe.Json, from: io.circe.Json => Unit)
@@ -130,6 +139,20 @@ object SchemaSpec extends DefaultRunnableSpec {
   object MyInterface {
     case class A(common: Int, different: String)  extends MyInterface
     case class B(common: Int, different: Boolean) extends MyInterface
+  }
+
+  @GQLUnion
+  sealed trait EnumLikeUnion
+  object EnumLikeUnion {
+    case object A extends EnumLikeUnion
+    case object B extends EnumLikeUnion
+  }
+
+  @GQLInterface
+  sealed trait EnumLikeInterface
+  object EnumLikeInterface {
+    case object A extends EnumLikeInterface
+    case object B extends EnumLikeInterface
   }
 
   def introspect[Q](implicit schema: Schema[Any, Q]): __Type             = schema.toType_()
