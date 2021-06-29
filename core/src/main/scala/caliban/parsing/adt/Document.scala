@@ -2,46 +2,50 @@ package caliban.parsing.adt
 
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
-import caliban.parsing.adt.Definition.TypeSystemDefinition.SchemaDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
+import caliban.parsing.adt.Definition.TypeSystemDefinition.{ DirectiveDefinition, SchemaDefinition, TypeDefinition }
 import caliban.parsing.adt.OperationType.{ Mutation, Query, Subscription }
 
-object Document {
-  def objectTypeDefinitions(doc: Document): List[ObjectTypeDefinition] = doc.definitions.collect {
-    case td: ObjectTypeDefinition => td
+case class Document(definitions: List[Definition], sourceMapper: SourceMapper) {
+  lazy val directiveDefinitions: List[DirectiveDefinition]             = definitions.collect { case dd: DirectiveDefinition =>
+    dd
   }
-  def inputObjectTypeDefinitions(doc: Document): List[InputObjectTypeDefinition] = doc.definitions.collect {
+  lazy val typeDefinitions: List[TypeDefinition]                       = definitions.collect { case td: TypeDefinition =>
+    td
+  }
+  lazy val objectTypeDefinitions: List[ObjectTypeDefinition]           = definitions.collect { case td: ObjectTypeDefinition =>
+    td
+  }
+  lazy val inputObjectTypeDefinitions: List[InputObjectTypeDefinition] = definitions.collect {
     case td: InputObjectTypeDefinition => td
   }
-  def interfaceTypeDefinitions(doc: Document): List[InterfaceTypeDefinition] = doc.definitions.collect {
+  lazy val interfaceTypeDefinitions: List[InterfaceTypeDefinition]     = definitions.collect {
     case td: InterfaceTypeDefinition => td
   }
-  def enumTypeDefinitions(doc: Document): List[EnumTypeDefinition] = doc.definitions.collect {
-    case td: EnumTypeDefinition => td
+  lazy val enumTypeDefinitions: List[EnumTypeDefinition]               = definitions.collect { case td: EnumTypeDefinition =>
+    td
   }
-  def scalarTypeDefinitions(doc: Document): List[ScalarTypeDefinition] = doc.definitions.collect {
-    case td: ScalarTypeDefinition => td
+  lazy val scalarTypeDefinitions: List[ScalarTypeDefinition]           = definitions.collect { case td: ScalarTypeDefinition =>
+    td
   }
-  def unionTypeDefinitions(doc: Document): List[UnionTypeDefinition] = doc.definitions.collect {
-    case td: UnionTypeDefinition => td
+  lazy val unionTypeDefinitions: List[UnionTypeDefinition]             = definitions.collect { case td: UnionTypeDefinition =>
+    td
   }
-  def fragmentDefinitions(doc: Document): List[FragmentDefinition] = doc.definitions.collect {
-    case fd: FragmentDefinition => fd
+  lazy val fragmentDefinitions: List[FragmentDefinition]               = definitions.collect { case fd: FragmentDefinition =>
+    fd
   }
-  def schemaDefinitions(doc: Document): List[SchemaDefinition] = doc.definitions.collect {
-    case sd: SchemaDefinition => sd
+  lazy val schemaDefinition: Option[SchemaDefinition]                  = definitions.collectFirst { case sd: SchemaDefinition =>
+    sd
   }
-  def operationDefinitions(doc: Document): List[OperationDefinition] = doc.definitions.collect {
-    case od: OperationDefinition => od
+  lazy val operationDefinitions: List[OperationDefinition]             = definitions.collect { case od: OperationDefinition =>
+    od
   }
-  def queryDefinitions(doc: Document): List[OperationDefinition] =
-    doc.definitions.collect { case od: OperationDefinition => od }.filter(q => q.operationType == Query)
-  def mutationDefinitions(doc: Document): List[OperationDefinition] =
-    doc.definitions.collect { case od: OperationDefinition => od }.filter(q => q.operationType == Mutation)
-  def subscriptionDefinitions(doc: Document): List[OperationDefinition] =
-    doc.definitions.collect { case od: OperationDefinition => od }.filter(q => q.operationType == Subscription)
-  def objectTypeDefinition(doc: Document, name: String): Option[ObjectTypeDefinition] =
-    objectTypeDefinitions(doc).find(t => t.name == name)
+  lazy val queryDefinitions: List[OperationDefinition]                 =
+    definitions.collect { case od: OperationDefinition => od }.filter(q => q.operationType == Query)
+  lazy val mutationDefinitions: List[OperationDefinition]              =
+    definitions.collect { case od: OperationDefinition => od }.filter(q => q.operationType == Mutation)
+  lazy val subscriptionDefinitions: List[OperationDefinition]          =
+    definitions.collect { case od: OperationDefinition => od }.filter(q => q.operationType == Subscription)
+  def objectTypeDefinition(name: String): Option[ObjectTypeDefinition] =
+    objectTypeDefinitions.find(t => t.name == name)
 }
-
-case class Document(definitions: List[Definition], sourceMapper: SourceMapper)

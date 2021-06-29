@@ -1,5 +1,6 @@
 package caliban.interop.cats
 
+import caliban.execution.QueryExecution
 import caliban.introspection.adt.__Type
 import caliban.schema.Step.QueryStep
 import caliban.schema.{ Schema, Step }
@@ -8,7 +9,7 @@ import cats.effect.implicits._
 import cats.effect.{ Async, Effect }
 import zio.interop.catz._
 import zio.{ Runtime, _ }
-import zquery.ZQuery
+import zio.query.ZQuery
 
 object CatsInterop {
 
@@ -16,27 +17,39 @@ object CatsInterop {
     query: String,
     operationName: Option[String] = None,
     variables: Map[String, InputValue] = Map(),
-    skipValidation: Boolean = false
+    extensions: Map[String, InputValue] = Map(),
+    skipValidation: Boolean = false,
+    enableIntrospection: Boolean = true,
+    queryExecution: QueryExecution = QueryExecution.Parallel
   )(implicit runtime: Runtime[R]): F[GraphQLResponse[E]] =
     Async[F].async { cb =>
-      val execution =
-        graphQL.execute(query, operationName, variables, skipValidation)
+      val execution = graphQL.execute(
+        query,
+        operationName,
+        variables,
+        extensions,
+        skipValidation = skipValidation,
+        enableIntrospection = enableIntrospection,
+        queryExecution
+      )
 
       runtime.unsafeRunAsync(execution)(exit => cb(exit.toEither))
     }
 
-  def checkAsync[F[_]: Async, R](graphQL: GraphQL[R])(query: String)(implicit runtime: Runtime[R]): F[Unit] =
+  def checkAsync[F[_]: Async, R](
+    graphQL: GraphQLInterpreter[R, Any]
+  )(query: String)(implicit runtime: Runtime[Any]): F[Unit] =
     Async[F].async(cb => runtime.unsafeRunAsync(graphQL.check(query))(exit => cb(exit.toEither)))
 
   def interpreterAsync[F[_]: Async, R](
     graphQL: GraphQL[R]
-  )(implicit runtime: Runtime[R]): F[GraphQLInterpreter[R, CalibanError]] =
+  )(implicit runtime: Runtime[Any]): F[GraphQLInterpreter[R, CalibanError]] =
     Async[F].async(cb => runtime.unsafeRunAsync(graphQL.interpreter)(exit => cb(exit.toEither)))
 
   def schema[F[_]: Effect, R, A](implicit ev: Schema[R, A]): Schema[R, F[A]] =
     new Schema[R, F[A]] {
-      override def toType(isInput: Boolean): __Type =
-        ev.toType(isInput)
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
+        ev.toType_(isInput, isSubscription)
 
       override def optional: Boolean =
         ev.optional

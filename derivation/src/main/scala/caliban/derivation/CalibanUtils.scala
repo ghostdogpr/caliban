@@ -1,6 +1,7 @@
 package caliban.derivation
 
-import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLDirective, GQLInputName, GQLName }
+import caliban.schema.Annotations.{GQLDeprecated, GQLDescription, GQLDirective, GQLInputName, GQLName}
+import zio.query.ZQuery
 
 /**
  * Caliban-specific macro utilities
@@ -79,7 +80,7 @@ trait CalibanUtils extends MacroUtils {
     val FunctionStep: RefTree           = companionRef[caliban.schema.Step.FunctionStep[_]]
     val ObjectStep: RefTree             = companionRef[caliban.schema.Step.ObjectStep[_]]
     val QueryStep: RefTree              = companionRef[caliban.schema.Step.QueryStep[_]]
-    val ZQuery: RefTree                 = companionRef[zquery.ZQuery[_, _, _]]
+    val ZQuery: RefTree                 = companionRef[ZQuery[_, _, _]]
   }
 
   protected object typeRefs {
@@ -129,9 +130,9 @@ trait CalibanUtils extends MacroUtils {
     q"""
       () =>
         if ($schema.optional)
-          $schema.toType($isInputTree)
+          $schema.toType_($isInputTree)
         else
-          ${refs.makeNonNull}($schema.toType($isInputTree))
+          ${refs.makeNonNull}($schema.toType_($isInputTree))
     """
   }
 }

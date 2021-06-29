@@ -9,9 +9,10 @@ case class RootType(
   subscriptionType: Option[__Type],
   additionalDirectives: List[__Directive] = List.empty
 ) {
-  val empty = Map.empty[String, __Type]
+  val empty                      = List.empty[__Type]
   val types: Map[String, __Type] =
-    collectTypes(queryType) ++
-      mutationType.fold(empty)(collectTypes(_)) ++
-      subscriptionType.fold(empty)(collectTypes(_))
+    (mutationType.toList ++ subscriptionType.toList)
+      .foldLeft(collectTypes(queryType)) { case (existingTypes, tpe) => collectTypes(tpe, existingTypes) }
+      .map(t => t.name.getOrElse("") -> t)
+      .toMap
 }

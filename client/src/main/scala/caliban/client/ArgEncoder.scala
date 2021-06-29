@@ -1,69 +1,49 @@
 package caliban.client
 
-import caliban.client.Value.{ BooleanValue, ListValue, NullValue, NumberValue, ObjectValue, StringValue }
+import caliban.client.__Value.{ __BooleanValue, __ListValue, __NullValue, __NumberValue, __ObjectValue, __StringValue }
+import io.circe.Json
+
+import scala.annotation.implicitNotFound
 
 /**
- * Typeclass that defines how to encode an argument of type `A` into a valid [[caliban.client.Value]].
+ * Typeclass that defines how to encode an argument of type `A` into a valid [[caliban.client.__Value]].
  * Every type that can be passed as an argument needs an instance of `ArgEncoder`.
  */
-trait ArgEncoder[-A] {
-  def encode(value: A): Value
-  def typeName: String
-  def optional: Boolean      = false
-  def formatTypeName: String = if (optional) typeName else s"$typeName!"
+@implicitNotFound(
+  """Cannot find an ArgEncoder for type ${A}.
+     
+Caliban needs it to know how to encode arguments of type ${A}.
+"""
+)
+trait ArgEncoder[-A] { self =>
+  def encode(value: A): __Value
+
+  def dropNullValues: ArgEncoder[A] = (value: A) => self.encode(value).dropNullValues
 }
 
 object ArgEncoder {
 
-  implicit val int: ArgEncoder[Int] = new ArgEncoder[Int] {
-    override def encode(value: Int): Value = NumberValue(value)
-    override def typeName: String          = "Int"
-  }
+  implicit val int: ArgEncoder[Int] = (value: Int) => __NumberValue(value)
 
-  implicit val long: ArgEncoder[Long] = new ArgEncoder[Long] {
-    override def encode(value: Long): Value = NumberValue(value)
-    override def typeName: String           = "Long"
-  }
+  implicit val long: ArgEncoder[Long] = (value: Long) => __NumberValue(value)
 
-  implicit val bigInt: ArgEncoder[BigInt] = new ArgEncoder[BigInt] {
-    override def encode(value: BigInt): Value = NumberValue(BigDecimal(value))
-    override def typeName: String             = "BigInt"
-  }
+  implicit val bigInt: ArgEncoder[BigInt] = (value: BigInt) => __NumberValue(BigDecimal(value))
 
-  implicit val double: ArgEncoder[Double] = new ArgEncoder[Double] {
-    override def encode(value: Double): Value = NumberValue(value)
-    override def typeName: String             = "Double"
-  }
+  implicit val double: ArgEncoder[Double] = (value: Double) => __NumberValue(value)
 
-  implicit val bigDecimal: ArgEncoder[BigDecimal] = new ArgEncoder[BigDecimal] {
-    override def encode(value: BigDecimal): Value = NumberValue(value)
-    override def typeName: String                 = "BigDecimal"
-  }
+  implicit val bigDecimal: ArgEncoder[BigDecimal] = (value: BigDecimal) => __NumberValue(value)
 
-  implicit val string: ArgEncoder[String] = new ArgEncoder[String] {
-    override def encode(value: String): Value = StringValue(value)
-    override def typeName: String             = "String"
-  }
+  implicit val string: ArgEncoder[String] = (value: String) => __StringValue(value)
 
-  implicit val boolean: ArgEncoder[Boolean] = new ArgEncoder[Boolean] {
-    override def encode(value: Boolean): Value = BooleanValue(value)
-    override def typeName: String              = "Boolean"
-  }
+  implicit val boolean: ArgEncoder[Boolean] = (value: Boolean) => __BooleanValue(value)
 
-  implicit val unit: ArgEncoder[Unit] = new ArgEncoder[Unit] {
-    override def encode(value: Unit): Value = ObjectValue(Nil)
-    override def typeName: String           = "Unit"
-  }
+  implicit val unit: ArgEncoder[Unit] = (_: Unit) => __ObjectValue(Nil)
 
-  implicit def option[A](implicit ev: ArgEncoder[A]): ArgEncoder[Option[A]] = new ArgEncoder[Option[A]] {
-    override def encode(value: Option[A]): Value = value.fold(NullValue: Value)(ev.encode)
-    override def typeName: String                = ev.typeName
-    override def optional: Boolean               = true
-  }
+  implicit def option[A](implicit ev: ArgEncoder[A]): ArgEncoder[Option[A]] = (value: Option[A]) =>
+    value.fold(__NullValue: __Value)(ev.encode)
 
-  implicit def list[A](implicit ev: ArgEncoder[A]): ArgEncoder[List[A]] = new ArgEncoder[List[A]] {
-    override def encode(value: List[A]): Value = ListValue(value.map(ev.encode))
-    override def typeName: String              = s"[${ev.typeName}]"
-  }
+  implicit def list[A](implicit ev: ArgEncoder[A]): ArgEncoder[List[A]] = (value: List[A]) =>
+    __ListValue(value.map(ev.encode))
 
+  implicit val json: ArgEncoder[Json] = (value: Json) => __Value.valueDecoder.decodeJson(value).getOrElse(__NullValue)
 }

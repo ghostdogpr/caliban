@@ -1,13 +1,17 @@
 package caliban.interop.circe
 
+import caliban.Value.{ BooleanValue, EnumValue, FloatValue, IntValue, NullValue, StringValue }
 import caliban.introspection.adt.__Type
+import caliban.parsing.adt.LocationInfo
 import caliban.schema.Step.QueryStep
 import caliban.schema.Types.makeScalar
 import caliban.schema.{ ArgBuilder, PureStep, Schema, Step }
-import caliban.{ InputValue, ResponseValue }
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue, ResponseValue, Value }
 import io.circe._
 import zio.ZIO
-import zquery.ZQuery
+import zio.query.ZQuery
+import io.circe.Json.JString
+import io.circe.Json.JNumber
 
 /**
  * This class is an implementation of the pattern described in https://blog.7mind.io/no-more-orphans.html
@@ -28,10 +32,217 @@ private[caliban] object IsCirceDecoder {
 }
 
 object json {
-  implicit val jsonSchema: Schema[Any, Json] = new Schema[Any, Json] {
-    override def toType(isInput: Boolean): __Type = makeScalar("Json")
-    override def resolve(value: Json): Step[Any] =
-      QueryStep(ZQuery.fromEffect(ZIO.fromEither(Decoder[ResponseValue].decodeJson(value))).map(PureStep))
+  implicit val jsonSchema: Schema[Any, Json]    = new Schema[Any, Json] {
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = makeScalar("Json")
+    override def resolve(value: Json): Step[Any]                           =
+      QueryStep(ZQuery.fromEffect(ZIO.fromEither(Decoder[ResponseValue].decodeJson(value))).map(PureStep.apply))
   }
   implicit val jsonArgBuilder: ArgBuilder[Json] = (input: InputValue) => Right(Encoder[InputValue].apply(input))
+
+  private[caliban] object ValueCirce {
+    import io.circe._
+    val valueEncoder: Encoder[Value]                           = Encoder
+      .instance[Value]({
+        case NullValue           => Json.Null
+        case v: IntValue         =>
+          v match {
+            case IntValue.IntNumber(value)    => Json.fromInt(value)
+            case IntValue.LongNumber(value)   => Json.fromLong(value)
+            case IntValue.BigIntNumber(value) => Json.fromBigInt(value)
+          }
+        case v: FloatValue       =>
+          v match {
+            case FloatValue.FloatNumber(value)      => Json.fromFloatOrNull(value)
+            case FloatValue.DoubleNumber(value)     => Json.fromDoubleOrNull(value)
+            case FloatValue.BigDecimalNumber(value) => Json.fromBigDecimal(value)
+          }
+        case StringValue(value)  => Json.fromString(value)
+        case BooleanValue(value) => Json.fromBoolean(value)
+        case EnumValue(value)    => Json.fromString(value)
+      })
+    private def jsonToInputValue(json: Json): InputValue       =
+      json.fold(
+        NullValue,
+        BooleanValue.apply,
+        number =>
+          number.toBigInt.map(IntValue.apply) orElse
+            number.toBigDecimal.map(FloatValue.apply) getOrElse
+            FloatValue(number.toDouble),
+        StringValue.apply,
+        array => InputValue.ListValue(array.toList.map(jsonToInputValue)),
+        obj => InputValue.ObjectValue(obj.toMap.map { case (k, v) => k -> jsonToInputValue(v) })
+      )
+    val inputValueDecoder: Decoder[InputValue]                 = Decoder.instance(hcursor => Right(jsonToInputValue(hcursor.value)))
+    val inputValueEncoder: Encoder[InputValue]                 = Encoder
+      .instance[InputValue]({
+        case value: Value                   => valueEncoder.apply(value)
+        case InputValue.ListValue(values)   => Json.arr(values.map(inputValueEncoder.apply): _*)
+        case InputValue.ObjectValue(fields) =>
+          Json.obj(fields.map { case (k, v) => k -> inputValueEncoder.apply(v) }.toList: _*)
+        case InputValue.VariableValue(name) => Json.fromString(name)
+      })
+    private def jsonToResponseValue(json: Json): ResponseValue =
+      json.fold(
+        NullValue,
+        BooleanValue.apply,
+        number =>
+          number.toBigInt.map(IntValue.apply) orElse
+            number.toBigDecimal.map(FloatValue.apply) getOrElse
+            FloatValue(number.toDouble),
+        StringValue.apply,
+        array => ResponseValue.ListValue(array.toList.map(jsonToResponseValue)),
+        obj => ResponseValue.ObjectValue(obj.toList.map { case (k, v) => k -> jsonToResponseValue(v) })
+      )
+    val responseValueDecoder: Decoder[ResponseValue]           =
+      Decoder.instance(hcursor => Right(jsonToResponseValue(hcursor.value)))
+    val responseValueEncoder: Encoder[ResponseValue]           = Encoder
+      .instance[ResponseValue]({
+        case value: Value                      => valueEncoder.apply(value)
+        case ResponseValue.ListValue(values)   => Json.arr(values.map(responseValueEncoder.apply): _*)
+        case ResponseValue.ObjectValue(fields) =>
+          Json.obj(fields.map { case (k, v) => k -> responseValueEncoder.apply(v) }: _*)
+        case s: ResponseValue.StreamValue      => Json.fromString(s.toString)
+      })
+  }
+
+  private[caliban] object ErrorCirce {
+    import io.circe._
+    import io.circe.syntax._
+
+    private def locationToJson(li: LocationInfo): Json =
+      Json.obj("line" -> li.line.asJson, "column" -> li.column.asJson)
+
+    val errorValueEncoder: Encoder[CalibanError]       = Encoder.instance[CalibanError] {
+      case CalibanError.ParsingError(msg, locationInfo, _, extensions)         =>
+        Json
+          .obj(
+            "message"    -> s"Parsing Error: $msg".asJson,
+            "locations"  -> Some(locationInfo).collect { case Some(li) =>
+              Json.arr(locationToJson(li))
+            }.asJson,
+            "extensions" -> (extensions: Option[ResponseValue]).asJson.dropNullValues
+          )
+          .dropNullValues
+      case CalibanError.ValidationError(msg, _, locationInfo, extensions)      =>
+        Json
+          .obj(
+            "message"    -> msg.asJson,
+            "locations"  -> Some(locationInfo).collect { case Some(li) =>
+              Json.arr(locationToJson(li))
+            }.asJson,
+            "extensions" -> (extensions: Option[ResponseValue]).asJson.dropNullValues
+          )
+          .dropNullValues
+      case CalibanError.ExecutionError(msg, path, locationInfo, _, extensions) =>
+        Json
+          .obj(
+            "message"    -> msg.asJson,
+            "locations"  -> Some(locationInfo).collect { case Some(li) =>
+              Json.arr(locationToJson(li))
+            }.asJson,
+            "path"       -> Some(path).collect {
+              case p if p.nonEmpty =>
+                Json.fromValues(p.map {
+                  case Left(value)  => value.asJson
+                  case Right(value) => value.asJson
+                })
+            }.asJson,
+            "extensions" -> (extensions: Option[ResponseValue]).asJson.dropNullValues
+          )
+          .dropNullValues
+    }
+
+    private implicit val locationInfoDecoder: Decoder[LocationInfo] = Decoder.instance(cursor =>
+      for {
+        column <- cursor.downField("column").as[Int]
+        line   <- cursor.downField("line").as[Int]
+      } yield LocationInfo(column, line)
+    )
+
+    private implicit val pathEitherDecoder: Decoder[Either[String, Int]] = Decoder.instance { cursor =>
+      (cursor.as[String].toOption, cursor.as[Int].toOption) match {
+        case (Some(s), _) => Right(Left(s))
+        case (_, Some(n)) => Right(Right(n))
+        case _            => Left(DecodingFailure("failed to decode as string or int", cursor.history))
+      }
+    }
+
+    implicit val errorValueDecoder: Decoder[CalibanError] = Decoder.instance(cursor =>
+      for {
+        message   <- cursor.downField("message").as[String]
+        path      <- cursor.downField("path").as[Option[List[Either[String, Int]]]]
+        locations <- cursor.downField("locations").as[Option[LocationInfo]]
+      } yield CalibanError.ExecutionError(
+        message,
+        path.getOrElse(Nil),
+        locations
+      )
+    )
+  }
+
+  private[caliban] object GraphQLResponseCirce {
+    import io.circe._
+    import io.circe.syntax._
+
+    val graphQLResponseEncoder: Encoder[GraphQLResponse[Any]] = Encoder
+      .instance[GraphQLResponse[Any]] {
+        case GraphQLResponse(data, Nil, None)                => Json.obj("data" -> data.asJson)
+        case GraphQLResponse(data, Nil, Some(extensions))    =>
+          Json.obj("data" -> data.asJson, "extensions" -> extensions.asInstanceOf[ResponseValue].asJson)
+        case GraphQLResponse(data, errors, None)             =>
+          Json.obj("data" -> data.asJson, "errors" -> Json.fromValues(errors.map(handleError)))
+        case GraphQLResponse(data, errors, Some(extensions)) =>
+          Json.obj(
+            "data"       -> data.asJson,
+            "errors"     -> Json.fromValues(errors.map(handleError)),
+            "extensions" -> extensions.asInstanceOf[ResponseValue].asJson
+          )
+      }
+
+    implicit val graphQLRespondDecoder: Decoder[GraphQLResponse[CalibanError]] =
+      Decoder.instance(cursor =>
+        for {
+          data   <- cursor
+                      .downField("data")
+                      .as[ResponseValue]
+          errors <- cursor
+                      .downField("errors")
+                      .as[Option[List[CalibanError]]]
+        } yield GraphQLResponse[CalibanError](
+          data = data,
+          errors = errors.getOrElse(List()),
+          extensions = None
+        )
+      )
+
+    private def handleError(err: Any): Json =
+      err match {
+        case ce: CalibanError => ce.asJson
+        case _                => Json.obj("message" -> Json.fromString(err.toString))
+      }
+
+  }
+
+  private[caliban] object GraphQLRequestCirce {
+    import io.circe._
+    import io.circe.syntax._
+
+    val graphQLRequestDecoder: Decoder[GraphQLRequest] = (c: HCursor) =>
+      for {
+        query         <- c.downField("query").as[Option[String]]
+        operationName <- c.downField("operationName").as[Option[String]]
+        variables     <- c.downField("variables").as[Option[Map[String, InputValue]]]
+        extensions    <- c.downField("extensions").as[Option[Map[String, InputValue]]]
+      } yield GraphQLRequest(query, operationName, variables, extensions)
+
+    implicit val graphQLRequestEncoder: Encoder[GraphQLRequest] =
+      Encoder.instance[GraphQLRequest](r =>
+        Json.obj(
+          "query"         -> r.query.asJson,
+          "operationName" -> r.operationName.asJson,
+          "variables"     -> r.variables.asJson,
+          "extensions"    -> r.extensions.asJson
+        )
+      )
+  }
 }

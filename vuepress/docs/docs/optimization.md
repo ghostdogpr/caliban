@@ -7,7 +7,10 @@ We might want to:
 - **cache** identical queries (deduplication)
 - **batch** queries to the same source
 
-This is possible in Caliban using the `ZQuery` data type.
+This is possible in Caliban using the [`ZQuery`](https://github.com/zio/zquery) data type.
+
+Additionally, one may want to perform optimizations based on the fields selected by the client. 
+This optimization can be achieved by field metadata from Caliban that can be referenced in your query classes.   
 
 ## Introducing ZQuery
 
@@ -120,5 +123,48 @@ During the query execution, Caliban will merge all the requested fields that ret
 
 The [examples](https://github.com/ghostdogpr/caliban/tree/master/examples) project provides 2 versions of the problem described in [this article about GraphQL query optimization](https://blog.apollographql.com/optimizing-your-graphql-request-waterfalls-7c3f3360b051):
 
-- a [naive](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/caliban/optimizations/NaiveTest.scala) version where fields are just returning `IO`, resulting in 47 requests
-- an [optimized](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/caliban/optimizations/OptimizedTest.scala) version where fields are returning `ZQuery`, resulting in 8 requests only
+- a [naive](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/example/optimizations/NaiveTest.scala) version where fields are just returning `IO`, resulting in 47 requests
+- an [optimized](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/example/optimizations/OptimizedTest.scala) version where fields are returning `ZQuery`, resulting in 8 requests only
+
+::: tip
+When all your effects are wrapped with `ZQuery.fromRequest`, it is recommended to use `queryExecution = QueryExecution.Batched` instead of the default `QueryExecution.Parallel`.
+Doing so will provide better performance as it will avoid forking unnecessary fibers.
+This setting is available in `executeRequest` as well as all the adapters.
+:::
+
+## Using field metadata 
+
+To reference field metadata in your queries you can simply use a function that takes the `caliban.execution.Field` type in your queries.
+
+```scala
+case class User(name: String, expensiveOperation: String)
+case class Queries(
+  user: Field => User
+)
+```
+
+You can also do this with functions that take inputs.
+
+```scala
+case class UserInput(id: String)
+case class User(name: String, expensiveOperation: String)
+case class Queries(
+  user: Field => (UserInput => User)
+)
+```
+
+In the resulting GraphQL Schema the *Field* will be ignored giving you the equivalent of just the returned type of the function.
+
+The implementation of the function can then take the field metadata into account for optimization.
+For instance one could modify a database query to only select certain columns or do joins to additional tables depending on what the client requests.
+
+For example:
+```scala
+Queries( (field) => {
+  if(field.fields.map(_.name).contains("expensiveOperation")) {
+    expensiveUserRequest()
+  } else {
+    efficientUserRequest()
+  }
+})
+``` 

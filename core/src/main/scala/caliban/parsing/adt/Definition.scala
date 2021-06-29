@@ -1,7 +1,11 @@
 package caliban.parsing.adt
 
 import caliban.InputValue
-import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.InputValueDefinition
+import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{
+  EnumValueDefinition,
+  FieldDefinition,
+  InputValueDefinition
+}
 import caliban.parsing.adt.Type.NamedType
 
 sealed trait Definition
@@ -39,7 +43,7 @@ object Definition {
       description: Option[String],
       name: String,
       args: List[InputValueDefinition],
-      locations: List[DirectiveLocation]
+      locations: Set[DirectiveLocation]
     ) extends TypeSystemDefinition
 
     sealed trait DirectiveLocation
@@ -70,7 +74,11 @@ object Definition {
       }
     }
 
-    sealed trait TypeDefinition extends TypeSystemDefinition
+    sealed trait TypeDefinition extends TypeSystemDefinition {
+      def name: String
+      def description: Option[String]
+      def directives: List[Directive]
+    }
     object TypeDefinition {
 
       case class ObjectTypeDefinition(
@@ -79,38 +87,50 @@ object Definition {
         implements: List[NamedType],
         directives: List[Directive],
         fields: List[FieldDefinition]
-      ) extends TypeDefinition
+      ) extends TypeDefinition {
+        override def toString: String = "Object"
+      }
 
       case class InterfaceTypeDefinition(
         description: Option[String],
         name: String,
         directives: List[Directive],
         fields: List[FieldDefinition]
-      ) extends TypeDefinition
+      ) extends TypeDefinition {
+        override def toString: String = "Interface"
+      }
 
       case class InputObjectTypeDefinition(
         description: Option[String],
         name: String,
         directives: List[Directive],
         fields: List[InputValueDefinition]
-      ) extends TypeDefinition
+      ) extends TypeDefinition {
+        override def toString: String = "Input Object"
+      }
 
       case class EnumTypeDefinition(
         description: Option[String],
         name: String,
         directives: List[Directive],
         enumValuesDefinition: List[EnumValueDefinition]
-      ) extends TypeDefinition
+      ) extends TypeDefinition {
+        override def toString: String = "Enum"
+      }
 
       case class UnionTypeDefinition(
         description: Option[String],
         name: String,
         directives: List[Directive],
         memberTypes: List[String]
-      ) extends TypeDefinition
+      ) extends TypeDefinition {
+        override def toString: String = "Union"
+      }
 
       case class ScalarTypeDefinition(description: Option[String], name: String, directives: List[Directive])
-          extends TypeDefinition
+          extends TypeDefinition {
+        override def toString: String = "Scalar"
+      }
 
       case class InputValueDefinition(
         description: Option[String],
@@ -132,5 +152,58 @@ object Definition {
 
     }
 
+  }
+
+  sealed trait TypeSystemExtension extends Definition
+
+  object TypeSystemExtension {
+
+    case class SchemaExtension(
+      directives: List[Directive],
+      query: Option[String],
+      mutation: Option[String],
+      subscription: Option[String]
+    ) extends TypeSystemExtension
+
+    sealed trait TypeExtension extends TypeSystemExtension
+
+    object TypeExtension {
+
+      case class ScalarTypeExtension(
+        name: String,
+        directives: List[Directive]
+      ) extends TypeExtension
+
+      case class ObjectTypeExtension(
+        name: String,
+        implements: List[NamedType],
+        directives: List[Directive],
+        fields: List[FieldDefinition]
+      ) extends TypeExtension
+
+      case class InterfaceTypeExtension(
+        name: String,
+        directives: List[Directive],
+        fields: List[FieldDefinition]
+      ) extends TypeExtension
+
+      case class UnionTypeExtension(
+        name: String,
+        directives: List[Directive],
+        memberTypes: List[String]
+      ) extends TypeExtension
+
+      case class EnumTypeExtension(
+        name: String,
+        directives: List[Directive],
+        enumValuesDefinition: List[EnumValueDefinition]
+      ) extends TypeExtension
+
+      case class InputObjectTypeExtension(
+        name: String,
+        directives: List[Directive],
+        fields: List[InputValueDefinition]
+      ) extends TypeExtension
+    }
   }
 }

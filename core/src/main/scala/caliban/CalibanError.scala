@@ -1,6 +1,7 @@
 package caliban
 
-import caliban.interop.circe.IsCirceEncoder
+import caliban.ResponseValue.ObjectValue
+import caliban.interop.circe.{ IsCirceDecoder, IsCirceEncoder }
 import caliban.parsing.adt.LocationInfo
 
 /**
@@ -8,9 +9,10 @@ import caliban.parsing.adt.LocationInfo
  */
 sealed trait CalibanError extends Throwable with Product with Serializable {
   def msg: String
+  override def getMessage: String = msg
 }
 
-object CalibanError {
+object CalibanError extends CalibanErrorJsonCompat {
 
   /**
    * Describes an error that happened while parsing a query.
@@ -18,16 +20,22 @@ object CalibanError {
   case class ParsingError(
     msg: String,
     locationInfo: Option[LocationInfo] = None,
-    innerThrowable: Option[Throwable] = None
+    innerThrowable: Option[Throwable] = None,
+    extensions: Option[ObjectValue] = None
   ) extends CalibanError {
-    override def toString: String = s"Parsing Error: $msg ${innerThrowable.fold("")(_.toString)}"
+    override def toString: String    = s"Parsing Error: $msg ${innerThrowable.fold("")(_.toString)}"
+    override def getCause: Throwable = innerThrowable.orNull
   }
 
   /**
    * Describes an error that happened while validating a query.
    */
-  case class ValidationError(msg: String, explanatoryText: String, locationInfo: Option[LocationInfo] = None)
-      extends CalibanError {
+  case class ValidationError(
+    msg: String,
+    explanatoryText: String,
+    locationInfo: Option[LocationInfo] = None,
+    extensions: Option[ObjectValue] = None
+  ) extends CalibanError {
     override def toString: String = s"ValidationError Error: $msg"
   }
 
@@ -38,57 +46,16 @@ object CalibanError {
     msg: String,
     path: List[Either[String, Int]] = Nil,
     locationInfo: Option[LocationInfo] = None,
-    innerThrowable: Option[Throwable] = None
+    innerThrowable: Option[Throwable] = None,
+    extensions: Option[ObjectValue] = None
   ) extends CalibanError {
-    override def toString: String = s"Execution Error: $msg ${innerThrowable.fold("")(_.toString)}"
+    override def toString: String    = s"Execution Error: $msg ${innerThrowable.fold("")(_.toString)}"
+    override def getCause: Throwable = innerThrowable.orNull
   }
 
   implicit def circeEncoder[F[_]](implicit ev: IsCirceEncoder[F]): F[CalibanError] =
-    ErrorCirce.errorValueEncoder.asInstanceOf[F[CalibanError]]
-}
+    caliban.interop.circe.json.ErrorCirce.errorValueEncoder.asInstanceOf[F[CalibanError]]
 
-private object ErrorCirce {
-  import io.circe._
-  import io.circe.syntax._
-
-  private def locationToJson(li: LocationInfo): Json =
-    Json.obj("line" -> li.line.asJson, "column" -> li.column.asJson)
-
-  val errorValueEncoder: Encoder[CalibanError] = Encoder.instance[CalibanError] {
-    case CalibanError.ParsingError(msg, locationInfo, _) =>
-      Json
-        .obj(
-          "message" -> s"Parsing Error: $msg".asJson,
-          "locations" -> Some(locationInfo).collect {
-            case Some(li) => Json.arr(locationToJson(li))
-          }.asJson
-        )
-        .dropNullValues
-    case CalibanError.ValidationError(msg, _, locationInfo) =>
-      Json
-        .obj(
-          "message" -> msg.asJson,
-          "locations" -> Some(locationInfo).collect {
-            case Some(li) => Json.arr(locationToJson(li))
-          }.asJson
-        )
-        .dropNullValues
-    case CalibanError.ExecutionError(msg, path, locationInfo, _) =>
-      Json
-        .obj(
-          "message" -> msg.asJson,
-          "locations" -> Some(locationInfo).collect {
-            case Some(li) => Json.arr(locationToJson(li))
-          }.asJson,
-          "path" -> Some(path).collect {
-            case p if p.nonEmpty =>
-              Json.fromValues(p.map {
-                case Left(value)  => value.asJson
-                case Right(value) => value.asJson
-              })
-          }.asJson
-        )
-        .dropNullValues
-  }
-
+  implicit def circeDecoder[F[_]](implicit ev: IsCirceDecoder[F]): F[CalibanError] =
+    caliban.interop.circe.json.ErrorCirce.errorValueDecoder.asInstanceOf[F[CalibanError]]
 }

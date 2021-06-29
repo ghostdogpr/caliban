@@ -220,7 +220,7 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
     val info = GraphQLInfo(tpe.typeSymbol)
     val toType =
       q"""
-        override def toType(isInput: Boolean = false): ${typeRefs.__Type} =
+        override def toType(isInput: Boolean = false, isSubscription: Boolean = false): ${typeRefs.__Type} =
           if (isInput) ${deriveInput(info, inputs)}
           else ${deriveOutput(info, outputs)}
       """

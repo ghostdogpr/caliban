@@ -13,8 +13,8 @@ import sangria.macros.derive._
 import sangria.marshalling.circe._
 import sangria.parser.QueryParser
 import sangria.schema._
-import zio.internal.{ Platform, PlatformLive }
-import zio.{ DefaultRuntime, UIO }
+import zio.internal.Platform
+import zio.{ BootstrapRuntime, Runtime, UIO, ZEnv }
 
 @State(Scope.Thread)
 @BenchmarkMode(Array(Mode.Throughput))
@@ -125,8 +125,8 @@ class GraphQLBenchmarks {
               }
                 """
 
-  val zioRuntime: DefaultRuntime = new DefaultRuntime {
-    override val platform: Platform = PlatformLive.Benchmark
+  val runtime: Runtime[ZEnv] = new BootstrapRuntime {
+    override val platform: Platform = Platform.benchmark
   }
 
   case class CharactersArgs(origin: Option[Origin])
@@ -144,19 +144,19 @@ class GraphQLBenchmarks {
     )
   )
 
-  val interpreter: GraphQLInterpreter[Any, CalibanError] = zioRuntime.unsafeRun(graphQL(resolver).interpreter)
+  val interpreter: GraphQLInterpreter[Any, CalibanError] = runtime.unsafeRun(graphQL(resolver).interpreter)
 
   @Benchmark
   def simpleCaliban(): Unit = {
     val io = interpreter.execute(simpleQuery)
-    zioRuntime.unsafeRun(io)
+    runtime.unsafeRun(io)
     ()
   }
 
   @Benchmark
   def introspectCaliban(): Unit = {
     val io = interpreter.execute(fullIntrospectionQuery)
-    zioRuntime.unsafeRun(io)
+    runtime.unsafeRun(io)
     ()
   }
 

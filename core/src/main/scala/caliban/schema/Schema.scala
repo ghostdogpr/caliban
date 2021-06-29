@@ -1,21 +1,24 @@
 package caliban.schema
 
-import java.util.UUID
-import scala.annotation.implicitNotFound
-import scala.concurrent.Future
-import scala.language.experimental.macros
+import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue._
 import caliban.Value._
+import caliban.execution.Field
 import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
-import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLDirective, GQLInputName, GQLInterface, GQLName }
 import caliban.schema.Step._
 import caliban.schema.Types._
 import caliban.{ InputValue, ResponseValue }
-import magnolia._
-import zio.ZIO
+import zio.query.ZQuery
 import zio.stream.ZStream
-import zquery.ZQuery
+import zio.{ Chunk, URIO, ZIO }
+
+import java.time._
+import java.time.format.DateTimeFormatter
+import java.time.temporal.Temporal
+import java.util.UUID
+import scala.annotation.implicitNotFound
+import scala.concurrent.Future
 
 /**
  * Typeclass that defines how to map the type `T` to the according GraphQL concepts: how to introspect it and how to resolve it.
@@ -23,19 +26,36 @@ import zquery.ZQuery
  */
 @implicitNotFound(
   """Cannot find a Schema for type ${T}.
-     Caliban derives a Schema automatically for basic Scala types, case classes and sealed traits, but
-     you need to manually provide an implicit Schema for other types that could be nested in ${T}.
-     If you use a custom type as an argument, you also need to provide an implicit ArgBuilder for that type.
-     See https://ghostdogpr.github.io/caliban/docs/schema.html for more information.
+
+Caliban derives a Schema automatically for basic Scala types, case classes and sealed traits, but
+you need to manually provide an implicit Schema for other types that could be nested in ${T}.
+If you use a custom type as an argument, you also need to provide an implicit ArgBuilder for that type.
+See https://ghostdogpr.github.io/caliban/docs/schema.html for more information.
 """
 )
 trait Schema[-R, T] { self =>
 
+  private lazy val asType: __Type             = toType()
+  private lazy val asInputType: __Type        = toType(isInput = true)
+  private lazy val asSubscriptionType: __Type = toType(isSubscription = true)
+
+  /**
+   * Generates a GraphQL type object from `T`.
+   * Unlike `toType`, this function is optimized and will not re-generate the type at each call.
+   * @param isInput indicates if the type is passed as an argument. This is needed because GraphQL differentiates `InputType` from `ObjectType`.
+   * @param isSubscription indicates if the type is used in a subscription operation.
+   *                       For example, ZStream gives a different GraphQL type depending whether it is used in a subscription or elsewhere.
+   */
+  final def toType_(isInput: Boolean = false, isSubscription: Boolean = false): __Type =
+    if (isInput) asInputType else if (isSubscription) asSubscriptionType else asType
+
   /**
    * Generates a GraphQL type object from `T`.
    * @param isInput indicates if the type is passed as an argument. This is needed because GraphQL differentiates `InputType` from `ObjectType`.
+   * @param isSubscription indicates if the type is used in a subscription operation.
+   *                       For example, ZStream gives a different GraphQL type depending whether it is used in a subscription or elsewhere.
    */
-  def toType(isInput: Boolean = false): __Type
+  protected[this] def toType(isInput: Boolean = false, isSubscription: Boolean = false): __Type
 
   /**
    * Resolves `T` by turning a value of type `T` into an execution step that describes how to resolve the value.
@@ -58,16 +78,45 @@ trait Schema[-R, T] { self =>
    * @param f a function from `A` to `T`.
    */
   def contramap[A](f: A => T): Schema[R, A] = new Schema[R, A] {
-    override def optional: Boolean                = self.optional
-    override def arguments: List[__InputValue]    = self.arguments
-    override def toType(isInput: Boolean): __Type = self.toType(isInput)
-    override def resolve(value: A): Step[R]       = self.resolve(f(value))
+    override def optional: Boolean                                         = self.optional
+    override def arguments: List[__InputValue]                             = self.arguments
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = self.toType_(isInput, isSubscription)
+    override def resolve(value: A): Step[R]                                = self.resolve(f(value))
+  }
+
+  /**
+   * Changes the name of the generated graphql type.
+   * @param name new name for the type
+   * @param inputName new name for the type when it's an input type (by default "Input" is added after the name)
+   */
+  def rename(name: String, inputName: Option[String] = None): Schema[R, T] = new Schema[R, T] {
+    override def optional: Boolean             = self.optional
+    override def arguments: List[__InputValue] = self.arguments
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
+      val newName = if (isInput) inputName.getOrElse(Schema.customizeInputTypeName(name)) else name
+      self.toType_(isInput, isSubscription).copy(name = Some(newName))
+    }
+
+    lazy val renameTypename: Boolean = self.toType().kind match {
+      case __TypeKind.UNION | __TypeKind.ENUM | __TypeKind.INTERFACE => false
+      case _                                                         => true
+    }
+
+    override def resolve(value: T): Step[R] =
+      self.resolve(value) match {
+        case o @ ObjectStep(_, fields)  =>
+          if (renameTypename) ObjectStep(name, fields) else o
+        case p @ PureStep(EnumValue(_)) =>
+          if (renameTypename) PureStep(EnumValue(name)) else p
+        case other                      =>
+          other
+      }
   }
 }
 
 object Schema extends GenericSchema[Any]
 
-trait GenericSchema[R] extends DerivationSchema[R] {
+trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
 
   /**
    * Creates a scalar schema for a type `A`
@@ -77,8 +126,8 @@ trait GenericSchema[R] extends DerivationSchema[R] {
    */
   def scalarSchema[A](name: String, description: Option[String], makeResponse: A => ResponseValue): Schema[Any, A] =
     new Schema[Any, A] {
-      override def toType(isInput: Boolean): __Type = makeScalar(name, description)
-      override def resolve(value: A): Step[Any]     = PureStep(makeResponse(value))
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = makeScalar(name, description)
+      override def resolve(value: A): Step[Any]                              = PureStep(makeResponse(value))
     }
 
   /**
@@ -90,25 +139,109 @@ trait GenericSchema[R] extends DerivationSchema[R] {
   def objectSchema[R1, A](
     name: String,
     description: Option[String],
-    fields: List[(__Field, A => Step[R1])],
+    fields: (Boolean, Boolean) => List[(__Field, A => Step[R1])],
     directives: List[Directive] = List.empty
   ): Schema[R1, A] =
     new Schema[R1, A] {
 
-      override def toType(isInput: Boolean): __Type =
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
         if (isInput) {
-          makeInputObject(Some(customizeInputTypeName(name)), description, fields.map {
-            case (f, _) => __InputValue(f.name, f.description, f.`type`, None)
-          })
-        } else makeObject(Some(name), description, fields.map(_._1), directives)
+          makeInputObject(
+            Some(customizeInputTypeName(name)),
+            description,
+            fields(isInput, isSubscription).map { case (f, _) =>
+              __InputValue(f.name, f.description, f.`type`, None)
+            }
+          )
+        } else makeObject(Some(name), description, fields(isInput, isSubscription).map(_._1), directives)
 
       override def resolve(value: A): Step[R1] =
-        ObjectStep(name, fields.map { case (f, plan) => f.name -> plan(value) }.toMap)
+        ObjectStep(name, fields(false, false).map { case (f, plan) => f.name -> plan(value) }.toMap)
     }
 
+  /**
+   * Manually defines a field from a name, a description, some directives and a resolver.
+   * If the field is a function that should be called lazily, use `fieldLazy` instead.
+   * If the field takes arguments, use `fieldWithArgs` instead.
+   */
+  def field[V](
+    name: String,
+    description: Option[String] = None,
+    directives: List[Directive] = List.empty
+  ): PartiallyAppliedField[V] =
+    PartiallyAppliedField[V](name, description, directives)
+
+  /**
+   * Manually defines a lazy field from a name, a description, some directives and a resolver.
+   */
+  def fieldLazy[V](
+    name: String,
+    description: Option[String] = None,
+    directives: List[Directive] = List.empty
+  ): PartiallyAppliedFieldLazy[V] =
+    PartiallyAppliedFieldLazy[V](name, description, directives)
+
+  /**
+   * Manually defines a field with arguments from a name, a description, some directives and a resolver.
+   */
+  def fieldWithArgs[V, A](
+    name: String,
+    description: Option[String] = None,
+    directives: List[Directive] = Nil
+  ): PartiallyAppliedFieldWithArgs[V, A] =
+    PartiallyAppliedFieldWithArgs[V, A](name, description, directives)
+
+  /**
+   * Creates a new hand-rolled schema. For normal usage use the derived schemas, this is primarily for schemas
+   * which can't be resolved by derivation.
+   * @param name The name of the type
+   * @param description An optional description of the type
+   * @param directives The directives to add to the type
+   * @param fields The fields to add to this object
+   *
+   * {{{
+   *  case class Group(id: String, users: UQuery[List[User]], parent: UQuery[Option[Group]], organization: UQuery[Organization])
+   *  case class Organization(id: String, groups: UQuery[List[Group]])
+   *  case class User(id: String, group: UQuery[Group])
+   *
+   *  implicit val groupSchema: Schema[Any, Group] = obj("Group", Some("A group of users"))(implicit ft =>
+   *    List(
+   *      field("id")(_.id),
+   *      field("users")(_.users),
+   *      field("parent")(_.parent),
+   *      field("organization")(_.organization)
+   *    )
+   *  )
+   *
+   *  implicit val orgSchema: Schema[Any, Organization] = obj("Organization", Some("An organization of groups"))(implicit ft =>
+   *    List(
+   *      field("id")(_.id),
+   *      field("groups")(_.groups)
+   *    )
+   *  )
+   *
+   *  implicit val userSchema: Schema[Any, User] = obj("User", Some("A user of the service"))(implicit ft =>
+   *    List(
+   *      field("id")(_.id),
+   *      field("group")(_.group)
+   *    )
+   *  )
+   *
+   * }}}
+   */
+  def obj[R1, V](name: String, description: Option[String] = None, directives: List[Directive] = Nil)(
+    fields: FieldAttributes => List[(__Field, V => Step[R1])]
+  ): Schema[R1, V] =
+    objectSchema(
+      name,
+      description,
+      fields = (isInput, isSubscription) => fields(FieldAttributes(isInput = isInput, isSubscription = isSubscription)),
+      directives
+    )
+
   implicit val unitSchema: Schema[Any, Unit]             = scalarSchema("Unit", None, _ => ObjectValue(Nil))
-  implicit val booleanSchema: Schema[Any, Boolean]       = scalarSchema("Boolean", None, BooleanValue)
-  implicit val stringSchema: Schema[Any, String]         = scalarSchema("String", None, StringValue)
+  implicit val booleanSchema: Schema[Any, Boolean]       = scalarSchema("Boolean", None, BooleanValue.apply)
+  implicit val stringSchema: Schema[Any, String]         = scalarSchema("String", None, StringValue.apply)
   implicit val uuidSchema: Schema[Any, UUID]             = scalarSchema("ID", None, uuid => StringValue(uuid.toString))
   implicit val intSchema: Schema[Any, Int]               = scalarSchema("Int", None, IntValue(_))
   implicit val longSchema: Schema[Any, Long]             = scalarSchema("Long", None, IntValue(_))
@@ -117,327 +250,360 @@ trait GenericSchema[R] extends DerivationSchema[R] {
   implicit val floatSchema: Schema[Any, Float]           = scalarSchema("Float", None, FloatValue(_))
   implicit val bigDecimalSchema: Schema[Any, BigDecimal] = scalarSchema("BigDecimal", None, FloatValue(_))
 
-  implicit def optionSchema[A](implicit ev: Schema[R, A]): Schema[R, Option[A]] = new Schema[R, Option[A]] {
-    override def optional: Boolean                        = true
-    override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
+  implicit def optionSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Option[A]]                                  = new Schema[R0, Option[A]] {
+    override def optional: Boolean                                         = true
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
 
-    override def resolve(value: Option[A]): Step[R] =
+    override def resolve(value: Option[A]): Step[R0] =
       value match {
         case Some(value) => ev.resolve(value)
         case None        => NullStep
       }
   }
-  implicit def listSchema[A](implicit ev: Schema[R, A]): Schema[R, List[A]] = new Schema[R, List[A]] {
-    override def toType(isInput: Boolean = false): __Type = {
-      val t = ev.toType(isInput)
+  implicit def listSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, List[A]]                                      = new Schema[R0, List[A]] {
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
+      val t = ev.toType_(isInput, isSubscription)
       makeList(if (ev.optional) t else makeNonNull(t))
     }
 
-    override def resolve(value: List[A]): Step[R] = ListStep(value.map(ev.resolve))
+    override def resolve(value: List[A]): Step[R0] = ListStep(value.map(ev.resolve))
   }
-  implicit def setSchema[A](implicit ev: Schema[R, A]): Schema[R, Set[A]] = listSchema[A].contramap(_.toList)
-  implicit def functionUnitSchema[A](implicit ev: Schema[R, A]): Schema[R, () => A] =
-    new Schema[R, () => A] {
-      override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
-      override def resolve(value: () => A): Step[R]         = FunctionStep(_ => ev.resolve(value()))
+  implicit def setSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Set[A]]                                        = listSchema[R0, A].contramap(_.toList)
+  implicit def seqSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Seq[A]]                                        = listSchema[R0, A].contramap(_.toList)
+  implicit def vectorSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Vector[A]]                                  =
+    listSchema[R0, A].contramap(_.toList)
+  implicit def chunkSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Chunk[A]]                                    =
+    listSchema[R0, A].contramap(_.toList)
+  implicit def functionUnitSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, () => A]                              =
+    new Schema[R0, () => A] {
+      override def optional: Boolean                                         = ev.optional
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
+      override def resolve(value: () => A): Step[R0]                         = FunctionStep(_ => ev.resolve(value()))
+    }
+  implicit def metadataFunctionSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Field => A]                       =
+    new Schema[R0, Field => A] {
+      override def arguments: List[__InputValue]                             = ev.arguments
+      override def optional: Boolean                                         = ev.optional
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
+      override def resolve(value: Field => A): Step[R0]                      = MetadataFunctionStep(field => ev.resolve(value(field)))
     }
 
-  implicit def eitherSchema[RA, RB, A, B](
-    implicit evA: Schema[RA, A],
+  implicit def eitherSchema[RA, RB, A, B](implicit
+    evA: Schema[RA, A],
     evB: Schema[RB, B]
   ): Schema[RA with RB, Either[A, B]] = {
-    lazy val typeA: __Type       = evA.toType()
-    lazy val typeB: __Type       = evB.toType()
-    lazy val typeAName: String   = Types.name(typeA)
-    lazy val typeBName: String   = Types.name(typeB)
+    lazy val typeAName: String   = Types.name(evA.toType_())
+    lazy val typeBName: String   = Types.name(evB.toType_())
     lazy val name: String        = s"Either${typeAName}Or$typeBName"
     lazy val description: String = s"Either $typeAName or $typeBName"
 
-    objectSchema(
-      name,
-      Some(description),
+    implicit val leftSchema: Schema[RA, A]  = new Schema[RA, A] {
+      override def optional: Boolean                                         = true
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = evA.toType_(isInput, isSubscription)
+      override def resolve(value: A): Step[RA]                               = evA.resolve(value)
+    }
+    implicit val rightSchema: Schema[RB, B] = new Schema[RB, B] {
+      override def optional: Boolean                                         = true
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = evB.toType_(isInput, isSubscription)
+      override def resolve(value: B): Step[RB]                               = evB.resolve(value)
+    }
+
+    obj[RA with RB, Either[A, B]](name, Some(description))(implicit ft =>
       List(
-        __Field("left", Some("Left element of the Either"), Nil, () => typeA) -> {
-          case Left(value) => evA.resolve(value)
-          case Right(_)    => NullStep
-        },
-        __Field("right", Some("Right element of the Either"), Nil, () => typeB) -> {
-          case Left(_)      => NullStep
-          case Right(value) => evB.resolve(value)
-        }
+        field[Either[A, B]]("left", Some("Left element of the Either"))
+          .either[RA, A](_.map(_ => NullStep))(leftSchema, ft),
+        field[Either[A, B]]("right", Some("Right element of the Either"))
+          .either[RB, B](_.swap.map(_ => NullStep))(rightSchema, ft)
       )
     )
   }
-  implicit def tupleSchema[RA, RB, A, B](
-    implicit evA: Schema[RA, A],
+  implicit def tupleSchema[RA, RB, A, B](implicit
+    evA: Schema[RA, A],
     evB: Schema[RB, B]
   ): Schema[RA with RB, (A, B)] = {
-    lazy val typeA: __Type     = evA.toType()
-    lazy val typeB: __Type     = evB.toType()
-    lazy val typeAName: String = Types.name(typeA)
-    lazy val typeBName: String = Types.name(typeB)
+    lazy val typeAName: String = Types.name(evA.toType_())
+    lazy val typeBName: String = Types.name(evB.toType_())
 
-    objectSchema(
+    obj[RA with RB, (A, B)](
       s"Tuple${typeAName}And$typeBName",
-      Some(s"A tuple of $typeAName and $typeBName"),
+      Some(s"A tuple of $typeAName and $typeBName")
+    )(implicit ft =>
       List(
-        __Field("_1", Some("First element of the tuple"), Nil, () => if (evA.optional) typeA else makeNonNull(typeA)) ->
-          ((tuple: (A, B)) => evA.resolve(tuple._1)),
-        __Field("_2", Some("Second element of the tuple"), Nil, () => if (evB.optional) typeB else makeNonNull(typeB)) ->
-          ((tuple: (A, B)) => evB.resolve(tuple._2))
+        field[(A, B)]("_1", Some("First element of the tuple"))(_._1),
+        field[(A, B)]("_2", Some("Second element of the tuple"))(_._2)
       )
     )
   }
   implicit def mapSchema[RA, RB, A, B](implicit evA: Schema[RA, A], evB: Schema[RB, B]): Schema[RA with RB, Map[A, B]] =
     new Schema[RA with RB, Map[A, B]] {
-      lazy val typeA: __Type       = evA.toType()
-      lazy val typeB: __Type       = evB.toType()
-      lazy val typeAName: String   = Types.name(typeA)
-      lazy val typeBName: String   = Types.name(typeB)
+      lazy val typeAName: String   = Types.name(evA.toType_())
+      lazy val typeBName: String   = Types.name(evB.toType_())
       lazy val name: String        = s"KV$typeAName$typeBName"
       lazy val description: String = s"A key-value pair of $typeAName and $typeBName"
 
-      lazy val kvSchema: Schema[RA with RB, (A, B)] = objectSchema(
-        name,
-        Some(description),
+      lazy val kvSchema: Schema[RA with RB, (A, B)] = obj[RA with RB, (A, B)](name, Some(description))(implicit ft =>
         List(
-          __Field("key", Some("Key"), Nil, () => if (evA.optional) typeA else makeNonNull(typeA))
-            -> ((kv: (A, B)) => evA.resolve(kv._1)),
-          __Field("value", Some("Value"), Nil, () => if (evB.optional) typeB else makeNonNull(typeB))
-            -> ((kv: (A, B)) => evB.resolve(kv._2))
+          field("key", Some("Key"))(_._1),
+          field("value", Some("Value"))(_._2)
         )
       )
 
-      override def toType(isInput: Boolean = false): __Type = makeList(makeNonNull(kvSchema.toType(isInput)))
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
+        makeList(makeNonNull(kvSchema.toType_(isInput, isSubscription)))
 
       override def resolve(value: Map[A, B]): Step[RA with RB] = ListStep(value.toList.map(kvSchema.resolve))
     }
-  implicit def functionSchema[RA, RB, A, B](
-    implicit arg1: ArgBuilder[A],
+  implicit def functionSchema[RA, RB, A, B](implicit
+    arg1: ArgBuilder[A],
     ev1: Schema[RA, A],
     ev2: Schema[RB, B]
-  ): Schema[RA with RB, A => B] =
+  ): Schema[RA with RB, A => B]                                                                                        =
     new Schema[RA with RB, A => B] {
-      override def arguments: List[__InputValue]            = ev1.toType(true).inputFields.getOrElse(Nil)
-      override def optional: Boolean                        = ev2.optional
-      override def toType(isInput: Boolean = false): __Type = ev2.toType(isInput)
-
-      override def resolve(f: A => B): Step[RA with RB] =
-        FunctionStep(args =>
-          arg1.build(InputValue.ObjectValue(args)) match {
-            case Left(error)  => QueryStep(ZQuery.fail(error))
-            case Right(value) => ev2.resolve(f(value))
-          }
+      private lazy val inputType                                             = ev1.toType_(true)
+      private val unwrappedArgumentName                                      = "value"
+      override def arguments: List[__InputValue]                             =
+        inputType.inputFields.getOrElse(
+          handleInput(List.empty[__InputValue])(
+            List(
+              __InputValue(
+                unwrappedArgumentName,
+                None,
+                () => if (ev1.optional) inputType else makeNonNull(inputType),
+                None
+              )
+            )
+          )
         )
+      override def optional: Boolean                                         = ev2.optional
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev2.toType_(isInput, isSubscription)
+
+      override def resolve(f: A => B): Step[RA with RB]                 =
+        FunctionStep { args =>
+          val builder = arg1.build(InputValue.ObjectValue(args))
+          handleInput(builder)(
+            builder.fold(
+              error => args.get(unwrappedArgumentName).fold[Either[ExecutionError, A]](Left(error))(arg1.build),
+              Right(_)
+            )
+          )
+            .fold(error => QueryStep(ZQuery.fail(error)), value => ev2.resolve(f(value)))
+
+        }
+      private def handleInput[T](onWrapped: => T)(onUnwrapped: => T): T =
+        inputType.kind match {
+          case __TypeKind.SCALAR | __TypeKind.ENUM | __TypeKind.LIST =>
+            // argument was not wrapped in a case class
+            onUnwrapped
+          case _                                                     => onWrapped
+        }
     }
-  implicit def futureSchema[A](implicit ev: Schema[R, A]): Schema[R, Future[A]] =
-    effectSchema[R, Throwable, A].contramap[Future[A]](future => ZIO.fromFuture(_ => future))
-  implicit def infallibleEffectSchema[R1 <: R, A](implicit ev: Schema[R, A]): Schema[R1, ZIO[R1, Nothing, A]] =
-    new Schema[R1, ZIO[R1, Nothing, A]] {
-      override def optional: Boolean                        = ev.optional
-      override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
-      override def resolve(value: ZIO[R1, Nothing, A]): Step[R1] =
-        QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
+
+  implicit def futureSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Future[A]]                                 =
+    effectSchema[R0, R0, R0, Throwable, A].contramap[Future[A]](future => ZIO.fromFuture(_ => future))
+  implicit def infallibleEffectSchema[R0, R1 >: R0, R2 >: R0, A](implicit ev: Schema[R2, A]): Schema[R0, URIO[R1, A]] =
+    new Schema[R0, URIO[R1, A]] {
+      override def optional: Boolean                                         = ev.optional
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
+      override def resolve(value: URIO[R1, A]): Step[R0]                     = QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
     }
-  implicit def effectSchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZIO[R1, E, A]] =
-    new Schema[R1, ZIO[R1, E, A]] {
-      override def optional: Boolean                        = true
-      override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
-      override def resolve(value: ZIO[R1, E, A]): Step[R1] =
-        QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
+  implicit def effectSchema[R0, R1 >: R0, R2 >: R0, E <: Throwable, A](implicit
+    ev: Schema[R2, A]
+  ): Schema[R0, ZIO[R1, E, A]]                                                                                        =
+    new Schema[R0, ZIO[R1, E, A]] {
+      override def optional: Boolean                                         = true
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
+      override def resolve(value: ZIO[R1, E, A]): Step[R0]                   = QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
     }
-  implicit def infallibleQuerySchema[R1 <: R, A](implicit ev: Schema[R, A]): Schema[R1, ZQuery[R1, Nothing, A]] =
-    new Schema[R1, ZQuery[R1, Nothing, A]] {
-      override def optional: Boolean                        = ev.optional
-      override def toType(isInput: Boolean = false): __Type = ev.toType(isInput)
-      override def resolve(value: ZQuery[R1, Nothing, A]): Step[R1] =
-        QueryStep(value.map(ev.resolve))
+  implicit def infallibleQuerySchema[R0, R1 >: R0, R2 >: R0, A](implicit
+    ev: Schema[R2, A]
+  ): Schema[R0, ZQuery[R1, Nothing, A]]                                                                               =
+    new Schema[R0, ZQuery[R1, Nothing, A]] {
+      override def optional: Boolean                                         = ev.optional
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
+      override def resolve(value: ZQuery[R1, Nothing, A]): Step[R0]          = QueryStep(value.map(ev.resolve))
     }
-  implicit def querySchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZQuery[R1, E, A]] =
-    new Schema[R1, ZQuery[R1, E, A]] {
-      override def optional: Boolean                = true
-      override def toType(isInput: Boolean): __Type = ev.toType(isInput)
-      override def resolve(value: ZQuery[R1, E, A]): Step[R1] =
-        QueryStep(value.map(ev.resolve))
+  implicit def querySchema[R0, R1 >: R0, R2 >: R0, E <: Throwable, A](implicit
+    ev: Schema[R2, A]
+  ): Schema[R0, ZQuery[R1, E, A]]                                                                                     =
+    new Schema[R0, ZQuery[R1, E, A]] {
+      override def optional: Boolean                                         = true
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
+      override def resolve(value: ZQuery[R1, E, A]): Step[R0]                = QueryStep(value.map(ev.resolve))
     }
-  implicit def streamSchema[R1 <: R, E <: Throwable, A](implicit ev: Schema[R, A]): Schema[R1, ZStream[R1, E, A]] =
-    new Schema[R1, ZStream[R1, E, A]] {
-      override def optional: Boolean                           = ev.optional
-      override def toType(isInput: Boolean = false): __Type    = ev.toType(isInput)
-      override def resolve(value: ZStream[R1, E, A]): Step[R1] = StreamStep(value.map(ev.resolve))
+  implicit def infallibleStreamSchema[R1, R2 >: R1, A](implicit
+    ev: Schema[R2, A]
+  ): Schema[R1, ZStream[R1, Nothing, A]]                                                                              =
+    new Schema[R1, ZStream[R1, Nothing, A]] {
+      override def optional: Boolean                                 = false
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
+        val t = ev.toType_(isInput, isSubscription)
+        if (isSubscription) t else makeList(if (ev.optional) t else makeNonNull(t))
+      }
+      override def resolve(value: ZStream[R1, Nothing, A]): Step[R1] = StreamStep(value.map(ev.resolve))
+    }
+  implicit def streamSchema[R0, R1 >: R0, R2 >: R0, E <: Throwable, A](implicit
+    ev: Schema[R2, A]
+  ): Schema[R0, ZStream[R1, E, A]]                                                                                    =
+    new Schema[R0, ZStream[R1, E, A]] {
+      override def optional: Boolean                           = true
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
+        val t = ev.toType_(isInput, isSubscription)
+        if (isSubscription) t else makeList(if (ev.optional) t else makeNonNull(t))
+      }
+      override def resolve(value: ZStream[R1, E, A]): Step[R0] = StreamStep(value.map(ev.resolve))
     }
 
 }
 
-trait DerivationSchema[R] {
+trait TemporalSchema {
 
-  /**
-   * Default naming logic for input types.
-   * This is needed to avoid a name clash between a type used as an input and the same type used as an output.
-   * GraphQL needs 2 different types, and they can't have the same name.
-   * By default, we add the "Input" suffix after the type name.
-   */
-  def customizeInputTypeName(name: String): String = s"${name}Input"
+  private[schema] abstract class TemporalSchema[T <: Temporal](
+    name: String,
+    description: Option[String]
+  ) extends Schema[Any, T] {
 
-  type Typeclass[T] = Schema[R, T]
+    protected def format(temporal: T): ResponseValue
 
-  def combine[T](ctx: CaseClass[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
-    override def toType(isInput: Boolean = false): __Type =
-      if (isInput)
-        makeInputObject(
-          Some(ctx.annotations.collectFirst { case GQLInputName(suffix) => suffix }
-            .getOrElse(customizeInputTypeName(getName(ctx)))),
-          getDescription(ctx),
-          ctx.parameters
-            .map(p =>
-              __InputValue(
-                p.label,
-                getDescription(p),
-                () =>
-                  if (p.typeclass.optional) p.typeclass.toType(isInput) else makeNonNull(p.typeclass.toType(isInput)),
-                None,
-                Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
-              )
-            )
-            .toList
-        )
-      else
-        makeObject(
-          Some(getName(ctx)),
-          getDescription(ctx),
-          ctx.parameters
-            .map(p =>
-              __Field(
-                p.label,
-                getDescription(p),
-                p.typeclass.arguments,
-                () =>
-                  if (p.typeclass.optional) p.typeclass.toType(isInput) else makeNonNull(p.typeclass.toType(isInput)),
-                p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
-                p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
-                Option(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
-              )
-            )
-            .toList,
-          getDirectives(ctx)
-        )
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
+      makeScalar(name, description)
 
-    override def resolve(value: T): Step[R] =
-      if (ctx.isObject) PureStep(EnumValue(getName(ctx)))
-      else ObjectStep(getName(ctx), ctx.parameters.map(p => p.label -> p.typeclass.resolve(p.dereference(value))).toMap)
+    override def resolve(value: T): Step[Any] =
+      PureStep(format(value))
   }
 
-  def dispatch[T](ctx: SealedTrait[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
-    override def toType(isInput: Boolean = false): __Type = {
-      val subtypes =
-        ctx.subtypes
-          .map(s => s.typeclass.toType() -> s.annotations)
-          .toList
-          .sortBy {
-            case (tpe, _) => tpe.name.getOrElse("")
-          }
-      val isEnum = subtypes.forall {
-        case (t, _)
-            if t.fields(__DeprecatedArgs(Some(true))).forall(_.isEmpty)
-              && t.inputFields.forall(_.isEmpty) =>
-          true
-        case _ => false
-      }
-      if (isEnum && subtypes.nonEmpty)
-        makeEnum(
-          Some(getName(ctx)),
-          getDescription(ctx),
-          subtypes.collect {
-            case (__Type(_, Some(name), description, _, _, _, _, _, _, _), annotations) =>
-              __EnumValue(
-                name,
-                description,
-                annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
-                annotations.collectFirst { case GQLDeprecated(reason) => reason }
-              )
-          }
-        )
-      else {
-        ctx.annotations.collectFirst {
-          case GQLInterface() => ()
-        }.fold(
-          makeUnion(
-            Some(getName(ctx)),
-            getDescription(ctx),
-            subtypes.map { case (t, _) => fixEmptyUnionObject(t) }
-          )
-        ) { _ =>
-          val impl = subtypes.map(_._1.copy(interfaces = () => Some(List(toType(isInput)))))
-          val commonFields = impl
-            .flatMap(_.fields(__DeprecatedArgs(Some(true))))
-            .flatten
-            .groupBy(_.name)
-            .collect {
-              case (name, list)
-                  if impl.forall(_.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).exists(_.name == name)) =>
-                list.headOption
-            }
-            .flatten
+  lazy val sampleDate: ZonedDateTime = ZonedDateTime.ofInstant(Instant.EPOCH, ZoneId.ofOffset("UTC", ZoneOffset.UTC))
 
-          makeInterface(Some(getName(ctx)), getDescription(ctx), commonFields.toList, impl)
-        }
-      }
-    }
-
-    // see https://github.com/graphql/graphql-spec/issues/568
-    private def fixEmptyUnionObject(t: __Type): __Type =
-      t.fields(__DeprecatedArgs(Some(true))) match {
-        case Some(Nil) =>
-          t.copy(
-            fields = (_: __DeprecatedArgs) =>
-              Some(
-                List(
-                  __Field(
-                    "_",
-                    Some(
-                      "Fake field because GraphQL does not support empty objects. Do not query, use __typename instead."
-                    ),
-                    Nil,
-                    () => makeScalar("Boolean")
-                  )
-                )
-              )
-          )
-        case _ => t
-      }
-
-    override def resolve(value: T): Step[R] =
-      ctx.dispatch(value)(subType => subType.typeclass.resolve(subType.cast(value)))
+  def temporalSchema[A <: Temporal](name: String, description: Option[String] = None)(
+    f: A => ResponseValue
+  ): Schema[Any, A] = new TemporalSchema[A](name, description) {
+    override protected def format(temporal: A): ResponseValue = f(temporal)
   }
 
-  private def getDirectives(annotations: Seq[Any]): List[Directive] =
-    annotations.collect { case GQLDirective(dir) => dir }.toList
+  def temporalSchemaWithFormatter[A <: Temporal](name: String, description: Option[String] = None)(
+    formatter: DateTimeFormatter
+  ): Schema[Any, A] =
+    temporalSchema[A](name, description)(a => StringValue(formatter.format(a)))
 
-  private def getDirectives[Typeclass[_], Type](ctx: CaseClass[Typeclass, Type]): List[Directive] =
-    getDirectives(ctx.annotations)
+  implicit lazy val instantSchema: Schema[Any, Instant] =
+    temporalSchema(
+      "Instant",
+      Some("An instantaneous point on the time-line represented by a standard date time string")
+    )(a => StringValue(a.toString))
 
-  private def getName(annotations: Seq[Any], typeName: TypeName): String =
-    annotations.collectFirst { case GQLName(name) => name }
-      .getOrElse(typeName.short + typeName.typeArguments.map(_.short).mkString)
+  lazy val instantEpochSchema: Schema[Any, Instant] =
+    temporalSchema(
+      "Instant",
+      Some("An instantaneous point on the time-line represented by a numerical millisecond since epoch")
+    )(a => IntValue.LongNumber(a.toEpochMilli))
 
-  private def getName[Typeclass[_], Type](ctx: CaseClass[Typeclass, Type]): String =
-    getName(ctx.annotations, ctx.typeName)
+  implicit lazy val localDateTimeSchema: Schema[Any, LocalDateTime] =
+    localDateTimeSchemaWithFormatter(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
 
-  private def getName[Typeclass[_], Type](ctx: SealedTrait[Typeclass, Type]): String =
-    getName(ctx.annotations, ctx.typeName)
+  def localDateTimeSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, LocalDateTime] =
+    temporalSchemaWithFormatter(
+      "LocalDateTime",
+      Some(
+        s"A date-time without a time-zone in the ISO-8601 calendar system in the format of ${formatter.format(sampleDate)}"
+      )
+    )(formatter)
 
-  private def getDescription(annotations: Seq[Any]): Option[String] =
-    annotations.collectFirst { case GQLDescription(desc) => desc }
+  implicit lazy val offsetDateTimeSchema: Schema[Any, OffsetDateTime] =
+    offsetDateTimeSchemaWithFormatter(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
 
-  private def getDescription[Typeclass[_], Type](ctx: CaseClass[Typeclass, Type]): Option[String] =
-    getDescription(ctx.annotations)
+  def offsetDateTimeSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, OffsetDateTime] =
+    temporalSchemaWithFormatter(
+      "OffsetDateTime",
+      Some(
+        s"A date-time with an offset from UTC/Greenwich in the ISO-8601 calendar system using the format ${formatter.format(sampleDate)}"
+      )
+    )(formatter)
 
-  private def getDescription[Typeclass[_], Type](ctx: SealedTrait[Typeclass, Type]): Option[String] =
-    getDescription(ctx.annotations)
+  implicit lazy val zonedDateTimeSchema: Schema[Any, ZonedDateTime] =
+    zonedDateTimeSchemaWithFormatter(DateTimeFormatter.ISO_ZONED_DATE_TIME)
 
-  private def getDescription[Typeclass[_], Type](ctx: Param[Typeclass, Type]): Option[String] =
-    getDescription(ctx.annotations)
+  val localDateTimeEpochSchema: Schema[Any, LocalDateTime] =
+    temporalSchema("LocalDateTime")(a => IntValue.LongNumber(a.toInstant(ZoneOffset.UTC).toEpochMilli))
 
-  implicit def gen[T]: Typeclass[T] = macro Magnolia.gen[T]
+  def zonedDateTimeSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, ZonedDateTime] =
+    temporalSchemaWithFormatter(
+      "ZonedDateTime",
+      Some(
+        s"A date-time with a time-zone in the ISO-8601 calendar system using the format ${formatter.format(sampleDate)}"
+      )
+    )(formatter)
 
+  implicit lazy val localDateSchema: Schema[Any, LocalDate] =
+    localDateSchemaWithFormatter(DateTimeFormatter.ISO_LOCAL_DATE)
+
+  val localDateEpochSchema: Schema[Any, LocalDate] =
+    temporalSchema(
+      "LocalDate",
+      Some("A date without a time-zone in the ISO-8601 calendar system represented as a millisecond value since epoch")
+    )(a => IntValue.LongNumber(a.atStartOfDay.toInstant(ZoneOffset.UTC).toEpochMilli))
+
+  def localDateSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, LocalDate] =
+    temporalSchemaWithFormatter(
+      "LocalDate",
+      Some(
+        s"A date without a time-zone in the ISO-8601 calendar system using the format ${formatter.format(sampleDate)}"
+      )
+    )(formatter)
+
+  implicit lazy val localTimeSchema: Schema[Any, LocalTime] =
+    localTimeSchemaWithFormatter(DateTimeFormatter.ISO_LOCAL_TIME)
+
+  def localTimeSchemaWithFormatter(formatter: DateTimeFormatter): Schema[Any, LocalTime] =
+    temporalSchemaWithFormatter(
+      "LocalTime",
+      Some(
+        s"A time without a time-zone in the ISO-8601 calendar system using the format ${formatter.format(sampleDate)}"
+      )
+    )(formatter)
+
+}
+
+case class FieldAttributes(isInput: Boolean, isSubscription: Boolean)
+
+abstract class PartiallyAppliedFieldBase[V](name: String, description: Option[String], directives: List[Directive]) {
+  def apply[R, V1](fn: V => V1)(implicit ev: Schema[R, V1], ft: FieldAttributes): (__Field, V => Step[R]) =
+    either[R, V1](v => Left(fn(v)))(ev, ft)
+
+  def either[R, V1](
+    fn: V => Either[V1, Step[R]]
+  )(implicit ev: Schema[R, V1], ft: FieldAttributes): (__Field, V => Step[R])
+
+  protected def makeField[R, V1](implicit ev: Schema[R, V1], ft: FieldAttributes): __Field =
+    __Field(
+      name,
+      description,
+      Nil,
+      () =>
+        if (ev.optional) ev.toType_(ft.isInput, ft.isSubscription)
+        else Types.makeNonNull(ev.toType_(ft.isInput, ft.isSubscription)),
+      directives = Some(directives).filter(_.nonEmpty)
+    )
+}
+
+case class PartiallyAppliedField[V](name: String, description: Option[String], directives: List[Directive])
+    extends PartiallyAppliedFieldBase[V](name, description, directives) {
+  def either[R, V1](
+    fn: V => Either[V1, Step[R]]
+  )(implicit ev: Schema[R, V1], ft: FieldAttributes): (__Field, V => Step[R]) =
+    (makeField, (v: V) => fn(v).fold(ev.resolve, identity))
+}
+
+case class PartiallyAppliedFieldLazy[V](name: String, description: Option[String], directives: List[Directive])
+    extends PartiallyAppliedFieldBase[V](name, description, directives) {
+  def either[R, V1](
+    fn: V => Either[V1, Step[R]]
+  )(implicit ev: Schema[R, V1], ft: FieldAttributes): (__Field, V => Step[R]) =
+    (makeField, (v: V) => FunctionStep(_ => fn(v).fold(ev.resolve, identity)))
+}
+
+case class PartiallyAppliedFieldWithArgs[V, A](name: String, description: Option[String], directives: List[Directive]) {
+  def apply[R, V1](fn: V => (A => V1))(implicit ev1: Schema[R, A => V1], fa: FieldAttributes): (__Field, V => Step[R]) =
+    (
+      __Field(name, description, ev1.arguments, () => ev1.toType_(fa.isInput, fa.isSubscription)),
+      (v: V) => ev1.resolve(fn(v))
+    )
 }

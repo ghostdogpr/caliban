@@ -5,7 +5,7 @@ import caliban.client.FieldBuilder._
 import caliban.client.Operations.RootQuery
 import caliban.client.SelectionBuilder.Field
 import caliban.client.TestData.Role._
-import caliban.client.Value.StringValue
+import caliban.client.__Value.__StringValue
 
 object TestData {
 
@@ -16,28 +16,25 @@ object TestData {
     case object BELT  extends Origin
 
     implicit val originDecoder: ScalarDecoder[Origin] = {
-      case StringValue("EARTH") => Right(Origin.EARTH)
-      case StringValue("MARS")  => Right(Origin.MARS)
-      case StringValue("BELT")  => Right(Origin.BELT)
-      case other                => Left(DecodingError(s"Can't build an Origin from input $other"))
+      case __StringValue("EARTH") => Right(Origin.EARTH)
+      case __StringValue("MARS")  => Right(Origin.MARS)
+      case __StringValue("BELT")  => Right(Origin.BELT)
+      case other                  => Left(DecodingError(s"Can't build an Origin from input $other"))
     }
-    implicit val originEncoder: ArgEncoder[Origin] = new ArgEncoder[Origin] {
-      override def encode(value: Origin): Value = value match {
-        case EARTH => StringValue("EARTH")
-        case MARS  => StringValue("MARS")
-        case BELT  => StringValue("BELT")
-      }
-      override def typeName: String = "Origin"
+    implicit val originEncoder: ArgEncoder[Origin]    = {
+      case EARTH => __StringValue("EARTH")
+      case MARS  => __StringValue("MARS")
+      case BELT  => __StringValue("BELT")
     }
   }
 
   object Role {
     type Captain
-    object Captain {
+    object Captain  {
       def shipName: SelectionBuilder[Captain, String] = Field("shipName", Scalar())
     }
     type Pilot
-    object Pilot {
+    object Pilot    {
       def shipName: SelectionBuilder[Pilot, String] = Field("shipName", Scalar())
     }
     type Mechanic
@@ -60,7 +57,7 @@ object TestData {
       onPilot: SelectionBuilder[Pilot, A],
       onMechanic: SelectionBuilder[Mechanic, A],
       onEngineer: SelectionBuilder[Engineer, A]
-    ): SelectionBuilder[Character, Option[A]] =
+    ): SelectionBuilder[Character, Option[A]]                =
       Field(
         "role",
         OptionOf(
@@ -81,10 +78,10 @@ object TestData {
     def characters[A](
       origin: Option[Origin] = None
     )(sel: SelectionBuilder[Character, A]): SelectionBuilder[RootQuery, List[A]] =
-      Field("characters", ListOf(Obj(sel)), arguments = List(Argument("origin", origin)))
+      Field("characters", ListOf(Obj(sel)), arguments = List(Argument("origin", origin, "Origin")))
 
     def character[A](name: String)(sel: SelectionBuilder[Character, A]): Field[RootQuery, Option[A]] =
-      Field("character", OptionOf(Obj(sel)), arguments = List(Argument("name", name)))
+      Field("character", OptionOf(Obj(sel)), arguments = List(Argument("name", name, "String!")))
   }
 
 }

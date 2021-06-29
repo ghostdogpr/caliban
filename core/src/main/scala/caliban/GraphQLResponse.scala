@@ -8,33 +8,9 @@ import caliban.interop.circe._
  */
 case class GraphQLResponse[+E](data: ResponseValue, errors: List[E], extensions: Option[ObjectValue] = None)
 
-object GraphQLResponse {
+object GraphQLResponse extends GraphQLResponseJsonCompat {
   implicit def circeEncoder[F[_]: IsCirceEncoder, E]: F[GraphQLResponse[E]] =
-    GraphQLResponseCirce.graphQLResponseEncoder.asInstanceOf[F[GraphQLResponse[E]]]
-}
-
-private object GraphQLResponseCirce {
-  import io.circe._
-  import io.circe.syntax._
-  val graphQLResponseEncoder: Encoder[GraphQLResponse[Any]] = Encoder
-    .instance[GraphQLResponse[Any]] {
-      case GraphQLResponse(data, Nil, None) => Json.obj("data" -> data.asJson)
-      case GraphQLResponse(data, Nil, Some(extensions)) =>
-        Json.obj("data" -> data.asJson, "extensions" -> extensions.asInstanceOf[ResponseValue].asJson)
-      case GraphQLResponse(data, errors, None) =>
-        Json.obj("data" -> data.asJson, "errors" -> Json.fromValues(errors.map(handleError)))
-      case GraphQLResponse(data, errors, Some(extensions)) =>
-        Json.obj(
-          "data"       -> data.asJson,
-          "errors"     -> Json.fromValues(errors.map(handleError)),
-          "extensions" -> extensions.asInstanceOf[ResponseValue].asJson
-        )
-    }
-
-  private def handleError(err: Any): Json =
-    err match {
-      case ce: CalibanError => ce.asJson
-      case _                => Json.obj("message" -> Json.fromString(err.toString))
-    }
-
+    caliban.interop.circe.json.GraphQLResponseCirce.graphQLResponseEncoder.asInstanceOf[F[GraphQLResponse[E]]]
+  implicit def circeDecoder[F[_]: IsCirceDecoder, E]: F[GraphQLResponse[E]] =
+    caliban.interop.circe.json.GraphQLResponseCirce.graphQLRespondDecoder.asInstanceOf[F[GraphQLResponse[E]]]
 }
