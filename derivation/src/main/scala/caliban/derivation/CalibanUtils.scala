@@ -86,16 +86,18 @@ trait CalibanUtils extends MacroUtils {
   protected object typeRefs {
     val __Type: Type = typeOf[caliban.introspection.adt.__Type]
     val Any: Type    = typeOf[Any]
+    val Zio: Type    = typeOf[zio.ZIO[_, _, _]]
+    val ZQuery: Type = typeOf[zio.query.ZQuery[_, _, _]]
   }
 
-  protected object Schema extends HKType {
+  protected object Schema extends HKType2 {
     private val sym: Symbol = symbolOf[caliban.schema.Schema[_, _]]
 
-    def apply(tpe: Type): Type = internal.typeRef(NoPrefix, sym, List(typeRefs.Any, tpe))
+    def apply(tpe1: Type, tpe2: Type): Type = internal.typeRef(NoPrefix, sym, List(tpe1, tpe2))
 
-    def unapply(tpe: Type): Option[Type] =
+    def unapply(tpe: Type): Option[(Type, Type)] =
       tpe match {
-        case TypeRef(_, `sym`, List(_, x)) => Some(x)
+        case TypeRef(_, `sym`, List(r, x)) => Some((r, x))
         case _                             => None
       }
   }
@@ -135,4 +137,13 @@ trait CalibanUtils extends MacroUtils {
           ${refs.makeNonNull}($schema.toType_($isInputTree))
     """
   }
+
+  protected def detectEnvironment(typ: Type): Type =
+    if (typ.dealias.erasure <:< typeRefs.Zio) {
+      typ.typeArgs.head
+    } else if (typ.dealias.erasure <:< typeRefs.ZQuery) {
+      typ.typeArgs.head
+    } else {
+      typeRefs.Any
+    }
 }

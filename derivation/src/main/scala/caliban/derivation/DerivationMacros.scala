@@ -12,7 +12,7 @@ import scala.reflect.macros.blackbox
 class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
   import c.universe._
 
-  private case class DeriveMember(sym: TermSymbol) {
+  private case class DeriveMember(sym: TermSymbol, envType: Type) {
     // n.b. To remain consistent with the magnolia derivation, we ignore the GQLName and GQLInputName annotations
     // on fields, methods, and parameters. Though I don't see a reason why we cannot use them for these cases as well.
 
@@ -26,6 +26,7 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
       else None
 
     private val scalaType: Type = if (sym.isMethod) sym.asMethod.returnType else sym.typeSignature
+    val detectedEnvType: Type   = detectEnvironment(scalaType)
 
     private val info: GraphQLInfo = GraphQLInfo(sym)
 
@@ -34,7 +35,7 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
     private val fieldNameStr: Tree = mkConst(sym.name.normalizeString)
 
     // TODO: Figure out how to cleanly extract the default argument, if any
-    def deriveParam: Tree = Schema.summon(scalaType) { paramSchema =>
+    def deriveParam: Tree = Schema.summon(envType, scalaType) { paramSchema =>
       q"""
         ${refs.__InputValue}(
           $fieldNameStr,
@@ -46,12 +47,12 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
       """
     }
 
-    def deriveField: Tree = Schema.summon(scalaType) { schema =>
+    def deriveField: Tree = Schema.summon(envType, scalaType) { schema =>
       val args =
         params.filterNot(_.isEmpty) match {
           case Some(ps) =>
             // Non-empty list of parameters
-            val argTrees = ps.map(p => DeriveMember(p.asTerm).deriveParam)
+            val argTrees = ps.map(p => DeriveMember(p.asTerm, envType).deriveParam)
             q"List(..$argTrees)"
 
           case None =>
@@ -74,7 +75,7 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
       """
     }
 
-    def deriveStep(parent: Type, resolveValue: TermName): Tree = Schema.summon(scalaType) { schema =>
+    def deriveStep(parent: Type, resolveValue: TermName): Tree = Schema.summon(envType, scalaType) { schema =>
       val emptyParamList: Boolean =
         params.exists(_.isEmpty)
 
@@ -165,9 +166,9 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
       .filterNot(hasAnnotation[GQLExclude])
       .toList
 
-  private def deriveInput(info: GraphQLInfo, inputs: List[TermSymbol]): Tree = {
+  private def deriveInput(info: GraphQLInfo, env: Type, inputs: List[TermSymbol]): Tree = {
     val fields =
-      inputs.map(i => DeriveMember(i).deriveParam)
+      inputs.map(i => DeriveMember(i, env).deriveParam)
 
     q"""
       ${refs.makeInputObject}(
@@ -178,9 +179,9 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
     """
   }
 
-  private def deriveOutput(info: GraphQLInfo, outputs: List[TermSymbol]): Tree = {
+  private def deriveOutput(info: GraphQLInfo, env: Type, outputs: List[TermSymbol]): Tree = {
     val fields =
-      outputs.map(o => DeriveMember(o).deriveField)
+      outputs.map(o => DeriveMember(o, env).deriveField)
 
     q"""
       ${refs.makeObject}(
@@ -192,9 +193,15 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
     """
   }
 
-  private def deriveStep(parent: Type, info: GraphQLInfo, resolveValue: TermName, outputs: List[TermSymbol]): Tree = {
+  private def deriveStep(
+    parent: Type,
+    info: GraphQLInfo,
+    env: Type,
+    resolveValue: TermName,
+    outputs: List[TermSymbol]
+  ): Tree = {
     val fields =
-      outputs.map(o => DeriveMember(o).deriveStepWithName(parent, resolveValue))
+      outputs.map(o => DeriveMember(o, env).deriveStepWithName(parent, resolveValue))
 
     q"""
       ${refs.ObjectStep}(
@@ -204,8 +211,18 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
     """
   }
 
-  def deriveSchema[T](implicit wtt: WeakTypeTag[T]): Tree = {
-    val tpe = wtt.tpe
+  private def mergeEnvironments(members: List[TermSymbol]): Type = {
+    val envTypes = members.map(m => DeriveMember(m, typeRefs.Any).envType).toSet - typeRefs.Any
+    if (envTypes.nonEmpty) {
+      envTypes.reduce((a, b) => tq"$a with $b".tpe)
+    } else {
+      typeRefs.Any
+    }
+  }
+
+  def deriveSchema[R, T](implicit wtr: WeakTypeTag[R], wtt: WeakTypeTag[T]): Tree = {
+    val tpe          = wtt.tpe
+    val requestedEnv = wtr.tpe
 
     if (!tpe.typeSymbol.isClass || tpe.typeSymbol.isAbstract) {
       c.abort(c.enclosingPosition, s"Only concrete classes can currently be derived with the `deriveSchema` macro")
@@ -214,26 +231,38 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
     val inputs  = inputFields(tpe)
     val outputs = outputFields(tpe)
 
+    val envType = mergeEnvironments(inputs ++ outputs)
+
+    if (!(requestedEnv <:< requestedEnv)) {
+      c.warning(
+        c.enclosingPosition,
+        s"deriveSchema was called with environment ${requestedEnv} but there are members in the derived type is using ${envType}!"
+      )
+    }
+
     val resolveValue = TermName(c.freshName())
 
     val info    = GraphQLInfo(tpe.typeSymbol)
     val toType  =
       q"""
         override def toType(isInput: Boolean = false, isSubscription: Boolean = false): ${typeRefs.__Type} =
-          if (isInput) ${deriveInput(info, inputs)}
-          else ${deriveOutput(info, outputs)}
+          if (isInput) ${deriveInput(info, requestedEnv, inputs)}
+          else ${deriveOutput(info, requestedEnv, outputs)}
       """
     val resolve =
       q"""
-         override def resolve($resolveValue: $tpe): ${Step(typeRefs.Any)} =
-           ${deriveStep(tpe, info, resolveValue, outputs)}
+         override def resolve($resolveValue: $tpe): ${Step(requestedEnv)} =
+           ${deriveStep(tpe, info, requestedEnv, resolveValue, outputs)}
       """
 
-    q"""
-      new ${Schema(tpe)} {
+    val result = q"""
+      new ${Schema(requestedEnv, tpe)} {
         $toType
         $resolve
       }
     """
+
+//    println(result)
+    result
   }
 }

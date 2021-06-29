@@ -5,5 +5,5 @@ import caliban.schema.Schema
 import scala.language.experimental.macros
 
 package object derivation {
-  def deriveSchemaInstance[T]: Schema[Any, T] = macro DerivationMacros.deriveSchema[T]
+  def deriveSchemaInstance[R, T]: Schema[R, T] = macro DerivationMacros.deriveSchema[R, T]
 }

@@ -16,6 +16,12 @@ trait MacroUtils {
     def summon(tpe: Type): (TermName => Tree) => Tree = withTypeclass(this)(tpe)
   }
 
+  protected trait HKType2 {
+    def apply(tpe1: Type, tpe2: Type): Type
+    def unapply(tpe: Type): Option[(Type, Type)]
+    def summon(tpe1: Type, tpe2: Type): (TermName => Tree) => Tree = withTypeclass2(this)(tpe1, tpe2)
+  }
+
   protected class OneArgumentAnnotation(tpe: Type) {
     def unapply(annotation: Annotation): Option[Tree] =
       annotation.tree match {
@@ -81,6 +87,17 @@ trait MacroUtils {
   protected def withTypeclass(hktype: HKType)(tpe: Type)(f: TermName => Tree): Tree = {
     val name: TermName    = TermName(c.freshName())
     val appliedType: Type = hktype(tpe)
+
+    q"""
+      val $name: $appliedType = implicitly[$appliedType]
+
+      ${f(name)}
+    """
+  }
+
+  protected def withTypeclass2(hktype: HKType2)(env: Type, tpe: Type)(f: TermName => Tree): Tree = {
+    val name: TermName    = TermName(c.freshName())
+    val appliedType: Type = hktype(env, tpe)
 
     q"""
       val $name: $appliedType = implicitly[$appliedType]
