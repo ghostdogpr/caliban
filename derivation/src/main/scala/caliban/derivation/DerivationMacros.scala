@@ -87,12 +87,11 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
             val paramNames = ps.map(p => c.freshName(p.name))
 
             val builtArgs =
-              ps.zip(paramNames).map {
-                case (p, name) =>
-                  val paramName = p.nameStringLit
-                  val rhs       = ArgBuilder.summon(p.typeSignature)(bld => q"$bld.build($args($paramName))")
+              ps.zip(paramNames).map { case (p, name) =>
+                val paramName = p.nameStringLit
+                val rhs       = ArgBuilder.summon(p.typeSignature)(bld => q"$bld.build($args($paramName))")
 
-                  fq"$name <- $rhs"
+                fq"$name <- $rhs"
               }
 
             val forExpr = q"for (..$builtArgs) yield $resolveValue.$fieldName(..$paramNames)"
@@ -217,8 +216,8 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
 
     val resolveValue = TermName(c.freshName())
 
-    val info = GraphQLInfo(tpe.typeSymbol)
-    val toType =
+    val info    = GraphQLInfo(tpe.typeSymbol)
+    val toType  =
       q"""
         override def toType(isInput: Boolean = false, isSubscription: Boolean = false): ${typeRefs.__Type} =
           if (isInput) ${deriveInput(info, inputs)}

@@ -1,6 +1,6 @@
 package caliban.derivation
 
-import caliban.schema.Annotations.{GQLDeprecated, GQLDescription, GQLDirective, GQLInputName, GQLName}
+import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLDirective, GQLInputName, GQLName }
 import zio.query.ZQuery
 
 /**
@@ -35,32 +35,32 @@ trait CalibanUtils extends MacroUtils {
           mkConst(s.nameString + s.asType.typeParams.map(_.nameString).mkString)
         } else s.nameStringLit
 
-      s.scalaAnnotations.collectFirst {
-        case GQLNameType(name) => name
+      s.scalaAnnotations.collectFirst { case GQLNameType(name) =>
+        name
       }.getOrElse(default)
     }
 
     private def getDescription(s: Symbol): Tree =
-      s.scalaAnnotations.collectFirst {
-        case GQLDescriptionType(desc) => q"Some($desc)"
+      s.scalaAnnotations.collectFirst { case GQLDescriptionType(desc) =>
+        q"Some($desc)"
       }.getOrElse(q"None")
 
     private def getDeprecation(s: Symbol): Tree =
-      s.scalaAnnotations.collectFirst {
-        case GQLDeprecatedType(reason) => q"Some($reason)"
+      s.scalaAnnotations.collectFirst { case GQLDeprecatedType(reason) =>
+        q"Some($reason)"
       }.getOrElse(q"None")
 
     private def getDirectives(s: Symbol): Tree = {
-      val dirs = s.scalaAnnotations.collect {
-        case GQLDirectiveType(dir) => dir
+      val dirs = s.scalaAnnotations.collect { case GQLDirectiveType(dir) =>
+        dir
       }
 
       q"List(..$dirs)"
     }
 
     private def getInputName(s: Symbol): Tree =
-      s.scalaAnnotations.collectFirst {
-        case GQLInputNameType(name) => name
+      s.scalaAnnotations.collectFirst { case GQLInputNameType(name) =>
+        name
       }.getOrElse(q"${refs.customizeInputTypeName}(${getName(s)})")
 
     def apply(s: Symbol): GraphQLInfo = {

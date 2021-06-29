@@ -37,7 +37,7 @@ trait MacroUtils {
     private def isJavaAnnotation(annotation: Annotation): Boolean =
       annotation.tree.tpe <:< typeOf[java.lang.annotation.Annotation]
 
-    def nameString: String =
+    def nameString: String                 =
       if (s.isTerm) s.name.toTermName.normalizeString
       else s.name.decodedName.toString
     def nameStringLit: Tree                = mkConst(nameString)
@@ -67,8 +67,8 @@ trait MacroUtils {
     Literal(Constant(value))
 
   private def absolutePath(sym: Symbol): RefTree =
-    sym.fullName.split("\\.").foldLeft(Ident(termNames.ROOTPKG): RefTree) {
-      case (prefix, elem) => Select(prefix, TermName(elem))
+    sym.fullName.split("\\.").foldLeft(Ident(termNames.ROOTPKG): RefTree) { case (prefix, elem) =>
+      Select(prefix, TermName(elem))
     }
 
   protected def companionRef[T: WeakTypeTag]: RefTree = {
