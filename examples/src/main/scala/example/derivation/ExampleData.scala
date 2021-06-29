@@ -1,9 +1,8 @@
 package example.derivation
 
-import example.derivation.ExampleData.Origin.{ BELT, EARTH, MARS }
-import example.derivation.ExampleData.Role.{ Captain, Engineer, Mechanic, Pilot }
-import caliban.derivation.annotation.{ deriveSchema, GQLExclude }
-import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
+import example.derivation.ExampleData.Origin.{BELT, EARTH, MARS}
+import example.derivation.ExampleData.Role.{Captain, Engineer, Mechanic, Pilot}
+import caliban.schema.Annotations.{GQLDeprecated, GQLDescription, GQLExclude}
 import caliban.schema.Schema
 import zio.query.ZQuery
 

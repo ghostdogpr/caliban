@@ -36,4 +36,9 @@ object Annotations {
    * Annotation to make a sealed trait an interface instead of a union type
    */
   case class GQLInterface() extends StaticAnnotation
+
+  /**
+   * Annotation used to indicate that a class member should not be included in the derived Schema
+   */
+  case class GQLExclude() extends StaticAnnotation
 }

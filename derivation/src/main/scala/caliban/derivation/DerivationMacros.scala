@@ -1,6 +1,6 @@
 package caliban.derivation
 
-import caliban.derivation.annotation.GQLExclude
+import caliban.schema.Annotations.GQLExclude
 
 import scala.reflect.macros.blackbox
 
