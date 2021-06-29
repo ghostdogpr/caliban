@@ -97,6 +97,7 @@ object ExampleApi extends GenericSchema[Random] {
   // NOTE: the derived schema instances must be in the object extending GenericSchema directly otherwise the
   // magnolia auto-derivated instances will win
   implicit val originSchema: Schema[Random, Origin]    = caliban.derivation.deriveSchemaInstance[Random, Origin]
+  implicit val roleSchema: Schema[Random, Role]        = caliban.derivation.deriveSchemaInstance[Random, Role]
   implicit val charSchema: Schema[Random, Character]   = caliban.derivation.deriveSchemaInstance[Random, Character]
   implicit val charsSchema: Schema[Random, Characters] = caliban.derivation.deriveSchemaInstance[Random, Characters]
 

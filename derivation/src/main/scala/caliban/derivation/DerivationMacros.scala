@@ -222,6 +222,57 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
     """
   }
 
+  private def deriveUnion(
+    info: GraphQLInfo,
+    env: Type,
+    subtypes: Map[Symbol, (List[TermSymbol], List[TermSymbol])]
+  ): Tree = {
+    val subtypeValues =
+      subtypes.map { case (subtype, (_, outs)) =>
+        val subtypeInfo = GraphQLInfo(subtype)
+        deriveOutputObject(subtypeInfo, env, outs)
+      }
+
+    val iface = TermName(c.freshName())
+    q"""
+        {
+          lazy val $iface: ${typeRefs.__Type} = ${refs.makeUnion}(
+            Some(${info.name}),
+            ${info.description},
+            List(..$subtypeValues)
+          )
+          $iface
+        }
+    """
+  }
+
+  private def deriveEnum(
+    info: GraphQLInfo,
+    subtypes: Set[Symbol]
+  ): Tree = {
+    val enumValues =
+      subtypes.map { subtype =>
+        val subtypeInfo = GraphQLInfo(subtype)
+        q"""
+            _root_.caliban.introspection.adt.__EnumValue(
+              name = ${subtypeInfo.name},
+              description = ${subtypeInfo.description},
+              isDeprecated = ${subtypeInfo.isDeprecated},
+              deprecationReason = ${subtypeInfo.deprecationReason}
+            )
+         """
+      }
+
+    q"""
+          ${refs.makeEnum}(
+            Some(${info.name}),
+            ${info.description},
+            List(..$enumValues),
+            None
+          )
+    """
+  }
+
   private def deriveStep(
     parent: Type,
     info: GraphQLInfo,
@@ -233,7 +284,7 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
       outputs.map(o => DeriveMember(o, env).deriveStepWithName(parent, resolveValue))
 
     q"""
-      ${refs.ObjectStep}(
+      ${refs.ObjectStep}.apply[$env](
         ${info.name},
         Map(..$fields)
       )
@@ -320,10 +371,15 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
           override def toType(isInput: Boolean = false, isSubscription: Boolean = false): ${typeRefs.__Type} =
             ${deriveInterface(info, requestedEnv, outputs, subclassInOut)}
         """
-      } else {
-        // TODO: union and enum support
+      } else if (isUnion) {
         q"""
-           override def toType(isInput: Boolean = false, isSubscription: Boolean = false): ${typeRefs.__Type} = ???
+          override def toType(isInput: Boolean = false, isSubscription: Boolean = false): ${typeRefs.__Type} =
+            ${deriveUnion(info, requestedEnv, subclassInOut)}
+        """
+      } else {
+        q"""
+           override def toType(isInput: Boolean = false, isSubscription: Boolean = false): ${typeRefs.__Type} =
+             ${deriveEnum(info, subclasses)}
          """
       }
 

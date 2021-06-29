@@ -77,6 +77,8 @@ trait CalibanUtils extends MacroUtils {
     val makeNonNull: RefTree            = companionRef[caliban.schema.Types.type].select("makeNonNull")
     val makeObject: RefTree             = companionRef[caliban.schema.Types.type].select("makeObject")
     val makeInterface: RefTree          = companionRef[caliban.schema.Types.type].select("makeInterface")
+    val makeUnion: RefTree              = companionRef[caliban.schema.Types.type].select("makeUnion")
+    val makeEnum: RefTree               = companionRef[caliban.schema.Types.type].select("makeEnum")
     val makeInputObject: RefTree        = companionRef[caliban.schema.Types.type].select("makeInputObject")
     val FunctionStep: RefTree           = companionRef[caliban.schema.Step.FunctionStep[_]]
     val ObjectStep: RefTree             = companionRef[caliban.schema.Step.ObjectStep[_]]
