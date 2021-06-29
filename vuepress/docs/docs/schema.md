@@ -125,6 +125,8 @@ type Mechanic {
 If you prefer an `Interface` instead of a `Union` type, add the `@GQLInterface` annotation to your sealed trait.
 An interface will be created with all the fields that are common to the case classes extending the sealed trait, as long as they return the same type.
 
+If you prefer to have a `Union` type instead of an `Enum`, even when the sealed trait contains only objects, add the `@GQLUnion` annotation.
+
 ## Arguments
 
 To declare a field that take arguments, create a dedicated case class representing the arguments and make the field a _function_ from this class to the result type.
