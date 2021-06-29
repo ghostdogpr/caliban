@@ -166,7 +166,7 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
       .filterNot(hasAnnotation[GQLExclude])
       .toList
 
-  private def deriveInput(info: GraphQLInfo, env: Type, inputs: List[TermSymbol]): Tree = {
+  private def deriveInputObject(info: GraphQLInfo, env: Type, inputs: List[TermSymbol]): Tree = {
     val fields =
       inputs.map(i => DeriveMember(i, env).deriveParam)
 
@@ -179,7 +179,7 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
     """
   }
 
-  private def deriveOutput(info: GraphQLInfo, env: Type, outputs: List[TermSymbol]): Tree = {
+  private def deriveOutputObject(info: GraphQLInfo, env: Type, outputs: List[TermSymbol]): Tree = {
     val fields =
       outputs.map(o => DeriveMember(o, env).deriveField)
 
@@ -190,6 +190,35 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
         List(..$fields),
         ${info.directives}
       )
+    """
+  }
+
+  private def deriveInterface(
+    info: GraphQLInfo,
+    env: Type,
+    outputs: List[TermSymbol],
+    subtypes: Map[Symbol, (List[TermSymbol], List[TermSymbol])]
+  ): Tree = {
+    val fields =
+      outputs.map(o => DeriveMember(o, env).deriveField)
+
+    val subtypeValues =
+      subtypes.map { case (subtype, (ins, outs)) =>
+        val subtypeInfo = GraphQLInfo(subtype)
+        deriveOutputObject(subtypeInfo, env, outs)
+      }
+
+    val iface = TermName(c.freshName())
+    q"""
+        {
+          lazy val $iface: ${typeRefs.__Type} = ${refs.makeInterface}(
+            Some(${info.name}),
+            ${info.description},
+            () => List(..$fields),
+            List(..$subtypeValues).map(_.copy(interfaces = () => Some(List($iface))))
+          )
+          $iface
+        }
     """
   }
 
@@ -220,14 +249,7 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
     }
   }
 
-  def deriveSchema[R, T](implicit wtr: WeakTypeTag[R], wtt: WeakTypeTag[T]): Tree = {
-    val tpe          = wtt.tpe
-    val requestedEnv = wtr.tpe
-
-    if (!tpe.typeSymbol.isClass || tpe.typeSymbol.isAbstract) {
-      c.abort(c.enclosingPosition, s"Only concrete classes can currently be derived with the `deriveSchema` macro")
-    }
-
+  private def deriveProductSchema(tpe: Type, requestedEnv: Type): Tree = {
     val inputs  = inputFields(tpe)
     val outputs = outputFields(tpe)
 
@@ -246,8 +268,8 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
     val toType  =
       q"""
         override def toType(isInput: Boolean = false, isSubscription: Boolean = false): ${typeRefs.__Type} =
-          if (isInput) ${deriveInput(info, requestedEnv, inputs)}
-          else ${deriveOutput(info, requestedEnv, outputs)}
+          if (isInput) ${deriveInputObject(info, requestedEnv, inputs)}
+          else ${deriveOutputObject(info, requestedEnv, outputs)}
       """
     val resolve =
       q"""
@@ -262,7 +284,88 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
       }
     """
 
-//    println(result)
+    //    println(result)
     result
+  }
+
+  def deriveSumSchema(tpe: Type, requestedEnv: Type): Tree = {
+    // NOTE: Sealed trait cannot have inputs
+    val outputs = outputFields(tpe)
+
+    println(s"Sealed trait outputs: $outputs")
+
+    val subclasses = knownSubclassesOf(tpe.typeSymbol.asClass)
+    println(s"Subclasses: $subclasses")
+
+    val subclassInOut =
+      subclasses.map { subclass =>
+        val inputs  = inputFields(subclass.typeSignature)
+        val outputs = outputFields(subclass.typeSignature)
+        println(s"${subclass.name} trait inputs: $inputs")
+        println(s"${subclass.name} trait outputs: $outputs")
+
+        (subclass, (inputs, outputs))
+      }.toMap
+
+    val isEnum      = outputs.isEmpty && subclassInOut.forall { case (_, (in, out)) => in.isEmpty && out.isEmpty }
+    val isUnion     = !isEnum && outputs.isEmpty
+    val isInterface = !isEnum && !isUnion
+
+    println(s"$isEnum / $isUnion / $isInterface")
+
+    val info   = GraphQLInfo(tpe.typeSymbol)
+    val toType =
+      if (isInterface) {
+        q"""
+          override def toType(isInput: Boolean = false, isSubscription: Boolean = false): ${typeRefs.__Type} =
+            ${deriveInterface(info, requestedEnv, outputs, subclassInOut)}
+        """
+      } else {
+        // TODO: union and enum support
+        q"""
+           override def toType(isInput: Boolean = false, isSubscription: Boolean = false): ${typeRefs.__Type} = ???
+         """
+      }
+
+    val resolveValue = TermName(c.freshName())
+
+    val cases   = subclassInOut.map { case (subclass, (ins, outs)) =>
+      val n            = TermName(c.freshName())
+      val subclassInfo = GraphQLInfo(subclass)
+      cq"""$n: $subclass => ${deriveStep(subclass.typeSignature, subclassInfo, requestedEnv, n, outs)}"""
+    }
+    val resolve =
+      q"""
+         override def resolve($resolveValue: $tpe): ${Step(requestedEnv)} = {
+           $resolveValue match {
+             case ..$cases
+           }
+         }
+      """
+
+    val result = q"""
+      new ${Schema(requestedEnv, tpe)} {
+        $toType
+        $resolve
+      }
+    """
+
+    println(result)
+    result
+  }
+
+  def deriveSchema[R, T](implicit wtr: WeakTypeTag[R], wtt: WeakTypeTag[T]): Tree = {
+    val tpe          = wtt.tpe
+    val requestedEnv = wtr.tpe
+
+    val cls = if (tpe.typeSymbol.isClass) Some(tpe.typeSymbol.asClass) else None
+
+    if (cls.exists(ct => ct.isCaseClass)) {
+      deriveProductSchema(tpe, requestedEnv)
+    } else if (cls.exists(ct => ct.isSealed && !ct.isJavaEnum)) {
+      deriveSumSchema(tpe, requestedEnv)
+    } else {
+      c.abort(c.enclosingPosition, s"Only product and sum types can currently be derived with the `deriveSchema` macro")
+    }
   }
 }

@@ -18,12 +18,20 @@ import zio.random.Random
 
 object ExampleApi extends GenericSchema[Random] {
 
-  sealed trait Origin
+  sealed trait Origin {
+    def population: Long
+  }
 
   object Origin {
-    case object EARTH extends Origin
-    case object MARS  extends Origin
-    case object BELT  extends Origin
+    case object EARTH extends Origin {
+      override def population: Long = 30000000000L
+    }
+    case object MARS  extends Origin {
+      override def population: Long = 4000000000L
+    }
+    case object BELT  extends Origin {
+      override def population: Long = 50000000L
+    }
   }
 
   sealed trait Role
@@ -86,8 +94,9 @@ object ExampleApi extends GenericSchema[Random] {
     )
   )
 
-  // NOTE: the derived schema instances must be in the object extening GenericSchema directly otherwise the
+  // NOTE: the derived schema instances must be in the object extending GenericSchema directly otherwise the
   // magnolia auto-derivated instances will win
+  implicit val originSchema: Schema[Random, Origin]    = caliban.derivation.deriveSchemaInstance[Random, Origin]
   implicit val charSchema: Schema[Random, Character]   = caliban.derivation.deriveSchemaInstance[Random, Character]
   implicit val charsSchema: Schema[Random, Characters] = caliban.derivation.deriveSchemaInstance[Random, Characters]
 

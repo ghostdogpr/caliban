@@ -115,4 +115,21 @@ trait MacroUtils {
 
     q"{ $param => ${f(name)} }"
   }
+
+  protected def knownSubclassesOf(parent: ClassSymbol): Set[Symbol] = {
+    // Based on Magnolia's gen function
+    val (abstractChildren, concreteChildren) = parent.knownDirectSubclasses.partition(_.isAbstract)
+    for (child <- concreteChildren) {
+      child.typeSignature // load type signature
+      if (!child.isFinal && !child.asClass.isCaseClass)
+        c.abort(c.enclosingPosition, s"child $child of $parent is neither final nor a case class")
+    }
+
+    concreteChildren union abstractChildren.flatMap { child =>
+      child.typeSignature // load type signature
+      val childClass = child.asClass
+      if (childClass.isSealed) knownSubclassesOf(childClass)
+      else c.abort(c.enclosingPosition, s"child $child of $parent is not sealed")
+    }
+  }
 }

@@ -76,6 +76,7 @@ trait CalibanUtils extends MacroUtils {
     val customizeInputTypeName: RefTree = companionRef[caliban.schema.Schema[_, _]].select("customizeInputTypeName")
     val makeNonNull: RefTree            = companionRef[caliban.schema.Types.type].select("makeNonNull")
     val makeObject: RefTree             = companionRef[caliban.schema.Types.type].select("makeObject")
+    val makeInterface: RefTree          = companionRef[caliban.schema.Types.type].select("makeInterface")
     val makeInputObject: RefTree        = companionRef[caliban.schema.Types.type].select("makeInputObject")
     val FunctionStep: RefTree           = companionRef[caliban.schema.Step.FunctionStep[_]]
     val ObjectStep: RefTree             = companionRef[caliban.schema.Step.ObjectStep[_]]
