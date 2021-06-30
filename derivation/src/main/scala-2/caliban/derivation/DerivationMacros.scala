@@ -337,26 +337,18 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
         $resolve
       }
     """
-
-    //    println(result)
     result
   }
 
   def deriveSumSchema(tpe: Type, requestedEnv: Type): Tree = {
     // NOTE: Sealed trait cannot have inputs
-    val outputs = outputFields(tpe)
-
-    println(s"Sealed trait outputs: $outputs")
-
+    val outputs    = outputFields(tpe)
     val subclasses = knownSubclassesOf(tpe.typeSymbol.asClass)
-    println(s"Subclasses: $subclasses")
 
     val subclassInOut =
       subclasses.map { subclass =>
         val inputs  = inputFields(subclass.typeSignature)
         val outputs = outputFields(subclass.typeSignature)
-        println(s"${subclass.name} trait inputs: $inputs")
-        println(s"${subclass.name} trait outputs: $outputs")
 
         (subclass, (inputs, outputs))
       }.toMap
@@ -364,8 +356,6 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
     val isEnum      = outputs.isEmpty && subclassInOut.forall { case (_, (in, out)) => in.isEmpty && out.isEmpty }
     val isUnion     = !isEnum && outputs.isEmpty
     val isInterface = !isEnum && !isUnion
-
-    println(s"$isEnum / $isUnion / $isInterface")
 
     val info   = GraphQLInfo(tpe.typeSymbol)
     val toType =
@@ -408,8 +398,6 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
         $resolve
       }
     """
-
-    println(result)
     result
   }
 
