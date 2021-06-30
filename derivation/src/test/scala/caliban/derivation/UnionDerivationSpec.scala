@@ -1,11 +1,10 @@
 package caliban.derivation
 
 import caliban.GraphQL.graphQL
-import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
+import caliban.schema.Annotations.{GQLDeprecated, GQLDescription}
 import caliban.schema.Schema
-import caliban.{ GraphQL, RootResolver }
+import caliban.{GraphQL, RootResolver}
 import zio.ZIO
-import zio.random.Random
 import zio.test._
 import zio.test.environment._
 
@@ -21,10 +20,10 @@ object UnionDerivationSpec extends DefaultRunnableSpec {
     case class B() extends ExampleSum
   }
 
-  implicit val exampleSumSchema: Schema[Any, ExampleSum] = deriveSchemaInstance[Any, ExampleSum]
+  implicit lazy val exampleSumSchema: Schema[Any, ExampleSum] = deriveSchemaInstance[Any, ExampleSum]
 
-  val exampleValue: ExampleSum = ExampleSum.A(Some(10))
-  val api: GraphQL[Any]        = graphQL(RootResolver(exampleValue))
+  lazy val exampleValue: ExampleSum = ExampleSum.A(Some(10))
+  lazy val api: GraphQL[Any]        = graphQL(RootResolver(exampleValue))
 
   val expectedSchema: String =
     """schema {
@@ -52,5 +51,5 @@ object UnionDerivationSpec extends DefaultRunnableSpec {
           assertTrue(rendered == expectedSchema)
         }
       )
-    )
+    ) @@ TestAspect.exceptDotty
 }

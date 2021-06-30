@@ -41,7 +41,7 @@ object OpenTraitDerivationSpec extends DefaultRunnableSpec {
   }
 
   object ExampleInterface extends GenericSchema[Random] {
-    implicit val exampleInterfaceSchema: Schema[Random, ExampleInterface] =
+    implicit lazy val exampleInterfaceSchema: Schema[Random, ExampleInterface] =
       deriveSchemaInstance[Random, ExampleInterface]
 
     // An implementation of ExampleApi
@@ -69,7 +69,7 @@ object OpenTraitDerivationSpec extends DefaultRunnableSpec {
       "hello",
       List("a", "b")
     )
-    val api: GraphQL[Random]           = graphQL(RootResolver(exampleValue))
+    lazy val api: GraphQL[Random]           = graphQL(RootResolver(exampleValue))
 
     val expectedSchema: String =
       """schema {
@@ -99,5 +99,5 @@ object OpenTraitDerivationSpec extends DefaultRunnableSpec {
           assertTrue(rendered == ExampleInterface.expectedSchema)
         }
       )
-    )
+    ) @@ TestAspect.exceptDotty
 }

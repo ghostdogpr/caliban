@@ -26,10 +26,10 @@ object InterfaceDerivationSpec extends DefaultRunnableSpec {
     case class B(x: Int, y: String) extends ExampleSum
   }
 
-  implicit val exampleSumSchema: Schema[Any, ExampleSum] = deriveSchemaInstance[Any, ExampleSum]
+  implicit lazy val exampleSumSchema: Schema[Any, ExampleSum] = deriveSchemaInstance[Any, ExampleSum]
 
-  val exampleValue: ExampleSum = ExampleSum.A(Some(10))
-  val api: GraphQL[Any]        = graphQL(RootResolver(exampleValue))
+  lazy val exampleValue: ExampleSum = ExampleSum.A(Some(10))
+  lazy val api: GraphQL[Any]        = graphQL(RootResolver(exampleValue))
 
   val expectedSchema: String =
     """schema {
@@ -63,5 +63,5 @@ object InterfaceDerivationSpec extends DefaultRunnableSpec {
           assertTrue(rendered == expectedSchema)
         }
       )
-    )
+    ) @@ TestAspect.exceptDotty
 }
