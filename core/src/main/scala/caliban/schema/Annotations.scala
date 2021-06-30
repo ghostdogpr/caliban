@@ -33,7 +33,12 @@ object Annotations {
   case class GQLDirective(directive: Directive) extends StaticAnnotation
 
   /**
-   * Annotation to make a sealed trait an interface instead of a union type
+   * Annotation to make a sealed trait an interface instead of a union type or an enum
    */
   case class GQLInterface() extends StaticAnnotation
+
+  /**
+   * Annotation to make a sealed trait a union instead of an enum
+   */
+  case class GQLUnion() extends StaticAnnotation
 }
