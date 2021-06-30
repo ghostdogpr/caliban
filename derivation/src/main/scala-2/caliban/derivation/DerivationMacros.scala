@@ -149,8 +149,11 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
     } else if (!ms.isGetter) ms
     else {
       tpe.decls.collectFirst {
-        case sym: TermSymbol if !sym.isMethod && sym.name.normalizeString == ms.nameString => sym
-      }.get
+        case sym: TermSymbol if sym.name.normalizeString == ms.nameString => sym
+      } match {
+        case Some(value) => value
+        case None        => c.abort(c.enclosingPosition, s"incompatible underlying field ${ms}: ${tpe.decls}")
+      }
     }
 
   private def inputFields(tpe: Type): List[TermSymbol] =
@@ -420,8 +423,13 @@ class DerivationMacros(val c: blackbox.Context) extends CalibanUtils {
       deriveProductSchema(tpe, requestedEnv)
     } else if (cls.exists(ct => ct.isSealed && !ct.isJavaEnum)) {
       deriveSumSchema(tpe, requestedEnv)
+    } else if (cls.exists(ct => ct.isTrait && !ct.isSealed)) {
+      deriveProductSchema(tpe, requestedEnv)
     } else {
-      c.abort(c.enclosingPosition, s"Only product and sum types can currently be derived with the `deriveSchema` macro")
+      c.abort(
+        c.enclosingPosition,
+        s"Only product and sum types and simple traits can currently be derived with the `deriveSchema` macro"
+      )
     }
   }
 }

@@ -445,9 +445,23 @@ lazy val derivation = project
   .settings(name := "caliban-derivation")
   .settings(commonSettings)
   .settings(
-    libraryDependencies ++= Seq(
-      "org.scala-lang" % "scala-reflect" % scalaVersion.value
-    )
+    libraryDependencies ++=
+      (CrossVersion.partialVersion(scalaVersion.value) match {
+        case Some((2, _)) =>
+          Seq(
+            "org.scala-lang" % "scala-reflect" % scalaVersion.value
+          )
+        case _ =>
+          Seq.empty
+      })
+  )
+  .settings(
+    libraryDependencies ++=
+      Seq(
+        "dev.zio" %% "zio-test"     % zioVersion % Test,
+        "dev.zio" %% "zio-test-sbt" % zioVersion % Test
+      ),
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework"))
   )
   .dependsOn(core)
 
