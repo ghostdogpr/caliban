@@ -30,7 +30,7 @@ object __Value {
     override def toString: String = value
   }
   case class __StringValue(value: String)                   extends __Value {
-    override def toString: String = s""""${value.replace("\"", "\\\"")}""""
+    override def toString: String = Json.fromString(value).toString
   }
   case class __BooleanValue(value: Boolean)                 extends __Value {
     override def toString: String = value.toString
