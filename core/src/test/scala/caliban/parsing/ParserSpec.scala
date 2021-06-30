@@ -74,6 +74,28 @@ object ParserSpec extends DefaultRunnableSpec {
           )
         )
       },
+      testM("arguments with a backslash") {
+        val query = """{
+                      |  human(id: "1000\\") {
+                      |    name
+                      |  }
+                      |}""".stripMargin
+        assertM(Parser.parseQuery(query))(
+          equalTo(
+            simpleQuery(
+              selectionSet = List(
+                simpleField(
+                  "human",
+                  arguments = Map("id" -> StringValue("1000\\")),
+                  selectionSet = List(simpleField("name", index = 30)),
+                  index = 4
+                )
+              ),
+              sourceMapper = SourceMapper(query)
+            )
+          )
+        )
+      },
       testM("aliases") {
         val query = """{
                       |  empireHero: hero(episode: EMPIRE) {
