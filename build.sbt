@@ -451,7 +451,7 @@ lazy val derivation = project
           Seq(
             "org.scala-lang" % "scala-reflect" % scalaVersion.value
           )
-        case _ =>
+        case _            =>
           Seq.empty
       })
   )
