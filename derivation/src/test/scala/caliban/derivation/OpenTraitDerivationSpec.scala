@@ -69,7 +69,7 @@ object OpenTraitDerivationSpec extends DefaultRunnableSpec {
       "hello",
       List("a", "b")
     )
-    lazy val api: GraphQL[Random]           = graphQL(RootResolver(exampleValue))
+    lazy val api: GraphQL[Random]      = graphQL(RootResolver(exampleValue))
 
     val expectedSchema: String =
       """schema {

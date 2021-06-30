@@ -44,13 +44,14 @@ object ProductDerivationSpec extends DefaultRunnableSpec {
   }
 
   object ExampleProduct extends GenericSchema[Random] {
-    implicit lazy val exampleProductSchema: Schema[Random, ExampleProduct] = deriveSchemaInstance[Random, ExampleProduct]
+    implicit lazy val exampleProductSchema: Schema[Random, ExampleProduct] =
+      deriveSchemaInstance[Random, ExampleProduct]
 
     val exampleValue: ExampleProduct = ExampleProduct(
       "hello",
       List("a", "b")
     )
-    lazy val api: GraphQL[Random]         = graphQL(RootResolver(ExampleProduct.exampleValue))
+    lazy val api: GraphQL[Random]    = graphQL(RootResolver(ExampleProduct.exampleValue))
 
     val expectedSchema: String =
       """schema {
