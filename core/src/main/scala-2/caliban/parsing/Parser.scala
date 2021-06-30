@@ -100,7 +100,7 @@ object Parser {
   private def escapedUnicode[_: P]: P[String] =
     P(hexDigit ~~ hexDigit ~~ hexDigit ~~ hexDigit).!.map(Integer.parseInt(_, 16).toChar.toString)
 
-  private def escapedCharacter[_: P]: P[String] = P(CharIn("\"\\/bfnrt").!).map {
+  private def escapedCharacter[_: P]: P[String] = P(CharIn("\"\\\\/bfnrt").!).map {
     case "b"   => "\b"
     case "n"   => "\n"
     case "f"   => "\f"
