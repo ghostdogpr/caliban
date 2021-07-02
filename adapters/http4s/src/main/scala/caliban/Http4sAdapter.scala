@@ -110,6 +110,9 @@ object Http4sAdapter {
   private def parseGraphQLRequest(body: String): Result[GraphQLRequest] =
     parse(body).flatMap(_.as[GraphQLRequest]).leftMap(e => DecodingFailure(e.getMessage, Nil))
 
+  private def parsePaths(map: Map[String, Seq[String]]): List[(String, List[Either[String, Int]])] =
+    map.map { case (k, v) => k -> v.map(parsePath).toList }.toList.flatMap(kv => kv._2.map(kv._1 -> _))
+
   def makeHttpUploadService[R <: Has[_] with Random, E](
     interpreter: GraphQLInterpreter[R, E],
     rootUploadPath: Path,
@@ -123,7 +126,67 @@ object Http4sAdapter {
 
     HttpRoutes.of[RIO[R, *]] {
       case req @ POST -> Root if req.contentType.exists(_.mediaType.isMultipart) =>
-        def filterFileTypes(part: Part[RIO[R, *]]): Boolean = part.headers.exists(_.value.contains("filename"))
+        def getFileRefs(parts: Vector[Part[RIO[R, *]]]): RIO[R, Map[String, (File, Part[RIO[R, *]])]] =
+          parts
+            .filter(_.headers.exists(_.value.contains("filename")))
+            .traverse { p =>
+              p.name.traverse { n =>
+                random.nextUUID.flatMap { uuid =>
+                  val path = rootUploadPath.resolve(uuid.toString)
+                  p.body
+                    .through(
+                      fs2.io.file.writeAll(
+                        path,
+                        blocker
+                      )
+                    )
+                    .compile
+                    .foldMonoid
+                    .as((n, path.toFile -> p))
+                }
+              }
+            }
+            .map(_.flatten.toMap)
+
+        def getUploadQuery(
+          operations: GraphQLRequest,
+          map: Map[String, Seq[String]],
+          parts: Vector[Part[RIO[R, *]]]
+        )(rand: Random): ZIO[R, Throwable, GraphQLUploadRequest] = {
+          val fileRefs  = getFileRefs(parts)
+          val filePaths = parsePaths(map)
+
+          fileRefs.map { fileRef =>
+            def handler(handle: String): UIO[Option[FileMeta]] =
+              fileRef
+                .get(handle)
+                .traverse { case (file, fp) =>
+                  random.nextUUID.asSomeError
+                    .map(uuid =>
+                      FileMeta(
+                        uuid.toString,
+                        file.getAbsoluteFile.toPath,
+                        fp.headers.get(`Content-Disposition`).map(_.dispositionType),
+                        fp.contentType.map { ct =>
+                          val mt = ct.mediaType
+                          s"${mt.mainType}/${mt.subType}"
+                        },
+                        fp.filename.getOrElse(file.getName),
+                        file.length
+                      )
+                    )
+                    .optional
+                    .provide(rand)
+                }
+                .map(_.flatten)
+
+            GraphQLUploadRequest(
+              operations,
+              filePaths,
+              Uploads.handlerService(handler)
+            )
+          }
+        }
 
         req.decode[Multipart[RIO[R, *]]] { m =>
           // First bit is always a standard graphql payload, it comes from the `operations` field
@@ -158,67 +221,8 @@ object Http4sAdapter {
             rand        <- ZIO.environment[Random]
             result      <- (ooperations, omap) match {
                              case (Some(operations), Some(map)) =>
-                               val filePaths =
-                                 map.map { case (k, v) => k -> v.map(parsePath).toList }.toList.flatMap(kv =>
-                                   kv._2.map(kv._1 -> _)
-                                 )
-
-                               val fileRefs =
-                                 m.parts
-                                   .filter(filterFileTypes)
-                                   .traverse { p =>
-                                     p.name.traverse { n =>
-                                       random.nextUUID.flatMap { uuid =>
-                                         val path = rootUploadPath.resolve(uuid.toString)
-                                         p.body
-                                           .through(
-                                             fs2.io.file.writeAll(
-                                               path,
-                                               blocker
-                                             )
-                                           )
-                                           .compile
-                                           .foldMonoid
-                                           .as((n, path.toFile -> p))
-                                       }
-                                     }
-                                   }
-                                   .map(_.flatten.toMap)
-
-                               val uploadQuery =
-                                 fileRefs.map { fileRef =>
-                                   def handler(handle: String): UIO[Option[FileMeta]] =
-                                     fileRef
-                                       .get(handle)
-                                       .traverse { case (file, fp) =>
-                                         random.nextUUID.asSomeError
-                                           .map(uuid =>
-                                             FileMeta(
-                                               uuid.toString,
-                                               file.getAbsoluteFile.toPath,
-                                               fp.headers.get(`Content-Disposition`).map(_.dispositionType),
-                                               fp.contentType.map { ct =>
-                                                 val mt = ct.mediaType
-                                                 s"${mt.mainType}/${mt.subType}"
-                                               },
-                                               fp.filename.getOrElse(file.getName),
-                                               file.length
-                                             )
-                                           )
-                                           .optional
-                                           .provide(rand)
-                                       }
-                                       .map(_.flatten)
-
-                                   GraphQLUploadRequest(
-                                     operations,
-                                     filePaths,
-                                     Uploads.handlerService(handler)
-                                   )
-                                 }
-
                                for {
-                                 query           <- uploadQuery
+                                 query           <- getUploadQuery(operations, map, m.parts)(rand)
                                  queryWithTracing =
                                    req.headers
                                      .find(r =>
