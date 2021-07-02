@@ -1,7 +1,5 @@
 package caliban.uploads
 
-import java.nio.file.Path
-
 import caliban.InputValue.ListValue
 import caliban.Value.{ NullValue, StringValue }
 import caliban.schema.Annotations.GQLName
@@ -9,6 +7,8 @@ import caliban.{ GraphQLRequest, InputValue }
 import zio.blocking.Blocking
 import zio.stream.{ ZSink, ZStream }
 import zio.{ Chunk, RIO, UIO, URIO, ZIO }
+
+import java.nio.file.Path
 
 @GQLName("Upload")
 final case class Upload(name: String) {

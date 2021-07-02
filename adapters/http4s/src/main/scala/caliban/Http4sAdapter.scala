@@ -15,7 +15,7 @@ import cats.~>
 import fs2.{ Pipe, Stream }
 import fs2.text.utf8Decode
 import io.circe.Decoder.Result
-import io.circe.Json
+import io.circe.{ DecodingFailure, Json }
 import io.circe.parser._
 import io.circe.syntax._
 import org.http4s._
@@ -108,6 +108,9 @@ object Http4sAdapter {
       params.get("extensions")
     )
 
+  private def parseGraphQLRequest(body: String): Result[GraphQLRequest] =
+    parse(body).flatMap(_.as[GraphQLRequest]).leftMap(e => DecodingFailure(e.getMessage, Nil))
+
   def makeHttpServiceWithUpload[R <: Has[_], E](
     interpreter: GraphQLInterpreter[R, E],
     rootUploadPath: String,
@@ -131,7 +134,7 @@ object Http4sAdapter {
                 .through(utf8Decode)
                 .compile
                 .foldMonoid
-                .flatMap(body => Task.fromEither(getGraphQLRequest(body)))
+                .flatMap(body => Task.fromEither(parseGraphQLRequest(body)))
             }
 
           // Second bit is the mapping field
@@ -156,11 +159,9 @@ object Http4sAdapter {
             result      <- (ooperations, omap) match {
                              case (Some(operations), Some(map)) =>
                                val filePaths =
-                                 map.map { case (key, value) => (key, value.map(parsePath).toList) }.toList.flatMap(kv =>
-                                   kv._2.map(kv._1 -> _)
-                                 )
+                                 map.map { case (k, v) => k -> v.map(parsePath).toList }.toList.flatMap(kv => kv._2.map(kv._1 -> _))
 
-                               val fileRefs =
+                               val fileRefs  =
                                  m.parts
                                    .filter(filterFileTypes)
                                    .traverse { p =>
@@ -180,34 +181,33 @@ object Http4sAdapter {
                                    }
                                    .map(_.flatten.toMap)
 
-                               val uploadQuery = for {
-                                 fileRef <- fileRefs
-                               } yield {
-                                 def handler(handle: String): UIO[Option[FileMeta]] =
-                                   fileRef
-                                     .get(handle)
-                                     .traverse { case (file, fp) =>
-                                       ZIO.succeed(
-                                         FileMeta(
-                                           UUID.randomUUID().toString,
-                                           file.getAbsoluteFile.toPath,
-                                           fp.headers.get(`Content-Disposition`).map(_.dispositionType),
-                                           fp.contentType.map { ct =>
-                                             val mt = ct.mediaType
-                                             s"${mt.mainType}/${mt.subType}"
-                                           },
-                                           fp.filename.getOrElse(file.getName),
-                                           file.length
+                               val uploadQuery =
+                                 fileRefs.map { fileRef =>
+                                   def handler(handle: String): UIO[Option[FileMeta]] =
+                                     fileRef
+                                       .get(handle)
+                                       .traverse { case (file, fp) =>
+                                         ZIO.succeed(
+                                           FileMeta(
+                                             UUID.randomUUID().toString,
+                                             file.getAbsoluteFile.toPath,
+                                             fp.headers.get(`Content-Disposition`).map(_.dispositionType),
+                                             fp.contentType.map { ct =>
+                                               val mt = ct.mediaType
+                                               s"${mt.mainType}/${mt.subType}"
+                                             },
+                                             fp.filename.getOrElse(file.getName),
+                                             file.length
+                                           )
                                          )
-                                       )
-                                     }
+                                       }
 
-                                 GraphQLUploadRequest(
-                                   operations,
-                                   filePaths,
-                                   Uploads.handler(handler)
-                                 )
-                               }
+                                   GraphQLUploadRequest(
+                                     operations,
+                                     filePaths,
+                                     Uploads.handlerService(handler)
+                                   )
+                                 }
 
                                for {
                                  query           <- uploadQuery
