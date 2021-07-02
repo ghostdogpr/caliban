@@ -31,6 +31,7 @@ import zio._
 import zio.clock.Clock
 import zio.duration.Duration
 import zio.interop.catz._
+import zio.random.Random
 
 import java.io.File
 import java.nio.file.Paths
@@ -110,7 +111,7 @@ object Http4sAdapter {
   private def parseGraphQLRequest(body: String): Result[GraphQLRequest] =
     parse(body).flatMap(_.as[GraphQLRequest]).leftMap(e => DecodingFailure(e.getMessage, Nil))
 
-  def makeHttpUploadService[R <: Has[_], E](
+  def makeHttpUploadService[R <: Has[_] with Random, E](
     interpreter: GraphQLInterpreter[R, E],
     rootUploadPath: String,
     blocker: Blocker,
@@ -155,6 +156,7 @@ object Http4sAdapter {
           for {
             ooperations <- optOperations
             omap        <- optMap
+            rand        <- ZIO.environment[Random]
             result      <- (ooperations, omap) match {
                              case (Some(operations), Some(map)) =>
                                val filePaths =
@@ -167,17 +169,19 @@ object Http4sAdapter {
                                    .filter(filterFileTypes)
                                    .traverse { p =>
                                      p.name.traverse { n =>
-                                       val path = s"$rootUploadPath/${UUID.randomUUID()}"
-                                       p.body
-                                         .through(
-                                           fs2.io.file.writeAll(
-                                             Paths.get(path),
-                                             blocker
+                                       random.nextUUID.flatMap { uuid =>
+                                         val path = s"$rootUploadPath/$uuid"
+                                         p.body
+                                           .through(
+                                             fs2.io.file.writeAll(
+                                               Paths.get(path),
+                                               blocker
+                                             )
                                            )
-                                         )
-                                         .compile
-                                         .foldMonoid
-                                         .as((n, new File(path) -> p))
+                                           .compile
+                                           .foldMonoid
+                                           .as((n, new File(path) -> p))
+                                       }
                                      }
                                    }
                                    .map(_.flatten.toMap)
@@ -188,20 +192,24 @@ object Http4sAdapter {
                                      fileRef
                                        .get(handle)
                                        .traverse { case (file, fp) =>
-                                         ZIO.succeed(
-                                           FileMeta(
-                                             UUID.randomUUID().toString,
-                                             file.getAbsoluteFile.toPath,
-                                             fp.headers.get(`Content-Disposition`).map(_.dispositionType),
-                                             fp.contentType.map { ct =>
-                                               val mt = ct.mediaType
-                                               s"${mt.mainType}/${mt.subType}"
-                                             },
-                                             fp.filename.getOrElse(file.getName),
-                                             file.length
+                                         random.nextUUID.asSomeError
+                                           .map(uuid =>
+                                             FileMeta(
+                                               uuid.toString,
+                                               file.getAbsoluteFile.toPath,
+                                               fp.headers.get(`Content-Disposition`).map(_.dispositionType),
+                                               fp.contentType.map { ct =>
+                                                 val mt = ct.mediaType
+                                                 s"${mt.mainType}/${mt.subType}"
+                                               },
+                                               fp.filename.getOrElse(file.getName),
+                                               file.length
+                                             )
                                            )
-                                         )
+                                           .optional
+                                           .provide(rand)
                                        }
+                                       .map(_.flatten)
 
                                    GraphQLUploadRequest(
                                      operations,
