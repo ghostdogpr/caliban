@@ -3,12 +3,17 @@ package caliban
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
 import caliban.execution.QueryExecution
+import caliban.uploads._
 import cats.arrow.FunctionK
 import cats.data.{ Kleisli, OptionT }
-import cats.effect.Effect
+import cats.syntax.either._
+import cats.syntax.traverse._
+import cats.syntax.semigroupk._
+import cats.effect.{ Blocker, Effect }
 import cats.effect.syntax.all._
 import cats.~>
 import fs2.{ Pipe, Stream }
+import fs2.text.utf8Decode
 import io.circe.Decoder.Result
 import io.circe.Json
 import io.circe.parser._
@@ -16,19 +21,29 @@ import io.circe.syntax._
 import org.http4s._
 import org.http4s.circe.CirceEntityCodec._
 import org.http4s.dsl.Http4sDsl
+import org.http4s.headers.`Content-Disposition`
 import org.http4s.implicits._
 import org.http4s.server.websocket.WebSocketBuilder
 import org.http4s.websocket.WebSocketFrame
 import org.http4s.websocket.WebSocketFrame.Text
+import org.http4s.multipart.{ Multipart, Part }
 import zio.Exit.Failure
 import zio._
 import zio.clock.Clock
 import zio.duration.Duration
 import zio.interop.catz._
 
+import java.io.File
+import java.nio.file.Paths
+import java.util.UUID
+import scala.util.Try
+
 object Http4sAdapter {
 
   val `application/graphql`: MediaType = mediaType"application/graphql"
+
+  private def parsePath(path: String): List[Either[String, Int]] =
+    path.split('.').map(c => Try(c.toInt).toEither.left.map(_ => c)).toList
 
   private def executeToJson[R, E](
     interpreter: GraphQLInterpreter[R, E],
@@ -45,6 +60,24 @@ object Http4sAdapter {
         queryExecution
       )
       .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
+
+  private def executeToJsonWithUpload[R <: Has[_], E](
+    interpreter: GraphQLInterpreter[R, E],
+    request: GraphQLRequest,
+    skipValidation: Boolean,
+    enableIntrospection: Boolean,
+    queryExecution: QueryExecution,
+    fileHandle: ZLayer[Any, Nothing, Uploads]
+  ): URIO[R, Json] =
+    interpreter
+      .executeRequest(
+        request,
+        skipValidation = skipValidation,
+        enableIntrospection = enableIntrospection,
+        queryExecution
+      )
+      .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
+      .provideSomeLayer[R](fileHandle)
 
   @deprecated("Use makeHttpService instead", "0.4.0")
   def makeRestService[R, E](interpreter: GraphQLInterpreter[R, E]): HttpRoutes[RIO[R, *]] =
@@ -74,6 +107,135 @@ object Http4sAdapter {
       params.get("variables"),
       params.get("extensions")
     )
+
+  def makeHttpServiceWithUpload[R <: Has[_], E](
+    interpreter: GraphQLInterpreter[R, E],
+    rootUploadPath: String,
+    blocker: Blocker,
+    skipValidation: Boolean = false,
+    enableIntrospection: Boolean = true,
+    queryExecution: QueryExecution = QueryExecution.Parallel
+  ): HttpRoutes[RIO[R, *]] = {
+    object dsl extends Http4sDsl[RIO[R, *]]
+    import dsl._
+
+    HttpRoutes.of[RIO[R, *]] {
+      case req @ POST -> Root if req.contentType.exists(_.mediaType.isMultipart) =>
+        def filterFileTypes(part: Part[RIO[R, *]]): Boolean = part.headers.exists(_.value.contains("filename"))
+
+        req.decode[Multipart[RIO[R, *]]] { m =>
+          // First bit is always a standard graphql payload, it comes from the `operations` field
+          val optOperations =
+            m.parts.find(_.name.contains("operations")).traverse {
+              _.body
+                .through(utf8Decode)
+                .compile
+                .foldMonoid
+                .flatMap(body => Task.fromEither(getGraphQLRequest(body)))
+            }
+
+          // Second bit is the mapping field
+          val optMap =
+            m.parts.find(_.name.contains("map")).traverse {
+              _.body
+                .through(utf8Decode)
+                .compile
+                .foldMonoid
+                .flatMap { body =>
+                  Task.fromEither(
+                    parse(body)
+                      .flatMap(_.as[Map[String, Seq[String]]])
+                      .leftMap(msg => msg.fillInStackTrace())
+                  )
+                }
+            }
+
+          for {
+            ooperations <- optOperations
+            omap        <- optMap
+            result      <- (ooperations, omap) match {
+                             case (Some(operations), Some(map)) =>
+                               val filePaths =
+                                 map.map { case (key, value) => (key, value.map(parsePath).toList) }.toList.flatMap(kv =>
+                                   kv._2.map(kv._1 -> _)
+                                 )
+
+                               val fileRefs =
+                                 m.parts
+                                   .filter(filterFileTypes)
+                                   .traverse { p =>
+                                     p.name.traverse { n =>
+                                       val path = s"$rootUploadPath/${UUID.randomUUID()}"
+                                       p.body
+                                         .through(
+                                           fs2.io.file.writeAll(
+                                             Paths.get(path),
+                                             blocker
+                                           )
+                                         )
+                                         .compile
+                                         .foldMonoid
+                                         .as((n, new File(path) -> p))
+                                     }
+                                   }
+                                   .map(_.flatten.toMap)
+
+                               val uploadQuery = for {
+                                 fileRef <- fileRefs
+                               } yield {
+                                 def handler(handle: String): UIO[Option[FileMeta]] =
+                                   fileRef
+                                     .get(handle)
+                                     .traverse { case (file, fp) =>
+                                       ZIO.succeed(
+                                         FileMeta(
+                                           UUID.randomUUID().toString,
+                                           file.getAbsoluteFile.toPath,
+                                           fp.headers.get(`Content-Disposition`).map(_.dispositionType),
+                                           fp.contentType.map { ct =>
+                                             val mt = ct.mediaType
+                                             s"${mt.mainType}/${mt.subType}"
+                                           },
+                                           fp.filename.getOrElse(file.getName),
+                                           file.length
+                                         )
+                                       )
+                                     }
+
+                                 GraphQLUploadRequest(
+                                   operations,
+                                   filePaths,
+                                   Uploads.handler(handler)
+                                 )
+                               }
+
+                               for {
+                                 query           <- uploadQuery
+                                 queryWithTracing =
+                                   req.headers
+                                     .find(r =>
+                                       r.name == GraphQLRequest.`apollo-federation-include-trace` && r.value == GraphQLRequest.ftv1
+                                     )
+                                     .foldLeft(query.remap)((q, _) => q.withFederatedTracing)
+
+                                 result   <- executeToJsonWithUpload(
+                                               interpreter,
+                                               queryWithTracing,
+                                               skipValidation = skipValidation,
+                                               enableIntrospection = enableIntrospection,
+                                               queryExecution,
+                                               query.fileHandle.toLayerMany
+                                             )
+                                 response <- Ok(result)
+                               } yield response
+
+                             case (None, _) => BadRequest("Missing multipart field 'operations'")
+                             case (_, None) => BadRequest("Missing multipart field 'map'")
+                           }
+          } yield result
+        }
+    } <+> makeHttpService(interpreter, skipValidation, enableIntrospection, queryExecution)
+  }
 
   def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E],
