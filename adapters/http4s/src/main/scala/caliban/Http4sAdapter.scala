@@ -8,7 +8,6 @@ import cats.arrow.FunctionK
 import cats.data.{ Kleisli, OptionT }
 import cats.syntax.either._
 import cats.syntax.traverse._
-import cats.syntax.semigroupk._
 import cats.effect.{ Blocker, Effect }
 import cats.effect.syntax.all._
 import cats.~>
@@ -111,7 +110,7 @@ object Http4sAdapter {
   private def parseGraphQLRequest(body: String): Result[GraphQLRequest] =
     parse(body).flatMap(_.as[GraphQLRequest]).leftMap(e => DecodingFailure(e.getMessage, Nil))
 
-  def makeHttpServiceWithUpload[R <: Has[_], E](
+  def makeHttpUploadService[R <: Has[_], E](
     interpreter: GraphQLInterpreter[R, E],
     rootUploadPath: String,
     blocker: Blocker,
@@ -159,9 +158,11 @@ object Http4sAdapter {
             result      <- (ooperations, omap) match {
                              case (Some(operations), Some(map)) =>
                                val filePaths =
-                                 map.map { case (k, v) => k -> v.map(parsePath).toList }.toList.flatMap(kv => kv._2.map(kv._1 -> _))
+                                 map.map { case (k, v) => k -> v.map(parsePath).toList }.toList.flatMap(kv =>
+                                   kv._2.map(kv._1 -> _)
+                                 )
 
-                               val fileRefs  =
+                               val fileRefs =
                                  m.parts
                                    .filter(filterFileTypes)
                                    .traverse { p =>
@@ -234,7 +235,7 @@ object Http4sAdapter {
                            }
           } yield result
         }
-    } <+> makeHttpService(interpreter, skipValidation, enableIntrospection, queryExecution)
+    }
   }
 
   def makeHttpService[R, E](
