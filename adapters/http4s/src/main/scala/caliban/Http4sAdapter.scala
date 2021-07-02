@@ -34,8 +34,7 @@ import zio.interop.catz._
 import zio.random.Random
 
 import java.io.File
-import java.nio.file.Paths
-import java.util.UUID
+import java.nio.file.Path
 import scala.util.Try
 
 object Http4sAdapter {
@@ -113,7 +112,7 @@ object Http4sAdapter {
 
   def makeHttpUploadService[R <: Has[_] with Random, E](
     interpreter: GraphQLInterpreter[R, E],
-    rootUploadPath: String,
+    rootUploadPath: Path,
     blocker: Blocker,
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
@@ -170,17 +169,17 @@ object Http4sAdapter {
                                    .traverse { p =>
                                      p.name.traverse { n =>
                                        random.nextUUID.flatMap { uuid =>
-                                         val path = s"$rootUploadPath/$uuid"
+                                         val path = rootUploadPath.resolve(uuid.toString)
                                          p.body
                                            .through(
                                              fs2.io.file.writeAll(
-                                               Paths.get(path),
+                                               path,
                                                blocker
                                              )
                                            )
                                            .compile
                                            .foldMonoid
-                                           .as((n, new File(path) -> p))
+                                           .as((n, path.toFile -> p))
                                        }
                                      }
                                    }
