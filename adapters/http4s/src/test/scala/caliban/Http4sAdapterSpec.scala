@@ -1,30 +1,34 @@
 package caliban
 
-import java.io.File
-import java.math.BigInteger
-import java.net.URL
-import java.security.MessageDigest
-
 import caliban.GraphQL.graphQL
 import caliban.schema.GenericSchema
-import caliban.uploads._
+import caliban.uploads.{ Upload, Uploads }
+import cats.effect.Blocker
+import cats.syntax.semigroupk._
+import io.circe.parser.parse
 import io.circe.generic.auto._
-import io.circe.parser._
-import play.api.Mode
-import play.api.mvc.DefaultControllerComponents
-import play.core.server.{ AkkaHttpServer, Server, ServerConfig }
-import play.mvc.Http.MimeTypes
-import sttp.client3._
-import sttp.client3.asynchttpclient.zio.{ AsyncHttpClientZioBackend, _ }
-import zio.{ Has, Runtime, UIO, ZIO, ZLayer }
-import zio.blocking._
+import org.http4s.syntax.all._
+import org.http4s.server.Server
+import org.http4s.server.blaze.BlazeServerBuilder
+import zio._
+import zio.blocking.Blocking
 import zio.clock.Clock
 import zio.console.Console
 import zio.internal.Platform
+import sttp.client3._
+import sttp.client3.asynchttpclient.zio.{ AsyncHttpClientZioBackend, _ }
 import zio.random.Random
 import zio.test._
 import zio.test.Assertion._
 import zio.test.environment.TestEnvironment
+import zio.interop.catz._
+import sttp.model.Uri
+
+import java.io.File
+import java.math.BigInteger
+import java.net.URL
+import java.nio.file.Paths
+import java.security.MessageDigest
 
 case class Response[A](data: A)
 case class UploadFile(uploadFile: TestAPI.File)
@@ -90,43 +94,37 @@ object TestAPI extends GenericSchema[Blocking with Uploads with Console with Clo
   )
 }
 
-object AdapterSpec extends DefaultRunnableSpec {
-  val runtime: Runtime[Console with Clock with Blocking with Random with Uploads] =
+object Http4sAdapterSpec extends DefaultRunnableSpec {
+  type R = Console with Clock with Blocking with Random with Uploads
+  implicit val runtime: Runtime[R] =
     Runtime.unsafeFromLayer(
       Console.live ++ Clock.live ++ Blocking.live ++ Random.live ++ Uploads.empty,
       Platform.default
     )
 
-  val apiLayer = ZLayer.fromAcquireRelease(
-    for {
-      interpreter <- TestAPI.api.interpreter
-    } yield AkkaHttpServer.fromRouterWithComponents(
-      ServerConfig(
-        mode = Mode.Dev,
-        port = Some(8088),
-        address = "127.0.0.1"
-      )
-    ) { components =>
-      PlayRouter(
-        interpreter,
-        DefaultControllerComponents(
-          components.defaultActionBuilder,
-          components.playBodyParsers,
-          components.messagesApi,
-          components.langs,
-          components.fileMimeTypes,
-          components.executionContext
-        )
-      )(runtime, components.materializer).routes
-    }
-  )(server => UIO(server.stop()))
+  val blocker = Blocker.liftExecutionContext(runtime.platform.executor.asEC)
 
-  val specLayer: ZLayer[zio.ZEnv, CalibanError.ValidationError, Has[Server]] =
-    Uploads.empty >>> apiLayer
+  val apiLayer: Layer[Throwable, Has[Server[RIO[R, *]]]] =
+    (for {
+      interpreter <- TestAPI.api.interpreter.toManaged_
+      server      <- BlazeServerBuilder(runtime.platform.executor.asEC)
+                       .bindHttp(8080, "localhost")
+                       .withHttpApp(
+                         (Http4sAdapter.makeHttpUploadService(
+                           interpreter,
+                           Paths.get(System.getProperty("java.io.tmpdir")),
+                           blocker
+                         ) <+> Http4sAdapter
+                           .makeHttpService(interpreter)).orNotFound
+                       )
+                       .resource
+                       .toManagedZIO
+    } yield server).toLayer
+      .asInstanceOf[Layer[Throwable, Has[Server[RIO[R, *]]]]]
 
-  val uri = uri"http://localhost:8088/api/graphql"
+  val specLayer = Uploads.empty >>> apiLayer
 
-  override def spec: ZSpec[TestEnvironment, Any] =
+  def spec: ZSpec[TestEnvironment, Any] =
     suite("Requests")(
       testM("multipart request with one file") {
         val fileHash         = "64498927ff9cd735daefebe7175ed1567650399e58648a6b8340f636243962c0"
@@ -137,9 +135,9 @@ object AdapterSpec extends DefaultRunnableSpec {
           """{ "query": "mutation ($file: Upload!) { uploadFile(file: $file) { hash, path, filename, mimetype } }",   "variables": {  "file": null }}"""
 
         val request = basicRequest
-          .post(uri)
+          .post(Uri.unsafeParse("http://localhost:8080/"))
           .multipartBody(
-            multipart("operations", query).contentType(MimeTypes.JSON),
+            multipart("operations", query).contentType("application/json"),
             multipart("map", """{ "0": ["variables.file"] }"""),
             multipartFile("0", new File(fileURL.getPath)).contentType("image/png")
           )
@@ -176,13 +174,13 @@ object AdapterSpec extends DefaultRunnableSpec {
           """{ "query": "mutation ($files: [Upload!]!) { uploadFiles(files: $files) { hash, path, filename, mimetype } }",   "variables": {  "files": [null, null] }}"""
 
         val request = basicRequest
-          .post(uri)
+          .post(Uri.unsafeParse("http://localhost:8080/"))
           .contentType("multipart/form-data")
           .multipartBody(
-            multipart("operations", query).contentType(MimeTypes.JSON),
+            multipart("operations", query).contentType("application/json"),
             multipart("map", """{ "0": ["variables.files.0"], "1":  ["variables.files.1"]}"""),
             multipartFile("0", new File(file1URL.getPath)).contentType("image/png"),
-            multipartFile("1", new File(file2URL.getPath)).contentType(MimeTypes.TEXT)
+            multipartFile("1", new File(file2URL.getPath)).contentType("text/plain")
           )
 
         val body = for {
@@ -203,10 +201,8 @@ object AdapterSpec extends DefaultRunnableSpec {
             hasField("filename", (fl: List[TestAPI.File]) => fl(0).filename, equalTo(file1Name)) &&
             hasField("filename", (fl: List[TestAPI.File]) => fl(1).filename, equalTo(file2Name)) &&
             hasField("mimetype", (fl: List[TestAPI.File]) => fl(0).mimetype, equalTo("image/png")) &&
-            hasField("mimetype", (fl: List[TestAPI.File]) => fl(1).mimetype, equalTo(MimeTypes.TEXT))
+            hasField("mimetype", (fl: List[TestAPI.File]) => fl(1).mimetype, equalTo("text/plain"))
         )
       }
-    ).provideCustomLayerShared(AsyncHttpClientZioBackend.layer() ++ specLayer)
-      .mapError(TestFailure.fail)
-
+    ).provideCustomLayerShared(AsyncHttpClientZioBackend.layer() ++ specLayer).mapError(TestFailure.fail)
 }
