@@ -126,7 +126,9 @@ object Http4sAdapter {
 
     HttpRoutes.of[RIO[R, *]] {
       case req @ POST -> Root if req.contentType.exists(_.mediaType.isMultipart) =>
-        def getFileRefs(parts: Vector[Part[RIO[R, *]]]): RIO[R, Map[String, (File, Part[RIO[R, *]])]] =
+        def getFileRefs(
+          parts: Vector[Part[RIO[R, *]]]
+        )(random: Random.Service): RIO[R, Map[String, (File, Part[RIO[R, *]])]] =
           parts
             .filter(_.headers.exists(_.value.contains("filename")))
             .traverse { p =>
@@ -152,8 +154,8 @@ object Http4sAdapter {
           operations: GraphQLRequest,
           map: Map[String, Seq[String]],
           parts: Vector[Part[RIO[R, *]]]
-        )(rand: Random): ZIO[R, Throwable, GraphQLUploadRequest] = {
-          val fileRefs  = getFileRefs(parts)
+        )(random: Random.Service): ZIO[R, Throwable, GraphQLUploadRequest] = {
+          val fileRefs  = getFileRefs(parts)(random)
           val filePaths = parsePaths(map)
 
           fileRefs.map { fileRef =>
@@ -176,7 +178,6 @@ object Http4sAdapter {
                       )
                     )
                     .optional
-                    .provide(rand)
                 }
                 .map(_.flatten)
 
@@ -218,11 +219,11 @@ object Http4sAdapter {
           for {
             ooperations <- optOperations
             omap        <- optMap
-            rand        <- ZIO.environment[Random]
+            random      <- ZIO.service[Random.Service]
             result      <- (ooperations, omap) match {
                              case (Some(operations), Some(map)) =>
                                for {
-                                 query           <- getUploadQuery(operations, map, m.parts)(rand)
+                                 query           <- getUploadQuery(operations, map, m.parts)(random)
                                  queryWithTracing =
                                    req.headers
                                      .find(r =>
