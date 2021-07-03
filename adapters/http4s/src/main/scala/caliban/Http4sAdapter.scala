@@ -154,7 +154,7 @@ object Http4sAdapter {
           operations: GraphQLRequest,
           map: Map[String, Seq[String]],
           parts: Vector[Part[RIO[R, *]]]
-        )(random: Random.Service): ZIO[R, Throwable, GraphQLUploadRequest] = {
+        )(random: Random.Service): RIO[R, GraphQLUploadRequest] = {
           val fileRefs  = getFileRefs(parts)(random)
           val filePaths = parsePaths(map)
 
@@ -184,7 +184,7 @@ object Http4sAdapter {
             GraphQLUploadRequest(
               operations,
               filePaths,
-              Uploads.handlerService(handler)
+              Uploads.handler(handler)
             )
           }
         }
