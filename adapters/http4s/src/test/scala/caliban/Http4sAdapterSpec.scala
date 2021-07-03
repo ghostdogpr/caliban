@@ -22,7 +22,7 @@ import zio.test._
 import zio.test.Assertion._
 import zio.test.environment.TestEnvironment
 import zio.interop.catz._
-import sttp.model.Uri
+import sttp.model._
 
 import java.io.File
 import java.math.BigInteger
@@ -108,7 +108,7 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
     (for {
       interpreter <- TestAPI.api.interpreter.toManaged_
       server      <- BlazeServerBuilder(runtime.platform.executor.asEC)
-                       .bindHttp(8080, "localhost")
+                       .bindHttp(8089, "127.0.0.1")
                        .withHttpApp(
                          (Http4sAdapter.makeHttpUploadService(
                            interpreter,
@@ -127,6 +127,7 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
   def spec: ZSpec[TestEnvironment, Any] =
     suite("Requests")(
       testM("multipart request with one file") {
+        val uri              = Uri.unsafeParse("http://127.0.0.1:8089/")
         val fileHash         = "64498927ff9cd735daefebe7175ed1567650399e58648a6b8340f636243962c0"
         val fileName: String = s"$fileHash.png"
         val fileURL: URL     = getClass.getResource(s"/$fileName")
@@ -135,7 +136,7 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
           """{ "query": "mutation ($file: Upload!) { uploadFile(file: $file) { hash, path, filename, mimetype } }",   "variables": {  "file": null }}"""
 
         val request = basicRequest
-          .post(Uri.unsafeParse("http://localhost:8080/"))
+          .post(uri)
           .multipartBody(
             multipart("operations", query).contentType("application/json"),
             multipart("map", """{ "0": ["variables.file"] }"""),
@@ -162,6 +163,7 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
         )
       },
       testM("multipart request with several files") {
+        val uri               = Uri.unsafeParse("http://127.0.0.1:8089/")
         val file1Hash         = "64498927ff9cd735daefebe7175ed1567650399e58648a6b8340f636243962c0"
         val file1Name: String = s"$file1Hash.png"
         val file1URL: URL     = getClass.getResource(s"/$file1Name")
@@ -174,7 +176,7 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
           """{ "query": "mutation ($files: [Upload!]!) { uploadFiles(files: $files) { hash, path, filename, mimetype } }",   "variables": {  "files": [null, null] }}"""
 
         val request = basicRequest
-          .post(Uri.unsafeParse("http://localhost:8080/"))
+          .post(uri)
           .contentType("multipart/form-data")
           .multipartBody(
             multipart("operations", query).contentType("application/json"),

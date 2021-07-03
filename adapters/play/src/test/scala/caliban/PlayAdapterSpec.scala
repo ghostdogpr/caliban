@@ -11,11 +11,11 @@ import io.circe.generic.auto._
 import io.circe.parser._
 import play.api.Mode
 import play.api.mvc.DefaultControllerComponents
-import play.core.server.{AkkaHttpServer, Server, ServerConfig}
+import play.core.server.{ AkkaHttpServer, Server, ServerConfig }
 import play.mvc.Http.MimeTypes
 import sttp.client3._
-import sttp.client3.asynchttpclient.zio.{AsyncHttpClientZioBackend, _}
-import zio.{Has, Runtime, UIO, ZIO, ZLayer}
+import sttp.client3.asynchttpclient.zio.{ AsyncHttpClientZioBackend, _ }
+import zio.{ Has, Runtime, UIO, ZIO, ZLayer }
 import zio.blocking._
 import zio.clock.Clock
 import zio.console.Console
@@ -24,8 +24,6 @@ import zio.random.Random
 import zio.test._
 import zio.test.Assertion._
 import zio.test.environment.TestEnvironment
-
-import java.io
 
 case class Response[A](data: A)
 case class UploadFile(uploadFile: TestAPI.File)
