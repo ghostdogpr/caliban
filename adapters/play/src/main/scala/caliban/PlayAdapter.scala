@@ -99,7 +99,7 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
                     FileMeta(
                       uuid.toString,
                       fp.ref.path,
-                      fp.dispositionType,
+                      Option(fp.dispositionType),
                       fp.contentType,
                       fp.filename,
                       fp.fileSize

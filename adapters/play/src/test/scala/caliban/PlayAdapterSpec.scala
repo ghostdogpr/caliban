@@ -4,7 +4,6 @@ import java.io.File
 import java.math.BigInteger
 import java.net.URL
 import java.security.MessageDigest
-
 import caliban.GraphQL.graphQL
 import caliban.schema.GenericSchema
 import caliban.uploads._
@@ -90,7 +89,7 @@ object TestAPI extends GenericSchema[Blocking with Uploads with Console with Clo
   )
 }
 
-object AdapterSpec extends DefaultRunnableSpec {
+object PlayAdapterSpec extends DefaultRunnableSpec {
   val runtime: Runtime[Console with Clock with Blocking with Random with Uploads] =
     Runtime.unsafeFromLayer(
       Console.live ++ Clock.live ++ Blocking.live ++ Random.live ++ Uploads.empty,
