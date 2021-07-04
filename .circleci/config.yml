@@ -21,7 +21,21 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.12.13! core/test http4s/test akkaHttp/test finch/compile play/test zioHttp/compile examples/compile catsInterop/compile benchmarks/compile tools/test codegenSbt/test clientJVM/test monixInterop/compile tapirInterop/test federation/test codegenSbt/scripted
+      - run: sbt ++2.12.13! core/test http4s/test akkaHttp/test finch/compile play/test zioHttp/compile examples/compile catsInterop/compile benchmarks/compile tools/test codegenSbt/test clientJVM/test monixInterop/compile tapirInterop/test federation/test
+      - save_cache:
+          key: sbtcache
+          paths:
+            - "~/.ivy2/cache"
+            - "~/.sbt"
+            - "~/.m2"
+  scripted212_jdk8:
+    docker:
+      - image: circleci/openjdk:8-jdk-node
+    steps:
+      - checkout
+      - restore_cache:
+          key: sbtcache
+      - run: sbt ++2.12.13! codegenSbt/scripted
       - save_cache:
           key: sbtcache
           paths:
@@ -122,6 +136,12 @@ workflows:
           filters:
             tags:
               only: /^v[0-9]+(\.[0-9]+)*$/
+      - scripted212_jdk8:
+          requires:
+            - lint
+          filters:
+            tags:
+              only: /^v[0-9]+(\.[0-9]+)*$/
       - test213_js:
           requires:
             - lint
@@ -144,6 +164,7 @@ workflows:
           context: Sonatype
           requires:
             - test212_jdk8
+            - scripted212_jdk8
             - test213_jdk11
             - test213_js
             - test3_jdk11
