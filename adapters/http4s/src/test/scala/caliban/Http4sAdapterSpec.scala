@@ -104,11 +104,13 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
 
   val blocker = Blocker.liftExecutionContext(runtime.platform.executor.asEC)
 
-  val apiLayer: Layer[Throwable, Has[Server[RIO[R, *]]]] =
+  val uri = Uri.unsafeParse("http://127.0.0.1:8089/")
+
+  val apiLayer: RLayer[R, Has[Server[RIO[R, *]]]] =
     (for {
       interpreter <- TestAPI.api.interpreter.toManaged_
       server      <- BlazeServerBuilder(runtime.platform.executor.asEC)
-                       .bindHttp(8089, "127.0.0.1")
+                       .bindHttp(uri.port.get, uri.host.get)
                        .withHttpApp(
                          (Http4sAdapter.makeHttpUploadService(
                            interpreter,
@@ -120,14 +122,12 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
                        .resource
                        .toManagedZIO
     } yield server).toLayer
-      .asInstanceOf[Layer[Throwable, Has[Server[RIO[R, *]]]]]
 
-  val specLayer = Uploads.empty >>> apiLayer
+  val specLayer = ZLayer.requires[ZEnv] ++ Uploads.empty >>> apiLayer
 
   def spec: ZSpec[TestEnvironment, Any] =
     suite("Requests")(
       testM("multipart request with one file") {
-        val uri              = Uri.unsafeParse("http://127.0.0.1:8089/")
         val fileHash         = "64498927ff9cd735daefebe7175ed1567650399e58648a6b8340f636243962c0"
         val fileName: String = s"$fileHash.png"
         val fileURL: URL     = getClass.getResource(s"/$fileName")
@@ -163,7 +163,6 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
         )
       },
       testM("multipart request with several files") {
-        val uri               = Uri.unsafeParse("http://127.0.0.1:8089/")
         val file1Hash         = "64498927ff9cd735daefebe7175ed1567650399e58648a6b8340f636243962c0"
         val file1Name: String = s"$file1Hash.png"
         val file1URL: URL     = getClass.getResource(s"/$file1Name")
