@@ -2,21 +2,21 @@ version: 2.1
 jobs:
   lint:
     docker:
-      - image: circleci/openjdk:8-jdk-node
+      - image: circleci/openjdk:11-jdk-node
     steps:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.12.13! check
+      - run: sbt ++2.13.6! check
       - save_cache:
           key: sbtcache
           paths:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
-  test212_jdk8:
+  test212_jdk:
     docker:
-      - image: circleci/openjdk:8-jdk-node
+      - image: circleci/openjdk:11-jdk-node
     steps:
       - checkout
       - restore_cache:
@@ -28,9 +28,9 @@ jobs:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
-  scripted212_jdk8:
+  scripted212_jdk:
     docker:
-      - image: circleci/openjdk:8-jdk-node
+      - image: circleci/openjdk:11-jdk-node
     steps:
       - checkout
       - restore_cache:
@@ -42,7 +42,7 @@ jobs:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
-  test213_jdk11:
+  test213_jdk:
     docker:
       - image: circleci/openjdk:11-jdk-node
     steps:
@@ -56,7 +56,7 @@ jobs:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
-  test3_jdk11:
+  test3_jdk:
     docker:
       - image: circleci/openjdk:11-jdk-node
     steps:
@@ -72,7 +72,7 @@ jobs:
             - "~/.m2"
   test213_js:
     docker:
-      - image: circleci/openjdk:8-jdk-node
+      - image: circleci/openjdk:11-jdk-node
     steps:
       - checkout
       - restore_cache:
@@ -86,7 +86,7 @@ jobs:
             - "~/.m2"
   release:
     docker:
-      - image: circleci/openjdk:8-jdk-node
+      - image: circleci/openjdk:11-jdk-node
     steps:
       - checkout
       - run: git fetch --tags
@@ -130,13 +130,13 @@ workflows:
           filters:
             tags:
               only: /^v[0-9]+(\.[0-9]+)*$/
-      - test212_jdk8:
+      - test212_jdk:
           requires:
             - lint
           filters:
             tags:
               only: /^v[0-9]+(\.[0-9]+)*$/
-      - scripted212_jdk8:
+      - scripted212_jdk:
           requires:
             - lint
           filters:
@@ -148,13 +148,13 @@ workflows:
           filters:
             tags:
               only: /^v[0-9]+(\.[0-9]+)*$/
-      - test213_jdk11:
+      - test213_jdk:
           requires:
             - lint
           filters:
             tags:
               only: /^v[0-9]+(\.[0-9]+)*$/
-      - test3_jdk11:
+      - test3_jdk:
           requires:
             - lint
           filters:
@@ -163,11 +163,11 @@ workflows:
       - release:
           context: Sonatype
           requires:
-            - test212_jdk8
-            - scripted212_jdk8
-            - test213_jdk11
+            - test212_jdk
+            - scripted212_jdk
+            - test213_jdk
             - test213_js
-            - test3_jdk11
+            - test3_jdk
           filters:
             branches:
               only:
