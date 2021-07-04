@@ -7,7 +7,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.12.13! check
+      - run: sbt -mem 3072 ++2.12.13! check
       - save_cache:
           key: sbtcache
           paths:
@@ -21,7 +21,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.12.13! core/test http4s/test akkaHttp/test finch/compile play/test zioHttp/compile examples/compile catsInterop/compile benchmarks/compile tools/test codegenSbt/test clientJVM/test monixInterop/compile tapirInterop/test federation/test
+      - run: sbt -mem 3072 ++2.12.13! core/test http4s/test akkaHttp/test finch/compile play/test zioHttp/compile examples/compile catsInterop/compile benchmarks/compile tools/test codegenSbt/test clientJVM/test monixInterop/compile tapirInterop/test federation/test
       - save_cache:
           key: sbtcache
           paths:
@@ -35,7 +35,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.12.13! codegenSbt/scripted
+      - run: sbt -mem 3072 ++2.12.13! codegenSbt/scripted
       - save_cache:
           key: sbtcache
           paths:
@@ -49,7 +49,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.6! core/test http4s/test akkaHttp/test finch/compile play/test zioHttp/compile examples/compile catsInterop/compile monixInterop/compile tapirInterop/test clientJVM/test federation/test
+      - run: sbt -mem 3072 ++2.13.6! core/test http4s/test akkaHttp/test finch/compile play/test zioHttp/compile examples/compile catsInterop/compile monixInterop/compile tapirInterop/test clientJVM/test federation/test
       - save_cache:
           key: sbtcache
           paths:
@@ -63,7 +63,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++3.0.0! core/test catsInterop/compile monixInterop/compile clientJVM/test clientJS/compile zioHttp/compile
+      - run: sbt -mem 3072 ++3.0.0! core/test catsInterop/compile monixInterop/compile clientJVM/test clientJS/compile zioHttp/compile
       - save_cache:
           key: sbtcache
           paths:
@@ -77,7 +77,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.6! clientJS/test clientLaminextJS/Test/fastLinkJS
+      - run: sbt -mem 3072 ++2.13.6! clientJS/test clientLaminextJS/Test/fastLinkJS
       - save_cache:
           key: sbtcache
           paths:
@@ -86,7 +86,7 @@ jobs:
             - "~/.m2"
   release:
     docker:
-      - image: circleci/openjdk:8-jdk-node
+      - image: circleci/openjdk:11-jdk-node
     steps:
       - checkout
       - run: git fetch --tags
@@ -100,7 +100,7 @@ jobs:
           chmod 600 ~/.gnupg/*
           echo RELOADAGENT | gpg-connect-agent
           echo $PGP_SECRET | base64 --decode | gpg --import --no-tty --batch --yes
-      - run: sbt clean ci-release
+      - run: sbt -mem 3072 clean ci-release
 
   microsite:
     docker:
