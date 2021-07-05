@@ -12,7 +12,8 @@ object SchemaWriter {
     schema: Document,
     packageName: Option[String] = None,
     effect: String = "zio.UIO",
-    imports: Option[List[String]] = None
+    imports: Option[List[String]] = None,
+    isEffectTypeAbstract: Boolean = false
   )(implicit scalarMappings: ScalarMappings): String = {
     val schemaDef = schema.schemaDefinition
 
@@ -43,12 +44,12 @@ object SchemaWriter {
 
     val queries = schema
       .objectTypeDefinition(schemaDef.flatMap(_.query).getOrElse("Query"))
-      .map(t => writeRootQueryOrMutationDef(t, effect))
+      .map(t => writeRootQueryOrMutationDef(t, effect, isEffectTypeAbstract))
       .getOrElse("")
 
     val mutations = schema
       .objectTypeDefinition(schemaDef.flatMap(_.mutation).getOrElse("Mutation"))
-      .map(t => writeRootQueryOrMutationDef(t, effect))
+      .map(t => writeRootQueryOrMutationDef(t, effect, isEffectTypeAbstract))
       .getOrElse("")
 
     val subscriptions = schema
@@ -103,17 +104,19 @@ object SchemaWriter {
     s"${safeName(field.name)} :$argsTypeName $effect[${writeType(field.ofType)}]"
   }
 
-  def writeRootQueryOrMutationDef(op: ObjectTypeDefinition, effect: String)(implicit
+  def writeRootQueryOrMutationDef(op: ObjectTypeDefinition, effect: String, isEffectTypeAbstract: Boolean)(implicit
     scalarMappings: ScalarMappings
-  ): String =
+  ): String = {
+    val typeParamOrEmpty = if (isEffectTypeAbstract) s"[$effect[_]]" else ""
     s"""
-       |${writeDescription(op.description)}case class ${op.name}(
+       |${writeDescription(op.description)}case class ${op.name}$typeParamOrEmpty(
        |${op.fields.map(c => writeRootField(c, op, effect)).mkString(",\n")}
        |)""".stripMargin
 
+  }
   def writeSubscriptionField(field: FieldDefinition, od: ObjectTypeDefinition)(implicit
     scalarMappings: ScalarMappings
-  ): String =
+  ): String                                                       =
     "%s:%s ZStream[Any, Nothing, %s]".format(
       safeName(field.name),
       if (field.args.nonEmpty) s" ${argsName(field, od)} =>" else "",

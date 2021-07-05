@@ -76,7 +76,9 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
         val result = Parser
           .parseQuery(schema)
           .map(
-            _.objectTypeDefinition("Query").map(SchemaWriter.writeRootQueryOrMutationDef(_, "zio.UIO")).mkString("\n")
+            _.objectTypeDefinition("Query")
+              .map(SchemaWriter.writeRootQueryOrMutationDef(_, "zio.UIO", false))
+              .mkString("\n")
           )
           .flatMap(Formatter.format(_, None).map(_.trim))
 
@@ -100,7 +102,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
           .parseQuery(schema)
           .map(
             _.objectTypeDefinition("Mutation")
-              .map(SchemaWriter.writeRootQueryOrMutationDef(_, "zio.UIO"))
+              .map(SchemaWriter.writeRootQueryOrMutationDef(_, "zio.UIO", false))
               .mkString("\n")
           )
           .flatMap(Formatter.format(_, None).map(_.trim))
@@ -130,6 +132,59 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
             """
               |case class Subscription(
               |UserWatch: SubscriptionUserWatchArgs => ZStream[Any, Nothing, String]
+              |)""".stripMargin
+          )
+        )
+      },
+      testM("simple queries with abstracted effect type") {
+        val schema =
+          """
+         type Query {
+           user(id: Int): User
+           userList: [User]!
+         }
+         type User {
+           id: Int
+           name: String
+           profilePic: String
+         }"""
+
+        val result = Parser
+          .parseQuery(schema)
+          .map(
+            _.objectTypeDefinition("Query").map(SchemaWriter.writeRootQueryOrMutationDef(_, "F", true)).mkString("\n")
+          )
+          .flatMap(Formatter.format(_, None).map(_.trim))
+
+        assertM(result)(
+          equalTo(
+            """case class Query[F[_]](
+  user: QueryUserArgs => F[Option[User]],
+  userList: F[List[Option[User]]]
+)""".stripMargin
+          )
+        )
+      },
+      testM("simple mutation with abstracted effect type") {
+        val schema =
+          """
+         type Mutation {
+           setMessage(message: String): String
+         }
+         """
+        val result = Parser
+          .parseQuery(schema)
+          .map(
+            _.objectTypeDefinition("Mutation")
+              .map(SchemaWriter.writeRootQueryOrMutationDef(_, "F", true))
+              .mkString("\n")
+          )
+          .flatMap(Formatter.format(_, None).map(_.trim))
+
+        assertM(result)(
+          equalTo(
+            """case class Mutation[F[_]](
+              |  setMessage: MutationSetMessageArgs => F[Option[String]]
               |)""".stripMargin
           )
         )
