@@ -221,10 +221,19 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
              Captain or Pilot
              \"\"\"
           """
+        val role2  =
+          s"""
+              \"\"\"
+             role2
+             Captain or Pilot or Stewart
+             \"\"\"
+          """
         val schema =
           s"""
              $role
              union Role = Captain | Pilot
+             $role2
+             union Role2 = Captain | Pilot | Stewart
              
              type Captain {
                "ship" shipName: String!
@@ -233,27 +242,39 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
              type Pilot {
                shipName: String!
              }
+             
+             type Stewart {
+               shipName: String!
+             }
             """.stripMargin
 
         assertM(gen(schema))(
           equalTo {
-            val role =
+            val role  =
               s"""\"\"\"role
 Captain or Pilot\"\"\""""
+            val role2 =
+              s"""\"\"\"role2
+Captain or Pilot or Stewart\"\"\""""
             s"""import caliban.schema.Annotations._
 
 object Types {
 
   @GQLDescription($role)
-  sealed trait Role extends scala.Product with scala.Serializable
+  sealed trait Role  extends scala.Product with scala.Serializable
+  @GQLDescription($role2)
+  sealed trait Role2 extends scala.Product with scala.Serializable
 
-  object Role {
-    case class Captain(
-      @GQLDescription("ship")
-      shipName: String
-    )                                  extends Role
-    case class Pilot(shipName: String) extends Role
+  object Role2 {
+    case class Stewart(shipName: String) extends Role2
   }
+
+  case class Captain(
+    @GQLDescription("ship")
+    shipName: String
+  )                                  extends Role
+      with Role2
+  case class Pilot(shipName: String) extends Role with Role2
 
 }
 """
