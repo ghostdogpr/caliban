@@ -23,6 +23,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -44,6 +45,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -56,7 +58,7 @@ object OptionsSpec extends DefaultRunnableSpec {
         assert(result)(
           equalTo(
             Some(
-              Options("schema", "output", None, None, None, None, None, None, None)
+              Options("schema", "output", None, None, None, None, None, None, None, None)
             )
           )
         )
@@ -90,6 +92,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -111,6 +114,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 Some("cats.effect.IO"),
                 None,
+                None,
                 None
               )
             )
@@ -130,6 +134,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 Some(true),
+                None,
                 None,
                 None,
                 None
@@ -153,6 +158,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 Some(Map("Long" -> "scala.Long")),
+                None,
                 None
               )
             )
@@ -174,7 +180,30 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
-                Some(List("a.b.Clazz", "b.c._"))
+                Some(List("a.b.Clazz", "b.c._")),
+                None
+              )
+            )
+          )
+        )
+      },
+      test("provide abstractEffectType") {
+        val input  = List("schema", "output", "--effect", "F", "--abstractEffectType", "true")
+        val result = Options.fromArgs(input)
+        assert(result)(
+          equalTo(
+            Some(
+              Options(
+                "schema",
+                "output",
+                None,
+                None,
+                None,
+                None,
+                Some("F"),
+                None,
+                None,
+                Some(true)
               )
             )
           )
@@ -191,6 +220,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 "output",
                 Some("fmtPath"),
                 Some(List(Header("aaa", "bbb:ccc"))),
+                None,
                 None,
                 None,
                 None,

@@ -12,7 +12,8 @@ final case class Options(
   genView: Option[Boolean],
   effect: Option[String],
   scalarMappings: Option[Map[String, String]],
-  imports: Option[List[String]]
+  imports: Option[List[String]],
+  abstractEffectType: Option[Boolean]
 )
 
 object Options {
@@ -24,7 +25,8 @@ object Options {
     genView: Option[Boolean],
     effect: Option[String],
     scalarMappings: Option[List[String]],
-    imports: Option[List[String]]
+    imports: Option[List[String]],
+    abstractEffectType: Option[Boolean]
   )
 
   def fromArgs(args: List[String]): Option[Options] =
@@ -62,7 +64,8 @@ object Options {
                 }
               }.toMap
             },
-            rawOpts.imports
+            rawOpts.imports,
+            rawOpts.abstractEffectType
           )
         }
       case _                             => None

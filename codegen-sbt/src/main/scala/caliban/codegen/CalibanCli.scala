@@ -51,7 +51,7 @@ object CalibanCli {
 
   private val genSchemaHelpMsg =
     s"""
-       |calibanGenSchema schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name] [--effect fqdn.Effect]
+       |calibanGenSchema schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name] [--effect fqdn.Effect] [--abstractEffectType true|false]
        |
        |This command will create a Scala file in `outputPath` containing all the types
        |defined in the provided GraphQL schema defined at `schemaPath`. Instead of a path,
@@ -61,6 +61,10 @@ object CalibanCli {
        |
        |By default, each Query and Mutation will be wrapped into a `zio.UIO` effect. 
        |This can be overridden by providing an alternative effect with the `--effect` option.
+       |The --abstractEffectType flag can also be used to indicate that the effect
+       |type is abstract, so that it will be added as a type parameter to the generated
+       |Query and Mutation classes (if applicable).  In such cases `F` will be used by
+       |as the type parameter unless the `--effect` option is explicitly given.
        |""".stripMargin
 
   private val genClientHelpMsg =
