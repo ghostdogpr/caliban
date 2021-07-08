@@ -15,20 +15,21 @@ The design principles of Caliban are the following:
 To use `caliban`, add the following line in your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "1.0.1"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "1.1.0"
 ```
 
 The following modules are optional:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-http4s"     % "1.0.1" // routes for http4s
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-akka-http"  % "1.0.1" // routes for akka-http
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-play"       % "1.0.1" // routes for play
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-finch"      % "1.0.1" // routes for finch
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-zio-http"   % "1.0.1" // routes for zio-http
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-cats"       % "1.0.1" // interop with cats effect
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-monix"      % "1.0.1" // interop with monix
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-federation" % "1.0.1" // interop with apollo federation
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-http4s"     % "1.1.0" // routes for http4s
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-akka-http"  % "1.1.0" // routes for akka-http
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-play"       % "1.1.0" // routes for play
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-finch"      % "1.1.0" // routes for finch
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-zio-http"   % "1.1.0" // routes for zio-http
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-cats"       % "1.1.0" // interop with cats effect
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-monix"      % "1.1.0" // interop with monix
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-tapir"      % "1.1.0" // interop with tapir
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-federation" % "1.1.0" // interop with apollo federation
 ```
 
 ## A simple example

@@ -227,7 +227,7 @@ Caliban can automatically generate Scala code from a GraphQL schema.
 
 In order to use this feature, add the `caliban-codegen-sbt` sbt plugin to your `project/plugins.sbt` file:
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "1.0.1")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "1.1.0")
 ```
 
 And enable it in your `build.sbt` file:
