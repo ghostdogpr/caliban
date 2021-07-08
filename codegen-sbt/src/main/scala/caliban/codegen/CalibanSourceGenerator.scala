@@ -11,6 +11,25 @@ object CalibanSourceGenerator {
   import zio._
   import zio.console._
 
+  import sjsonnew.{ :*:, LList, LNil }
+
+  case class TrackedSettings(arguments: Seq[Seq[String]])
+  object TrackedSettings {
+    import _root_.sbt.util.CacheImplicits._
+
+    def fromSettings(
+      sources: Seq[File],
+      fileSettings: Seq[CalibanFileSettings],
+      urlSettings: Seq[CalibanUrlSettings]
+    ): TrackedSettings =
+      TrackedSettings(Seq.empty)
+
+    implicit val analysisIso = LList.iso[TrackedSettings, Seq[Seq[String]] :*: LNil](
+      { case TrackedSettings(arguments) => ("args", arguments) :*: LNil },
+      { case ((_, args) :*: LNil) => TrackedSettings(args) }
+    )
+  }
+
   def transformFile(sourceRoot: File, managedRoot: File, settings: CalibanSettings): File => File = { graphqlFile =>
     val relativePath = settings.packageName.fold(sourceRoot.toPath.relativize(graphqlFile.toPath)) { pkg =>
       val components = pkg.split('.').toList.map(file(_).toPath) :+ graphqlFile.toPath.getFileName
@@ -120,18 +139,19 @@ object CalibanSourceGenerator {
     // NB: This is heavily inspired by the caching technique from eed3si9n's sbt-scalaxb plugin
     def cachedGenerateSources =
       Tracked.inputChanged(cacheDirectory / "caliban-inputs") {
-        (inChanged, _: (List[File], FilesInfo[ModifiedFileInfo], String)) =>
+        (inChanged, _: (List[File], FilesInfo[ModifiedFileInfo], String, TrackedSettings)) =>
           Tracked.outputChanged(cacheDirectory / "caliban-output") { (outChanged, outputs: FilesInfo[PlainFileInfo]) =>
             if (inChanged || outChanged) generateSources
             else outputs.files.toList.map(_.file)
           }
       }
 
-    def inputs: (List[File], FilesInfo[ModifiedFileInfo], String) =
+    def inputs: (List[File], FilesInfo[ModifiedFileInfo], String, TrackedSettings) =
       (
         sources.toList,
         FilesInfo.lastModified(sources.toSet).asInstanceOf[FilesInfo[ModifiedFileInfo]],
-        BuildInfo.version
+        BuildInfo.version,
+        TrackedSettings.fromSettings(sources, fileSettings, urlSettings)
       )
 
     cachedGenerateSources(inputs)(() =>
