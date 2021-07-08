@@ -1,10 +1,23 @@
 $ absent src/main/scala/client/ClientNameUniqueness.scala
 $ absent src/main/scala/client/ClientGitLab.scala
+$ absent app/com/caliban/client/ClientPlayFramework.scala
+$ absent play23/com/caliban/client/ClientPlayFramework.scala
+
 $ mkdir src/main/scala
 $ mkdir src/main/scala/client
+$ mkdir app/com/caliban/client
+$ mkdir play23/com/caliban/client
 
 > calibanGenClient project/schema-to-check-name-uniqueness.graphql src/main/scala/client/ClientNameUniqueness.scala --packageName client
 $ exists src/main/scala/client/ClientNameUniqueness.scala
+
+> calibanGenClient project/schema-to-check-name-uniqueness.graphql app/com/caliban/client/ClientPlayFramework.scala --packageName client 
+$ exists app/com/caliban/client/ClientPlayFramework.scala
+$ exec verify.sh ClientPlayFramework ./app/com/caliban/client/ClientPlayFramework.scala
+
+> calibanGenClient project/schema-to-check-name-uniqueness.graphql play23/com/caliban/client/ClientPlayFramework.scala --packageName client
+$ exists play23/com/caliban/client/ClientPlayFramework.scala
+$ exec verify.sh ClientPlayFramework ./play23/com/caliban/client/ClientPlayFramework.scala
 
 $ mkdir src/main/scala/genview
 $ mkdir src/main/scala/genview/client
