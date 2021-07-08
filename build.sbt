@@ -277,9 +277,9 @@ lazy val akkaHttp = project
       "com.typesafe.akka"             %% "akka-http"                  % "10.2.4",
       "com.typesafe.akka"             %% "akka-serialization-jackson" % akkaVersion,
       "com.typesafe.akka"             %% "akka-stream"                % akkaVersion,
-      "de.heikoseeberger"             %% "akka-http-circe"            % "1.36.0"   % Optional,
-      "de.heikoseeberger"             %% "akka-http-play-json"        % "1.36.0"   % Optional,
-      "de.heikoseeberger"             %% "akka-http-zio-json"         % "1.36.0"   % Optional,
+      "de.heikoseeberger"             %% "akka-http-circe"            % "1.37.0"   % Optional,
+      "de.heikoseeberger"             %% "akka-http-play-json"        % "1.37.0"   % Optional,
+      "de.heikoseeberger"             %% "akka-http-zio-json"         % "1.37.0"   % Optional,
       "dev.zio"                       %% "zio-test"                   % zioVersion % Test,
       "dev.zio"                       %% "zio-test-sbt"               % zioVersion % Test,
       compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.0").cross(CrossVersion.full))
@@ -384,7 +384,7 @@ lazy val examples = project
   .settings(
     crossScalaVersions -= scala3,
     libraryDependencies ++= Seq(
-      "de.heikoseeberger"             %% "akka-http-circe"               % "1.36.0",
+      "de.heikoseeberger"             %% "akka-http-circe"               % "1.37.0",
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % tapirVersion,
       "io.circe"                      %% "circe-generic"                 % circeVersion,
