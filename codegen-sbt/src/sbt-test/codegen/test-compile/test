@@ -13,11 +13,11 @@ $ exists src/main/scala/client/ClientNameUniqueness.scala
 
 > calibanGenClient project/schema-to-check-name-uniqueness.graphql app/com/caliban/client/ClientPlayFramework.scala --packageName client 
 $ exists app/com/caliban/client/ClientPlayFramework.scala
-$ exec verify.sh ClientPlayFramework ./app/com/caliban/client/ClientPlayFramework.scala
+$ exec sh verify.sh ClientPlayFramework ./app/com/caliban/client/ClientPlayFramework.scala
 
 > calibanGenClient project/schema-to-check-name-uniqueness.graphql play23/com/caliban/client/ClientPlayFramework.scala --packageName client
 $ exists play23/com/caliban/client/ClientPlayFramework.scala
-$ exec verify.sh ClientPlayFramework ./play23/com/caliban/client/ClientPlayFramework.scala
+$ exec sh verify.sh ClientPlayFramework ./play23/com/caliban/client/ClientPlayFramework.scala
 
 $ mkdir src/main/scala/genview
 $ mkdir src/main/scala/genview/client
