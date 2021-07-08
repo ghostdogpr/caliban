@@ -22,6 +22,51 @@ object CalibanSourceGenerator {
     interimPath.getParent.resolve(scalaName).toFile
   }
 
+  def collectSettingsFor(fileSettings: Seq[CalibanFileSettings], source: File): CalibanFileSettings =
+    // Supply a default packageName.
+    // If we do not, `src_managed.main.caliban-codegen-sbt` will be used,
+    // which is not only terrible, but invalid.
+    CalibanSettings
+      .emptyFile(source)
+      .packageName("caliban")
+      .append(
+        fileSettings
+          .collect({ case needle if source.toPath.endsWith(needle.file.toPath) => needle })
+          .foldLeft[CalibanFileSettings](CalibanSettings.emptyFile(source)) { case (acc, next) =>
+            acc.append(next)
+          }
+      )
+
+  def renderArgs(settings: CalibanSettings): List[String] = {
+    def singleOpt(opt: String, value: Option[String]): List[String]        =
+      if (value.nonEmpty) {
+        opt :: value.toList
+      } else Nil
+    def pairList(opt: String, values: Seq[(String, String)]): List[String] =
+      if (values.nonEmpty) {
+        opt :: values.map({ case (fst, snd) => s"$fst:$snd" }).mkString(",") :: Nil
+      } else Nil
+    def list(opt: String, values: Seq[String]): List[String]               =
+      if (values.nonEmpty) {
+        opt :: values.mkString(",") :: Nil
+      } else Nil
+    val scalafmtPath                                                       = singleOpt("--scalafmtPath", settings.scalafmtPath)
+    val headers                                                            = pairList("--headers", settings.headers)
+    val packageName                                                        = singleOpt(
+      "--packageName",
+      settings.packageName
+    )
+
+    val genView = singleOpt(
+      "--genView",
+      settings.genView.map(_.toString())
+    ) // NB: Presuming zio-config can read toString'd booleans
+    val scalarMappings = pairList("--scalarMappings", settings.scalarMappings)
+    val imports        = list("--imports", settings.imports)
+
+    scalafmtPath ++ headers ++ packageName ++ genView ++ scalarMappings ++ imports
+  }
+
   def apply(
     sourceRoot: File,
     sources: Seq[File],
@@ -31,51 +76,6 @@ object CalibanSourceGenerator {
     urlSettings: Seq[CalibanUrlSettings]
   ): List[File] = {
     import sbt.util.CacheImplicits._
-
-    def collectSettingsFor(source: File): CalibanFileSettings =
-      // Supply a default packageName.
-      // If we do not, `src_managed.main.caliban-codegen-sbt` will be used,
-      // which is not only terrible, but invalid.
-      CalibanSettings
-        .emptyFile(source)
-        .packageName("caliban")
-        .append(
-          fileSettings
-            .collect({ case needle if source.toPath.endsWith(needle.file.toPath) => needle })
-            .foldLeft[CalibanFileSettings](CalibanSettings.emptyFile(source)) { case (acc, next) =>
-              acc.append(next)
-            }
-        )
-
-    def renderArgs(settings: CalibanSettings): List[String] = {
-      def singleOpt(opt: String, value: Option[String]): List[String]        =
-        if (value.nonEmpty) {
-          opt :: value.toList
-        } else Nil
-      def pairList(opt: String, values: Seq[(String, String)]): List[String] =
-        if (values.nonEmpty) {
-          opt :: values.map({ case (fst, snd) => s"$fst:$snd" }).mkString(",") :: Nil
-        } else Nil
-      def list(opt: String, values: Seq[String]): List[String]               =
-        if (values.nonEmpty) {
-          opt :: values.mkString(",") :: Nil
-        } else Nil
-      val scalafmtPath                                                       = singleOpt("--scalafmtPath", settings.scalafmtPath)
-      val headers                                                            = pairList("--headers", settings.headers)
-      val packageName                                                        = singleOpt(
-        "--packageName",
-        settings.packageName
-      )
-
-      val genView = singleOpt(
-        "--genView",
-        settings.genView.map(_.toString())
-      ) // NB: Presuming zio-config can read toString'd booleans
-      val scalarMappings = pairList("--scalarMappings", settings.scalarMappings)
-      val imports        = list("--imports", settings.imports)
-
-      scalafmtPath ++ headers ++ packageName ++ genView ++ scalarMappings ++ imports
-    }
 
     def generateSources: List[File] = {
       def generateFileSource(graphql: File, settings: CalibanSettings): IO[Option[Throwable], File] = for {
@@ -99,7 +99,7 @@ object CalibanSourceGenerator {
         .unsafeRun(
           for {
             fromFiles <- ZIO.foreach(sources.toList)(source =>
-                           generateFileSource(source, collectSettingsFor(source)).asSome.catchAll {
+                           generateFileSource(source, collectSettingsFor(fileSettings, source)).asSome.catchAll {
                              case Some(reason) =>
                                putStrLn(reason.toString) *> putStrLn(reason.getStackTrace.mkString("\n")).as(None)
                              case None         => ZIO.none
