@@ -21,8 +21,10 @@ object CalibanSourceGenerator {
       sources: Seq[File],
       fileSettings: Seq[CalibanFileSettings],
       urlSettings: Seq[CalibanUrlSettings]
-    ): TrackedSettings =
-      TrackedSettings(Seq.empty)
+    ): TrackedSettings = {
+      val allSettings: Seq[CalibanSettings] = sources.toList.map(collectSettingsFor(fileSettings, _)) ++ urlSettings
+      TrackedSettings(allSettings.map(renderArgs))
+    }
 
     implicit val analysisIso = LList.iso[TrackedSettings, Seq[Seq[String]] :*: LNil](
       { case TrackedSettings(arguments) => ("args", arguments) :*: LNil },
