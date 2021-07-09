@@ -84,8 +84,15 @@ object CalibanSourceGenerator {
     ) // NB: Presuming zio-config can read toString'd booleans
     val scalarMappings = pairList("--scalarMappings", settings.scalarMappings)
     val imports        = list("--imports", settings.imports)
-
-    scalafmtPath ++ headers ++ packageName ++ genView ++ scalarMappings ++ imports
+    val splitFiles     = singleOpt(
+      "--splitFiles",
+      settings.splitFiles.map(_.toString())
+    ) // NB: Presuming zio-config can read toString'd booleans
+    val enableFmt = singleOpt(
+      "--enableFmt",
+      settings.enableFmt.map(_.toString())
+    ) // NB: Presuming zio-config can read toString'd booleans
+    scalafmtPath ++ headers ++ packageName ++ genView ++ scalarMappings ++ imports ++ splitFiles ++ enableFmt
   }
 
   def apply(

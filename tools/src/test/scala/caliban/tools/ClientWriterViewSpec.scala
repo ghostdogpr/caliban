@@ -12,7 +12,7 @@ object ClientWriterViewSpec extends DefaultRunnableSpec {
   val gen: String => Task[String] = (schema: String) =>
     Parser
       .parseQuery(schema)
-      .flatMap(doc => Formatter.format(ClientWriter.write(doc, genView = true)(ScalarMappings(None)), None))
+      .flatMap(doc => Formatter.format(ClientWriter.write(doc, genView = true)(ScalarMappings(None)).head._2, None))
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("ClientWriterViewSpec")(
