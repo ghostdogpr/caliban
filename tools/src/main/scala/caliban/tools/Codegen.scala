@@ -18,7 +18,7 @@ object Codegen {
   def generate(
     arguments: Options,
     genType: GenType
-  ): Task[Unit] = {
+  ): Task[List[File]] = {
     val s                  = ".*/[scala|play.*|app][^/]*/(.*)/(.*).scala".r.findFirstMatchIn(arguments.toPath)
     val packageName        = arguments.packageName.orElse(s.map(_.group(1).split("/").mkString(".")))
     val objectName         = s.map(_.group(2)).getOrElse("Client")
@@ -46,14 +46,14 @@ object Codegen {
                        )
                    }
       formatted <- if (enableFmt) Formatter.format(code, arguments.fmtPath) else Task.succeed(code)
-      _         <- Task.collectAll(formatted.map { case (objectName, objectCode) =>
+      paths     <- Task.collectAll(formatted.map { case (objectName, objectCode) =>
                      val path =
                        if (splitFiles) s"${arguments.toPath.reverse.dropWhile(_ != '/').reverse}$objectName.scala"
                        else arguments.toPath
                      Task(new PrintWriter(new File(path)))
-                       .bracket(q => UIO(q.close()), pw => Task(pw.println(objectCode)))
+                       .bracket(q => UIO(q.close()), pw => Task(pw.println(objectCode))).as(new File(path))
                    })
-    } yield ()
+    } yield paths
   }
 
   private def getSchemaLoader(path: String, schemaPathHeaders: Option[List[Options.Header]]): SchemaLoader =
