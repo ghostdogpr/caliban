@@ -196,7 +196,7 @@ object ClientWriter {
     val objectName: String = safeTypeName(typedef.name)
     val fields             = typedef.fields.map(collectFieldInfo(_, objectName))
     val view               =
-      if (genView && typedef.fields.length <= MaxTupleLength)
+      if (genView)
         "\n  " + writeView(typedef.name, fields.map(_.typeInfo))
       else ""
 
@@ -232,6 +232,8 @@ object ClientWriter {
     val genericSelectionFieldsMap     = genericSelectionFields.toMap
     val genericSelectionFieldTypesMap = genericSelectionFieldTypes.toMap
 
+    val viewFunctionArgumentsCount: Int     = fields.map(_.arguments.length).sum
+    val needsCaseClassForArguments          = viewFunctionArgumentsCount > MaxTupleLength
     val viewFunctionArguments: List[String] =
       fields.collect {
         case field if field.arguments.nonEmpty =>
@@ -240,6 +242,13 @@ object ClientWriter {
           )
       }
 
+    val viewFunctionSelectionArgumentsCount: Int     = genericSelectionFields.collect {
+      case (FieldTypeInfo(_, _, _, Nil, Nil, _, Some(_)), _)                                     => 1
+      case (FieldTypeInfo(_, _, _, _, unionTypes, _, Some(_)), _) if unionTypes.nonEmpty         => unionTypes.length
+      case (FieldTypeInfo(_, _, _, interfaceTypes, _, _, Some(_)), _) if interfaceTypes.nonEmpty =>
+        interfaceTypes.length
+    }.sum
+    val needsCaseClassForSelectionArguments          = viewFunctionSelectionArgumentsCount > MaxTupleLength
     val viewFunctionSelectionArguments: List[String] =
       genericSelectionFields.collect {
         case (field @ FieldTypeInfo(_, _, _, Nil, Nil, _, Some(owner)), fieldName) =>
@@ -270,8 +279,14 @@ object ClientWriter {
 
     val viewFunctionBody: String =
       fields.map { case field @ FieldTypeInfo(_, _, _, interfaceTypes, unionTypes, _, _) =>
-        val argsPart      = withRoundBrackets(field.arguments.map(a => argumentName(field.name, a.name)))
-        val selectionType = genericSelectionFieldsMap.get(field)
+        val argsPart      = withRoundBrackets(
+          field.arguments
+            .map(a => argumentName(field.name, a.name))
+            .map(name => if (needsCaseClassForArguments) s"args.$name" else name)
+        )
+        val selectionType = genericSelectionFieldsMap
+          .get(field)
+          .map(name => if (needsCaseClassForSelectionArguments) s"selectionArgs.$name" else name)
         val selectionPart = {
           val parts =
             if (unionTypes.nonEmpty) unionTypes.map(unionType => s"${selectionType.head}On$unionType")
@@ -301,11 +316,25 @@ object ClientWriter {
     val typeParams =
       if (genericSelectionFieldTypes.nonEmpty) genericSelectionFieldTypes.map(_._2).mkString("[", ", ", "]") else ""
 
-    val viewFunctionArgs          = withRoundBrackets(viewFunctionArguments)
-    val viewFunctionSelectionArgs = withRoundBrackets(viewFunctionSelectionArguments)
+    val viewFunctionArgs          =
+      if (needsCaseClassForArguments) s"(args: ${viewName}Args)" else withRoundBrackets(viewFunctionArguments)
+    val viewFunctionSelectionArgs =
+      if (needsCaseClassForSelectionArguments) s"(selectionArgs: ${viewName}SelectionArgs$typeParams)"
+      else withRoundBrackets(viewFunctionSelectionArguments)
+
+    val caseClassForArguments          =
+      if (needsCaseClassForArguments) s"final case class ${viewName}Args${withRoundBrackets(viewFunctionArguments)}"
+      else ""
+    val caseClassForSelectionArguments =
+      if (needsCaseClassForSelectionArguments)
+        s"final case class ${viewName}SelectionArgs$typeParams${withRoundBrackets(viewFunctionSelectionArguments)}"
+      else ""
 
     s"""
        |final case class $viewName$typeParams$viewClassFieldParams
+       |
+       |$caseClassForArguments
+       |$caseClassForSelectionArguments
        |
        |type ViewSelection$typeParams = SelectionBuilder[$safeObjectName, $viewName$typeParams]
        |
