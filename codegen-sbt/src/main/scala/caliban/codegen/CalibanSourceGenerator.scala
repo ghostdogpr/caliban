@@ -11,6 +11,27 @@ object CalibanSourceGenerator {
   import zio._
   import zio.console._
 
+  import sjsonnew.{ :*:, LList, LNil }
+
+  case class TrackedSettings(arguments: Seq[Seq[String]])
+  object TrackedSettings {
+    import _root_.sbt.util.CacheImplicits._
+
+    def fromSettings(
+      sources: Seq[File],
+      fileSettings: Seq[CalibanFileSettings],
+      urlSettings: Seq[CalibanUrlSettings]
+    ): TrackedSettings = {
+      val allSettings: Seq[CalibanSettings] = sources.toList.map(collectSettingsFor(fileSettings, _)) ++ urlSettings
+      TrackedSettings(allSettings.map(renderArgs))
+    }
+
+    implicit val analysisIso = LList.iso[TrackedSettings, Seq[Seq[String]] :*: LNil](
+      { case TrackedSettings(arguments) => ("args", arguments) :*: LNil },
+      { case ((_, args) :*: LNil) => TrackedSettings(args) }
+    )
+  }
+
   def transformFile(sourceRoot: File, managedRoot: File, settings: CalibanSettings): File => File = { graphqlFile =>
     val relativePath = settings.packageName.fold(sourceRoot.toPath.relativize(graphqlFile.toPath)) { pkg =>
       val components = pkg.split('.').toList.map(file(_).toPath) :+ graphqlFile.toPath.getFileName
@@ -22,6 +43,51 @@ object CalibanSourceGenerator {
     interimPath.getParent.resolve(scalaName).toFile
   }
 
+  def collectSettingsFor(fileSettings: Seq[CalibanFileSettings], source: File): CalibanFileSettings =
+    // Supply a default packageName.
+    // If we do not, `src_managed.main.caliban-codegen-sbt` will be used,
+    // which is not only terrible, but invalid.
+    CalibanSettings
+      .emptyFile(source)
+      .packageName("caliban")
+      .append(
+        fileSettings
+          .collect({ case needle if source.toPath.endsWith(needle.file.toPath) => needle })
+          .foldLeft[CalibanFileSettings](CalibanSettings.emptyFile(source)) { case (acc, next) =>
+            acc.append(next)
+          }
+      )
+
+  def renderArgs(settings: CalibanSettings): List[String] = {
+    def singleOpt(opt: String, value: Option[String]): List[String]        =
+      if (value.nonEmpty) {
+        opt :: value.toList
+      } else Nil
+    def pairList(opt: String, values: Seq[(String, String)]): List[String] =
+      if (values.nonEmpty) {
+        opt :: values.map({ case (fst, snd) => s"$fst:$snd" }).mkString(",") :: Nil
+      } else Nil
+    def list(opt: String, values: Seq[String]): List[String]               =
+      if (values.nonEmpty) {
+        opt :: values.mkString(",") :: Nil
+      } else Nil
+    val scalafmtPath                                                       = singleOpt("--scalafmtPath", settings.scalafmtPath)
+    val headers                                                            = pairList("--headers", settings.headers)
+    val packageName                                                        = singleOpt(
+      "--packageName",
+      settings.packageName
+    )
+
+    val genView = singleOpt(
+      "--genView",
+      settings.genView.map(_.toString())
+    ) // NB: Presuming zio-config can read toString'd booleans
+    val scalarMappings = pairList("--scalarMappings", settings.scalarMappings)
+    val imports        = list("--imports", settings.imports)
+
+    scalafmtPath ++ headers ++ packageName ++ genView ++ scalarMappings ++ imports
+  }
+
   def apply(
     sourceRoot: File,
     sources: Seq[File],
@@ -31,51 +97,6 @@ object CalibanSourceGenerator {
     urlSettings: Seq[CalibanUrlSettings]
   ): List[File] = {
     import sbt.util.CacheImplicits._
-
-    def collectSettingsFor(source: File): CalibanFileSettings =
-      // Supply a default packageName.
-      // If we do not, `src_managed.main.caliban-codegen-sbt` will be used,
-      // which is not only terrible, but invalid.
-      CalibanSettings
-        .emptyFile(source)
-        .packageName("caliban")
-        .append(
-          fileSettings
-            .collect({ case needle if source.toPath.endsWith(needle.file.toPath) => needle })
-            .foldLeft[CalibanFileSettings](CalibanSettings.emptyFile(source)) { case (acc, next) =>
-              acc.append(next)
-            }
-        )
-
-    def renderArgs(settings: CalibanSettings): List[String] = {
-      def singleOpt(opt: String, value: Option[String]): List[String]        =
-        if (value.nonEmpty) {
-          opt :: value.toList
-        } else Nil
-      def pairList(opt: String, values: Seq[(String, String)]): List[String] =
-        if (values.nonEmpty) {
-          opt :: values.map({ case (fst, snd) => s"$fst:$snd" }).mkString(",") :: Nil
-        } else Nil
-      def list(opt: String, values: Seq[String]): List[String]               =
-        if (values.nonEmpty) {
-          opt :: values.mkString(",") :: Nil
-        } else Nil
-      val scalafmtPath                                                       = singleOpt("--scalafmtPath", settings.scalafmtPath)
-      val headers                                                            = pairList("--headers", settings.headers)
-      val packageName                                                        = singleOpt(
-        "--packageName",
-        settings.packageName
-      )
-
-      val genView = singleOpt(
-        "--genView",
-        settings.genView.map(_.toString())
-      ) // NB: Presuming zio-config can read toString'd booleans
-      val scalarMappings = pairList("--scalarMappings", settings.scalarMappings)
-      val imports        = list("--imports", settings.imports)
-
-      scalafmtPath ++ headers ++ packageName ++ genView ++ scalarMappings ++ imports
-    }
 
     def generateSources: List[File] = {
       def generateFileSource(graphql: File, settings: CalibanSettings): IO[Option[Throwable], File] = for {
@@ -99,7 +120,7 @@ object CalibanSourceGenerator {
         .unsafeRun(
           for {
             fromFiles <- ZIO.foreach(sources.toList)(source =>
-                           generateFileSource(source, collectSettingsFor(source)).asSome.catchAll {
+                           generateFileSource(source, collectSettingsFor(fileSettings, source)).asSome.catchAll {
                              case Some(reason) =>
                                putStrLn(reason.toString) *> putStrLn(reason.getStackTrace.mkString("\n")).as(None)
                              case None         => ZIO.none
@@ -120,18 +141,19 @@ object CalibanSourceGenerator {
     // NB: This is heavily inspired by the caching technique from eed3si9n's sbt-scalaxb plugin
     def cachedGenerateSources =
       Tracked.inputChanged(cacheDirectory / "caliban-inputs") {
-        (inChanged, _: (List[File], FilesInfo[ModifiedFileInfo], String)) =>
+        (inChanged, _: (List[File], FilesInfo[ModifiedFileInfo], String, TrackedSettings)) =>
           Tracked.outputChanged(cacheDirectory / "caliban-output") { (outChanged, outputs: FilesInfo[PlainFileInfo]) =>
             if (inChanged || outChanged) generateSources
             else outputs.files.toList.map(_.file)
           }
       }
 
-    def inputs: (List[File], FilesInfo[ModifiedFileInfo], String) =
+    def inputs: (List[File], FilesInfo[ModifiedFileInfo], String, TrackedSettings) =
       (
         sources.toList,
         FilesInfo.lastModified(sources.toSet).asInstanceOf[FilesInfo[ModifiedFileInfo]],
-        BuildInfo.version
+        BuildInfo.version,
+        TrackedSettings.fromSettings(sources, fileSettings, urlSettings)
       )
 
     cachedGenerateSources(inputs)(() =>
