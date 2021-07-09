@@ -106,43 +106,42 @@ object CalibanSourceGenerator {
     import sbt.util.CacheImplicits._
 
     def generateSources: List[File] = {
-      def generateFileSource(graphql: File, settings: CalibanSettings): IO[Option[Throwable], File] = for {
+      def generateFileSource(graphql: File, settings: CalibanSettings): IO[Option[Throwable], List[File]] = for {
         generatedSource <- ZIO.succeed(transformFile(sourceRoot, sourceManaged, settings)(graphql))
         _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
         opts            <- ZIO.fromOption(Options.fromArgs(graphql.toString :: generatedSource.toString :: renderArgs(settings)))
-        _               <- Codegen.generate(opts, GenType.Client).asSomeError
-      } yield new File(opts.toPath)
+        files           <- Codegen.generate(opts, GenType.Client).asSomeError
+      } yield files
 
-      def generateUrlSource(graphql: URL, settings: CalibanSettings): IO[Option[Throwable], File] = for {
+      def generateUrlSource(graphql: URL, settings: CalibanSettings): IO[Option[Throwable], List[File]] = for {
         generatedSource <-
           ZIO.succeed(
             transformFile(sourceRoot, sourceManaged, settings)(new java.io.File(graphql.getPath.stripPrefix("/")))
           )
         _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
         opts            <- ZIO.fromOption(Options.fromArgs(graphql.toString :: generatedSource.toString :: renderArgs(settings)))
-        _               <- Codegen.generate(opts, GenType.Client).asSomeError
-      } yield new File(opts.toPath)
+        files           <- Codegen.generate(opts, GenType.Client).asSomeError
+      } yield files
 
       Runtime.default
         .unsafeRun(
           for {
             fromFiles <- ZIO.foreach(sources.toList)(source =>
-                           generateFileSource(source, collectSettingsFor(fileSettings, source)).asSome.catchAll {
+                           generateFileSource(source, collectSettingsFor(fileSettings, source)).catchAll {
                              case Some(reason) =>
-                               putStrLn(reason.toString) *> putStrLn(reason.getStackTrace.mkString("\n")).as(None)
-                             case None         => ZIO.none
+                               putStrLn(reason.toString) *> putStrLn(reason.getStackTrace.mkString("\n")).as(List.empty)
+                             case None         => ZIO.succeed(List.empty)
                            }
                          )
             fromUrls  <- ZIO.foreach(urlSettings)(setting =>
-                           generateUrlSource(setting.url, setting).asSome.catchAll {
+                           generateUrlSource(setting.url, setting).catchAll {
                              case Some(reason) =>
-                               putStrLn(reason.toString) *> putStrLn(reason.getStackTrace.mkString("\n")).as(None)
-                             case None         => ZIO.none
+                               putStrLn(reason.toString) *> putStrLn(reason.getStackTrace.mkString("\n")).as(List.empty)
+                             case None         => ZIO.succeed(List.empty)
                            }
                          )
-          } yield fromFiles ++ fromUrls
+          } yield (fromFiles ++ fromUrls).flatten
         )
-        .flatten
     }
 
     // NB: This is heavily inspired by the caching technique from eed3si9n's sbt-scalaxb plugin
