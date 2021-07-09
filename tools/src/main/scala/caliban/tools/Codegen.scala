@@ -28,22 +28,31 @@ object Codegen {
     }
     val genView            = arguments.genView.getOrElse(false)
     val scalarMappings     = arguments.scalarMappings
+    val splitFiles         = arguments.splitFiles.getOrElse(false)
+    val enableFmt          = arguments.enableFmt.getOrElse(true)
     val loader             = getSchemaLoader(arguments.schemaPath, arguments.headers)
     for {
       schema    <- loader.load
       code       = genType match {
                      case GenType.Schema =>
-                       SchemaWriter.write(schema, packageName, effect, arguments.imports, abstractEffectType)(
-                         ScalarMappings(scalarMappings)
+                       List(
+                         objectName -> SchemaWriter.write(schema, packageName, effect, arguments.imports, abstractEffectType)(
+                           ScalarMappings(scalarMappings)
+                         )
                        )
                      case GenType.Client =>
-                       ClientWriter.write(schema, objectName, packageName, genView, arguments.imports)(
+                       ClientWriter.write(schema, objectName, packageName, genView, arguments.imports, splitFiles)(
                          ScalarMappings(scalarMappings)
                        )
                    }
-      formatted <- Formatter.format(code, arguments.fmtPath)
-      _         <- Task(new PrintWriter(new File(arguments.toPath)))
-                     .bracket(q => UIO(q.close()), pw => Task(pw.println(formatted)))
+      formatted <- if (enableFmt) Formatter.format(code, arguments.fmtPath) else Task.succeed(code)
+      _         <- Task.collectAll(formatted.map { case (objectName, objectCode) =>
+                     val path =
+                       if (splitFiles) s"${arguments.toPath.reverse.dropWhile(_ != '/').reverse}$objectName.scala"
+                       else arguments.toPath
+                     Task(new PrintWriter(new File(path)))
+                       .bracket(q => UIO(q.close()), pw => Task(pw.println(objectCode)))
+                   })
     } yield ()
   }
 
