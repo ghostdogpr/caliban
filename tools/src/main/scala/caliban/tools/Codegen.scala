@@ -51,7 +51,8 @@ object Codegen {
                        if (splitFiles) s"${arguments.toPath.reverse.dropWhile(_ != '/').reverse}$objectName.scala"
                        else arguments.toPath
                      Task(new PrintWriter(new File(path)))
-                       .bracket(q => UIO(q.close()), pw => Task(pw.println(objectCode))).as(new File(path))
+                       .bracket(q => UIO(q.close()), pw => Task(pw.println(objectCode)))
+                       .as(new File(path))
                    })
     } yield paths
   }
