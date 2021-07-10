@@ -215,14 +215,16 @@ lazy val tapirInterop = project
   .settings(name := "caliban-tapir")
   .settings(commonSettings)
   .settings(
-    crossScalaVersions -= scala3,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
-    libraryDependencies ++= Seq(
-      "com.softwaremill.sttp.tapir"   %% "tapir-core"     % tapirVersion,
-      "dev.zio"                       %% "zio-test"       % zioVersion % Test,
-      "dev.zio"                       %% "zio-test-sbt"   % zioVersion % Test,
-      compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.0").cross(CrossVersion.full))
-    )
+    libraryDependencies ++= {
+      if (scalaVersion.value == scala3) Seq()
+      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.0").cross(CrossVersion.full)))
+    } ++
+      Seq(
+        "com.softwaremill.sttp.tapir" %% "tapir-core"   % tapirVersion,
+        "dev.zio"                     %% "zio-test"     % zioVersion % Test,
+        "dev.zio"                     %% "zio-test-sbt" % zioVersion % Test
+      )
   )
   .dependsOn(core)
 
