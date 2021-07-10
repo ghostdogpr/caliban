@@ -63,7 +63,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++3.0.0! core/test catsInterop/compile monixInterop/compile clientJVM/test clientJS/compile zioHttp/compile
+      - run: sbt ++3.0.1! core/test catsInterop/compile monixInterop/compile clientJVM/test clientJS/compile zioHttp/compile tapirInterop/test
       - save_cache:
           key: sbtcache
           paths:
