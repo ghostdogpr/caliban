@@ -24,6 +24,8 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
+                None,
+                None,
                 None
               )
             )
@@ -46,6 +48,8 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
+                None,
+                None,
                 None
               )
             )
@@ -58,7 +62,7 @@ object OptionsSpec extends DefaultRunnableSpec {
         assert(result)(
           equalTo(
             Some(
-              Options("schema", "output", None, None, None, None, None, None, None, None)
+              Options("schema", "output", None, None, None, None, None, None, None, None, None, None)
             )
           )
         )
@@ -93,6 +97,8 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
+                None,
+                None,
                 None
               )
             )
@@ -115,6 +121,8 @@ object OptionsSpec extends DefaultRunnableSpec {
                 Some("cats.effect.IO"),
                 None,
                 None,
+                None,
+                None,
                 None
               )
             )
@@ -134,6 +142,8 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 Some(true),
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -159,6 +169,8 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 Some(Map("Long" -> "scala.Long")),
                 None,
+                None,
+                None,
                 None
               )
             )
@@ -181,6 +193,8 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 Some(List("a.b.Clazz", "b.c._")),
+                None,
+                None,
                 None
               )
             )
@@ -203,7 +217,9 @@ object OptionsSpec extends DefaultRunnableSpec {
                 Some("F"),
                 None,
                 None,
-                Some(true)
+                Some(true),
+                None,
+                None
               )
             )
           )
@@ -220,6 +236,8 @@ object OptionsSpec extends DefaultRunnableSpec {
                 "output",
                 Some("fmtPath"),
                 Some(List(Header("aaa", "bbb:ccc"))),
+                None,
+                None,
                 None,
                 None,
                 None,

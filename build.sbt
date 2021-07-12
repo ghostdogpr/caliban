@@ -172,7 +172,7 @@ lazy val codegenSbt = project
   .settings(
     scriptedLaunchOpts := {
       scriptedLaunchOpts.value ++
-        Seq("-Xmx1024M", "-Dplugin.version=" + version.value)
+        Seq("-Xmx1024M", "-Xss4M", "-Dplugin.version=" + version.value)
     },
     scriptedBufferLog := false,
     scriptedDependencies := {

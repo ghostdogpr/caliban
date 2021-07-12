@@ -19,8 +19,11 @@ object ClientWriter {
     objectName: String = "Client",
     packageName: Option[String] = None,
     genView: Boolean = false,
-    additionalImports: Option[List[String]] = None
-  )(implicit scalarMappings: ScalarMappings): String = {
+    additionalImports: Option[List[String]] = None,
+    splitFiles: Boolean = false
+  )(implicit scalarMappings: ScalarMappings): List[(String, String)] = {
+    require(packageName.isDefined || !splitFiles, "splitFiles option requires a package name")
+
     val schemaDef = schema.schemaDefinition
 
     implicit val mappingClashedTypeNames: MappingClashedTypeNames = MappingClashedTypeNames(
@@ -32,7 +35,8 @@ object ClientWriter {
           case UnionTypeDefinition(_, name, _, _)       => name
           case ScalarTypeDefinition(_, name, _)         => name
           case InterfaceTypeDefinition(_, name, _, _)   => name
-        }
+        },
+        if (splitFiles) List("package") else Nil
       )
     )
 
@@ -47,6 +51,18 @@ object ClientWriter {
       safeTypeName(name) -> op
     }.toMap)
 
+    val objectTypes =
+      if (splitFiles)
+        schema.objectTypeDefinitions
+          .filterNot(obj =>
+            reservedType(obj) ||
+              schemaDef.exists(_.query.getOrElse("Query") == obj.name) ||
+              schemaDef.exists(_.mutation.getOrElse("Mutation") == obj.name) ||
+              schemaDef.exists(_.subscription.getOrElse("Subscription") == obj.name)
+          )
+          .map(writeObjectType)
+      else Nil
+
     val objects = schema.objectTypeDefinitions
       .filterNot(obj =>
         reservedType(obj) ||
@@ -54,74 +70,192 @@ object ClientWriter {
           schemaDef.exists(_.mutation.getOrElse("Mutation") == obj.name) ||
           schemaDef.exists(_.subscription.getOrElse("Subscription") == obj.name)
       )
-      .map(writeObject(_, genView))
-      .mkString("\n")
+      .map { typedef =>
+        val content     = writeObject(typedef, genView)
+        val fullContent =
+          if (splitFiles)
+            s"""import caliban.client.FieldBuilder._
+               |import caliban.client._
+               |
+               |$content
+               |""".stripMargin
+          else
+            s"""${writeObjectType(typedef)}
+               |$content
+               |""".stripMargin
+        safeTypeName(typedef.name) -> fullContent
+      }
 
-    val inputs = schema.inputObjectTypeDefinitions.map(writeInputObject).mkString("\n")
+    val inputs = schema.inputObjectTypeDefinitions.map { typedef =>
+      val content     = writeInputObject(typedef)
+      val fullContent =
+        if (splitFiles)
+          s"""import caliban.client._
+             |import caliban.client.__Value._
+             |
+             |$content
+             |""".stripMargin
+        else
+          content
+      safeTypeName(typedef.name) -> fullContent
+    }
 
     val enums = schema.enumTypeDefinitions
       .filter(e => !scalarMappings.scalarMap.exists(_.contains(e.name)))
-      .map(writeEnum)
-      .mkString("\n")
+      .map { typedef =>
+        val content     = writeEnum(typedef)
+        val fullContent =
+          if (splitFiles)
+            s"""import caliban.client.CalibanClientError.DecodingError
+               |import caliban.client._
+               |import caliban.client.__Value._
+               |
+               |$content
+               |""".stripMargin
+          else
+            content
+        safeTypeName(typedef.name) -> fullContent
+      }
 
     val scalars = schema.scalarTypeDefinitions
       .filterNot(s => isScalarSupported(s.name))
       .map(writeScalar)
-      .mkString("\n")
+
+    val queryTypes =
+      if (splitFiles)
+        schema
+          .objectTypeDefinition(schemaDef.flatMap(_.query).getOrElse("Query"))
+          .map(writeRootQueryType)
+          .toList
+      else Nil
 
     val queries = schema
       .objectTypeDefinition(schemaDef.flatMap(_.query).getOrElse("Query"))
-      .map(writeRootQuery)
-      .getOrElse("")
+      .map { typedef =>
+        val content     = writeRootQuery(typedef)
+        val fullContent =
+          if (splitFiles)
+            s"""import caliban.client.FieldBuilder._
+               |import caliban.client._
+               |
+               |$content
+               |""".stripMargin
+          else
+            s"""${writeRootQueryType(typedef)}
+               |$content
+               |""".stripMargin
+        safeTypeName(typedef.name) -> fullContent
+      }
+
+    val mutationTypes =
+      if (splitFiles)
+        schema
+          .objectTypeDefinition(schemaDef.flatMap(_.mutation).getOrElse("Mutation"))
+          .map(writeRootMutationType)
+          .toList
+      else Nil
 
     val mutations = schema
       .objectTypeDefinition(schemaDef.flatMap(_.mutation).getOrElse("Mutation"))
-      .map(writeRootMutation)
-      .getOrElse("")
+      .map { typedef =>
+        val content     = writeRootMutation(typedef)
+        val fullContent =
+          if (splitFiles)
+            s"""import caliban.client.FieldBuilder._
+               |import caliban.client._
+               |
+               |$content
+               |""".stripMargin
+          else
+            s"""${writeRootMutationType(typedef)}
+               |$content
+               |""".stripMargin
+        safeTypeName(typedef.name) -> fullContent
+      }
+
+    val subscriptionTypes =
+      if (splitFiles)
+        schema
+          .objectTypeDefinition(schemaDef.flatMap(_.subscription).getOrElse("Subscription"))
+          .map(writeRootSubscriptionType)
+          .toList
+      else Nil
 
     val subscriptions = schema
       .objectTypeDefinition(schemaDef.flatMap(_.subscription).getOrElse("Subscription"))
-      .map(writeRootSubscription)
-      .getOrElse("")
+      .map { typedef =>
+        val content     = writeRootSubscription(typedef)
+        val fullContent =
+          if (splitFiles)
+            s"""import caliban.client.FieldBuilder._
+               |import caliban.client._
+               |
+               |$content
+               |""".stripMargin
+          else
+            s"""${writeRootSubscriptionType(typedef)}
+               |$content
+               |""".stripMargin
+        safeTypeName(typedef.name) -> fullContent
+      }
 
-    val additionalImportsString = additionalImports.fold("")(_.map(i => s"import $i").mkString("\n"))
+    if (splitFiles) {
+      val parentPackageName = packageName.filter(_.contains(".")).map(_.reverse.dropWhile(_ != '.').drop(1).reverse)
+      val packageObject     = "package" ->
+        s"""${parentPackageName.fold("")(p => s"package $p\n")}
+           |package object ${packageName.get.reverse.takeWhile(_ != '.').reverse} {
+           |  ${(scalars ::: objectTypes ::: queryTypes ::: mutationTypes ::: subscriptionTypes).mkString("\n")}
+           |}
+           |""".stripMargin
+      val classFiles        =
+        (enums ::: objects ::: inputs ::: queries.toList ::: mutations.toList ::: subscriptions.toList).map {
+          case (name, content) =>
+            val fullContent =
+              s"""${packageName.fold("")(p => s"package $p\n\n")}$content\n
+                 |""".stripMargin
+            name -> fullContent
+        }
+      packageObject :: classFiles
+    } else {
+      val additionalImportsString = additionalImports.fold("")(_.map(i => s"import $i").mkString("\n"))
 
-    val imports =
-      s"""${if (enums.nonEmpty)
-        """import caliban.client.CalibanClientError.DecodingError
-          |""".stripMargin
-      else ""}${if (objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty)
-        """import caliban.client.FieldBuilder._
-          |""".stripMargin
-      else
-        ""}${if (
-        enums.nonEmpty || objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty || inputs.nonEmpty
-      )
-        """import caliban.client._
-          |""".stripMargin
-      else ""}${if (enums.nonEmpty || inputs.nonEmpty)
-        """import caliban.client.__Value._
-          |""".stripMargin
-      else ""}"""
+      val imports =
+        s"""${if (enums.nonEmpty)
+          """import caliban.client.CalibanClientError.DecodingError
+            |""".stripMargin
+        else ""}${if (objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty)
+          """import caliban.client.FieldBuilder._
+            |""".stripMargin
+        else
+          ""}${if (
+          enums.nonEmpty || objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty || inputs.nonEmpty
+        )
+          """import caliban.client._
+            |""".stripMargin
+        else ""}${if (enums.nonEmpty || inputs.nonEmpty)
+          """import caliban.client.__Value._
+            |""".stripMargin
+        else ""}"""
 
-    s"""${packageName.fold("")(p => s"package $p\n\n")}$imports\n
-       |$additionalImportsString
-       |
-       |object $objectName {
-       |
-       |  $scalars
-       |  $enums
-       |  $objects
-       |  $inputs
-       |  $queries
-       |  $mutations
-       |  $subscriptions
-       |  
-       |}""".stripMargin
+      List(objectName -> s"""${packageName.fold("")(p => s"package $p\n\n")}$imports\n
+                            |$additionalImportsString
+                            |
+                            |object $objectName {
+                            |
+                            |  ${scalars.mkString("\n")}
+                            |  ${enums.map(_._2).mkString("\n")}
+                            |  ${objects.map(_._2).mkString("\n")}
+                            |  ${inputs.map(_._2).mkString("\n")}
+                            |  ${queries.map(_._2).mkString("\n")}
+                            |  ${mutations.map(_._2).mkString("\n")}
+                            |  ${subscriptions.map(_._2).mkString("\n")}
+                            |
+                            |}""".stripMargin)
+    }
   }
 
-  private def getMappingsClashedNames(typeNames: List[String]): Map[String, String] =
-    typeNames
+  private def getMappingsClashedNames(typeNames: List[String], reservedNames: List[String] = Nil): Map[String, String] =
+    (reservedNames ::: typeNames)
       .map(name => name.toLowerCase -> name)
       .groupBy(_._1)
       .collect {
@@ -145,6 +279,11 @@ object ClientWriter {
   def reservedType(typeDefinition: ObjectTypeDefinition): Boolean =
     typeDefinition.name == "Query" || typeDefinition.name == "Mutation" || typeDefinition.name == "Subscription"
 
+  def writeRootQueryType(
+    typedef: ObjectTypeDefinition
+  ): String =
+    s"type ${typedef.name} = _root_.caliban.client.Operations.RootQuery"
+
   def writeRootQuery(
     typedef: ObjectTypeDefinition
   )(implicit
@@ -152,11 +291,15 @@ object ClientWriter {
     mappingClashedTypeNames: MappingClashedTypeNames,
     scalarMappings: ScalarMappings
   ): String =
-    s"""type ${typedef.name} = _root_.caliban.client.Operations.RootQuery
-       |object ${typedef.name} {
+    s"""object ${typedef.name} {
        |  ${typedef.fields.map(writeField(_, "_root_.caliban.client.Operations.RootQuery")).mkString("\n  ")}
        |}
        |""".stripMargin
+
+  def writeRootMutationType(
+    typedef: ObjectTypeDefinition
+  ): String =
+    s"type ${typedef.name} = _root_.caliban.client.Operations.RootMutation"
 
   def writeRootMutation(
     typedef: ObjectTypeDefinition
@@ -165,11 +308,15 @@ object ClientWriter {
     mappingClashedTypeNames: MappingClashedTypeNames,
     scalarMappings: ScalarMappings
   ): String =
-    s"""type ${typedef.name} = _root_.caliban.client.Operations.RootMutation
-       |object ${typedef.name} {
+    s"""object ${typedef.name} {
        |  ${typedef.fields.map(writeField(_, "_root_.caliban.client.Operations.RootMutation")).mkString("\n  ")}
        |}
        |""".stripMargin
+
+  def writeRootSubscriptionType(
+    typedef: ObjectTypeDefinition
+  ): String =
+    s"type ${typedef.name} = _root_.caliban.client.Operations.RootSubscription"
 
   def writeRootSubscription(
     typedef: ObjectTypeDefinition
@@ -178,11 +325,22 @@ object ClientWriter {
     mappingClashedTypeNames: MappingClashedTypeNames,
     scalarMappings: ScalarMappings
   ): String =
-    s"""type ${typedef.name} = _root_.caliban.client.Operations.RootSubscription
-       |object ${typedef.name} {
+    s"""object ${typedef.name} {
        |  ${typedef.fields.map(writeField(_, "_root_.caliban.client.Operations.RootSubscription")).mkString("\n  ")}
        |}
        |""".stripMargin
+
+  def writeObjectType(
+    typedef: ObjectTypeDefinition
+  )(implicit
+    mappingClashedTypeNames: MappingClashedTypeNames,
+    scalarMappings: ScalarMappings
+  ): String = {
+
+    val objectName: String = safeTypeName(typedef.name)
+
+    s"type $objectName"
+  }
 
   def writeObject(
     typedef: ObjectTypeDefinition,
@@ -196,12 +354,11 @@ object ClientWriter {
     val objectName: String = safeTypeName(typedef.name)
     val fields             = typedef.fields.map(collectFieldInfo(_, objectName))
     val view               =
-      if (genView && typedef.fields.length <= MaxTupleLength)
+      if (genView)
         "\n  " + writeView(typedef.name, fields.map(_.typeInfo))
       else ""
 
-    s"""type $objectName
-       |object $objectName {$view
+    s"""object $objectName {$view
        |  ${fields.map(writeFieldInfo).mkString("\n  ")}
        |}
        |""".stripMargin
@@ -232,6 +389,8 @@ object ClientWriter {
     val genericSelectionFieldsMap     = genericSelectionFields.toMap
     val genericSelectionFieldTypesMap = genericSelectionFieldTypes.toMap
 
+    val viewFunctionArgumentsCount: Int     = fields.map(_.arguments.length).sum
+    val needsCaseClassForArguments          = viewFunctionArgumentsCount > MaxTupleLength
     val viewFunctionArguments: List[String] =
       fields.collect {
         case field if field.arguments.nonEmpty =>
@@ -240,6 +399,13 @@ object ClientWriter {
           )
       }
 
+    val viewFunctionSelectionArgumentsCount: Int     = genericSelectionFields.collect {
+      case (FieldTypeInfo(_, _, _, Nil, Nil, _, Some(_)), _)                                     => 1
+      case (FieldTypeInfo(_, _, _, _, unionTypes, _, Some(_)), _) if unionTypes.nonEmpty         => unionTypes.length
+      case (FieldTypeInfo(_, _, _, interfaceTypes, _, _, Some(_)), _) if interfaceTypes.nonEmpty =>
+        interfaceTypes.length
+    }.sum
+    val needsCaseClassForSelectionArguments          = viewFunctionSelectionArgumentsCount > MaxTupleLength
     val viewFunctionSelectionArguments: List[String] =
       genericSelectionFields.collect {
         case (field @ FieldTypeInfo(_, _, _, Nil, Nil, _, Some(owner)), fieldName) =>
@@ -270,8 +436,14 @@ object ClientWriter {
 
     val viewFunctionBody: String =
       fields.map { case field @ FieldTypeInfo(_, _, _, interfaceTypes, unionTypes, _, _) =>
-        val argsPart      = withRoundBrackets(field.arguments.map(a => argumentName(field.name, a.name)))
-        val selectionType = genericSelectionFieldsMap.get(field)
+        val argsPart      = withRoundBrackets(
+          field.arguments
+            .map(a => argumentName(field.name, a.name))
+            .map(name => if (needsCaseClassForArguments) s"args.$name" else name)
+        )
+        val selectionType = genericSelectionFieldsMap
+          .get(field)
+          .map(name => if (needsCaseClassForSelectionArguments) s"selectionArgs.$name" else name)
         val selectionPart = {
           val parts =
             if (unionTypes.nonEmpty) unionTypes.map(unionType => s"${selectionType.head}On$unionType")
@@ -301,11 +473,25 @@ object ClientWriter {
     val typeParams =
       if (genericSelectionFieldTypes.nonEmpty) genericSelectionFieldTypes.map(_._2).mkString("[", ", ", "]") else ""
 
-    val viewFunctionArgs          = withRoundBrackets(viewFunctionArguments)
-    val viewFunctionSelectionArgs = withRoundBrackets(viewFunctionSelectionArguments)
+    val viewFunctionArgs          =
+      if (needsCaseClassForArguments) s"(args: ${viewName}Args)" else withRoundBrackets(viewFunctionArguments)
+    val viewFunctionSelectionArgs =
+      if (needsCaseClassForSelectionArguments) s"(selectionArgs: ${viewName}SelectionArgs$typeParams)"
+      else withRoundBrackets(viewFunctionSelectionArguments)
+
+    val caseClassForArguments          =
+      if (needsCaseClassForArguments) s"final case class ${viewName}Args${withRoundBrackets(viewFunctionArguments)}"
+      else ""
+    val caseClassForSelectionArguments =
+      if (needsCaseClassForSelectionArguments)
+        s"final case class ${viewName}SelectionArgs$typeParams${withRoundBrackets(viewFunctionSelectionArguments)}"
+      else ""
 
     s"""
        |final case class $viewName$typeParams$viewClassFieldParams
+       |
+       |$caseClassForArguments
+       |$caseClassForSelectionArguments
        |
        |type ViewSelection$typeParams = SelectionBuilder[$safeObjectName, $viewName$typeParams]
        |

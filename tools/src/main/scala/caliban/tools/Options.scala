@@ -13,7 +13,9 @@ final case class Options(
   effect: Option[String],
   scalarMappings: Option[Map[String, String]],
   imports: Option[List[String]],
-  abstractEffectType: Option[Boolean]
+  abstractEffectType: Option[Boolean],
+  splitFiles: Option[Boolean],
+  enableFmt: Option[Boolean]
 )
 
 object Options {
@@ -26,7 +28,9 @@ object Options {
     effect: Option[String],
     scalarMappings: Option[List[String]],
     imports: Option[List[String]],
-    abstractEffectType: Option[Boolean]
+    abstractEffectType: Option[Boolean],
+    splitFiles: Option[Boolean],
+    enableFmt: Option[Boolean]
   )
 
   def fromArgs(args: List[String]): Option[Options] =
@@ -65,7 +69,9 @@ object Options {
               }.toMap
             },
             rawOpts.imports,
-            rawOpts.abstractEffectType
+            rawOpts.abstractEffectType,
+            rawOpts.splitFiles,
+            rawOpts.enableFmt
           )
         }
       case _                             => None

@@ -79,6 +79,8 @@ The settings available on the `cs` (`CalibanSettings`) builder are:
   def genView(value: Boolean): CalibanSettings                  // Provide a case class and helper method to select all fields on an object (default: false)
   def scalarMapping(mapping: (String,String)*): CalibanSettings // A mapping from GraphQL scalar types to JVM types, as unknown scalar types are represented as String by default.
   def imports(values: String*): CalibanSettings                 // A list of imports to be added to the top of a generated client
+  def splitFiles(value: Boolean): CalibanSettings               // Split single client object into multiple files (default: false)
+  def enableFmt(value: Boolean): CalibanSettings                // Enable code formatting with scalafmt (default: true)
 
   // Only defined for `url` settings, for use in supplying extra headers when fetching the schema itself
   def headers(pairs: (String,String)*): CalibanSettings
@@ -89,7 +91,7 @@ The settings available on the `cs` (`CalibanSettings`) builder are:
 If you prefer to generate the client explicitly rather than automatically, you can use `calibanGenClient` on the SBT CLI as follows:
 
 ```scala
-calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--genView true|false] [--scalarMappings gqlType:f.q.d.n.Type,gqlType2:f.q.d.n.Type2] [--imports a.b.c._,c.d.E]
+calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--genView true|false] [--scalarMappings gqlType:f.q.d.n.Type,gqlType2:f.q.d.n.Type2] [--imports a.b.c._,c.d.E] [--splitFiles true|false] [--enableFmt true|false]
 
 calibanGenClient project/schema.graphql src/main/client/Client.scala --genView true  
 ```
@@ -104,6 +106,10 @@ option.
 Provide `--genView true` option if you want to generate a view for the GraphQL types. 
 If you want to force a mapping between a GraphQL type and a Scala class (such as scalars), you can use the
 `--scalarMappings` option. Also you can add imports for example for your ArgEncoder implicits by providing `--imports` option.
+Use the `--splitFiles true` option if you want to generate multiple files within the same package instead of a single file.
+In this case the filename part of the `outputPath` will be ignored, but the value will still be used to determine the mandatory package name and the destination directory.
+This can be helpful with large GraphQL schemas and incremental compilation.
+Provide `--enableFmt false` option if you don't need to format generated files.
 
 ## Query building
 

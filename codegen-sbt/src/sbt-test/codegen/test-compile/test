@@ -25,9 +25,13 @@ $ mkdir src/main/scala/genview/client
 > calibanGenClient project/schema-to-check-name-uniqueness.graphql src/main/scala/genview/client/ClientNameUniqueness.scala --packageName genview.client --genView true
 $ exists src/main/scala/genview/client/ClientNameUniqueness.scala
 $ exec sh verify.sh StarshipView ./src/main/scala/genview/client/ClientNameUniqueness.scala
-> calibanGenClient project/gitlab-schema.graphql src/main/scala/genview/client/ClientGitLab.scala --packageName genview.client --genView true
-$ exists src/main/scala/genview/client/ClientGitLab.scala
-$ exec sh verify.sh VulnerableProjectsByGradeView ./src/main/scala/genview/client/ClientGitLab.scala
+> calibanGenClient project/gitlab-schema.graphql src/main/scala/genview/client/ClientGitLab.scala --packageName genview.client --genView true --splitFiles true --enableFmt false
+$ exists src/main/scala/genview/client/package.scala
+$ exec sh verify.sh ProjectID ./src/main/scala/genview/client/package.scala
+$ exists src/main/scala/genview/client/Project.scala
+$ exec sh verify.sh ProjectView ./src/main/scala/genview/client/Project.scala
+$ exec sh verify.sh ProjectViewArgs ./src/main/scala/genview/client/Project.scala
+$ exec sh verify.sh ProjectViewSelectionArgs ./src/main/scala/genview/client/Project.scala
 > compile
 
 $ exists target/scala-2.12/src_managed/main/caliban-codegen-sbt/caliban/Client.scala
