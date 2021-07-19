@@ -4,8 +4,10 @@ import scala.concurrent.duration._
 import scala.concurrent.{ Await, ExecutionContextExecutor, Future }
 import scala.language.postfixOps
 import java.util.concurrent.TimeUnit
+
 import caliban.Data._
 import caliban.GraphQL._
+import caliban.wrappers.ApolloTracing
 import io.circe.Json
 import org.openjdk.jmh.annotations._
 import sangria.execution._
@@ -13,6 +15,7 @@ import sangria.macros.derive._
 import sangria.marshalling.circe._
 import sangria.parser.QueryParser
 import sangria.schema._
+import zio.clock.Clock
 import zio.internal.Platform
 import zio.{ BootstrapRuntime, Runtime, UIO, ZEnv }
 
@@ -145,6 +148,8 @@ class GraphQLBenchmarks {
   )
 
   val interpreter: GraphQLInterpreter[Any, CalibanError] = runtime.unsafeRun(graphQL(resolver).interpreter)
+  val tracedInterpreter: GraphQLInterpreter[Any, CalibanError] =
+    runtime.unsafeRun(graphQL(resolver).withWrapper(ApolloTracing.apolloTracing).interpreter).provideLayer(Clock.live)
 
   @Benchmark
   def simpleCaliban(): Unit = {
@@ -156,6 +161,13 @@ class GraphQLBenchmarks {
   @Benchmark
   def introspectCaliban(): Unit = {
     val io = interpreter.execute(fullIntrospectionQuery)
+    runtime.unsafeRun(io)
+    ()
+  }
+
+  @Benchmark
+  def tracedCaliban(): Unit = {
+    val io = tracedInterpreter.execute(simpleQuery)
     runtime.unsafeRun(io)
     ()
   }
@@ -219,11 +231,14 @@ class GraphQLBenchmarks {
   val schema: Schema[Unit, Unit] = Schema(QueryType)
 
   implicit val executionContext: ExecutionContextExecutor = scala.concurrent.ExecutionContext.global
+  val executor: Executor[Unit, Unit]                      = Executor(schema)
+  val tracedExecutor: Executor[Unit, Unit] =
+    Executor(schema, middleware = sangria.slowlog.ApolloTracingExtension :: Nil)
 
   @Benchmark
   def simpleSangria(): Unit = {
     val future: Future[Json] =
-      Future.fromTry(QueryParser.parse(simpleQuery)).flatMap(queryAst => Executor.execute(schema, queryAst))
+      Future.fromTry(QueryParser.parse(simpleQuery)).flatMap(queryAst => executor.execute(queryAst, (), ()))
     Await.result(future, 1 minute)
     ()
   }
@@ -231,7 +246,17 @@ class GraphQLBenchmarks {
   @Benchmark
   def introspectSangria(): Unit = {
     val future: Future[Json] =
-      Future.fromTry(QueryParser.parse(fullIntrospectionQuery)).flatMap(queryAst => Executor.execute(schema, queryAst))
+      Future.fromTry(QueryParser.parse(fullIntrospectionQuery)).flatMap(queryAst => executor.execute(queryAst, (), ()))
+    Await.result(future, 1 minute)
+    ()
+  }
+
+  @Benchmark
+  def tracedSangria(): Unit = {
+    val future: Future[Json] =
+      Future
+        .fromTry(QueryParser.parse(simpleQuery))
+        .flatMap(queryAst => tracedExecutor.execute(queryAst, (), ()))
     Await.result(future, 1 minute)
     ()
   }
