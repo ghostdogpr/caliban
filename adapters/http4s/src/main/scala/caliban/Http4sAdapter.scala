@@ -490,33 +490,33 @@ object Http4sAdapter {
       route(req.mapK(to)).mapK(from).map(_.mapK(from))
     }
 
-  private def wrapRoute[F[_]: Effect](route: HttpRoutes[Task])(implicit runtime: Runtime[Any]): HttpRoutes[F] = {
-    val toF: Task ~> F    = λ[Task ~> F](_.toIO.to[F])
-    val toTask: F ~> Task = λ[F ~> Task](_.toIO.to[Task])
+  private def wrapRoute[F[_]: Effect, R](route: HttpRoutes[RIO[R, *]])(implicit runtime: Runtime[R]): HttpRoutes[F] = {
+    val toF: RIO[R, *] ~> F   = λ[RIO[R, *] ~> F](_.toIO.to[F])
+    val toRIO: F ~> RIO[R, *] = λ[F ~> RIO[R, *]](_.toIO.to[RIO[R, *]])
 
     route
-      .mapK(λ[OptionT[Task, *] ~> OptionT[F, *]](_.mapK(toF)))
-      .dimap((req: Request[F]) => req.mapK(toTask))((res: Response[Task]) => res.mapK(toF))
+      .mapK(λ[OptionT[RIO[R, *], *] ~> OptionT[F, *]](_.mapK(toF)))
+      .dimap((req: Request[F]) => req.mapK(toRIO))((res: Response[RIO[R, *]]) => res.mapK(toF))
   }
 
-  private def wrapApp[F[_]: Effect](app: HttpApp[Task])(implicit runtime: Runtime[Any]): HttpApp[F] = {
-    val toF: Task ~> F    = λ[Task ~> F](_.toIO.to[F])
-    val toTask: F ~> Task = λ[F ~> Task](_.toIO.to[Task])
+  private def wrapApp[F[_]: Effect, R](app: HttpApp[RIO[R, *]])(implicit runtime: Runtime[R]): HttpApp[F] = {
+    val toF: RIO[R, *] ~> F   = λ[RIO[R, *] ~> F](_.toIO.to[F])
+    val toRIO: F ~> RIO[R, *] = λ[F ~> RIO[R, *]](_.toIO.to[RIO[R, *]])
 
     app
       .mapK(toF)
-      .dimap((req: Request[F]) => req.mapK(toTask))((res: Response[Task]) => res.mapK(toF))
+      .dimap((req: Request[F]) => req.mapK(toRIO))((res: Response[RIO[R, *]]) => res.mapK(toF))
   }
 
-  def makeWebSocketServiceF[F[_], E](
-    interpreter: GraphQLInterpreter[Any, E],
+  def makeWebSocketServiceF[F[_], R, E](
+    interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     keepAliveTime: Option[Duration] = None,
     queryExecution: QueryExecution = QueryExecution.Parallel
-  )(implicit F: Effect[F], runtime: Runtime[Any]): HttpRoutes[F] =
+  )(implicit F: Effect[F], runtime: Runtime[R]): HttpRoutes[F] =
     wrapRoute(
-      makeWebSocketService[Any, E](
+      makeWebSocketService[R, E](
         interpreter,
         skipValidation = skipValidation,
         enableIntrospection = enableIntrospection,
@@ -531,14 +531,14 @@ object Http4sAdapter {
   )(implicit F: Effect[F], runtime: Runtime[Any]): HttpRoutes[F] =
     makeHttpServiceF(interpreter)
 
-  def makeHttpServiceF[F[_], E](
-    interpreter: GraphQLInterpreter[Any, E],
+  def makeHttpServiceF[F[_], R, E](
+    interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel
-  )(implicit F: Effect[F], runtime: Runtime[Any]): HttpRoutes[F] =
+  )(implicit F: Effect[F], runtime: Runtime[R]): HttpRoutes[F] =
     wrapRoute(
-      makeHttpService[Any, E](
+      makeHttpService[R, E](
         interpreter,
         skipValidation = skipValidation,
         enableIntrospection = enableIntrospection,
@@ -546,14 +546,14 @@ object Http4sAdapter {
       )
     )
 
-  def executeRequestF[F[_], E](
-    interpreter: GraphQLInterpreter[Any, E],
+  def executeRequestF[F[_], R, E](
+    interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel
-  )(implicit F: Effect[F], runtime: Runtime[Any]): HttpApp[F] =
+  )(implicit F: Effect[F], runtime: Runtime[R]): HttpApp[F] =
     wrapApp(
-      executeRequest[Any, Any, E](
+      executeRequest[R, R, E](
         interpreter,
         identity,
         skipValidation = skipValidation,
