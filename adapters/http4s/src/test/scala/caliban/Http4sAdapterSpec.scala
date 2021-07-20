@@ -9,7 +9,7 @@ import io.circe.parser.parse
 import io.circe.generic.auto._
 import org.http4s.syntax.all._
 import org.http4s.server.Server
-import org.http4s.server.blaze.BlazeServerBuilder
+import org.http4s.blaze.server.BlazeServerBuilder
 import zio._
 import zio.blocking.Blocking
 import zio.clock.Clock
