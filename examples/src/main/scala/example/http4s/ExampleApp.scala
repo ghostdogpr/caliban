@@ -11,7 +11,7 @@ import cats.effect.Blocker
 import org.http4s.StaticFile
 import org.http4s.implicits._
 import org.http4s.server.Router
-import org.http4s.server.blaze.BlazeServerBuilder
+import org.http4s.blaze.server.BlazeServerBuilder
 import org.http4s.server.middleware.CORS
 import zio._
 import zio.blocking.Blocking
@@ -30,18 +30,18 @@ object ExampleApp extends App {
         for {
           blocker     <- ZIO.access[Blocking](_.get.blockingExecutor.asEC).map(Blocker.liftExecutionContext)
           interpreter <- ExampleApi.api.interpreter
-          _ <- BlazeServerBuilder[ExampleTask](ExecutionContext.global)
-                .bindHttp(8088, "localhost")
-                .withHttpApp(
-                  Router[ExampleTask](
-                    "/api/graphql" -> CORS(Http4sAdapter.makeHttpService(interpreter)),
-                    "/ws/graphql"  -> CORS(Http4sAdapter.makeWebSocketService(interpreter)),
-                    "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", blocker, None))
-                  ).orNotFound
-                )
-                .resource
-                .toManaged
-                .useForever
+          _           <- BlazeServerBuilder[ExampleTask](ExecutionContext.global)
+                           .bindHttp(8088, "localhost")
+                           .withHttpApp(
+                             Router[ExampleTask](
+                               "/api/graphql" -> CORS(Http4sAdapter.makeHttpService(interpreter)),
+                               "/ws/graphql"  -> CORS(Http4sAdapter.makeWebSocketService(interpreter)),
+                               "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", blocker, None))
+                             ).orNotFound
+                           )
+                           .resource
+                           .toManaged
+                           .useForever
         } yield ()
       )
       .provideCustomLayer(ExampleService.make(sampleCharacters))
