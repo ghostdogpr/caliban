@@ -7,9 +7,9 @@ import caliban.{ Http4sAdapter, RootResolver }
 import org.http4s.HttpRoutes
 import org.http4s.dsl.Http4sDsl
 import org.http4s.implicits._
-import org.http4s.server.blaze.BlazeServerBuilder
+import org.http4s.blaze.server.BlazeServerBuilder
 import org.http4s.server.{ Router, ServiceErrorHandler }
-import org.http4s.util.CaseInsensitiveString
+import org.typelevel.ci.CIString
 import zio._
 import zio.interop.catz._
 import zio.interop.catz.implicits._
@@ -34,8 +34,8 @@ object AuthExampleApp extends CatsApp {
     def apply(route: HttpRoutes[AuthTask]): HttpRoutes[Task] =
       Http4sAdapter.provideLayerFromRequest(
         route,
-        _.headers.get(CaseInsensitiveString("token")) match {
-          case Some(value) => ZLayer.succeed(new Auth.Service { override def token: String = value.value })
+        _.headers.get(CIString("token")) match {
+          case Some(value) => ZLayer.succeed(new Auth.Service { override def token: String = value.head.value })
           case None        => ZLayer.fail(MissingToken())
         }
       )
@@ -50,19 +50,19 @@ object AuthExampleApp extends CatsApp {
   val schema: GenericSchema[Auth] = new GenericSchema[Auth] {}
   import schema._
   case class Query(token: RIO[Auth, String])
-  private val resolver = RootResolver(Query(ZIO.access[Auth](_.get[Auth.Service].token)))
-  private val api      = graphQL(resolver)
+  private val resolver            = RootResolver(Query(ZIO.access[Auth](_.get[Auth.Service].token)))
+  private val api                 = graphQL(resolver)
 
   override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
     (for {
       interpreter <- api.interpreter
-      route       = AuthMiddleware(Http4sAdapter.makeHttpService(interpreter))
-      _ <- BlazeServerBuilder[Task](ExecutionContext.global)
-            .withServiceErrorHandler(errorHandler)
-            .bindHttp(8088, "localhost")
-            .withHttpApp(Router[Task]("/api/graphql" -> route).orNotFound)
-            .resource
-            .toManaged
-            .useForever
+      route        = AuthMiddleware(Http4sAdapter.makeHttpService(interpreter))
+      _           <- BlazeServerBuilder[Task](ExecutionContext.global)
+                       .withServiceErrorHandler(errorHandler)
+                       .bindHttp(8088, "localhost")
+                       .withHttpApp(Router[Task]("/api/graphql" -> route).orNotFound)
+                       .resource
+                       .toManaged
+                       .useForever
     } yield ()).exitCode
 }

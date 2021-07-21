@@ -26,6 +26,7 @@ import org.http4s.server.websocket.WebSocketBuilder
 import org.http4s.websocket.WebSocketFrame
 import org.http4s.websocket.WebSocketFrame.Text
 import org.http4s.multipart.{ Multipart, Part }
+import org.typelevel.ci.CIString
 import zio.Exit.Failure
 import zio._
 import zio.clock.Clock
@@ -130,7 +131,7 @@ object Http4sAdapter {
           parts: Vector[Part[RIO[R, *]]]
         )(random: Random.Service): RIO[R, Map[String, (File, Part[RIO[R, *]])]] =
           parts
-            .filter(_.headers.exists(_.value.contains("filename")))
+            .filter(_.headers.headers.exists(_.value.contains("filename")))
             .traverse { p =>
               p.name.traverse { n =>
                 random.nextUUID.flatMap { uuid =>
@@ -168,7 +169,7 @@ object Http4sAdapter {
                       FileMeta(
                         uuid.toString,
                         file.getAbsoluteFile.toPath,
-                        fp.headers.get(`Content-Disposition`).map(_.dispositionType),
+                        fp.headers.get[`Content-Disposition`].map(_.dispositionType),
                         fp.contentType.map { ct =>
                           val mt = ct.mediaType
                           s"${mt.mainType}/${mt.subType}"
@@ -225,9 +226,11 @@ object Http4sAdapter {
                                for {
                                  query           <- getUploadQuery(operations, map, m.parts)(random)
                                  queryWithTracing =
-                                   req.headers
+                                   req.headers.headers
                                      .find(r =>
-                                       r.name == GraphQLRequest.`apollo-federation-include-trace` && r.value == GraphQLRequest.ftv1
+                                       r.name == CIString(
+                                         GraphQLRequest.`apollo-federation-include-trace`
+                                       ) && r.value == GraphQLRequest.ftv1
                                      )
                                      .foldLeft(query.remap)((q, _) => q.withFederatedTracing)
 
@@ -272,8 +275,10 @@ object Http4sAdapter {
                              else
                                req.attemptAs[GraphQLRequest].value.absolve
           queryWithTracing =
-            req.headers
-              .find(r => r.name == GraphQLRequest.`apollo-federation-include-trace` && r.value == GraphQLRequest.ftv1)
+            req.headers.headers
+              .find(r =>
+                r.name == CIString(GraphQLRequest.`apollo-federation-include-trace`) && r.value == GraphQLRequest.ftv1
+              )
               .foldLeft(query)((q, _) => q.withFederatedTracing)
           result          <- executeToJson(
                                interpreter,
@@ -443,12 +448,12 @@ object Http4sAdapter {
         // so that we can pass information available at connection request, such as authentication information,
         // to execution of subscription.
         processMessageFiber <- processMessage(receivingQueue, sendQueue, subscriptions).forkDaemon
-        builder             <- WebSocketBuilder[RIO[R, *]].build(
-                                 sendQueue.dequeue,
-                                 passThroughPipe(receivingQueue),
-                                 headers = Headers.of(Header("Sec-WebSocket-Protocol", "graphql-ws")),
-                                 onClose = processMessageFiber.interrupt.unit
-                               )
+        builder             <- WebSocketBuilder[RIO[R, *]]
+                                 .copy(
+                                   headers = Headers(Header.Raw(CIString("Sec-WebSocket-Protocol"), "graphql-ws")),
+                                   onClose = processMessageFiber.interrupt.unit
+                                 )
+                                 .build(sendQueue.dequeue, passThroughPipe(receivingQueue))
       } yield builder
     }
   }
