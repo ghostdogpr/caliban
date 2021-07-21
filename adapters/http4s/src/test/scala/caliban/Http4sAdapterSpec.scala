@@ -9,7 +9,7 @@ import io.circe.parser.parse
 import io.circe.generic.auto._
 import org.http4s.syntax.all._
 import org.http4s.server.Server
-import org.http4s.server.blaze.BlazeServerBuilder
+import org.http4s.blaze.server.BlazeServerBuilder
 import zio._
 import zio.blocking.Blocking
 import zio.clock.Clock
@@ -61,7 +61,7 @@ object Service {
       )
     )
 
-  def sha256(b: Array[Byte]) =
+  def sha256(b: Array[Byte]): Array[Byte] =
     MessageDigest.getInstance("SHA-256").digest(b)
 
   def hex(b: Array[Byte]): String =
@@ -106,7 +106,7 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
 
   val uri = Uri.unsafeParse("http://127.0.0.1:8089/")
 
-  val apiLayer: RLayer[R, Has[Server[RIO[R, *]]]] =
+  val apiLayer: RLayer[R, Has[Server]] =
     (for {
       interpreter <- TestAPI.api.interpreter.toManaged_
       server      <- BlazeServerBuilder(runtime.platform.executor.asEC)
@@ -116,8 +116,7 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
                            interpreter,
                            Paths.get(System.getProperty("java.io.tmpdir")),
                            blocker
-                         ) <+> Http4sAdapter
-                           .makeHttpService(interpreter)).orNotFound
+                         ) <+> Http4sAdapter.makeHttpService(interpreter)).orNotFound
                        )
                        .resource
                        .toManagedZIO
