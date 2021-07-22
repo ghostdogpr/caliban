@@ -15,6 +15,7 @@ sealed trait CalibanSettings {
   def imports: Seq[String]
   def splitFiles: Option[Boolean]
   def enableFmt: Option[Boolean]
+  def extensibleEnums: Option[Boolean]
 
   def append(other: Type): Type
 }
@@ -28,7 +29,8 @@ case class CalibanFileSettings(
   scalarMappings: Seq[(String, String)],
   imports: Seq[String],
   splitFiles: Option[Boolean],
-  enableFmt: Option[Boolean]
+  enableFmt: Option[Boolean],
+  extensibleEnums: Option[Boolean]
 ) extends CalibanSettings {
   type Type = CalibanFileSettings
   val headers = Seq.empty // Not applicable for file generator
@@ -43,7 +45,8 @@ case class CalibanFileSettings(
       scalarMappings = scalarMappings ++ other.scalarMappings,
       imports = imports ++ other.imports,
       splitFiles = other.splitFiles.orElse(splitFiles),
-      enableFmt = other.enableFmt.orElse(enableFmt)
+      enableFmt = other.enableFmt.orElse(enableFmt),
+      extensibleEnums = other.extensibleEnums.orElse(extensibleEnums)
     )
 
   def clientName(value: String): CalibanFileSettings                 = this.copy(clientName = Some(value))
@@ -55,6 +58,7 @@ case class CalibanFileSettings(
   def imports(values: String*): CalibanFileSettings                  = this.copy(imports = this.imports ++ values)
   def splitFiles(value: Boolean): CalibanFileSettings                = this.copy(splitFiles = Some(value))
   def enableFmt(value: Boolean): CalibanFileSettings                 = this.copy(enableFmt = Some(value))
+  def extensibleEnums(value: Boolean): CalibanFileSettings           = this.copy(extensibleEnums = Some(value))
 }
 
 case class CalibanUrlSettings(
@@ -67,7 +71,8 @@ case class CalibanUrlSettings(
   scalarMappings: Seq[(String, String)],
   imports: Seq[String],
   splitFiles: Option[Boolean],
-  enableFmt: Option[Boolean]
+  enableFmt: Option[Boolean],
+  extensibleEnums: Option[Boolean]
 ) extends CalibanSettings {
   type Type = CalibanUrlSettings
   def append(other: CalibanUrlSettings): CalibanUrlSettings =
@@ -81,7 +86,8 @@ case class CalibanUrlSettings(
       scalarMappings = scalarMappings ++ other.scalarMappings,
       imports = imports ++ other.imports,
       splitFiles = other.splitFiles.orElse(splitFiles),
-      enableFmt = other.enableFmt.orElse(enableFmt)
+      enableFmt = other.enableFmt.orElse(enableFmt),
+      extensibleEnums = other.extensibleEnums.orElse(extensibleEnums)
     )
 
   def clientName(value: String): CalibanUrlSettings                 = this.copy(clientName = Some(value))
@@ -95,6 +101,7 @@ case class CalibanUrlSettings(
   def imports(values: String*): CalibanUrlSettings                  = this.copy(imports = this.imports ++ values)
   def splitFiles(value: Boolean): CalibanUrlSettings                = this.copy(splitFiles = Some(value))
   def enableFmt(value: Boolean): CalibanUrlSettings                 = this.copy(enableFmt = Some(value))
+  def extensibleEnums(value: Boolean): CalibanUrlSettings           = this.copy(extensibleEnums = Some(value))
 }
 
 object CalibanSettings {
@@ -108,7 +115,8 @@ object CalibanSettings {
     scalarMappings = Seq.empty[(String, String)],
     imports = Seq.empty[String],
     splitFiles = Option.empty[Boolean],
-    enableFmt = Option.empty[Boolean]
+    enableFmt = Option.empty[Boolean],
+    extensibleEnums = Option.empty[Boolean]
   )
 
   def emptyUrl(url: URL): CalibanUrlSettings = CalibanUrlSettings(
@@ -121,6 +129,7 @@ object CalibanSettings {
     scalarMappings = Seq.empty[(String, String)],
     imports = Seq.empty[String],
     splitFiles = Option.empty[Boolean],
-    enableFmt = Option.empty[Boolean]
+    enableFmt = Option.empty[Boolean],
+    extensibleEnums = Option.empty[Boolean]
   )
 }

@@ -92,7 +92,11 @@ object CalibanSourceGenerator {
       "--enableFmt",
       settings.enableFmt.map(_.toString())
     ) // NB: Presuming zio-config can read toString'd booleans
-    scalafmtPath ++ headers ++ packageName ++ genView ++ scalarMappings ++ imports ++ splitFiles ++ enableFmt
+    val extensibleEnums = singleOpt(
+      "--extensibleEnums",
+      settings.enableFmt.map(_.toString())
+    ) // NB: Presuming zio-config can read toString'd booleans
+    scalafmtPath ++ headers ++ packageName ++ genView ++ scalarMappings ++ imports ++ splitFiles ++ enableFmt ++ extensibleEnums
   }
 
   def apply(

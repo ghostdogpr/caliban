@@ -12,13 +12,14 @@ object ClientWriterSpec extends DefaultRunnableSpec {
   def gen(
     schema: String,
     scalarMappings: Map[String, String] = Map.empty,
-    additionalImports: List[String] = List.empty
+    additionalImports: List[String] = List.empty,
+    extensibleEnums: Boolean = false
   ): Task[String] = Parser
     .parseQuery(schema)
     .flatMap(doc =>
       Formatter.format(
         ClientWriter
-          .write(doc, additionalImports = Some(additionalImports))(
+          .write(doc, additionalImports = Some(additionalImports), extensibleEnums = extensibleEnums)(
             ScalarMappings(Some(scalarMappings))
           )
           .head
@@ -325,6 +326,53 @@ object Client {
           )
         )
     }
+  }
+
+}
+"""
+          )
+        )
+      },
+      testM("extensible enum") {
+        val schema =
+          """
+             enum Origin {
+               EARTH
+               MARS
+               BELT
+             }
+            """.stripMargin
+
+        assertM(gen(schema, extensibleEnums = true))(
+          equalTo(
+            """import caliban.client.CalibanClientError.DecodingError
+import caliban.client._
+import caliban.client.__Value._
+
+object Client {
+
+  sealed trait Origin extends scala.Product with scala.Serializable { def value: String }
+  object Origin {
+    case object EARTH                   extends Origin { val value: String = "EARTH" }
+    case object MARS                    extends Origin { val value: String = "MARS"  }
+    case object BELT                    extends Origin { val value: String = "BELT"  }
+    case class __Unknown(value: String) extends Origin
+
+    implicit val decoder: ScalarDecoder[Origin] = {
+      case __StringValue("EARTH") => Right(Origin.EARTH)
+      case __StringValue("MARS")  => Right(Origin.MARS)
+      case __StringValue("BELT")  => Right(Origin.BELT)
+      case __StringValue(other)   => Right(Origin.__Unknown(other))
+      case other                  => Left(DecodingError(s"Can't build Origin from input $other"))
+    }
+    implicit val encoder: ArgEncoder[Origin]    = {
+      case Origin.EARTH            => __EnumValue("EARTH")
+      case Origin.MARS             => __EnumValue("MARS")
+      case Origin.BELT             => __EnumValue("BELT")
+      case Origin.__Unknown(value) => __EnumValue(value)
+    }
+
+    val values: Vector[Origin] = Vector(EARTH, MARS, BELT)
   }
 
 }

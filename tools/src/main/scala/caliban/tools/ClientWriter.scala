@@ -20,7 +20,8 @@ object ClientWriter {
     packageName: Option[String] = None,
     genView: Boolean = false,
     additionalImports: Option[List[String]] = None,
-    splitFiles: Boolean = false
+    splitFiles: Boolean = false,
+    extensibleEnums: Boolean = false
   )(implicit scalarMappings: ScalarMappings): List[(String, String)] = {
     require(packageName.isDefined || !splitFiles, "splitFiles option requires a package name")
 
@@ -103,7 +104,7 @@ object ClientWriter {
     val enums = schema.enumTypeDefinitions
       .filter(e => !scalarMappings.scalarMap.exists(_.contains(e.name)))
       .map { typedef =>
-        val content     = writeEnum(typedef)
+        val content     = writeEnum(typedef, extensibleEnums = extensibleEnums)
         val fullContent =
           if (splitFiles)
             s"""import caliban.client.CalibanClientError.DecodingError
@@ -537,7 +538,8 @@ object ClientWriter {
   }
 
   def writeEnum(
-    typedef: EnumTypeDefinition
+    typedef: EnumTypeDefinition,
+    extensibleEnums: Boolean
   )(implicit mappingClashedTypeNames: MappingClashedTypeNames, scalarMappings: ScalarMappings): String = {
 
     val enumName = safeTypeName(typedef.name)
@@ -549,24 +551,30 @@ object ClientWriter {
     def safeEnumValue(enumValue: String): String =
       safeName(mappingClashedEnumValues.getOrElse(enumValue, enumValue))
 
-    s"""sealed trait $enumName extends scala.Product with scala.Serializable { def value: String }
-        object $enumName {
-          ${typedef.enumValuesDefinition
+    val enumCases = typedef.enumValuesDefinition
       .map(v =>
         s"case object ${safeEnumValue(v.enumValue)} extends $enumName { val value: String = ${"\"" + safeEnumValue(v.enumValue) + "\""} }"
-      )
-      .mkString("\n")}
+      ) ++
+      (if (extensibleEnums) Some(s"case class __Unknown(value: String) extends $enumName") else None)
+
+    val decoderCases = typedef.enumValuesDefinition
+      .map(v => s"""case __StringValue ("${v.enumValue}") => Right($enumName.${safeEnumValue(v.enumValue)})""") ++
+      (if (extensibleEnums) Some(s"case __StringValue (other) => Right($enumName.__Unknown(other))") else None)
+
+    val encoderCases = typedef.enumValuesDefinition
+      .map(v => s"""case ${typedef.name}.${safeEnumValue(v.enumValue)} => __EnumValue("${v.enumValue}")""") ++
+      (if (extensibleEnums) Some(s"case ${typedef.name}.__Unknown (value) => __EnumValue(value)") else None)
+
+    s"""sealed trait $enumName extends scala.Product with scala.Serializable { def value: String }
+        object $enumName {
+          ${enumCases.mkString("\n")}
 
           implicit val decoder: ScalarDecoder[$enumName] = {
-            ${typedef.enumValuesDefinition
-      .map(v => s"""case __StringValue ("${v.enumValue}") => Right($enumName.${safeEnumValue(v.enumValue)})""")
-      .mkString("\n")}
+            ${decoderCases.mkString("\n")}
             case other => Left(DecodingError(s"Can't build ${typedef.name} from input $$other"))
           }
           implicit val encoder: ArgEncoder[${typedef.name}] = {
-            ${typedef.enumValuesDefinition
-      .map(v => s"""case ${typedef.name}.${safeEnumValue(v.enumValue)} => __EnumValue("${v.enumValue}")""")
-      .mkString("\n")}
+            ${encoderCases.mkString("\n")}
           }
 
           val values: Vector[${enumName}] = Vector(${typedef.enumValuesDefinition
