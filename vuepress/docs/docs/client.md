@@ -81,6 +81,7 @@ The settings available on the `cs` (`CalibanSettings`) builder are:
   def imports(values: String*): CalibanSettings                 // A list of imports to be added to the top of a generated client
   def splitFiles(value: Boolean): CalibanSettings               // Split single client object into multiple files (default: false)
   def enableFmt(value: Boolean): CalibanSettings                // Enable code formatting with scalafmt (default: true)
+  def extensibleEnums(value: Boolean): CalibanSettings          // Generate a fallback case class for unknown enum values (default: false)
 
   // Only defined for `url` settings, for use in supplying extra headers when fetching the schema itself
   def headers(pairs: (String,String)*): CalibanSettings
@@ -110,6 +111,7 @@ Use the `--splitFiles true` option if you want to generate multiple files within
 In this case the filename part of the `outputPath` will be ignored, but the value will still be used to determine the mandatory package name and the destination directory.
 This can be helpful with large GraphQL schemas and incremental compilation.
 Provide `--enableFmt false` option if you don't need to format generated files.
+Provide `--extensibleEnums true` option if you want to generate a fallback case class for unknown enum values.
 
 ## Query building
 
@@ -261,6 +263,10 @@ val characterWithOriginAllFields: SelectionBuilder[Character, Character.Characte
 val characterWithOriginOnlyDetails: SelectionBuilder[Character, Character.CharacterView[String]] =
   Character.view(Some("some filter"))(Origin.details)
 ```
+
+## Supporting enums evolution
+
+In GraphQL, adding new values to Enums is not considered a breaking change. If you want your generated client to accept enum values introduced after the code is generated, you can configure the `ClientWriter` to generate a fallback `case class __Unknown(value: string)`.
 
 ## Request execution
 
