@@ -26,6 +26,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -50,6 +51,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -62,7 +64,7 @@ object OptionsSpec extends DefaultRunnableSpec {
         assert(result)(
           equalTo(
             Some(
-              Options("schema", "output", None, None, None, None, None, None, None, None, None, None)
+              Options("schema", "output", None, None, None, None, None, None, None, None, None, None, None)
             )
           )
         )
@@ -99,6 +101,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -119,6 +122,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 Some("cats.effect.IO"),
+                None,
                 None,
                 None,
                 None,
@@ -147,7 +151,33 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
+                None,
                 None
+              )
+            )
+          )
+        )
+      },
+      test("provide extensibleEnums") {
+        val input  = List("schema", "output", "--extensibleEnums", "true")
+        val result = Options.fromArgs(input)
+        assert(result)(
+          equalTo(
+            Some(
+              Options(
+                "schema",
+                "output",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(true)
               )
             )
           )
@@ -168,6 +198,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 Some(Map("Long" -> "scala.Long")),
+                None,
                 None,
                 None,
                 None,
@@ -195,6 +226,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 Some(List("a.b.Clazz", "b.c._")),
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -219,6 +251,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 Some(true),
                 None,
+                None,
                 None
               )
             )
@@ -236,6 +269,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 "output",
                 Some("fmtPath"),
                 Some(List(Header("aaa", "bbb:ccc"))),
+                None,
                 None,
                 None,
                 None,

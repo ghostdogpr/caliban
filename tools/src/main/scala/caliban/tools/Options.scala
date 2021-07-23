@@ -15,7 +15,8 @@ final case class Options(
   imports: Option[List[String]],
   abstractEffectType: Option[Boolean],
   splitFiles: Option[Boolean],
-  enableFmt: Option[Boolean]
+  enableFmt: Option[Boolean],
+  extensibleEnums: Option[Boolean]
 )
 
 object Options {
@@ -30,7 +31,8 @@ object Options {
     imports: Option[List[String]],
     abstractEffectType: Option[Boolean],
     splitFiles: Option[Boolean],
-    enableFmt: Option[Boolean]
+    enableFmt: Option[Boolean],
+    extensibleEnums: Option[Boolean]
   )
 
   def fromArgs(args: List[String]): Option[Options] =
@@ -71,7 +73,8 @@ object Options {
             rawOpts.imports,
             rawOpts.abstractEffectType,
             rawOpts.splitFiles,
-            rawOpts.enableFmt
+            rawOpts.enableFmt,
+            rawOpts.extensibleEnums
           )
         }
       case _                             => None

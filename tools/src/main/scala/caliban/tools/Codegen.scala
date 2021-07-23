@@ -30,6 +30,7 @@ object Codegen {
     val scalarMappings     = arguments.scalarMappings
     val splitFiles         = arguments.splitFiles.getOrElse(false)
     val enableFmt          = arguments.enableFmt.getOrElse(true)
+    val extensibleEnums    = arguments.extensibleEnums.getOrElse(false)
     val loader             = getSchemaLoader(arguments.schemaPath, arguments.headers)
     for {
       schema    <- loader.load
@@ -41,7 +42,15 @@ object Codegen {
                          )
                        )
                      case GenType.Client =>
-                       ClientWriter.write(schema, objectName, packageName, genView, arguments.imports, splitFiles)(
+                       ClientWriter.write(
+                         schema,
+                         objectName,
+                         packageName,
+                         genView,
+                         arguments.imports,
+                         splitFiles,
+                         extensibleEnums
+                       )(
                          ScalarMappings(scalarMappings)
                        )
                    }
