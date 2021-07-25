@@ -22,7 +22,7 @@ object CatsInterop {
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel
   )(implicit runtime: Runtime[R]): F[GraphQLResponse[E]] =
-    Async[F].async { cb =>
+    Async[F].async_ { cb =>
       val execution = graphQL.execute(
         query,
         operationName,
@@ -39,12 +39,12 @@ object CatsInterop {
   def checkAsync[F[_]: Async, R](
     graphQL: GraphQLInterpreter[R, Any]
   )(query: String)(implicit runtime: Runtime[Any]): F[Unit] =
-    Async[F].async(cb => runtime.unsafeRunAsync(graphQL.check(query))(exit => cb(exit.toEither)))
+    Async[F].async_(cb => runtime.unsafeRunAsync(graphQL.check(query))(exit => cb(exit.toEither)))
 
   def interpreterAsync[F[_]: Async, R](
     graphQL: GraphQL[R]
   )(implicit runtime: Runtime[Any]): F[GraphQLInterpreter[R, CalibanError]] =
-    Async[F].async(cb => runtime.unsafeRunAsync(graphQL.interpreter)(exit => cb(exit.toEither)))
+    Async[F].async_(cb => runtime.unsafeRunAsync(graphQL.interpreter)(exit => cb(exit.toEither)))
 
   def schema[F[_]: Effect, R, A](implicit ev: Schema[R, A]): Schema[R, F[A]] =
     new Schema[R, F[A]] {

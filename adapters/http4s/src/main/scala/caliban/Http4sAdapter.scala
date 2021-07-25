@@ -8,7 +8,7 @@ import cats.arrow.FunctionK
 import cats.data.{ Kleisli, OptionT }
 import cats.syntax.either._
 import cats.syntax.traverse._
-import cats.effect.{ Blocker, Effect }
+import cats.effect.Effect
 import cats.effect.syntax.all._
 import cats.~>
 import fs2.{ Pipe, Stream }
@@ -117,7 +117,6 @@ object Http4sAdapter {
   def makeHttpUploadService[R <: Has[_] with Random, E](
     interpreter: GraphQLInterpreter[R, E],
     rootUploadPath: Path,
-    blocker: Blocker,
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel
