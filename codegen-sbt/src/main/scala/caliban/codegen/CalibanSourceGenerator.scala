@@ -94,7 +94,7 @@ object CalibanSourceGenerator {
     ) // NB: Presuming zio-config can read toString'd booleans
     val extensibleEnums = singleOpt(
       "--extensibleEnums",
-      settings.enableFmt.map(_.toString())
+      settings.extensibleEnums.map(_.toString())
     ) // NB: Presuming zio-config can read toString'd booleans
     scalafmtPath ++ headers ++ packageName ++ genView ++ scalarMappings ++ imports ++ splitFiles ++ enableFmt ++ extensibleEnums
   }
