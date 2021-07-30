@@ -200,10 +200,14 @@ object ClientWriter {
         safeTypeName(typedef.name) -> fullContent
       }
 
+    val additionalImportsString = additionalImports.fold("")(_.map(i => s"import $i").mkString("\n"))
+
     if (splitFiles) {
       val parentPackageName = packageName.filter(_.contains(".")).map(_.reverse.dropWhile(_ != '.').drop(1).reverse)
       val packageObject     = "package" ->
         s"""${parentPackageName.fold("")(p => s"package $p\n")}
+           |$additionalImportsString
+           |
            |package object ${packageName.get.reverse.takeWhile(_ != '.').reverse} {
            |  ${(scalars ::: objectTypes ::: queryTypes ::: mutationTypes ::: subscriptionTypes).mkString("\n")}
            |}
@@ -212,14 +216,15 @@ object ClientWriter {
         (enums ::: objects ::: inputs ::: queries.toList ::: mutations.toList ::: subscriptions.toList).map {
           case (name, content) =>
             val fullContent =
-              s"""${packageName.fold("")(p => s"package $p\n\n")}$content\n
+              s"""${packageName.fold("")(p => s"package $p\n\n")}
+                 |$additionalImportsString
+                 |
+                 |$content
                  |""".stripMargin
             name -> fullContent
         }
       packageObject :: classFiles
     } else {
-      val additionalImportsString = additionalImports.fold("")(_.map(i => s"import $i").mkString("\n"))
-
       val imports =
         s"""${if (enums.nonEmpty)
           """import caliban.client.CalibanClientError.DecodingError
