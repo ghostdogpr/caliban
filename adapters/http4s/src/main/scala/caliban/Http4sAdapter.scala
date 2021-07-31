@@ -449,15 +449,12 @@ object Http4sAdapter {
         // so that we can pass information available at connection request, such as authentication information,
         // to execution of subscription.
         processMessageFiber <- processMessage(receivingQueue, sendQueue, subscriptions).forkDaemon
-        builder             <- new WebSocketBuilder[RIO[R, *]](
-                                 headers = Headers(Header.Raw(CIString("Sec-WebSocket-Protocol"), "graphql-ws")),
-                                 onNonWebSocketRequest =
-                                   RIO(Response[RIO[R, *]](Status.NotImplemented).withEntity("This is a WebSocket route.")),
-                                 onHandshakeFailure =
-                                   RIO(Response[RIO[R, *]](Status.BadRequest).withEntity("WebSocket handshake failed.")),
-                                 onClose = processMessageFiber.interrupt.unit,
-                                 filterPingPongs = true
-                               ).build(Stream.repeatEval(sendQueue.take), passThroughPipe(receivingQueue))
+        builder             <- WebSocketBuilder[RIO[R, *]]
+                                 .copy(
+                                   headers = Headers(Header.Raw(CIString("Sec-WebSocket-Protocol"), "graphql-ws")),
+                                   onClose = processMessageFiber.interrupt.unit
+                                 )
+                                 .build(Stream.repeatEval(sendQueue.take), passThroughPipe(receivingQueue))
       } yield builder
     }
   }
