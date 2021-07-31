@@ -2,8 +2,7 @@ package caliban
 
 import caliban.GraphQL.graphQL
 import caliban.schema.GenericSchema
-import caliban.uploads.{ Upload, Uploads }
-import cats.effect.Blocker
+import caliban.uploads.{Upload, Uploads}
 import cats.syntax.semigroupk._
 import io.circe.parser.parse
 import io.circe.generic.auto._
@@ -16,7 +15,7 @@ import zio.clock.Clock
 import zio.console.Console
 import zio.internal.Platform
 import sttp.client3._
-import sttp.client3.asynchttpclient.zio.{ AsyncHttpClientZioBackend, _ }
+import sttp.client3.asynchttpclient.zio.{AsyncHttpClientZioBackend, _}
 import zio.random.Random
 import zio.test._
 import zio.test.Assertion._
@@ -102,20 +101,17 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
       Platform.default
     )
 
-  val blocker = Blocker.liftExecutionContext(runtime.platform.executor.asEC)
-
   val uri = Uri.unsafeParse("http://127.0.0.1:8089/")
 
   val apiLayer: RLayer[R, Has[Server]] =
     (for {
       interpreter <- TestAPI.api.interpreter.toManaged_
-      server      <- BlazeServerBuilder(runtime.platform.executor.asEC)
+      server      <- BlazeServerBuilder[RIO[R, *]](runtime.platform.executor.asEC)
                        .bindHttp(uri.port.get, uri.host.get)
                        .withHttpApp(
                          (Http4sAdapter.makeHttpUploadService(
                            interpreter,
-                           Paths.get(System.getProperty("java.io.tmpdir")),
-                           blocker
+                           Paths.get(System.getProperty("java.io.tmpdir"))
                          ) <+> Http4sAdapter.makeHttpService(interpreter)).orNotFound
                        )
                        .resource

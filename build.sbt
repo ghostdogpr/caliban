@@ -18,7 +18,7 @@ val playJsonVersion       = "2.9.2"
 val sttpVersion           = "3.3.12"
 val tapirVersion          = "0.18.1"
 val zioVersion            = "1.0.10"
-val zioInteropCatsVersion = "2.5.1.0"
+val zioInteropCatsVersion = "3.1.1.0"
 val zioConfigVersion      = "1.0.6"
 val zqueryVersion         = "0.2.9"
 val zioJsonVersion        = "0.1.5"
@@ -190,7 +190,10 @@ lazy val catsInterop = project
   .settings(name := "caliban-cats")
   .settings(commonSettings)
   .settings(
-    libraryDependencies ++= Seq(
+    libraryDependencies ++= {
+      if (scalaVersion.value == scala3) Seq()
+      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.0").cross(CrossVersion.full)))
+    } ++ Seq(
       "dev.zio"       %% "zio-interop-cats" % zioInteropCatsVersion,
       "org.typelevel" %% "cats-effect"      % catsEffectVersion
     )
@@ -233,9 +236,12 @@ lazy val http4s = project
   .settings(name := "caliban-http4s")
   .settings(commonSettings)
   .settings(
-    crossScalaVersions -= scala3,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
-    libraryDependencies ++= Seq(
+    libraryDependencies ++= {
+      if (scalaVersion.value == scala3) Seq()
+      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.0").cross(CrossVersion.full)))
+    } ++
+      Seq(
       "dev.zio"                       %% "zio-interop-cats"              % zioInteropCatsVersion,
       "org.typelevel"                 %% "cats-effect"                   % catsEffectVersion,
       "org.http4s"                    %% "http4s-dsl"                    % http4sVersion,
@@ -246,8 +252,7 @@ lazy val http4s = project
       "dev.zio"                       %% "zio-test-sbt"                  % zioVersion   % Test,
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion  % Test,
       "com.softwaremill.sttp.client3" %% "circe"                         % sttpVersion  % Test,
-      "io.circe"                      %% "circe-generic"                 % circeVersion % Test,
-      compilerPlugin(("org.typelevel" %% "kind-projector"                % "0.13.0").cross(CrossVersion.full))
+      "io.circe"                      %% "circe-generic"                 % circeVersion % Test
     )
   )
   .dependsOn(core, catsInterop)

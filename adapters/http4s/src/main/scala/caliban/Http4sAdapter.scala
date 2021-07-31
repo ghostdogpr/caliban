@@ -14,6 +14,7 @@ import cats.effect.std.{ Dispatcher, Queue => CatsQueue }
 import cats.~>
 import fs2.{ Pipe, Stream }
 import fs2.text.utf8Decode
+import fs2.io.file.Files
 import io.circe.Decoder.Result
 import io.circe.{ DecodingFailure, Json }
 import io.circe.parser._
@@ -30,6 +31,7 @@ import org.http4s.multipart.{ Multipart, Part }
 import org.typelevel.ci.CIString
 import zio.Exit.Failure
 import zio._
+import zio.blocking.Blocking
 import zio.clock.Clock
 import zio.duration.Duration
 import zio.interop.catz._
@@ -115,10 +117,9 @@ object Http4sAdapter {
   private def parsePaths(map: Map[String, Seq[String]]): List[(String, List[Either[String, Int]])] =
     map.map { case (k, v) => k -> v.map(parsePath).toList }.toList.flatMap(kv => kv._2.map(kv._1 -> _))
 
-  def makeHttpUploadService[R <: Has[_] with Random, E](
+  def makeHttpUploadService[R <: Has[_] with Random with Clock with Blocking, E](
     interpreter: GraphQLInterpreter[R, E],
     rootUploadPath: Path,
-    blocker: Blocker,
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel
@@ -138,14 +139,9 @@ object Http4sAdapter {
                 random.nextUUID.flatMap { uuid =>
                   val path = rootUploadPath.resolve(uuid.toString)
                   p.body
-                    .through(
-                      fs2.io.file.writeAll(
-                        path,
-                        blocker
-                      )
-                    )
+                    .through(Files[RIO[R, *]].writeAll(path))
                     .compile
-                    .foldMonoid
+                    .drain
                     .as((n, path.toFile -> p))
                 }
               }
@@ -328,7 +324,7 @@ object Http4sAdapter {
       } yield response
     }
 
-  def makeWebSocketService[R, E](
+  def makeWebSocketService[R <: Has[_] with Clock with Blocking, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
@@ -340,7 +336,7 @@ object Http4sAdapter {
     import dsl._
 
     def sendMessage(
-      sendQueue: CatsQueue[Task, WebSocketFrame],
+      sendQueue: CatsQueue[RIO[R, *], WebSocketFrame],
       messageType: String,
       id: String,
       payload: Json
@@ -358,31 +354,30 @@ object Http4sAdapter {
       )
 
     def processMessage(
-      receivingQueue: CatsQueue[Task, WebSocketFrame],
-      sendQueue: CatsQueue[Task, WebSocketFrame],
+      receivingQueue: CatsQueue[RIO[R, *], WebSocketFrame],
+      sendQueue: CatsQueue[RIO[R, *], WebSocketFrame],
       subscriptions: Ref[Map[String, Fiber[Throwable, Unit]]]
-    ) =
+    ): RIO[R, Unit] =
       Stream
         .repeatEval(receivingQueue.take)
         .collect { case Text(text, _) => text }
         .flatMap { text =>
           Stream.eval {
             for {
-              msg    <- Task.fromEither(decode[Json](text))
+              msg    <- RIO.fromEither(decode[Json](text))
               msgType = msg.hcursor.downField("type").success.flatMap(_.value.asString).getOrElse("")
               _      <- RIO.whenCase(msgType) {
                           case "connection_init"      =>
                             sendQueue.offer(WebSocketFrame.Text("""{"type":"connection_ack"}""")) *>
-                              Task.whenCase(keepAliveTime) { case Some(time) =>
+                              RIO.whenCase(keepAliveTime) { case Some(time) =>
                                 // Save the keep-alive fiber with a key of None so that it's interrupted later
                                 sendQueue
                                   .offer(WebSocketFrame.Text("""{"type":"ka"}"""))
                                   .repeat(Schedule.spaced(time))
-                                  .provideLayer(Clock.live)
                                   .unit
                                   .fork
                               }
-                          case "connection_terminate" => Task.fromEither(WebSocketFrame.Close(1000)) >>= sendQueue.offer
+                          case "connection_terminate" => RIO.fromEither(WebSocketFrame.Close(1000)) >>= sendQueue.offer
                           case "start"                =>
                             val payload = msg.hcursor.downField("payload")
                             val id      = msg.hcursor.downField("id").success.flatMap(_.value.asString).getOrElse("")
@@ -442,19 +437,19 @@ object Http4sAdapter {
         .drain
 
     def passThroughPipe(
-      receivingQueue: CatsQueue[Task, WebSocketFrame]
+      receivingQueue: CatsQueue[RIO[R, *], WebSocketFrame]
     ): Pipe[RIO[R, *], WebSocketFrame, Unit] = _.evalMap(receivingQueue.offer)
 
     HttpRoutes.of[RIO[R, *]] { case GET -> Root =>
       for {
-        receivingQueue      <- CatsQueue.unbounded[Task, WebSocketFrame]
-        sendQueue           <- CatsQueue.unbounded[Task, WebSocketFrame]
-        subscriptions       <- Ref.make(Map.empty[String, Fiber[Throwable, Unit]])
+        receivingQueue: CatsQueue[RIO[R, *], WebSocketFrame] <- CatsQueue.unbounded[RIO[R, *], WebSocketFrame]
+        sendQueue: CatsQueue[RIO[R, *], WebSocketFrame] <- CatsQueue.unbounded[RIO[R, *], WebSocketFrame]
+        subscriptions: Ref[Map[String, Fiber[Throwable, Unit]]] <- Ref.make(Map.empty[String, Fiber[Throwable, Unit]])
         // We provide fiber to process messages, which inherits the context of WebSocket connection request,
         // so that we can pass information available at connection request, such as authentication information,
         // to execution of subscription.
-        processMessageFiber <- processMessage(receivingQueue, sendQueue, subscriptions).forkDaemon
-        builder             <- new WebSocketBuilder[RIO[R, *]](
+        processMessageFiber: Fiber.Runtime[Throwable, Unit] <- processMessage(receivingQueue, sendQueue, subscriptions).forkDaemon
+        builder: Response[RIO[R, *]] <- new WebSocketBuilder[RIO[R, *]](
                                  headers = Headers(Header.Raw(CIString("Sec-WebSocket-Protocol"), "graphql-ws")),
                                  onNonWebSocketRequest =
                                    RIO(Response[RIO[R, *]](Status.NotImplemented).withEntity("This is a WebSocket route.")),
@@ -478,9 +473,15 @@ object Http4sAdapter {
   def provideLayerFromRequest[R <: Has[_]](route: HttpRoutes[RIO[R, *]], f: Request[Task] => TaskLayer[R])(implicit
     tagged: Tag[R]
   ): HttpRoutes[Task] =
-    Kleisli { req: Request[Task[*]] =>
-      val to: Task ~> RIO[R, *]   = FunctionK.lift[Task, RIO[R, *]](identity)
-      val from: RIO[R, *] ~> Task = λ[FunctionK[RIO[R, *], Task]](_.provideLayer(f(req)))
+    Kleisli { (req: Request[Task[*]]) =>
+      val to: Task ~> RIO[R, *] = new (Task ~> RIO[R, *]) {
+        def apply[A](fa: Task[A]): RIO[R, A] = fa
+      }
+
+      val from: RIO[R, *] ~> Task = new (RIO[R, *] ~> Task) {
+        def apply[A](fa: RIO[R, A]): Task[A] = fa.provideLayer(f(req))
+      }
+
       route(req.mapK(to)).mapK(from).map(_.mapK(from))
     }
 
@@ -497,28 +498,37 @@ object Http4sAdapter {
     route: HttpRoutes[RIO[R with R1, *]],
     f: Request[RIO[R, *]] => RLayer[R, R1]
   )(implicit tagged: Tag[R1]): HttpRoutes[RIO[R, *]] =
-    Kleisli { req: Request[RIO[R, *]] =>
-      val to: RIO[R, *] ~> RIO[R with R1, *]   = FunctionK.lift[RIO[R, *], RIO[R with R1, *]](identity)
-      val from: RIO[R with R1, *] ~> RIO[R, *] =
-        λ[FunctionK[RIO[R with R1, *], RIO[R, *]]](_.provideSomeLayer[R](f(req)))
+    Kleisli { (req: Request[RIO[R, *]]) =>
+      val to: RIO[R, *] ~> RIO[R with R1, *]   = new (RIO[R, *] ~> RIO[R with R1, *]) {
+        def apply[A](fa: RIO[R, A]): RIO[R with R1, A] = fa
+      }
+
+      val from: RIO[R with R1, *] ~> RIO[R, *] = new (RIO[R with R1, *] ~> RIO[R, *]) {
+        def apply[A](fa: RIO[R with R1, A]): RIO[R, A] = fa.provideSomeLayer[R](f(req))
+      }
+
       route(req.mapK(to)).mapK(from).map(_.mapK(from))
     }
 
   private def wrapRoute[F[_]: Async, R](
     route: HttpRoutes[RIO[R, *]]
-  )(implicit dispatcher: Dispatcher[F], runtime: Runtime[Any]): HttpRoutes[F] = {
-    val toF: RIO[R, *] ~> F    = CatsInterop.toEffectK
+  )(implicit dispatcher: Dispatcher[F], runtime: Runtime[R]): HttpRoutes[F] = {
+    val toF: RIO[R, *] ~> F   = CatsInterop.toEffectK
     val toRIO: F ~> RIO[R, *] = CatsInterop.fromEffectK
 
+    val to: OptionT[RIO[R, *], *] ~> OptionT[F, *] = new (OptionT[RIO[R, *], *] ~> OptionT[F, *]) {
+      def apply[A](fa: OptionT[RIO[R, *], A]): OptionT[F, A] = fa.mapK(toF)
+    }
+
     route
-      .mapK(λ[OptionT[RIO[R, *], *] ~> OptionT[F, *]](_.mapK(toF)))
+      .mapK(to)
       .dimap((req: Request[F]) => req.mapK(toRIO))((res: Response[RIO[R, *]]) => res.mapK(toF))
   }
 
   private def wrapApp[F[_]: Async, R](
     app: HttpApp[RIO[R, *]]
   )(implicit dispatcher: Dispatcher[F], runtime: Runtime[R]): HttpApp[F] = {
-    val toF: RIO[R, *] ~> F    = CatsInterop.toEffectK
+    val toF: RIO[R, *] ~> F   = CatsInterop.toEffectK
     val toRIO: F ~> RIO[R, *] = CatsInterop.fromEffectK
 
     app
@@ -526,7 +536,7 @@ object Http4sAdapter {
       .dimap((req: Request[F]) => req.mapK(toRIO))((res: Response[RIO[R, *]]) => res.mapK(toF))
   }
 
-  def makeWebSocketServiceF[F[_], R, E](
+  def makeWebSocketServiceF[F[_], R <: Has[_] with Clock with Blocking, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,

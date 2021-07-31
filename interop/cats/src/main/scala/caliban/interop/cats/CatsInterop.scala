@@ -76,9 +76,9 @@ object CatsInterop {
       }
     }
 
-  def fromEffectK[F[_]](implicit F: Dispatcher[F]): F ~> Task =
-    new (F ~> Task) {
-      def apply[A](fa: F[A]): Task[A] = fromEffect(fa)
+  def fromEffectK[F[_], R](implicit F: Dispatcher[F]): F ~> RIO[R, *] =
+    new (F ~> RIO[R, *]) {
+      def apply[A](fa: F[A]): RIO[R, A] = fromEffect(fa)
     }
 
   def toEffectK[F[_], R](implicit F: Async[F], R: Runtime[R]): RIO[R, *] ~> F =
