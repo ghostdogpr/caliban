@@ -534,7 +534,7 @@ object Http4sAdapter {
       .dimap((req: Request[F]) => req.mapK(toRIO))((res: Response[RIO[R, *]]) => res.mapK(toF))
   }
 
-  def makeWebSocketServiceF[F[_], R <: Has[_] with Clock with Blocking, E](
+  def makeWebSocketServiceF[F[_], R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
