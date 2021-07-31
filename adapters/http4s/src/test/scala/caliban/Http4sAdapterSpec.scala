@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.GraphQL.graphQL
-import caliban.schema.GenericSchema
+import caliban.schema.{ GenericSchema, Schema }
 import caliban.uploads.{ Upload, Uploads }
 import cats.syntax.semigroupk._
 import io.circe.parser.parse
@@ -71,17 +71,19 @@ case class UploadFileArgs(file: Upload)
 case class UploadFilesArgs(files: List[Upload])
 
 object TestAPI extends GenericSchema[Blocking with Uploads with Console with Clock] {
-  val api: GraphQL[Blocking with Uploads with Console with Clock] =
+  type Env = Blocking with Uploads with Console with Clock
+
+  implicit val uploadFileArgsSchema: Schema[Env, UploadFileArgs] = gen[UploadFileArgs]
+  implicit val mutationsSchema: Schema[Env, Mutations]           = gen[Mutations]
+  implicit val queriesSchema: Schema[Env, Queries]               = gen[Queries]
+
+  val api: GraphQL[Env] =
     graphQL(
       RootResolver(
         Queries(args => UIO("stub")),
         Mutations(args => Service.uploadFile(args.file), args => Service.uploadFiles(args.files))
       )
     )
-
-  implicit val uploadFileArgsSchema = gen[UploadFileArgs]
-  implicit val mutationsSchema      = gen[Mutations]
-  implicit val queriesSchema        = gen[Queries]
 
   case class File(hash: String, path: String, filename: String, mimetype: String)
 
