@@ -3,7 +3,6 @@ package caliban
 import caliban.GraphQL.graphQL
 import caliban.schema.GenericSchema
 import caliban.uploads.{ Upload, Uploads }
-import cats.effect.Blocker
 import cats.syntax.semigroupk._
 import io.circe.parser.parse
 import io.circe.generic.auto._
