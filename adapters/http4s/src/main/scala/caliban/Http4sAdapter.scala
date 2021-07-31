@@ -442,14 +442,14 @@ object Http4sAdapter {
 
     HttpRoutes.of[RIO[R, *]] { case GET -> Root =>
       for {
-        receivingQueue: CatsQueue[RIO[R, *], WebSocketFrame] <- CatsQueue.unbounded[RIO[R, *], WebSocketFrame]
-        sendQueue: CatsQueue[RIO[R, *], WebSocketFrame] <- CatsQueue.unbounded[RIO[R, *], WebSocketFrame]
-        subscriptions: Ref[Map[String, Fiber[Throwable, Unit]]] <- Ref.make(Map.empty[String, Fiber[Throwable, Unit]])
+        receivingQueue      <- CatsQueue.unbounded[RIO[R, *], WebSocketFrame]
+        sendQueue           <- CatsQueue.unbounded[RIO[R, *], WebSocketFrame]
+        subscriptions       <- Ref.make(Map.empty[String, Fiber[Throwable, Unit]])
         // We provide fiber to process messages, which inherits the context of WebSocket connection request,
         // so that we can pass information available at connection request, such as authentication information,
         // to execution of subscription.
-        processMessageFiber: Fiber.Runtime[Throwable, Unit] <- processMessage(receivingQueue, sendQueue, subscriptions).forkDaemon
-        builder: Response[RIO[R, *]] <- new WebSocketBuilder[RIO[R, *]](
+        processMessageFiber <- processMessage(receivingQueue, sendQueue, subscriptions).forkDaemon
+        builder             <- new WebSocketBuilder[RIO[R, *]](
                                  headers = Headers(Header.Raw(CIString("Sec-WebSocket-Protocol"), "graphql-ws")),
                                  onNonWebSocketRequest =
                                    RIO(Response[RIO[R, *]](Status.NotImplemented).withEntity("This is a WebSocket route.")),
@@ -499,7 +499,7 @@ object Http4sAdapter {
     f: Request[RIO[R, *]] => RLayer[R, R1]
   )(implicit tagged: Tag[R1]): HttpRoutes[RIO[R, *]] =
     Kleisli { (req: Request[RIO[R, *]]) =>
-      val to: RIO[R, *] ~> RIO[R with R1, *]   = new (RIO[R, *] ~> RIO[R with R1, *]) {
+      val to: RIO[R, *] ~> RIO[R with R1, *] = new (RIO[R, *] ~> RIO[R with R1, *]) {
         def apply[A](fa: RIO[R, A]): RIO[R with R1, A] = fa
       }
 

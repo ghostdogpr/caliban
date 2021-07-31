@@ -242,18 +242,18 @@ lazy val http4s = project
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.0").cross(CrossVersion.full)))
     } ++
       Seq(
-      "dev.zio"                       %% "zio-interop-cats"              % zioInteropCatsVersion,
-      "org.typelevel"                 %% "cats-effect"                   % catsEffectVersion,
-      "org.http4s"                    %% "http4s-dsl"                    % http4sVersion,
-      "org.http4s"                    %% "http4s-circe"                  % http4sVersion,
-      "org.http4s"                    %% "http4s-blaze-server"           % http4sVersion,
-      "io.circe"                      %% "circe-parser"                  % circeVersion,
-      "dev.zio"                       %% "zio-test"                      % zioVersion   % Test,
-      "dev.zio"                       %% "zio-test-sbt"                  % zioVersion   % Test,
-      "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion  % Test,
-      "com.softwaremill.sttp.client3" %% "circe"                         % sttpVersion  % Test,
-      "io.circe"                      %% "circe-generic"                 % circeVersion % Test
-    )
+        "dev.zio"                       %% "zio-interop-cats"              % zioInteropCatsVersion,
+        "org.typelevel"                 %% "cats-effect"                   % catsEffectVersion,
+        "org.http4s"                    %% "http4s-dsl"                    % http4sVersion,
+        "org.http4s"                    %% "http4s-circe"                  % http4sVersion,
+        "org.http4s"                    %% "http4s-blaze-server"           % http4sVersion,
+        "io.circe"                      %% "circe-parser"                  % circeVersion,
+        "dev.zio"                       %% "zio-test"                      % zioVersion   % Test,
+        "dev.zio"                       %% "zio-test-sbt"                  % zioVersion   % Test,
+        "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion  % Test,
+        "com.softwaremill.sttp.client3" %% "circe"                         % sttpVersion  % Test,
+        "io.circe"                      %% "circe-generic"                 % circeVersion % Test
+      )
   )
   .dependsOn(core, catsInterop)
 

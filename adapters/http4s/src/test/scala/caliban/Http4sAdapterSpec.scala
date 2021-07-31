@@ -2,7 +2,7 @@ package caliban
 
 import caliban.GraphQL.graphQL
 import caliban.schema.GenericSchema
-import caliban.uploads.{Upload, Uploads}
+import caliban.uploads.{ Upload, Uploads }
 import cats.syntax.semigroupk._
 import io.circe.parser.parse
 import io.circe.generic.auto._
@@ -15,7 +15,7 @@ import zio.clock.Clock
 import zio.console.Console
 import zio.internal.Platform
 import sttp.client3._
-import sttp.client3.asynchttpclient.zio.{AsyncHttpClientZioBackend, _}
+import sttp.client3.asynchttpclient.zio.{ AsyncHttpClientZioBackend, _ }
 import zio.random.Random
 import zio.test._
 import zio.test.Assertion._
