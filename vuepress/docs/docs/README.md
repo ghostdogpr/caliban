@@ -1,35 +1,35 @@
 # Getting Started
 
-**Caliban** is a purely functional library for creating GraphQL backends in Scala.
-It relies on [Magnolia](https://github.com/propensive/magnolia) to automatically derives GraphQL schemas from your data types, [Fastparse](https://github.com/lihaoyi/fastparse) to parse queries and [ZIO](https://github.com/zio/zio) to handle various effects.
+**Caliban** is a purely functional library for creating GraphQL servers and clients in Scala.
 
-The design principles behind the library are the following:
+For more details on Caliban Client, see the [dedicated section](client.md). The rest of this page is about the backend part of the library.
 
-- pure interface: errors and effects are returned explicitly (no exceptions thrown), all returned types are referentially transparent (no `Future`).
-- clean separation between schema definition and implementation: schema is defined and validated at compile-time (no reflection) using Scala standard types, resolver is a simple value provided at runtime.
-- minimal amount of boilerplate: no need to manually define a schema for every type in your API.
+The design principles of Caliban are the following:
 
-Caliban can also be used to build GraphQL frontends: see the [dedicated section](client.md) for more details.
+- **pure interface**: errors and effects are returned explicitly (no exceptions thrown), all returned types are referentially transparent (no usage of `Future`).
+- **minimal amount of boilerplate**: no need to manually define a schema for every type in your API. Let the compiler do the boring work.
+- **excellent interoperability**: out-of-the-box support for major HTTP server libraries ([http4s](https://http4s.org/), [Akka HTTP](https://doc.akka.io/docs/akka-http/current/index.html), [Play](https://www.playframework.com/), [Finch](https://github.com/finagle/finch), [ZIO HTTP](https://github.com/dream11/zio-http)), effect types (Future, [ZIO](https://zio.dev/), [Cats Effect](https://typelevel.org/cats-effect/), [Monix](https://monix.io/)), Json libraries ([Circe](https://circe.github.io/circe/), [Play Json](https://github.com/playframework/play-json), [ZIO Json](https://github.com/zio/zio-json)), various integrations ([Apollo Tracing](https://github.com/apollographql/apollo-tracing), [Apollo Federation](https://www.apollographql.com/docs/federation/), [Tapir](https://tapir.softwaremill.com/en/latest/), etc.) and more.
 
 ## Dependencies
 
 To use `caliban`, add the following line in your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "0.10.0"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "1.1.0"
 ```
 
 The following modules are optional:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-http4s"     % "0.10.0" // routes for http4s
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-akka-http"  % "0.10.0" // routes for akka-http
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-play"       % "0.10.0" // routes for play
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-finch"      % "0.10.0" // routes for finch
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-zio-http"   % "0.10.0" // routes for zio-http
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-cats"       % "0.10.0" // interop with cats effect
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-monix"      % "0.10.0" // interop with monix
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-federation" % "0.10.0" // interop with apollo federation
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-http4s"     % "1.1.0" // routes for http4s
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-akka-http"  % "1.1.0" // routes for akka-http
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-play"       % "1.1.0" // routes for play
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-finch"      % "1.1.0" // routes for finch
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-zio-http"   % "1.1.0" // routes for zio-http
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-cats"       % "1.1.0" // interop with cats effect
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-monix"      % "1.1.0" // interop with monix
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-tapir"      % "1.1.0" // interop with tapir
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-federation" % "1.1.0" // interop with apollo federation
 ```
 
 ## A simple example

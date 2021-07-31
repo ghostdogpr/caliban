@@ -7,7 +7,7 @@ import caliban.{ Http4sAdapter, RootResolver }
 import org.http4s.HttpRoutes
 import org.http4s.dsl.Http4sDsl
 import org.http4s.implicits._
-import org.http4s.server.blaze.BlazeServerBuilder
+import org.http4s.blaze.server.BlazeServerBuilder
 import org.http4s.server.{ Router, ServiceErrorHandler }
 import org.typelevel.ci.CIString
 import zio._
@@ -49,19 +49,19 @@ object AuthExampleApp extends CatsApp {
   val schema: GenericSchema[Auth] = new GenericSchema[Auth] {}
   import schema._
   case class Query(token: RIO[Auth, String])
-  private val resolver = RootResolver(Query(ZIO.access[Auth](_.get[Auth.Service].token)))
-  private val api      = graphQL(resolver)
+  private val resolver            = RootResolver(Query(ZIO.access[Auth](_.get[Auth.Service].token)))
+  private val api                 = graphQL(resolver)
 
   override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
     (for {
       interpreter <- api.interpreter
-      route       = AuthMiddleware(Http4sAdapter.makeHttpService(interpreter))
-      _ <- BlazeServerBuilder[Task](ExecutionContext.global)
-            .withServiceErrorHandler(errorHandler)
-            .bindHttp(8088, "localhost")
-            .withHttpApp(Router[Task]("/api/graphql" -> route).orNotFound)
-            .resource
-            .toManagedZIO
-            .useForever
+      route        = AuthMiddleware(Http4sAdapter.makeHttpService(interpreter))
+      _           <- BlazeServerBuilder[Task](ExecutionContext.global)
+                       .withServiceErrorHandler(errorHandler)
+                       .bindHttp(8088, "localhost")
+                       .withHttpApp(Router[Task]("/api/graphql" -> route).orNotFound)
+                       .resource
+                       .toManagedZIO
+                       .useForever
     } yield ()).exitCode
 }

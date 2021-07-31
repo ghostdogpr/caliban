@@ -10,7 +10,7 @@ import cats.data.Kleisli
 import org.http4s.StaticFile
 import org.http4s.implicits._
 import org.http4s.server.Router
-import org.http4s.server.blaze.BlazeServerBuilder
+import org.http4s.blaze.server.BlazeServerBuilder
 import org.http4s.server.middleware.CORS
 import zio._
 import zio.interop.catz._
@@ -27,18 +27,18 @@ object ExampleApp extends App {
       .flatMap(implicit runtime =>
         for {
           interpreter <- ExampleApi.api.interpreter
-          _ <- BlazeServerBuilder[ExampleTask](ExecutionContext.global)
-                .bindHttp(8088, "localhost")
-                .withHttpApp(
-                  Router[ExampleTask](
-                    "/api/graphql" -> CORS(Http4sAdapter.makeHttpService(interpreter)),
-                    "/ws/graphql"  -> CORS(Http4sAdapter.makeWebSocketService(interpreter)),
-                    "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
-                  ).orNotFound
-                )
-                .resource
-                .toManagedZIO
-                .useForever
+          _           <- BlazeServerBuilder[ExampleTask](ExecutionContext.global)
+                           .bindHttp(8088, "localhost")
+                           .withHttpApp(
+                             Router[ExampleTask](
+                               "/api/graphql" -> CORS(Http4sAdapter.makeHttpService(interpreter)),
+                               "/ws/graphql"  -> CORS(Http4sAdapter.makeWebSocketService(interpreter)),
+                               "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
+                             ).orNotFound
+                           )
+                           .resource
+                           .toManagedZIO
+                           .useForever
         } yield ()
       )
       .provideCustomLayer(ExampleService.make(sampleCharacters))

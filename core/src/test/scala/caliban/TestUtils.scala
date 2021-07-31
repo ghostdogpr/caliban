@@ -120,7 +120,7 @@ object TestUtils {
       args => characters.filter(c => args.origin.forall(c.origin == _)),
       args => characters.find(c => c.name == args.name),
       args => characters.filter(c => args.names.contains(c.name)),
-      args => characters.contains(args.character)
+      args => characters.exists(_.name == args.character.name)
     )
   )
   val resolverIO               = RootResolver(
@@ -393,12 +393,13 @@ object TestUtils {
       )
 
       @GQLInterface
-      sealed trait WithNullable {
-        val field: Task[String]
-      }
-      case class WithNonNullable(field: UIO[String]) extends WithNullable
-      case class TestNonNullableObject(nonNullable: WithNonNullable)
-      val resolverNonNullableSubtype = RootResolver(TestNonNullableObject(WithNonNullable(UIO.succeed("a"))))
+      sealed trait WithNullable {}
+
+      case class IsNullable(field: UIO[Option[String]]) extends WithNullable
+      case class IsNonNullable(field: UIO[String])      extends WithNullable
+
+      case class TestNonNullableObject(nonNullable: WithNullable)
+      val resolverNonNullableSubtype = RootResolver(TestNonNullableObject(IsNonNullable(UIO.succeed("a"))))
 
       case class FieldArg(arg: String)
       @GQLInterface

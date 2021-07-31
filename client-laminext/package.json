@@ -1,0 +1,10 @@
+{
+  "name": "caliban-client-demo",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "devDependencies": {
+    "vite": "^2.1.5",
+    "vite-plugin-html": "^2.0.6"
+  }
+}

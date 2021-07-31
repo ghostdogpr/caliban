@@ -3,12 +3,13 @@
 Caliban comes with a module called `caliban-tools` that exposes some useful features:
 - all the code generation features from `caliban-codegen-sbt`, so that you can use them without sbt: see `caliban.tools.Codegen`.
 - a client for GraphQL introspection: see `caliban.tools.IntrospectionClient`.
+- utilities for [stitching GraphQL schemas](stitching.md).
 - a way to compare GraphQL schemas, whether they come from Caliban or a remote server, see below.
 
 ## Dependency
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-tools" % "0.10.0"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-tools" % "1.1.0"
 ```
 
 ## Schema comparison

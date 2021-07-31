@@ -16,11 +16,11 @@ object RemoteSchema {
   def parseRemoteSchema(doc: Document): Option[__Schema] = {
     val queries = doc.schemaDefinition
       .flatMap(_.query)
-      .flatMap(doc.objectTypeDefinition(_))
+      .flatMap(doc.objectTypeDefinition)
 
     val mutations = doc.schemaDefinition
       .flatMap(_.mutation)
-      .flatMap(doc.objectTypeDefinition(_))
+      .flatMap(doc.objectTypeDefinition)
 
     queries
       .map(queries =>
@@ -183,7 +183,7 @@ object RemoteSchema {
       name = Some(definition.name),
       enumValues = (args: __DeprecatedArgs) =>
         if (definition.enumValuesDefinition.nonEmpty)
-          Some(definition.enumValuesDefinition.map(toEnumValue(_)).filter(filterDeprecated(_, args)))
+          Some(definition.enumValuesDefinition.map(toEnumValue).filter(filterDeprecated(_, args)))
         else None,
       directives = toDirectives(definition.directives)
     )
@@ -266,7 +266,7 @@ object RemoteSchema {
       name = definition.name,
       description = definition.description,
       args = definition.args.map(toInputValue(_, definitions)),
-      locations = definition.locations.map(toDirectiveLocation(_)).toSet
+      locations = definition.locations.map(toDirectiveLocation)
     )
 
   private def toDirectiveLocation(loc: DirectiveLocation): __DirectiveLocation =
@@ -305,7 +305,7 @@ object RemoteSchema {
 
   private def deprecationReason(directives: List[Directive]): Option[String] =
     directives.collectFirst {
-      case d if (d.name == "deprecated") =>
+      case d if d.name == "deprecated" =>
         d.arguments
           .get("reason")
           .collect { case StringValue(value) =>

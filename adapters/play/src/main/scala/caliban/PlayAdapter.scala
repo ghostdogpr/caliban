@@ -18,7 +18,7 @@ import zio.blocking.Blocking
 import zio.clock.Clock
 import zio.duration.Duration
 import zio.random.Random
-import zio.{ random, CancelableFuture, Fiber, Has, IO, RIO, Ref, Runtime, Schedule, Task, URIO, ZIO, ZLayer }
+import zio.{ CancelableFuture, Fiber, Has, IO, RIO, Ref, Runtime, Schedule, Task, URIO, ZIO, ZLayer }
 
 import java.util.Locale
 import scala.concurrent.{ ExecutionContext, Future }
@@ -85,7 +85,7 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
           filePaths   = map.map { case (key, value) => (key, value.map(parsePath).toList) }.toList
                           .flatMap(kv => kv._2.map(kv._1 -> _))
           fileRef    <- Ref.make(form.files.map(f => f.key -> f).toMap)
-          rand       <- ZIO.environment[Random]
+          random     <- ZIO.service[Random.Service]
         } yield GraphQLUploadRequest(
           operations,
           filePaths,
@@ -94,14 +94,12 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
               .map(_.get(handle))
               .some
               .flatMap(fp =>
-                random
-                  .nextString(16)
-                  .asSomeError
-                  .map(
+                random.nextUUID.asSomeError
+                  .map(uuid =>
                     FileMeta(
-                      _,
+                      uuid.toString,
                       fp.ref.path,
-                      fp.dispositionType,
+                      Option(fp.dispositionType),
                       fp.contentType,
                       fp.filename,
                       fp.fileSize
@@ -109,7 +107,6 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
                   )
               )
               .optional
-              .provide(rand)
           )
         )).either
       )

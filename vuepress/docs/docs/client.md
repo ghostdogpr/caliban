@@ -12,13 +12,13 @@ Just like Caliban, `caliban-client` offers a purely functional interface and kee
 To use `caliban-client`, add the following line in your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-client" % "0.10.0"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-client" % "1.1.0"
 ```
 
 Caliban-client is available for ScalaJS. To use it in a ScalaJS project, instead add this line to your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client" % "0.10.0"
+libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client" % "1.1.0"
 ```
 
 ## Code generation
@@ -27,21 +27,76 @@ The first step for building GraphQL queries with `caliban-client` is to generate
 
 To use this feature, add the `caliban-codegen-sbt` sbt plugin to your `project/plugins.sbt` file:
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "0.10.0")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "1.1.0")
 ```
 
 And enable it in your `build.sbt` file:
 ```scala
-enablePlugins(CodegenPlugin)
+enablePlugins(CalibanPlugin)
 ```
 
-Then call the `calibanGenClient` sbt command.
+### From a schema file
+
+At this point, the `caliban` command will cause any files in `src/main/graphql` to be translated into a Caliban-generated client library. This happens automatically any time you `compile`.
+
+By default, all clients are generated with the same client name as the source file, in the `caliban` top-level package.
+
+In order to supply more configuration options to the code generator, you can use the `calibanSettings` sbt setting, combined with the `calibanSetting` function to scope the settings to a particular file:
 ```scala
-calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--genView true|false] [--scalarMappings gqlType:f.q.d.n.Type,gqlType2:f.q.d.n.Type2] [--imports a.b.c._,c.d.E]
+      // The `file("Service.graphql")` is a path suffix for some file in `src/main/graphql`
+      Compile / caliban / calibanSettings += calibanSetting(file("Service.graphql"))(
+        cs =>
+          cs.packageName("com.example.graphql.client")
+            .scalarMapping(
+              "LanguageCode" -> "com.example.models.LanguageCode",
+            )
+            .scalarMapping(
+              "Timestamp" -> "java.sql.Timestamp",
+              "DayOfWeek" -> "java.time.DayOfWeek",
+              "IntRange"  -> "com.github.tminglei.slickpg.Range[Int]"
+            )
+            .imports("com.example.graphql.client.implicits._")
+      )
+```
+
+### From a server URL
+
+The `calibanSetting` function also permits generating clients for supplied `url`'s:
+```scala
+      Compile / caliban / calibanSettings += calibanSetting(url("http://my-example-service/graphql"))(
+        cs =>
+          cs.clientName("ExampleServiceClient")
+            .packageName("com.example.graphql.client")
+      )
+```
+
+### `calibanSetting` config parameters
+
+The settings available on the `cs` (`CalibanSettings`) builder are:
+```
+  def scalafmtPath(path: String): CalibanSettings               // Path to a scalafmt config (default: .scalafmt.conf)
+  def packageName(name: String): CalibanSettings                // Which package to put the generated clients in (default: caliban)
+  def genView(value: Boolean): CalibanSettings                  // Provide a case class and helper method to select all fields on an object (default: false)
+  def scalarMapping(mapping: (String,String)*): CalibanSettings // A mapping from GraphQL scalar types to JVM types, as unknown scalar types are represented as String by default.
+  def imports(values: String*): CalibanSettings                 // A list of imports to be added to the top of a generated client
+  def splitFiles(value: Boolean): CalibanSettings               // Split single client object into multiple files (default: false)
+  def enableFmt(value: Boolean): CalibanSettings                // Enable code formatting with scalafmt (default: true)
+
+  // Only defined for `url` settings, for use in supplying extra headers when fetching the schema itself
+  def headers(pairs: (String,String)*): CalibanSettings
+```
+
+### `calibanGenClient`
+
+If you prefer to generate the client explicitly rather than automatically, you can use `calibanGenClient` on the SBT CLI as follows:
+
+```scala
+calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--genView true|false] [--scalarMappings gqlType:f.q.d.n.Type,gqlType2:f.q.d.n.Type2] [--imports a.b.c._,c.d.E] [--splitFiles true|false] [--enableFmt true|false]
 
 calibanGenClient project/schema.graphql src/main/client/Client.scala --genView true  
 ```
 This command will generate a Scala file in `outputPath` containing helper functions for all the types defined in the provided GraphQL schema defined at `schemaPath`.
+If you need to disable generating clients from `src/main/graphql`, please include `Compile / caliban / calibanGenerator := Seq.empty` in your project settings.
 Instead of a file, you can provide a URL and the schema will be obtained using introspection.
 The generated code will be formatted with Scalafmt using the configuration defined by `--scalafmtPath` option (default: `.scalafmt.conf`).
 If you provide a URL for `schemaPath`, you can provide request headers with `--headers` option.
@@ -51,6 +106,10 @@ option.
 Provide `--genView true` option if you want to generate a view for the GraphQL types. 
 If you want to force a mapping between a GraphQL type and a Scala class (such as scalars), you can use the
 `--scalarMappings` option. Also you can add imports for example for your ArgEncoder implicits by providing `--imports` option.
+Use the `--splitFiles true` option if you want to generate multiple files within the same package instead of a single file.
+In this case the filename part of the `outputPath` will be ignored, but the value will still be used to determine the mandatory package name and the destination directory.
+This can be helpful with large GraphQL schemas and incremental compilation.
+Provide `--enableFmt false` option if you don't need to format generated files.
 
 ## Query building
 
@@ -205,7 +264,12 @@ val characterWithOriginOnlyDetails: SelectionBuilder[Character, Character.Charac
 
 ## Request execution
 
-Once your query or mutation is created, it is time to execute it. To do that, you can transform your `SelectionBuilder` into an `sttp` request by calling `.toRequest`. This function takes the URL of your GraphQL server and an optional boolean `useVariables` that determines if arguments should be using variables or not (default: false).
+Once your query or mutation is created, it is time to execute it. To do that, you can transform your `SelectionBuilder` into an `sttp` request by calling `.toRequest`.
+
+This function takes the URL of your GraphQL server and some options:
+- a boolean `useVariables` that determines if arguments should be using variables or not (default: false)
+- an optional string `queryName` if you want to name your query (default: no name)
+- a boolean `dropNullInputValues` that determines if null fields from input objects should be dropped (default: false)
 
 You can then simply run the `sttp` request with the backend of your choice. See the [sttp docs](https://sttp.readthedocs.io/en/latest/) if you are not familiar with it.
 
@@ -227,6 +291,63 @@ As a result, we get a ZIO `Task` whose return type is the same as our `Selection
 The [examples](https://github.com/ghostdogpr/caliban/tree/master/examples/) project contains a runnable sample code that queries the example GraphQL backend.
 
 ::: warning Limitations
-Only Queries and Mutations are supported. Subscriptions support will be added in the future.
+Only Queries and Mutations are supported as sttp requests.
+Subscriptions are supported in the laminext module, and this code can easily be adapted to other frameworks (the relevant code is only a few lines long).
+
 Type extensions are not supported by the codegen tool.
 :::
+
+## Laminext Integration
+
+If you are using the Scala.js framework [Laminar](https://laminar.dev), there is a module that makes the integration even nicer, with support for subscriptions.
+It is depending on [Laminext](https://laminext.dev), a library that provides nice little helpers for Laminar, in particular for using `Fetch` and `WebSocket`.
+
+To use it, import the `caliban-client-laminext` module:
+```
+libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client-laminext" % "1.1.0"
+```
+
+Add the following import to your code:
+```scala
+import caliban.client.laminext._
+```
+
+This import adds an extension method `toEventStream(uri)` to `SelectionBuilder`, which is similar to `toRequest` except it creates an `EventStream` instead of an sttp `Request`.
+
+```scala
+val characters: Var[List[String]] = Var(Nil)
+
+val uri = "http://localhost:8088/api/graphql"
+
+val getCharacters = Queries.characters(None)(Client.Character.name).toEventStream(uri)
+
+val view: Div = 
+  div(
+    "Characters: ",
+    getCharacters.collectRight --> characters.set _,
+    child <-- characters.signal.map(c => div(c.mkString(", ")))
+  )
+```
+
+To use subscriptions, you first need to create a `WebSocket` with protocol `graphql-ws`. Use the extension method `.graphql` instead of `.text` or `.json`.
+Then use the extension method `toSubscription` on your `SelectionBuilder` and pass the `WebSocket` object.
+```scala
+val ws = WebSocket.url("ws://localhost:8088/ws/graphql", "graphql-ws").graphql.build()
+
+val deletedCharacters = Subscriptions.characterDeleted.toSubscription(ws)
+```
+
+Finally, you can use `ws.connect` to connect the `WebSocket`, `ws.init()` to initialize the communication with the graphql server and `.received` to get an `EventStream` of the type returned by your subscription.
+```scala
+ws.connect,
+ws.connected --> (_ => ws.init()),
+deletedCharacters.received.collectRight --> 
+  (name => characters.update(_.filterNot(_ == name))),
+```
+
+There is a full example in the `test` folder of the `caliban-client-laminext` module.
+To use it:
+- run `ExampleApp` of the http4s server example (it supports CORS)
+- run `clientLaminextJS/Test/fastLinkJS` to compile the Scala.js code
+- run `yarn install` and `yarn exec vite` in the `caliban-client-laminext` folder
+- the example page will be running on [http://localhost:3000](http://localhost:3000)

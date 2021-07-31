@@ -48,9 +48,18 @@ trait SchemaDerivation[R] {
             true
           case _ => false
         }
+        lazy val isInterface = annotations.exists {
+          case GQLInterface() => true
+          case _              => false
+        }
+        lazy val isUnion = annotations.exists {
+          case GQLUnion() => true
+          case _          => false
+        }
+
         new Schema[R, A] {
           def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
-            if (isEnum && subTypes.nonEmpty) {
+            if (isEnum && subTypes.nonEmpty && !isInterface && !isUnion) {
               makeEnum(
                 Some(getName(annotations, info)),
                 getDescription(annotations),
@@ -64,34 +73,30 @@ trait SchemaDerivation[R] {
                 },
                 Some(info.full)
               )
-            } else {
-              annotations.collectFirst { case GQLInterface() =>
-                ()
-              }.fold(
+            } else if (!isInterface)
                 makeUnion(
                   Some(getName(annotations, info)),
                   getDescription(annotations),
                   subTypes.map { case (_, t, _) => fixEmptyUnionObject(t) },
                   Some(info.full)
                 )
-              ) { _ =>
+              else {
                 val impl = subTypes.map(_._2.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
                 val commonFields = () => impl
                   .flatMap(_.fields(__DeprecatedArgs(Some(true))))
                   .flatten
                   .groupBy(_.name)
-                  .collect {
-                    case (name, list)
-                      if impl.forall(_.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).exists(_.name == name)) &&
-                        list.map(t => Types.name(t.`type`())).distinct.length == 1 =>
-                      list.headOption
+                  .filter({ case (name, list) => list.lengthCompare(impl.size) == 0 })
+                  .collect { case (name, list) =>
+                    Types
+                      .unify(list.map(_.`type`()))
+                      .flatMap(t => list.headOption.map(_.copy(`type` = () => t)))
                   }
                   .flatten
                   .toList
 
                 makeInterface(Some(getName(annotations, info)), getDescription(annotations), commonFields, impl, Some(info.full))
               }
-            }
           }
 
           def resolve(value: A): Step[R] = {

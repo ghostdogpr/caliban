@@ -289,7 +289,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
 
         assertM(
           interpreter.flatMap(_.execute(query, None, Map("name" -> StringValue("Amos Burton")))).map(_.data.toString)
-        )(equalTo("""{"exists":false}"""))
+        )(equalTo("""{"exists":true}"""))
       },
       testM("skip directive") {
         val interpreter = graphQL(resolver).interpreter
@@ -617,6 +617,42 @@ object ExecutionSpec extends DefaultRunnableSpec {
               )
           )
       },
+      testM("failure in ArgBuilder, optional field") {
+        case class UserArgs(id: Int)
+        case class User(test: UserArgs => String)
+        case class Mutations(user: Task[User])
+        case class Queries(a: Int)
+        val api = graphQL(RootResolver(Queries(1), Mutations(ZIO.succeed(User(_.toString)))))
+
+        val interpreter = api.interpreter
+        val query       =
+          """mutation {
+            |  user {
+            |    test(id: "wrong")
+            |  }
+            |}""".stripMargin
+        interpreter
+          .flatMap(_.execute(query))
+          .map(result => assert(result.data.toString)(equalTo("""{"user":null}""")))
+      },
+      testM("failure in ArgBuilder, non optional field") {
+        case class UserArgs(id: Int)
+        case class User(test: UserArgs => String)
+        case class Mutations(user: UIO[User])
+        case class Queries(a: Int)
+        val api = graphQL(RootResolver(Queries(1), Mutations(ZIO.succeed(User(_.toString)))))
+
+        val interpreter = api.interpreter
+        val query       =
+          """mutation {
+            |  user {
+            |    test(id: "wrong")
+            |  }
+            |}""".stripMargin
+        interpreter
+          .flatMap(_.execute(query))
+          .map(result => assert(result.data.toString)(equalTo("""null""")))
+      },
       testM("die inside a nullable list") {
         case class Queries(test: List[Task[String]])
         val api         = graphQL(RootResolver(Queries(List(ZIO.succeed("a"), ZIO.die(new Exception("Boom"))))))
@@ -834,6 +870,52 @@ object ExecutionSpec extends DefaultRunnableSpec {
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
           equalTo(
             """{"organization":{"groups":[{"id":"group1","organization":{"id":"abc"},"parent":null},{"id":"group2","organization":{"id":"abc"},"parent":{"id":"group1"}}]}}"""
+          )
+        )
+      },
+      testM("hand-rolled recursive lazy schema") {
+        import Schema._
+        case class Foo(id: Int) {
+          def bar(): Bar = Bar(234)
+        }
+
+        case class Bar(id: Int) {
+          def foo(): Foo = Foo(123)
+        }
+
+        implicit lazy val fooSchema: Schema[Any, Foo] = obj("Foo", None)(implicit ft =>
+          List(
+            field("id")(_.id),
+            fieldLazy("bar")(_.bar())
+          )
+        )
+
+        implicit lazy val barSchema: Schema[Any, Bar] = obj("Bar", None)(implicit ft =>
+          List(
+            field("id")(_.id),
+            fieldLazy("foo")(_.foo())
+          )
+        )
+
+        case class Queries(foos: Seq[Foo])
+
+        val queries: Queries = Queries(Seq(Foo(123)))
+
+        val calibanApi: GraphQL[Any] = GraphQL.graphQL(RootResolver(queries))
+
+        val interpreter = calibanApi.interpreter
+        val query       = gqldoc("""{
+            foos {
+              id
+              bar {
+                id
+              }
+            }
+          }""")
+
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
+          equalTo(
+            """{"foos":[{"id":123,"bar":{"id":234}}]}"""
           )
         )
       }

@@ -45,7 +45,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
             (for {
               typeDef      <- doc.objectTypeDefinitions
               typeDefField <- typeDef.fields
-              argClass      = SchemaWriter.writeArguments(typeDefField, typeDef) if argClass.length > 0
+              argClass      = SchemaWriter.writeArguments(typeDefField, typeDef) if argClass.nonEmpty
             } yield argClass).mkString("\n")
           }
           .flatMap(Formatter.format(_, None).map(_.trim))
@@ -76,7 +76,9 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
         val result = Parser
           .parseQuery(schema)
           .map(
-            _.objectTypeDefinition("Query").map(SchemaWriter.writeRootQueryOrMutationDef(_, "zio.UIO")).mkString("\n")
+            _.objectTypeDefinition("Query")
+              .map(SchemaWriter.writeRootQueryOrMutationDef(_, "zio.UIO", false))
+              .mkString("\n")
           )
           .flatMap(Formatter.format(_, None).map(_.trim))
 
@@ -100,7 +102,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
           .parseQuery(schema)
           .map(
             _.objectTypeDefinition("Mutation")
-              .map(SchemaWriter.writeRootQueryOrMutationDef(_, "zio.UIO"))
+              .map(SchemaWriter.writeRootQueryOrMutationDef(_, "zio.UIO", false))
               .mkString("\n")
           )
           .flatMap(Formatter.format(_, None).map(_.trim))
@@ -130,6 +132,59 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
             """
               |case class Subscription(
               |UserWatch: SubscriptionUserWatchArgs => ZStream[Any, Nothing, String]
+              |)""".stripMargin
+          )
+        )
+      },
+      testM("simple queries with abstracted effect type") {
+        val schema =
+          """
+         type Query {
+           user(id: Int): User
+           userList: [User]!
+         }
+         type User {
+           id: Int
+           name: String
+           profilePic: String
+         }"""
+
+        val result = Parser
+          .parseQuery(schema)
+          .map(
+            _.objectTypeDefinition("Query").map(SchemaWriter.writeRootQueryOrMutationDef(_, "F", true)).mkString("\n")
+          )
+          .flatMap(Formatter.format(_, None).map(_.trim))
+
+        assertM(result)(
+          equalTo(
+            """case class Query[F[_]](
+  user: QueryUserArgs => F[Option[User]],
+  userList: F[List[Option[User]]]
+)""".stripMargin
+          )
+        )
+      },
+      testM("simple mutation with abstracted effect type") {
+        val schema =
+          """
+         type Mutation {
+           setMessage(message: String): String
+         }
+         """
+        val result = Parser
+          .parseQuery(schema)
+          .map(
+            _.objectTypeDefinition("Mutation")
+              .map(SchemaWriter.writeRootQueryOrMutationDef(_, "F", true))
+              .mkString("\n")
+          )
+          .flatMap(Formatter.format(_, None).map(_.trim))
+
+        assertM(result)(
+          equalTo(
+            """case class Mutation[F[_]](
+              |  setMessage: MutationSetMessageArgs => F[Option[String]]
               |)""".stripMargin
           )
         )
@@ -221,10 +276,19 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
              Captain or Pilot
              \"\"\"
           """
+        val role2  =
+          s"""
+              \"\"\"
+             role2
+             Captain or Pilot or Stewart
+             \"\"\"
+          """
         val schema =
           s"""
              $role
              union Role = Captain | Pilot
+             $role2
+             union Role2 = Captain | Pilot | Stewart
              
              type Captain {
                "ship" shipName: String!
@@ -233,27 +297,39 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
              type Pilot {
                shipName: String!
              }
+             
+             type Stewart {
+               shipName: String!
+             }
             """.stripMargin
 
         assertM(gen(schema))(
           equalTo {
-            val role =
+            val role  =
               s"""\"\"\"role
 Captain or Pilot\"\"\""""
+            val role2 =
+              s"""\"\"\"role2
+Captain or Pilot or Stewart\"\"\""""
             s"""import caliban.schema.Annotations._
 
 object Types {
 
   @GQLDescription($role)
-  sealed trait Role extends scala.Product with scala.Serializable
+  sealed trait Role  extends scala.Product with scala.Serializable
+  @GQLDescription($role2)
+  sealed trait Role2 extends scala.Product with scala.Serializable
 
-  object Role {
-    case class Captain(
-      @GQLDescription("ship")
-      shipName: String
-    )                                  extends Role
-    case class Pilot(shipName: String) extends Role
+  object Role2 {
+    case class Stewart(shipName: String) extends Role2
   }
+
+  case class Captain(
+    @GQLDescription("ship")
+    shipName: String
+  )                                  extends Role
+      with Role2
+  case class Pilot(shipName: String) extends Role with Role2
 
 }
 """

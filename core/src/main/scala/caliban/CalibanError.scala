@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.ResponseValue.ObjectValue
-import caliban.interop.circe.IsCirceEncoder
+import caliban.interop.circe.{ IsCirceDecoder, IsCirceEncoder }
 import caliban.parsing.adt.LocationInfo
 
 /**
@@ -55,4 +55,7 @@ object CalibanError extends CalibanErrorJsonCompat {
 
   implicit def circeEncoder[F[_]](implicit ev: IsCirceEncoder[F]): F[CalibanError] =
     caliban.interop.circe.json.ErrorCirce.errorValueEncoder.asInstanceOf[F[CalibanError]]
+
+  implicit def circeDecoder[F[_]](implicit ev: IsCirceDecoder[F]): F[CalibanError] =
+    caliban.interop.circe.json.ErrorCirce.errorValueDecoder.asInstanceOf[F[CalibanError]]
 }

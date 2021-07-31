@@ -10,6 +10,8 @@ import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue, Resp
 import io.circe._
 import zio.ZIO
 import zio.query.ZQuery
+import io.circe.Json.JString
+import io.circe.Json.JNumber
 
 /**
  * This class is an implementation of the pattern described in https://blog.7mind.io/no-more-orphans.html
@@ -150,11 +152,38 @@ object json {
           .dropNullValues
     }
 
+    private implicit val locationInfoDecoder: Decoder[LocationInfo] = Decoder.instance(cursor =>
+      for {
+        column <- cursor.downField("column").as[Int]
+        line   <- cursor.downField("line").as[Int]
+      } yield LocationInfo(column, line)
+    )
+
+    private implicit val pathEitherDecoder: Decoder[Either[String, Int]] = Decoder.instance { cursor =>
+      (cursor.as[String].toOption, cursor.as[Int].toOption) match {
+        case (Some(s), _) => Right(Left(s))
+        case (_, Some(n)) => Right(Right(n))
+        case _            => Left(DecodingFailure("failed to decode as string or int", cursor.history))
+      }
+    }
+
+    implicit val errorValueDecoder: Decoder[CalibanError] = Decoder.instance(cursor =>
+      for {
+        message   <- cursor.downField("message").as[String]
+        path      <- cursor.downField("path").as[Option[List[Either[String, Int]]]]
+        locations <- cursor.downField("locations").as[Option[LocationInfo]]
+      } yield CalibanError.ExecutionError(
+        message,
+        path.getOrElse(Nil),
+        locations
+      )
+    )
   }
 
   private[caliban] object GraphQLResponseCirce {
     import io.circe._
     import io.circe.syntax._
+
     val graphQLResponseEncoder: Encoder[GraphQLResponse[Any]] = Encoder
       .instance[GraphQLResponse[Any]] {
         case GraphQLResponse(data, Nil, None)                => Json.obj("data" -> data.asJson)
@@ -170,6 +199,22 @@ object json {
           )
       }
 
+    implicit val graphQLRespondDecoder: Decoder[GraphQLResponse[CalibanError]] =
+      Decoder.instance(cursor =>
+        for {
+          data   <- cursor
+                      .downField("data")
+                      .as[ResponseValue]
+          errors <- cursor
+                      .downField("errors")
+                      .as[Option[List[CalibanError]]]
+        } yield GraphQLResponse[CalibanError](
+          data = data,
+          errors = errors.getOrElse(List()),
+          extensions = None
+        )
+      )
+
     private def handleError(err: Any): Json =
       err match {
         case ce: CalibanError => ce.asJson
@@ -180,6 +225,8 @@ object json {
 
   private[caliban] object GraphQLRequestCirce {
     import io.circe._
+    import io.circe.syntax._
+
     val graphQLRequestDecoder: Decoder[GraphQLRequest] = (c: HCursor) =>
       for {
         query         <- c.downField("query").as[Option[String]]
@@ -188,6 +235,14 @@ object json {
         extensions    <- c.downField("extensions").as[Option[Map[String, InputValue]]]
       } yield GraphQLRequest(query, operationName, variables, extensions)
 
+    implicit val graphQLRequestEncoder: Encoder[GraphQLRequest] =
+      Encoder.instance[GraphQLRequest](r =>
+        Json.obj(
+          "query"         -> r.query.asJson,
+          "operationName" -> r.operationName.asJson,
+          "variables"     -> r.variables.asJson,
+          "extensions"    -> r.extensions.asJson
+        )
+      )
   }
-
 }

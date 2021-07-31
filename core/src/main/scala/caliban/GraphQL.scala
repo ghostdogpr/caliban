@@ -121,7 +121,7 @@ trait GraphQL[-R] { self =>
                   execute           =
                     (req: ExecutionRequest) =>
                       Executor
-                        .executeRequest(req, op.plan, request.variables.getOrElse(Map()), fieldWrappers, queryExecution)
+                        .executeRequest(req, op.plan, fieldWrappers, queryExecution)
                   result           <- wrap(execute)(executionWrappers, executionRequest)
                 } yield result).catchAll(Executor.fail)
               )(overallWrappers, request)

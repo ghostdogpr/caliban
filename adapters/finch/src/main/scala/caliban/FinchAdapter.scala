@@ -70,7 +70,7 @@ object FinchAdapter extends Endpoint.Module[Task] {
     (paramOption[String]("query") ::
       paramOption[String]("operationName") ::
       paramOption[String]("variables") ::
-      paramOption[String]("extensions")).mapAsync { case (query :: op :: vars :: exts :: HNil) =>
+      paramOption[String]("extensions")).mapAsync { case query :: op :: vars :: exts :: HNil =>
       Task.fromEither(getGraphQLRequest(query, op, vars, exts))
     }
 

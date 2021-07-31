@@ -5,7 +5,19 @@ import io.circe.{ Decoder, Encoder, Json }
 /**
  * Value that can be returned by the server or sent as an argument.
  */
-sealed trait __Value
+sealed trait __Value { self =>
+  def dropNullValues: __Value = self match {
+    case __Value.__ListValue(values)   => __Value.__ListValue(values.map(_.dropNullValues))
+    case __Value.__ObjectValue(fields) =>
+      __Value.__ObjectValue(fields.flatMap { case (name, value) =>
+        value match {
+          case __Value.__NullValue => None
+          case _                   => Some(name -> value.dropNullValues)
+        }
+      })
+    case _                             => self
+  }
+}
 
 object __Value {
   case object __NullValue                                   extends __Value {
@@ -18,7 +30,7 @@ object __Value {
     override def toString: String = value
   }
   case class __StringValue(value: String)                   extends __Value {
-    override def toString: String = s""""${value.replace("\"", "\\\"")}""""
+    override def toString: String = Json.fromString(value).toString
   }
   case class __BooleanValue(value: Boolean)                 extends __Value {
     override def toString: String = value.toString

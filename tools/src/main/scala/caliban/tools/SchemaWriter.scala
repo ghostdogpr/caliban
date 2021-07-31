@@ -12,7 +12,8 @@ object SchemaWriter {
     schema: Document,
     packageName: Option[String] = None,
     effect: String = "zio.UIO",
-    imports: Option[List[String]] = None
+    imports: Option[List[String]] = None,
+    isEffectTypeAbstract: Boolean = false
   )(implicit scalarMappings: ScalarMappings): String = {
     val schemaDef = schema.schemaDefinition
 
@@ -24,7 +25,7 @@ object SchemaWriter {
       .map(union => (union, union.memberTypes.flatMap(schema.objectTypeDefinition)))
       .toMap
 
-    val unions = unionTypes.map { case (union, objects) => writeUnion(union, objects) }.mkString("\n")
+    val unions = writeUnions(unionTypes)
 
     val objects = schema.objectTypeDefinitions
       .filterNot(obj =>
@@ -43,12 +44,12 @@ object SchemaWriter {
 
     val queries = schema
       .objectTypeDefinition(schemaDef.flatMap(_.query).getOrElse("Query"))
-      .map(t => writeRootQueryOrMutationDef(t, effect))
+      .map(t => writeRootQueryOrMutationDef(t, effect, isEffectTypeAbstract))
       .getOrElse("")
 
     val mutations = schema
       .objectTypeDefinition(schemaDef.flatMap(_.mutation).getOrElse("Mutation"))
-      .map(t => writeRootQueryOrMutationDef(t, effect))
+      .map(t => writeRootQueryOrMutationDef(t, effect, isEffectTypeAbstract))
       .getOrElse("")
 
     val subscriptions = schema
@@ -103,17 +104,19 @@ object SchemaWriter {
     s"${safeName(field.name)} :$argsTypeName $effect[${writeType(field.ofType)}]"
   }
 
-  def writeRootQueryOrMutationDef(op: ObjectTypeDefinition, effect: String)(implicit
+  def writeRootQueryOrMutationDef(op: ObjectTypeDefinition, effect: String, isEffectTypeAbstract: Boolean)(implicit
     scalarMappings: ScalarMappings
-  ): String =
+  ): String = {
+    val typeParamOrEmpty = if (isEffectTypeAbstract) s"[$effect[_]]" else ""
     s"""
-       |${writeDescription(op.description)}case class ${op.name}(
+       |${writeDescription(op.description)}case class ${op.name}$typeParamOrEmpty(
        |${op.fields.map(c => writeRootField(c, op, effect)).mkString(",\n")}
        |)""".stripMargin
 
+  }
   def writeSubscriptionField(field: FieldDefinition, od: ObjectTypeDefinition)(implicit
     scalarMappings: ScalarMappings
-  ): String =
+  ): String                                                       =
     "%s:%s ZStream[Any, Nothing, %s]".format(
       safeName(field.name),
       if (field.args.nonEmpty) s" ${argsName(field, od)} =>" else "",
@@ -146,12 +149,71 @@ object SchemaWriter {
           }
        """
 
-  def writeUnion(typedef: UnionTypeDefinition, objects: List[ObjectTypeDefinition])(implicit
+  def writeUnions(unions: Map[UnionTypeDefinition, List[ObjectTypeDefinition]])(implicit
     scalarMappings: ScalarMappings
   ): String =
-    s"""${writeDescription(typedef.description)}sealed trait ${typedef.name} extends scala.Product with scala.Serializable
+    if (unions.nonEmpty) {
+      val flattened = unions.toList.flatMap { case (unionType, objectTypes) => objectTypes.map(_ -> unionType) }
 
-          object ${typedef.name} {
+      val (unionsWithoutReusedMembers, reusedUnionMembers) = flattened
+        .foldLeft(
+          (
+            Map.empty[UnionTypeDefinition, List[ObjectTypeDefinition]],
+            Map.empty[ObjectTypeDefinition, List[UnionTypeDefinition]]
+          )
+        ) {
+          case (
+                (unionsWithoutReusedMembers, reusedUnionMembers),
+                (objectType, unionType)
+              ) =>
+            val isReused = reusedUnionMembers.contains(objectType) ||
+              flattened.exists { case (_objectType, _unionType) =>
+                _unionType.name != unionType.name && _objectType.name == objectType.name
+              }
+
+            if (isReused) {
+              (
+                unionsWithoutReusedMembers,
+                reusedUnionMembers.updated(
+                  objectType,
+                  reusedUnionMembers.getOrElse(objectType, List.empty) :+ unionType
+                )
+              )
+            } else {
+              (
+                unionsWithoutReusedMembers.updated(
+                  unionType,
+                  unionsWithoutReusedMembers.getOrElse(unionType, List.empty) :+ objectType
+                ),
+                reusedUnionMembers
+              )
+            }
+        }
+
+      s"""${unions.keys.map(writeUnionSealedTrait).mkString("\n")}
+        
+        ${unionsWithoutReusedMembers.map { case (union, objects) => writeNotReusedMembers(union, objects) }
+        .mkString("\n")}
+        
+        ${reusedUnionMembers.map { case (objectType, unions) => writeReusedUnionMember(objectType, unions) }
+        .mkString("\n")}
+         """
+    } else ""
+
+  def writeUnionSealedTrait(union: UnionTypeDefinition): String =
+    s"""${writeDescription(
+      union.description
+    )}sealed trait ${union.name} extends scala.Product with scala.Serializable"""
+
+  def writeReusedUnionMember(typedef: ObjectTypeDefinition, unions: List[UnionTypeDefinition])(implicit
+    scalarMappings: ScalarMappings
+  ): String =
+    s"${writeObject(typedef)} extends ${unions.map(_.name).mkString(" with ")}"
+
+  def writeNotReusedMembers(typedef: UnionTypeDefinition, objects: List[ObjectTypeDefinition])(implicit
+    scalarMappings: ScalarMappings
+  ): String =
+    s"""object ${typedef.name} {
             ${objects
       .map(o => s"${writeObject(o)} extends ${typedef.name}")
       .mkString("\n")}

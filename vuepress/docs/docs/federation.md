@@ -9,7 +9,7 @@
 To use, add the following line to your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-federation" % "0.10.0"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-federation" % "1.1.0"
 ```
 
 ## Federating
@@ -60,7 +60,7 @@ Note the additional annotations we needed in this case. `Extend` is needed to te
 another service, while the `External` flags these fields as being owned by the other service (there are several other annotations
 available that you are encouraged to read about).
 
-Once you have annotated your types you need to tell `Federation` how to resolve those types. Federation uses a slightly
+Once you have annotated your types, you need to tell `Federation` how to resolve those types. Federation uses a slightly
 different mechanism in resolving types from a standard GraphQL query, so for each type that you wish to support, you will
 need to add an `EntityResolver`:
 
@@ -68,6 +68,16 @@ need to add an `EntityResolver`:
 EntityResolver[CharacterService, CharacterArgs, Character](args => 
   ZQuery.fromEffect(characters.getCharacter(args.name))
 )  
+```
+
+`EntityResolvers` like normal field resolvers also supports a "metadata" variant which can be used to inspect the requested
+fields and potentially optimize the resulting query. You can use the provided helper method if you need to access the metadata field:
+
+```scala
+EntityResolver.fromMetadata[CharacterArgs](field => args => {
+  if (field.fields.forall(_.name == "name")) ZQuery.succeed(Character(args.name, Nil, None))
+  else ZQuery.fromEffect(characters.getCharacter(args.name))
+})
 ```
 
 In the above we need to define an resolver which takes an `R` environment type,

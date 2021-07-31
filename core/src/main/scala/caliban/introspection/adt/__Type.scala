@@ -36,7 +36,7 @@ case class __Type(
     ofType match {
       case Some(of) =>
         kind match {
-          case __TypeKind.LIST     => ListType(of.toType(false), nonNull)
+          case __TypeKind.LIST     => ListType(of.toType(), nonNull)
           case __TypeKind.NON_NULL => of.toType(true)
           case _                   => NamedType(name.getOrElse(""), nonNull)
         }

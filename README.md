@@ -1,13 +1,10 @@
 # Caliban
 
-[![Build Status][Badge-Circle]][Link-Circle]
 [![Release Artifacts][Badge-SonatypeReleases]][Link-SonatypeReleases]
 [![Snapshot Artifacts][Badge-SonatypeSnapshots]][Link-SonatypeSnapshots]
 [![Badge-Scaladoc]][Link-Scaladoc]
 [![Badge-Discord]][Link-Discord]
 
-[Link-Circle]: https://circleci.com/gh/ghostdogpr/caliban "circleci"
-[Badge-Circle]: https://circleci.com/gh/ghostdogpr/caliban.svg?style=shield "circleci"
 [Link-SonatypeReleases]: https://oss.sonatype.org/content/repositories/releases/com/github/ghostdogpr/caliban_2.12/ "Sonatype Releases"
 [Badge-SonatypeReleases]: https://img.shields.io/nexus/r/https/oss.sonatype.org/com.github.ghostdogpr/caliban_2.12.svg "Sonatype Releases"
 [Link-SonatypeSnapshots]: https://oss.sonatype.org/content/repositories/snapshots/com/github/ghostdogpr/caliban_2.12/ "Sonatype Snapshots"
@@ -38,5 +35,6 @@ Want to see your company here? [Submit a PR](https://github.com/ghostdogpr/calib
 * [Carvana](https://www.carvana.com)
 * [Credimi](https://www.credimi.com)
 * [Devsisters](https://www.devsisters.com)
+* [Fugo.ai](https://www.fugo.ai)
 * [LeadIQ](https://leadiq.com)
 * [Sanjagh.pro](https://sanjagh.pro)

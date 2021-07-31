@@ -1,14 +1,39 @@
-$ exists project/schema.graphql
-$ absent src/main/scala/Client.scala
 $ absent src/main/scala/client/ClientNameUniqueness.scala
+$ absent src/main/scala/client/ClientGitLab.scala
+$ absent app/com/caliban/client/ClientPlayFramework.scala
+$ absent play23/com/caliban/client/ClientPlayFramework.scala
+
 $ mkdir src/main/scala
 $ mkdir src/main/scala/client
+$ mkdir app/com/caliban/client
+$ mkdir play23/com/caliban/client
 
-> calibanGenClient project/schema.graphql src/main/scala/Client.scala
-$ exists src/main/scala/Client.scala
 > calibanGenClient project/schema-to-check-name-uniqueness.graphql src/main/scala/client/ClientNameUniqueness.scala --packageName client
 $ exists src/main/scala/client/ClientNameUniqueness.scala
-> calibanGenClient project/gitlab-schema.graphql src/main/scala/client/ClientGitLab.scala --packageName client
-$ exists src/main/scala/client/ClientGitLab.scala
 
+> calibanGenClient project/schema-to-check-name-uniqueness.graphql app/com/caliban/client/ClientPlayFramework.scala --packageName client 
+$ exists app/com/caliban/client/ClientPlayFramework.scala
+$ exec sh verify.sh ClientPlayFramework ./app/com/caliban/client/ClientPlayFramework.scala
+
+> calibanGenClient project/schema-to-check-name-uniqueness.graphql play23/com/caliban/client/ClientPlayFramework.scala --packageName client
+$ exists play23/com/caliban/client/ClientPlayFramework.scala
+$ exec sh verify.sh ClientPlayFramework ./play23/com/caliban/client/ClientPlayFramework.scala
+
+$ mkdir src/main/scala/genview
+$ mkdir src/main/scala/genview/client
+
+> calibanGenClient project/schema-to-check-name-uniqueness.graphql src/main/scala/genview/client/ClientNameUniqueness.scala --packageName genview.client --genView true
+$ exists src/main/scala/genview/client/ClientNameUniqueness.scala
+$ exec sh verify.sh StarshipView ./src/main/scala/genview/client/ClientNameUniqueness.scala
+> calibanGenClient project/gitlab-schema.graphql src/main/scala/genview/client/ClientGitLab.scala --packageName genview.client --genView true --splitFiles true --enableFmt false
+$ exists src/main/scala/genview/client/package.scala
+$ exec sh verify.sh ProjectID ./src/main/scala/genview/client/package.scala
+$ exists src/main/scala/genview/client/Project.scala
+$ exec sh verify.sh ProjectView ./src/main/scala/genview/client/Project.scala
+$ exec sh verify.sh ProjectViewArgs ./src/main/scala/genview/client/Project.scala
+$ exec sh verify.sh ProjectViewSelectionArgs ./src/main/scala/genview/client/Project.scala
 > compile
+
+$ exists target/scala-2.12/src_managed/main/caliban-codegen-sbt/caliban/Client.scala
+$ exists target/scala-2.12/src_managed/main/caliban-codegen-sbt/genview/Client.scala
+$ exec sh verify.sh CharacterView target/scala-2.12/src_managed/main/caliban-codegen-sbt/genview/Client.scala

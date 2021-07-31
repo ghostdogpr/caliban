@@ -1,16 +1,16 @@
 package caliban.client
 
-import scala.collection.immutable.{ Map => SMap }
 import caliban.client.CalibanClientError.{ CommunicationError, DecodingError, ServerError }
 import caliban.client.FieldBuilder.Scalar
 import caliban.client.Operations.IsOperation
 import caliban.client.Selection.Directive
 import caliban.client.__Value.__ObjectValue
-import io.circe.parser
+import io.circe.{ parser, Json }
 import sttp.client3._
 import sttp.client3.circe._
 import sttp.model.Uri
-import io.circe.Json
+
+import scala.collection.immutable.{ Map => SMap }
 
 /**
  * Represents a selection from parent type `Origin` that returns a result of type `A`.
@@ -49,14 +49,38 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
   def withAlias(alias: String): SelectionBuilder[Origin, A]
 
   /**
+   * Parse the given response payload into the expected return type,
+   * with an potential list of partial errors and an optional extensions object
+   */
+  def decode(payload: String): Either[CalibanClientError, (A, List[GraphQLResponseError], Option[Json])] =
+    for {
+      parsed      <- parser
+                       .decode[GraphQLResponse](payload)
+                       .left
+                       .map(ex => DecodingError("Json deserialization error", Some(ex)))
+      data        <- if (parsed.errors.nonEmpty && parsed.data.forall(_ == __Value.__NullValue))
+                       Left(ServerError(parsed.errors))
+                     else Right(parsed.data)
+      objectValue <- data match {
+                       case Some(o: __ObjectValue) => Right(o)
+                       case _                      => Left(DecodingError("Result is not an object"))
+                     }
+      result      <- self.fromGraphQL(objectValue)
+    } yield (result, parsed.errors, parsed.extensions)
+
+  /**
    * Transforms a root selection into a GraphQL request.
    * @param useVariables if true, all arguments will be passed as variables (default: false)
+   * @param queryName if specified, use the given query name
+   * @param dropNullInputValues if true, drop all null values from input object arguments (default: false)
    */
   def toGraphQL[A1 >: A, Origin1 <: Origin](
     useVariables: Boolean = false,
-    queryName: Option[String] = None
+    queryName: Option[String] = None,
+    dropNullInputValues: Boolean = false
   )(implicit ev: IsOperation[Origin1]): GraphQLRequest = {
-    val (fields, variables) = SelectionBuilder.toGraphQL(toSelectionSet, useVariables)
+    val (fields, variables) =
+      SelectionBuilder.toGraphQL(toSelectionSet, useVariables, dropNullInputValues)
     val variableDef         =
       if (variables.nonEmpty)
         s"(${variables.map { case (name, (_, typeName)) => s"$$$name: $typeName" }.mkString(",")})"
@@ -68,49 +92,46 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
 
   /**
    * Transforms a root selection into an STTP request ready to be run.
+   * To access partial errors and extensions, use `toRequestWith`.
    * @param uri the URL of the GraphQL server
    * @param useVariables if true, all arguments will be passed as variables (default: false)
+   * @param queryName if specified, use the given query name
+   * @param dropNullInputValues if true, drop all null values from input object arguments (default: false)
    * @return an STTP request
    */
   def toRequest[A1 >: A, Origin1 <: Origin](
     uri: Uri,
     useVariables: Boolean = false,
-    queryName: Option[String] = None
+    queryName: Option[String] = None,
+    dropNullInputValues: Boolean = false
   )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, A1], Any] =
-    toRequestWithExtensions[A1, Origin1](uri, useVariables, queryName)(ev).mapResponse {
-      case Right((r, _)) => Right(r)
-      case Left(l)       => Left(l)
-    }
+    toRequestWith[A1, Origin1](uri, useVariables, queryName, dropNullInputValues)((res, _, _) => res)(ev)
 
   /**
    * Transforms a root selection into an STTP request ready to be run.
+   * More powerful than `toRequest`, it gives you access to partial errors and extensions.
    * @param uri the URL of the GraphQL server
    * @param useVariables if true, all arguments will be passed as variables (default: false)
+   * @param queryName if specified, use the given query name
+   * @param dropNullInputValues if true, drop all null values from input object arguments (default: false)
    * @return an STTP request
    */
-  def toRequestWithExtensions[A1 >: A, Origin1 <: Origin](
+  def toRequestWith[B, Origin1 <: Origin](
     uri: Uri,
     useVariables: Boolean = false,
-    queryName: Option[String] = None
-  )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, (A1, Option[Json])], Any] =
+    queryName: Option[String] = None,
+    dropNullInputValues: Boolean = false
+  )(
+    mapResponse: (A, List[GraphQLResponseError], Option[Json]) => B
+  )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, B], Any] =
     basicRequest
       .post(uri)
-      .body(toGraphQL(useVariables, queryName))
-      .mapResponse { response =>
-        for {
-          resp        <- response.left.map(CommunicationError(_))
-          parsed      <- parser
-                           .decode[GraphQLResponse](resp)
-                           .left
-                           .map(ex => DecodingError("Json deserialization error", Some(ex)))
-          data        <- if (parsed.errors.nonEmpty) Left(ServerError(parsed.errors)) else Right(parsed.data)
-          objectValue <- data match {
-                           case Some(o: __ObjectValue) => Right(o)
-                           case _                      => Left(DecodingError("Result is not an object"))
-                         }
-          result      <- fromGraphQL(objectValue)
-        } yield (result, parsed.extensions)
-      }
+      .body(toGraphQL(useVariables, queryName, dropNullInputValues))
+      .mapResponse(
+        _.left
+          .map(CommunicationError(_))
+          .flatMap(decode(_).map { case (result, errors, extensions) => mapResponse(result, errors, extensions) })
+      )
 
   /**
    * Maps a tupled result to a type `Res` using a  function `f` with 2 parameters
@@ -418,20 +439,21 @@ object SelectionBuilder {
   def toGraphQL(
     fields: List[Selection],
     useVariables: Boolean,
+    dropNullInputValues: Boolean = false,
     variables: SMap[String, (__Value, String)] = SMap()
   ): (String, SMap[String, (__Value, String)]) = {
     val fieldNames            = fields.collect { case f: Selection.Field => f }.groupBy(_.name).map { case (k, v) => k -> v.size }
     val (fields2, variables2) = fields
       .foldLeft((List.empty[String], variables)) {
         case ((fields, variables), Selection.InlineFragment(onType, selection)) =>
-          val (f, v) = toGraphQL(selection, useVariables, variables)
+          val (f, v) = toGraphQL(selection, useVariables, dropNullInputValues, variables)
           (s"... on $onType{$f}" :: fields, v)
 
         case ((fields, variables), Selection.Field(alias, name, arguments, directives, selection, code)) =>
           // format arguments
           val (args, variables2) = arguments
             .foldLeft((List.empty[String], variables)) { case ((args, variables), a) =>
-              val (a2, v2) = a.toGraphQL(useVariables, variables)
+              val (a2, v2) = a.toGraphQL(useVariables, dropNullInputValues, variables)
               (a2 :: args, v2)
             }
           val argString          = args.filterNot(_.isEmpty).reverse.mkString(",") match {
@@ -442,7 +464,7 @@ object SelectionBuilder {
           // format directives
           val (dirs, variables3) = directives
             .foldLeft((List.empty[String], variables2)) { case ((dirs, variables), d) =>
-              val (d2, v2) = d.toGraphQL(useVariables, variables)
+              val (d2, v2) = d.toGraphQL(useVariables, dropNullInputValues, variables)
               (d2 :: dirs, v2)
             }
           val dirString          = dirs.reverse.mkString(" ") match {
@@ -456,7 +478,7 @@ object SelectionBuilder {
                              else alias).fold("")(_ + ":")
 
           // format selection
-          val (sel, variables4) = toGraphQL(selection, useVariables, variables3)
+          val (sel, variables4) = toGraphQL(selection, useVariables, dropNullInputValues, variables3)
           val selString         = if (sel.nonEmpty) s"{$sel}" else ""
 
           (s"$aliasString$name$argString$dirString$selString" :: fields, variables4)
