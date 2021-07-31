@@ -52,7 +52,7 @@ object ExampleCatsInterop extends IOApp {
 
 You can find this example within the [examples](https://github.com/ghostdogpr/caliban/blob/master/examples/src/main/scala/example/interop/cats/ExampleCatsInterop.scala) project.
 
-## Monix
+## Monix (only with cats-effect 2.x)
 You first need to import `caliban.interop.monix.implicits._` and have an implicit `zio.Runtime` in scope. Then a few helpers are available:
 
 - the `GraphQL` object is enriched with `interpreterAsync`, a variant of `interpreter` that return a Monix `Task` instead of a `ZIO`.
