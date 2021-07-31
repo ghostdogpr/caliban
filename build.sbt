@@ -6,23 +6,25 @@ val scala213 = "2.13.6"
 val scala3   = "3.0.1"
 val allScala = Seq(scala212, scala213, scala3)
 
-val akkaVersion           = "2.6.15"
-val catsEffectVersion     = "3.2.1"
-val circeVersion          = "0.14.1"
-val http4sVersion         = "0.23.0"
-val laminextVersion       = "0.13.10"
-val magnoliaVersion       = "0.17.0"
-val mercatorVersion       = "0.2.1"
-val playVersion           = "2.8.8"
-val playJsonVersion       = "2.9.2"
-val sttpVersion           = "3.3.12"
-val tapirVersion          = "0.18.1"
-val zioVersion            = "1.0.10"
-val zioInteropCatsVersion = "3.1.1.0"
-val zioConfigVersion      = "1.0.6"
-val zqueryVersion         = "0.2.9"
-val zioJsonVersion        = "0.1.5"
-val zioHttpVersion        = "1.0.0.0-RC17"
+val akkaVersion            = "2.6.15"
+val catsEffect2Version     = "2.5.2"
+val catsEffect3Version     = "3.2.1"
+val circeVersion           = "0.14.1"
+val http4sVersion          = "0.23.0"
+val laminextVersion        = "0.13.10"
+val magnoliaVersion        = "0.17.0"
+val mercatorVersion        = "0.2.1"
+val playVersion            = "2.8.8"
+val playJsonVersion        = "2.9.2"
+val sttpVersion            = "3.3.12"
+val tapirVersion           = "0.18.1"
+val zioVersion             = "1.0.10"
+val zioInteropCats2Version = "2.5.1.0"
+val zioInteropCats3Version = "3.1.1.0"
+val zioConfigVersion       = "1.0.6"
+val zqueryVersion          = "0.2.9"
+val zioJsonVersion         = "0.1.5"
+val zioHttpVersion         = "1.0.0.0-RC17"
 
 inThisBuild(
   List(
@@ -67,13 +69,13 @@ lazy val root = project
   .aggregate(
     macros,
     core,
-    /*finch,*/
+    finch,
     http4s,
     akkaHttp,
     play,
     zioHttp,
     catsInterop,
-    /*monixInterop,*/
+    monixInterop,
     tapirInterop,
     clientJVM,
     clientJS,
@@ -194,24 +196,24 @@ lazy val catsInterop = project
       if (scalaVersion.value == scala3) Seq()
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.0").cross(CrossVersion.full)))
     } ++ Seq(
-      "dev.zio"       %% "zio-interop-cats" % zioInteropCatsVersion,
-      "org.typelevel" %% "cats-effect"      % catsEffectVersion
+      "dev.zio"       %% "zio-interop-cats" % zioInteropCats3Version,
+      "org.typelevel" %% "cats-effect"      % catsEffect3Version
     )
   )
   .dependsOn(core)
 
-/*lazy val monixInterop = project
+lazy val monixInterop = project
   .in(file("interop/monix"))
   .settings(name := "caliban-monix")
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
       "dev.zio"  %% "zio-interop-reactivestreams" % "1.3.5",
-      "dev.zio"  %% "zio-interop-cats"            % zioInteropCatsVersion,
+      "dev.zio"  %% "zio-interop-cats"            % zioInteropCats2Version,
       "io.monix" %% "monix"                       % "3.4.0"
     )
   )
-  .dependsOn(core)*/
+  .dependsOn(core)
 
 lazy val tapirInterop = project
   .in(file("interop/tapir"))
@@ -242,8 +244,8 @@ lazy val http4s = project
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.0").cross(CrossVersion.full)))
     } ++
       Seq(
-        "dev.zio"                       %% "zio-interop-cats"              % zioInteropCatsVersion,
-        "org.typelevel"                 %% "cats-effect"                   % catsEffectVersion,
+        "dev.zio"                       %% "zio-interop-cats"              % zioInteropCats3Version,
+        "org.typelevel"                 %% "cats-effect"                   % catsEffect3Version,
         "org.http4s"                    %% "http4s-dsl"                    % http4sVersion,
         "org.http4s"                    %% "http4s-circe"                  % http4sVersion,
         "org.http4s"                    %% "http4s-blaze-server"           % http4sVersion,
@@ -294,7 +296,7 @@ lazy val akkaHttp = project
   )
   .dependsOn(core)
 
-/*lazy val finch = project
+lazy val finch = project
   .in(file("adapters/finch"))
   .settings(name := "caliban-finch")
   .settings(commonSettings)
@@ -303,12 +305,12 @@ lazy val akkaHttp = project
     libraryDependencies ++= Seq(
       "com.github.finagle" %% "finchx-core"      % "0.32.1",
       "com.github.finagle" %% "finchx-circe"     % "0.32.1",
-      "dev.zio"            %% "zio-interop-cats" % zioInteropCatsVersion,
-      "org.typelevel"      %% "cats-effect"      % catsEffectVersion,
+      "dev.zio"            %% "zio-interop-cats" % zioInteropCats2Version,
+      "org.typelevel"      %% "cats-effect"      % catsEffect2Version,
       "io.circe"           %% "circe-parser"     % circeVersion
     )
   )
-  .dependsOn(core)*/
+  .dependsOn(core)
 
 lazy val play = project
   .in(file("adapters/play"))
