@@ -41,4 +41,9 @@ object Annotations {
    * Annotation to make a sealed trait a union instead of an enum
    */
   case class GQLUnion() extends StaticAnnotation
+
+  /**
+   * Annotation to make a union or interface redirect to a value type
+   */
+  case class GQLValueType() extends StaticAnnotation
 }

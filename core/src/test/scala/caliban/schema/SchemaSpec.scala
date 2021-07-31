@@ -1,8 +1,10 @@
 package caliban.schema
 
+import caliban.Rendering
+
 import java.util.UUID
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
-import caliban.schema.Annotations.{ GQLInterface, GQLUnion }
+import caliban.schema.Annotations.{ GQLInterface, GQLUnion, GQLValueType }
 import zio.blocking.Blocking
 import zio.console.Console
 import zio.query.ZQuery
@@ -126,6 +128,24 @@ object SchemaSpec extends DefaultRunnableSpec {
         implicit val somethingSchema: Schema[Any, Something] = Schema.gen[Something].rename("SomethingElse")
 
         assert(Types.innerType(introspectSubscription[Something]).name)(isSome(equalTo("SomethingElse")))
+      },
+      test("union redirect") {
+        case class Queries(union: RedirectingUnion)
+
+        implicit val queriesSchema: Schema[Any, Queries] = Schema.gen[Queries]
+
+        val types      = Types.collectTypes(introspect[Queries])
+        val subTypes   = types.find(_.name.contains("RedirectingUnion")).flatMap(_.possibleTypes)
+        val fieldNames =
+          subTypes.toList.flatMap(_.flatMap(_.fields(__DeprecatedArgs()).map(_.map(_.name)))).toSet.flatten
+        assert(subTypes.map(_.flatMap(_.name)))(
+          isSome(
+            hasSameElements(
+              List("A", "B")
+            )
+          )
+        ) &&
+        assert(fieldNames)(hasSameElements(List("common")))
       }
     )
 
@@ -146,6 +166,18 @@ object SchemaSpec extends DefaultRunnableSpec {
   object EnumLikeUnion {
     case object A extends EnumLikeUnion
     case object B extends EnumLikeUnion
+  }
+
+  @GQLUnion
+  sealed trait RedirectingUnion
+
+  object RedirectingUnion {
+    case class B(common: Int)
+
+    case class A(common: Int) extends RedirectingUnion
+
+    @GQLValueType
+    case class Redirect(value: B) extends RedirectingUnion
   }
 
   @GQLInterface
