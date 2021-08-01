@@ -77,7 +77,7 @@ trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
 
     override def resolve(value: T): Step[R] =
       if (ctx.isObject) PureStep(EnumValue(getName(ctx)))
-      else if (ctx.isValueClass && ctx.parameters.nonEmpty) {
+      else if ((ctx.isValueClass || isValueType(ctx)) && ctx.parameters.nonEmpty) {
         val head = ctx.parameters.head
         head.typeclass.resolve(head.dereference(value))
       } else {
