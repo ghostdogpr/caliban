@@ -105,65 +105,70 @@ trait SchemaDerivation[R] {
           }
         }
       case m: Mirror.ProductOf[A] =>
-        lazy val fields = recurse[m.MirroredElemLabels, m.MirroredElemTypes]()
-        lazy val info = Macros.typeInfo[A]
         lazy val annotations = Macros.annotations[A]
-        lazy val paramAnnotations = Macros.paramAnnotations[A].toMap
-        new Schema[R, A] {
-          def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-            if (isInput)
-              makeInputObject(
-                Some(annotations.collectFirst { case GQLInputName(suffix) => suffix }
-                  .getOrElse(customizeInputTypeName(getName(annotations, info)))),
-                getDescription(annotations),
-                fields
-                  .map { case (label, _, schema, _) =>
-                    val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
-                    __InputValue(
-                      getName(paramAnnotations.getOrElse(label, Nil), label),
-                      getDescription(fieldAnnotations),
-                      () =>
-                        if (schema.optional) schema.toType_(isInput, isSubscription)
-                        else makeNonNull(schema.toType_(isInput, isSubscription)),
-                      None,
-                      Some(fieldAnnotations.collect { case GQLDirective(dir) => dir }).filter(_.nonEmpty)
-                    )
-                  },
-                Some(info.full)
-              )
-            else
-              makeObject(
-                Some(getName(annotations, info)),
-                getDescription(annotations),
-                fields
-                  .map { case (label, _, schema, _) =>
-                    val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
-                    __Field(
-                      getName(fieldAnnotations, label),
-                      getDescription(fieldAnnotations),
-                      schema.arguments,
-                      () =>
-                        if (schema.optional) schema.toType_(isInput, isSubscription)
-                        else makeNonNull(schema.toType_(isInput, isSubscription)),
-                      fieldAnnotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
-                      fieldAnnotations.collectFirst { case GQLDeprecated(reason) => reason },
-                      Option(fieldAnnotations.collect { case GQLDirective(dir) => dir }).filter(_.nonEmpty)
-                    )
-                  },
-                getDirectives(annotations),
-                Some(info.full)
-              )
+        lazy val fields = recurse[m.MirroredElemLabels, m.MirroredElemTypes]()
+        if (isValueType(annotations) && fields.nonEmpty) {
+          fields.head._3.asInstanceOf[Schema[R, A]]
+        }
+        else {
+          lazy val info = Macros.typeInfo[A]
+          lazy val paramAnnotations = Macros.paramAnnotations[A].toMap
+          new Schema[R, A] {
+            def toType(isInput: Boolean, isSubscription: Boolean): __Type =
+              if (isInput)
+                makeInputObject(
+                  Some(annotations.collectFirst { case GQLInputName(suffix) => suffix }
+                    .getOrElse(customizeInputTypeName(getName(annotations, info)))),
+                  getDescription(annotations),
+                  fields
+                    .map { case (label, _, schema, _) =>
+                      val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
+                      __InputValue(
+                        getName(paramAnnotations.getOrElse(label, Nil), label),
+                        getDescription(fieldAnnotations),
+                        () =>
+                          if (schema.optional) schema.toType_(isInput, isSubscription)
+                          else makeNonNull(schema.toType_(isInput, isSubscription)),
+                        None,
+                        Some(fieldAnnotations.collect { case GQLDirective(dir) => dir }).filter(_.nonEmpty)
+                      )
+                    },
+                  Some(info.full)
+                )
+              else
+                makeObject(
+                  Some(getName(annotations, info)),
+                  getDescription(annotations),
+                  fields
+                    .map { case (label, _, schema, _) =>
+                      val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
+                      __Field(
+                        getName(fieldAnnotations, label),
+                        getDescription(fieldAnnotations),
+                        schema.arguments,
+                        () =>
+                          if (schema.optional) schema.toType_(isInput, isSubscription)
+                          else makeNonNull(schema.toType_(isInput, isSubscription)),
+                        fieldAnnotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
+                        fieldAnnotations.collectFirst { case GQLDeprecated(reason) => reason },
+                        Option(fieldAnnotations.collect { case GQLDirective(dir) => dir }).filter(_.nonEmpty)
+                      )
+                    },
+                  getDirectives(annotations),
+                  Some(info.full)
+                )
 
-          def resolve(value: A): Step[R] =
-            if (fields.isEmpty) PureStep(EnumValue(getName(annotations, info)))
-            else {
-              val fieldsBuilder = Map.newBuilder[String, Step[R]]
-              fields.foreach { case (label, _, schema, index) =>
-                val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
-                fieldsBuilder += getName(fieldAnnotations, label) -> schema.resolve(value.asInstanceOf[Product].productElement(index))
+            def resolve(value: A): Step[R] =
+              if (fields.isEmpty) PureStep(EnumValue(getName(annotations, info)))
+              else {
+                val fieldsBuilder = Map.newBuilder[String, Step[R]]
+                fields.foreach { case (label, _, schema, index) =>
+                  val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
+                  fieldsBuilder += getName(fieldAnnotations, label) -> schema.resolve(value.asInstanceOf[Product].productElement(index))
+                }
+                ObjectStep(getName(annotations, info), fieldsBuilder.result())
               }
-              ObjectStep(getName(annotations, info), fieldsBuilder.result())
-            }
+          }
         }
     }
 
@@ -195,6 +200,12 @@ trait SchemaDerivation[R] {
         case Nil  => info.short
         case args => info.short + args.map(getName(Nil, _)).mkString
       }
+    }
+
+  private def isValueType(annotations: Seq[Any]): Boolean =
+    annotations.exists {
+      case GQLValueType() => true
+      case _ => false
     }
 
   private def getName(annotations: Seq[Any], label: String): String =
