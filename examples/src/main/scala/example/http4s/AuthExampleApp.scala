@@ -12,7 +12,6 @@ import org.http4s.server.{ Router, ServiceErrorHandler }
 import org.typelevel.ci.CIString
 import zio._
 import zio.interop.catz._
-import zio.interop.catz.implicits._
 
 import scala.concurrent.ExecutionContext
 
@@ -62,7 +61,7 @@ object AuthExampleApp extends CatsApp {
                        .bindHttp(8088, "localhost")
                        .withHttpApp(Router[Task]("/api/graphql" -> route).orNotFound)
                        .resource
-                       .toManaged
+                       .toManagedZIO
                        .useForever
     } yield ()).exitCode
 }

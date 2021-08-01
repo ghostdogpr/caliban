@@ -20,16 +20,16 @@ import caliban.GraphQL.graphQL
 import caliban.RootResolver
 import caliban.interop.cats.implicits._
 import cats.effect.{ ExitCode, IO, IOApp }
+import cats.effect.std.Dispatcher
 import zio.Runtime
 
 object ExampleCatsInterop extends IOApp {
 
-  implicit val runtime = Runtime.default
+  implicit val zioRuntime = Runtime.default
 
   case class Queries(numbers: List[Int], randomNumber: IO[Int])
 
-  val queries     = Queries(List(1, 2, 3, 4), IO(scala.util.Random.nextInt()))
-  val api = graphQL(RootResolver(queries))
+  val queries = Queries(List(1, 2, 3, 4), IO(scala.util.Random.nextInt()))
 
   val query = """
   {
@@ -38,17 +38,21 @@ object ExampleCatsInterop extends IOApp {
   }"""
 
   override def run(args: List[String]): IO[ExitCode] =
-    for {
-      interpreter <- api.interpreterAsync[IO]
-      result      <- interpreter.executeAsync[IO](query)
-      _           <- IO(println(result.data))
-    } yield ExitCode.Success
+    Dispatcher[IO].use { implicit dispatcher => // required for a derivation of the schema
+      val api = graphQL(RootResolver(queries))
+
+      for {
+        interpreter <- api.interpreterAsync[IO]
+        result      <- interpreter.executeAsync[IO](query)
+        _           <- IO(println(result.data))
+      } yield ExitCode.Success
+    }
 }
 ```
 
 You can find this example within the [examples](https://github.com/ghostdogpr/caliban/blob/master/examples/src/main/scala/example/interop/cats/ExampleCatsInterop.scala) project.
 
-## Monix
+## Monix (only with cats-effect 2.x)
 You first need to import `caliban.interop.monix.implicits._` and have an implicit `zio.Runtime` in scope. Then a few helpers are available:
 
 - the `GraphQL` object is enriched with `interpreterAsync`, a variant of `interpreter` that return a Monix `Task` instead of a `ZIO`.
@@ -69,7 +73,7 @@ import zio.Runtime
 
 object ExampleMonixInterop extends TaskApp {
 
-  implicit val runtime = Runtime.default
+  implicit val zioRuntime = Runtime.default
   implicit val monixScheduler: Scheduler = scheduler
 
   case class Queries(numbers: List[Int], randomNumber: Task[Int])

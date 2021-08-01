@@ -1,4 +1,5 @@
 package example.interop.monix
+/*
 
 import caliban.GraphQL.graphQL
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
@@ -61,3 +62,4 @@ object ExampleMonixInterop extends TaskApp {
           }
     } yield ExitCode.Success
 }
+*/

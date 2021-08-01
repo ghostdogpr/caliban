@@ -6,7 +6,6 @@ import caliban.interop.tapir._
 import caliban.{ GraphQL, Http4sAdapter }
 
 import cats.data.Kleisli
-import cats.effect.Blocker
 import org.http4s.StaticFile
 import org.http4s.implicits._
 import org.http4s.server.Router
@@ -14,9 +13,7 @@ import org.http4s.blaze.server.BlazeServerBuilder
 import org.http4s.server.middleware.CORS
 import sttp.tapir.server.ServerEndpoint
 import zio._
-import zio.blocking.Blocking
 import zio.interop.catz._
-import zio.interop.catz.implicits._
 
 import scala.concurrent.ExecutionContext
 
@@ -43,18 +40,17 @@ object ExampleApp extends CatsApp {
 
   override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
     (for {
-      blocker     <- ZIO.access[Blocking](_.get.blockingExecutor.asEC).map(Blocker.liftExecutionContext)
       interpreter <- graphql.interpreter
       _           <- BlazeServerBuilder[Task](ExecutionContext.global)
                        .bindHttp(8088, "localhost")
                        .withHttpApp(
                          Router[Task](
                            "/api/graphql" -> CORS(Http4sAdapter.makeHttpService(interpreter)),
-                           "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", blocker, None))
+                           "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
                          ).orNotFound
                        )
                        .resource
-                       .toManaged
+                       .toManagedZIO
                        .useForever
     } yield ()).exitCode
 }
