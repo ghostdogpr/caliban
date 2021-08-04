@@ -137,7 +137,6 @@ object OptionsSpec extends DefaultRunnableSpec {
           )
         )
       },
-
       test("provide effect") {
         val input  = List("schema", "output", "--effect", "cats.effect.IO")
         val result = Options.fromArgs(input)
