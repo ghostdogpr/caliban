@@ -4,7 +4,7 @@
 
 No worries! Head to the [Resources](https://ghostdogpr.github.io/caliban/resources/) page to find a few introductory videos and blog posts. Once you're ready for more details, check the [Documentation](https://ghostdogpr.github.io/caliban/docs/). If you prefer looking at some code first, check [this list of examples](https://ghostdogpr.github.io/caliban/docs/examples.html).
 
-If you're still lost, just come to the [Discord channel](https://discordapp.com/channels/629491597070827530/633200096393166868)!
+If you're still lost, just come to the [Discord channel](https://discord.gg/EYpumuv)!
  
 ### I'm getting a compilation error saying a `Schema` is missing, but I don't know which one.
 
