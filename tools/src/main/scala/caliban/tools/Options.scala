@@ -9,6 +9,7 @@ final case class Options(
   fmtPath: Option[String],
   headers: Option[List[Options.Header]],
   packageName: Option[String],
+  clientName: Option[String],
   genView: Option[Boolean],
   effect: Option[String],
   scalarMappings: Option[Map[String, String]],
@@ -25,6 +26,7 @@ object Options {
     scalafmtPath: Option[String],
     headers: Option[List[String]],
     packageName: Option[String],
+    clientName: Option[String],
     genView: Option[Boolean],
     effect: Option[String],
     scalarMappings: Option[List[String]],
@@ -60,6 +62,7 @@ object Options {
               }
             },
             rawOpts.packageName,
+            rawOpts.clientName,
             rawOpts.genView,
             rawOpts.effect,
             rawOpts.scalarMappings.map {

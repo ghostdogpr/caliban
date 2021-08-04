@@ -69,7 +69,7 @@ object CalibanCli {
 
   private val genClientHelpMsg =
     s"""
-       |calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name] [--genView true|false]
+       |calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name] [--clientName name] [--genView true|false]
        |
        |This command will create a Scala file in `outputPath` containing client code for all the
        |typed defined in the provided GraphQL schema defined at `schemaPath`. Instead of a path,
