@@ -122,6 +122,40 @@ type Mechanic {
 }
 ```
 
+If your type needs to be shared between multiple unions you can use the `@GQLValueType` annotation to have caliban
+proxy to another type beyond the sealed trait.
+
+```scala
+case class Pilot(callSign: String)
+
+sealed trait Role
+object Role {
+  case class Captain(shipName: String) extends Role
+  case class Engineer(specialty: String) extends Role
+  
+  @GQLValueType
+  case class Proxy(pilot: Pilot)
+}
+```
+
+This will produce the following GraphQL Types:
+
+```graphql
+union Role = Captain | Engineer | Pilot
+
+type Captain {
+  shipName: String!
+}
+
+type Engineer {
+  specialty: String!
+}
+
+type Pilot {
+  callSign: String!
+}
+```
+
 If you prefer an `Interface` instead of a `Union` type, add the `@GQLInterface` annotation to your sealed trait.
 An interface will be created with all the fields that are common to the case classes extending the sealed trait, as long as they return the same type.
 
@@ -181,6 +215,7 @@ Caliban supports a few annotations to enrich data types:
 - `@GQLDeprecated("reason")` allows deprecating a field or an enum value.
 - `@GQLInterface` to force a sealed trait generating an interface instead of a union.
 - `@GQLDirective(directive: Directive)` to add a directive to a field or type.
+- `@GQLValueType` forces a type to behave as a value type for derivation. Meaning that caliban will ignore the outer type and take the first case class parameter as the real type.
 
 ## Java 8 Time types
 
