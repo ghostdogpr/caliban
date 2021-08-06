@@ -436,21 +436,18 @@ lazy val federation = project
   .settings(commonSettings)
   .dependsOn(core % "compile->compile;test->test")
   .settings(
-    crossScalaVersions -= scala3,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio"          % zioVersion,
       "dev.zio" %% "zio-test"     % zioVersion % Test,
-      "dev.zio" %% "zio-test-sbt" % zioVersion % Test,
-      compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
+      "dev.zio" %% "zio-test-sbt" % zioVersion % Test
     ),
     Compile / PB.targets := Seq(
       scalapb.gen(grpc = false) -> (Compile / sourceManaged).value / "scalapb"
     ),
     libraryDependencies ++= Seq(
       "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion % "protobuf"
-    ),
-    scalacOptions += "-Ywarn-unused:-locals"
+    )
   )
 
 val commonSettings = Def.settings(

@@ -60,7 +60,7 @@ trait Federation {
     val resolvers = resolver +: otherResolvers.toList
 
     val genericSchema = new GenericSchema[R] {}
-    import genericSchema._
+    import genericSchema.{ gen, _ }
 
     implicit val entitySchema: Schema[R, _Entity] = new Schema[R, _Entity] {
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
@@ -178,7 +178,7 @@ object Federation {
     case InputValue.ObjectValue(fields) =>
       fields.get("representations").toRight(ExecutionError("_Any must contain a __typename value")).flatMap {
         case InputValue.ListValue(values) =>
-          traverseEither(values.map(anyArgBuilder.build)).map(RepresentationsArgs)
+          traverseEither(values.map(anyArgBuilder.build)).map(RepresentationsArgs.apply)
         case other                        => Left(ExecutionError(s"Can't build a representations from input $other"))
       }
     case other                          => Left(ExecutionError(s"Can't build a representations from input $other"))
