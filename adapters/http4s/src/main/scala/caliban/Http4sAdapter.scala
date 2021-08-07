@@ -139,7 +139,7 @@ object Http4sAdapter {
                 random.nextUUID.flatMap { uuid =>
                   val path = rootUploadPath.resolve(uuid.toString)
                   p.body
-                    .through(Files[RIO[R, *]].writeAll(path))
+                    .through(Files[RIO[R, *]].writeAll(fs2.io.file.Path.fromNioPath(path)))
                     .compile
                     .drain
                     .as((n, path.toFile -> p))
@@ -192,7 +192,7 @@ object Http4sAdapter {
           val optOperations =
             m.parts.find(_.name.contains("operations")).traverse {
               _.body
-                .through(utf8Decode)
+                .through(fs2.text.utf8.decode)
                 .compile
                 .foldMonoid
                 .flatMap(body => Task.fromEither(parseGraphQLRequest(body)))
@@ -202,7 +202,7 @@ object Http4sAdapter {
           val optMap =
             m.parts.find(_.name.contains("map")).traverse {
               _.body
-                .through(utf8Decode)
+                .through(fs2.text.utf8.decode)
                 .compile
                 .foldMonoid
                 .flatMap { body =>
