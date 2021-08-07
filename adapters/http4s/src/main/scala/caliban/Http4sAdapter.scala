@@ -12,7 +12,7 @@ import cats.effect.kernel.Async
 import cats.effect.std.{ Dispatcher, Queue => CatsQueue }
 import cats.~>
 import fs2.{ Pipe, Stream }
-import fs2.text.utf8Decode
+import fs2.text.utf8
 import fs2.io.file.Files
 import io.circe.Decoder.Result
 import io.circe.{ DecodingFailure, Json }
@@ -192,7 +192,7 @@ object Http4sAdapter {
           val optOperations =
             m.parts.find(_.name.contains("operations")).traverse {
               _.body
-                .through(fs2.text.utf8.decode)
+                .through(utf8.decode)
                 .compile
                 .foldMonoid
                 .flatMap(body => Task.fromEither(parseGraphQLRequest(body)))
@@ -202,7 +202,7 @@ object Http4sAdapter {
           val optMap =
             m.parts.find(_.name.contains("map")).traverse {
               _.body
-                .through(fs2.text.utf8.decode)
+                .through(utf8.decode)
                 .compile
                 .foldMonoid
                 .flatMap { body =>
