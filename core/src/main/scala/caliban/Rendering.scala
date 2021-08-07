@@ -116,7 +116,7 @@ object Rendering {
   private def renderDirectives(directives: Option[List[Directive]]) =
     directives.fold("") {
       case Nil => ""
-      case d   => d.map(renderDirective).mkString(" ", " ", "")
+      case d   => d.sortBy(_.name).map(renderDirective).mkString(" ", " ", "")
     }
 
   private def renderField(field: __Field): String =
