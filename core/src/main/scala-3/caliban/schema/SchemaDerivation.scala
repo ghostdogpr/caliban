@@ -105,13 +105,14 @@ trait SchemaDerivation[R] {
           }
         }
       case m: Mirror.ProductOf[A] =>
+        lazy val annotations = Macros.annotations[A]
         lazy val fields = recurse[m.MirroredElemLabels, m.MirroredElemTypes]()
         lazy val info = Macros.typeInfo[A]
-        lazy val annotations = Macros.annotations[A]
         lazy val paramAnnotations = Macros.paramAnnotations[A].toMap
         new Schema[R, A] {
           def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-            if (isInput)
+            if (isValueType(annotations) && fields.nonEmpty) fields.head._3.toType_(isInput, isSubscription)
+            else if (isInput)
               makeInputObject(
                 Some(annotations.collectFirst { case GQLInputName(suffix) => suffix }
                   .getOrElse(customizeInputTypeName(getName(annotations, info)))),
@@ -156,7 +157,10 @@ trait SchemaDerivation[R] {
 
           def resolve(value: A): Step[R] =
             if (fields.isEmpty) PureStep(EnumValue(getName(annotations, info)))
-            else {
+            else if (isValueType(annotations) && fields.nonEmpty) {
+              val head = fields.head
+              head._3.resolve(value.asInstanceOf[Product].productElement(head._4))
+            } else {
               val fieldsBuilder = Map.newBuilder[String, Step[R]]
               fields.foreach { case (label, _, schema, index) =>
                 val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
@@ -165,7 +169,7 @@ trait SchemaDerivation[R] {
               ObjectStep(getName(annotations, info), fieldsBuilder.result())
             }
         }
-    }
+  }
 
   // see https://github.com/graphql/graphql-spec/issues/568
   private def fixEmptyUnionObject(t: __Type): __Type =
@@ -195,6 +199,12 @@ trait SchemaDerivation[R] {
         case Nil  => info.short
         case args => info.short + args.map(getName(Nil, _)).mkString
       }
+    }
+
+  private def isValueType(annotations: Seq[Any]): Boolean =
+    annotations.exists {
+      case GQLValueType() => true
+      case _ => false
     }
 
   private def getName(annotations: Seq[Any], label: String): String =

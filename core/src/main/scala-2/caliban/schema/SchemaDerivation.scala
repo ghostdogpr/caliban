@@ -22,9 +22,16 @@ trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
 
   type Typeclass[T] = Schema[R, T]
 
+  def isValueType[T](ctx: ReadOnlyCaseClass[Typeclass, T]): Boolean =
+    ctx.annotations.exists {
+      case GQLValueType() => true
+      case _              => false
+    }
+
   def combine[T](ctx: ReadOnlyCaseClass[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-      if (ctx.isValueClass && ctx.parameters.nonEmpty) ctx.parameters.head.typeclass.toType_(isInput, isSubscription)
+      if ((ctx.isValueClass || isValueType(ctx)) && ctx.parameters.nonEmpty)
+        ctx.parameters.head.typeclass.toType_(isInput, isSubscription)
       else if (isInput)
         makeInputObject(
           Some(ctx.annotations.collectFirst { case GQLInputName(suffix) => suffix }
@@ -70,7 +77,7 @@ trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
 
     override def resolve(value: T): Step[R] =
       if (ctx.isObject) PureStep(EnumValue(getName(ctx)))
-      else if (ctx.isValueClass && ctx.parameters.nonEmpty) {
+      else if ((ctx.isValueClass || isValueType(ctx)) && ctx.parameters.nonEmpty) {
         val head = ctx.parameters.head
         head.typeclass.resolve(head.dereference(value))
       } else {

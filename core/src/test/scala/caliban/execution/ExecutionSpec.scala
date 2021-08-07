@@ -9,7 +9,7 @@ import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, IntValue, StringValue }
 import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
-import caliban.schema.Annotations.{ GQLInterface, GQLName }
+import caliban.schema.Annotations.{ GQLInterface, GQLName, GQLValueType }
 import caliban.schema.{ ArgBuilder, Schema, Step, Types }
 import zio.{ IO, Task, UIO, ZIO }
 import zio.stream.ZStream
@@ -916,6 +916,40 @@ object ExecutionSpec extends DefaultRunnableSpec {
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
           equalTo(
             """{"foos":[{"id":123,"bar":{"id":234}}]}"""
+          )
+        )
+      },
+      testM("union redirect") {
+        sealed trait Foo
+
+        case class Bar(int: Int, common: Boolean) extends Foo
+
+        case class Baz(value: String, common: Boolean)
+
+        @GQLValueType
+        case class Redirect(baz: Baz) extends Foo
+
+        case class Queries(foos: List[Foo])
+
+        val queries = Queries(
+          List(
+            Bar(42, common = true),
+            Redirect(Baz("hello", common = false))
+          )
+        )
+
+        val api: GraphQL[Any] = GraphQL.graphQL(RootResolver(queries))
+        val interpreter       = api.interpreter
+        val query             = gqldoc("""{
+            foos {
+              ... on Bar { common int }
+              ... on Baz { common value }
+            }
+            }""")
+
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
+          equalTo(
+            """{"foos":[{"common":true,"int":42},{"common":false,"value":"hello"}]}"""
           )
         )
       }
