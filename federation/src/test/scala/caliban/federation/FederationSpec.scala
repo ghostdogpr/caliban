@@ -98,7 +98,7 @@ object FederationSpec extends DefaultRunnableSpec {
       val query = gqldoc("""{ _service { sdl } }""")
       assertM(interpreter.flatMap(_.execute(query)).map(d => d.data.toString))(
         containsString(
-          """type Orphan @key(fields: \"name\") @extends {\n  name: String! @external\n  nicknames: [String!]!\n  child: OrphanChild!\n}"""
+          """type Orphan @extends @key(fields: \"name\") {\n  name: String! @external\n  nicknames: [String!]!\n  child: OrphanChild!\n}"""
         ) &&
           containsString(
             """type OrphanChild {\n  id: String!\n}"""

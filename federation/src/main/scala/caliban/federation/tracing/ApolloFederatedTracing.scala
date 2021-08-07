@@ -51,11 +51,12 @@ object ApolloFederatedTracing {
             )
           )(
             for {
-              startNano              <- clock.nanoTime
-              _                      <- ref.update(_.copy(startTime = startNano))
-              ((start, end), result) <- process(request).summarized(clock.currentTime(TimeUnit.MILLISECONDS))((_, _))
-              endNano                <- clock.nanoTime
-              tracing                <- ref.get
+              startNano             <- clock.nanoTime
+              _                     <- ref.update(_.copy(startTime = startNano))
+              response              <- process(request).summarized(clock.currentTime(TimeUnit.MILLISECONDS))((_, _))
+              ((start, end), result) = response
+              endNano               <- clock.nanoTime
+              tracing               <- ref.get
             } yield {
               val root = Trace(
                 startTime = Some(toTimestamp(start)),
@@ -89,32 +90,33 @@ object ApolloFederatedTracing {
           .flatMap(
             if (_)
               for {
-                ((startTime, endTime), summarized) <- query.either.summarized(clock.nanoTime)((_, _))
-                id                                  = Node.Id.ResponseName(fieldInfo.name)
-                result                             <- ZQuery.fromEffect(
-                                                        ref.update(state =>
-                                                          state.copy(
-                                                            root = state.root.insert(
-                                                              (Left(fieldInfo.name) :: fieldInfo.path).toVector,
-                                                              Node(
-                                                                id = id,
-                                                                startTime = startTime - state.startTime,
-                                                                endTime = endTime - state.startTime,
-                                                                `type` = fieldInfo.details.fieldType.toType().toString,
-                                                                parentType = fieldInfo.details.parentType.map(_.toType().toString) getOrElse "",
-                                                                originalFieldName = fieldInfo.details.alias
-                                                                  .map(_ => fieldInfo.details.name) getOrElse "",
-                                                                error = summarized.left.toOption.collectFirst { case e: ExecutionError =>
-                                                                  Error(
-                                                                    e.getMessage(),
-                                                                    location = e.locationInfo.map(l => Location(l.line, l.column)).toSeq
-                                                                  )
-                                                                }.toSeq
-                                                              )
-                                                            )
-                                                          )
-                                                        ) *> ZIO.fromEither(summarized)
-                                                      )
+                response                          <- query.either.summarized(clock.nanoTime)((_, _))
+                ((startTime, endTime), summarized) = response
+                id                                 = Node.Id.ResponseName(fieldInfo.name)
+                result                            <- ZQuery.fromEffect(
+                                                       ref.update(state =>
+                                                         state.copy(
+                                                           root = state.root.insert(
+                                                             (Left(fieldInfo.name) :: fieldInfo.path).toVector,
+                                                             Node(
+                                                               id = id,
+                                                               startTime = startTime - state.startTime,
+                                                               endTime = endTime - state.startTime,
+                                                               `type` = fieldInfo.details.fieldType.toType().toString,
+                                                               parentType = fieldInfo.details.parentType.map(_.toType().toString) getOrElse "",
+                                                               originalFieldName = fieldInfo.details.alias
+                                                                 .map(_ => fieldInfo.details.name) getOrElse "",
+                                                               error = summarized.left.toOption.collectFirst { case e: ExecutionError =>
+                                                                 Error(
+                                                                   e.getMessage(),
+                                                                   location = e.locationInfo.map(l => Location(l.line, l.column)).toSeq
+                                                                 )
+                                                               }.toSeq
+                                                             )
+                                                           )
+                                                         )
+                                                       ) *> ZIO.fromEither(summarized)
+                                                     )
               } yield result
             else query
           )
@@ -132,7 +134,7 @@ object ApolloFederatedTracing {
     val empty: NodeTrie = NodeTrie(None, Map.empty[Either[String, Int], NodeTrie])
 
     private def newEmptyNode(id: Either[String, Int]) =
-      Node(id = id.fold(Node.Id.ResponseName, Node.Id.Index))
+      Node(id = id.fold(Node.Id.ResponseName.apply, Node.Id.Index.apply))
 
     private def loopInsert(trie: NodeTrie, path: VPath, value: Node, step: Int): NodeTrie =
       if (step == -1) {
