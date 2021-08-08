@@ -22,20 +22,20 @@ sealed trait CalibanSettings {
   def append(other: Type): Type
 
   def toOptions(schemaPath: String, toPath: String) = Options(
-    schemaPath=schemaPath,
-    toPath=toPath,
-    fmtPath=scalafmtPath,
-    headers=Option(headers.map((Options.Header.apply _).tupled).toList).filter(_.nonEmpty),
-    packageName=packageName,
-    clientName=clientName,
-    genView=genView,
-    effect=Option.empty,
-    scalarMappings=Option(scalarMappings.toMap).filter(_.nonEmpty),
-    imports=Option(imports.toList).filter(_.nonEmpty),
-    abstractEffectType=Option.empty,
-    splitFiles=splitFiles,
-    enableFmt=enableFmt,
-    extensibleEnums=extensibleEnums
+    schemaPath = schemaPath,
+    toPath = toPath,
+    fmtPath = scalafmtPath,
+    headers = Option(headers.map((Options.Header.apply _).tupled).toList).filter(_.nonEmpty),
+    packageName = packageName,
+    clientName = clientName,
+    genView = genView,
+    effect = Option.empty,
+    scalarMappings = Option(scalarMappings.toMap).filter(_.nonEmpty),
+    imports = Option(imports.toList).filter(_.nonEmpty),
+    abstractEffectType = Option.empty,
+    splitFiles = splitFiles,
+    enableFmt = enableFmt,
+    extensibleEnums = extensibleEnums
   )
 }
 

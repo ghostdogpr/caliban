@@ -13,7 +13,7 @@ object CalibanSourceGenerator {
 
   import sjsonnew.{ :*:, LList, LNil }
 
-  case class TrackedSettings(arguments: Seq[Seq[String]])
+  case class TrackedSettings(arguments: Seq[String])
   object TrackedSettings {
     import _root_.sbt.util.CacheImplicits._
 
@@ -23,10 +23,10 @@ object CalibanSourceGenerator {
       urlSettings: Seq[CalibanUrlSettings]
     ): TrackedSettings = {
       val allSettings: Seq[CalibanSettings] = sources.toList.map(collectSettingsFor(fileSettings, _)) ++ urlSettings
-      TrackedSettings(allSettings.map(renderArgs))
+      TrackedSettings(allSettings.map(_.toString))
     }
 
-    implicit val analysisIso = LList.iso[TrackedSettings, Seq[Seq[String]] :*: LNil](
+    implicit val analysisIso = LList.iso[TrackedSettings, Seq[String] :*: LNil](
       { case TrackedSettings(arguments) => ("args", arguments) :*: LNil },
       { case ((_, args) :*: LNil) => TrackedSettings(args) }
     )
