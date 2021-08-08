@@ -82,8 +82,14 @@ lazy val root = project
     clientLaminext,
     tools,
     codegenSbt,
+    cliProject,
     federation
   )
+
+lazy val cliProject = project
+  .in(file("cli"))
+  .settings(publish / skip := true)
+  .dependsOn(tools)
 
 lazy val macros = project
   .in(file("macros"))
@@ -491,3 +497,5 @@ val commonSettings = Def.settings(
     case _            => Nil
   })
 )
+
+addCommandAlias("cli", s"cliProject/run")
