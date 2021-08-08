@@ -58,47 +58,6 @@ object CalibanSourceGenerator {
           }
       )
 
-  def renderArgs(settings: CalibanSettings): List[String] = {
-    def singleOpt(opt: String, value: Option[String]): List[String]        =
-      if (value.nonEmpty) {
-        opt :: value.toList
-      } else Nil
-    def pairList(opt: String, values: Seq[(String, String)]): List[String] =
-      if (values.nonEmpty) {
-        opt :: values.map({ case (fst, snd) => s"$fst:$snd" }).mkString(",") :: Nil
-      } else Nil
-    def list(opt: String, values: Seq[String]): List[String]               =
-      if (values.nonEmpty) {
-        opt :: values.mkString(",") :: Nil
-      } else Nil
-    val scalafmtPath                                                       = singleOpt("--scalafmtPath", settings.scalafmtPath)
-    val headers                                                            = pairList("--headers", settings.headers)
-    val packageName                                                        = singleOpt(
-      "--packageName",
-      settings.packageName
-    )
-
-    val genView = singleOpt(
-      "--genView",
-      settings.genView.map(_.toString())
-    ) // NB: Presuming zio-config can read toString'd booleans
-    val scalarMappings = pairList("--scalarMappings", settings.scalarMappings)
-    val imports        = list("--imports", settings.imports)
-    val splitFiles     = singleOpt(
-      "--splitFiles",
-      settings.splitFiles.map(_.toString())
-    ) // NB: Presuming zio-config can read toString'd booleans
-    val enableFmt = singleOpt(
-      "--enableFmt",
-      settings.enableFmt.map(_.toString())
-    ) // NB: Presuming zio-config can read toString'd booleans
-    val extensibleEnums = singleOpt(
-      "--extensibleEnums",
-      settings.extensibleEnums.map(_.toString())
-    ) // NB: Presuming zio-config can read toString'd booleans
-    scalafmtPath ++ headers ++ packageName ++ genView ++ scalarMappings ++ imports ++ splitFiles ++ enableFmt ++ extensibleEnums
-  }
-
   def apply(
     sourceRoot: File,
     sources: Seq[File],
