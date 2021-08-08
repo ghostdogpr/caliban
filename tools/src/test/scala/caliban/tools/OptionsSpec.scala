@@ -1,6 +1,7 @@
 package caliban.tools
 
 import caliban.tools.Options.Header
+import zio.config.ReadError
 import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment
@@ -13,7 +14,7 @@ object OptionsSpec extends DefaultRunnableSpec {
         val result = Options.fromArgs(input)
         assert(result)(
           equalTo(
-            Some(
+            Right(
               Options(
                 "schema",
                 "output",
@@ -39,7 +40,7 @@ object OptionsSpec extends DefaultRunnableSpec {
         val result = Options.fromArgs(input)
         assert(result)(
           equalTo(
-            Some(
+            Right(
               Options(
                 "schema",
                 "output",
@@ -65,7 +66,7 @@ object OptionsSpec extends DefaultRunnableSpec {
         val result = Options.fromArgs(input)
         assert(result)(
           equalTo(
-            Some(
+            Right(
               Options("schema", "output", None, None, None, None, None, None, None, None, None, None, None, None)
             )
           )
@@ -74,23 +75,23 @@ object OptionsSpec extends DefaultRunnableSpec {
       test("not enough arguments") {
         val input  = List("schema")
         val result = Options.fromArgs(input)
-        assert(result)(equalTo(None))
+        assert(result)(isLeft(isSubtype[ReadError[Any]](anything)))
       },
       test("--scalafmtPath value missing") {
         val input  = List("schema", "output", "--scalafmtPath", "--headers", "header1:value1,header2:value2")
         val result = Options.fromArgs(input)
-        assert(result)(equalTo(None))
+        assert(result)(isLeft(isSubtype[ReadError[Any]](anything)))
       },
       test("empty list") {
         val result = Options.fromArgs(Nil)
-        assert(result)(equalTo(None))
+        assert(result)(isLeft(isSubtype[ReadError[Any]](anything)))
       },
       test("provide package name") {
         val input  = List("schema", "output", "--packageName", "com.github.ghostdogpr")
         val result = Options.fromArgs(input)
         assert(result)(
           equalTo(
-            Some(
+            Right(
               Options(
                 "schema",
                 "output",
@@ -116,7 +117,7 @@ object OptionsSpec extends DefaultRunnableSpec {
         val result = Options.fromArgs(input)
         assert(result)(
           equalTo(
-            Some(
+            Right(
               Options(
                 "schema",
                 "output",
@@ -142,7 +143,7 @@ object OptionsSpec extends DefaultRunnableSpec {
         val result = Options.fromArgs(input)
         assert(result)(
           equalTo(
-            Some(
+            Right(
               Options(
                 "schema",
                 "output",
@@ -168,7 +169,7 @@ object OptionsSpec extends DefaultRunnableSpec {
         val result = Options.fromArgs(input)
         assert(result)(
           equalTo(
-            Some(
+            Right(
               Options(
                 "schema",
                 "output",
@@ -194,7 +195,7 @@ object OptionsSpec extends DefaultRunnableSpec {
         val result = Options.fromArgs(input)
         assert(result)(
           equalTo(
-            Some(
+            Right(
               Options(
                 "schema",
                 "output",
@@ -220,7 +221,7 @@ object OptionsSpec extends DefaultRunnableSpec {
         val result = Options.fromArgs(input)
         assert(result)(
           equalTo(
-            Some(
+            Right(
               Options(
                 "schema",
                 "output",
@@ -246,7 +247,7 @@ object OptionsSpec extends DefaultRunnableSpec {
         val result = Options.fromArgs(input)
         assert(result)(
           equalTo(
-            Some(
+            Right(
               Options(
                 "schema",
                 "output",
@@ -272,7 +273,7 @@ object OptionsSpec extends DefaultRunnableSpec {
         val result = Options.fromArgs(input)
         assert(result)(
           equalTo(
-            Some(
+            Right(
               Options(
                 "schema",
                 "output",
@@ -298,7 +299,7 @@ object OptionsSpec extends DefaultRunnableSpec {
         val result = Options.fromArgs(input)
         assert(result)(
           equalTo(
-            Some(
+            Right(
               Options(
                 "schema",
                 "output",

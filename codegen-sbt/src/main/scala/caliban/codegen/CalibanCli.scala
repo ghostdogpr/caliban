@@ -84,13 +84,13 @@ object CalibanCli {
     genType: GenType
   ): RIO[Console, Unit] =
     Options.fromArgs(args) match {
-      case Some(arguments) =>
+      case Right(arguments) =>
         for {
           _ <- putStrLn(s"Generating code for ${arguments.schemaPath}")
           _ <- Codegen.generate(arguments, genType)
           _ <- putStrLn(s"Code generation done")
         } yield ()
-      case None            => putStrLn(helpMsg)
+      case Left(err)        => putStrLn(helpMsg)
     }
 
   def projectSettings = Seq(commands ++= Seq(genSchemaCommand, genClientCommand))

@@ -1,7 +1,7 @@
 package caliban.tools
 
 import zio.config.magnolia.DeriveConfigDescriptor.descriptor
-import zio.config.{ read, ConfigDescriptor, ConfigSource }
+import zio.config.{ read, ConfigDescriptor, ConfigSource, ReadError }
 
 final case class Options(
   schemaPath: String,
@@ -37,7 +37,7 @@ object Options {
     extensibleEnums: Option[Boolean]
   )
 
-  def fromArgs(args: List[String]): Option[Options] =
+  def fromArgs(args: List[String]): Either[ReadError[Any], Options] =
     args match {
       case schemaPath :: toPath :: other =>
         val configSource: ConfigSource                     =
@@ -48,7 +48,7 @@ object Options {
           )
         val configDescriptor: ConfigDescriptor[RawOptions] = descriptor[RawOptions] from configSource
 
-        read(configDescriptor).toOption.map { rawOpts =>
+        read(configDescriptor).map { rawOpts =>
           Options(
             schemaPath,
             toPath,
@@ -80,6 +80,8 @@ object Options {
             rawOpts.extensibleEnums
           )
         }
-      case _                             => None
+      case _                             =>
+        val xs = (0 to args.length).toList.map(i => ReadError.Step.Index(i + 1))
+        Left(ReadError.MissingValue(xs, List("[source graphql] [destination file] [opts [...]]"), Set.empty))
     }
 }
