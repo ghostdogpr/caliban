@@ -27,6 +27,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -52,6 +53,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -64,7 +66,7 @@ object OptionsSpec extends DefaultRunnableSpec {
         assert(result)(
           equalTo(
             Some(
-              Options("schema", "output", None, None, None, None, None, None, None, None, None, None, None)
+              Options("schema", "output", None, None, None, None, None, None, None, None, None, None, None, None)
             )
           )
         )
@@ -102,6 +104,33 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
+                None,
+                None
+              )
+            )
+          )
+        )
+      },
+      test("provide client name") {
+        val input  = List("schema", "output", "--clientName", "GraphqlClient.scala")
+        val result = Options.fromArgs(input)
+        assert(result)(
+          equalTo(
+            Some(
+              Options(
+                "schema",
+                "output",
+                None,
+                None,
+                None,
+                Some("GraphqlClient.scala"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
                 None
               )
             )
@@ -117,6 +146,7 @@ object OptionsSpec extends DefaultRunnableSpec {
               Options(
                 "schema",
                 "output",
+                None,
                 None,
                 None,
                 None,
@@ -142,6 +172,7 @@ object OptionsSpec extends DefaultRunnableSpec {
               Options(
                 "schema",
                 "output",
+                None,
                 None,
                 None,
                 None,
@@ -177,6 +208,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
+                None,
                 Some(true)
               )
             )
@@ -192,6 +224,7 @@ object OptionsSpec extends DefaultRunnableSpec {
               Options(
                 "schema",
                 "output",
+                None,
                 None,
                 None,
                 None,
@@ -223,6 +256,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
+                None,
                 Some(List("a.b.Clazz", "b.c._")),
                 None,
                 None,
@@ -242,6 +276,7 @@ object OptionsSpec extends DefaultRunnableSpec {
               Options(
                 "schema",
                 "output",
+                None,
                 None,
                 None,
                 None,
@@ -269,6 +304,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 "output",
                 Some("fmtPath"),
                 Some(List(Header("aaa", "bbb:ccc"))),
+                None,
                 None,
                 None,
                 None,

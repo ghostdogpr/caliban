@@ -1,5 +1,7 @@
 package caliban.codegen
 
+import caliban.tools.Options
+
 import java.io.File
 import java.net.URL
 
@@ -18,6 +20,23 @@ sealed trait CalibanSettings {
   def extensibleEnums: Option[Boolean]
 
   def append(other: Type): Type
+
+  def toOptions(schemaPath: String, toPath: String) = Options(
+    schemaPath = schemaPath,
+    toPath = toPath,
+    fmtPath = scalafmtPath,
+    headers = Option(headers.map((Options.Header.apply _).tupled).toList).filter(_.nonEmpty),
+    packageName = packageName,
+    clientName = clientName,
+    genView = genView,
+    effect = Option.empty,
+    scalarMappings = Option(scalarMappings.toMap).filter(_.nonEmpty),
+    imports = Option(imports.toList).filter(_.nonEmpty),
+    abstractEffectType = Option.empty,
+    splitFiles = splitFiles,
+    enableFmt = enableFmt,
+    extensibleEnums = extensibleEnums
+  )
 }
 
 case class CalibanFileSettings(

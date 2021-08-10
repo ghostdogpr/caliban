@@ -13,7 +13,7 @@ object CalibanSourceGenerator {
 
   import sjsonnew.{ :*:, LList, LNil }
 
-  case class TrackedSettings(arguments: Seq[Seq[String]])
+  case class TrackedSettings(arguments: Seq[String])
   object TrackedSettings {
     import _root_.sbt.util.CacheImplicits._
 
@@ -23,10 +23,10 @@ object CalibanSourceGenerator {
       urlSettings: Seq[CalibanUrlSettings]
     ): TrackedSettings = {
       val allSettings: Seq[CalibanSettings] = sources.toList.map(collectSettingsFor(fileSettings, _)) ++ urlSettings
-      TrackedSettings(allSettings.map(renderArgs))
+      TrackedSettings(allSettings.map(_.toString))
     }
 
-    implicit val analysisIso = LList.iso[TrackedSettings, Seq[Seq[String]] :*: LNil](
+    implicit val analysisIso = LList.iso[TrackedSettings, Seq[String] :*: LNil](
       { case TrackedSettings(arguments) => ("args", arguments) :*: LNil },
       { case ((_, args) :*: LNil) => TrackedSettings(args) }
     )
@@ -58,47 +58,6 @@ object CalibanSourceGenerator {
           }
       )
 
-  def renderArgs(settings: CalibanSettings): List[String] = {
-    def singleOpt(opt: String, value: Option[String]): List[String]        =
-      if (value.nonEmpty) {
-        opt :: value.toList
-      } else Nil
-    def pairList(opt: String, values: Seq[(String, String)]): List[String] =
-      if (values.nonEmpty) {
-        opt :: values.map({ case (fst, snd) => s"$fst:$snd" }).mkString(",") :: Nil
-      } else Nil
-    def list(opt: String, values: Seq[String]): List[String]               =
-      if (values.nonEmpty) {
-        opt :: values.mkString(",") :: Nil
-      } else Nil
-    val scalafmtPath                                                       = singleOpt("--scalafmtPath", settings.scalafmtPath)
-    val headers                                                            = pairList("--headers", settings.headers)
-    val packageName                                                        = singleOpt(
-      "--packageName",
-      settings.packageName
-    )
-
-    val genView = singleOpt(
-      "--genView",
-      settings.genView.map(_.toString())
-    ) // NB: Presuming zio-config can read toString'd booleans
-    val scalarMappings = pairList("--scalarMappings", settings.scalarMappings)
-    val imports        = list("--imports", settings.imports)
-    val splitFiles     = singleOpt(
-      "--splitFiles",
-      settings.splitFiles.map(_.toString())
-    ) // NB: Presuming zio-config can read toString'd booleans
-    val enableFmt = singleOpt(
-      "--enableFmt",
-      settings.enableFmt.map(_.toString())
-    ) // NB: Presuming zio-config can read toString'd booleans
-    val extensibleEnums = singleOpt(
-      "--extensibleEnums",
-      settings.extensibleEnums.map(_.toString())
-    ) // NB: Presuming zio-config can read toString'd booleans
-    scalafmtPath ++ headers ++ packageName ++ genView ++ scalarMappings ++ imports ++ splitFiles ++ enableFmt ++ extensibleEnums
-  }
-
   def apply(
     sourceRoot: File,
     sources: Seq[File],
@@ -113,7 +72,7 @@ object CalibanSourceGenerator {
       def generateFileSource(graphql: File, settings: CalibanSettings): IO[Option[Throwable], List[File]] = for {
         generatedSource <- ZIO.succeed(transformFile(sourceRoot, sourceManaged, settings)(graphql))
         _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
-        opts            <- ZIO.fromOption(Options.fromArgs(graphql.toString :: generatedSource.toString :: renderArgs(settings)))
+        opts            <- ZIO.fromOption(Some(settings.toOptions(graphql.toString, generatedSource.toString)))
         files           <- Codegen.generate(opts, GenType.Client).asSomeError
       } yield files
 
@@ -123,7 +82,7 @@ object CalibanSourceGenerator {
             transformFile(sourceRoot, sourceManaged, settings)(new java.io.File(graphql.getPath.stripPrefix("/")))
           )
         _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
-        opts            <- ZIO.fromOption(Options.fromArgs(graphql.toString :: generatedSource.toString :: renderArgs(settings)))
+        opts            <- ZIO.fromOption(Some(settings.toOptions(graphql.toString, generatedSource.toString)))
         files           <- Codegen.generate(opts, GenType.Client).asSomeError
       } yield files
 

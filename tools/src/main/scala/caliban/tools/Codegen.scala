@@ -21,7 +21,7 @@ object Codegen {
   ): Task[List[File]] = {
     val s                  = ".*/[scala|play.*|app][^/]*/(.*)/(.*).scala".r.findFirstMatchIn(arguments.toPath)
     val packageName        = arguments.packageName.orElse(s.map(_.group(1).split("/").mkString(".")))
-    val objectName         = s.map(_.group(2)).getOrElse("Client")
+    val objectName         = arguments.clientName.orElse(s.map(_.group(2))).getOrElse("Client")
     val abstractEffectType = arguments.abstractEffectType.getOrElse(false)
     val effect             = arguments.effect.getOrElse {
       if (abstractEffectType) "F" else "zio.UIO"

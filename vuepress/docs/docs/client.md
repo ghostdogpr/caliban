@@ -104,6 +104,7 @@ If you provide a URL for `schemaPath`, you can provide request headers with `--h
 The package of the generated code is derived from the folder of `outputPath`.
 This can be overridden by providing an alternative package with the `--packageName`
 option.
+The generated object name is derived from `outputPath` file name but can be overridden with the `--clientName` option.
 Provide `--genView true` option if you want to generate a view for the GraphQL types. 
 If you want to force a mapping between a GraphQL type and a Scala class (such as scalars), you can use the
 `--scalarMappings` option. Also you can add imports for example for your ArgEncoder implicits by providing `--imports` option.
