@@ -69,21 +69,21 @@ object CalibanSourceGenerator {
     import sbt.util.CacheImplicits._
 
     def generateSources: List[File] = {
-      def generateFileSource(graphql: File, settings: CalibanSettings): IO[Option[Throwable], List[File]] = for {
+      def generateFileSource(graphql: File, settings: CalibanSettings): IO[Throwable, List[File]] = for {
         generatedSource <- ZIO.succeed(transformFile(sourceRoot, sourceManaged, settings)(graphql))
-        _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
+        _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile))
         opts             = settings.toOptions(graphql.toString, generatedSource.toString)
-        files           <- Codegen.generate(opts, GenType.Client).asSomeError
+        files           <- Codegen.generate(opts, GenType.Client)
       } yield files
 
-      def generateUrlSource(graphql: URL, settings: CalibanSettings): IO[Option[Throwable], List[File]] = for {
+      def generateUrlSource(graphql: URL, settings: CalibanSettings): IO[Throwable, List[File]] = for {
         generatedSource <-
           ZIO.succeed(
             transformFile(sourceRoot, sourceManaged, settings)(new java.io.File(graphql.getPath.stripPrefix("/")))
           )
-        _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
+        _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile))
         opts             = settings.toOptions(graphql.toString, generatedSource.toString)
-        files           <- Codegen.generate(opts, GenType.Client).asSomeError
+        files           <- Codegen.generate(opts, GenType.Client)
       } yield files
 
       Runtime.default
@@ -91,16 +91,13 @@ object CalibanSourceGenerator {
           for {
             fromFiles <- ZIO.foreach(sources.toList)(source =>
                            generateFileSource(source, collectSettingsFor(fileSettings, source)).catchAll {
-                             case Some(reason) =>
+                             case reason =>
                                putStrLn(reason.toString) *> putStrLn(reason.getStackTrace.mkString("\n")).as(List.empty)
-                             case None         => ZIO.succeed(List.empty)
                            }
                          )
             fromUrls  <- ZIO.foreach(urlSettings)(setting =>
-                           generateUrlSource(setting.url, setting).catchAll {
-                             case Some(reason) =>
-                               putStrLn(reason.toString) *> putStrLn(reason.getStackTrace.mkString("\n")).as(List.empty)
-                             case None         => ZIO.succeed(List.empty)
+                           generateUrlSource(setting.url, setting).catchAll { case reason =>
+                             putStrLn(reason.toString) *> putStrLn(reason.getStackTrace.mkString("\n")).as(List.empty)
                            }
                          )
           } yield (fromFiles ++ fromUrls).flatten
