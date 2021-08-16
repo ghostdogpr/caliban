@@ -2,6 +2,7 @@ package caliban.tools
 
 import caliban.GraphQL.graphQL
 import caliban.parsing.Parser
+import caliban.schema.Annotations.GQLDeprecated
 import caliban.tools.SchemaComparison.compareDocuments
 import caliban.{ CalibanError, RootResolver }
 import zio.ZIO
@@ -171,7 +172,7 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
           """
           type Hero {
             name(pad: Int!): String!
-            nick: String!
+            nick: String! @deprecated(reason: "some reason")
             bday: Int
           }
           
@@ -181,7 +182,7 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
             |""".stripMargin
 
         case class NameArgs(pad: Int)
-        case class Hero(name: NameArgs => String, nick: String, bday: Option[Int])
+        case class Hero(name: NameArgs => String, @GQLDeprecated("some reason") nick: String, bday: Option[Int])
         case class Query(hero: Hero)
 
         val api = graphQL(RootResolver(Query(Hero(_ => "name", "nick", None))))
