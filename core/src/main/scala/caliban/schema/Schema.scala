@@ -243,6 +243,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   implicit val booleanSchema: Schema[Any, Boolean]       = scalarSchema("Boolean", None, BooleanValue.apply)
   implicit val stringSchema: Schema[Any, String]         = scalarSchema("String", None, StringValue.apply)
   implicit val uuidSchema: Schema[Any, UUID]             = scalarSchema("ID", None, uuid => StringValue(uuid.toString))
+  implicit val shortSchema: Schema[Any, Short]           = scalarSchema("Short", None, IntValue(_))
   implicit val intSchema: Schema[Any, Int]               = scalarSchema("Int", None, IntValue(_))
   implicit val longSchema: Schema[Any, Long]             = scalarSchema("Long", None, IntValue(_))
   implicit val bigIntSchema: Schema[Any, BigInt]         = scalarSchema("BigInt", None, IntValue(_))

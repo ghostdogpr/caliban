@@ -14,7 +14,7 @@ import scala.annotation.implicitNotFound
  */
 @implicitNotFound(
   """Cannot find a ScalarDecoder for type ${A}.
-     
+
 Caliban needs it to know how to decode a scalar of type ${A}.
 """
 )
@@ -23,6 +23,10 @@ trait ScalarDecoder[+A] {
 }
 
 object ScalarDecoder {
+  implicit val short: ScalarDecoder[Short]           = {
+    case __NumberValue(value) => Right(value.toShort)
+    case other                => Left(DecodingError(s"Can't build a Short from input $other"))
+  }
   implicit val int: ScalarDecoder[Int]               = {
     case __NumberValue(value) =>
       Try(value.toIntExact).toEither.left.map(ex => DecodingError(s"Can't build an Int from input $value", Some(ex)))
