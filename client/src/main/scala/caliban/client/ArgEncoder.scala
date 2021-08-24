@@ -11,7 +11,7 @@ import scala.annotation.implicitNotFound
  */
 @implicitNotFound(
   """Cannot find an ArgEncoder for type ${A}.
-     
+
 Caliban needs it to know how to encode arguments of type ${A}.
 """
 )
@@ -22,6 +22,9 @@ trait ArgEncoder[-A] { self =>
 }
 
 object ArgEncoder {
+
+  // In Scala3 there does not appear to be a short2bigDecimal implicit conversion.
+  implicit val short: ArgEncoder[Short] = (value: Short) => __NumberValue(value.toInt)
 
   implicit val int: ArgEncoder[Int] = (value: Int) => __NumberValue(value)
 
