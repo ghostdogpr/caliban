@@ -23,7 +23,8 @@ trait ArgEncoder[-A] { self =>
 
 object ArgEncoder {
 
-  implicit val short: ArgEncoder[Short] = (value: Short) => __NumberValue(value)
+  // In Scala3 there does not appear to be a short2bigDecimal implicit conversion.
+  implicit val short: ArgEncoder[Short] = (value: Short) => __NumberValue(value.toInt)
 
   implicit val int: ArgEncoder[Int] = (value: Int) => __NumberValue(value)
 
