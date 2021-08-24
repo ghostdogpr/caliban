@@ -16,6 +16,7 @@ import zio.test.environment.TestClock
 import zio.test._
 import com.google.protobuf.timestamp.Timestamp
 import mdg.engine.proto.reports.Trace.Node
+import mdg.engine.proto.reports.Trace.Node.Id
 import mdg.engine.proto.reports.Trace.Node.Id.{ Index, ResponseName }
 
 import java.util.Base64
@@ -76,13 +77,24 @@ object FederationTracingSpec extends DefaultRunnableSpec with GenericSchema[Cloc
     )
   )
 
+  def sortNode(node: Node): Node =
+    node.copy(child =
+      node.child
+        .map(sortNode)
+        .sortBy(_.id match {
+          case Id.Empty            => ""
+          case ResponseName(value) => value
+          case Index(value)        => value.toString
+        })
+    )
+
   // format: off
   val expectedTrace = Trace(
     Some(Timestamp(1,0)),
     Some(Timestamp(1,100000000)),
     100000000,
     Some(
-      Node(
+      sortNode(Node(
         Node.Id.Empty,
         child = Vector(
           Node(
@@ -102,7 +114,7 @@ object FederationTracingSpec extends DefaultRunnableSpec with GenericSchema[Cloc
             )
           )
         )
-      )
+      ))
     )
   )
   // format: on
@@ -139,7 +151,12 @@ object FederationTracingSpec extends DefaultRunnableSpec with GenericSchema[Cloc
           actualExtension = result.extensions.flatMap(_.fields.collectFirst { case ("ftv1", StringValue(ftv1)) =>
                               parseTrace(ftv1)
                             })
-        } yield assert(actualBody)(equalTo(body)) && assert(actualExtension)(
+          sortedTrace     = actualExtension.map(trace =>
+                              trace.copy(
+                                root = trace.root.map(sortNode)
+                              )
+                            )
+        } yield assert(actualBody)(equalTo(body)) && assert(sortedTrace)(
           isSome(
             equalTo(
               expectedTrace
