@@ -83,10 +83,11 @@ object Auth {
 
 object Authed extends GenericSchema[ZEnv with Has[Auth]] {
   case class Queries(
-    whoAmI: ZIO[Has[Auth], Nothing, String] = ZIO.succeed("Hi")
+    whoAmI: ZIO[Has[Auth], Nothing, String] = ZIO.service[Auth].flatMap(_.currentUser.orDie)
   )
   case class Subscriptions(
-    whoAmI: ZStream[Has[Auth] with Clock, Nothing, String] = ZStream.succeed("Hi").repeat(Schedule.spaced(10.seconds))
+    whoAmI: ZStream[Has[Auth] with Clock, Nothing, String] =
+      ZStream.fromEffect(ZIO.service[Auth].flatMap(_.currentUser.orDie)).repeat(Schedule.spaced(10.seconds))
   )
 
   val api = graphQL(RootResolver(Queries(), None, Subscriptions()))
