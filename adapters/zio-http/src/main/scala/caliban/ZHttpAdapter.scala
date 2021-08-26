@@ -48,7 +48,7 @@ object ZHttpAdapter {
   }
 
   object Callbacks {
-    val empty = Callbacks[Any, Nothing](None, None)
+    def empty[R, E] = Callbacks[R, E](None, None)
 
     def init[R, E](f: io.circe.Json => ZIO[R, E, Any]): Callbacks[R, E]               = Callbacks(Some(f), None)
     def message[R, E](f: ZStream[R, E, Text] => ZStream[R, E, Text]): Callbacks[R, E] = Callbacks(None, Some(f))
@@ -109,21 +109,19 @@ object ZHttpAdapter {
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     keepAliveTime: Option[Duration] = None,
-    queryExecution: QueryExecution = QueryExecution.Parallel,
-    callbacks: Callbacks[R, E] = Callbacks.empty
+    queryExecution: QueryExecution = QueryExecution.Parallel
   ): HttpApp[R with Clock, E] =
     HttpApp.responseM(
       for {
         ref <- Ref.make(Map.empty[String, Promise[Any, Unit]])
       } yield Response.socket(
-        socketHandler(
+        socketHandler[R, E](
           ref,
           interpreter,
           skipValidation,
           enableIntrospection,
           keepAliveTime,
-          queryExecution,
-          callbacks
+          queryExecution
         )
       )
     )
@@ -135,7 +133,7 @@ object ZHttpAdapter {
     enableIntrospection: Boolean,
     keepAliveTime: Option[Duration],
     queryExecution: QueryExecution,
-    callbacks: Callbacks[R, E]
+    callbacks: Callbacks[R, E] = Callbacks.empty[R, E]
   ): SocketApp[R with Clock, E] = {
     val routes = Socket.collect[WebSocketFrame] { case Text(text) =>
       ZStream
@@ -164,8 +162,10 @@ object ZHttpAdapter {
                   queryExecution,
                   subscriptions
                 )
+
                 callbacks.onMessage.map(_(stream)).getOrElse(stream).catchAll(toStreamError(id, _))
-              case None      => connectionError
+
+              case None => connectionError
             }
           case GraphQLWSRequest("stop", id, _)                =>
             removeSubscription(id, subscriptions) *> ZStream.empty
