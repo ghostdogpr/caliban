@@ -3,6 +3,7 @@ package caliban.interop.play
 import caliban.CalibanError.ExecutionError
 import caliban.GraphQLResponse
 import caliban.ResponseValue.ObjectValue
+import caliban.parsing.adt.LocationInfo
 import caliban.Value.StringValue
 import zio.test.Assertion._
 import zio.test._
@@ -68,14 +69,17 @@ object GraphQLResponsePlaySpec extends DefaultRunnableSpec {
         )
       },
       test("reads a graphql response [play]") {
-        val req = """{"data":{"value": 42},"errors":[{"message":"boom"}]}"""
+        val req =
+          """{"data":{"value": 42},"errors":[{"message":"boom", "path": ["step", 0], "locations": [{"column": 1, "line": 2}]}]}"""
 
         assert(Json.parse(req).validate[GraphQLResponse[CalibanError]].asEither)(
           isRight(
             equalTo(
               GraphQLResponse(
                 data = ObjectValue(List("value" -> Value.IntValue("42"))),
-                errors = List(ExecutionError("boom"))
+                errors = List(
+                  ExecutionError("boom", path = List(Left("step"), Right(0)), locationInfo = Some(LocationInfo(1, 2)))
+                )
               )
             )
           )

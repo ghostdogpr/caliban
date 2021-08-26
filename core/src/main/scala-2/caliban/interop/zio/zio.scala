@@ -413,17 +413,38 @@ private[caliban] object ErrorZioJson {
   private case class ErrorDTO(
     message: String,
     extensions: Option[ResponseValue],
-    locations: Option[LocationInfo],
+    locations: Option[List[LocationInfo]],
     path: Option[List[Either[String, Int]]]
   )
   private object ErrorDTO {
-    import ValueZIOJson.responseValueDecoder
+    import ValueZIOJson.{ responseValueDecoder, Num, Str }
+    import zio.json.internal.{ RetractReader }
+
     implicit val locationInfoDecoder: JsonDecoder[LocationInfo] = DeriveJsonDecoder.gen[LocationInfo]
-    implicit val decoder: JsonDecoder[ErrorDTO]                 = DeriveJsonDecoder.gen[ErrorDTO]
+    implicit val pathDecoder: JsonDecoder[Either[String, Int]]  =
+      (trace: List[JsonDecoder.JsonError], in: RetractReader) => {
+        val c = in.nextNonWhitespace()
+        in.retract()
+        (c: @switch) match {
+          case '"'                                                             => Left(JsonDecoder.string.unsafeDecode(trace, in))
+          case '-' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' =>
+            Right(JsonDecoder.int.unsafeDecode(trace, in))
+          case c                                                               =>
+            throw JsonDecoder.UnsafeJson(JsonDecoder.JsonError.Message(s"unexpected '$c'") :: trace)
+        }
+      }
+
+    implicit val decoder: JsonDecoder[ErrorDTO] = DeriveJsonDecoder.gen[ErrorDTO]
   }
 
   val errorValueDecoder: JsonDecoder[CalibanError] =
-    JsonDecoder[ErrorDTO].map(e => CalibanError.ExecutionError(e.message, e.path.getOrElse(List()), e.locations))
+    JsonDecoder[ErrorDTO].map(e =>
+      CalibanError.ExecutionError(
+        e.message,
+        e.path.getOrElse(List()),
+        e.locations.flatMap(locations => locations.lift(0))
+      )
+    )
 }
 
 private[caliban] object GraphQLResponseZioJson {

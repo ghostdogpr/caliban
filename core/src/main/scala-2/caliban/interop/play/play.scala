@@ -130,7 +130,7 @@ object json {
     private final case class ErrorDTO(
       message: String,
       extensions: Option[ResponseValue],
-      locations: Option[LocationInfo],
+      locations: Option[List[LocationInfo]],
       path: Option[JsArray]
     )
 
@@ -141,16 +141,16 @@ object json {
 
     val errorValueWrites: Writes[CalibanError] = errorDTOWrites.contramap[CalibanError] {
       case CalibanError.ParsingError(msg, locationInfo, _, extensions) =>
-        ErrorDTO(s"Parsing Error: $msg", extensions, locationInfo, None)
+        ErrorDTO(s"Parsing Error: $msg", extensions, locationInfo.map(List(_)), None)
 
       case CalibanError.ValidationError(msg, _, locationInfo, extensions) =>
-        ErrorDTO(msg, extensions, locationInfo, None)
+        ErrorDTO(msg, extensions, locationInfo.map(List(_)), None)
 
       case CalibanError.ExecutionError(msg, path, locationInfo, _, extensions) =>
         ErrorDTO(
           msg,
           extensions,
-          locationInfo,
+          locationInfo.map(List(_)),
           Some(path).collect {
             case p if p.nonEmpty =>
               JsArray(p.map {
@@ -177,7 +177,7 @@ object json {
               case JsNumber(bd) => Right(bd.toInt)
               case _            => throw new Exception("invalid json")
             },
-          locationInfo = e.locations
+          locationInfo = e.locations.flatMap(_.lift(0))
         )
       )
   }

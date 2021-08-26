@@ -171,7 +171,7 @@ object json {
       for {
         message   <- cursor.downField("message").as[String]
         path      <- cursor.downField("path").as[Option[List[Either[String, Int]]]]
-        locations <- cursor.downField("locations").as[Option[LocationInfo]]
+        locations <- cursor.downField("locations").downArray.as[Option[LocationInfo]]
       } yield CalibanError.ExecutionError(
         message,
         path.getOrElse(Nil),
