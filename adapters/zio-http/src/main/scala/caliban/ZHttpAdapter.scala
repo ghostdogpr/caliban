@@ -85,6 +85,15 @@ object ZHttpAdapter {
         ZIO.succeed(Response.http(Status.NO_CONTENT))
     }
 
+  /**
+   * Effectfully creates a `SocketApp`, which can be used from
+   * in a zio-http router via Http.fromEffectFunction or Http.fromResponseM.
+   * This is a lower level API that allows for greater control than
+   * `makeWebSocketeService` so that it's possible to implement functionality such
+   * as intercepting the initial request before the WebSocket upgrade,
+   * handling of authentication in the connection_init message, or shutdown
+   * the websocket after some duration has passed (like a session expiring).
+   */
   def makeWebSocketHandler[R <: Has[_], E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
@@ -92,7 +101,7 @@ object ZHttpAdapter {
     keepAliveTime: Option[Duration] = None,
     queryExecution: QueryExecution = QueryExecution.Parallel,
     callbacks: Callbacks[R, E] = Callbacks.empty
-  ): SocketApp[R with Clock, E] = for {
+  ): ZIO[R, Nothing, SocketApp[R with Clock, E]] = for {
     ref <- Ref.make(Map.empty[String, Promise[Any, Unit]])
   } yield socketHandler(
     ref,
@@ -104,6 +113,12 @@ object ZHttpAdapter {
     callbacks
   )
 
+  /**
+   * Creates an `HttpApp` that can handle GraphQL subscriptions.
+   * This is a higher level API than `makeWebSocketHandler`. If you need
+   * additional control over the websocket lifcycle please use
+   * makeWebSocketHandler instead.
+   */
   def makeWebSocketService[R <: Has[_], E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
