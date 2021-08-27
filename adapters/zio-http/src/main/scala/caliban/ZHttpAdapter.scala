@@ -87,11 +87,11 @@ object ZHttpAdapter {
 
   /**
    * Effectfully creates a `SocketApp`, which can be used from
-   * in a zio-http router via Http.fromEffectFunction or Http.fromResponseM.
+   * a zio-http router via Http.fromEffectFunction or Http.fromResponseM.
    * This is a lower level API that allows for greater control than
-   * `makeWebSocketeService` so that it's possible to implement functionality such
+   * `makeWebSocketService` so that it's possible to implement functionality such
    * as intercepting the initial request before the WebSocket upgrade,
-   * handling of authentication in the connection_init message, or shutdown
+   * handling authentication in the connection_init message, or shutdown
    * the websocket after some duration has passed (like a session expiring).
    */
   def makeWebSocketHandler[R <: Has[_], E](
