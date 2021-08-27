@@ -93,7 +93,7 @@ object Authed extends GenericSchema[ZEnv with Has[Auth]] {
   val api = graphQL(RootResolver(Queries(), None, Subscriptions()))
 }
 
-object AuthedApp extends App {
+object AuthExampleApp extends App {
   private val graphiql =
     Http.succeed(Response.http(content = HttpData.fromStream(ZStream.fromResource("graphiql.html"))))
 
