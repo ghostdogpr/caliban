@@ -421,20 +421,8 @@ private[caliban] object ErrorZioJson {
     import zio.json.internal.{ RetractReader }
 
     implicit val locationInfoDecoder: JsonDecoder[LocationInfo] = DeriveJsonDecoder.gen[LocationInfo]
-    implicit val pathDecoder: JsonDecoder[Either[String, Int]]  =
-      (trace: List[JsonDecoder.JsonError], in: RetractReader) => {
-        val c = in.nextNonWhitespace()
-        in.retract()
-        (c: @switch) match {
-          case '"'                                                             => Left(JsonDecoder.string.unsafeDecode(trace, in))
-          case '-' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' =>
-            Right(JsonDecoder.int.unsafeDecode(trace, in))
-          case c                                                               =>
-            throw JsonDecoder.UnsafeJson(JsonDecoder.JsonError.Message(s"unexpected '$c'") :: trace)
-        }
-      }
-
-    implicit val decoder: JsonDecoder[ErrorDTO] = DeriveJsonDecoder.gen[ErrorDTO]
+    implicit val pathDecoder: JsonDecoder[Either[String, Int]]  = JsonDecoder[String].orElseEither(JsonDecoder[Int])
+    implicit val decoder: JsonDecoder[ErrorDTO]                 = DeriveJsonDecoder.gen[ErrorDTO]
   }
 
   val errorValueDecoder: JsonDecoder[CalibanError] =
