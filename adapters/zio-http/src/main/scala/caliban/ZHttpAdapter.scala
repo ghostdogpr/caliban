@@ -92,7 +92,7 @@ object ZHttpAdapter {
     keepAliveTime: Option[Duration] = None,
     queryExecution: QueryExecution = QueryExecution.Parallel,
     callbacks: Callbacks[R, E] = Callbacks.empty
-  ) = for {
+  ): SocketApp[R with Clock, E] = for {
     ref <- Ref.make(Map.empty[String, Promise[Any, Unit]])
   } yield socketHandler(
     ref,
