@@ -413,17 +413,23 @@ private[caliban] object ErrorZioJson {
   private case class ErrorDTO(
     message: String,
     extensions: Option[ResponseValue],
-    locations: Option[LocationInfo],
+    locations: Option[List[LocationInfo]],
     path: Option[List[Either[String, Int]]]
   )
   private object ErrorDTO {
-    import ValueZIOJson.responseValueDecoder
     implicit val locationInfoDecoder: JsonDecoder[LocationInfo] = DeriveJsonDecoder.gen[LocationInfo]
+    implicit val pathDecoder: JsonDecoder[Either[String, Int]]  = JsonDecoder[String].orElseEither(JsonDecoder[Int])
     implicit val decoder: JsonDecoder[ErrorDTO]                 = DeriveJsonDecoder.gen[ErrorDTO]
   }
 
   val errorValueDecoder: JsonDecoder[CalibanError] =
-    JsonDecoder[ErrorDTO].map(e => CalibanError.ExecutionError(e.message, e.path.getOrElse(List()), e.locations))
+    JsonDecoder[ErrorDTO].map(e =>
+      CalibanError.ExecutionError(
+        e.message,
+        e.path.getOrElse(List()),
+        e.locations.flatMap(locations => locations.lift(0))
+      )
+    )
 }
 
 private[caliban] object GraphQLResponseZioJson {

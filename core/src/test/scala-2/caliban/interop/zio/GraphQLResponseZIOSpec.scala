@@ -3,6 +3,7 @@ package caliban.interop.zio
 import caliban.GraphQLResponse
 import zio.json._
 import zio.test._
+import caliban.parsing.adt.LocationInfo
 import Assertion._
 import caliban.CalibanError
 import caliban.CalibanError.ExecutionError
@@ -50,14 +51,17 @@ object GraphQLResponseZIOSpec extends DefaultRunnableSpec {
         assert(response.toJson)(equalTo("""{"data":"data"}"""))
       },
       test("can be parsed from JSON [zio]") {
-        val req = """{"data":{"value": 42},"errors":[{"message":"boom"}]}"""
+        val req =
+          """{"data":{"value": 42},"errors":[{"message":"boom", "path": ["step", 0], "locations": [{"column": 1, "line": 2}]}]}"""
 
         assert(req.fromJson[GraphQLResponse[CalibanError]])(
           isRight(
             equalTo(
               GraphQLResponse(
                 data = ObjectValue(List("value" -> IntValue("42"))),
-                errors = List(ExecutionError("boom"))
+                errors = List(
+                  ExecutionError("boom", path = List(Left("step"), Right(0)), locationInfo = Some(LocationInfo(1, 2)))
+                )
               )
             )
           )
