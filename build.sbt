@@ -194,7 +194,7 @@ lazy val catsInterop = project
   .settings(
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) Seq()
-      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.0").cross(CrossVersion.full)))
+      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.1").cross(CrossVersion.full)))
     } ++ Seq(
       "dev.zio"       %% "zio-interop-cats" % zioInteropCats3Version,
       "org.typelevel" %% "cats-effect"      % catsEffect3Version
@@ -223,7 +223,7 @@ lazy val tapirInterop = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) Seq()
-      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.0").cross(CrossVersion.full)))
+      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.1").cross(CrossVersion.full)))
     } ++
       Seq(
         "com.softwaremill.sttp.tapir" %% "tapir-core"   % tapirVersion,
@@ -241,7 +241,7 @@ lazy val http4s = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) Seq()
-      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.0").cross(CrossVersion.full)))
+      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.1").cross(CrossVersion.full)))
     } ++
       Seq(
         "dev.zio"                       %% "zio-interop-cats"              % zioInteropCats3Version,
@@ -291,7 +291,7 @@ lazy val akkaHttp = project
       "de.heikoseeberger"             %% "akka-http-zio-json"         % "1.37.0"   % Optional,
       "dev.zio"                       %% "zio-test"                   % zioVersion % Test,
       "dev.zio"                       %% "zio-test-sbt"               % zioVersion % Test,
-      compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.0").cross(CrossVersion.full))
+      compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.1").cross(CrossVersion.full))
     )
   )
   .dependsOn(core)
