@@ -417,9 +417,6 @@ private[caliban] object ErrorZioJson {
     path: Option[List[Either[String, Int]]]
   )
   private object ErrorDTO {
-    import ValueZIOJson.{ responseValueDecoder, Num, Str }
-    import zio.json.internal.{ RetractReader }
-
     implicit val locationInfoDecoder: JsonDecoder[LocationInfo] = DeriveJsonDecoder.gen[LocationInfo]
     implicit val pathDecoder: JsonDecoder[Either[String, Int]]  = JsonDecoder[String].orElseEither(JsonDecoder[Int])
     implicit val decoder: JsonDecoder[ErrorDTO]                 = DeriveJsonDecoder.gen[ErrorDTO]
