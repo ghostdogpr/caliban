@@ -116,7 +116,7 @@ object ZHttpAdapter {
   /**
    * Creates an `HttpApp` that can handle GraphQL subscriptions.
    * This is a higher level API than `makeWebSocketHandler`. If you need
-   * additional control over the websocket lifcycle please use
+   * additional control over the websocket lifecycle please use
    * makeWebSocketHandler instead.
    */
   def makeWebSocketService[R <: Has[_], E](
