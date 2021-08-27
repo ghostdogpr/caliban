@@ -47,13 +47,14 @@ object Auth {
       wsSession.flatMap { session =>
         val auth = new Auth {
           def currentUser: ZIO[Any, Throwable, String]        = session.get
-          def setUser(name: String): ZIO[Any, Throwable, Any] = ???
+          def setUser(name: String): ZIO[Any, Throwable, Any] = session.set(name)
         }
 
         val callbacks = ZHttpAdapter.Callbacks.init[R, CalibanError](payload =>
           ZIO
             .fromEither(payload.hcursor.downField("Authorization").as[String])
-            .mapError(_ => CalibanError.ExecutionError("Unable to decode payload")) >>= session.set
+            .mapError(_ => CalibanError.ExecutionError("Unable to decode payload"))
+            .flatMap(user => ZIO.service[Auth].flatMap(_.setUser(user).orDie))
         ) ++ ZHttpAdapter.Callbacks.message(stream => stream.updateService[Auth](_ => auth))
 
         HttpApp.responseM(
