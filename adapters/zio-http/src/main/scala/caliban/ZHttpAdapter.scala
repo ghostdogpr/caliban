@@ -161,7 +161,7 @@ object ZHttpAdapter {
                 ZStream.fromEffect(onInit(payload)).drain.catchAll(toStreamError(id, _))
               case _                             => Stream.empty
             }
-            callback ++ response
+            ZStream.mergeAllUnbounded()(response, callback)
 
           case GraphQLWSRequest("connection_terminate", _, _) => close
           case GraphQLWSRequest("start", id, payload)         =>
