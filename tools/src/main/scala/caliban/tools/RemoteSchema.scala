@@ -147,11 +147,18 @@ object RemoteSchema {
   private def toInterfaceType(
     definition: Definition.TypeSystemDefinition.TypeDefinition.InterfaceTypeDefinition,
     definitions: List[Definition.TypeSystemDefinition.TypeDefinition]
-  ): __Type =
+  ): __Type = {
+    val implementations = definitions.collect {
+      case t @ ObjectTypeDefinition(description, name, implements, directives, fields)
+          if implements.map(_.name).toSet.contains(definition.name) =>
+        toObjectType(t, definitions)
+    }
+
     __Type(
       kind = __TypeKind.INTERFACE,
       name = Some(definition.name),
       description = definition.description,
+      possibleTypes = Some(implementations),
       fields = (args: __DeprecatedArgs) =>
         if (definition.fields.nonEmpty)
           Some(
@@ -162,6 +169,7 @@ object RemoteSchema {
         else None,
       directives = toDirectives(definition.directives)
     )
+  }
 
   private def toInputValue(
     definition: Definition.TypeSystemDefinition.TypeDefinition.InputValueDefinition,
