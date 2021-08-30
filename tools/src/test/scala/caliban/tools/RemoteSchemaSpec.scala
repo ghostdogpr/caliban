@@ -7,6 +7,8 @@ import caliban.schema._
 import zio._
 import zio.test.Assertion._
 import zio.test._
+import schema.Annotations._
+import caliban.Macros.gqldoc
 
 object RemoteSchemaSpec extends DefaultRunnableSpec {
   sealed trait EnumType  extends Product with Serializable
@@ -57,6 +59,39 @@ object RemoteSchemaSpec extends DefaultRunnableSpec {
         sdl           = api.render
         remoteSDL     = remoteAPI.render
       } yield assert(remoteSDL)(equalTo(sdl))
+    },
+    testM("properly resolves interface types") {
+      @GQLInterface
+      sealed trait Node
+
+      sealed trait Viewer
+      case class User(id: String, email: String) extends Node with Viewer
+      case class Superuser(id: String)           extends Node with Viewer
+
+      case class Queries(
+        whoAmI: Node = User("1", "foo@bar.com")
+      )
+
+      val api   = graphQL(RootResolver(Queries()))
+      val query = gqldoc("""
+             query {
+               whoAmI {
+                 ...on User {
+                   email
+                 }
+                 ...on Node {
+                   id
+                 }
+               }
+              }""")
+
+      for {
+        introspected <- SchemaLoader.fromCaliban(api).load
+        remoteSchema <- ZIO.fromOption(RemoteSchema.parseRemoteSchema(introspected))
+        remoteAPI    <- ZIO.effectTotal(fromRemoteSchema(remoteSchema))
+        interpreter  <- remoteAPI.interpreter
+        res          <- interpreter.check(query)
+      } yield assert(res)(isUnit)
     }
   )
 
