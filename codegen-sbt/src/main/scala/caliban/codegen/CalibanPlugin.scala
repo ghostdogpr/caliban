@@ -45,24 +45,16 @@ object CalibanPlugin extends AutoPlugin {
         //cp.foreach(f => log.error(s"--- ${f.toString}"))
         log.error(s"🤔️ ---- TOTO")
 
-        val Array(className, fieldName)         = "io.conduktor.api.gql.Gen#api".split("#")
-        val classLoader                         = new URLClassLoader((cp ++ cp1).map(_.toURI.toURL).toArray, ClassLoader.getSystemClassLoader)
-        val clazz: Either[Throwable, Class[_]]  =
-          try Right(classLoader.loadClass(className))
-          catch {
-            case e: Throwable => Left(e)
-          }
-        val obzect: Either[Throwable, Class[_]] =
-          try Right(classLoader.loadClass(className + "$"))
-          catch {
-            case e: Throwable => Left(e)
-          }
+        val Array(className, fieldName) = "io.conduktor.api.gql.Gen#api".split("#")
+        val classLoader                 = new URLClassLoader((cp ++ cp1).map(_.toURI.toURL).toArray, ClassLoader.getSystemClassLoader)
+        val clazz: Class[_]             = classLoader.loadClass(className)
+        val obzect: Class[_]            = classLoader.loadClass(className + "$")
 
         log.error(s"😭 --- $clazz")
         log.error(s"😭😭 --- $obzect")
 
-        val method   = clazz.toOption.get.getDeclaredMethod(fieldName)
-        val instance = obzect.toOption.get.getDeclaredField("MODULE$")
+        val method   = clazz.getDeclaredMethod(fieldName)
+        val instance = obzect.getDeclaredField("MODULE$")
         val api      = method.invoke(instance).asInstanceOf[GraphQL[_]]
         Files.write(
           new File("/Users/jules/conduktor/workspace/scala-gql-template/modules/api/src/main/graphql").toPath,
