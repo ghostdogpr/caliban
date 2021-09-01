@@ -8,10 +8,9 @@ import java.io.File
 import java.net.URL
 
 object CalibanSourceGenerator {
+  import sjsonnew.{ :*:, LList, LNil }
   import zio._
   import zio.console._
-
-  import sjsonnew.{ :*:, LList, LNil }
 
   case class TrackedSettings(arguments: Seq[String])
   object TrackedSettings {
@@ -72,7 +71,7 @@ object CalibanSourceGenerator {
       def generateFileSource(graphql: File, settings: CalibanSettings): IO[Option[Throwable], List[File]] = for {
         generatedSource <- ZIO.succeed(transformFile(sourceRoot, sourceManaged, settings)(graphql))
         _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
-        opts            <- ZIO.fromOption(Some(settings.toOptions(graphql.toString, generatedSource.toString)))
+        opts            <- ZIO.fromOption(Some(settings.toOptions(GenSource.File, graphql.toString, generatedSource.toString)))
         files           <- Codegen.generate(opts, GenType.Client).asSomeError
       } yield files
 
@@ -82,7 +81,7 @@ object CalibanSourceGenerator {
             transformFile(sourceRoot, sourceManaged, settings)(new java.io.File(graphql.getPath.stripPrefix("/")))
           )
         _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
-        opts            <- ZIO.fromOption(Some(settings.toOptions(graphql.toString, generatedSource.toString)))
+        opts            <- ZIO.fromOption(Some(settings.toOptions(GenSource.Url, graphql.toString, generatedSource.toString)))
         files           <- Codegen.generate(opts, GenType.Client).asSomeError
       } yield files
 

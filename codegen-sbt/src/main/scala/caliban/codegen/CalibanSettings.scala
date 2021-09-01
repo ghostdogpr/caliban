@@ -1,6 +1,6 @@
 package caliban.codegen
 
-import caliban.tools.Options
+import caliban.tools.{ GenSource, Options }
 
 import java.io.File
 import java.net.URL
@@ -21,7 +21,8 @@ sealed trait CalibanSettings {
 
   def append(other: Type): Type
 
-  def toOptions(schemaPath: String, toPath: String) = Options(
+  def toOptions(source: GenSource, schemaPath: String, toPath: String) = Options(
+    source = source,
     schemaPath = schemaPath,
     toPath = toPath,
     fmtPath = scalafmtPath,

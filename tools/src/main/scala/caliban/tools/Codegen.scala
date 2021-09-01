@@ -1,9 +1,9 @@
 package caliban.tools
 
-import java.io.{ File, PrintWriter }
-
 import caliban.tools.implicits.ScalarMappings
 import zio.{ Task, UIO }
+
+import java.io.{ File, PrintWriter }
 
 object Codegen {
 
@@ -31,7 +31,7 @@ object Codegen {
     val splitFiles         = arguments.splitFiles.getOrElse(false)
     val enableFmt          = arguments.enableFmt.getOrElse(true)
     val extensibleEnums    = arguments.extensibleEnums.getOrElse(false)
-    val loader             = getSchemaLoader(arguments.schemaPath, arguments.headers)
+    val loader             = getSchemaLoader(arguments.source, arguments.schemaPath, arguments.headers)
     for {
       schema    <- loader.load
       code       = genType match {
@@ -66,8 +66,15 @@ object Codegen {
     } yield paths
   }
 
-  private def getSchemaLoader(path: String, schemaPathHeaders: Option[List[Options.Header]]): SchemaLoader =
-    if (path.startsWith("http")) SchemaLoader.fromIntrospection(path, schemaPathHeaders)
-    else SchemaLoader.fromFile(path)
+  private def getSchemaLoader(
+    genSource: GenSource,
+    path: String,
+    schemaPathHeaders: Option[List[Options.Header]]
+  ): SchemaLoader =
+    genSource match {
+      case GenSource.Url          => SchemaLoader.fromIntrospection(path, schemaPathHeaders)
+      case GenSource.File         => SchemaLoader.fromFile(path)
+      case GenSource.Caliban(api) => SchemaLoader.fromCaliban(api)
+    }
 
 }
