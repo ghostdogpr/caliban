@@ -1,15 +1,41 @@
 package caliban.codegen
 
 import sbt.Keys._
-import sbt.librarymanagement.Resolver
 import sbt.{ Compile, Def, _ }
 
 /**
- * Interesting documentations about writing sbt plugins:
+ * User-oriented documentation:
+ * ----------------------------
+ *
+ * TODO Jules: Write doc
+ */
+object CompileTimeCalibanServerPlugin extends AutoPlugin {
+  override def requires = plugins.JvmPlugin
+  override def trigger  = noTrigger
+
+  override lazy val projectSettings: Seq[Def.Setting[_]] =
+    Seq(
+      libraryDependencies ++= Seq(
+        "com.github.ghostdogpr" %% "caliban-tools" % BuildInfo.version % Compile,
+        "dev.zio"               %% "zio"           % "1.0.11"          % Compile
+      )
+    )
+}
+
+/**
+ * User-oriented documentation:
+ * ----------------------------
+ *
+ * TODO Jules: Write doc
+ *
+ * Sbt plugin authors documentation:
+ * ---------------------------------
+ *
+ * Interesting documentations about how to write sbt plugins:
  *  - https://www.scala-sbt.org/1.x/docs/Plugins.html
  *  - https://www.scala-sbt.org/1.x/docs/Plugins-Best-Practices.html
  */
-object CompileTimeCalibanPlugin extends AutoPlugin {
+object CompileTimeCalibanClientPlugin extends AutoPlugin {
   override def requires = plugins.JvmPlugin
   override def trigger  = noTrigger
 
@@ -36,9 +62,14 @@ object CompileTimeCalibanPlugin extends AutoPlugin {
      */
     lazy val ctCaliban = taskKey[Unit]("Plugin configuration keys namespace")
 
-    // Plugin configuration
-    lazy val ctCalibanGeneratorAppRef = settingKey[Option[String]](
-      "(Required) Reference of the zio.App class containing the call to `CompileTime.generateClient(/* your API */)`"
+    // Required Plugin configurations
+    lazy val ctCalibanServerProject = settingKey[Option[Project]](
+      "(Required) sbt project where the CompileTimeCalibanServerPlugin is enabled"
+    )
+
+    // Optional Plugin configurations
+    lazy val ctCalibanGeneratorAppRef = settingKey[String](
+      "(Optional) Reference of the zio.App class containing the call to `CompileTime.generateClient(/* your API */)`. Default: `generator.CalibanClientGenerator`"
     )
     lazy val ctCalibanClientName      = settingKey[String](
       "(Optional) Generated client name. Default: `Client`"
@@ -48,62 +79,75 @@ object CompileTimeCalibanPlugin extends AutoPlugin {
     )
 
     // Plugin task
-    lazy val ctCalibanGenerate = taskKey[Unit](
+    lazy val ctCalibanGenerate = taskKey[Seq[File]](
       "Generate Caliban Client code at compile time. Automatically configured to be triggered when compilation is done."
     )
   }
   import autoImport._
 
-  override lazy val projectSettings: Seq[Def.Setting[_]] =
-    Seq(
-      resolvers += Resolver.mavenLocal, // TODO Jules: TO DELETE
-      libraryDependencies ++= Seq(
-        "com.github.ghostdogpr" %% "caliban-client" % BuildInfo.version,
-        "com.github.ghostdogpr" %% "caliban-tools"  % BuildInfo.version % Compile,
-        "dev.zio"               %% "zio"            % "1.0.11"          % Compile
-      )
-    ) ++ inTask(ctCaliban)(
+  private lazy val ctCalibanSettings =
+    inTask(ctCaliban)(
       Seq(
-        ctCalibanGeneratorAppRef := None,
+        ctCalibanServerProject := None,
+        ctCalibanGeneratorAppRef := "generator.CalibanClientGenerator",
         ctCalibanClientName := "Client",
         ctCalibanPackageName := "generated",
         ctCalibanGenerate :=
           // That helped: https://stackoverflow.com/q/26244115/2431728
-          Def.taskDyn {
-            val log                       = streams.value.log("ctCaliban")
-            val maybeGeneratorAppRefValue = (ctCaliban / ctCalibanGeneratorAppRef).value
-            log.debug(s"ctCaliban - generatorAppRef: $maybeGeneratorAppRefValue")
+          Def
+            .taskDyn[Seq[File]] {
+              val log                     = streams.value.log("ctCaliban")
+              val maybeServerProjectValue = (ctCaliban / ctCalibanServerProject).value
 
-            maybeGeneratorAppRefValue match {
-              case None                       => Def.task(log.error(helpMsg))
-              case Some(generatorAppRefValue) =>
-                val baseDirValue     = baseDirectory.value
-                val clientNameValue  = (ctCaliban / ctCalibanClientName).value
-                val packageNameValue = (ctCaliban / ctCalibanPackageName).value
-                val toPath           = s"$baseDirValue/src/main/scala/${packagePath(packageNameValue)}/$clientNameValue.scala"
+              log.debug(s"ctCaliban - serverProject: $maybeServerProjectValue")
 
-                Def.task {
+              maybeServerProjectValue match {
+                case None                     => Def.task { log.error(helpMsg); List.empty[File] }
+                case Some(serverProjectValue) =>
+                  val baseDirValue         = baseDirectory.value
+                  val clientNameValue      = (ctCaliban / ctCalibanClientName).value
+                  val packageNameValue     = (ctCaliban / ctCalibanPackageName).value
+                  val toPath               = s"$baseDirValue/src/main/scala/${packagePath(packageNameValue)}/$clientNameValue.scala"
+                  val generatorAppRefValue = (ctCaliban / ctCalibanGeneratorAppRef).value
+
                   log.debug(s"ctCaliban - baseDirectory: $baseDirValue")
                   log.debug(s"ctCaliban - clientName: $clientNameValue")
                   log.debug(s"ctCaliban - packageName: $packageNameValue")
                   log.debug(s"ctCaliban - toPath: $toPath")
+                  log.debug(s"ctCaliban - generatorAppRef: $generatorAppRefValue")
 
-                  log.info(s"ctCaliban - Starting to generate...")
+                  Def.task[Seq[File]] {
+                    log.info(s"ctCaliban - Starting to generate...")
 
-                  Def.task {
-                    sbt.IO.createDirectory(file(toPath).getParentFile)
-                  }.value
+                    val res = Def.task {
+                      val res = file(toPath)
+                      sbt.IO.createDirectory(res.getParentFile)
+                      res
+                    }.value
 
-                  (Compile / thisProject / runMain)
-                    .toTask(s" $generatorAppRefValue $toPath $packageNameValue $clientNameValue")
-                    .value
+                    (serverProjectValue / runMain)
+                      .toTask(s" $generatorAppRefValue $toPath $packageNameValue $clientNameValue")
+                      .value
 
-                  log.info(s"ctCaliban - Generation done! 🎉")
-                }
+                    log.info(s"ctCaliban - Generation done! 🎉")
+
+                    List(res)
+                  }
+              }
+
             }
-          }.triggeredBy(Compile / compile).value
+            .value
       )
     )
+
+  override lazy val projectSettings: Seq[Def.Setting[_]] =
+    Seq(
+      libraryDependencies ++= Seq(
+        "com.github.ghostdogpr" %% "caliban-client" % BuildInfo.version
+      ),
+      (Compile / sourceGenerators) += Compile / ctCaliban / ctCalibanGenerate,
+      (Test / sourceGenerators) += Test / ctCaliban / ctCalibanGenerate
+    ) ++ inConfig(Compile)(ctCalibanSettings) ++ inConfig(Test)(ctCalibanSettings)
 
   private def packagePath(packageName: String): String = packageName.replaceAll("\\.", "/")
 
