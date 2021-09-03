@@ -31,8 +31,8 @@ object ExampleApp extends App {
                            .bindHttp(8088, "localhost")
                            .withHttpApp(
                              Router[ExampleTask](
-                               "/api/graphql" -> CORS(Http4sAdapter.makeHttpService(interpreter)),
-                               "/ws/graphql"  -> CORS(Http4sAdapter.makeWebSocketService(interpreter)),
+                               "/api/graphql" -> CORS.policy(Http4sAdapter.makeHttpService(interpreter)),
+                               "/ws/graphql"  -> CORS.policy(Http4sAdapter.makeWebSocketService(interpreter)),
                                "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
                              ).orNotFound
                            )

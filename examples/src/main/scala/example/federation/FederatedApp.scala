@@ -29,7 +29,7 @@ object FederatedApp extends CatsApp {
                          .bindHttp(8089, "localhost")
                          .withHttpApp(
                            Router[ExampleTask](
-                             "/api/graphql" -> CORS(Http4sAdapter.makeHttpService(interpreter)),
+                             "/api/graphql" -> CORS.policy(Http4sAdapter.makeHttpService(interpreter)),
                              "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
                            ).orNotFound
                          )
@@ -49,7 +49,7 @@ object FederatedApp extends CatsApp {
                          .bindHttp(8088, "localhost")
                          .withHttpApp(
                            Router[ExampleTask](
-                             "/api/graphql" -> CORS(Http4sAdapter.makeHttpService(interpreter)),
+                             "/api/graphql" -> CORS.policy(Http4sAdapter.makeHttpService(interpreter)),
                              "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
                            ).orNotFound
                          )
