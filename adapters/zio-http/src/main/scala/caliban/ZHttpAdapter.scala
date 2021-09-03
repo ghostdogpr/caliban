@@ -57,8 +57,26 @@ object ZHttpAdapter {
   object Callbacks {
     def empty[R, E] = Callbacks[R, E](None, None)
 
-    def init[R, E](f: io.circe.Json => ZIO[R, E, Any]): Callbacks[R, E]               = Callbacks(Some(f), None, None)
-    def afterInit[R, E](f: ZIO[R, E, Any]): Callbacks[R, E]                           = Callbacks(None, Some(f), None)
+    /**
+     * Specifies a callback that will be run before an incoming subscription
+     * request is accepted. Useful for e.g authorizing the incoming subscription
+     * before accepting it.
+     */
+    def init[R, E](f: io.circe.Json => ZIO[R, E, Any]): Callbacks[R, E] = Callbacks(Some(f), None, None)
+
+    /**
+     * Specifies a callback that will be run after an incoming subscription
+     * request has been accepted. Useful for e.g terminating a subscription
+     * after some time, such as authorization expiring.
+     */
+    def afterInit[R, E](f: ZIO[R, E, Any]): Callbacks[R, E] = Callbacks(None, Some(f), None)
+
+    /**
+     * Specifies a callback that will be run on the resulting `ZStream`
+     * for every active subscription. Useful to e.g modify the environment
+     * to inject session information into the `ZStream` handling the
+     * subscription.
+     */
     def message[R, E](f: ZStream[R, E, Text] => ZStream[R, E, Text]): Callbacks[R, E] = Callbacks(None, None, Some(f))
   }
 
