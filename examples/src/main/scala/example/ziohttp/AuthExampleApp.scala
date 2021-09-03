@@ -53,7 +53,7 @@ object Auth {
         val callbacks = ZHttpAdapter.Callbacks.init[R, CalibanError](payload =>
           ZIO
             .fromEither(payload.hcursor.downField("Authorization").as[String])
-            .mapError(_ => CalibanError.ExecutionError("Unable to decode payload"))
+            .orElseFail(CalibanError.ExecutionError("Unable to decode payload"))
             .flatMap(user => ZIO.service[Auth].flatMap(_.setUser(user).orDie))
         ) ++ ZHttpAdapter.Callbacks.message(stream => stream.updateService[Auth](_ => auth))
 

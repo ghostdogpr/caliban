@@ -48,7 +48,7 @@ object ZHttpAdapter {
   }
 
   object Callbacks {
-    def empty[R, E] = Callbacks[R, E](None, None)
+    def empty[R, E]: Callbacks[R, E] = Callbacks[R, E](None, None)
 
     def init[R, E](f: io.circe.Json => ZIO[R, E, Any]): Callbacks[R, E]               = Callbacks(Some(f), None)
     def message[R, E](f: ZStream[R, E, Text] => ZStream[R, E, Text]): Callbacks[R, E] = Callbacks(None, Some(f))
