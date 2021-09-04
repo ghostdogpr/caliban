@@ -3,17 +3,17 @@ package caliban.codegen
 import _root_.caliban.tools.Codegen.GenType
 import _root_.caliban.tools._
 import sbt._
+import sjsonnew.IsoLList.Aux
 
 import java.io.File
 import java.net.URL
 
 object CalibanSourceGenerator {
+  import sjsonnew.{ :*:, LList, LNil }
   import zio._
   import zio.console._
 
-  import sjsonnew.{ :*:, LList, LNil }
-
-  case class TrackedSettings(arguments: Seq[String])
+  final case class TrackedSettings(arguments: Seq[String])
   object TrackedSettings {
     import _root_.sbt.util.CacheImplicits._
 
@@ -26,10 +26,11 @@ object CalibanSourceGenerator {
       TrackedSettings(allSettings.map(_.toString))
     }
 
-    implicit val analysisIso = LList.iso[TrackedSettings, Seq[String] :*: LNil](
-      { case TrackedSettings(arguments) => ("args", arguments) :*: LNil },
-      { case ((_, args) :*: LNil) => TrackedSettings(args) }
-    )
+    implicit val analysisIso: Aux[TrackedSettings, Seq[String] :*: LNil] =
+      LList.iso[TrackedSettings, Seq[String] :*: LNil](
+        { case TrackedSettings(arguments) => ("args", arguments) :*: LNil },
+        { case ((_, args) :*: LNil) => TrackedSettings(args) }
+      )
   }
 
   def transformFile(sourceRoot: File, managedRoot: File, settings: CalibanSettings): File => File = { graphqlFile =>
@@ -121,7 +122,7 @@ object CalibanSourceGenerator {
       (
         sources.toList,
         FilesInfo.lastModified(sources.toSet).asInstanceOf[FilesInfo[ModifiedFileInfo]],
-        BuildInfo.version,
+        zio.BuildInfo.version,
         TrackedSettings.fromSettings(sources, fileSettings, urlSettings)
       )
 
