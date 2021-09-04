@@ -1,7 +1,10 @@
 package caliban.codegen
 
+import caliban.codegen.CalibanSourceGenerator.TrackedSettings
 import sbt.Keys._
 import sbt.{ Compile, Def, _ }
+
+import java.io.File
 
 /**
  * User-oriented documentation:
@@ -40,18 +43,29 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
   override def trigger  = noTrigger
 
   private def helpMsg: String =
-    s"""
-       |Missing configuration for the "CompileTimeCalibanPlugin" plugin.
-       |
-       |You need to configure the reference of the class containing the call to `CompileTime.generateClient`:
-       |
-       |```
-       |Compile / ctCaliban / ctCalibanGeneratorAppRef := Some("com.example.GeneratorApp")
-       |```
-       |
-       |See documentation for more details: (TODO Add link)
-       |
-       |""".stripMargin
+    """
+      |Missing configuration for the "CompileTimeCalibanClientPlugin" plugin.
+      |
+      |You need to configure the `Compile / ctCaliban / ctCalibanServerProject` setting to point to your "server" module:
+      |
+      |```
+      |lazy val server =
+      |  project
+      |    ...
+      |    .enablePlugins(CompileTimeCalibanServerPlugin)
+      |    ...
+      |
+      |lazy val calibanClient =
+      |  project
+      |    ...
+      |    .enablePlugins(CompileTimeCalibanClientPlugin)
+      |    ...
+      |    .settings(Compile / ctCaliban / ctCalibanServerProject := server)
+      |```
+      |
+      |See documentation for more details: (TODO Add link)
+      |
+      |""".stripMargin.trim
 
   object autoImport {
 
@@ -63,7 +77,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
     lazy val ctCaliban = taskKey[Unit]("Plugin configuration keys namespace")
 
     // Required Plugin configurations
-    lazy val ctCalibanServerProject = settingKey[Option[Project]](
+    lazy val ctCalibanServerProject = settingKey[Project](
       "(Required) sbt project where the CompileTimeCalibanServerPlugin is enabled"
     )
 
@@ -85,30 +99,32 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
   }
   import autoImport._
 
+  private val hiddenProjectId = "ctCaliban-hidden-default-project"
+
   private lazy val ctCalibanSettings =
     inTask(ctCaliban)(
       Seq(
-        ctCalibanServerProject := None,
+        ctCalibanServerProject := Project(id = hiddenProjectId, base = (thisProject / target).value),
         ctCalibanGeneratorAppRef := "generator.CalibanClientGenerator",
         ctCalibanClientName := "Client",
         ctCalibanPackageName := "generated",
-        ctCalibanGenerate :=
+        ctCalibanGenerate := {
           // That helped: https://stackoverflow.com/q/26244115/2431728
-          Def
-            .taskDyn[Seq[File]] {
-              val log                     = streams.value.log("ctCaliban")
-              val maybeServerProjectValue = (ctCaliban / ctCalibanServerProject).value
+          Def.taskDyn {
+            val log = streams.value.log("ctCaliban")
 
-              log.debug(s"ctCaliban - serverProject: $maybeServerProjectValue")
+            val serverProject = (ctCaliban / ctCalibanServerProject).value
+            if (serverProject.id == hiddenProjectId) Def.task { log.error(helpMsg); Seq.empty[File] }
+            else {
+              def generateSources: Def.Initialize[Task[Seq[File]]] =
+                Def.taskDyn {
+                  val baseDirValue: File       = (thisProject / baseDirectory).value
+                  val clientNameValue: String  = (ctCaliban / ctCalibanClientName).value
+                  val packageNameValue: String = (ctCaliban / ctCalibanPackageName).value
+                  val toPath: String           =
+                    s"$baseDirValue/src/main/scala/${packagePath(packageNameValue)}/$clientNameValue.scala"
 
-              maybeServerProjectValue match {
-                case None                     => Def.task { log.error(helpMsg); List.empty[File] }
-                case Some(serverProjectValue) =>
-                  val baseDirValue         = baseDirectory.value
-                  val clientNameValue      = (ctCaliban / ctCalibanClientName).value
-                  val packageNameValue     = (ctCaliban / ctCalibanPackageName).value
-                  val toPath               = s"$baseDirValue/src/main/scala/${packagePath(packageNameValue)}/$clientNameValue.scala"
-                  val generatorAppRefValue = (ctCaliban / ctCalibanGeneratorAppRef).value
+                  val generatorAppRefValue: String = (ctCaliban / ctCalibanGeneratorAppRef).value
 
                   log.debug(s"ctCaliban - baseDirectory: $baseDirValue")
                   log.debug(s"ctCaliban - clientName: $clientNameValue")
@@ -116,27 +132,80 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                   log.debug(s"ctCaliban - toPath: $toPath")
                   log.debug(s"ctCaliban - generatorAppRef: $generatorAppRefValue")
 
-                  Def.task[Seq[File]] {
+                  Def.task {
                     log.info(s"ctCaliban - Starting to generate...")
 
-                    val res = Def.task {
-                      val res = file(toPath)
-                      sbt.IO.createDirectory(res.getParentFile)
-                      res
+                    Def.task {
+                      sbt.IO.createDirectory(file(toPath).getParentFile)
                     }.value
 
-                    (serverProjectValue / runMain)
+                    (serverProject / runMain)
                       .toTask(s" $generatorAppRefValue $toPath $packageNameValue $clientNameValue")
                       .value
 
                     log.info(s"ctCaliban - Generation done! 🎉")
-
-                    List(res)
+                    Seq(file(toPath))
                   }
+                }
+
+              /**
+               * These settings are used to track the need to re-generate the code.
+               *
+               * When one of the value of these settings changes, then this plugin knows that it has to re-generate the code.
+               *
+               * @guizmaii's note:
+               * ----------------
+               * One nice thing to have would be to cache the content of the `ctCalibanGeneratorAppRef` file so when the user changes
+               * its content, this plugin knows that it has to re-generate the code.
+               * I tried to implement it, failed and abandoned. Working with sbt is too time consuming.
+               * GLHF if you want to give it a try.
+               */
+              val cachedSettings: TrackedSettings =
+                TrackedSettings(
+                  List(
+                    caliban.codegen.BuildInfo.version,
+                    zio.BuildInfo.version,
+                    serverProject.id,
+                    (ctCaliban / ctCalibanGeneratorAppRef).value,
+                    (ctCaliban / ctCalibanClientName).value,
+                    (ctCaliban / ctCalibanPackageName).value
+                  )
+                )
+
+              log.debug(s"ctCaliban - cachedSettings: $cachedSettings")
+
+              val cacheDirectory = streams.value.cacheDirectory
+
+              /**
+               * Copied and adapted from [[CalibanSourceGenerator]] cache mechanism,
+               * which was itself, I quote, "heavily inspired by the caching technique from eed3si9n's sbt-scalaxb plugin".
+               *
+               * I wasn't able to add the source in the cache as it's done in [[CalibanSourceGenerator]] because it
+               * creates a cyclic dependency. Not sure we need it anyway.
+               */
+              val cachedGenerateSources
+                : TrackedSettings => (() => FilesInfo[PlainFileInfo]) => Def.Initialize[Task[Seq[File]]] = {
+                import sbt.util.CacheImplicits._
+
+                Tracked.inputChanged(cacheDirectory / "ctCaliban-inputs") { (inChanged: Boolean, _: TrackedSettings) =>
+                  Tracked.outputChanged(cacheDirectory / "ctCaliban-output") {
+                    (outChanged: Boolean, outputs: FilesInfo[PlainFileInfo]) =>
+                      Def.taskIf {
+                        if (inChanged || outChanged) generateSources.value
+                        else outputs.files.toList.map(_.file)
+                      }
+                  }
+                }
               }
 
+              val sourceManagedValue: File = sourceManaged.value
+
+              cachedGenerateSources(cachedSettings) { () =>
+                FilesInfo.exists((sourceManagedValue ** "*.scala").get.toSet).asInstanceOf[FilesInfo[PlainFileInfo]]
+              }
             }
-            .value
+          }.value
+        }
       )
     )
 

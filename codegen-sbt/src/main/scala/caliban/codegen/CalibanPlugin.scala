@@ -30,12 +30,12 @@ object CalibanPlugin extends AutoPlugin {
         IO.createDirectory(sourceDir)
       },
       calibanGenerator := CalibanSourceGenerator(
-        calibanSources.value,
-        sources.value,
-        sourceManaged.value,
-        streams.value.cacheDirectory,
-        calibanSettings.value.collect { case x: CalibanFileSettings => x },
-        calibanSettings.value.collect { case x: CalibanUrlSettings => x }
+        sourceRoot = calibanSources.value,
+        sources = sources.value,
+        sourceManaged = sourceManaged.value,
+        cacheDirectory = streams.value.cacheDirectory,
+        fileSettings = calibanSettings.value.collect { case x: CalibanFileSettings => x },
+        urlSettings = calibanSettings.value.collect { case x: CalibanUrlSettings => x }
       )
     )
   )
