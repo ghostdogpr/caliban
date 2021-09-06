@@ -117,7 +117,7 @@ lazy val core = project
         Seq(
           "com.propensive"    %% "magnolia"  % magnoliaVersion,
           "com.propensive"    %% "mercator"  % mercatorVersion,
-          "com.lihaoyi"       %% "fastparse" % "2.3.2",
+          "com.lihaoyi"       %% "fastparse" % "2.3.3",
           "com.typesafe.play" %% "play-json" % playJsonVersion % Optional,
           "dev.zio"           %% "zio-json"  % zioJsonVersion  % Optional
         )
