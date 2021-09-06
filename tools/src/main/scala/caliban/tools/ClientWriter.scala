@@ -862,6 +862,7 @@ object ClientWriter {
     "return",
     "sealed",
     "super",
+    "then",
     "this",
     "throw",
     "trait",
