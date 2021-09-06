@@ -3,6 +3,7 @@ The [examples](https://github.com/ghostdogpr/caliban/tree/master/examples/) proj
 - [GraphQL API exposed with http4s](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/example/http4s)
 - [GraphQL API exposed with Akka HTTP](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/example/akkahttp)
 - [GraphQL API exposed with play](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/example/play)
+- [GraphQL API exposed with play's route file](https://github.com/rlavolee/caliban-play-with-route-file)
 - [GraphQL API exposed with zio-http](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/example/ziohttp)
 - [GraphQL Client usage](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/example/client)
 - [GraphQL Client integration with Laminext](https://github.com/ghostdogpr/caliban/tree/master/client-laminext/src/test/scala/caliban/client/laminext)
