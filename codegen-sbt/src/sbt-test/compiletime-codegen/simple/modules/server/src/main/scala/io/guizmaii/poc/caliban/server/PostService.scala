@@ -1,6 +1,6 @@
 package io.guizmaii.poc.caliban.server
 
-import zio.*
+import zio._
 import zio.prelude.Equal
 import zio.stream.ZStream
 

@@ -8,7 +8,6 @@ object BuildHelper {
     libraryDependencies += compilerPlugin("org.typelevel" %% "kind-projector" % "0.13.0" cross CrossVersion.full),
     addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"),
     javacOptions ++= Seq("-source", "11", "-target", "11"),
-    scalacOptions ++= Seq("-Ymacro-annotations", "-Xsource:3", "-target:11"),
     scalacOptions --= {
       if (sys.env.contains("CI")) Nil else Seq("-Xfatal-warnings") // enforced by the pre-push hook too
     },
