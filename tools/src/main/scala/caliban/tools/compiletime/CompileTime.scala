@@ -31,7 +31,7 @@ object CompileTime {
                         extensibleEnums = None
                       )
             _      <- Codegen
-                        .gggggggenerate(
+                        .generate(
                           SchemaLoader.fromCaliban(api),
                           options,
                           GenType.Client

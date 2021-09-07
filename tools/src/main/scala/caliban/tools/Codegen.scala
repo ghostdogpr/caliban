@@ -15,7 +15,7 @@ object Codegen {
     object Client extends GenType
   }
 
-  def gggggggenerate(
+  def generate(
     loader: SchemaLoader,
     arguments: Options,
     genType: GenType
@@ -67,7 +67,7 @@ object Codegen {
   }
 
   def generate(arguments: Options, genType: GenType): Task[List[File]] =
-    gggggggenerate(
+    generate(
       getSchemaLoader(arguments.schemaPath, arguments.headers),
       arguments,
       genType
