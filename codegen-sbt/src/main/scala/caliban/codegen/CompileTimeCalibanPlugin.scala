@@ -153,7 +153,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                *
                * When one of the value of these settings changes, then this plugin knows that it has to re-generate the code.
                *
-               * @guizmaii's note:
+               * \@guizmaii's note:
                * ----------------
                * One nice thing to have would be to cache the content of the `ctCalibanGeneratorAppRef` file so when the user changes
                * its content, this plugin knows that it has to re-generate the code.
