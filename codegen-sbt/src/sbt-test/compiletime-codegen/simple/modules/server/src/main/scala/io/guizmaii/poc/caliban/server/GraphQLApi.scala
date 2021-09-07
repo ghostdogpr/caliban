@@ -2,14 +2,14 @@ package io.guizmaii.poc.caliban.server
 
 import caliban.GraphQL.graphQL
 import caliban.schema.GenericSchema
-import caliban.wrappers.Wrappers.*
+import caliban.wrappers.Wrappers._
 import caliban.{GraphQL, RootResolver}
-import zio.*
+import zio._
 import zio.duration.durationInt
-import zio.prelude.*
+import zio.prelude._
 import zio.stream.ZStream
 
-object Schemas extends GenericSchema[ZEnv & Has[PostService]]
+object Schemas extends GenericSchema[ZEnv with Has[PostService]]
 
 object Operations {
 
@@ -30,7 +30,7 @@ object Operations {
 }
 
 object Resolvers {
-  import Operations.*
+  import Operations._
 
   private val queries =
     Query(
@@ -55,9 +55,9 @@ object Resolvers {
 }
 
 object GraphQLApi {
-  import Schemas.*
+  import Schemas._
 
-  val api: GraphQL[ZEnv & Has[PostService]] =
+  val api: GraphQL[ZEnv with Has[PostService]] =
     graphQL(
       Resolvers.resolver
     ) @@

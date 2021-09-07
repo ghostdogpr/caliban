@@ -11,8 +11,8 @@ trait Client {
   def postById(id: String): Task[Option[(String, String)]]
 }
 
-final class ClientLive(backend: SttpBackend[Task, ZioStreams & WebSockets]) extends Client {
-  import sttp.client3.*
+final class ClientLive(backend: SttpBackend[Task, ZioStreams with WebSockets]) extends Client {
+  import sttp.client3._
 
   private val serverUrl = uri"http://localhost:8088/api/graphql"
 
