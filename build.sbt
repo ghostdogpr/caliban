@@ -4,7 +4,7 @@ import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 val scala212 = "2.12.14"
 val scala213 = "2.13.6"
 val scala3   = "3.0.2"
-val allScala = Seq(scala212, scala213) // TODO Jules: TO REVERT
+val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion            = "2.6.15"
 val catsEffect2Version     = "2.5.3"
@@ -26,14 +26,8 @@ val zqueryVersion          = "0.2.10"
 val zioJsonVersion         = "0.1.5"
 val zioHttpVersion         = "1.0.0.0-RC17"
 
-lazy val noDoc = Seq(
-  (Compile / doc / sources) := Seq.empty,
-  (Compile / packageDoc / publishArtifact) := false
-)
-
 inThisBuild(
   List(
-    version := "1.1.1-SNAPSHOT-23", // TODO Jules: TO DELETE
     scalaVersion := scala212,
     crossScalaVersions := allScala,
     organization := "com.github.ghostdogpr",
@@ -57,7 +51,7 @@ inThisBuild(
       )
     ),
     ConsoleHelper.welcomeMessage
-  ) ++ noDoc // TODO Jules: TO REMOVE
+  )
 )
 
 name := "caliban"
@@ -75,20 +69,20 @@ lazy val root = project
   .aggregate(
     macros,
     core,
-    //finch,
+    finch,
     http4s,
-    //akkaHttp,
-    //play,
+    akkaHttp,
+    play,
     zioHttp,
-    //catsInterop,
-    //monixInterop,
-    //tapirInterop,
+    catsInterop,
+    monixInterop,
+    tapirInterop,
     clientJVM,
-    //clientJS,
-    //clientLaminext,
+    clientJS,
+    clientLaminext,
     tools,
-    codegenSbt
-    //federation
+    codegenSbt,
+    federation
   )
 
 lazy val macros = project
