@@ -2,22 +2,16 @@ import sbt._
 
 object Libraries {
 
-  val zioVersion     = "1.0.11"
-  val sttpVersion    = "3.3.14"
-
-  val zio     = "dev.zio" %% "zio"         % zioVersion
-  val prelude = "dev.zio" %% "zio-prelude" % "1.0.0-RC6"
-
-  val calibanLibs =
+  val calibanLibs: Seq[ModuleID] =
     sys.props.get("plugin.version") match {
-      case Some(x) => "com.github.ghostdogpr" %% "caliban" % x,
+      case Some(x) => Seq("com.github.ghostdogpr" %% "caliban" % x),
       case _       => sys.error("""|The system property 'plugin.version' is not defined.
                                    |Specify this property using the scriptedLaunchOpts -D.""".stripMargin)
     }
 
   val sttp = Seq(
-    "com.softwaremill.sttp.client3" %% "core"                          % sttpVersion,
-    "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion
+    "com.softwaremill.sttp.client3" %% "core"                          % "3.3.14",
+    "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % "3.3.14"
   )
 
 }

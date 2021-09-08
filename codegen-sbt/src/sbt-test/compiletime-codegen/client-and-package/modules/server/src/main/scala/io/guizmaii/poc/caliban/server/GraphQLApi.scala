@@ -6,7 +6,6 @@ import caliban.wrappers.Wrappers._
 import caliban.{GraphQL, RootResolver}
 import zio._
 import zio.duration.durationInt
-import zio.prelude._
 import zio.stream.ZStream
 
 object Schemas extends GenericSchema[ZEnv with Has[PostService]]
@@ -48,7 +47,7 @@ object Resolvers {
       allPostsByAuthor = author =>
         ZStream
           .service[PostService]
-          .flatMap(_.all.filter(_.author === author))
+          .flatMap(_.all.filter(_.author == author))
     )
 
   val resolver: RootResolver[Query, Mutation, Subscription] = RootResolver(queries, mutations, subscriptions)
