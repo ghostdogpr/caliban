@@ -1,75 +1,10 @@
 package caliban.codegen
 
-import caliban.tools.Options
+import caliban.tools.CalibanCommonSettings
 import monocle.macros.GenLens
-import zio.prelude._
 
 import java.io.File
 import java.net.URL
-
-final case class CalibanCommonSettings(
-  clientName: Option[String],
-  scalafmtPath: Option[String],
-  headers: Seq[(String, String)],
-  packageName: Option[String],
-  genView: Option[Boolean],
-  scalarMappings: Seq[(String, String)],
-  imports: Seq[String],
-  splitFiles: Option[Boolean],
-  enableFmt: Option[Boolean],
-  extensibleEnums: Option[Boolean]
-) {
-
-  def toOptions(schemaPath: String, toPath: String): Options =
-    Options(
-      schemaPath = schemaPath,
-      toPath = toPath,
-      fmtPath = scalafmtPath,
-      headers = Option(headers.map((Options.Header.apply _).tupled).toList).filter(_.nonEmpty),
-      packageName = packageName,
-      clientName = clientName,
-      genView = genView,
-      effect = Option.empty,
-      scalarMappings = Option(scalarMappings.toMap).filter(_.nonEmpty),
-      imports = Option(imports.toList).filter(_.nonEmpty),
-      abstractEffectType = Option.empty,
-      splitFiles = splitFiles,
-      enableFmt = enableFmt,
-      extensibleEnums = extensibleEnums
-    )
-}
-object CalibanCommonSettings {
-  val empty: CalibanCommonSettings =
-    CalibanCommonSettings(
-      clientName = None,
-      scalafmtPath = None,
-      headers = Seq.empty,
-      packageName = None,
-      genView = None,
-      scalarMappings = Seq.empty,
-      imports = Seq.empty,
-      splitFiles = None,
-      enableFmt = None,
-      extensibleEnums = None
-    )
-
-  implicit val associative: Associative[CalibanCommonSettings] =
-    new Associative[CalibanCommonSettings] {
-      override def combine(l: => CalibanCommonSettings, r: => CalibanCommonSettings): CalibanCommonSettings =
-        CalibanCommonSettings(
-          clientName = r.clientName.orElse(l.clientName),
-          scalafmtPath = r.scalafmtPath.orElse(l.scalafmtPath),
-          headers = l.headers ++ r.headers,
-          packageName = r.packageName.orElse(l.packageName),
-          genView = r.genView.orElse(l.genView),
-          scalarMappings = l.scalarMappings ++ r.scalarMappings,
-          imports = l.imports ++ r.imports,
-          splitFiles = r.splitFiles.orElse(l.splitFiles),
-          enableFmt = r.enableFmt.orElse(l.enableFmt),
-          extensibleEnums = r.extensibleEnums.orElse(l.extensibleEnums)
-        )
-    }
-}
 
 sealed trait CalibanSettings
 

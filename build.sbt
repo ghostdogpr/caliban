@@ -28,7 +28,7 @@ val zioHttpVersion         = "1.0.0.0-RC17"
 
 inThisBuild(
   List(
-    version := "1.1.1-SNAPSHOT-23",
+    version := "1.1.1-SNAPSHOT-24",
     scalaVersion := scala212,
     crossScalaVersions := allScala,
     organization := "com.github.ghostdogpr",
@@ -153,8 +153,10 @@ lazy val tools = project
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
       "dev.zio"                       %% "zio-config"                    % zioConfigVersion,
       "dev.zio"                       %% "zio-config-magnolia"           % zioConfigVersion,
+      "dev.zio"                       %% "zio-prelude"                   % "1.0.0-RC6",
       "dev.zio"                       %% "zio-test"                      % zioVersion % Test,
-      "dev.zio"                       %% "zio-test-sbt"                  % zioVersion % Test
+      "dev.zio"                       %% "zio-test-sbt"                  % zioVersion % Test,
+      "dev.zio"                       %% "zio-test-magnolia"             % zioVersion % Test
     )
   )
   .dependsOn(core, clientJVM)
@@ -176,7 +178,6 @@ lazy val codegenSbt = project
     libraryDependencies ++= Seq(
       "com.github.julien-truffaut" %% "monocle-core"  % "2.1.0",
       "com.github.julien-truffaut" %% "monocle-macro" % "2.1.0",
-      "dev.zio"                    %% "zio-prelude"   % "1.0.0-RC6",
       "dev.zio"                    %% "zio-test-sbt"  % zioVersion % Test
     )
   )
