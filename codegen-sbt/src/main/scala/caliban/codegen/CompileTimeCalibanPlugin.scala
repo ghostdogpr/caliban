@@ -8,12 +8,6 @@ import java.io.File
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 
-/**
- * User-oriented documentation:
- * ----------------------------
- *
- * TODO Jules: Write doc
- */
 object CompileTimeCalibanServerPlugin extends AutoPlugin {
   override def requires = plugins.JvmPlugin
   override def trigger  = noTrigger
@@ -27,11 +21,6 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
 }
 
 /**
- * User-oriented documentation:
- * ----------------------------
- *
- * TODO Jules: Write doc
- *
  * Sbt plugin authors documentation:
  * ---------------------------------
  *
