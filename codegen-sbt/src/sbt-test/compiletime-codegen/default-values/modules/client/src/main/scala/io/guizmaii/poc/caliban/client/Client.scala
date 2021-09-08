@@ -1,6 +1,6 @@
 package io.guizmaii.poc.caliban.client
 
-import generated.Client
+import generated.{Client => CalibanClient}
 import generated.Client.{AuthorName, Post, PostId}
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
