@@ -19,8 +19,6 @@ ThisBuild / resolvers += Resolver.mavenLocal
  */
 lazy val root =
   Project(id = "poc_compile_time_caliban_client_generation", base = file("."))
-    .settings(noDoc: _*)
-    .settings(noPublishSettings: _*)
     .aggregate(
       server,
       client,
@@ -31,13 +29,11 @@ lazy val server =
   project
     .in(file("modules/server"))
     .enablePlugins(CompileTimeCalibanServerPlugin)
-    .settings(commonSettings: _*)
     .settings(libraryDependencies ++= Seq(zio, prelude) ++ calibanLibs)
 
 lazy val client =
   project
     .in(file("modules/client"))
-    .settings(commonSettings: _*)
     .settings(libraryDependencies ++= sttp)
     .dependsOn(calibanClient)
 
@@ -45,7 +41,6 @@ lazy val calibanClient =
   project
     .withId("caliban-client")
     .in(file("modules/caliban-client"))
-    .settings(commonSettings: _*)
     .enablePlugins(CompileTimeCalibanClientPlugin)
     .settings(Compile / ctCaliban / ctCalibanServerProject := server)
     .settings(Compile / ctCaliban / ctCalibanGeneratorAppRef := "poc.generator.CalibanClientGenerator")
