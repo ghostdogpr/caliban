@@ -21,8 +21,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
   override lazy val projectSettings: Seq[Def.Setting[_]] =
     Seq(
       libraryDependencies ++= Seq(
-        "com.github.ghostdogpr" %% "caliban-tools" % BuildInfo.version % Compile,
-        "dev.zio"               %% "zio"           % "1.0.11"          % Compile
+        "com.github.ghostdogpr" %% "caliban-tools" % BuildInfo.version % Compile
       )
     )
 }
