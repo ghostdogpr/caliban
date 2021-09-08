@@ -1,87 +1,13 @@
 package caliban.codegen
 
 import caliban.tools.Options
+import monocle.macros.GenLens
+import zio.prelude._
 
 import java.io.File
 import java.net.URL
 
-sealed trait CalibanSettings {
-  type Type <: CalibanSettings
-
-  def clientName: Option[String]
-  def scalafmtPath: Option[String]
-  def headers: Seq[(String, String)]
-  def packageName: Option[String]
-  def genView: Option[Boolean]
-  def scalarMappings: Seq[(String, String)]
-  def imports: Seq[String]
-  def splitFiles: Option[Boolean]
-  def enableFmt: Option[Boolean]
-  def extensibleEnums: Option[Boolean]
-
-  def append(other: Type): Type
-
-  def toOptions(schemaPath: String, toPath: String) = Options(
-    schemaPath = schemaPath,
-    toPath = toPath,
-    fmtPath = scalafmtPath,
-    headers = Option(headers.map((Options.Header.apply _).tupled).toList).filter(_.nonEmpty),
-    packageName = packageName,
-    clientName = clientName,
-    genView = genView,
-    effect = Option.empty,
-    scalarMappings = Option(scalarMappings.toMap).filter(_.nonEmpty),
-    imports = Option(imports.toList).filter(_.nonEmpty),
-    abstractEffectType = Option.empty,
-    splitFiles = splitFiles,
-    enableFmt = enableFmt,
-    extensibleEnums = extensibleEnums
-  )
-}
-
-case class CalibanFileSettings(
-  file: File,
-  clientName: Option[String],
-  scalafmtPath: Option[String],
-  packageName: Option[String],
-  genView: Option[Boolean],
-  scalarMappings: Seq[(String, String)],
-  imports: Seq[String],
-  splitFiles: Option[Boolean],
-  enableFmt: Option[Boolean],
-  extensibleEnums: Option[Boolean]
-) extends CalibanSettings {
-  type Type = CalibanFileSettings
-  val headers = Seq.empty // Not applicable for file generator
-
-  def append(other: CalibanFileSettings): CalibanFileSettings =
-    CalibanFileSettings(
-      file = file,
-      clientName = other.clientName.orElse(clientName),
-      scalafmtPath = other.scalafmtPath.orElse(scalafmtPath),
-      packageName = other.packageName.orElse(packageName),
-      genView = other.genView.orElse(genView),
-      scalarMappings = scalarMappings ++ other.scalarMappings,
-      imports = imports ++ other.imports,
-      splitFiles = other.splitFiles.orElse(splitFiles),
-      enableFmt = other.enableFmt.orElse(enableFmt),
-      extensibleEnums = other.extensibleEnums.orElse(extensibleEnums)
-    )
-
-  def clientName(value: String): CalibanFileSettings                 = this.copy(clientName = Some(value))
-  def scalafmtPath(path: String): CalibanFileSettings                = this.copy(scalafmtPath = Some(path))
-  def packageName(name: String): CalibanFileSettings                 = this.copy(packageName = Some(name))
-  def genView(value: Boolean): CalibanFileSettings                   = this.copy(genView = Some(value))
-  def scalarMapping(mapping: (String, String)*): CalibanFileSettings =
-    this.copy(scalarMappings = this.scalarMappings ++ mapping)
-  def imports(values: String*): CalibanFileSettings                  = this.copy(imports = this.imports ++ values)
-  def splitFiles(value: Boolean): CalibanFileSettings                = this.copy(splitFiles = Some(value))
-  def enableFmt(value: Boolean): CalibanFileSettings                 = this.copy(enableFmt = Some(value))
-  def extensibleEnums(value: Boolean): CalibanFileSettings           = this.copy(extensibleEnums = Some(value))
-}
-
-case class CalibanUrlSettings(
-  url: URL,
+final case class CalibanCommonSettings(
   clientName: Option[String],
   scalafmtPath: Option[String],
   headers: Seq[(String, String)],
@@ -92,63 +18,109 @@ case class CalibanUrlSettings(
   splitFiles: Option[Boolean],
   enableFmt: Option[Boolean],
   extensibleEnums: Option[Boolean]
-) extends CalibanSettings {
-  type Type = CalibanUrlSettings
-  def append(other: CalibanUrlSettings): CalibanUrlSettings =
-    CalibanUrlSettings(
-      url = url,
-      clientName = other.clientName.orElse(clientName),
-      scalafmtPath = other.scalafmtPath.orElse(scalafmtPath),
-      headers = headers ++ other.headers,
-      packageName = other.packageName.orElse(packageName),
-      genView = other.genView.orElse(genView),
-      scalarMappings = scalarMappings ++ other.scalarMappings,
-      imports = imports ++ other.imports,
-      splitFiles = other.splitFiles.orElse(splitFiles),
-      enableFmt = other.enableFmt.orElse(enableFmt),
-      extensibleEnums = other.extensibleEnums.orElse(extensibleEnums)
+) {
+
+  def toOptions(schemaPath: String, toPath: String): Options =
+    Options(
+      schemaPath = schemaPath,
+      toPath = toPath,
+      fmtPath = scalafmtPath,
+      headers = Option(headers.map((Options.Header.apply _).tupled).toList).filter(_.nonEmpty),
+      packageName = packageName,
+      clientName = clientName,
+      genView = genView,
+      effect = Option.empty,
+      scalarMappings = Option(scalarMappings.toMap).filter(_.nonEmpty),
+      imports = Option(imports.toList).filter(_.nonEmpty),
+      abstractEffectType = Option.empty,
+      splitFiles = splitFiles,
+      enableFmt = enableFmt,
+      extensibleEnums = extensibleEnums
+    )
+}
+object CalibanCommonSettings {
+  val empty: CalibanCommonSettings =
+    CalibanCommonSettings(
+      clientName = None,
+      scalafmtPath = None,
+      headers = Seq.empty,
+      packageName = None,
+      genView = None,
+      scalarMappings = Seq.empty,
+      imports = Seq.empty,
+      splitFiles = None,
+      enableFmt = None,
+      extensibleEnums = None
     )
 
-  def clientName(value: String): CalibanUrlSettings                 = this.copy(clientName = Some(value))
-  def scalafmtPath(path: String): CalibanUrlSettings                = this.copy(scalafmtPath = Some(path))
-  def headers(mapping: (String, String)*): CalibanUrlSettings       =
-    this.copy(headers = this.headers ++ mapping)
-  def packageName(name: String): CalibanUrlSettings                 = this.copy(packageName = Some(name))
-  def genView(value: Boolean): CalibanUrlSettings                   = this.copy(genView = Some(value))
-  def scalarMapping(mapping: (String, String)*): CalibanUrlSettings =
-    this.copy(scalarMappings = this.scalarMappings ++ mapping)
-  def imports(values: String*): CalibanUrlSettings                  = this.copy(imports = this.imports ++ values)
-  def splitFiles(value: Boolean): CalibanUrlSettings                = this.copy(splitFiles = Some(value))
-  def enableFmt(value: Boolean): CalibanUrlSettings                 = this.copy(enableFmt = Some(value))
-  def extensibleEnums(value: Boolean): CalibanUrlSettings           = this.copy(extensibleEnums = Some(value))
+  implicit val associative: Associative[CalibanCommonSettings] =
+    new Associative[CalibanCommonSettings] {
+      override def combine(l: => CalibanCommonSettings, r: => CalibanCommonSettings): CalibanCommonSettings =
+        CalibanCommonSettings(
+          clientName = r.clientName.orElse(l.clientName),
+          scalafmtPath = r.scalafmtPath.orElse(l.scalafmtPath),
+          headers = l.headers ++ r.headers,
+          packageName = r.packageName.orElse(l.packageName),
+          genView = r.genView.orElse(l.genView),
+          scalarMappings = l.scalarMappings ++ r.scalarMappings,
+          imports = l.imports ++ r.imports,
+          splitFiles = r.splitFiles.orElse(l.splitFiles),
+          enableFmt = r.enableFmt.orElse(l.enableFmt),
+          extensibleEnums = r.extensibleEnums.orElse(l.extensibleEnums)
+        )
+    }
 }
 
-object CalibanSettings {
-  type Transformer = CalibanSettings => CalibanSettings
-  def emptyFile(file: File): CalibanFileSettings = CalibanFileSettings(
-    file = file,
-    clientName = Option.empty[String],
-    scalafmtPath = Option.empty[String],
-    packageName = Option.empty[String],
-    genView = Option.empty[Boolean],
-    scalarMappings = Seq.empty[(String, String)],
-    imports = Seq.empty[String],
-    splitFiles = Option.empty[Boolean],
-    enableFmt = Option.empty[Boolean],
-    extensibleEnums = Option.empty[Boolean]
-  )
+sealed trait CalibanSettings
 
-  def emptyUrl(url: URL): CalibanUrlSettings = CalibanUrlSettings(
-    url = url,
-    clientName = Option.empty[String],
-    scalafmtPath = Option.empty[String],
-    headers = Seq.empty[(String, String)],
-    packageName = Option.empty[String],
-    genView = Option.empty[Boolean],
-    scalarMappings = Seq.empty[(String, String)],
-    imports = Seq.empty[String],
-    splitFiles = Option.empty[Boolean],
-    enableFmt = Option.empty[Boolean],
-    extensibleEnums = Option.empty[Boolean]
-  )
+final case class CalibanFileSettings(file: File, settings: CalibanCommonSettings) extends CalibanSettings {
+  import CalibanFileSettings._
+
+  def clientName(value: String): CalibanFileSettings                 = clientNameLens.set(Some(value))(this)
+  def scalafmtPath(path: String): CalibanFileSettings                = scalafmtPathLens.set(Some(path))(this)
+  def packageName(name: String): CalibanFileSettings                 = packageNameLens.set(Some(name))(this)
+  def genView(value: Boolean): CalibanFileSettings                   = genViewLens.set(Some(value))(this)
+  def scalarMapping(mapping: (String, String)*): CalibanFileSettings = scalarMappingsLens.modify(_ ++ mapping)(this)
+  def imports(values: String*): CalibanFileSettings                  = importsLens.modify(_ ++ values)(this)
+  def splitFiles(value: Boolean): CalibanFileSettings                = splitFilesLens.set(Some(value))(this)
+  def enableFmt(value: Boolean): CalibanFileSettings                 = enableFmtLens.set(Some(value))(this)
+  def extensibleEnums(value: Boolean): CalibanFileSettings           = extensibleEnumsLens.set(Some(value))(this)
+}
+object CalibanFileSettings {
+  private[CalibanFileSettings] val clientNameLens      = GenLens[CalibanFileSettings](_.settings.clientName)
+  private[CalibanFileSettings] val scalafmtPathLens    = GenLens[CalibanFileSettings](_.settings.scalafmtPath)
+  private[CalibanFileSettings] val packageNameLens     = GenLens[CalibanFileSettings](_.settings.packageName)
+  private[CalibanFileSettings] val genViewLens         = GenLens[CalibanFileSettings](_.settings.genView)
+  private[CalibanFileSettings] val scalarMappingsLens  = GenLens[CalibanFileSettings](_.settings.scalarMappings)
+  private[CalibanFileSettings] val importsLens         = GenLens[CalibanFileSettings](_.settings.imports)
+  private[CalibanFileSettings] val splitFilesLens      = GenLens[CalibanFileSettings](_.settings.splitFiles)
+  private[CalibanFileSettings] val enableFmtLens       = GenLens[CalibanFileSettings](_.settings.enableFmt)
+  private[CalibanFileSettings] val extensibleEnumsLens = GenLens[CalibanFileSettings](_.settings.extensibleEnums)
+}
+
+final case class CalibanUrlSettings(url: URL, settings: CalibanCommonSettings) extends CalibanSettings {
+  import CalibanUrlSettings._
+
+  def clientName(value: String): CalibanUrlSettings                 = clientNameLens.set(Some(value))(this)
+  def scalafmtPath(path: String): CalibanUrlSettings                = scalafmtPathLens.set(Some(path))(this)
+  def headers(mapping: (String, String)*): CalibanUrlSettings       = headersLens.modify(_ ++ mapping)(this)
+  def packageName(name: String): CalibanUrlSettings                 = packageNameLens.set(Some(name))(this)
+  def genView(value: Boolean): CalibanUrlSettings                   = genViewLens.set(Some(value))(this)
+  def scalarMapping(mapping: (String, String)*): CalibanUrlSettings = scalarMappingsLens.modify(_ ++ mapping)(this)
+  def imports(values: String*): CalibanUrlSettings                  = importsLens.modify(_ ++ values)(this)
+  def splitFiles(value: Boolean): CalibanUrlSettings                = splitFilesLens.set(Some(value))(this)
+  def enableFmt(value: Boolean): CalibanUrlSettings                 = enableFmtLens.set(Some(value))(this)
+  def extensibleEnums(value: Boolean): CalibanUrlSettings           = extensibleEnumsLens.set(Some(value))(this)
+}
+object CalibanUrlSettings {
+  private[CalibanUrlSettings] val clientNameLens      = GenLens[CalibanUrlSettings](_.settings.clientName)
+  private[CalibanUrlSettings] val scalafmtPathLens    = GenLens[CalibanUrlSettings](_.settings.scalafmtPath)
+  private[CalibanUrlSettings] val headersLens         = GenLens[CalibanUrlSettings](_.settings.headers)
+  private[CalibanUrlSettings] val packageNameLens     = GenLens[CalibanUrlSettings](_.settings.packageName)
+  private[CalibanUrlSettings] val genViewLens         = GenLens[CalibanUrlSettings](_.settings.genView)
+  private[CalibanUrlSettings] val scalarMappingsLens  = GenLens[CalibanUrlSettings](_.settings.scalarMappings)
+  private[CalibanUrlSettings] val importsLens         = GenLens[CalibanUrlSettings](_.settings.imports)
+  private[CalibanUrlSettings] val splitFilesLens      = GenLens[CalibanUrlSettings](_.settings.splitFiles)
+  private[CalibanUrlSettings] val enableFmtLens       = GenLens[CalibanUrlSettings](_.settings.enableFmt)
+  private[CalibanUrlSettings] val extensibleEnumsLens = GenLens[CalibanUrlSettings](_.settings.extensibleEnums)
 }
