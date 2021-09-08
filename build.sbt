@@ -28,6 +28,7 @@ val zioHttpVersion         = "1.0.0.0-RC17"
 
 inThisBuild(
   List(
+    version := "1.1.1-SNAPSHOT-23",
     scalaVersion := scala212,
     crossScalaVersions := allScala,
     organization := "com.github.ghostdogpr",
@@ -173,7 +174,10 @@ lazy val codegenSbt = project
     crossScalaVersions := Seq(scala212),
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "dev.zio" %% "zio-test-sbt" % zioVersion % Test
+      "com.github.julien-truffaut" %% "monocle-core"  % "2.1.0",
+      "com.github.julien-truffaut" %% "monocle-macro" % "2.1.0",
+      "dev.zio"                    %% "zio-prelude"   % "1.0.0-RC6",
+      "dev.zio"                    %% "zio-test-sbt"  % zioVersion % Test
     )
   )
   .enablePlugins(SbtPlugin)

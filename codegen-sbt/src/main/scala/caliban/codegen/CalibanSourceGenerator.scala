@@ -33,31 +33,33 @@ object CalibanSourceGenerator {
       )
   }
 
-  def transformFile(sourceRoot: File, managedRoot: File, settings: CalibanSettings): File => File = { graphqlFile =>
-    val relativePath = settings.packageName.fold(sourceRoot.toPath.relativize(graphqlFile.toPath)) { pkg =>
-      val components = pkg.split('.').toList.map(file(_).toPath) :+ graphqlFile.toPath.getFileName
-      components.reduceLeft(_.resolve(_))
-    }
-    val interimPath  = managedRoot.toPath.resolve(relativePath)
-    val clientName   = settings.clientName.getOrElse(interimPath.getFileName.toString.stripSuffix(".graphql"))
-    val scalaName    = clientName + ".scala"
-    interimPath.getParent.resolve(scalaName).toFile
+  def transformFile(sourceRoot: File, managedRoot: File, settings: CalibanCommonSettings): File => File = {
+    graphqlFile =>
+      val relativePath = settings.packageName.fold(sourceRoot.toPath.relativize(graphqlFile.toPath)) { pkg =>
+        val components = pkg.split('.').toList.map(file(_).toPath) :+ graphqlFile.toPath.getFileName
+        components.reduceLeft(_.resolve(_))
+      }
+      val interimPath  = managedRoot.toPath.resolve(relativePath)
+      val clientName   = settings.clientName.getOrElse(interimPath.getFileName.toString.stripSuffix(".graphql"))
+      val scalaName    = clientName + ".scala"
+      interimPath.getParent.resolve(scalaName).toFile
   }
 
-  def collectSettingsFor(fileSettings: Seq[CalibanFileSettings], source: File): CalibanFileSettings =
+  def collectSettingsFor(fileSettings: Seq[CalibanFileSettings], source: File): CalibanFileSettings = {
+    import zio.prelude._
+
     // Supply a default packageName.
     // If we do not, `src_managed.main.caliban-codegen-sbt` will be used,
     // which is not only terrible, but invalid.
-    CalibanSettings
-      .emptyFile(source)
-      .packageName("caliban")
-      .append(
-        fileSettings
-          .collect({ case needle if source.toPath.endsWith(needle.file.toPath) => needle })
-          .foldLeft[CalibanFileSettings](CalibanSettings.emptyFile(source)) { case (acc, next) =>
-            acc.append(next)
-          }
-      )
+    val defaults: CalibanCommonSettings = CalibanCommonSettings.empty.copy(packageName = Some("caliban"))
+
+    CalibanFileSettings(
+      file = source,
+      settings = fileSettings
+        .collect({ case needle if source.toPath.endsWith(needle.file.toPath) => needle })
+        .foldLeft[CalibanCommonSettings](defaults) { case (acc, next) => acc <> next.settings }
+    )
+  }
 
   def apply(
     sourceRoot: File,
@@ -70,14 +72,14 @@ object CalibanSourceGenerator {
     import sbt.util.CacheImplicits._
 
     def generateSources: List[File] = {
-      def generateFileSource(graphql: File, settings: CalibanSettings): IO[Option[Throwable], List[File]] = for {
+      def generateFileSource(graphql: File, settings: CalibanCommonSettings): IO[Option[Throwable], List[File]] = for {
         generatedSource <- ZIO.succeed(transformFile(sourceRoot, sourceManaged, settings)(graphql))
         _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
         opts            <- ZIO.fromOption(Some(settings.toOptions(graphql.toString, generatedSource.toString)))
         files           <- Codegen.generate(opts, GenType.Client).asSomeError
       } yield files
 
-      def generateUrlSource(graphql: URL, settings: CalibanSettings): IO[Option[Throwable], List[File]] = for {
+      def generateUrlSource(graphql: URL, settings: CalibanCommonSettings): IO[Option[Throwable], List[File]] = for {
         generatedSource <-
           ZIO.succeed(
             transformFile(sourceRoot, sourceManaged, settings)(new java.io.File(graphql.getPath.stripPrefix("/")))
@@ -91,14 +93,14 @@ object CalibanSourceGenerator {
         .unsafeRun(
           for {
             fromFiles <- ZIO.foreach(sources.toList)(source =>
-                           generateFileSource(source, collectSettingsFor(fileSettings, source)).catchAll {
+                           generateFileSource(source, collectSettingsFor(fileSettings, source).settings).catchAll {
                              case Some(reason) =>
                                putStrLn(reason.toString) *> putStrLn(reason.getStackTrace.mkString("\n")).as(List.empty)
                              case None         => ZIO.succeed(List.empty)
                            }
                          )
             fromUrls  <- ZIO.foreach(urlSettings)(setting =>
-                           generateUrlSource(setting.url, setting).catchAll {
+                           generateUrlSource(setting.url, setting.settings).catchAll {
                              case Some(reason) =>
                                putStrLn(reason.toString) *> putStrLn(reason.getStackTrace.mkString("\n")).as(List.empty)
                              case None         => ZIO.succeed(List.empty)
