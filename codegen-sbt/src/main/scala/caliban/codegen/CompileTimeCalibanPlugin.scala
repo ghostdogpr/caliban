@@ -182,8 +182,6 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                   )
                 )
 
-              log.debug(s"ctCaliban - cachedSettings: $cachedSettings")
-
               val cacheDirectory = streams.value.cacheDirectory
 
               /**
