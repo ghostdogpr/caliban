@@ -1,3 +1,4 @@
+import Libraries._
 import sbt.librarymanagement.Resolver
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
@@ -29,7 +30,7 @@ lazy val server =
   project
     .in(file("modules/server"))
     .enablePlugins(CompileTimeCalibanServerPlugin)
-    .settings(libraryDependencies ++= Seq(zio, prelude) ++ calibanLibs)
+    .settings(libraryDependencies ++= calibanLibs)
 
 lazy val client =
   project
