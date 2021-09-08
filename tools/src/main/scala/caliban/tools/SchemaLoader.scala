@@ -5,13 +5,16 @@ import caliban.parsing.Parser
 import caliban.parsing.adt.Document
 import zio.{ Task, UIO }
 
-sealed trait SchemaLoader {
+trait SchemaLoader {
   def load: Task[Document]
 }
 
 object SchemaLoader {
   case class FromCaliban private (api: GraphQL[_])                                          extends SchemaLoader {
     override def load: Task[Document] = UIO(api.toDocument)
+  }
+  case class FromDocument private (doc: Document)                                           extends SchemaLoader {
+    override def load: Task[Document] = UIO(doc)
   }
   case class FromFile private (path: String)                                                extends SchemaLoader {
     override def load: Task[Document] =
@@ -27,6 +30,7 @@ object SchemaLoader {
   }
 
   def fromCaliban[R](api: GraphQL[R]): SchemaLoader                                       = FromCaliban(api)
+  def fromDocument(doc: Document): SchemaLoader                                           = FromDocument(doc)
   def fromFile(path: String): SchemaLoader                                                = FromFile(path)
   def fromString(schema: String): SchemaLoader                                            = FromString(schema)
   def fromIntrospection(url: String, headers: Option[List[Options.Header]]): SchemaLoader =
