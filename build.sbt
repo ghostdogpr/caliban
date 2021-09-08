@@ -174,9 +174,7 @@ lazy val codegenSbt = project
     crossScalaVersions := Seq(scala212),
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "com.github.julien-truffaut" %% "monocle-core"  % "2.1.0",
-      "com.github.julien-truffaut" %% "monocle-macro" % "2.1.0",
-      "dev.zio"                    %% "zio-test-sbt"  % zioVersion % Test
+      "dev.zio" %% "zio-test-sbt" % zioVersion % Test
     )
   )
   .enablePlugins(SbtPlugin)
