@@ -28,7 +28,6 @@ val zioHttpVersion         = "1.0.0.0-RC17"
 
 inThisBuild(
   List(
-    version := "1.1.1-SNAPSHOT-24",
     scalaVersion := scala212,
     crossScalaVersions := allScala,
     organization := "com.github.ghostdogpr",
@@ -155,8 +154,7 @@ lazy val tools = project
       "dev.zio"                       %% "zio-config-magnolia"           % zioConfigVersion,
       "dev.zio"                       %% "zio-prelude"                   % "1.0.0-RC6",
       "dev.zio"                       %% "zio-test"                      % zioVersion % Test,
-      "dev.zio"                       %% "zio-test-sbt"                  % zioVersion % Test,
-      "dev.zio"                       %% "zio-test-magnolia"             % zioVersion % Test
+      "dev.zio"                       %% "zio-test-sbt"                  % zioVersion % Test
     )
   )
   .dependsOn(core, clientJVM)
