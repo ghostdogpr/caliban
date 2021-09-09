@@ -23,7 +23,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
     lazy val ctCalibanServer: TaskKey[Unit] = taskKey[Unit]("Plugin configuration keys namespace")
 
     // TODO: Should be a `SettingKey[Seq[String]]`? 🤔
-    lazy val ctCalibanFullQualifiedCalibanApiRef: SettingKey[String] = settingKey[String]("TODO Jules")
+    lazy val ctCalibanApiRef: SettingKey[String] = settingKey[String]("TODO Jules")
 
     lazy val ctCalibanServerGenerate: TaskKey[Seq[File]] = taskKey[Seq[File]]("TODO Jules")
   }
@@ -37,13 +37,13 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
   private lazy val pluginSettings =
     inTask(ctCalibanServer)(
       Seq(
-        ctCalibanFullQualifiedCalibanApiRef := "",
+        ctCalibanApiRef := "",
         ctCalibanServerGenerate :=
           // That helped: https://stackoverflow.com/q/26244115/2431728
           Def.taskDyn {
             val log = streams.value.log("ctCalibanServer")
 
-            val apiRef = (ctCalibanServer / ctCalibanFullQualifiedCalibanApiRef).value
+            val apiRef = (ctCalibanServer / ctCalibanApiRef).value
             if (apiRef.isEmpty) Def.task { log.error(helpMsg); Seq.empty[File] }
             else {
               val generatorCode =
