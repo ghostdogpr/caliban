@@ -92,24 +92,13 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
               val targerDir: File      = (thisProject / target).value
               log.debug(s"ctCaliban - baseDirValue: $baseDirValue")
 
-              var s: Int = 0
-              def nextIndex: Int = { s += 1; s }
-
-              def flatSequence[A](tasks: Seq[Def.Initialize[Task[Seq[A]]]]): Def.Initialize[Task[Seq[A]]] = {
-                import sbt.Scoped.richTaskSeq
-
-                tasks.join.map(_.flatten)
-              }
-
               def generateSources: Def.Initialize[Task[Seq[File]]] =
-                flatSequence[File] {
-                  val settings: Seq[(Project, String, CalibanCommonSettings)] = (ctCaliban / ctCalibanSettings).value
-
-                  settings.map { case (project, apiRef, _) =>
+                flatSequence {
+                  pluginSettings.zipWithIndex.map { case ((project, apiRef, _), index) =>
                     Def.taskDyn {
                       log.info(s"ctCaliban - Starting to generate...")
 
-                      (Project(s"caliban-generator-$nextIndex", targerDir).dependsOn(project) / runMain)
+                      (Project(s"caliban-generator-$index", targerDir).dependsOn(project) / runMain)
                         .toTask(s" caliban.generator.CalibanClientGenerator $baseDirValue $apiRef abc")
                         .map(_ => Seq.empty[File])
                     }
@@ -180,5 +169,11 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
       (Compile / sourceGenerators) += Compile / ctCaliban / ctCalibanGenerate,
       (Test / sourceGenerators) += Test / ctCaliban / ctCalibanGenerate
     ) ++ inConfig(Compile)(pluginSettings) ++ inConfig(Test)(pluginSettings)
+
+  private def flatSequence[A](tasks: Seq[Def.Initialize[Task[Seq[A]]]]): Def.Initialize[Task[Seq[A]]] = {
+    import sbt.Scoped.richTaskSeq
+
+    tasks.join.map(_.flatten)
+  }
 
 }
