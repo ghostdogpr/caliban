@@ -30,6 +30,9 @@ lazy val server =
   project
     .in(file("modules/server"))
     .enablePlugins(CompileTimeCalibanServerPlugin)
+    .settings(
+      Compile / ctCalibanServer / ctCalibanApiRef := "io.guizmaii.poc.caliban.server.GraphQLApi.api"
+    )
     .settings(libraryDependencies ++= calibanLibs)
 
 lazy val client =
@@ -43,5 +46,9 @@ lazy val calibanClient =
     .withId("caliban-client")
     .in(file("modules/caliban-client"))
     .enablePlugins(CompileTimeCalibanClientPlugin)
-    .settings(Compile / ctCaliban / ctCalibanServerProject := server)
-    .settings(Compile / ctCaliban / ctCalibanGeneratorAppRef := "poc.generator.CalibanClientGenerator")
+    .settings(
+      Compile / ctCaliban / ctCalibanSettings := server -> GenerateClientsSettings(
+        clientName = "CalibanClient",
+        packageName = "io.guizmaii.poc.caliban.client.generated"
+      )
+    )
