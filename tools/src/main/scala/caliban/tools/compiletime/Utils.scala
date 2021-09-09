@@ -5,7 +5,7 @@ import java.nio.file.{ FileAlreadyExistsException, Files }
 
 private[compiletime] object Utils {
 
-  def packagePath(packageName: String): String = packageName.replaceAll("\\.", "/")
+  def packagePath(packageName: String): String = packageName.replaceAll("\\.", java.io.File.separator)
 
   // Copied from better-files.
   def createDirectories(path: String): Unit =
