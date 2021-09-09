@@ -27,15 +27,22 @@ object ZHttpAdapter {
   }
 
   case class Callbacks[R, E](
-    onInit: Option[io.circe.Json => ZIO[R, E, Any]] = None,
+    beforeInit: Option[io.circe.Json => ZIO[R, E, Any]] = None,
+    afterInit: Option[ZIO[R, E, Any]] = None,
     onMessage: Option[ZStream[R, E, Text] => ZStream[R, E, Text]] = None
   ) { self =>
     def ++(other: Callbacks[R, E]): Callbacks[R, E] =
       Callbacks(
-        onInit = (self.onInit, other.onInit) match {
+        beforeInit = (self.beforeInit, other.beforeInit) match {
           case (None, Some(f))      => Some(f)
           case (Some(f), None)      => Some(f)
           case (Some(f1), Some(f2)) => Some((x: io.circe.Json) => f1(x) *> f2(x))
+          case _                    => None
+        },
+        afterInit = (self.afterInit, other.afterInit) match {
+          case (None, Some(f))      => Some(f)
+          case (Some(f), None)      => Some(f)
+          case (Some(f1), Some(f2)) => Some(f1 &> f2)
           case _                    => None
         },
         onMessage = (self.onMessage, other.onMessage) match {
@@ -50,8 +57,27 @@ object ZHttpAdapter {
   object Callbacks {
     def empty[R, E]: Callbacks[R, E] = Callbacks[R, E](None, None)
 
-    def init[R, E](f: io.circe.Json => ZIO[R, E, Any]): Callbacks[R, E]               = Callbacks(Some(f), None)
-    def message[R, E](f: ZStream[R, E, Text] => ZStream[R, E, Text]): Callbacks[R, E] = Callbacks(None, Some(f))
+    /**
+     * Specifies a callback that will be run before an incoming subscription
+     * request is accepted. Useful for e.g authorizing the incoming subscription
+     * before accepting it.
+     */
+    def init[R, E](f: io.circe.Json => ZIO[R, E, Any]): Callbacks[R, E] = Callbacks(Some(f), None, None)
+
+    /**
+     * Specifies a callback that will be run after an incoming subscription
+     * request has been accepted. Useful for e.g terminating a subscription
+     * after some time, such as authorization expiring.
+     */
+    def afterInit[R, E](f: ZIO[R, E, Any]): Callbacks[R, E] = Callbacks(None, Some(f), None)
+
+    /**
+     * Specifies a callback that will be run on the resulting `ZStream`
+     * for every active subscription. Useful to e.g modify the environment
+     * to inject session information into the `ZStream` handling the
+     * subscription.
+     */
+    def message[R, E](f: ZStream[R, E, Text] => ZStream[R, E, Text]): Callbacks[R, E] = Callbacks(None, None, Some(f))
   }
 
   type Subscriptions = Ref[Map[String, Promise[Any, Unit]]]
@@ -155,13 +181,20 @@ object ZHttpAdapter {
         .fromEffect(ZIO.fromEither(decode[GraphQLWSRequest](text)))
         .collect({
           case GraphQLWSRequest("connection_init", id, payload) =>
-            val response = connectionAck ++ keepAlive(keepAliveTime)
-            val callback = (callbacks.onInit, payload) match {
-              case (Some(onInit), Some(payload)) =>
-                ZStream.fromEffect(onInit(payload)).drain.catchAll(toStreamError(id, _))
-              case _                             => Stream.empty
+            val before = (callbacks.beforeInit, payload) match {
+              case (Some(beforeInit), Some(payload)) =>
+                ZStream.fromEffect(beforeInit(payload)).drain.catchAll(toStreamError(id, _))
+              case _                                 => Stream.empty
             }
-            ZStream.mergeAllUnbounded()(response, callback)
+
+            val response = connectionAck ++ keepAlive(keepAliveTime)
+
+            val after = callbacks.afterInit match {
+              case Some(afterInit) => ZStream.fromEffect(afterInit).drain.catchAll(toStreamError(id, _))
+              case _               => Stream.empty
+            }
+
+            before ++ ZStream.mergeAllUnbounded()(response, after)
 
           case GraphQLWSRequest("connection_terminate", _, _) => close
           case GraphQLWSRequest("start", id, payload)         =>

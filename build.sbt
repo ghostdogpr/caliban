@@ -8,7 +8,7 @@ val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion            = "2.6.15"
 val catsEffect2Version     = "2.5.3"
-val catsEffect3Version     = "3.2.5"
+val catsEffect3Version     = "3.2.8"
 val circeVersion           = "0.14.1"
 val http4sVersion          = "0.23.3"
 val laminextVersion        = "0.13.10"
@@ -117,7 +117,7 @@ lazy val core = project
         Seq(
           "com.propensive"    %% "magnolia"  % magnoliaVersion,
           "com.propensive"    %% "mercator"  % mercatorVersion,
-          "com.lihaoyi"       %% "fastparse" % "2.3.2",
+          "com.lihaoyi"       %% "fastparse" % "2.3.3",
           "com.typesafe.play" %% "play-json" % playJsonVersion % Optional,
           "dev.zio"           %% "zio-json"  % zioJsonVersion  % Optional
         )
@@ -201,7 +201,7 @@ lazy val catsInterop = project
   .settings(
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) Seq()
-      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.1").cross(CrossVersion.full)))
+      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
     } ++ Seq(
       "dev.zio"       %% "zio-interop-cats" % zioInteropCats3Version,
       "org.typelevel" %% "cats-effect"      % catsEffect3Version
@@ -230,7 +230,7 @@ lazy val tapirInterop = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) Seq()
-      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.1").cross(CrossVersion.full)))
+      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
     } ++
       Seq(
         "com.softwaremill.sttp.tapir" %% "tapir-core"   % tapirVersion,
@@ -248,7 +248,7 @@ lazy val http4s = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) Seq()
-      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.1").cross(CrossVersion.full)))
+      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
     } ++
       Seq(
         "dev.zio"                       %% "zio-interop-cats"              % zioInteropCats3Version,
@@ -298,7 +298,7 @@ lazy val akkaHttp = project
       "de.heikoseeberger"             %% "akka-http-zio-json"         % "1.37.0"   % Optional,
       "dev.zio"                       %% "zio-test"                   % zioVersion % Test,
       "dev.zio"                       %% "zio-test-sbt"               % zioVersion % Test,
-      compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.1").cross(CrossVersion.full))
+      compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.2").cross(CrossVersion.full))
     )
   )
   .dependsOn(core)

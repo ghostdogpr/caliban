@@ -35,15 +35,7 @@ object Auth {
   object WebSockets {
     val wsSession = Http.fromEffect(Ref.make[String]("unknown"))
 
-    // Simulate closing the socket after some time has passed due to e.g
-    // the session expiring.
-    def close(session: Ref[String]) = SocketApp.open(
-      Socket.fromFunction[SocketApp.Connection](_ =>
-        ZStream.fromEffect(ZIO.sleep(10.seconds)).drain ++ ZStream.halt(Cause.empty)
-      )
-    )
-
-    def live[R <: Has[Auth]](interpreter: GraphQLInterpreter[R, CalibanError]) =
+    def live[R <: Has[Auth] with Clock](interpreter: GraphQLInterpreter[R, CalibanError]) =
       wsSession.flatMap { session =>
         val auth = new Auth {
           def currentUser: ZIO[Any, Throwable, String]        = session.get
@@ -55,12 +47,14 @@ object Auth {
             .fromEither(payload.hcursor.downField("Authorization").as[String])
             .orElseFail(CalibanError.ExecutionError("Unable to decode payload"))
             .flatMap(user => ZIO.service[Auth].flatMap(_.setUser(user).orDie))
-        ) ++ ZHttpAdapter.Callbacks.message(stream => stream.updateService[Auth](_ => auth))
+        ) ++
+          ZHttpAdapter.Callbacks.afterInit(ZIO.sleep(10.seconds) *> ZIO.halt(Cause.empty)) ++
+          ZHttpAdapter.Callbacks
+            .message(stream => stream.updateService[Auth](_ => auth))
 
         HttpApp.responseM(
           ZHttpAdapter
             .makeWebSocketHandler(interpreter, callbacks = callbacks)
-            .map(_ ++ close(session))
             .map(_.asResponse)
         )
       }
