@@ -1,4 +1,3 @@
-import Libraries._
 import sbt.librarymanagement.Resolver
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
@@ -31,7 +30,7 @@ lazy val server =
     .in(file("modules/server"))
     .enablePlugins(CompileTimeCalibanServerPlugin)
     .settings(
-      Compile / ctCalibanServer / ctCalibanApiRefs := Seq("io.guizmaii.poc.caliban.server.GraphQLApi.api")
+      Compile / ctCalibanServer / ctCalibanServerApiRefs := Seq("io.guizmaii.poc.caliban.server.GraphQLApi.api")
     )
     .settings(libraryDependencies ++= calibanLibs)
 
@@ -46,4 +45,4 @@ lazy val calibanClient =
     .withId("caliban-client")
     .in(file("modules/caliban-client"))
     .enablePlugins(CompileTimeCalibanClientPlugin)
-    .settings(Compile / ctCaliban / ctCalibanSettings := server -> GenerateClientSettings.default)
+    .settings(Compile / ctCalibanClient / ctCalibanClientsSettings += server -> Seq(GenerateClientSettings.default))
