@@ -4,7 +4,7 @@ import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 val scala212 = "2.12.14"
 val scala213 = "2.13.6"
 val scala3   = "3.0.2"
-val allScala = Seq(scala212, scala213, scala3)
+val allScala = Seq(scala212)
 
 val akkaVersion            = "2.6.15"
 val catsEffect2Version     = "2.5.3"
@@ -79,7 +79,7 @@ lazy val root = project
     //monixInterop,
     //tapirInterop,
     clientJVM,
-    clientJS,
+    //clientJS,
     //clientLaminext,
     tools,
     codegenSbt
