@@ -98,7 +98,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
               def flatSequence[A](tasks: Seq[Def.Initialize[Task[Seq[A]]]]): Def.Initialize[Task[Seq[A]]] = {
                 import sbt.Scoped.richTaskSeq
 
-                tasks.join.apply(_.map(_.flatten))
+                tasks.join.map(_.flatten)
               }
 
               def generateSources: Def.Initialize[Task[Seq[File]]] =
