@@ -1,12 +1,11 @@
 package caliban.codegen
 
 import caliban.codegen.CalibanSourceGenerator.TrackedSettings
+import caliban.tools.CalibanCommonSettings
 import sbt.Keys._
-import sbt.{ Compile, Def, _ }
+import sbt.{ Compile, Def, Project, _ }
 
 import java.io.File
-import java.nio.charset.StandardCharsets
-import java.nio.file.Files
 
 object CompileTimeCalibanServerPlugin extends AutoPlugin {
   override def requires = plugins.JvmPlugin
@@ -67,14 +66,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
     lazy val ctCaliban = taskKey[Unit]("Plugin configuration keys namespace")
 
     // Required Plugin configurations
-    lazy val ctCalibanServerProject = settingKey[Project](
-      "(Required) sbt project where the CompileTimeCalibanServerPlugin is enabled"
-    )
-
-    // Optional Plugin configurations
-    lazy val ctCalibanGeneratorAppRef = settingKey[String](
-      "(Optional) Reference of the zio.App class containing the call to `CompileTime.generateClient(/* your API */)`. Default: `generator.CalibanClientGenerator`"
-    )
+    lazy val ctCalibanSettings = settingKey[Seq[(Project, String, CalibanCommonSettings)]]("TODO Jules")
 
     // Plugin task
     lazy val ctCalibanGenerate = taskKey[Seq[File]](
@@ -84,42 +76,50 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
   }
   import autoImport._
 
-  private val hiddenProjectId = "ctCaliban-hidden-default-project"
-
   private lazy val pluginSettings =
     inTask(ctCaliban)(
       Seq(
-        ctCalibanServerProject := Project(id = hiddenProjectId, base = (thisProject / target).value),
-        ctCalibanGeneratorAppRef := "generator.CalibanClientGenerator",
+        ctCalibanSettings := Seq.empty,
         ctCalibanGenerate := {
           // That helped: https://stackoverflow.com/q/26244115/2431728
           Def.taskDyn {
             val log = streams.value.log("ctCaliban")
 
-            val serverProject = (ctCaliban / ctCalibanServerProject).value
-            if (serverProject.id == hiddenProjectId) Def.task { log.error(helpMsg); Seq.empty[File] }
+            val pluginSettings = (ctCaliban / ctCalibanSettings).value
+            if (pluginSettings.isEmpty) Def.task { log.error(helpMsg); Seq.empty[File] }
             else {
+              val baseDirValue: String = (thisProject / baseDirectory).value.absolutePath
+              val targerDir: File      = (thisProject / target).value
+              log.debug(s"ctCaliban - baseDirValue: $baseDirValue")
+
+              var s: Int = 0
+              def nextIndex: Int = { s += 1; s }
+
+              def flatSequence[A](tasks: Seq[Def.Initialize[Task[Seq[A]]]]): Def.Initialize[Task[Seq[A]]] = {
+                import sbt.Scoped.richTaskSeq
+
+                tasks.join.apply(_.map(_.flatten))
+              }
+
               def generateSources: Def.Initialize[Task[Seq[File]]] =
-                Def.taskDyn {
-                  val baseDirValue: String         = (thisProject / baseDirectory).value.absolutePath
-                  val generatorAppRefValue: String = (ctCaliban / ctCalibanGeneratorAppRef).value
+                flatSequence[File] {
+                  val settings: Seq[(Project, String, CalibanCommonSettings)] = (ctCaliban / ctCalibanSettings).value
 
-                  log.debug(s"ctCaliban - baseDirValue: $baseDirValue")
-                  log.debug(s"ctCaliban - generatorAppRef: $generatorAppRefValue")
+                  settings.map { case (project, apiRef, _) =>
+                    Def.taskDyn {
+                      log.info(s"ctCaliban - Starting to generate...")
 
-                  Def.task {
-                    log.info(s"ctCaliban - Starting to generate...")
-
-                    (serverProject / runMain)
-                      .toTask(s" $generatorAppRefValue $baseDirValue")
-                      .value
-
-                    log.info(s"ctCaliban - Generation done! 🎉")
-                    val metadataFile  = file(s"$baseDirValue/target/ctCaliban/metadata")
-                    val generatedFile = file(Files.readString(metadataFile.toPath, StandardCharsets.UTF_8))
-                    Seq(generatedFile)
+                      (Project(s"caliban-generator-$nextIndex", targerDir).dependsOn(project) / runMain)
+                        .toTask(s" caliban.generator.CalibanClientGenerator $baseDirValue $apiRef abc")
+                        .map(_ => Seq.empty[File])
+                    }
                   }
                 }
+
+              //log.info(s"ctCaliban - Generation done! 🎉")
+              //val metadataFile  = file(s"$baseDirValue/target/ctCaliban/metadata")
+              //val generatedFile = file(Files.readString(metadataFile.toPath, StandardCharsets.UTF_8))
+              //Seq(generatedFile)
 
               /**
                * These settings are used to track the need to re-generate the code.
@@ -131,8 +131,9 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                   List(
                     caliban.codegen.BuildInfo.version,
                     zio.BuildInfo.version,
-                    serverProject.id,
-                    (ctCaliban / ctCalibanGeneratorAppRef).value
+                    pluginSettings.map { case (project, apiRef, commonSettings) =>
+                      (project.id, apiRef, commonSettings)
+                    }.mkString
                   )
                 )
 

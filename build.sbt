@@ -69,20 +69,20 @@ lazy val root = project
   .aggregate(
     macros,
     core,
-    finch,
-    http4s,
-    akkaHttp,
-    play,
-    zioHttp,
-    catsInterop,
-    monixInterop,
-    tapirInterop,
+    //finch,
+    //http4s,
+    //akkaHttp,
+    //play,
+    //zioHttp,
+    //catsInterop,
+    //monixInterop,
+    //tapirInterop,
     clientJVM,
     clientJS,
-    clientLaminext,
+    //clientLaminext,
     tools,
-    codegenSbt,
-    federation
+    codegenSbt
+    //federation
   )
 
 lazy val macros = project
