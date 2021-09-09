@@ -10,6 +10,8 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 
 object CompileTimeCalibanServerPlugin extends AutoPlugin {
+  import Functions._
+
   override def requires = plugins.JvmPlugin
   override def trigger  = noTrigger
 
@@ -22,8 +24,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
      */
     lazy val ctCalibanServer: TaskKey[Unit] = taskKey[Unit]("Plugin configuration keys namespace")
 
-    // TODO: Should be a `SettingKey[Seq[String]]`? 🤔
-    lazy val ctCalibanApiRef: SettingKey[String] = settingKey[String]("TODO Jules")
+    lazy val ctCalibanApiRefs: SettingKey[Seq[String]] = settingKey[Seq[String]]("TODO Jules")
 
     lazy val ctCalibanServerGenerate: TaskKey[Seq[File]] = taskKey[Seq[File]]("TODO Jules")
   }
@@ -37,40 +38,46 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
   private lazy val pluginSettings =
     inTask(ctCalibanServer)(
       Seq(
-        ctCalibanApiRef := "",
+        ctCalibanApiRefs := Seq.empty,
         ctCalibanServerGenerate :=
           // That helped: https://stackoverflow.com/q/26244115/2431728
           Def.taskDyn {
             val log = streams.value.log("ctCalibanServer")
 
-            val apiRef = (ctCalibanServer / ctCalibanApiRef).value
-            if (apiRef.isEmpty) Def.task { log.error(helpMsg); Seq.empty[File] }
+            val apiRefs: List[String] = (ctCalibanServer / ctCalibanApiRefs).value.toList
+            if (apiRefs.isEmpty) Def.task { log.error(helpMsg); Seq.empty[File] }
             else {
-              val generatorCode =
-                s"""
-                   |package caliban.generator
-                   |
-                   |import caliban.tools.compiletime.CompileTime
-                   |import zio.{ExitCode, URIO}
-                   |
-                   |private[generator] object CalibanClientGenerator extends zio.App {
-                   |  override def run(args: List[String]): URIO[zio.ZEnv, ExitCode] = {
-                   |    CompileTime.generateClient(args)($apiRef)
-                   |  }
-                   |}
-                   |""".stripMargin
+              val generateGererators: Seq[Def.Initialize[Task[Seq[File]]]] =
+                apiRefs.zipWithIndex.map { case (ref, i) =>
+                  val name          = s"CalibanClientGenerator_$i"
+                  val generatorCode =
+                    s"""
+                       |package caliban.generator
+                       |
+                       |import caliban.tools.compiletime.CompileTime
+                       |import zio.{ExitCode, URIO}
+                       |
+                       |private[generator] object $name extends zio.App {
+                       |  override def run(args: List[String]): URIO[zio.ZEnv, ExitCode] = {
+                       |    CompileTime.generateClient(args)($ref)
+                       |  }
+                       |}
+                       |""".stripMargin
 
-              // The location of this file is copied on `sbt-buildInfo` `BuildInfo` generated code.
-              val generatorFile =
-                new File(
-                  s"${(thisProject / sourceManaged).value.absolutePath}/main/caliban-codegen-sbt/CalibanClientGenerator.scala"
-                )
-              log.debug(s"ctCalibanServer - generatorFile: ${generatorFile.absolutePath}")
+                  // The location of this file is copied on `sbt-buildInfo` `BuildInfo` generated code.
+                  val generatorFile =
+                    new File(
+                      s"${(thisProject / sourceManaged).value.absolutePath}/main/caliban-codegen-sbt/$name.scala"
+                    )
+                  log.debug(s"ctCalibanServer - generatorFile: ${generatorFile.absolutePath}")
 
-              Utils.createDirectories(generatorFile.getParent)
-              Files.writeString(generatorFile.toPath, generatorCode, StandardCharsets.UTF_8)
+                  Utils.createDirectories(generatorFile.getParent)
+                  Files.writeString(generatorFile.toPath, generatorCode, StandardCharsets.UTF_8)
 
-              Def.task(Seq(generatorFile))
+                  Def.task(Seq(generatorFile))
+                }
+
+              flatSequence(generateGererators)
             }
           }.value
       )
@@ -292,10 +299,12 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
       (Test / sourceGenerators) += Test / ctCaliban / ctCalibanGenerate
     ) ++ inConfig(Compile)(pluginSettings) ++ inConfig(Test)(pluginSettings)
 
-  private def flatSequence[A](tasks: Seq[Def.Initialize[Task[Seq[A]]]]): Def.Initialize[Task[Seq[A]]] = {
+}
+
+private[caliban] object Functions {
+  def flatSequence[A](tasks: Seq[Def.Initialize[Task[Seq[A]]]]): Def.Initialize[Task[Seq[A]]] = {
     import sbt.Scoped.richTaskSeq
 
     tasks.join.map(_.flatten)
   }
-
 }
