@@ -132,7 +132,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
      */
     lazy val ctCaliban: TaskKey[Unit] = taskKey[Unit]("Plugin configuration keys namespace")
 
-    // TODO Jules: Should be a `SettingKey[(Project, GenerateClientsSettings)]`? 🤔
+    // TODO Jules: Should be a `SettingKey[(Project, GenerateClientSettings)]`? 🤔
     // Required Plugin configurations
     lazy val ctCalibanSettings: SettingKey[(Project, GenerateClientSettings)] =
       settingKey[(Project, GenerateClientSettings)]("TODO Jules")
