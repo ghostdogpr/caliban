@@ -1,22 +1,90 @@
 package caliban.codegen
 
 import caliban.codegen.CalibanSourceGenerator.TrackedSettings
+import caliban.codegen.CompileTimeCalibanClientPlugin.autoImport.ctCaliban
 import caliban.tools.CalibanCommonSettings
 import sbt.Keys._
 import sbt.{ Compile, Def, Project, _ }
 
 import java.io.File
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
 
 object CompileTimeCalibanServerPlugin extends AutoPlugin {
   override def requires = plugins.JvmPlugin
   override def trigger  = noTrigger
 
+  object autoImport {
+
+    /**
+     * Tasks and settings namespace
+     *
+     * (https://www.scala-sbt.org/1.x/docs/Plugins-Best-Practices.html#Using+a+%E2%80%9Cmain%E2%80%9D+task+scope+for+settings)
+     */
+    lazy val ctCalibanServer: TaskKey[Unit] = taskKey[Unit]("Plugin configuration keys namespace")
+
+    // TODO: Should be a `SettingKey[Seq[String]]`? 🤔
+    lazy val ctCalibanFullQualifiedCalibanApiRef: SettingKey[String] = settingKey[String]("TODO Jules")
+
+    lazy val ctCalibanServerGenerate: TaskKey[Seq[File]] = taskKey[Seq[File]]("TODO Jules")
+  }
+  import autoImport._
+
+  private val helpMsg: String =
+    """
+      |TODO: TO WRITE JULES
+      |""".stripMargin
+
+  private lazy val pluginSettings =
+    inTask(ctCalibanServer)(
+      Seq(
+        ctCalibanFullQualifiedCalibanApiRef := "",
+        ctCalibanServerGenerate :=
+          // That helped: https://stackoverflow.com/q/26244115/2431728
+          Def.taskDyn {
+            val log = streams.value.log("ctCalibanServer")
+
+            val apiRef = (ctCalibanServer / ctCalibanFullQualifiedCalibanApiRef).value
+            if (apiRef.isEmpty) Def.task { log.error(helpMsg); Seq.empty[File] }
+            else {
+              val generatorCode =
+                s"""
+                   |package caliban.generator
+                   |
+                   |import caliban.tools.compiletime.CompileTime
+                   |import zio.{ExitCode, URIO}
+                   |
+                   |private[generator] object CalibanClientGenerator extends zio.App {
+                   |  override def run(args: List[String]): URIO[zio.ZEnv, ExitCode] = {
+                   |    CompileTime.generateClient(args)($apiRef)
+                   |  }
+                   |}
+                   |""".stripMargin
+
+              // The location of this file is copied on `sbt-buildInfo` `BuildInfo` generated code.
+              val generatorFile =
+                new File(
+                  s"${(thisProject / sourceManaged).value.absolutePath}/main/caliban-codegen-sbt/CalibanClientGenerator.scala"
+                )
+              log.warn(s"ctCalibanServer - generatorFile: ${generatorFile.absolutePath}")
+
+              caliban.tools.compiletime.Utils.createDirectories(generatorFile.getParent)
+              Files.writeString(generatorFile.toPath, generatorCode, StandardCharsets.UTF_8)
+
+              Def.task(Seq(generatorFile))
+            }
+          }.value
+      )
+    )
+
   override lazy val projectSettings: Seq[Def.Setting[_]] =
     Seq(
       libraryDependencies ++= Seq(
         "com.github.ghostdogpr" %% "caliban-tools" % BuildInfo.version % Compile
-      )
-    )
+      ),
+      (Compile / sourceGenerators) += Compile / ctCalibanServer / ctCalibanServerGenerate,
+      (Test / sourceGenerators) += Test / ctCalibanServer / ctCalibanServerGenerate
+    ) ++ inConfig(Compile)(pluginSettings) ++ inConfig(Test)(pluginSettings)
 }
 
 /**
@@ -58,51 +126,92 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
 
   object autoImport {
 
+    final case class GenerateClientsSettings(
+      clientName: String,
+      packageName: String,
+      scalafmtPath: Option[String] = None,
+      headers: List[(String, String)] = List.empty,
+      genView: Boolean = false,
+      scalarMappings: List[(String, String)] = List.empty,
+      imports: List[String] = List.empty,
+      splitFiles: Boolean = false,
+      enableFmt: Boolean = true,
+      extensibleEnums: Boolean = false
+    )                              {
+      private[caliban] def toCalibanCommonSettings: CalibanCommonSettings =
+        CalibanCommonSettings(
+          clientName = Some(clientName),
+          scalafmtPath = scalafmtPath,
+          headers = headers,
+          packageName = Some(packageName),
+          genView = Some(genView),
+          scalarMappings = scalarMappings,
+          imports = imports,
+          splitFiles = Some(splitFiles),
+          enableFmt = Some(enableFmt),
+          extensibleEnums = Some(extensibleEnums)
+        )
+    }
+    object GenerateClientsSettings {
+      def default: GenerateClientsSettings = GenerateClientsSettings(clientName = "Client", packageName = "generated")
+    }
+
     /**
      * Tasks and settings namespace
      *
      * (https://www.scala-sbt.org/1.x/docs/Plugins-Best-Practices.html#Using+a+%E2%80%9Cmain%E2%80%9D+task+scope+for+settings)
      */
-    lazy val ctCaliban = taskKey[Unit]("Plugin configuration keys namespace")
+    lazy val ctCaliban: TaskKey[Unit] = taskKey[Unit]("Plugin configuration keys namespace")
 
     // Required Plugin configurations
-    lazy val ctCalibanSettings = settingKey[Seq[(Project, String, CalibanCommonSettings)]]("TODO Jules")
+    // TODO Jules: Should be a `SettingKey[(Project, GenerateClientsSettings)]`? 🤔
+    lazy val ctCalibanSettings: SettingKey[(Project, GenerateClientsSettings)] =
+      settingKey[(Project, GenerateClientsSettings)]("TODO Jules")
 
     // Plugin task
-    lazy val ctCalibanGenerate = taskKey[Seq[File]](
+    lazy val ctCalibanGenerate: TaskKey[Seq[File]] = taskKey[Seq[File]](
       "Generate Caliban Client code at compile time. Automatically configured to be triggered when compilation is done."
     )
 
   }
   import autoImport._
 
+  private val hiddenProjectId                                                   = "ctCaliban-hidden-default-project"
+  private val emptySettings: Def.Initialize[(Project, GenerateClientsSettings)] =
+    Def.settingDyn {
+      Def.setting {
+        (
+          Project(
+            id = hiddenProjectId,
+            base = (thisProject / target).value
+          ),
+          GenerateClientsSettings.default
+        )
+      }
+    }
+
   private lazy val pluginSettings =
     inTask(ctCaliban)(
       Seq(
-        ctCalibanSettings := Seq.empty,
+        ctCalibanSettings := emptySettings.value,
         ctCalibanGenerate := {
           // That helped: https://stackoverflow.com/q/26244115/2431728
           Def.taskDyn {
             val log = streams.value.log("ctCaliban")
 
-            val pluginSettings = (ctCaliban / ctCalibanSettings).value
-            if (pluginSettings.isEmpty) Def.task { log.error(helpMsg); Seq.empty[File] }
+            val (serverProject, _) = (ctCaliban / ctCalibanSettings).value
+            if (serverProject.id == hiddenProjectId) Def.task { log.error(helpMsg); Seq.empty[File] }
             else {
               val baseDirValue: String = (thisProject / baseDirectory).value.absolutePath
-              val targerDir: File      = (thisProject / target).value
               log.debug(s"ctCaliban - baseDirValue: $baseDirValue")
 
               def generateSources: Def.Initialize[Task[Seq[File]]] =
-                flatSequence {
-                  pluginSettings.zipWithIndex.map { case ((project, apiRef, _), index) =>
-                    Def.taskDyn {
-                      log.info(s"ctCaliban - Starting to generate...")
+                Def.taskDyn {
+                  log.info(s"ctCaliban - Starting to generate...")
 
-                      (Project(s"caliban-generator-$index", targerDir).dependsOn(project) / runMain)
-                        .toTask(s" caliban.generator.CalibanClientGenerator $baseDirValue $apiRef abc")
-                        .map(_ => Seq.empty[File])
-                    }
-                  }
+                  (serverProject / runMain)
+                    .toTask(s" caliban.generator.CalibanClientGenerator $baseDirValue abc")
+                    .map(_ => Seq.empty[File])
                 }
 
               //log.info(s"ctCaliban - Generation done! 🎉")
@@ -119,10 +228,8 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                 TrackedSettings(
                   List(
                     caliban.codegen.BuildInfo.version,
-                    zio.BuildInfo.version,
-                    pluginSettings.map { case (project, apiRef, commonSettings) =>
-                      (project.id, apiRef, commonSettings)
-                    }.mkString
+                    zio.BuildInfo.version
+                    // TODO Jules: TO improve
                   )
                 )
 

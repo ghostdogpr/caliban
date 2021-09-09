@@ -3,7 +3,7 @@ package caliban.tools.compiletime
 import java.io.File
 import java.nio.file.{ FileAlreadyExistsException, Files }
 
-private[compiletime] object Utils {
+private[caliban] object Utils {
 
   def packagePath(packageName: String): String = packageName.replaceAll("\\.", java.io.File.separator)
 
