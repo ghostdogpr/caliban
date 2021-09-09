@@ -1,3 +1,4 @@
+import Libraries._
 import sbt.librarymanagement.Resolver
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
