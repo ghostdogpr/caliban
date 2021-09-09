@@ -1,8 +1,7 @@
 package caliban.codegen
 
 import caliban.codegen.CalibanSourceGenerator.TrackedSettings
-import caliban.codegen.CompileTimeCalibanClientPlugin.autoImport.ctCaliban
-import caliban.tools.CalibanCommonSettings
+import caliban.tools.compiletime.Utils
 import sbt.Keys._
 import sbt.{ Compile, Def, Project, _ }
 
@@ -66,9 +65,9 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
                 new File(
                   s"${(thisProject / sourceManaged).value.absolutePath}/main/caliban-codegen-sbt/CalibanClientGenerator.scala"
                 )
-              log.warn(s"ctCalibanServer - generatorFile: ${generatorFile.absolutePath}")
+              log.debug(s"ctCalibanServer - generatorFile: ${generatorFile.absolutePath}")
 
-              caliban.tools.compiletime.Utils.createDirectories(generatorFile.getParent)
+              Utils.createDirectories(generatorFile.getParent)
               Files.writeString(generatorFile.toPath, generatorCode, StandardCharsets.UTF_8)
 
               Def.task(Seq(generatorFile))
@@ -124,37 +123,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
       |
       |""".stripMargin.trim
 
-  object autoImport {
-
-    final case class GenerateClientsSettings(
-      clientName: String,
-      packageName: String,
-      scalafmtPath: Option[String] = None,
-      headers: List[(String, String)] = List.empty,
-      genView: Boolean = false,
-      scalarMappings: List[(String, String)] = List.empty,
-      imports: List[String] = List.empty,
-      splitFiles: Boolean = false,
-      enableFmt: Boolean = true,
-      extensibleEnums: Boolean = false
-    )                              {
-      private[caliban] def toCalibanCommonSettings: CalibanCommonSettings =
-        CalibanCommonSettings(
-          clientName = Some(clientName),
-          scalafmtPath = scalafmtPath,
-          headers = headers,
-          packageName = Some(packageName),
-          genView = Some(genView),
-          scalarMappings = scalarMappings,
-          imports = imports,
-          splitFiles = Some(splitFiles),
-          enableFmt = Some(enableFmt),
-          extensibleEnums = Some(extensibleEnums)
-        )
-    }
-    object GenerateClientsSettings {
-      def default: GenerateClientsSettings = GenerateClientsSettings(clientName = "Client", packageName = "generated")
-    }
+  object autoImport extends caliban.tools.compiletime.Config {
 
     /**
      * Tasks and settings namespace
@@ -163,21 +132,40 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
      */
     lazy val ctCaliban: TaskKey[Unit] = taskKey[Unit]("Plugin configuration keys namespace")
 
-    // Required Plugin configurations
     // TODO Jules: Should be a `SettingKey[(Project, GenerateClientsSettings)]`? 🤔
-    lazy val ctCalibanSettings: SettingKey[(Project, GenerateClientsSettings)] =
-      settingKey[(Project, GenerateClientsSettings)]("TODO Jules")
+    // Required Plugin configurations
+    lazy val ctCalibanSettings: SettingKey[(Project, GenerateClientSettings)] =
+      settingKey[(Project, GenerateClientSettings)]("TODO Jules")
 
     // Plugin task
     lazy val ctCalibanGenerate: TaskKey[Seq[File]] = taskKey[Seq[File]](
       "Generate Caliban Client code at compile time. Automatically configured to be triggered when compilation is done."
     )
 
+    /**
+     * To understand why we need this weird function, see: https://stackoverflow.com/a/16466541/2431728
+     */
+    private[caliban] def toCalibanTools(
+      s: GenerateClientSettings
+    ): caliban.tools.compiletime.Config.GenerateClientSettings =
+      caliban.tools.compiletime.Config.GenerateClientSettings(
+        clientName = s.clientName,
+        packageName = s.packageName,
+        scalafmtPath = s.scalafmtPath,
+        headers = s.headers,
+        genView = s.genView,
+        scalarMappings = s.scalarMappings,
+        imports = s.imports,
+        splitFiles = s.splitFiles,
+        enableFmt = s.enableFmt,
+        extensibleEnums = s.extensibleEnums
+      )
   }
   import autoImport._
 
-  private val hiddenProjectId                                                   = "ctCaliban-hidden-default-project"
-  private val emptySettings: Def.Initialize[(Project, GenerateClientsSettings)] =
+  private val hiddenProjectId = "ctCaliban-hidden-default-project"
+
+  private val emptySettings: Def.Initialize[(Project, GenerateClientSettings)] =
     Def.settingDyn {
       Def.setting {
         (
@@ -185,7 +173,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
             id = hiddenProjectId,
             base = (thisProject / target).value
           ),
-          GenerateClientsSettings.default
+          GenerateClientSettings.default
         )
       }
     }
@@ -199,7 +187,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
           Def.taskDyn {
             val log = streams.value.log("ctCaliban")
 
-            val (serverProject, _) = (ctCaliban / ctCalibanSettings).value
+            val (serverProject, clientSettings) = (ctCaliban / ctCalibanSettings).value
             if (serverProject.id == hiddenProjectId) Def.task { log.error(helpMsg); Seq.empty[File] }
             else {
               val baseDirValue: String = (thisProject / baseDirectory).value.absolutePath
@@ -209,15 +197,41 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                 Def.taskDyn {
                   log.info(s"ctCaliban - Starting to generate...")
 
-                  (serverProject / runMain)
-                    .toTask(s" caliban.generator.CalibanClientGenerator $baseDirValue abc")
-                    .map(_ => Seq.empty[File])
-                }
+                  val toPathDir: File =
+                    new File(Utils.toPath(baseDirValue, toCalibanTools(clientSettings))).getParentFile
 
-              //log.info(s"ctCaliban - Generation done! 🎉")
-              //val metadataFile  = file(s"$baseDirValue/target/ctCaliban/metadata")
-              //val generatedFile = file(Files.readString(metadataFile.toPath, StandardCharsets.UTF_8))
-              //Seq(generatedFile)
+                  for {
+                    beforeGenFiles <- Def.task {
+                                        log.debug(s"ctCaliban - toPathDir: ${toPathDir.getAbsolutePath}")
+
+                                        Utils.createDirectories(toPathDir.absolutePath)
+
+                                        val beforeGenFiles: Set[File] = toPathDir.listFiles().toSet
+
+                                        log.debug(
+                                          s"ctCaliban - beforeGenFiles: ${if (beforeGenFiles.isEmpty) "<empty>" else ""}"
+                                        )
+                                        beforeGenFiles.foreach(f => log.debug(s"\t-- ${f.getAbsolutePath}"))
+                                        beforeGenFiles
+                                      }
+                    _              <-
+                      (serverProject / runMain)
+                        .toTask(
+                          s" caliban.generator.CalibanClientGenerator $baseDirValue ${toCalibanTools(clientSettings).asArgs
+                            .mkString(" ")}"
+                        )
+                        .taskValue
+                  } yield {
+                    log.info(s"ctCaliban - Generation done! 🎉")
+
+                    val afterGenFiles = toPathDir.listFiles().toSet
+                    val result        = (afterGenFiles -- beforeGenFiles).toList
+
+                    log.debug(s"ctCaliban - Generated files:")
+                    result.foreach(f => log.debug(s"\t-- ${f.getAbsolutePath}"))
+                    result
+                  }
+                }
 
               /**
                * These settings are used to track the need to re-generate the code.
@@ -228,8 +242,9 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                 TrackedSettings(
                   List(
                     caliban.codegen.BuildInfo.version,
-                    zio.BuildInfo.version
-                    // TODO Jules: TO improve
+                    zio.BuildInfo.version,
+                    serverProject.id,
+                    clientSettings.toString
                   )
                 )
 
