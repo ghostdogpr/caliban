@@ -29,10 +29,15 @@ object ResponseValue extends ValueJsonCompat {
     override def toString: String = values.mkString("[", ",", "]")
   }
   case class ObjectValue(fields: List[(String, ResponseValue)])    extends ResponseValue {
-    override def toString: String =
+    override def toString: String            =
       fields.map { case (name, value) => s""""$name":${value.toString}""" }.mkString("{", ",", "}")
 
-    override def hashCode: Int    = fields.toSet.##
+    override def hashCode: Int               = fields.toSet.##
+    override def equals(other: Any): Boolean =
+      other match {
+        case o: ObjectValue => o.hashCode() == hashCode
+        case _              => false
+      }
   }
   case class StreamValue(stream: Stream[Throwable, ResponseValue]) extends ResponseValue {
     override def toString: String = "<stream>"
