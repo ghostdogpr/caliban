@@ -31,7 +31,7 @@ lazy val server =
     .in(file("modules/server"))
     .enablePlugins(CompileTimeCalibanServerPlugin)
     .settings(
-      Compile / ctCalibanServer / ctCalibanServerSettings +=
+      Compile / ctCalibanServer / ctCalibanServerSettings :=
         Seq(
           "io.guizmaii.poc.caliban.server.GraphQLApi.api" ->
             GenerateClientSettings(
