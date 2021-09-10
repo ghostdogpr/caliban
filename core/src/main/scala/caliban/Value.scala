@@ -31,6 +31,8 @@ object ResponseValue extends ValueJsonCompat {
   case class ObjectValue(fields: List[(String, ResponseValue)])    extends ResponseValue {
     override def toString: String =
       fields.map { case (name, value) => s""""$name":${value.toString}""" }.mkString("{", ",", "}")
+
+    override def hashCode: Int    = fields.toSet.##
   }
   case class StreamValue(stream: Stream[Throwable, ResponseValue]) extends ResponseValue {
     override def toString: String = "<stream>"
