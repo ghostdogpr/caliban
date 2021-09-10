@@ -4,6 +4,7 @@ import _root_.caliban.tools.Codegen.GenType
 import _root_.caliban.tools._
 import sbt._
 import sjsonnew.IsoLList.Aux
+import zio.blocking.Blocking
 
 import java.io.File
 import java.net.URL
@@ -72,22 +73,30 @@ object CalibanSourceGenerator {
     import sbt.util.CacheImplicits._
 
     def generateSources: List[File] = {
-      def generateFileSource(graphql: File, settings: CalibanCommonSettings): IO[Option[Throwable], List[File]] = for {
-        generatedSource <- ZIO.succeed(transformFile(sourceRoot, sourceManaged, settings)(graphql))
-        _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
-        opts            <- ZIO.fromOption(Some(settings.toOptions(graphql.toString, generatedSource.toString)))
-        files           <- Codegen.generate(opts, GenType.Client).asSomeError
-      } yield files
+      def generateFileSource(
+        graphql: File,
+        settings: CalibanCommonSettings
+      ): ZIO[Blocking, Option[Throwable], List[File]] =
+        for {
+          generatedSource <- ZIO.succeed(transformFile(sourceRoot, sourceManaged, settings)(graphql))
+          _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
+          opts            <- ZIO.fromOption(Some(settings.toOptions(graphql.toString, generatedSource.toString)))
+          files           <- Codegen.generate(opts, GenType.Client).asSomeError
+        } yield files
 
-      def generateUrlSource(graphql: URL, settings: CalibanCommonSettings): IO[Option[Throwable], List[File]] = for {
-        generatedSource <-
-          ZIO.succeed(
-            transformFile(sourceRoot, sourceManaged, settings)(new java.io.File(graphql.getPath.stripPrefix("/")))
-          )
-        _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
-        opts            <- ZIO.fromOption(Some(settings.toOptions(graphql.toString, generatedSource.toString)))
-        files           <- Codegen.generate(opts, GenType.Client).asSomeError
-      } yield files
+      def generateUrlSource(
+        graphql: URL,
+        settings: CalibanCommonSettings
+      ): ZIO[Blocking, Option[Throwable], List[File]] =
+        for {
+          generatedSource <-
+            ZIO.succeed(
+              transformFile(sourceRoot, sourceManaged, settings)(new java.io.File(graphql.getPath.stripPrefix("/")))
+            )
+          _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
+          opts            <- ZIO.fromOption(Some(settings.toOptions(graphql.toString, generatedSource.toString)))
+          files           <- Codegen.generate(opts, GenType.Client).asSomeError
+        } yield files
 
       Runtime.default
         .unsafeRun(

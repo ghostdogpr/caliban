@@ -4,6 +4,7 @@ import caliban.tools.Codegen.GenType
 import caliban.tools._
 import sbt.Keys.commands
 import sbt.{ Command, State }
+import zio.blocking.Blocking
 import zio.console.{ putStrLn, Console }
 import zio.{ RIO, Runtime }
 
@@ -82,7 +83,7 @@ object CalibanCli {
     helpMsg: String,
     args: List[String],
     genType: GenType
-  ): RIO[Console, Unit] =
+  ): RIO[Console with Blocking, Unit] =
     Options.fromArgs(args) match {
       case Some(arguments) =>
         for {

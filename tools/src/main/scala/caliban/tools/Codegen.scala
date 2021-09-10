@@ -1,9 +1,12 @@
 package caliban.tools
 
 import caliban.tools.implicits.ScalarMappings
-import zio.{ Task, UIO }
+import zio.blocking.{ effectBlocking, Blocking }
+import zio.{ RIO, Task, ZIO }
 
-import java.io.{ File, PrintWriter }
+import java.io.File
+import java.nio.charset.StandardCharsets
+import java.nio.file.{ Files, StandardCopyOption }
 
 object Codegen {
 
@@ -19,7 +22,7 @@ object Codegen {
     loader: SchemaLoader,
     arguments: Options,
     genType: GenType
-  ): Task[List[File]] = {
+  ): RIO[Blocking, List[File]] = {
     val s                  = ".*/[scala|play.*|app][^/]*/(.*)/(.*).scala".r.findFirstMatchIn(arguments.toPath)
     val packageName        = arguments.packageName.orElse(s.map(_.group(1).split("/").mkString(".")))
     val objectName         = arguments.clientName.orElse(s.map(_.group(2))).getOrElse("Client")
@@ -55,18 +58,18 @@ object Codegen {
                        )
                    }
       formatted <- if (enableFmt) Formatter.format(code, arguments.fmtPath) else Task.succeed(code)
-      paths     <- Task.collectAll(formatted.map { case (objectName, objectCode) =>
-                     val path =
+      paths     <- ZIO.foreach(formatted) { case (objectName, objectCode) =>
+                     val file = new File(
                        if (splitFiles) s"${arguments.toPath.reverse.dropWhile(_ != '/').reverse}$objectName.scala"
                        else arguments.toPath
-                     Task(new PrintWriter(new File(path)))
-                       .bracket(q => UIO(q.close()), pw => Task(pw.println(objectCode)))
-                       .as(new File(path))
-                   })
+                     )
+
+                     atomicWrite(file, objectCode)
+                   }
     } yield paths
   }
 
-  def generate(arguments: Options, genType: GenType): Task[List[File]] =
+  def generate(arguments: Options, genType: GenType): RIO[Blocking, List[File]] =
     generate(
       getSchemaLoader(arguments.schemaPath, arguments.headers),
       arguments,
@@ -76,5 +79,20 @@ object Codegen {
   private def getSchemaLoader(path: String, schemaPathHeaders: Option[List[Options.Header]]): SchemaLoader =
     if (path.startsWith("http")) SchemaLoader.fromIntrospection(path, schemaPathHeaders)
     else SchemaLoader.fromFile(path)
+
+  private def atomicWrite(file: File, content: String): RIO[Blocking, File] =
+    effectBlocking {
+      val tmp        = Files.createTempFile(null, null)
+      val tmpWritten = Files.writeString(tmp, content, StandardCharsets.UTF_8)
+
+      Files
+        .move(
+          tmpWritten,
+          file.toPath,
+          StandardCopyOption.ATOMIC_MOVE,
+          StandardCopyOption.REPLACE_EXISTING
+        )
+        .toFile
+    }
 
 }
