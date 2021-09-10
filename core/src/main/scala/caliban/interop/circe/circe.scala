@@ -176,7 +176,7 @@ object json {
       }
     }
 
-    implicit val objectValueDecoder = ValueCirce.responseObjectValueDecoder
+    implicit val objectValueDecoder: Decoder[ResponseValue.ObjectValue] = ValueCirce.responseObjectValueDecoder
 
     implicit val errorValueDecoder: Decoder[CalibanError] = Decoder.instance(cursor =>
       for {
