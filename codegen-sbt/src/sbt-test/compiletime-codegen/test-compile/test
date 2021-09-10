@@ -1,23 +1,23 @@
 # Code that was be generated
 # ## From the 'posts' "default" config
-$ absent modules/caliban-client/src/main/scala/generated/Client.scala
+$ absent modules/caliban-clients/src/main/scala/generated/Client.scala
 
 # ## From the 'posts' "CalibanClient" config
-$ absent modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/CalibanClient.scala
+$ absent modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/CalibanClient.scala
 
 # ## From the 'posts' "splitted" config
-$ absent modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/package.scala
-$ absent modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/AuthorName.scala
-$ absent modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/AuthorNameInput.scala
-$ absent modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/Mutation.scala
-$ absent modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/Post.scala
-$ absent modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/PostContent.scala
-$ absent modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/PostContentInput.scala
-$ absent modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/PostId.scala
-$ absent modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/PostTitle.scala
-$ absent modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/PostTitleInput.scala
-$ absent modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/Query.scala
-$ absent modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/Subscription.scala
+$ absent modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/package.scala
+$ absent modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/AuthorName.scala
+$ absent modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/AuthorNameInput.scala
+$ absent modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/Mutation.scala
+$ absent modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/Post.scala
+$ absent modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/PostContent.scala
+$ absent modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/PostContentInput.scala
+$ absent modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/PostId.scala
+$ absent modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/PostTitle.scala
+$ absent modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/PostTitleInput.scala
+$ absent modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/Query.scala
+$ absent modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/Subscription.scala
 
 # ## From the 'potatoes' "splitted" config
 $ absent modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/package.scala
@@ -46,24 +46,24 @@ $ absent modules/potatoes/target/ctCalibanServer/CalibanClientGenerator_0.scala
 
 # Code that was be generated
 # ## From the 'posts' "default" config
-$ exists modules/caliban-client/src/main/scala/generated/Client.scala
+$ exists modules/caliban-clients/src/main/scala/generated/Client.scala
 
 # ## From the 'posts' "CalibanClient" config
-$ exists modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/CalibanClient.scala
+$ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/CalibanClient.scala
 
 # ## From the 'posts' "splitted" config
-$ exists modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/package.scala
-$ exists modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/AuthorName.scala
-$ exists modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/AuthorNameInput.scala
-$ exists modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/Mutation.scala
-$ exists modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/Post.scala
-$ exists modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/PostContent.scala
-$ exists modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/PostContentInput.scala
-$ exists modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/PostId.scala
-$ exists modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/PostTitle.scala
-$ exists modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/PostTitleInput.scala
-$ exists modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/Query.scala
-$ exists modules/caliban-client/src/main/scala/poc/caliban/client/generated/posts/splitted/Subscription.scala
+$ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/package.scala
+$ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/AuthorName.scala
+$ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/AuthorNameInput.scala
+$ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/Mutation.scala
+$ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/Post.scala
+$ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/PostContent.scala
+$ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/PostContentInput.scala
+$ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/PostId.scala
+$ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/PostTitle.scala
+$ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/PostTitleInput.scala
+$ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/Query.scala
+$ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/splitted/Subscription.scala
 
 # ## From the 'potatoes' "splitted" config
 $ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/package.scala
