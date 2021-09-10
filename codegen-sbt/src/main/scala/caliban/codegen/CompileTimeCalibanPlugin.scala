@@ -3,11 +3,10 @@ package caliban.codegen
 import caliban.codegen.CalibanSourceGenerator.TrackedSettings
 import caliban.tools.compiletime.Utils
 import sbt.Keys._
+import sbt.io.IO.defaultCharset
 import sbt.{ Compile, Def, Project, _ }
 
 import java.io.File
-import java.nio.charset.StandardCharsets
-import java.nio.file.Files
 import scala.annotation.tailrec
 
 object CompileTimeCalibanServerPlugin extends AutoPlugin {
@@ -73,11 +72,13 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
                        |}
                        |""".stripMargin.trim
 
-                  val generatorFile =
-                    writeFile(
-                      filePath = s"$metadataDir/$generatorName.scala",
-                      content = generatorCode
-                    )
+                  val generatorFile = file(s"$metadataDir/$generatorName.scala")
+                  sbt.IO.write(
+                    file = generatorFile,
+                    content = generatorCode,
+                    charset = defaultCharset,
+                    append = false
+                  )
 
                   (
                     generatorFile,
@@ -87,9 +88,11 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
 
               val generateSources: Def.Initialize[Task[Seq[File]]] =
                 Def.task(generateGenerators).map { generated =>
-                  writeFile(
-                    filePath = s"$metadataDir/metadata",
-                    content = generated.map { case (f, (a, b)) => s"${f.getAbsolutePath}#$a#$b" }.mkString("\n")
+                  sbt.IO.writeLines(
+                    file = file(s"$metadataDir/metadata"),
+                    lines = generated.map { case (f, (a, b)) => s"${f.getAbsolutePath}#$a#$b" },
+                    charset = defaultCharset,
+                    append = false
                   )
 
                   generated.map(_._1)
@@ -213,37 +216,37 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                           val serverMetadata = {
                             val serverTargetDir = (serverProject / target).value.getAbsolutePath
 
-                            waitForFile(() => new File(s"$serverTargetDir/ctCalibanServer/metadata"))
+                            waitForFile(() => file(s"$serverTargetDir/ctCalibanServer/metadata"))
                           }
 
                           val generatedRefs: Seq[(File, String, String)] =
-                            Files
-                              .readString(serverMetadata.toPath)
-                              .mkString
-                              .split('\n')
-                              .map { v =>
-                                val Array(generatorFile, generatorRef, packageName) = v.split("#")
-                                (new File(generatorFile), generatorRef, packageName)
-                              }
+                            sbt.IO.readLines(serverMetadata, defaultCharset).map { line =>
+                              val Array(generatorFile, generatorRef, packageName) = line.split("#")
+                              (file(generatorFile), generatorRef, packageName)
+                            }
 
                           generatedRefs.flatTraverseT[File] { case (generatorFile, generatorRef, packageName) =>
                             Def.taskDyn {
-                              val toPathDir: File = new File(Utils.toPathDir(baseDirValue, packageName))
+                              def listGeneratedClientsFiles: Set[File] = {
+                                val toPathDir: File = file(Utils.toPathDir(baseDirValue, packageName))
+
+                                if (!toPathDir.exists()) {
+                                  sbt.IO.createDirectory(toPathDir)
+                                }
+
+                                sbt.IO.listFiles(toPathDir).toSet
+                              }
 
                               Def
-                                .task[Set[File]] {
-                                  // If I don't put the following code in a Task, it's not executed. IDK why. 🤷
-                                  Utils.createDirectories(toPathDir)
-                                  toPathDir.listFiles().toSet
-                                }
+                                .task[Set[File]](listGeneratedClientsFiles)
                                 .flatMap { beforeGenDirFiles =>
                                   (serverProject / runMain)
                                     .toTask(s" $generatorRef $baseDirValue")
                                     .taskValue
                                     .map { _ =>
-                                      Files.deleteIfExists(generatorFile.toPath)
+                                      sbt.IO.delete(generatorFile)
 
-                                      val afterGenDirFiles: Set[File] = toPathDir.listFiles().toSet
+                                      val afterGenDirFiles: Set[File] = listGeneratedClientsFiles
                                       (afterGenDirFiles diff beforeGenDirFiles).toSeq
                                     }
                                 }
@@ -303,18 +306,6 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
 }
 
 private[caliban] object Functions {
-
-  /**
-   * Might generate some useless interactions with the filesystem but at least, it's safe.
-   * We don't need high performances here, anyway.
-   */
-  def writeFile(filePath: String, content: String): File = {
-    val file = new File(filePath)
-    Utils.createDirectories(file.getParentFile)
-    Utils.createFile(file)
-    Files.writeString(file.toPath, content, StandardCharsets.UTF_8)
-    file
-  }
 
   @tailrec
   def waitForFile(file: () => File): File = {

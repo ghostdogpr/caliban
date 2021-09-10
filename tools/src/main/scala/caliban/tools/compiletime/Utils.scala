@@ -1,25 +1,9 @@
 package caliban.tools.compiletime
 
-import java.io.File
-import java.nio.file.{ FileAlreadyExistsException, Files }
-
 private[caliban] object Utils {
 
   def packagePath(packageName: String): String                = packageName.replaceAll("\\.", java.io.File.separator)
   def toPathDir(baseDir: String, packageName: String): String = s"$baseDir/src/main/scala/${packagePath(packageName)}"
-
-  // Copied from better-files.
-  def createDirectories(file: File): Unit =
-    try Files.createDirectories(file.toPath)
-    catch {
-      case _: FileAlreadyExistsException => ()
-    }
-
-  def createFile(file: File): Unit =
-    try Files.createFile(file.toPath)
-    catch {
-      case _: FileAlreadyExistsException => ()
-    }
 
   def toScalaCode[A](l: List[A])(asScalaCode: A => String): String =
     if (l.isEmpty) "List.empty" else s"List(${l.map(asScalaCode).mkString(",")})"
