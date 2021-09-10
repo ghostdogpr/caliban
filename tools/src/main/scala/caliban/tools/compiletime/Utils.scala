@@ -9,8 +9,14 @@ private[caliban] object Utils {
   def toPathDir(baseDir: String, packageName: String): String = s"$baseDir/src/main/scala/${packagePath(packageName)}"
 
   // Copied from better-files.
-  def createDirectories(path: String): Unit =
-    try Files.createDirectories(new File(path).toPath)
+  def createDirectories(file: File): Unit =
+    try Files.createDirectories(file.toPath)
+    catch {
+      case _: FileAlreadyExistsException => ()
+    }
+
+  def createFile(file: File): Unit =
+    try Files.createFile(file.toPath)
     catch {
       case _: FileAlreadyExistsException => ()
     }

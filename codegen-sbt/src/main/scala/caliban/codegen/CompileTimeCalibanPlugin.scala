@@ -73,9 +73,11 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
                        |}
                        |""".stripMargin.trim
 
-                  val generatorFile: File = new File(s"$metadataDir/$generatorName.scala")
-                  Utils.createDirectories(generatorFile.getParent)
-                  Files.writeString(generatorFile.toPath, generatorCode, StandardCharsets.UTF_8)
+                  val generatorFile =
+                    writeFile(
+                      filePath = s"$metadataDir/$generatorName.scala",
+                      content = generatorCode
+                    )
 
                   (
                     generatorFile,
@@ -85,11 +87,9 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
 
               val generateSources: Def.Initialize[Task[Seq[File]]] =
                 Def.task(generateGenerators).map { generated =>
-                  Utils.createDirectories(metadataDir)
-                  Files.writeString(
-                    new File(s"$metadataDir/metadata").toPath,
-                    generated.map { case (f, (a, b)) => s"${f.getAbsolutePath}#$a#$b" }.mkString("\n"),
-                    StandardCharsets.UTF_8
+                  writeFile(
+                    filePath = s"$metadataDir/metadata",
+                    content = generated.map { case (f, (a, b)) => s"${f.getAbsolutePath}#$a#$b" }.mkString("\n")
                   )
 
                   generated.map(_._1)
@@ -233,7 +233,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                               Def
                                 .task[Set[File]] {
                                   // If I don't put the following code in a Task, it's not executed. IDK why. 🤷
-                                  Utils.createDirectories(toPathDir.getAbsolutePath)
+                                  Utils.createDirectories(toPathDir)
                                   toPathDir.listFiles().toSet
                                 }
                                 .flatMap { beforeGenDirFiles =>
@@ -303,6 +303,18 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
 }
 
 private[caliban] object Functions {
+
+  /**
+   * Might generate some useless interactions with the filesystem but at least, it's safe.
+   * We don't need high performances here, anyway.
+   */
+  def writeFile(filePath: String, content: String): File = {
+    val file = new File(filePath)
+    Utils.createDirectories(file.getParentFile)
+    Utils.createFile(file)
+    Files.writeString(file.toPath, content, StandardCharsets.UTF_8)
+    file
+  }
 
   @tailrec
   def waitForFile(file: () => File): File = {
