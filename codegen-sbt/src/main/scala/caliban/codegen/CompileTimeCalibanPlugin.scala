@@ -313,7 +313,7 @@ private[caliban] object Functions {
 
     if (f.exists()) f
     else {
-      Thread.sleep(100)
+      Thread.sleep(10)
       waitForFile(file)
     }
   }
