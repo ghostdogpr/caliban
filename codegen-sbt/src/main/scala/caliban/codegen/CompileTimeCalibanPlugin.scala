@@ -43,13 +43,15 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
         ctCalibanServerGenerate :=
           // That helped: https://stackoverflow.com/q/26244115/2431728
           Def.taskDyn {
-            val log = streams.value.log("ctCalibanServer")
+            val log         = streams.value.log("ctCalibanServer")
+            val metadataDir = s"${(thisProject / target).value.getAbsolutePath}/ctCalibanServer"
 
-            val apiRefs: Seq[(String, GenerateClientSettings)] = (ctCalibanServer / ctCalibanServerSettings).value
-            if (apiRefs.isEmpty) Def.task { log.error(helpMsg); Seq.empty[File] }
+            val pluginSettings: Seq[(String, GenerateClientSettings)] =
+              (ctCalibanServer / ctCalibanServerSettings).value
+            if (pluginSettings.isEmpty) Def.task { log.error(helpMsg); Seq.empty[File] }
             else {
               def generateGenerators: Seq[(File, (String, String, String))] =
-                apiRefs.zipWithIndex.flatMap { case ((ref, settings), i) =>
+                pluginSettings.zipWithIndex.map { case ((ref, clientSettings), i) =>
                   val generatorPackage = "caliban.generator"
                   val generatorName    = s"CalibanClientGenerator_$i"
                   val generatorCode    =
@@ -64,35 +66,76 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
                        |  override def run(args: List[String]): URIO[zio.ZEnv, ExitCode] =
                        |    CompileTime.generateClient(args)(
                        |      $ref,
-                       |      ${settings.asScalaCode}
+                       |      ${clientSettings.asScalaCode}
                        |    )
                        |}
                        |""".stripMargin.trim
 
-                  // The location of this file is copied from `sbt-buildInfo` `BuildInfo` generated code.
-                  val generatorFile =
-                    new File(
-                      s"${(thisProject / sourceManaged).value.absolutePath}/main/caliban-codegen-sbt/$generatorName.scala"
-                    )
-
+                  val generatorFile: File = new File(s"$metadataDir/$generatorName.scala")
                   Utils.createDirectories(generatorFile.getParent)
                   Files.writeString(generatorFile.toPath, generatorCode, StandardCharsets.UTF_8)
 
-                  Seq((generatorFile, (s"$generatorPackage.$generatorName", settings.packageName, settings.clientName)))
+                  (
+                    generatorFile,
+                    (s"$generatorPackage.$generatorName", clientSettings.packageName, clientSettings.clientName)
+                  )
                 }
 
-              Def.task(generateGenerators).map { tmp =>
-                val (generatedFiles, generatedRefs) = tmp.unzip
+              val generateSources: Def.Initialize[Task[Seq[File]]] =
+                Def.task(generateGenerators).map { generated =>
+                  Utils.createDirectories(metadataDir)
+                  Files.writeString(
+                    new File(s"$metadataDir/metadata").toPath,
+                    generated.map { case (f, (a, b, c)) => s"${f.getAbsolutePath}#$a#$b#$c" }.mkString("\n"),
+                    StandardCharsets.UTF_8
+                  )
 
-                val metaDir = s"${(thisProject / target).value.getAbsolutePath}/ctCalibanServer"
-                Utils.createDirectories(metaDir)
-                Files.writeString(
-                  new File(s"$metaDir/metadata").toPath,
-                  generatedRefs.map { case (a, b, c) => s"$a#$b#$c" }.mkString("\n"),
-                  StandardCharsets.UTF_8
+                  generated.map(_._1)
+                }
+
+              /**
+               * These settings are used to track the need to re-generate the code.
+               *
+               * When one of the value of these settings changes, then this plugin knows that it has to re-generate the code.
+               */
+              val cachedSettings: TrackedSettings =
+                TrackedSettings(
+                  List(
+                    caliban.codegen.BuildInfo.version,
+                    zio.BuildInfo.version,
+                    pluginSettings.mkString
+                  )
                 )
 
-                generatedFiles
+              val cacheDirectory = streams.value.cacheDirectory
+
+              /**
+               * Copied and adapted from [[CalibanSourceGenerator]] cache mechanism,
+               * which was itself, I quote, "heavily inspired by the caching technique from eed3si9n's sbt-scalaxb plugin".
+               *
+               * I wasn't able to add the source in the cache as it's done in [[CalibanSourceGenerator]] because it
+               * creates a cyclic dependency. Not sure we need it anyway.
+               */
+              val cachedGenerateSources
+                : TrackedSettings => (() => FilesInfo[PlainFileInfo]) => Def.Initialize[Task[Seq[File]]] = {
+                import sbt.util.CacheImplicits._
+
+                Tracked.inputChanged(cacheDirectory / "ctCalibanServer-inputs") {
+                  (inChanged: Boolean, _: TrackedSettings) =>
+                    Tracked.outputChanged(cacheDirectory / "ctCalibanServer-output") {
+                      (outChanged: Boolean, outputs: FilesInfo[PlainFileInfo]) =>
+                        Def.taskIf {
+                          if (inChanged || outChanged) generateSources.value
+                          else outputs.files.toList.map(_.file)
+                        }
+                    }
+                }
+              }
+
+              val sourceManagedValue: File = sourceManaged.value
+
+              cachedGenerateSources(cachedSettings) { () =>
+                FilesInfo.exists((sourceManagedValue ** "*.scala").get.toSet).asInstanceOf[FilesInfo[PlainFileInfo]]
               }
             }
           }.value
@@ -183,64 +226,72 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
               def generateSources: Def.Initialize[Task[Seq[File]]] = {
                 import Functions._
 
-                log.info(s"ctCalibanClient - Starting to generate...")
+                Def.taskDyn {
+                  log.info(s"ctCalibanClient - Starting to generate...")
 
-                clientsSettings
-                  .flatTraverse[File] { serverProject =>
-                    Def.taskDyn {
-                      def serverMetadata =
-                        new File(
-                          s"${(serverProject / target).value.getAbsolutePath}/ctCalibanServer/metadata"
-                        )
-
-                      @tailrec
-                      def waitForFile(): Unit =
-                        if (serverMetadata.exists()) ()
-                        else {
-                          Thread.sleep(100)
-                          waitForFile()
-                        }
-
-                      waitForFile()
-
-                      val generatedRefs: Seq[(String, String, String)] =
-                        Files
-                          .readString(serverMetadata.toPath)
-                          .mkString
-                          .split('\n')
-                          .map { v =>
-                            val Array(generatorRef, packageName, clientName) = v.split("#")
-                            (generatorRef, packageName, clientName)
-                          }
-
-                      generatedRefs.flatTraverse[File] { case (generatorRef, packageName, clientName) =>
+                  Def.task {
+                    clientsSettings
+                      .flatTraverse[File] { serverProject =>
                         Def.taskDyn {
-                          val toPathDir: File =
-                            new File(Utils.toPath(baseDirValue, packageName, clientName)).getParentFile
+                          def serverMetadata =
+                            new File(
+                              s"${(serverProject / target).value.getAbsolutePath}/ctCalibanServer/metadata"
+                            )
 
-                          Def
-                            .task[Set[File]] {
-                              // If I don't put the following code in a Task, it's not executed. IDK why. 🤷
-                              Utils.createDirectories(toPathDir.getAbsolutePath)
-                              toPathDir.listFiles().toSet
+                          @tailrec
+                          def waitForFile(): Unit =
+                            if (serverMetadata.exists()) ()
+                            else {
+                              Thread.sleep(100)
+                              waitForFile()
                             }
-                            .flatMap { beforeGenDirFiles =>
-                              (serverProject / runMain)
-                                .toTask(s" $generatorRef $baseDirValue")
-                                .taskValue
-                                .map { _ =>
-                                  val afterGenDirFiles: Set[File] = toPathDir.listFiles().toSet
-                                  (afterGenDirFiles diff beforeGenDirFiles).toSeq
-                                }
-                            }
+
+                          waitForFile()
+
+                          val generatedRefs: Seq[(File, String, String, String)] =
+                            Files
+                              .readString(serverMetadata.toPath)
+                              .mkString
+                              .split('\n')
+                              .map { v =>
+                                val Array(generatorFile, generatorRef, packageName, clientName) = v.split("#")
+                                (new File(generatorFile), generatorRef, packageName, clientName)
+                              }
+
+                          generatedRefs.flatTraverse[File] {
+                            case (generatorFile, generatorRef, packageName, clientName) =>
+                              Def.taskDyn {
+                                val toPathDir: File =
+                                  new File(Utils.toPath(baseDirValue, packageName, clientName)).getParentFile
+
+                                Def
+                                  .task[Set[File]] {
+                                    // If I don't put the following code in a Task, it's not executed. IDK why. 🤷
+                                    Utils.createDirectories(toPathDir.getAbsolutePath)
+                                    toPathDir.listFiles().toSet
+                                  }
+                                  .flatMap { beforeGenDirFiles =>
+                                    (serverProject / runMain)
+                                      .toTask(s" $generatorRef $baseDirValue")
+                                      .taskValue
+                                      .map { _ =>
+                                        Files.deleteIfExists(generatorFile.toPath)
+
+                                        val afterGenDirFiles: Set[File] = toPathDir.listFiles().toSet
+                                        (afterGenDirFiles diff beforeGenDirFiles).toSeq
+                                      }
+                                  }
+                              }
+                          }
                         }
                       }
-                    }
+                      .map { result: Seq[File] =>
+                        log.info(s"ctCalibanClient - Generation done! 🎉")
+                        result
+                      }
+                      .value
                   }
-                  .map { result: Seq[File] =>
-                    log.info(s"ctCalibanClient - Generation done! 🎉")
-                    result
-                  }
+                }
               }
 
               /**
