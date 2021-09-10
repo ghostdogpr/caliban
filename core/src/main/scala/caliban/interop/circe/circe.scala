@@ -12,6 +12,7 @@ import zio.ZIO
 import zio.query.ZQuery
 import io.circe.Json.JString
 import io.circe.Json.JNumber
+import io.circe.Json.JObject
 
 /**
  * This class is an implementation of the pattern described in https://blog.7mind.io/no-more-orphans.html
@@ -91,11 +92,19 @@ object json {
             FloatValue(number.toDouble),
         StringValue.apply,
         array => ResponseValue.ListValue(array.toList.map(jsonToResponseValue)),
-        obj => ResponseValue.ObjectValue(obj.toList.map { case (k, v) => k -> jsonToResponseValue(v) })
+        obj => objToResponseValue(obj)
       )
-    val responseValueDecoder: Decoder[ResponseValue]           =
+
+    val responseObjectValueDecoder: Decoder[ResponseValue.ObjectValue] =
+      Decoder[JsonObject].map(obj => objToResponseValue(obj))
+
+    private def objToResponseValue(obj: JsonObject) = ResponseValue.ObjectValue(obj.toList.map { case (k, v) =>
+      k -> jsonToResponseValue(v)
+    })
+
+    val responseValueDecoder: Decoder[ResponseValue] =
       Decoder.instance(hcursor => Right(jsonToResponseValue(hcursor.value)))
-    val responseValueEncoder: Encoder[ResponseValue]           = Encoder
+    val responseValueEncoder: Encoder[ResponseValue] = Encoder
       .instance[ResponseValue]({
         case value: Value                      => valueEncoder.apply(value)
         case ResponseValue.ListValue(values)   => Json.arr(values.map(responseValueEncoder.apply): _*)
@@ -167,15 +176,20 @@ object json {
       }
     }
 
+    implicit val objectValueDecoder = ValueCirce.responseObjectValueDecoder
+
     implicit val errorValueDecoder: Decoder[CalibanError] = Decoder.instance(cursor =>
       for {
-        message   <- cursor.downField("message").as[String]
-        path      <- cursor.downField("path").as[Option[List[Either[String, Int]]]]
-        locations <- cursor.downField("locations").downArray.as[Option[LocationInfo]]
+        message    <- cursor.downField("message").as[String]
+        path       <- cursor.downField("path").as[Option[List[Either[String, Int]]]]
+        locations  <- cursor.downField("locations").downArray.as[Option[LocationInfo]]
+        extensions <- cursor.downField("extensions").as[Option[ResponseValue.ObjectValue]]
       } yield CalibanError.ExecutionError(
         message,
         path.getOrElse(Nil),
-        locations
+        locations,
+        None,
+        extensions
       )
     )
   }

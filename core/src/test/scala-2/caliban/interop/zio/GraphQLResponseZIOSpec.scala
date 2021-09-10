@@ -1,15 +1,19 @@
 package caliban.interop.zio
 
-import caliban.GraphQLResponse
-import zio.json._
-import zio.test._
-import caliban.parsing.adt.LocationInfo
-import Assertion._
 import caliban.CalibanError
 import caliban.CalibanError.ExecutionError
+import caliban.GraphQLResponse
+import caliban.ResponseValue
+import caliban.ResponseValue.ListValue
 import caliban.ResponseValue.ObjectValue
-import caliban.Value.StringValue
+import caliban.Value.FloatValue
 import caliban.Value.IntValue
+import caliban.Value.StringValue
+import caliban.parsing.adt.LocationInfo
+import zio.json._
+import zio.test._
+
+import Assertion._
 
 object GraphQLResponseZIOSpec extends DefaultRunnableSpec {
   implicit val encoder: JsonEncoder[GraphQLResponse[Any]] = GraphQLResponse.zioJsonEncoder
@@ -52,7 +56,25 @@ object GraphQLResponseZIOSpec extends DefaultRunnableSpec {
       },
       test("can be parsed from JSON [zio]") {
         val req =
-          """{"data":{"value": 42},"errors":[{"message":"boom", "path": ["step", 0], "locations": [{"column": 1, "line": 2}]}]}"""
+          """
+            |{
+            |   "data":{"value": 42},
+            |   "errors":[
+            |     {
+            |       "message":"boom",
+            |       "path": ["step", 0],
+            |       "locations": [{"column": 1, "line": 2}],
+            |       "extensions": {
+            |         "argumentName": "id",
+            |         "code": "BAD_USER_INPUT",
+            |         "exception": {
+            |           "stacktrace": [
+            |              "trace"
+            |           ]
+            |         }
+            |       }
+            |     }]
+            |}""".stripMargin
 
         assert(req.fromJson[GraphQLResponse[CalibanError]])(
           isRight(
@@ -60,7 +82,22 @@ object GraphQLResponseZIOSpec extends DefaultRunnableSpec {
               GraphQLResponse(
                 data = ObjectValue(List("value" -> IntValue("42"))),
                 errors = List(
-                  ExecutionError("boom", path = List(Left("step"), Right(0)), locationInfo = Some(LocationInfo(1, 2)))
+                  ExecutionError(
+                    "boom",
+                    path = List(Left("step"), Right(0)),
+                    locationInfo = Some(LocationInfo(1, 2)),
+                    extensions = Some(
+                      ObjectValue(
+                        List(
+                          "argumentName" -> StringValue("id"),
+                          "code"         -> StringValue("BAD_USER_INPUT"),
+                          "exception"    -> ObjectValue(
+                            List("stacktrace" -> ListValue(List(StringValue("trace"))))
+                          )
+                        )
+                      )
+                    )
+                  )
                 )
               )
             )

@@ -412,14 +412,15 @@ private[caliban] object ErrorZioJson {
 
   private case class ErrorDTO(
     message: String,
-    extensions: Option[ResponseValue],
+    extensions: Option[ResponseValue.ObjectValue],
     locations: Option[List[LocationInfo]],
     path: Option[List[Either[String, Int]]]
   )
   private object ErrorDTO {
-    implicit val locationInfoDecoder: JsonDecoder[LocationInfo] = DeriveJsonDecoder.gen[LocationInfo]
-    implicit val pathDecoder: JsonDecoder[Either[String, Int]]  = JsonDecoder[String].orElseEither(JsonDecoder[Int])
-    implicit val decoder: JsonDecoder[ErrorDTO]                 = DeriveJsonDecoder.gen[ErrorDTO]
+    implicit val locationInfoDecoder: JsonDecoder[LocationInfo]                     = DeriveJsonDecoder.gen[LocationInfo]
+    implicit val pathDecoder: JsonDecoder[Either[String, Int]]                      = JsonDecoder[String].orElseEither(JsonDecoder[Int])
+    implicit val responseObjectValueDecoder: JsonDecoder[ResponseValue.ObjectValue] = ValueZIOJson.Obj.responseDecoder
+    implicit val decoder: JsonDecoder[ErrorDTO]                                     = DeriveJsonDecoder.gen[ErrorDTO]
   }
 
   val errorValueDecoder: JsonDecoder[CalibanError] =
@@ -427,7 +428,9 @@ private[caliban] object ErrorZioJson {
       CalibanError.ExecutionError(
         e.message,
         e.path.getOrElse(List()),
-        e.locations.flatMap(locations => locations.lift(0))
+        e.locations.flatMap(locations => locations.lift(0)),
+        None,
+        e.extensions
       )
     )
 }

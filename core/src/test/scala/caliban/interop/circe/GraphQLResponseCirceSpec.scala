@@ -3,14 +3,16 @@ package caliban.interop.circe
 import caliban.CalibanError
 import caliban.CalibanError.ExecutionError
 import caliban.GraphQLResponse
+import caliban.ResponseValue
+import caliban.ResponseValue.ListValue
 import caliban.ResponseValue.ObjectValue
-import caliban.parsing.adt.LocationInfo
+import caliban.Value.FloatValue
 import caliban.Value.IntValue
 import caliban.Value.StringValue
-import caliban.Value.FloatValue
+import caliban.parsing.adt.LocationInfo
 import io.circe._
-import io.circe.syntax._
 import io.circe.parser.decode
+import io.circe.syntax._
 import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment
@@ -72,7 +74,24 @@ object GraphQLResponseCirceSpec extends DefaultRunnableSpec {
       },
       test("can be parsed from JSON [circe]") {
         val req =
-          """{"data":{"value": 42},"errors":[{"message":"boom", "path": ["step", 0], "locations": [{"column": 1, "line": 2}]}]}"""
+          """ |{
+            |   "data":{"value": 42},
+            |   "errors":[
+            |     {
+            |       "message":"boom",
+            |       "path": ["step", 0],
+            |       "locations": [{"column": 1, "line": 2}],
+            |       "extensions": {
+            |         "argumentName": "id",
+            |         "code": "BAD_USER_INPUT",
+            |         "exception": {
+            |           "stacktrace": [
+            |              "trace"
+            |           ]
+            |         }
+            |       }
+            |     }]
+            |}""".stripMargin
 
         assert(decode[GraphQLResponse[CalibanError]](req))(
           equalTo(
@@ -80,7 +99,22 @@ object GraphQLResponseCirceSpec extends DefaultRunnableSpec {
               GraphQLResponse(
                 data = ObjectValue(List("value" -> IntValue(BigInt(42)))),
                 errors = List(
-                  ExecutionError("boom", path = List(Left("step"), Right(0)), locationInfo = Some(LocationInfo(1, 2)))
+                  ExecutionError(
+                    "boom",
+                    path = List(Left("step"), Right(0)),
+                    locationInfo = Some(LocationInfo(1, 2)),
+                    extensions = Some(
+                      ObjectValue(
+                        List(
+                          "argumentName" -> StringValue("id"),
+                          "code"         -> StringValue("BAD_USER_INPUT"),
+                          "exception"    -> ObjectValue(
+                            List("stacktrace" -> ListValue(List(StringValue("trace"))))
+                          )
+                        )
+                      )
+                    )
+                  )
                 )
               )
             )
