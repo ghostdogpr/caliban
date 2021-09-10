@@ -210,20 +210,11 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                     clientsSettings
                       .flatTraverseT[File] { serverProject =>
                         Def.taskDyn {
-                          def serverMetadata =
-                            new File(
-                              s"${(serverProject / target).value.getAbsolutePath}/ctCalibanServer/metadata"
-                            )
+                          val serverMetadata = {
+                            val serverTargetDir = (serverProject / target).value.getAbsolutePath
 
-                          @tailrec
-                          def waitForFile(): Unit =
-                            if (serverMetadata.exists()) ()
-                            else {
-                              Thread.sleep(100)
-                              waitForFile()
-                            }
-
-                          waitForFile()
+                            waitForFile(() => new File(s"$serverTargetDir/ctCalibanServer/metadata"))
+                          }
 
                           val generatedRefs: Seq[(File, String, String)] =
                             Files
@@ -312,9 +303,21 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
 }
 
 private[caliban] object Functions {
-  import sbt.Scoped.richTaskSeq
+
+  @tailrec
+  def waitForFile(file: () => File): File = {
+    val f = file()
+
+    if (f.exists()) f
+    else {
+      Thread.sleep(100)
+      waitForFile(file)
+    }
+  }
 
   implicit final class SeqTaskOps[A](private val seq: Seq[A]) extends AnyVal {
+    import sbt.Scoped.richTaskSeq
+
     def flatTraverseT[B](f: A => Def.Initialize[Task[Seq[B]]]): Def.Initialize[Task[Seq[B]]] =
       seq.map(f).join.map(_.flatten)
 
