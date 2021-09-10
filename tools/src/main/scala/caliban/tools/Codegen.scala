@@ -6,7 +6,7 @@ import zio.{ RIO, Task, ZIO }
 
 import java.io.File
 import java.nio.charset.StandardCharsets
-import java.nio.file.{ Files, StandardCopyOption }
+import java.nio.file._
 
 object Codegen {
 
@@ -59,12 +59,12 @@ object Codegen {
                    }
       formatted <- if (enableFmt) Formatter.format(code, arguments.fmtPath) else Task.succeed(code)
       paths     <- ZIO.foreach(formatted) { case (objectName, objectCode) =>
-                     val file = new File(
+                     val path = Path.of(
                        if (splitFiles) s"${arguments.toPath.reverse.dropWhile(_ != '/').reverse}$objectName.scala"
                        else arguments.toPath
                      )
 
-                     atomicWrite(file, objectCode)
+                     atomicWrite(path, objectCode)
                    }
     } yield paths
   }
@@ -80,19 +80,23 @@ object Codegen {
     if (path.startsWith("http")) SchemaLoader.fromIntrospection(path, schemaPathHeaders)
     else SchemaLoader.fromFile(path)
 
-  private def atomicWrite(file: File, content: String): RIO[Blocking, File] =
+  private def atomicWrite(
+    path: Path,
+    content: String,
+    copyOptions: List[CopyOption] = List(
+      StandardCopyOption.ATOMIC_MOVE,
+      StandardCopyOption.REPLACE_EXISTING
+    )
+  ): RIO[Blocking, File] =
     effectBlocking {
-      val tmp        = Files.createTempFile(null, null)
-      val tmpWritten = Files.writeString(tmp, content, StandardCharsets.UTF_8)
+      val tmp: Path        = Files.createTempFile(null, null)
+      val tmpWritten: Path = Files.writeString(tmp, content, StandardCharsets.UTF_8)
 
-      Files
-        .move(
-          tmpWritten,
-          file.toPath,
-          StandardCopyOption.ATOMIC_MOVE,
-          StandardCopyOption.REPLACE_EXISTING
-        )
-        .toFile
+      Files.move(tmpWritten, path, copyOptions: _*).toFile
+    }.catchSome {
+      // format: off
+      case _: AtomicMoveNotSupportedException => atomicWrite(path, content, copyOptions = List(StandardCopyOption.REPLACE_EXISTING))
+      // format: on
     }
 
 }
