@@ -43,6 +43,8 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
         ctCalibanServerGenerate :=
           // That helped: https://stackoverflow.com/q/26244115/2431728
           Def.taskDyn {
+            import Functions._
+
             val log         = streams.value.log("ctCalibanServer")
             val metadataDir = s"${(thisProject / target).value.getAbsolutePath}/ctCalibanServer"
 
@@ -98,7 +100,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
                *
                * When one of the value of these settings changes, then this plugin knows that it has to re-generate the code.
                */
-              val cachedSettings: TrackedSettings =
+              val trackedSettings: TrackedSettings =
                 TrackedSettings(
                   List(
                     caliban.codegen.BuildInfo.version,
@@ -107,36 +109,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
                   )
                 )
 
-              val cacheDirectory = streams.value.cacheDirectory
-
-              /**
-               * Copied and adapted from [[CalibanSourceGenerator]] cache mechanism,
-               * which was itself, I quote, "heavily inspired by the caching technique from eed3si9n's sbt-scalaxb plugin".
-               *
-               * I wasn't able to add the source in the cache as it's done in [[CalibanSourceGenerator]] because it
-               * creates a cyclic dependency. Not sure we need it anyway.
-               */
-              val cachedGenerateSources
-                : TrackedSettings => (() => FilesInfo[PlainFileInfo]) => Def.Initialize[Task[Seq[File]]] = {
-                import sbt.util.CacheImplicits._
-
-                Tracked.inputChanged(cacheDirectory / "ctCalibanServer-inputs") {
-                  (inChanged: Boolean, _: TrackedSettings) =>
-                    Tracked.outputChanged(cacheDirectory / "ctCalibanServer-output") {
-                      (outChanged: Boolean, outputs: FilesInfo[PlainFileInfo]) =>
-                        Def.taskIf {
-                          if (inChanged || outChanged) generateSources.value
-                          else outputs.files.toList.map(_.file)
-                        }
-                    }
-                }
-              }
-
-              val sourceManagedValue: File = sourceManaged.value
-
-              cachedGenerateSources(cachedSettings) { () =>
-                FilesInfo.exists((sourceManagedValue ** "*.scala").get.toSet).asInstanceOf[FilesInfo[PlainFileInfo]]
-              }
+              cached("ctCalibanServer", trackedSettings)(generateSources)
             }
           }.value
       )
@@ -216,6 +189,8 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
         ctCalibanClientGenerate := {
           // That helped: https://stackoverflow.com/q/26244115/2431728
           Def.taskDyn {
+            import Functions._
+
             val log = streams.value.log("ctCalibanClient")
 
             val clientsSettings: Seq[Project] = (ctCalibanClient / ctCalibanClientsSettings).value
@@ -223,9 +198,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
             else {
               val baseDirValue: String = (thisProject / baseDirectory).value.absolutePath
 
-              def generateSources: Def.Initialize[Task[Seq[File]]] = {
-                import Functions._
-
+              def generateSources: Def.Initialize[Task[Seq[File]]] =
                 Def.taskDyn {
                   log.info(s"ctCalibanClient - Starting to generate...")
 
@@ -292,14 +265,13 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                       .value
                   }
                 }
-              }
 
               /**
                * These settings are used to track the need to re-generate the code.
                *
                * When one of the value of these settings changes, then this plugin knows that it has to re-generate the code.
                */
-              val cachedSettings: TrackedSettings =
+              val trackedSettings: TrackedSettings =
                 TrackedSettings(
                   List(
                     caliban.codegen.BuildInfo.version,
@@ -308,36 +280,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                   )
                 )
 
-              val cacheDirectory = streams.value.cacheDirectory
-
-              /**
-               * Copied and adapted from [[CalibanSourceGenerator]] cache mechanism,
-               * which was itself, I quote, "heavily inspired by the caching technique from eed3si9n's sbt-scalaxb plugin".
-               *
-               * I wasn't able to add the source in the cache as it's done in [[CalibanSourceGenerator]] because it
-               * creates a cyclic dependency. Not sure we need it anyway.
-               */
-              val cachedGenerateSources
-                : TrackedSettings => (() => FilesInfo[PlainFileInfo]) => Def.Initialize[Task[Seq[File]]] = {
-                import sbt.util.CacheImplicits._
-
-                Tracked.inputChanged(cacheDirectory / "ctCalibanClient-inputs") {
-                  (inChanged: Boolean, _: TrackedSettings) =>
-                    Tracked.outputChanged(cacheDirectory / "ctCalibanClient-output") {
-                      (outChanged: Boolean, outputs: FilesInfo[PlainFileInfo]) =>
-                        Def.taskIf {
-                          if (inChanged || outChanged) generateSources.value
-                          else outputs.files.toList.map(_.file)
-                        }
-                    }
-                }
-              }
-
-              val sourceManagedValue: File = sourceManaged.value
-
-              cachedGenerateSources(cachedSettings) { () =>
-                FilesInfo.exists((sourceManagedValue ** "*.scala").get.toSet).asInstanceOf[FilesInfo[PlainFileInfo]]
-              }
+              cached("ctCalibanClient", trackedSettings)(generateSources)
             }
           }.value
         }
@@ -362,4 +305,36 @@ private[caliban] object Functions {
   implicit final class SeqTaskOps[A](private val seq: Seq[A]) extends AnyVal {
     def flatTraverse[B](f: A => Def.Initialize[Task[Seq[B]]]): Def.Initialize[Task[Seq[B]]] = flatSequence(seq.map(f))
   }
+
+  def cached(cacheName: String, trackedSettings: TrackedSettings)(
+    generateSources: Def.Initialize[Task[Seq[File]]]
+  ): Def.Initialize[Task[Seq[File]]] =
+    Def.taskDyn {
+      val cacheDirectory = streams.value.cacheDirectory
+
+      /**
+       * Copied and adapted from [[CalibanSourceGenerator]] cache mechanism,
+       * which was itself, I quote, "heavily inspired by the caching technique from eed3si9n's sbt-scalaxb plugin".
+       */
+      val cachedGenerateSources
+        : TrackedSettings => (() => FilesInfo[PlainFileInfo]) => Def.Initialize[Task[Seq[File]]] = {
+        import sbt.util.CacheImplicits._
+
+        Tracked.inputChanged(cacheDirectory / s"$cacheName-inputs") { (inChanged: Boolean, _: TrackedSettings) =>
+          Tracked.outputChanged(cacheDirectory / s"$cacheName-output") {
+            (outChanged: Boolean, outputs: FilesInfo[PlainFileInfo]) =>
+              Def.taskIf {
+                if (inChanged || outChanged) generateSources.value
+                else outputs.files.toList.map(_.file)
+              }
+          }
+        }
+      }
+
+      val sourceManagedValue: File = sourceManaged.value
+
+      cachedGenerateSources(trackedSettings) { () =>
+        FilesInfo.exists((sourceManagedValue ** "*.scala").get.toSet).asInstanceOf[FilesInfo[PlainFileInfo]]
+      }
+    }
 }
