@@ -100,14 +100,18 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
                *
                * When one of the value of these settings changes, then this plugin knows that it has to re-generate the code.
                */
-              val trackedSettings: TrackedSettings =
-                TrackedSettings(
-                  List(
-                    caliban.codegen.BuildInfo.version,
-                    zio.BuildInfo.version,
-                    pluginSettings.mkString
-                  )
-                )
+              val trackedSettings: Def.Initialize[Task[TrackedSettings]] =
+                Def.taskDyn {
+                  Def.task {
+                    TrackedSettings(
+                      List(
+                        caliban.codegen.BuildInfo.version,
+                        zio.BuildInfo.version,
+                        pluginSettings.mkString
+                      )
+                    )
+                  }
+                }
 
               cached("ctCalibanServer", trackedSettings)(generateSources)
             }
@@ -204,7 +208,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
 
                   Def.task {
                     clientsSettings
-                      .flatTraverse[File] { serverProject =>
+                      .flatTraverseT[File] { serverProject =>
                         Def.taskDyn {
                           def serverMetadata =
                             new File(
@@ -231,7 +235,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                                 (new File(generatorFile), generatorRef, packageName, clientName)
                               }
 
-                          generatedRefs.flatTraverse[File] {
+                          generatedRefs.flatTraverseT[File] {
                             case (generatorFile, generatorRef, packageName, clientName) =>
                               Def.taskDyn {
                                 val toPathDir: File =
@@ -271,14 +275,27 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                *
                * When one of the value of these settings changes, then this plugin knows that it has to re-generate the code.
                */
-              val trackedSettings: TrackedSettings =
-                TrackedSettings(
-                  List(
-                    caliban.codegen.BuildInfo.version,
-                    zio.BuildInfo.version,
-                    clientsSettings.map(_.id).mkString
-                  )
-                )
+              val trackedSettings: Def.Initialize[Task[TrackedSettings]] =
+                Def.taskDyn {
+                  import CompileTimeCalibanServerPlugin.autoImport._
+
+                  // We need to track the server settings here so if they change the clients are re-generated.
+                  val serverProjectSettings: Seq[(String, GenerateClientSettings)] =
+                    Def.settingDyn {
+                      clientsSettings.flatTraverseS(_ / ctCalibanServer / ctCalibanServerSettings)
+                    }.value
+
+                  Def.task {
+                    TrackedSettings(
+                      List(
+                        caliban.codegen.BuildInfo.version,
+                        zio.BuildInfo.version,
+                        clientsSettings.map(_.id).mkString,
+                        serverProjectSettings.mkString
+                      )
+                    )
+                  }
+                }
 
               cached("ctCalibanClient", trackedSettings)(generateSources)
             }
@@ -299,14 +316,15 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
 private[caliban] object Functions {
   import sbt.Scoped.richTaskSeq
 
-  def flatSequence[A](tasks: Seq[Def.Initialize[Task[Seq[A]]]]): Def.Initialize[Task[Seq[A]]] =
-    tasks.join.map(_.flatten)
-
   implicit final class SeqTaskOps[A](private val seq: Seq[A]) extends AnyVal {
-    def flatTraverse[B](f: A => Def.Initialize[Task[Seq[B]]]): Def.Initialize[Task[Seq[B]]] = flatSequence(seq.map(f))
+    def flatTraverseT[B](f: A => Def.Initialize[Task[Seq[B]]]): Def.Initialize[Task[Seq[B]]] =
+      seq.map(f).join.map(_.flatten)
+
+    def flatTraverseS[B](f: A => SettingKey[Seq[B]]): Def.Initialize[Seq[B]] =
+      seq.map(f).join(_.flatten)
   }
 
-  def cached(cacheName: String, trackedSettings: TrackedSettings)(
+  def cached(cacheName: String, trackedSettings: Def.Initialize[Task[TrackedSettings]])(
     generateSources: Def.Initialize[Task[Seq[File]]]
   ): Def.Initialize[Task[Seq[File]]] =
     Def.taskDyn {
@@ -333,7 +351,7 @@ private[caliban] object Functions {
 
       val sourceManagedValue: File = sourceManaged.value
 
-      cachedGenerateSources(trackedSettings) { () =>
+      cachedGenerateSources(trackedSettings.value) { () =>
         FilesInfo.exists((sourceManagedValue ** "*.scala").get.toSet).asInstanceOf[FilesInfo[PlainFileInfo]]
       }
     }
