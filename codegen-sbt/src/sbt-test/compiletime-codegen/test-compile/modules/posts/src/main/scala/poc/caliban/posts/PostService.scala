@@ -1,4 +1,4 @@
-package io.guizmaii.poc.caliban.server
+package poc.caliban.posts
 
 import zio._
 import zio.stream.ZStream

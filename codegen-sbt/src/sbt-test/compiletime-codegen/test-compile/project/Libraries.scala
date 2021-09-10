@@ -2,7 +2,7 @@ import sbt._
 
 object Libraries {
 
-  val calibanLibs: Seq[ModuleID] =
+  val calibanLib: Seq[ModuleID] =
     sys.props.get("plugin.version") match {
       case Some(x) => Seq("com.github.ghostdogpr" %% "caliban" % x)
       case _       => sys.error("""|The system property 'plugin.version' is not defined.

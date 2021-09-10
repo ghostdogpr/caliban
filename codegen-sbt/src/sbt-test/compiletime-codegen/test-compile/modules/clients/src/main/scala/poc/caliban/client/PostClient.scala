@@ -1,17 +1,17 @@
-package io.guizmaii.poc.caliban.client
+package poc.caliban.client
 
-import io.guizmaii.poc.caliban.client.generated.CalibanClient
-import io.guizmaii.poc.caliban.client.generated.CalibanClient.{AuthorName, Post, PostId}
+import poc.caliban.client.generated.posts.CalibanClient
+import poc.caliban.client.generated.posts.CalibanClient._
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.client3.SttpBackend
 import zio.Task
 
-trait Client {
+trait PostClient {
   def postById(id: String): Task[Option[(String, String)]]
 }
 
-final class ClientLive(backend: SttpBackend[Task, ZioStreams with WebSockets]) extends Client {
+final class PostClientLive(backend: SttpBackend[Task, ZioStreams with WebSockets]) extends PostClient {
   import sttp.client3._
 
   private val serverUrl = uri"http://localhost:8088/api/graphql"

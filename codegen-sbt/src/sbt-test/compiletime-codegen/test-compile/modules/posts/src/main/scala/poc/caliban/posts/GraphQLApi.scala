@@ -1,4 +1,4 @@
-package io.guizmaii.poc.caliban.server
+package poc.caliban.posts
 
 import caliban.GraphQL.graphQL
 import caliban.schema.GenericSchema
@@ -7,8 +7,6 @@ import caliban.{GraphQL, RootResolver}
 import zio._
 import zio.duration.durationInt
 import zio.stream.ZStream
-
-object Schemas extends GenericSchema[ZEnv with Has[PostService]]
 
 object Operations {
 
@@ -52,6 +50,8 @@ object Resolvers {
 
   val resolver: RootResolver[Query, Mutation, Subscription] = RootResolver(queries, mutations, subscriptions)
 }
+
+object Schemas extends GenericSchema[ZEnv with Has[PostService]]
 
 object GraphQLApi {
   import Schemas._
