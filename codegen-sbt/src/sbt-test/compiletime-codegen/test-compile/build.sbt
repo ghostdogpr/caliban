@@ -32,11 +32,24 @@ lazy val server =
     .enablePlugins(CompileTimeCalibanServerPlugin)
     .settings(
       Compile / ctCalibanServer / ctCalibanServerSettings +=
-        "io.guizmaii.poc.caliban.server.GraphQLApi.api" ->
-          GenerateClientSettings(
-            clientName = "CalibanClient",
-            packageName = "io.guizmaii.poc.caliban.client.generated"
-          )
+        Seq(
+          "io.guizmaii.poc.caliban.server.GraphQLApi.api" ->
+            GenerateClientSettings(
+              packageName = "io.guizmaii.poc.caliban.client.generated",
+              clientName = "CalibanClient"
+            ),
+          "io.guizmaii.poc.caliban.server.GraphQLApi.api" ->
+            GenerateClientSettings(
+              packageName = "toto.generated",
+              clientName = "TotoClient"
+            ),
+          "io.guizmaii.poc.caliban.server.GraphQLApi.api" -> GenerateClientSettings.default,
+          "io.guizmaii.poc.caliban.server.GraphQLApi.api" ->
+            GenerateClientSettings(
+              packageName = "io.split",
+              splitFiles = true
+            )
+        )
     )
     .settings(libraryDependencies ++= calibanLibs)
 

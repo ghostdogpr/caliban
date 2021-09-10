@@ -1,4 +1,0 @@
-# Check that the Caliban client code is generated
-$ absent modules/caliban-client/src/main/scala/generated/Client.scala
-> clean;compile
-$ exists modules/caliban-client/src/main/scala/generated/Client.scala

@@ -1,0 +1,55 @@
+# Code that will be generated
+$ absent modules/caliban-client/src/main/scala/generated/Client.scala
+$ absent modules/caliban-client/src/main/scala/io/guizmaii/poc/caliban/client/generated/CalibanClient.scala
+$ absent modules/caliban-client/src/main/scala/io/split/package.scala
+$ absent modules/caliban-client/src/main/scala/io/split/AuthorName.scala
+$ absent modules/caliban-client/src/main/scala/io/split/AuthorNameInput.scala
+$ absent modules/caliban-client/src/main/scala/io/split/Mutation.scala
+$ absent modules/caliban-client/src/main/scala/io/split/Post.scala
+$ absent modules/caliban-client/src/main/scala/io/split/PostContent.scala
+$ absent modules/caliban-client/src/main/scala/io/split/PostContentInput.scala
+$ absent modules/caliban-client/src/main/scala/io/split/PostId.scala
+$ absent modules/caliban-client/src/main/scala/io/split/PostTitle.scala
+$ absent modules/caliban-client/src/main/scala/io/split/PostTitleInput.scala
+$ absent modules/caliban-client/src/main/scala/io/split/Query.scala
+$ absent modules/caliban-client/src/main/scala/io/split/Subscription.scala
+$ absent modules/caliban-client/src/main/scala/toto/generated/TotoClient.scala
+
+# Metadata files that will be generated and kept
+$ absent modules/server/target/ctCalibanServer
+$ absent modules/server/target/ctCalibanServer/metadata
+
+# Metadata files that will be generated and deleted
+$ absent modules/server/target/ctCalibanServer/CalibanClientGenerator_0.scala
+$ absent modules/server/target/ctCalibanServer/CalibanClientGenerator_1.scala
+$ absent modules/server/target/ctCalibanServer/CalibanClientGenerator_2.scala
+$ absent modules/server/target/ctCalibanServer/CalibanClientGenerator_3.scala
+
+> clean;compile
+
+# Code that was be generated
+$ exists modules/caliban-client/src/main/scala/generated/Client.scala
+$ exists modules/caliban-client/src/main/scala/io/guizmaii/poc/caliban/client/generated/CalibanClient.scala
+$ exists modules/caliban-client/src/main/scala/io/split/package.scala
+$ exists modules/caliban-client/src/main/scala/io/split/AuthorName.scala
+$ exists modules/caliban-client/src/main/scala/io/split/AuthorNameInput.scala
+$ exists modules/caliban-client/src/main/scala/io/split/Mutation.scala
+$ exists modules/caliban-client/src/main/scala/io/split/Post.scala
+$ exists modules/caliban-client/src/main/scala/io/split/PostContent.scala
+$ exists modules/caliban-client/src/main/scala/io/split/PostContentInput.scala
+$ exists modules/caliban-client/src/main/scala/io/split/PostId.scala
+$ exists modules/caliban-client/src/main/scala/io/split/PostTitle.scala
+$ exists modules/caliban-client/src/main/scala/io/split/PostTitleInput.scala
+$ exists modules/caliban-client/src/main/scala/io/split/Query.scala
+$ exists modules/caliban-client/src/main/scala/io/split/Subscription.scala
+$ exists modules/caliban-client/src/main/scala/toto/generated/TotoClient.scala
+
+# Metadata files that was be generated and kept
+$ exists modules/server/target/ctCalibanServer
+$ exists modules/server/target/ctCalibanServer/metadata
+
+# Metadata files that was be generated and deleted
+$ absent modules/server/target/ctCalibanServer/CalibanClientGenerator_0.scala
+$ absent modules/server/target/ctCalibanServer/CalibanClientGenerator_1.scala
+$ absent modules/server/target/ctCalibanServer/CalibanClientGenerator_2.scala
+$ absent modules/server/target/ctCalibanServer/CalibanClientGenerator_3.scala
