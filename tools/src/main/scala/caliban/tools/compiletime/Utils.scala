@@ -2,7 +2,7 @@ package caliban.tools.compiletime
 
 private[caliban] object Utils {
 
-  def packagePath(packageName: String): String                = packageName.replaceAll("\\.", java.io.File.separator)
+  def packagePath(packageName: String): String                = packageName.split('.').mkString(java.io.File.separator)
   def toPathDir(baseDir: String, packageName: String): String = s"$baseDir/src/main/scala/${packagePath(packageName)}"
 
   def toScalaCode[A](l: List[A])(asScalaCode: A => String): String =
