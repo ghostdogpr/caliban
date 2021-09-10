@@ -16,7 +16,11 @@ object CompileTime {
             SchemaLoader.fromCaliban(api),
             settings.toCalibanCommonSettings.toOptions(
               schemaPath = "",
-              toPath = Utils.toPath(baseDir, settings.packageName, settings.clientName)
+              toPath = {
+                val dir = Utils.toPathDir(baseDir, settings.packageName)
+
+                s"$dir/${settings.clientName}.scala"
+              }
             ),
             GenType.Client
           )

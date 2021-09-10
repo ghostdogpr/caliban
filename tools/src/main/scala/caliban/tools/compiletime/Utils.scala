@@ -5,9 +5,8 @@ import java.nio.file.{ FileAlreadyExistsException, Files }
 
 private[caliban] object Utils {
 
-  def packagePath(packageName: String): String                                 = packageName.replaceAll("\\.", java.io.File.separator)
-  def toPath(baseDir: String, packageName: String, clientName: String): String =
-    s"$baseDir/src/main/scala/${packagePath(packageName)}/$clientName.scala"
+  def packagePath(packageName: String): String                = packageName.replaceAll("\\.", java.io.File.separator)
+  def toPathDir(baseDir: String, packageName: String): String = s"$baseDir/src/main/scala/${packagePath(packageName)}"
 
   // Copied from better-files.
   def createDirectories(path: String): Unit =

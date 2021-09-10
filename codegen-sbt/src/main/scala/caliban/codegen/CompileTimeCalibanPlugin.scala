@@ -52,7 +52,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
               (ctCalibanServer / ctCalibanServerSettings).value
             if (pluginSettings.isEmpty) Def.task { log.error(helpMsg); Seq.empty[File] }
             else {
-              def generateGenerators: Seq[(File, (String, String, String))] =
+              def generateGenerators: Seq[(File, (String, String))] =
                 pluginSettings.zipWithIndex.map { case ((ref, clientSettings), i) =>
                   val generatorPackage = "caliban.generator"
                   val generatorName    = s"CalibanClientGenerator_$i"
@@ -79,7 +79,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
 
                   (
                     generatorFile,
-                    (s"$generatorPackage.$generatorName", clientSettings.packageName, clientSettings.clientName)
+                    (s"$generatorPackage.$generatorName", clientSettings.packageName)
                   )
                 }
 
@@ -88,7 +88,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
                   Utils.createDirectories(metadataDir)
                   Files.writeString(
                     new File(s"$metadataDir/metadata").toPath,
-                    generated.map { case (f, (a, b, c)) => s"${f.getAbsolutePath}#$a#$b#$c" }.mkString("\n"),
+                    generated.map { case (f, (a, b)) => s"${f.getAbsolutePath}#$a#$b" }.mkString("\n"),
                     StandardCharsets.UTF_8
                   )
 
@@ -225,40 +225,38 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
 
                           waitForFile()
 
-                          val generatedRefs: Seq[(File, String, String, String)] =
+                          val generatedRefs: Seq[(File, String, String)] =
                             Files
                               .readString(serverMetadata.toPath)
                               .mkString
                               .split('\n')
                               .map { v =>
-                                val Array(generatorFile, generatorRef, packageName, clientName) = v.split("#")
-                                (new File(generatorFile), generatorRef, packageName, clientName)
+                                val Array(generatorFile, generatorRef, packageName) = v.split("#")
+                                (new File(generatorFile), generatorRef, packageName)
                               }
 
-                          generatedRefs.flatTraverseT[File] {
-                            case (generatorFile, generatorRef, packageName, clientName) =>
-                              Def.taskDyn {
-                                val toPathDir: File =
-                                  new File(Utils.toPath(baseDirValue, packageName, clientName)).getParentFile
+                          generatedRefs.flatTraverseT[File] { case (generatorFile, generatorRef, packageName) =>
+                            Def.taskDyn {
+                              val toPathDir: File = new File(Utils.toPathDir(baseDirValue, packageName))
 
-                                Def
-                                  .task[Set[File]] {
-                                    // If I don't put the following code in a Task, it's not executed. IDK why. 🤷
-                                    Utils.createDirectories(toPathDir.getAbsolutePath)
-                                    toPathDir.listFiles().toSet
-                                  }
-                                  .flatMap { beforeGenDirFiles =>
-                                    (serverProject / runMain)
-                                      .toTask(s" $generatorRef $baseDirValue")
-                                      .taskValue
-                                      .map { _ =>
-                                        Files.deleteIfExists(generatorFile.toPath)
+                              Def
+                                .task[Set[File]] {
+                                  // If I don't put the following code in a Task, it's not executed. IDK why. 🤷
+                                  Utils.createDirectories(toPathDir.getAbsolutePath)
+                                  toPathDir.listFiles().toSet
+                                }
+                                .flatMap { beforeGenDirFiles =>
+                                  (serverProject / runMain)
+                                    .toTask(s" $generatorRef $baseDirValue")
+                                    .taskValue
+                                    .map { _ =>
+                                      Files.deleteIfExists(generatorFile.toPath)
 
-                                        val afterGenDirFiles: Set[File] = toPathDir.listFiles().toSet
-                                        (afterGenDirFiles diff beforeGenDirFiles).toSeq
-                                      }
-                                  }
-                              }
+                                      val afterGenDirFiles: Set[File] = toPathDir.listFiles().toSet
+                                      (afterGenDirFiles diff beforeGenDirFiles).toSeq
+                                    }
+                                }
+                            }
                           }
                         }
                       }

@@ -4,8 +4,8 @@ import caliban.tools.CalibanCommonSettings
 
 trait Config {
   case class GenerateClientSettings(
-    clientName: String,
     packageName: String,
+    clientName: String = "Client",
     scalafmtPath: Option[String] = None,
     headers: List[(String, String)] = List.empty,
     genView: Boolean = false,
@@ -33,8 +33,8 @@ trait Config {
       import Utils._
       s"""
          |GenerateClientSettings(
-         |  clientName = "$clientName",
          |  packageName = "$packageName",
+         |  clientName = "$clientName",
          |  scalafmtPath = ${scalafmtPath.fold("None")(v => s"""Some("$v")""")},
          |  headers = ${toScalaCode(headers)},
          |  genView = $genView,
@@ -48,7 +48,7 @@ trait Config {
     }
   }
   object GenerateClientSettings {
-    def default: GenerateClientSettings = GenerateClientSettings(clientName = "Client", packageName = "generated")
+    def default: GenerateClientSettings = GenerateClientSettings(packageName = "generated")
   }
 }
 
