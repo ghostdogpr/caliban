@@ -1,4 +1,4 @@
-# Code that was be generated
+# 1. Test code generation
 # ## From the 'posts' "default" config
 $ absent modules/caliban-clients/src/main/scala/generated/Client.scala
 
@@ -87,3 +87,7 @@ $ absent modules/posts/target/ctCalibanServer/CalibanClientGenerator_1.scala
 $ absent modules/posts/target/ctCalibanServer/CalibanClientGenerator_2.scala
 $ absent modules/posts/target/ctCalibanServer/CalibanClientGenerator_3.scala
 $ absent modules/potatoes/target/ctCalibanServer/CalibanClientGenerator_0.scala
+
+# 2. Prove that the `run` command is not polluted by the generated generators in the servers.
+-> potatoes/run
+-> posts/run
