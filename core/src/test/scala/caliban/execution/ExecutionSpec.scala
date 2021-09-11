@@ -3,15 +3,16 @@ package caliban.execution
 import java.util.UUID
 import caliban.CalibanError.ExecutionError
 import caliban.GraphQL._
+import caliban.InputValue.ObjectValue
 import caliban.Macros.gqldoc
-import caliban.{ CalibanError, GraphQL, RootResolver }
+import caliban.{CalibanError, GraphQL, RootResolver}
 import caliban.TestUtils._
-import caliban.Value.{ BooleanValue, IntValue, StringValue }
+import caliban.Value.{BooleanValue, IntValue, StringValue}
 import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
-import caliban.schema.Annotations.{ GQLInterface, GQLName, GQLValueType }
-import caliban.schema.{ ArgBuilder, Schema, Step, Types }
-import zio.{ IO, Task, UIO, ZIO }
+import caliban.schema.Annotations.{GQLInterface, GQLName, GQLValueType}
+import caliban.schema.{ArgBuilder, Schema, Step, Types}
+import zio.{IO, Task, UIO, ZIO}
 import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
@@ -189,6 +190,40 @@ object ExecutionSpec extends DefaultRunnableSpec {
         assertM(
           interpreter.flatMap(_.execute(query, None, Map("name" -> StringValue("Amos Burton")))).map(_.data.toString)
         )(equalTo("""{"amos":{"name":"Amos Burton"}}"""))
+      },
+      testM("case class variable in mutation: should work but doesn't") {
+        val interpreter = graphQL(resolverWithMutation).interpreter
+        val query       = gqldoc("""
+             mutation studioUpdate($request: StudioRequest!){
+               removeRequest(request: $request) {
+                 request {
+                   actor,
+                   reason
+                 },
+                 status
+               }
+             }""")
+
+        assertM(
+          interpreter.flatMap(_.execute(query, None, Map("request" -> ObjectValue(Map("actor"->StringValue("Cas Anvar"), "reason"->StringValue("Bad publicity"))) ))).map(_.errors.toString)
+        )(containsString("ValidationError").negate)
+      },
+      testM("case class variable in mutation with type-hack: should not work but does") {
+        val interpreter = graphQL(resolverWithMutation).interpreter
+        val query       = gqldoc("""
+             mutation studioUpdate($request: Int!){
+               removeRequest(request: $request) {
+                 request {
+                   actor,
+                   reason
+                 },
+                 status
+               }
+             }""")
+
+        assertM(
+          interpreter.flatMap(_.execute(query, None, Map("request" -> ObjectValue(Map("actor"->StringValue("Cas Anvar"), "reason"->StringValue("Bad publicity"))) ))).map(_.data.toString)
+        )(containsString("removeRequest").negate)
       },
       testM("tolerate missing variables") {
         import io.circe.syntax._

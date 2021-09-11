@@ -76,6 +76,16 @@ object TestUtils {
     implicit val schema: Schema[Any, Character] = Schema.gen[Character]
   }
 
+  case class StudioRequest(
+    actor: String,
+    reason: String
+  )
+
+  case class StudioResponse(
+    request: StudioRequest,
+    status: String
+  )
+
   val characters = List(
     Character("James Holden", List("Jim", "Hoss"), EARTH, Some(Captain(CaptainShipName("Rocinante")))),
     Character("Naomi Nagata", Nil, BELT, Some(Engineer("Rocinante"))),
@@ -90,6 +100,7 @@ object TestUtils {
   case class CharacterArgs(name: String)
   case class CharacterInArgs(@GQLDirective(Directive("lowercase")) names: List[String])
   case class CharacterObjectArgs(character: CharacterInput)
+  case class StudioRequestArgs(request: StudioRequest)
 
   @GQLDescription("Queries")
   case class Query(
@@ -106,7 +117,10 @@ object TestUtils {
   )
 
   @GQLDescription("Mutations")
-  case class MutationIO(deleteCharacter: CharacterArgs => UIO[Unit])
+  case class MutationIO(
+    deleteCharacter: CharacterArgs => UIO[Unit],
+    removeRequest: StudioRequestArgs => UIO[StudioResponse]
+  )
 
   case class SubscriptionIO(deleteCharacters: ZStream[Any, Nothing, String])
 
@@ -131,11 +145,17 @@ object TestUtils {
   )
   val resolverWithMutation     = RootResolver(
     resolverIO.queryResolver,
-    MutationIO(_ => UIO.unit)
+    MutationIO(
+      _ => UIO.unit,
+      args => UIO.succeed(StudioResponse(args.request, "DONE"))
+    )
   )
   val resolverWithSubscription = RootResolver(
     resolver.queryResolver,
-    MutationIO(_ => UIO.unit),
+    MutationIO(
+      _ => UIO.unit,
+      args => UIO.succeed(StudioResponse(args.request, "DONE"))
+    ),
     SubscriptionIO(ZStream.empty)
   )
 
