@@ -7,7 +7,10 @@ import sbt.io.IO.defaultCharset
 import sbt.{ Compile, Def, Project, _ }
 
 import java.io.File
+import java.nio.channels.FileChannel
+import java.nio.file.{ Path, StandardOpenOption }
 import scala.annotation.tailrec
+import scala.util.Using
 
 object CompileTimeCalibanServerPlugin extends AutoPlugin {
   override def requires = plugins.JvmPlugin
@@ -232,6 +235,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
 
                                 if (!toPathDir.exists()) {
                                   sbt.IO.createDirectory(toPathDir)
+                                  fsync(toPathDir.toPath)
                                 }
 
                                 sbt.IO.listFiles(toPathDir).toSet
@@ -317,6 +321,20 @@ private[caliban] object Functions {
       waitForFile(file)
     }
   }
+
+  /**
+   * Quoting Corey O'Connor:
+   * """
+   * val fd = java.nio.channels.FileChannel.open(dir, StandardOpenOption.READ)
+   * fd.force(true)
+   *
+   * Will fsync a dir. With some creative reading, probably guaranteed by spec. Tho I also verified with strace to be sure ;)
+   * """
+   *
+   * See: https://twitter.com/QueueQueueHack/status/1436923500304887809?s=20
+   */
+  def fsync(dir: Path): Unit =
+    Using.resource(FileChannel.open(dir, StandardOpenOption.READ))(_.force(true))
 
   implicit final class SeqTaskOps[A](private val seq: Seq[A]) extends AnyVal {
     import sbt.Scoped.richTaskSeq
