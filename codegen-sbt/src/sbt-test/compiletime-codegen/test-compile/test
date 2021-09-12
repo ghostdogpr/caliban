@@ -92,10 +92,16 @@ $ absent modules/potatoes/target/ctCalibanServer/CalibanClientGenerator_0.scala
 -> potatoes/run
 -> posts/run
 
-# 3. Prove that the server generated classes are not uselessly regenerate all the time.
-# TODO Jules
+# 3. Prove that the server generated classes are not uselessly re-generated all the time.
+> compile
+-$ newer modules/potatoes/target/ctCalibanServer/metadata modules/potatoes/target/ctCalibanServer/metadata
+-$ newer modules/posts/target/ctCalibanServer/metadata modules/posts/target/ctCalibanServer/metadata
+> clean
+> compile
+$ newer modules/potatoes/target/ctCalibanServer/metadata modules/potatoes/target/ctCalibanServer/metadata
+$ newer modules/posts/target/ctCalibanServer/metadata modules/posts/target/ctCalibanServer/metadata
 
-# 4. Prove that the client generated classes are not uselessly regenerate all the time.
+# 4. Prove that the client generated classes are not uselessly re-generated all the time.
 # TODO Jules
 
 # 5. When server settings are modified, the server and the client classes are re-generated.
