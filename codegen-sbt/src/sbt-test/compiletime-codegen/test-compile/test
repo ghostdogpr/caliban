@@ -88,24 +88,51 @@ $ absent modules/posts/target/ctCalibanServer/CalibanClientGenerator_2.scala
 $ absent modules/posts/target/ctCalibanServer/CalibanClientGenerator_3.scala
 $ absent modules/potatoes/target/ctCalibanServer/CalibanClientGenerator_0.scala
 
+
 # 2. Prove that the `run` command is not polluted by the generated generators in the servers.
 -> potatoes/run
 -> posts/run
 
+
 # 3. Prove that the server generated classes are not uselessly re-generated all the time.
+> copyFileWithOptions true true true modules/potatoes/target/ctCalibanServer/metadata modules/potatoes/target/ctCalibanServer/metadata_old
+> copyFileWithOptions true true true modules/posts/target/ctCalibanServer/metadata modules/posts/target/ctCalibanServer/metadata_old
+# ## Meta-tests proving that the `copyFileWithOptions` effectively copy the files attributes
+-$ newer modules/potatoes/target/ctCalibanServer/metadata_old modules/potatoes/target/ctCalibanServer/metadata
+-$ newer modules/posts/target/ctCalibanServer/metadata_old modules/posts/target/ctCalibanServer/metadata
+
+# ## Actual tests for this point 3.
 > compile
--$ newer modules/potatoes/target/ctCalibanServer/metadata modules/potatoes/target/ctCalibanServer/metadata
--$ newer modules/posts/target/ctCalibanServer/metadata modules/posts/target/ctCalibanServer/metadata
+-$ newer modules/potatoes/target/ctCalibanServer/metadata modules/potatoes/target/ctCalibanServer/metadata_old
+-$ newer modules/posts/target/ctCalibanServer/metadata modules/posts/target/ctCalibanServer/metadata_old
+
 > clean
 > compile
-$ newer modules/potatoes/target/ctCalibanServer/metadata modules/potatoes/target/ctCalibanServer/metadata
-$ newer modules/posts/target/ctCalibanServer/metadata modules/posts/target/ctCalibanServer/metadata
+$ newer modules/potatoes/target/ctCalibanServer/metadata modules/potatoes/target/ctCalibanServer/metadata_old
+$ newer modules/posts/target/ctCalibanServer/metadata modules/posts/target/ctCalibanServer/metadata_old
+
 
 # 4. Prove that the client generated classes are not uselessly re-generated all the time.
-# TODO Jules
+> copyFileWithOptions true true true modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/CalibanClient.scala modules/caliban-clients/tmp/caliban/client/generated/posts/CalibanClient.scala_old
+> copyFileWithOptions true true true modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/package.scala modules/caliban-clients/tmp/poc/caliban/client/generated/potatoes/package.scala_old
+# ## Meta-tests proving that the `copyFileWithOptions` effectively copy the files attributes
+-$ newer modules/caliban-clients/tmp/caliban/client/generated/posts/CalibanClient.scala_old modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/CalibanClient.scala
+-$ newer modules/caliban-clients/tmp/poc/caliban/client/generated/potatoes/package.scala_old modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/package.scala
+
+# ## Actual tests for this point 4.
+> compile
+-$ newer modules/caliban-clients/tmp/caliban/client/generated/posts/CalibanClient.scala_old modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/CalibanClient.scala
+-$ newer modules/caliban-clients/tmp/poc/caliban/client/generated/potatoes/package.scala_old modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/package.scala
+
+> clean
+> compile
+$ newer modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/CalibanClient.scala modules/caliban-clients/tmp/caliban/client/generated/posts/CalibanClient.scala_old
+$ newer modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/package.scala modules/caliban-clients/tmp/poc/caliban/client/generated/potatoes/package.scala_old
+
 
 # 5. When server settings are modified, the server and the client classes are re-generated.
 # TODO Jules
+
 
 # 6. When client settings are modified, the client classes are re-generated.
 # TODO Jules

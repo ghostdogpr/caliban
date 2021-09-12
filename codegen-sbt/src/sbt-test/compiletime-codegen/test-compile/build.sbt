@@ -1,4 +1,4 @@
-import Libraries._
+import sbt.Def.spaceDelimited
 import sbt.librarymanagement.Resolver
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
@@ -9,6 +9,20 @@ ThisBuild / licenses := List("Apache-2.0" -> url("http://www.apache.org/licenses
 ThisBuild / version := "0.0.1"
 ThisBuild / scalaVersion := "2.12.13" // Must stay 2.12 in these tests because the plugin is compiled with 2.12
 ThisBuild / resolvers += Resolver.mavenLocal
+
+// ### Dependencies ###
+
+lazy val calibanLib: Seq[ModuleID] =
+  sys.props.get("plugin.version") match {
+    case Some(x) => Seq("com.github.ghostdogpr" %% "caliban" % x)
+    case _       => sys.error("""|The system property 'plugin.version' is not defined.
+                           |Specify this property using the scriptedLaunchOpts -D.""".stripMargin)
+  }
+
+lazy val sttp = Seq(
+  "com.softwaremill.sttp.client3" %% "core"                          % "3.3.14",
+  "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % "3.3.14"
+)
 
 // ### App Modules ###
 
@@ -25,6 +39,19 @@ lazy val root =
       potatoes,
       clients,
       calibanClients
+    )
+    .settings(
+      // Additional scripted tests commands
+      InputKey[Unit]("copy-file-with-options") := {
+        val args: Vector[String] = spaceDelimited("<arg>").parsed.toVector
+
+        IO.copy(
+          List(file(args(3)) -> file(args(4))),
+          overwrite = args(0).toBoolean,
+          preserveLastModified = args(1).toBoolean,
+          preserveExecutable = args(2).toBoolean
+        )
+      }
     )
 
 lazy val posts =
