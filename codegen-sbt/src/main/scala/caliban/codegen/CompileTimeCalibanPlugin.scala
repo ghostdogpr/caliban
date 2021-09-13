@@ -49,14 +49,14 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
       |    .settings(
       |      Compile / ctCalibanServer / ctCalibanServerSettings ++=
       |        Seq(
-      |          "io.example.reference.GraphQLApi.api" -> GenerateClientSettings.default,
+      |          "io.example.reference.GraphQLApi.api" -> ClientGenerationSettings.default,
       |          "io.example.reference.GraphQLApi.api" ->
-      |            GenerateClientSettings(
+      |            ClientGenerationSettings(
       |              packageName = "io.example.reference.generated",
       |              clientName = "CalibanClient",
       |            ),
       |          "io.example.reference.GraphQLApi.api" ->
-      |            GenerateClientSettings(
+      |            ClientGenerationSettings(
       |              packageName = "io.example.reference.generated.splitted",
       |              splitFiles = true
       |            )
@@ -92,7 +92,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
                        |package $generatorPackage
                        |
                        |import caliban.tools.compiletime.CompileTime
-                       |import caliban.tools.compiletime.Config.GenerateClientSettings
+                       |import caliban.tools.compiletime.Config.ClientGenerationSettings
                        |import zio.{ExitCode, URIO}
                        |
                        |private[generator] object $generatorName extends zio.App {
@@ -197,14 +197,14 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
       |    .settings(
       |      Compile / ctCalibanServer / ctCalibanServerSettings ++=
       |        Seq(
-      |          "io.example.reference.GraphQLApi.api" -> GenerateClientSettings.default,
+      |          "io.example.reference.GraphQLApi.api" -> ClientGenerationSettings.default,
       |          "io.example.reference.GraphQLApi.api" ->
-      |            GenerateClientSettings(
+      |            ClientGenerationSettings(
       |              packageName = "io.example.reference.generated",
       |              clientName = "CalibanClient",
       |            ),
       |          "io.example.reference.GraphQLApi.api" ->
-      |            GenerateClientSettings(
+      |            ClientGenerationSettings(
       |              packageName = "io.example.reference.generated.splitted",
       |              splitFiles = true
       |            )
