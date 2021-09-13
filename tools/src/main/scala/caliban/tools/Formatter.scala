@@ -21,11 +21,7 @@ object Formatter {
       }
 
       val scalafmt = Scalafmt.create(this.getClass.getClassLoader)
-      val result   = strs.map { case (name, code) =>
-        name -> scalafmt
-          .withRespectVersion(false)
-          .format(config, Paths.get(s"$name.scala"), code)
-      }
+      val result   = strs.map { case (name, code) => name -> scalafmt.format(config, Paths.get(s"$name.scala"), code) }
       scalafmt.clear()
       result
     }
