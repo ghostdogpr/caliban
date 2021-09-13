@@ -51,6 +51,18 @@ lazy val root =
           preserveLastModified = args(1).toBoolean,
           preserveExecutable = args(2).toBoolean
         )
+      },
+      InputKey[Unit]("sed-in-place") := {
+        val args: Vector[String] = spaceDelimited("<arg>").parsed.toVector
+
+        val baseDir     = baseDirectory.value.getAbsolutePath
+        val initialFile = s"$baseDir/${args(2)}"
+        val backupFile  = s"$baseDir/${args(2)}.old"
+
+        IO.copyFile(file(initialFile), file(backupFile))
+        val content    = IO.read(file(backupFile))
+        val newContent = content.replace(args(0), args(1))
+        IO.write(file(initialFile), newContent)
       }
     )
 

@@ -75,18 +75,20 @@ $ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/pot
 $ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/Query.scala
 $ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/Subscription.scala
 
-# Metadata files that was be generated and kept
+# "touch" files that was created and kept
 $ exists modules/posts/target/ctCalibanServer
-$ exists modules/posts/target/ctCalibanServer/metadata
+$ exists modules/posts/target/ctCalibanServer/touch
 $ exists modules/potatoes/target/ctCalibanServer
-$ exists modules/potatoes/target/ctCalibanServer/metadata
+$ exists modules/potatoes/target/ctCalibanServer/touch
 
-# Metadata files that was be generated and deleted
+# Metadata files that was generated and deleted
 $ absent modules/posts/target/ctCalibanServer/CalibanClientGenerator_0.scala
 $ absent modules/posts/target/ctCalibanServer/CalibanClientGenerator_1.scala
 $ absent modules/posts/target/ctCalibanServer/CalibanClientGenerator_2.scala
 $ absent modules/posts/target/ctCalibanServer/CalibanClientGenerator_3.scala
 $ absent modules/potatoes/target/ctCalibanServer/CalibanClientGenerator_0.scala
+$ absent modules/posts/target/ctCalibanServer/metadata
+$ absent modules/potatoes/target/ctCalibanServer/metadata
 
 
 # 2. Prove that the `run` command is not polluted by the generated generators in the servers.
@@ -95,21 +97,21 @@ $ absent modules/potatoes/target/ctCalibanServer/CalibanClientGenerator_0.scala
 
 
 # 3. Prove that the server generated classes are not uselessly re-generated all the time.
-> copyFileWithOptions true true true modules/potatoes/target/ctCalibanServer/metadata modules/potatoes/target/ctCalibanServer/metadata_old
-> copyFileWithOptions true true true modules/posts/target/ctCalibanServer/metadata modules/posts/target/ctCalibanServer/metadata_old
+> copyFileWithOptions true true true modules/potatoes/target/ctCalibanServer/touch modules/potatoes/target/ctCalibanServer/touch_old
+> copyFileWithOptions true true true modules/posts/target/ctCalibanServer/touch modules/posts/target/ctCalibanServer/touch_old
 # ## Meta-tests proving that the `copyFileWithOptions` effectively copy the files attributes
--$ newer modules/potatoes/target/ctCalibanServer/metadata_old modules/potatoes/target/ctCalibanServer/metadata
--$ newer modules/posts/target/ctCalibanServer/metadata_old modules/posts/target/ctCalibanServer/metadata
+-$ newer modules/potatoes/target/ctCalibanServer/touch_old modules/potatoes/target/ctCalibanServer/touch
+-$ newer modules/posts/target/ctCalibanServer/touch_old modules/posts/target/ctCalibanServer/touch
 
 # ## Actual tests for this point 3.
-> compile
--$ newer modules/potatoes/target/ctCalibanServer/metadata modules/potatoes/target/ctCalibanServer/metadata_old
--$ newer modules/posts/target/ctCalibanServer/metadata modules/posts/target/ctCalibanServer/metadata_old
+> reload;compile
+-$ newer modules/potatoes/target/ctCalibanServer/touch modules/potatoes/target/ctCalibanServer/touch_old
+-$ newer modules/posts/target/ctCalibanServer/touch modules/posts/target/ctCalibanServer/touch_old
 
 > clean
-> compile
-$ newer modules/potatoes/target/ctCalibanServer/metadata modules/potatoes/target/ctCalibanServer/metadata_old
-$ newer modules/posts/target/ctCalibanServer/metadata modules/posts/target/ctCalibanServer/metadata_old
+> reload;compile
+$ newer modules/potatoes/target/ctCalibanServer/touch modules/potatoes/target/ctCalibanServer/touch_old
+$ newer modules/posts/target/ctCalibanServer/touch modules/posts/target/ctCalibanServer/touch_old
 
 
 # 4. Prove that the client generated classes are not uselessly re-generated all the time.
@@ -120,19 +122,59 @@ $ newer modules/posts/target/ctCalibanServer/metadata modules/posts/target/ctCal
 -$ newer modules/caliban-clients/tmp/poc/caliban/client/generated/potatoes/package.scala_old modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/package.scala
 
 # ## Actual tests for this point 4.
-> compile
+> reload;compile
 -$ newer modules/caliban-clients/tmp/caliban/client/generated/posts/CalibanClient.scala_old modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/CalibanClient.scala
 -$ newer modules/caliban-clients/tmp/poc/caliban/client/generated/potatoes/package.scala_old modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/package.scala
 
 > clean
-> compile
+> reload;compile
 $ newer modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/CalibanClient.scala modules/caliban-clients/tmp/caliban/client/generated/posts/CalibanClient.scala_old
 $ newer modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/package.scala modules/caliban-clients/tmp/poc/caliban/client/generated/potatoes/package.scala_old
 
 
 # 5. When server settings are modified, the server and the client classes are re-generated.
-# TODO Jules
+> copyFileWithOptions true true true modules/potatoes/target/ctCalibanServer/touch modules/potatoes/target/ctCalibanServer/touch_old
+> copyFileWithOptions true true true modules/posts/target/ctCalibanServer/touch modules/posts/target/ctCalibanServer/touch_old
+# ## Meta-tests proving that the `copyFileWithOptions` effectively copy the files attributes
+-$ newer modules/potatoes/target/ctCalibanServer/touch_old modules/potatoes/target/ctCalibanServer/touch
+-$ newer modules/posts/target/ctCalibanServer/touch_old modules/posts/target/ctCalibanServer/touch
 
+# ## Actual tests for this point 5.
+# ### Changing a random config doesn't trigger new generation
+> sedInPlace copy-file-with-options copy-file-with-options-new build.sbt
+> reload;compile
+-$ newer modules/potatoes/target/ctCalibanServer/touch modules/potatoes/target/ctCalibanServer/touch_old
+-$ newer modules/posts/target/ctCalibanServer/touch modules/posts/target/ctCalibanServer/touch_old
+> sedInPlace copy-file-with-options-new copy-file-with-options build.sbt
+
+# ### Changing plugin config does trigger new generation
+$ absent modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/moved/package.scala
+$ absent modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/moved/Color.scala
+$ absent modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/moved/Mutation.scala
+$ absent modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/moved/Name.scala
+$ absent modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/moved/NameInput.scala
+$ absent modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/moved/Potato.scala
+$ absent modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/moved/Query.scala
+$ absent modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/moved/Subscription.scala
+
+> copyFileWithOptions true true true modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/CalibanClient.scala modules/caliban-clients/tmp/CalibanClient.scala.old
+-$ newer modules/caliban-clients/tmp/CalibanClient.scala.old modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/CalibanClient.scala
+
+> sedInPlace poc.caliban.client.generated.potatoes poc.caliban.client.generated.potatoes.moved build.sbt
+> reload;compile
+$ newer modules/potatoes/target/ctCalibanServer/touch modules/potatoes/target/ctCalibanServer/touch_old
+-$ newer modules/posts/target/ctCalibanServer/touch modules/posts/target/ctCalibanServer/touch_old
+
+$ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/moved/package.scala
+$ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/moved/Color.scala
+$ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/moved/Mutation.scala
+$ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/moved/Name.scala
+$ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/moved/NameInput.scala
+$ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/moved/Potato.scala
+$ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/moved/Query.scala
+$ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/moved/Subscription.scala
+
+-$ newer modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/CalibanClient.scala modules/caliban-clients/tmp/CalibanClient.scala.old
 
 # 6. When client settings are modified, the client classes are re-generated.
 # TODO Jules

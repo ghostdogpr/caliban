@@ -9,7 +9,6 @@ import sbt.{ Compile, Def, Project, _ }
 import java.io.File
 import java.nio.channels.FileChannel
 import java.nio.file.{ Path, StandardOpenOption }
-import scala.annotation.tailrec
 import scala.util.Using
 
 object CompileTimeCalibanServerPlugin extends AutoPlugin {
@@ -82,6 +81,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
                     charset = defaultCharset,
                     append = false
                   )
+                  fsync(generatorFile.toPath)
 
                   (
                     generatorFile,
@@ -91,12 +91,19 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
 
               val generateSources: Def.Initialize[Task[Seq[File]]] =
                 Def.task(generateGenerators).map { generated =>
+                  val metadataFile: File = file(s"$metadataDir/metadata")
                   sbt.IO.writeLines(
-                    file = file(s"$metadataDir/metadata"),
+                    file = metadataFile,
                     lines = generated.map { case (f, (a, b)) => s"${f.getAbsolutePath}#$a#$b" },
                     charset = defaultCharset,
                     append = false
                   )
+                  fsync(metadataFile.toPath)
+
+                  // Mainly useful for tests
+                  val touchFile: File = file(s"$metadataDir/touch")
+                  sbt.IO.touch(touchFile, setModified = true)
+                  fsync(touchFile.toPath)
 
                   generated.map(_._1)
                 }
@@ -216,55 +223,57 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                     clientsSettings
                       .flatTraverseT[File] { serverProject =>
                         Def.taskDyn {
+                          forceCompilation(serverProject).value
+
                           val serverMetadata = {
                             val serverTargetDir = (serverProject / target).value.getAbsolutePath
-
-                            waitForFile(() => file(s"$serverTargetDir/ctCalibanServer/metadata"))
+                            file(s"$serverTargetDir/ctCalibanServer/metadata")
                           }
 
-                          val generatedRefs: Seq[(File, String, String)] =
-                            sbt.IO.readLines(serverMetadata, defaultCharset).map { line =>
-                              val Array(generatorFile, generatorRef, packageName) = line.split("#")
-                              (file(generatorFile), generatorRef, packageName)
-                            }
-
-                          generatedRefs.flatTraverseT[File] { case (generatorFile, generatorRef, packageName) =>
-                            Def.taskDyn {
-                              def listGeneratedClientsFiles: Set[File] = {
-                                val toPathDir: File = file(Utils.toPathDir(baseDirValue, packageName))
-
-                                if (!toPathDir.exists()) {
-                                  sbt.IO.createDirectory(toPathDir)
-                                  fsync(toPathDir.toPath)
-                                }
-
-                                sbt.IO.listFiles(toPathDir).toSet
+                          if (!serverMetadata.exists()) Def.task(Seq.empty[File])
+                          else {
+                            val generatedRefs: Seq[(File, String, String)] =
+                              sbt.IO.readLines(serverMetadata, defaultCharset).map { line =>
+                                val Array(generatorFile, generatorRef, packageName) = line.split("#")
+                                (file(generatorFile), generatorRef, packageName)
                               }
 
-                              Def
-                                .task[Set[File]](listGeneratedClientsFiles)
-                                .flatMap { beforeGenDirFiles =>
-                                  (serverProject / runMain)
-                                    .toTask(s" $generatorRef $baseDirValue")
-                                    .taskValue
-                                    .map { _ =>
-                                      sbt.IO.delete(generatorFile)
+                            generatedRefs
+                              .flatTraverseT[File] { case (generatorFile, generatorRef, packageName) =>
+                                Def.taskDyn {
+                                  def listGeneratedClientsFiles: Set[File] = {
+                                    val toPathDir: File = file(Utils.toPathDir(baseDirValue, packageName))
 
-                                      val afterGenDirFiles: Set[File] = listGeneratedClientsFiles
-                                      (afterGenDirFiles diff beforeGenDirFiles).toSeq
+                                    if (!toPathDir.exists()) {
+                                      sbt.IO.createDirectory(toPathDir)
+                                      fsync(toPathDir.toPath)
+                                    }
+
+                                    sbt.IO.listFiles(toPathDir).toSet
+                                  }
+
+                                  Def
+                                    .task[Set[File]](listGeneratedClientsFiles)
+                                    .flatMap { beforeGenDirFiles =>
+                                      (serverProject / runMain)
+                                        .toTask(s" $generatorRef $baseDirValue")
+                                        .taskValue
+                                        .map { _ =>
+                                          sbt.IO.delete(generatorFile)
+
+                                          val afterGenDirFiles: Set[File] = listGeneratedClientsFiles
+                                          (afterGenDirFiles diff beforeGenDirFiles).toSeq
+                                        }
                                     }
                                 }
-                            }
+                              }
+                              .tap(_ => sbt.IO.delete(serverMetadata))
                           }
                         }
                       }
-                      .map { result: Seq[File] =>
-                        log.info(s"ctCalibanClient - Generation done! 🎉")
-                        result
-                      }
                       .value
                   }
-                }
+                }.tap(_ => log.info(s"ctCalibanClient - Generation done! 🎉"))
 
               /**
                * These settings are used to track the need to re-generate the code.
@@ -311,16 +320,8 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
 
 private[caliban] object Functions {
 
-  @tailrec
-  def waitForFile(file: () => File): File = {
-    val f = file()
-
-    if (f.exists()) f
-    else {
-      Thread.sleep(10)
-      waitForFile(file)
-    }
-  }
+  def forceCompilation(project: Project): Def.Initialize[Task[Unit]] =
+    Def.taskDyn((project / compile).map(_ => ()))
 
   /**
    * Quoting Corey O'Connor:
@@ -339,11 +340,22 @@ private[caliban] object Functions {
   implicit final class SeqTaskOps[A](private val seq: Seq[A]) extends AnyVal {
     import sbt.Scoped.richTaskSeq
 
+    def traverseT[B](f: A => Def.Initialize[Task[B]]): Def.Initialize[Task[Seq[B]]] =
+      seq.map(f).join
+
     def flatTraverseT[B](f: A => Def.Initialize[Task[Seq[B]]]): Def.Initialize[Task[Seq[B]]] =
       seq.map(f).join.map(_.flatten)
 
     def flatTraverseS[B](f: A => SettingKey[Seq[B]]): Def.Initialize[Seq[B]] =
       seq.map(f).join(_.flatten)
+  }
+
+  implicit final class InitializeOps[A](private val task: Def.Initialize[Task[A]]) extends AnyVal {
+    def tap(f: A => Unit): Def.Initialize[Task[A]] =
+      task.map { r =>
+        f(r)
+        r
+      }
   }
 
   def cached(cacheName: String, trackedSettings: Def.Initialize[Task[TrackedSettings]])(
