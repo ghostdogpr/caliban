@@ -8,7 +8,6 @@ ThisBuild / homepage := Some(url("https://www.conduktor.io/"))
 ThisBuild / licenses := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0"))
 ThisBuild / version := "0.0.1"
 ThisBuild / scalaVersion := "2.12.14" // Must stay 2.12 in these tests because the plugin is compiled with 2.12
-ThisBuild / resolvers += Resolver.mavenLocal
 
 // ### Dependencies ###
 
