@@ -24,8 +24,10 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
     lazy val ctCalibanServer: TaskKey[Unit] = taskKey[Unit]("Plugin configuration keys namespace")
 
     // ## Required Plugin configurations
-    lazy val ctCalibanServerSettings: SettingKey[Seq[(String, GenerateClientSettings)]] =
-      settingKey[Seq[(String, GenerateClientSettings)]]("TODO Jules")
+    lazy val ctCalibanServerSettings: SettingKey[Seq[(String, CompileTimeCalibanClientGenerationSettings)]] =
+      settingKey[Seq[(String, CompileTimeCalibanClientGenerationSettings)]](
+        "(Required) List of GraphQL API reference and client generation configuration"
+      )
 
     // ## Plugin task
     lazy val ctCalibanServerGenerate: TaskKey[Seq[File]] = taskKey[Seq[File]]("Internal task")
@@ -34,8 +36,36 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
 
   private val helpMsg: String =
     """
-      |TODO: TO WRITE JULES
-      |""".stripMargin
+      |Missing configuration for the "CompileTimeCalibanServerPlugin" plugin.
+      |
+      |You need to configure the `Compile / ctCalibanServer / ctCalibanServerSettings` setting.
+      |
+      |Here's an example of configuration:
+      |```
+      |lazy val server =
+      |  project
+      |    .in(file("modules/server"))
+      |    .enablePlugins(CompileTimeCalibanServerPlugin)
+      |    .settings(
+      |      Compile / ctCalibanServer / ctCalibanServerSettings ++=
+      |        Seq(
+      |          "io.example.reference.GraphQLApi.api" -> GenerateClientSettings.default,
+      |          "io.example.reference.GraphQLApi.api" ->
+      |            GenerateClientSettings(
+      |              packageName = "io.example.reference.generated",
+      |              clientName = "CalibanClient",
+      |            ),
+      |          "io.example.reference.GraphQLApi.api" ->
+      |            GenerateClientSettings(
+      |              packageName = "io.example.reference.generated.splitted",
+      |              splitFiles = true
+      |            )
+      |        )
+      |    )
+      |```
+      |
+      |See documentation for more details: (TODO Add link)
+      |""".stripMargin.trim
 
   private lazy val pluginSettings =
     inTask(ctCalibanServer)(
@@ -49,7 +79,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
             val log         = streams.value.log("ctCalibanServer")
             val metadataDir = s"${(thisProject / target).value.getAbsolutePath}/ctCalibanServer"
 
-            val pluginSettings: Seq[(String, GenerateClientSettings)] =
+            val pluginSettings: Seq[(String, CompileTimeCalibanClientGenerationSettings)] =
               (ctCalibanServer / ctCalibanServerSettings).value
             if (pluginSettings.isEmpty) Def.task { log.error(helpMsg); Seq.empty[File] }
             else {
@@ -156,26 +186,43 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
     """
       |Missing configuration for the "CompileTimeCalibanClientPlugin" plugin.
       |
-      |You need to configure the `Compile / ctCalibanClient / ctCalibanServerProject` setting to point to your "server" module:
+      |You need to configure the `Compile / ctCalibanClient / ctCalibanClientsSettings` setting.
       |
+      |Here's an example of configuration:
       |```
       |lazy val server =
       |  project
-      |    ...
+      |    .in(file("modules/server"))
       |    .enablePlugins(CompileTimeCalibanServerPlugin)
-      |    ...
+      |    .settings(
+      |      Compile / ctCalibanServer / ctCalibanServerSettings ++=
+      |        Seq(
+      |          "io.example.reference.GraphQLApi.api" -> GenerateClientSettings.default,
+      |          "io.example.reference.GraphQLApi.api" ->
+      |            GenerateClientSettings(
+      |              packageName = "io.example.reference.generated",
+      |              clientName = "CalibanClient",
+      |            ),
+      |          "io.example.reference.GraphQLApi.api" ->
+      |            GenerateClientSettings(
+      |              packageName = "io.example.reference.generated.splitted",
+      |              splitFiles = true
+      |            )
+      |        )
+      |    )
       |
-      |lazy val calibanClient =
+      |lazy val calibanClients =
       |  project
-      |    ...
+      |    .withId("caliban-clients")
+      |    .in(file("modules/caliban-clients"))
       |    .enablePlugins(CompileTimeCalibanClientPlugin)
-      |    ...
-      |    .settings(Compile / ctCalibanClient / ctCalibanServerProject := server)
+      |    .settings(
+      |      Compile / ctCalibanClient / ctCalibanClientsSettings := Seq(server)
+      |    )
       |```
       |
       |See documentation for more details: (TODO Add link)
-      |
-      |""".stripMargin.trim // TODO Jules: To Rewrite
+      |""".stripMargin.trim
 
   object autoImport {
 
@@ -186,11 +233,14 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
     lazy val ctCalibanClient: TaskKey[Unit] = taskKey[Unit]("Plugin configuration keys namespace")
 
     // ## Required Plugin configurations
-    lazy val ctCalibanClientsSettings: SettingKey[Seq[Project]] = settingKey[Seq[Project]]("TODO Jules")
+    lazy val ctCalibanClientsSettings: SettingKey[Seq[Project]] =
+      settingKey[Seq[Project]](
+        "(Required) List of projects being configured with the `CompileTimeCalibanServerPlugin` plugin for which we want to generate client(s)"
+      )
 
     // ## Plugin task
     lazy val ctCalibanClientGenerate: TaskKey[Seq[File]] = taskKey[Seq[File]](
-      "Generate Caliban Client(s) code at compile time. Automatically configured to be triggered when compilation is done."
+      "Generate Caliban Client(s) code at compile time. Automatically configured to be triggered when compilation is triggered"
     )
   }
   import autoImport._
@@ -285,7 +335,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                   import CompileTimeCalibanServerPlugin.autoImport._
 
                   // We need to track the server settings here so if they change the clients are re-generated.
-                  val serverProjectSettings: Seq[(String, GenerateClientSettings)] =
+                  val serverProjectSettings: Seq[(String, CompileTimeCalibanClientGenerationSettings)] =
                     Def.settingDyn {
                       clientsSettings.flatTraverseS(_ / ctCalibanServer / ctCalibanServerSettings)
                     }.value

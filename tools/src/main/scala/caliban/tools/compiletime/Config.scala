@@ -3,7 +3,7 @@ package caliban.tools.compiletime
 import caliban.tools.CalibanCommonSettings
 
 trait Config {
-  case class GenerateClientSettings(
+  case class CompileTimeCalibanClientGenerationSettings(
     packageName: String,
     clientName: String = "Client",
     scalafmtPath: Option[String] = None,
@@ -14,7 +14,7 @@ trait Config {
     splitFiles: Boolean = false,
     enableFmt: Boolean = true,
     extensibleEnums: Boolean = false
-  )                             {
+  )                                                 {
     private[caliban] def toCalibanCommonSettings: CalibanCommonSettings =
       CalibanCommonSettings(
         clientName = Some(clientName),
@@ -47,8 +47,9 @@ trait Config {
       """.stripMargin.trim
     }
   }
-  object GenerateClientSettings {
-    def default: GenerateClientSettings = GenerateClientSettings(packageName = "generated")
+  object CompileTimeCalibanClientGenerationSettings {
+    def default: CompileTimeCalibanClientGenerationSettings =
+      CompileTimeCalibanClientGenerationSettings(packageName = "generated")
   }
 }
 
