@@ -73,7 +73,8 @@ object ArgBuilderSpec extends DefaultRunnableSpec {
               case _         => ev.build(input).map(SomeNullable(_))
             }
 
-            override def buildMissing: Either[ExecutionError, Nullable[A]] = Right(MissingNullable)
+            override def buildMissing(default: Option[String]): Either[ExecutionError, Nullable[A]] =
+              Right(MissingNullable)
           }
 
         case class Wrapper(a: Nullable[String])

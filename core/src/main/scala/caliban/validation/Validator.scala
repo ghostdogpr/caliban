@@ -16,7 +16,19 @@ import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt._
 import caliban.schema.{ RootSchema, RootSchemaBuilder, RootType, Types }
 import caliban.{ InputValue, Rendering, Value }
+import caliban.parsing.Parser
 import zio.IO
+import caliban.schema.ArgBuilder
+import caliban.InputValue.ListValue
+import caliban.Value.EnumValue
+import caliban.Value.StringValue
+import caliban.Value.FloatValue.BigDecimalNumber
+import caliban.Value.IntValue.BigIntNumber
+import caliban.Value.BooleanValue
+import caliban.Value.IntValue.IntNumber
+import caliban.Value.IntValue.LongNumber
+import caliban.Value.FloatValue.DoubleNumber
+import caliban.Value.FloatValue.FloatNumber
 
 object Validator {
 
@@ -440,7 +452,10 @@ object Validator {
         )
       )
 
-  private def validateInputValues(inputValue: __InputValue, argValue: InputValue): IO[ValidationError, Unit] = {
+  private[caliban] def validateInputValues(
+    inputValue: __InputValue,
+    argValue: InputValue
+  ): IO[ValidationError, Unit] = {
     val t           = inputValue.`type`()
     val inputType   = if (t.kind == __TypeKind.NON_NULL) t.ofType.getOrElse(t) else t
     val inputFields = inputType.inputFields.getOrElse(Nil)
@@ -603,8 +618,8 @@ object Validator {
     }
 
     def validateFields(fields: List[__InputValue]): IO[ValidationError, Unit] =
-      noDuplicateInputValueName(fields, inputObjectContext) <*
-        IO.foreach_(fields)(validateInputValue(_, inputObjectContext))
+      IO.foreach_(fields)(validateInputValue(_, inputObjectContext)) &>
+        noDuplicateInputValueName(fields, inputObjectContext)
 
     t.inputFields match {
       case None | Some(Nil) =>
@@ -619,6 +634,7 @@ object Validator {
   private[caliban] def validateInputValue(inputValue: __InputValue, errorContext: String): IO[ValidationError, Unit] = {
     val fieldContext = s"InputValue '${inputValue.name}' of $errorContext"
     for {
+      _ <- DefaultValue.validateDefaultValue(inputValue)
       _ <- doesNotStartWithUnderscore(inputValue, fieldContext)
       _ <- onlyInputType(inputValue.`type`(), fieldContext)
     } yield ()

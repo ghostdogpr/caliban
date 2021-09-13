@@ -1,9 +1,13 @@
 package caliban.parsing
 
 import caliban.CalibanError.ParsingError
+import caliban.InputValue
 import caliban.parsing.adt._
 import fastparse._
-import zio.{ IO, Task }
+import zio.IO
+import zio.Task
+
+import scala.util.Try
 
 object Parser {
   import caliban.parsing.parsers.Parsers._
@@ -18,6 +22,16 @@ object Parser {
       .flatMap {
         case Parsed.Success(value, _) => IO.succeed(Document(value.definitions, sm))
         case f: Parsed.Failure        => IO.fail(ParsingError(f.msg, Some(sm.getLocation(f.index))))
+      }
+  }
+
+  def parseInputValue(rawValue: String): Either[ParsingError, InputValue] = {
+    val sm = SourceMapper(rawValue)
+    Try(parse(rawValue, value(_))).toEither.left
+      .map(ex => ParsingError(s"Internal parsing error", innerThrowable = Some(ex)))
+      .flatMap {
+        case Parsed.Success(value, _) => Right(value)
+        case f: Parsed.Failure        => Left(ParsingError(f.msg, Some(sm.getLocation(f.index))))
       }
   }
 

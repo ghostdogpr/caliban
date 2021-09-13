@@ -17,6 +17,7 @@ import caliban.parsing.adt._
 import cats.parse.{ Numbers, Parser => P }
 import cats.parse._
 import zio.{ IO, Task }
+import scala.util.Try
 
 object Parser {
   private final val UnicodeBOM                           = '\uFEFF'
@@ -581,6 +582,23 @@ object Parser {
           )
         case Right(result) =>
           IO.succeed(Document(result._2.definitions, sm))
+      }
+  }
+
+  def parseInputValue(rawValue: String): Either[ParsingError, InputValue] = {
+    val sm = SourceMapper(rawValue)
+    Try(value.parse(rawValue)).toEither.left
+      .map(ex => ParsingError(s"Internal parsing error", innerThrowable = Some(ex)))
+      .flatMap {
+        case Left(error) =>
+          Left(
+            ParsingError(
+              s"Parsing error at offset ${error.failedAtOffset}, expected: ${error.expected.toList.mkString(";")}",
+              Some(sm.getLocation(error.failedAtOffset))
+            )
+          )
+
+        case Right(_, result) => Right(result)
       }
   }
 

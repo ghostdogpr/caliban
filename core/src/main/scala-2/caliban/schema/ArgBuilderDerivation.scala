@@ -3,6 +3,8 @@ package caliban.schema
 import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.Value._
+import caliban.parsing.Parser
+import caliban.schema.Annotations.GQLDefault
 import caliban.schema.Annotations.GQLName
 import magnolia._
 import mercator.Monadic
@@ -30,8 +32,9 @@ trait ArgBuilderDerivation {
       ctx.constructMonadic { p =>
         input match {
           case InputValue.ObjectValue(fields) =>
-            val label = p.annotations.collectFirst { case GQLName(name) => name }.getOrElse(p.label)
-            fields.get(label).fold(p.typeclass.buildMissing)(p.typeclass.build)
+            val label   = p.annotations.collectFirst { case GQLName(name) => name }.getOrElse(p.label)
+            val default = p.annotations.collectFirst { case GQLDefault(v) => v }
+            fields.get(label).fold(p.typeclass.buildMissing(default))(p.typeclass.build)
           case value                          => p.typeclass.build(value)
         }
       }
