@@ -152,7 +152,6 @@ lazy val tools = project
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
       "dev.zio"                       %% "zio-config"                    % zioConfigVersion,
       "dev.zio"                       %% "zio-config-magnolia"           % zioConfigVersion,
-      "dev.zio"                       %% "zio-prelude"                   % "1.0.0-RC6",
       "dev.zio"                       %% "zio-test"                      % zioVersion % Test,
       "dev.zio"                       %% "zio-test-sbt"                  % zioVersion % Test
     )

@@ -1,7 +1,5 @@
 package caliban.tools
 
-import zio.prelude.Associative
-
 final case class CalibanCommonSettings(
   clientName: Option[String],
   scalafmtPath: Option[String],
@@ -33,6 +31,20 @@ final case class CalibanCommonSettings(
       extensibleEnums = extensibleEnums
     )
 
+  private[caliban] def combine(r: => CalibanCommonSettings): CalibanCommonSettings =
+    CalibanCommonSettings(
+      clientName = r.clientName.orElse(this.clientName),
+      scalafmtPath = r.scalafmtPath.orElse(this.scalafmtPath),
+      headers = this.headers ++ r.headers,
+      packageName = r.packageName.orElse(this.packageName),
+      genView = r.genView.orElse(this.genView),
+      scalarMappings = this.scalarMappings ++ r.scalarMappings,
+      imports = this.imports ++ r.imports,
+      splitFiles = r.splitFiles.orElse(this.splitFiles),
+      enableFmt = r.enableFmt.orElse(this.enableFmt),
+      extensibleEnums = r.extensibleEnums.orElse(this.extensibleEnums)
+    )
+
   def clientName(value: String): CalibanCommonSettings                  = this.copy(clientName = Some(value))
   def scalafmtPath(value: String): CalibanCommonSettings                = this.copy(scalafmtPath = Some(value))
   def headers(headers: (String, String)*): CalibanCommonSettings        = this.copy(headers = this.headers ++ headers)
@@ -60,21 +72,4 @@ object CalibanCommonSettings {
       enableFmt = None,
       extensibleEnums = None
     )
-
-  implicit val associative: Associative[CalibanCommonSettings] =
-    new Associative[CalibanCommonSettings] {
-      override def combine(l: => CalibanCommonSettings, r: => CalibanCommonSettings): CalibanCommonSettings =
-        CalibanCommonSettings(
-          clientName = r.clientName.orElse(l.clientName),
-          scalafmtPath = r.scalafmtPath.orElse(l.scalafmtPath),
-          headers = l.headers ++ r.headers,
-          packageName = r.packageName.orElse(l.packageName),
-          genView = r.genView.orElse(l.genView),
-          scalarMappings = l.scalarMappings ++ r.scalarMappings,
-          imports = l.imports ++ r.imports,
-          splitFiles = r.splitFiles.orElse(l.splitFiles),
-          enableFmt = r.enableFmt.orElse(l.enableFmt),
-          extensibleEnums = r.extensibleEnums.orElse(l.extensibleEnums)
-        )
-    }
 }

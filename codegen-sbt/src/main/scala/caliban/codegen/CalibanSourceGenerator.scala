@@ -47,8 +47,6 @@ object CalibanSourceGenerator {
   }
 
   def collectSettingsFor(fileSettings: Seq[CalibanFileSettings], source: File): CalibanFileSettings = {
-    import zio.prelude._
-
     // Supply a default packageName.
     // If we do not, `src_managed.main.caliban-codegen-sbt` will be used,
     // which is not only terrible, but invalid.
@@ -58,7 +56,7 @@ object CalibanSourceGenerator {
       file = source,
       settings = fileSettings
         .collect({ case needle if source.toPath.endsWith(needle.file.toPath) => needle })
-        .foldLeft[CalibanCommonSettings](defaults) { case (acc, next) => acc <> next.settings }
+        .foldLeft[CalibanCommonSettings](defaults) { case (acc, next) => acc.combine(next.settings) }
     )
   }
 
