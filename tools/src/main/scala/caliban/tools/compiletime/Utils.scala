@@ -9,6 +9,6 @@ private[caliban] object Utils {
     if (l.isEmpty) "List.empty" else s"List(${l.map(asScalaCode).mkString(",")})"
 
   def toScalaCode(l: List[(String, String)]): String =
-    toScalaCode[(String, String)](l)({ case (a, b) => s"""("$a", "$b")"""" })
+    toScalaCode[(String, String)](l)({ case (a, b) => s"""("$a","$b")""" })
 
 }

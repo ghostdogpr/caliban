@@ -458,7 +458,7 @@ lazy val federation = project
     )
   )
 
-val commonSettings = Def.settings(
+lazy val commonSettings = Def.settings(
   scalacOptions ++= Seq(
     "-deprecation",
     "-encoding",

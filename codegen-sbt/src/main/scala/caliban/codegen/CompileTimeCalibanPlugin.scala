@@ -24,8 +24,8 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
     lazy val ctCalibanServer: TaskKey[Unit] = taskKey[Unit]("Plugin configuration keys namespace")
 
     // ## Required Plugin configurations
-    lazy val ctCalibanServerSettings: SettingKey[Seq[(String, CompileTimeCalibanClientGenerationSettings)]] =
-      settingKey[Seq[(String, CompileTimeCalibanClientGenerationSettings)]](
+    lazy val ctCalibanServerSettings: SettingKey[Seq[(String, ClientGenerationSettings)]] =
+      settingKey[Seq[(String, ClientGenerationSettings)]](
         "(Required) List of GraphQL API reference and client generation configuration"
       )
 
@@ -79,7 +79,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
             val log         = streams.value.log("ctCalibanServer")
             val metadataDir = s"${(thisProject / target).value.getAbsolutePath}/ctCalibanServer"
 
-            val pluginSettings: Seq[(String, CompileTimeCalibanClientGenerationSettings)] =
+            val pluginSettings: Seq[(String, ClientGenerationSettings)] =
               (ctCalibanServer / ctCalibanServerSettings).value
             if (pluginSettings.isEmpty) Def.task { log.error(helpMsg); Seq.empty[File] }
             else {
@@ -335,7 +335,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                   import CompileTimeCalibanServerPlugin.autoImport._
 
                   // We need to track the server settings here so if they change the clients are re-generated.
-                  val serverProjectSettings: Seq[(String, CompileTimeCalibanClientGenerationSettings)] =
+                  val serverProjectSettings: Seq[(String, ClientGenerationSettings)] =
                     Def.settingDyn {
                       clientsSettings.flatTraverseS(_ / ctCalibanServer / ctCalibanServerSettings)
                     }.value
