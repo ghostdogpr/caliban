@@ -24,7 +24,7 @@ object Formatter {
         Scalafmt
           .create(this.getClass.getClassLoader)
           .withRespectVersion(false)
-          .withDefaultVersion("2.7.5")
+          .withDefaultVersion("2.7.5") // For retro-compatibility
 
       val result = strs.map { case (name, code) => name -> scalafmt.format(config, Paths.get(s"$name.scala"), code) }
       scalafmt.clear()
