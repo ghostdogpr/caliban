@@ -297,6 +297,14 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                                     if (!toPathDir.exists()) {
                                       sbt.IO.createDirectory(toPathDir)
                                       fsync(toPathDir.toPath)
+
+                                      log.warn(s"toPathDir - exists: ${toPathDir.exists()}")
+                                      log.warn(s"toPathDir - isFile: ${toPathDir.isFile}")
+                                      log.warn(s"toPathDir - isDirectory: ${toPathDir.isDirectory}")
+                                      log.warn(s"toPathDir - absolutePath: ${toPathDir.getAbsolutePath}")
+                                      log.warn(s"toPathDir - canRead: ${toPathDir.canRead}")
+                                      log.warn(s"toPathDir - canWrite: ${toPathDir.canWrite}")
+                                      log.warn(s"toPathDir - canExecute: ${toPathDir.canExecute}")
                                     }
 
                                     sbt.IO.listFiles(toPathDir).toSet
@@ -385,7 +393,7 @@ private[caliban] object Functions {
    * See: https://twitter.com/QueueQueueHack/status/1436923500304887809?s=20
    */
   def fsync(dir: Path): Unit =
-    Using.resource(FileChannel.open(dir, StandardOpenOption.READ))(_.force(true))
+    Using.resource(FileChannel.open(dir, StandardOpenOption.READ, StandardOpenOption.SYNC))(_.force(true))
 
   implicit final class SeqTaskOps[A](private val seq: Seq[A]) extends AnyVal {
     import sbt.Scoped.richTaskSeq
