@@ -4,7 +4,7 @@ import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 val scala212 = "2.12.14"
 val scala213 = "2.13.6"
 val scala3   = "3.0.2"
-val allScala = Seq(scala212)
+val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion            = "2.6.15"
 val catsEffect2Version     = "2.5.3"
@@ -28,7 +28,6 @@ val zioHttpVersion         = "1.0.0.0-RC17"
 
 inThisBuild(
   List(
-    version := "1.1.1-SNAPSHOT-40",
     scalaVersion := scala212,
     crossScalaVersions := allScala,
     organization := "com.github.ghostdogpr",
@@ -70,20 +69,19 @@ lazy val root = project
   .aggregate(
     macros,
     core,
-    //finch,
-    //http4s,
-    //akkaHttp,
-    //play,
-    //zioHttp,
-    //catsInterop,
-    //monixInterop,
-    //tapirInterop,
+    finch,
+    http4s,
+    akkaHttp,
+    play,
+    zioHttp,
+    catsInterop,
+    monixInterop,
+    tapirInterop,
     clientJVM,
-    //clientJS,
-    //clientLaminext,
+    clientJS,
+    clientLaminext,
     tools,
-    codegenSbt
-    //federation
+    codegenSbt federation
   )
 
 lazy val macros = project
