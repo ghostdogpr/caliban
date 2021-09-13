@@ -297,14 +297,6 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                                     if (!toPathDir.exists()) {
                                       sbt.IO.createDirectory(toPathDir)
                                       fsync(toPathDir.toPath)
-
-                                      log.warn(s"toPathDir - exists: ${toPathDir.exists()}")
-                                      log.warn(s"toPathDir - isFile: ${toPathDir.isFile}")
-                                      log.warn(s"toPathDir - isDirectory: ${toPathDir.isDirectory}")
-                                      log.warn(s"toPathDir - absolutePath: ${toPathDir.getAbsolutePath}")
-                                      log.warn(s"toPathDir - canRead: ${toPathDir.canRead}")
-                                      log.warn(s"toPathDir - canWrite: ${toPathDir.canWrite}")
-                                      log.warn(s"toPathDir - canExecute: ${toPathDir.canExecute}")
                                     }
 
                                     sbt.IO.listFiles(toPathDir).toSet
