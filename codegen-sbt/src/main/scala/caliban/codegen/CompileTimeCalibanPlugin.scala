@@ -221,9 +221,9 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
 
                   Def.task {
                     clientsSettings
-                      .flatTraverseT[File] { serverProject =>
+                      .flatTraverseT[File] { serverProject: Project =>
                         Def.taskDyn {
-                          forceCompilation(serverProject).value
+                          ensureCompiled(serverProject).value
 
                           val serverMetadata = {
                             val serverTargetDir = (serverProject / target).value.getAbsolutePath
@@ -320,7 +320,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
 
 private[caliban] object Functions {
 
-  def forceCompilation(project: Project): Def.Initialize[Task[Unit]] =
+  def ensureCompiled(project: Project): Def.Initialize[Task[Unit]] =
     Def.taskDyn((project / compile).map(_ => ()))
 
   /**

@@ -146,6 +146,7 @@ $ newer modules/caliban-clients/src/main/scala/poc/caliban/client/generated/pota
 -$ newer modules/potatoes/target/ctCalibanServer/touch modules/potatoes/target/ctCalibanServer/touch_old
 -$ newer modules/posts/target/ctCalibanServer/touch modules/posts/target/ctCalibanServer/touch_old
 > sedInPlace copy-file-with-options-new copy-file-with-options build.sbt
+> reload
 
 # ### Changing plugin config does trigger new generation
 $ absent modules/caliban-clients/src/main/scala/poc/caliban/client/generated/potatoes/moved/package.scala
@@ -176,5 +177,23 @@ $ exists modules/caliban-clients/src/main/scala/poc/caliban/client/generated/pot
 
 -$ newer modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/CalibanClient.scala modules/caliban-clients/tmp/CalibanClient.scala.old
 
-# 6. When client settings are modified, the client classes are re-generated.
-# TODO Jules
+# 6. (Not working, for now) When client settings are modified, the client classes are re-generated.
+> copyFileWithOptions true true true modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/CalibanClient.scala modules/caliban-clients/tmp/CalibanClient.scala.old
+-$ newer modules/caliban-clients/tmp/CalibanClient.scala.old modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/CalibanClient.scala
+
+> copyFileWithOptions true true true modules/potatoes/target/ctCalibanServer/touch modules/potatoes/target/ctCalibanServer/touch_old
+> copyFileWithOptions true true true modules/posts/target/ctCalibanServer/touch modules/posts/target/ctCalibanServer/touch_old
+-$ newer modules/potatoes/target/ctCalibanServer/touch_old modules/potatoes/target/ctCalibanServer/touch
+-$ newer modules/posts/target/ctCalibanServer/touch_old modules/posts/target/ctCalibanServer/touch
+
+> reload;compile
+-$ newer modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/CalibanClient.scala modules/caliban-clients/tmp/CalibanClient.scala.old
+-$ newer modules/potatoes/target/ctCalibanServer/touch modules/potatoes/target/ctCalibanServer/touch_old
+-$ newer modules/posts/target/ctCalibanServer/touch modules/posts/target/ctCalibanServer/touch_old
+
+> sedInPlace "Seq(posts, potatoes)" Seq(posts) build.sbt
+> reload;compile
+-$ newer modules/potatoes/target/ctCalibanServer/touch modules/potatoes/target/ctCalibanServer/touch_old
+-$ newer modules/posts/target/ctCalibanServer/touch modules/posts/target/ctCalibanServer/touch_old
+# TODO: This should be newer, sadly I don't find how to make it work.
+-$ newer modules/caliban-clients/src/main/scala/poc/caliban/client/generated/posts/CalibanClient.scala modules/caliban-clients/tmp/CalibanClient.scala.old

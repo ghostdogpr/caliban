@@ -55,13 +55,15 @@ lazy val root =
       InputKey[Unit]("sed-in-place") := {
         val args: Vector[String] = spaceDelimited("<arg>").parsed.toVector
 
-        val baseDir     = baseDirectory.value.getAbsolutePath
-        val initialFile = s"$baseDir/${args(2)}"
-        val backupFile  = s"$baseDir/${args(2)}.old"
+        val previousValue = args(0)
+        val newValue      = args(1)
+        val baseDir       = baseDirectory.value.getAbsolutePath
+        val initialFile   = s"$baseDir/${args(2)}"
+        val backupFile    = s"$baseDir/${args(2)}.old"
 
-        IO.copyFile(file(initialFile), file(backupFile))
+        IO.move(file(initialFile), file(backupFile))
         val content    = IO.read(file(backupFile))
-        val newContent = content.replace(args(0), args(1))
+        val newContent = content.replace(previousValue, newValue)
         IO.write(file(initialFile), newContent)
       }
     )
