@@ -57,7 +57,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
       |            ),
       |          "io.example.reference.GraphQLApi.api" ->
       |            ClientGenerationSettings(
-      |              packageName = "io.example.reference.generated.splitted",
+      |              packageName = "io.example.reference.generated.split",
       |              splitFiles = true
       |            )
       |        )
@@ -205,7 +205,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
       |            ),
       |          "io.example.reference.GraphQLApi.api" ->
       |            ClientGenerationSettings(
-      |              packageName = "io.example.reference.generated.splitted",
+      |              packageName = "io.example.reference.generated.split",
       |              splitFiles = true
       |            )
       |        )

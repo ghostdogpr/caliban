@@ -83,7 +83,7 @@ lazy val posts =
             ),
           "poc.caliban.posts.GraphQLApi.api" ->
             ClientGenerationSettings(
-              packageName = "poc.caliban.client.generated.posts.splitted",
+              packageName = "poc.caliban.client.generated.posts.split",
               splitFiles = true
             )
         )
