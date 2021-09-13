@@ -2,10 +2,11 @@ package caliban.tools
 
 import caliban.parsing.Parser
 import caliban.tools.implicits.ScalarMappings
-import zio.Task
+import zio.blocking.Blocking
 import zio.test.Assertion.equalTo
 import zio.test._
 import zio.test.environment.TestEnvironment
+import zio.{ RIO, ZIO }
 
 object SchemaWriterSpec extends DefaultRunnableSpec {
 
@@ -15,7 +16,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
     schema: String,
     scalarMappings: Map[String, String] = Map.empty,
     customImports: List[String] = List.empty
-  ): Task[String] = Parser
+  ): RIO[Blocking, String] = Parser
     .parseQuery(schema)
     .flatMap(doc =>
       Formatter
@@ -34,31 +35,37 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
               }
             |""".stripMargin
 
-        val typeCaseClass = Parser
-          .parseQuery(schema)
-          .map(_.objectTypeDefinitions.map(SchemaWriter.writeObject).mkString("\n"))
-          .flatMap(Formatter.format(_, None).map(_.trim))
+        val typeCaseClass: ZIO[Blocking, Throwable, String] =
+          Parser
+            .parseQuery(schema)
+            .map(_.objectTypeDefinitions.map(SchemaWriter.writeObject).mkString("\n"))
+            .flatMap(Formatter.format(_, None).map(_.trim))
 
-        val typeCaseClassArgs = Parser
-          .parseQuery(schema)
-          .map { doc =>
-            (for {
-              typeDef      <- doc.objectTypeDefinitions
-              typeDefField <- typeDef.fields
-              argClass      = SchemaWriter.writeArguments(typeDefField, typeDef) if argClass.nonEmpty
-            } yield argClass).mkString("\n")
-          }
-          .flatMap(Formatter.format(_, None).map(_.trim))
+        val typeCaseClassArgs: ZIO[Blocking, Throwable, String] =
+          Parser
+            .parseQuery(schema)
+            .map { doc =>
+              (for {
+                typeDef      <- doc.objectTypeDefinitions
+                typeDefField <- typeDef.fields
+                argClass      = SchemaWriter.writeArguments(typeDefField, typeDef) if argClass.nonEmpty
+              } yield argClass).mkString("\n")
+            }
+            .flatMap(Formatter.format(_, None).map(_.trim))
 
-        assertM(typeCaseClass)(
+        val a = assertM(typeCaseClass)(
           equalTo(
             "case class Hero(name: HeroNameArgs () => String, nick: String, bday: Option[Int])"
           )
-        ) andThen assertM(typeCaseClassArgs)(
+        )
+
+        val b = assertM(typeCaseClassArgs)(
           equalTo(
             "case class HeroNameArgs(pad: Int)"
           )
         )
+
+        ZIO.mapN(a, b)(_ && _)
       },
       testM("simple queries") {
         val schema =
