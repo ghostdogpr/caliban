@@ -106,7 +106,7 @@ object ConfigSpec extends DefaultRunnableSpec {
     )
 
   override def spec: ZSpec[TestEnvironment, Any] =
-    suite("ConfigSpec")(
+    suite("Config spec")(
       suite("ClientGenerationSettings")(
         toCalibanCommonSettingsSpec,
         asScalaCodeSpec,
