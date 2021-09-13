@@ -55,7 +55,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
 
         val a = assertM(typeCaseClass)(
           equalTo(
-            "case class Hero(name: HeroNameArgs () => String, nick: String, bday: Option[Int])"
+            "case class Hero(name: HeroNameArgs => String, nick: String, bday: Option[Int])"
           )
         )
 
