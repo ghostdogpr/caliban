@@ -20,9 +20,9 @@ object Formatter {
         fmtPath.fold(defaultConfig)(Paths.get(_))
       }
 
-      val scalafmt = Scalafmt.create(this.getClass.getClassLoader)
+      val scalafmt = Scalafmt.create(this.getClass.getClassLoader).withDefaultVersion("2.7.5")
       val result   = strs.map { case (name, code) =>
-        name -> scalafmt.withDefaultVersion("2.7.5").format(config, Paths.get(s"$name.scala"), code)
+        name -> scalafmt.format(config, Paths.get(s"$name.scala"), code)
       }
       scalafmt.clear()
       result
