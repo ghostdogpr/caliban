@@ -81,7 +81,8 @@ lazy val root = project
     clientJS,
     clientLaminext,
     tools,
-    codegenSbt federation
+    codegenSbt,
+    federation
   )
 
 lazy val macros = project
