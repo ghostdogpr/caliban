@@ -4,8 +4,7 @@ import caliban.CalibanError.ParsingError
 import caliban.InputValue
 import caliban.parsing.adt._
 import fastparse._
-import zio.IO
-import zio.Task
+import zio.{ IO, Task }
 
 import scala.util.Try
 
