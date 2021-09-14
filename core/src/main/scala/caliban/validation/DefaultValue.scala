@@ -32,38 +32,44 @@ import caliban.Value.FloatValue.FloatNumber
 import caliban.InputValue.ObjectValue
 
 object DefaultValue {
-  def validateDefaultValue(field: __InputValue): IO[ValidationError, Unit] =
+  def validateDefaultValue(field: __InputValue, errorContext: String): IO[ValidationError, Unit] =
     field.defaultValue.map { v =>
       for {
         value <-
           IO.fromEither(Parser.parseInputValue(v))
             .mapError(e =>
               ValidationError(
-                s"Failed to parse default value for input '${field.name}': ${e.msg}",
+                s"$errorContext failed to parse default value: ${e.msg}",
                 "The default value for a field must be written using GraphQL input syntax."
               )
             )
         _     <- Validator.validateInputValues(field, value)
-        _     <- validateInputTypes(field, value)
+        _     <- validateInputTypes(field, value, errorContext)
       } yield ()
     }.getOrElse(IO.unit)
 
   def validateInputTypes(
     inputValue: __InputValue,
-    argValue: InputValue
-  ): IO[ValidationError, Unit] = validateType(inputValue.`type`(), argValue)
+    argValue: InputValue,
+    errorContext: String
+  ): IO[ValidationError, Unit] = validateType(inputValue.`type`(), argValue, errorContext)
 
-  def validateType(inputType: __Type, argValue: InputValue): IO[ValidationError, Unit] =
+  def validateType(inputType: __Type, argValue: InputValue, errorContext: String): IO[ValidationError, Unit] =
     inputType.kind match {
       case NON_NULL =>
         argValue match {
-          case NullValue => failValidation(s"Field is null but was supposed to be NonNull", "")
-          case x         => validateType(inputType.ofType.getOrElse(inputType), x)
+          case NullValue =>
+            failValidation(s"$errorContext is null", "Input field was null but was supposed to be non-null.")
+          case x         => validateType(inputType.ofType.getOrElse(inputType), x, errorContext)
         }
       case LIST     =>
         argValue match {
-          case ListValue(values) => IO.foreach_(values)(v => validateType(inputType.ofType.getOrElse(inputType), v))
-          case _                 => failValidation(s"Field has invalid type: $argValue, expected List", "")
+          case ListValue(values) =>
+            IO.foreach_(values)(v =>
+              validateType(inputType.ofType.getOrElse(inputType), v, s"List item in $errorContext")
+            )
+          case _                 =>
+            failValidation(s"$errorContext has invalid type: $argValue", "Input field was supposed to be a list.")
         }
 
       case INPUT_OBJECT =>
@@ -72,55 +78,71 @@ object DefaultValue {
             IO.foreach_(inputType.inputFields.getOrElse(List.empty)) { f =>
               val value =
                 fields.collectFirst({ case (name, fieldValue) if name == f.name => fieldValue }).getOrElse(NullValue)
-              validateType(f.`type`(), value)
+              validateType(f.`type`(), value, s"Field ${f.name} in $errorContext")
             }
-          case _                   => failValidation(s"Field has invalid type: $argValue, expected INPUT_OBJECT", "")
+          case _                   =>
+            failValidation(
+              s"$errorContext has invalid type: $argValue",
+              "Input field was supposed to be an input object."
+            )
         }
       case ENUM         =>
         argValue match {
           case EnumValue(value) =>
-            val exists = inputType
+            val possible = inputType
               .enumValues(__DeprecatedArgs(Some(true)))
               .getOrElse(List.empty)
-              .exists(_.name == value)
+              .map(_.name)
+            val exists   = possible.exists(_ == value)
 
             if (exists) IO.unit
-            else failValidation(s"Field has invalid enum value: $value", "")
-          case _                => failValidation(s"Field has invalid type: $argValue", "")
+            else
+              failValidation(
+                s"$errorContext has invalid enum value: $value",
+                s"Was supposed to be one of ${possible.mkString(", ")}"
+              )
+          case _                =>
+            failValidation(
+              s"$errorContext has invalid type: $argValue",
+              "Input field was supposed to be an enum value."
+            )
         }
-      case SCALAR       => validateScalar(inputType, argValue)
+      case SCALAR       => validateScalar(inputType, argValue, errorContext)
       case x            =>
-        failValidation(s"Field has invalid type $inputType", "")
+        failValidation(
+          s"$errorContext has invalid type $inputType",
+          "Input value is invalid, should be a scalar, list or input object."
+        )
     }
 
-  def validateScalar(inputType: __Type, argValue: InputValue) =
+  def validateScalar(inputType: __Type, argValue: InputValue, errorContext: String) =
     inputType.name.getOrElse("") match {
       case "String"  =>
         argValue match {
           case StringValue(value) =>
             IO.unit
-          case t                  => failValidation(s"Field has invalid type $t, expected 'String'", "")
+          case t                  => failValidation(s"$errorContext has invalid type $t", "Expected 'String'")
         }
       case "ID"      =>
         argValue match {
           case StringValue(value) =>
             IO.unit
-          case t                  => failValidation(s"Field has invalid type $t, expected 'ID'", "")
+          case t                  => failValidation(s"$errorContext has invalid type $t", "Expected 'ID'")
         }
       case "Int"     =>
         argValue match {
           case _: Value.IntValue => IO.unit
-          case t                 => failValidation(s"Field has invalid type $t, expected 'Int'", "")
+          case t                 => failValidation(s"$errorContext has invalid type $t", "Expected 'Int'")
         }
       case "Float"   =>
         argValue match {
           case _: Value.FloatValue => IO.unit
-          case t                   => failValidation(s"Field has invalid type $t, expected 'Float'", "")
+          case t                   => failValidation(s"$errorContext has invalid type $t", "Expected 'Float'")
         }
       case "Boolean" =>
         argValue match {
           case BooleanValue(value) => IO.unit
-          case t                   => failValidation(s"Field has invalid type $t, expected 'Boolean'", "")
+          case t                   => failValidation(s"$errorContext has invalid type $t", "Expected 'Boolean'")
         }
       // We can't really validate custom scalars here (since we can't summon a correct ArgBuilder instance), so just pass them along
       case x         => IO.unit

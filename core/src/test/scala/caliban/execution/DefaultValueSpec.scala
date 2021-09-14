@@ -120,7 +120,6 @@ object DefaultValueSpec extends DefaultRunnableSpec {
           val gql = graphQL(RootResolver(Query(v => v.nested.field)))
           assertM(gql.interpreter)(anything)
         }
-        // NON_NULL
       ),
       testM("field default values") {
         case class TestInput(@GQLDefault("1") intValue: Int, stringValue: String)
@@ -132,6 +131,15 @@ object DefaultValueSpec extends DefaultRunnableSpec {
             |  testDefault(stringValue: "Hi!")
             |}""".stripMargin
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"testDefault":1}"""))
+      },
+      testM("invalid field default values") {
+        case class TestInput(@GQLDefault("1.1") intValue: Int, stringValue: String)
+        case class Query(testDefault: TestInput => Int)
+        val api      = graphQL(RootResolver(Query(i => i.intValue)))
+        val expected =
+          "InputValue 'intValue' of Field 'testDefault' of Object 'Query' has invalid type 1.1"
+
+        assertM(api.interpreter.run)(fails(hasMessage(equalTo(expected))))
       },
       test("it should render default values in the SDL") {
         case class TestInput(@GQLDefault("1") intValue: Int)
