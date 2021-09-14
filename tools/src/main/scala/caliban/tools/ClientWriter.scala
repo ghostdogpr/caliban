@@ -687,6 +687,7 @@ object ClientWriter {
       .collect { case o: ObjectTypeDefinition =>
         o
       }
+      .sortBy(_.name)
     val interfaceTypes                                   = typesMap
       .get(fieldType)
       .collect { case InterfaceTypeDefinition(_, name, _, _) =>
@@ -698,6 +699,8 @@ object ClientWriter {
         }
       )
       .getOrElse(Nil)
+      .toList
+      .sortBy(_.name)
     val typeLetter                                       = getTypeLetter(typesMap)
     val (typeParam, innerSelection, outputType, builder) =
       if (isScalar) {
