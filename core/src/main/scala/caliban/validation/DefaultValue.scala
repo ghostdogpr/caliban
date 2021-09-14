@@ -109,17 +109,13 @@ object DefaultValue {
         }
       case "Int"     =>
         argValue match {
-          case BigIntNumber(value) => IO.unit
-          case IntNumber(value)    => IO.unit
-          case LongNumber(value)   => IO.unit
-          case t                   => failValidation(s"Field has invalid type $t, expected 'Int'", "")
+          case _: Value.IntValue => IO.unit
+          case t                 => failValidation(s"Field has invalid type $t, expected 'Int'", "")
         }
       case "Float"   =>
         argValue match {
-          case BigDecimalNumber(value) => IO.unit
-          case DoubleNumber(value)     => IO.unit
-          case FloatNumber(value)      => IO.unit
-          case t                       => failValidation(s"Field has invalid type $t, expected 'Float'", "")
+          case _: Value.FloatValue => IO.unit
+          case t                   => failValidation(s"Field has invalid type $t, expected 'Float'", "")
         }
       case "Boolean" =>
         argValue match {
