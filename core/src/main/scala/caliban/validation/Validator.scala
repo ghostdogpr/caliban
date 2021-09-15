@@ -16,19 +16,7 @@ import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt._
 import caliban.schema.{ RootSchema, RootSchemaBuilder, RootType, Types }
 import caliban.{ InputValue, Rendering, Value }
-import caliban.parsing.Parser
 import zio.IO
-import caliban.schema.ArgBuilder
-import caliban.InputValue.ListValue
-import caliban.Value.EnumValue
-import caliban.Value.StringValue
-import caliban.Value.FloatValue.BigDecimalNumber
-import caliban.Value.IntValue.BigIntNumber
-import caliban.Value.BooleanValue
-import caliban.Value.IntValue.IntNumber
-import caliban.Value.IntValue.LongNumber
-import caliban.Value.FloatValue.DoubleNumber
-import caliban.Value.FloatValue.FloatNumber
 
 object Validator {
 
