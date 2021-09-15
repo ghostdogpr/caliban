@@ -9,7 +9,7 @@ import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, IntValue, StringValue }
 import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
-import caliban.schema.Annotations.{ GQLDefault, GQLInterface, GQLName, GQLValueType }
+import caliban.schema.Annotations.{ GQLInterface, GQLName, GQLValueType }
 import caliban.schema.{ ArgBuilder, Schema, Step, Types }
 import zio.{ IO, Task, UIO, ZIO }
 import zio.stream.ZStream
