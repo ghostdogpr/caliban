@@ -74,12 +74,12 @@ object DefaultValue {
               .map(_.name)
             val exists   = possible.exists(_ == value)
 
-            if (exists) IO.unit
-            else
+            IO.unless(exists)(
               failValidation(
                 s"$errorContext has invalid enum value: $value",
                 s"Was supposed to be one of ${possible.mkString(", ")}"
               )
+            )
           case _                =>
             failValidation(
               s"$errorContext has invalid type: $argValue",
