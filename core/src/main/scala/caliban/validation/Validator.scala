@@ -622,7 +622,7 @@ object Validator {
   private[caliban] def validateInputValue(inputValue: __InputValue, errorContext: String): IO[ValidationError, Unit] = {
     val fieldContext = s"InputValue '${inputValue.name}' of $errorContext"
     for {
-      _ <- DefaultValue.validateDefaultValue(inputValue, fieldContext)
+      _ <- DefaultValueValidator.validateDefaultValue(inputValue, fieldContext)
       _ <- doesNotStartWithUnderscore(inputValue, fieldContext)
       _ <- onlyInputType(inputValue.`type`(), fieldContext)
     } yield ()

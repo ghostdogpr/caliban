@@ -10,7 +10,7 @@ import caliban.introspection.adt.__TypeKind._
 import caliban.parsing.Parser
 import zio.IO
 
-object DefaultValue {
+object DefaultValueValidator {
   def validateDefaultValue(field: __InputValue, errorContext: String): IO[ValidationError, Unit] =
     IO.whenCase(field.defaultValue) { case Some(v) =>
       for {
