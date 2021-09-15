@@ -5,6 +5,7 @@ import caliban.Value.StringValue
 import caliban.client.IntrospectionClient._
 import caliban.client.Operations.RootQuery
 import caliban.client.{ CalibanClientError, SelectionBuilder }
+import caliban.parsing.Parser
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.TypeSystemDefinition.DirectiveLocation._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
@@ -51,9 +52,11 @@ object IntrospectionClient {
     name: String,
     description: Option[String],
     `type`: Type,
-    defaultValue: Option[InputValue]
-  ): InputValueDefinition =
-    InputValueDefinition(description, name, `type`, defaultValue, Nil)
+    defaultValue: Option[String]
+  ): InputValueDefinition = {
+    val default = defaultValue.flatMap(v => Parser.parseInputValue(v).toOption)
+    InputValueDefinition(description, name, `type`, default, Nil)
+  }
 
   private def mapTypeRef(kind: __TypeKind, name: Option[String], of: Option[Type]): Type =
     of match {
@@ -186,8 +189,8 @@ object IntrospectionClient {
     (
       __InputValue.name ~
         __InputValue.description ~
-        __InputValue.`type`(typeRef),
-      __InputValue.defaultValue
+        __InputValue.`type`(typeRef) ~
+        __InputValue.defaultValue
     ).mapN(mapInputValue _)
 
   private val fullType: SelectionBuilder[__Type, Option[TypeDefinition]] =
