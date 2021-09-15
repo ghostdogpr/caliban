@@ -15,7 +15,7 @@ object DefaultValueSpec extends DefaultRunnableSpec {
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("DefaultValueSpec")(
       suite("default value validation")(
-        testM("string validation") {
+        testM("invalid string validation") {
           case class TestInput(@GQLDefault("1") string: String)
           case class Query(test: TestInput => String)
           val gql = graphQL(RootResolver(Query(i => i.string)))
@@ -23,7 +23,7 @@ object DefaultValueSpec extends DefaultRunnableSpec {
             fails(isSubtype[CalibanError.ValidationError](anything))
           )
         },
-        testM("int validation") {
+        testM("invalid int validation") {
           case class TestInput(@GQLDefault("\"1\"") int: Int)
           case class Query(test: TestInput => Int)
           val gql = graphQL(RootResolver(Query(i => i.int)))
@@ -31,7 +31,7 @@ object DefaultValueSpec extends DefaultRunnableSpec {
             fails(isSubtype[CalibanError.ValidationError](anything))
           )
         },
-        testM("float validation") {
+        testM("invalid float validation") {
           case class TestInput(@GQLDefault("1") float: Float)
           case class Query(test: TestInput => Float)
           val gql = graphQL(RootResolver(Query(i => i.float)))
@@ -39,7 +39,7 @@ object DefaultValueSpec extends DefaultRunnableSpec {
             fails(isSubtype[CalibanError.ValidationError](anything))
           )
         },
-        testM("id validation") {
+        testM("invalid id validation") {
           case class TestInput(@GQLDefault("1") id: UUID)
           case class Query(test: TestInput => UUID)
           val gql = graphQL(RootResolver(Query(i => i.id)))
@@ -47,7 +47,7 @@ object DefaultValueSpec extends DefaultRunnableSpec {
             fails(isSubtype[CalibanError.ValidationError](anything))
           )
         },
-        testM("boolean validation") {
+        testM("invalid boolean validation") {
           case class TestInput(@GQLDefault("1") b: Boolean)
           case class Query(test: TestInput => Boolean)
           val gql = graphQL(RootResolver(Query(i => i.b)))
@@ -55,7 +55,7 @@ object DefaultValueSpec extends DefaultRunnableSpec {
             fails(isSubtype[CalibanError.ValidationError](anything))
           )
         },
-        testM("nullable validation") {
+        testM("invalid nullable validation") {
           case class TestInput(@GQLDefault("1") s: Option[String])
           case class Query(test: TestInput => String)
           val gql = graphQL(RootResolver(Query(i => i.s.getOrElse("default"))))
@@ -63,13 +63,13 @@ object DefaultValueSpec extends DefaultRunnableSpec {
             fails(isSubtype[CalibanError.ValidationError](anything))
           )
         },
-        testM("successful nullable validation") {
+        testM("valid nullable validation") {
           case class TestInput(@GQLDefault("\"1\"") s: Option[String])
           case class Query(test: TestInput => String)
           val gql = graphQL(RootResolver(Query(i => i.s.getOrElse("default"))))
           assertM(gql.interpreter)(anything)
         },
-        testM("list validation") {
+        testM("invalid list validation") {
           case class TestInput(@GQLDefault("\"string\"") string: List[String])
           case class Query(test: TestInput => List[String])
           val gql = graphQL(RootResolver(Query(i => i.string)))
@@ -77,13 +77,13 @@ object DefaultValueSpec extends DefaultRunnableSpec {
             fails(isSubtype[CalibanError.ValidationError](anything))
           )
         },
-        testM("successful list validation") {
+        testM("valid list validation") {
           case class TestInput(@GQLDefault("[\"string\"]") string: List[String])
           case class Query(test: TestInput => List[String])
           val gql = graphQL(RootResolver(Query(i => i.string)))
           assertM(gql.interpreter)(anything)
         },
-        testM("object validation") {
+        testM("invalid object validation") {
           case class Nested(field: String)
           case class TestInput(@GQLDefault("{field: 2}") nested: Nested)
           case class Query(test: TestInput => String)
@@ -92,7 +92,7 @@ object DefaultValueSpec extends DefaultRunnableSpec {
             fails(isSubtype[CalibanError.ValidationError](anything))
           )
         },
-        testM("successful object validation") {
+        testM("valid object validation") {
           case class Nested(field: String)
           case class TestInput(@GQLDefault("{field: \"2\"}") nested: Nested)
           case class Query(test: TestInput => String)
