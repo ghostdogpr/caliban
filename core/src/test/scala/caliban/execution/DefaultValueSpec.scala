@@ -12,6 +12,11 @@ import zio.test.environment.TestEnvironment
 import java.util.UUID
 
 object DefaultValueSpec extends DefaultRunnableSpec {
+  sealed trait COLOR
+  object COLOR {
+    case object GREEN extends COLOR
+    case object BLUE  extends COLOR
+  }
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("DefaultValueSpec")(
       suite("default value validation")(
@@ -55,6 +60,26 @@ object DefaultValueSpec extends DefaultRunnableSpec {
             fails(isSubtype[CalibanError.ValidationError](anything))
           )
         },
+        testM("valid enum validation") {
+          case class TestInput(@GQLDefault("GREEN") c: COLOR)
+          case class Query(test: TestInput => COLOR)
+          val gql = graphQL(RootResolver(Query(i => i.c)))
+          assertM(gql.interpreter.run)(anything)
+        },
+        testM("valid enum validation accepts strings") {
+          case class TestInput(@GQLDefault("\"GREEN\"") c: COLOR)
+          case class Query(test: TestInput => COLOR)
+          val gql = graphQL(RootResolver(Query(i => i.c)))
+          assertM(gql.interpreter.run)(anything)
+        },
+        testM("valid enum validation") {
+          case class TestInput(@GQLDefault("PINK") c: COLOR)
+          case class Query(test: TestInput => COLOR)
+          val gql = graphQL(RootResolver(Query(i => i.c)))
+          assertM(gql.interpreter.run)(
+            fails(isSubtype[CalibanError.ValidationError](anything))
+          )
+        },
         testM("invalid nullable validation") {
           case class TestInput(@GQLDefault("1") s: Option[String])
           case class Query(test: TestInput => String)
@@ -65,6 +90,12 @@ object DefaultValueSpec extends DefaultRunnableSpec {
         },
         testM("valid nullable validation") {
           case class TestInput(@GQLDefault("\"1\"") s: Option[String])
+          case class Query(test: TestInput => String)
+          val gql = graphQL(RootResolver(Query(i => i.s.getOrElse("default"))))
+          assertM(gql.interpreter)(anything)
+        },
+        testM("valid nullable validation for null") {
+          case class TestInput(@GQLDefault("null") s: Option[String])
           case class Query(test: TestInput => String)
           val gql = graphQL(RootResolver(Query(i => i.s.getOrElse("default"))))
           assertM(gql.interpreter)(anything)

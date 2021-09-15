@@ -12,6 +12,7 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.{ DirectiveDefinition, SchemaDefinition, TypeDefinition }
 import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt.{ Directive, Document, Type }
+import io.circe.parser.decode
 import sttp.client3._
 import sttp.client3.asynchttpclient.zio._
 import sttp.model.Uri
@@ -54,7 +55,7 @@ object IntrospectionClient {
     `type`: Type,
     defaultValue: Option[String]
   ): InputValueDefinition = {
-    val default = defaultValue.flatMap(v => Parser.parseInputValue(v).toOption)
+    val default = defaultValue.flatMap(v => decode[InputValue](v).toOption)
     InputValueDefinition(description, name, `type`, default, Nil)
   }
 
