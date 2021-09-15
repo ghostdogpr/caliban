@@ -5,6 +5,7 @@ import caliban.Value.StringValue
 import caliban.client.IntrospectionClient._
 import caliban.client.Operations.RootQuery
 import caliban.client.{ CalibanClientError, SelectionBuilder }
+import caliban.parsing.Parser
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.TypeSystemDefinition.DirectiveLocation._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
@@ -47,8 +48,15 @@ object IntrospectionClient {
   ): EnumValueDefinition =
     EnumValueDefinition(description, name, directives(isDeprecated, deprecationReason))
 
-  private def mapInputValue(name: String, description: Option[String], `type`: Type): InputValueDefinition =
-    InputValueDefinition(description, name, `type`, None, Nil)
+  private def mapInputValue(
+    name: String,
+    description: Option[String],
+    `type`: Type,
+    defaultValue: Option[String]
+  ): InputValueDefinition = {
+    val default = defaultValue.flatMap(v => Parser.parseInputValue(v).toOption)
+    InputValueDefinition(description, name, `type`, default, Nil)
+  }
 
   private def mapTypeRef(kind: __TypeKind, name: Option[String], of: Option[Type]): Type =
     of match {
@@ -178,9 +186,12 @@ object IntrospectionClient {
     }).mapN(mapTypeRef _)
 
   private val inputValue: SelectionBuilder[__InputValue, InputValueDefinition] =
-    (__InputValue.name ~
-      __InputValue.description ~
-      __InputValue.`type`(typeRef)).mapN(mapInputValue _)
+    (
+      __InputValue.name ~
+        __InputValue.description ~
+        __InputValue.`type`(typeRef) ~
+        __InputValue.defaultValue
+    ).mapN(mapInputValue _)
 
   private val fullType: SelectionBuilder[__Type, Option[TypeDefinition]] =
     (__Type.kind ~
