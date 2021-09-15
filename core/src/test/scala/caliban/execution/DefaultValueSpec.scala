@@ -1,32 +1,11 @@
 package caliban.execution
 
 import caliban.CalibanError
-import caliban.CalibanError.ExecutionError
-import caliban.GraphQL
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
 import caliban.RootResolver
-import caliban.TestUtils._
-import caliban.Value.BooleanValue
-import caliban.Value.IntValue
-import caliban.Value.StringValue
-import caliban.introspection.adt.__Type
-import caliban.parsing.adt.LocationInfo
 import caliban.schema.Annotations.GQLDefault
-import caliban.schema.Annotations.GQLInterface
-import caliban.schema.Annotations.GQLName
-import caliban.schema.Annotations.GQLValueType
-import caliban.schema.ArgBuilder
-import caliban.schema.Schema
-import caliban.schema.Step
-import caliban.schema.Types
-import zio.IO
-import zio.Task
-import zio.UIO
-import zio.ZIO
-import zio.stream.ZStream
 import zio.test.Assertion._
-import zio.test.TestAspect._
 import zio.test._
 import zio.test.environment.TestEnvironment
 
