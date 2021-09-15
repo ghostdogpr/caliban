@@ -12,7 +12,7 @@ import zio.IO
 
 object DefaultValue {
   def validateDefaultValue(field: __InputValue, errorContext: String): IO[ValidationError, Unit] =
-    field.defaultValue.map { v =>
+    IO.whenCase(field.defaultValue) { case Some(v) =>
       for {
         value <-
           IO.fromEither(Parser.parseInputValue(v))
@@ -25,7 +25,7 @@ object DefaultValue {
         _     <- Validator.validateInputValues(field, value)
         _     <- validateInputTypes(field, value, errorContext)
       } yield ()
-    }.getOrElse(IO.unit)
+    }
 
   def validateInputTypes(
     inputValue: __InputValue,
