@@ -2,6 +2,7 @@ package caliban.introspection.adt
 
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.InputValueDefinition
 import caliban.parsing.adt.Directive
+import caliban.parsing.Parser
 
 case class __InputValue(
   name: String,
@@ -10,6 +11,8 @@ case class __InputValue(
   defaultValue: Option[String],
   directives: Option[List[Directive]] = None
 ) {
-  def toInputValueDefinition: InputValueDefinition =
-    InputValueDefinition(description, name, `type`().toType(), None, directives.getOrElse(Nil))
+  def toInputValueDefinition: InputValueDefinition = {
+    val default = defaultValue.flatMap(v => Parser.parseInputValue(v).toOption)
+    InputValueDefinition(description, name, `type`().toType(), default, directives.getOrElse(Nil))
+  }
 }

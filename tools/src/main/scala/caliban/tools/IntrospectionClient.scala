@@ -47,8 +47,13 @@ object IntrospectionClient {
   ): EnumValueDefinition =
     EnumValueDefinition(description, name, directives(isDeprecated, deprecationReason))
 
-  private def mapInputValue(name: String, description: Option[String], `type`: Type): InputValueDefinition =
-    InputValueDefinition(description, name, `type`, None, Nil)
+  private def mapInputValue(
+    name: String,
+    description: Option[String],
+    `type`: Type,
+    defaultValue: Option[InputValue]
+  ): InputValueDefinition =
+    InputValueDefinition(description, name, `type`, defaultValue, Nil)
 
   private def mapTypeRef(kind: __TypeKind, name: Option[String], of: Option[Type]): Type =
     of match {
@@ -178,9 +183,12 @@ object IntrospectionClient {
     }).mapN(mapTypeRef _)
 
   private val inputValue: SelectionBuilder[__InputValue, InputValueDefinition] =
-    (__InputValue.name ~
-      __InputValue.description ~
-      __InputValue.`type`(typeRef)).mapN(mapInputValue _)
+    (
+      __InputValue.name ~
+        __InputValue.description ~
+        __InputValue.`type`(typeRef),
+      __InputValue.defaultValue
+    ).mapN(mapInputValue _)
 
   private val fullType: SelectionBuilder[__Type, Option[TypeDefinition]] =
     (__Type.kind ~
