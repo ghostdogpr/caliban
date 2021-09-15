@@ -125,19 +125,21 @@ object Rendering {
     else ""}${renderDirectives(field.directives)}"
 
   private def renderInputValue(inputValue: __InputValue): String =
-    s"${inputValue.name}: ${renderTypeName(inputValue.`type`())}${inputValue.defaultValue
-      .fold("")(d => s" = $d")}${renderDirectives(inputValue.directives)}"
+    s"${inputValue.name}: ${renderTypeName(inputValue.`type`())}${renderDefaultValue(inputValue)}${renderDirectives(inputValue.directives)}"
 
   private def renderEnumValue(v: __EnumValue): String =
     s"${renderDescription(v.description)}${v.name}${if (v.isDeprecated)
       s" @deprecated${v.deprecationReason.fold("")(reason => s"""(reason: "$reason")""")}"
     else ""}"
 
-  private def renderArguments(arguments: List[__InputValue]): String = arguments match {
-    case Nil  => ""
-    case list =>
-      s"(${list.map(a => s"${renderDescription(a.description, newline = false)}${a.name}: ${renderTypeName(a.`type`())}").mkString(", ")})"
-  }
+  private def renderDefaultValue(a: __InputValue): String = a.defaultValue.fold("")(d => s" = $d")
+
+  private def renderArguments(arguments: List[__InputValue]): String =
+    arguments match {
+      case Nil  => ""
+      case list =>
+        s"(${list.map(a => s"${renderDescription(a.description, newline = false)}${a.name}: ${renderTypeName(a.`type`())}${renderDefaultValue(a)}").mkString(", ")})"
+    }
 
   private def isBuiltinScalar(name: String): Boolean =
     name == "Int" || name == "Float" || name == "String" || name == "Boolean" || name == "ID"

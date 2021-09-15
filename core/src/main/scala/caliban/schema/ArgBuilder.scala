@@ -3,6 +3,7 @@ package caliban.schema
 import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.Value._
+import caliban.parsing.Parser
 import zio.Chunk
 
 import java.time.format.DateTimeFormatter
@@ -38,7 +39,12 @@ trait ArgBuilder[T] { self =>
    * By default, this delegates to [[build]], passing it NullValue.
    * Fails with an [[caliban.CalibanError.ExecutionError]] if it was impossible to build the value.
    */
-  def buildMissing: Either[ExecutionError, T] = build(NullValue)
+  def buildMissing(default: Option[String]): Either[ExecutionError, T] =
+    default
+      .map(
+        Parser.parseInputValue(_).flatMap(build(_)).left.map(e => ExecutionError(e.getMessage()))
+      )
+      .getOrElse(build(NullValue))
 
   /**
    * Builds a new `ArgBuilder` of `A` from an existing `ArgBuilder` of `T` and a function from `T` to `A`.

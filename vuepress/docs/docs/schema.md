@@ -216,6 +216,7 @@ Caliban supports a few annotations to enrich data types:
 - `@GQLInterface` to force a sealed trait generating an interface instead of a union.
 - `@GQLDirective(directive: Directive)` to add a directive to a field or type.
 - `@GQLValueType` forces a type to behave as a value type for derivation. Meaning that caliban will ignore the outer type and take the first case class parameter as the real type.
+- `@GQLDefault("defaultValue")` allows you to specify a default value for an input field using GraphQL syntax. The default value will be visible in your schema's SDL and during introspection.
 
 ## Java 8 Time types
 

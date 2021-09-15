@@ -121,12 +121,12 @@ trait SchemaDerivation[R] {
                   .map { case (label, _, schema, _) =>
                     val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
                     __InputValue(
-                      getName(paramAnnotations.getOrElse(label, Nil), label),
+                      getName(fieldAnnotations, label),
                       getDescription(fieldAnnotations),
                       () =>
                         if (schema.optional) schema.toType_(isInput, isSubscription)
                         else makeNonNull(schema.toType_(isInput, isSubscription)),
-                      None,
+                      getDefaultValue(fieldAnnotations),
                       Some(fieldAnnotations.collect { case GQLDirective(dir) => dir }).filter(_.nonEmpty)
                     )
                   },
@@ -215,6 +215,9 @@ trait SchemaDerivation[R] {
 
   private def getDirectives(annotations: Seq[Any]): List[Directive] =
     annotations.collect { case GQLDirective(dir) => dir }.toList
+
+  private def getDefaultValue(annotations: Seq[Any]): Option[String] =
+    annotations.collectFirst { case GQLDefault(v) => v }
 
   inline given gen[A]: Schema[R, A] = derived
 }

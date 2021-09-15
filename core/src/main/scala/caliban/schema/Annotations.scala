@@ -46,4 +46,9 @@ object Annotations {
    * Annotation to make a union or interface redirect to a value type
    */
   case class GQLValueType() extends StaticAnnotation
+
+  /**
+   * Annotation to specify the default value of an input field
+   */
+  case class GQLDefault(value: String) extends StaticAnnotation
 }

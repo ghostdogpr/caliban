@@ -45,7 +45,7 @@ trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
                 () =>
                   if (p.typeclass.optional) p.typeclass.toType_(isInput, isSubscription)
                   else makeNonNull(p.typeclass.toType_(isInput, isSubscription)),
-                None,
+                p.annotations.collectFirst { case GQLDefault(v) => v },
                 Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
               )
             )

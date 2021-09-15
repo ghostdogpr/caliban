@@ -4,6 +4,7 @@ import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.Value._
 import caliban.schema.macros.Macros
+import caliban.schema.Annotations.GQLDefault
 import caliban.schema.Annotations.GQLName
 
 import scala.deriving.Mirror
@@ -54,7 +55,8 @@ trait ArgBuilderDerivation {
               input match {
                 case InputValue.ObjectValue(fields) =>
                   val finalLabel = annotations.getOrElse(label, Nil).collectFirst { case GQLName(name) => name }.getOrElse(label)
-                  fields.get(finalLabel).fold(builder.buildMissing)(builder.build)
+                  val default = annotations.getOrElse(label, Nil).collectFirst { case GQLDefault(v) => v }
+                  fields.get(finalLabel).fold(builder.buildMissing(default))(builder.build)
                 case value => builder.build(value)
               }
             }.foldRight[Either[ExecutionError, Tuple]](Right(EmptyTuple)) { case (item, acc) =>
