@@ -179,7 +179,7 @@ object RemoteSchema {
       name = definition.name,
       description = definition.description,
       `type` = toType(definition.ofType, definitions),
-      defaultValue = definition.defaultValue.map(_.toString),
+      defaultValue = definition.defaultValue.map(_.toInputString),
       directives = toDirectives(definition.directives)
     )
 
