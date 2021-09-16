@@ -67,20 +67,11 @@ object DefaultValueValidator {
         }
       case ENUM         =>
         argValue match {
-          case EnumValue(value) =>
-            val possible = inputType
-              .enumValues(__DeprecatedArgs(Some(true)))
-              .getOrElse(List.empty)
-              .map(_.name)
-            val exists   = possible.exists(_ == value)
-
-            IO.unless(exists)(
-              failValidation(
-                s"$errorContext has invalid enum value: $value",
-                s"Was supposed to be one of ${possible.mkString(", ")}"
-              )
-            )
-          case _                =>
+          case EnumValue(value)   =>
+            validateEnum(value, inputType, errorContext)
+          case StringValue(value) =>
+            validateEnum(value, inputType, errorContext)
+          case _                  =>
             failValidation(
               s"$errorContext has invalid type: $argValue",
               "Input field was supposed to be an enum value."
@@ -94,33 +85,53 @@ object DefaultValueValidator {
         )
     }
 
+  def validateEnum(value: String, inputType: __Type, errorContext: String) = {
+    val possible = inputType
+      .enumValues(__DeprecatedArgs(Some(true)))
+      .getOrElse(List.empty)
+      .map(_.name)
+    val exists   = possible.exists(_ == value)
+
+    IO.unless(exists)(
+      failValidation(
+        s"$errorContext has invalid enum value: $value",
+        s"Was supposed to be one of ${possible.mkString(", ")}"
+      )
+    )
+  }
+
   def validateScalar(inputType: __Type, argValue: InputValue, errorContext: String) =
     inputType.name.getOrElse("") match {
       case "String"  =>
         argValue match {
           case StringValue(value) =>
             IO.unit
+          case NullValue          => IO.unit
           case t                  => failValidation(s"$errorContext has invalid type $t", "Expected 'String'")
         }
       case "ID"      =>
         argValue match {
           case StringValue(value) =>
             IO.unit
+          case NullValue          => IO.unit
           case t                  => failValidation(s"$errorContext has invalid type $t", "Expected 'ID'")
         }
       case "Int"     =>
         argValue match {
           case _: Value.IntValue => IO.unit
+          case NullValue         => IO.unit
           case t                 => failValidation(s"$errorContext has invalid type $t", "Expected 'Int'")
         }
       case "Float"   =>
         argValue match {
           case _: Value.FloatValue => IO.unit
+          case NullValue           => IO.unit
           case t                   => failValidation(s"$errorContext has invalid type $t", "Expected 'Float'")
         }
       case "Boolean" =>
         argValue match {
           case BooleanValue(value) => IO.unit
+          case NullValue           => IO.unit
           case t                   => failValidation(s"$errorContext has invalid type $t", "Expected 'Boolean'")
         }
       // We can't really validate custom scalars here (since we can't summon a correct ArgBuilder instance), so just pass them along
