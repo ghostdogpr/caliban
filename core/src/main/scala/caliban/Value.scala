@@ -5,7 +5,7 @@ import caliban.interop.circe._
 import zio.stream.Stream
 
 sealed trait InputValue {
-  def toInputString: String
+  def toInputString: String = toString
 }
 object InputValue extends ValueJsonCompat {
   case class ListValue(values: List[InputValue])          extends InputValue {
@@ -59,8 +59,7 @@ object ResponseValue extends ValueJsonCompat {
 sealed trait Value extends InputValue with ResponseValue
 object Value {
   case object NullValue                   extends Value {
-    override def toString: String      = "null"
-    override def toInputString: String = toString
+    override def toString: String = "null"
   }
   sealed trait IntValue                   extends Value {
     def toInt: Int
@@ -73,12 +72,10 @@ object Value {
     def toBigDecimal: BigDecimal
   }
   case class StringValue(value: String)   extends Value {
-    override def toString: String      = s""""${value.replace("\"", "\\\"").replace("\n", "\\n")}""""
-    override def toInputString: String = toString
+    override def toString: String = s""""${value.replace("\"", "\\\"").replace("\n", "\\n")}""""
   }
   case class BooleanValue(value: Boolean) extends Value {
-    override def toString: String      = if (value) "true" else "false"
-    override def toInputString: String = toString
+    override def toString: String = if (value) "true" else "false"
   }
   case class EnumValue(value: String)     extends Value {
     override def toString: String      = s""""${value.replace("\"", "\\\"")}""""
@@ -95,25 +92,22 @@ object Value {
         BigIntNumber(BigInt(s))
 
     case class IntNumber(value: Int)       extends IntValue {
-      override def toInt: Int            = value
-      override def toLong: Long          = value.toLong
-      override def toBigInt: BigInt      = BigInt(value)
-      override def toString: String      = value.toString
-      override def toInputString: String = value.toString
+      override def toInt: Int       = value
+      override def toLong: Long     = value.toLong
+      override def toBigInt: BigInt = BigInt(value)
+      override def toString: String = value.toString
     }
     case class LongNumber(value: Long)     extends IntValue {
-      override def toInt: Int            = value.toInt
-      override def toLong: Long          = value
-      override def toBigInt: BigInt      = BigInt(value)
-      override def toString: String      = value.toString
-      override def toInputString: String = value.toString
+      override def toInt: Int       = value.toInt
+      override def toLong: Long     = value
+      override def toBigInt: BigInt = BigInt(value)
+      override def toString: String = value.toString
     }
     case class BigIntNumber(value: BigInt) extends IntValue {
-      override def toInt: Int            = value.toInt
-      override def toLong: Long          = value.toLong
-      override def toBigInt: BigInt      = value
-      override def toString: String      = value.toString
-      override def toInputString: String = value.toString
+      override def toInt: Int       = value.toInt
+      override def toLong: Long     = value.toLong
+      override def toBigInt: BigInt = value
+      override def toString: String = value.toString
     }
   }
 
@@ -128,21 +122,18 @@ object Value {
       override def toDouble: Double         = value.toDouble
       override def toBigDecimal: BigDecimal = BigDecimal.decimal(value)
       override def toString: String         = value.toString
-      override def toInputString: String    = value.toString
     }
     case class DoubleNumber(value: Double)         extends FloatValue {
       override def toFloat: Float           = value.toFloat
       override def toDouble: Double         = value
       override def toBigDecimal: BigDecimal = BigDecimal(value)
       override def toString: String         = value.toString
-      override def toInputString: String    = value.toString
     }
     case class BigDecimalNumber(value: BigDecimal) extends FloatValue {
       override def toFloat: Float           = value.toFloat
       override def toDouble: Double         = value.toDouble
       override def toBigDecimal: BigDecimal = value
       override def toString: String         = value.toString
-      override def toInputString: String    = value.toString
     }
   }
 }
