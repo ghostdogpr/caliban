@@ -21,7 +21,7 @@ object InputValue extends ValueJsonCompat {
   }
   case class VariableValue(name: String)                  extends InputValue {
     override def toString: String      = s"$$$name"
-    override def toInputString: String = s"$$$name"
+    override def toInputString: String = toString
   }
 
   implicit def circeEncoder[F[_]: IsCirceEncoder]: F[InputValue] =
@@ -74,11 +74,11 @@ object Value {
   }
   case class StringValue(value: String)   extends Value {
     override def toString: String      = s""""${value.replace("\"", "\\\"").replace("\n", "\\n")}""""
-    override def toInputString: String = s""""${value.replace("\"", "\\\"").replace("\n", "\\n")}""""
+    override def toInputString: String = toString
   }
   case class BooleanValue(value: Boolean) extends Value {
     override def toString: String      = if (value) "true" else "false"
-    override def toInputString: String = if (value) "true" else "false"
+    override def toInputString: String = toString
   }
   case class EnumValue(value: String)     extends Value {
     override def toString: String      = s""""${value.replace("\"", "\\\"")}""""
