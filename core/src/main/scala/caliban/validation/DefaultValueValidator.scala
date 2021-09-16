@@ -1,9 +1,8 @@
 package caliban.validation
 
 import caliban.CalibanError.ValidationError
-import caliban.InputValue
 import caliban.InputValue._
-import caliban.Value
+import caliban.{ InputValue, Value }
 import caliban.Value._
 import caliban.introspection.adt._
 import caliban.introspection.adt.__TypeKind._
@@ -78,19 +77,19 @@ object DefaultValueValidator {
             )
         }
       case SCALAR       => validateScalar(inputType, argValue, errorContext)
-      case x            =>
+      case _            =>
         failValidation(
           s"$errorContext has invalid type $inputType",
           "Input value is invalid, should be a scalar, list or input object."
         )
     }
 
-  def validateEnum(value: String, inputType: __Type, errorContext: String) = {
+  def validateEnum(value: String, inputType: __Type, errorContext: String): IO[ValidationError, Unit] = {
     val possible = inputType
       .enumValues(__DeprecatedArgs(Some(true)))
       .getOrElse(List.empty)
       .map(_.name)
-    val exists   = possible.exists(_ == value)
+    val exists   = possible.contains(value)
 
     IO.unless(exists)(
       failValidation(
@@ -100,42 +99,35 @@ object DefaultValueValidator {
     )
   }
 
-  def validateScalar(inputType: __Type, argValue: InputValue, errorContext: String) =
+  def validateScalar(inputType: __Type, argValue: InputValue, errorContext: String): IO[ValidationError, Unit] =
     inputType.name.getOrElse("") match {
       case "String"  =>
         argValue match {
-          case StringValue(value) =>
-            IO.unit
-          case NullValue          => IO.unit
-          case t                  => failValidation(s"$errorContext has invalid type $t", "Expected 'String'")
+          case _: StringValue | NullValue => IO.unit
+          case t                          => failValidation(s"$errorContext has invalid type $t", "Expected 'String'")
         }
       case "ID"      =>
         argValue match {
-          case StringValue(value) =>
-            IO.unit
-          case NullValue          => IO.unit
-          case t                  => failValidation(s"$errorContext has invalid type $t", "Expected 'ID'")
+          case _: StringValue | NullValue => IO.unit
+          case t                          => failValidation(s"$errorContext has invalid type $t", "Expected 'ID'")
         }
       case "Int"     =>
         argValue match {
-          case _: Value.IntValue => IO.unit
-          case NullValue         => IO.unit
-          case t                 => failValidation(s"$errorContext has invalid type $t", "Expected 'Int'")
+          case _: Value.IntValue | NullValue => IO.unit
+          case t                             => failValidation(s"$errorContext has invalid type $t", "Expected 'Int'")
         }
       case "Float"   =>
         argValue match {
-          case _: Value.FloatValue => IO.unit
-          case NullValue           => IO.unit
-          case t                   => failValidation(s"$errorContext has invalid type $t", "Expected 'Float'")
+          case _: Value.FloatValue | NullValue => IO.unit
+          case t                               => failValidation(s"$errorContext has invalid type $t", "Expected 'Float'")
         }
       case "Boolean" =>
         argValue match {
-          case BooleanValue(value) => IO.unit
-          case NullValue           => IO.unit
-          case t                   => failValidation(s"$errorContext has invalid type $t", "Expected 'Boolean'")
+          case _: BooleanValue | NullValue => IO.unit
+          case t                           => failValidation(s"$errorContext has invalid type $t", "Expected 'Boolean'")
         }
       // We can't really validate custom scalars here (since we can't summon a correct ArgBuilder instance), so just pass them along
-      case x         => IO.unit
+      case _         => IO.unit
     }
 
   def failValidation[T](msg: String, explanatoryText: String): IO[ValidationError, T] =

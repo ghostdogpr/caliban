@@ -5,7 +5,6 @@ import caliban.Value.StringValue
 import caliban.client.IntrospectionClient._
 import caliban.client.Operations.RootQuery
 import caliban.client.{ CalibanClientError, SelectionBuilder }
-import caliban.parsing.Parser
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.TypeSystemDefinition.DirectiveLocation._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
