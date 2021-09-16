@@ -20,8 +20,7 @@ object InputValue extends ValueJsonCompat {
       fields.map { case (name, value) => s"""$name: ${value.toInputString}""" }.mkString("{", ", ", "}")
   }
   case class VariableValue(name: String)                  extends InputValue {
-    override def toString: String      = s"$$$name"
-    override def toInputString: String = toString
+    override def toString: String = s"$$$name"
   }
 
   implicit def circeEncoder[F[_]: IsCirceEncoder]: F[InputValue] =
