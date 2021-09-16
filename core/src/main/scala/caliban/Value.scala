@@ -11,7 +11,7 @@ object InputValue extends ValueJsonCompat {
   }
   case class ObjectValue(fields: Map[String, InputValue]) extends InputValue {
     override def toString: String =
-      fields.map { case (name, value) => s""""$name":${value.toString}""" }.mkString("{", ",", "}")
+      fields.map { case (name, value) => s"""$name:${value.toString}""" }.mkString("{", ",", "}")
   }
   case class VariableValue(name: String)                  extends InputValue {
     override def toString: String = s"$$$name"
