@@ -60,7 +60,7 @@ sealed trait Value extends InputValue with ResponseValue
 object Value {
   case object NullValue                   extends Value {
     override def toString: String      = "null"
-    override def toInputString: String = "null"
+    override def toInputString: String = toString
   }
   sealed trait IntValue                   extends Value {
     def toInt: Int
