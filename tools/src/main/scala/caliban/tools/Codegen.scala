@@ -59,12 +59,14 @@ object Codegen {
                            }
       formatted         <- if (enableFmt) Formatter.format(code, arguments.fmtPath) else Task.succeed(code)
       paths             <- ZIO.foreach(formatted) { case (objectName, objectCode) =>
-                             val path = Path.of(
-                               if (splitFiles) s"${arguments.toPath.reverse.dropWhile(_ != '/').reverse}$objectName.scala"
-                               else arguments.toPath
-                             )
+                             effectBlocking {
+                               val path = Path.of(
+                                 if (splitFiles) s"${arguments.toPath.reverse.dropWhile(_ != '/').reverse}$objectName.scala"
+                                 else arguments.toPath
+                               )
 
-                             atomicWrite(path, objectCode)
+                               Files.writeString(path, objectCode, StandardCharsets.UTF_8).toFile
+                             }
                            }
     } yield paths
 
@@ -78,24 +80,5 @@ object Codegen {
   private def getSchemaLoader(path: String, schemaPathHeaders: Option[List[Options.Header]]): SchemaLoader =
     if (path.startsWith("http")) SchemaLoader.fromIntrospection(path, schemaPathHeaders)
     else SchemaLoader.fromFile(path)
-
-  private def atomicWrite(
-    path: Path,
-    content: String,
-    copyOptions: List[CopyOption] = List(
-      StandardCopyOption.ATOMIC_MOVE,
-      StandardCopyOption.REPLACE_EXISTING
-    )
-  ): RIO[Blocking, File] =
-    effectBlocking {
-      val tmp: Path        = Files.createTempFile(null, null)
-      val tmpWritten: Path = Files.writeString(tmp, content, StandardCharsets.UTF_8)
-
-      Files.move(tmpWritten, path, copyOptions: _*).toFile
-    }.catchSome {
-      // format: off
-      case _: AtomicMoveNotSupportedException => atomicWrite(path, content, copyOptions = List(StandardCopyOption.REPLACE_EXISTING))
-      // format: on
-    }
 
 }
