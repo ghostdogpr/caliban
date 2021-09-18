@@ -2,14 +2,15 @@ package caliban.tools
 
 import caliban.parsing.Parser
 import caliban.tools.implicits.ScalarMappings
-import zio.Task
+import zio.{ RIO, Task }
+import zio.blocking.Blocking
 import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment
 
 object ClientWriterViewSpec extends DefaultRunnableSpec {
 
-  val gen: String => Task[String] = (schema: String) =>
+  val gen: String => RIO[Blocking, String] = (schema: String) =>
     Parser
       .parseQuery(schema)
       .flatMap(doc => Formatter.format(ClientWriter.write(doc, genView = true)(ScalarMappings(None)).head._2, None))

@@ -2,7 +2,8 @@ package caliban.tools
 
 import caliban.parsing.Parser
 import caliban.tools.implicits.ScalarMappings
-import zio.Task
+import zio.{ RIO, Task }
+import zio.blocking.Blocking
 import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment
@@ -14,7 +15,7 @@ object ClientWriterSpec extends DefaultRunnableSpec {
     scalarMappings: Map[String, String] = Map.empty,
     additionalImports: List[String] = List.empty,
     extensibleEnums: Boolean = false
-  ): Task[String] = Parser
+  ): RIO[Blocking, String] = Parser
     .parseQuery(schema)
     .flatMap(doc =>
       Formatter.format(
@@ -31,7 +32,7 @@ object ClientWriterSpec extends DefaultRunnableSpec {
   def genSplit(
     schema: String,
     scalarMappings: Map[String, String] = Map.empty
-  ): Task[List[(String, String)]] = Parser
+  ): RIO[Blocking, List[(String, String)]] = Parser
     .parseQuery(schema)
     .flatMap(doc =>
       Formatter.format(
