@@ -145,6 +145,7 @@ lazy val tools           =
     .in(file("tools"))
     .settings(name := "caliban-tools")
     .settings(commonSettings)
+    .enablePlugins(BuildInfoPlugin)
     .settings(
       buildInfoKeys := Seq[BuildInfoKey](("scalafmtVersion", scalafmtVersion)),
       buildInfoPackage := "caliban.tools",
