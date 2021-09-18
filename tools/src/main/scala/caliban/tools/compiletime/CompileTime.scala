@@ -4,7 +4,7 @@ import caliban.GraphQL
 import caliban.tools.Codegen.GenType
 import caliban.tools.compiletime.Config.ClientGenerationSettings
 import caliban.tools.{ Codegen, SchemaLoader }
-import zio.{ ExitCode, URIO, ZEnv }
+import zio.{ ExitCode, URIO, ZEnv, ZIO }
 
 object CompileTime {
 
@@ -27,7 +27,10 @@ object CompileTime {
             GenType.Client
           )
           .exitCode
-      case _              => URIO(ExitCode.failure)
+      case _              =>
+        ZIO
+          .fail(new RuntimeException(s"`CompileTime.generateClient` was called with invalid arguments: $args"))
+          .exitCode
     }
 
 }
