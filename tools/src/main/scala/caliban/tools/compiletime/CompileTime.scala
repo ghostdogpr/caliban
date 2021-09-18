@@ -27,7 +27,7 @@ object CompileTime {
             GenType.Client
           )
           .exitCode
-      case _              => URIO.unit.exitCode
+      case _              => URIO(ExitCode.failure)
     }
 
 }
