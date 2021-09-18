@@ -304,7 +304,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                       }
                       .value
                   }
-                }.tap(_ => log.info(s"ctCalibanClient - Generation done! 🎉"))
+                }.tap(_ => log.info(s"ctCalibanClient - Generation done!"))
 
               /**
                * These settings are used to track the need to re-generate the code.
