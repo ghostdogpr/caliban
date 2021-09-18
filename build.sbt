@@ -1,7 +1,7 @@
 import org.scalajs.linker.interface.ModuleSplitStyle
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
-val scala212 = "2.12.14"
+val scala212 = "2.12.15"
 val scala213 = "2.13.6"
 val scala3   = "3.0.2"
 val allScala = Seq(scala212, scala213, scala3)
@@ -28,6 +28,7 @@ val zioHttpVersion         = "1.0.0.0-RC17"
 
 inThisBuild(
   List(
+    version := "1.1.1-SNAPSHOT-100",
     scalaVersion := scala212,
     crossScalaVersions := allScala,
     organization := "com.github.ghostdogpr",
