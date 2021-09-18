@@ -164,7 +164,10 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
 
   override lazy val projectSettings: Seq[Def.Setting[_]] =
     Seq(
-      libraryDependencies += "com.github.ghostdogpr" %% "caliban-tools" % BuildInfo.version % Compile,
+      libraryDependencies ++= Seq(
+        "com.github.ghostdogpr" %% "caliban-tools"    % caliban.codegen.BuildInfo.version       % Compile,
+        "org.scalameta"         %% "scalafmt-dynamic" % caliban.tools.BuildInfo.scalafmtVersion % Compile
+      ),
       (Compile / sourceGenerators) += Compile / ctCalibanServer / ctCalibanServerGenerate,
       (Test / sourceGenerators) += Test / ctCalibanServer / ctCalibanServerGenerate
     ) ++ inConfig(Compile)(pluginSettings) ++ inConfig(Test)(pluginSettings)
