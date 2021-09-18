@@ -312,14 +312,11 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                                           sbt.IO.delete(generatorFile)
 
                                           val afterGenDirFiles: Set[File] = listGeneratedClientsFiles
-                                          val res                         =
-                                            (afterGenDirFiles diff beforeGenDirFiles)
-                                              .filter(f => f.isFile && f.ext == "scala")
-                                              .toSeq
 
-                                          log.warn(s"ctCalibanClient - res: $res")
-
-                                          res
+                                          // See why do we filer: https://github.com/scala/scala/pull/9757#issuecomment-922238071
+                                          (afterGenDirFiles diff beforeGenDirFiles)
+                                            .filter(f => f.isFile && f.ext == "scala")
+                                            .toSeq
                                         }
                                     }
                                 }
