@@ -290,7 +290,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
 
                                           val afterGenDirFiles: Set[File] = listGeneratedClientsFiles
 
-                                          // See why do we filer: https://github.com/scala/scala/pull/9757#issuecomment-922238071
+                                          // See why we filter: https://github.com/scala/scala/pull/9757#issuecomment-922238071
                                           (afterGenDirFiles diff beforeGenDirFiles)
                                             .filter(f => f.isFile && f.ext == "scala")
                                             .toSeq
