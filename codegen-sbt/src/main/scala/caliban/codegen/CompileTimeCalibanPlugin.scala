@@ -44,20 +44,12 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
       |    .in(file("modules/server"))
       |    .enablePlugins(CompileTimeCalibanServerPlugin)
       |    .settings(
-      |      Compile / ctCalibanServer / ctCalibanServerSettings ++=
-      |        Seq(
-      |          "io.example.reference.GraphQLApi.api" -> ClientGenerationSettings.default,
-      |          "io.example.reference.GraphQLApi.api" ->
-      |            ClientGenerationSettings(
-      |              packageName = "io.example.reference.generated",
-      |              clientName = "CalibanClient",
-      |            ),
-      |          "io.example.reference.GraphQLApi.api" ->
-      |            ClientGenerationSettings(
-      |              packageName = "io.example.reference.generated.split",
-      |              splitFiles = true
-      |            )
-      |        )
+      |      Compile / ctCalibanServer / ctCalibanServerSettings +=
+      |        "io.example.server.GraphQLApi.api" ->
+      |          ClientGenerationSettings(
+      |            packageName = "io.example.client.generated",
+      |            clientName = "CalibanClient",
+      |          )
       |    )
       |```
       |
@@ -189,20 +181,12 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
       |    .in(file("modules/server"))
       |    .enablePlugins(CompileTimeCalibanServerPlugin)
       |    .settings(
-      |      Compile / ctCalibanServer / ctCalibanServerSettings ++=
-      |        Seq(
-      |          "io.example.reference.GraphQLApi.api" -> ClientGenerationSettings.default,
-      |          "io.example.reference.GraphQLApi.api" ->
-      |            ClientGenerationSettings(
-      |              packageName = "io.example.reference.generated",
-      |              clientName = "CalibanClient",
-      |            ),
-      |          "io.example.reference.GraphQLApi.api" ->
-      |            ClientGenerationSettings(
-      |              packageName = "io.example.reference.generated.split",
-      |              splitFiles = true
-      |            )
-      |        )
+      |      Compile / ctCalibanServer / ctCalibanServerSettings +=
+      |        "io.example.server.GraphQLApi.api" ->
+      |          ClientGenerationSettings(
+      |            packageName = "io.example.client.generated",
+      |            clientName = "CalibanClient",
+      |          )
       |    )
       |
       |lazy val calibanClients =
