@@ -42,7 +42,7 @@ $ absent modules/posts/target/ctCalibanServer/CalibanClientGenerator_2.scala
 $ absent modules/posts/target/ctCalibanServer/CalibanClientGenerator_3.scala
 $ absent modules/potatoes/target/ctCalibanServer/CalibanClientGenerator_0.scala
 
-> clean;compile;last caliban-clients / Compile / compileIncremental
+> clean;compile
 
 # Code that was be generated
 # ## From the 'posts' "default" config
