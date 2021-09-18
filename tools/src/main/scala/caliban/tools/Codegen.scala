@@ -2,10 +2,9 @@ package caliban.tools
 
 import caliban.tools.implicits.ScalarMappings
 import zio.blocking.{ effectBlocking, Blocking }
-import zio.{ RIO, Task, ZIO, ZManaged }
+import zio.{ RIO, Task, ZIO }
 
 import java.io.File
-import java.nio.channels.FileChannel
 import java.nio.charset.StandardCharsets
 import java.nio.file._
 
@@ -97,22 +96,6 @@ object Codegen {
       // format: off
       case _: AtomicMoveNotSupportedException => atomicWrite(path, content, copyOptions = List(StandardCopyOption.REPLACE_EXISTING))
       // format: on
-    } <* fsync(path)
-
-  /**
-   * Quoting Corey O'Connor:
-   * """
-   * val fd = java.nio.channels.FileChannel.open(dir, StandardOpenOption.READ)
-   * fd.force(true)
-   *
-   * Will fsync a dir. With some creative reading, probably guaranteed by spec. Tho I also verified with strace to be sure ;)
-   * """
-   *
-   * See: https://twitter.com/QueueQueueHack/status/1436923500304887809?s=20
-   */
-  def fsync(dir: Path): RIO[Blocking, Unit] =
-    ZManaged
-      .make(effectBlocking(FileChannel.open(dir, StandardOpenOption.READ)))(fd => effectBlocking(fd.close()).orDie)
-      .use(fd => effectBlocking(fd.force(true)))
+    }
 
 }
