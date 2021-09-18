@@ -7,9 +7,6 @@ import sbt.io.IO.defaultCharset
 import sbt.{ Compile, Def, Project, _ }
 
 import java.io.File
-import java.nio.channels.FileChannel
-import java.nio.file.{ Path, StandardOpenOption }
-import scala.util.Using
 
 object CompileTimeCalibanServerPlugin extends AutoPlugin {
   override def requires = plugins.JvmPlugin
@@ -111,7 +108,6 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
                     charset = defaultCharset,
                     append = false
                   )
-                  fsync(generatorFile.toPath)
 
                   (
                     generatorFile,
@@ -128,12 +124,10 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
                     charset = defaultCharset,
                     append = false
                   )
-                  fsync(metadataFile.toPath)
 
                   // Mainly useful for tests
                   val touchFile: File = file(s"$metadataDir/touch")
                   sbt.IO.touch(touchFile, setModified = true)
-                  fsync(touchFile.toPath)
 
                   generated.map(_._1)
                 }
@@ -296,7 +290,6 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
 
                                     if (!toPathDir.exists()) {
                                       sbt.IO.createDirectory(toPathDir)
-                                      fsync(toPathDir.toPath)
                                     }
 
                                     sbt.IO.listFiles(toPathDir).toSet
@@ -376,20 +369,6 @@ private[caliban] object Functions {
 
   def ensureCompiled(project: Project): Def.Initialize[Task[Unit]] =
     Def.taskDyn((project / compile).map(_ => ()))
-
-  /**
-   * Quoting Corey O'Connor:
-   * """
-   * val fd = java.nio.channels.FileChannel.open(dir, StandardOpenOption.READ)
-   * fd.force(true)
-   *
-   * Will fsync a dir. With some creative reading, probably guaranteed by spec. Tho I also verified with strace to be sure ;)
-   * """
-   *
-   * See: https://twitter.com/QueueQueueHack/status/1436923500304887809?s=20
-   */
-  def fsync(dir: Path): Unit =
-    Using.resource(FileChannel.open(dir, StandardOpenOption.READ, StandardOpenOption.SYNC))(_.force(true))
 
   implicit final class SeqTaskOps[A](private val seq: Seq[A]) extends AnyVal {
     import sbt.Scoped.richTaskSeq
