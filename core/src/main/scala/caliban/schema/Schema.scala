@@ -416,6 +416,16 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: ZIO[R1, E, A]): Step[R0]                   = QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
     }
+  def customErrorEffectSchema[R0, R1 >: R0, R2 >: R0, E, A](convertError: E => ExecutionError)(implicit
+    ev: Schema[R2, A]
+  ): Schema[R0, ZIO[R1, E, A]]                                                                                        =
+    new Schema[R0, ZIO[R1, E, A]] {
+      override def optional: Boolean                                         = true
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
+      override def resolve(value: ZIO[R1, E, A]): Step[R0]                   = QueryStep(
+        ZQuery.fromEffect(value.mapBoth(convertError, ev.resolve))
+      )
+    }
   implicit def infallibleQuerySchema[R0, R1 >: R0, R2 >: R0, A](implicit
     ev: Schema[R2, A]
   ): Schema[R0, ZQuery[R1, Nothing, A]]                                                                               =
@@ -431,6 +441,14 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
       override def optional: Boolean                                         = true
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: ZQuery[R1, E, A]): Step[R0]                = QueryStep(value.map(ev.resolve))
+    }
+  def customErrorQuerySchema[R0, R1 >: R0, R2 >: R0, E, A](convertError: E => ExecutionError)(implicit
+    ev: Schema[R2, A]
+  ): Schema[R0, ZQuery[R1, E, A]]                                                                                     =
+    new Schema[R0, ZQuery[R1, E, A]] {
+      override def optional: Boolean                                         = true
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
+      override def resolve(value: ZQuery[R1, E, A]): Step[R0]                = QueryStep(value.bimap(convertError, ev.resolve))
     }
   implicit def infallibleStreamSchema[R1, R2 >: R1, A](implicit
     ev: Schema[R2, A]
@@ -453,6 +471,17 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
         if (isSubscription) t else makeList(if (ev.optional) t else makeNonNull(t))
       }
       override def resolve(value: ZStream[R1, E, A]): Step[R0] = StreamStep(value.map(ev.resolve))
+    }
+  def customErrorStreamSchema[R0, R1 >: R0, R2 >: R0, E, A](convertError: E => ExecutionError)(implicit
+    ev: Schema[R2, A]
+  ): Schema[R0, ZStream[R1, E, A]]                                                                                    =
+    new Schema[R0, ZStream[R1, E, A]] {
+      override def optional: Boolean                           = true
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
+        val t = ev.toType_(isInput, isSubscription)
+        if (isSubscription) t else makeList(if (ev.optional) t else makeNonNull(t))
+      }
+      override def resolve(value: ZStream[R1, E, A]): Step[R0] = StreamStep(value.mapBoth(convertError, ev.resolve))
     }
 
 }

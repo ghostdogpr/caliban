@@ -75,3 +75,17 @@ implicit val dayOfWeekSchema = new Schema[Any, DayOfWeek] {
   override def resolve(value: DayOfWeek): Step[Any] = PureStep(StringValue(value.name))
 }
 ```
+
+### I don't want to use `Throwable` as my error type
+
+Caliban provides `Schema` instances for `ZIO`, `ZQuery` and `ZStream` but with the condition that the error type is a `Throwable`.
+That is because the error is eventually wrapped inside Caliban `ExecutionError` and we need to know what it is. 
+However, you can easily define a custom `Schema` without this constraint, as long as you provide a function from your error type to `ExecutionError`.
+
+For example, if your error type is `Int`, you can use `Schema.customErrorEffectSchema` as follows:
+```scala
+implicit def customEffectSchema[A](implicit s: Schema[Any, A]): Schema[Any, IO[Int, A]] =
+  Schema.customErrorEffectSchema((code: Int) => ExecutionError(s"Error code $code"))
+```
+With this implicit in scope, Caliban will know how to handle any `IO[Int, A]` effects.
+Caliban will automatically fill the error path and the error location inside `ExecutionError` if an error happens during the query execution.

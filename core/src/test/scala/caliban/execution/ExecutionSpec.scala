@@ -374,6 +374,25 @@ object ExecutionSpec extends DefaultRunnableSpec {
         } yield assert(result.errors)(equalTo(List("my custom error"))) &&
           assert(result.asJson.noSpaces)(equalTo("""{"data":null,"errors":[{"message":"my custom error"}]}"""))
       },
+      testM("customErrorEffectSchema") {
+        import io.circe.syntax._
+        case class Test(test: IO[Int, String])
+
+        implicit def customEffectSchema[A](implicit s: Schema[Any, A]): Schema[Any, IO[Int, A]] =
+          Schema.customErrorEffectSchema((i: Int) => ExecutionError(s"my custom error $i"))
+
+        val api   = graphQL(RootResolver(Test(IO.fail(1))))
+        val query = """query { test }"""
+
+        for {
+          interpreter <- api.interpreter
+          result      <- interpreter.execute(query)
+        } yield assert(result.asJson.noSpaces)(
+          equalTo(
+            """{"data":{"test":null},"errors":[{"message":"my custom error 1","locations":[{"line":1,"column":9}],"path":["test"]}]}"""
+          )
+        )
+      },
       testM("merge 2 APIs") {
         case class Test(name: String)
         case class Test2(id: Int)
