@@ -60,7 +60,7 @@ implicit val schemaMyType: Schema[Any, MyType] = Schema.gen
 ```
 That way, the schema for this type will be extracted to a single method and defined only once. Do it in priority with types that are re-used in a lot of places: this will reduce the amount of generated code and will speed up compilation time.
 
-### How can I defined a Schema for a Java enum?
+### How can I define a `Schema` for a Java enum?
 
 Here's an example for Java `DayOfWeek`:
 ```scala  
