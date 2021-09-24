@@ -1,26 +1,57 @@
 import sbt.Def.spaceDelimited
-import sbt.librarymanagement.Resolver
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
-ThisBuild / organization := "Conduktor"
-ThisBuild / homepage := Some(url("https://www.conduktor.io/"))
+ThisBuild / organization := "Caliban"
+ThisBuild / homepage := Some(url("https://ghostdogpr.github.io/caliban/"))
 ThisBuild / licenses := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0"))
 ThisBuild / version := "0.0.1"
-ThisBuild / scalaVersion := "2.12.14" // Must stay 2.12 in these tests because the plugin is compiled with 2.12
+ThisBuild / scalaVersion := "2.12.14" // Must stay on 2.12 until sbt is using 2.12
+
+lazy val commonSettings = Seq(
+  addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"),
+  testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
+  libraryDependencies ++= tests.map(_ % Test),
+  (Test / parallelExecution) := true,
+  (Test / fork) := true
+)
 
 // ### Dependencies ###
 
 lazy val calibanLib: Seq[ModuleID] =
   sys.props.get("plugin.version") match {
-    case Some(x) => Seq("com.github.ghostdogpr" %% "caliban" % x)
+    case Some(x) =>
+      Seq(
+        "com.github.ghostdogpr" %% "caliban"        % x,
+        "com.github.ghostdogpr" %% "caliban-http4s" % x
+      )
     case _       => sys.error("""|The system property 'plugin.version' is not defined.
                            |Specify this property using the scriptedLaunchOpts -D.""".stripMargin)
   }
 
-lazy val sttp = Seq(
-  "com.softwaremill.sttp.client3" %% "core"                          % "3.3.15",
-  "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % "3.3.15"
+val sttpVersion   = "3.3.15"
+val http4sVersion = "0.23.5"
+val zioVersion    = "1.0.12"
+
+val zioMagic = "io.github.kitlangton" %% "zio-magic" % "0.3.9"
+
+val http4s = Seq(
+  "org.http4s" %% "http4s-core"         % http4sVersion,
+  "org.http4s" %% "http4s-blaze-server" % http4sVersion,
+  "org.http4s" %% "http4s-circe"        % http4sVersion,
+  "org.http4s" %% "http4s-dsl"          % http4sVersion
+)
+
+val tests = Seq(
+  "dev.zio" %% "zio-test"          % zioVersion,
+  "dev.zio" %% "zio-test-sbt"      % zioVersion,
+  "dev.zio" %% "zio-test-magnolia" % zioVersion,
+  "dev.zio" %% "zio-interop-cats"  % "3.1.1.0"
+)
+
+val sttp = Seq(
+  "com.softwaremill.sttp.client3" %% "core"                   % sttpVersion,
+  "com.softwaremill.sttp.client3" %% "httpclient-backend-zio" % sttpVersion
 )
 
 // ### App Modules ###
@@ -32,8 +63,9 @@ lazy val sttp = Seq(
  * The `aggregate` setting will instruct sbt that when you're launching an sbt command, you want it applied to all the aggregated modules
  */
 lazy val root =
-  Project(id = "poc_compile_time_caliban_client_generation", base = file("."))
+  Project(id = "test-compile", base = file("."))
     .aggregate(
+      app,
       posts,
       potatoes,
       clients,
@@ -67,9 +99,17 @@ lazy val root =
       }
     )
 
+lazy val app   =
+  project
+    .in(file("modules/app"))
+    .settings(commonSettings: _*)
+    .settings(libraryDependencies ++= Seq(zioMagic) ++ http4s ++ sttp.map(_ % Test))
+    .dependsOn(posts, calibanClients % Test)
+
 lazy val posts =
   project
     .in(file("modules/posts"))
+    .settings(commonSettings: _*)
     .enablePlugins(CompileTimeCalibanServerPlugin)
     .settings(
       Compile / ctCalibanServer / ctCalibanServerSettings ++=
@@ -92,6 +132,7 @@ lazy val posts =
 lazy val potatoes =
   project
     .in(file("modules/potatoes"))
+    .settings(commonSettings: _*)
     .enablePlugins(CompileTimeCalibanServerPlugin)
     .settings(
       Compile / ctCalibanServer / ctCalibanServerSettings :=
@@ -108,12 +149,14 @@ lazy val potatoes =
 lazy val clients =
   project
     .in(file("modules/clients"))
+    .settings(commonSettings: _*)
     .settings(libraryDependencies ++= sttp)
     .dependsOn(calibanClients)
 
 lazy val calibanClients =
   project
     .withId("caliban-clients")
+    .settings(commonSettings: _*)
     .in(file("modules/caliban-clients"))
     .enablePlugins(CompileTimeCalibanClientPlugin)
     .settings(

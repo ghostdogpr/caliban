@@ -188,6 +188,8 @@ lazy val codegenSbt = project
       (core / publishLocal).value
       (clientJVM / publishLocal).value
       (tools / publishLocal).value
+      (catsInterop / publishLocal).value
+      (http4s / publishLocal).value
       publishLocal.value
     }
   )
