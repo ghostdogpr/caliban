@@ -19,8 +19,8 @@ lazy val calibanLib: Seq[ModuleID] =
   }
 
 lazy val sttp = Seq(
-  "com.softwaremill.sttp.client3" %% "core"                          % "3.3.14",
-  "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % "3.3.14"
+  "com.softwaremill.sttp.client3" %% "core"                          % "3.3.15",
+  "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % "3.3.15"
 )
 
 // ### App Modules ###
