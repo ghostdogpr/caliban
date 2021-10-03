@@ -30,6 +30,7 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
   def actionBuilder: ActionBuilder[Request, AnyContent]
   def parse: PlayBodyParsers
   def requestWrapper: RequestWrapper[R]
+  def handleWebSocketRequestHeader: RequestHeader => ZIO[R, Result, Unit]
 
   implicit def writableGraphQLResponse[E](implicit wr: Writes[GraphQLResponse[E]]): Writeable[GraphQLResponse[E]] =
     Writeable.writeableOf_JsValue.map(wr.writes)
@@ -190,17 +191,6 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
   private def parseJson(s: String): Try[JsValue] =
     Try(Json.parse(s))
 
-  def makeWebSocket[E](
-    interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    keepAliveTime: Option[Duration] = None,
-    queryExecution: QueryExecution = QueryExecution.Parallel
-  )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): WebSocket =
-    WebSocket.accept(_ =>
-      webSocketFlow(interpreter, skipValidation, enableIntrospection, keepAliveTime, queryExecution)
-    )
-
   private def webSocketFlow[E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean,
@@ -299,9 +289,8 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
     }
   }
 
-  def makeWakeSocketOrResult[E](
+  def makeWebSocketOrResult[E](
     interpreter: GraphQLInterpreter[R, E],
-    handleRequestHeader: RequestHeader => Future[Either[Result, Unit]],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     keepAliveTime: Option[Duration] = None,
@@ -309,7 +298,8 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
   )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): WebSocket =
     WebSocket
       .acceptOrResult(requestHeader =>
-        handleRequestHeader(requestHeader)
+        runtime
+          .unsafeRunToFuture(handleWebSocketRequestHeader(requestHeader).either)
           .map(
             _.map(_ => webSocketFlow(interpreter, skipValidation, enableIntrospection, keepAliveTime, queryExecution))
           )
@@ -336,12 +326,14 @@ object PlayAdapter {
   def apply[R <: Has[_] with Blocking with Random](
     playBodyParsers: PlayBodyParsers,
     _actionBuilder: ActionBuilder[Request, AnyContent],
-    wrapper: RequestWrapper[R] = RequestWrapper.empty
+    wrapper: RequestWrapper[R] = RequestWrapper.empty,
+    handler: RequestHeader => ZIO[R, Result, Unit] = { _: RequestHeader => ZIO.unit }
   ): PlayAdapter[R] =
     new PlayAdapter[R] {
-      override def parse: PlayBodyParsers                            = playBodyParsers
-      override def actionBuilder: ActionBuilder[Request, AnyContent] = _actionBuilder
-      override def requestWrapper: RequestWrapper[R]                 = wrapper
+      override def parse: PlayBodyParsers                                              = playBodyParsers
+      override def actionBuilder: ActionBuilder[Request, AnyContent]                   = _actionBuilder
+      override def requestWrapper: RequestWrapper[R]                                   = wrapper
+      override def handleWebSocketRequestHeader: RequestHeader => ZIO[R, Result, Unit] = handler
     }
 
   trait RequestWrapper[-R] { self =>
