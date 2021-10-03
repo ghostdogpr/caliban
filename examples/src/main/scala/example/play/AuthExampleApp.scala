@@ -27,6 +27,11 @@ object AuthExampleApp extends App {
       }
   }
 
+  def webSocketHandler[R <: Auth](ctx: RequestHeader): ZIO[R, Result, Unit] = ctx.headers.get("token") match {
+    case Some(token) => ZIO.accessM[Auth](_.get.set(Some(AuthToken(token)))).unit
+    case None        => ZIO.fail(Results.Forbidden)
+  }
+
   val schema: GenericSchema[Auth] = new GenericSchema[Auth] {}
   import schema._
   case class Query(token: RIO[Auth, Option[String]])
@@ -59,7 +64,8 @@ object AuthExampleApp extends App {
         components.fileMimeTypes,
         components.executionContext
       ),
-      requestWrapper = AuthWrapper
+      requestWrapper = AuthWrapper,
+      handleWebSocketRequestHeader = webSocketHandler
     )(runtime, components.materializer).routes
   }
 
