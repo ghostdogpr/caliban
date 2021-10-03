@@ -1,6 +1,7 @@
 package caliban.execution
 
 import java.util.UUID
+
 import caliban.CalibanError.ExecutionError
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
@@ -10,8 +11,8 @@ import caliban.Value.{ BooleanValue, IntValue, StringValue }
 import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
 import caliban.schema.Annotations.{ GQLInterface, GQLName, GQLValueType }
-import caliban.schema.{ ArgBuilder, Schema, Step, Types }
-import zio.{ IO, Task, UIO, ZIO }
+import caliban.schema.{ ArgBuilder, GenericSchema, Schema, Step, Types }
+import zio.{ FiberRef, Has, IO, Layer, RIO, Task, UIO, ZIO, ZLayer }
 import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
@@ -399,6 +400,33 @@ object ExecutionSpec extends DefaultRunnableSpec {
              }""")
 
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":<stream>}"""))
+      },
+      testM("value => ZStream used in a subscription") {
+        case class Req(value: Int)
+        case class AuthToken(value: String)
+        type Auth = Has[FiberRef[Option[AuthToken]]]
+
+        case class Subscriptions(test: Req => ZStream[Auth, Throwable, Int])
+        object schema extends GenericSchema[Auth]
+        import schema._
+        def getStream2(req: Req): ZStream[Auth, Throwable, Int] = ZStream.fromEffect(for {
+          tokenOpt <- ZIO.service[FiberRef[Option[AuthToken]]]
+          _        <- tokenOpt.get
+        } yield req.value)
+        def getStream(req: Req): ZStream[Auth, Throwable, Int]  = ZStream(1, 2, 3)
+        case class Queries(test: Int)
+        val interpreter                                         =
+          graphQL(RootResolver(Queries(1), Option.empty[Unit], Subscriptions(getStream))).interpreter
+        val query                                               = gqldoc("""
+             subscription {
+               test
+             }""")
+
+        val authLayer: ZLayer[Any, Nothing, Has[FiberRef[Option[AuthToken]]]] =
+          FiberRef.make(Option.empty[AuthToken]).toLayer
+        assertM(interpreter.flatMap(_.execute(query).provideSomeLayer(authLayer)).map(_.data.toString))(
+          equalTo("""{"test":<stream>}""")
+        )
       },
       testM("Circe Json scalar") {
         import caliban.interop.circe.json._
