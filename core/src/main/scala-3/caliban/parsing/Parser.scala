@@ -286,7 +286,7 @@ object Parser {
   private val fragmentName: P[String] = name.filter(_ != "on")
 
   private val fragmentSpread: P[FragmentSpread] =
-    ((P.string("...").soft *> fragmentName <* whitespaceWithComment) ~ directives.?).map { case (name, dirs) =>
+    ((P.string("...").soft *> fragmentName <* whitespaceWithComment).backtrack ~ directives.?).map { case (name, dirs) =>
       FragmentSpread(name, dirs.getOrElse(Nil))
     }
 
