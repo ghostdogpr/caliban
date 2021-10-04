@@ -56,7 +56,7 @@ object FieldArgsSpec extends DefaultRunnableSpec {
       case class QueryInput(color: COLOR, string: String)
       case class Query(query: Field => QueryInput => UIO[String])
       val query =
-        """query MyQuery($color: Color) {
+        """query MyQuery($color: COLOR!) {
           |  query(string: "test", color: $color)
           |}""".stripMargin
 
@@ -65,17 +65,22 @@ object FieldArgsSpec extends DefaultRunnableSpec {
         api          = graphQL(
                          RootResolver(
                            Query(
-                             query = info =>
+                             query = info => {
                                i =>
                                  ref.set(Option(info)) *>
                                    ZIO.succeed(i.string)
+                             }
                            )
                          )
                        )
         interpreter <- api.interpreter
-        _           <- interpreter.executeRequest(
-                         request =
-                           GraphQLRequest(query = Some(query), variables = Some(Map("color" -> Value.StringValue("BLUE")))),
+        qres        <- interpreter.executeRequest(
+                         request = GraphQLRequest(
+                           query = Some(query),
+                           // "color" is a string here since it will come directly from
+                           // parsed JSON which is unaware that it should be an Enum
+                           variables = Some(Map("color" -> Value.StringValue("BLUE")))
+                         ),
                          skipValidation = false,
                          enableIntrospection = true,
                          queryExecution = QueryExecution.Parallel
