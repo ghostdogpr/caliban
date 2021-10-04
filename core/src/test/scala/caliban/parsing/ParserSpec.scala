@@ -324,7 +324,7 @@ object ParserSpec extends DefaultRunnableSpec {
         val query = """query inlineFragmentTyping {
                       |  profiles(handles: ["zuck", "cocacola"]) {
                       |    handle
-                      |    ... on User {
+                      |    ...on User {
                       |      friends {
                       |        count
                       |      }
@@ -350,13 +350,13 @@ object ParserSpec extends DefaultRunnableSpec {
                       Some(NamedType("User", nonNull = false)),
                       Nil,
                       List(
-                        simpleField("friends", selectionSet = List(simpleField("count", index = 126)), index = 108)
+                        simpleField("friends", selectionSet = List(simpleField("count", index = 125)), index = 107)
                       )
                     ),
                     InlineFragment(
                       Some(NamedType("Page", nonNull = false)),
                       Nil,
-                      List(simpleField("likers", selectionSet = List(simpleField("count", index = 187)), index = 170))
+                      List(simpleField("likers", selectionSet = List(simpleField("count", index = 186)), index = 169))
                     )
                   ),
                   index = 31
