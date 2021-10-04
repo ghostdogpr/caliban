@@ -58,7 +58,7 @@ object Field {
               alias,
               field.fields,
               None,
-              resolveVariables(innerType, arguments, variableDefinitions, variableValues, rootType),
+              resolveVariables(arguments, variableDefinitions, variableValues, rootType),
               () => sourceMapper.getLocation(index),
               directives ++ schemaDirectives
             )
@@ -94,7 +94,6 @@ object Field {
   }
 
   private def resolveVariables(
-    typ: __Type,
     arguments: Map[String, InputValue],
     variableDefinitions: List[VariableDefinition],
     variableValues: Map[String, InputValue],
