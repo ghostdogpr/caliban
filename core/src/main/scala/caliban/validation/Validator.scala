@@ -17,6 +17,7 @@ import caliban.parsing.adt._
 import caliban.schema.{ RootSchema, RootSchemaBuilder, RootType, Types }
 import caliban.{ InputValue, Rendering, Value }
 import zio.IO
+import simulacrum.typeclass
 
 object Validator {
 
@@ -366,7 +367,70 @@ object Validator {
         }
       case InlineFragment(typeCondition, _, selectionSet) =>
         validateSpread(context, None, currentType, typeCondition, selectionSet)
-    } *> validateLeafFieldSelection(selectionSet, currentType)
+    } *> validateLeafFieldSelection(selectionSet, currentType) *> validateFragmentFields(
+      context,
+      selectionSet,
+      currentType
+    )
+
+  // 5.3.2
+  private def validateFragmentFields(
+    context: Context,
+    selectionSet: List[Selection],
+    currentType: __Type
+  ): IO[ValidationError, Unit] = {
+    type CanMerge = (Map[String, InputValue], __Type)
+
+    def expandFragments(set: List[Selection]): List[(String, CanMerge)] = {
+      def fieldsForFragment(currentType: __Type, typeCondition: Option[NamedType], set: List[Selection]) =
+        typeCondition.fold(Option(currentType))(t => context.rootType.types.get(t.name)) match {
+          case Some(t) => _expandFragments(set, t)
+          case None    => List.empty
+        }
+
+      def _expandFragments(set: List[Selection], currentType: __Type): List[(String, CanMerge)] =
+        set
+          .flatMap({
+            case f: Field =>
+              currentType
+                .fields(__DeprecatedArgs(Some(true)))
+                .flatMap(
+                  _.find(_.name == f.name).map(_.`type`())
+                )
+                .map(typ => (f.alias.getOrElse(f.name), (f.arguments, typ)))
+
+            case InlineFragment(typeCondition, dirs, selectionSet) =>
+              fieldsForFragment(currentType, typeCondition, selectionSet)
+
+            case FragmentSpread(name, _) =>
+              context.fragments
+                .get(name)
+                .map(f => fieldsForFragment(currentType, Some(f.typeCondition), f.selectionSet))
+                .getOrElse(List.empty)
+          })
+
+      _expandFragments(set, currentType)
+    }
+
+    def validateSameType(fields: List[Field]) =
+      fields.headOption.map { head =>
+        fields.drop(1).forall(_ == head)
+      }.getOrElse(true)
+
+    val fields = expandFragments(selectionSet).foldLeft(Map.empty[String, Set[CanMerge]])({ case (acc, item) =>
+      val v = acc.get(item._1).map(_ + item._2).getOrElse(Set(item._2))
+      acc.updated(item._1, v)
+    })
+
+    IO.foreach_(fields)({ case (name, types) =>
+      IO.when(types.size > 1)(
+        failValidation(
+          s"Selection ${name} in '${Rendering.renderTypeName(currentType)}' is not valid since selections are of different types",
+          "All selections within fragmens with the same name must be of the same type. Try using an alias for one of the fragments."
+        )
+      )
+    })
+  }
 
   private def validateSpread(
     context: Context,
