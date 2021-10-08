@@ -378,7 +378,7 @@ object Validator {
     selectionSet: List[Selection],
     currentType: __Type
   ): IO[ValidationError, Unit] = {
-    type CanMerge = (Map[String, InputValue], __Type)
+    type CanMerge = (Map[String, InputValue], Type)
 
     def expandFragments(set: List[Selection]): List[(String, CanMerge)] = {
       def fieldsForFragment(currentType: __Type, typeCondition: Option[NamedType], set: List[Selection]) =
@@ -396,7 +396,9 @@ object Validator {
                 .flatMap(
                   _.find(_.name == f.name).map(_.`type`())
                 )
-                .map(typ => (f.alias.getOrElse(f.name), (f.arguments, typ)))
+                .map { typ =>
+                  (f.alias.getOrElse(f.name), (f.arguments, typ.toType(!typ.isNullable)))
+                }
 
             case InlineFragment(typeCondition, dirs, selectionSet) =>
               fieldsForFragment(currentType, typeCondition, selectionSet)
