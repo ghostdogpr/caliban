@@ -17,7 +17,6 @@ import caliban.parsing.adt._
 import caliban.schema.{ RootSchema, RootSchemaBuilder, RootType, Types }
 import caliban.{ InputValue, Rendering, Value }
 import zio.IO
-import simulacrum.typeclass
 
 object Validator {
 
