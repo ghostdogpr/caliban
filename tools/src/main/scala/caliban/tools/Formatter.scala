@@ -29,6 +29,6 @@ object Formatter {
       val result = strs.map { case (name, code) => name -> scalafmt.format(config, Paths.get(s"$name.scala"), code) }
       scalafmt.clear()
       result
-    }.retryN(3)
+    }.retryN(3) // We have to retry because of the bug detailed here: https://github.com/scalameta/scalafmt/issues/2793
 
 }
