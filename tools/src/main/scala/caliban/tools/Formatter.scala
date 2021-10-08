@@ -29,6 +29,6 @@ object Formatter {
       val result = strs.map { case (name, code) => name -> scalafmt.format(config, Paths.get(s"$name.scala"), code) }
       scalafmt.clear()
       result
-    }
+    }.retryN(3)
 
 }
