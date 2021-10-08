@@ -151,8 +151,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
   override lazy val projectSettings: Seq[Def.Setting[_]] =
     Seq(
       libraryDependencies += "com.github.ghostdogpr" %% "caliban-tools" % caliban.codegen.BuildInfo.version % Compile,
-      (Compile / sourceGenerators) += Compile / ctCalibanServer / ctCalibanServerGenerate,
-      (Test / sourceGenerators) += Test / ctCalibanServer / ctCalibanServerGenerate
+      (Compile / sourceGenerators) += Compile / ctCalibanServer / ctCalibanServerGenerate
     ) ++ inConfig(Compile)(pluginSettings) ++ inConfig(Test)(pluginSettings)
 }
 
@@ -343,8 +342,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
   override lazy val projectSettings: Seq[Def.Setting[_]] =
     Seq(
       libraryDependencies += "com.github.ghostdogpr" %% "caliban-client" % BuildInfo.version,
-      (Compile / sourceGenerators) += Compile / ctCalibanClient / ctCalibanClientGenerate,
-      (Test / sourceGenerators) += Test / ctCalibanClient / ctCalibanClientGenerate
+      (Compile / sourceGenerators) += Compile / ctCalibanClient / ctCalibanClientGenerate
     ) ++ inConfig(Compile)(pluginSettings) ++ inConfig(Test)(pluginSettings)
 
 }
