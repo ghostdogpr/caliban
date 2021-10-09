@@ -157,15 +157,13 @@ Let's say you have an object `CalibanServer` object in your `api` sbt module:
 package com.example.my.awesome.project.api
 
 import caliban.GraphQL.graphQL
-import caliban.schema.GenericSchema
-import caliban.{GraphQL, RootResolver}
+import caliban.GraphQL
 
 object CalibanServer {
   
   val graphqlApi: GraphQL[MyEnv] = graphQL(Resolvers.resolver)
   
 }
-```
 
 You'll need to add in your sbt definition:
 ```scala
