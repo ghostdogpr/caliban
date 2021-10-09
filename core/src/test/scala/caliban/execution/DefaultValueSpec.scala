@@ -151,6 +151,38 @@ object DefaultValueSpec extends DefaultRunnableSpec {
 
         assertM(api.interpreter.run)(fails(hasMessage(equalTo(expected))))
       },
+      testM("explicit null for a nullable field with default value is valid") {
+        val query =
+          """query {
+            |  query(string: null)
+            |}""".stripMargin
+
+        case class TestInput(@GQLDefault("\"default\"") string: Option[String])
+        case class Query(query: TestInput => String)
+        val gql = graphQL(RootResolver(Query(_.string.getOrElse("default"))))
+
+        for {
+          int <- gql.interpreter
+          res <- int.execute(query)
+        } yield assert(res.errors)(isEmpty)
+      },
+      testM("explicit null for a non-null field with default value is invalid") {
+        val query =
+          """query {
+            |  query(string: null)
+            |}""".stripMargin
+
+        case class TestInput(@GQLDefault("\"default\"") string: String)
+        case class Query(query: TestInput => String)
+        val gql = graphQL(RootResolver(Query(_.string)))
+
+        for {
+          int <- gql.interpreter
+          res <- int.execute(query)
+        } yield assert(res.errors.headOption)(
+          isSome((isSubtype[CalibanError.ValidationError](anything)))
+        )
+      },
       test("it should render default values in the SDL") {
         case class TestInput(@GQLDefault("1") intValue: Int)
         case class Query(testDefault: TestInput => Int)

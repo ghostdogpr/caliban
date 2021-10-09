@@ -430,14 +430,23 @@ object Validator {
         case Some(inputValue) => validateInputValues(inputValue, argValue)
       }
     } *>
-      IO.foreach_(f.args.filter(a => a.`type`().kind == __TypeKind.NON_NULL && a.defaultValue.isEmpty))(arg =>
-        IO.when(field.arguments.get(arg.name).forall(_ == NullValue))(
-          failValidation(
-            s"Required argument '${arg.name}' is null or missing on field '${field.name}' of type '${currentType.name
-              .getOrElse("")}'.",
-            "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
-          )
-        )
+      IO.foreach_(f.args.filter(a => a.`type`().kind == __TypeKind.NON_NULL))(arg =>
+        (arg.defaultValue, field.arguments.get(arg.name)) match {
+          case (None, None) | (None, Some(NullValue)) =>
+            failValidation(
+              s"Required argument '${arg.name}' is null or missing on field '${field.name}' of type '${currentType.name
+                .getOrElse("")}'.",
+              "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
+            )
+
+          case (Some(_), Some(NullValue)) =>
+            failValidation(
+              s"Required argument '${arg.name}' is null on '${field.name}' of type '${currentType.name
+                .getOrElse("")}'.",
+              "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
+            )
+          case _                          => IO.unit
+        }
       )
 
   private[caliban] def validateInputValues(
