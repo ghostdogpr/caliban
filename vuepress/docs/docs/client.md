@@ -158,18 +158,11 @@ package com.example.my.awesome.project.api
 
 import caliban.GraphQL.graphQL
 import caliban.schema.GenericSchema
-import caliban.wrappers.Wrappers._
 import caliban.{GraphQL, RootResolver}
 
 object CalibanServer {
   
-  val graphqlApi: GraphQL[MyEnv] =
-    graphQL(Resolvers.resolver) @@
-      maxFields(200) @@
-      maxDepth(30) @@
-      timeout(5.seconds) @@
-      printSlowQueries(500.millis) @@
-      printErrors  
+  val graphqlApi: GraphQL[MyEnv] = graphQL(Resolvers.resolver)
   
 }
 ```
