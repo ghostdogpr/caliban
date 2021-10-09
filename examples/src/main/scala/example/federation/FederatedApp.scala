@@ -14,8 +14,6 @@ import org.http4s.server.middleware.CORS
 import zio._
 import zio.interop.catz._
 
-import scala.concurrent.ExecutionContext
-
 object FederatedApp extends CatsApp {
   type ExampleTask[A] = RIO[ZEnv, A]
 
@@ -25,7 +23,7 @@ object FederatedApp extends CatsApp {
     .use(layer =>
       for {
         interpreter <- FederatedApi.Characters.api.interpreter.map(_.provideCustomLayer(layer))
-        _           <- BlazeServerBuilder[ExampleTask](ExecutionContext.global)
+        _           <- BlazeServerBuilder[ExampleTask]
                          .bindHttp(8089, "localhost")
                          .withHttpApp(
                            Router[ExampleTask](
@@ -45,7 +43,7 @@ object FederatedApp extends CatsApp {
     .use(layer =>
       for {
         interpreter <- FederatedApi.Episodes.api.interpreter.map(_.provideCustomLayer(layer))
-        _           <- BlazeServerBuilder[ExampleTask](ExecutionContext.global)
+        _           <- BlazeServerBuilder[ExampleTask]
                          .bindHttp(8088, "localhost")
                          .withHttpApp(
                            Router[ExampleTask](

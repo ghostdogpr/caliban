@@ -13,8 +13,6 @@ import org.typelevel.ci.CIString
 import zio._
 import zio.interop.catz._
 
-import scala.concurrent.ExecutionContext
-
 object AuthExampleApp extends CatsApp {
 
   // Simple service that returns the token coming from the request
@@ -56,7 +54,7 @@ object AuthExampleApp extends CatsApp {
     (for {
       interpreter <- api.interpreter
       route        = AuthMiddleware(Http4sAdapter.makeHttpService(interpreter))
-      _           <- BlazeServerBuilder[Task](ExecutionContext.global)
+      _           <- BlazeServerBuilder[Task]
                        .withServiceErrorHandler(errorHandler)
                        .bindHttp(8088, "localhost")
                        .withHttpApp(Router[Task]("/api/graphql" -> route).orNotFound)

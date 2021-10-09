@@ -15,8 +15,6 @@ import org.http4s.server.middleware.CORS
 import zio._
 import zio.interop.catz._
 
-import scala.concurrent.ExecutionContext
-
 object ExampleApp extends App {
 
   type ExampleTask[A] = RIO[ZEnv with ExampleService, A]
@@ -27,12 +25,12 @@ object ExampleApp extends App {
       .flatMap(implicit runtime =>
         for {
           interpreter <- ExampleApi.api.interpreter
-          _           <- BlazeServerBuilder[ExampleTask](ExecutionContext.global)
+          _           <- BlazeServerBuilder[ExampleTask]
                            .bindHttp(8088, "localhost")
-                           .withHttpApp(
+                           .withHttpWebSocketApp(builder =>
                              Router[ExampleTask](
                                "/api/graphql" -> CORS.policy(Http4sAdapter.makeHttpService(interpreter)),
-                               "/ws/graphql"  -> CORS.policy(Http4sAdapter.makeWebSocketService(interpreter)),
+                               "/ws/graphql"  -> CORS.policy(Http4sAdapter.makeWebSocketService(builder, interpreter)),
                                "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
                              ).orNotFound
                            )

@@ -15,8 +15,6 @@ import sttp.tapir.server.ServerEndpoint
 import zio._
 import zio.interop.catz._
 
-import scala.concurrent.ExecutionContext
-
 object ExampleApp extends CatsApp {
 
   // approach 1: using `Endpoint` and providing the logic
@@ -41,7 +39,7 @@ object ExampleApp extends CatsApp {
   override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
     (for {
       interpreter <- graphql.interpreter
-      _           <- BlazeServerBuilder[Task](ExecutionContext.global)
+      _           <- BlazeServerBuilder[Task]
                        .bindHttp(8088, "localhost")
                        .withHttpApp(
                          Router[Task](

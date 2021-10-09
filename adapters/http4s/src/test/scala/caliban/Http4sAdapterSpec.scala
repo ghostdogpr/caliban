@@ -15,7 +15,7 @@ import zio.clock.Clock
 import zio.console.Console
 import zio.internal.Platform
 import sttp.client3._
-import sttp.client3.asynchttpclient.zio.{ AsyncHttpClientZioBackend, _ }
+import sttp.client3.asynchttpclient.zio._
 import zio.random.Random
 import zio.test._
 import zio.test.Assertion._
@@ -108,7 +108,7 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
   val apiLayer: RLayer[R, Has[Server]] =
     (for {
       interpreter <- TestAPI.api.interpreter.toManaged_
-      server      <- BlazeServerBuilder[RIO[R, *]](runtime.platform.executor.asEC)
+      server      <- BlazeServerBuilder[RIO[R, *]]
                        .bindHttp(uri.port.get, uri.host.get)
                        .withHttpApp(
                          (Http4sAdapter.makeHttpUploadService(
