@@ -238,7 +238,7 @@ lazy val client =
 ```
 
 You only have one thing left to do.     
-You need to reference your "server side"  sbt module (here `api`) in your "client side" sbt module (here `client`) definition so the plugin knows that you want to generate the Caliban client code for your `api` server 
+You need to reference your "server side" sbt module (here `api`) in your "client side" sbt module (here `client`) definition so the plugin knows that you want to generate the Caliban client code for your `api` server 
 in this `client` sbt module:
 ```scala
 lazy val client =
