@@ -23,19 +23,29 @@ libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client" % "1.1.1"
 
 ## Code generation
 
-The first step for building GraphQL queries with `caliban-client` is to generate boilerplate code from a GraphQL schema. For that, you need a file containing your schema (if your backend uses `caliban`, you can get it by calling `GraphQL#render` on your API).
+Caliban provides two sbt plugins to generate your client(s) code.
 
-To use this feature, add the `caliban-codegen-sbt` sbt plugin to your `project/plugins.sbt` file:
+The first one, named `CalibanPlugin`, allows you to generate the client code from a schema file or form a server URL.
+
+The second one, named `CompileTimeCalibanPlugin`, allows you to generate the client code from your server code.    
+This second "meta" plugin is actually made of two "concrete" plugins, `CompileTimeCalibanServerPlugin` and `CompileTimeCalibanClientPlugin`, that you'll
+both need to configure in your project to be able to generate you Caliban client code from your Caliban server code.
+
+To use any of these two plugins, you'll first need to add following dependency to your `project/plugins.sbt` file:
 ```scala
 addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "1.1.1")
 ```
+
+### CalibanPlugin
+
+The first step for building GraphQL queries with `caliban-client` is to generate boilerplate code from a GraphQL schema. For that, you need a file containing your schema (if your backend uses `caliban`, you can get it by calling `GraphQL#render` on your API).
 
 And enable it in your `build.sbt` file:
 ```scala
 enablePlugins(CalibanPlugin)
 ```
 
-### From a schema file
+#### From a schema file
 
 At this point, the `caliban` command will cause any files in `src/main/graphql` to be translated into a Caliban-generated client library. This happens automatically any time you `compile`.
 
@@ -59,7 +69,7 @@ In order to supply more configuration options to the code generator, you can use
       )
 ```
 
-### From a server URL
+#### From a server URL
 
 The `calibanSetting` function also permits generating clients for supplied `url`'s:
 ```scala
@@ -70,7 +80,7 @@ The `calibanSetting` function also permits generating clients for supplied `url`
       )
 ```
 
-### `calibanSetting` config parameters
+#### `calibanSetting` config parameters
 
 The settings available on the `cs` (`CalibanSettings`) builder are:
 ```
@@ -87,7 +97,7 @@ The settings available on the `cs` (`CalibanSettings`) builder are:
   def headers(pairs: (String,String)*): CalibanSettings
 ```
 
-### `calibanGenClient`
+#### `calibanGenClient`
 
 If you prefer to generate the client explicitly rather than automatically, you can use `calibanGenClient` on the SBT CLI as follows:
 
@@ -113,6 +123,140 @@ In this case the filename part of the `outputPath` will be ignored, but the valu
 This can be helpful with large GraphQL schemas and incremental compilation.
 Provide `--enableFmt false` option if you don't need to format generated files.
 Provide `--extensibleEnums true` option if you want to generate a fallback case class for unknown enum values.
+
+### CompileTimeCalibanPlugin
+
+As mentioned in the introduction of the [Code Generation](#code-generation) chapter, this "meta" plugin is actually made of two "concrete" sbt plugins, `CompileTimeCalibanServerPlugin` and `CompileTimeCalibanClientPlugin`, 
+that you'll both need to configure in your project be able to generate your Caliban client code from your Caliban server code..
+
+You can find a demo project using this plugin here: [Demo project](https://github.com/guizmaii/poc_compile_time_caliban_client_generation)
+
+To generate the Caliban client code from you Caliban server code, you need to do two things:
+ 1. Tell to the plugin where your Caliban `GraphQL[R]` instances for which you want to generate a client are and configure the client code generator.    
+    How to configure this is explained in the following [Configure the server side](#configure-the-server-side) chapter.
+ 
+ 2. Tell to the plugin where you want to generate your client(s).   
+    How to configure this is explained in the following [Configure the client side](#configure-the-client-side) chapter.
+
+#### Configure the server side
+
+First, you'll need to activate the `CompileTimeCalibanServerPlugin` plugin in all the sbt modules of your project containing a `GraphQL[R]` instance for which you want to generate a client.
+
+Let's say you have an `api` sbt module defined in your `build.sbt` which contains your Caliban server code:
+```scala
+lazy val api =
+  project
+    .enablePlugins(CompileTimeCalibanServerPlugin)
+```
+
+Now, you need to tell to the "server side" plugin where is your `GraphQL[R]` instance for which you want to generate a client.    
+This `GraphQL[R]` instance need to be `public`. If it's `private` or `protected`, the plugin code generator will not have access to it and will fail.
+
+Let's say you have an object `CalibanServer` object in your `api` sbt module:
+```scala
+package com.example.my.awesome.project.api
+
+import caliban.GraphQL.graphQL
+import caliban.schema.GenericSchema
+import caliban.wrappers.Wrappers._
+import caliban.{GraphQL, RootResolver}
+
+object CalibanServer {
+  
+  val graphqlApi: GraphQL[MyEnv] =
+    graphQL(Resolvers.resolver) @@
+      maxFields(200) @@
+      maxDepth(30) @@
+      timeout(5.seconds) @@
+      printSlowQueries(500.millis) @@
+      printErrors  
+  
+}
+```
+
+You'll need to add in your sbt definition:
+```scala
+lazy val api =
+  project
+    .enablePlugins(CompileTimeCalibanServerPlugin)
+    .settings(
+      Compile / ctCalibanServer / ctCalibanServerSettings :=
+        Seq(
+          "com.example.my.awesome.project.api.CalibanServer.graphqlApi" -> ClientGenerationSettings.default
+        )
+    )
+```
+
+This is the minimal working configuration for the "server side".
+
+Now, you may want to tweak how the client code is generated.    
+For that, you'll have to replace the `ClientGenerationSettings.default` with the configuration that suits you the best.    
+This `ClientGenerationSettings` case class gives you the following configuration options:
+
+ - `packageName: String`: The package in which the code will be generated (default: `generated`).
+ - `clientName: String`: The name of the client class generated (default: `Client`).
+ - `scalafmtPath: Option[String]`: Path to a scalafmt config (default: `.scalafmt.conf`)
+ - `genView: Boolean`: Provide a case class and helper method to select all fields on an object (default: `false`)
+ - `scalarMappings: : List[(String, String)]`: A mapping from GraphQL scalar types to JVM types, as unknown scalar types are represented as `String` by default.
+ - `imports: List[String]`: A list of imports to be added to the top of a generated client.
+ - `splitFiles: Boolean`: Split single client object into multiple files (default: `false`)
+ - `enableFmt: Boolean`: Enable code formatting with scalafmt (default: `true`)
+ - `extensibleEnums: Boolean`: Generate a fallback case class for unknown enum values (default: `false`)
+
+Let's take a example:
+```scala
+lazy val api =
+  project
+    .enablePlugins(CompileTimeCalibanServerPlugin)
+    .settings(
+      Compile / ctCalibanServer / ctCalibanServerSettings :=
+        Seq(
+          "com.example.my.awesome.project.api.CalibanServer.graphqlApi" ->
+            ClientGenerationSettings(
+              packageName = "com.example.my.awesome.project.client.generated",
+              clientName = "CalibanClient",
+              splitFiles = true
+            ),
+        )
+    )
+```
+
+That's all. You now know how to configure the "server side" of this plugin.    
+Let's now see how to configure the "client side".
+
+#### Configure the client side
+
+The "client side" of this plugin is here to help you define where your Caliban client code is generated.
+
+The first thing to do is to activate the `CompileTimeCalibanClientPlugin` in the sbt module where you want your Caliban client code to be generated into.
+
+Let's say you have a `client` sbt module defined in your `build.sbt`:
+```scala
+lazy val client =
+  project
+    .enablePlugins(CompileTimeCalibanClientPlugin)
+```
+
+You only have one thing left to do.     
+You need to reference your "server side"  sbt module (here `api`) in your "client side" sbt module (here `client`) definition so the plugin knows that you want to generate the Caliban client code for your `api` server 
+in this `client` sbt module:
+```scala
+lazy val client =
+  project
+    .enablePlugins(CompileTimeCalibanClientPlugin)
+    .settings(
+      Compile / ctCalibanClient / ctCalibanClientsSettings := Seq(api)
+    )
+```
+
+You're done. :tada:    
+You can now reload your sbt config and recompile your project. Your Caliban client code will be generate during the compilation process.
+
+#### Additional information about CompileTimeCalibanPlugin
+
+As you may have seen in the [demo project](https://github.com/guizmaii/poc_compile_time_caliban_client_generation), you can have more complex configurations for this plugin.    
+You can have more than one `GraphQL[R]` instance per server. Each `GraphQL[R]`  instance can have its own client code generation configuration.      
+You can also have multiple "servers" referenced in your "client" module. The plugin will generate all the clients for all the "servers" referenced in your sbt definition.
 
 ## Query building
 
