@@ -6,27 +6,27 @@ import caliban.execution.QueryExecution
 import caliban.interop.cats.CatsInterop
 import caliban.uploads._
 import cats.data.{ Kleisli, OptionT }
-import cats.syntax.either._
-import cats.syntax.traverse._
 import cats.effect.kernel.Async
 import cats.effect.std.{ Dispatcher, Queue => CatsQueue }
+import cats.syntax.either._
+import cats.syntax.traverse._
 import cats.~>
-import fs2.{ Pipe, Stream }
-import fs2.text.utf8
 import fs2.io.file.Files
+import fs2.text.utf8
+import fs2.{ Pipe, Stream }
 import io.circe.Decoder.Result
-import io.circe.{ DecodingFailure, Json }
 import io.circe.parser._
 import io.circe.syntax._
+import io.circe.{ DecodingFailure, Json }
 import org.http4s._
 import org.http4s.circe.CirceEntityCodec._
 import org.http4s.dsl.Http4sDsl
 import org.http4s.headers.`Content-Disposition`
 import org.http4s.implicits._
-import org.http4s.server.websocket.{ WebSocketBuilder, WebSocketBuilder2 }
+import org.http4s.multipart.{ Multipart, Part }
+import org.http4s.server.websocket.WebSocketBuilder2
 import org.http4s.websocket.WebSocketFrame
 import org.http4s.websocket.WebSocketFrame.Text
-import org.http4s.multipart.{ Multipart, Part }
 import org.typelevel.ci.CIString
 import zio.Exit.Failure
 import zio._
