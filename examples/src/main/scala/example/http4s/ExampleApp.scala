@@ -15,8 +15,6 @@ import org.http4s.server.middleware.CORS
 import zio._
 import zio.interop.catz._
 
-import scala.concurrent.ExecutionContext
-
 object ExampleApp extends App {
 
   type ExampleTask[A] = RIO[ZEnv with ExampleService, A]

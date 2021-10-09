@@ -13,8 +13,6 @@ import org.typelevel.ci.CIString
 import zio._
 import zio.interop.catz._
 
-import scala.concurrent.ExecutionContext
-
 object AuthExampleApp extends CatsApp {
 
   // Simple service that returns the token coming from the request
