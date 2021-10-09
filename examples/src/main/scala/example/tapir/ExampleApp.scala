@@ -41,7 +41,7 @@ object ExampleApp extends CatsApp {
   override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
     (for {
       interpreter <- graphql.interpreter
-      _           <- BlazeServerBuilder[Task](ExecutionContext.global)
+      _           <- BlazeServerBuilder[Task]
                        .bindHttp(8088, "localhost")
                        .withHttpApp(
                          Router[Task](

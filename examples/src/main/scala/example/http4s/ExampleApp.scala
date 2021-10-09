@@ -27,13 +27,17 @@ object ExampleApp extends App {
       .flatMap(implicit runtime =>
         for {
           interpreter <- ExampleApi.api.interpreter
-          _           <- BlazeServerBuilder[ExampleTask](ExecutionContext.global)
+          _           <- BlazeServerBuilder[ExampleTask]
                            .bindHttp(8088, "localhost")
                            .withHttpApp(
                              Router[ExampleTask](
                                "/api/graphql" -> CORS.policy(Http4sAdapter.makeHttpService(interpreter)),
-                               "/ws/graphql"  -> CORS.policy(Http4sAdapter.makeWebSocketService(interpreter)),
                                "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
+                             ).orNotFound
+                           )
+                           .withHttpWebSocketApp(builder =>
+                             Router[ExampleTask](
+                               "/ws/graphql" -> CORS.policy(Http4sAdapter.makeWebSocketService(builder, interpreter))
                              ).orNotFound
                            )
                            .resource

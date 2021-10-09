@@ -25,7 +25,7 @@ object FederatedApp extends CatsApp {
     .use(layer =>
       for {
         interpreter <- FederatedApi.Characters.api.interpreter.map(_.provideCustomLayer(layer))
-        _           <- BlazeServerBuilder[ExampleTask](ExecutionContext.global)
+        _           <- BlazeServerBuilder[ExampleTask]
                          .bindHttp(8089, "localhost")
                          .withHttpApp(
                            Router[ExampleTask](
@@ -45,7 +45,7 @@ object FederatedApp extends CatsApp {
     .use(layer =>
       for {
         interpreter <- FederatedApi.Episodes.api.interpreter.map(_.provideCustomLayer(layer))
-        _           <- BlazeServerBuilder[ExampleTask](ExecutionContext.global)
+        _           <- BlazeServerBuilder[ExampleTask]
                          .bindHttp(8088, "localhost")
                          .withHttpApp(
                            Router[ExampleTask](

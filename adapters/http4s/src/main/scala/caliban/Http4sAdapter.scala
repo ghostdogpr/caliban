@@ -23,7 +23,7 @@ import org.http4s.circe.CirceEntityCodec._
 import org.http4s.dsl.Http4sDsl
 import org.http4s.headers.`Content-Disposition`
 import org.http4s.implicits._
-import org.http4s.server.websocket.WebSocketBuilder
+import org.http4s.server.websocket.{ WebSocketBuilder, WebSocketBuilder2 }
 import org.http4s.websocket.WebSocketFrame
 import org.http4s.websocket.WebSocketFrame.Text
 import org.http4s.multipart.{ Multipart, Part }
@@ -325,6 +325,7 @@ object Http4sAdapter {
     }
 
   def makeWebSocketService[R, E](
+    builder: WebSocketBuilder2[RIO[R, *]],
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
@@ -450,11 +451,9 @@ object Http4sAdapter {
         // so that we can pass information available at connection request, such as authentication information,
         // to execution of subscription.
         processMessageFiber <- processMessage(receivingQueue, sendQueue, subscriptions).forkDaemon
-        builder             <- WebSocketBuilder[RIO[R, *]]
-                                 .copy(
-                                   headers = Headers(Header.Raw(CIString("Sec-WebSocket-Protocol"), "graphql-ws")),
-                                   onClose = processMessageFiber.interrupt.unit
-                                 )
+        builder             <- builder
+                                 .withHeaders(Headers(Header.Raw(CIString("Sec-WebSocket-Protocol"), "graphql-ws")))
+                                 .withOnClose(processMessageFiber.interrupt.unit)
                                  .build(Stream.repeatEval(sendQueue.take), passThroughPipe(receivingQueue))
       } yield builder
     }
@@ -535,6 +534,7 @@ object Http4sAdapter {
   }
 
   def makeWebSocketServiceF[F[_], R, E](
+    builder: WebSocketBuilder2[F],
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
@@ -543,6 +543,7 @@ object Http4sAdapter {
   )(implicit F: Async[F], dispatcher: Dispatcher[F], runtime: Runtime[R]): HttpRoutes[F] =
     wrapRoute(
       makeWebSocketService[R, E](
+        builder.imapK[RIO[R, *]](CatsInterop.fromEffectK)(CatsInterop.toEffectK),
         interpreter,
         skipValidation = skipValidation,
         enableIntrospection = enableIntrospection,

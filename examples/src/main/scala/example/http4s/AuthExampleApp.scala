@@ -56,7 +56,7 @@ object AuthExampleApp extends CatsApp {
     (for {
       interpreter <- api.interpreter
       route        = AuthMiddleware(Http4sAdapter.makeHttpService(interpreter))
-      _           <- BlazeServerBuilder[Task](ExecutionContext.global)
+      _           <- BlazeServerBuilder[Task]
                        .withServiceErrorHandler(errorHandler)
                        .bindHttp(8088, "localhost")
                        .withHttpApp(Router[Task]("/api/graphql" -> route).orNotFound)
