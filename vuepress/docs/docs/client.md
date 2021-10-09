@@ -255,7 +255,7 @@ You can now reload your sbt config and recompile your project. Your Caliban clie
 #### Additional information about CompileTimeCalibanPlugin
 
 As you may have seen in the [demo project](https://github.com/guizmaii/poc_compile_time_caliban_client_generation), you can have more complex configurations for this plugin.    
-You can have more than one `GraphQL[R]` instance per server. Each `GraphQL[R]`  instance can have its own client code generation configuration.      
+You can have more than one `GraphQL[R]` instance per server. Each `GraphQL[R]` instance can have its own client code generation configuration.      
 You can also have multiple "servers" referenced in your "client" module. The plugin will generate all the clients for all the "servers" referenced in your sbt definition.
 
 ## Query building
