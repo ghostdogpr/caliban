@@ -27,15 +27,11 @@ object ExampleApp extends App {
           interpreter <- ExampleApi.api.interpreter
           _           <- BlazeServerBuilder[ExampleTask]
                            .bindHttp(8088, "localhost")
-                           .withHttpApp(
-                             Router[ExampleTask](
-                               "/api/graphql" -> CORS.policy(Http4sAdapter.makeHttpService(interpreter)),
-                               "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
-                             ).orNotFound
-                           )
                            .withHttpWebSocketApp(builder =>
                              Router[ExampleTask](
-                               "/ws/graphql" -> CORS.policy(Http4sAdapter.makeWebSocketService(builder, interpreter))
+                               "/api/graphql" -> CORS.policy(Http4sAdapter.makeHttpService(interpreter)),
+                               "/ws/graphql"  -> CORS.policy(Http4sAdapter.makeWebSocketService(builder, interpreter)),
+                               "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
                              ).orNotFound
                            )
                            .resource
