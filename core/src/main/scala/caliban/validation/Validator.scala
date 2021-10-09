@@ -413,11 +413,6 @@ object Validator {
       _expandFragments(set, currentType)
     }
 
-    def validateSameType(fields: List[Field]) =
-      fields.headOption.map { head =>
-        fields.drop(1).forall(_ == head)
-      }.getOrElse(true)
-
     val fields = expandFragments(selectionSet).foldLeft(Map.empty[String, Set[CanMerge]])({ case (acc, item) =>
       val v = acc.get(item._1).map(_ + item._2).getOrElse(Set(item._2))
       acc.updated(item._1, v)
