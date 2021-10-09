@@ -25,7 +25,7 @@ libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client" % "1.1.1"
 
 Caliban provides two sbt plugins to generate your client(s) code.
 
-The first one, named `CalibanPlugin`, allows you to generate the client code from a schema file or form a server URL.
+The first one, named `CalibanPlugin`, allows you to generate the client code from a schema file or from a server URL.
 
 The second one, named `CompileTimeCalibanPlugin`, allows you to generate the client code from your server code.    
 This second "meta" plugin is actually made of two "concrete" plugins, `CompileTimeCalibanServerPlugin` and `CompileTimeCalibanClientPlugin`, that you'll
