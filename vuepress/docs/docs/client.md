@@ -250,7 +250,7 @@ lazy val client =
 ```
 
 You're done. :tada:    
-You can now reload your sbt config and recompile your project. Your Caliban client code will be generate during the compilation process.
+You can now reload your sbt config and recompile your project. Your Caliban client code will be generated during the compilation process.
 
 #### Additional information about CompileTimeCalibanPlugin
 
