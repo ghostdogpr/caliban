@@ -421,7 +421,9 @@ object Validator {
     IO.foreach_(fields)({ case (name, types) =>
       IO.when(types.size > 1)(
         failValidation(
-          s"Selection ${name} in '${Rendering.renderTypeName(currentType)}' is not valid since selections are of different types",
+          s"Selection ${name} in '${Rendering.renderTypeName(
+            currentType
+          )}' is not valid since selections are of different types '${types.map(_._2.toString()).mkString(", ")}'",
           "All selections within fragmens with the same name must be of the same type. Try using an alias for one of the fragments."
         )
       )
