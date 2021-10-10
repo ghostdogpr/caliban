@@ -164,6 +164,7 @@ object CalibanServer {
   val graphqlApi: GraphQL[MyEnv] = graphQL(Resolvers.resolver)
   
 }
+```
 
 You'll need to add in your sbt definition:
 ```scala
