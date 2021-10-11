@@ -16,15 +16,15 @@ object FragmentSpec extends DefaultRunnableSpec {
       testM("fragments") {
         val interpreter = graphQL(resolver).interpreter
         val query       = gqldoc("""
-                 {
-                   amos: character(name: "Amos Burton") {
-                     ...info
+                   {
+                     amos: character(name: "Amos Burton") {
+                       ...info
+                     }
                    }
-                 }
 
-                 fragment info on Character {
-                   name
-                 }""")
+                   fragment info on Character {
+                     name
+                   }""")
 
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
           equalTo("""{"amos":{"name":"Amos Burton"}}""")
@@ -33,19 +33,19 @@ object FragmentSpec extends DefaultRunnableSpec {
       testM("fragment on union") {
         val interpreter = graphQL(resolver).interpreter
         val query       = gqldoc("""
-                 {
-                   amos: character(name: "Amos Burton") {
-                     role {
-                       ...roleF
+                   {
+                     amos: character(name: "Amos Burton") {
+                       role {
+                         ...roleF
+                       }
                      }
                    }
-                 }
 
-                 fragment roleF on Role {
-                   ... on Mechanic {
-                     shipName
-                   }
-                 }""")
+                   fragment roleF on Role {
+                     ... on Mechanic {
+                       shipName
+                     }
+                   }""")
 
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
           equalTo("""{"amos":{"role":{"shipName":"Rocinante"}}}""")
@@ -54,16 +54,16 @@ object FragmentSpec extends DefaultRunnableSpec {
       testM("inline fragment") {
         val interpreter = graphQL(resolver).interpreter
         val query       = gqldoc("""
-                 {
-                   amos: character(name: "Amos Burton") {
-                     name
-                     role {
-                       ... on Mechanic {
-                         shipName
+                   {
+                     amos: character(name: "Amos Burton") {
+                       name
+                       role {
+                         ... on Mechanic {
+                           shipName
+                         }
                        }
                      }
-                   }
-                 }""")
+                   }""")
 
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
           equalTo("""{"amos":{"name":"Amos Burton","role":{"shipName":"Rocinante"}}}""")
