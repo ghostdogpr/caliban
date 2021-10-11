@@ -1,10 +1,11 @@
 package caliban.codegen
 
-import sbt._
 import sbt.Keys._
+import sbt._
 
 object CalibanPlugin extends AutoPlugin {
   override def requires = plugins.JvmPlugin
+  override def trigger  = noTrigger
 
   object autoImport extends CalibanKeys
   import autoImport._
