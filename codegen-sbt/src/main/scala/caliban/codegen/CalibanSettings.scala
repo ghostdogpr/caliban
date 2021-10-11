@@ -19,6 +19,8 @@ final case class CalibanFileSettings(file: File, settings: CalibanCommonSettings
   def splitFiles(value: Boolean): CalibanFileSettings                = this.copy(settings = this.settings.splitFiles(value))
   def enableFmt(value: Boolean): CalibanFileSettings                 = this.copy(settings = this.settings.enableFmt(value))
   def extensibleEnums(value: Boolean): CalibanFileSettings           = this.copy(settings = this.settings.extensibleEnums(value))
+  def excludeClientDeprecation(value: Boolean): CalibanFileSettings  =
+    this.copy(settings = this.settings.excludeClientDeprecation(value))
 }
 
 final case class CalibanUrlSettings(url: URL, settings: CalibanCommonSettings) extends CalibanSettings {
@@ -34,4 +36,6 @@ final case class CalibanUrlSettings(url: URL, settings: CalibanCommonSettings) e
   def splitFiles(value: Boolean): CalibanUrlSettings                = this.copy(settings = this.settings.splitFiles(value))
   def enableFmt(value: Boolean): CalibanUrlSettings                 = this.copy(settings = this.settings.enableFmt(value))
   def extensibleEnums(value: Boolean): CalibanUrlSettings           = this.copy(settings = this.settings.extensibleEnums(value))
+  def excludeClientDepercation(value: Boolean): CalibanUrlSettings  =
+    this.copy(settings = this.settings.excludeClientDeprecation(value))
 }

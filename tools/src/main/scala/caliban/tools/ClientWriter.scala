@@ -21,11 +21,14 @@ object ClientWriter {
     genView: Boolean = false,
     additionalImports: Option[List[String]] = None,
     splitFiles: Boolean = false,
-    extensibleEnums: Boolean = false
+    extensibleEnums: Boolean = false,
+    excludeClientDeprecation: Boolean = false
   )(implicit scalarMappings: ScalarMappings): List[(String, String)] = {
     require(packageName.isDefined || !splitFiles, "splitFiles option requires a package name")
 
     val schemaDef = schema.schemaDefinition
+
+    implicit val excludeDeprecation: Boolean = excludeClientDeprecation
 
     implicit val mappingClashedTypeNames: MappingClashedTypeNames = MappingClashedTypeNames(
       getMappingsClashedNames(
@@ -295,7 +298,8 @@ object ClientWriter {
   )(implicit
     typesMap: TypesMap,
     mappingClashedTypeNames: MappingClashedTypeNames,
-    scalarMappings: ScalarMappings
+    scalarMappings: ScalarMappings,
+    excludeDeprecation: Boolean
   ): String =
     s"""object ${typedef.name} {
        |  ${typedef.fields.map(writeField(_, "_root_.caliban.client.Operations.RootQuery")).mkString("\n  ")}
@@ -312,7 +316,8 @@ object ClientWriter {
   )(implicit
     typesMap: TypesMap,
     mappingClashedTypeNames: MappingClashedTypeNames,
-    scalarMappings: ScalarMappings
+    scalarMappings: ScalarMappings,
+    excludeDeprecation: Boolean
   ): String =
     s"""object ${typedef.name} {
        |  ${typedef.fields.map(writeField(_, "_root_.caliban.client.Operations.RootMutation")).mkString("\n  ")}
@@ -329,7 +334,8 @@ object ClientWriter {
   )(implicit
     typesMap: TypesMap,
     mappingClashedTypeNames: MappingClashedTypeNames,
-    scalarMappings: ScalarMappings
+    scalarMappings: ScalarMappings,
+    excludeDeprecation: Boolean
   ): String =
     s"""object ${typedef.name} {
        |  ${typedef.fields.map(writeField(_, "_root_.caliban.client.Operations.RootSubscription")).mkString("\n  ")}
@@ -354,7 +360,8 @@ object ClientWriter {
   )(implicit
     typesMap: TypesMap,
     mappingClashedTypeNames: MappingClashedTypeNames,
-    scalarMappings: ScalarMappings
+    scalarMappings: ScalarMappings,
+    excludeDeprecation: Boolean
   ): String = {
 
     val objectName: String = safeTypeName(typedef.name)
@@ -617,7 +624,8 @@ object ClientWriter {
   )(implicit
     typesMap: TypesMap,
     mappingClashedTypeNames: MappingClashedTypeNames,
-    scalarMappings: ScalarMappings
+    scalarMappings: ScalarMappings,
+    excludeDeprecation: Boolean
   ): String =
     writeFieldInfo(collectFieldInfo(field, typeName))
 
@@ -648,27 +656,34 @@ object ClientWriter {
   )(implicit
     typesMap: TypesMap,
     mappingClashedTypeNames: MappingClashedTypeNames,
-    scalarMappings: ScalarMappings
+    scalarMappings: ScalarMappings,
+    excludeDeprecation: Boolean
   ): FieldInfo = {
-    val name                                             = safeName(field.name)
-    val description                                      = field.description match {
+    val name        = safeName(field.name)
+    val description = field.description match {
       case Some(d) if d.trim.nonEmpty => s"/**\n * ${d.trim}\n */\n"
       case _                          => ""
     }
-    val deprecated                                       = field.directives.find(_.name == "deprecated") match {
-      case None            => ""
-      case Some(directive) =>
-        val body =
-          directive.arguments.collectFirst { case ("reason", StringValue(reason)) =>
-            reason
-          }.getOrElse("")
 
-        val quotes =
-          if (body.contains("\n")) tripleQuotes
-          else doubleQuotes
+    val deprecated = excludeDeprecation match {
+      case true  => ""
+      case false =>
+        field.directives.find(_.name == "deprecated") match {
+          case None            => ""
+          case Some(directive) =>
+            val body =
+              directive.arguments.collectFirst { case ("reason", StringValue(reason)) =>
+                reason
+              }.getOrElse("")
 
-        "@deprecated(" + quotes + body + quotes + """, "")""" + "\n"
+            val quotes =
+              if (body.contains("\n")) tripleQuotes
+              else doubleQuotes
+
+            "@deprecated(" + quotes + body + quotes + """, "")""" + "\n"
+        }
     }
+
     val fieldType                                        = safeTypeName(getTypeName(field.ofType))
     val isScalar                                         = typesMap
       .get(fieldType)

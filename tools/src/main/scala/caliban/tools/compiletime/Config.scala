@@ -12,7 +12,8 @@ trait Config {
     imports: List[String] = List.empty,
     splitFiles: Boolean = false,
     enableFmt: Boolean = true,
-    extensibleEnums: Boolean = false
+    extensibleEnums: Boolean = false,
+    excludeClientDeprecation: Boolean = false
   )                               {
     private[caliban] def toCalibanCommonSettings: CalibanCommonSettings =
       CalibanCommonSettings(
@@ -25,7 +26,8 @@ trait Config {
         imports = imports,
         splitFiles = Some(splitFiles),
         enableFmt = Some(enableFmt),
-        extensibleEnums = Some(extensibleEnums)
+        extensibleEnums = Some(extensibleEnums),
+        excludeClientDeprecation = Some(excludeClientDeprecation)
       )
 
     private[caliban] def asScalaCode: String = {
@@ -40,7 +42,8 @@ trait Config {
          |  imports = ${toScalaCode(imports)(v => s""""$v"""")},
          |  splitFiles = $splitFiles,
          |  enableFmt = $enableFmt,
-         |  extensibleEnums = $extensibleEnums
+         |  extensibleEnums = $extensibleEnums,
+         |  excludeClientDeprecation = $excludeClientDeprecation
          |)
       """.stripMargin.trim
     }

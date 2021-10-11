@@ -17,7 +17,22 @@ object ConfigSpec extends DefaultRunnableSpec {
       imports = List("zio.test._", "caliban.tools.compiletime._"),
       splitFiles = true,
       enableFmt = false,
-      extensibleEnums = true
+      extensibleEnums = true,
+      excludeClientDeprecation = false
+    )
+
+  private val fullExampleWithDeprecation: ClientGenerationSettings =
+    ClientGenerationSettings(
+      packageName = "io.example.generated",
+      clientName = "CalibanClient",
+      scalafmtPath = Some("a/b/c"),
+      genView = true,
+      scalarMappings = List(("mapping key 1", "mapping value 1"), "abc" -> "def"),
+      imports = List("zio.test._", "caliban.tools.compiletime._"),
+      splitFiles = true,
+      enableFmt = false,
+      extensibleEnums = true,
+      excludeClientDeprecation = true
     )
 
   private val toCalibanCommonSettingsSpec =
@@ -35,7 +50,30 @@ object ConfigSpec extends DefaultRunnableSpec {
               imports = List("zio.test._", "caliban.tools.compiletime._"),
               splitFiles = Some(true),
               enableFmt = Some(false),
-              extensibleEnums = Some(true)
+              extensibleEnums = Some(true),
+              excludeClientDeprecation = Some(false)
+            )
+        )
+      )
+    )
+
+  private val toCalibanCommonSettingsWithDeprecationSpec =
+    suite("#toCalibanCommonSettingsWithDeprecation")(
+      test("fullExampleWithDeprecation")(
+        assertTrue(
+          fullExampleWithDeprecation.toCalibanCommonSettings ==
+            CalibanCommonSettings(
+              clientName = Some("CalibanClient"),
+              scalafmtPath = Some("a/b/c"),
+              headers = List.empty,
+              packageName = Some("io.example.generated"),
+              genView = Some(true),
+              scalarMappings = List(("mapping key 1", "mapping value 1"), "abc" -> "def"),
+              imports = List("zio.test._", "caliban.tools.compiletime._"),
+              splitFiles = Some(true),
+              enableFmt = Some(false),
+              extensibleEnums = Some(true),
+              excludeClientDeprecation = Some(true)
             )
         )
       )
@@ -56,7 +94,8 @@ object ConfigSpec extends DefaultRunnableSpec {
                |  imports = List.empty,
                |  splitFiles = false,
                |  enableFmt = true,
-               |  extensibleEnums = false
+               |  extensibleEnums = false,
+               |  excludeClientDeprecation = false
                |)
             """.stripMargin.trim
         )
@@ -74,7 +113,8 @@ object ConfigSpec extends DefaultRunnableSpec {
                |  imports = List("zio.test._","caliban.tools.compiletime._"),
                |  splitFiles = true,
                |  enableFmt = false,
-               |  extensibleEnums = true
+               |  extensibleEnums = true,
+               |  excludeClientDeprecation = false
                |)
             """.stripMargin.trim
         )
@@ -95,7 +135,8 @@ object ConfigSpec extends DefaultRunnableSpec {
               imports = List.empty,
               splitFiles = false,
               enableFmt = true,
-              extensibleEnums = false
+              extensibleEnums = false,
+              excludeClientDeprecation = false
             )
         )
       )
@@ -106,7 +147,8 @@ object ConfigSpec extends DefaultRunnableSpec {
       suite("ClientGenerationSettings")(
         toCalibanCommonSettingsSpec,
         asScalaCodeSpec,
-        defaultSpec
+        defaultSpec,
+        toCalibanCommonSettingsWithDeprecationSpec
       )
     )
 }

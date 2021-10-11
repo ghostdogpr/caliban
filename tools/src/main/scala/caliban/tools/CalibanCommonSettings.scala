@@ -10,7 +10,8 @@ final case class CalibanCommonSettings(
   imports: Seq[String],
   splitFiles: Option[Boolean],
   enableFmt: Option[Boolean],
-  extensibleEnums: Option[Boolean]
+  extensibleEnums: Option[Boolean],
+  excludeClientDeprecation: Option[Boolean]
 ) {
 
   private[caliban] def toOptions(schemaPath: String, toPath: String): Options =
@@ -28,7 +29,8 @@ final case class CalibanCommonSettings(
       abstractEffectType = Option.empty,
       splitFiles = splitFiles,
       enableFmt = enableFmt,
-      extensibleEnums = extensibleEnums
+      extensibleEnums = extensibleEnums,
+      excludeClientDeprecation = excludeClientDeprecation
     )
 
   private[caliban] def combine(r: => CalibanCommonSettings): CalibanCommonSettings =
@@ -42,7 +44,8 @@ final case class CalibanCommonSettings(
       imports = this.imports ++ r.imports,
       splitFiles = r.splitFiles.orElse(this.splitFiles),
       enableFmt = r.enableFmt.orElse(this.enableFmt),
-      extensibleEnums = r.extensibleEnums.orElse(this.extensibleEnums)
+      extensibleEnums = r.extensibleEnums.orElse(this.extensibleEnums),
+      excludeClientDeprecation = r.excludeClientDeprecation.orElse(this.excludeClientDeprecation)
     )
 
   def clientName(value: String): CalibanCommonSettings                  = this.copy(clientName = Some(value))
@@ -56,6 +59,8 @@ final case class CalibanCommonSettings(
   def splitFiles(value: Boolean): CalibanCommonSettings                 = this.copy(splitFiles = Some(value))
   def enableFmt(value: Boolean): CalibanCommonSettings                  = this.copy(enableFmt = Some(value))
   def extensibleEnums(value: Boolean): CalibanCommonSettings            = this.copy(extensibleEnums = Some(value))
+  def excludeClientDeprecation(value: Boolean): CalibanCommonSettings   =
+    this.copy(excludeClientDeprecation = Some(value))
 }
 
 object CalibanCommonSettings {
@@ -70,6 +75,7 @@ object CalibanCommonSettings {
       imports = Seq.empty,
       splitFiles = None,
       enableFmt = None,
-      extensibleEnums = None
+      extensibleEnums = None,
+      excludeClientDeprecation = None
     )
 }

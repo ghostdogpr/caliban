@@ -43,6 +43,31 @@ object ClientWriterSpec extends DefaultRunnableSpec {
       )
     )
 
+  def genWithoutDeprecation(
+    schema: String,
+    scalarMappings: Map[String, String] = Map.empty,
+    additionalImports: List[String] = List.empty,
+    extensibleEnums: Boolean = false,
+    excludeClientDeprecation: Boolean = true
+  ): RIO[Blocking, String] = Parser
+    .parseQuery(schema)
+    .flatMap(doc =>
+      Formatter.format(
+        ClientWriter
+          .write(
+            doc,
+            additionalImports = Some(additionalImports),
+            extensibleEnums = extensibleEnums,
+            excludeClientDeprecation = excludeClientDeprecation
+          )(
+            ScalarMappings(Some(scalarMappings))
+          )
+          .head
+          ._2,
+        None
+      )
+    )
+
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("ClientWriterSpec")(
       testM("simple object type") {
@@ -556,6 +581,39 @@ bar$tripleQuotes,
       ""
     )
     def name: SelectionBuilder[Character, String] = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
+  }
+
+}
+"""
+          )
+        )
+      },
+      testM("deprecated field excluded when cli option is set to true") {
+        val schema =
+          """
+             type Character {
+               "name"
+               name: String! @deprecated(reason: "blah")
+               nicknames: [String!]! @deprecated
+             }
+            """.stripMargin
+
+        assertM(genWithoutDeprecation(schema))(
+          equalTo(
+            """import caliban.client.FieldBuilder._
+import caliban.client._
+
+object Client {
+
+  type Character
+  object Character {
+
+    /**
+     * name
+     */
+    def name: SelectionBuilder[Character, String]            = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
+    def nicknames: SelectionBuilder[Character, List[String]] =
+      _root_.caliban.client.SelectionBuilder.Field("nicknames", ListOf(Scalar()))
   }
 
 }
