@@ -53,11 +53,15 @@ object AuthExampleApp extends CatsApp {
   override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
     (for {
       interpreter <- api.interpreter
-      route        = AuthMiddleware(Http4sAdapter.makeHttpService(interpreter))
       _           <- BlazeServerBuilder[Task]
                        .withServiceErrorHandler(errorHandler)
                        .bindHttp(8088, "localhost")
-                       .withHttpApp(Router[Task]("/api/graphql" -> route).orNotFound)
+                       .withHttpWebSocketApp(builder =>
+                         Router[Task](
+                           "/api/graphql" -> AuthMiddleware(Http4sAdapter.makeHttpService(interpreter)),
+                           "/ws/graphql"  -> AuthMiddleware(Http4sAdapter.makeWebSocketService(builder, interpreter))
+                         ).orNotFound
+                       )
                        .resource
                        .toManagedZIO
                        .useForever
