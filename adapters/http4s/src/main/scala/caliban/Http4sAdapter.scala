@@ -456,7 +456,7 @@ object Http4sAdapter {
                                  .withHeaders(Headers(Header.Raw(CIString("Sec-WebSocket-Protocol"), "graphql-ws")))
                                  .withOnClose(processMessageFiber.interrupt.unit)
                                  .build(Stream.repeatEval(sendQueue.take), passThroughPipe(receivingQueue))
-      } yield response.mapK(FunctionK.lift(identity))
+      } yield response.mapK(new FunctionK[RIO[R, *], RIO[R1, *]] { def apply[A](fa: RIO[R, A]): RIO[R1, A] = fa })
     }
   }
 
