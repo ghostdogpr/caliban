@@ -18,7 +18,7 @@ import zhttp.socket._
 import io.netty.handler.codec.http.HttpHeaderNames
 
 object ZHttpAdapter {
-  case class GraphQLWSRequest(`type`: String, id: Option[String], payload: Option[Json])
+  final case class GraphQLWSRequest(`type`: String, id: Option[String], payload: Option[Json])
   object GraphQLWSRequest {
     import io.circe._
     import io.circe.generic.semiauto._
@@ -26,7 +26,7 @@ object ZHttpAdapter {
     implicit val decodeGraphQLWSRequest: Decoder[GraphQLWSRequest] = deriveDecoder[GraphQLWSRequest]
   }
 
-  case class Callbacks[R, E](
+  final case class Callbacks[R, E](
     beforeInit: Option[io.circe.Json => ZIO[R, E, Any]] = None,
     afterInit: Option[ZIO[R, E, Any]] = None,
     onMessage: Option[ZStream[R, E, Text] => ZStream[R, E, Text]] = None

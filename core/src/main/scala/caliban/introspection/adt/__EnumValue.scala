@@ -4,7 +4,7 @@ import caliban.Value.StringValue
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.EnumValueDefinition
 import caliban.parsing.adt.Directive
 
-case class __EnumValue(
+final case class __EnumValue(
   name: String,
   description: Option[String],
   isDeprecated: Boolean,

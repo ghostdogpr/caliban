@@ -13,12 +13,12 @@ object Scala2SpecificSpec extends DefaultRunnableSpec {
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("Scala2SpecificSpec")(
       test("value classes should unwrap") {
-        case class Queries(organizationId: OrganizationId, painter: WrappedPainter)
+        final case class Queries(organizationId: OrganizationId, painter: WrappedPainter)
         val fieldTypes = introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.map(_.`type`())
         assert(fieldTypes.map(_.ofType.flatMap(_.name)))(equalTo(Some("Long") :: Some("Painter") :: Nil))
       },
       testM("value classes") {
-        case class Queries(events: List[Event], painters: List[WrappedPainter])
+        final case class Queries(events: List[Event], painters: List[WrappedPainter])
         val event       = Event(OrganizationId(7), "Frida Kahlo exhibition")
         val painter     = Painter("Claude Monet", "Impressionism")
         val api         = graphQL(RootResolver(Queries(event :: Nil, WrappedPainter(painter) :: Nil)))

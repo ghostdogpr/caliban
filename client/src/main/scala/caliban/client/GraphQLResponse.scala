@@ -6,7 +6,7 @@ import io.circe.{ Decoder, HCursor, Json }
 /**
  * Represents the result of a GraphQL query, containing a data object and a list of errors.
  */
-case class GraphQLResponse(
+final case class GraphQLResponse(
   data: Option[__Value],
   errors: List[GraphQLResponseError] = Nil,
   extensions: Option[Json] = None

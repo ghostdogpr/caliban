@@ -8,7 +8,7 @@ import caliban.{ CalibanError, GraphQL, ResponseValue }
 import zio._
 import zio.query._
 
-case class RemoteSchemaResolver(schema: __Schema, typeMap: Map[String, __Type]) {
+final case class RemoteSchemaResolver(schema: __Schema, typeMap: Map[String, __Type]) {
   def remoteResolver[R, R0 <: Has[_], A](typeName: String)(
     resolver: RemoteResolver[R0, CalibanError.ExecutionError, ResolveRequest[A], ResponseValue]
   ): PartialRemoteSchema[R0, R, A] = new PartialRemoteSchema[R0, R, A] {

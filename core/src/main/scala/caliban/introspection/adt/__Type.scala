@@ -5,7 +5,7 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt.{ Directive, Type }
 
-case class __Type(
+final case class __Type(
   kind: __TypeKind,
   name: Option[String] = None,
   description: Option[String] = None,

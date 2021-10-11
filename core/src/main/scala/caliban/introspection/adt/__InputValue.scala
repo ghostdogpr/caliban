@@ -4,7 +4,7 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.InputV
 import caliban.parsing.adt.Directive
 import caliban.parsing.Parser
 
-case class __InputValue(
+final case class __InputValue(
   name: String,
   description: Option[String],
   `type`: () => __Type,

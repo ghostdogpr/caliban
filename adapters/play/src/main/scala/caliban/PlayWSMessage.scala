@@ -4,7 +4,7 @@ import play.api.libs.functional.syntax._
 import play.api.libs.json._
 import play.api.mvc.WebSocket.MessageFlowTransformer
 
-case class PlayWSMessage(messageType: String, id: Option[String] = None, payload: Option[JsValue] = None) {
+final case class PlayWSMessage(messageType: String, id: Option[String] = None, payload: Option[JsValue] = None) {
   lazy val request: Option[GraphQLRequest] = payload.flatMap(_.asOpt[GraphQLRequest])
 }
 

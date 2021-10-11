@@ -2,7 +2,7 @@ package caliban.parsing.adt
 
 import caliban.InputValue
 
-case class VariableDefinition(
+final case class VariableDefinition(
   name: String,
   variableType: Type,
   defaultValue: Option[InputValue],

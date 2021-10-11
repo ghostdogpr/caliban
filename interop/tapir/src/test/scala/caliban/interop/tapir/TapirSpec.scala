@@ -10,7 +10,7 @@ import zio.query.ZQuery
 
 object TapirSpec extends DefaultRunnableSpec {
 
-  case class Book(title: String, year: Int)
+  final case class Book(title: String, year: Int)
 
   val titleParameter: EndpointInput[String] =
     query[String]("title").description("The title of the book")

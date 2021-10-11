@@ -20,7 +20,7 @@ object SourceMapper {
    * It is used to look up a line/column number pair given a raw index into a source string. The numbers are determined by
    * computing the number of newlines occurring between 0 and the current index.
    */
-  private[parsing] case class DefaultSourceMapper(source: String) extends SourceMapper {
+  final private[parsing] case class DefaultSourceMapper(source: String) extends SourceMapper {
     private[this] lazy val lineNumberLookup = Util.lineNumberLookup(source)
 
     def getLocation(index: Int): LocationInfo = {

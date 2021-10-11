@@ -21,7 +21,7 @@ final case class Upload(name: String) {
 
 }
 
-case class FileMeta(
+final case class FileMeta(
   id: String,
   path: Path,
   dispositionType: Option[String],
@@ -40,7 +40,7 @@ trait Multipart {
  * this stores the additional information necessary to be able to resolve
  * files at query time
  */
-case class GraphQLUploadRequest(
+final case class GraphQLUploadRequest(
   request: GraphQLRequest,
   fileMap: List[(String, List[Either[String, Int]])], // This needs to be used to remap the input values
   fileHandle: UIO[Uploads]

@@ -13,7 +13,7 @@ import zio.blocking.Blocking
 import zio.duration.Duration
 import zio.random.Random
 
-case class PlayRouter[R <: Blocking with Random, E](
+final case class PlayRouter[R <: Blocking with Random, E](
   interpreter: GraphQLInterpreter[R, E],
   controllerComponents: ControllerComponents,
   playground: Boolean = true,

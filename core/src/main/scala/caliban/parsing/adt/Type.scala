@@ -14,8 +14,8 @@ sealed trait Type { self =>
 
 object Type {
 
-  case class NamedType(name: String, nonNull: Boolean) extends Type
-  case class ListType(ofType: Type, nonNull: Boolean)  extends Type
+  final case class NamedType(name: String, nonNull: Boolean) extends Type
+  final case class ListType(ofType: Type, nonNull: Boolean)  extends Type
 
   @tailrec
   def innerType(t: Type): String = t match {

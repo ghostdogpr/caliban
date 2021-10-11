@@ -593,7 +593,7 @@ trait TemporalSchema {
 
 }
 
-case class FieldAttributes(isInput: Boolean, isSubscription: Boolean)
+final case class FieldAttributes(isInput: Boolean, isSubscription: Boolean)
 
 abstract class PartiallyAppliedFieldBase[V](name: String, description: Option[String], directives: List[Directive]) {
   def apply[R, V1](fn: V => V1)(implicit ev: Schema[R, V1], ft: FieldAttributes): (__Field, V => Step[R]) =
@@ -615,7 +615,7 @@ abstract class PartiallyAppliedFieldBase[V](name: String, description: Option[St
     )
 }
 
-case class PartiallyAppliedField[V](name: String, description: Option[String], directives: List[Directive])
+final case class PartiallyAppliedField[V](name: String, description: Option[String], directives: List[Directive])
     extends PartiallyAppliedFieldBase[V](name, description, directives) {
   def either[R, V1](
     fn: V => Either[V1, Step[R]]
@@ -623,7 +623,7 @@ case class PartiallyAppliedField[V](name: String, description: Option[String], d
     (makeField, (v: V) => fn(v).fold(ev.resolve, identity))
 }
 
-case class PartiallyAppliedFieldLazy[V](name: String, description: Option[String], directives: List[Directive])
+final case class PartiallyAppliedFieldLazy[V](name: String, description: Option[String], directives: List[Directive])
     extends PartiallyAppliedFieldBase[V](name, description, directives) {
   def either[R, V1](
     fn: V => Either[V1, Step[R]]
@@ -631,7 +631,7 @@ case class PartiallyAppliedFieldLazy[V](name: String, description: Option[String
     (makeField, (v: V) => FunctionStep(_ => fn(v).fold(ev.resolve, identity)))
 }
 
-case class PartiallyAppliedFieldWithArgs[V, A](name: String, description: Option[String], directives: List[Directive]) {
+final case class PartiallyAppliedFieldWithArgs[V, A](name: String, description: Option[String], directives: List[Directive]) {
   def apply[R, V1](fn: V => (A => V1))(implicit ev1: Schema[R, A => V1], fa: FieldAttributes): (__Field, V => Step[R]) =
     (
       __Field(name, description, ev1.arguments, () => ev1.toType_(fa.isInput, fa.isSubscription)),

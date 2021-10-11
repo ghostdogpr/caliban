@@ -18,7 +18,7 @@ import zio.test.environment.TestEnvironment
 
 object GraphQLResponsePlaySpec extends DefaultRunnableSpec {
 
-  val writer = implicitly[Writes[GraphQLResponse[Any]]]
+  val writer: Writes[GraphQLResponse[Any]] = implicitly[Writes[GraphQLResponse[Any]]]
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("GraphQLResponsePlaySpec")(

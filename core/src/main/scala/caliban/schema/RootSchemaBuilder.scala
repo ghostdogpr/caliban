@@ -3,7 +3,7 @@ package caliban.schema
 import caliban.introspection.adt.__Type
 import caliban.schema.Types.collectTypes
 
-case class RootSchemaBuilder[-R](
+final case class RootSchemaBuilder[-R](
   query: Option[Operation[R]],
   mutation: Option[Operation[R]],
   subscription: Option[Operation[R]],

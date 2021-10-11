@@ -9,7 +9,7 @@ object CalibanPlugin extends AutoPlugin {
   object autoImport extends CalibanKeys
   import autoImport._
 
-  lazy val baseSettings = Seq(
+  lazy val baseSettings: Seq[Setting[_ <: Object]] = Seq(
     caliban := (caliban / calibanGenerator).value,
     (caliban / sourceManaged) := {
       sourceManaged.value / "caliban-codegen-sbt"
@@ -21,7 +21,7 @@ object CalibanPlugin extends AutoPlugin {
     caliban / calibanSettings := Seq.empty
   )
 
-  lazy val calibanScopedSettings = inTask(caliban)(
+  lazy val calibanScopedSettings: Seq[Setting[_]] = inTask(caliban)(
     Seq(
       sources := (calibanSources.value ** "*.graphql").get.sorted,
       clean := {
@@ -40,7 +40,7 @@ object CalibanPlugin extends AutoPlugin {
     )
   )
 
-  lazy val allSettings = baseSettings ++ calibanScopedSettings
+  lazy val allSettings: Seq[Setting[_]] = baseSettings ++ calibanScopedSettings
 
   override lazy val projectSettings: Seq[Def.Setting[_]] =
     CalibanCli.projectSettings ++ inConfig(Compile)(allSettings) ++ inConfig(Test)(allSettings) ++ Seq(

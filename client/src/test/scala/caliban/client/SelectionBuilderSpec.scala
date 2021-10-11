@@ -150,7 +150,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
           assert(query.fromGraphQL(response))(isRight(equalTo(List("Amos Burton" -> List("Amos")))))
         },
         test("union type") {
-          case class CharacterView(name: String, nicknames: List[String], role: Option[String])
+          final case class CharacterView(name: String, nicknames: List[String], role: Option[String])
           val query =
             Queries.characters() {
               (Character.name ~
@@ -237,7 +237,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
         test("drop null values in input object") {
           import caliban.client.__Value._
 
-          case class CharacterInput(name: String, description: Option[String], nicknames: List[String] = Nil)
+          final case class CharacterInput(name: String, description: Option[String], nicknames: List[String] = Nil)
           object CharacterInput {
             implicit val encoder: ArgEncoder[CharacterInput] = (value: CharacterInput) =>
               __ObjectValue(
@@ -271,7 +271,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
         test("drop null values in input object by explicit ArgEncoder") {
           import caliban.client.__Value._
 
-          case class CharacterInput(name: String, description: Option[String], nicknames: List[String] = Nil)
+          final case class CharacterInput(name: String, description: Option[String], nicknames: List[String] = Nil)
           object CharacterInput {
             implicit val encoder: ArgEncoder[CharacterInput] = (value: CharacterInput) =>
               __ObjectValue(

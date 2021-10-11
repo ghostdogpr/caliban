@@ -21,119 +21,119 @@ object DefaultValueSpec extends DefaultRunnableSpec {
     suite("DefaultValueSpec")(
       suite("default value validation")(
         testM("invalid string validation") {
-          case class TestInput(@GQLDefault("1") string: String)
-          case class Query(test: TestInput => String)
+          final case class TestInput(@GQLDefault("1") string: String)
+          final case class Query(test: TestInput => String)
           val gql = graphQL(RootResolver(Query(i => i.string)))
           assertM(gql.interpreter.run)(
             fails(isSubtype[CalibanError.ValidationError](anything))
           )
         },
         testM("invalid int validation") {
-          case class TestInput(@GQLDefault("\"1\"") int: Int)
-          case class Query(test: TestInput => Int)
+          final case class TestInput(@GQLDefault("\"1\"") int: Int)
+          final case class Query(test: TestInput => Int)
           val gql = graphQL(RootResolver(Query(i => i.int)))
           assertM(gql.interpreter.run)(
             fails(isSubtype[CalibanError.ValidationError](anything))
           )
         },
         testM("invalid float validation") {
-          case class TestInput(@GQLDefault("1") float: Float)
-          case class Query(test: TestInput => Float)
+          final case class TestInput(@GQLDefault("1") float: Float)
+          final case class Query(test: TestInput => Float)
           val gql = graphQL(RootResolver(Query(i => i.float)))
           assertM(gql.interpreter.run)(
             fails(isSubtype[CalibanError.ValidationError](anything))
           )
         },
         testM("invalid id validation") {
-          case class TestInput(@GQLDefault("1") id: UUID)
-          case class Query(test: TestInput => UUID)
+          final case class TestInput(@GQLDefault("1") id: UUID)
+          final case class Query(test: TestInput => UUID)
           val gql = graphQL(RootResolver(Query(i => i.id)))
           assertM(gql.interpreter.run)(
             fails(isSubtype[CalibanError.ValidationError](anything))
           )
         },
         testM("invalid boolean validation") {
-          case class TestInput(@GQLDefault("1") b: Boolean)
-          case class Query(test: TestInput => Boolean)
+          final case class TestInput(@GQLDefault("1") b: Boolean)
+          final case class Query(test: TestInput => Boolean)
           val gql = graphQL(RootResolver(Query(i => i.b)))
           assertM(gql.interpreter.run)(
             fails(isSubtype[CalibanError.ValidationError](anything))
           )
         },
         testM("valid enum validation") {
-          case class TestInput(@GQLDefault("GREEN") c: COLOR)
-          case class Query(test: TestInput => COLOR)
+          final case class TestInput(@GQLDefault("GREEN") c: COLOR)
+          final case class Query(test: TestInput => COLOR)
           val gql = graphQL(RootResolver(Query(i => i.c)))
           assertM(gql.interpreter.run)(anything)
         },
         testM("valid enum validation accepts strings") {
-          case class TestInput(@GQLDefault("\"GREEN\"") c: COLOR)
-          case class Query(test: TestInput => COLOR)
+          final case class TestInput(@GQLDefault("\"GREEN\"") c: COLOR)
+          final case class Query(test: TestInput => COLOR)
           val gql = graphQL(RootResolver(Query(i => i.c)))
           assertM(gql.interpreter.run)(anything)
         },
         testM("valid enum validation") {
-          case class TestInput(@GQLDefault("PINK") c: COLOR)
-          case class Query(test: TestInput => COLOR)
+          final case class TestInput(@GQLDefault("PINK") c: COLOR)
+          final case class Query(test: TestInput => COLOR)
           val gql = graphQL(RootResolver(Query(i => i.c)))
           assertM(gql.interpreter.run)(
             fails(isSubtype[CalibanError.ValidationError](anything))
           )
         },
         testM("invalid nullable validation") {
-          case class TestInput(@GQLDefault("1") s: Option[String])
-          case class Query(test: TestInput => String)
+          final case class TestInput(@GQLDefault("1") s: Option[String])
+          final case class Query(test: TestInput => String)
           val gql = graphQL(RootResolver(Query(i => i.s.getOrElse("default"))))
           assertM(gql.interpreter.run)(
             fails(isSubtype[CalibanError.ValidationError](anything))
           )
         },
         testM("valid nullable validation") {
-          case class TestInput(@GQLDefault("\"1\"") s: Option[String])
-          case class Query(test: TestInput => String)
+          final case class TestInput(@GQLDefault("\"1\"") s: Option[String])
+          final case class Query(test: TestInput => String)
           val gql = graphQL(RootResolver(Query(i => i.s.getOrElse("default"))))
           assertM(gql.interpreter)(anything)
         },
         testM("valid nullable validation for null") {
-          case class TestInput(@GQLDefault("null") s: Option[String])
-          case class Query(test: TestInput => String)
+          final case class TestInput(@GQLDefault("null") s: Option[String])
+          final case class Query(test: TestInput => String)
           val gql = graphQL(RootResolver(Query(i => i.s.getOrElse("default"))))
           assertM(gql.interpreter)(anything)
         },
         testM("invalid list validation") {
-          case class TestInput(@GQLDefault("\"string\"") string: List[String])
-          case class Query(test: TestInput => List[String])
+          final case class TestInput(@GQLDefault("\"string\"") string: List[String])
+          final case class Query(test: TestInput => List[String])
           val gql = graphQL(RootResolver(Query(i => i.string)))
           assertM(gql.interpreter.run)(
             fails(isSubtype[CalibanError.ValidationError](anything))
           )
         },
         testM("valid list validation") {
-          case class TestInput(@GQLDefault("[\"string\"]") string: List[String])
-          case class Query(test: TestInput => List[String])
+          final case class TestInput(@GQLDefault("[\"string\"]") string: List[String])
+          final case class Query(test: TestInput => List[String])
           val gql = graphQL(RootResolver(Query(i => i.string)))
           assertM(gql.interpreter)(anything)
         },
         testM("invalid object validation") {
-          case class Nested(field: String)
-          case class TestInput(@GQLDefault("{field: 2}") nested: Nested)
-          case class Query(test: TestInput => String)
+          final case class Nested(field: String)
+          final case class TestInput(@GQLDefault("{field: 2}") nested: Nested)
+          final case class Query(test: TestInput => String)
           val gql = graphQL(RootResolver(Query(v => v.nested.field)))
           assertM(gql.interpreter.run)(
             fails(isSubtype[CalibanError.ValidationError](anything))
           )
         },
         testM("valid object validation") {
-          case class Nested(field: String)
-          case class TestInput(@GQLDefault("{field: \"2\"}") nested: Nested)
-          case class Query(test: TestInput => String)
+          final case class Nested(field: String)
+          final case class TestInput(@GQLDefault("{field: \"2\"}") nested: Nested)
+          final case class Query(test: TestInput => String)
           val gql = graphQL(RootResolver(Query(v => v.nested.field)))
           assertM(gql.interpreter)(anything)
         }
       ),
       testM("field default values") {
-        case class TestInput(@GQLDefault("1") intValue: Int, stringValue: String)
-        case class Query(testDefault: TestInput => Int)
+        final case class TestInput(@GQLDefault("1") intValue: Int, stringValue: String)
+        final case class Query(testDefault: TestInput => Int)
         val api         = graphQL(RootResolver(Query(i => i.intValue)))
         val interpreter = api.interpreter
         val query       =
@@ -143,8 +143,8 @@ object DefaultValueSpec extends DefaultRunnableSpec {
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"testDefault":1}"""))
       },
       testM("invalid field default values") {
-        case class TestInput(@GQLDefault("1.1") intValue: Int, stringValue: String)
-        case class Query(testDefault: TestInput => Int)
+        final case class TestInput(@GQLDefault("1.1") intValue: Int, stringValue: String)
+        final case class Query(testDefault: TestInput => Int)
         val api      = graphQL(RootResolver(Query(i => i.intValue)))
         val expected =
           "InputValue 'intValue' of Field 'testDefault' of Object 'Query' has invalid type 1.1"
@@ -157,8 +157,8 @@ object DefaultValueSpec extends DefaultRunnableSpec {
             |  query(string: null)
             |}""".stripMargin
 
-        case class TestInput(@GQLDefault("\"default\"") string: Option[String])
-        case class Query(query: TestInput => String)
+        final case class TestInput(@GQLDefault("\"default\"") string: Option[String])
+        final case class Query(query: TestInput => String)
         val gql = graphQL(RootResolver(Query(_.string.getOrElse("default"))))
 
         for {
@@ -172,8 +172,8 @@ object DefaultValueSpec extends DefaultRunnableSpec {
             |  query(string: null)
             |}""".stripMargin
 
-        case class TestInput(@GQLDefault("\"default\"") string: String)
-        case class Query(query: TestInput => String)
+        final case class TestInput(@GQLDefault("\"default\"") string: String)
+        final case class Query(query: TestInput => String)
         val gql = graphQL(RootResolver(Query(_.string)))
 
         for {
@@ -184,8 +184,8 @@ object DefaultValueSpec extends DefaultRunnableSpec {
         )
       },
       test("it should render default values in the SDL") {
-        case class TestInput(@GQLDefault("1") intValue: Int)
-        case class Query(testDefault: TestInput => Int)
+        final case class TestInput(@GQLDefault("1") intValue: Int)
+        final case class Query(testDefault: TestInput => Int)
         val rendered = graphQL(RootResolver(Query(i => i.intValue))).render.trim
 
         assert(rendered)(equalTo("""|schema {
@@ -231,8 +231,8 @@ object DefaultValueSpec extends DefaultRunnableSpec {
             }
           """)
 
-        case class TestInput(@GQLDefault("1") intValue: Int)
-        case class Query(testDefault: TestInput => Int)
+        final case class TestInput(@GQLDefault("1") intValue: Int)
+        final case class Query(testDefault: TestInput => Int)
         val interpreter = graphQL(RootResolver(Query(i => i.intValue))).interpreter
 
         assertM(interpreter.flatMap(_.execute(introspectionQuery)).map(_.data.toString))(

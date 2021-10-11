@@ -43,4 +43,4 @@ object Parser {
   }
 }
 
-case class ParsedDocument(definitions: List[Definition], index: Int = 0)
+final case class ParsedDocument(definitions: List[Definition], index: Int = 0)

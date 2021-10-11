@@ -359,7 +359,7 @@ object SelectionBuilder {
   val __typename: SelectionBuilder[Any, String] = Field("__typename", Scalar[String]())
   def pure[A](a: A): SelectionBuilder[Any, A]   = Pure(a)
 
-  case class Field[Origin, A](
+  final case class Field[Origin, A](
     name: String,
     builder: FieldBuilder[A],
     alias: Option[String] = None,
@@ -384,7 +384,7 @@ object SelectionBuilder {
 
     override def withAlias(alias: String): SelectionBuilder[Origin, A] = self.copy(alias = Some(alias))
   }
-  case class Concat[Origin, A, B](first: SelectionBuilder[Origin, A], second: SelectionBuilder[Origin, B])
+  final case class Concat[Origin, A, B](first: SelectionBuilder[Origin, A], second: SelectionBuilder[Origin, B])
       extends SelectionBuilder[Origin, (A, B)] { self =>
     override def fromGraphQL(value: __Value): Either[DecodingError, (A, B)] =
       for {
@@ -399,7 +399,7 @@ object SelectionBuilder {
 
     override def withAlias(alias: String): SelectionBuilder[Origin, (A, B)] = self // makes no sense, do nothing
   }
-  case class Mapping[Origin, A, B](builder: SelectionBuilder[Origin, A], f: A => Either[DecodingError, B])
+  final case class Mapping[Origin, A, B](builder: SelectionBuilder[Origin, A], f: A => Either[DecodingError, B])
       extends SelectionBuilder[Origin, B] {
     override def fromGraphQL(value: __Value): Either[DecodingError, B] = builder.fromGraphQL(value).flatMap(f)
 
@@ -410,7 +410,7 @@ object SelectionBuilder {
 
     override def withAlias(alias: String): SelectionBuilder[Origin, B] = Mapping(builder.withAlias(alias), f)
   }
-  case class Pure[A](a: A) extends SelectionBuilder[Any, A]    { self =>
+  final case class Pure[A](a: A) extends SelectionBuilder[Any, A]    { self =>
     override private[caliban] def toSelectionSet = Nil
 
     override private[caliban] def fromGraphQL(value: __Value) = Right(a)

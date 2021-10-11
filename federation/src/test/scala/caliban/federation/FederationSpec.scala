@@ -14,7 +14,7 @@ import zio.test._
 import zio.query.ZQuery
 
 object FederationSpec extends DefaultRunnableSpec {
-  case class OrphanChild(id: String)
+  final case class OrphanChild(id: String)
 
   object OrphanChild {
     implicit val schema: Schema[Any, Orphan] = Schema.gen[Orphan]
@@ -22,23 +22,23 @@ object FederationSpec extends DefaultRunnableSpec {
 
   @GQLDirective(Key("name"))
   @GQLDirective(Extend)
-  case class Orphan(@GQLDirective(External) name: String, nicknames: List[String], child: OrphanChild)
+  final case class Orphan(@GQLDirective(External) name: String, nicknames: List[String], child: OrphanChild)
 
   object Orphan {
     implicit val schema: Schema[Any, Orphan] = Schema.gen[Orphan]
   }
 
-  case class OrphanArgs(name: String)
+  final case class OrphanArgs(name: String)
 
-  val entityResolver =
+  val entityResolver: EntityResolver[Any] =
     EntityResolver[Any, CharacterArgs, Character](args => ZQuery.succeed(characters.find(_.name == args.name)))
 
-  val orphanResolver =
+  val orphanResolver: EntityResolver[Any] =
     EntityResolver[Any, OrphanArgs, Orphan](args =>
       ZQuery.succeed(characters.find(_.name == args.name).map(c => Orphan(c.name, c.nicknames, OrphanChild("abc"))))
     )
 
-  val functionEntityResolver =
+  val functionEntityResolver: EntityResolver[Any] =
     EntityResolver.fromMetadata[CharacterArgs](field =>
       args =>
         ZQuery.fromEither(
@@ -50,7 +50,7 @@ object FederationSpec extends DefaultRunnableSpec {
         )
     )
 
-  override def spec = suite("FederationSpec")(
+  override def spec: Spec[Any,TestFailure[ValidationError],TestSuccess] = suite("FederationSpec")(
     testM("should resolve federated types") {
       val interpreter = federate(graphQL(resolver), entityResolver).interpreter
 

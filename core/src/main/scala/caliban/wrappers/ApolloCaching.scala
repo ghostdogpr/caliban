@@ -52,7 +52,7 @@ object ApolloCaching {
 
   }
 
-  case class CacheHint(
+  final case class CacheHint(
     fieldName: String = "",
     path: List[Either[String, Int]] = Nil,
     maxAge: Duration,
@@ -73,7 +73,7 @@ object ApolloCaching {
 
   }
 
-  case class Caching(
+  final case class Caching(
     version: Int = 1,
     hints: List[CacheHint] = List.empty
   ) {
@@ -82,7 +82,7 @@ object ApolloCaching {
       ObjectValue(List("version" -> IntValue(version), "hints" -> ListValue(hints.map(_.toResponseValue))))
   }
 
-  case class CacheDirective(scope: Option[CacheScope] = None, maxAge: Option[Duration] = None)
+  final case class CacheDirective(scope: Option[CacheScope] = None, maxAge: Option[Duration] = None)
 
   private def extractCacheDirective(directives: List[Directive]): Option[CacheDirective] =
     directives.collectFirst {

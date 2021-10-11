@@ -9,6 +9,7 @@ import zio.test.Assertion._
 import zio.test._
 import schema.Annotations._
 import caliban.Macros.gqldoc
+import java.lang
 
 object RemoteSchemaSpec extends DefaultRunnableSpec {
   sealed trait EnumType  extends Product with Serializable
@@ -16,9 +17,9 @@ object RemoteSchemaSpec extends DefaultRunnableSpec {
   case object EnumValue2 extends EnumType
 
   sealed trait UnionType                extends Product with Serializable
-  case class UnionValue1(field: String) extends UnionType
+  final case class UnionValue1(field: String) extends UnionType
 
-  case class Object(
+  final case class Object(
     field: Int,
     optionalField: Option[Float],
     withDefault: Option[String] = Some("defaultValue"),
@@ -36,21 +37,21 @@ object RemoteSchemaSpec extends DefaultRunnableSpec {
       )
   }
 
-  case class Queries(
+  final case class Queries(
     getObject: String => Object
   )
 
-  val queries = Queries(
+  val queries: Queries = Queries(
     getObject = Resolvers.getObject
   )
 
-  val api = graphQL(
+  val api: GraphQL[Any] = graphQL(
     RootResolver(
       queries
     )
   )
 
-  def spec = suite("ParserSpec")(
+  def spec: Spec[Any,TestFailure[java.io.Serializable],TestSuccess] = suite("ParserSpec")(
     testM("is isomorphic") {
       for {
         introspected <- SchemaLoader.fromCaliban(api).load
@@ -65,10 +66,10 @@ object RemoteSchemaSpec extends DefaultRunnableSpec {
       sealed trait Node
 
       sealed trait Viewer
-      case class User(id: String, email: String) extends Node with Viewer
-      case class Superuser(id: String)           extends Node with Viewer
+      final case class User(id: String, email: String) extends Node with Viewer
+      final case class Superuser(id: String)           extends Node with Viewer
 
-      case class Queries(
+      final case class Queries(
         whoAmI: Node = User("1", "foo@bar.com")
       )
 

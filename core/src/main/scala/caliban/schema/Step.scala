@@ -10,12 +10,12 @@ import zio.query.ZQuery
 sealed trait Step[-R]
 
 object Step {
-  case class ListStep[-R](steps: List[Step[R]])                         extends Step[R]
-  case class FunctionStep[-R](step: Map[String, InputValue] => Step[R]) extends Step[R]
-  case class MetadataFunctionStep[-R](step: Field => Step[R])           extends Step[R]
-  case class ObjectStep[-R](name: String, fields: Map[String, Step[R]]) extends Step[R]
-  case class QueryStep[-R](query: ZQuery[R, Throwable, Step[R]])        extends Step[R]
-  case class StreamStep[-R](inner: ZStream[R, Throwable, Step[R]])      extends Step[R]
+  final case class ListStep[-R](steps: List[Step[R]])                         extends Step[R]
+  final case class FunctionStep[-R](step: Map[String, InputValue] => Step[R]) extends Step[R]
+  final case class MetadataFunctionStep[-R](step: Field => Step[R])           extends Step[R]
+  final case class ObjectStep[-R](name: String, fields: Map[String, Step[R]]) extends Step[R]
+  final case class QueryStep[-R](query: ZQuery[R, Throwable, Step[R]])        extends Step[R]
+  final case class StreamStep[-R](inner: ZStream[R, Throwable, Step[R]])      extends Step[R]
 
   // PureStep is both a Step and a ReducedStep so it is defined outside this object
   // This is to avoid boxing/unboxing pure values during step reduction
@@ -44,10 +44,10 @@ sealed trait ReducedStep[-R] { self =>
 }
 
 object ReducedStep {
-  case class ListStep[-R](steps: List[ReducedStep[R]], areItemsNullable: Boolean) extends ReducedStep[R]
-  case class ObjectStep[-R](fields: List[(String, ReducedStep[R], FieldInfo)])    extends ReducedStep[R]
-  case class QueryStep[-R](query: ZQuery[R, ExecutionError, ReducedStep[R]])      extends ReducedStep[R]
-  case class StreamStep[-R](inner: ZStream[R, ExecutionError, ReducedStep[R]])    extends ReducedStep[R]
+  final case class ListStep[-R](steps: List[ReducedStep[R]], areItemsNullable: Boolean) extends ReducedStep[R]
+  final case class ObjectStep[-R](fields: List[(String, ReducedStep[R], FieldInfo)])    extends ReducedStep[R]
+  final case class QueryStep[-R](query: ZQuery[R, ExecutionError, ReducedStep[R]])      extends ReducedStep[R]
+  final case class StreamStep[-R](inner: ZStream[R, ExecutionError, ReducedStep[R]])    extends ReducedStep[R]
 
   // PureStep is both a Step and a ReducedStep so it is defined outside this object
   // This is to avoid boxing/unboxing pure values during step reduction
@@ -61,4 +61,4 @@ object ReducedStep {
  *
  * @param value the response value to return for that step
  */
-case class PureStep(value: ResponseValue) extends Step[Any] with ReducedStep[Any]
+final case class PureStep(value: ResponseValue) extends Step[Any] with ReducedStep[Any]

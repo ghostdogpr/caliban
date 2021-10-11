@@ -29,9 +29,9 @@ import java.net.URL
 import java.nio.file.Paths
 import java.security.MessageDigest
 
-case class Response[A](data: A)
-case class UploadFile(uploadFile: TestAPI.File)
-case class UploadFiles(uploadFiles: List[TestAPI.File])
+final case class Response[A](data: A)
+final case class UploadFile(uploadFile: TestAPI.File)
+final case class UploadFiles(uploadFiles: List[TestAPI.File])
 
 object Service {
   def uploadFile(file: Upload): ZIO[Uploads with Blocking, Throwable, TestAPI.File] =
@@ -67,8 +67,8 @@ object Service {
     String.format("%032x", new BigInteger(1, b))
 }
 
-case class UploadFileArgs(file: Upload)
-case class UploadFilesArgs(files: List[Upload])
+final case class UploadFileArgs(file: Upload)
+final case class UploadFilesArgs(files: List[Upload])
 
 object TestAPI extends GenericSchema[Blocking with Uploads with Console with Clock] {
   type Env = Blocking with Uploads with Console with Clock
@@ -85,11 +85,11 @@ object TestAPI extends GenericSchema[Blocking with Uploads with Console with Clo
       )
     )
 
-  case class File(hash: String, path: String, filename: String, mimetype: String)
+  final case class File(hash: String, path: String, filename: String, mimetype: String)
 
-  case class Queries(stub: Unit => UIO[String])
+  final case class Queries(stub: Unit => UIO[String])
 
-  case class Mutations(
+  final case class Mutations(
     uploadFile: UploadFileArgs => ZIO[Blocking with Uploads, Throwable, File],
     uploadFiles: UploadFilesArgs => ZIO[Blocking with Uploads, Throwable, List[File]]
   )
@@ -103,7 +103,7 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
       Platform.default
     )
 
-  val uri = Uri.unsafeParse("http://127.0.0.1:8089/")
+  val uri: Uri = Uri.unsafeParse("http://127.0.0.1:8089/")
 
   val apiLayer: RLayer[R, Has[Server]] =
     (for {
@@ -120,7 +120,7 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
                        .toManagedZIO
     } yield server).toLayer
 
-  val specLayer = ZLayer.requires[ZEnv] ++ Uploads.empty >>> apiLayer
+  val specLayer: ZLayer[ZEnv with Any,Throwable,Has[Server]] = ZLayer.requires[ZEnv] ++ Uploads.empty >>> apiLayer
 
   def spec: ZSpec[TestEnvironment, Any] =
     suite("Requests")(

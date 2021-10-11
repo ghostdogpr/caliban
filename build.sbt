@@ -1,5 +1,12 @@
 import org.scalajs.linker.interface.ModuleSplitStyle
-import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
+
+ThisBuild / semanticdbEnabled := true
+ThisBuild / semanticdbOptions += "-P:semanticdb:synthetics:on"
+ThisBuild / semanticdbVersion := scalafixSemanticdb.revision // use Scalafix compatible version
+ThisBuild / scalafixScalaBinaryVersion := CrossVersion.binaryScalaVersion(scalaVersion.value)
+ThisBuild / scalafixDependencies ++= List(
+  "com.github.vovapolu" %% "scaluzzi" % "0.1.20"
+)
 
 val scala212 = "2.12.14"
 val scala213 = "2.13.6"
@@ -56,9 +63,11 @@ inThisBuild(
 
 name := "caliban"
 addCommandAlias("fmt", "all scalafmtSbt scalafmt test:scalafmt")
+addCommandAlias("fix", "scalafixAll")
+addCommandAlias("fixCheck", "scalafixAll --check")
 addCommandAlias(
   "check",
-  "all scalafmtSbtCheck scalafmtCheck test:scalafmtCheck"
+  "all scalafmtSbtCheck scalafmtCheck test:scalafmtCheck fixCheck"
 )
 
 lazy val root = project

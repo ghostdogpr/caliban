@@ -36,17 +36,17 @@ object ApolloTracing {
     .ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
     .withZone(ZoneId.of("UTC"))
 
-  case class Parsing(startOffset: Long = 0, duration: Duration = Duration.Zero) {
+  final case class Parsing(startOffset: Long = 0, duration: Duration = Duration.Zero) {
     def toResponseValue: ResponseValue =
       ObjectValue(List("startOffset" -> IntValue(startOffset), "duration" -> IntValue(duration.toNanos)))
   }
 
-  case class Validation(startOffset: Long = 0, duration: Duration = Duration.Zero) {
+  final case class Validation(startOffset: Long = 0, duration: Duration = Duration.Zero) {
     def toResponseValue: ResponseValue =
       ObjectValue(List("startOffset" -> IntValue(startOffset), "duration" -> IntValue(duration.toNanos)))
   }
 
-  case class Resolver(
+  final case class Resolver(
     path: List[Either[String, Int]] = Nil,
     parentType: String = "",
     fieldName: String = "",
@@ -70,7 +70,7 @@ object ApolloTracing {
       )
   }
 
-  case class Execution(resolvers: List[Resolver] = Nil) {
+  final case class Execution(resolvers: List[Resolver] = Nil) {
     def toResponseValue: ResponseValue =
       ObjectValue(
         List(
@@ -79,7 +79,7 @@ object ApolloTracing {
       )
   }
 
-  case class Tracing(
+  final case class Tracing(
     version: Int = 1,
     startTime: Long = 0,
     endTime: Long = 0,

@@ -13,7 +13,7 @@ sealed trait Definition
 object Definition {
   sealed trait ExecutableDefinition extends Definition
   object ExecutableDefinition {
-    case class OperationDefinition(
+    final case class OperationDefinition(
       operationType: OperationType,
       name: Option[String],
       variableDefinitions: List[VariableDefinition],
@@ -21,7 +21,7 @@ object Definition {
       selectionSet: List[Selection]
     ) extends ExecutableDefinition
 
-    case class FragmentDefinition(
+    final case class FragmentDefinition(
       name: String,
       typeCondition: NamedType,
       directives: List[Directive],
@@ -32,14 +32,14 @@ object Definition {
   sealed trait TypeSystemDefinition extends Definition
   object TypeSystemDefinition {
 
-    case class SchemaDefinition(
+    final case class SchemaDefinition(
       directives: List[Directive],
       query: Option[String],
       mutation: Option[String],
       subscription: Option[String]
     ) extends TypeSystemDefinition
 
-    case class DirectiveDefinition(
+    final case class DirectiveDefinition(
       description: Option[String],
       name: String,
       args: List[InputValueDefinition],
@@ -81,7 +81,7 @@ object Definition {
     }
     object TypeDefinition {
 
-      case class ObjectTypeDefinition(
+      final case class ObjectTypeDefinition(
         description: Option[String],
         name: String,
         implements: List[NamedType],
@@ -91,7 +91,7 @@ object Definition {
         override def toString: String = "Object"
       }
 
-      case class InterfaceTypeDefinition(
+      final case class InterfaceTypeDefinition(
         description: Option[String],
         name: String,
         directives: List[Directive],
@@ -100,7 +100,7 @@ object Definition {
         override def toString: String = "Interface"
       }
 
-      case class InputObjectTypeDefinition(
+      final case class InputObjectTypeDefinition(
         description: Option[String],
         name: String,
         directives: List[Directive],
@@ -109,7 +109,7 @@ object Definition {
         override def toString: String = "Input Object"
       }
 
-      case class EnumTypeDefinition(
+      final case class EnumTypeDefinition(
         description: Option[String],
         name: String,
         directives: List[Directive],
@@ -118,7 +118,7 @@ object Definition {
         override def toString: String = "Enum"
       }
 
-      case class UnionTypeDefinition(
+      final case class UnionTypeDefinition(
         description: Option[String],
         name: String,
         directives: List[Directive],
@@ -127,12 +127,12 @@ object Definition {
         override def toString: String = "Union"
       }
 
-      case class ScalarTypeDefinition(description: Option[String], name: String, directives: List[Directive])
+      final case class ScalarTypeDefinition(description: Option[String], name: String, directives: List[Directive])
           extends TypeDefinition {
         override def toString: String = "Scalar"
       }
 
-      case class InputValueDefinition(
+      final case class InputValueDefinition(
         description: Option[String],
         name: String,
         ofType: Type,
@@ -140,7 +140,7 @@ object Definition {
         directives: List[Directive]
       )
 
-      case class FieldDefinition(
+      final case class FieldDefinition(
         description: Option[String],
         name: String,
         args: List[InputValueDefinition],
@@ -148,7 +148,7 @@ object Definition {
         directives: List[Directive]
       )
 
-      case class EnumValueDefinition(description: Option[String], enumValue: String, directives: List[Directive])
+      final case class EnumValueDefinition(description: Option[String], enumValue: String, directives: List[Directive])
 
     }
 
@@ -158,7 +158,7 @@ object Definition {
 
   object TypeSystemExtension {
 
-    case class SchemaExtension(
+    final case class SchemaExtension(
       directives: List[Directive],
       query: Option[String],
       mutation: Option[String],
@@ -169,37 +169,37 @@ object Definition {
 
     object TypeExtension {
 
-      case class ScalarTypeExtension(
+      final case class ScalarTypeExtension(
         name: String,
         directives: List[Directive]
       ) extends TypeExtension
 
-      case class ObjectTypeExtension(
+      final case class ObjectTypeExtension(
         name: String,
         implements: List[NamedType],
         directives: List[Directive],
         fields: List[FieldDefinition]
       ) extends TypeExtension
 
-      case class InterfaceTypeExtension(
+      final case class InterfaceTypeExtension(
         name: String,
         directives: List[Directive],
         fields: List[FieldDefinition]
       ) extends TypeExtension
 
-      case class UnionTypeExtension(
+      final case class UnionTypeExtension(
         name: String,
         directives: List[Directive],
         memberTypes: List[String]
       ) extends TypeExtension
 
-      case class EnumTypeExtension(
+      final case class EnumTypeExtension(
         name: String,
         directives: List[Directive],
         enumValuesDefinition: List[EnumValueDefinition]
       ) extends TypeExtension
 
-      case class InputObjectTypeExtension(
+      final case class InputObjectTypeExtension(
         name: String,
         directives: List[Directive],
         fields: List[InputValueDefinition]

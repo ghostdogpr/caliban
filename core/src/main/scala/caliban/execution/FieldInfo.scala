@@ -2,7 +2,7 @@ package caliban.execution
 
 import caliban.parsing.adt.Directive
 
-case class FieldInfo(
+final case class FieldInfo(
   name: String,
   details: Field,
   path: List[Either[String, Int]],

@@ -9,5 +9,5 @@ private[caliban] final case class ZioWSMessage(id: String, messageType: String, 
 }
 
 object ZioWSMessage {
-  implicit val decoder = DeriveJsonDecoder.gen[ZioWSMessage]
+  implicit val decoder: JsonDecoder[ZioWSMessage] = DeriveJsonDecoder.gen[ZioWSMessage]
 }

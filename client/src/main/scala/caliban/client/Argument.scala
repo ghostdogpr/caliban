@@ -6,7 +6,7 @@ import caliban.client.__Value.__NullValue
 /**
  * Represents an argument in a GraphQL query. Requires an encoder for the argument type.
  */
-case class Argument[+A](name: String, value: A, typeInfo: String)(implicit encoder: ArgEncoder[A]) {
+final case class Argument[+A](name: String, value: A, typeInfo: String)(implicit encoder: ArgEncoder[A]) {
   def toGraphQL(
     useVariables: Boolean,
     dropNullInputValues: Boolean,

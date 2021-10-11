@@ -7,16 +7,17 @@ import sbt.{ Command, State }
 import zio.blocking.Blocking
 import zio.console.{ putStrLn, Console }
 import zio.{ RIO, Runtime }
+import sbt.Def
 
 object CalibanCli {
-  lazy val genSchemaCommand =
+  lazy val genSchemaCommand: Command =
     genCommand(
       "calibanGenSchema",
       genSchemaHelpMsg,
       GenType.Schema
     )
 
-  lazy val genClientCommand =
+  lazy val genClientCommand: Command =
     genCommand(
       "calibanGenClient",
       genClientHelpMsg,
@@ -94,5 +95,5 @@ object CalibanCli {
       case None            => putStrLn(helpMsg)
     }
 
-  def projectSettings = Seq(commands ++= Seq(genSchemaCommand, genClientCommand))
+  def projectSettings: Seq[Def.Setting[Seq[Command]]] = Seq(commands ++= Seq(genSchemaCommand, genClientCommand))
 }

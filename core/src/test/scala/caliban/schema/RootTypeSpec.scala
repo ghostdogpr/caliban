@@ -11,8 +11,8 @@ object RootTypeSpec extends DefaultRunnableSpec {
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("RootTypeSpec")(
       testM("do not override interface") {
-        case class Queries(findCommon: CommonInterface, findInterface: MyInterface, findField: MyField)
-        case class Mutations(createA: String => MyInterface.A, createB: String => MyInterface.B)
+        final case class Queries(findCommon: CommonInterface, findInterface: MyInterface, findField: MyField)
+        final case class Mutations(createA: String => MyInterface.A, createB: String => MyInterface.B)
 
         val interfaceA = MyInterface.A(123, "321")
         val interfaceB = MyInterface.B(234, different = false)
@@ -49,10 +49,10 @@ object RootTypeSpec extends DefaultRunnableSpec {
   @GQLInterface
   sealed trait MyInterface
   object MyInterface {
-    case class A(common: Int, different: String)  extends MyInterface with CommonInterface
-    case class B(common: Int, different: Boolean) extends MyInterface
+    final case class A(common: Int, different: String)  extends MyInterface with CommonInterface
+    final case class B(common: Int, different: Boolean) extends MyInterface
   }
 
-  case class MyField(common: Int) extends CommonInterface
+  final case class MyField(common: Int) extends CommonInterface
 
 }

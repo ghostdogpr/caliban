@@ -24,10 +24,12 @@ import zio.random.Random
 import zio.test._
 import zio.test.Assertion._
 import zio.test.environment.TestEnvironment
+import caliban.schema.Schema
+import sttp.model.Uri
 
-case class Response[A](data: A)
-case class UploadFile(uploadFile: TestAPI.File)
-case class UploadFiles(uploadFiles: List[TestAPI.File])
+final case class Response[A](data: A)
+final case class UploadFile(uploadFile: TestAPI.File)
+final case class UploadFiles(uploadFiles: List[TestAPI.File])
 
 object Service {
   def uploadFile(file: Upload): ZIO[Uploads with Blocking, Throwable, TestAPI.File] =
@@ -56,15 +58,15 @@ object Service {
       )
     )
 
-  def sha256(b: Array[Byte]) =
+  def sha256(b: Array[Byte]): Array[Byte] =
     MessageDigest.getInstance("SHA-256").digest(b)
 
   def hex(b: Array[Byte]): String =
     String.format("%032x", new BigInteger(1, b))
 }
 
-case class UploadFileArgs(file: Upload)
-case class UploadFilesArgs(files: List[Upload])
+final case class UploadFileArgs(file: Upload)
+final case class UploadFilesArgs(files: List[Upload])
 
 object TestAPI extends GenericSchema[Blocking with Uploads with Console with Clock] {
   val api: GraphQL[Blocking with Uploads with Console with Clock] =
@@ -75,15 +77,15 @@ object TestAPI extends GenericSchema[Blocking with Uploads with Console with Clo
       )
     )
 
-  implicit val uploadFileArgsSchema = gen[UploadFileArgs]
-  implicit val mutationsSchema      = gen[Mutations]
-  implicit val queriesSchema        = gen[Queries]
+  implicit val uploadFileArgsSchema: Schema[Blocking with Uploads with Console with Clock,UploadFileArgs] = gen[UploadFileArgs]
+  implicit val mutationsSchema: Schema[Blocking with Uploads with Console with Clock,Mutations]      = gen[Mutations]
+  implicit val queriesSchema: Schema[Blocking with Uploads with Console with Clock,Queries]        = gen[Queries]
 
-  case class File(hash: String, path: String, filename: String, mimetype: String)
+  final case class File(hash: String, path: String, filename: String, mimetype: String)
 
-  case class Queries(stub: Unit => UIO[String])
+  final case class Queries(stub: Unit => UIO[String])
 
-  case class Mutations(
+  final case class Mutations(
     uploadFile: UploadFileArgs => ZIO[Blocking with Uploads, Throwable, File],
     uploadFiles: UploadFilesArgs => ZIO[Blocking with Uploads, Throwable, List[File]]
   )
@@ -96,7 +98,7 @@ object PlayAdapterSpec extends DefaultRunnableSpec {
       Platform.default
     )
 
-  val apiLayer = ZLayer.fromAcquireRelease(
+  val apiLayer: ZLayer[Any,CalibanError.ValidationError,Has[Server]] = ZLayer.fromAcquireRelease(
     for {
       interpreter <- TestAPI.api.interpreter
     } yield AkkaHttpServer.fromRouterWithComponents(
@@ -123,7 +125,7 @@ object PlayAdapterSpec extends DefaultRunnableSpec {
   val specLayer: ZLayer[zio.ZEnv, CalibanError.ValidationError, Has[Server]] =
     Uploads.empty >>> apiLayer
 
-  val uri = uri"http://localhost:8088/api/graphql"
+  val uri: Uri = uri"http://localhost:8088/api/graphql"
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("Requests")(

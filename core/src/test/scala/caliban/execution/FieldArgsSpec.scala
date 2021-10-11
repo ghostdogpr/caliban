@@ -22,10 +22,10 @@ object FieldArgsSpec extends DefaultRunnableSpec {
     case object BLUE  extends COLOR
   }
 
-  override def spec = suite("FieldArgsSpec")(
+  override def spec: Spec[Environment,TestFailure[Any],TestSuccess] = suite("FieldArgsSpec")(
     testM("it forward args of correct type") {
-      case class QueryInput(color: COLOR, string: String)
-      case class Query(query: Field => QueryInput => UIO[String])
+      final case class QueryInput(color: COLOR, string: String)
+      final case class Query(query: Field => QueryInput => UIO[String])
       val query =
         """query{
           |  query(string: "test", color: BLUE)
@@ -53,8 +53,8 @@ object FieldArgsSpec extends DefaultRunnableSpec {
     }
   ) +
     testM("it forward args as correct type from variables") {
-      case class QueryInput(color: COLOR, string: String)
-      case class Query(query: Field => QueryInput => UIO[String])
+      final case class QueryInput(color: COLOR, string: String)
+      final case class Query(query: Field => QueryInput => UIO[String])
       val query =
         """query MyQuery($color: COLOR!) {
           |  query(string: "test", color: $color)

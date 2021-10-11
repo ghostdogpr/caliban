@@ -30,7 +30,7 @@ object WrappersSpec extends DefaultRunnableSpec {
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("WrappersSpec")(
       testM("wrapPureValues false") {
-        case class Test(a: Int, b: UIO[Int])
+        final case class Test(a: Int, b: UIO[Int])
         for {
           ref         <- Ref.make[Int](0)
           wrapper      = new FieldWrapper[Any](false) {
@@ -47,7 +47,7 @@ object WrappersSpec extends DefaultRunnableSpec {
         } yield assert(counter)(equalTo(1))
       },
       testM("wrapPureValues true") {
-        case class Test(a: Int, b: UIO[Int])
+        final case class Test(a: Int, b: UIO[Int])
         for {
           ref         <- Ref.make[Int](0)
           wrapper      = new FieldWrapper[Any](true) {
@@ -64,9 +64,9 @@ object WrappersSpec extends DefaultRunnableSpec {
         } yield assert(counter)(equalTo(2))
       },
       testM("Max fields") {
-        case class A(b: B)
-        case class B(c: Int)
-        case class Test(a: A)
+        final case class A(b: B)
+        final case class B(c: Int)
+        final case class Test(a: A)
         val interpreter = (graphQL(RootResolver(Test(A(B(2))))) @@ maxFields(2)).interpreter
         val query       = gqldoc("""
               {
@@ -81,9 +81,9 @@ object WrappersSpec extends DefaultRunnableSpec {
         )
       },
       testM("Max fields with fragment") {
-        case class A(b: B)
-        case class B(c: Int)
-        case class Test(a: A)
+        final case class A(b: B)
+        final case class B(c: Int)
+        final case class Test(a: A)
         val interpreter = (graphQL(RootResolver(Test(A(B(2))))) @@ maxFields(2)).interpreter
         val query       = gqldoc("""
               query test {
@@ -103,9 +103,9 @@ object WrappersSpec extends DefaultRunnableSpec {
         )
       },
       testM("Max depth") {
-        case class A(b: B)
-        case class B(c: Int)
-        case class Test(a: A)
+        final case class A(b: B)
+        final case class B(c: Int)
+        final case class Test(a: A)
         val interpreter = (graphQL(RootResolver(Test(A(B(2))))) @@ maxDepth(2)).interpreter
         val query       = gqldoc("""
               {
@@ -120,7 +120,7 @@ object WrappersSpec extends DefaultRunnableSpec {
         )
       },
       testM("Timeout") {
-        case class Test(a: URIO[Clock, Int])
+        final case class Test(a: URIO[Clock, Int])
 
         object schema extends GenericSchema[Clock] {
           val interpreter =
@@ -142,8 +142,8 @@ object WrappersSpec extends DefaultRunnableSpec {
               }""".stripMargin))))
       },
       testM("Apollo Tracing") {
-        case class Query(hero: Hero)
-        case class Hero(name: URIO[Clock, String], friends: List[Hero] = Nil)
+        final case class Query(hero: Hero)
+        final case class Hero(name: URIO[Clock, String], friends: List[Hero] = Nil)
 
         object schema extends GenericSchema[Clock] {
           implicit lazy val heroSchema: Schema[Clock, Hero] = schema.gen[Hero]
@@ -190,10 +190,10 @@ object WrappersSpec extends DefaultRunnableSpec {
         )
       },
       testM("Apollo Caching") {
-        case class Query(@GQLDirective(CacheControl(10.seconds)) hero: Hero)
+        final case class Query(@GQLDirective(CacheControl(10.seconds)) hero: Hero)
 
         @GQLDirective(CacheControl(2.seconds))
-        case class Hero(name: URIO[Clock, String], friends: List[Hero] = Nil)
+        final case class Hero(name: URIO[Clock, String], friends: List[Hero] = Nil)
 
         object schema extends GenericSchema[Clock] {
           implicit lazy val heroSchema: Schema[Clock, Hero] = schema.gen[Hero]
@@ -236,7 +236,7 @@ object WrappersSpec extends DefaultRunnableSpec {
       },
       suite("Apollo Persisted Queries")(
         testM("hash not found") {
-          case class Test(test: String)
+          final case class Test(test: String)
           val interpreter = (graphQL(RootResolver(Test("ok"))) @@ apolloPersistedQueries).interpreter
           assertM(
             interpreter
@@ -252,7 +252,7 @@ object WrappersSpec extends DefaultRunnableSpec {
             .provideLayer(ApolloPersistedQueries.live)
         },
         testM("hash found") {
-          case class Test(test: String)
+          final case class Test(test: String)
 
           (for {
             interpreter <- (graphQL(RootResolver(Test("ok"))) @@ apolloPersistedQueries).interpreter

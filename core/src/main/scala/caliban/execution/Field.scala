@@ -10,7 +10,7 @@ import caliban.parsing.adt.Selection.{ FragmentSpread, InlineFragment, Field => 
 import caliban.parsing.adt.{ Directive, LocationInfo, Selection, Type, VariableDefinition }
 import caliban.schema.{ RootType, Types }
 
-case class Field(
+final case class Field(
   name: String,
   fieldType: __Type,
   parentType: Option[__Type],

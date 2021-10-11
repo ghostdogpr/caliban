@@ -7,7 +7,7 @@ sealed trait Selection
 
 object Selection {
 
-  case class Field(
+  final case class Field(
     alias: Option[String],
     name: String,
     arguments: Map[String, InputValue],
@@ -16,9 +16,9 @@ object Selection {
     index: Int
   ) extends Selection
 
-  case class FragmentSpread(name: String, directives: List[Directive]) extends Selection
+  final case class FragmentSpread(name: String, directives: List[Directive]) extends Selection
 
-  case class InlineFragment(
+  final case class InlineFragment(
     typeCondition: Option[NamedType],
     dirs: List[Directive],
     selectionSet: List[Selection]

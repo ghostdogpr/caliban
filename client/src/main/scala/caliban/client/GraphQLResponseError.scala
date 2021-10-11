@@ -9,7 +9,7 @@ import io.circe.{ Decoder, DecodingFailure, HCursor, Json }
  * @param locations line and column that caused the error in the initial query
  * @param path path of the field that caused the error
  */
-case class GraphQLResponseError(
+final case class GraphQLResponseError(
   message: String,
   locations: Option[List[Location]],
   path: Option[List[Either[String, Int]]],
@@ -18,7 +18,7 @@ case class GraphQLResponseError(
 
 object GraphQLResponseError {
 
-  case class Location(line: Int, column: Int)
+  final case class Location(line: Int, column: Int)
 
   implicit val decoderEither: Decoder[Either[String, Int]] = (c: HCursor) =>
     c.value.asNumber.flatMap(_.toInt).map(v => Right(Right(v))) orElse c.value.asString

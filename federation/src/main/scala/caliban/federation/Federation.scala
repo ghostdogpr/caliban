@@ -27,9 +27,9 @@ trait Federation {
       Directive("requires", Map("fields" -> StringValue(fields)))
   }
 
-  val Extend = Directive("extends")
+  val Extend: Directive = Directive("extends")
 
-  val External = Directive("external")
+  val External: Directive = Directive("external")
 
   /**
    * Accepts a GraphQL and returns a GraphQL with the minimum settings to support federation. This variant does not
@@ -40,7 +40,7 @@ trait Federation {
   def federate[R](original: GraphQL[R]): GraphQL[R] = {
     import Schema._
 
-    case class Query(
+    final case class Query(
       _service: _Service,
       _fieldSet: FieldSet = FieldSet("")
     )
@@ -85,13 +85,13 @@ trait Federation {
         )
     }
 
-    case class Query(
+    final case class Query(
       _entities: RepresentationsArgs => List[_Entity],
       _service: ZQuery[Any, Nothing, _Service],
       _fieldSet: FieldSet = FieldSet("")
     )
 
-    case class EmptyQuery(
+    final case class EmptyQuery(
       _service: _Service,
       _fieldSet: FieldSet = FieldSet("")
     )
@@ -156,7 +156,7 @@ object Federation {
     __Directive("extends", None, locations = Set(__DirectiveLocation.OBJECT, __DirectiveLocation.INTERFACE), Nil)
   )
 
-  case class _Any(__typename: String, fields: InputValue)
+  final case class _Any(__typename: String, fields: InputValue)
 
   implicit val anySchema: Schema[Any, _Any] =
     Schema.scalarSchema("_Any", None, _ => NullValue)
@@ -172,7 +172,7 @@ object Federation {
     case other                              => Left(ExecutionError(s"Can't build a _Any from input $other"))
   }
 
-  case class RepresentationsArgs(representations: List[_Any])
+  final case class RepresentationsArgs(representations: List[_Any])
 
   implicit val representationsArgBuilder: ArgBuilder[RepresentationsArgs] = {
     case InputValue.ObjectValue(fields) =>
@@ -185,10 +185,10 @@ object Federation {
 
   }
 
-  case class _Entity(__typename: String, value: InputValue)
+  final case class _Entity(__typename: String, value: InputValue)
 
-  case class FieldSet(fields: String)
-  case class _Service(sdl: String)
+  final case class FieldSet(fields: String)
+  final case class _Service(sdl: String)
 
   implicit val fieldSetSchema: Schema[Any, FieldSet] = Schema.scalarSchema[FieldSet](
     "_FieldSet",

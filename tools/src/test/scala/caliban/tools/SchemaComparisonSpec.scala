@@ -181,9 +181,9 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
           }
             |""".stripMargin
 
-        case class NameArgs(pad: Int)
-        case class Hero(name: NameArgs => String, @GQLDeprecated("some reason") nick: String, bday: Option[Int])
-        case class Query(hero: Hero)
+        final case class NameArgs(pad: Int)
+        final case class Hero(name: NameArgs => String, @GQLDeprecated("some reason") nick: String, bday: Option[Int])
+        final case class Query(hero: Hero)
 
         val api = graphQL(RootResolver(Query(Hero(_ => "name", "nick", None))))
 

@@ -930,7 +930,7 @@ object Validator {
     }
   }
 
-  case class Context(
+  final case class Context(
     document: Document,
     rootType: RootType,
     operations: List[OperationDefinition],

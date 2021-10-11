@@ -193,8 +193,8 @@ object ExecutionSpec extends DefaultRunnableSpec {
       testM("tolerate missing variables") {
         import io.circe.syntax._
 
-        case class Args(term: String, id: Option[String])
-        case class Test(getId: Args => Option[String])
+        final case class Args(term: String, id: Option[String])
+        final case class Test(getId: Args => Option[String])
         val api   = graphQL(RootResolver(Test(_.id)))
         val query = """query test($term: String!, $id: String) { getId(term: $term, id: $id) }"""
 
@@ -205,8 +205,8 @@ object ExecutionSpec extends DefaultRunnableSpec {
       testM("field function") {
         import io.circe.syntax._
 
-        case class Character(name: String = "Bob")
-        case class Test(character: Field => Character)
+        final case class Character(name: String = "Bob")
+        final case class Test(character: Field => Character)
         val api   = graphQL(RootResolver(Test(field => Character())))
         val query = """query test { character { name } }"""
 
@@ -217,9 +217,9 @@ object ExecutionSpec extends DefaultRunnableSpec {
       testM("field function with input") {
         import io.circe.syntax._
 
-        case class NameInput(name: String)
-        case class Character(name: String)
-        case class Test(character: Field => NameInput => Character)
+        final case class NameInput(name: String)
+        final case class Character(name: String)
+        final case class Test(character: Field => NameInput => Character)
         val api   = graphQL(RootResolver(Test(field => input => Character(input.name))))
         val query = """query test { character(name: "Bob") { name }}"""
 
@@ -230,8 +230,8 @@ object ExecutionSpec extends DefaultRunnableSpec {
       testM("error on missing required variables") {
         import io.circe.syntax._
 
-        case class Args(term: String, id: String)
-        case class Test(getId: Args => String)
+        final case class Args(term: String, id: String)
+        final case class Test(getId: Args => String)
         val api   = graphQL(RootResolver(Test(_.id)))
         val query = """query test($term: String!, $id: String!) { getId(term: $term, id: $id) }"""
 
@@ -245,15 +245,15 @@ object ExecutionSpec extends DefaultRunnableSpec {
       },
       testM("""input can contain field named "value"""") {
         import io.circe.syntax._
-        case class NonNegInt(value: Int)
+        final case class NonNegInt(value: Int)
         object NonNegInt {
           implicit val nonNegIntArgBuilder: ArgBuilder[NonNegInt] = ArgBuilder.int.flatMap {
             case i if i > 0 => Right(NonNegInt(i))
             case neg        => Left(CalibanError.ExecutionError(s"$neg is negative"))
           }
         }
-        case class Args(int: NonNegInt, value: String)
-        case class Test(q: Args => Unit)
+        final case class Args(int: NonNegInt, value: String)
+        final case class Test(q: Args => Unit)
 
         val api   = graphQL(RootResolver(Test(_ => ())))
         val query = """query {q(int: -1, value: "value")}"""
@@ -320,7 +320,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         )(equalTo("""{"amos":{"name":"Amos Burton"}}"""))
       },
       testM("test Map") {
-        case class Test(map: Map[Int, String])
+        final case class Test(map: Map[Int, String])
         val interpreter = graphQL(RootResolver(Test(Map(3 -> "ok")))).interpreter
         val query       = gqldoc("""
              {
@@ -335,7 +335,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         )
       },
       testM("test Either") {
-        case class Test(either: Either[Int, String])
+        final case class Test(either: Either[Int, String])
         val interpreter = graphQL(RootResolver(Test(Right("ok")))).interpreter
         val query       = gqldoc("""
              {
@@ -350,8 +350,8 @@ object ExecutionSpec extends DefaultRunnableSpec {
         )
       },
       testM("test UUID") {
-        case class IdArgs(id: UUID)
-        case class Queries(test: IdArgs => UUID)
+        final case class IdArgs(id: UUID)
+        final case class Queries(test: IdArgs => UUID)
         val interpreter = graphQL(RootResolver(Queries(_.id))).interpreter
         val query       = gqldoc("""
              {
@@ -364,7 +364,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
       },
       testM("mapError") {
         import io.circe.syntax._
-        case class Test(either: Either[Int, String])
+        final case class Test(either: Either[Int, String])
         val api   = graphQL(RootResolver(Test(Right("ok"))))
         val query = """query{}"""
 
@@ -376,7 +376,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
       },
       testM("customErrorEffectSchema") {
         import io.circe.syntax._
-        case class Test(test: IO[Int, String])
+        final case class Test(test: IO[Int, String])
 
         implicit def customEffectSchema[A](implicit s: Schema[Any, A]): Schema[Any, IO[Int, A]] =
           Schema.customErrorEffectSchema((i: Int) => ExecutionError(s"my custom error $i"))
@@ -394,8 +394,8 @@ object ExecutionSpec extends DefaultRunnableSpec {
         )
       },
       testM("merge 2 APIs") {
-        case class Test(name: String)
-        case class Test2(id: Int)
+        final case class Test(name: String)
+        final case class Test2(id: Int)
         val api1        = graphQL(RootResolver(Test("name")))
         val api2        = graphQL(RootResolver(Test2(2)))
         val interpreter = (api1 |+| api2).interpreter
@@ -407,9 +407,9 @@ object ExecutionSpec extends DefaultRunnableSpec {
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"name":"name","id":2}"""))
       },
       testM("error path") {
-        case class A(b: B)
-        case class B(c: IO[Throwable, Int])
-        case class Test(a: A)
+        final case class A(b: B)
+        final case class B(c: IO[Throwable, Int])
+        final case class Test(a: A)
         val e           = new Exception("boom")
         val interpreter = graphQL(RootResolver(Test(A(B(IO.fail(e)))))).interpreter
         val query       = gqldoc("""
@@ -434,7 +434,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         )
       },
       testM("ZStream used in a query") {
-        case class Queries(test: ZStream[Any, Throwable, Int])
+        final case class Queries(test: ZStream[Any, Throwable, Int])
         val interpreter = graphQL(RootResolver(Queries(ZStream(1, 2, 3)))).interpreter
         val query       = gqldoc("""
              {
@@ -444,8 +444,8 @@ object ExecutionSpec extends DefaultRunnableSpec {
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":[1,2,3]}"""))
       },
       testM("ZStream used in a subscription") {
-        case class Queries(test: Int)
-        case class Subscriptions(test: ZStream[Any, Throwable, Int])
+        final case class Queries(test: Int)
+        final case class Subscriptions(test: ZStream[Any, Throwable, Int])
         val interpreter =
           graphQL(RootResolver(Queries(1), Option.empty[Unit], Subscriptions(ZStream(1, 2, 3)))).interpreter
         val query       = gqldoc("""
@@ -458,7 +458,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
       testM("Circe Json scalar") {
         import caliban.interop.circe.json._
         import io.circe.Json
-        case class Queries(test: Json)
+        final case class Queries(test: Json)
 
         val interpreter = graphQL(RootResolver(Queries(Json.obj(("a", Json.fromInt(333)))))).interpreter
         val query       = gqldoc("""
@@ -469,7 +469,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":{"a":333}}"""))
       },
       testM("test Interface") {
-        case class Test(i: Interface)
+        final case class Test(i: Interface)
         val interpreter = graphQL(RootResolver(Test(Interface.B("ok")))).interpreter
         val query       = gqldoc("""
              {
@@ -483,10 +483,10 @@ object ExecutionSpec extends DefaultRunnableSpec {
       testM("rename on a union child") {
         sealed trait Union
         object Union {
-          case class Child(field: String) extends Union
+          final case class Child(field: String) extends Union
         }
-        case class Obj(union: Union)
-        case class Query(test: Obj)
+        final case class Obj(union: Union)
+        final case class Query(test: Obj)
 
         object Schemas {
           implicit val schemaUnionChild: Schema[Any, Union.Child] = Schema.gen[Union.Child].rename("UnionChild")
@@ -515,10 +515,10 @@ object ExecutionSpec extends DefaultRunnableSpec {
       testM("rename on a union child and parent") {
         sealed trait Union
         object Union {
-          case class Child(field: String) extends Union
+          final case class Child(field: String) extends Union
         }
-        case class Obj(union: Union)
-        case class Query(test: Obj)
+        final case class Obj(union: Union)
+        final case class Query(test: Obj)
 
         object Schemas {
           implicit val schemaUnionChild: Schema[Any, Union.Child] = Schema.gen[Union.Child].rename("UnionChild")
@@ -547,11 +547,11 @@ object ExecutionSpec extends DefaultRunnableSpec {
       testM("rename on a union child and parent") {
         sealed trait Union
         object Union {
-          case class Child(field: String) extends Union
+          final case class Child(field: String) extends Union
           case object ChildO              extends Union
         }
-        case class Obj(union: Union)
-        case class Query(test: Obj)
+        final case class Obj(union: Union)
+        final case class Query(test: Obj)
 
         object Schemas {
           implicit val schemaUnionChild: Schema[Any, Union.Child]        = Schema.gen[Union.Child].rename("UnionChild")
@@ -577,7 +577,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         )
       },
       testM("argument not wrapped in a case class") {
-        case class Query(test: Int => Int)
+        final case class Query(test: Int => Int)
         val api         = graphQL(RootResolver(Query(identity)))
         val interpreter = api.interpreter
         val query       =
@@ -587,7 +587,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":1}"""))
       },
       testM("field name customization") {
-        case class Query(@GQLName("test2") test: Int)
+        final case class Query(@GQLName("test2") test: Int)
         val api         = graphQL(RootResolver(Query(1)))
         val interpreter = api.interpreter
         val query       =
@@ -597,9 +597,9 @@ object ExecutionSpec extends DefaultRunnableSpec {
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test2":1}"""))
       },
       testM("die bubbles to the parent") {
-        case class UserArgs(id: Int)
-        case class User(name: String, friends: ZIO[Any, Nothing, List[String]])
-        case class Queries(user: UserArgs => ZIO[Any, Throwable, User])
+        final case class UserArgs(id: Int)
+        final case class User(name: String, friends: ZIO[Any, Nothing, List[String]])
+        final case class Queries(user: UserArgs => ZIO[Any, Throwable, User])
         val api         = graphQL(
           RootResolver(
             Queries(args =>
@@ -637,10 +637,10 @@ object ExecutionSpec extends DefaultRunnableSpec {
           )
       },
       testM("failure in ArgBuilder, optional field") {
-        case class UserArgs(id: Int)
-        case class User(test: UserArgs => String)
-        case class Mutations(user: Task[User])
-        case class Queries(a: Int)
+        final case class UserArgs(id: Int)
+        final case class User(test: UserArgs => String)
+        final case class Mutations(user: Task[User])
+        final case class Queries(a: Int)
         val api = graphQL(RootResolver(Queries(1), Mutations(ZIO.succeed(User(_.toString)))))
 
         val interpreter = api.interpreter
@@ -655,10 +655,10 @@ object ExecutionSpec extends DefaultRunnableSpec {
           .map(result => assert(result.data.toString)(equalTo("""{"user":null}""")))
       },
       testM("failure in ArgBuilder, non optional field") {
-        case class UserArgs(id: Int)
-        case class User(test: UserArgs => String)
-        case class Mutations(user: UIO[User])
-        case class Queries(a: Int)
+        final case class UserArgs(id: Int)
+        final case class User(test: UserArgs => String)
+        final case class Mutations(user: UIO[User])
+        final case class Queries(a: Int)
         val api = graphQL(RootResolver(Queries(1), Mutations(ZIO.succeed(User(_.toString)))))
 
         val interpreter = api.interpreter
@@ -673,7 +673,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
           .map(result => assert(result.data.toString)(equalTo("""null""")))
       },
       testM("die inside a nullable list") {
-        case class Queries(test: List[Task[String]])
+        final case class Queries(test: List[Task[String]])
         val api         = graphQL(RootResolver(Queries(List(ZIO.succeed("a"), ZIO.die(new Exception("Boom"))))))
         val interpreter = api.interpreter
         val query       =
@@ -685,7 +685,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         )
       },
       testM("die inside a non-nullable list") {
-        case class Queries(test: Task[List[UIO[String]]])
+        final case class Queries(test: Task[List[UIO[String]]])
         val api         = graphQL(RootResolver(Queries(Task(List(ZIO.succeed("a"), ZIO.die(new Exception("Boom")))))))
         val interpreter = api.interpreter
         val query       =
@@ -699,10 +699,10 @@ object ExecutionSpec extends DefaultRunnableSpec {
       testM("fake field") {
         sealed trait A
         object A {
-          case class B(b: Int) extends A
+          final case class B(b: Int) extends A
           case object C        extends A
         }
-        case class Query(test: A)
+        final case class Query(test: A)
         implicit val schemaB: Schema[Any, A.B] = Schema.gen
         implicit val schemaC: Schema[Any, A.C.type]          = Schema.gen
         implicit val schemaCharacter: Schema[Any, Character] = Schema.gen
@@ -728,20 +728,20 @@ object ExecutionSpec extends DefaultRunnableSpec {
           def name: String
         }
         object Character       {
-          case class Human(
+          final case class Human(
             id: String,
             name: String,
             height: Int
           ) extends Character
 
-          case class Droid(
+          final case class Droid(
             id: String,
             name: String,
             primaryFunction: String
           ) extends Character
         }
 
-        case class Starship(
+        final case class Starship(
           id: String,
           name: String,
           length: Float
@@ -773,8 +773,8 @@ object ExecutionSpec extends DefaultRunnableSpec {
             }
         }
 
-        case class SearchArgs(text: String)
-        case class Query(search: SearchArgs => List[SearchResult])
+        final case class SearchArgs(text: String)
+        final case class Query(search: SearchArgs => List[SearchResult])
 
         object CustomSchema {
           implicit val schemaHuman: Schema[Any, Character.Human]     = Schema.gen
@@ -825,14 +825,14 @@ object ExecutionSpec extends DefaultRunnableSpec {
       },
       testM("hand-rolled recursive schema") {
         import Schema._
-        case class Group(
+        final case class Group(
           id: String,
           parent: UIO[Option[Group]],
           organization: UIO[Organization]
         )
-        case class Organization(id: String, groups: UIO[List[Group]])
+        final case class Organization(id: String, groups: UIO[List[Group]])
 
-        case class Query(
+        final case class Query(
           organization: String => UIO[Organization]
         )
 
@@ -894,11 +894,11 @@ object ExecutionSpec extends DefaultRunnableSpec {
       },
       testM("hand-rolled recursive lazy schema") {
         import Schema._
-        case class Foo(id: Int) {
+        final case class Foo(id: Int) {
           def bar(): Bar = Bar(234)
         }
 
-        case class Bar(id: Int) {
+        final case class Bar(id: Int) {
           def foo(): Foo = Foo(123)
         }
 
@@ -916,7 +916,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
           )
         )
 
-        case class Queries(foos: Seq[Foo])
+        final case class Queries(foos: Seq[Foo])
 
         val queries: Queries = Queries(Seq(Foo(123)))
 
@@ -941,14 +941,14 @@ object ExecutionSpec extends DefaultRunnableSpec {
       testM("union redirect") {
         sealed trait Foo
 
-        case class Bar(int: Int, common: Boolean) extends Foo
+        final case class Bar(int: Int, common: Boolean) extends Foo
 
-        case class Baz(value: String, common: Boolean)
+        final case class Baz(value: String, common: Boolean)
 
         @GQLValueType
-        case class Redirect(baz: Baz) extends Foo
+        final case class Redirect(baz: Baz) extends Foo
 
-        case class Queries(foos: List[Foo])
+        final case class Queries(foos: List[Foo])
 
         val queries = Queries(
           List(

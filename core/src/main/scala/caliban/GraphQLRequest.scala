@@ -7,7 +7,7 @@ import caliban.interop.circe.{ IsCirceDecoder, IsCirceEncoder }
 /**
  * Represents a GraphQL request, containing a query, an operation name and a map of variables.
  */
-case class GraphQLRequest(
+final case class GraphQLRequest(
   query: Option[String] = None,
   operationName: Option[String] = None,
   variables: Option[Map[String, InputValue]] = None,

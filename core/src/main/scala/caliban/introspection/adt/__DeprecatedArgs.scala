@@ -1,3 +1,3 @@
 package caliban.introspection.adt
 
-case class __DeprecatedArgs(includeDeprecated: Option[Boolean] = None)
+final case class __DeprecatedArgs(includeDeprecated: Option[Boolean] = None)

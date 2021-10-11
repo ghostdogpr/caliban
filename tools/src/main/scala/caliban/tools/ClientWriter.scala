@@ -830,13 +830,13 @@ object ClientWriter {
     case ListType(ofType, _) => getTypeName(ofType)
   }
 
-  val supportedScalars =
+  val supportedScalars: Set[String] =
     Set("Int", "Float", "Double", "Long", "Unit", "String", "Boolean", "BigInt", "BigDecimal")
 
   def isScalarSupported(scalar: String)(implicit scalarMappings: ScalarMappings): Boolean =
     supportedScalars.contains(scalar) || scalarMappings.map(_.contains(scalar)).getOrElse(false)
 
-  val reservedKeywords = Set(
+  val reservedKeywords: Set[String] = Set(
     "abstract",
     "case",
     "catch",
@@ -880,7 +880,7 @@ object ClientWriter {
     "_"
   )
 
-  val caseClassReservedFields =
+  val caseClassReservedFields: Set[String] =
     Set("wait", "notify", "toString", "notifyAll", "hashCode", "getClass", "finalize", "equals", "clone")
 
   final case class FieldTypeInfo(

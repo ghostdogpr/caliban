@@ -4,7 +4,7 @@ import caliban.Value.StringValue
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{ FieldDefinition, InputValueDefinition }
 import caliban.parsing.adt.Directive
 
-case class __Field(
+final case class __Field(
   name: String,
   description: Option[String],
   args: List[__InputValue],

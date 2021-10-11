@@ -6,7 +6,7 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.{ DirectiveDefinition, SchemaDefinition, TypeDefinition }
 import caliban.parsing.adt.OperationType.{ Mutation, Query, Subscription }
 
-case class Document(definitions: List[Definition], sourceMapper: SourceMapper) {
+final case class Document(definitions: List[Definition], sourceMapper: SourceMapper) {
   lazy val directiveDefinitions: List[DirectiveDefinition]             = definitions.collect { case dd: DirectiveDefinition =>
     dd
   }

@@ -10,22 +10,22 @@ trait SchemaLoader {
 }
 
 object SchemaLoader {
-  case class FromCaliban private (api: GraphQL[_])                                          extends SchemaLoader {
+  final case class FromCaliban private (api: GraphQL[_])                                          extends SchemaLoader {
     override def load: Task[Document] = UIO(api.toDocument)
   }
-  case class FromDocument private (doc: Document)                                           extends SchemaLoader {
+  final case class FromDocument private (doc: Document)                                           extends SchemaLoader {
     override def load: Task[Document] = UIO(doc)
   }
-  case class FromFile private (path: String)                                                extends SchemaLoader {
+  final case class FromFile private (path: String)                                                extends SchemaLoader {
     override def load: Task[Document] =
       Task(scala.io.Source.fromFile(path))
         .bracket(f => UIO(f.close()), f => Task(f.mkString))
         .flatMap(Parser.parseQuery)
   }
-  case class FromString private (schema: String)                                            extends SchemaLoader {
+  final case class FromString private (schema: String)                                            extends SchemaLoader {
     override def load: Task[Document] = Parser.parseQuery(schema)
   }
-  case class FromIntrospection private (url: String, headers: Option[List[Options.Header]]) extends SchemaLoader {
+  final case class FromIntrospection private (url: String, headers: Option[List[Options.Header]]) extends SchemaLoader {
     override def load: Task[Document] = IntrospectionClient.introspect(url, headers)
   }
 

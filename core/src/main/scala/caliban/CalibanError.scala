@@ -17,7 +17,7 @@ object CalibanError extends CalibanErrorJsonCompat {
   /**
    * Describes an error that happened while parsing a query.
    */
-  case class ParsingError(
+  final case class ParsingError(
     msg: String,
     locationInfo: Option[LocationInfo] = None,
     innerThrowable: Option[Throwable] = None,
@@ -30,7 +30,7 @@ object CalibanError extends CalibanErrorJsonCompat {
   /**
    * Describes an error that happened while validating a query.
    */
-  case class ValidationError(
+  final case class ValidationError(
     msg: String,
     explanatoryText: String,
     locationInfo: Option[LocationInfo] = None,
@@ -42,7 +42,7 @@ object CalibanError extends CalibanErrorJsonCompat {
   /**
    * Describes an error that happened while executing a query.
    */
-  case class ExecutionError(
+  final case class ExecutionError(
     msg: String,
     path: List[Either[String, Int]] = Nil,
     locationInfo: Option[LocationInfo] = None,

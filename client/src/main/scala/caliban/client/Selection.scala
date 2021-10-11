@@ -3,9 +3,9 @@ package caliban.client
 sealed trait Selection
 
 object Selection {
-  case class InlineFragment(onType: String, selectionSet: List[Selection]) extends Selection
+  final case class InlineFragment(onType: String, selectionSet: List[Selection]) extends Selection
 
-  case class Field(
+  final case class Field(
     alias: Option[String],
     name: String,
     arguments: List[Argument[_]],
@@ -14,7 +14,7 @@ object Selection {
     code: Int
   ) extends Selection
 
-  case class Directive(name: String, arguments: List[Argument[_]] = Nil) {
+  final case class Directive(name: String, arguments: List[Argument[_]] = Nil) {
     def toGraphQL(
       useVariables: Boolean,
       dropNullInputValues: Boolean,

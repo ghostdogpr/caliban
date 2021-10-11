@@ -31,8 +31,8 @@ object SchemaSpec extends DefaultRunnableSpec {
         )
       },
       test("tricky case with R") {
-        case class Field(value: ZQuery[Console, Nothing, String])
-        case class Queries(field: ZQuery[Blocking, Nothing, Field])
+        final case class Field(value: ZQuery[Console, Nothing, String])
+        final case class Queries(field: ZQuery[Blocking, Nothing, Field])
         object MySchema extends GenericSchema[Console with Blocking] {
           implicit lazy val queriesSchema: Schema[Console with Blocking, Queries] = gen
         }
@@ -46,17 +46,17 @@ object SchemaSpec extends DefaultRunnableSpec {
         )
       },
       test("nested input fields") {
-        case class Queries(a: A => Unit)
-        case class A(b: B)
-        case class B(c: C)
-        case class C(d: Int)
+        final case class Queries(a: A => Unit)
+        final case class A(b: B)
+        final case class B(c: C)
+        final case class C(d: Int)
         assert(Types.collectTypes(introspect[Queries]).map(_.name.getOrElse("")))(
           contains("BInput") && contains("CInput")
         )
       },
       test("nested types") {
-        case class Queries(a: Generic[Option[Double]], b: Generic[Option[Int]])
-        case class Generic[T](value: T)
+        final case class Queries(a: Generic[Option[Double]], b: Generic[Option[Int]])
+        final case class Generic[T](value: T)
         assert(Types.collectTypes(introspect[Queries]).map(_.name.getOrElse("")))(
           contains("GenericOptionDouble") && contains("GenericOptionInt")
         )
@@ -64,11 +64,11 @@ object SchemaSpec extends DefaultRunnableSpec {
       test("nested types with explicit schema in companion object") {
         object blockingSchema extends GenericSchema[Blocking] {
 
-          case class A(s: String)
+          final case class A(s: String)
           object A {
             implicit val aSchema: Schema[Blocking, A] = gen[A]
           }
-          case class B(a: List[Option[A]])
+          final case class B(a: List[Option[A]])
 
           A.aSchema.toType_()
 
@@ -101,36 +101,36 @@ object SchemaSpec extends DefaultRunnableSpec {
       },
       test("field with Json object [circe]") {
         import caliban.interop.circe.json._
-        case class Queries(to: io.circe.Json, from: io.circe.Json => Unit)
+        final case class Queries(to: io.circe.Json, from: io.circe.Json => Unit)
 
         assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
           isSome(hasField[__Type, String]("to", _.ofType.flatMap(_.name).get, equalTo("Json")))
         )
       },
       test("ZStream in a Query returns a list type") {
-        case class Query(a: ZStream[Any, Throwable, Int])
+        final case class Query(a: ZStream[Any, Throwable, Int])
 
         assert(introspect[Query].fields(__DeprecatedArgs()).flatMap(_.headOption).map(_.`type`().kind))(
           isSome(equalTo(__TypeKind.LIST))
         )
       },
       test("ZStream in a Subscription doesn't return a list type") {
-        case class Query(a: ZStream[Any, Throwable, Int])
+        final case class Query(a: ZStream[Any, Throwable, Int])
 
         assert(introspectSubscription[Query].fields(__DeprecatedArgs()).flatMap(_.headOption).map(_.`type`().kind))(
           isSome(equalTo(__TypeKind.SCALAR))
         )
       },
       test("rename") {
-        case class Something(b: Int)
-        case class Query(something: Something)
+        final case class Something(b: Int)
+        final case class Query(something: Something)
 
         implicit val somethingSchema: Schema[Any, Something] = Schema.gen[Something].rename("SomethingElse")
 
         assert(Types.innerType(introspectSubscription[Something]).name)(isSome(equalTo("SomethingElse")))
       },
       test("union redirect") {
-        case class Queries(union: RedirectingUnion)
+        final case class Queries(union: RedirectingUnion)
 
         implicit val queriesSchema: Schema[Any, Queries] = Schema.gen[Queries]
 
@@ -149,16 +149,16 @@ object SchemaSpec extends DefaultRunnableSpec {
       }
     )
 
-  case class EffectfulFieldSchema(q: Task[Int])
-  case class InfallibleFieldSchema(q: UIO[Int])
-  case class FutureFieldSchema(q: Future[Int])
-  case class IDSchema(id: UUID)
+  final case class EffectfulFieldSchema(q: Task[Int])
+  final case class InfallibleFieldSchema(q: UIO[Int])
+  final case class FutureFieldSchema(q: Future[Int])
+  final case class IDSchema(id: UUID)
 
   @GQLInterface
   sealed trait MyInterface
   object MyInterface {
-    case class A(common: Int, different: String)  extends MyInterface
-    case class B(common: Int, different: Boolean) extends MyInterface
+    final case class A(common: Int, different: String)  extends MyInterface
+    final case class B(common: Int, different: Boolean) extends MyInterface
   }
 
   @GQLUnion
@@ -172,12 +172,12 @@ object SchemaSpec extends DefaultRunnableSpec {
   sealed trait RedirectingUnion
 
   object RedirectingUnion {
-    case class B(common: Int)
+    final case class B(common: Int)
 
-    case class A(common: Int) extends RedirectingUnion
+    final case class A(common: Int) extends RedirectingUnion
 
     @GQLValueType
-    case class Redirect(value: B) extends RedirectingUnion
+    final case class Redirect(value: B) extends RedirectingUnion
   }
 
   @GQLInterface

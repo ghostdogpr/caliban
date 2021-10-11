@@ -7,7 +7,7 @@ import caliban.InputValue._
 import caliban.Value.FloatValue._
 import caliban.Value.IntValue._
 
-case class RemoteQuery(field: Field) { self =>
+final case class RemoteQuery(field: Field) { self =>
   def toGraphQLRequest: GraphQLRequest =
     GraphQLRequest(query =
       Some(
@@ -16,7 +16,7 @@ case class RemoteQuery(field: Field) { self =>
     )
 }
 
-case class RemoteMutation(field: Field) { self =>
+final case class RemoteMutation(field: Field) { self =>
   def toGraphQLRequest: GraphQLRequest =
     GraphQLRequest(query =
       Some(

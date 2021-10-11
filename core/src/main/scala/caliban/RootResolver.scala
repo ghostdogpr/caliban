@@ -5,7 +5,7 @@ package caliban
  *
  * A `resolver` is a simple value of the case class describing the API.
  */
-case class RootResolver[+Query, +Mutation, +Subscription](
+final case class RootResolver[+Query, +Mutation, +Subscription](
   queryResolver: Option[Query],
   mutationResolver: Option[Mutation],
   subscriptionResolver: Option[Subscription]

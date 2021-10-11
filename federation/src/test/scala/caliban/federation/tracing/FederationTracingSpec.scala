@@ -20,20 +20,22 @@ import mdg.engine.proto.reports.Trace.Node.Id
 import mdg.engine.proto.reports.Trace.Node.Id.{ Index, ResponseName }
 
 import java.util.Base64
+import zio.Has
+import zio.test.environment.Live
 
 object FederationTracingSpec extends DefaultRunnableSpec with GenericSchema[Clock] {
 
-  case class Parent(name: String)
-  case class Name(first: String, last: Option[String])
+  final case class Parent(name: String)
+  final case class Name(first: String, last: Option[String])
 
-  case class User(
+  final case class User(
     id: String,
     username: URIO[Clock, Name],
     age: Int,
     parents: UIO[List[Parent]]
   )
 
-  case class Queries(me: ZQuery[Any, Nothing, User])
+  final case class Queries(me: ZQuery[Any, Nothing, User])
 
   val api: GraphQL[Clock] = GraphQL.graphQL(
     RootResolver(
@@ -50,8 +52,8 @@ object FederationTracingSpec extends DefaultRunnableSpec with GenericSchema[Cloc
     )
   ) @@ ApolloFederatedTracing.wrapper
 
-  val query = gqldoc("query { me { id username { first, family: last } parents { name } age } }")
-  val body  = ObjectValue(
+  val query: String = gqldoc("query { me { id username { first, family: last } parents { name } age } }")
+  val body: ObjectValue  = ObjectValue(
     List(
       "me" -> ObjectValue(
         List(
@@ -89,7 +91,7 @@ object FederationTracingSpec extends DefaultRunnableSpec with GenericSchema[Cloc
     )
 
   // format: off
-  val expectedTrace = Trace(
+  val expectedTrace: Trace = Trace(
     Some(Timestamp(1,0)),
     Some(Timestamp(1,100000000)),
     100000000,
@@ -119,9 +121,9 @@ object FederationTracingSpec extends DefaultRunnableSpec with GenericSchema[Cloc
   )
   // format: on
 
-  def parseTrace(trace: String) = Trace.parseFrom(Base64.getDecoder.decode(trace))
+  def parseTrace(trace: String): Trace = Trace.parseFrom(Base64.getDecoder.decode(trace))
 
-  override def spec =
+  override def spec: ZSpec[Has[Clock.Service] with Has[TestClock.Service] with Annotations with TestConfig with ZTestEnv with Live with Annotations,Any] =
     suite("Federation Tracing")(
       testM("disabled by default") {
         for {

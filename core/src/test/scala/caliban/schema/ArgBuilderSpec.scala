@@ -9,7 +9,7 @@ import caliban.InputValue
 import caliban.InputValue.ObjectValue
 
 object ArgBuilderSpec extends DefaultRunnableSpec {
-  def spec = suite("ArgBuilder")(
+  def spec: ZSpec[Environment,Failure] = suite("ArgBuilder")(
     suite("orElse")(
       test("handles failures")(
         assert((ArgBuilder.instant orElse ArgBuilder.instantEpoch).build(IntValue.LongNumber(100)))(
@@ -62,7 +62,7 @@ object ArgBuilderSpec extends DefaultRunnableSpec {
     suite("buildMissing")(
       test("works with derived case class ArgBuilders") {
         sealed abstract class Nullable[+T]
-        case class SomeNullable[+T](t: T) extends Nullable[T]
+        final case class SomeNullable[+T](t: T) extends Nullable[T]
         case object NullNullable          extends Nullable[Nothing]
         case object MissingNullable       extends Nullable[Nothing]
 
@@ -77,7 +77,7 @@ object ArgBuilderSpec extends DefaultRunnableSpec {
               Right(MissingNullable)
           }
 
-        case class Wrapper(a: Nullable[String])
+        final case class Wrapper(a: Nullable[String])
 
         val deriviedAB = implicitly[ArgBuilder[Wrapper]]
 

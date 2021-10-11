@@ -92,7 +92,7 @@ object Wrapper {
    * Wrapper that combines multiple wrappers.
    * @param wrappers a list of wrappers
    */
-  case class CombinedWrapper[-R](wrappers: List[Wrapper[R]]) extends Wrapper[R] {
+  final case class CombinedWrapper[-R](wrappers: List[Wrapper[R]]) extends Wrapper[R] {
     override def |+|[R1 <: R](that: Wrapper[R1]): Wrapper[R1] = that match {
       case CombinedWrapper(other) => copy(wrappers = wrappers ++ other)
       case other                  => copy(wrappers = wrappers :+ other)
@@ -104,7 +104,7 @@ object Wrapper {
    * A wrapper that requires an effect to be built. The effect will be run for each query.
    * @param wrapper an effect that builds a wrapper
    */
-  case class EffectfulWrapper[-R](wrapper: UIO[Wrapper[R]]) extends Wrapper[R]
+  final case class EffectfulWrapper[-R](wrapper: UIO[Wrapper[R]]) extends Wrapper[R]
 
   private[caliban] def wrap[R1 >: R, R, E, A, Info](
     process: Info => ZIO[R1, E, A]

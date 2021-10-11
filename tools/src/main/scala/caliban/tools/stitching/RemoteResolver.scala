@@ -10,7 +10,7 @@ import sttp.client3._
 import sttp.client3.circe._
 import sttp.client3.asynchttpclient.zio._
 
-case class RemoteResolver[-R, +E, -A, +B](
+final case class RemoteResolver[-R, +E, -A, +B](
   run: A => ZIO[R, E, B]
 ) { self =>
   def mapM[R1 <: R, E1 >: E, A1 <: A, C1](bc: B => ZIO[R1, E1, C1]): RemoteResolver[R1, E1, A, C1] =

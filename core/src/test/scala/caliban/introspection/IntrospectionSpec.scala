@@ -15,7 +15,7 @@ import zio.test.environment.TestEnvironment
 
 object IntrospectionSpec extends DefaultRunnableSpec {
 
-  val fullIntrospectionQuery = gqldoc("""
+  val fullIntrospectionQuery: String = gqldoc("""
         query IntrospectionQuery {
           __schema {
             queryType { name }

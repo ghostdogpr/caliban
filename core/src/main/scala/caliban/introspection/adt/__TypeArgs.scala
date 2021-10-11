@@ -1,3 +1,3 @@
 package caliban.introspection.adt
 
-case class __TypeArgs(name: String)
+final case class __TypeArgs(name: String)

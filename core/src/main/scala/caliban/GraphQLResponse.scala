@@ -6,7 +6,7 @@ import caliban.interop.circe._
 /**
  * Represents the result of a GraphQL query, containing a data object and a list of errors.
  */
-case class GraphQLResponse[+E](data: ResponseValue, errors: List[E], extensions: Option[ObjectValue] = None)
+final case class GraphQLResponse[+E](data: ResponseValue, errors: List[E], extensions: Option[ObjectValue] = None)
 
 object GraphQLResponse extends GraphQLResponseJsonCompat {
   implicit def circeEncoder[F[_]: IsCirceEncoder, E]: F[GraphQLResponse[E]] =
