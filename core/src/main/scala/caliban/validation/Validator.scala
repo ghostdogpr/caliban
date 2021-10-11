@@ -366,69 +366,17 @@ object Validator {
         }
       case InlineFragment(typeCondition, _, selectionSet) =>
         validateSpread(context, None, currentType, typeCondition, selectionSet)
-    } *> validateLeafFieldSelection(selectionSet, currentType) *> validateFragmentFields(
+    } *> validateLeafFieldSelection(selectionSet, currentType) *> FragmentValidator.findConflictsWithinSelectionSet(
       context,
-      selectionSet,
-      currentType
+      currentType,
+      selectionSet
     )
 
-  // 5.3.2
-  private def validateFragmentFields(
-    context: Context,
-    selectionSet: List[Selection],
-    currentType: __Type
-  ): IO[ValidationError, Unit] = {
-    type CanMerge = (Map[String, InputValue], Type)
-
-    def expandFragments(set: List[Selection]): List[(String, CanMerge)] = {
-      def fieldsForFragment(currentType: __Type, typeCondition: Option[NamedType], set: List[Selection]) =
-        typeCondition.fold(Option(currentType))(t => context.rootType.types.get(t.name)) match {
-          case Some(t) => _expandFragments(set, t)
-          case None    => List.empty
-        }
-
-      def _expandFragments(set: List[Selection], currentType: __Type): List[(String, CanMerge)] =
-        set
-          .flatMap({
-            case f: Field =>
-              currentType
-                .fields(__DeprecatedArgs(Some(true)))
-                .flatMap(
-                  _.find(_.name == f.name).map(_.`type`())
-                )
-                .map { typ =>
-                  (f.alias.getOrElse(f.name), (f.arguments, typ.toType(!typ.isNullable)))
-                }
-
-            case InlineFragment(typeCondition, dirs, selectionSet) =>
-              fieldsForFragment(currentType, typeCondition, selectionSet)
-
-            case FragmentSpread(name, _) =>
-              context.fragments
-                .get(name)
-                .map(f => fieldsForFragment(currentType, Some(f.typeCondition), f.selectionSet))
-                .getOrElse(List.empty)
-          })
-
-      _expandFragments(set, currentType)
-    }
-
-    val fields = expandFragments(selectionSet).foldLeft(Map.empty[String, Set[CanMerge]])({ case (acc, item) =>
-      val v = acc.get(item._1).map(_ + item._2).getOrElse(Set(item._2))
-      acc.updated(item._1, v)
-    })
-
-    IO.foreach_(fields)({ case (name, types) =>
-      IO.when(types.size > 1)(
-        failValidation(
-          s"Selection ${name} in '${Rendering.renderTypeName(
-            currentType
-          )}' is not valid since selections are of different types '${types.map(_._2.toString()).mkString(", ")}'",
-          "All selections within fragmens with the same name must be of the same type. Try using an alias for one of the fragments."
-        )
-      )
-    })
-  }
+  // FragmentValidator.mergeFieldsInSelectionSet(
+  //   context,
+  //   selectionSet,
+  //   currentType
+  // )
 
   private def validateSpread(
     context: Context,
@@ -991,13 +939,4 @@ object Validator {
       } yield ()
     }
   }
-
-  case class Context(
-    document: Document,
-    rootType: RootType,
-    operations: List[OperationDefinition],
-    fragments: Map[String, FragmentDefinition],
-    selectionSets: List[Selection]
-  )
-
 }
