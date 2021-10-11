@@ -16,7 +16,7 @@ object RemoteSchemaSpec extends DefaultRunnableSpec {
   case object EnumValue1 extends EnumType
   case object EnumValue2 extends EnumType
 
-  sealed trait UnionType                extends Product with Serializable
+  sealed trait UnionType                      extends Product with Serializable
   final case class UnionValue1(field: String) extends UnionType
 
   final case class Object(
@@ -51,7 +51,7 @@ object RemoteSchemaSpec extends DefaultRunnableSpec {
     )
   )
 
-  def spec: Spec[Any,TestFailure[java.io.Serializable],TestSuccess] = suite("ParserSpec")(
+  def spec: Spec[Any, TestFailure[java.io.Serializable], TestSuccess] = suite("ParserSpec")(
     testM("is isomorphic") {
       for {
         introspected <- SchemaLoader.fromCaliban(api).load

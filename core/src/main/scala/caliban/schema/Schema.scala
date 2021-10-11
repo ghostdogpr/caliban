@@ -631,7 +631,11 @@ final case class PartiallyAppliedFieldLazy[V](name: String, description: Option[
     (makeField, (v: V) => FunctionStep(_ => fn(v).fold(ev.resolve, identity)))
 }
 
-final case class PartiallyAppliedFieldWithArgs[V, A](name: String, description: Option[String], directives: List[Directive]) {
+final case class PartiallyAppliedFieldWithArgs[V, A](
+  name: String,
+  description: Option[String],
+  directives: List[Directive]
+) {
   def apply[R, V1](fn: V => (A => V1))(implicit ev1: Schema[R, A => V1], fa: FieldAttributes): (__Field, V => Step[R]) =
     (
       __Field(name, description, ev1.arguments, () => ev1.toType_(fa.isInput, fa.isSubscription)),

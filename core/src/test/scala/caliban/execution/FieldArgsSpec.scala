@@ -22,7 +22,7 @@ object FieldArgsSpec extends DefaultRunnableSpec {
     case object BLUE  extends COLOR
   }
 
-  override def spec: Spec[Environment,TestFailure[Any],TestSuccess] = suite("FieldArgsSpec")(
+  override def spec: Spec[Environment, TestFailure[Any], TestSuccess] = suite("FieldArgsSpec")(
     testM("it forward args of correct type") {
       final case class QueryInput(color: COLOR, string: String)
       final case class Query(query: Field => QueryInput => UIO[String])

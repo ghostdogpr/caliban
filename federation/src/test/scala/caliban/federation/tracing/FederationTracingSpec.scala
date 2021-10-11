@@ -52,8 +52,8 @@ object FederationTracingSpec extends DefaultRunnableSpec with GenericSchema[Cloc
     )
   ) @@ ApolloFederatedTracing.wrapper
 
-  val query: String = gqldoc("query { me { id username { first, family: last } parents { name } age } }")
-  val body: ObjectValue  = ObjectValue(
+  val query: String     = gqldoc("query { me { id username { first, family: last } parents { name } age } }")
+  val body: ObjectValue = ObjectValue(
     List(
       "me" -> ObjectValue(
         List(
@@ -123,7 +123,9 @@ object FederationTracingSpec extends DefaultRunnableSpec with GenericSchema[Cloc
 
   def parseTrace(trace: String): Trace = Trace.parseFrom(Base64.getDecoder.decode(trace))
 
-  override def spec: ZSpec[Has[Clock.Service] with Has[TestClock.Service] with Annotations with TestConfig with ZTestEnv with Live with Annotations,Any] =
+  override def spec: ZSpec[Has[Clock.Service] with Has[
+    TestClock.Service
+  ] with Annotations with TestConfig with ZTestEnv with Live with Annotations, Any] =
     suite("Federation Tracing")(
       testM("disabled by default") {
         for {

@@ -12,7 +12,8 @@ object CalibanClientError {
   /**
    * An error while communicating with the backend (e.g. HTTP code 4xx or 5xx)
    */
-  final case class CommunicationError(msg: String, innerThrowable: Option[Throwable] = None) extends CalibanClientError {
+  final case class CommunicationError(msg: String, innerThrowable: Option[Throwable] = None)
+      extends CalibanClientError {
     override def toString: String = s"Communication Error: $msg${innerThrowable.fold("")(t => " " + t.toString)}"
   }
 

@@ -286,8 +286,9 @@ object Parser {
   private val fragmentName: P[String] = name.filter(_ != "on")
 
   private val fragmentSpread: P[FragmentSpread] =
-    ((P.string("...").soft *> fragmentName <* whitespaceWithComment).backtrack ~ directives.?).map { case (name, dirs) =>
-      FragmentSpread(name, dirs.getOrElse(Nil))
+    ((P.string("...").soft *> fragmentName <* whitespaceWithComment).backtrack ~ directives.?).map {
+      case (name, dirs) =>
+        FragmentSpread(name, dirs.getOrElse(Nil))
     }
 
   private val typeCondition: P[NamedType] = P.string("on") *> whitespaceWithComment1 *> namedType

@@ -120,7 +120,7 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
                        .toManagedZIO
     } yield server).toLayer
 
-  val specLayer: ZLayer[ZEnv with Any,Throwable,Has[Server]] = ZLayer.requires[ZEnv] ++ Uploads.empty >>> apiLayer
+  val specLayer: ZLayer[ZEnv with Any, Throwable, Has[Server]] = ZLayer.requires[ZEnv] ++ Uploads.empty >>> apiLayer
 
   def spec: ZSpec[TestEnvironment, Any] =
     suite("Requests")(

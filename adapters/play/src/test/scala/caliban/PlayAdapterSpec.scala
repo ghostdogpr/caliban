@@ -77,9 +77,10 @@ object TestAPI extends GenericSchema[Blocking with Uploads with Console with Clo
       )
     )
 
-  implicit val uploadFileArgsSchema: Schema[Blocking with Uploads with Console with Clock,UploadFileArgs] = gen[UploadFileArgs]
-  implicit val mutationsSchema: Schema[Blocking with Uploads with Console with Clock,Mutations]      = gen[Mutations]
-  implicit val queriesSchema: Schema[Blocking with Uploads with Console with Clock,Queries]        = gen[Queries]
+  implicit val uploadFileArgsSchema: Schema[Blocking with Uploads with Console with Clock, UploadFileArgs] =
+    gen[UploadFileArgs]
+  implicit val mutationsSchema: Schema[Blocking with Uploads with Console with Clock, Mutations]           = gen[Mutations]
+  implicit val queriesSchema: Schema[Blocking with Uploads with Console with Clock, Queries]               = gen[Queries]
 
   final case class File(hash: String, path: String, filename: String, mimetype: String)
 
@@ -98,7 +99,7 @@ object PlayAdapterSpec extends DefaultRunnableSpec {
       Platform.default
     )
 
-  val apiLayer: ZLayer[Any,CalibanError.ValidationError,Has[Server]] = ZLayer.fromAcquireRelease(
+  val apiLayer: ZLayer[Any, CalibanError.ValidationError, Has[Server]] = ZLayer.fromAcquireRelease(
     for {
       interpreter <- TestAPI.api.interpreter
     } yield AkkaHttpServer.fromRouterWithComponents(

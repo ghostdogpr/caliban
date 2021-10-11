@@ -50,7 +50,7 @@ object FederationSpec extends DefaultRunnableSpec {
         )
     )
 
-  override def spec: Spec[Any,TestFailure[ValidationError],TestSuccess] = suite("FederationSpec")(
+  override def spec: Spec[Any, TestFailure[ValidationError], TestSuccess] = suite("FederationSpec")(
     testM("should resolve federated types") {
       val interpreter = federate(graphQL(resolver), entityResolver).interpreter
 

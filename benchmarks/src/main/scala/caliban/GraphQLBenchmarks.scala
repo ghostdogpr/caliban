@@ -160,12 +160,12 @@ class GraphQLBenchmarks {
     ()
   }
 
-  implicit val OriginEnum: EnumType[Origin]             = deriveEnumType[Origin]()
-  implicit val CaptainType: ObjectType[Unit, Captain]   = deriveObjectType[Unit, Captain]()
-  implicit val PilotType: ObjectType[Unit, Pilot]       = deriveObjectType[Unit, Pilot]()
-  implicit val EngineerType: ObjectType[Unit, Engineer] = deriveObjectType[Unit, Engineer]()
-  implicit val MechanicType: ObjectType[Unit, Mechanic] = deriveObjectType[Unit, Mechanic]()
-  implicit val RoleType: UnionType[Unit] = UnionType(
+  implicit val OriginEnum: EnumType[Origin]               = deriveEnumType[Origin]()
+  implicit val CaptainType: ObjectType[Unit, Captain]     = deriveObjectType[Unit, Captain]()
+  implicit val PilotType: ObjectType[Unit, Pilot]         = deriveObjectType[Unit, Pilot]()
+  implicit val EngineerType: ObjectType[Unit, Engineer]   = deriveObjectType[Unit, Engineer]()
+  implicit val MechanicType: ObjectType[Unit, Mechanic]   = deriveObjectType[Unit, Mechanic]()
+  implicit val RoleType: UnionType[Unit]                  = UnionType(
     "Role",
     types = List(PilotType, EngineerType, MechanicType, CaptainType)
   )

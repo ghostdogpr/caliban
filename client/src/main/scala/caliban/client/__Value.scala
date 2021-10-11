@@ -20,7 +20,7 @@ sealed trait __Value { self =>
 }
 
 object __Value {
-  case object __NullValue                                   extends __Value {
+  case object __NullValue                                         extends __Value {
     override def toString: String = "null"
   }
   final case class __NumberValue(value: BigDecimal)               extends __Value {

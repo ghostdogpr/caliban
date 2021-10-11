@@ -15,7 +15,7 @@ object RenderingSpecSchema {
     fetch: UserParams => Boolean
   )
 
-  val resolverSchema: RootResolver[QueryTest,MutationTest,Unit] = RootResolver(
+  val resolverSchema: RootResolver[QueryTest, MutationTest, Unit] = RootResolver(
     QueryTest(() => List()),
     MutationTest(c => true, params => true)
   )

@@ -365,7 +365,7 @@ object SelectionBuilder {
     alias: Option[String] = None,
     arguments: List[Argument[_]] = Nil,
     directives: List[Directive] = Nil
-  )                        extends SelectionBuilder[Origin, A] { self =>
+  )                              extends SelectionBuilder[Origin, A] { self =>
     override def fromGraphQL(value: __Value): Either[DecodingError, A] =
       value match {
         case __ObjectValue(fields) =>

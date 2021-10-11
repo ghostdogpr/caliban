@@ -34,7 +34,7 @@ object ExampleApp extends App {
           Pilot.shipName.map(Role.Pilot)
         )).mapN(Character)
     }
-    val query =
+    val query    =
       Queries.characters(None) {
         character
       } ~

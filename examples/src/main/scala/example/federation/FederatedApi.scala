@@ -4,12 +4,12 @@ import example.federation.CharacterService.CharacterService
 import example.federation.EpisodeService.EpisodeService
 
 import caliban.GraphQL.graphQL
-import caliban.federation.{EntityResolver, federate}
+import caliban.federation.{ federate, EntityResolver }
 import caliban.federation.tracing.ApolloFederatedTracing
-import caliban.schema.Annotations.{GQLDeprecated, GQLDescription}
-import caliban.schema.{ArgBuilder, GenericSchema, Schema}
-import caliban.wrappers.Wrappers.{maxDepth, maxFields, printSlowQueries, timeout}
-import caliban.{GraphQL, RootResolver}
+import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
+import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
+import caliban.wrappers.Wrappers.{ maxDepth, maxFields, printSlowQueries, timeout }
+import caliban.{ GraphQL, RootResolver }
 
 import zio.URIO
 import zio.clock.Clock
@@ -26,10 +26,17 @@ object FederatedApi {
     maxDepth(30) |+|                 // query analyzer that limit query depth
     timeout(3 seconds) |+|           // wrapper that fails slow queries
     printSlowQueries(500 millis) |+| // wrapper that logs slow queries
-    ApolloFederatedTracing.wrapper            // wrapper for https://github.com/apollographql/apollo-tracing
+    ApolloFederatedTracing.wrapper   // wrapper for https://github.com/apollographql/apollo-tracing
 
   object Characters extends GenericSchema[CharacterService] {
-    import example.federation.FederationData.characters.{Character, CharacterArgs, CharactersArgs, Episode, EpisodeArgs, Role}
+    import example.federation.FederationData.characters.{
+      Character,
+      CharacterArgs,
+      CharactersArgs,
+      Episode,
+      EpisodeArgs,
+      Role
+    }
 
     case class Queries(
       @GQLDescription("Return all characters from a given origin")
@@ -77,7 +84,7 @@ object FederatedApi {
   }
 
   object Episodes extends GenericSchema[EpisodeService] {
-    import example.federation.FederationData.episodes.{Episode, EpisodeArgs, EpisodesArgs}
+    import example.federation.FederationData.episodes.{ Episode, EpisodeArgs, EpisodesArgs }
 
     case class Queries(
       episode: EpisodeArgs => URIO[EpisodeService, Option[Episode]],

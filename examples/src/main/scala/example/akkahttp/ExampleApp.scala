@@ -21,8 +21,8 @@ import zio.Runtime
  */
 object ExampleApp extends App with AkkaHttpCirceAdapter {
 
-  implicit val system: ActorSystem                        = ActorSystem()
-  implicit val executionContext: ExecutionContextExecutor = system.dispatcher
+  implicit val system: ActorSystem                                      = ActorSystem()
+  implicit val executionContext: ExecutionContextExecutor               = system.dispatcher
   implicit val runtime: Runtime[ExampleService with Console with Clock] =
     Runtime.unsafeFromLayer(ExampleService.make(sampleCharacters) ++ Console.live ++ Clock.live, Platform.default)
 

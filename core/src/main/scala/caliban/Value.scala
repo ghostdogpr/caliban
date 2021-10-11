@@ -57,15 +57,15 @@ object ResponseValue extends ValueJsonCompat {
 
 sealed trait Value extends InputValue with ResponseValue
 object Value {
-  case object NullValue                   extends Value {
+  case object NullValue                         extends Value {
     override def toString: String = "null"
   }
-  sealed trait IntValue                   extends Value {
+  sealed trait IntValue                         extends Value {
     def toInt: Int
     def toLong: Long
     def toBigInt: BigInt
   }
-  sealed trait FloatValue                 extends Value {
+  sealed trait FloatValue                       extends Value {
     def toFloat: Float
     def toDouble: Double
     def toBigDecimal: BigDecimal

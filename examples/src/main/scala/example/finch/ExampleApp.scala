@@ -24,14 +24,14 @@ object ExampleApp extends App with Endpoint.Module[Task] {
   val interpreter = runtime.unsafeRun(ExampleApi.api.interpreter)
 
   /**
-   * curl -X POST \
-   * http://localhost:8088/api/graphql \
-   * -H 'Host: localhost:8088' \
-   * -H 'Content-Type: application/json' \
-   * -d '{
-   * "query": "query { characters { name }}"
-   * }'
-   */
+ * curl -X POST \
+ * http://localhost:8088/api/graphql \
+ * -H 'Host: localhost:8088' \
+ * -H 'Content-Type: application/json' \
+ * -d '{
+ * "query": "query { characters { name }}"
+ * }'
+ */
   import com.twitter.finagle.Http
   import io.finch._
   import io.finch.circe._
@@ -55,4 +55,4 @@ object ExampleApp extends App with Endpoint.Module[Task] {
   Await.ready(server)
 
 }
-*/
+ */

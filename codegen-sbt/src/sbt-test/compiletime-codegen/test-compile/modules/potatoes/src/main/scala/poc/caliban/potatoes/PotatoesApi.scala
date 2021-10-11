@@ -3,7 +3,7 @@ package poc.caliban.potatoes
 import caliban.GraphQL.graphQL
 import caliban.schema.GenericSchema
 import caliban.wrappers.Wrappers._
-import caliban.{GraphQL, RootResolver}
+import caliban.{ GraphQL, RootResolver }
 import zio._
 import zio.duration.durationInt
 import zio.stream.ZStream
@@ -33,7 +33,7 @@ object Resolvers {
   private val queries =
     Query(
       byName = name => PotatoesService(_.findByName(name)),
-      byColor = color => PotatoesService(_.findByColor(color)),
+      byColor = color => PotatoesService(_.findByColor(color))
     )
 
   private val mutations =

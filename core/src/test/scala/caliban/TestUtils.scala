@@ -115,7 +115,7 @@ object TestUtils {
   implicit val mutationIOSchema: Schema[Any, MutationIO]         = Schema.gen
   implicit val subscriptionIOSchema: Schema[Any, SubscriptionIO] = Schema.gen
 
-  val resolver: RootResolver[Query,Unit,Unit]                 = RootResolver(
+  val resolver: RootResolver[Query, Unit, Unit]                                         = RootResolver(
     Query(
       args => characters.filter(c => args.origin.forall(c.origin == _)),
       args => characters.find(c => c.name == args.name),
@@ -123,17 +123,17 @@ object TestUtils {
       args => characters.exists(_.name == args.character.name)
     )
   )
-  val resolverIO: RootResolver[QueryIO,Unit,Unit]               = RootResolver(
+  val resolverIO: RootResolver[QueryIO, Unit, Unit]                                     = RootResolver(
     QueryIO(
       args => UIO(characters.filter(c => args.origin.forall(c.origin == _))),
       args => UIO(characters.find(c => c.name == args.name))
     )
   )
-  val resolverWithMutation: RootResolver[Option[QueryIO],MutationIO,Unit]     = RootResolver(
+  val resolverWithMutation: RootResolver[Option[QueryIO], MutationIO, Unit]             = RootResolver(
     resolverIO.queryResolver,
     MutationIO(_ => UIO.unit)
   )
-  val resolverWithSubscription: RootResolver[Option[Query],MutationIO,SubscriptionIO] = RootResolver(
+  val resolverWithSubscription: RootResolver[Option[Query], MutationIO, SubscriptionIO] = RootResolver(
     resolver.queryResolver,
     MutationIO(_ => UIO.unit),
     SubscriptionIO(ZStream.empty)
@@ -144,7 +144,7 @@ object TestUtils {
     final case class DoubleUnderscoreInputObjectArg(wrong: DoubleUnderscoreArg)
     final case class WrongMutationUnderscore(w: DoubleUnderscoreInputObjectArg => UIO[Unit])
 
-    val resolverWrongMutationUnderscore: RootResolver[Option[QueryIO],WrongMutationUnderscore,Unit] = RootResolver(
+    val resolverWrongMutationUnderscore: RootResolver[Option[QueryIO], WrongMutationUnderscore, Unit] = RootResolver(
       resolverIO.queryResolver,
       WrongMutationUnderscore(_ => UIO.unit)
     )
@@ -158,7 +158,7 @@ object TestUtils {
     final case class UnionInputObjectArg(wrong: UnionArg)
     final case class WrongMutationUnion(w: UnionInputObjectArg => UIO[Unit])
 
-    val resolverWrongMutationUnion: RootResolver[Option[QueryIO],WrongMutationUnion,Unit] = RootResolver(
+    val resolverWrongMutationUnion: RootResolver[Option[QueryIO], WrongMutationUnion, Unit] = RootResolver(
       resolverIO.queryResolver,
       WrongMutationUnion(_ => UIO.unit)
     )
@@ -178,7 +178,7 @@ object TestUtils {
 
       final case class TestEmpty(i: InterfaceEmpty)
 
-      val resolverEmptyInterface: RootResolver[TestEmpty,Unit,Unit] = RootResolver(
+      val resolverEmptyInterface: RootResolver[TestEmpty, Unit, Unit] = RootResolver(
         TestEmpty(InterfaceEmpty.A("a"))
       )
 
@@ -195,7 +195,7 @@ object TestUtils {
 
       final case class TestWrongFieldName(i: InterfaceWrongFieldName)
 
-      val resolverInterfaceWrongFieldName: RootResolver[TestWrongFieldName,Unit,Unit] = RootResolver(
+      val resolverInterfaceWrongFieldName: RootResolver[TestWrongFieldName, Unit, Unit] = RootResolver(
         TestWrongFieldName(InterfaceWrongFieldName.A("a"))
       )
 
@@ -214,7 +214,7 @@ object TestUtils {
 
       final case class TestWrongArgumentName(i: InterfaceWrongArgumentName)
 
-      val resolverInterfaceWrongArgumentName: RootResolver[TestWrongArgumentName,Unit,Unit] = RootResolver(
+      val resolverInterfaceWrongArgumentName: RootResolver[TestWrongArgumentName, Unit, Unit] = RootResolver(
         TestWrongArgumentName(InterfaceWrongArgumentName.A(_ => UIO.unit))
       )
 
@@ -231,7 +231,7 @@ object TestUtils {
 
       final case class TestWrongArgumentType(i: InterfaceWrongArgumentInputType)
 
-      val resolverInterfaceWrongArgumentInputType: RootResolver[TestWrongArgumentType,Unit,Unit] = RootResolver(
+      val resolverInterfaceWrongArgumentInputType: RootResolver[TestWrongArgumentType, Unit, Unit] = RootResolver(
         TestWrongArgumentType(InterfaceWrongArgumentInputType.A(_ => UIO.unit))
       )
 
@@ -243,7 +243,7 @@ object TestUtils {
 
       final case class ClashingQuery(test: ClashingObjectArgs => ClashingObjectInput)
 
-      val resolverClashingObjects: RootResolver[ClashingQuery,Unit,Unit] = RootResolver(
+      val resolverClashingObjects: RootResolver[ClashingQuery, Unit, Unit] = RootResolver(
         ClashingQuery(args => ClashingObjectInput(args.a.a))
       )
 
@@ -254,31 +254,33 @@ object TestUtils {
         final case class C(a: String)
       }
       final case class ClashingNamesQuery(a: A.C, b: B.C)
-      val resolverClashingNames: RootResolver[ClashingNamesQuery,Unit,Unit] = RootResolver(ClashingNamesQuery(A.C(""), B.C("")))
+      val resolverClashingNames: RootResolver[ClashingNamesQuery, Unit, Unit] = RootResolver(
+        ClashingNamesQuery(A.C(""), B.C(""))
+      )
     }
 
     object Object {
       final case class EmptyObject()
       final case class TestEmptyObject(o: EmptyObject)
-      val resolverEmpty: RootResolver[TestEmptyObject,Unit,Unit] = RootResolver(
+      val resolverEmpty: RootResolver[TestEmptyObject, Unit, Unit] = RootResolver(
         TestEmptyObject(EmptyObject())
       )
 
       final case class ObjectWrongFieldName(__name: String)
       final case class TestWrongObjectFieldName(o: ObjectWrongFieldName)
-      val resolverWrongFieldName: RootResolver[TestWrongObjectFieldName,Unit,Unit] = RootResolver(
+      val resolverWrongFieldName: RootResolver[TestWrongObjectFieldName, Unit, Unit] = RootResolver(
         TestWrongObjectFieldName(ObjectWrongFieldName("a"))
       )
 
       final case class ObjectWrongArgumentName(x: WrongArgumentName => UIO[Unit])
       final case class TestWrongObjectArgumentName(o: ObjectWrongArgumentName)
-      val resolverWrongArgumentName: RootResolver[TestWrongObjectArgumentName,Unit,Unit] = RootResolver(
+      val resolverWrongArgumentName: RootResolver[TestWrongObjectArgumentName, Unit, Unit] = RootResolver(
         TestWrongObjectArgumentName(ObjectWrongArgumentName(_ => UIO.unit))
       )
 
       final case class ObjectWrongArgumentInputType(x: UnionInputObjectArg => UIO[Unit])
       final case class TestWrongObjectArgumentInputType(o: ObjectWrongArgumentInputType)
-      val resolverWrongArgumentInputType: RootResolver[TestWrongObjectArgumentInputType,Unit,Unit] = RootResolver(
+      val resolverWrongArgumentInputType: RootResolver[TestWrongObjectArgumentInputType, Unit, Unit] = RootResolver(
         TestWrongObjectArgumentInputType(ObjectWrongArgumentInputType(_ => UIO.unit))
       )
 
@@ -290,7 +292,7 @@ object TestUtils {
       }
       final case class TwoInterfaceObject(a: Int, b: Int) extends InterfaceA with InterfaceB
       final case class TestTwoInterfaceObject(o: TwoInterfaceObject)
-      val resolverTwoInterfaces: RootResolver[TestTwoInterfaceObject,Unit,Unit] = RootResolver(
+      val resolverTwoInterfaces: RootResolver[TestTwoInterfaceObject, Unit, Unit] = RootResolver(
         TestTwoInterfaceObject(TwoInterfaceObject(0, 1))
       )
 
@@ -342,7 +344,9 @@ object TestUtils {
       sealed trait Union
       final case class UnionSubtypeWithA(a: String) extends Union
       final case class TestUnionSubtype(fieldUnion: UnionSubtypeWithA)
-      val resolverUnionSubtype: RootResolver[TestUnionSubtype,Unit,Unit] = RootResolver(TestUnionSubtype(UnionSubtypeWithA("a")))
+      val resolverUnionSubtype: RootResolver[TestUnionSubtype, Unit, Unit] = RootResolver(
+        TestUnionSubtype(UnionSubtypeWithA("a"))
+      )
 
       @GQLInterface
       sealed trait FieldInterface {
@@ -352,20 +356,26 @@ object TestUtils {
         final case class FieldObject(a: String, b: Int) extends FieldInterface
       }
       final case class TestFieldObject(fieldInterface: FieldObject)
-      val resolverFieldObject: RootResolver[TestFieldObject,Unit,Unit] = RootResolver(TestFieldObject(FieldObject("a", 1)))
+      val resolverFieldObject: RootResolver[TestFieldObject, Unit, Unit] = RootResolver(
+        TestFieldObject(FieldObject("a", 1))
+      )
 
       sealed trait WithListFieldUnion {
         val fieldUnions: List[Union]
       }
       final case class TestListUnionSubtype(listFieldUnion: List[UnionSubtypeWithA])
-      val resolverListUnionSubtype: RootResolver[TestListUnionSubtype,Unit,Unit] = RootResolver(TestListUnionSubtype(List(UnionSubtypeWithA("a"))))
+      val resolverListUnionSubtype: RootResolver[TestListUnionSubtype, Unit, Unit] = RootResolver(
+        TestListUnionSubtype(List(UnionSubtypeWithA("a")))
+      )
 
       @GQLInterface
       sealed trait WithListFieldInterface {
         val fieldInterfaces: List[FieldInterface]
       }
       final case class TestListInterfaceSubtype(fieldInterfaces: List[FieldObject]) extends WithListFieldInterface
-      val resolverListInterfaceSubtype: RootResolver[TestListInterfaceSubtype,Unit,Unit] = RootResolver(TestListInterfaceSubtype(List(FieldObject("a", 1))))
+      val resolverListInterfaceSubtype: RootResolver[TestListInterfaceSubtype, Unit, Unit] = RootResolver(
+        TestListInterfaceSubtype(List(FieldObject("a", 1)))
+      )
 
       val fieldInterface: __Type             = Types.makeInterface(
         name = Some("FieldInterface"),
@@ -399,7 +409,9 @@ object TestUtils {
       final case class IsNonNullable(field: UIO[String])      extends WithNullable
 
       final case class TestNonNullableObject(nonNullable: WithNullable)
-      val resolverNonNullableSubtype: RootResolver[TestNonNullableObject,Unit,Unit] = RootResolver(TestNonNullableObject(IsNonNullable(UIO.succeed("a"))))
+      val resolverNonNullableSubtype: RootResolver[TestNonNullableObject, Unit, Unit] = RootResolver(
+        TestNonNullableObject(IsNonNullable(UIO.succeed("a")))
+      )
 
       final case class FieldArg(arg: String)
       @GQLInterface
@@ -409,7 +421,9 @@ object TestUtils {
       final case class FieldWithArgObject1(fieldWithArg: FieldArg => String) extends WithFieldWithArg
       final case class FieldWithArgObject2(fieldWithArg: FieldArg => String) extends WithFieldWithArg
       final case class TestFieldWithArgObject(obj: WithFieldWithArg)
-      val resolverFieldWithArg: RootResolver[TestFieldWithArgObject,Unit,Unit] = RootResolver(TestFieldWithArgObject(FieldWithArgObject1(_ => "a")))
+      val resolverFieldWithArg: RootResolver[TestFieldWithArgObject, Unit, Unit] = RootResolver(
+        TestFieldWithArgObject(FieldWithArgObject1(_ => "a"))
+      )
 
       val nullableExtraArgsObject: __Type = __Type(
         name = Some("NullableExtraArgsObject"),
@@ -481,19 +495,25 @@ object TestUtils {
     final case class TestWrongDirectiveName(
       field: String
     )
-    val resolverWrongDirectiveName: RootResolver[TestWrongDirectiveName,Unit,Unit] = RootResolver(TestWrongDirectiveName(""))
+    val resolverWrongDirectiveName: RootResolver[TestWrongDirectiveName, Unit, Unit] = RootResolver(
+      TestWrongDirectiveName("")
+    )
 
     final case class TestWrongFieldDirectiveName(
       @GQLDirective(Directive("__name"))
       field: String
     )
-    val resolverWrongFieldDirectiveName: RootResolver[TestWrongFieldDirectiveName,Unit,Unit] = RootResolver(TestWrongFieldDirectiveName(""))
+    val resolverWrongFieldDirectiveName: RootResolver[TestWrongFieldDirectiveName, Unit, Unit] = RootResolver(
+      TestWrongFieldDirectiveName("")
+    )
 
     final case class TestWrongArgumentDirectiveName(
       @GQLDirective(Directive("name", Map("__name" -> StringValue(""))))
       field: String
     )
-    val resolverWrongArgumentDirectiveName: RootResolver[TestWrongArgumentDirectiveName,Unit,Unit] = RootResolver(TestWrongArgumentDirectiveName(""))
+    val resolverWrongArgumentDirectiveName: RootResolver[TestWrongArgumentDirectiveName, Unit, Unit] = RootResolver(
+      TestWrongArgumentDirectiveName("")
+    )
 
     final case class WrongDirectiveName(
       @GQLDirective(Directive("__name"))
@@ -505,15 +525,16 @@ object TestUtils {
     final case class TestWrongInputFieldDirectiveName(
       field: WrongDirectiveNameArgs => UIO[Unit]
     )
-    val resolverWrongInputFieldDirectiveName: RootResolver[Option[QueryIO],TestWrongInputFieldDirectiveName,Unit] = RootResolver(
-      resolverIO.queryResolver,
-      TestWrongInputFieldDirectiveName(_ => UIO.unit)
-    )
+    val resolverWrongInputFieldDirectiveName: RootResolver[Option[QueryIO], TestWrongInputFieldDirectiveName, Unit] =
+      RootResolver(
+        resolverIO.queryResolver,
+        TestWrongInputFieldDirectiveName(_ => UIO.unit)
+      )
 
     final case class TestWrongFieldArgDirectiveName(
       field: WrongDirectiveName => UIO[Unit]
     )
-    val resolverWrongFieldArgDirectiveName: RootResolver[TestWrongFieldArgDirectiveName,Unit,Unit] = RootResolver(
+    val resolverWrongFieldArgDirectiveName: RootResolver[TestWrongFieldArgDirectiveName, Unit, Unit] = RootResolver(
       TestWrongFieldArgDirectiveName(_ => UIO.unit)
     )
 

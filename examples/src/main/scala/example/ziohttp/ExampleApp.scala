@@ -10,7 +10,8 @@ import zhttp.service.Server
 import caliban.ZHttpAdapter
 
 object ExampleApp extends App {
-  private val graphiql = Http.succeed(Response.http(content = HttpData.fromStream(ZStream.fromResource("graphiql.html"))))
+  private val graphiql =
+    Http.succeed(Response.http(content = HttpData.fromStream(ZStream.fromResource("graphiql.html"))))
 
   override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
     (for {

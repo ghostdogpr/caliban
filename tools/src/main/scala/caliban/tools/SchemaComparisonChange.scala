@@ -45,17 +45,18 @@ object SchemaComparisonChange {
     override def breaking: Boolean = true
   }
 
-  final case class SchemaQueryTypeChanged(from: Option[String], to: Option[String])        extends SchemaComparisonChange {
+  final case class SchemaQueryTypeChanged(from: Option[String], to: Option[String])    extends SchemaComparisonChange {
     override def toString: String  =
       s"Root query type was changed from ${renderRootType(from)} to ${renderRootType(to)}."
     override def breaking: Boolean = true
   }
-  final case class SchemaMutationTypeChanged(from: Option[String], to: Option[String])     extends SchemaComparisonChange {
+  final case class SchemaMutationTypeChanged(from: Option[String], to: Option[String]) extends SchemaComparisonChange {
     override def toString: String  =
       s"Root mutation type was changed from ${renderRootType(from)} to ${renderRootType(to)}."
     override def breaking: Boolean = true
   }
-  final case class SchemaSubscriptionTypeChanged(from: Option[String], to: Option[String]) extends SchemaComparisonChange {
+  final case class SchemaSubscriptionTypeChanged(from: Option[String], to: Option[String])
+      extends SchemaComparisonChange {
     override def toString: String  =
       s"Root subscription type was changed from ${renderRootType(from)} to ${renderRootType(to)}."
     override def breaking: Boolean = true
@@ -69,14 +70,15 @@ object SchemaComparisonChange {
     override def breaking: Boolean = true
   }
 
-  final case class DirectiveDefinitionAdded(directiveName: String)                            extends SchemaComparisonChange {
+  final case class DirectiveDefinitionAdded(directiveName: String)   extends SchemaComparisonChange {
     override def toString: String = s"Directive '$directiveName' was added."
   }
-  final case class DirectiveDefinitionDeleted(directiveName: String)                          extends SchemaComparisonChange {
+  final case class DirectiveDefinitionDeleted(directiveName: String) extends SchemaComparisonChange {
     override def toString: String  = s"Directive '$directiveName' was deleted."
     override def breaking: Boolean = true
   }
-  final case class DirectiveLocationAdded(location: DirectiveLocation, directiveName: String) extends SchemaComparisonChange {
+  final case class DirectiveLocationAdded(location: DirectiveLocation, directiveName: String)
+      extends SchemaComparisonChange {
     override def toString: String = s"Location '$location' was added on directive '$directiveName'."
   }
   final case class DirectiveLocationDeleted(location: DirectiveLocation, directiveName: String)
@@ -117,7 +119,7 @@ object SchemaComparisonChange {
     from: InputValue,
     to: InputValue,
     target: Target
-  )                                                                  extends SchemaComparisonChange {
+  )                                                                        extends SchemaComparisonChange {
     override def toString: String  =
       s"Argument '$argName' was changed from '$from' to '$to' on directive '$directiveName' on $target."
     override def breaking: Boolean = true

@@ -154,7 +154,7 @@ object json {
       Json.writes[LocationInfo].transform((v: JsValue) => Json.arr(v))
 
     implicit val responseObjectValueWrites: Writes[ResponseValue.ObjectValue] = ValuePlayJson.responseObjectValueWrites
-    private implicit val errorDTOWrites: OWrites[ErrorDTO]                                       = Json.writes[ErrorDTO]
+    private implicit val errorDTOWrites: OWrites[ErrorDTO]                    = Json.writes[ErrorDTO]
 
     val errorValueWrites: Writes[CalibanError] = errorDTOWrites.contramap[CalibanError] {
       case CalibanError.ParsingError(msg, locationInfo, _, extensions) =>
@@ -227,7 +227,7 @@ object json {
         case _                => Json.obj("message" -> err.toString)
       }
 
-    implicit val errorReads: Reads[CalibanError]                                        = ErrorPlayJson.errorValueReads
+    implicit val errorReads: Reads[CalibanError]                   = ErrorPlayJson.errorValueReads
     val graphQLResponseReads: Reads[GraphQLResponse[CalibanError]] =
       (JsPath \ "data")
         .read[ResponseValue]

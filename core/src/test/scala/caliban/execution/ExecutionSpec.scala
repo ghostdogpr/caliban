@@ -548,7 +548,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         sealed trait Union
         object Union {
           final case class Child(field: String) extends Union
-          case object ChildO              extends Union
+          case object ChildO                    extends Union
         }
         final case class Obj(union: Union)
         final case class Query(test: Obj)
@@ -700,7 +700,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         sealed trait A
         object A {
           final case class B(b: Int) extends A
-          case object C        extends A
+          case object C              extends A
         }
         final case class Query(test: A)
         implicit val schemaB: Schema[Any, A.B] = Schema.gen

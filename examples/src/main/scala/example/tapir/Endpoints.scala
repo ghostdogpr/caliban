@@ -44,7 +44,7 @@ object Endpoints {
       .in(header[String]("X-Auth-Token").description("The token is 'secret'"))
 
   // Re-usable parameter description
-  val yearParameter: EndpointInput[Option[Int]] =
+  val yearParameter: EndpointInput[Option[Int]]  =
     query[Option[Int]]("year").description("The year from which to retrieve books")
   val limitParameter: EndpointInput[Option[Int]] =
     query[Option[Int]]("limit").description("Maximum number of books to retrieve")
@@ -80,7 +80,7 @@ object Endpoints {
         case None    => books
         case Some(y) => books.filter(_.year == y)
       }
-      val limitedBooks = limit match {
+      val limitedBooks  = limit match {
         case None    => filteredBooks
         case Some(l) => filteredBooks.take(l)
       }

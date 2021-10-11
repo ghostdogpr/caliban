@@ -478,13 +478,13 @@ private[caliban] object GraphQLResponseZioJson {
 
   final case class GQLResponse(data: ResponseValue, errors: List[CalibanError])
   object GQLResponse {
-    implicit val errorValueDecoder: JsonDecoder[CalibanError]                 = ErrorZioJson.errorValueDecoder
-    implicit val decoder: JsonDecoder[GQLResponse] = DeriveJsonDecoder.gen[GQLResponse]
+    implicit val errorValueDecoder: JsonDecoder[CalibanError] = ErrorZioJson.errorValueDecoder
+    implicit val decoder: JsonDecoder[GQLResponse]            = DeriveJsonDecoder.gen[GQLResponse]
   }
 
-  implicit val errorValueDecoder: JsonDecoder[CalibanError]                                         = ErrorZioJson.errorValueDecoder
-  implicit val responseValueDecoder: JsonDecoder[ResponseValue.ObjectValue]                                      = ValueZIOJson.Obj.responseDecoder
-  val graphQLResponseDecoder: JsonDecoder[GraphQLResponse[CalibanError]] =
+  implicit val errorValueDecoder: JsonDecoder[CalibanError]                 = ErrorZioJson.errorValueDecoder
+  implicit val responseValueDecoder: JsonDecoder[ResponseValue.ObjectValue] = ValueZIOJson.Obj.responseDecoder
+  val graphQLResponseDecoder: JsonDecoder[GraphQLResponse[CalibanError]]    =
     DeriveJsonDecoder.gen[GraphQLResponse[CalibanError]]
 }
 
