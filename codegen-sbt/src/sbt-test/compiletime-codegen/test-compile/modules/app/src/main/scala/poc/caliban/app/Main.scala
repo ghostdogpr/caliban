@@ -17,17 +17,19 @@ object Main extends zio.App {
 
   val server: ZManaged[ZEnv with Has[PostService], Throwable, Unit] =
     for {
-      interpreter                  <- ZManaged.fromEffect(poc.caliban.posts.GraphQLApi.api.interpreter)
-      router: HttpRoutes[LocalTask] = Router[LocalTask](
-                                        "/api/graphql" -> Http4sAdapter.makeHttpService(interpreter),
-                                        "/ws/graphql"  -> Http4sAdapter.makeWebSocketService(interpreter),
-                                        "/graphiql"    -> HttpRoutes.liftF(StaticFile.fromResource("/graphiql.html", None))
-                                      )
-      _                            <- BlazeServerBuilder[LocalTask]
-                                        .bindHttp(8080, "0.0.0.0")
-                                        .withHttpApp(router.orNotFound)
-                                        .resource
-                                        .toManagedZIO
+      interpreter <- ZManaged.fromEffect(poc.caliban.posts.GraphQLApi.api.interpreter)
+      _           <- BlazeServerBuilder[LocalTask]
+                       .bindHttp(8080, "0.0.0.0")
+                       .withHttpWebSocketApp(builder =>
+                         Router[LocalTask](
+                           "/api/graphql" -> Http4sAdapter.makeHttpService(interpreter),
+                           "/ws/graphql"  -> Http4sAdapter.makeWebSocketService(builder, interpreter),
+                           "/graphiql"    -> HttpRoutes.liftF(StaticFile.fromResource("/graphiql.html", None))
+                         ).asInstanceOf[HttpRoutes[LocalTask]]
+                           .orNotFound // Scala 2.12 is too dumb to infer the type correctly se we need to `asInstanceOf`.
+                       )
+                       .resource
+                       .toManagedZIO
     } yield ()
 
   override def run(args: List[String]): URIO[ZEnv, ExitCode] =
