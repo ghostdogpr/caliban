@@ -67,7 +67,7 @@ addCommandAlias("fix", "scalafixAll")
 addCommandAlias("fixCheck", "scalafixAll --check")
 addCommandAlias(
   "check",
-  "all scalafmtSbtCheck scalafmtCheck test:scalafmtCheck fixCheck"
+  "all scalafmtSbtCheck scalafmtCheck test:scalafmtCheck; fixCheck"
 )
 
 lazy val root = project
