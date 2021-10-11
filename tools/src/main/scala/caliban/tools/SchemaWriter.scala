@@ -109,7 +109,7 @@ object SchemaWriter {
   ): String = {
     val typeParamOrEmpty = if (isEffectTypeAbstract) s"[$effect[_]]" else ""
     s"""
-       |${writeDescription(op.description)}case class ${op.name}$typeParamOrEmpty(
+       |${writeDescription(op.description)}final case class ${op.name}$typeParamOrEmpty(
        |${op.fields.map(c => writeRootField(c, op, effect)).mkString(",\n")}
        |)""".stripMargin
 
@@ -125,17 +125,17 @@ object SchemaWriter {
 
   def writeRootSubscriptionDef(op: ObjectTypeDefinition)(implicit scalarMappings: ScalarMappings): String =
     s"""
-       |${writeDescription(op.description)}case class ${op.name}(
+       |${writeDescription(op.description)}final case class ${op.name}(
        |${op.fields.map(c => writeSubscriptionField(c, op)).mkString(",\n")}
        |)""".stripMargin
 
   def writeObject(typedef: ObjectTypeDefinition)(implicit scalarMappings: ScalarMappings): String =
-    s"""${writeDescription(typedef.description)}case class ${typedef.name}(${typedef.fields
+    s"""${writeDescription(typedef.description)}final case class ${typedef.name}(${typedef.fields
       .map(writeField(_, typedef))
       .mkString(", ")})"""
 
   def writeInputObject(typedef: InputObjectTypeDefinition)(implicit scalarMappings: ScalarMappings): String =
-    s"""${writeDescription(typedef.description)}case class ${typedef.name}(${typedef.fields
+    s"""${writeDescription(typedef.description)}final case class ${typedef.name}(${typedef.fields
       .map(writeInputValue)
       .mkString(", ")})"""
 
@@ -237,7 +237,7 @@ object SchemaWriter {
       s"${args.map(arg => s"${safeName(arg.name)} : ${writeType(arg.ofType)}").mkString(", ")}"
 
     if (field.args.nonEmpty) {
-      s"case class ${argsName(field, of)}(${fields(field.args)})"
+      s"final case class ${argsName(field, of)}(${fields(field.args)})"
     } else {
       ""
     }

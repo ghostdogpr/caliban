@@ -509,7 +509,7 @@ object ClientWriter {
     typedef: InputObjectTypeDefinition
   )(implicit mappingClashedTypeNames: MappingClashedTypeNames, scalarMappings: ScalarMappings): String = {
     val inputObjectName = safeTypeName(typedef.name)
-    s"""case class $inputObjectName(${writeArgumentFields(typedef.fields)})
+    s"""final case class $inputObjectName(${writeArgumentFields(typedef.fields)})
        |object $inputObjectName {
        |  implicit val encoder: ArgEncoder[$inputObjectName] = new ArgEncoder[$inputObjectName] {
        |    override def encode(value: $inputObjectName): __Value =
@@ -560,7 +560,7 @@ object ClientWriter {
       .map(v =>
         s"case object ${safeEnumValue(v.enumValue)} extends $enumName { val value: String = ${"\"" + safeEnumValue(v.enumValue) + "\""} }"
       ) ++
-      (if (extensibleEnums) Some(s"case class __Unknown(value: String) extends $enumName") else None)
+      (if (extensibleEnums) Some(s"final case class __Unknown(value: String) extends $enumName") else None)
 
     val decoderCases = typedef.enumValuesDefinition
       .map(v => s"""case __StringValue ("${v.enumValue}") => Right($enumName.${safeEnumValue(v.enumValue)})""") ++
