@@ -92,6 +92,7 @@ The settings available on the `cs` (`CalibanSettings`) builder are:
   def splitFiles(value: Boolean): CalibanSettings               // Split single client object into multiple files (default: false)
   def enableFmt(value: Boolean): CalibanSettings                // Enable code formatting with scalafmt (default: true)
   def extensibleEnums(value: Boolean): CalibanSettings          // Generate a fallback case class for unknown enum values (default: false)
+  def excludeClientDeprecation(value: Boolean): CalibanSettings  // Set it to true to exclude deprecated fields.(default: false)
 
   // Only defined for `url` settings, for use in supplying extra headers when fetching the schema itself
   def headers(pairs: (String,String)*): CalibanSettings
@@ -102,7 +103,7 @@ The settings available on the `cs` (`CalibanSettings`) builder are:
 If you prefer to generate the client explicitly rather than automatically, you can use `calibanGenClient` on the SBT CLI as follows:
 
 ```scala
-calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--genView true|false] [--scalarMappings gqlType:f.q.d.n.Type,gqlType2:f.q.d.n.Type2] [--imports a.b.c._,c.d.E] [--splitFiles true|false] [--enableFmt true|false]
+calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--genView true|false] [--scalarMappings gqlType:f.q.d.n.Type,gqlType2:f.q.d.n.Type2] [--imports a.b.c._,c.d.E] [--splitFiles true|false] [--enableFmt true|false] [--excludeClientDeprecation true|false]
 
 calibanGenClient project/schema.graphql src/main/client/Client.scala --genView true  
 ```
@@ -123,6 +124,8 @@ In this case the filename part of the `outputPath` will be ignored, but the valu
 This can be helpful with large GraphQL schemas and incremental compilation.
 Provide `--enableFmt false` option if you don't need to format generated files.
 Provide `--extensibleEnums true` option if you want to generate a fallback case class for unknown enum values.
+
+Provide `--excludeClientDeprecation true` option if you want to exclude deprecated fields in the schema. Default value is `false`
 
 ### CompileTimeCalibanPlugin
 
