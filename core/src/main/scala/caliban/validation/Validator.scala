@@ -372,12 +372,6 @@ object Validator {
       selectionSet
     )
 
-  // FragmentValidator.mergeFieldsInSelectionSet(
-  //   context,
-  //   selectionSet,
-  //   currentType
-  // )
-
   private def validateSpread(
     context: Context,
     name: Option[String],
