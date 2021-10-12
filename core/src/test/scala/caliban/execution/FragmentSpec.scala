@@ -9,6 +9,7 @@ import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment
 import caliban.TestUtils._
+import caliban.Value.StringValue
 
 object FragmentSpec extends DefaultRunnableSpec {
   override def spec: ZSpec[TestEnvironment, Any] =
@@ -154,6 +155,329 @@ object FragmentSpec extends DefaultRunnableSpec {
         } yield assert(res.errors.headOption)(
           isSome(anything)
         )
-      }
+      },
+      suite("spec examples")(
+        suite("simple fields")(
+          testM("merge identical fields") {
+            case class Dog(name: String)
+
+            case class Query(dog: Dog)
+            val gql = graphQL(RootResolver(Query(Dog("Name"))))
+
+            val query =
+              """
+                |fragment mergeIdenticalFields on Dog {
+                |   name
+                |   name
+                |}
+                |query{
+                |  dog {
+                |    ...mergeIdenticalFields
+                |  }
+                |}""".stripMargin
+
+            for {
+              interpteter <- gql.interpreter
+              res         <- interpteter.execute(query)
+            } yield assert(res.errors)(isEmpty)
+          },
+          testM("merge identical fields with alias") {
+            case class Dog(name: String)
+
+            case class Query(dog: Dog)
+            val gql = graphQL(RootResolver(Query(Dog("Name"))))
+
+            val query =
+              """
+                |fragment mergeIdenticalFields on Dog {
+                |   otherName: name
+                |   otherName: name
+                |}
+                |query{
+                |  dog {
+                |    ...mergeIdenticalFields
+                |  }
+                |}""".stripMargin
+
+            for {
+              interpteter <- gql.interpreter
+              res         <- interpteter.execute(query)
+            } yield assert(res.errors)(isEmpty)
+          },
+          testM("alias conflict") {
+            case class Dog(name: String, nickname: String)
+
+            case class Query(dog: Dog)
+            val gql = graphQL(RootResolver(Query(Dog("Name", "Nickname"))))
+
+            val query =
+              """
+                |fragment mergeIdenticalFields on Dog {
+                |   name: nickname
+                |   name
+                |}
+                |query{
+                |  dog {
+                |    ...mergeIdenticalFields
+                |  }
+                |}""".stripMargin
+
+            for {
+              interpteter <- gql.interpreter
+              res         <- interpteter.execute(query)
+            } yield assert(res.errors.headOption)(isSome(anything))
+          }
+        ),
+        suite("args")(
+          testM("identical fields with args") {
+            sealed trait DogCommand
+            case object SIT extends DogCommand
+            case class Dog(doesKnowCommand: DogCommand => Boolean)
+
+            case class Query(dog: Dog)
+            val gql = graphQL(RootResolver(Query(Dog(_ => true))))
+
+            val query =
+              """
+                |fragment mergeIdenticalFieldsWithIdenticalArgs on Dog {
+                |   doesKnowCommand(value: SIT)
+                |   doesKnowCommand(value: SIT)
+                |}
+                |query{
+                |  dog {
+                |    ...mergeIdenticalFieldsWithIdenticalArgs
+                |  }
+                |}""".stripMargin
+
+            for {
+              interpteter <- gql.interpreter
+              res         <- interpteter.execute(query)
+            } yield assert(res.errors)(isEmpty)
+          },
+          testM("identical fields with identical values") {
+            sealed trait DogCommand
+            case object SIT extends DogCommand
+            case class Dog(doesKnowCommand: DogCommand => Boolean)
+
+            case class Query(dog: Dog)
+            val gql = graphQL(RootResolver(Query(Dog(_ => true))))
+
+            val query =
+              """
+                |fragment mergeIdenticalFieldsWithIdenticalValues on Dog {
+                |   doesKnowCommand(value: $dogCommand)
+                |   doesKnowCommand(value: $dogCommand)
+                |}
+                |query DogQuery($dogCommand: DogCommand){
+                |  dog {
+                |    ...mergeIdenticalFieldsWithIdenticalValues
+                |  }
+                |}""".stripMargin
+
+            for {
+              interpteter <- gql.interpreter
+              res         <- interpteter.execute(query, variables = Map("dogCommand" -> StringValue("SIT")))
+            } yield assert(res.errors)(isEmpty)
+          },
+          testM("identical fields with args") {
+            sealed trait DogCommand
+            case object SIT  extends DogCommand
+            case object HEEL extends DogCommand
+            case class Dog(doesKnowCommand: DogCommand => Boolean)
+
+            case class Query(dog: Dog)
+            val gql = graphQL(RootResolver(Query(Dog(_ => true))))
+
+            val query =
+              """
+                |fragment conflictingArgsOnValues on Dog {
+                |   doesKnowCommand(value: SIT)
+                |   doesKnowCommand(value: HEEL)
+                |}
+                |query{
+                |  dog {
+                |    ...conflictingArgsOnValues
+                |  }
+                |}""".stripMargin
+
+            for {
+              interpteter <- gql.interpreter
+              res         <- interpteter.execute(query)
+            } yield assert(res.errors.headOption)(isSome(anything))
+          },
+          testM("conflicting value and arg") {
+            sealed trait DogCommand
+            case object SIT extends DogCommand
+            case class Dog(doesKnowCommand: DogCommand => Boolean)
+
+            case class Query(dog: Dog)
+            val gql = graphQL(RootResolver(Query(Dog(_ => true))))
+
+            val query =
+              """
+                |fragment conflictingArgsValueAndVar on Dog {
+                |   doesKnowCommand(value: SIT)
+                |   doesKnowCommand(value: $dogCommand)
+                |}
+                |query DogQuery($dogCommand: DogCommand){
+                |  dog {
+                |    ...conflictingArgsValueAndVar
+                |  }
+                |}""".stripMargin
+
+            for {
+              interpteter <- gql.interpreter
+              res         <- interpteter.execute(query, variables = Map("dogCommand" -> StringValue("SIT")))
+            } yield assert(res.errors.headOption)(isSome(anything))
+          },
+          testM("conflicting value and arg") {
+            sealed trait DogCommand
+            case object SIT extends DogCommand
+            case class Dog(doesKnowCommand: DogCommand => Boolean)
+
+            case class Query(dog: Dog)
+            val gql = graphQL(RootResolver(Query(Dog(_ => true))))
+
+            val query =
+              """
+                |fragment conflictingArgsWithVars on Dog {
+                |   doesKnowCommand(value: $varOne)
+                |   doesKnowCommand(value: $varTwo)
+                |}
+                |query DogQuery($varOne: DogCommand, $varTwo: DogCommand){
+                |  dog {
+                |    ...conflictingArgsWithVars
+                |  }
+                |}""".stripMargin
+
+            for {
+              interpteter <- gql.interpreter
+              res         <- interpteter.execute(query, variables = Map("dogCommand" -> StringValue("SIT")))
+            } yield assert(res.errors.headOption)(isSome(anything))
+          },
+          testM("conflicting value and arg") {
+            sealed trait DogCommand
+            case object SIT extends DogCommand
+            case class Dog(@GQLDefault("SIT") doesKnowCommand: DogCommand => Boolean)
+
+            case class Query(dog: Dog)
+            val gql = graphQL(RootResolver(Query(Dog(_ => true))))
+
+            val query =
+              """
+                |fragment differingArgs on Dog {
+                |   doesKnowCommand(value: $dogCommand)
+                |   doesKnowCommand
+                |}
+                |query DogQuery($dogCommand: DogCommand){
+                |  dog {
+                |    ...differingArgs
+                |  }
+                |}""".stripMargin
+
+            for {
+              interpteter <- gql.interpreter
+              res         <- interpteter.execute(query, variables = Map("dogCommand" -> StringValue("SIT")))
+            } yield assert(res.errors.headOption)(isSome(anything))
+          }
+        ),
+        suite("different types")(
+          testM("safe differing fields") {
+            sealed trait Pet
+            case class Dog(barkVolume: Int) extends Pet
+            case class Cat(meowVolume: Int) extends Pet
+
+            case class Query(pet: Pet)
+            val gql = graphQL(RootResolver(Query(Dog(1))))
+
+            val query =
+              """
+                |fragment safeDifferingFields on Pet {
+                |  ...on Dog {
+                |     volume: barkVolume
+                |   }
+                |   ...on Cat {
+                |     volume: meowVolume
+                |   }
+                |}
+                |query {
+                |  pet {
+                |    ...safeDifferingFields
+                |  }
+                |}""".stripMargin
+
+            for {
+              interpteter <- gql.interpreter
+              res         <- interpteter.execute(query, variables = Map("dogCommand" -> StringValue("SIT")))
+            } yield assert(res.errors)(isEmpty)
+          },
+          testM("safe differing args") {
+            sealed trait Pet
+
+            sealed trait DogCommand
+            case object SIT                                        extends DogCommand
+            case class Dog(doesKnowCommand: DogCommand => Boolean) extends Pet
+
+            sealed trait CatCommand
+            case object JUMP                                       extends CatCommand
+            case class Cat(doesKnowCommand: CatCommand => Boolean) extends Pet
+
+            case class Query(pet: Pet)
+            val gql = graphQL(RootResolver(Query(Dog(_ => true))))
+
+            val query =
+              """
+                |fragment safeDifferingArgs on Pet {
+                |  ...on Dog {
+                |     doesKnowCommand(value: SIT)
+                |   }
+                |   ...on Cat {
+                |     doesKnowCommand(value: JUMP)
+                |   }
+                |}
+                |query {
+                |  pet {
+                |    ...safeDifferingArgs
+                |  }
+                |}""".stripMargin
+
+            for {
+              interpteter <- gql.interpreter
+              res         <- interpteter.execute(query)
+            } yield assert(res.errors)(isEmpty)
+          },
+          testM("conflicting different responses") {
+            sealed trait Pet
+
+            case class Dog(nickname: String) extends Pet
+
+            case class Cat(meowVolume: Int) extends Pet
+
+            case class Query(pet: Pet)
+            val gql = graphQL(RootResolver(Query(Dog("Nickname"))))
+
+            val query =
+              """
+                |fragment conflictingDifferingResponses on Pet {
+                |  ...on Dog {
+                |     someValue: nickname
+                |   }
+                |   ...on Cat {
+                |     someValue: meowVolume
+                |   }
+                |}
+                |query {
+                |  pet {
+                |    ...conflictingDifferingResponses
+                |  }
+                |}""".stripMargin
+
+            for {
+              interpteter <- gql.interpreter
+              res         <- interpteter.execute(query)
+            } yield assert(res.errors)(isEmpty)
+          }
+        )
+      )
     )
 }
