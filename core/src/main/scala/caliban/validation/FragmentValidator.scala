@@ -40,8 +40,8 @@ object FragmentValidator {
     }
   }
 
-  def sameResponseShapeByName(context: Context, parentType: __Type, fields: FieldsAndFragments): Iterable[String] =
-    fields.fields.flatMap { case (name, values) =>
+  def sameResponseShapeByName(context: Context, parentType: __Type, fields: FieldMap): Iterable[String] =
+    fields.flatMap { case (name, values) =>
       cross(values).flatMap { pair =>
         val (f1, f2) = pair
         if (doTypesConflict(f1.fieldDef.`type`(), f2.fieldDef.`type`()))
@@ -71,8 +71,8 @@ object FragmentValidator {
     else
       false
 
-  def sameForCommonParentsByName(context: Context, parentType: __Type, fields: FieldsAndFragments): Iterable[String] =
-    fields.fields.flatMap({ case (_, fields) =>
+  def sameForCommonParentsByName(context: Context, parentType: __Type, fields: FieldMap): Iterable[String] =
+    fields.flatMap({ case (_, fields) =>
       groupByCommonParents(context, parentType, fields).flatMap(group => requireSameNameAndArguments(group))
     })
 

@@ -25,53 +25,49 @@ case class SelectedField(
   fieldDef: __Field
 )
 
-case class FieldsAndFragments(
-  fields: FieldMap = Map.empty
-) { self =>
-  def ++(that: FieldsAndFragments): FieldsAndFragments =
-    self.copy(
-      (fields.keySet ++ that.fields.keySet).map { k =>
-        k -> (fields.get(k).getOrElse(Set.empty) ++ that.fields.get(k).getOrElse(Set.empty))
-      }.toMap
-    )
-
-  def addField(
-    f: Field,
-    parentType: __Type,
-    selection: Field
-  ) = {
-    val responseName = f.alias.getOrElse(f.name)
-
-    getFields(parentType)
-      .flatMap(fields => fields.find(_.name == f.name))
-      .map { f =>
-        val sf    = SelectedField(parentType, selection, f)
-        val entry = fields.get(responseName).map(_ + sf).getOrElse(Set(sf))
-        self.copy(fields = self.fields + (responseName -> entry))
-      }
-      .getOrElse(self)
-  }
-}
-
 object FieldsAndFragments {
-  val empty = FieldsAndFragments(Map.empty)
+  val empty: FieldMap = Map.empty
 
-  def apply(context: Context, parentType: __Type, selectionSet: List[Selection]): FieldsAndFragments =
-    selectionSet.foldLeft(FieldsAndFragments.empty)({ case (fieldsAndFragments, selection) =>
+  implicit class FieldMapOps(val self: FieldMap) extends AnyVal {
+    def |+|(that: FieldMap): FieldMap =
+      (self.keySet ++ that.keySet).map { k =>
+        k -> (self.get(k).getOrElse(Set.empty) ++ that.get(k).getOrElse(Set.empty))
+      }.toMap
+
+    def addField(
+      f: Field,
+      parentType: __Type,
+      selection: Field
+    ) = {
+      val responseName = f.alias.getOrElse(f.name)
+
+      getFields(parentType)
+        .flatMap(fields => fields.find(_.name == f.name))
+        .map { f =>
+          val sf    = SelectedField(parentType, selection, f)
+          val entry = self.get(responseName).map(_ + sf).getOrElse(Set(sf))
+          self + (responseName -> entry)
+        }
+        .getOrElse(self)
+    }
+  }
+
+  def apply(context: Context, parentType: __Type, selectionSet: List[Selection]): FieldMap =
+    selectionSet.foldLeft(empty)({ case (fields, selection) =>
       selection match {
         case FragmentSpread(name, directives)               =>
           context.fragments
             .get(name)
             .map { definition =>
               val typ = getType(Some(definition.typeCondition), parentType, context)
-              apply(context, typ, definition.selectionSet) ++ fieldsAndFragments
+              apply(context, typ, definition.selectionSet) ++ fields
             }
-            .getOrElse(fieldsAndFragments)
+            .getOrElse(fields)
         case f: Field                                       =>
-          fieldsAndFragments.addField(f, parentType, f)
+          fields.addField(f, parentType, f)
         case InlineFragment(typeCondition, _, selectionSet) =>
           val typ = getType(typeCondition, parentType, context)
-          apply(context, typ, selectionSet) ++ fieldsAndFragments
+          apply(context, typ, selectionSet) |+| fields
       }
     })
 }
