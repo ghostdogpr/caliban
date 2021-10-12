@@ -69,4 +69,23 @@ object Utils {
 
   def getType(t: NamedType, context: Context) =
     context.rootType.types.get(t.name)
+
+  def cross[A](a: Iterable[A]): Iterable[(A, A)]                 =
+    for (xs <- a; ys <- a) yield (xs, ys)
+
+  def cross[A](a: Iterable[A], b: Iterable[A]): Iterable[(A, A)] =
+    for (xs <- a; ys <- b) yield (xs, ys)
+
+  object syntax {
+    implicit class OptionSyntax[+A](val self: Option[A]) extends AnyVal {
+      def zip[B](that: Option[B]): Option[(A, B)] =
+        self.flatMap(a => that.map(b => (a, b)))
+    }
+
+    implicit class Tuple2Syntax[+A, +B](val self: Tuple2[Option[A], Option[B]]) extends AnyVal {
+      def mapN[C](f: (A, B) => C): Option[C] =
+        self._1.flatMap(a => self._2.map(b => f(a, b)))
+    }
+
+  }
 }

@@ -5,6 +5,7 @@ import caliban.introspection.adt._
 import caliban.parsing.adt.Selection
 import zio.{ IO, UIO }
 import Utils._
+import Utils.syntax._
 
 object FragmentValidator {
   def findConflictsWithinSelectionSet(
@@ -105,22 +106,6 @@ object FragmentValidator {
     if (concreteGroups.size < 1) UIO.succeed(List(fields))
     else UIO.succeed(concreteGroups.map({ case (_, v) => v ++ abstractGroup }).toList)
   }
-
-  implicit class OptionSyntax[+A](val self: Option[A]) extends AnyVal {
-    def zip[B](that: Option[B]): Option[(A, B)] =
-      self.flatMap(a => that.map(b => (a, b)))
-  }
-
-  implicit class Tuple2Syntax[+A, +B](val self: Tuple2[Option[A], Option[B]]) extends AnyVal {
-    def mapN[C](f: (A, B) => C): Option[C] =
-      self._1.flatMap(a => self._2.map(b => f(a, b)))
-  }
-
-  def cross[A](a: Iterable[A]): Iterable[(A, A)]                                      =
-    for (xs <- a; ys <- a) yield (xs, ys)
-
-  def cross[A](a: Iterable[A], b: Iterable[A]): Iterable[(A, A)]                      =
-    for (xs <- a; ys <- b) yield (xs, ys)
 
   def failValidation[T](msg: String, explanatoryText: String): IO[ValidationError, T] =
     IO.fail(ValidationError(msg, explanatoryText))
