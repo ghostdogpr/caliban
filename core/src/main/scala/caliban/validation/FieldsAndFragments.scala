@@ -25,7 +25,7 @@ case class SelectedField(
   fieldDef: __Field
 )
 
-object FieldsAndFragments {
+object FieldMap {
   val empty: FieldMap = Map.empty
 
   implicit class FieldMapOps(val self: FieldMap) extends AnyVal {
@@ -33,6 +33,11 @@ object FieldsAndFragments {
       (self.keySet ++ that.keySet).map { k =>
         k -> (self.get(k).getOrElse(Set.empty) ++ that.get(k).getOrElse(Set.empty))
       }.toMap
+
+    def show =
+      self.map { case (k, fields) =>
+        s"$k -> ${fields.map(_.fieldDef.name).mkString(", ")}"
+      }.mkString("\n")
 
     def addField(
       f: Field,
@@ -53,14 +58,14 @@ object FieldsAndFragments {
   }
 
   def apply(context: Context, parentType: __Type, selectionSet: List[Selection]): FieldMap =
-    selectionSet.foldLeft(empty)({ case (fields, selection) =>
+    selectionSet.foldLeft(FieldMap.empty)({ case (fields, selection) =>
       selection match {
         case FragmentSpread(name, directives)               =>
           context.fragments
             .get(name)
             .map { definition =>
               val typ = getType(Some(definition.typeCondition), parentType, context)
-              apply(context, typ, definition.selectionSet) ++ fields
+              apply(context, typ, definition.selectionSet) |+| fields
             }
             .getOrElse(fields)
         case f: Field                                       =>

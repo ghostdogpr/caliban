@@ -25,7 +25,7 @@ object FragmentValidator {
     parentType: __Type,
     selectionSet: List[Selection]
   ): IO[ValidationError, Unit] = {
-    val fieldsAndfragments = FieldsAndFragments(
+    val fieldsAndfragments = FieldMap(
       context,
       parentType,
       selectionSet
@@ -55,25 +55,27 @@ object FragmentValidator {
 
   def doTypesConflict(t1: __Type, t2: __Type): Boolean =
     if (isNonNull(t1))
-      if (isNonNull(t2)) (t1.ofType, t2.ofType).mapN((p1, p2) => doTypesConflict(p1, p2)).getOrElse(false)
+      if (isNonNull(t2)) (t1.ofType, t2.ofType).mapN((p1, p2) => doTypesConflict(p1, p2)).getOrElse(true)
       else true
     else if (isNonNull(t2))
       true
     else if (isListType(t1))
-      if (isListType(t2)) (t1.ofType, t2.ofType).mapN((p1, p2) => doTypesConflict(p1, p2)).getOrElse(false)
+      if (isListType(t2)) (t1.ofType, t2.ofType).mapN((p1, p2) => doTypesConflict(p1, p2)).getOrElse(true)
       else true
     else if (isListType(t2))
       true
-    else if (isLeafType(t1) && isLeafType(t2))
-      t1.ofType != t2.ofType
-    else if (!isComposite(t1) || !isComposite(t2))
+    else if (isLeafType(t1) && isLeafType(t2)) {
+      t1 != t2
+    } else if (!isComposite(t1) || !isComposite(t2))
       true
     else
       false
 
   def sameForCommonParentsByName(context: Context, parentType: __Type, fields: FieldMap): Iterable[String] =
     fields.flatMap({ case (_, fields) =>
-      groupByCommonParents(context, parentType, fields).flatMap(group => requireSameNameAndArguments(group))
+      groupByCommonParents(context, parentType, fields).flatMap { group =>
+        requireSameNameAndArguments(group)
+      }
     })
 
   def requireSameNameAndArguments(fields: Set[SelectedField]) =
