@@ -67,7 +67,7 @@ object FragmentValidator {
     groupByCommonParents: (Context, __Type, Set[SelectedField]) => UIO[List[Set[SelectedField]]]
   )(context: Context, parentType: __Type, fields: FieldMap): UIO[Iterable[String]] =
     UIO
-      .collect(fields.toIterable)({ case (_, fields) =>
+      .collect(fields.toList)({ case (_, fields) =>
         groupByCommonParents(context, parentType, fields).map { grouped =>
           grouped.flatMap(group => requireSameNameAndArguments(group))
         }
