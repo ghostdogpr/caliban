@@ -64,9 +64,9 @@ object FragmentValidator {
       else true
     else if (isListType(t2))
       true
-    else if (isLeafType(t1) && isLeafType(t2)) {
+    else if (isLeafType(t1) && isLeafType(t2))
       t1.name != t2.name
-    } else if (!isComposite(t1) || !isComposite(t2))
+    else if (!isComposite(t1) || !isComposite(t2))
       true
     else
       false
