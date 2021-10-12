@@ -31,21 +31,8 @@ object FragmentValidator {
       selectionSet
     )
 
-    val conflicts = collectConflictsWithin(
-      context,
-      fieldsAndfragments.fields
-    ) ++
-      fieldsAndfragments.fragmentNames.flatMap { name =>
-        collectConflictsBetweenFieldsAndFragment(
-          context,
-          false,
-          fieldsAndfragments.fields,
-          name
-        ) ++ fieldsAndfragments.fragmentNames.flatMap { name2 =>
-          // TODO: can skip stuff here by using index + drop.
-          collectConflictsBetweenFragments(context, false, name, name2)
-        }
-      }
+    val conflicts = sameResponseShapeByName(context, parentType, fieldsAndfragments) ++
+      sameForCommonParentsByName(context, parentType, fieldsAndfragments)
 
     conflicts match {
       case head :: _ => IO.fail(ValidationError(head, ""))
@@ -53,177 +40,90 @@ object FragmentValidator {
     }
   }
 
-  def collectConflictsWithin(
-    context: Context,
-    fields: FieldMap
-  ): Iterable[String] =
-    fields
-      .collect({
-        case (name, field) if field.size > 0 =>
-          findConflict(context, false, field, field)
-      })
-      .flatten
+  def sameResponseShapeByName(context: Context, parentType: __Type, fields: FieldsAndFragments): Iterable[String] =
+    fields.fields.flatMap { case (name, values) =>
+      cross(values).flatMap { pair =>
+        val (f1, f2) = pair
+        if (doTypesConflict(f1.fieldDef.`type`(), f2.fieldDef.`type`()))
+          List(
+            s"$name has conflicting types: ${f1.parentType.name.getOrElse("")}.${f1.fieldDef.name} and ${f2.parentType.name
+              .getOrElse("")}.${f2.fieldDef.name}. Try using an alias."
+          )
+        else List()
+      }
+    }
 
-  def cross[A](a: Iterable[A]): Iterable[(A, A)]                 =
-    for (xs <- a; ys <- a) yield (xs, ys)
+  def doTypesConflict(t1: __Type, t2: __Type): Boolean =
+    if (isNonNull(t1))
+      if (isNonNull(t2)) (t1.ofType, t2.ofType).mapN((p1, p2) => doTypesConflict(p1, p2)).getOrElse(false)
+      else true
+    else if (isNonNull(t2))
+      true
+    else if (isListType(t1))
+      if (isListType(t2)) (t1.ofType, t2.ofType).mapN((p1, p2) => doTypesConflict(p1, p2)).getOrElse(false)
+      else true
+    else if (isListType(t2))
+      true
+    else if (isLeafType(t1) && isLeafType(t2))
+      t1.ofType != t2.ofType
+    else if (!isComposite(t1) || !isComposite(t2))
+      true
+    else
+      false
 
-  def cross[A](a: Iterable[A], b: Iterable[A]): Iterable[(A, A)] =
-    for (xs <- a; ys <- b) yield (xs, ys)
+  def sameForCommonParentsByName(context: Context, parentType: __Type, fields: FieldsAndFragments): Iterable[String] =
+    fields.fields.flatMap({ case (_, fields) =>
+      groupByCommonParents(context, parentType, fields).flatMap(group => requireSameNameAndArguments(group))
+    })
 
-  def doTypesConflict(t1: __Type, t2: __Type): Boolean           =
-    t1.toType(!t1.isNullable) != t2.toType(!t2.isNullable)
-
-  // TODO: get field name for better error message
-  def findConflict(
-    context: Context,
-    parentFieldsAreMutuallyExclusive: Boolean,
-    f1: Set[SelectedField],
-    f2: Set[SelectedField]
-  ): Iterable[String] =
-    cross(f1, f2).flatMap { pair =>
-      val (f1, f2)             = pair
-      val areMutuallyExclusive = parentFieldsAreMutuallyExclusive || (f1.parentType != f2.parentType &&
-        isObjectType(f1.parentType) &&
-        isObjectType(f2.parentType))
-
-      if (!areMutuallyExclusive && f1.fieldDef.name != f2.fieldDef.name)
+  def requireSameNameAndArguments(fields: Set[SelectedField]) =
+    cross(fields).flatMap { case (f1, f2) =>
+      if (f1.fieldDef.name != f2.fieldDef.name) {
         List(
           s"${f1.parentType.name.getOrElse("")}.${f1.fieldDef.name} and ${f2.parentType.name.getOrElse("")}.${f2.fieldDef.name} are different fields."
         )
-      else if (f1.selection.arguments != f2.selection.arguments)
+      } else if (f1.selection.arguments != f2.selection.arguments)
         List(s"${f1.fieldDef.name} and ${f2.fieldDef.name} have different arguments")
-      else if (doTypesConflict(f1.fieldDef.`type`(), f2.fieldDef.`type`()))
-        List(
-          s"${f1.fieldDef.name} and ${f2.fieldDef.name} have different types, ${f1.fieldDef.`type`()}, ${f2.fieldDef.`type`()}."
-        )
-      else
-        findConflictsBetweenSubSelectionSets(
-          context,
-          areMutuallyExclusive,
-          f1.fieldDef,
-          f1.selection,
-          f2.fieldDef,
-          f2.selection
-        )
+      else List()
     }
 
-  def findConflictsBetweenSubSelectionSets(
+  def groupByCommonParents(
     context: Context,
-    areMutuallyExclusive: Boolean,
-    def1: __Field,
-    sel1: Field,
-    def2: __Field,
-    sel2: Field
-  ): Iterable[String] = {
-    val fieldsAndFragments1 = FieldsAndFragments(context, def1.`type`(), sel1.selectionSet)
-    val fieldsAndFragments2 = FieldsAndFragments(context, def2.`type`(), sel2.selectionSet)
+    parentType: __Type,
+    fields: Set[SelectedField]
+  ): List[Set[SelectedField]] = {
+    val abstractGroup = fields.collect({
+      case field if !isConcrete(field.parentType) => field
+    })
 
-    collectConflictsBetween(context, areMutuallyExclusive, fieldsAndFragments1.fields, fieldsAndFragments2.fields) ++
-      collectConflictsBetween(context, areMutuallyExclusive, fieldsAndFragments2.fields, fieldsAndFragments1.fields) ++
-      cross(fieldsAndFragments1.fragmentNames, fieldsAndFragments2.fragmentNames).flatMap {
-        case (fragment1, fragment2) =>
-          collectConflictsBetweenFragments(
-            context,
-            areMutuallyExclusive,
-            fragment1,
-            fragment2
-          )
-      }
+    val concreteGroups = fields
+      .collect({
+        case f if isConcrete(f.parentType) && f.parentType.name.isDefined => (f.parentType.name.get, f)
+      })
+      .foldLeft(Map.empty[String, Set[SelectedField]])({ case (acc, (name, field)) =>
+        val entry = acc.get(name).map(_ + field).getOrElse(Set(field))
+        acc + (name -> entry)
+      })
+
+    if (concreteGroups.size < 1) List(fields)
+    else concreteGroups.map({ case (_, v) => v ++ abstractGroup }).toList
   }
 
-  def collectConflictsBetweenFragments(
-    context: Context,
-    areMutuallyExclusive: Boolean,
-    fragmentName1: String,
-    fragmentName2: String
-  ): Iterable[String] =
-    // check self
-    // memoize bla bla
-    // zip mapN
-    context.fragments
-      .get(fragmentName1)
-      .flatMap(f1 => context.fragments.get(fragmentName2).map(f2 => (f1, f2)))
-      .flatMap { case (fragment1, fragment2) =>
-        getReferencedFieldsAndFragmentNames(context, fragment1)
-          .flatMap(f1 => getReferencedFieldsAndFragmentNames(context, fragment2).map(f2 => (f1, f2)))
-          .map { case (fieldsAndFragments1, fieldsAndFragments2) =>
-            val c1 =
-              collectConflictsBetween(
-                context,
-                areMutuallyExclusive,
-                fieldsAndFragments1.fields,
-                fieldsAndFragments2.fields
-              )
+  implicit class OptionSyntax[+A](val self: Option[A]) extends AnyVal {
+    def zip[B](that: Option[B]): Option[(A, B)] =
+      self.flatMap(a => that.map(b => (a, b)))
+  }
 
-            val c2 = fieldsAndFragments2.fragmentNames.toList
-              .flatMap(fragmentName =>
-                collectConflictsBetweenFieldsAndFragment(
-                  context,
-                  areMutuallyExclusive,
-                  fieldsAndFragments1.fields,
-                  fragmentName
-                )
-              )
+  implicit class Tuple2Syntax[+A, +B](val self: Tuple2[Option[A], Option[B]]) extends AnyVal {
+    def mapN[C](f: (A, B) => C): Option[C] =
+      self._1.flatMap(a => self._2.map(b => f(a, b)))
+  }
 
-            val c3 = fieldsAndFragments1.fragmentNames.toList.flatMap(fragmentName =>
-              collectConflictsBetweenFieldsAndFragment(
-                context,
-                areMutuallyExclusive,
-                fieldsAndFragments2.fields,
-                fragmentName
-              )
-            )
+  def cross[A](a: Iterable[A]): Iterable[(A, A)]                                      =
+    for (xs <- a; ys <- a) yield (xs, ys)
 
-            c1 ++ c2 ++ c3
-          }
-      }
-      .getOrElse(List.empty)
-
-  def collectConflictsBetween(
-    context: Context,
-    areMutuallyExclusive: Boolean,
-    fieldMap1: FieldMap,
-    fieldMap2: FieldMap
-  ): Iterable[String] =
-    fieldMap1.toIterable
-      .map({ case (name, fields1) =>
-        fieldMap2
-          .get(name)
-          .map(fields2 => findConflict(context, areMutuallyExclusive, fields1, fields2))
-          .getOrElse(List.empty)
-      })
-      .flatten
-
-  def collectConflictsBetweenFieldsAndFragment(
-    context: Context,
-    areMutuallyExclusive: Boolean,
-    fields1: FieldMap,
-    fragmentName: String
-  ): Iterable[String] =
-    context.fragments
-      .get(fragmentName)
-      .flatMap { fragment =>
-        getType(fragment.typeCondition, context).map { typ =>
-          FieldsAndFragments(context, typ, fragment.selectionSet)
-        }
-      }
-      .map { fieldsAndFragments2 =>
-        if (fields1 != fieldsAndFragments2.fields) {
-          collectConflictsBetween(context, areMutuallyExclusive, fields1, fieldsAndFragments2.fields)
-        } else
-          fieldsAndFragments2.fragmentNames.flatMap { fragmentName =>
-            collectConflictsBetweenFieldsAndFragment(context, areMutuallyExclusive, fields1, fragmentName)
-          }
-      }
-      .getOrElse(List.empty)
-
-  def getReferencedFieldsAndFragmentNames(
-    context: Context,
-    fragment: FragmentDefinition
-  ) =
-    getType(fragment.typeCondition, context).map { t =>
-      FieldsAndFragments(context, t, fragment.selectionSet)
-    }
+  def cross[A](a: Iterable[A], b: Iterable[A]): Iterable[(A, A)]                      =
+    for (xs <- a; ys <- b) yield (xs, ys)
 
   def failValidation[T](msg: String, explanatoryText: String): IO[ValidationError, T] =
     IO.fail(ValidationError(msg, explanatoryText))

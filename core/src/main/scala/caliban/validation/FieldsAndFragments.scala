@@ -26,18 +26,14 @@ case class SelectedField(
 )
 
 case class FieldsAndFragments(
-  fields: FieldMap = Map.empty,
-  fragmentNames: Set[String] = Set.empty
+  fields: FieldMap = Map.empty
 ) { self =>
   def ++(that: FieldsAndFragments): FieldsAndFragments =
     self.copy(
       (fields.keySet ++ that.fields.keySet).map { k =>
         k -> (fields.get(k).getOrElse(Set.empty) ++ that.fields.get(k).getOrElse(Set.empty))
-      }.toMap,
-      fragmentNames ++ that.fragmentNames
+      }.toMap
     )
-
-  def addFragment(name: String) = self.copy(fragmentNames = fragmentNames + name)
 
   def addField(
     f: Field,
@@ -58,13 +54,19 @@ case class FieldsAndFragments(
 }
 
 object FieldsAndFragments {
-  val empty = FieldsAndFragments(Map.empty, Set.empty)
+  val empty = FieldsAndFragments(Map.empty)
 
   def apply(context: Context, parentType: __Type, selectionSet: List[Selection]): FieldsAndFragments =
     selectionSet.foldLeft(FieldsAndFragments.empty)({ case (fieldsAndFragments, selection) =>
       selection match {
         case FragmentSpread(name, directives)               =>
-          fieldsAndFragments.addFragment(name)
+          context.fragments
+            .get(name)
+            .map { definition =>
+              val typ = getType(Some(definition.typeCondition), parentType, context)
+              apply(context, typ, definition.selectionSet) ++ fieldsAndFragments
+            }
+            .getOrElse(fieldsAndFragments)
         case f: Field                                       =>
           fieldsAndFragments.addField(f, parentType, f)
         case InlineFragment(typeCondition, _, selectionSet) =>

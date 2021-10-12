@@ -15,7 +15,6 @@ import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt._
 import caliban.schema.{ RootSchema, RootSchemaBuilder, RootType, Types }
-import caliban.{ InputValue, Rendering, Value }
 import zio.IO
 
 package object validation {

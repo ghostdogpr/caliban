@@ -25,6 +25,40 @@ object Utils {
       case _      => false
     }
 
+  def isConcrete(t: __Type): Boolean = !isAbstract(t)
+
+  def isLeafType(t: __Type): Boolean = isEnum(t) || isScalar(t)
+
+  def isEnum(t: __Type): Boolean = t.kind match {
+    case ENUM => true
+    case _    => false
+  }
+
+  def isComposite(t: __Type): Boolean =
+    isObjectType(t) || isInterface(t) || isUnion(t)
+
+  def isInterface(t: __Type): Boolean = t.kind match {
+    case INTERFACE => true
+    case _         => false
+  }
+
+  def isUnion(t: __Type): Boolean = t.kind match {
+    case UNION => true
+    case _     => false
+  }
+
+  def isScalar(t: __Type): Boolean = t.kind match {
+    case SCALAR => true
+    case _      => false
+  }
+
+  def isAbstract(t: __Type): Boolean =
+    t.kind match {
+      case UNION     => true
+      case INTERFACE => true
+      case _         => false
+    }
+
   def isNonNull(t: __Type): Boolean = t.kind == __TypeKind.NON_NULL
 
   def isListType(t: __Type): Boolean = t.kind == __TypeKind.LIST

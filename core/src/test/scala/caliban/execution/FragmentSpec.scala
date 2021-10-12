@@ -26,13 +26,15 @@ object FragmentSpec extends DefaultRunnableSpec {
                      name
                    }""")
 
-        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
+        for {
+          int <- interpreter
+          res <- int.execute(query)
+        } yield assert(res.data.toString)(
           equalTo("""{"amos":{"name":"Amos Burton"}}""")
         )
       },
       testM("fragment on union") {
-        val interpreter = graphQL(resolver).interpreter
-        val query       = gqldoc("""
+        val query = gqldoc("""
                    {
                      amos: character(name: "Amos Burton") {
                        role {
@@ -47,23 +49,24 @@ object FragmentSpec extends DefaultRunnableSpec {
                      }
                    }""")
 
-        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
-          equalTo("""{"amos":{"role":{"shipName":"Rocinante"}}}""")
-        )
+        for {
+          interpteter <- graphQL(resolver).interpreter
+          res         <- interpteter.execute(query)
+        } yield assert(res.data.toString)(equalTo("""{"amos":{"role":{"shipName":"Rocinante"}}}"""))
       },
       testM("inline fragment") {
         val interpreter = graphQL(resolver).interpreter
         val query       = gqldoc("""
-                   {
-                     amos: character(name: "Amos Burton") {
-                       name
-                       role {
-                         ... on Mechanic {
-                           shipName
+                     {
+                       amos: character(name: "Amos Burton") {
+                         name
+                         role {
+                           ... on Mechanic {
+                             shipName
+                           }
                          }
                        }
-                     }
-                   }""")
+                     }""")
 
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
           equalTo("""{"amos":{"name":"Amos Burton","role":{"shipName":"Rocinante"}}}""")
@@ -133,14 +136,13 @@ object FragmentSpec extends DefaultRunnableSpec {
       },
       testM("inline fragment selection with different arguments") {
         sealed trait Union
-        case class A(name: Int => String)    extends Union
-        case class B(name: String => String) extends Union
+        case class A(name: Int => String) extends Union
 
         val query =
           """query{
             |  test {
             |    ...on A { name(value: 1) }
-            |    ...on B { name(value: "hi") }
+            |    ...on A { name(value: 2) }
             |   }
             |}""".stripMargin
 
