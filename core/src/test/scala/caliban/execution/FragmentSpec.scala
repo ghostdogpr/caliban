@@ -330,7 +330,7 @@ object FragmentSpec extends DefaultRunnableSpec {
               res         <- interpteter.execute(query, variables = Map("dogCommand" -> StringValue("SIT")))
             } yield assert(res.errors.headOption)(isSome(anything))
           },
-          testM("conflicting value and arg") {
+          testM("conflicting args") {
             sealed trait DogCommand
             case object SIT extends DogCommand
             case class Dog(doesKnowCommand: DogCommand => Boolean)
@@ -355,7 +355,7 @@ object FragmentSpec extends DefaultRunnableSpec {
               res         <- interpteter.execute(query, variables = Map("dogCommand" -> StringValue("SIT")))
             } yield assert(res.errors.headOption)(isSome(anything))
           },
-          testM("conflicting value and arg") {
+          testM("conflicting args") {
             sealed trait DogCommand
             case object SIT extends DogCommand
             case class Dog(@GQLDefault("SIT") doesKnowCommand: DogCommand => Boolean)
@@ -475,7 +475,7 @@ object FragmentSpec extends DefaultRunnableSpec {
             for {
               interpteter <- gql.interpreter
               res         <- interpteter.execute(query)
-            } yield assert(res.errors)(isEmpty)
+            } yield assert(res.errors.headOption)(isSome(anything))
           }
         )
       )
