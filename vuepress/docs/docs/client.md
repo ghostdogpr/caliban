@@ -250,6 +250,7 @@ lazy val client =
   project
     .enablePlugins(CompileTimeCalibanClientPlugin)
     .settings(
+      Compile / ctCalibanClient / ctCalibanClientsSettings := Seq(api),
       Compile / ctCalibanClient / ctCalibanClientsVersionedCode := false // By default, it's true.
     )
 ```
