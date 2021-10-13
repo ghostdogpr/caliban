@@ -244,7 +244,7 @@ This is the minimal working configuration for the "client side".
 
 By default, the Caliban client code will be generated in your `src/main/scala` directory of your `client` sbt module.    
 You may prefer it not to be generated inside your - usually versioned-in-git - module code.   
-For that, the plugin provide an option to generate the code outside of your `src/main/scala` directory:
+For that, the plugin provides an option to generate the code outside of your `src/main/scala` directory:
 ```scala
 lazy val client =
   project
