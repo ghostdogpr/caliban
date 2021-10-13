@@ -402,9 +402,9 @@ private[caliban] object Functions {
 
         Tracked.inputChanged(cacheDirectory / s"$cacheName-inputs") { (inChanged: Boolean, _: TrackedSettings) =>
           Tracked.outputChanged(cacheDirectory / s"$cacheName-output") {
-            (outChanged: Boolean, outputs: FilesInfo[PlainFileInfo]) =>
+            (_: Boolean, outputs: FilesInfo[PlainFileInfo]) =>
               Def.taskIf {
-                if (inChanged || outChanged) generateSources.value
+                if (inChanged) generateSources.value
                 else outputs.files.toList.map(_.file)
               }
           }
