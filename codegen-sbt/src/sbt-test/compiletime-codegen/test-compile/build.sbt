@@ -8,6 +8,8 @@ ThisBuild / homepage := Some(url("https://www.conduktor.io/"))
 ThisBuild / licenses := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0"))
 ThisBuild / version := "0.0.1"
 ThisBuild / scalaVersion := "2.12.14" // Must stay 2.12 in these tests because the plugin is compiled with 2.12
+ThisBuild / resolvers += Resolver.mavenLocal
+ThisBuild / resolvers += Resolver.sonatypeRepo("snapshots")
 
 // ### Dependencies ###
 
@@ -37,7 +39,8 @@ lazy val root =
       posts,
       potatoes,
       clients,
-      calibanClients
+      postsClients,
+      potatoesClients
     )
     .settings(
       // Additional scripted tests commands
@@ -109,13 +112,23 @@ lazy val clients =
   project
     .in(file("modules/clients"))
     .settings(libraryDependencies ++= sttp)
-    .dependsOn(calibanClients)
+    .dependsOn(postsClients, potatoesClients)
 
-lazy val calibanClients =
+lazy val postsClients =
   project
-    .withId("caliban-clients")
-    .in(file("modules/caliban-clients"))
+    .withId("posts-clients")
+    .in(file("modules/posts-clients"))
     .enablePlugins(CompileTimeCalibanClientPlugin)
     .settings(
-      Compile / ctCalibanClient / ctCalibanClientsSettings := Seq(posts, potatoes)
+      Compile / ctCalibanClient / ctCalibanClientsSettings := Seq(posts),
+      Compile / ctCalibanClient / ctCalibanClientsVersionedCode := false
+    )
+
+lazy val potatoesClients =
+  project
+    .withId("potatoes-clients")
+    .in(file("modules/potatoes-clients"))
+    .enablePlugins(CompileTimeCalibanClientPlugin)
+    .settings(
+      Compile / ctCalibanClient / ctCalibanClientsSettings := Seq(potatoes)
     )
