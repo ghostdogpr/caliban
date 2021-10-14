@@ -615,7 +615,7 @@ object Validator {
     }
 
     def validateFields(fields: List[__InputValue]): IO[ValidationError, Unit] =
-      IO.foreach_(fields)(validateInputValue(_, inputObjectContext)) &>
+      IO.foreach_(fields)(validateInputValue(_, inputObjectContext)) *>
         noDuplicateInputValueName(fields, inputObjectContext)
 
     t.inputFields match {
