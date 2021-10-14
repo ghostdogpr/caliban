@@ -37,7 +37,7 @@ object FieldMap {
     }
   }
 
-  def apply(context: Context, parentType: __Type, selectionSet: List[Selection]): FieldMap =
+  def apply(context: Context, parentType: __Type, selectionSet: Iterable[Selection]): FieldMap =
     selectionSet.foldLeft(FieldMap.empty)({ case (fields, selection) =>
       selection match {
         case FragmentSpread(name, directives)               =>

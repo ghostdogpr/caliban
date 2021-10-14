@@ -332,15 +332,35 @@ object Validator {
     IO.foreach_(context.document.definitions) {
       case OperationDefinition(opType, _, _, _, selectionSet) =>
         opType match {
-          case OperationType.Query        => validateFields(context, selectionSet, context.rootType.queryType)
+          case OperationType.Query        =>
+            validateFields(context, selectionSet, context.rootType.queryType) *>
+              FragmentValidator.findConflictsWithinSelectionSet(
+                context,
+                context.rootType.queryType,
+                selectionSet
+              )
           case OperationType.Mutation     =>
             context.rootType.mutationType.fold[IO[ValidationError, Unit]](
               failValidation("Mutation operations are not supported on this schema.", "")
-            )(validateFields(context, selectionSet, _))
+            )(
+              validateFields(context, selectionSet, _) *>
+                FragmentValidator.findConflictsWithinSelectionSet(
+                  context,
+                  context.rootType.queryType,
+                  selectionSet
+                )
+            )
           case OperationType.Subscription =>
             context.rootType.subscriptionType.fold[IO[ValidationError, Unit]](
               failValidation("Subscription operations are not supported on this schema.", "")
-            )(validateFields(context, selectionSet, _))
+            )(
+              validateFields(context, selectionSet, _) *>
+                FragmentValidator.findConflictsWithinSelectionSet(
+                  context,
+                  context.rootType.queryType,
+                  selectionSet
+                )
+            )
         }
       case _: FragmentDefinition                              => IO.unit
       case _: TypeSystemDefinition                            => IO.unit
@@ -366,11 +386,7 @@ object Validator {
         }
       case InlineFragment(typeCondition, _, selectionSet) =>
         validateSpread(context, None, currentType, typeCondition, selectionSet)
-    } *> validateLeafFieldSelection(selectionSet, currentType) *> FragmentValidator.findConflictsWithinSelectionSet(
-      context,
-      currentType,
-      selectionSet
-    )
+    } *> validateLeafFieldSelection(selectionSet, currentType)
 
   private def validateSpread(
     context: Context,
