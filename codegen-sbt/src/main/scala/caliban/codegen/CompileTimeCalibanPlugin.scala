@@ -215,6 +215,12 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
         "(Required) List of projects being configured with the `CompileTimeCalibanServerPlugin` plugin for which we want to generate client(s)"
       )
 
+    // ## Optional Plugin configurations
+    lazy val ctCalibanClientsVersionedCode: SettingKey[Boolean] =
+      settingKey[Boolean](
+        "(Optional) If true, the generated client will be in the `src/main/scala` of your sbt module. If false, the code will be generated in `target/scala_x.xx/src_managed`. Default: `true`"
+      )
+
     // ## Plugin task
     lazy val ctCalibanClientGenerate: TaskKey[Seq[File]] = taskKey[Seq[File]](
       "Generate Caliban Client(s) code at compile time. Automatically configured to be triggered when compilation is triggered"
@@ -230,6 +236,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
     inTask(ctCalibanClient)(
       Seq(
         ctCalibanClientsSettings := Seq.empty,
+        ctCalibanClientsVersionedCode := true,
         ctCalibanClientGenerate := {
           // That helped: https://stackoverflow.com/q/26244115/2431728
           Def.taskDyn {
@@ -240,7 +247,12 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
             val clientsSettings: Seq[Project] = (ctCalibanClient / ctCalibanClientsSettings).value
             if (clientsSettings.isEmpty) Def.task { log.error(helpMsg); Seq.empty[File] }
             else {
-              val baseDirValue: String = (thisProject / baseDirectory).value.absolutePath
+              val (baseDirValue: String, isVersioned: Boolean) =
+                Def.settingDyn {
+                  val isVersioned: Boolean = (ctCalibanClient / ctCalibanClientsVersionedCode).value
+                  (if (isVersioned) (thisProject / baseDirectory) else (thisProject / sourceManaged))
+                    .map(_.absolutePath -> isVersioned)
+                }.value
 
               def generateSources: Def.Initialize[Task[Seq[File]]] =
                 Def.taskDyn {
@@ -326,7 +338,8 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                         caliban.codegen.BuildInfo.version,
                         zio.BuildInfo.version,
                         clientsSettings.map(_.id).mkString,
-                        serverProjectSettings.mkString
+                        serverProjectSettings.mkString,
+                        isVersioned.toString
                       )
                     )
                   }
@@ -389,9 +402,9 @@ private[caliban] object Functions {
 
         Tracked.inputChanged(cacheDirectory / s"$cacheName-inputs") { (inChanged: Boolean, _: TrackedSettings) =>
           Tracked.outputChanged(cacheDirectory / s"$cacheName-output") {
-            (outChanged: Boolean, outputs: FilesInfo[PlainFileInfo]) =>
+            (_: Boolean, outputs: FilesInfo[PlainFileInfo]) =>
               Def.taskIf {
-                if (inChanged || outChanged) generateSources.value
+                if (inChanged) generateSources.value
                 else outputs.files.toList.map(_.file)
               }
           }
