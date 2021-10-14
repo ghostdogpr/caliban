@@ -9,7 +9,7 @@ import zio.test.environment.TestEnvironment
 
 object InputObjectSpec extends DefaultRunnableSpec {
   override def spec: ZSpec[TestEnvironment, Any] =
-    suite("InputObjectSpect")(
+    suite("InputObjectSpec")(
       testM("fails if a non-null field on an input object is null") {
         val query =
           """query {
