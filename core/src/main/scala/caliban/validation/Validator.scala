@@ -472,7 +472,7 @@ object Validator {
             IO.when(
               inputField.defaultValue.isEmpty &&
                 inputField.`type`().kind == __TypeKind.NON_NULL &&
-                !fields.contains(inputField.name)
+                fields.get(inputField.name).getOrElse(NullValue) == NullValue
             )(
               failValidation(
                 s"Required field '${inputField.name}' on object '${inputType.name.getOrElse("?")}' was not provided.",
