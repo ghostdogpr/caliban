@@ -2,14 +2,10 @@ package caliban.validation
 
 import caliban.CalibanError
 import caliban.GraphQL._
-import caliban.Macros.gqldoc
 import caliban.RootResolver
-import caliban.schema.Annotations.GQLDefault
 import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment
-
-import java.util.UUID
 
 object InputObjectSpec extends DefaultRunnableSpec {
   override def spec: ZSpec[TestEnvironment, Any] =
