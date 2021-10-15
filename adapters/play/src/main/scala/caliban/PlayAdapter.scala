@@ -305,18 +305,20 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
     WebSocket
       .acceptOrResult(requestHeader =>
         runtime
-          .unsafeRunToFuture(handleWebSocketRequestHeader(requestHeader).either)
-          .map(
-            _.map(_ =>
-              webSocketFlow(
-                interpreter,
-                skipValidation,
-                enableIntrospection,
-                keepAliveTime,
-                queryExecution,
-                requestHeader
+          .unsafeRunToFuture(
+            handleWebSocketRequestHeader(requestHeader).either
+              .map(
+                _.map(_ =>
+                  webSocketFlow(
+                    interpreter,
+                    skipValidation,
+                    enableIntrospection,
+                    keepAliveTime,
+                    queryExecution,
+                    requestHeader
+                  )
+                )
               )
-            )
           )
       )
 
