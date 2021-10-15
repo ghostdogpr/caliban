@@ -3,7 +3,7 @@ package caliban.validation
 import caliban.CalibanError.ValidationError
 import caliban.introspection.adt._
 import caliban.parsing.adt.Selection
-import zio.{ IO, UIO }
+import zio.{ Chunk, IO, UIO }
 import Utils._
 import Utils.syntax._
 
@@ -13,42 +13,41 @@ object FragmentValidator {
     parentType: __Type,
     selectionSet: List[Selection]
   ): IO[ValidationError, Unit] = {
-    val shapeCache   = scala.collection.mutable.Map.empty[Iterable[Selection], Iterable[String]]
-    val parentsCache = scala.collection.mutable.Map.empty[Iterable[Selection], Iterable[String]]
-    val groupsCache  = scala.collection.mutable.Map.empty[Set[SelectedField], Iterable[Set[SelectedField]]]
+    val shapeCache   = scala.collection.mutable.Map.empty[Iterable[Selection], Chunk[String]]
+    val parentsCache = scala.collection.mutable.Map.empty[Iterable[Selection], Chunk[String]]
+    val groupsCache  = scala.collection.mutable.Map.empty[Set[SelectedField], Chunk[Set[SelectedField]]]
 
-    def sameResponseShapeByName(context: Context, parentType: __Type, set: Iterable[Selection]): Iterable[String] =
+    def sameResponseShapeByName(context: Context, parentType: __Type, set: Iterable[Selection]): Chunk[String] =
       shapeCache.get(set) match {
         case Some(value) => value
         case None        =>
           val fields = FieldMap(context, parentType, set)
-          val res    = fields.flatMap { case (name, values) =>
-            cross(values).flatMap { pair =>
-              val (f1, f2) = pair
+          val res    = Chunk.fromIterable(fields.flatMap { case (name, values) =>
+            cross(values).flatMap { case (f1, f2) =>
               if (doTypesConflict(f1.fieldDef.`type`(), f2.fieldDef.`type`())) {
-                List(
+                Chunk(
                   s"$name has conflicting types: ${f1.parentType.name.getOrElse("")}.${f1.fieldDef.name} and ${f2.parentType.name
                     .getOrElse("")}.${f2.fieldDef.name}. Try using an alias."
                 )
               } else
                 sameResponseShapeByName(context, parentType, f1.selection.selectionSet ++ f2.selection.selectionSet)
             }
-          }
+          })
           shapeCache.put(set, res)
           res
       }
 
-    def sameForCommonParentsByName(context: Context, parentType: __Type, set: Iterable[Selection]): Iterable[String] =
+    def sameForCommonParentsByName(context: Context, parentType: __Type, set: Iterable[Selection]): Chunk[String] =
       parentsCache.get(set) match {
         case Some(value) => value
         case None        =>
           val fields = FieldMap(context, parentType, set)
-          val res    = fields.flatMap({ case (name, fields) =>
+          val res    = Chunk.fromIterable(fields.flatMap({ case (name, fields) =>
             groupByCommonParents(context, parentType, fields).flatMap { group =>
               val merged = group.flatMap(_.selection.selectionSet)
               requireSameNameAndArguments(group) ++ sameForCommonParentsByName(context, parentType, merged)
             }
-          })
+          }))
           parentsCache.put(set, res)
           res
       }
@@ -86,13 +85,13 @@ object FragmentValidator {
       context: Context,
       parentType: __Type,
       fields: Set[SelectedField]
-    ): Iterable[Set[SelectedField]] =
+    ): Chunk[Set[SelectedField]] =
       groupsCache.get(fields) match {
         case Some(value) => value
         case None        =>
-          val abstractGroup = fields.collect({
+          val abstractGroup = fields.collect {
             case field if !isConcrete(field.parentType) => field
-          })
+          }
 
           val concreteGroups = fields
             .collect({
@@ -104,15 +103,12 @@ object FragmentValidator {
             }
 
           val res =
-            if (concreteGroups.size < 1) List(fields)
-            else concreteGroups.values.map(_ ++ abstractGroup)
+            if (concreteGroups.size < 1) Chunk(fields)
+            else Chunk.fromIterable(concreteGroups.values.map(_ ++ abstractGroup))
 
           groupsCache.put(fields, res)
           res
       }
-
-    def failValidation[T](msg: String, explanatoryText: String): IO[ValidationError, T] =
-      IO.fail(ValidationError(msg, explanatoryText))
 
     val fields = FieldMap(
       context,
@@ -123,10 +119,8 @@ object FragmentValidator {
     val conflicts = sameResponseShapeByName(context, parentType, selectionSet) ++
       sameForCommonParentsByName(context, parentType, selectionSet)
 
-    conflicts match {
-      case head :: _ =>
-        IO.fail(ValidationError(head, ""))
-      case _         => IO.unit
+    IO.whenCase(conflicts) { case Chunk(head, _*) =>
+      IO.fail(ValidationError(head, ""))
     }
   }
 }

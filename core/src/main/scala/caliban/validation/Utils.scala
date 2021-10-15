@@ -16,7 +16,7 @@ import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt._
 import caliban.schema.{ RootSchema, RootSchemaBuilder, RootType, Types }
 import caliban.{ InputValue, Rendering, Value }
-import zio.IO
+import zio.{ Chunk, IO }
 
 object Utils {
   def isObjectType(t: __Type): Boolean =
@@ -70,11 +70,11 @@ object Utils {
   def getType(t: NamedType, context: Context) =
     context.rootType.types.get(t.name)
 
-  def cross[A](a: Iterable[A]): Iterable[(A, A)]                 =
-    for (xs <- a; ys <- a) yield (xs, ys)
+  def cross[A](a: Iterable[A]): Chunk[(A, A)]                 =
+    Chunk.fromIterable(for (xs <- a; ys <- a) yield (xs, ys))
 
-  def cross[A](a: Iterable[A], b: Iterable[A]): Iterable[(A, A)] =
-    for (xs <- a; ys <- b) yield (xs, ys)
+  def cross[A](a: Iterable[A], b: Iterable[A]): Chunk[(A, A)] =
+    Chunk.fromIterable(for (xs <- a; ys <- b) yield (xs, ys))
 
   object syntax {
     implicit class OptionSyntax[+A](val self: Option[A]) extends AnyVal {
