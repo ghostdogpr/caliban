@@ -283,7 +283,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
       testM("variable in object") {
         val interpreter = graphQL(resolver).interpreter
         val query       = gqldoc("""
-             query test($name: String) {
+             query test($name: String!) {
                exists(character: { name: $name, nicknames: [], origin: EARTH })
               }""")
 
