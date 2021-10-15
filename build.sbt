@@ -214,7 +214,7 @@ lazy val monixInterop = project
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "dev.zio"  %% "zio-interop-reactivestreams" % "1.3.7",
+      "dev.zio"  %% "zio-interop-reactivestreams" % "1.3.8",
       "dev.zio"  %% "zio-interop-cats"            % zioInteropCats2Version,
       "io.monix" %% "monix"                       % "3.4.0"
     )
@@ -431,7 +431,7 @@ lazy val benchmarks = project
   .settings(
     crossScalaVersions -= scala3,
     libraryDependencies ++= Seq(
-      "org.sangria-graphql" %% "sangria"       % "2.0.0",
+      "org.sangria-graphql" %% "sangria"       % "2.1.3",
       "org.sangria-graphql" %% "sangria-circe" % "1.3.0"
     )
   )

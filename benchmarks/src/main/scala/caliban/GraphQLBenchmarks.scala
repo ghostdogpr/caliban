@@ -125,6 +125,104 @@ class GraphQLBenchmarks {
               }
                 """
 
+  val fragmentsQuery = s"""
+              query IntrospectionQuery {
+                __schema {
+                  queryType {
+                    name
+                    ${"...on __Type { name }" * 100}
+                  }
+                  mutationType { name }
+                  subscriptionType { name }
+                  types {
+                    ...FullType
+                  }
+                  directives {
+                    name
+                    description
+                    locations
+                    args {
+                      ...InputValue
+                    }
+                  }
+                }
+              }
+
+              fragment FullType on __Type {
+                kind
+                name
+                description
+                fields(includeDeprecated: true) {
+                  name
+                  description
+                  args {
+                    ...InputValue
+                  }
+                  type {
+                    ...TypeRef
+                  }
+                  isDeprecated
+                  deprecationReason
+                }
+                inputFields {
+                  ...InputValue
+                }
+                interfaces {
+                  ...TypeRef
+                }
+                enumValues(includeDeprecated: true) {
+                  name
+                  description
+                  isDeprecated
+                  deprecationReason
+                }
+                possibleTypes {
+                  ...TypeRef
+                }
+              }
+
+              fragment InputValue on __InputValue {
+                name
+                description
+                type { ...TypeRef }
+                defaultValue
+              }
+
+              fragment TypeRef on __Type {
+                kind
+                name
+                ofType {
+                  kind
+                  name
+                  ofType {
+                    kind
+                    name
+                    ofType {
+                      kind
+                      name
+                      ofType {
+                        kind
+                        name
+                        ofType {
+                          kind
+                          name
+                          ofType {
+                            kind
+                            name
+                            ofType {
+                              kind
+                              name
+                              ${"...on __Type { kind name }" * 1000}
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+                """
+
   val runtime: Runtime[ZEnv] = new BootstrapRuntime {
     override val platform: Platform = Platform.benchmark
   }
@@ -160,12 +258,19 @@ class GraphQLBenchmarks {
     ()
   }
 
-  implicit val OriginEnum: EnumType[Origin]             = deriveEnumType[Origin]()
-  implicit val CaptainType: ObjectType[Unit, Captain]   = deriveObjectType[Unit, Captain]()
-  implicit val PilotType: ObjectType[Unit, Pilot]       = deriveObjectType[Unit, Pilot]()
-  implicit val EngineerType: ObjectType[Unit, Engineer] = deriveObjectType[Unit, Engineer]()
-  implicit val MechanicType: ObjectType[Unit, Mechanic] = deriveObjectType[Unit, Mechanic]()
-  implicit val RoleType: UnionType[Unit] = UnionType(
+  @Benchmark
+  def fragmentsCaliban(): Unit = {
+    val io = interpreter.execute(fragmentsQuery)
+    runtime.unsafeRun(io)
+    ()
+  }
+
+  implicit val OriginEnum: EnumType[Origin]               = deriveEnumType[Origin]()
+  implicit val CaptainType: ObjectType[Unit, Captain]     = deriveObjectType[Unit, Captain]()
+  implicit val PilotType: ObjectType[Unit, Pilot]         = deriveObjectType[Unit, Pilot]()
+  implicit val EngineerType: ObjectType[Unit, Engineer]   = deriveObjectType[Unit, Engineer]()
+  implicit val MechanicType: ObjectType[Unit, Mechanic]   = deriveObjectType[Unit, Mechanic]()
+  implicit val RoleType: UnionType[Unit]                  = UnionType(
     "Role",
     types = List(PilotType, EngineerType, MechanicType, CaptainType)
   )
@@ -232,6 +337,65 @@ class GraphQLBenchmarks {
   def introspectSangria(): Unit = {
     val future: Future[Json] =
       Future.fromTry(QueryParser.parse(fullIntrospectionQuery)).flatMap(queryAst => Executor.execute(schema, queryAst))
+    Await.result(future, 1 minute)
+    ()
+  }
+
+  object SangriaNewValidator {
+    import sangria.validation.RuleBasedQueryValidator
+    import sangria.validation.rules._
+
+    val allRules =
+      new RuleBasedQueryValidator(
+        List(
+          new ValuesOfCorrectType,
+          new ExecutableDefinitions,
+          new FieldsOnCorrectType,
+          new FragmentsOnCompositeTypes,
+          new KnownArgumentNames,
+          new KnownDirectives,
+          new KnownFragmentNames,
+          new KnownTypeNames,
+          new LoneAnonymousOperation,
+          new NoFragmentCycles,
+          new NoUndefinedVariables,
+          new NoUnusedFragments,
+          new NoUnusedVariables,
+          //new OverlappingFieldsCanBeMerged,
+          new experimental.OverlappingFieldsCanBeMerged,
+          new PossibleFragmentSpreads,
+          new ProvidedRequiredArguments,
+          new ScalarLeafs,
+          new UniqueArgumentNames,
+          new UniqueDirectivesPerLocation,
+          new UniqueFragmentNames,
+          new UniqueInputFieldNames,
+          new UniqueOperationNames,
+          new UniqueVariableNames,
+          new VariablesAreInputTypes,
+          new VariablesInAllowedPosition,
+          new InputDocumentNonConflictingVariableInference,
+          new SingleFieldSubscriptions
+        )
+      )
+  }
+
+  @Benchmark
+  def fragmentsSangriaOld(): Unit = {
+    val future: Future[Json] =
+      Future
+        .fromTry(QueryParser.parse(fragmentsQuery))
+        .flatMap(queryAst => Executor.execute(schema, queryAst))
+    Await.result(future, 1 minute)
+    ()
+  }
+
+  @Benchmark
+  def fragmentsSangriaNew(): Unit = {
+    val future: Future[Json] =
+      Future
+        .fromTry(QueryParser.parse(fragmentsQuery))
+        .flatMap(queryAst => Executor.execute(schema, queryAst, queryValidator = SangriaNewValidator.allRules))
     Await.result(future, 1 minute)
     ()
   }

@@ -6,7 +6,6 @@ import caliban.Value._
 import caliban.introspection.adt._
 import caliban.introspection.adt.__TypeKind._
 import caliban.parsing.Parser
-import caliban.validation.Validator.Context
 import caliban.{ InputValue, Value }
 import zio.IO
 

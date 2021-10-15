@@ -97,62 +97,6 @@ object ExecutionSpec extends DefaultRunnableSpec {
           equalTo("""{"amos":{"name":"Amos Burton","nicknames":[]},"naomi":{"name":"Naomi Nagata","nicknames":[]}}""")
         )
       },
-      testM("fragment") {
-        val interpreter = graphQL(resolver).interpreter
-        val query       = gqldoc("""
-             {
-               amos: character(name: "Amos Burton") {
-                 ...info
-               }
-             }
-
-             fragment info on Character {
-               name
-             }""")
-
-        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
-          equalTo("""{"amos":{"name":"Amos Burton"}}""")
-        )
-      },
-      testM("fragment on union") {
-        val interpreter = graphQL(resolver).interpreter
-        val query       = gqldoc("""
-             {
-               amos: character(name: "Amos Burton") {
-                 role {
-                   ...roleF
-                 }
-               }
-             }
-
-             fragment roleF on Role {
-               ... on Mechanic {
-                 shipName
-               }
-             }""")
-
-        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
-          equalTo("""{"amos":{"role":{"shipName":"Rocinante"}}}""")
-        )
-      },
-      testM("inline fragment") {
-        val interpreter = graphQL(resolver).interpreter
-        val query       = gqldoc("""
-             {
-               amos: character(name: "Amos Burton") {
-                 name
-                 role {
-                   ... on Mechanic {
-                     shipName
-                   }
-                 }
-               }
-             }""")
-
-        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
-          equalTo("""{"amos":{"name":"Amos Burton","role":{"shipName":"Rocinante"}}}""")
-        )
-      },
       testM("effectful query") {
         val interpreter = graphQL(resolverIO).interpreter
         val query       = gqldoc("""
