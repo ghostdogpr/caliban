@@ -333,40 +333,38 @@ object Validator {
     IO.foreach_(context.document.definitions) {
       case OperationDefinition(opType, _, _, _, selectionSet) =>
         opType match {
-          case OperationType.Query        =>
-            validateFields(context, selectionSet, context.rootType.queryType) *>
-              FragmentValidator.findConflictsWithinSelectionSet(
-                context,
-                context.rootType.queryType,
-                selectionSet
-              )
+          case OperationType.Query =>
+            validateSelectionSet(context, selectionSet, context.rootType.queryType)
+
           case OperationType.Mutation     =>
             context.rootType.mutationType.fold[IO[ValidationError, Unit]](
               failValidation("Mutation operations are not supported on this schema.", "")
             )(
-              validateFields(context, selectionSet, _) *>
-                FragmentValidator.findConflictsWithinSelectionSet(
-                  context,
-                  context.rootType.queryType,
-                  selectionSet
-                )
+              validateSelectionSet(context, selectionSet, _)
             )
           case OperationType.Subscription =>
             context.rootType.subscriptionType.fold[IO[ValidationError, Unit]](
               failValidation("Subscription operations are not supported on this schema.", "")
             )(
-              validateFields(context, selectionSet, _) *>
-                FragmentValidator.findConflictsWithinSelectionSet(
-                  context,
-                  context.rootType.queryType,
-                  selectionSet
-                )
+              validateSelectionSet(context, selectionSet, _)
             )
         }
       case _: FragmentDefinition                              => IO.unit
       case _: TypeSystemDefinition                            => IO.unit
       case _: TypeSystemExtension                             => IO.unit
     }
+
+  private def validateSelectionSet(
+    context: Context,
+    selectionSet: List[Selection],
+    currentType: __Type
+  ): IO[ValidationError, Unit] =
+    validateFields(context, selectionSet, currentType) *>
+      FragmentValidator.findConflictsWithinSelectionSet(
+        context,
+        context.rootType.queryType,
+        selectionSet
+      )
 
   private def validateFields(
     context: Context,
