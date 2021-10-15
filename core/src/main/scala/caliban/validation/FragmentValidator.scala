@@ -18,37 +18,39 @@ object FragmentValidator {
     val groupsCache  = scala.collection.mutable.Map.empty[Set[SelectedField], Iterable[Set[SelectedField]]]
 
     def sameResponseShapeByName(context: Context, parentType: __Type, set: Iterable[Selection]): Iterable[String] =
-      if (shapeCache.get(set).isDefined) { shapeCache.get(set).get }
-      else {
-        val fields = FieldMap(context, parentType, set)
-        val res    = fields.flatMap { case (name, values) =>
-          cross(values).flatMap { pair =>
-            val (f1, f2) = pair
-            if (doTypesConflict(f1.fieldDef.`type`(), f2.fieldDef.`type`())) {
-              List(
-                s"$name has conflicting types: ${f1.parentType.name.getOrElse("")}.${f1.fieldDef.name} and ${f2.parentType.name
-                  .getOrElse("")}.${f2.fieldDef.name}. Try using an alias."
-              )
-            } else
-              sameResponseShapeByName(context, parentType, f1.selection.selectionSet ++ f2.selection.selectionSet)
+      shapeCache.get(set) match {
+        case Some(value) => value
+        case None        =>
+          val fields = FieldMap(context, parentType, set)
+          val res    = fields.flatMap { case (name, values) =>
+            cross(values).flatMap { pair =>
+              val (f1, f2) = pair
+              if (doTypesConflict(f1.fieldDef.`type`(), f2.fieldDef.`type`())) {
+                List(
+                  s"$name has conflicting types: ${f1.parentType.name.getOrElse("")}.${f1.fieldDef.name} and ${f2.parentType.name
+                    .getOrElse("")}.${f2.fieldDef.name}. Try using an alias."
+                )
+              } else
+                sameResponseShapeByName(context, parentType, f1.selection.selectionSet ++ f2.selection.selectionSet)
+            }
           }
-        }
-        shapeCache.put(set, res)
-        res
+          shapeCache.put(set, res)
+          res
       }
 
     def sameForCommonParentsByName(context: Context, parentType: __Type, set: Iterable[Selection]): Iterable[String] =
-      if (parentsCache.get(set).isDefined) { parentsCache.get(set).get }
-      else {
-        val fields = FieldMap(context, parentType, set)
-        val res    = fields.flatMap({ case (name, fields) =>
-          groupByCommonParents(context, parentType, fields).flatMap { group =>
-            val merged = group.flatMap(_.selection.selectionSet)
-            requireSameNameAndArguments(group) ++ sameForCommonParentsByName(context, parentType, merged)
-          }
-        })
-        parentsCache.put(set, res)
-        res
+      parentsCache.get(set) match {
+        case Some(value) => value
+        case None        =>
+          val fields = FieldMap(context, parentType, set)
+          val res    = fields.flatMap({ case (name, fields) =>
+            groupByCommonParents(context, parentType, fields).flatMap { group =>
+              val merged = group.flatMap(_.selection.selectionSet)
+              requireSameNameAndArguments(group) ++ sameForCommonParentsByName(context, parentType, merged)
+            }
+          })
+          parentsCache.put(set, res)
+          res
       }
 
     def doTypesConflict(t1: __Type, t2: __Type): Boolean =
@@ -85,27 +87,28 @@ object FragmentValidator {
       parentType: __Type,
       fields: Set[SelectedField]
     ): Iterable[Set[SelectedField]] =
-      if (groupsCache.get(fields).isDefined) { groupsCache.get(fields).get }
-      else {
-        val abstractGroup = fields.collect({
-          case field if !isConcrete(field.parentType) => field
-        })
-
-        val concreteGroups = fields
-          .collect({
-            case f if isConcrete(f.parentType) && f.parentType.name.isDefined => (f.parentType.name.get, f)
+      groupsCache.get(fields) match {
+        case Some(value) => value
+        case None        =>
+          val abstractGroup = fields.collect({
+            case field if !isConcrete(field.parentType) => field
           })
-          .foldLeft(Map.empty[String, Set[SelectedField]]) { case (acc, (name, field)) =>
-            val value = acc.get(name).map(_ + field).getOrElse(Set(field))
-            acc + (name -> value)
-          }
 
-        val res =
-          if (concreteGroups.size < 1) List(fields)
-          else concreteGroups.values.map(_ ++ abstractGroup)
+          val concreteGroups = fields
+            .collect({
+              case f if isConcrete(f.parentType) && f.parentType.name.isDefined => (f.parentType.name.get, f)
+            })
+            .foldLeft(Map.empty[String, Set[SelectedField]]) { case (acc, (name, field)) =>
+              val value = acc.get(name).map(_ + field).getOrElse(Set(field))
+              acc + (name -> value)
+            }
 
-        groupsCache.put(fields, res)
-        res
+          val res =
+            if (concreteGroups.size < 1) List(fields)
+            else concreteGroups.values.map(_ ++ abstractGroup)
+
+          groupsCache.put(fields, res)
+          res
       }
 
     def failValidation[T](msg: String, explanatoryText: String): IO[ValidationError, T] =
