@@ -19,10 +19,12 @@ import zio.clock.Clock
 import zio.duration.Duration
 import zio.random.Random
 import zio.{ CancelableFuture, Fiber, Has, IO, RIO, Ref, Runtime, Schedule, Task, URIO, ZIO, ZLayer }
-
 import java.util.Locale
+
 import scala.concurrent.{ ExecutionContext, Future }
 import scala.util.Try
+
+import play.api.PlayException
 
 trait PlayAdapter[R <: Has[_] with Blocking with Random] {
 
@@ -196,7 +198,8 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
     skipValidation: Boolean,
     enableIntrospection: Boolean,
     keepAliveTime: Option[Duration],
-    queryExecution: QueryExecution
+    queryExecution: QueryExecution,
+    requestHeader: RequestHeader
   )(implicit
     ec: ExecutionContext,
     materializer: Materializer,
@@ -217,6 +220,9 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
       subscriptions: Ref[Map[Option[String], Fiber[Throwable, Unit]]]
     ): RIO[R, Unit] =
       for {
+        _      <- handleWebSocketRequestHeader(requestHeader).orDieWith(result =>
+                    new PlayException("Unable to decode request header", result.body.toString)
+                  )
         result <- interpreter.executeRequest(
                     request,
                     skipValidation = skipValidation,
@@ -301,7 +307,16 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
         runtime
           .unsafeRunToFuture(handleWebSocketRequestHeader(requestHeader).either)
           .map(
-            _.map(_ => webSocketFlow(interpreter, skipValidation, enableIntrospection, keepAliveTime, queryExecution))
+            _.map(_ =>
+              webSocketFlow(
+                interpreter,
+                skipValidation,
+                enableIntrospection,
+                keepAliveTime,
+                queryExecution,
+                requestHeader
+              )
+            )
           )
       )
 
