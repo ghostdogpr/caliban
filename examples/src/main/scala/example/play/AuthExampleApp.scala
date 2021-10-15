@@ -11,8 +11,9 @@ import zio.blocking.Blocking
 import zio.internal.Platform
 import zio.random.Random
 import zio.{ FiberRef, Has, RIO, Runtime, URIO, ZIO }
-
 import scala.io.StdIn.readLine
+
+import zio.stream.ZStream
 
 object AuthExampleApp extends App {
   case class AuthToken(value: String)
@@ -35,7 +36,13 @@ object AuthExampleApp extends App {
   val schema: GenericSchema[Auth] = new GenericSchema[Auth] {}
   import schema._
   case class Query(token: RIO[Auth, Option[String]])
-  private val resolver            = RootResolver(Query(ZIO.accessM[Auth](_.get.get).map(_.map(_.value))))
+  case class Mutation(x: RIO[Auth, Option[String]])
+  case class Subscription(x: RIO[Auth, ZStream[Auth, Throwable, Option[String]]])
+  private val resolver            = RootResolver(
+    Query(ZIO.accessM[Auth](_.get.get).map(_.map(_.value))),
+    Mutation(ZIO.some("foo")),
+    Subscription(ZIO.succeed(ZStream.empty))
+  )
   private val api                 = graphQL(resolver)
 
   // Note that we must initialize the runtime with any FiberRefs we intend to
@@ -71,5 +78,4 @@ object AuthExampleApp extends App {
 
   println("Server online at http://localhost:8088/\nPress RETURN to stop...")
   readLine()
-  server.stop()
 }
