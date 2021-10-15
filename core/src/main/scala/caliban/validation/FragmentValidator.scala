@@ -105,6 +105,7 @@ object FragmentValidator {
                   ) if isConcrete(field.parentType) =>
                 val value = concreteGroups.get(name).map(_ + field).getOrElse(Set(field))
                 concreteGroups.put(name, value)
+              case _ => ()
             })
 
           val res =
