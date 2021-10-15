@@ -23,7 +23,7 @@ object FieldMap {
       f: Field,
       parentType: __Type,
       selection: Field
-    ) = {
+    ): FieldMap = {
       val responseName = f.alias.getOrElse(f.name)
 
       getFields(parentType)
