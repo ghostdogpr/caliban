@@ -34,7 +34,7 @@ object FragmentValidator {
                 sameResponseShapeByName(context, parentType, f1.selection.selectionSet ++ f2.selection.selectionSet)
             }
           })
-          shapeCache.put(set, res)
+          shapeCache.update(set, res)
           res
       }
 
@@ -49,7 +49,7 @@ object FragmentValidator {
               requireSameNameAndArguments(group) ++ sameForCommonParentsByName(context, parentType, merged)
             }
           }))
-          parentsCache.put(set, res)
+          parentsCache.update(set, res)
           res
       }
 
@@ -104,7 +104,7 @@ object FragmentValidator {
                     _
                   ) if isConcrete(field.parentType) =>
                 val value = concreteGroups.get(name).map(_ + field).getOrElse(Set(field))
-                concreteGroups.put(name, value)
+                concreteGroups.update(name, value)
               case _ => ()
             })
 
@@ -112,7 +112,7 @@ object FragmentValidator {
             if (concreteGroups.size < 1) Chunk(fields)
             else Chunk.fromIterable(concreteGroups.values.map(_ ++ abstractGroup))
 
-          groupsCache.put(fields, res)
+          groupsCache.update(fields, res)
           res
       }
 
