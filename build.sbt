@@ -431,7 +431,7 @@ lazy val benchmarks = project
   .settings(
     crossScalaVersions -= scala3,
     libraryDependencies ++= Seq(
-      "org.sangria-graphql" %% "sangria"       % "2.0.0",
+      "org.sangria-graphql" %% "sangria"       % "2.1.3",
       "org.sangria-graphql" %% "sangria-circe" % "1.3.0"
     )
   )

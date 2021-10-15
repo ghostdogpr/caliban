@@ -212,6 +212,7 @@ class GraphQLBenchmarks {
                             ofType {
                               kind
                               name
+                              ${"...on __Type { kind name }" * 1000}
                             }
                           }
                         }
@@ -340,10 +341,62 @@ class GraphQLBenchmarks {
     ()
   }
 
+  object SangriaNewValidator {
+    import sangria.validation.RuleBasedQueryValidator
+    import sangria.validation.ValidationRule
+    import sangria.validation.rules._
+
+    val allRules =
+      new RuleBasedQueryValidator(
+        List(
+          new ValuesOfCorrectType,
+          new ExecutableDefinitions,
+          new FieldsOnCorrectType,
+          new FragmentsOnCompositeTypes,
+          new KnownArgumentNames,
+          new KnownDirectives,
+          new KnownFragmentNames,
+          new KnownTypeNames,
+          new LoneAnonymousOperation,
+          new NoFragmentCycles,
+          new NoUndefinedVariables,
+          new NoUnusedFragments,
+          new NoUnusedVariables,
+          //new OverlappingFieldsCanBeMerged,
+          new experimental.OverlappingFieldsCanBeMerged,
+          new PossibleFragmentSpreads,
+          new ProvidedRequiredArguments,
+          new ScalarLeafs,
+          new UniqueArgumentNames,
+          new UniqueDirectivesPerLocation,
+          new UniqueFragmentNames,
+          new UniqueInputFieldNames,
+          new UniqueOperationNames,
+          new UniqueVariableNames,
+          new VariablesAreInputTypes,
+          new VariablesInAllowedPosition,
+          new InputDocumentNonConflictingVariableInference,
+          new SingleFieldSubscriptions
+        )
+      )
+  }
+
   @Benchmark
-  def fragmentsSangria(): Unit = {
+  def fragmentsSangriaOld(): Unit = {
     val future: Future[Json] =
-      Future.fromTry(QueryParser.parse(fragmentsQuery)).flatMap(queryAst => Executor.execute(schema, queryAst))
+      Future
+        .fromTry(QueryParser.parse(fragmentsQuery))
+        .flatMap(queryAst => Executor.execute(schema, queryAst))
+    Await.result(future, 1 minute)
+    ()
+  }
+
+  @Benchmark
+  def fragmentsSangriaNew(): Unit = {
+    val future: Future[Json] =
+      Future
+        .fromTry(QueryParser.parse(fragmentsQuery))
+        .flatMap(queryAst => Executor.execute(schema, queryAst, queryValidator = SangriaNewValidator.allRules))
     Await.result(future, 1 minute)
     ()
   }
