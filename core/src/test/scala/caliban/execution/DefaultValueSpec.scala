@@ -101,7 +101,7 @@ object DefaultValueSpec extends DefaultRunnableSpec {
           assertM(gql.interpreter)(anything)
         },
         testM("invalid list validation") {
-          case class TestInput(@GQLDefault("\"string\"") string: List[String])
+          case class TestInput(@GQLDefault("3") string: List[String])
           case class Query(test: TestInput => List[String])
           val gql = graphQL(RootResolver(Query(i => i.string)))
           assertM(gql.interpreter.run)(
@@ -180,7 +180,7 @@ object DefaultValueSpec extends DefaultRunnableSpec {
           int <- gql.interpreter
           res <- int.execute(query)
         } yield assert(res.errors.headOption)(
-          isSome((isSubtype[CalibanError.ValidationError](anything)))
+          isSome(isSubtype[CalibanError.ValidationError](anything))
         )
       },
       test("it should render default values in the SDL") {

@@ -2,17 +2,15 @@ package caliban.validation
 
 import caliban.CalibanError.ValidationError
 import caliban.InputValue._
-import caliban.{ InputValue, Value }
 import caliban.Value._
 import caliban.introspection.adt._
 import caliban.introspection.adt.__TypeKind._
-import caliban.parsing.{ Parser, SourceMapper }
-import caliban.parsing.adt.Document
-import caliban.schema.RootType
+import caliban.parsing.Parser
 import caliban.validation.Validator.Context
+import caliban.{ InputValue, Value }
 import zio.IO
 
-object DefaultValueValidator {
+object ValueValidator {
   def validateDefaultValue(field: __InputValue, errorContext: String): IO[ValidationError, Unit] =
     IO.whenCase(field.defaultValue) { case Some(v) =>
       for {
@@ -24,8 +22,7 @@ object DefaultValueValidator {
                 "The default value for a field must be written using GraphQL input syntax."
               )
             )
-        _     <- Validator.validateInputValues(field, value, Context.empty)
-        _     <- validateInputTypes(field, value, errorContext)
+        _     <- Validator.validateInputValues(field, value, Context.empty, errorContext)
       } yield ()
     }
 
@@ -36,55 +33,62 @@ object DefaultValueValidator {
   ): IO[ValidationError, Unit] = validateType(inputValue.`type`(), argValue, errorContext)
 
   def validateType(inputType: __Type, argValue: InputValue, errorContext: String): IO[ValidationError, Unit] =
-    inputType.kind match {
-      case NON_NULL =>
-        argValue match {
-          case NullValue =>
-            failValidation(s"$errorContext is null", "Input field was null but was supposed to be non-null.")
-          case x         => validateType(inputType.ofType.getOrElse(inputType), x, errorContext)
-        }
-      case LIST     =>
-        argValue match {
-          case ListValue(values) =>
-            IO.foreach_(values)(v =>
-              validateType(inputType.ofType.getOrElse(inputType), v, s"List item in $errorContext")
-            )
-          case _                 =>
-            failValidation(s"$errorContext has invalid type: $argValue", "Input field was supposed to be a list.")
-        }
-
-      case INPUT_OBJECT =>
-        argValue match {
-          case ObjectValue(fields) =>
-            IO.foreach_(inputType.inputFields.getOrElse(List.empty)) { f =>
-              val value =
-                fields.collectFirst({ case (name, fieldValue) if name == f.name => fieldValue }).getOrElse(NullValue)
-              validateType(f.`type`(), value, s"Field ${f.name} in $errorContext")
+    argValue match {
+      case _: VariableValue => IO.unit
+      case _                =>
+        inputType.kind match {
+          case NON_NULL =>
+            argValue match {
+              case NullValue =>
+                failValidation(s"$errorContext is null", "Input field was null but was supposed to be non-null.")
+              case x         => validateType(inputType.ofType.getOrElse(inputType), x, errorContext)
             }
-          case _                   =>
+          case LIST     =>
+            argValue match {
+              case ListValue(values) =>
+                IO.foreach_(values)(v =>
+                  validateType(inputType.ofType.getOrElse(inputType), v, s"List item in $errorContext")
+                )
+              case other             =>
+                // handle item as the first item in the list
+                validateType(inputType.ofType.getOrElse(inputType), other, s"List item in $errorContext")
+            }
+
+          case INPUT_OBJECT =>
+            argValue match {
+              case ObjectValue(fields) =>
+                IO.foreach_(inputType.inputFields.getOrElse(List.empty)) { f =>
+                  val value =
+                    fields
+                      .collectFirst({ case (name, fieldValue) if name == f.name => fieldValue })
+                      .getOrElse(NullValue)
+                  validateType(f.`type`(), value, s"Field ${f.name} in $errorContext")
+                }
+              case _                   =>
+                failValidation(
+                  s"$errorContext has invalid type: $argValue",
+                  "Input field was supposed to be an input object."
+                )
+            }
+          case ENUM         =>
+            argValue match {
+              case EnumValue(value)   =>
+                validateEnum(value, inputType, errorContext)
+              case StringValue(value) =>
+                validateEnum(value, inputType, errorContext)
+              case _                  =>
+                failValidation(
+                  s"$errorContext has invalid type: $argValue",
+                  "Input field was supposed to be an enum value."
+                )
+            }
+          case SCALAR       => validateScalar(inputType, argValue, errorContext)
+          case _            =>
             failValidation(
-              s"$errorContext has invalid type: $argValue",
-              "Input field was supposed to be an input object."
+              s"$errorContext has invalid type $inputType",
+              "Input value is invalid, should be a scalar, list or input object."
             )
         }
-      case ENUM         =>
-        argValue match {
-          case EnumValue(value)   =>
-            validateEnum(value, inputType, errorContext)
-          case StringValue(value) =>
-            validateEnum(value, inputType, errorContext)
-          case _                  =>
-            failValidation(
-              s"$errorContext has invalid type: $argValue",
-              "Input field was supposed to be an enum value."
-            )
-        }
-      case SCALAR       => validateScalar(inputType, argValue, errorContext)
-      case _            =>
-        failValidation(
-          s"$errorContext has invalid type $inputType",
-          "Input value is invalid, should be a scalar, list or input object."
-        )
     }
 
   def validateEnum(value: String, inputType: __Type, errorContext: String): IO[ValidationError, Unit] = {
