@@ -94,20 +94,18 @@ object FragmentValidator {
             case field if !isConcrete(field.parentType) => field
           }
 
-          val concreteGroups = fields
-            .collect({
-              case f @ SelectedField(
+          val concreteGroups = mutable.Map.empty[String, Set[SelectedField]]
+
+          fields
+            .foreach({
+              case field @ SelectedField(
                     __Type(_, Some(name), _, _, _, _, _, _, _, _, _),
                     _,
                     _
-                  ) if isConcrete(f.parentType) =>
-                (name, f)
+                  ) if isConcrete(field.parentType) =>
+                val value = concreteGroups.get(name).map(_ + field).getOrElse(Set(field))
+                concreteGroups.put(name, value)
             })
-            .foldLeft(mutable.Map.empty[String, Set[SelectedField]]) { case (acc, (name, field)) =>
-              val value = acc.get(name).map(_ + field).getOrElse(Set(field))
-              acc.put(name, value)
-              acc
-            }
 
           val res =
             if (concreteGroups.size < 1) Chunk(fields)
