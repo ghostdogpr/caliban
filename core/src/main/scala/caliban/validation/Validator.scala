@@ -17,6 +17,7 @@ import caliban.parsing.adt._
 import caliban.schema.{ RootSchema, RootSchemaBuilder, RootType, Types }
 import caliban.{ InputValue, Rendering, Value }
 import zio.IO
+import Utils.{ isObjectType }
 
 object Validator {
 
@@ -600,29 +601,21 @@ object Validator {
         )
     }
 
-  private[caliban] def validateUnion(t: __Type): IO[ValidationError, Unit] = {
-
-    def isObject(t: __Type): Boolean = t.kind match {
-      case __TypeKind.OBJECT => true
-      case _                 => false
-    }
-
+  private[caliban] def validateUnion(t: __Type): IO[ValidationError, Unit] =
     t.possibleTypes match {
-      case None | Some(Nil)                       =>
+      case None | Some(Nil)                           =>
         failValidation(
           s"Union ${t.name.getOrElse("")} doesn't contain any type.",
           "A Union type must include one or more unique member types."
         )
-      case Some(types) if !types.forall(isObject) =>
+      case Some(types) if !types.forall(isObjectType) =>
         failValidation(
           s"Union ${t.name.getOrElse("")} contains the following non Object types: " +
-            types.filterNot(isObject).map(_.name.getOrElse("")).filterNot(_.isEmpty).mkString("", ", ", "."),
+            types.filterNot(isObjectType).map(_.name.getOrElse("")).filterNot(_.isEmpty).mkString("", ", ", "."),
           s"The member types of a Union type must all be Object base types."
         )
-      case _                                      => IO.unit
+      case _                                          => IO.unit
     }
-
-  }
 
   private[caliban] def validateInputObject(t: __Type): IO[ValidationError, Unit] = {
     val inputObjectContext = s"""InputObject '${t.name.getOrElse("")}'"""
