@@ -96,7 +96,12 @@ object FragmentValidator {
 
           val concreteGroups = fields
             .collect({
-              case f if isConcrete(f.parentType) && f.parentType.name.isDefined => (f.parentType.name.get, f)
+              case f @ SelectedField(
+                    __Type(_, Some(name), _, _, _, _, _, _, _, _, _),
+                    _,
+                    _
+                  ) if isConcrete(f.parentType) =>
+                (name, f)
             })
             .foldLeft(mutable.Map.empty[String, Set[SelectedField]]) { case (acc, (name, field)) =>
               val value = acc.get(name).map(_ + field).getOrElse(Set(field))
