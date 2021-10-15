@@ -6,6 +6,7 @@ import caliban.parsing.adt.Selection
 import zio.{ Chunk, IO, UIO }
 import Utils._
 import Utils.syntax._
+import scala.collection.mutable
 
 object FragmentValidator {
   def findConflictsWithinSelectionSet(
@@ -97,9 +98,10 @@ object FragmentValidator {
             .collect({
               case f if isConcrete(f.parentType) && f.parentType.name.isDefined => (f.parentType.name.get, f)
             })
-            .foldLeft(Map.empty[String, Set[SelectedField]]) { case (acc, (name, field)) =>
+            .foldLeft(mutable.Map.empty[String, Set[SelectedField]]) { case (acc, (name, field)) =>
               val value = acc.get(name).map(_ + field).getOrElse(Set(field))
-              acc + (name -> value)
+              acc.put(name, value)
+              acc
             }
 
           val res =
