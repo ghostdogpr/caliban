@@ -2,14 +2,11 @@ package caliban.validation
 
 import caliban.CalibanError.ValidationError
 import caliban.InputValue._
-import caliban.{ InputValue, Value }
 import caliban.Value._
 import caliban.introspection.adt._
 import caliban.introspection.adt.__TypeKind._
-import caliban.parsing.{ Parser, SourceMapper }
-import caliban.parsing.adt.Document
-import caliban.schema.RootType
-import caliban.validation.Validator.Context
+import caliban.parsing.Parser
+import caliban.{ InputValue, Value }
 import zio.IO
 
 object DefaultValueValidator {

@@ -15,6 +15,7 @@ import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt._
 import caliban.schema.{ RootSchema, RootSchemaBuilder, RootType, Types }
+import caliban.validation.Utils.isObjectType
 import caliban.{ InputValue, Rendering, Value }
 import zio.IO
 
@@ -344,20 +345,38 @@ object Validator {
     IO.foreach_(context.document.definitions) {
       case OperationDefinition(opType, _, _, _, selectionSet) =>
         opType match {
-          case OperationType.Query        => validateFields(context, selectionSet, context.rootType.queryType)
+          case OperationType.Query =>
+            validateSelectionSet(context, selectionSet, context.rootType.queryType)
+
           case OperationType.Mutation     =>
             context.rootType.mutationType.fold[IO[ValidationError, Unit]](
               failValidation("Mutation operations are not supported on this schema.", "")
-            )(validateFields(context, selectionSet, _))
+            )(
+              validateSelectionSet(context, selectionSet, _)
+            )
           case OperationType.Subscription =>
             context.rootType.subscriptionType.fold[IO[ValidationError, Unit]](
               failValidation("Subscription operations are not supported on this schema.", "")
-            )(validateFields(context, selectionSet, _))
+            )(
+              validateSelectionSet(context, selectionSet, _)
+            )
         }
       case _: FragmentDefinition                              => IO.unit
       case _: TypeSystemDefinition                            => IO.unit
       case _: TypeSystemExtension                             => IO.unit
     }
+
+  private def validateSelectionSet(
+    context: Context,
+    selectionSet: List[Selection],
+    currentType: __Type
+  ): IO[ValidationError, Unit] =
+    validateFields(context, selectionSet, currentType) *>
+      FragmentValidator.findConflictsWithinSelectionSet(
+        context,
+        context.rootType.queryType,
+        selectionSet
+      )
 
   private def validateFields(
     context: Context,
@@ -679,29 +698,21 @@ object Validator {
         )
     }
 
-  private[caliban] def validateUnion(t: __Type): IO[ValidationError, Unit] = {
-
-    def isObject(t: __Type): Boolean = t.kind match {
-      case __TypeKind.OBJECT => true
-      case _                 => false
-    }
-
+  private[caliban] def validateUnion(t: __Type): IO[ValidationError, Unit] =
     t.possibleTypes match {
-      case None | Some(Nil)                       =>
+      case None | Some(Nil)                           =>
         failValidation(
           s"Union ${t.name.getOrElse("")} doesn't contain any type.",
           "A Union type must include one or more unique member types."
         )
-      case Some(types) if !types.forall(isObject) =>
+      case Some(types) if !types.forall(isObjectType) =>
         failValidation(
           s"Union ${t.name.getOrElse("")} contains the following non Object types: " +
-            types.filterNot(isObject).map(_.name.getOrElse("")).filterNot(_.isEmpty).mkString("", ", ", "."),
+            types.filterNot(isObjectType).map(_.name.getOrElse("")).filterNot(_.isEmpty).mkString("", ", ", "."),
           s"The member types of a Union type must all be Object base types."
         )
-      case _                                      => IO.unit
+      case _                                          => IO.unit
     }
-
-  }
 
   private[caliban] def validateInputObject(t: __Type): IO[ValidationError, Unit] = {
     val inputObjectContext = s"""InputObject '${t.name.getOrElse("")}'"""
@@ -1028,21 +1039,4 @@ object Validator {
       } yield ()
     }
   }
-
-  case class Context(
-    document: Document,
-    rootType: RootType,
-    operations: List[OperationDefinition],
-    fragments: Map[String, FragmentDefinition],
-    selectionSets: List[Selection]
-  ) {
-    lazy val variableDefinitions: Map[String, VariableDefinition] =
-      operations.flatMap(_.variableDefinitions.map(d => d.name -> d)).toMap
-  }
-
-  object Context {
-    val empty: Context =
-      Context(Document(Nil, SourceMapper.empty), RootType(Types.boolean, None, None), Nil, Map.empty, Nil)
-  }
-
 }
