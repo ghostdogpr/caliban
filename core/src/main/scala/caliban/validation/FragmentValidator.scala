@@ -3,9 +3,10 @@ package caliban.validation
 import caliban.CalibanError.ValidationError
 import caliban.introspection.adt._
 import caliban.parsing.adt.Selection
-import zio.{ Chunk, IO, UIO }
-import Utils._
-import Utils.syntax._
+import caliban.validation.Utils._
+import caliban.validation.Utils.syntax._
+import zio.{ Chunk, IO }
+
 import scala.collection.mutable
 
 object FragmentValidator {
@@ -18,7 +19,7 @@ object FragmentValidator {
     val parentsCache = scala.collection.mutable.Map.empty[Iterable[Selection], Chunk[String]]
     val groupsCache  = scala.collection.mutable.Map.empty[Set[SelectedField], Chunk[Set[SelectedField]]]
 
-    def sameResponseShapeByName(context: Context, parentType: __Type, set: Iterable[Selection]): Chunk[String] =
+    def sameResponseShapeByName(set: Iterable[Selection]): Chunk[String] =
       shapeCache.get(set) match {
         case Some(value) => value
         case None        =>
@@ -31,22 +32,22 @@ object FragmentValidator {
                     .getOrElse("")}.${f2.fieldDef.name}. Try using an alias."
                 )
               } else
-                sameResponseShapeByName(context, parentType, f1.selection.selectionSet ++ f2.selection.selectionSet)
+                sameResponseShapeByName(f1.selection.selectionSet ++ f2.selection.selectionSet)
             }
           })
           shapeCache.update(set, res)
           res
       }
 
-    def sameForCommonParentsByName(context: Context, parentType: __Type, set: Iterable[Selection]): Chunk[String] =
+    def sameForCommonParentsByName(set: Iterable[Selection]): Chunk[String] =
       parentsCache.get(set) match {
         case Some(value) => value
         case None        =>
           val fields = FieldMap(context, parentType, set)
-          val res    = Chunk.fromIterable(fields.flatMap({ case (name, fields) =>
-            groupByCommonParents(context, parentType, fields).flatMap { group =>
+          val res    = Chunk.fromIterable(fields.flatMap({ case (_, fields) =>
+            groupByCommonParents(fields).flatMap { group =>
               val merged = group.flatMap(_.selection.selectionSet)
-              requireSameNameAndArguments(group) ++ sameForCommonParentsByName(context, parentType, merged)
+              requireSameNameAndArguments(group) ++ sameForCommonParentsByName(merged)
             }
           }))
           parentsCache.update(set, res)
@@ -82,11 +83,7 @@ object FragmentValidator {
         else List()
       }
 
-    def groupByCommonParents(
-      context: Context,
-      parentType: __Type,
-      fields: Set[SelectedField]
-    ): Chunk[Set[SelectedField]] =
+    def groupByCommonParents(fields: Set[SelectedField]): Chunk[Set[SelectedField]] =
       groupsCache.get(fields) match {
         case Some(value) => value
         case None        =>
@@ -116,14 +113,7 @@ object FragmentValidator {
           res
       }
 
-    val fields = FieldMap(
-      context,
-      parentType,
-      selectionSet
-    )
-
-    val conflicts = sameResponseShapeByName(context, parentType, selectionSet) ++
-      sameForCommonParentsByName(context, parentType, selectionSet)
+    val conflicts = sameResponseShapeByName(selectionSet) ++ sameForCommonParentsByName(selectionSet)
 
     IO.whenCase(conflicts) { case Chunk(head, _*) =>
       IO.fail(ValidationError(head, ""))

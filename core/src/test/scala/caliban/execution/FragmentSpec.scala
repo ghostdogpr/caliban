@@ -1,6 +1,5 @@
 package caliban.execution
 
-import caliban.CalibanError
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
 import caliban.RootResolver
@@ -51,8 +50,8 @@ object FragmentSpec extends DefaultRunnableSpec {
                    }""")
 
         for {
-          interpteter <- graphQL(resolver).interpreter
-          res         <- interpteter.execute(query)
+          interpreter <- graphQL(resolver).interpreter
+          res         <- interpreter.execute(query)
         } yield assert(res.data.toString)(equalTo("""{"amos":{"role":{"shipName":"Rocinante"}}}"""))
       },
       testM("inline fragment") {
@@ -177,8 +176,8 @@ object FragmentSpec extends DefaultRunnableSpec {
                 |}""".stripMargin
 
             for {
-              interpteter <- gql.interpreter
-              res         <- interpteter.execute(query)
+              interpreter <- gql.interpreter
+              res         <- interpreter.execute(query)
             } yield assert(res.errors)(isEmpty)
           },
           testM("merge identical fields with alias") {
@@ -200,8 +199,8 @@ object FragmentSpec extends DefaultRunnableSpec {
                 |}""".stripMargin
 
             for {
-              interpteter <- gql.interpreter
-              res         <- interpteter.execute(query)
+              interpreter <- gql.interpreter
+              res         <- interpreter.execute(query)
             } yield assert(res.errors)(isEmpty)
           },
           testM("alias conflict") {
@@ -223,8 +222,8 @@ object FragmentSpec extends DefaultRunnableSpec {
                 |}""".stripMargin
 
             for {
-              interpteter <- gql.interpreter
-              res         <- interpteter.execute(query)
+              interpreter <- gql.interpreter
+              res         <- interpreter.execute(query)
             } yield assert(res.errors.headOption)(isSome(anything))
           }
         ),
@@ -250,8 +249,8 @@ object FragmentSpec extends DefaultRunnableSpec {
                 |}""".stripMargin
 
             for {
-              interpteter <- gql.interpreter
-              res         <- interpteter.execute(query)
+              interpreter <- gql.interpreter
+              res         <- interpreter.execute(query)
             } yield assert(res.errors)(isEmpty)
           },
           testM("identical fields with identical values") {
@@ -268,15 +267,15 @@ object FragmentSpec extends DefaultRunnableSpec {
                 |   doesKnowCommand(value: $dogCommand)
                 |   doesKnowCommand(value: $dogCommand)
                 |}
-                |query DogQuery($dogCommand: DogCommand){
+                |query DogQuery($dogCommand: DogCommand!){
                 |  dog {
                 |    ...mergeIdenticalFieldsWithIdenticalValues
                 |  }
                 |}""".stripMargin
 
             for {
-              interpteter <- gql.interpreter
-              res         <- interpteter.execute(query, variables = Map("dogCommand" -> StringValue("SIT")))
+              interpreter <- gql.interpreter
+              res         <- interpreter.execute(query, variables = Map("dogCommand" -> StringValue("SIT")))
             } yield assert(res.errors)(isEmpty)
           },
           testM("identical fields with args") {
@@ -301,8 +300,8 @@ object FragmentSpec extends DefaultRunnableSpec {
                 |}""".stripMargin
 
             for {
-              interpteter <- gql.interpreter
-              res         <- interpteter.execute(query)
+              interpreter <- gql.interpreter
+              res         <- interpreter.execute(query)
             } yield assert(res.errors.headOption)(isSome(anything))
           },
           testM("conflicting value and arg") {
@@ -326,8 +325,8 @@ object FragmentSpec extends DefaultRunnableSpec {
                 |}""".stripMargin
 
             for {
-              interpteter <- gql.interpreter
-              res         <- interpteter.execute(query, variables = Map("dogCommand" -> StringValue("SIT")))
+              interpreter <- gql.interpreter
+              res         <- interpreter.execute(query, variables = Map("dogCommand" -> StringValue("SIT")))
             } yield assert(res.errors.headOption)(isSome(anything))
           },
           testM("conflicting args") {
@@ -351,8 +350,8 @@ object FragmentSpec extends DefaultRunnableSpec {
                 |}""".stripMargin
 
             for {
-              interpteter <- gql.interpreter
-              res         <- interpteter.execute(query, variables = Map("dogCommand" -> StringValue("SIT")))
+              interpreter <- gql.interpreter
+              res         <- interpreter.execute(query, variables = Map("dogCommand" -> StringValue("SIT")))
             } yield assert(res.errors.headOption)(isSome(anything))
           },
           testM("conflicting args") {
@@ -376,8 +375,8 @@ object FragmentSpec extends DefaultRunnableSpec {
                 |}""".stripMargin
 
             for {
-              interpteter <- gql.interpreter
-              res         <- interpteter.execute(query, variables = Map("dogCommand" -> StringValue("SIT")))
+              interpreter <- gql.interpreter
+              res         <- interpreter.execute(query, variables = Map("dogCommand" -> StringValue("SIT")))
             } yield assert(res.errors.headOption)(isSome(anything))
           }
         ),
@@ -407,8 +406,8 @@ object FragmentSpec extends DefaultRunnableSpec {
                 |}""".stripMargin
 
             for {
-              interpteter <- gql.interpreter
-              res         <- interpteter.execute(query, variables = Map("dogCommand" -> StringValue("SIT")))
+              interpreter <- gql.interpreter
+              res         <- interpreter.execute(query, variables = Map("dogCommand" -> StringValue("SIT")))
             } yield assert(res.errors)(isEmpty)
           },
           testM("safe differing args") {
@@ -442,8 +441,8 @@ object FragmentSpec extends DefaultRunnableSpec {
                 |}""".stripMargin
 
             for {
-              interpteter <- gql.interpreter
-              res         <- interpteter.execute(query)
+              interpreter <- gql.interpreter
+              res         <- interpreter.execute(query)
             } yield assert(res.errors)(isEmpty)
           },
           testM("conflicting different responses") {
@@ -473,8 +472,8 @@ object FragmentSpec extends DefaultRunnableSpec {
                 |}""".stripMargin
 
             for {
-              interpteter <- gql.interpreter
-              res         <- interpteter.execute(query)
+              interpreter <- gql.interpreter
+              res         <- interpreter.execute(query)
             } yield assert(res.errors.headOption)(isSome(anything))
           }
         )

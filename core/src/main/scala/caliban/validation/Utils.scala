@@ -1,22 +1,9 @@
 package caliban.validation
 
-import caliban.CalibanError.ValidationError
-import caliban.InputValue.VariableValue
-import caliban.Value.NullValue
-import caliban.execution.{ ExecutionRequest, Field => F }
-import caliban.introspection.Introspector
 import caliban.introspection.adt._
 import caliban.introspection.adt.__TypeKind._
-import caliban.parsing.SourceMapper
-import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
-import caliban.parsing.adt.Definition.{ TypeSystemDefinition, TypeSystemExtension }
-import caliban.parsing.adt.OperationType._
-import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.NamedType
-import caliban.parsing.adt._
-import caliban.schema.{ RootSchema, RootSchemaBuilder, RootType, Types }
-import caliban.{ InputValue, Rendering, Value }
-import zio.{ Chunk, IO }
+import zio.Chunk
 
 object Utils {
   def isObjectType(t: __Type): Boolean =
@@ -63,11 +50,11 @@ object Utils {
 
   def isListType(t: __Type): Boolean = t.kind == __TypeKind.LIST
 
-  def getFields(t: __Type)                                                = t.fields(__DeprecatedArgs(Some(true)))
-  def getType(t: Option[NamedType], parentType: __Type, context: Context) =
+  def getFields(t: __Type): Option[List[__Field]]                                 = t.fields(__DeprecatedArgs(Some(true)))
+  def getType(t: Option[NamedType], parentType: __Type, context: Context): __Type =
     t.fold(Option(parentType))(t => context.rootType.types.get(t.name)).getOrElse(parentType)
 
-  def getType(t: NamedType, context: Context) =
+  def getType(t: NamedType, context: Context): Option[__Type] =
     context.rootType.types.get(t.name)
 
   def cross[A](a: Iterable[A]): Chunk[(A, A)]                 =
@@ -82,7 +69,7 @@ object Utils {
         self.flatMap(a => that.map(b => (a, b)))
     }
 
-    implicit class Tuple2Syntax[+A, +B](val self: Tuple2[Option[A], Option[B]]) extends AnyVal {
+    implicit class Tuple2Syntax[+A, +B](val self: (Option[A], Option[B])) extends AnyVal {
       def mapN[C](f: (A, B) => C): Option[C] =
         self._1.flatMap(a => self._2.map(b => f(a, b)))
     }

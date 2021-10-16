@@ -2,11 +2,11 @@ package caliban.validation
 
 import caliban.CalibanError.ValidationError
 import caliban.InputValue._
-import caliban.{ InputValue, Value }
 import caliban.Value._
 import caliban.introspection.adt._
 import caliban.introspection.adt.__TypeKind._
 import caliban.parsing.Parser
+import caliban.{ InputValue, Value }
 import zio.IO
 
 object DefaultValueValidator {
@@ -21,7 +21,7 @@ object DefaultValueValidator {
                 "The default value for a field must be written using GraphQL input syntax."
               )
             )
-        _     <- Validator.validateInputValues(field, value)
+        _     <- Validator.validateInputValues(field, value, Context.empty)
         _     <- validateInputTypes(field, value, errorContext)
       } yield ()
     }

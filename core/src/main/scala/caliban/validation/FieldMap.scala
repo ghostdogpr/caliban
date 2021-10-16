@@ -11,10 +11,10 @@ object FieldMap {
   implicit class FieldMapOps(val self: FieldMap) extends AnyVal {
     def |+|(that: FieldMap): FieldMap =
       (self.keySet ++ that.keySet).map { k =>
-        k -> (self.get(k).getOrElse(Set.empty) ++ that.get(k).getOrElse(Set.empty))
+        k -> (self.getOrElse(k, Set.empty) ++ that.getOrElse(k, Set.empty))
       }.toMap
 
-    def show =
+    def show: String =
       self.map { case (k, fields) =>
         s"$k -> ${fields.map(_.fieldDef.name).mkString(", ")}"
       }.mkString("\n")
@@ -40,7 +40,7 @@ object FieldMap {
   def apply(context: Context, parentType: __Type, selectionSet: Iterable[Selection]): FieldMap =
     selectionSet.foldLeft(FieldMap.empty)({ case (fields, selection) =>
       selection match {
-        case FragmentSpread(name, directives)               =>
+        case FragmentSpread(name, _)                        =>
           context.fragments
             .get(name)
             .map { definition =>

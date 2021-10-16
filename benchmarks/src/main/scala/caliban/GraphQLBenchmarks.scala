@@ -343,7 +343,6 @@ class GraphQLBenchmarks {
 
   object SangriaNewValidator {
     import sangria.validation.RuleBasedQueryValidator
-    import sangria.validation.ValidationRule
     import sangria.validation.rules._
 
     val allRules =
