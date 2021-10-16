@@ -5,7 +5,7 @@ import java.util.UUID
 import caliban.CalibanError.ExecutionError
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
-import caliban.{ CalibanError, GraphQL, InputValue, RootResolver, ResponseValue, Value }
+import caliban.{ CalibanError, GraphQL, InputValue, ResponseValue, RootResolver, Value }
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, IntValue, StringValue }
 import caliban.introspection.adt.__Type
