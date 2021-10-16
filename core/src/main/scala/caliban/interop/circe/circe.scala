@@ -213,7 +213,7 @@ object json {
           )
       }
 
-    implicit val graphQLRespondDecoder: Decoder[GraphQLResponse[CalibanError]] =
+    implicit val graphQLResponseDecoder: Decoder[GraphQLResponse[CalibanError]] =
       Decoder.instance(cursor =>
         for {
           data   <- cursor
