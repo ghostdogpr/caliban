@@ -485,6 +485,20 @@ object Client {
       onPilot: SelectionBuilder[Pilot, A]
     ): SelectionBuilder[Character, Option[A]] = _root_.caliban.client.SelectionBuilder
       .Field("role", OptionOf(ChoiceOf(Map("Captain" -> Obj(onCaptain), "Pilot" -> Obj(onPilot)))))
+    def roleOption[A](
+      onCaptain: Option[SelectionBuilder[Captain, A]] = None,
+      onPilot: Option[SelectionBuilder[Pilot, A]] = None
+    ): SelectionBuilder[Character, Option[Option[A]]] = _root_.caliban.client.SelectionBuilder.Field(
+      "role",
+      OptionOf(
+        ChoiceOf(
+          Map(
+            "Captain" -> onCaptain.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a))),
+            "Pilot"   -> onPilot.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))
+          )
+        )
+      )
+    )
   }
 
 }
