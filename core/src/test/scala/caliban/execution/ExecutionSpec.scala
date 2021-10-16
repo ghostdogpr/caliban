@@ -4,7 +4,7 @@ import java.util.UUID
 import caliban.CalibanError.ExecutionError
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
-import caliban.{ CalibanError, GraphQL, RootResolver }
+import caliban.{ CalibanError, GraphQL, InputValue, RootResolver }
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, IntValue, StringValue }
 import caliban.introspection.adt.__Type
@@ -195,6 +195,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
             case i if i > 0 => Right(NonNegInt(i))
             case neg        => Left(CalibanError.ExecutionError(s"$neg is negative"))
           }
+          implicit val nonNegIntSchema: Schema[Any, NonNegInt]    = Schema.intSchema.contramap(_.value)
         }
         case class Args(int: NonNegInt, value: String)
         case class Test(q: Args => Unit)
@@ -585,13 +586,15 @@ object ExecutionSpec extends DefaultRunnableSpec {
         case class User(test: UserArgs => String)
         case class Mutations(user: Task[User])
         case class Queries(a: Int)
+        implicit val intArgBuilder: ArgBuilder[Int] = (_: InputValue) => Left(ExecutionError("nope"))
+
         val api = graphQL(RootResolver(Queries(1), Mutations(ZIO.succeed(User(_.toString)))))
 
         val interpreter = api.interpreter
         val query       =
           """mutation {
             |  user {
-            |    test(id: "wrong")
+            |    test(id: 1)
             |  }
             |}""".stripMargin
         interpreter

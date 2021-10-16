@@ -261,7 +261,13 @@ object Validator {
                                   s"Argument '$arg' is not defined on directive '${d.name}' ($location).",
                                   "Every argument provided to a field or directive must be defined in the set of possible arguments of that field or directive."
                                 )
-                              case Some(inputValue) => validateInputValues(inputValue, argValue, context)
+                              case Some(inputValue) =>
+                                validateInputValues(
+                                  inputValue,
+                                  argValue,
+                                  context,
+                                  s"InputValue '${inputValue.name}' of Directive '${d.name}'"
+                                )
                             }
                           } *>
                             IO.when(!directive.locations.contains(location))(
@@ -456,43 +462,51 @@ object Validator {
     currentType: __Type,
     context: Context
   ): IO[ValidationError, Unit] =
-    IO.foreach_(field.arguments) { case (arg, argValue) =>
-      f.args.find(_.name == arg) match {
-        case None             =>
+    IO.foreach_(f.args.filter(a => a.`type`().kind == __TypeKind.NON_NULL))(arg =>
+      (arg.defaultValue, field.arguments.get(arg.name)) match {
+        case (None, None) | (None, Some(NullValue)) =>
           failValidation(
-            s"Argument '$arg' is not defined on field '${field.name}' of type '${currentType.name.getOrElse("")}'.",
-            "Every argument provided to a field or directive must be defined in the set of possible arguments of that field or directive."
+            s"Required argument '${arg.name}' is null or missing on field '${field.name}' of type '${currentType.name
+              .getOrElse("")}'.",
+            "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
           )
-        case Some(inputValue) => validateInputValues(inputValue, argValue, context)
-      }
-    } *>
-      IO.foreach_(f.args.filter(a => a.`type`().kind == __TypeKind.NON_NULL))(arg =>
-        (arg.defaultValue, field.arguments.get(arg.name)) match {
-          case (None, None) | (None, Some(NullValue)) =>
-            failValidation(
-              s"Required argument '${arg.name}' is null or missing on field '${field.name}' of type '${currentType.name
-                .getOrElse("")}'.",
-              "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
-            )
 
-          case (Some(_), Some(NullValue)) =>
+        case (Some(_), Some(NullValue)) =>
+          failValidation(
+            s"Required argument '${arg.name}' is null on '${field.name}' of type '${currentType.name
+              .getOrElse("")}'.",
+            "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
+          )
+        case _                          => IO.unit
+      }
+    ) *>
+      IO.foreach_(field.arguments) { case (arg, argValue) =>
+        f.args.find(_.name == arg) match {
+          case None             =>
             failValidation(
-              s"Required argument '${arg.name}' is null on '${field.name}' of type '${currentType.name
-                .getOrElse("")}'.",
-              "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
+              s"Argument '$arg' is not defined on field '${field.name}' of type '${currentType.name.getOrElse("")}'.",
+              "Every argument provided to a field or directive must be defined in the set of possible arguments of that field or directive."
             )
-          case _                          => IO.unit
+          case Some(inputValue) =>
+            validateInputValues(
+              inputValue,
+              argValue,
+              context,
+              s"InputValue '${inputValue.name}' of Field '${field.name}'"
+            )
         }
-      )
+      }
 
   private[caliban] def validateInputValues(
     inputValue: __InputValue,
     argValue: InputValue,
-    context: Context
+    context: Context,
+    errorContext: String
   ): IO[ValidationError, Unit] = {
     val t           = inputValue.`type`()
     val inputType   = if (t.kind == __TypeKind.NON_NULL) t.ofType.getOrElse(t) else t
     val inputFields = inputType.inputFields.getOrElse(Nil)
+
     argValue match {
       case InputValue.ObjectValue(fields) if inputType.kind == __TypeKind.INPUT_OBJECT =>
         IO.foreach_(fields) { case (k, v) =>
@@ -502,7 +516,13 @@ object Validator {
                 s"Input field '$k' is not defined on type '${inputType.name.getOrElse("?")}'.",
                 "Every input field provided in an input object value must be defined in the set of possible fields of that input object’s expected type."
               )
-            case Some(value) => validateInputValues(value, v, context)
+            case Some(value) =>
+              validateInputValues(
+                value,
+                v,
+                context,
+                s"InputValue '${inputValue.name}' of Field '$k' of InputObject '${t.name.getOrElse("")}'"
+              )
           }
         } *> IO
           .foreach_(inputFields)(inputField =>
@@ -528,7 +548,7 @@ object Validator {
         }
       case _                                                                           => IO.unit
     }
-  }
+  } *> ValueValidator.validateInputTypes(inputValue, argValue, errorContext)
 
   private def checkVariableUsageAllowed(
     variableDefinition: VariableDefinition,
@@ -741,7 +761,7 @@ object Validator {
   private[caliban] def validateInputValue(inputValue: __InputValue, errorContext: String): IO[ValidationError, Unit] = {
     val fieldContext = s"InputValue '${inputValue.name}' of $errorContext"
     for {
-      _ <- DefaultValueValidator.validateDefaultValue(inputValue, fieldContext)
+      _ <- ValueValidator.validateDefaultValue(inputValue, fieldContext)
       _ <- doesNotStartWithUnderscore(inputValue, fieldContext)
       _ <- onlyInputType(inputValue.`type`(), fieldContext)
     } yield ()
