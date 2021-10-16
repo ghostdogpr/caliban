@@ -12,5 +12,5 @@ object GraphQLResponse extends GraphQLResponseJsonCompat {
   implicit def circeEncoder[F[_]: IsCirceEncoder, E]: F[GraphQLResponse[E]] =
     caliban.interop.circe.json.GraphQLResponseCirce.graphQLResponseEncoder.asInstanceOf[F[GraphQLResponse[E]]]
   implicit def circeDecoder[F[_]: IsCirceDecoder, E]: F[GraphQLResponse[E]] =
-    caliban.interop.circe.json.GraphQLResponseCirce.graphQLRespondDecoder.asInstanceOf[F[GraphQLResponse[E]]]
+    caliban.interop.circe.json.GraphQLResponseCirce.graphQLResponseDecoder.asInstanceOf[F[GraphQLResponse[E]]]
 }
