@@ -70,7 +70,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
             Queries.characters() {
               (Character.name ~
                 Character.nicknames ~
-                Character.roleOption(onMechanic = Some(Role.Mechanic.shipName))).mapN(CharacterView)
+                Character.roleOption(onMechanic = Some(Role.Mechanic.shipName))).mapN(CharacterView(_, _, _))
             }
 
           val response =
