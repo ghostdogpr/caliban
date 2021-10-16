@@ -46,6 +46,16 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
             )
           )
         },
+        test("union type optional") {
+          val query  =
+            Queries.characters() {
+              Character.name ~
+                Character.nicknames ~
+                Character.roleOption(onCaptain = Some(Role.Captain.shipName))
+            }
+          val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
+          assert(s)(equalTo("characters{name nicknames role{__typename ... on Captain{shipName}}}"))
+        },
         test("argument") {
           val query  =
             Queries.characters(Some(Origin.MARS)) {
@@ -53,6 +63,40 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
             }
           val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
           assert(s)(equalTo("""characters(origin:"MARS"){name}"""))
+        },
+        test("union type with optional parameters") {
+          case class CharacterView(name: String, nicknames: List[String], role: Option[Option[String]])
+          val query =
+            Queries.characters() {
+              (Character.name ~
+                Character.nicknames ~
+                Character.roleOption(onMechanic = Some(Role.Mechanic.shipName))).mapN(CharacterView)
+            }
+
+          val response =
+            __ObjectValue(
+              List(
+                "characters" -> __ListValue(
+                  List(
+                    __ObjectValue(
+                      List(
+                        "name"      -> __StringValue("Amos Burton"),
+                        "nicknames" -> __ListValue(List(__StringValue("Amos"))),
+                        "role"      -> __ObjectValue(
+                          List(
+                            "__typename" -> __StringValue("Mechanic"),
+                            "shipName"   -> __StringValue("Rocinante")
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          assert(query.fromGraphQL(response))(
+            isRight(equalTo(List(CharacterView("Amos Burton", List("Amos"), Some(Some("Rocinante"))))))
+          )
         },
         test("aliases") {
           val query  =
