@@ -674,7 +674,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
           def id: String
           def name: String
         }
-        object Character       {
+        object Character {
           case class Human(
             id: String,
             name: String,

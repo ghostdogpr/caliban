@@ -323,7 +323,7 @@ Captain or Pilot or Stewart\"\"\""""
 object Types {
 
   @GQLDescription($role)
-  sealed trait Role  extends scala.Product with scala.Serializable
+  sealed trait Role extends scala.Product with scala.Serializable
   @GQLDescription($role2)
   sealed trait Role2 extends scala.Product with scala.Serializable
 
@@ -334,7 +334,7 @@ object Types {
   final case class Captain(
     @GQLDescription("ship")
     shipName: String
-  )                                        extends Role
+  ) extends Role
       with Role2
   final case class Pilot(shipName: String) extends Role with Role2
 

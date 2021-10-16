@@ -117,7 +117,7 @@ object SchemaComparisonChange {
     from: InputValue,
     to: InputValue,
     target: Target
-  )                                                                  extends SchemaComparisonChange {
+  ) extends SchemaComparisonChange {
     override def toString: String  =
       s"Argument '$argName' was changed from '$from' to '$to' on directive '$directiveName' on $target."
     override def breaking: Boolean = true

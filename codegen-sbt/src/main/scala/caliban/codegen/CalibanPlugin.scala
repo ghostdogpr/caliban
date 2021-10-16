@@ -11,21 +11,21 @@ object CalibanPlugin extends AutoPlugin {
   import autoImport._
 
   lazy val baseSettings = Seq(
-    caliban := (caliban / calibanGenerator).value,
-    (caliban / sourceManaged) := {
+    caliban                    := (caliban / calibanGenerator).value,
+    (caliban / sourceManaged)  := {
       sourceManaged.value / "caliban-codegen-sbt"
     },
     (caliban / calibanSources) := {
       if (Seq(Compile, Test).contains(configuration.value)) sourceDirectory.value / "graphql"
       else sourceDirectory.value / "main" / "graphql"
     },
-    caliban / calibanSettings := Seq.empty
+    caliban / calibanSettings  := Seq.empty
   )
 
   lazy val calibanScopedSettings = inTask(caliban)(
     Seq(
-      sources := (calibanSources.value ** "*.graphql").get.sorted,
-      clean := {
+      sources          := (calibanSources.value ** "*.graphql").get.sorted,
+      clean            := {
         val sourceDir = sourceManaged.value
         IO.delete((sourceDir ** "*").get)
         IO.createDirectory(sourceDir)

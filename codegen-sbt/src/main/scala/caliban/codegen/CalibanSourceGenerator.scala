@@ -54,8 +54,7 @@ object CalibanSourceGenerator {
 
     CalibanFileSettings(
       file = source,
-      settings = fileSettings
-        .collect({ case needle if source.toPath.endsWith(needle.file.toPath) => needle })
+      settings = fileSettings.collect { case needle if source.toPath.endsWith(needle.file.toPath) => needle }
         .foldLeft[CalibanCommonSettings](defaults) { case (acc, next) => acc.combine(next.settings) }
     )
   }

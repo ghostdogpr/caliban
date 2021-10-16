@@ -58,8 +58,7 @@ object ValueValidator {
               case ObjectValue(fields) =>
                 IO.foreach_(inputType.inputFields.getOrElse(List.empty)) { f =>
                   val value =
-                    fields
-                      .collectFirst({ case (name, fieldValue) if name == f.name => fieldValue })
+                    fields.collectFirst { case (name, fieldValue) if name == f.name => fieldValue }
                       .getOrElse(NullValue)
                   validateType(f.`type`(), value, s"Field ${f.name} in $errorContext")
                 }

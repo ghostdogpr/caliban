@@ -232,12 +232,12 @@ object json {
             .read[List[CalibanError]]
         )
         .tupled
-        .map({ case (data, errors) =>
+        .map { case (data, errors) =>
           GraphQLResponse[CalibanError](
             data = data,
             errors = errors
           )
-        })
+        }
   }
 
   private[caliban] object GraphQLRequestPlayJson {

@@ -276,9 +276,9 @@ object SchemaComparison {
     val argChanges         =
       compareArguments(left.args.map(a => a.name -> a).toMap, right.args.map(a => a.name -> a).toMap, target)
 
-    val locationAdded      =
+    val locationAdded   =
       (right.locations -- left.locations).map(l => DirectiveLocationAdded(l, left.name)).toList
-    val locationDeleted    =
+    val locationDeleted =
       (left.locations -- right.locations).map(l => DirectiveLocationDeleted(l, left.name)).toList
 
     descriptionChanges ++ argChanges ++ locationAdded ++ locationDeleted

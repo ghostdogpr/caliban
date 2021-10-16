@@ -26,7 +26,7 @@ object TapirSpec extends DefaultRunnableSpec {
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("TapirSpec")(
       testM("test simple endpoint") {
-        val api         = getBook.toGraphQL[Any]({ case (title, token) => UIO(s"$title+$token") })
+        val api         = getBook.toGraphQL[Any] { case (title, token) => UIO(s"$title+$token") }
         val interpreter = api.interpreter
         val query       = gqldoc("""
             query test {
@@ -38,7 +38,7 @@ object TapirSpec extends DefaultRunnableSpec {
         )
       },
       testM("test simple endpoint with ZQuery") {
-        val api         = getBook.toGraphQLQuery({ case (title, token) => ZQuery.succeed(s"$title+$token") })
+        val api         = getBook.toGraphQLQuery { case (title, token) => ZQuery.succeed(s"$title+$token") }
         val interpreter = api.interpreter
         val query       = gqldoc("""
             query test {
@@ -52,7 +52,7 @@ object TapirSpec extends DefaultRunnableSpec {
       testM("test override operation name") {
         val api         = getBook
           .name("overRide with IllEgal-ChaRs !@()[]/,>")
-          .toGraphQLQuery({ case (title, token) => ZQuery.succeed(s"$title+$token") })
+          .toGraphQLQuery { case (title, token) => ZQuery.succeed(s"$title+$token") }
         val interpreter = api.interpreter
         val query       = gqldoc("""
             query test {

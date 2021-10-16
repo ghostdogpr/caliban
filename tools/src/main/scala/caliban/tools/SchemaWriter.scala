@@ -116,7 +116,7 @@ object SchemaWriter {
   }
   def writeSubscriptionField(field: FieldDefinition, od: ObjectTypeDefinition)(implicit
     scalarMappings: ScalarMappings
-  ): String                                                       =
+  ): String =
     "%s:%s ZStream[Any, Nothing, %s]".format(
       safeName(field.name),
       if (field.args.nonEmpty) s" ${argsName(field, od)} =>" else "",

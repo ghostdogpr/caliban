@@ -179,19 +179,19 @@ object Validator {
     }
 
     def collectVariableValues(values: List[InputValue]): List[VariableValue] =
-      values.flatMap({
+      values.flatMap {
         case InputValue.ListValue(values)   => collectVariableValues(values)
         case InputValue.ObjectValue(fields) => collectVariableValues(fields.values.toList)
         case v: VariableValue               => List(v)
         case _: Value                       => List()
-      })
+      }
     val allValues                                                            = collectValues(selectionSet)
     val varValues                                                            = collectVariableValues(allValues)
     varValues.map(_.name).toSet
   }
 
   private def collectSelectionSets(selectionSet: List[Selection]): List[Selection] = {
-    val sets = List.newBuilder[Selection]
+    val sets                                      = List.newBuilder[Selection]
     def loop(selectionSet: List[Selection]): Unit = {
       sets ++= selectionSet
       selectionSet.foreach {

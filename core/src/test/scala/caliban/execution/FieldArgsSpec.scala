@@ -65,10 +65,9 @@ object FieldArgsSpec extends DefaultRunnableSpec {
         api          = graphQL(
                          RootResolver(
                            Query(
-                             query = info => {
-                               i =>
-                                 ref.set(Option(info)) *>
-                                   ZIO.succeed(i.string)
+                             query = info => { i =>
+                               ref.set(Option(info)) *>
+                                 ZIO.succeed(i.string)
                              }
                            )
                          )
