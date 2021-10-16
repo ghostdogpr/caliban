@@ -10,13 +10,11 @@ trait SubscriptionSchema[T]
 
 object SubscriptionSchema extends SubscriptionSchemaDerivation {
 
-  implicit val unitSubscriptionSchema: SubscriptionSchema[Unit]                                                  = new SubscriptionSchema[Unit] {}
-  implicit def streamSubscriptionSchema[R, E, A]: SubscriptionSchema[ZStream[R, E, A]]                           =
+  implicit val unitSubscriptionSchema: SubscriptionSchema[Unit]                                      = new SubscriptionSchema[Unit] {}
+  implicit def streamSubscriptionSchema[R, E, A]: SubscriptionSchema[ZStream[R, E, A]]               =
     new SubscriptionSchema[ZStream[R, E, A]] {}
-  implicit def functionSubscriptionSchema[R, E, A, ARG]: SubscriptionSchema[ARG => ZStream[R, E, A]]             =
+  implicit def functionSubscriptionSchema[R, E, A, ARG]: SubscriptionSchema[ARG => ZStream[R, E, A]] =
     new SubscriptionSchema[ARG => ZStream[R, E, A]] {}
-  implicit def taskSubscriptionSchema[R, E, A, ARG]: SubscriptionSchema[RIO[R, ZStream[R, E, A]]]                =
+  implicit def taskSubscriptionSchema[R, E, A, ARG]: SubscriptionSchema[RIO[R, ZStream[R, E, A]]]    =
     new SubscriptionSchema[RIO[R, ZStream[R, E, A]]] {}
-  implicit def functionTaskSubscriptionSchema[R, E, A, ARG]: SubscriptionSchema[ARG => RIO[R, ZStream[R, E, A]]] =
-    new SubscriptionSchema[ARG => RIO[R, ZStream[R, E, A]]] {}
 }
