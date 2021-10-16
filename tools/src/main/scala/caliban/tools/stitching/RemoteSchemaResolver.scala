@@ -26,27 +26,26 @@ case class RemoteSchemaResolver(schema: __Schema, typeMap: Map[String, __Type]) 
       rootType: Option[__Type],
       resolver: Option[RemoteResolver[R, ExecutionError, Field, ResponseValue]]
     ): Option[Operation[R]] =
-      (rootType zip resolver).headOption
-        .map({ case (rootType, resolver) =>
-          Operation[R](
-            rootType,
-            Step.ObjectStep(
-              rootType.name.getOrElse(""),
-              rootType
-                .fields(__DeprecatedArgs(Some(true)))
-                .getOrElse(List())
-                .map { field =>
-                  field.name ->
-                    Step.MetadataFunctionStep((args: caliban.execution.Field) =>
-                      Step.QueryStep(
-                        ZQuery.fromEffect(resolver.run(args)).map(Step.PureStep)
-                      )
+      (rootType zip resolver).headOption.map { case (rootType, resolver) =>
+        Operation[R](
+          rootType,
+          Step.ObjectStep(
+            rootType.name.getOrElse(""),
+            rootType
+              .fields(__DeprecatedArgs(Some(true)))
+              .getOrElse(List())
+              .map { field =>
+                field.name ->
+                  Step.MetadataFunctionStep((args: caliban.execution.Field) =>
+                    Step.QueryStep(
+                      ZQuery.fromEffect(resolver.run(args)).map(Step.PureStep)
                     )
-                }
-                .toMap
-            )
+                  )
+              }
+              .toMap
           )
-        })
+        )
+      }
 
     val builder = RootSchemaBuilder(
       query = toOperation(Option(schema.queryType), Option(resolver)),

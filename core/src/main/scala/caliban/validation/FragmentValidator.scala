@@ -44,12 +44,12 @@ object FragmentValidator {
         case Some(value) => value
         case None        =>
           val fields = FieldMap(context, parentType, set)
-          val res    = Chunk.fromIterable(fields.flatMap({ case (_, fields) =>
+          val res    = Chunk.fromIterable(fields.flatMap { case (_, fields) =>
             groupByCommonParents(fields).flatMap { group =>
               val merged = group.flatMap(_.selection.selectionSet)
               requireSameNameAndArguments(group) ++ sameForCommonParentsByName(merged)
             }
-          }))
+          })
           parentsCache.update(set, res)
           res
       }
@@ -93,17 +93,16 @@ object FragmentValidator {
 
           val concreteGroups = mutable.Map.empty[String, Set[SelectedField]]
 
-          fields
-            .foreach({
-              case field @ SelectedField(
-                    __Type(_, Some(name), _, _, _, _, _, _, _, _, _),
-                    _,
-                    _
-                  ) if isConcrete(field.parentType) =>
-                val value = concreteGroups.get(name).map(_ + field).getOrElse(Set(field))
-                concreteGroups.update(name, value)
-              case _ => ()
-            })
+          fields.foreach {
+            case field @ SelectedField(
+                  __Type(_, Some(name), _, _, _, _, _, _, _, _, _),
+                  _,
+                  _
+                ) if isConcrete(field.parentType) =>
+              val value = concreteGroups.get(name).map(_ + field).getOrElse(Set(field))
+              concreteGroups.update(name, value)
+            case _ => ()
+          }
 
           val res =
             if (concreteGroups.size < 1) Chunk(fields)

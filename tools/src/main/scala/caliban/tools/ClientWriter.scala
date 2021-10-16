@@ -389,7 +389,7 @@ object ClientWriter {
           field -> s"${field.rawName}Selection"
       }
 
-    val genericSelectionFieldTypes    =
+    val genericSelectionFieldTypes =
       genericSelectionFields.map { case (field, name) => (field, name.capitalize) }
 
     val genericSelectionFieldsMap     = genericSelectionFields.toMap

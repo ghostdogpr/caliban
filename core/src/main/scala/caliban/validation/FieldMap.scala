@@ -38,7 +38,7 @@ object FieldMap {
   }
 
   def apply(context: Context, parentType: __Type, selectionSet: Iterable[Selection]): FieldMap =
-    selectionSet.foldLeft(FieldMap.empty)({ case (fields, selection) =>
+    selectionSet.foldLeft(FieldMap.empty) { case (fields, selection) =>
       selection match {
         case FragmentSpread(name, _)                        =>
           context.fragments
@@ -54,5 +54,5 @@ object FieldMap {
           val typ = getType(typeCondition, parentType, context)
           apply(context, typ, selectionSet) |+| fields
       }
-    })
+    }
 }

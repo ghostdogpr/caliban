@@ -235,9 +235,9 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
   private lazy val pluginSettings =
     inTask(ctCalibanClient)(
       Seq(
-        ctCalibanClientsSettings := Seq.empty,
+        ctCalibanClientsSettings      := Seq.empty,
         ctCalibanClientsVersionedCode := true,
-        ctCalibanClientGenerate := {
+        ctCalibanClientGenerate       := {
           // That helped: https://stackoverflow.com/q/26244115/2431728
           Def.taskDyn {
             import Functions._

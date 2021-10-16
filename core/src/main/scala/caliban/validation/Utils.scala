@@ -57,7 +57,7 @@ object Utils {
   def getType(t: NamedType, context: Context): Option[__Type] =
     context.rootType.types.get(t.name)
 
-  def cross[A](a: Iterable[A]): Chunk[(A, A)]                 =
+  def cross[A](a: Iterable[A]): Chunk[(A, A)] =
     Chunk.fromIterable(for (xs <- a; ys <- a) yield (xs, ys))
 
   def cross[A](a: Iterable[A], b: Iterable[A]): Chunk[(A, A)] =

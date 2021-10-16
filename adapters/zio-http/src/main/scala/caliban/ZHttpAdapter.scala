@@ -179,7 +179,7 @@ object ZHttpAdapter {
     val routes = Socket.collect[WebSocketFrame] { case Text(text) =>
       ZStream
         .fromEffect(ZIO.fromEither(decode[GraphQLWSRequest](text)))
-        .collect({
+        .collect {
           case GraphQLWSRequest("connection_init", id, payload) =>
             val before = (callbacks.beforeInit, payload) match {
               case (Some(beforeInit), Some(payload)) =>
@@ -218,7 +218,7 @@ object ZHttpAdapter {
           case GraphQLWSRequest("stop", id, _)                =>
             removeSubscription(id, subscriptions) *> ZStream.empty
 
-        })
+        }
         .flatten
         .catchAll(_ => connectionError)
     }
@@ -227,11 +227,9 @@ object ZHttpAdapter {
   }
 
   private def queryFromQueryParams(req: Request) = {
-    val params = List("query", "operationName", "variables", "extensions")
-      .collect({ case k =>
-        k -> req.url.queryParams.get(k).flatMap(_.headOption).getOrElse("")
-      })
-      .toMap
+    val params = List("query", "operationName", "variables", "extensions").collect { case k =>
+      k -> req.url.queryParams.get(k).flatMap(_.headOption).getOrElse("")
+    }.toMap
     ZIO.fromEither(decode[GraphQLRequest](params.asJson.noSpaces))
   }
 
@@ -289,13 +287,13 @@ object ZHttpAdapter {
       .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
 
   implicit class HttpErrorOps[R, E <: Throwable, A](private val zio: ZIO[R, io.circe.Error, A]) extends AnyVal {
-    def handleHTTPError: ZIO[R, HttpError, A] = zio.mapError({
+    def handleHTTPError: ZIO[R, HttpError, A] = zio.mapError {
       case DecodingFailure(error, _)  =>
         HttpError.BadRequest.apply(s"Invalid json: $error")
       case ParsingFailure(message, _) =>
         HttpError.BadRequest.apply(message)
       case t: Throwable               => HttpError.InternalServerError.apply("Internal Server Error", Some(t.getCause))
-    })
+    }
   }
 
   private val protocol = SocketProtocol.subProtocol("graphql-ws")

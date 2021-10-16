@@ -57,7 +57,7 @@ object TestData {
       onPilot: SelectionBuilder[Pilot, A],
       onMechanic: SelectionBuilder[Mechanic, A],
       onEngineer: SelectionBuilder[Engineer, A]
-    ): SelectionBuilder[Character, Option[A]]                =
+    ): SelectionBuilder[Character, Option[A]] =
       Field(
         "role",
         OptionOf(

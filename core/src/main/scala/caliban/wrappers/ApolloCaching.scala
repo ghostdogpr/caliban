@@ -22,10 +22,10 @@ object ApolloCaching {
 
   object CacheControl {
 
-    def apply(scope: ApolloCaching.CacheScope): Directive                   =
+    def apply(scope: ApolloCaching.CacheScope): Directive =
       Directive(directiveName, Map("scope" -> EnumValue(scope.toString)))
 
-    def apply(maxAge: Duration): Directive                                  =
+    def apply(maxAge: Duration): Directive =
       Directive(directiveName, Map("maxAge" -> IntValue(maxAge.toMillis / 1000)))
 
     def apply(maxAge: Duration, scope: ApolloCaching.CacheScope): Directive =

@@ -28,21 +28,21 @@ val zioHttpVersion         = "1.0.0.0-RC17"
 
 inThisBuild(
   List(
-    scalaVersion := scala212,
-    crossScalaVersions := allScala,
-    organization := "com.github.ghostdogpr",
-    homepage := Some(url("https://github.com/ghostdogpr/caliban")),
-    licenses := List(
+    scalaVersion             := scala212,
+    crossScalaVersions       := allScala,
+    organization             := "com.github.ghostdogpr",
+    homepage                 := Some(url("https://github.com/ghostdogpr/caliban")),
+    licenses                 := List(
       "Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0")
     ),
     Test / parallelExecution := false,
-    scmInfo := Some(
+    scmInfo                  := Some(
       ScmInfo(
         url("https://github.com/ghostdogpr/caliban/"),
         "scm:git:git@github.com:ghostdogpr/caliban.git"
       )
     ),
-    developers := List(
+    developers               := List(
       Developer(
         "ghostdogpr",
         "Pierre Ricadat",
@@ -136,7 +136,7 @@ lazy val core = project
   .dependsOn(macros)
   .settings(
     Test / fork := true,
-    run / fork := true
+    run / fork  := true
   )
 
 lazy val tools = project
@@ -164,25 +164,25 @@ lazy val codegenSbt = project
   .settings(commonSettings)
   .enablePlugins(BuildInfoPlugin)
   .settings(
-    buildInfoKeys := Seq[BuildInfoKey](version),
+    buildInfoKeys    := Seq[BuildInfoKey](version),
     buildInfoPackage := "caliban.codegen",
-    buildInfoObject := "BuildInfo"
+    buildInfoObject  := "BuildInfo"
   )
   .settings(
-    sbtPlugin := true,
+    sbtPlugin          := true,
     crossScalaVersions := Seq(scala212),
-    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    testFrameworks     := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio-test-sbt" % zioVersion % Test
     )
   )
   .enablePlugins(SbtPlugin)
   .settings(
-    scriptedLaunchOpts := {
+    scriptedLaunchOpts   := {
       scriptedLaunchOpts.value ++
         Seq("-Xmx1024M", "-Xss4M", "-Dplugin.version=" + version.value)
     },
-    scriptedBufferLog := false,
+    scriptedBufferLog    := false,
     scriptedDependencies := {
       (macros / publishLocal).value
       (core / publishLocal).value
@@ -372,7 +372,7 @@ lazy val clientLaminext = crossProject(JSPlatform)
   .settings(commonSettings)
   .dependsOn(clientJS)
   .settings(
-    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    testFrameworks                         := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     Test / scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.ESModule) },
     Test / scalaJSLinkerConfig ~= { _.withModuleSplitStyle(ModuleSplitStyle.FewestModules) },
     Test / scalaJSLinkerConfig ~= { _.withSourceMap(false) },
@@ -394,7 +394,7 @@ lazy val examples = project
   .settings(commonSettings)
   .settings(
     publish / skip := true,
-    run / fork := true
+    run / fork     := true
   )
   .settings(
     crossScalaVersions -= scala3,
@@ -442,7 +442,7 @@ lazy val federation = project
   .settings(commonSettings)
   .dependsOn(core % "compile->compile;test->test")
   .settings(
-    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    testFrameworks       := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio"          % zioVersion,
       "dev.zio" %% "zio-test"     % zioVersion % Test,

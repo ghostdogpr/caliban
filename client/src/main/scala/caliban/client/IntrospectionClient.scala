@@ -128,7 +128,7 @@ object IntrospectionClient {
     def description: SelectionBuilder[__Type, Option[String]]                                                        = Field("description", OptionOf(Scalar()))
     def fields[A](
       includeDeprecated: Option[Boolean] = None
-    )(innerSelection: SelectionBuilder[__Field, A]): SelectionBuilder[__Type, Option[List[A]]]                       =
+    )(innerSelection: SelectionBuilder[__Field, A]): SelectionBuilder[__Type, Option[List[A]]] =
       Field(
         "fields",
         OptionOf(ListOf(Obj(innerSelection))),
@@ -140,7 +140,7 @@ object IntrospectionClient {
       Field("possibleTypes", OptionOf(ListOf(Obj(innerSelection))))
     def enumValues[A](
       includeDeprecated: Option[Boolean] = None
-    )(innerSelection: SelectionBuilder[__EnumValue, A]): SelectionBuilder[__Type, Option[List[A]]]                   =
+    )(innerSelection: SelectionBuilder[__EnumValue, A]): SelectionBuilder[__Type, Option[List[A]]] =
       Field(
         "enumValues",
         OptionOf(ListOf(Obj(innerSelection))),

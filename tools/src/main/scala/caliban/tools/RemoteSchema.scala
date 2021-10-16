@@ -44,7 +44,7 @@ object RemoteSchema {
       description = definition.description,
       interfaces = toInterfaces(definition.implements, definitions),
       directives = toDirectives(definition.directives),
-      fields = (args: __DeprecatedArgs) => {
+      fields = (args: __DeprecatedArgs) =>
         if (definition.fields.nonEmpty)
           Some(
             definition.fields
@@ -52,7 +52,6 @@ object RemoteSchema {
               .filter(filterDeprecated(_, args))
           )
         else None
-      }
     )
 
   private def toField(

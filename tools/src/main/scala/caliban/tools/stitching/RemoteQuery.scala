@@ -47,7 +47,7 @@ object RemoteQuery {
         case StringValue(value)      => s""""$value""""
         case ListValue(values)       => values.map(renderInputValue).mkString("[", ",", "]")
         case ObjectValue(fields)     =>
-          fields.map({ case (k, v) => s"""$k: ${renderInputValue(v)}""" }).mkString("{ ", ", ", " }")
+          fields.map { case (k, v) => s"""$k: ${renderInputValue(v)}""" }.mkString("{ ", ", ", " }")
         case NullValue               => "null"
         case VariableValue(name)     => s"$$$name"
         case BigDecimalNumber(value) => s"$value"
@@ -68,8 +68,7 @@ object RemoteQuery {
     private def renderArguments(args: Map[String, InputValue]): String =
       if (args.isEmpty) ""
       else
-        args
-          .map({ case (k, v) => s"$k: ${renderInputValue(v)}" })
+        args.map { case (k, v) => s"$k: ${renderInputValue(v)}" }
           .mkString("(", ", ", ")")
   }
 }

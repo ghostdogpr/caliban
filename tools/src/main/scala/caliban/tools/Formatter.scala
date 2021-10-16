@@ -9,7 +9,7 @@ import java.nio.file.{ Files, Path, Paths }
 
 object Formatter {
 
-  def format(str: String, fmtPath: Option[String]): RIO[Blocking, String]                                  =
+  def format(str: String, fmtPath: Option[String]): RIO[Blocking, String] =
     format(List("Nil.scala" -> str), fmtPath).map(_.head._2)
 
   def format(strs: List[(String, String)], fmtPath: Option[String]): RIO[Blocking, List[(String, String)]] =
