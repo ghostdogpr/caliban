@@ -1,10 +1,10 @@
 package caliban.execution
 
 import java.util.UUID
-import caliban.{ CalibanError, GraphQL, InputValue, RootResolver }
 import caliban.CalibanError.ExecutionError
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
+import caliban.{ CalibanError, GraphQL, InputValue, RootResolver }
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, IntValue, StringValue }
 import caliban.introspection.adt.__Type
@@ -18,6 +18,7 @@ import zio.test._
 import zio.test.environment.TestEnvironment
 
 object ExecutionSpec extends DefaultRunnableSpec {
+
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("ExecutionSpec")(
       testM("skip directive") {
