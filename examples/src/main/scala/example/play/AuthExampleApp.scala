@@ -37,11 +37,11 @@ object AuthExampleApp extends App {
   import schema._
   case class Query(token: RIO[Auth, Option[String]])
   case class Mutation(x: RIO[Auth, Option[String]])
-  case class Subscription(x: RIO[Auth, ZStream[Auth, Throwable, Option[String]]])
+  case class Subscription(x: ZStream[Auth, Throwable, Option[String]])
   private val resolver            = RootResolver(
     Query(ZIO.accessM[Auth](_.get.get).map(_.map(_.value))),
     Mutation(ZIO.some("foo")),
-    Subscription(ZIO.succeed(ZStream.empty))
+    Subscription(ZStream.empty)
   )
   private val api                 = graphQL(resolver)
 
