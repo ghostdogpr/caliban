@@ -78,4 +78,5 @@ object AuthExampleApp extends App {
 
   println("Server online at http://localhost:8088/\nPress RETURN to stop...")
   readLine()
+  server.stop()
 }

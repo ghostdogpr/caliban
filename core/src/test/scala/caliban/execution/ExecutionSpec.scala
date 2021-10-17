@@ -413,6 +413,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":<stream>}"""))
       },
       testM("Circe Json scalar") {
+        import caliban.interop.circe.json._
         import io.circe.Json
         case class Queries(test: Json)
 
