@@ -1,5 +1,7 @@
 package example.play
 
+import scala.io.StdIn.readLine
+
 import caliban.GraphQL.graphQL
 import caliban.PlayAdapter.RequestWrapper
 import caliban.schema.GenericSchema
@@ -10,10 +12,8 @@ import play.core.server.{ AkkaHttpServer, ServerConfig }
 import zio.blocking.Blocking
 import zio.internal.Platform
 import zio.random.Random
-import zio.{ FiberRef, Has, RIO, Runtime, URIO, ZIO }
-import scala.io.StdIn.readLine
-
 import zio.stream.ZStream
+import zio.{ FiberRef, Has, RIO, Runtime, URIO, ZIO }
 
 object AuthExampleApp extends App {
   case class AuthToken(value: String)

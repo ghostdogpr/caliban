@@ -1,6 +1,5 @@
 package caliban.schema
 
-import zio.RIO
 import zio.stream.ZStream
 
 /**
@@ -15,6 +14,4 @@ object SubscriptionSchema extends SubscriptionSchemaDerivation {
     new SubscriptionSchema[ZStream[R, E, A]] {}
   implicit def functionSubscriptionSchema[R, E, A, ARG]: SubscriptionSchema[ARG => ZStream[R, E, A]] =
     new SubscriptionSchema[ARG => ZStream[R, E, A]] {}
-  implicit def taskSubscriptionSchema[R, E, A, ARG]: SubscriptionSchema[RIO[R, ZStream[R, E, A]]]    =
-    new SubscriptionSchema[RIO[R, ZStream[R, E, A]]] {}
 }

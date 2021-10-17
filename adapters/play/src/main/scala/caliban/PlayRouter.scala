@@ -1,6 +1,6 @@
 package caliban
 
-import scala.concurrent.{ ExecutionContext, Future }
+import scala.concurrent.ExecutionContext
 
 import akka.stream.Materializer
 import caliban.PlayAdapter.RequestWrapper
@@ -9,10 +9,10 @@ import play.api.mvc._
 import play.api.routing.Router.Routes
 import play.api.routing.SimpleRouter
 import play.api.routing.sird._
-import zio.{ IO, Runtime, URIO, ZIO }
 import zio.blocking.Blocking
 import zio.duration.Duration
 import zio.random.Random
+import zio.{ Runtime, ZIO }
 
 case class PlayRouter[R <: Blocking with Random, E](
   interpreter: GraphQLInterpreter[R, E],

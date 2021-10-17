@@ -5,18 +5,18 @@ import java.util.UUID
 import caliban.CalibanError.ExecutionError
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
-import caliban.{ CalibanError, GraphQL, InputValue, ResponseValue, RootResolver, Value }
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, IntValue, StringValue }
 import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
 import caliban.schema.Annotations.{ GQLInterface, GQLName, GQLValueType }
-import caliban.schema.{ ArgBuilder, GenericSchema, Schema, Step, Types }
-import zio.{ FiberRef, Has, IO, RIO, Task, UIO, ZIO, ZLayer }
+import caliban.schema.{ ArgBuilder, Schema, Step, Types }
+import caliban.{ CalibanError, GraphQL, InputValue, RootResolver }
 import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment
+import zio.{ IO, Task, UIO, ZIO }
 
 object ExecutionSpec extends DefaultRunnableSpec {
   override def spec: ZSpec[TestEnvironment, Any] =
@@ -413,7 +413,6 @@ object ExecutionSpec extends DefaultRunnableSpec {
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":<stream>}"""))
       },
       testM("Circe Json scalar") {
-        import caliban.interop.circe.json._
         import io.circe.Json
         case class Queries(test: Json)
 
