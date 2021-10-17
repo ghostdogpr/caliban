@@ -1,7 +1,7 @@
 package caliban.execution
 
 import java.util.UUID
-
+import caliban.{ CalibanError, GraphQL, InputValue, RootResolver }
 import caliban.CalibanError.ExecutionError
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
@@ -11,12 +11,11 @@ import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
 import caliban.schema.Annotations.{ GQLInterface, GQLName, GQLValueType }
 import caliban.schema.{ ArgBuilder, Schema, Step, Types }
-import caliban.{ CalibanError, GraphQL, InputValue, RootResolver }
+import zio.{ IO, Task, UIO, ZIO }
 import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment
-import zio.{ IO, Task, UIO, ZIO }
 
 object ExecutionSpec extends DefaultRunnableSpec {
   override def spec: ZSpec[TestEnvironment, Any] =
