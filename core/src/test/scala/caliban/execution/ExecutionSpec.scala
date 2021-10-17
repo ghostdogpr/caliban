@@ -1,17 +1,18 @@
 package caliban.execution
 
 import java.util.UUID
+
 import caliban.CalibanError.ExecutionError
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
-import caliban.{ CalibanError, GraphQL, InputValue, RootResolver }
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, IntValue, StringValue }
 import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
 import caliban.schema.Annotations.{ GQLInterface, GQLName, GQLValueType }
-import caliban.schema.{ ArgBuilder, Schema, Step, Types }
-import zio.{ IO, Task, UIO, ZIO }
+import caliban.schema._
+import caliban._
+import zio.{ FiberRef, Has, IO, Task, UIO, ZIO, ZLayer }
 import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
@@ -399,6 +400,63 @@ object ExecutionSpec extends DefaultRunnableSpec {
              }""")
 
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":<stream>}"""))
+      },
+      testM("ARGS => ZStream used in a subscription with context") {
+        // setup up an authentication FiberRev Environment
+        case class Req(id: Int)
+        case class AuthToken(value: String)
+        type Auth = Has[FiberRef[Option[AuthToken]]]
+
+        val authLayer: ZLayer[Any, Nothing, Has[FiberRef[Option[AuthToken]]]] =
+          FiberRef.make(Option.empty[AuthToken]).toLayer
+
+        // set up the graphql resolvers
+        case class Queries(test: Int)
+        case class Subscriptions(test: Req => ZStream[Auth, Throwable, String])
+
+        // create a custom schema for the Auth Env
+        object schema extends GenericSchema[Auth]
+        import schema._
+
+        // effectfully produce a stream using the environment
+        def getStream(req: Req) = ZStream.fromEffect(for {
+          tokenRef <- ZIO.service[FiberRef[Option[AuthToken]]]
+          tokenOpt <- tokenRef.get
+        } yield tokenOpt.map(_.value).getOrElse("NONE"))
+
+        // set up a wrapped interpreter, setting the authentication token in the auth context
+        val interpreter        =
+          graphQL(RootResolver(Queries(1), Option.empty[Unit], Subscriptions(getStream))).interpreter
+        val wrappedInterpreter = for {
+          auth <- ZIO.service[FiberRef[Option[AuthToken]]]
+          _    <- auth.set(Some(AuthToken("TOKEN")))
+          i    <- interpreter
+        } yield i
+
+        // run the query and materialize the result to ensure it has what we expect
+        val query = gqldoc("""
+             subscription {
+               test(id: 1)
+             }""")
+
+        def exec = wrappedInterpreter
+          .flatMap(_.execute(query))
+          .map(_.data)
+          .flatMap {
+            case ResponseValue.ObjectValue(fields) =>
+              fields.head match {
+                case ("test", ResponseValue.StreamValue(stream)) =>
+                  stream.runHead.someOrFailException.map {
+                    case Value.StringValue(s) => s
+                    case x                    => ZIO.succeed(s"Non-string stream value $x")
+                  }
+                case x                                           => ZIO.succeed(s"No test stream value found in $x")
+              }
+            case x                                 => ZIO.succeed(s"No stream found in ${x.getClass}")
+          }
+          .provideSomeLayer(authLayer)
+
+        assertM(exec)(equalTo("TOKEN"))
       },
       testM("Circe Json scalar") {
         import caliban.interop.circe.json._
