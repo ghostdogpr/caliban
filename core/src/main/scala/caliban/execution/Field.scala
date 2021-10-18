@@ -131,9 +131,13 @@ object Field {
       .map(_.kind)
       .flatMap { kind =>
         (kind, value) match {
-          case (__TypeKind.ENUM, Value.StringValue(v)) =>
+          case (__TypeKind.ENUM, InputValue.ListValue(v)) =>
+            Some(
+              InputValue.ListValue(v.map(resolveEnumValues(_, definition, rootType)))
+            )
+          case (__TypeKind.ENUM, Value.StringValue(v))    =>
             Some(Value.EnumValue(v))
-          case _                                       => None
+          case _                                          => None
         }
       }
       .getOrElse(value)
