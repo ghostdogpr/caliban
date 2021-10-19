@@ -200,6 +200,7 @@ If you require a ZIO environment, you will need to have the content of `caliban.
 ```scala
 object schema extends GenericSchema[MyEnv]
 import schema._
+import schema.gen // Necessary for scala 3 due to https://docs.scala-lang.org/scala3/book/ca-given-imports.html
 ```
 Note: If you ever need to declare schemas explicitly (by calling `gen` directly, as explained above), and you require a ZIO environment (explained in this section), 
 then you must use the `gen` from this `object schema`. If you call `gen` to derive schemas in the same module and you `import schema._` at the top of this module, 
