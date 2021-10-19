@@ -417,6 +417,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         // create a custom schema for the Auth Env
         object schema extends GenericSchema[Auth]
         import schema._
+        import schema.gen
 
         // effectfully produce a stream using the environment
         def getStream(req: Req) = ZStream.fromEffect(for {
