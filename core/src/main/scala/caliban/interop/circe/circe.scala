@@ -43,7 +43,7 @@ object json {
   private[caliban] object ValueCirce {
     import io.circe._
     val valueEncoder: Encoder[Value]                           = Encoder
-      .instance[Value]({
+      .instance[Value] {
         case NullValue           => Json.Null
         case v: IntValue         =>
           v match {
@@ -60,7 +60,7 @@ object json {
         case StringValue(value)  => Json.fromString(value)
         case BooleanValue(value) => Json.fromBoolean(value)
         case EnumValue(value)    => Json.fromString(value)
-      })
+      }
     private def jsonToInputValue(json: Json): InputValue       =
       json.fold(
         NullValue,
@@ -75,13 +75,13 @@ object json {
       )
     val inputValueDecoder: Decoder[InputValue]                 = Decoder.instance(hcursor => Right(jsonToInputValue(hcursor.value)))
     val inputValueEncoder: Encoder[InputValue]                 = Encoder
-      .instance[InputValue]({
+      .instance[InputValue] {
         case value: Value                   => valueEncoder.apply(value)
         case InputValue.ListValue(values)   => Json.arr(values.map(inputValueEncoder.apply): _*)
         case InputValue.ObjectValue(fields) =>
           Json.obj(fields.map { case (k, v) => k -> inputValueEncoder.apply(v) }.toList: _*)
         case InputValue.VariableValue(name) => Json.fromString(name)
-      })
+      }
     private def jsonToResponseValue(json: Json): ResponseValue =
       json.fold(
         NullValue,
@@ -105,14 +105,14 @@ object json {
     val responseValueDecoder: Decoder[ResponseValue] =
       Decoder.instance(hcursor => Right(jsonToResponseValue(hcursor.value)))
     val responseValueEncoder: Encoder[ResponseValue] = Encoder
-      .instance[ResponseValue]({
+      .instance[ResponseValue] {
         case value: Value                      => valueEncoder.apply(value)
         case ResponseValue.ListValue(values)   => Json.arr(values.map(responseValueEncoder.apply): _*)
         case ResponseValue.ObjectValue(fields) =>
           Json.obj(fields.map { case (k, v) => k -> responseValueEncoder.apply(v) }: _*)
         case d: ResponseValue.DeferValue       => Json.fromString(d.toString) 
         case s: ResponseValue.StreamValue      => Json.fromString(s.toString)
-      })
+      }
   }
 
   private[caliban] object ErrorCirce {
@@ -122,7 +122,7 @@ object json {
     private def locationToJson(li: LocationInfo): Json =
       Json.obj("line" -> li.line.asJson, "column" -> li.column.asJson)
 
-    val errorValueEncoder: Encoder[CalibanError]       = Encoder.instance[CalibanError] {
+    val errorValueEncoder: Encoder[CalibanError] = Encoder.instance[CalibanError] {
       case CalibanError.ParsingError(msg, locationInfo, _, extensions)         =>
         Json
           .obj(
@@ -214,7 +214,7 @@ object json {
           )
       }
 
-    implicit val graphQLRespondDecoder: Decoder[GraphQLResponse[CalibanError]] =
+    implicit val graphQLResponseDecoder: Decoder[GraphQLResponse[CalibanError]] =
       Decoder.instance(cursor =>
         for {
           data   <- cursor

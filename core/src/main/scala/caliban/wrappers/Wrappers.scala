@@ -52,7 +52,7 @@ object Wrappers {
    * Returns a wrapper that prints slow queries
    * @param duration threshold above which queries are considered slow
    */
-  def printSlowQueries(duration: Duration): OverallWrapper[Console with Clock]                                  =
+  def printSlowQueries(duration: Duration): OverallWrapper[Console with Clock] =
     onSlowQueries(duration) { case (time, query) => putStrLn(s"Slow query took ${time.render}:\n$query").orDie }
 
   /**

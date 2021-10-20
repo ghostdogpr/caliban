@@ -1,12 +1,9 @@
 package caliban.tools
 
 import caliban.tools.implicits.ScalarMappings
-import zio.blocking.{ effectBlocking, Blocking }
-import zio.{ RIO, Task, ZIO }
-
-import java.io.File
-import java.nio.charset.StandardCharsets
-import java.nio.file._
+import zio.blocking.{ blocking, Blocking }
+import zio.{ RIO, Task, UIO, ZIO }
+import java.io.{ File, PrintWriter }
 
 object Codegen {
 
@@ -59,14 +56,15 @@ object Codegen {
                            }
       formatted         <- if (enableFmt) Formatter.format(code, arguments.fmtPath) else Task.succeed(code)
       paths             <- ZIO.foreach(formatted) { case (objectName, objectCode) =>
-                             effectBlocking {
-                               val path = Path.of(
-                                 if (splitFiles) s"${arguments.toPath.reverse.dropWhile(_ != '/').reverse}$objectName.scala"
-                                 else arguments.toPath
-                               )
+                             val path =
+                               if (splitFiles) s"${arguments.toPath.reverse.dropWhile(_ != '/').reverse}$objectName.scala"
+                               else arguments.toPath
 
-                               Files.writeString(path, objectCode, StandardCharsets.UTF_8).toFile
-                             }
+                             blocking(
+                               Task(new PrintWriter(new File(path)))
+                                 .bracket(q => UIO(q.close()), pw => Task(pw.println(objectCode)))
+                                 .as(new File(path))
+                             )
                            }
     } yield paths
 

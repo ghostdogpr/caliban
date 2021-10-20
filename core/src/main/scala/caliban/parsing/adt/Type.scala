@@ -10,6 +10,12 @@ sealed trait Type { self =>
     case Type.NamedType(name, nonNull)  => if (nonNull) s"$name!" else name
     case Type.ListType(ofType, nonNull) => if (nonNull) s"[$ofType]!" else s"[$ofType]"
   }
+
+  def toNullable: Type =
+    self match {
+      case Type.NamedType(name, _)  => Type.NamedType(name, nonNull = false)
+      case Type.ListType(ofType, _) => Type.ListType(ofType, nonNull = false)
+    }
 }
 
 object Type {

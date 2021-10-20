@@ -6,7 +6,7 @@ import caliban.Value.{ BooleanValue, NullValue }
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.FragmentDefinition
-import caliban.parsing.adt.Selection.{ FragmentSpread, InlineFragment, Field => F }
+import caliban.parsing.adt.Selection.{ Field => F, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.{ Directive, LocationInfo, Selection, Type, VariableDefinition }
 import caliban.schema.{ RootType, Types }
 
@@ -105,7 +105,7 @@ object Field {
       value match {
         case InputValue.ListValue(values)   => InputValue.ListValue(values.map(resolveVariable))
         case InputValue.ObjectValue(fields) =>
-          InputValue.ObjectValue(fields.map({ case (k, v) => k -> resolveVariable(v) }))
+          InputValue.ObjectValue(fields.map { case (k, v) => k -> resolveVariable(v) })
         case InputValue.VariableValue(name) =>
           (for {
             definition  <- variableDefinitions.find(_.name == name)
@@ -114,7 +114,7 @@ object Field {
           } yield resolveEnumValues(value, definition, rootType)) getOrElse NullValue
         case value: Value                   => value
       }
-    arguments.map({ case (k, v) => k -> resolveVariable(v) })
+    arguments.map { case (k, v) => k -> resolveVariable(v) }
   }
 
   // Since we cannot separate a String from an Enum when variables
@@ -133,9 +133,13 @@ object Field {
       .map(_.kind)
       .flatMap { kind =>
         (kind, value) match {
-          case (__TypeKind.ENUM, Value.StringValue(v)) =>
+          case (__TypeKind.ENUM, InputValue.ListValue(v)) =>
+            Some(
+              InputValue.ListValue(v.map(resolveEnumValues(_, definition, rootType)))
+            )
+          case (__TypeKind.ENUM, Value.StringValue(v))    =>
             Some(Value.EnumValue(v))
-          case _                                       => None
+          case _                                          => None
         }
       }
       .getOrElse(value)

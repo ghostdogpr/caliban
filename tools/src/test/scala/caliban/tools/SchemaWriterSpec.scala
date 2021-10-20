@@ -55,13 +55,13 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
 
         val a = assertM(typeCaseClass)(
           equalTo(
-            "case class Hero(name: HeroNameArgs => String, nick: String, bday: Option[Int])"
+            "final case class Hero(name: HeroNameArgs => String, nick: String, bday: Option[Int])"
           )
         )
 
         val b = assertM(typeCaseClassArgs)(
           equalTo(
-            "case class HeroNameArgs(pad: Int)"
+            "final case class HeroNameArgs(pad: Int)"
           )
         )
 
@@ -91,7 +91,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
 
         assertM(result)(
           equalTo(
-            """case class Query(
+            """final case class Query(
   user: QueryUserArgs => zio.UIO[Option[User]],
   userList: zio.UIO[List[Option[User]]]
 )""".stripMargin
@@ -116,7 +116,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
 
         assertM(result)(
           equalTo(
-            """case class Mutation(
+            """final case class Mutation(
               |  setMessage: MutationSetMessageArgs => zio.UIO[Option[String]]
               |)""".stripMargin
           )
@@ -137,7 +137,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
         assertM(result)(
           equalTo(
             """
-              |case class Subscription(
+              |final case class Subscription(
               |UserWatch: SubscriptionUserWatchArgs => ZStream[Any, Nothing, String]
               |)""".stripMargin
           )
@@ -165,7 +165,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
 
         assertM(result)(
           equalTo(
-            """case class Query[F[_]](
+            """final case class Query[F[_]](
   user: QueryUserArgs => F[Option[User]],
   userList: F[List[Option[User]]]
 )""".stripMargin
@@ -190,7 +190,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
 
         assertM(result)(
           equalTo(
-            """case class Mutation[F[_]](
+            """final case class Mutation[F[_]](
               |  setMessage: MutationSetMessageArgs => F[Option[String]]
               |)""".stripMargin
           )
@@ -221,22 +221,22 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
               |import zio.stream.ZStream
               |
               |object Types {
-              |  case class MutationAddPostArgs(author: Option[String], comment: Option[String])
-              |  case class Post(author: Option[String], comment: Option[String])
+              |  final case class MutationAddPostArgs(author: Option[String], comment: Option[String])
+              |  final case class Post(author: Option[String], comment: Option[String])
               |
               |}
               |
               |object Operations {
               |
-              |  case class Query(
+              |  final case class Query(
               |    posts: zio.UIO[Option[List[Option[Post]]]]
               |  )
               |
-              |  case class Mutation(
+              |  final case class Mutation(
               |    addPost: MutationAddPostArgs => zio.UIO[Option[Post]]
               |  )
               |
-              |  case class Subscription(
+              |  final case class Subscription(
               |    postAdded: ZStream[Any, Nothing, Option[Post]]
               |  )
               |
@@ -323,20 +323,20 @@ Captain or Pilot or Stewart\"\"\""""
 object Types {
 
   @GQLDescription($role)
-  sealed trait Role  extends scala.Product with scala.Serializable
+  sealed trait Role extends scala.Product with scala.Serializable
   @GQLDescription($role2)
   sealed trait Role2 extends scala.Product with scala.Serializable
 
   object Role2 {
-    case class Stewart(shipName: String) extends Role2
+    final case class Stewart(shipName: String) extends Role2
   }
 
-  case class Captain(
+  final case class Captain(
     @GQLDescription("ship")
     shipName: String
-  )                                  extends Role
+  ) extends Role
       with Role2
-  case class Pilot(shipName: String) extends Role with Role2
+  final case class Pilot(shipName: String) extends Role with Role2
 
 }
 """
@@ -357,7 +357,7 @@ object Types {
 
 object Types {
 
-  case class Captain(
+  final case class Captain(
     @GQLDescription("foo \\"quotes\\" bar")
     shipName: String
   )
@@ -383,7 +383,7 @@ object Types {
           equalTo(
             """object Operations {
 
-  case class Queries(
+  final case class Queries(
     characters: zio.UIO[Int]
   )
 
@@ -408,8 +408,8 @@ object Types {
           equalTo(
             """object Types {
 
-  case class Character(name: String)
-  case class CharacterArgs(name: String)
+  final case class Character(name: String)
+  final case class CharacterArgs(name: String)
 
 }
 """
@@ -430,14 +430,14 @@ object Types {
           equalTo(
             """object Types {
 
-  case class Character(`private`: String, `object`: String, `type`: String)
+  final case class Character(`private`: String, `object`: String, `type`: String)
 
 }
 """
           )
         )
       },
-      testM("case class reserved field name used") {
+      testM("final case class reserved field name used") {
         val schema =
           """
              type Character {
@@ -449,7 +449,7 @@ object Types {
           equalTo(
             """object Types {
 
-  case class Character(wait$ : String)
+  final case class Character(wait$ : String)
 
 }
 """
@@ -471,10 +471,10 @@ object Types {
         assertM(gen(schema))(
           equalTo(
             """object Types {
-              |  case class HeroCallAlliesArgs(number: Int)
-              |  case class VillainCallAlliesArgs(number: Int, w: String)
-              |  case class Hero(callAllies: HeroCallAlliesArgs => List[Hero])
-              |  case class Villain(callAllies: VillainCallAlliesArgs => List[Villain])
+              |  final case class HeroCallAlliesArgs(number: Int)
+              |  final case class VillainCallAlliesArgs(number: Int, w: String)
+              |  final case class Hero(callAllies: HeroCallAlliesArgs => List[Hero])
+              |  final case class Villain(callAllies: VillainCallAlliesArgs => List[Villain])
               |
               |}
               |""".stripMargin
@@ -509,19 +509,19 @@ object Types {
               |import zio.stream.ZStream
               |
               |object Types {
-              |  case class QueryCharactersArgs(p: Params)
-              |  case class SubscriptionCharactersArgs(p: Params)
-              |  case class Params(p: Int)
+              |  final case class QueryCharactersArgs(p: Params)
+              |  final case class SubscriptionCharactersArgs(p: Params)
+              |  final case class Params(p: Int)
               |
               |}
               |
               |object Operations {
               |
-              |  case class Query(
+              |  final case class Query(
               |    characters: QueryCharactersArgs => zio.UIO[Int]
               |  )
               |
-              |  case class Subscription(
+              |  final case class Subscription(
               |    characters: SubscriptionCharactersArgs => ZStream[Any, Nothing, Int]
               |  )
               |
@@ -561,22 +561,22 @@ object Types {
               |import a.b._
               |
               |object Types {
-              |  case class MutationAddPostArgs(author: Option[String], comment: Option[String])
-              |  case class Post(date: java.time.OffsetDateTime, author: Option[String], comment: Option[String])
+              |  final case class MutationAddPostArgs(author: Option[String], comment: Option[String])
+              |  final case class Post(date: java.time.OffsetDateTime, author: Option[String], comment: Option[String])
               |
               |}
               |
               |object Operations {
               |
-              |  case class Query(
+              |  final case class Query(
               |    posts: zio.UIO[Option[List[Option[Post]]]]
               |  )
               |
-              |  case class Mutation(
+              |  final case class Mutation(
               |    addPost: MutationAddPostArgs => zio.UIO[Option[Post]]
               |  )
               |
-              |  case class Subscription(
+              |  final case class Subscription(
               |    postAdded: ZStream[Any, Nothing, Option[Post]]
               |  )
               |

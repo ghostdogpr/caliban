@@ -15,8 +15,11 @@ import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt._
 import caliban.schema.{ RootSchema, RootSchemaBuilder, RootType, Types }
+import caliban.validation.Utils.isObjectType
 import caliban.{ InputValue, Rendering, Value }
 import zio.IO
+
+import scala.annotation.tailrec
 
 object Validator {
 
@@ -37,7 +40,7 @@ object Validator {
       validateRootQuery(schema)
   }
 
-  private[caliban] def validateType(t: __Type) =
+  private[caliban] def validateType(t: __Type): IO[ValidationError, Unit] =
     t.kind match {
       case __TypeKind.ENUM         => validateEnum(t)
       case __TypeKind.UNION        => validateUnion(t)
@@ -176,19 +179,19 @@ object Validator {
     }
 
     def collectVariableValues(values: List[InputValue]): List[VariableValue] =
-      values.flatMap({
+      values.flatMap {
         case InputValue.ListValue(values)   => collectVariableValues(values)
         case InputValue.ObjectValue(fields) => collectVariableValues(fields.values.toList)
         case v: VariableValue               => List(v)
         case _: Value                       => List()
-      })
+      }
     val allValues                                                            = collectValues(selectionSet)
     val varValues                                                            = collectVariableValues(allValues)
     varValues.map(_.name).toSet
   }
 
   private def collectSelectionSets(selectionSet: List[Selection]): List[Selection] = {
-    val sets = List.newBuilder[Selection]
+    val sets                                      = List.newBuilder[Selection]
     def loop(selectionSet: List[Selection]): Unit = {
       sets ++= selectionSet
       selectionSet.foreach {
@@ -251,12 +254,28 @@ object Validator {
                             "GraphQL servers define what directives they support. For each usage of a directive, the directive must be available on that server."
                           )
                         case Some(directive) =>
-                          IO.when(!directive.locations.contains(location))(
-                            failValidation(
-                              s"Directive '${d.name}' is used in invalid location '$location'.",
-                              "GraphQL servers define what directives they support and where they support them. For each usage of a directive, the directive must be used in a location that the server has declared support for."
+                          IO.foreach_(d.arguments) { case (arg, argValue) =>
+                            directive.args.find(_.name == arg) match {
+                              case None             =>
+                                failValidation(
+                                  s"Argument '$arg' is not defined on directive '${d.name}' ($location).",
+                                  "Every argument provided to a field or directive must be defined in the set of possible arguments of that field or directive."
+                                )
+                              case Some(inputValue) =>
+                                validateInputValues(
+                                  inputValue,
+                                  argValue,
+                                  context,
+                                  s"InputValue '${inputValue.name}' of Directive '${d.name}'"
+                                )
+                            }
+                          } *>
+                            IO.when(!directive.locations.contains(location))(
+                              failValidation(
+                                s"Directive '${d.name}' is used in invalid location '$location'.",
+                                "GraphQL servers define what directives they support and where they support them. For each usage of a directive, the directive must be used in a location that the server has declared support for."
+                              )
                             )
-                          )
                       }
                     }
     } yield ()
@@ -332,20 +351,38 @@ object Validator {
     IO.foreach_(context.document.definitions) {
       case OperationDefinition(opType, _, _, _, selectionSet) =>
         opType match {
-          case OperationType.Query        => validateFields(context, selectionSet, context.rootType.queryType)
+          case OperationType.Query =>
+            validateSelectionSet(context, selectionSet, context.rootType.queryType)
+
           case OperationType.Mutation     =>
             context.rootType.mutationType.fold[IO[ValidationError, Unit]](
               failValidation("Mutation operations are not supported on this schema.", "")
-            )(validateFields(context, selectionSet, _))
+            )(
+              validateSelectionSet(context, selectionSet, _)
+            )
           case OperationType.Subscription =>
             context.rootType.subscriptionType.fold[IO[ValidationError, Unit]](
               failValidation("Subscription operations are not supported on this schema.", "")
-            )(validateFields(context, selectionSet, _))
+            )(
+              validateSelectionSet(context, selectionSet, _)
+            )
         }
       case _: FragmentDefinition                              => IO.unit
       case _: TypeSystemDefinition                            => IO.unit
       case _: TypeSystemExtension                             => IO.unit
     }
+
+  private def validateSelectionSet(
+    context: Context,
+    selectionSet: List[Selection],
+    currentType: __Type
+  ): IO[ValidationError, Unit] =
+    validateFields(context, selectionSet, currentType) *>
+      FragmentValidator.findConflictsWithinSelectionSet(
+        context,
+        context.rootType.queryType,
+        selectionSet
+      )
 
   private def validateFields(
     context: Context,
@@ -415,47 +452,61 @@ object Validator {
         )
         .flatMap { f =>
           validateFields(context, field.selectionSet, Types.innerType(f.`type`())) *>
-            validateArguments(field, f, currentType)
+            validateArguments(field, f, currentType, context)
         }
     }
 
-  private def validateArguments(field: Field, f: __Field, currentType: __Type): IO[ValidationError, Unit] =
-    IO.foreach_(field.arguments) { case (arg, argValue) =>
-      f.args.find(_.name == arg) match {
-        case None             =>
+  private def validateArguments(
+    field: Field,
+    f: __Field,
+    currentType: __Type,
+    context: Context
+  ): IO[ValidationError, Unit] =
+    IO.foreach_(f.args.filter(a => a.`type`().kind == __TypeKind.NON_NULL))(arg =>
+      (arg.defaultValue, field.arguments.get(arg.name)) match {
+        case (None, None) | (None, Some(NullValue)) =>
           failValidation(
-            s"Argument '$arg' is not defined on field '${field.name}' of type '${currentType.name.getOrElse("")}'.",
-            "Every argument provided to a field or directive must be defined in the set of possible arguments of that field or directive."
+            s"Required argument '${arg.name}' is null or missing on field '${field.name}' of type '${currentType.name
+              .getOrElse("")}'.",
+            "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
           )
-        case Some(inputValue) => validateInputValues(inputValue, argValue)
-      }
-    } *>
-      IO.foreach_(f.args.filter(a => a.`type`().kind == __TypeKind.NON_NULL))(arg =>
-        (arg.defaultValue, field.arguments.get(arg.name)) match {
-          case (None, None) | (None, Some(NullValue)) =>
-            failValidation(
-              s"Required argument '${arg.name}' is null or missing on field '${field.name}' of type '${currentType.name
-                .getOrElse("")}'.",
-              "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
-            )
 
-          case (Some(_), Some(NullValue)) =>
+        case (Some(_), Some(NullValue)) =>
+          failValidation(
+            s"Required argument '${arg.name}' is null on '${field.name}' of type '${currentType.name
+              .getOrElse("")}'.",
+            "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
+          )
+        case _                          => IO.unit
+      }
+    ) *>
+      IO.foreach_(field.arguments) { case (arg, argValue) =>
+        f.args.find(_.name == arg) match {
+          case None             =>
             failValidation(
-              s"Required argument '${arg.name}' is null on '${field.name}' of type '${currentType.name
-                .getOrElse("")}'.",
-              "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
+              s"Argument '$arg' is not defined on field '${field.name}' of type '${currentType.name.getOrElse("")}'.",
+              "Every argument provided to a field or directive must be defined in the set of possible arguments of that field or directive."
             )
-          case _                          => IO.unit
+          case Some(inputValue) =>
+            validateInputValues(
+              inputValue,
+              argValue,
+              context,
+              s"InputValue '${inputValue.name}' of Field '${field.name}'"
+            )
         }
-      )
+      }
 
   private[caliban] def validateInputValues(
     inputValue: __InputValue,
-    argValue: InputValue
+    argValue: InputValue,
+    context: Context,
+    errorContext: String
   ): IO[ValidationError, Unit] = {
     val t           = inputValue.`type`()
     val inputType   = if (t.kind == __TypeKind.NON_NULL) t.ofType.getOrElse(t) else t
     val inputFields = inputType.inputFields.getOrElse(Nil)
+
     argValue match {
       case InputValue.ObjectValue(fields) if inputType.kind == __TypeKind.INPUT_OBJECT =>
         IO.foreach_(fields) { case (k, v) =>
@@ -465,14 +516,20 @@ object Validator {
                 s"Input field '$k' is not defined on type '${inputType.name.getOrElse("?")}'.",
                 "Every input field provided in an input object value must be defined in the set of possible fields of that input object’s expected type."
               )
-            case Some(value) => validateInputValues(value, v)
+            case Some(value) =>
+              validateInputValues(
+                value,
+                v,
+                context,
+                s"InputValue '${inputValue.name}' of Field '$k' of InputObject '${t.name.getOrElse("")}'"
+              )
           }
         } *> IO
           .foreach_(inputFields)(inputField =>
             IO.when(
               inputField.defaultValue.isEmpty &&
                 inputField.`type`().kind == __TypeKind.NON_NULL &&
-                !fields.contains(inputField.name)
+                fields.getOrElse(inputField.name, NullValue) == NullValue
             )(
               failValidation(
                 s"Required field '${inputField.name}' on object '${inputType.name.getOrElse("?")}' was not provided.",
@@ -480,8 +537,89 @@ object Validator {
               )
             )
           )
+      case VariableValue(variableName)                                                 =>
+        context.variableDefinitions.get(variableName) match {
+          case Some(variableDefinition) => checkVariableUsageAllowed(variableDefinition, inputValue)
+          case None                     =>
+            failValidation(
+              s"Variable '$variableName' is not defined.",
+              "Variables are scoped on a per‐operation basis. That means that any variable used within the context of an operation must be defined at the top level of that operation"
+            )
+        }
       case _                                                                           => IO.unit
     }
+  } *> ValueValidator.validateInputTypes(inputValue, argValue, errorContext)
+
+  private def checkVariableUsageAllowed(
+    variableDefinition: VariableDefinition,
+    inputValue: __InputValue
+  ): IO[ValidationError, Unit] = {
+    val locationType = inputValue.`type`()
+    val variableType = variableDefinition.variableType
+    if (!locationType.isNullable && !variableType.nonNull) {
+      val hasNonNullVariableDefaultValue = variableDefinition.defaultValue.exists(_ != NullValue)
+      val hasLocationDefaultValue        = inputValue.defaultValue.nonEmpty
+      if (!hasNonNullVariableDefaultValue && !hasLocationDefaultValue)
+        failValidation(
+          s"Variable '${variableDefinition.name}' usage is not allowed because it is nullable and doesn't have a default value.",
+          "Variable usages must be compatible with the arguments they are passed to."
+        )
+      else {
+        val nullableLocationType = locationType.ofType.getOrElse(locationType)
+        checkTypesCompatible(variableDefinition.name, variableType, nullableLocationType)
+      }
+    } else checkTypesCompatible(variableDefinition.name, variableType, locationType)
+  }
+
+  @tailrec
+  private def checkTypesCompatible(
+    variableName: String,
+    variableType: Type,
+    locationType: __Type
+  ): IO[ValidationError, Unit] = {
+    val explanation = "Variable usages must be compatible with the arguments they are passed to."
+    if (!locationType.isNullable) {
+      if (variableType.nullable)
+        failValidation(
+          s"Variable '$variableName' usage is not allowed because it is nullable but it shouldn't be.",
+          explanation
+        )
+      else {
+        val nullableLocationType = locationType.ofType.getOrElse(locationType)
+        val nullableVariableType = variableType.toNullable
+        checkTypesCompatible(variableName, nullableVariableType, nullableLocationType)
+      }
+    } else if (variableType.nonNull) {
+      val nullableVariableType = variableType.toNullable
+      checkTypesCompatible(variableName, nullableVariableType, locationType)
+    } else if (locationType.kind == __TypeKind.LIST) {
+      variableType match {
+        case _: Type.NamedType        =>
+          failValidation(
+            s"Variable '$variableName' usage is not allowed because it is a not a list but it should be.",
+            explanation
+          )
+        case Type.ListType(ofType, _) =>
+          val itemLocationType = locationType.ofType.getOrElse(locationType)
+          val itemVariableType = ofType
+          checkTypesCompatible(variableName, itemVariableType, itemLocationType)
+      }
+    } else
+      variableType match {
+        case Type.ListType(_, _)     =>
+          failValidation(
+            s"Variable '$variableName' usage is not allowed because it is a list but it should not be.",
+            explanation
+          )
+        case Type.NamedType(name, _) =>
+          IO.when(!locationType.name.contains(name))(
+            failValidation(
+              s"Variable '$variableName' usage is not allowed because its type doesn't match the schema ($name instead of ${locationType.name
+                .getOrElse("")}).",
+              explanation
+            )
+          )
+      }
   }
 
   private def validateLeafFieldSelection(selections: List[Selection], currentType: __Type): IO[ValidationError, Unit] =
@@ -580,29 +718,21 @@ object Validator {
         )
     }
 
-  private[caliban] def validateUnion(t: __Type): IO[ValidationError, Unit] = {
-
-    def isObject(t: __Type): Boolean = t.kind match {
-      case __TypeKind.OBJECT => true
-      case _                 => false
-    }
-
+  private[caliban] def validateUnion(t: __Type): IO[ValidationError, Unit] =
     t.possibleTypes match {
-      case None | Some(Nil)                       =>
+      case None | Some(Nil)                           =>
         failValidation(
           s"Union ${t.name.getOrElse("")} doesn't contain any type.",
           "A Union type must include one or more unique member types."
         )
-      case Some(types) if !types.forall(isObject) =>
+      case Some(types) if !types.forall(isObjectType) =>
         failValidation(
           s"Union ${t.name.getOrElse("")} contains the following non Object types: " +
-            types.filterNot(isObject).map(_.name.getOrElse("")).filterNot(_.isEmpty).mkString("", ", ", "."),
+            types.filterNot(isObjectType).map(_.name.getOrElse("")).filterNot(_.isEmpty).mkString("", ", ", "."),
           s"The member types of a Union type must all be Object base types."
         )
-      case _                                      => IO.unit
+      case _                                          => IO.unit
     }
-
-  }
 
   private[caliban] def validateInputObject(t: __Type): IO[ValidationError, Unit] = {
     val inputObjectContext = s"""InputObject '${t.name.getOrElse("")}'"""
@@ -615,7 +745,7 @@ object Validator {
     }
 
     def validateFields(fields: List[__InputValue]): IO[ValidationError, Unit] =
-      IO.foreach_(fields)(validateInputValue(_, inputObjectContext)) &>
+      IO.foreach_(fields)(validateInputValue(_, inputObjectContext)) *>
         noDuplicateInputValueName(fields, inputObjectContext)
 
     t.inputFields match {
@@ -631,7 +761,7 @@ object Validator {
   private[caliban] def validateInputValue(inputValue: __InputValue, errorContext: String): IO[ValidationError, Unit] = {
     val fieldContext = s"InputValue '${inputValue.name}' of $errorContext"
     for {
-      _ <- DefaultValueValidator.validateDefaultValue(inputValue, fieldContext)
+      _ <- ValueValidator.validateDefaultValue(inputValue, fieldContext)
       _ <- doesNotStartWithUnderscore(inputValue, fieldContext)
       _ <- onlyInputType(inputValue.`type`(), fieldContext)
     } yield ()
@@ -929,13 +1059,4 @@ object Validator {
       } yield ()
     }
   }
-
-  case class Context(
-    document: Document,
-    rootType: RootType,
-    operations: List[OperationDefinition],
-    fragments: Map[String, FragmentDefinition],
-    selectionSets: List[Selection]
-  )
-
 }

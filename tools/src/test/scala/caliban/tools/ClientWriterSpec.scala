@@ -2,7 +2,7 @@ package caliban.tools
 
 import caliban.parsing.Parser
 import caliban.tools.implicits.ScalarMappings
-import zio.{ RIO, Task }
+import zio.RIO
 import zio.blocking.Blocking
 import zio.test.Assertion._
 import zio.test._
@@ -314,7 +314,7 @@ object Client {
     val values: Vector[Origin] = Vector(EARTH, MARS, BELT)
   }
 
-  case class Routes(origin: Origin, destinations: List[com.example.Destination] = Nil)
+  final case class Routes(origin: Origin, destinations: List[com.example.Destination] = Nil)
   object Routes {
     implicit val encoder: ArgEncoder[Routes] = new ArgEncoder[Routes] {
       override def encode(value: Routes): __Value =
@@ -354,10 +354,10 @@ object Client {
 
   sealed trait Origin extends scala.Product with scala.Serializable { def value: String }
   object Origin {
-    case object EARTH                   extends Origin { val value: String = "EARTH" }
-    case object MARS                    extends Origin { val value: String = "MARS"  }
-    case object BELT                    extends Origin { val value: String = "BELT"  }
-    case class __Unknown(value: String) extends Origin
+    case object EARTH                         extends Origin { val value: String = "EARTH" }
+    case object MARS                          extends Origin { val value: String = "MARS"  }
+    case object BELT                          extends Origin { val value: String = "BELT"  }
+    final case class __Unknown(value: String) extends Origin
 
     implicit val decoder: ScalarDecoder[Origin] = {
       case __StringValue("EARTH") => Right(Origin.EARTH)
@@ -397,7 +397,7 @@ import caliban.client.__Value._
 
 object Client {
 
-  case class CharacterInput(name: String, nicknames: List[String] = Nil)
+  final case class CharacterInput(name: String, nicknames: List[String] = Nil)
   object CharacterInput {
     implicit val encoder: ArgEncoder[CharacterInput] = new ArgEncoder[CharacterInput] {
       override def encode(value: CharacterInput): __Value =
@@ -430,7 +430,7 @@ import caliban.client.__Value._
 
 object Client {
 
-  case class CharacterInput(wait$ : String)
+  final case class CharacterInput(wait$ : String)
   object CharacterInput {
     implicit val encoder: ArgEncoder[CharacterInput] = new ArgEncoder[CharacterInput] {
       override def encode(value: CharacterInput): __Value =
@@ -485,6 +485,20 @@ object Client {
       onPilot: SelectionBuilder[Pilot, A]
     ): SelectionBuilder[Character, Option[A]] = _root_.caliban.client.SelectionBuilder
       .Field("role", OptionOf(ChoiceOf(Map("Captain" -> Obj(onCaptain), "Pilot" -> Obj(onPilot)))))
+    def roleOption[A](
+      onCaptain: Option[SelectionBuilder[Captain, A]] = None,
+      onPilot: Option[SelectionBuilder[Pilot, A]] = None
+    ): SelectionBuilder[Character, Option[Option[A]]] = _root_.caliban.client.SelectionBuilder.Field(
+      "role",
+      OptionOf(
+        ChoiceOf(
+          Map(
+            "Captain" -> onCaptain.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a))),
+            "Pilot"   -> onPilot.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))
+          )
+        )
+      )
+    )
   }
 
 }
@@ -516,7 +530,7 @@ object Client {
      * name
      */
     @deprecated("blah", "")
-    def name: SelectionBuilder[Character, String]            = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
+    def name: SelectionBuilder[Character, String] = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
     @deprecated("", "")
     def nicknames: SelectionBuilder[Character, List[String]] =
       _root_.caliban.client.SelectionBuilder.Field("nicknames", ListOf(Scalar()))

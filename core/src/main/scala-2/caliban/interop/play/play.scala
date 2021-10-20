@@ -111,18 +111,16 @@ object json {
         case JsNull       => NullValue
       }
 
-    def responseObjectValueFromFields(fields: scala.collection.Map[String, JsValue]) =
+    def responseObjectValueFromFields(fields: scala.collection.Map[String, JsValue]): ResponseValue.ObjectValue =
       ResponseValue.ObjectValue(fields.map { case (k, v) =>
         k -> jsonToResponseValue(v)
       }.toList)
 
     val responseObjectValueReads: Reads[ResponseValue.ObjectValue] =
-      Reads(json =>
-        json match {
-          case JsObject(fields) => JsSuccess(responseObjectValueFromFields(fields))
-          case _                => JsError("not a json object")
-        }
-      )
+      Reads {
+        case JsObject(fields) => JsSuccess(responseObjectValueFromFields(fields))
+        case _                => JsError("not a json object")
+      }
 
     val responseValueReads: Reads[ResponseValue] =
       Reads(json => JsSuccess(jsonToResponseValue(json)))
@@ -151,11 +149,9 @@ object json {
       path: Option[JsArray]
     )
 
-    implicit val locationInfoWrites: Writes[LocationInfo] =
-      Json.writes[LocationInfo].transform((v: JsValue) => Json.arr(v))
-
+    implicit val locationInfoWrites: Writes[LocationInfo]                     = Json.writes[LocationInfo]
     implicit val responseObjectValueWrites: Writes[ResponseValue.ObjectValue] = ValuePlayJson.responseObjectValueWrites
-    private implicit val errorDTOWrites                                       = Json.writes[ErrorDTO]
+    private implicit val errorDTOWrites: Writes[ErrorDTO]                     = Json.writes[ErrorDTO]
 
     val errorValueWrites: Writes[CalibanError] = errorDTOWrites.contramap[CalibanError] {
       case CalibanError.ParsingError(msg, locationInfo, _, extensions) =>
@@ -197,7 +193,7 @@ object json {
               case JsNumber(bd) => Right(bd.toInt)
               case _            => throw new Exception("invalid json")
             },
-          locationInfo = e.locations.flatMap(_.lift(0)),
+          locationInfo = e.locations.flatMap(_.headOption),
           None,
           e.extensions
         )
@@ -228,7 +224,7 @@ object json {
         case _                => Json.obj("message" -> err.toString)
       }
 
-    implicit val errorReads                                        = ErrorPlayJson.errorValueReads
+    implicit val errorReads: Reads[CalibanError]                   = ErrorPlayJson.errorValueReads
     val graphQLResponseReads: Reads[GraphQLResponse[CalibanError]] =
       (JsPath \ "data")
         .read[ResponseValue]
@@ -237,12 +233,12 @@ object json {
             .read[List[CalibanError]]
         )
         .tupled
-        .map({ case (data, errors) =>
+        .map { case (data, errors) =>
           GraphQLResponse[CalibanError](
             data = data,
             errors = errors
           )
-        })
+        }
   }
 
   private[caliban] object GraphQLRequestPlayJson {

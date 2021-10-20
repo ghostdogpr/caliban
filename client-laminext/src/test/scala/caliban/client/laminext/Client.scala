@@ -57,7 +57,7 @@ object Client {
       roleSelectionOnEngineer: SelectionBuilder[Engineer, RoleSelection],
       roleSelectionOnMechanic: SelectionBuilder[Mechanic, RoleSelection],
       roleSelectionOnPilot: SelectionBuilder[Pilot, RoleSelection]
-    ): ViewSelection[RoleSelection]                          = (name ~ nicknames ~ origin ~ role(
+    ): ViewSelection[RoleSelection] = (name ~ nicknames ~ origin ~ role(
       roleSelectionOnCaptain,
       roleSelectionOnEngineer,
       roleSelectionOnMechanic,
@@ -72,7 +72,7 @@ object Client {
       onEngineer: SelectionBuilder[Engineer, A],
       onMechanic: SelectionBuilder[Mechanic, A],
       onPilot: SelectionBuilder[Pilot, A]
-    ): SelectionBuilder[Character, Option[A]]                = Field(
+    ): SelectionBuilder[Character, Option[A]] = Field(
       "role",
       OptionOf(
         ChoiceOf(
@@ -131,7 +131,7 @@ object Client {
      */
     def characters[A](
       origin: Option[Origin] = None
-    )(innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[RootQuery, List[A]]   =
+    )(innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[RootQuery, List[A]] =
       Field("characters", ListOf(Obj(innerSelection)), arguments = List(Argument("origin", origin, "Origin")))
     @deprecated("Use `characters`", "")
     def character[A](

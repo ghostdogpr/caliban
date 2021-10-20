@@ -140,7 +140,7 @@ trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
             .flatMap(_.fields(__DeprecatedArgs(Some(true))))
             .flatten
             .groupBy(_.name)
-            .filter({ case (_, list) => list.lengthCompare(impl.size) == 0 })
+            .filter { case (_, list) => list.lengthCompare(impl.size) == 0 }
             .collect { case (_, list) =>
               Types
                 .unify(list.map(_.`type`()))
@@ -179,7 +179,7 @@ trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
       ctx.dispatch(value)(subType => subType.typeclass.resolve(subType.cast(value)))
   }
 
-  private def getDirectives(annotations: Seq[Any]): List[Directive]                                       =
+  private def getDirectives(annotations: Seq[Any]): List[Directive] =
     annotations.collect { case GQLDirective(dir) => dir }.toList
 
   private def getDirectives[Typeclass[_], Type](ctx: ReadOnlyCaseClass[Typeclass, Type]): List[Directive] =
@@ -199,10 +199,10 @@ trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
   private def getName[Typeclass[_], Type](ctx: SealedTrait[Typeclass, Type]): String =
     getName(ctx.annotations, ctx.typeName)
 
-  private def getName[Typeclass[_], Type](ctx: ReadOnlyParam[Typeclass, Type]): String                    =
+  private def getName[Typeclass[_], Type](ctx: ReadOnlyParam[Typeclass, Type]): String =
     ctx.annotations.collectFirst { case GQLName(name) => name }.getOrElse(ctx.label)
 
-  private def getDescription(annotations: Seq[Any]): Option[String]                                       =
+  private def getDescription(annotations: Seq[Any]): Option[String] =
     annotations.collectFirst { case GQLDescription(desc) => desc }
 
   private def getDescription[Typeclass[_], Type](ctx: ReadOnlyCaseClass[Typeclass, Type]): Option[String] =

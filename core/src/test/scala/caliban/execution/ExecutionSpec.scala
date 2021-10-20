@@ -1,17 +1,18 @@
 package caliban.execution
 
 import java.util.UUID
+
 import caliban.CalibanError.ExecutionError
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
-import caliban.{ CalibanError, GraphQL, RootResolver }
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, IntValue, StringValue }
 import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
 import caliban.schema.Annotations.{ GQLInterface, GQLName, GQLValueType }
-import caliban.schema.{ ArgBuilder, Schema, Step, Types }
-import zio.{ IO, Task, UIO, ZIO }
+import caliban.schema._
+import caliban._
+import zio.{ FiberRef, Has, IO, Task, UIO, ZIO, ZLayer }
 import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
@@ -95,62 +96,6 @@ object ExecutionSpec extends DefaultRunnableSpec {
 
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
           equalTo("""{"amos":{"name":"Amos Burton","nicknames":[]},"naomi":{"name":"Naomi Nagata","nicknames":[]}}""")
-        )
-      },
-      testM("fragment") {
-        val interpreter = graphQL(resolver).interpreter
-        val query       = gqldoc("""
-             {
-               amos: character(name: "Amos Burton") {
-                 ...info
-               }
-             }
-
-             fragment info on Character {
-               name
-             }""")
-
-        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
-          equalTo("""{"amos":{"name":"Amos Burton"}}""")
-        )
-      },
-      testM("fragment on union") {
-        val interpreter = graphQL(resolver).interpreter
-        val query       = gqldoc("""
-             {
-               amos: character(name: "Amos Burton") {
-                 role {
-                   ...roleF
-                 }
-               }
-             }
-
-             fragment roleF on Role {
-               ... on Mechanic {
-                 shipName
-               }
-             }""")
-
-        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
-          equalTo("""{"amos":{"role":{"shipName":"Rocinante"}}}""")
-        )
-      },
-      testM("inline fragment") {
-        val interpreter = graphQL(resolver).interpreter
-        val query       = gqldoc("""
-             {
-               amos: character(name: "Amos Burton") {
-                 name
-                 role {
-                   ... on Mechanic {
-                     shipName
-                   }
-                 }
-               }
-             }""")
-
-        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
-          equalTo("""{"amos":{"name":"Amos Burton","role":{"shipName":"Rocinante"}}}""")
         )
       },
       testM("effectful query") {
@@ -251,6 +196,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
             case i if i > 0 => Right(NonNegInt(i))
             case neg        => Left(CalibanError.ExecutionError(s"$neg is negative"))
           }
+          implicit val nonNegIntSchema: Schema[Any, NonNegInt]    = Schema.intSchema.contramap(_.value)
         }
         case class Args(int: NonNegInt, value: String)
         case class Test(q: Args => Unit)
@@ -283,7 +229,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
       testM("variable in object") {
         val interpreter = graphQL(resolver).interpreter
         val query       = gqldoc("""
-             query test($name: String) {
+             query test($name: String!) {
                exists(character: { name: $name, nicknames: [], origin: EARTH })
               }""")
 
@@ -454,6 +400,64 @@ object ExecutionSpec extends DefaultRunnableSpec {
              }""")
 
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":<stream>}"""))
+      },
+      testM("ARGS => ZStream used in a subscription with context") {
+        // setup up an authentication FiberRev Environment
+        case class Req(id: Int)
+        case class AuthToken(value: String)
+        type Auth = Has[FiberRef[Option[AuthToken]]]
+
+        val authLayer: ZLayer[Any, Nothing, Has[FiberRef[Option[AuthToken]]]] =
+          FiberRef.make(Option.empty[AuthToken]).toLayer
+
+        // set up the graphql resolvers
+        case class Queries(test: Int)
+        case class Subscriptions(test: Req => ZStream[Auth, Throwable, String])
+
+        // create a custom schema for the Auth Env
+        object schema extends GenericSchema[Auth]
+        import schema._
+        import schema.gen
+
+        // effectfully produce a stream using the environment
+        def getStream(req: Req) = ZStream.fromEffect(for {
+          tokenRef <- ZIO.service[FiberRef[Option[AuthToken]]]
+          tokenOpt <- tokenRef.get
+        } yield tokenOpt.map(_.value).getOrElse("NONE"))
+
+        // set up a wrapped interpreter, setting the authentication token in the auth context
+        val interpreter        =
+          graphQL(RootResolver(Queries(1), Option.empty[Unit], Subscriptions(getStream))).interpreter
+        val wrappedInterpreter = for {
+          auth <- ZIO.service[FiberRef[Option[AuthToken]]]
+          _    <- auth.set(Some(AuthToken("TOKEN")))
+          i    <- interpreter
+        } yield i
+
+        // run the query and materialize the result to ensure it has what we expect
+        val query = gqldoc("""
+             subscription {
+               test(id: 1)
+             }""")
+
+        def exec = wrappedInterpreter
+          .flatMap(_.execute(query))
+          .map(_.data)
+          .flatMap {
+            case ResponseValue.ObjectValue(fields) =>
+              fields.head match {
+                case ("test", ResponseValue.StreamValue(stream)) =>
+                  stream.runHead.someOrFailException.map {
+                    case Value.StringValue(s) => s
+                    case x                    => ZIO.succeed(s"Non-string stream value $x")
+                  }
+                case x                                           => ZIO.succeed(s"No test stream value found in $x")
+              }
+            case x                                 => ZIO.succeed(s"No stream found in ${x.getClass}")
+          }
+          .provideSomeLayer(authLayer)
+
+        assertM(exec)(equalTo("TOKEN"))
       },
       testM("Circe Json scalar") {
         import caliban.interop.circe.json._
@@ -641,13 +645,15 @@ object ExecutionSpec extends DefaultRunnableSpec {
         case class User(test: UserArgs => String)
         case class Mutations(user: Task[User])
         case class Queries(a: Int)
+        implicit val intArgBuilder: ArgBuilder[Int] = (_: InputValue) => Left(ExecutionError("nope"))
+
         val api = graphQL(RootResolver(Queries(1), Mutations(ZIO.succeed(User(_.toString)))))
 
         val interpreter = api.interpreter
         val query       =
           """mutation {
             |  user {
-            |    test(id: "wrong")
+            |    test(id: 1)
             |  }
             |}""".stripMargin
         interpreter
@@ -727,7 +733,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
           def id: String
           def name: String
         }
-        object Character       {
+        object Character {
           case class Human(
             id: String,
             name: String,

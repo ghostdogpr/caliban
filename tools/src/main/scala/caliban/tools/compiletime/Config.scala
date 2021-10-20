@@ -13,7 +13,7 @@ trait Config {
     splitFiles: Boolean = false,
     enableFmt: Boolean = true,
     extensibleEnums: Boolean = false
-  )                               {
+  ) {
     private[caliban] def toCalibanCommonSettings: CalibanCommonSettings =
       CalibanCommonSettings(
         clientName = Some(clientName),

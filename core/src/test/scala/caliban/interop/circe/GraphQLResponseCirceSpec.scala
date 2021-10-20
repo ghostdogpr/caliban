@@ -39,6 +39,7 @@ object GraphQLResponseCirceSpec extends DefaultRunnableSpec {
           List(
             ExecutionError(
               "Resolution failed",
+              locationInfo = Some(LocationInfo(1, 2)),
               extensions = Some(ObjectValue(errorExtensions))
             )
           )
@@ -51,6 +52,7 @@ object GraphQLResponseCirceSpec extends DefaultRunnableSpec {
               "errors" -> Json.arr(
                 Json.obj(
                   "message"    -> Json.fromString("Resolution failed"),
+                  "locations"  -> Json.arr(Json.obj("column" -> Json.fromInt(1), "line" -> Json.fromInt(2))),
                   "extensions" -> Json.obj("errorCode" -> "TEST_ERROR".asJson, "myCustomKey" -> "my-value".asJson)
                 )
               )

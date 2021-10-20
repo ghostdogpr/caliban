@@ -17,7 +17,7 @@ case class GraphQLRequest(
   def withExtension(key: String, value: InputValue): GraphQLRequest =
     copy(extensions = Some(extensions.foldLeft(Map(key -> value))(_ ++ _)))
 
-  def withFederatedTracing: GraphQLRequest                          =
+  def withFederatedTracing: GraphQLRequest =
     withExtension(`apollo-federation-include-trace`, StringValue(ftv1))
 
 }

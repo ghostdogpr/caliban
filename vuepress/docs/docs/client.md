@@ -12,13 +12,13 @@ Just like Caliban, `caliban-client` offers a purely functional interface and kee
 To use `caliban-client`, add the following line in your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-client" % "1.2.0"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-client" % "1.2.1"
 ```
 
 Caliban-client is available for ScalaJS. To use it in a ScalaJS project, instead add this line to your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client" % "1.2.0"
+libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client" % "1.2.1"
 ```
 
 ## Code generation
@@ -33,7 +33,7 @@ both need to configure in your project to be able to generate you Caliban client
 
 To use any of these two plugins, you'll first need to add following dependency to your `project/plugins.sbt` file:
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "1.2.0")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "1.2.1")
 ```
 
 ### CalibanPlugin
@@ -238,6 +238,20 @@ lazy val client =
     .enablePlugins(CompileTimeCalibanClientPlugin)
     .settings(
       Compile / ctCalibanClient / ctCalibanClientsSettings := Seq(api)
+    )
+```
+This is the minimal working configuration for the "client side".
+
+By default, the Caliban client code will be generated in your `src/main/scala` directory of your `client` sbt module.    
+You may prefer it not to be generated inside your - usually versioned-in-git - module code. 
+For that, the plugin provides an option to generate the code in the `target` directory instead:
+```scala
+lazy val client =
+  project
+    .enablePlugins(CompileTimeCalibanClientPlugin)
+    .settings(
+      Compile / ctCalibanClient / ctCalibanClientsSettings := Seq(api),
+      Compile / ctCalibanClient / ctCalibanClientsVersionedCode := false // By default, it's true.
     )
 ```
 
@@ -447,7 +461,7 @@ It is depending on [Laminext](https://laminext.dev), a library that provides nic
 
 To use it, import the `caliban-client-laminext` module:
 ```
-libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client-laminext" % "1.2.0"
+libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client-laminext" % "1.2.1"
 ```
 
 Add the following import to your code:

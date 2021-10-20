@@ -10,13 +10,13 @@ val akkaVersion            = "2.6.15"
 val catsEffect2Version     = "2.5.4"
 val catsEffect3Version     = "3.2.9"
 val circeVersion           = "0.14.1"
-val http4sVersion          = "0.23.5"
+val http4sVersion          = "0.23.6"
 val laminextVersion        = "0.13.10"
 val magnoliaVersion        = "0.17.0"
 val mercatorVersion        = "0.2.1"
 val playVersion            = "2.8.8"
 val playJsonVersion        = "2.9.2"
-val sttpVersion            = "3.3.14"
+val sttpVersion            = "3.3.15"
 val tapirVersion           = "0.18.3"
 val zioVersion             = "1.0.12"
 val zioInteropCats2Version = "2.5.1.0"
@@ -28,21 +28,21 @@ val zioHttpVersion         = "1.0.0.0-RC17"
 
 inThisBuild(
   List(
-    scalaVersion := scala212,
-    crossScalaVersions := allScala,
-    organization := "com.github.ghostdogpr",
-    homepage := Some(url("https://github.com/ghostdogpr/caliban")),
-    licenses := List(
+    scalaVersion             := scala212,
+    crossScalaVersions       := allScala,
+    organization             := "com.github.ghostdogpr",
+    homepage                 := Some(url("https://github.com/ghostdogpr/caliban")),
+    licenses                 := List(
       "Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0")
     ),
     Test / parallelExecution := false,
-    scmInfo := Some(
+    scmInfo                  := Some(
       ScmInfo(
         url("https://github.com/ghostdogpr/caliban/"),
         "scm:git:git@github.com:ghostdogpr/caliban.git"
       )
     ),
-    developers := List(
+    developers               := List(
       Developer(
         "ghostdogpr",
         "Pierre Ricadat",
@@ -136,7 +136,7 @@ lazy val core = project
   .dependsOn(macros)
   .settings(
     Test / fork := true,
-    run / fork := true
+    run / fork  := true
   )
 
 lazy val tools = project
@@ -147,8 +147,8 @@ lazy val tools = project
     crossScalaVersions -= scala3,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "org.scalameta"                 %% "scalafmt-dynamic"              % "3.0.4",
-      "org.scalameta"                 %% "scalafmt-core"                 % "3.0.4",
+      "org.scalameta"                 %% "scalafmt-dynamic"              % "3.0.6",
+      "org.scalameta"                 %% "scalafmt-core"                 % "3.0.6",
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
       "dev.zio"                       %% "zio-config"                    % zioConfigVersion,
       "dev.zio"                       %% "zio-config-magnolia"           % zioConfigVersion,
@@ -164,25 +164,25 @@ lazy val codegenSbt = project
   .settings(commonSettings)
   .enablePlugins(BuildInfoPlugin)
   .settings(
-    buildInfoKeys := Seq[BuildInfoKey](version),
+    buildInfoKeys    := Seq[BuildInfoKey](version),
     buildInfoPackage := "caliban.codegen",
-    buildInfoObject := "BuildInfo"
+    buildInfoObject  := "BuildInfo"
   )
   .settings(
-    sbtPlugin := true,
+    sbtPlugin          := true,
     crossScalaVersions := Seq(scala212),
-    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    testFrameworks     := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio-test-sbt" % zioVersion % Test
     )
   )
   .enablePlugins(SbtPlugin)
   .settings(
-    scriptedLaunchOpts := {
+    scriptedLaunchOpts   := {
       scriptedLaunchOpts.value ++
         Seq("-Xmx1024M", "-Xss4M", "-Dplugin.version=" + version.value)
     },
-    scriptedBufferLog := false,
+    scriptedBufferLog    := false,
     scriptedDependencies := {
       (macros / publishLocal).value
       (core / publishLocal).value
@@ -214,7 +214,7 @@ lazy val monixInterop = project
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "dev.zio"  %% "zio-interop-reactivestreams" % "1.3.7",
+      "dev.zio"  %% "zio-interop-reactivestreams" % "1.3.8",
       "dev.zio"  %% "zio-interop-cats"            % zioInteropCats2Version,
       "io.monix" %% "monix"                       % "3.4.0"
     )
@@ -372,7 +372,7 @@ lazy val clientLaminext = crossProject(JSPlatform)
   .settings(commonSettings)
   .dependsOn(clientJS)
   .settings(
-    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    testFrameworks                         := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     Test / scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.ESModule) },
     Test / scalaJSLinkerConfig ~= { _.withModuleSplitStyle(ModuleSplitStyle.FewestModules) },
     Test / scalaJSLinkerConfig ~= { _.withSourceMap(false) },
@@ -394,7 +394,7 @@ lazy val examples = project
   .settings(commonSettings)
   .settings(
     publish / skip := true,
-    run / fork := true
+    run / fork     := true
   )
   .settings(
     crossScalaVersions -= scala3,
@@ -431,7 +431,7 @@ lazy val benchmarks = project
   .settings(
     crossScalaVersions -= scala3,
     libraryDependencies ++= Seq(
-      "org.sangria-graphql" %% "sangria"       % "2.0.0",
+      "org.sangria-graphql" %% "sangria"       % "2.1.3",
       "org.sangria-graphql" %% "sangria-circe" % "1.3.0"
     )
   )
@@ -442,7 +442,7 @@ lazy val federation = project
   .settings(commonSettings)
   .dependsOn(core % "compile->compile;test->test")
   .settings(
-    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    testFrameworks       := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio"          % zioVersion,
       "dev.zio" %% "zio-test"     % zioVersion % Test,

@@ -1,19 +1,13 @@
 package caliban.interop.zio
 
-import caliban.CalibanError
 import caliban.CalibanError.ExecutionError
-import caliban.GraphQLResponse
-import caliban.ResponseValue
-import caliban.ResponseValue.ListValue
-import caliban.ResponseValue.ObjectValue
-import caliban.Value.FloatValue
-import caliban.Value.IntValue
-import caliban.Value.StringValue
+import caliban.{ CalibanError, GraphQLResponse }
+import caliban.ResponseValue.{ ListValue, ObjectValue }
+import caliban.Value.{ IntValue, StringValue }
 import caliban.parsing.adt.LocationInfo
 import zio.json._
+import zio.test.Assertion._
 import zio.test._
-
-import Assertion._
 
 object GraphQLResponseZIOSpec extends DefaultRunnableSpec {
   implicit val encoder: JsonEncoder[GraphQLResponse[Any]] = GraphQLResponse.zioJsonEncoder
@@ -35,6 +29,7 @@ object GraphQLResponseZIOSpec extends DefaultRunnableSpec {
           List(
             ExecutionError(
               "Resolution failed",
+              locationInfo = Some(LocationInfo(1, 2)),
               extensions = Some(ObjectValue(errorExtensions))
             )
           )
@@ -42,7 +37,7 @@ object GraphQLResponseZIOSpec extends DefaultRunnableSpec {
 
         assert(response.toJson)(
           equalTo(
-            """{"data":"data","errors":[{"message":"Resolution failed","extensions":{"errorCode":"TEST_ERROR","myCustomKey":"my-value"}}]}"""
+            """{"data":"data","errors":[{"message":"Resolution failed","extensions":{"errorCode":"TEST_ERROR","myCustomKey":"my-value"},"locations":[{"line":2,"column":1}]}]}"""
           )
         )
       },

@@ -28,7 +28,7 @@ trait ArgBuilderDerivation {
   }
 
   def combine[T](ctx: CaseClass[ArgBuilder, T]): ArgBuilder[T] =
-    (input: InputValue) => {
+    (input: InputValue) =>
       ctx.constructMonadic { p =>
         input match {
           case InputValue.ObjectValue(fields) =>
@@ -38,9 +38,8 @@ trait ArgBuilderDerivation {
           case value                          => p.typeclass.build(value)
         }
       }
-    }
 
-  def dispatch[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] = input => {
+  def dispatch[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] = input =>
     (input match {
       case EnumValue(value)   => Some(value)
       case StringValue(value) => Some(value)
@@ -56,7 +55,6 @@ trait ArgBuilderDerivation {
         }
       case None        => Left(ExecutionError(s"Can't build a trait from input $input"))
     }
-  }
 
   implicit def gen[T]: Typeclass[T] = macro Magnolia.gen[T]
 }

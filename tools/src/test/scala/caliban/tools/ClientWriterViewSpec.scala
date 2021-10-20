@@ -2,7 +2,7 @@ package caliban.tools
 
 import caliban.parsing.Parser
 import caliban.tools.implicits.ScalarMappings
-import zio.{ RIO, Task }
+import zio.RIO
 import zio.blocking.Blocking
 import zio.test.Assertion._
 import zio.test._
@@ -110,7 +110,7 @@ object Client {
     def age: SelectionBuilder[Character, Int]     = _root_.caliban.client.SelectionBuilder.Field("age", Scalar())
     def nicknames(arg: Option[Int] = None)(implicit
       encoder0: ArgEncoder[Option[Int]]
-    ): SelectionBuilder[Character, List[String]]  = _root_.caliban.client.SelectionBuilder
+    ): SelectionBuilder[Character, List[String]] = _root_.caliban.client.SelectionBuilder
       .Field("nicknames", ListOf(Scalar()), arguments = List(Argument("arg", arg, "Int")(encoder0)))
   }
 
@@ -171,7 +171,7 @@ object Client {
     def age: SelectionBuilder[Character, Int]     = _root_.caliban.client.SelectionBuilder.Field("age", Scalar())
     def friends[A](filter: Option[String] = None)(innerSelection: SelectionBuilder[Character, A])(implicit
       encoder0: ArgEncoder[Option[String]]
-    ): SelectionBuilder[Character, List[A]]       = _root_.caliban.client.SelectionBuilder
+    ): SelectionBuilder[Character, List[A]] = _root_.caliban.client.SelectionBuilder
       .Field("friends", ListOf(Obj(innerSelection)), arguments = List(Argument("filter", filter, "String")(encoder0)))
   }
 
@@ -300,11 +300,11 @@ object Client {
 
     def edges[A](
       innerSelection: SelectionBuilder[ProjectMemberEdge, A]
-    ): SelectionBuilder[ProjectMemberConnection, Option[List[Option[A]]]]                                        =
+    ): SelectionBuilder[ProjectMemberConnection, Option[List[Option[A]]]] =
       _root_.caliban.client.SelectionBuilder.Field("edges", OptionOf(ListOf(OptionOf(Obj(innerSelection)))))
     def nodes[A](
       innerSelection: SelectionBuilder[ProjectMember, A]
-    ): SelectionBuilder[ProjectMemberConnection, Option[List[Option[A]]]]                                        =
+    ): SelectionBuilder[ProjectMemberConnection, Option[List[Option[A]]]] =
       _root_.caliban.client.SelectionBuilder.Field("nodes", OptionOf(ListOf(OptionOf(Obj(innerSelection)))))
     def pageInfo[A](innerSelection: SelectionBuilder[PageInfo, A]): SelectionBuilder[ProjectMemberConnection, A] =
       _root_.caliban.client.SelectionBuilder.Field("pageInfo", Obj(innerSelection))
@@ -417,8 +417,22 @@ object Client {
     def role[A](
       onCaptain: SelectionBuilder[Captain, A],
       onPilot: SelectionBuilder[Pilot, A]
-    ): SelectionBuilder[Character, Option[A]]                = _root_.caliban.client.SelectionBuilder
+    ): SelectionBuilder[Character, Option[A]] = _root_.caliban.client.SelectionBuilder
       .Field("role", OptionOf(ChoiceOf(Map("Captain" -> Obj(onCaptain), "Pilot" -> Obj(onPilot)))))
+    def roleOption[A](
+      onCaptain: Option[SelectionBuilder[Captain, A]] = None,
+      onPilot: Option[SelectionBuilder[Pilot, A]] = None
+    ): SelectionBuilder[Character, Option[Option[A]]] = _root_.caliban.client.SelectionBuilder.Field(
+      "role",
+      OptionOf(
+        ChoiceOf(
+          Map(
+            "Captain" -> onCaptain.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a))),
+            "Pilot"   -> onPilot.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))
+          )
+        )
+      )
+    )
   }
 
   type Captain

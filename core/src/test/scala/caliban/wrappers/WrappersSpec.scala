@@ -268,13 +268,12 @@ object WrappersSpec extends DefaultRunnableSpec {
           def wrap[R1 <: Any](
             f: ExecutionRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]]
           ): ExecutionRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] =
-            request => {
+            request =>
               if (request.field.directives.exists(_.name == "customQueryDirective")) {
                 UIO {
                   GraphQLResponse(Value.BooleanValue(true), Nil)
                 }
               } else f(request)
-            }
         }
         val customQueryDirective = __Directive(
           "customQueryDirective",

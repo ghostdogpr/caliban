@@ -1,14 +1,8 @@
 package caliban.interop.play
 
-import caliban.CalibanError
 import caliban.CalibanError.ExecutionError
-import caliban.GraphQLResponse
-import caliban.ResponseValue
-import caliban.ResponseValue.ListValue
-import caliban.ResponseValue.ObjectValue
-import caliban.Value
-import caliban.Value.FloatValue
-import caliban.Value.IntValue
+import caliban.ResponseValue.{ ListValue, ObjectValue }
+import caliban.{ CalibanError, GraphQLResponse, Value }
 import caliban.Value.StringValue
 import caliban.parsing.adt.LocationInfo
 import play.api.libs.json._
@@ -39,6 +33,7 @@ object GraphQLResponsePlaySpec extends DefaultRunnableSpec {
           List(
             ExecutionError(
               "Resolution failed",
+              locationInfo = Some(LocationInfo(1, 2)),
               extensions = Some(ObjectValue(errorExtensions))
             )
           )
@@ -51,6 +46,7 @@ object GraphQLResponsePlaySpec extends DefaultRunnableSpec {
               "errors" -> Json.arr(
                 Json.obj(
                   "message"    -> JsString("Resolution failed"),
+                  "locations"  -> Json.arr(Json.obj("column" -> JsNumber(1), "line" -> JsNumber(2))),
                   "extensions" -> Json.obj("errorCode" -> JsString("TEST_ERROR"), "myCustomKey" -> JsString("my-value"))
                 )
               )

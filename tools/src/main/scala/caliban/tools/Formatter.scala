@@ -1,5 +1,6 @@
 package caliban.tools
 
+import org.scalafmt.dynamic.ConsoleScalafmtReporter
 import org.scalafmt.interfaces.Scalafmt
 import zio.RIO
 import zio.blocking.{ effectBlocking, Blocking }
@@ -8,7 +9,7 @@ import java.nio.file.{ Files, Path, Paths }
 
 object Formatter {
 
-  def format(str: String, fmtPath: Option[String]): RIO[Blocking, String]                                  =
+  def format(str: String, fmtPath: Option[String]): RIO[Blocking, String] =
     format(List("Nil.scala" -> str), fmtPath).map(_.head._2)
 
   def format(strs: List[(String, String)], fmtPath: Option[String]): RIO[Blocking, List[(String, String)]] =
@@ -24,7 +25,8 @@ object Formatter {
         Scalafmt
           .create(this.getClass.getClassLoader)
           .withRespectVersion(false)
-          .withDefaultVersion("2.7.5") // For retro-compatibility
+          .withDefaultVersion("2.7.5")                           // For retro-compatibility
+          .withReporter(new ConsoleScalafmtReporter(System.out)) // defaults prints everything to System.err
 
       val result = strs.map { case (name, code) => name -> scalafmt.format(config, Paths.get(s"$name.scala"), code) }
       scalafmt.clear()

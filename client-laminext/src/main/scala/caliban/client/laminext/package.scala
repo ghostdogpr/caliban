@@ -47,9 +47,11 @@ package object laminext {
         .body(self.toGraphQL(useVariables, queryName, dropNullInputValues))
         .text
         .map(response =>
-          self.decode(response.data).map { case (result, errors, extensions) =>
-            mapResponse(result, errors, extensions)
-          }
+          if (response.ok)
+            self.decode(response.data).map { case (result, errors, extensions) =>
+              mapResponse(result, errors, extensions)
+            }
+          else throw CommunicationError(s"Received status ${response.status}. Body: ${response.data}")
         )
         .recover {
           case err: CalibanClientError => Some(Left(err))

@@ -57,7 +57,7 @@ object TestData {
       onPilot: SelectionBuilder[Pilot, A],
       onMechanic: SelectionBuilder[Mechanic, A],
       onEngineer: SelectionBuilder[Engineer, A]
-    ): SelectionBuilder[Character, Option[A]]                =
+    ): SelectionBuilder[Character, Option[A]] =
       Field(
         "role",
         OptionOf(
@@ -67,6 +67,25 @@ object TestData {
               "Pilot"    -> Obj(onPilot),
               "Mechanic" -> Obj(onMechanic),
               "Engineer" -> Obj(onEngineer)
+            )
+          )
+        )
+      )
+    def roleOption[A](
+      onCaptain: Option[SelectionBuilder[Captain, A]] = None,
+      onEngineer: Option[SelectionBuilder[Engineer, A]] = None,
+      onMechanic: Option[SelectionBuilder[Mechanic, A]] = None,
+      onPilot: Option[SelectionBuilder[Pilot, A]] = None
+    ): SelectionBuilder[Character, Option[Option[A]]] =
+      Field(
+        "role",
+        OptionOf(
+          ChoiceOf(
+            Map(
+              "Captain"  -> onCaptain.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a))),
+              "Engineer" -> onEngineer.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a))),
+              "Mechanic" -> onMechanic.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a))),
+              "Pilot"    -> onPilot.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))
             )
           )
         )

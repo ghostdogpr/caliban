@@ -15,7 +15,7 @@ object InputValue extends ValueJsonCompat {
     override def toInputString: String = values.map(_.toInputString).mkString("[", ", ", "]")
   }
   case class ObjectValue(fields: Map[String, InputValue]) extends InputValue {
-    override def toString: String      =
+    override def toString: String =
       fields.map { case (name, value) => s""""$name:${value.toString}"""" }.mkString("{", ",", "}")
 
     override def toInputString: String =
@@ -37,7 +37,7 @@ object ResponseValue extends ValueJsonCompat {
     override def toString: String = values.mkString("[", ",", "]")
   }
   case class ObjectValue(fields: List[(String, ResponseValue)])    extends ResponseValue {
-    override def toString: String            =
+    override def toString: String =
       fields.map { case (name, value) => s""""$name":${value.toString}""" }.mkString("{", ",", "}")
 
     override def hashCode: Int               = fields.toSet.hashCode()
