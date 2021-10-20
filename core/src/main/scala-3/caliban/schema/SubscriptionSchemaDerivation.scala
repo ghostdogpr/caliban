@@ -7,7 +7,7 @@ trait SubscriptionSchemaDerivation {
   inline def checkParams[T <: Tuple]: Unit =
     inline erasedValue[T] match {
       case _: EmptyTuple => ()
-      case _: (t *: ts) =>
+      case _: (t *: ts)  =>
         summonInline[SubscriptionSchema[t]]
         checkParams[ts]
     }
