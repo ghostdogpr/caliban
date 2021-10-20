@@ -14,8 +14,8 @@ object Macros {
 
   private def gqldocImpl(document: Expr[String])(using Quotes): Expr[String] = {
     import quotes.reflect.report
-    document.value.fold(report.throwError("This macro can only be used with string literals."))(
-      Parser.check(_).fold(document)(e => report.throwError(s"GraphQL document is invalid: $e"))
+    document.value.fold(report.errorAndAbort("This macro can only be used with string literals."))(
+      Parser.check(_).fold(document)(e => report.errorAndAbort(s"GraphQL document is invalid: $e"))
     )
   }
 }
