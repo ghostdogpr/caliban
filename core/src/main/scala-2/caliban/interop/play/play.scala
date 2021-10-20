@@ -133,6 +133,7 @@ object json {
       case ResponseValue.ObjectValue(fields) =>
         JsObject(fields.map { case (k, v) => k -> responseValueWrites.writes(v) })
       case s: ResponseValue.StreamValue      => JsString(s.toString)
+      case d: ResponseValue.DeferValue       => JsString(d.toString)
     }
 
     val responseObjectValueWrites: Writes[ResponseValue.ObjectValue] = Writes { v =>

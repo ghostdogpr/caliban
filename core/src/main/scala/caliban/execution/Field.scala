@@ -19,7 +19,8 @@ case class Field(
   condition: Option[List[String]] = None,
   arguments: Map[String, InputValue] = Map(),
   _locationInfo: () => LocationInfo = () => LocationInfo.origin,
-  directives: List[Directive] = List.empty
+  directives: List[Directive] = List.empty,
+  fragment: Option[Fragment] = None
 ) {
   lazy val locationInfo: LocationInfo = _locationInfo()
 }
@@ -35,7 +36,7 @@ object Field {
     directives: List[Directive],
     rootType: RootType
   ): Field = {
-    def loop(selectionSet: List[Selection], fieldType: __Type): Field = {
+    def loop(selectionSet: List[Selection], fieldType: __Type, fragment: Option[Fragment]): Field = {
       val fieldList = List.newBuilder[Field]
       val innerType = Types.innerType(fieldType)
       selectionSet.foreach {
@@ -49,7 +50,7 @@ object Field {
 
           val t = selected.fold(Types.string)(_.`type`()) // default only case where it's not found is __typename
 
-          val field = loop(selectionSet, t)
+          val field = loop(selectionSet, t, None)
           fieldList +=
             Field(
               name,
@@ -60,7 +61,8 @@ object Field {
               None,
               resolveVariables(arguments, variableDefinitions, variableValues, rootType),
               () => sourceMapper.getLocation(index),
-              directives ++ schemaDirectives
+              directives ++ schemaDirectives,
+              fragment = fragment
             )
         case FragmentSpread(name, directives) if checkDirectives(directives, variableValues)                        =>
           fragments
@@ -68,7 +70,7 @@ object Field {
             .foreach { f =>
               val t =
                 innerType.possibleTypes.flatMap(_.find(_.name.contains(f.typeCondition.name))).getOrElse(fieldType)
-              fieldList ++= loop(f.selectionSet, t).fields.map(field =>
+              fieldList ++= loop(f.selectionSet, t, Some(Fragment(Some(name), directives))).fields.map(field =>
                 if (field.condition.isDefined) field
                 else field.copy(condition = subtypeNames(f.typeCondition.name, rootType))
               )
@@ -77,7 +79,7 @@ object Field {
           val t     = innerType.possibleTypes
             .flatMap(_.find(_.name.exists(typeCondition.map(_.name).contains)))
             .getOrElse(fieldType)
-          val field = loop(selectionSet, t)
+          val field = loop(selectionSet, t, Some(Fragment(None, directives)))
           typeCondition match {
             case None           => fieldList ++= field.fields
             case Some(typeName) =>
@@ -90,7 +92,7 @@ object Field {
       Field("", fieldType, None, fields = fieldList.result())
     }
 
-    loop(selectionSet, fieldType).copy(directives = directives)
+    loop(selectionSet, fieldType, None).copy(directives = directives)
   }
 
   private def resolveVariables(

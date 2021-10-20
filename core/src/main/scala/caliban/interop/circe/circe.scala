@@ -110,6 +110,7 @@ object json {
         case ResponseValue.ListValue(values)   => Json.arr(values.map(responseValueEncoder.apply): _*)
         case ResponseValue.ObjectValue(fields) =>
           Json.obj(fields.map { case (k, v) => k -> responseValueEncoder.apply(v) }: _*)
+        case d: ResponseValue.DeferValue       => Json.fromString(d.toString) 
         case s: ResponseValue.StreamValue      => Json.fromString(s.toString)
       })
   }

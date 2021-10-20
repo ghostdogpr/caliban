@@ -7,6 +7,7 @@ import zio.Chunk
 import zio.json.{ JsonDecoder, JsonEncoder }
 
 import scala.annotation.switch
+import openj9.internal.tools.attach.target.Response
 
 /**
  * This class is an implementation of the pattern described in https://blog.7mind.io/no-more-orphans.html
@@ -364,6 +365,7 @@ private[caliban] object ValueZIOJson {
         case ResponseValue.ListValue(values)   => Arr.responseEncoder.unsafeEncode(values, indent, out)
         case ResponseValue.ObjectValue(fields) => Obj.responseEncoder.unsafeEncode(fields, indent, out)
         case s: ResponseValue.StreamValue      => JsonEncoder.string.unsafeEncode(s.toString, indent, out)
+        case d: ResponseValue.DeferValue       => JsonEncoder.string.unsafeEncode(d.toString, indent, out) 
       }
 
 }

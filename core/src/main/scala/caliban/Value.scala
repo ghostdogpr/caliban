@@ -3,6 +3,8 @@ package caliban
 import scala.util.Try
 import caliban.interop.circe._
 import zio.stream.Stream
+import zio.query.ZQuery
+import CalibanError.ExecutionError
 
 sealed trait InputValue {
   def toInputString: String = toString
@@ -47,6 +49,10 @@ object ResponseValue extends ValueJsonCompat {
   }
   case class StreamValue(stream: Stream[Throwable, ResponseValue]) extends ResponseValue {
     override def toString: String = "<stream>"
+  }
+
+  case class DeferValue(value: ZQuery[Any, ExecutionError, ResponseValue], path: List[Either[String, Int]], label: String) extends ResponseValue {
+    override def toString: String = "<deferred>"
   }
 
   implicit def circeEncoder[F[_]: IsCirceEncoder]: F[ResponseValue] =

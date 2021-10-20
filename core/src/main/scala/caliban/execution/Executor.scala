@@ -73,9 +73,9 @@ object Executor {
         case ObjectStep(objectName, fields) =>
           val mergedFields = mergeFields(currentField, objectName)
           val items        = mergedFields.map {
-            case f @ Field(name @ "__typename", _, _, alias, _, _, _, _, directives) =>
+            case f @ Field(name @ "__typename", _, _, alias, _, _, _, _, directives, _) =>
               (alias.getOrElse(name), PureStep(StringValue(objectName)), fieldInfo(f, path, directives))
-            case f @ Field(name, _, _, alias, _, _, args, _, directives)             =>
+            case f @ Field(name, _, _, alias, _, _, args, _, directives, _)             =>
               (
                 alias.getOrElse(name),
                 fields
@@ -147,7 +147,7 @@ object Executor {
             )
           case ReducedStep.StreamStep(stream)                =>
             ZQuery
-              .fromEffect(ZIO.environment[R])
+              .environment[R]
               .map(env =>
                 Right(
                   ResponseValue.StreamValue(

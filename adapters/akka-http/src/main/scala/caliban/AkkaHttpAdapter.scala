@@ -1,6 +1,6 @@
 package caliban
 
-import akka.http.scaladsl.model.MediaTypes.`application/json`
+import akka.http.scaladsl.model.MediaTypes.{`application/json`, `multipart/mixed`}
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.model.ws.{ Message, TextMessage }
 import akka.http.scaladsl.server.Directives.{ complete, extractRequestContext }
@@ -19,6 +19,7 @@ import zio.duration._
 import scala.concurrent.duration.{ Duration => ScalaDuration }
 import scala.concurrent.ExecutionContext
 import caliban.execution.QueryExecution
+import zio.stream.ZStream
 
 /**
  * Akka-http adapter for caliban with pluggable json backend.
@@ -68,6 +69,19 @@ trait AkkaHttpAdapter {
         json.encodeGraphQLResponse
       )
       .map(gqlResult => HttpResponse(StatusCodes.OK, entity = HttpEntity(`application/json`, gqlResult)))
+
+  private def handleDeferredValues[E](response: GraphQLResponse[E]): ResponseEntity = {
+      val deferredFields = response.extensions.flatMap(_.fields.collectFirst {
+        case ("__defer", StreamValue(stream)) => stream 
+      })
+
+      if (deferredFields.nonEmpty) {
+        Multipart.General(
+          `multipart/mixed`.withBoundary("abc"),
+          Source.empty[Multipart.General.BodyPart]
+        ).toEntity()
+      } else HttpEntity(`application/json`, json.encodeGraphQLResponse(response))
+  }
 
   private def supportFederatedTracing(context: RequestContext, request: GraphQLRequest): GraphQLRequest =
     if (

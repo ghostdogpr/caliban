@@ -6,5 +6,6 @@ case class FieldInfo(
   name: String,
   details: Field,
   path: List[Either[String, Int]],
-  directives: List[Directive] = Nil
+  directives: List[Directive] = Nil,
+  fragment: Option[Fragment] = None
 )
