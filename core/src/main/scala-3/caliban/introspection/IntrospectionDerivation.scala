@@ -7,7 +7,7 @@ import caliban.parsing.adt.Directive
 import caliban.schema.Schema
 
 trait IntrospectionDerivation {
-  implicit lazy val inputValue: Schema[Any, InputValue]           = Schema.gen
+  implicit lazy val inputValueSchema: Schema[Any, InputValue]     = Schema.gen
   implicit lazy val directiveSchema: Schema[Any, Directive]       = Schema.gen
   implicit lazy val __inputValueSchema: Schema[Any, __InputValue] = Schema.gen
   implicit lazy val enumValueSchema: Schema[Any, __EnumValue]     = Schema.gen
