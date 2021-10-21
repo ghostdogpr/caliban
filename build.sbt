@@ -147,7 +147,7 @@ lazy val tools = project
     crossScalaVersions -= scala3,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "org.scalameta"                 %% "scalafmt-dynamic"              % "3.0.6",
+      "org.scalameta"                 %% "scalafmt-dynamic"              % "3.0.7",
       "org.scalameta"                 %% "scalafmt-core"                 % "3.0.6",
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
       "dev.zio"                       %% "zio-config"                    % zioConfigVersion,
