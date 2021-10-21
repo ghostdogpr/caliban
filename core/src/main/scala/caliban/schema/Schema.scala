@@ -358,8 +358,8 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     arg1: ArgBuilder[A],
     ev1: Schema[RA, A],
     ev2: Schema[RB, B]
-  ): Schema[RA with RB, A => B] =
-    new Schema[RA with RB, A => B] {
+  ): Schema[RB, A => B] =
+    new Schema[RB, A => B] {
       private lazy val inputType                 = ev1.toType_(true)
       private val unwrappedArgumentName          = "value"
       override def arguments: List[__InputValue] =
@@ -379,7 +379,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
       override def optional: Boolean                                         = ev2.optional
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev2.toType_(isInput, isSubscription)
 
-      override def resolve(f: A => B): Step[RA with RB]                 =
+      override def resolve(f: A => B): Step[RB]                         =
         FunctionStep { args =>
           val builder = arg1.build(InputValue.ObjectValue(args))
           handleInput(builder)(
