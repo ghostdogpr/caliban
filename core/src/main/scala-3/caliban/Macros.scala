@@ -1,4 +1,4 @@
-package caliban 
+package caliban
 
 import scala.quoted._
 

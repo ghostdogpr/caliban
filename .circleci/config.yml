@@ -8,6 +8,7 @@ jobs:
       - restore_cache:
           key: sbtcache
       - run: sbt ++2.13.6! check
+      - run: sbt ++3.0.2! check
       - save_cache:
           key: sbtcache
           paths:
