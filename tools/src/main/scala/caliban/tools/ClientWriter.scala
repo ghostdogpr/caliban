@@ -109,7 +109,12 @@ object ClientWriter {
       s"""$description${deprecated}def $safeName$typeParam$args$innerSelection$implicits: SelectionBuilder[$typeName, $outputType] = _root_.caliban.client.SelectionBuilder.Field("$name", $builder$argBuilder)"""
     }
 
-    def collectFieldInfo(field: FieldDefinition, typeName: String, optionalUnion: Boolean): FieldInfo = {
+    def collectFieldInfo(
+      field: FieldDefinition,
+      typeName: String,
+      optionalUnion: Boolean,
+      optionalInterface: Boolean
+    ): FieldInfo = {
       val description                                      = field.description match {
         case Some(d) if d.trim.nonEmpty => s"/**\n * ${d.trim}\n */\n"
         case _                          => ""
@@ -188,15 +193,27 @@ object ClientWriter {
             )
           }
         } else if (interfaceTypes.nonEmpty) {
-          (
-            s"[$typeLetter]",
-            s"(${interfaceTypes.map(t => s"""on${t.name}: Option[SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]] = None""").mkString(", ")})",
-            writeType(field.ofType).replace(fieldType, typeLetter),
-            writeTypeBuilder(
-              field.ofType,
-              s"ChoiceOf(Map(${interfaceTypes.map(t => s""""${t.name}" -> on${t.name}""").mkString(", ")}).collect { case (k, Some(v)) => k -> Obj(v)})"
+          if (optionalInterface) {
+            (
+              s"[$typeLetter]",
+              s"(${interfaceTypes.map(t => s"""on${t.name}: Option[SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]] = None""").mkString(", ")})",
+              s"Option[${writeType(field.ofType).replace(fieldType, typeLetter)}]",
+              writeTypeBuilder(
+                field.ofType,
+                s"ChoiceOf(Map(${interfaceTypes.map(t => s""""${t.name}" -> on${t.name}.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))""").mkString(", ")}))"
+              )
             )
-          )
+          } else {
+            (
+              s"[$typeLetter]",
+              s"(${interfaceTypes.map(t => s"""on${t.name}: SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]""").mkString(", ")})",
+              writeType(field.ofType).replace(fieldType, typeLetter),
+              writeTypeBuilder(
+                field.ofType,
+                s"ChoiceOf(Map(${interfaceTypes.map(t => s""""${t.name}" -> Obj(on${t.name})""").mkString(", ")}))"
+              )
+            )
+          }
         } else {
           (
             s"[$typeLetter]",
@@ -224,7 +241,10 @@ object ClientWriter {
           }.mkString(", ")})"
       }
 
-      val name          = if (optionalUnion && unionTypes.nonEmpty) safeName(field.name + "Option") else safeName(field.name)
+      val name          =
+        if ((optionalUnion && unionTypes.nonEmpty) || (optionalInterface && interfaceTypes.nonEmpty))
+          safeName(field.name + "Option")
+        else safeName(field.name)
       val owner         = if (typeParam.nonEmpty) Some(fieldType) else None
       val fieldTypeInfo = FieldTypeInfo(
         field.name,
@@ -260,8 +280,13 @@ object ClientWriter {
       case other   => safeTypeName(other)
     }
 
-    def writeField(field: FieldDefinition, typeName: String, optionalUnion: Boolean): String =
-      writeFieldInfo(collectFieldInfo(field, typeName, optionalUnion))
+    def writeField(
+      field: FieldDefinition,
+      typeName: String,
+      optionalUnion: Boolean,
+      optionalInterface: Boolean
+    ): String =
+      writeFieldInfo(collectFieldInfo(field, typeName, optionalUnion, optionalInterface))
 
     def reservedType(typeDefinition: ObjectTypeDefinition): Boolean =
       typeDefinition.name == "Query" || typeDefinition.name == "Mutation" || typeDefinition.name == "Subscription"
@@ -274,7 +299,9 @@ object ClientWriter {
     def writeRootQuery(typedef: ObjectTypeDefinition): String =
       s"""object ${typedef.name} {
          |  ${typedef.fields
-        .map(writeField(_, "_root_.caliban.client.Operations.RootQuery", optionalUnion = false))
+        .map(
+          writeField(_, "_root_.caliban.client.Operations.RootQuery", optionalUnion = false, optionalInterface = false)
+        )
         .mkString("\n  ")}
          |}
          |""".stripMargin
@@ -287,7 +314,14 @@ object ClientWriter {
     def writeRootMutation(typedef: ObjectTypeDefinition): String =
       s"""object ${typedef.name} {
          |  ${typedef.fields
-        .map(writeField(_, "_root_.caliban.client.Operations.RootMutation", optionalUnion = false))
+        .map(
+          writeField(
+            _,
+            "_root_.caliban.client.Operations.RootMutation",
+            optionalUnion = false,
+            optionalInterface = false
+          )
+        )
         .mkString("\n  ")}
          |}
          |""".stripMargin
@@ -300,7 +334,14 @@ object ClientWriter {
     def writeRootSubscription(typedef: ObjectTypeDefinition): String =
       s"""object ${typedef.name} {
          |  ${typedef.fields
-        .map(writeField(_, "_root_.caliban.client.Operations.RootSubscription", optionalUnion = false))
+        .map(
+          writeField(
+            _,
+            "_root_.caliban.client.Operations.RootSubscription",
+            optionalUnion = false,
+            optionalInterface = false
+          )
+        )
         .mkString("\n  ")}
          |}
          |""".stripMargin
@@ -314,17 +355,28 @@ object ClientWriter {
 
     def writeObject(typedef: ObjectTypeDefinition, genView: Boolean): String = {
 
-      val objectName: String      = safeTypeName(typedef.name)
+      val objectName: String = safeTypeName(typedef.name)
+
       val unionTypes              = typesMap.collect { case (key, _: UnionTypeDefinition) => key }
       val optionalUnionTypeFields = typedef.fields.flatMap { field =>
         val isOptionalUnionType = unionTypes.exists(_.compareToIgnoreCase(field.ofType.toString) == 0)
-        if (isOptionalUnionType) Some(collectFieldInfo(field, objectName, optionalUnion = true))
+        if (isOptionalUnionType)
+          Some(collectFieldInfo(field, objectName, optionalUnion = true, optionalInterface = false))
         else None
       }
-      val fields                  = typedef.fields.map(collectFieldInfo(_, objectName, optionalUnion = false))
-      val view                    = if (genView) "\n  " + writeView(typedef.name, fields.map(_.typeInfo)) else ""
 
-      val allFields = fields ++ optionalUnionTypeFields
+      val interfaceTypes              = typesMap.collect { case (key, _: InterfaceTypeDefinition) => key }
+      val optionalInterfaceTypeFields = typedef.fields.flatMap { field =>
+        val isOptionalInterfaceType = interfaceTypes.exists(_.compareToIgnoreCase(field.ofType.toString) == 0)
+        if (isOptionalInterfaceType)
+          Some(collectFieldInfo(field, objectName, optionalUnion = false, optionalInterface = true))
+        else None
+      }
+
+      val fields = typedef.fields.map(collectFieldInfo(_, objectName, optionalUnion = false, optionalInterface = false))
+      val view   = if (genView) "\n  " + writeView(typedef.name, fields.map(_.typeInfo)) else ""
+
+      val allFields = fields ++ optionalUnionTypeFields ++ optionalInterfaceTypeFields
 
       s"""object $objectName {$view
          |  ${allFields.map(writeFieldInfo).mkString("\n  ")}
@@ -383,7 +435,7 @@ object ClientWriter {
 
           case (field @ FieldTypeInfo(_, _, _, interfaceTypes, _, _, Some(_)), fieldName) if interfaceTypes.nonEmpty =>
             val tpe = genericSelectionFieldTypesMap(field)
-            interfaceTypes.map(intType => s"${fieldName}On$intType: Option[SelectionBuilder[$intType, $tpe]] = None")
+            interfaceTypes.map(intType => s"${fieldName}On$intType: SelectionBuilder[$intType, $tpe]")
         }.flatten
 
       val viewClassFields: List[String] =
