@@ -352,13 +352,27 @@ object PlayAdapter {
       override def handleWebSocketRequestHeader: RequestHeader => ZIO[R, Result, Unit] = handler
     }
 
-  trait RequestWrapper[-R] { self =>
-    def apply[R1 <: R](ctx: RequestHeader)(e: URIO[R1, Result]): URIO[R1, Result]
+  trait RequestOrErrorWrapper[-R] { self =>
+    def wrapRequestOrError[R1 <: R](ctx: RequestHeader)(e: ZIO[R1, Result, Result]): ZIO[R1, Result, Result]
 
-    def |+|[R1 <: R](that: RequestWrapper[R1]): RequestWrapper[R1] = new RequestWrapper[R1] {
-      override def apply[R2 <: R1](ctx: RequestHeader)(e: URIO[R2, Result]): URIO[R2, Result] =
-        that.apply[R2](ctx)(self.apply[R2](ctx)(e))
+    def |+|[R1 <: R](that: RequestOrErrorWrapper[R1]): RequestOrErrorWrapper[R1] = new RequestOrErrorWrapper[R1] {
+      override def wrapRequestOrError[R2 <: R1](ctx: RequestHeader)(
+        e: ZIO[R2, Result, Result]
+      ): ZIO[R2, Result, Result] =
+        that.wrapRequestOrError[R2](ctx)(self.wrapRequestOrError[R2](ctx)(e))
     }
+  }
+
+  trait RequestWrapper[-R] extends RequestOrErrorWrapper[R] { self =>
+    override def wrapRequestOrError[R1 <: R](ctx: RequestHeader)(e: ZIO[R1, Result, Result]): ZIO[R1, Result, Result] =
+      apply(ctx)(e.fold(identity, identity)).flatMap {
+        case result if result.header.status > 200 && result.header.status < 300 =>
+          ZIO.succeed(result)
+        case result                                                             =>
+          ZIO.fail(result)
+      }
+
+    def apply[R1 <: R](ctx: RequestHeader)(e: URIO[R1, Result]): URIO[R1, Result]
   }
 
   object RequestWrapper {
