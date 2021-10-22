@@ -254,7 +254,6 @@ lazy val http4s = project
         "org.typelevel"                 %% "cats-effect"                   % catsEffect3Version,
         "org.http4s"                    %% "http4s-dsl"                    % http4sVersion,
         "org.http4s"                    %% "http4s-circe"                  % http4sVersion,
-        "org.http4s"                    %% "http4s-blaze-server"           % http4sVersion,
         "io.circe"                      %% "circe-parser"                  % circeVersion,
         "dev.zio"                       %% "zio-test"                      % zioVersion   % Test,
         "dev.zio"                       %% "zio-test-sbt"                  % zioVersion   % Test,
@@ -400,6 +399,7 @@ lazy val examples = project
     crossScalaVersions -= scala3,
     libraryDependencies ++= Seq(
       "de.heikoseeberger"             %% "akka-http-circe"               % "1.38.2",
+      "org.http4s"                    %% "http4s-blaze-server"           % http4sVersion,
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % tapirVersion,
       "io.circe"                      %% "circe-generic"                 % circeVersion,
