@@ -22,7 +22,6 @@ case class PlayRouter[R <: Blocking with Random, E](
   skipValidation: Boolean = false,
   enableIntrospection: Boolean = true,
   keepAliveTime: Option[Duration] = None,
-  handleWebSocketRequestHeader: RequestHeader => ZIO[R, Result, Unit] = { _: RequestHeader => ZIO.unit },
   requestWrapper: RequestWrapper[R] = RequestWrapper.empty,
   queryExecution: QueryExecution = QueryExecution.Parallel
 )(implicit runtime: Runtime[R], materializer: Materializer)
