@@ -256,11 +256,12 @@ lazy val http4s = project
         "org.http4s"                    %% "http4s-server"                 % http4sVersion,
         "org.http4s"                    %% "http4s-circe"                  % http4sVersion,
         "io.circe"                      %% "circe-parser"                  % circeVersion,
-        "dev.zio"                       %% "zio-test"                      % zioVersion   % Test,
-        "dev.zio"                       %% "zio-test-sbt"                  % zioVersion   % Test,
-        "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion  % Test,
-        "com.softwaremill.sttp.client3" %% "circe"                         % sttpVersion  % Test,
-        "io.circe"                      %% "circe-generic"                 % circeVersion % Test
+        "org.http4s"                    %% "http4s-blaze-server"           % http4sVersion % Test,
+        "dev.zio"                       %% "zio-test"                      % zioVersion    % Test,
+        "dev.zio"                       %% "zio-test-sbt"                  % zioVersion    % Test,
+        "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion   % Test,
+        "com.softwaremill.sttp.client3" %% "circe"                         % sttpVersion   % Test,
+        "io.circe"                      %% "circe-generic"                 % circeVersion  % Test
       )
   )
   .dependsOn(core, catsInterop)
