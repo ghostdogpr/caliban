@@ -147,6 +147,8 @@ trait GraphQL[-R] { self =>
    */
   final def @@[R2 <: R](wrapper: Wrapper[R2]): GraphQL[R2] = withWrapper(wrapper)
 
+  final def @@[R2 <: R](aspect: GraphQLAspect[R2]): GraphQL[R2] = aspect(self)
+
   /**
    * Merges this GraphQL API with another GraphQL API.
    * In case of conflicts (same field declared on both APIs), fields from `that` API will be used.
@@ -203,6 +205,12 @@ trait GraphQL[-R] { self =>
     override protected val schemaBuilder: RootSchemaBuilder[R]     = self.schemaBuilder.copy(additionalTypes = types)
     override protected val wrappers: List[Wrapper[R]]              = self.wrappers
     override protected val additionalDirectives: List[__Directive] = self.additionalDirectives
+  }
+
+  final def withAdditionalDirectives(directives: List[__Directive]): GraphQL[R] = new GraphQL[R] {
+    override protected val schemaBuilder: RootSchemaBuilder[R] = self.schemaBuilder
+    override protected val wrappers: List[Wrapper[R]] = self.wrappers
+    override protected val additionalDirectives: List[__Directive] = self.additionalDirectives ++ directives
   }
 }
 

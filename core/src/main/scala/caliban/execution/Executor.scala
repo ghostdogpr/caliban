@@ -73,15 +73,15 @@ object Executor {
         case ObjectStep(objectName, fields) =>
           val mergedFields = mergeFields(currentField, objectName)
           val items        = mergedFields.map {
-            case f @ Field(name @ "__typename", _, _, alias, _, _, _, _, directives, _) =>
-              (alias.getOrElse(name), PureStep(StringValue(objectName)), fieldInfo(f, path, directives))
-            case f @ Field(name, _, _, alias, _, _, args, _, directives, _)             =>
+            case f @ Field(name @ "__typename", _, _, alias, _, _, _, _, directives, fragment) =>
+              (alias.getOrElse(name), PureStep(StringValue(objectName)), fieldInfo(f, path, directives, fragment))
+            case f @ Field(name, _, _, alias, _, _, args, _, directives, fragment)             =>
               (
                 alias.getOrElse(name),
                 fields
                   .get(name)
                   .fold(NullStep: ReducedStep[R])(reduceStep(_, f, args, Left(alias.getOrElse(name)) :: path)),
-                fieldInfo(f, path, directives)
+                fieldInfo(f, path, directives, fragment)
               )
           }
           reduceObject(items, fieldWrappers)
@@ -196,8 +196,8 @@ object Executor {
     array.toList
   }
 
-  private def fieldInfo(field: Field, path: List[Either[String, Int]], fieldDirectives: List[Directive]): FieldInfo =
-    FieldInfo(field.alias.getOrElse(field.name), field, path, fieldDirectives)
+  private def fieldInfo(field: Field, path: List[Either[String, Int]], fieldDirectives: List[Directive], fragment: Option[Fragment]): FieldInfo =
+    FieldInfo(field.alias.getOrElse(field.name), field, path, fieldDirectives, fragment)
 
   private def reduceList[R](list: List[ReducedStep[R]], areItemsNullable: Boolean): ReducedStep[R] =
     if (list.forall(_.isInstanceOf[PureStep]))
