@@ -66,9 +66,7 @@ object Service {
 case class UploadFileArgs(file: Upload)
 case class UploadFilesArgs(files: List[Upload])
 
-object TestAPI extends GenericSchema[Blocking with Uploads with Console with Clock] {
-  import Upload._
-
+object TestAPI extends UploadSchema with GenericSchema[Blocking with Uploads with Console with Clock] {
   val api: GraphQL[Blocking with Uploads with Console with Clock] =
     graphQL(
       RootResolver(

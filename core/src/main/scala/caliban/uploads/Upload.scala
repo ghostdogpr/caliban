@@ -13,6 +13,7 @@ import zio.stream.{ ZSink, ZStream }
 import zio.{ Chunk, RIO, UIO, URIO, ZIO }
 
 import java.nio.file.Path
+import caliban.schema.GenericSchema
 
 final case class Upload(name: String) {
   val allBytes: RIO[Uploads with Blocking, Chunk[Byte]] =
@@ -22,7 +23,7 @@ final case class Upload(name: String) {
     Uploads.fileMeta(name)
 }
 
-object Upload {
+trait UploadSchema {
   implicit val argBuilder: ArgBuilder[Upload] = {
     case StringValue(v) => Right(new Upload(v))
     case other          => Left(CalibanError.ExecutionError(s"Can't build an Upload from $other"))
