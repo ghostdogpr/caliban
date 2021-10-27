@@ -40,15 +40,12 @@ object ValueValidator {
   ): IO[ValidationError, Unit] =
     argValue match {
       case v: VariableValue =>
-        context.variables.get(v.name) match {
-          case None        =>
-            failValidation(
-              s"Variable '${v.name}' is not defined.",
-              "Variables are scoped on a per‐operation basis. That means that any variable used within the context of an operation must be defined at the top level of that operation"
-            )
-          case Some(value) =>
-            validateType(inputType, value, context, errorContext)
-        }
+        val value =
+          context.variables
+            .get(v.name)
+            .getOrElse(context.variableDefinitions.get(v.name).flatMap(_.defaultValue).getOrElse(NullValue))
+
+        validateType(inputType, value, context, errorContext)
       case _                =>
         inputType.kind match {
           case NON_NULL =>
