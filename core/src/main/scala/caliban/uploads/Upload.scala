@@ -23,15 +23,6 @@ final case class Upload(name: String) {
     Uploads.fileMeta(name)
 }
 
-trait UploadSchema[R] extends GenericSchema[R] {
-  implicit val argBuilder: ArgBuilder[Upload] = {
-    case StringValue(v) => Right(new Upload(v))
-    case other          => Left(CalibanError.ExecutionError(s"Can't build an Upload from $other"))
-  }
-
-  implicit def schema: Schema[R, Upload] = Schema.scalarSchema("Upload", None, _ => StringValue("<upload>"))
-}
-
 case class FileMeta(
   id: String,
   path: Path,

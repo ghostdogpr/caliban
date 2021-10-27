@@ -1,8 +1,8 @@
 package caliban
 
 import caliban.GraphQL.graphQL
-import caliban.schema.Schema
-import caliban.uploads.{ Upload, UploadSchema, Uploads }
+import caliban.schema.{ GenericSchema, Schema }
+import caliban.uploads.{ Upload, Uploads }
 import cats.syntax.semigroupk._
 import io.circe.parser.parse
 import io.circe.generic.auto._
@@ -70,7 +70,7 @@ object Service {
 case class UploadFileArgs(file: Upload)
 case class UploadFilesArgs(files: List[Upload])
 
-object TestAPI extends UploadSchema[Blocking with Uploads with Console with Clock] {
+object TestAPI extends GenericSchema[Blocking with Uploads with Console with Clock] {
   type Env = Blocking with Uploads with Console with Clock
 
   implicit val uploadFileArgsSchema: Schema[Env, UploadFileArgs] = gen[UploadFileArgs]
