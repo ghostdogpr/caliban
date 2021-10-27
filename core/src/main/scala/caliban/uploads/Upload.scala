@@ -1,8 +1,12 @@
 package caliban.uploads
 
+import caliban.CalibanError
 import caliban.InputValue.ListValue
 import caliban.Value.{ NullValue, StringValue }
+import caliban.schema.Annotations
 import caliban.schema.Annotations.GQLName
+import caliban.schema.ArgBuilder
+import caliban.schema.Schema
 import caliban.{ GraphQLRequest, InputValue }
 import zio.blocking.Blocking
 import zio.stream.{ ZSink, ZStream }
@@ -10,15 +14,21 @@ import zio.{ Chunk, RIO, UIO, URIO, ZIO }
 
 import java.nio.file.Path
 
-@GQLName("Upload")
 final case class Upload(name: String) {
-
   val allBytes: RIO[Uploads with Blocking, Chunk[Byte]] =
     Uploads.stream(name).run(ZSink.foldLeftChunks(Chunk[Byte]())(_ ++ (_: Chunk[Byte])))
 
   val meta: URIO[Uploads, Option[FileMeta]] =
     Uploads.fileMeta(name)
+}
 
+object Upload {
+  implicit val argBuilder: ArgBuilder[Upload] = {
+    case StringValue(v) => Right(new Upload(v))
+    case other          => Left(CalibanError.ExecutionError(s"Can't build an Upload from $other"))
+  }
+
+  implicit def schema[R]: Schema[R, Upload] = Schema.scalarSchema("Upload", None, _ => StringValue("<upload>"))
 }
 
 case class FileMeta(
