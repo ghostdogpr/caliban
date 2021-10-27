@@ -29,7 +29,7 @@ trait UploadSchema[R] extends GenericSchema[R] {
     case other          => Left(CalibanError.ExecutionError(s"Can't build an Upload from $other"))
   }
 
-  implicit def schema[R]: Schema[R, Upload] = Schema.scalarSchema("Upload", None, _ => StringValue("<upload>"))
+  implicit def schema: Schema[R, Upload] = Schema.scalarSchema("Upload", None, _ => StringValue("<upload>"))
 }
 
 case class FileMeta(
