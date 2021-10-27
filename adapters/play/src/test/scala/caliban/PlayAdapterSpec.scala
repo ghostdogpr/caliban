@@ -5,7 +5,6 @@ import java.math.BigInteger
 import java.net.URL
 import java.security.MessageDigest
 import caliban.GraphQL.graphQL
-import caliban.schema.GenericSchema
 import caliban.uploads._
 import io.circe.generic.auto._
 import io.circe.parser._
@@ -66,7 +65,7 @@ object Service {
 case class UploadFileArgs(file: Upload)
 case class UploadFilesArgs(files: List[Upload])
 
-object TestAPI extends UploadSchema with GenericSchema[Blocking with Uploads with Console with Clock] {
+object TestAPI extends UploadSchema[Blocking with Uploads with Console with Clock] {
   val api: GraphQL[Blocking with Uploads with Console with Clock] =
     graphQL(
       RootResolver(

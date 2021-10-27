@@ -23,7 +23,7 @@ final case class Upload(name: String) {
     Uploads.fileMeta(name)
 }
 
-trait UploadSchema {
+trait UploadSchema[R] extends GenericSchema[R] {
   implicit val argBuilder: ArgBuilder[Upload] = {
     case StringValue(v) => Right(new Upload(v))
     case other          => Left(CalibanError.ExecutionError(s"Can't build an Upload from $other"))
