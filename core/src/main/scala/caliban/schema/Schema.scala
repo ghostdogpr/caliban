@@ -485,12 +485,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
       override def resolve(value: ZStream[R1, E, A]): Step[R0]               = StreamStep(value.mapBoth(convertError, ev.resolve))
     }
 
-  implicit val argBuilder: ArgBuilder[Upload] = {
-    case StringValue(v) => Right(new Upload(v))
-    case other          => Left(ExecutionError(s"Can't build an Upload from $other"))
-  }
-
-  implicit def schema: Schema[R, Upload] = Schema.scalarSchema("Upload", None, _ => StringValue("<upload>"))
+  implicit def uploadSchema: Schema[R, Upload] = Schema.scalarSchema("Upload", None, _ => StringValue("<upload>"))
 }
 
 trait TemporalSchema {
