@@ -6,6 +6,7 @@ import caliban.Value.{ NullValue, StringValue }
 import caliban.schema.Annotations
 import caliban.schema.Annotations.GQLName
 import caliban.schema.ArgBuilder
+import caliban.schema.GenericSchema
 import caliban.schema.Schema
 import caliban.{ GraphQLRequest, InputValue }
 import zio.blocking.Blocking
@@ -13,7 +14,6 @@ import zio.stream.{ ZSink, ZStream }
 import zio.{ Chunk, RIO, UIO, URIO, ZIO }
 
 import java.nio.file.Path
-import caliban.schema.GenericSchema
 
 final case class Upload(name: String) {
   val allBytes: RIO[Uploads with Blocking, Chunk[Byte]] =
