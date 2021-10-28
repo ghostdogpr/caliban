@@ -4,6 +4,7 @@ import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.Value._
 import caliban.parsing.Parser
+import caliban.uploads.Upload
 import zio.Chunk
 
 import java.time.format.DateTimeFormatter
@@ -193,4 +194,9 @@ object ArgBuilder extends ArgBuilderDerivation {
   implicit def set[A](implicit ev: ArgBuilder[A]): ArgBuilder[Set[A]]       = list[A].map(_.toSet)
   implicit def vector[A](implicit ev: ArgBuilder[A]): ArgBuilder[Vector[A]] = list[A].map(_.toVector)
   implicit def chunk[A](implicit ev: ArgBuilder[A]): ArgBuilder[Chunk[A]]   = list[A].map(Chunk.fromIterable)
+
+  implicit lazy val upload: ArgBuilder[Upload] = {
+    case StringValue(v) => Right(new Upload(v))
+    case other          => Left(ExecutionError(s"Can't build an Upload from $other"))
+  }
 }

@@ -145,7 +145,6 @@ object FieldArgsSpec extends DefaultRunnableSpec {
                          RootResolver(
                            Query(
                              query = info => { i =>
-                               println(s"i: $i")
                                ref.set(Option(info)) *>
                                  ZIO.succeed(i.nested.string)
                              }
