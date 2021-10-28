@@ -8,7 +8,7 @@ import play.api.mvc._
 import play.api.routing.Router.Routes
 import play.api.routing.SimpleRouter
 import play.api.routing.sird._
-import zio.Runtime
+import zio.{ Runtime, ZIO }
 import zio.blocking.Blocking
 import zio.duration.Duration
 import zio.random.Random
@@ -56,7 +56,7 @@ case class PlayRouter[R <: Blocking with Random, E](
         extensions
       )
     case GET(p"/ws/graphql") if subscriptions =>
-      makeWebSocket(interpreter, skipValidation, enableIntrospection, keepAliveTime, queryExecution)
+      makeWebSocketOrResult(interpreter, skipValidation, enableIntrospection, keepAliveTime, queryExecution)
     case GET(p"/graphiql") if playground      =>
       actionBuilder(
         Results.Ok

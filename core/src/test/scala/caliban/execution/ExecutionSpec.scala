@@ -385,6 +385,18 @@ object ExecutionSpec extends DefaultRunnableSpec {
 
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":<stream>}"""))
       },
+      testM("ARGS => ZStream used in a subscription") {
+        case class Queries(test: Int)
+        case class Subscriptions(test: Int => ZStream[Any, Throwable, Int])
+        val interpreter =
+          graphQL(RootResolver(Queries(1), Option.empty[Unit], Subscriptions(x => ZStream(1, 2, 3)))).interpreter
+        val query       = gqldoc("""
+             subscription {
+               test(value: 1)
+             }""")
+
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":<stream>}"""))
+      },
       testM("ARGS => ZStream used in a subscription with context") {
         // setup up an authentication FiberRev Environment
         case class Req(id: Int)
