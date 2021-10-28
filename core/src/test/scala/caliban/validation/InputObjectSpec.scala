@@ -2,12 +2,12 @@ package caliban.validation
 
 import caliban.CalibanError
 import caliban.GraphQL._
+import caliban.GraphQLRequest
 import caliban.{ InputValue, Value }
 import caliban.RootResolver
 import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment
-import caliban.GraphQLRequest
 
 object InputObjectSpec extends DefaultRunnableSpec {
   override def spec: ZSpec[TestEnvironment, Any] =
