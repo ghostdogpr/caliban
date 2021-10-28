@@ -42,8 +42,7 @@ object ValueValidator {
       case v: VariableValue =>
         val value =
           context.variables
-            .get(v.name)
-            .getOrElse(context.variableDefinitions.get(v.name).flatMap(_.defaultValue).getOrElse(NullValue))
+            .getOrElse(v.name, context.variableDefinitions.get(v.name).flatMap(_.defaultValue).getOrElse(NullValue))
 
         validateType(inputType, value, context, errorContext)
       case _                =>
