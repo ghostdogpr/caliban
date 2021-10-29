@@ -43,7 +43,7 @@ trait ArgBuilder[T] { self =>
   def buildMissing(default: Option[String]): Either[ExecutionError, T] =
     default
       .map(
-        Parser.parseInputValue(_).flatMap(build(_)).left.map(e => ExecutionError(e.getMessage()))
+        Parser.parseInputValue(_).flatMap(build).left.map(e => ExecutionError(e.getMessage()))
       )
       .getOrElse(build(NullValue))
 
