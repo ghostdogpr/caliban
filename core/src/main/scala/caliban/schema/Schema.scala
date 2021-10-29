@@ -251,6 +251,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   implicit val doubleSchema: Schema[Any, Double]         = scalarSchema("Float", None, FloatValue(_))
   implicit val floatSchema: Schema[Any, Float]           = scalarSchema("Float", None, FloatValue(_))
   implicit val bigDecimalSchema: Schema[Any, BigDecimal] = scalarSchema("BigDecimal", None, FloatValue(_))
+  implicit val uploadSchema: Schema[Any, Upload]         = scalarSchema("Upload", None, _ => StringValue("<upload>"))
 
   implicit def optionSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Option[A]]                                  = new Schema[R0, Option[A]] {
     override def optional: Boolean                                         = true
@@ -484,8 +485,6 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
       }
       override def resolve(value: ZStream[R1, E, A]): Step[R0]               = StreamStep(value.mapBoth(convertError, ev.resolve))
     }
-
-  implicit def uploadSchema: Schema[R, Upload] = Schema.scalarSchema("Upload", None, _ => StringValue("<upload>"))
 }
 
 trait TemporalSchema {
