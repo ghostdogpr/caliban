@@ -420,12 +420,10 @@ object ExecutionSpec extends DefaultRunnableSpec {
           tokenOpt <- tokenRef.get
         } yield tokenOpt.map(_.value).getOrElse("NONE"))
 
-        implicit val querySchema: Schema[Auth, Queries] = Schema.gen
-
         // set up a wrapped interpreter, setting the authentication token in the auth context
         val interpreter        =
           graphQL[Auth, Queries, Unit, Subscriptions](
-            RootResolver[Queries, Unit, Subscriptions](
+            RootResolver(
               queryResolver = Some(Queries(1)),
               mutationResolver = Option.empty[Unit],
               subscriptionResolver = Some(Subscriptions(getStream))
