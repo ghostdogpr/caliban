@@ -28,29 +28,40 @@ object ValueValidator {
   def validateInputTypes(
     inputValue: __InputValue,
     argValue: InputValue,
+    context: Context,
     errorContext: String
-  ): IO[ValidationError, Unit] = validateType(inputValue.`type`(), argValue, errorContext)
+  ): IO[ValidationError, Unit] = validateType(inputValue.`type`(), argValue, context, errorContext)
 
-  def validateType(inputType: __Type, argValue: InputValue, errorContext: String): IO[ValidationError, Unit] =
+  def validateType(
+    inputType: __Type,
+    argValue: InputValue,
+    context: Context,
+    errorContext: String
+  ): IO[ValidationError, Unit] =
     argValue match {
-      case _: VariableValue => IO.unit
+      case v: VariableValue =>
+        val value =
+          context.variables
+            .getOrElse(v.name, context.variableDefinitions.get(v.name).flatMap(_.defaultValue).getOrElse(NullValue))
+
+        validateType(inputType, value, context, errorContext)
       case _                =>
         inputType.kind match {
           case NON_NULL =>
             argValue match {
               case NullValue =>
                 failValidation(s"$errorContext is null", "Input field was null but was supposed to be non-null.")
-              case x         => validateType(inputType.ofType.getOrElse(inputType), x, errorContext)
+              case x         => validateType(inputType.ofType.getOrElse(inputType), x, context, errorContext)
             }
           case LIST     =>
             argValue match {
               case ListValue(values) =>
                 IO.foreach_(values)(v =>
-                  validateType(inputType.ofType.getOrElse(inputType), v, s"List item in $errorContext")
+                  validateType(inputType.ofType.getOrElse(inputType), v, context, s"List item in $errorContext")
                 )
               case other             =>
                 // handle item as the first item in the list
-                validateType(inputType.ofType.getOrElse(inputType), other, s"List item in $errorContext")
+                validateType(inputType.ofType.getOrElse(inputType), other, context, s"List item in $errorContext")
             }
 
           case INPUT_OBJECT =>
@@ -60,7 +71,7 @@ object ValueValidator {
                   val value =
                     fields.collectFirst { case (name, fieldValue) if name == f.name => fieldValue }
                       .getOrElse(NullValue)
-                  validateType(f.`type`(), value, s"Field ${f.name} in $errorContext")
+                  validateType(f.`type`(), value, context, s"Field ${f.name} in $errorContext")
                 }
               case _                   =>
                 failValidation(

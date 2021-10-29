@@ -27,7 +27,7 @@ object Validator {
    * Verifies that the given document is valid for this type. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
   def validate(document: Document, rootType: RootType): IO[ValidationError, Unit] =
-    check(document, rootType).unit
+    check(document, rootType, Map.empty).unit
 
   /**
    * Verifies that the given schema is valid. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
@@ -69,7 +69,7 @@ object Validator {
       IO.succeed(collectDefinitions(document)._2.foldLeft(Map.empty[String, FragmentDefinition]) { case (m, f) =>
         m.updated(f.name, f)
       })
-    } else check(document, rootType)
+    } else check(document, rootType, variables)
 
     fragments.flatMap { fragments =>
       val operation = operationName match {
@@ -117,12 +117,16 @@ object Validator {
     }
   }
 
-  private def check(document: Document, rootType: RootType): IO[ValidationError, Map[String, FragmentDefinition]] = {
+  private def check(
+    document: Document,
+    rootType: RootType,
+    variables: Map[String, InputValue]
+  ): IO[ValidationError, Map[String, FragmentDefinition]] = {
     val (operations, fragments, _, _) = collectDefinitions(document)
     for {
       fragmentMap  <- validateFragments(fragments)
       selectionSets = collectSelectionSets(operations.flatMap(_.selectionSet) ++ fragments.flatMap(_.selectionSet))
-      context       = Context(document, rootType, operations, fragmentMap, selectionSets)
+      context       = Context(document, rootType, operations, fragmentMap, selectionSets, variables)
       _            <- validateOperationNameUniqueness(operations)
       _            <- validateLoneAnonymousOperation(operations)
       _            <- validateDirectives(context)
@@ -548,7 +552,7 @@ object Validator {
         }
       case _                                                                           => IO.unit
     }
-  } *> ValueValidator.validateInputTypes(inputValue, argValue, errorContext)
+  } *> ValueValidator.validateInputTypes(inputValue, argValue, context, errorContext)
 
   private def checkVariableUsageAllowed(
     variableDefinition: VariableDefinition,

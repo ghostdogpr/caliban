@@ -29,7 +29,7 @@ object AuthExampleApp extends App with AkkaHttpCirceAdapter {
       ctx: RequestContext
     )(effect: URIO[R, A]): URIO[R, A] =
       ctx.request.headers.collectFirst {
-        case header if header.name.toLowerCase == "token" => header.value
+        case header if header.is("token") => header.value
       } match {
         case Some(token) => ZIO.accessM[Auth](_.get.set(Some(AuthToken(token)))) *> effect
         case _           => ZIO.succeed(HttpResponse(StatusCodes.Forbidden))

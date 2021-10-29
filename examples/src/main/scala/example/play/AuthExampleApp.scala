@@ -10,6 +10,7 @@ import play.core.server.{ AkkaHttpServer, ServerConfig }
 import zio.blocking.Blocking
 import zio.internal.Platform
 import zio.random.Random
+import zio.stream.ZStream
 import zio.{ FiberRef, Has, RIO, Runtime, URIO, ZIO }
 
 import scala.io.StdIn.readLine
@@ -30,7 +31,13 @@ object AuthExampleApp extends App {
   val schema: GenericSchema[Auth] = new GenericSchema[Auth] {}
   import schema._
   case class Query(token: RIO[Auth, Option[String]])
-  private val resolver            = RootResolver(Query(ZIO.accessM[Auth](_.get.get).map(_.map(_.value))))
+  case class Mutation(x: RIO[Auth, Option[String]])
+  case class Subscription(x: ZStream[Auth, Throwable, Option[String]])
+  private val resolver            = RootResolver(
+    Query(ZIO.accessM[Auth](_.get.get).map(_.map(_.value))),
+    Mutation(ZIO.some("foo")),
+    Subscription(ZStream.empty)
+  )
   private val api                 = graphQL(resolver)
 
   // Note that we must initialize the runtime with any FiberRefs we intend to

@@ -2,7 +2,7 @@ package caliban
 
 import akka.stream.scaladsl.{ Flow, Sink, Source, SourceQueueWithComplete }
 import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
-import caliban.PlayAdapter.RequestWrapper
+import caliban.PlayAdapter.{ RequestOrErrorWrapper, RequestWrapper }
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
 import caliban.execution.QueryExecution
@@ -10,7 +10,7 @@ import caliban.interop.play.json.parsingException
 import caliban.uploads._
 import play.api.http.Writeable
 import play.api.libs.json.{ JsValue, Json, Writes }
-import play.api.mvc.Results.Ok
+import play.api.mvc.Results.{ Accepted, Ok }
 import play.api.mvc._
 import play.mvc.Http.MimeTypes
 import zio.Exit.Failure
@@ -19,17 +19,19 @@ import zio.clock.Clock
 import zio.duration.Duration
 import zio.random.Random
 import zio.{ CancelableFuture, Fiber, Has, IO, RIO, Ref, Runtime, Schedule, Task, URIO, ZIO, ZLayer }
-
 import java.util.Locale
+
 import scala.concurrent.{ ExecutionContext, Future }
 import scala.util.Try
+
+import play.api.PlayException
 
 trait PlayAdapter[R <: Has[_] with Blocking with Random] {
 
   val `application/graphql` = "application/graphql"
   def actionBuilder: ActionBuilder[Request, AnyContent]
   def parse: PlayBodyParsers
-  def requestWrapper: RequestWrapper[R]
+  def requestWrapper: RequestOrErrorWrapper[R]
 
   implicit def writableGraphQLResponse[E](implicit wr: Writes[GraphQLResponse[E]]): Writeable[GraphQLResponse[E]] =
     Writeable.writeableOf_JsValue.map(wr.writes)
@@ -152,18 +154,20 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
     fileHandle: ZLayer[Any, Nothing, Uploads] = Uploads.empty
   )(implicit runtime: Runtime[R]): CancelableFuture[Result] =
     runtime.unsafeRunToFuture(
-      requestWrapper(request)(
-        interpreter
-          .executeRequest(
-            supportFederatedTracing(request).body,
-            skipValidation = skipValidation,
-            enableIntrospection = enableIntrospection,
-            queryExecution
-          )
-          .catchAllCause(cause => ZIO.succeed(GraphQLResponse[Throwable](NullValue, cause.defects)))
-          .map(Ok(_))
-          .provideSomeLayer[R](fileHandle)
-      )
+      requestWrapper
+        .wrapRequestOrError(request)(
+          interpreter
+            .executeRequest(
+              supportFederatedTracing(request).body,
+              skipValidation = skipValidation,
+              enableIntrospection = enableIntrospection,
+              queryExecution
+            )
+            .catchAllCause(cause => ZIO.succeed(GraphQLResponse[Throwable](NullValue, cause.defects)))
+            .map(Ok(_))
+            .provideSomeLayer[R](fileHandle)
+        )
+        .fold(identity, identity)
     )
 
   private def getGraphQLRequest(
@@ -190,23 +194,13 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
   private def parseJson(s: String): Try[JsValue] =
     Try(Json.parse(s))
 
-  def makeWebSocket[E](
-    interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    keepAliveTime: Option[Duration] = None,
-    queryExecution: QueryExecution = QueryExecution.Parallel
-  )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): WebSocket =
-    WebSocket.accept(_ =>
-      webSocketFlow(interpreter, skipValidation, enableIntrospection, keepAliveTime, queryExecution)
-    )
-
   private def webSocketFlow[E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean,
     enableIntrospection: Boolean,
     keepAliveTime: Option[Duration],
-    queryExecution: QueryExecution
+    queryExecution: QueryExecution,
+    requestHeader: RequestHeader
   )(implicit
     ec: ExecutionContext,
     materializer: Materializer,
@@ -227,6 +221,9 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
       subscriptions: Ref[Map[Option[String], Fiber[Throwable, Unit]]]
     ): RIO[R, Unit] =
       for {
+        _      <- requestWrapper
+                    .wrapRequestOrError(requestHeader)(ZIO.succeed(Accepted))
+                    .orDieWith(result => new PlayException("Unable to decode request header", result.body.toString))
         result <- interpreter.executeRequest(
                     request,
                     skipValidation = skipValidation,
@@ -299,9 +296,8 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
     }
   }
 
-  def makeWakeSocketOrResult[E](
+  def makeWebSocketOrResult[E](
     interpreter: GraphQLInterpreter[R, E],
-    handleRequestHeader: RequestHeader => Future[Either[Result, Unit]],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     keepAliveTime: Option[Duration] = None,
@@ -309,9 +305,23 @@ trait PlayAdapter[R <: Has[_] with Blocking with Random] {
   )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): WebSocket =
     WebSocket
       .acceptOrResult(requestHeader =>
-        handleRequestHeader(requestHeader)
-          .map(
-            _.map(_ => webSocketFlow(interpreter, skipValidation, enableIntrospection, keepAliveTime, queryExecution))
+        runtime
+          .unsafeRunToFuture(
+            requestWrapper
+              .wrapRequestOrError(requestHeader)(ZIO.succeed(Accepted))
+              .either
+              .map(
+                _.map(_ =>
+                  webSocketFlow(
+                    interpreter,
+                    skipValidation,
+                    enableIntrospection,
+                    keepAliveTime,
+                    queryExecution,
+                    requestHeader
+                  )
+                )
+              )
           )
       )
 
@@ -336,21 +346,35 @@ object PlayAdapter {
   def apply[R <: Has[_] with Blocking with Random](
     playBodyParsers: PlayBodyParsers,
     _actionBuilder: ActionBuilder[Request, AnyContent],
-    wrapper: RequestWrapper[R] = RequestWrapper.empty
+    wrapper: RequestOrErrorWrapper[R] = RequestWrapper.empty
   ): PlayAdapter[R] =
     new PlayAdapter[R] {
       override def parse: PlayBodyParsers                            = playBodyParsers
       override def actionBuilder: ActionBuilder[Request, AnyContent] = _actionBuilder
-      override def requestWrapper: RequestWrapper[R]                 = wrapper
+      override def requestWrapper: RequestOrErrorWrapper[R]          = wrapper
     }
 
-  trait RequestWrapper[-R] { self =>
+  trait RequestOrErrorWrapper[-R] { self =>
+    def wrapRequestOrError[R1 <: R](ctx: RequestHeader)(e: ZIO[R1, Result, Result]): ZIO[R1, Result, Result]
+
+    def |+|[R1 <: R](that: RequestOrErrorWrapper[R1]): RequestOrErrorWrapper[R1] = new RequestOrErrorWrapper[R1] {
+      override def wrapRequestOrError[R2 <: R1](ctx: RequestHeader)(
+        e: ZIO[R2, Result, Result]
+      ): ZIO[R2, Result, Result] =
+        that.wrapRequestOrError[R2](ctx)(self.wrapRequestOrError[R2](ctx)(e))
+    }
+  }
+
+  trait RequestWrapper[-R] extends RequestOrErrorWrapper[R] { self =>
+    override def wrapRequestOrError[R1 <: R](ctx: RequestHeader)(e: ZIO[R1, Result, Result]): ZIO[R1, Result, Result] =
+      apply(ctx)(e.fold(identity, identity)).flatMap {
+        case result if result.header.status > 200 && result.header.status < 300 =>
+          ZIO.succeed(result)
+        case result                                                             =>
+          ZIO.fail(result)
+      }
+
     def apply[R1 <: R](ctx: RequestHeader)(e: URIO[R1, Result]): URIO[R1, Result]
-
-    def |+|[R1 <: R](that: RequestWrapper[R1]): RequestWrapper[R1] = new RequestWrapper[R1] {
-      override def apply[R2 <: R1](ctx: RequestHeader)(e: URIO[R2, Result]): URIO[R2, Result] =
-        that.apply[R2](ctx)(self.apply[R2](ctx)(e))
-    }
   }
 
   object RequestWrapper {
