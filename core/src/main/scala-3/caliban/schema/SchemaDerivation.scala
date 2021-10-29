@@ -11,7 +11,17 @@ import caliban.schema.macros.{ Macros, TypeInfo }
 import scala.deriving.Mirror
 import scala.compiletime._
 
-trait SchemaDerivation[R] {
+object PrintDerived {
+  import scala.quoted.*
+  inline def apply[T](inline any: T): T = ${ printDerived('any) }
+  def printDerived[T: Type](any: Expr[T])(using qctx: Quotes): Expr[T] = {
+    import qctx.reflect._
+    println(Printer.TreeShortCode.show(any.asTerm))
+    any
+  }
+}
+
+trait SchemaDerivation[A] {
 
   /**
    * Default naming logic for input types.
@@ -21,20 +31,20 @@ trait SchemaDerivation[R] {
    */
   def customizeInputTypeName(name: String): String = s"${name}Input"
 
-  inline def recurse[Label, A <: Tuple](index: Int = 0): List[(String, List[Any], Schema[R, Any], Int)] =
+  inline def recurse[R, Label, A <: Tuple](index: Int = 0): List[(String, List[Any], Schema[R, Any], Int)] =
     inline erasedValue[(Label, A)] match {
       case (_: (name *: names), _: (t *: ts)) =>
         val label       = constValue[name].toString
         val annotations = Macros.annotations[t]
         val builder     = summonInline[Schema[R, t]].asInstanceOf[Schema[R, Any]]
-        (label, annotations, builder, index) :: recurse[names, ts](index + 1)
+        (label, annotations, builder, index) :: recurse[R, names, ts](index + 1)
       case (_: EmptyTuple, _)                 => Nil
     }
 
-  inline def derived[A]: Schema[R, A] =
+  inline def derived[R, A]: Schema[R, A] =
     inline summonInline[Mirror.Of[A]] match {
       case m: Mirror.SumOf[A]     =>
-        lazy val members     = recurse[m.MirroredElemLabels, m.MirroredElemTypes]()
+        lazy val members     = recurse[R, m.MirroredElemLabels, m.MirroredElemTypes]()
         lazy val info        = Macros.typeInfo[A]
         lazy val annotations = Macros.annotations[A]
         lazy val subTypes    =
@@ -112,7 +122,7 @@ trait SchemaDerivation[R] {
         }
       case m: Mirror.ProductOf[A] =>
         lazy val annotations      = Macros.annotations[A]
-        lazy val fields           = recurse[m.MirroredElemLabels, m.MirroredElemTypes]()
+        lazy val fields           = recurse[R, m.MirroredElemLabels, m.MirroredElemTypes]()
         lazy val info             = Macros.typeInfo[A]
         lazy val paramAnnotations = Macros.paramAnnotations[A].toMap
         new Schema[R, A] {
@@ -225,5 +235,7 @@ trait SchemaDerivation[R] {
   private def getDefaultValue(annotations: Seq[Any]): Option[String] =
     annotations.collectFirst { case GQLDefault(v) => v }
 
-  inline given gen[A]: Schema[R, A] = derived
+  inline given gen[R, A]: Schema[R, A] = derived[R, A]
+
+  inline def genDebug[R, A]: Schema[R, A] = PrintDerived(derived[R, A])
 }

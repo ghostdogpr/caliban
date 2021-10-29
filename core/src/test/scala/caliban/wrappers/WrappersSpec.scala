@@ -124,7 +124,8 @@ object WrappersSpec extends DefaultRunnableSpec {
 
         object schema extends GenericSchema[Clock] {
           val interpreter =
-            (graphQL(RootResolver(Test(clock.sleep(2 minutes).as(0)))) @@ timeout(1 minute)).interpreter
+            (graphQL[Clock, Test, Unit, Unit](RootResolver(Test(clock.sleep(2 minutes).as(0)))) @@
+              timeout(1 minute)).interpreter
         }
 
         val query = gqldoc("""
@@ -146,7 +147,8 @@ object WrappersSpec extends DefaultRunnableSpec {
         case class Hero(name: URIO[Clock, String], friends: List[Hero] = Nil)
 
         object schema extends GenericSchema[Clock] {
-          implicit lazy val heroSchema: Schema[Clock, Hero] = schema.gen[Hero]
+          implicit lazy val heroSchema: Schema[Clock, Hero] = gen
+          implicit val querySchema: Schema[Clock, Query]    = gen
 
           def api(latch: Promise[Nothing, Unit]): GraphQL[Clock] =
             graphQL(
@@ -196,7 +198,8 @@ object WrappersSpec extends DefaultRunnableSpec {
         case class Hero(name: URIO[Clock, String], friends: List[Hero] = Nil)
 
         object schema extends GenericSchema[Clock] {
-          implicit lazy val heroSchema: Schema[Clock, Hero] = schema.gen[Hero]
+          implicit lazy val heroSchema: Schema[Clock, Hero] = gen
+          implicit val querySchema: Schema[Clock, Query]    = gen
           def api: GraphQL[Clock]                           =
             graphQL(
               RootResolver(

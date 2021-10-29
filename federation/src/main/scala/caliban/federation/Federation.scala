@@ -98,9 +98,7 @@ trait Federation {
 
     val withSDL = original.withAdditionalTypes(resolvers.map(_.toType).flatMap(Types.collectTypes(_)))
 
-    implicit val querySchema: Schema[R, Query] = genericSchema.gen[Query]
-
-    GraphQL.graphQL(
+    GraphQL.graphQL[R, Query, Unit, Unit](
       RootResolver(
         Query(
           _entities = args => args.representations.map(rep => _Entity(rep.__typename, rep.fields)),

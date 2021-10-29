@@ -2,6 +2,9 @@ package caliban
 
 import caliban.GraphQL._
 import caliban.schema.Annotations.GQLInterface
+import zio._
+import zio.clock._
+import zio.console._
 import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment
@@ -68,6 +71,22 @@ object Scala3SpecificSpec extends DefaultRunnableSpec {
             |}""".stripMargin
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
           equalTo("""{"item":{"a":1}}""")
+        )
+      },
+      testM("Derive R without imports") {
+        case class Inner(io: RIO[Console, String])
+        case class Queries(io: RIO[Clock, Int], inner: Inner)
+        val api         = graphQL[Clock with Console, Queries, Unit, Unit](RootResolver(Queries(UIO(1), Inner(UIO("ok")))))
+        val interpreter = api.interpreter
+        val query       =
+          """query {
+            |  io
+            |  inner {
+            |    io
+            |  }
+            |}""".stripMargin
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
+          equalTo("""{"io":1,"inner":{"io":"ok"}}""")
         )
       }
     )

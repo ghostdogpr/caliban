@@ -73,9 +73,9 @@ case class UploadFilesArgs(files: List[Upload])
 object TestAPI extends GenericSchema[Blocking with Uploads with Console with Clock] {
   type Env = Blocking with Uploads with Console with Clock
 
-  implicit val uploadFileArgsSchema: Schema[Env, UploadFileArgs] = gen[UploadFileArgs]
-  implicit val mutationsSchema: Schema[Env, Mutations]           = gen[Mutations]
-  implicit val queriesSchema: Schema[Env, Queries]               = gen[Queries]
+  implicit val uploadFileArgsSchema: Schema[Env, UploadFileArgs] = gen
+  implicit val mutationsSchema: Schema[Env, Mutations]           = gen
+  implicit val queriesSchema: Schema[Env, Queries]               = gen
 
   val api: GraphQL[Env] =
     graphQL(

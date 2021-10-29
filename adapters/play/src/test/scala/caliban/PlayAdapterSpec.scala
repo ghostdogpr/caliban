@@ -5,7 +5,7 @@ import java.math.BigInteger
 import java.net.URL
 import java.security.MessageDigest
 import caliban.GraphQL.graphQL
-import caliban.schema.GenericSchema
+import caliban.schema.{ GenericSchema, Schema }
 import caliban.uploads._
 import io.circe.generic.auto._
 import io.circe.parser._
@@ -66,18 +66,18 @@ object Service {
 case class UploadFileArgs(file: Upload)
 case class UploadFilesArgs(files: List[Upload])
 
-object TestAPI extends GenericSchema[Blocking with Uploads with Console with Clock] {
-  val api: GraphQL[Blocking with Uploads with Console with Clock] =
+object TestAPI extends GenericSchema[Blocking with Uploads] {
+  implicit val uploadFileArgsSchema: Schema[Any, UploadFileArgs]         = gen
+  implicit val mutationsSchema: Schema[Blocking with Uploads, Mutations] = gen
+  implicit val queriesSchema: Schema[Any, Queries]                       = gen
+
+  val api: GraphQL[Blocking with Uploads] =
     graphQL(
       RootResolver(
         Queries(args => UIO("stub")),
         Mutations(args => Service.uploadFile(args.file), args => Service.uploadFiles(args.files))
       )
     )
-
-  implicit val uploadFileArgsSchema = gen[UploadFileArgs]
-  implicit val mutationsSchema      = gen[Mutations]
-  implicit val queriesSchema        = gen[Queries]
 
   case class File(hash: String, path: String, filename: String, mimetype: String)
 

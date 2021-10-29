@@ -1,7 +1,5 @@
 package caliban.schema
 
-import caliban.Rendering
-
 import java.util.UUID
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
 import caliban.schema.Annotations.{ GQLInterface, GQLUnion, GQLValueType }
@@ -66,13 +64,13 @@ object SchemaSpec extends DefaultRunnableSpec {
 
           case class A(s: String)
           object A {
-            implicit val aSchema: Schema[Blocking, A] = gen[A]
+            implicit val aSchema: Schema[Blocking, A] = gen
           }
           case class B(a: List[Option[A]])
 
           A.aSchema.toType_()
 
-          val schema: Schema[Blocking, B] = gen[B]
+          val schema: Schema[Blocking, B] = gen
         }
 
         assert(Types.collectTypes(blockingSchema.schema.toType_()).map(_.name.getOrElse("")))(
@@ -125,14 +123,14 @@ object SchemaSpec extends DefaultRunnableSpec {
         case class Something(b: Int)
         case class Query(something: Something)
 
-        implicit val somethingSchema: Schema[Any, Something] = Schema.gen[Something].rename("SomethingElse")
+        implicit val somethingSchema: Schema[Any, Something] = Schema.gen[Any, Something].rename("SomethingElse")
 
         assert(Types.innerType(introspectSubscription[Something]).name)(isSome(equalTo("SomethingElse")))
       },
       test("union redirect") {
         case class Queries(union: RedirectingUnion)
 
-        implicit val queriesSchema: Schema[Any, Queries] = Schema.gen[Queries]
+        implicit val queriesSchema: Schema[Any, Queries] = Schema.gen
 
         val types      = Types.collectTypes(introspect[Queries])
         val subTypes   = types.find(_.name.contains("RedirectingUnion")).flatMap(_.possibleTypes)
