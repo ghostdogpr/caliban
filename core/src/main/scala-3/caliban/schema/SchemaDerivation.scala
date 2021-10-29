@@ -13,7 +13,7 @@ import scala.compiletime._
 
 object PrintDerived {
   import scala.quoted.*
-  inline def apply[T](inline any: T): T = ${ printDerived('any) }
+  inline def apply[T](inline any: T): T                                = ${ printDerived('any) }
   def printDerived[T: Type](any: Expr[T])(using qctx: Quotes): Expr[T] = {
     import qctx.reflect._
     println(Printer.TreeShortCode.show(any.asTerm))
