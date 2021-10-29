@@ -1,19 +1,11 @@
 package caliban.execution
 
-import zio._
-
-import caliban.CalibanError
 import caliban.GraphQL._
-import caliban.Macros.gqldoc
-import caliban.InputValue
+import caliban.{ GraphQLRequest, InputValue, RootResolver, Value }
 import caliban.Value.EnumValue
-import caliban.RootResolver
-import caliban.schema.Annotations.GQLDefault
-import zio.test.Assertion._
+import zio._
 import zio.test._
 import zio.test.environment.TestEnvironment
-import caliban.Value
-import caliban.GraphQLRequest
 
 object FieldArgsSpec extends DefaultRunnableSpec {
   sealed trait COLOR
@@ -22,7 +14,7 @@ object FieldArgsSpec extends DefaultRunnableSpec {
     case object BLUE  extends COLOR
   }
 
-  override def spec = suite("FieldArgsSpec")(
+  override def spec: ZSpec[TestEnvironment, Any] = suite("FieldArgsSpec")(
     testM("it forward args of correct type") {
       case class QueryInput(color: COLOR, string: String)
       case class Query(query: Field => QueryInput => UIO[String])
@@ -36,10 +28,7 @@ object FieldArgsSpec extends DefaultRunnableSpec {
         api          = graphQL(
                          RootResolver(
                            Query(
-                             query = info =>
-                               i =>
-                                 ref.set(Option(info)) *>
-                                   ZIO.succeed(i.string)
+                             query = info => i => ref.set(Option(info)).as(i.string)
                            )
                          )
                        )
@@ -48,7 +37,7 @@ object FieldArgsSpec extends DefaultRunnableSpec {
 
         res <- ref.get
       } yield assertTrue(
-        res.get.arguments.get("color").get == EnumValue("BLUE")
+        res.get.arguments("color") == EnumValue("BLUE")
       )
     },
     testM("it forward args as correct type from variables") {
@@ -65,27 +54,23 @@ object FieldArgsSpec extends DefaultRunnableSpec {
                          RootResolver(
                            Query(
                              query = info => { i =>
-                               ref.set(Option(info)) *>
-                                 ZIO.succeed(i.string)
+                               ref.set(Option(info)).as(i.string)
                              }
                            )
                          )
                        )
         interpreter <- api.interpreter
-        qres        <- interpreter.executeRequest(
+        _           <- interpreter.executeRequest(
                          request = GraphQLRequest(
                            query = Some(query),
                            // "color" is a string here since it will come directly from
                            // parsed JSON which is unaware that it should be an Enum
                            variables = Some(Map("color" -> Value.StringValue("BLUE")))
-                         ),
-                         skipValidation = false,
-                         enableIntrospection = true,
-                         queryExecution = QueryExecution.Parallel
+                         )
                        )
         res         <- ref.get
       } yield assertTrue(
-        res.get.arguments.get("color").get == EnumValue("BLUE")
+        res.get.arguments("color") == EnumValue("BLUE")
       )
     },
     testM("it correctly handles lists of enums") {
@@ -102,14 +87,13 @@ object FieldArgsSpec extends DefaultRunnableSpec {
                          RootResolver(
                            Query(
                              query = info => { i =>
-                               ref.set(Option(info)) *>
-                                 ZIO.succeed(i.string)
+                               ref.set(Option(info)).as(i.string)
                              }
                            )
                          )
                        )
         interpreter <- api.interpreter
-        qres        <- interpreter.executeRequest(
+        _           <- interpreter.executeRequest(
                          request = GraphQLRequest(
                            query = Some(query),
                            // "color" is a string here since it will come directly from
@@ -120,14 +104,11 @@ object FieldArgsSpec extends DefaultRunnableSpec {
                                  InputValue.ListValue(List(Value.StringValue("BLUE")))
                              )
                            )
-                         ),
-                         skipValidation = false,
-                         enableIntrospection = true,
-                         queryExecution = QueryExecution.Parallel
+                         )
                        )
         res         <- ref.get
       } yield assertTrue(
-        res.get.arguments.get("color").get == InputValue.ListValue(List(EnumValue("BLUE")))
+        res.get.arguments("color") == InputValue.ListValue(List(EnumValue("BLUE")))
       )
     },
     testM("it correctly handles objects of enums") {
@@ -145,14 +126,13 @@ object FieldArgsSpec extends DefaultRunnableSpec {
                          RootResolver(
                            Query(
                              query = info => { i =>
-                               ref.set(Option(info)) *>
-                                 ZIO.succeed(i.nested.string)
+                               ref.set(Option(info)).as(i.nested.string)
                              }
                            )
                          )
                        )
         interpreter <- api.interpreter
-        qres        <- interpreter.executeRequest(
+        _           <- interpreter.executeRequest(
                          request = GraphQLRequest(
                            query = Some(query),
                            // "color" is a string here since it will come directly from
@@ -163,14 +143,11 @@ object FieldArgsSpec extends DefaultRunnableSpec {
                                  InputValue.ListValue(List(Value.StringValue("BLUE")))
                              )
                            )
-                         ),
-                         skipValidation = false,
-                         enableIntrospection = true,
-                         queryExecution = QueryExecution.Parallel
+                         )
                        )
         res         <- ref.get
       } yield assertTrue(
-        res.get.arguments.get("nested").get ==
+        res.get.arguments("nested") ==
           InputValue.ObjectValue(
             Map(
               "color"  -> InputValue.ListValue(List(EnumValue("BLUE"))),
