@@ -1,7 +1,5 @@
 package caliban.schema
 
-import caliban.Rendering
-
 import java.util.UUID
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
 import caliban.schema.Annotations.{ GQLInterface, GQLUnion, GQLValueType }

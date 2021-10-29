@@ -2,12 +2,13 @@ package caliban
 
 import akka.stream.scaladsl.{ Flow, Sink, Source, SourceQueueWithComplete }
 import akka.stream.{ Materializer, OverflowStrategy, QueueOfferResult }
-import caliban.PlayAdapter.{ RequestOrErrorWrapper, RequestWrapper }
+import caliban.PlayAdapter.RequestOrErrorWrapper
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
 import caliban.execution.QueryExecution
 import caliban.interop.play.json.parsingException
 import caliban.uploads._
+import play.api.PlayException
 import play.api.http.Writeable
 import play.api.libs.json.{ JsValue, Json, Writes }
 import play.api.mvc.Results.{ Accepted, Ok }
@@ -19,12 +20,10 @@ import zio.clock.Clock
 import zio.duration.Duration
 import zio.random.Random
 import zio.{ CancelableFuture, Fiber, Has, IO, RIO, Ref, Runtime, Schedule, Task, URIO, ZIO, ZLayer }
-import java.util.Locale
 
+import java.util.Locale
 import scala.concurrent.{ ExecutionContext, Future }
 import scala.util.Try
-
-import play.api.PlayException
 
 trait PlayAdapter[R <: Has[_] with Blocking with Random] {
 
