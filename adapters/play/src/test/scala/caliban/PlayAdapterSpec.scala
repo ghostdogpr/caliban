@@ -133,7 +133,7 @@ object PlayAdapterSpec extends DefaultRunnableSpec {
         val fileURL: URL     = getClass.getResource(s"/$fileName")
 
         val query: String =
-          """{ "query": "mutation ($file: UploadInput!) { uploadFile(file: $file) { hash, path, filename, mimetype } }",   "variables": {  "file": null }}"""
+          """{ "query": "mutation ($file: Upload!) { uploadFile(file: $file) { hash, path, filename, mimetype } }",   "variables": {  "file": null }}"""
 
         val request = basicRequest
           .post(uri)
@@ -172,7 +172,7 @@ object PlayAdapterSpec extends DefaultRunnableSpec {
         val file2URL: URL     = getClass.getResource(s"/$file2Name")
 
         val query: String =
-          """{ "query": "mutation ($files: [UploadInput!]!) { uploadFiles(files: $files) { hash, path, filename, mimetype } }",   "variables": {  "files": [null, null] }}"""
+          """{ "query": "mutation ($files: [Upload!]!) { uploadFiles(files: $files) { hash, path, filename, mimetype } }",   "variables": {  "files": [null, null] }}"""
 
         val request = basicRequest
           .post(uri)

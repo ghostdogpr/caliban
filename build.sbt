@@ -147,8 +147,8 @@ lazy val tools = project
     crossScalaVersions -= scala3,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "org.scalameta"                 %% "scalafmt-dynamic"              % "3.0.6",
-      "org.scalameta"                 %% "scalafmt-core"                 % "3.0.6",
+      "org.scalameta"                 %% "scalafmt-dynamic"              % "3.0.7",
+      "org.scalameta"                 %% "scalafmt-core"                 % "3.0.7",
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
       "dev.zio"                       %% "zio-config"                    % zioConfigVersion,
       "dev.zio"                       %% "zio-config-magnolia"           % zioConfigVersion,
@@ -253,14 +253,15 @@ lazy val http4s = project
         "dev.zio"                       %% "zio-interop-cats"              % zioInteropCats3Version,
         "org.typelevel"                 %% "cats-effect"                   % catsEffect3Version,
         "org.http4s"                    %% "http4s-dsl"                    % http4sVersion,
+        "org.http4s"                    %% "http4s-server"                 % http4sVersion,
         "org.http4s"                    %% "http4s-circe"                  % http4sVersion,
-        "org.http4s"                    %% "http4s-blaze-server"           % http4sVersion,
         "io.circe"                      %% "circe-parser"                  % circeVersion,
-        "dev.zio"                       %% "zio-test"                      % zioVersion   % Test,
-        "dev.zio"                       %% "zio-test-sbt"                  % zioVersion   % Test,
-        "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion  % Test,
-        "com.softwaremill.sttp.client3" %% "circe"                         % sttpVersion  % Test,
-        "io.circe"                      %% "circe-generic"                 % circeVersion % Test
+        "org.http4s"                    %% "http4s-blaze-server"           % http4sVersion % Test,
+        "dev.zio"                       %% "zio-test"                      % zioVersion    % Test,
+        "dev.zio"                       %% "zio-test-sbt"                  % zioVersion    % Test,
+        "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion   % Test,
+        "com.softwaremill.sttp.client3" %% "circe"                         % sttpVersion   % Test,
+        "io.circe"                      %% "circe-generic"                 % circeVersion  % Test
       )
   )
   .dependsOn(core, catsInterop)
@@ -400,6 +401,7 @@ lazy val examples = project
     crossScalaVersions -= scala3,
     libraryDependencies ++= Seq(
       "de.heikoseeberger"             %% "akka-http-circe"               % "1.38.2",
+      "org.http4s"                    %% "http4s-blaze-server"           % http4sVersion,
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % tapirVersion,
       "io.circe"                      %% "circe-generic"                 % circeVersion,

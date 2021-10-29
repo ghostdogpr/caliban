@@ -8,6 +8,7 @@ import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
 import caliban.schema.Step._
 import caliban.schema.Types._
+import caliban.uploads.Upload
 import caliban.{ InputValue, ResponseValue }
 import zio.query.ZQuery
 import zio.stream.ZStream
@@ -484,6 +485,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
       override def resolve(value: ZStream[R1, E, A]): Step[R0]               = StreamStep(value.mapBoth(convertError, ev.resolve))
     }
 
+  implicit def uploadSchema: Schema[R, Upload] = Schema.scalarSchema("Upload", None, _ => StringValue("<upload>"))
 }
 
 trait TemporalSchema {

@@ -172,22 +172,6 @@ object ExecutionSpec extends DefaultRunnableSpec {
           api.interpreter.flatMap(_.execute(query, None, Map())).map(_.asJson.noSpaces)
         )(equalTo("""{"data":{"character":{"name":"Bob"}}}"""))
       },
-      testM("error on missing required variables") {
-        import io.circe.syntax._
-
-        case class Args(term: String, id: String)
-        case class Test(getId: Args => String)
-        val api   = graphQL(RootResolver(Test(_.id)))
-        val query = """query test($term: String!, $id: String!) { getId(term: $term, id: $id) }"""
-
-        assertM(
-          api.interpreter.flatMap(_.execute(query, None, Map("term" -> StringValue("search")))).map(_.asJson.noSpaces)
-        )(
-          equalTo(
-            """{"data":null,"errors":[{"message":"Can't build a String from input null","locations":[{"line":1,"column":44}],"path":["getId"]}]}"""
-          )
-        )
-      },
       testM("""input can contain field named "value"""") {
         import io.circe.syntax._
         case class NonNegInt(value: Int)
@@ -397,6 +381,18 @@ object ExecutionSpec extends DefaultRunnableSpec {
         val query       = gqldoc("""
              subscription {
                test
+             }""")
+
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":<stream>}"""))
+      },
+      testM("ARGS => ZStream used in a subscription") {
+        case class Queries(test: Int)
+        case class Subscriptions(test: Int => ZStream[Any, Throwable, Int])
+        val interpreter =
+          graphQL(RootResolver(Queries(1), Option.empty[Unit], Subscriptions(x => ZStream(1, 2, 3)))).interpreter
+        val query       = gqldoc("""
+             subscription {
+               test(value: 1)
              }""")
 
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":<stream>}"""))

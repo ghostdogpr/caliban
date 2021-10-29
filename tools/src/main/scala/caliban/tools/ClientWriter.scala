@@ -466,6 +466,7 @@ object ClientWriter {
 
     val viewFunction: String =
       fields match {
+        case Nil         => throw new Exception("Invalid GraphQL Schema: an object must have at least one field")
         case head :: Nil =>
           s"$viewFunctionBody.map(${head.name} => $viewName(${head.name}))"
 
