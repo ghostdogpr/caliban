@@ -196,7 +196,7 @@ object ArgBuilder extends ArgBuilderDerivation {
   implicit def chunk[A](implicit ev: ArgBuilder[A]): ArgBuilder[Chunk[A]]   = list[A].map(Chunk.fromIterable)
 
   implicit lazy val upload: ArgBuilder[Upload] = {
-    case StringValue(v) => Right(new Upload(v))
+    case StringValue(v) => Right(Upload(v))
     case other          => Left(ExecutionError(s"Can't build an Upload from $other"))
   }
 }

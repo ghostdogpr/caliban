@@ -1,15 +1,17 @@
 package caliban.schema
 
-import java.time.{ Instant, LocalDate, LocalDateTime, OffsetDateTime, OffsetTime, ZoneOffset, ZonedDateTime }
-import caliban.Value.{ IntValue, NullValue, StringValue }
-import zio.test._
-import Assertion._
 import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.InputValue.ObjectValue
+import caliban.Value.{ IntValue, NullValue, StringValue }
+import zio.test.Assertion._
+import zio.test._
+import zio.test.environment.TestEnvironment
+
+import java.time._
 
 object ArgBuilderSpec extends DefaultRunnableSpec {
-  def spec = suite("ArgBuilder")(
+  def spec: ZSpec[TestEnvironment, Any] = suite("ArgBuilder")(
     suite("orElse")(
       test("handles failures")(
         assert((ArgBuilder.instant orElse ArgBuilder.instantEpoch).build(IntValue.LongNumber(100)))(
@@ -79,11 +81,11 @@ object ArgBuilderSpec extends DefaultRunnableSpec {
 
         case class Wrapper(a: Nullable[String])
 
-        val deriviedAB = implicitly[ArgBuilder[Wrapper]]
+        val derivedAB = implicitly[ArgBuilder[Wrapper]]
 
-        assert(deriviedAB.build(ObjectValue(Map())))(equalTo(Right(Wrapper(MissingNullable)))) &&
-        assert(deriviedAB.build(ObjectValue(Map("a" -> NullValue))))(equalTo(Right(Wrapper(NullNullable)))) &&
-        assert(deriviedAB.build(ObjectValue(Map("a" -> StringValue("x")))))(equalTo(Right(Wrapper(SomeNullable("x")))))
+        assert(derivedAB.build(ObjectValue(Map())))(equalTo(Right(Wrapper(MissingNullable)))) &&
+        assert(derivedAB.build(ObjectValue(Map("a" -> NullValue))))(equalTo(Right(Wrapper(NullNullable)))) &&
+        assert(derivedAB.build(ObjectValue(Map("a" -> StringValue("x")))))(equalTo(Right(Wrapper(SomeNullable("x")))))
       }
     )
   )
