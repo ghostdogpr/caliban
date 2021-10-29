@@ -148,10 +148,9 @@ object WrappersSpec extends DefaultRunnableSpec {
 
         object schema extends GenericSchema[Clock] {
           implicit lazy val heroSchema: Schema[Clock, Hero] = gen
-          implicit val querySchema: Schema[Clock, Query]    = gen
 
           def api(latch: Promise[Nothing, Unit]): GraphQL[Clock] =
-            graphQL(
+            graphQL[Clock, Query, Unit, Unit](
               RootResolver(
                 Query(
                   Hero(
@@ -199,9 +198,8 @@ object WrappersSpec extends DefaultRunnableSpec {
 
         object schema extends GenericSchema[Clock] {
           implicit lazy val heroSchema: Schema[Clock, Hero] = gen
-          implicit val querySchema: Schema[Clock, Query]    = gen
           def api: GraphQL[Clock]                           =
-            graphQL(
+            graphQL[Clock, Query, Unit, Unit](
               RootResolver(
                 Query(
                   Hero(
