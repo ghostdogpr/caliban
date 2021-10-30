@@ -227,10 +227,16 @@ object ZHttpAdapter {
   }
 
   private def queryFromQueryParams(req: Request) = {
-    val params = List("query", "operationName", "variables", "extensions").collect { case k =>
-      k -> req.url.queryParams.get(k).flatMap(_.headOption).getOrElse("")
-    }.toMap
-    ZIO.fromEither(decode[GraphQLRequest](params.asJson.noSpaces))
+    val variablesJs  = req.url.queryParams.get("variables").flatMap(_.headOption).flatMap(parse(_).toOption)
+    val extensionsJs = req.url.queryParams.get("extensions").flatMap(_.headOption).flatMap(parse(_).toOption)
+    val fields       = List(
+      "query" -> Json.fromString(req.url.queryParams.get("query").flatMap(_.headOption).getOrElse(""))
+    ) ++
+      req.url.queryParams.get("operationName").flatMap(_.headOption).map(o => "operationName" -> Json.fromString(o)) ++
+      variablesJs.map(js => "variables" -> js) ++
+      extensionsJs.map(js => "extensions" -> js)
+
+    ZIO.fromEither(Json.fromFields(fields).as[GraphQLRequest])
   }
 
   private def queryFromRequest(req: Request) =
