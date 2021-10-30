@@ -82,10 +82,6 @@ object Http4sAdapter {
       .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
       .provideSomeLayer[R](fileHandle)
 
-  @deprecated("Use makeHttpService instead", "0.4.0")
-  def makeRestService[R, E](interpreter: GraphQLInterpreter[R, E]): HttpRoutes[RIO[R, *]] =
-    makeHttpService(interpreter)
-
   private def getGraphQLRequest(
     query: String,
     op: Option[String] = None,
@@ -552,12 +548,6 @@ object Http4sAdapter {
         queryExecution
       )
     )
-
-  @deprecated("Use makeHttpServiceF instead", "0.4.0")
-  def makeRestServiceF[F[_], E](
-    interpreter: GraphQLInterpreter[Any, E]
-  )(implicit F: Async[F], dispatcher: Dispatcher[F], runtime: Runtime[Any]): HttpRoutes[F] =
-    makeHttpServiceF(interpreter)
 
   def makeHttpServiceF[F[_], R, E](
     interpreter: GraphQLInterpreter[R, E],
