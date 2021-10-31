@@ -1,10 +1,8 @@
 package caliban.tools
 
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
-import caliban.parsing.adt.Type.{ ListType, NamedType }
-import caliban.parsing.adt.{ Document, Type }
-import caliban.tools.implicits.Implicits._
-import caliban.tools.implicits.ScalarMappings
+import caliban.parsing.adt.Type.{ListType, NamedType}
+import caliban.parsing.adt.{Document, Type}
 
 object SchemaWriter {
 
@@ -13,8 +11,191 @@ object SchemaWriter {
     packageName: Option[String] = None,
     effect: String = "zio.UIO",
     imports: Option[List[String]] = None,
+    scalarMappings: Option[Map[String,String]],
     isEffectTypeAbstract: Boolean = false
-  )(implicit scalarMappings: ScalarMappings): String = {
+  ): String = {
+
+    def safeName(name: String): String = ClientWriter.safeName(name)
+
+    def reservedType(typeDefinition: ObjectTypeDefinition): Boolean =
+      typeDefinition.name == "Query" || typeDefinition.name == "Mutation" || typeDefinition.name == "Subscription"
+
+    def writeRootField(field: FieldDefinition, od: ObjectTypeDefinition, effect: String): String = {
+      val argsTypeName = if (field.args.nonEmpty) s" ${argsName(field, od)} =>" else ""
+      s"${safeName(field.name)} :$argsTypeName $effect[${writeType(field.ofType)}]"
+    }
+
+    def writeRootQueryOrMutationDef(op: ObjectTypeDefinition, effect: String, isEffectTypeAbstract: Boolean): String = {
+      val typeParamOrEmpty = if (isEffectTypeAbstract) s"[$effect[_]]" else ""
+      s"""
+         |${writeDescription(op.description)}final case class ${op.name}$typeParamOrEmpty(
+         |${op.fields.map(c => writeRootField(c, op, effect)).mkString(",\n")}
+         |)""".stripMargin
+
+    }
+    def writeSubscriptionField(field: FieldDefinition, od: ObjectTypeDefinition): String =
+      "%s:%s ZStream[Any, Nothing, %s]".format(
+        safeName(field.name),
+        if (field.args.nonEmpty) s" ${argsName(field, od)} =>" else "",
+        writeType(field.ofType)
+      )
+
+    def writeRootSubscriptionDef(op: ObjectTypeDefinition): String =
+      s"""
+         |${writeDescription(op.description)}final case class ${op.name}(
+         |${op.fields.map(c => writeSubscriptionField(c, op)).mkString(",\n")}
+         |)""".stripMargin
+
+    def writeObject(typedef: ObjectTypeDefinition): String =
+      s"""${writeDescription(typedef.description)}final case class ${typedef.name}(${typedef.fields
+        .map(writeField(_, typedef))
+        .mkString(", ")})"""
+
+    def writeInputObject(typedef: InputObjectTypeDefinition): String =
+      s"""${writeDescription(typedef.description)}final case class ${typedef.name}(${typedef.fields
+        .map(writeInputValue)
+        .mkString(", ")})"""
+
+    def writeEnum(typedef: EnumTypeDefinition): String =
+      s"""${writeDescription(typedef.description)}sealed trait ${typedef.name} extends scala.Product with scala.Serializable
+
+          object ${typedef.name} {
+            ${typedef.enumValuesDefinition
+        .map(v => s"${writeDescription(v.description)}case object ${safeName(v.enumValue)} extends ${typedef.name}")
+        .mkString("\n")}
+          }
+       """
+
+    def writeUnions(unions: Map[UnionTypeDefinition, List[ObjectTypeDefinition]]): String =
+      if (unions.nonEmpty) {
+        val flattened = unions.toList.flatMap { case (unionType, objectTypes) => objectTypes.map(_ -> unionType) }
+
+        val (unionsWithoutReusedMembers, reusedUnionMembers) = flattened
+          .foldLeft(
+            (
+              Map.empty[UnionTypeDefinition, List[ObjectTypeDefinition]],
+              Map.empty[ObjectTypeDefinition, List[UnionTypeDefinition]]
+            )
+          ) {
+            case (
+                  (unionsWithoutReusedMembers, reusedUnionMembers),
+                  (objectType, unionType)
+                ) =>
+              val isReused = reusedUnionMembers.contains(objectType) ||
+                flattened.exists { case (_objectType, _unionType) =>
+                  _unionType.name != unionType.name && _objectType.name == objectType.name
+                }
+
+              if (isReused) {
+                (
+                  unionsWithoutReusedMembers,
+                  reusedUnionMembers.updated(
+                    objectType,
+                    reusedUnionMembers.getOrElse(objectType, List.empty) :+ unionType
+                  )
+                )
+              } else {
+                (
+                  unionsWithoutReusedMembers.updated(
+                    unionType,
+                    unionsWithoutReusedMembers.getOrElse(unionType, List.empty) :+ objectType
+                  ),
+                  reusedUnionMembers
+                )
+              }
+          }
+
+        s"""${unions.keys.map(writeUnionSealedTrait).mkString("\n")}
+        
+        ${unionsWithoutReusedMembers.map { case (union, objects) => writeNotReusedMembers(union, objects) }
+          .mkString("\n")}
+        
+        ${reusedUnionMembers.map { case (objectType, unions) => writeReusedUnionMember(objectType, unions) }
+          .mkString("\n")}
+         """
+      } else ""
+
+    def writeUnionSealedTrait(union: UnionTypeDefinition): String =
+      s"""${writeDescription(
+        union.description
+      )}sealed trait ${union.name} extends scala.Product with scala.Serializable"""
+
+    def writeReusedUnionMember(typedef: ObjectTypeDefinition, unions: List[UnionTypeDefinition]): String =
+      s"${writeObject(typedef)} extends ${unions.map(_.name).mkString(" with ")}"
+
+    def writeNotReusedMembers(typedef: UnionTypeDefinition, objects: List[ObjectTypeDefinition]): String =
+      s"""object ${typedef.name} {
+            ${objects
+        .map(o => s"${writeObject(o)} extends ${typedef.name}")
+        .mkString("\n")}
+          }
+       """
+
+    def writeInterface(interface: InterfaceTypeDefinition, impls: List[ObjectTypeDefinition]): String =
+      s"""@GQLInterface
+        ${writeDescription(interface.description)}sealed trait ${interface.name} extends scala.Product with scala.Serializable {
+         ${interface.fields.map(field => s"def ${safeName(field.name)} : ${writeType(field.ofType)}").mkString("\n")}
+        }
+
+          object ${interface.name} {
+            ${impls
+        .map(o => s"${writeObject(o)} extends ${interface.name}")
+        .mkString("\n")}
+          }
+       """
+
+    def writeField(field: FieldDefinition, of: ObjectTypeDefinition): String =
+      if (field.args.nonEmpty) {
+        s"${writeDescription(field.description)}${safeName(field.name)} : ${argsName(field, of)} => ${writeType(field.ofType)}"
+      } else {
+        s"""${writeDescription(field.description)}${safeName(field.name)} : ${writeType(field.ofType)}"""
+      }
+
+    def writeInputValue(value: InputValueDefinition): String =
+      s"""${writeDescription(value.description)}${safeName(value.name)} : ${writeType(value.ofType)}"""
+
+    def writeArguments(field: FieldDefinition, of: ObjectTypeDefinition): String = {
+      def fields(args: List[InputValueDefinition]): String =
+        s"${args.map(arg => s"${safeName(arg.name)} : ${writeType(arg.ofType)}").mkString(", ")}"
+
+      if (field.args.nonEmpty) {
+        s"final case class ${argsName(field, of)}(${fields(field.args)})"
+      } else {
+        ""
+      }
+    }
+
+    def argsName(field: FieldDefinition, od: ObjectTypeDefinition): String =
+      s"${od.name.capitalize}${field.name.capitalize}Args"
+
+    def escapeDoubleQuotes(input: String): String =
+      input.replace("\"", "\\\"")
+
+    def writeDescription(description: Option[String]): String =
+      description.fold("") {
+        case d if d.contains("\n") =>
+          s"""@GQLDescription(\"\"\"${escapeDoubleQuotes(d)}\"\"\")
+             |""".stripMargin
+        case d                     =>
+          s"""@GQLDescription("${escapeDoubleQuotes(d)}")
+             |""".stripMargin
+      }
+
+    def writeType(t: Type): String = {
+      def withMappings(name: String): String = scalarMappings
+        .flatMap(_.get(name))
+        .getOrElse(name)
+
+//    def checkIsInterfaceImpl(name: String) = interfa
+
+      t match {
+        case NamedType(name, true)   => withMappings(name)
+        case NamedType(name, false)  => s"Option[${withMappings(name)}]"
+        case ListType(ofType, true)  => s"List[${writeType(ofType)}]"
+        case ListType(ofType, false) => s"Option[List[${writeType(ofType)}]]"
+      }
+    }
+
     val schemaDef = schema.schemaDefinition
 
     val argsTypes = schema.objectTypeDefinitions
@@ -27,13 +208,28 @@ object SchemaWriter {
 
     val unions = writeUnions(unionTypes)
 
+    val interfaceImplementationsMap = (for {
+      objectDef    <- schema.objectTypeDefinitions
+      interfaceDef <- schema.interfaceTypeDefinitions
+      if objectDef.implements.exists(_.name == interfaceDef.name)
+    } yield interfaceDef -> objectDef).groupBy(_._1).map { case (definition, tuples) =>
+      definition -> tuples.map(_._2)
+    }
+
+    val interfaceImplementations = interfaceImplementationsMap.values.flatten
+
+    val interfacesStr = interfaceImplementationsMap.map { case (interface, impls) =>
+      writeInterface(interface, impls)
+    }.mkString("\n")
+
     val objects = schema.objectTypeDefinitions
       .filterNot(obj =>
         reservedType(obj) ||
           schemaDef.exists(_.query.getOrElse("Query") == obj.name) ||
           schemaDef.exists(_.mutation.getOrElse("Mutation") == obj.name) ||
           schemaDef.exists(_.subscription.getOrElse("Subscription") == obj.name) ||
-          unionTypes.values.flatten.exists(_.name == obj.name)
+          unionTypes.values.flatten.exists(_.name == obj.name) ||
+          interfaceImplementations.exists(_.name == obj.name)
       )
       .map(writeObject)
       .mkString("\n")
@@ -60,7 +256,8 @@ object SchemaWriter {
     val additionalImportsString = imports.fold("")(_.map(i => s"import $i").mkString("\n"))
 
     val hasSubscriptions = subscriptions.nonEmpty
-    val hasTypes         = argsTypes.length + objects.length + enums.length + unions.length + inputs.length > 0
+    val hasTypes         = argsTypes.length + objects.length + enums.length + unions.length +
+      inputs.length + interfacesStr.length > 0
     val hasOperations    = queries.length + mutations.length + subscriptions.length > 0
 
     val typesAndOperations = s"""
@@ -70,6 +267,7 @@ object SchemaWriter {
         objects + "\n" +
         inputs + "\n" +
         unions + "\n" +
+        interfacesStr + "\n" +
         enums + "\n" +
         "\n}\n"
     else ""}
@@ -90,179 +288,5 @@ object SchemaWriter {
 
       $typesAndOperations
       """
-  }
-
-  def safeName(name: String): String = ClientWriter.safeName(name)
-
-  def reservedType(typeDefinition: ObjectTypeDefinition): Boolean =
-    typeDefinition.name == "Query" || typeDefinition.name == "Mutation" || typeDefinition.name == "Subscription"
-
-  def writeRootField(field: FieldDefinition, od: ObjectTypeDefinition, effect: String)(implicit
-    scalarMappings: ScalarMappings
-  ): String = {
-    val argsTypeName = if (field.args.nonEmpty) s" ${argsName(field, od)} =>" else ""
-    s"${safeName(field.name)} :$argsTypeName $effect[${writeType(field.ofType)}]"
-  }
-
-  def writeRootQueryOrMutationDef(op: ObjectTypeDefinition, effect: String, isEffectTypeAbstract: Boolean)(implicit
-    scalarMappings: ScalarMappings
-  ): String = {
-    val typeParamOrEmpty = if (isEffectTypeAbstract) s"[$effect[_]]" else ""
-    s"""
-       |${writeDescription(op.description)}final case class ${op.name}$typeParamOrEmpty(
-       |${op.fields.map(c => writeRootField(c, op, effect)).mkString(",\n")}
-       |)""".stripMargin
-
-  }
-  def writeSubscriptionField(field: FieldDefinition, od: ObjectTypeDefinition)(implicit
-    scalarMappings: ScalarMappings
-  ): String =
-    "%s:%s ZStream[Any, Nothing, %s]".format(
-      safeName(field.name),
-      if (field.args.nonEmpty) s" ${argsName(field, od)} =>" else "",
-      writeType(field.ofType)
-    )
-
-  def writeRootSubscriptionDef(op: ObjectTypeDefinition)(implicit scalarMappings: ScalarMappings): String =
-    s"""
-       |${writeDescription(op.description)}final case class ${op.name}(
-       |${op.fields.map(c => writeSubscriptionField(c, op)).mkString(",\n")}
-       |)""".stripMargin
-
-  def writeObject(typedef: ObjectTypeDefinition)(implicit scalarMappings: ScalarMappings): String =
-    s"""${writeDescription(typedef.description)}final case class ${typedef.name}(${typedef.fields
-      .map(writeField(_, typedef))
-      .mkString(", ")})"""
-
-  def writeInputObject(typedef: InputObjectTypeDefinition)(implicit scalarMappings: ScalarMappings): String =
-    s"""${writeDescription(typedef.description)}final case class ${typedef.name}(${typedef.fields
-      .map(writeInputValue)
-      .mkString(", ")})"""
-
-  def writeEnum(typedef: EnumTypeDefinition): String =
-    s"""${writeDescription(typedef.description)}sealed trait ${typedef.name} extends scala.Product with scala.Serializable
-
-          object ${typedef.name} {
-            ${typedef.enumValuesDefinition
-      .map(v => s"${writeDescription(v.description)}case object ${safeName(v.enumValue)} extends ${typedef.name}")
-      .mkString("\n")}
-          }
-       """
-
-  def writeUnions(unions: Map[UnionTypeDefinition, List[ObjectTypeDefinition]])(implicit
-    scalarMappings: ScalarMappings
-  ): String =
-    if (unions.nonEmpty) {
-      val flattened = unions.toList.flatMap { case (unionType, objectTypes) => objectTypes.map(_ -> unionType) }
-
-      val (unionsWithoutReusedMembers, reusedUnionMembers) = flattened
-        .foldLeft(
-          (
-            Map.empty[UnionTypeDefinition, List[ObjectTypeDefinition]],
-            Map.empty[ObjectTypeDefinition, List[UnionTypeDefinition]]
-          )
-        ) {
-          case (
-                (unionsWithoutReusedMembers, reusedUnionMembers),
-                (objectType, unionType)
-              ) =>
-            val isReused = reusedUnionMembers.contains(objectType) ||
-              flattened.exists { case (_objectType, _unionType) =>
-                _unionType.name != unionType.name && _objectType.name == objectType.name
-              }
-
-            if (isReused) {
-              (
-                unionsWithoutReusedMembers,
-                reusedUnionMembers.updated(
-                  objectType,
-                  reusedUnionMembers.getOrElse(objectType, List.empty) :+ unionType
-                )
-              )
-            } else {
-              (
-                unionsWithoutReusedMembers.updated(
-                  unionType,
-                  unionsWithoutReusedMembers.getOrElse(unionType, List.empty) :+ objectType
-                ),
-                reusedUnionMembers
-              )
-            }
-        }
-
-      s"""${unions.keys.map(writeUnionSealedTrait).mkString("\n")}
-        
-        ${unionsWithoutReusedMembers.map { case (union, objects) => writeNotReusedMembers(union, objects) }
-        .mkString("\n")}
-        
-        ${reusedUnionMembers.map { case (objectType, unions) => writeReusedUnionMember(objectType, unions) }
-        .mkString("\n")}
-         """
-    } else ""
-
-  def writeUnionSealedTrait(union: UnionTypeDefinition): String =
-    s"""${writeDescription(
-      union.description
-    )}sealed trait ${union.name} extends scala.Product with scala.Serializable"""
-
-  def writeReusedUnionMember(typedef: ObjectTypeDefinition, unions: List[UnionTypeDefinition])(implicit
-    scalarMappings: ScalarMappings
-  ): String =
-    s"${writeObject(typedef)} extends ${unions.map(_.name).mkString(" with ")}"
-
-  def writeNotReusedMembers(typedef: UnionTypeDefinition, objects: List[ObjectTypeDefinition])(implicit
-    scalarMappings: ScalarMappings
-  ): String =
-    s"""object ${typedef.name} {
-            ${objects
-      .map(o => s"${writeObject(o)} extends ${typedef.name}")
-      .mkString("\n")}
-          }
-       """
-
-  def writeField(field: FieldDefinition, of: ObjectTypeDefinition)(implicit scalarMappings: ScalarMappings): String =
-    if (field.args.nonEmpty) {
-      s"${writeDescription(field.description)}${safeName(field.name)} : ${argsName(field, of)} => ${writeType(field.ofType)}"
-    } else {
-      s"""${writeDescription(field.description)}${safeName(field.name)} : ${writeType(field.ofType)}"""
-    }
-
-  def writeInputValue(value: InputValueDefinition)(implicit scalarMappings: ScalarMappings): String =
-    s"""${writeDescription(value.description)}${safeName(value.name)} : ${writeType(value.ofType)}"""
-
-  def writeArguments(field: FieldDefinition, of: ObjectTypeDefinition)(implicit
-    scalarMappings: ScalarMappings
-  ): String = {
-    def fields(args: List[InputValueDefinition]): String =
-      s"${args.map(arg => s"${safeName(arg.name)} : ${writeType(arg.ofType)}").mkString(", ")}"
-
-    if (field.args.nonEmpty) {
-      s"final case class ${argsName(field, of)}(${fields(field.args)})"
-    } else {
-      ""
-    }
-  }
-
-  private def argsName(field: FieldDefinition, od: ObjectTypeDefinition): String =
-    s"${od.name.capitalize}${field.name.capitalize}Args"
-
-  def escapeDoubleQuotes(input: String): String =
-    input.replace("\"", "\\\"")
-
-  def writeDescription(description: Option[String]): String =
-    description.fold("") {
-      case d if d.contains("\n") =>
-        s"""@GQLDescription(\"\"\"${escapeDoubleQuotes(d)}\"\"\")
-           |""".stripMargin
-      case d                     =>
-        s"""@GQLDescription("${escapeDoubleQuotes(d)}")
-           |""".stripMargin
-    }
-
-  def writeType(t: Type)(implicit scalarMappings: ScalarMappings): String = t match {
-    case NamedType(name, true)   => scalarMappings.flatMap(m => m.get(name)).getOrElse(name)
-    case NamedType(name, false)  => s"Option[${scalarMappings.flatMap(m => m.get(name)).getOrElse(name)}]"
-    case ListType(ofType, true)  => s"List[${writeType(ofType)}]"
-    case ListType(ofType, false) => s"Option[List[${writeType(ofType)}]]"
   }
 }

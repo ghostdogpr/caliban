@@ -584,6 +584,70 @@ object Types {
               |""".stripMargin
           )
         )
+      },
+      testM("interface type") {
+        val role   =
+          s"""
+              \"\"\"
+              person
+              Admin or Customer
+             \"\"\"
+          """
+        val schema =
+          s"""
+             $role
+            interface Person {
+                id: ID!
+                firstName: String!
+                lastName: String!
+             }
+
+             type Admin implements Person {
+               id: ID!
+               "firstName" firstName: String!
+               lastName: String!
+             }
+             
+             type Customer implements Person {
+               id: ID!
+               firstName: String!
+               lastName: String!
+               email: String!
+             }
+            """.stripMargin
+
+        assertM(gen(schema, scalarMappings = Map("ID" -> "java.util.UUID")))(
+          equalTo {
+            val role =
+              s"""\"\"\"person
+Admin or Customer\"\"\""""
+
+            s"""import caliban.schema.Annotations._
+
+object Types {
+
+  @GQLInterface
+  @GQLDescription($role)
+  sealed trait Person extends scala.Product with scala.Serializable {
+    def id: java.util.UUID
+    def firstName: String
+    def lastName: String
+  }
+
+  object Person {
+    final case class Admin(
+      id: java.util.UUID,
+      @GQLDescription("firstName")
+      firstName: String,
+      lastName: String
+    ) extends Person
+    final case class Customer(id: java.util.UUID, firstName: String, lastName: String, email: String) extends Person
+  }
+
+}
+"""
+          }
+        )
       }
     ) @@ TestAspect.sequential
 }

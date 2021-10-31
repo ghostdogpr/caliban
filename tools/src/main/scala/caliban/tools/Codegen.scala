@@ -1,9 +1,10 @@
 package caliban.tools
 
+import java.io.{ File, PrintWriter }
+
 import caliban.tools.implicits.ScalarMappings
 import zio.blocking.{ blocking, Blocking }
 import zio.{ RIO, Task, UIO, ZIO }
-import java.io.{ File, PrintWriter }
 
 object Codegen {
 
@@ -35,8 +36,13 @@ object Codegen {
       code                      = genType match {
                                     case GenType.Schema =>
                                       List(
-                                        objectName -> SchemaWriter.write(schema, packageName, effect, arguments.imports, abstractEffectType)(
-                                          ScalarMappings(scalarMappings)
+                                        objectName -> SchemaWriter.write(
+                                          schema,
+                                          packageName,
+                                          effect,
+                                          arguments.imports,
+                                          scalarMappings,
+                                          abstractEffectType
                                         )
                                       )
                                     case GenType.Client =>

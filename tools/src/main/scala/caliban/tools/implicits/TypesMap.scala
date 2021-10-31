@@ -1,5 +1,6 @@
 package caliban.tools.implicits
 
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
+import io.estatico.newtype.macros.newtype
 
-case class TypesMap(typesMap: Map[String, TypeDefinition])
+@newtype case class TypesMap(typesMap: Map[String, TypeDefinition])

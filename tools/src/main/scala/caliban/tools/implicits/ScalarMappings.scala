@@ -1,3 +1,5 @@
 package caliban.tools.implicits
 
-case class ScalarMappings(scalarMap: Option[Map[String, String]])
+import io.estatico.newtype.macros.newtype
+
+@newtype case class ScalarMappings(scalarMap: Option[Map[String, String]])
