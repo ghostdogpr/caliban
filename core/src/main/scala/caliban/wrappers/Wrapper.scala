@@ -9,6 +9,7 @@ import caliban.wrappers.Wrapper.CombinedWrapper
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
 import zio.{ UIO, ZIO }
 import zio.query.ZQuery
+import caliban.{ GraphQL, GraphQLAspect }
 
 /**
  * A `Wrapper[-R]` represents an extra layer of computation that can be applied on top of Caliban's query handling.
@@ -21,8 +22,11 @@ import zio.query.ZQuery
  *
  * It is also possible to combine wrappers using `|+|` and to build a wrapper effectfully with `EffectfulWrapper`.
  */
-sealed trait Wrapper[-R] { self =>
+sealed trait Wrapper[-R] extends GraphQLAspect[Nothing, R] { self =>
   def |+|[R1 <: R](that: Wrapper[R1]): Wrapper[R1] = CombinedWrapper(List(self, that))
+
+  def apply[R1 <: R](that: GraphQL[R1]): GraphQL[R1] =
+    that.withWrapper(self)
 }
 
 object Wrapper {

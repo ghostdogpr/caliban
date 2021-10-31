@@ -142,10 +142,8 @@ trait GraphQL[-R] { self =>
       override val additionalDirectives: List[__Directive] = self.additionalDirectives
     }
 
-  /**
-   * A symbolic alias for `withWrapper`.
-   */
-  final def @@[R2 <: R](wrapper: Wrapper[R2]): GraphQL[R2] = withWrapper(wrapper)
+  final def @@[LowerR <: UpperR, UpperR <: R](aspect: GraphQLAspect[LowerR, UpperR]): GraphQL[UpperR] =
+    aspect(self)
 
   /**
    * Merges this GraphQL API with another GraphQL API.
