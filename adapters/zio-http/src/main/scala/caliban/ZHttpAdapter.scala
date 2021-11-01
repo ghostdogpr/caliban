@@ -11,11 +11,13 @@ import caliban.execution.QueryExecution
 import io.circe._
 import io.circe.parser._
 import io.circe.syntax._
+import io.netty.handler.codec.http.HttpHeaderNames
+import io.netty.handler.codec.http.HttpUtil
+import java.nio.charset.Charset
 import zhttp.http._
 import zhttp.socket.SocketApp
 import zhttp.socket.WebSocketFrame.Text
 import zhttp.socket._
-import io.netty.handler.codec.http.HttpHeaderNames
 
 object ZHttpAdapter {
   case class GraphQLWSRequest(`type`: String, id: Option[String], payload: Option[Json])
@@ -248,11 +250,17 @@ object ZHttpAdapter {
       ZIO.fromEither(decode[GraphQLRequest](getBody(req).getOrElse("")))
     }
 
-  private def getBody(r: Request) =
+  // Fixed in https://github.com/dream11/zio-http/pull/287
+  // but that's not released, so back port the fix for now.
+  private def getBody(r: Request): Option[String] = {
+    val getCharset: Option[Charset] =
+      r.getHeaderValue(HttpHeaderNames.CONTENT_TYPE).map(HttpUtil.getCharset(_, HTTP_CHARSET))
+
     r.content match {
-      case HttpData.CompleteData(data) => Some(new String(data.toArray, "UTF-8"))
+      case HttpData.CompleteData(data) => Some(new String(data.toArray, getCharset.getOrElse(HTTP_CHARSET)))
       case _                           => None
     }
+  }
 
   private def generateGraphQLResponse[R, E](
     payload: GraphQLRequest,
