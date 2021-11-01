@@ -243,9 +243,15 @@ object ZHttpAdapter {
     if (req.url.queryParams.contains("query")) {
       queryFromQueryParams(req)
     } else if (req.headers.contains(contentTypeApplicationGraphQL)) {
-      ZIO.succeed(GraphQLRequest(query = req.getBodyAsString))
+      ZIO.succeed(GraphQLRequest(query = getBody(req)))
     } else {
-      ZIO.fromEither(decode[GraphQLRequest](req.getBodyAsString.getOrElse("")))
+      ZIO.fromEither(decode[GraphQLRequest](getBody(req).getOrElse("")))
+    }
+
+  private def getBody(r: Request) =
+    r.content match {
+      case HttpData.CompleteData(data) => Some(new String(data.toArray, "UTF-8"))
+      case _                           => None
     }
 
   private def generateGraphQLResponse[R, E](
