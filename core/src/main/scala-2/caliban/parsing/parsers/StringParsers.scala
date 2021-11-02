@@ -55,15 +55,15 @@ private[caliban] trait StringParsers {
       } else ctx.freshSuccessUnit(index)
   }
 
-  def sourceCharacter[_: P]: P[Unit]                      = P(CharIn("\u0009\u000A\u000D\u0020-\uFFFF"))
-  def sourceCharacterWithoutLineTerminator[_: P]: P[Unit] = P(CharIn("\u0009\u0020-\uFFFF"))
-  def name[_: P]: P[String]                               = P(CharIn("_A-Za-z") ~~ CharIn("_0-9A-Za-z").repX).!
+  def sourceCharacter(implicit ev: P[Any]): P[Unit]                      = P(CharIn("\u0009\u000A\u000D\u0020-\uFFFF"))
+  def sourceCharacterWithoutLineTerminator(implicit ev: P[Any]): P[Unit] = P(CharIn("\u0009\u0020-\uFFFF"))
+  def name(implicit ev: P[Any]): P[String]                               = P(CharIn("_A-Za-z") ~~ CharIn("_0-9A-Za-z").repX).!
 
-  def hexDigit[_: P]: P[Unit]         = P(CharIn("0-9a-fA-F"))
-  def escapedUnicode[_: P]: P[String] =
+  def hexDigit(implicit ev: P[Any]): P[Unit]         = P(CharIn("0-9a-fA-F"))
+  def escapedUnicode(implicit ev: P[Any]): P[String] =
     P(hexDigit ~~ hexDigit ~~ hexDigit ~~ hexDigit).!.map(Integer.parseInt(_, 16).toChar.toString)
 
-  def escapedCharacter[_: P]: P[String] = P(CharIn("\"\\\\/bfnrt").!).map {
+  def escapedCharacter(implicit ev: P[Any]): P[String] = P(CharIn("\"\\\\/bfnrt").!).map {
     case "b"   => "\b"
     case "n"   => "\n"
     case "f"   => "\f"
@@ -72,16 +72,16 @@ private[caliban] trait StringParsers {
     case other => other
   }
 
-  def stringCharacter[_: P]: P[String] =
+  def stringCharacter(implicit ev: P[Any]): P[String] =
     P(
       sourceCharacterWithoutLineTerminator.!.filter(c =>
         c != "\"" && c != "\\"
       ) | "\\u" ~~ escapedUnicode | "\\" ~~ escapedCharacter
     )
 
-  def blockStringCharacter[_: P]: P[String] = P("\\\"\"\"".!.map(_ => "\"\"\"") | sourceCharacter.!)
+  def blockStringCharacter(implicit ev: P[Any]): P[String] = P("\\\"\"\"".!.map(_ => "\"\"\"") | sourceCharacter.!)
 
-  def stringValue[_: P]: P[StringValue] =
+  def stringValue(implicit ev: P[Any]): P[StringValue] =
     P(
       ("\"\"\"" ~~ ((!"\"\"\"") ~~ blockStringCharacter).repX.map(s => blockStringValue(s.mkString)) ~~ "\"\"\"") |
         ("\"" ~~ stringCharacter.repX.map(_.mkString) ~~ "\"")
