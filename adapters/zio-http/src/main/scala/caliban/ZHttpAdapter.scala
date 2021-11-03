@@ -84,6 +84,11 @@ object ZHttpAdapter {
 
   type Subscriptions = Ref[Map[String, Promise[Any, Unit]]]
 
+  private def isApplicationGraphQL(r: Request) = {
+    val contentType = r.getContentType
+    contentType.map(ct => HttpUtil.getMimeType(ct).toString == "application/graphql").getOrElse(false)
+  }
+
   private val contentTypeApplicationGraphQL: Header =
     Header.custom(HttpHeaderNames.CONTENT_TYPE.toString(), "application/graphql")
 
@@ -244,7 +249,7 @@ object ZHttpAdapter {
   private def queryFromRequest(req: Request) =
     if (req.url.queryParams.contains("query")) {
       queryFromQueryParams(req)
-    } else if (req.headers.contains(contentTypeApplicationGraphQL)) {
+    } else if (isApplicationGraphQL(req)) {
       ZIO.succeed(GraphQLRequest(query = getBody(req)))
     } else {
       ZIO.fromEither(decode[GraphQLRequest](getBody(req).getOrElse("")))
