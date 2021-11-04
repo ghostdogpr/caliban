@@ -3,14 +3,16 @@ package example.ziohttp
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
 
+import caliban.interop.tapir.TapirAdapter._
+import caliban.ZHttpAdapter
 import zio._
 import zio.stream._
 import zhttp.http._
 import zhttp.service.Server
-import caliban.ZHttpAdapter
 
 object ExampleApp extends App {
-  private val graphiql = Http.succeed(Response.http(content = HttpData.fromStream(ZStream.fromResource("graphiql.html"))))
+  private val graphiql =
+    Http.succeed(Response.http(content = HttpData.fromStream(ZStream.fromResource("graphiql.html"))))
 
   override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
     (for {

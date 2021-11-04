@@ -1,23 +1,22 @@
 package caliban
 
+import caliban.ResponseValue.{ ObjectValue, StreamValue }
+import caliban.execution.QueryExecution
+import caliban.interop.tapir.TapirAdapter
+import caliban.interop.tapir.TapirAdapter._
+import io.circe._
+import io.circe.parser._
+import io.circe.syntax._
+import sttp.tapir.Schema
+import sttp.tapir.json.circe._
+import sttp.tapir.server.ziohttp.ZioHttpInterpreter
+import zhttp.http._
+import zhttp.socket.WebSocketFrame.Text
+import zhttp.socket.{ SocketApp, _ }
 import zio._
 import zio.clock.Clock
 import zio.duration._
 import zio.stream._
-
-import caliban.ResponseValue.{ ObjectValue, StreamValue }
-import caliban.Value.NullValue
-import caliban.execution.QueryExecution
-import io.circe._
-import io.circe.parser._
-import io.circe.syntax._
-import io.netty.handler.codec.http.HttpHeaderNames
-import io.netty.handler.codec.http.HttpUtil
-import java.nio.charset.Charset
-import zhttp.http._
-import zhttp.socket.SocketApp
-import zhttp.socket.WebSocketFrame.Text
-import zhttp.socket._
 
 object ZHttpAdapter {
   case class GraphQLWSRequest(`type`: String, id: Option[String], payload: Option[Json])
@@ -84,34 +83,15 @@ object ZHttpAdapter {
 
   type Subscriptions = Ref[Map[String, Promise[Any, Unit]]]
 
-  private val contentTypeApplicationGraphQL: Header =
-    Header.custom(HttpHeaderNames.CONTENT_TYPE.toString(), "application/graphql")
-
-  def makeHttpService[R, E](
+  def makeHttpService[R, E: Schema](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel
-  ): HttpApp[R, HttpError] =
-    Http.collectM {
-      case req @ Method.POST -> _ =>
-        (for {
-          query           <- queryFromRequest(req)
-          queryWithTracing =
-            req.headers
-              .find(r => r.name == GraphQLRequest.`apollo-federation-include-trace` && r.value == GraphQLRequest.ftv1)
-              .foldLeft(query)((q, _) => q.withFederatedTracing)
-          resp            <- executeToJson(interpreter, queryWithTracing, skipValidation, enableIntrospection, queryExecution)
-        } yield Response.jsonString(resp.toString)).handleHTTPError
-      case req @ Method.GET -> _  =>
-        (for {
-          query <- queryFromQueryParams(req)
-          resp  <- executeToJson(interpreter, query, skipValidation, enableIntrospection, queryExecution)
-        } yield Response.jsonString(resp.toString())).handleHTTPError
-
-      case _ @Method.OPTIONS -> _ =>
-        ZIO.succeed(Response.http(Status.NO_CONTENT))
-    }
+  ): HttpApp[R, Throwable] = {
+    val endpoints = TapirAdapter.makeHttpService[R, E](interpreter, skipValidation, enableIntrospection, queryExecution)
+    ZioHttpInterpreter().toHttp(endpoints)
+  }
 
   /**
    * Effectfully creates a `SocketApp`, which can be used from
@@ -228,40 +208,6 @@ object ZHttpAdapter {
     SocketApp.message(routes) ++ SocketApp.protocol(protocol)
   }
 
-  private def queryFromQueryParams(req: Request) = {
-    val variablesJs  = req.url.queryParams.get("variables").flatMap(_.headOption).flatMap(parse(_).toOption)
-    val extensionsJs = req.url.queryParams.get("extensions").flatMap(_.headOption).flatMap(parse(_).toOption)
-    val fields       = List(
-      "query" -> Json.fromString(req.url.queryParams.get("query").flatMap(_.headOption).getOrElse(""))
-    ) ++
-      req.url.queryParams.get("operationName").flatMap(_.headOption).map(o => "operationName" -> Json.fromString(o)) ++
-      variablesJs.map(js => "variables" -> js) ++
-      extensionsJs.map(js => "extensions" -> js)
-
-    ZIO.fromEither(Json.fromFields(fields).as[GraphQLRequest])
-  }
-
-  private def queryFromRequest(req: Request) =
-    if (req.url.queryParams.contains("query")) {
-      queryFromQueryParams(req)
-    } else if (req.headers.contains(contentTypeApplicationGraphQL)) {
-      ZIO.succeed(GraphQLRequest(query = getBody(req)))
-    } else {
-      ZIO.fromEither(decode[GraphQLRequest](getBody(req).getOrElse("")))
-    }
-
-  // Fixed in https://github.com/dream11/zio-http/pull/287
-  // but that's not released, so back port the fix for now.
-  private def getBody(r: Request): Option[String] = {
-    val getCharset: Option[Charset] =
-      r.getHeaderValue(HttpHeaderNames.CONTENT_TYPE).map(HttpUtil.getCharset(_, HTTP_CHARSET))
-
-    r.content match {
-      case HttpData.CompleteData(data) => Some(new String(data.toArray, getCharset.getOrElse(HTTP_CHARSET)))
-      case _                           => None
-    }
-  }
-
   private def generateGraphQLResponse[R, E](
     payload: GraphQLRequest,
     id: String,
@@ -289,22 +235,6 @@ object ZHttpAdapter {
 
     (resp ++ complete(id)).catchAll(toStreamError(Option(id), _))
   }
-
-  private def executeToJson[R, E](
-    interpreter: GraphQLInterpreter[R, E],
-    request: GraphQLRequest,
-    skipValidation: Boolean,
-    enableIntrospection: Boolean,
-    queryExecution: QueryExecution
-  ): URIO[R, Json] =
-    interpreter
-      .executeRequest(
-        request,
-        skipValidation = skipValidation,
-        enableIntrospection = enableIntrospection,
-        queryExecution
-      )
-      .foldCause(cause => GraphQLResponse(NullValue, cause.defects).asJson, _.asJson)
 
   implicit class HttpErrorOps[R, E <: Throwable, A](private val zio: ZIO[R, io.circe.Error, A]) extends AnyVal {
     def handleHTTPError: ZIO[R, HttpError, A] = zio.mapError {

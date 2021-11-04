@@ -2,6 +2,7 @@ package example.stitching
 
 import caliban._
 import caliban.GraphQL.graphQL
+import caliban.interop.tapir.TapirAdapter._
 import caliban.schema._
 import caliban.tools.{ Options, RemoteSchema, SchemaLoader }
 import caliban.tools.stitching.{ HttpRequest, RemoteResolver, RemoteSchemaResolver, ResolveRequest }

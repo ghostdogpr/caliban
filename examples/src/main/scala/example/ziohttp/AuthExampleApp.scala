@@ -1,20 +1,17 @@
 package example.ziohttp
 
+import caliban.GraphQL.graphQL
+import caliban._
+import caliban.interop.tapir.TapirAdapter._
+import caliban.schema.GenericSchema
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
-
+import zhttp.http._
+import zhttp.service.Server
 import zio._
+import zio.clock._
 import zio.duration._
 import zio.stream._
-import zio.clock._
-import zhttp.http._
-import zhttp.socket._
-import zhttp.service.Server
-import caliban._
-import caliban.schema.GenericSchema
-import caliban.GraphQL.graphQL
-import caliban.ZHttpAdapter
-import caliban.RootResolver
 
 trait Auth {
   def currentUser: ZIO[Any, Throwable, String]
@@ -60,7 +57,7 @@ object Auth {
       }
   }
 
-  def middleware[R, B](app: Http[R, HttpError, Request, Response[R, HttpError]]) =
+  def middleware[R, B](app: Http[R, Throwable, Request, Response[R, Throwable]]) =
     Http
       .fromEffectFunction[Request] { (request: Request) =>
         val user = request.headers

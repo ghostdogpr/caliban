@@ -7,9 +7,10 @@ import akka.http.scaladsl.server.Directives.{ getFromResource, path, _ }
 import akka.http.scaladsl.server.RequestContext
 import caliban.AkkaHttpAdapter.ContextWrapper
 import caliban.GraphQL._
-import caliban.RootResolver
-import caliban.interop.circe.AkkaHttpCirceAdapter
+import caliban.{ AkkaHttpAdapter, RootResolver }
+import caliban.interop.tapir.TapirAdapter._
 import caliban.schema.GenericSchema
+import sttp.tapir.json.circe._
 import zio.blocking.Blocking
 import zio.internal.Platform
 import zio.random.Random
@@ -18,7 +19,7 @@ import zio.{ FiberRef, Has, RIO, Runtime, URIO, ZIO }
 import scala.concurrent.ExecutionContextExecutor
 import scala.io.StdIn
 
-object AuthExampleApp extends App with AkkaHttpCirceAdapter {
+object AuthExampleApp extends App {
 
   case class AuthToken(value: String)
 
@@ -56,7 +57,7 @@ object AuthExampleApp extends App with AkkaHttpCirceAdapter {
 
   val route =
     path("api" / "graphql") {
-      adapter.makeHttpService(interpreter, contextWrapper = AuthWrapper)
+      AkkaHttpAdapter.makeHttpService(interpreter, contextWrapper = AuthWrapper)
     } ~ path("graphiql") {
       getFromResource("graphiql.html")
     }
