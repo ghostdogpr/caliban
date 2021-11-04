@@ -291,11 +291,7 @@ lazy val akkaHttp = project
     libraryDependencies ++= Seq(
       "com.typesafe.akka"             %% "akka-http"                  % "10.2.7",
       "com.typesafe.akka"             %% "akka-serialization-jackson" % akkaVersion,
-//      "com.typesafe.akka"             %% "akka-stream"                % akkaVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-akka-http-server"     % tapirVersion,
-//      "de.heikoseeberger"             %% "akka-http-circe"        % "1.38.2"   % Optional,
-//      "de.heikoseeberger"             %% "akka-http-play-json"    % "1.38.2"   % Optional,
-//      "de.heikoseeberger"             %% "akka-http-zio-json"     % "1.38.2"   % Optional,
       "dev.zio"                       %% "zio-test"                   % zioVersion % Test,
       "dev.zio"                       %% "zio-test-sbt"               % zioVersion % Test,
       compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.2").cross(CrossVersion.full))
@@ -400,7 +396,6 @@ lazy val examples = project
   .settings(
     crossScalaVersions -= scala3,
     libraryDependencies ++= Seq(
-//      "de.heikoseeberger"             %% "akka-http-circe"               % "1.38.2",
       "org.http4s"                    %% "http4s-blaze-server"           % http4sVersion,
       "org.http4s"                    %% "http4s-dsl"                    % http4sVersion,
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
