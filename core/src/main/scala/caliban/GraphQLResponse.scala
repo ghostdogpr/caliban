@@ -15,7 +15,7 @@ case class GraphQLResponse[+E](data: ResponseValue, errors: List[E], extensions:
         "errors"     -> (if (errors.nonEmpty)
                        Some(ListValue(errors.map {
                          case e: CalibanError => e.toResponseValue
-                         case e               => StringValue(e.toString)
+                         case e               => ObjectValue(List("message" -> StringValue(e.toString)))
                        }))
                      else None),
         "extensions" -> extensions
