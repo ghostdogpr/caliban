@@ -89,9 +89,6 @@ object ZHttpAdapter {
     contentType.map(ct => HttpUtil.getMimeType(ct).toString == "application/graphql").getOrElse(false)
   }
 
-  private val contentTypeApplicationGraphQL: Header =
-    Header.custom(HttpHeaderNames.CONTENT_TYPE.toString(), "application/graphql")
-
   def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
