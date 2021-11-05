@@ -216,7 +216,7 @@ Caliban supports a few annotations to enrich data types:
 - `@GQLDeprecated("reason")` allows deprecating a field or an enum value.
 - `@GQLInterface` to force a sealed trait generating an interface instead of a union.
 - `@GQLDirective(directive: Directive)` to add a directive to a field or type.
-- `@GQLValueType(isScalar: Boolean)` forces a type to behave as a value type for derivation. Meaning that caliban will ignore the outer type and take the first case class parameter as the real type. If `isScalar` is true, it will generate a scalar named after the case class (default: false).
+- `@GQLValueType(isScalar)` forces a type to behave as a value type for derivation. Meaning that caliban will ignore the outer type and take the first case class parameter as the real type. If `isScalar` is true, it will generate a scalar named after the case class (default: false).
 - `@GQLDefault("defaultValue")` allows you to specify a default value for an input field using GraphQL syntax. The default value will be visible in your schema's SDL and during introspection.
 
 ## Java 8 Time types
