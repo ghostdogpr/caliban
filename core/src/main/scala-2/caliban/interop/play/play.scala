@@ -6,7 +6,16 @@ import caliban.parsing.adt.LocationInfo
 import caliban.schema.Step.QueryStep
 import caliban.schema.Types.makeScalar
 import caliban.schema.{ ArgBuilder, PureStep, Schema, Step }
-import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue, ResponseValue, Value }
+import caliban.{
+  CalibanError,
+  GraphQLRequest,
+  GraphQLResponse,
+  GraphQLWSInput,
+  GraphQLWSOutput,
+  InputValue,
+  ResponseValue,
+  Value
+}
 import play.api.libs.json.{ JsPath, JsValue, Json, JsonValidationError, Reads, Writes }
 import play.api.libs.functional.syntax._
 import zio.ZIO
@@ -205,6 +214,20 @@ object json {
 
     val graphQLRequestReads: Reads[GraphQLRequest]   = Json.reads[GraphQLRequest]
     val graphQLRequestWrites: Writes[GraphQLRequest] = Json.writes[GraphQLRequest]
+  }
+
+  private[caliban] object GraphQLWSInputPlayJson {
+    import play.api.libs.json._
+
+    val graphQLWSInputReads: Reads[GraphQLWSInput]   = Json.reads[GraphQLWSInput]
+    val graphQLWSInputWrites: Writes[GraphQLWSInput] = Json.writes[GraphQLWSInput]
+  }
+
+  private[caliban] object GraphQLWSOutputPlayJson {
+    import play.api.libs.json._
+
+    val graphQLWSOutputReads: Reads[GraphQLWSOutput]   = Json.reads[GraphQLWSOutput]
+    val graphQLWSOutputWrites: Writes[GraphQLWSOutput] = Json.writes[GraphQLWSOutput]
   }
 
 }

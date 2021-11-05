@@ -1,6 +1,15 @@
 package caliban.interop.zio
 
-import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue, ResponseValue, Value }
+import caliban.{
+  CalibanError,
+  GraphQLRequest,
+  GraphQLResponse,
+  GraphQLWSInput,
+  GraphQLWSOutput,
+  InputValue,
+  ResponseValue,
+  Value
+}
 import caliban.Value.{ BooleanValue, EnumValue, FloatValue, IntValue, NullValue, StringValue }
 import caliban.parsing.adt.LocationInfo
 import zio.Chunk
@@ -425,4 +434,18 @@ private[caliban] object GraphQLRequestZioJson {
 
   val graphQLRequestDecoder: JsonDecoder[GraphQLRequest] = DeriveJsonDecoder.gen[GraphQLRequest]
   val graphQLRequestEncoder: JsonEncoder[GraphQLRequest] = DeriveJsonEncoder.gen[GraphQLRequest]
+}
+
+private[caliban] object GraphQLWSInputZioJson {
+  import zio.json._
+
+  val graphQLWSInputDecoder: JsonDecoder[GraphQLWSInput] = DeriveJsonDecoder.gen[GraphQLWSInput]
+  val graphQLWSInputEncoder: JsonEncoder[GraphQLWSInput] = DeriveJsonEncoder.gen[GraphQLWSInput]
+}
+
+private[caliban] object GraphQLWSOutputZioJson {
+  import zio.json._
+
+  val graphQLWSOutputDecoder: JsonDecoder[GraphQLWSOutput] = DeriveJsonDecoder.gen[GraphQLWSOutput]
+  val graphQLWSOutputEncoder: JsonEncoder[GraphQLWSOutput] = DeriveJsonEncoder.gen[GraphQLWSOutput]
 }
