@@ -154,7 +154,7 @@ object SchemaSpec extends DefaultRunnableSpec {
           isSome(hasField[__Type, Option[String]]("name", _.name, equalTo(Some("Int"))))
         )
       },
-      test("value not scalar") {
+      test("value type scalar") {
         @GQLValueType(isScalar = true)
         case class Wrapper(value: Int)
         case class Queries(test: Option[Wrapper])
