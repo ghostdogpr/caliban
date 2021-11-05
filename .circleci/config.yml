@@ -124,17 +124,17 @@ jobs:
       - checkout
       - run: |
 #          if [ "$(git diff --numstat HEAD^ -- vuepress)" ]; then
-            cd vuepress
-            npm install
-            npm run docs:build
-            cd ..
-            rm -rf docs
-            cp -r vuepress/docs/.vuepress/dist docs
-            git add docs
-            git config user.name "Pierre Ricadat"
-            git config user.email "ghostdogpr@gmail.com"
-            git commit -m "[ci skip] update docs"
-            git push
+          cd vuepress
+          npm install
+          npm run docs:build
+          cd ..
+          rm -rf docs
+          cp -r vuepress/docs/.vuepress/dist docs
+          git add docs
+          git config user.name "Pierre Ricadat"
+          git config user.email "ghostdogpr@gmail.com"
+          git commit -m "[ci skip] update docs"
+          git push
 #          fi
 
 workflows:
