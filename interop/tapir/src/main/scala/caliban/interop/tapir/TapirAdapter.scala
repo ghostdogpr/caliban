@@ -23,6 +23,8 @@ object TapirAdapter {
     Schema.schemaForUnit.map(_ => Some(StreamValue(ZStream(NullValue))))(_ => ())
   implicit val throwableSchema: Schema[Throwable]                    =
     Schema.schemaForString.map(s => Some(new Throwable(s)))(_.getMessage)
+  implicit lazy val inputValueSchema: Schema[InputValue]             = Schema.derivedSchema
+  implicit lazy val responseValueSchema: Schema[ResponseValue]       = Schema.derivedSchema
   implicit val calibanErrorSchema: Schema[CalibanError]              = Schema.derivedSchema
   implicit val requestSchema: Schema[GraphQLRequest]                 = Schema.derivedSchema
   implicit def responseSchema[E: Schema]: Schema[GraphQLResponse[E]] = Schema.derivedSchema
