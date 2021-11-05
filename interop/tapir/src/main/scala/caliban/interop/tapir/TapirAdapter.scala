@@ -20,7 +20,7 @@ import zio.stream._
 object TapirAdapter {
 
   implicit val streamSchema: Schema[StreamValue]                     =
-    Schema.schemaForUnit.map(_ => Some(StreamValue(ZStream(NullValue))))(_ => Unit)
+    Schema.schemaForUnit.map(_ => Some(StreamValue(ZStream(NullValue))))(_ => ())
   implicit val throwableSchema: Schema[Throwable]                    =
     Schema.schemaForString.map(s => Some(new Throwable(s)))(_.getMessage)
   implicit val calibanErrorSchema: Schema[CalibanError]              = Schema.derivedSchema
