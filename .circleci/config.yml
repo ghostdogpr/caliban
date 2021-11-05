@@ -64,7 +64,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.6! core/test http4s/test akkaHttp/test finch/compile play/test zioHttp/compile examples/compile catsInterop/compile monixInterop/compile tapirInterop/test clientJVM/test federation/test
+      - run: sbt ++2.13.7! core/test http4s/test akkaHttp/test finch/compile play/test zioHttp/compile examples/compile catsInterop/compile monixInterop/compile tapirInterop/test clientJVM/test federation/test
       - save_cache:
           key: sbtcache
           paths:
@@ -92,7 +92,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.6! clientJS/test clientLaminextJS/Test/fastLinkJS
+      - run: sbt ++2.13.7! clientJS/test clientLaminextJS/Test/fastLinkJS
       - save_cache:
           key: sbtcache
           paths:

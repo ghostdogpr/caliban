@@ -11,11 +11,13 @@ import caliban.execution.QueryExecution
 import io.circe._
 import io.circe.parser._
 import io.circe.syntax._
+import io.netty.handler.codec.http.HttpHeaderNames
+import io.netty.handler.codec.http.HttpUtil
+import java.nio.charset.Charset
 import zhttp.http._
 import zhttp.socket.SocketApp
 import zhttp.socket.WebSocketFrame.Text
 import zhttp.socket._
-import io.netty.handler.codec.http.HttpHeaderNames
 
 object ZHttpAdapter {
   case class GraphQLWSRequest(`type`: String, id: Option[String], payload: Option[Json])
@@ -82,8 +84,10 @@ object ZHttpAdapter {
 
   type Subscriptions = Ref[Map[String, Promise[Any, Unit]]]
 
-  private val contentTypeApplicationGraphQL: Header =
-    Header.custom(HttpHeaderNames.CONTENT_TYPE.toString(), "application/graphql")
+  private def isApplicationGraphQL(r: Request) = {
+    val contentType = r.getContentType
+    contentType.map(ct => HttpUtil.getMimeType(ct).toString == "application/graphql").getOrElse(false)
+  }
 
   def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E],
@@ -227,20 +231,38 @@ object ZHttpAdapter {
   }
 
   private def queryFromQueryParams(req: Request) = {
-    val params = List("query", "operationName", "variables", "extensions").collect { case k =>
-      k -> req.url.queryParams.get(k).flatMap(_.headOption).getOrElse("")
-    }.toMap
-    ZIO.fromEither(decode[GraphQLRequest](params.asJson.noSpaces))
+    val variablesJs  = req.url.queryParams.get("variables").flatMap(_.headOption).flatMap(parse(_).toOption)
+    val extensionsJs = req.url.queryParams.get("extensions").flatMap(_.headOption).flatMap(parse(_).toOption)
+    val fields       = List(
+      "query" -> Json.fromString(req.url.queryParams.get("query").flatMap(_.headOption).getOrElse(""))
+    ) ++
+      req.url.queryParams.get("operationName").flatMap(_.headOption).map(o => "operationName" -> Json.fromString(o)) ++
+      variablesJs.map(js => "variables" -> js) ++
+      extensionsJs.map(js => "extensions" -> js)
+
+    ZIO.fromEither(Json.fromFields(fields).as[GraphQLRequest])
   }
 
   private def queryFromRequest(req: Request) =
     if (req.url.queryParams.contains("query")) {
       queryFromQueryParams(req)
-    } else if (req.headers.contains(contentTypeApplicationGraphQL)) {
-      ZIO.succeed(GraphQLRequest(query = req.getBodyAsString))
+    } else if (isApplicationGraphQL(req)) {
+      ZIO.succeed(GraphQLRequest(query = getBody(req)))
     } else {
-      ZIO.fromEither(decode[GraphQLRequest](req.getBodyAsString.getOrElse("")))
+      ZIO.fromEither(decode[GraphQLRequest](getBody(req).getOrElse("")))
     }
+
+  // Fixed in https://github.com/dream11/zio-http/pull/287
+  // but that's not released, so back port the fix for now.
+  private def getBody(r: Request): Option[String] = {
+    val getCharset: Option[Charset] =
+      r.getHeaderValue(HttpHeaderNames.CONTENT_TYPE).map(HttpUtil.getCharset(_, HTTP_CHARSET))
+
+    r.content match {
+      case HttpData.CompleteData(data) => Some(new String(data.toArray, getCharset.getOrElse(HTTP_CHARSET)))
+      case _                           => None
+    }
+  }
 
   private def generateGraphQLResponse[R, E](
     payload: GraphQLRequest,
