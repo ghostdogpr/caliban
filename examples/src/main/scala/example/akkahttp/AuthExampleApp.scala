@@ -2,19 +2,19 @@ package example.akkahttp
 
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
-import akka.http.scaladsl.model.{ HttpResponse, StatusCodes }
 import akka.http.scaladsl.server.Directives.{ getFromResource, path, _ }
-import akka.http.scaladsl.server.RequestContext
-import caliban.AkkaHttpAdapter.ContextWrapper
 import caliban.GraphQL._
-import caliban.{ AkkaHttpAdapter, RootResolver }
+import caliban.interop.tapir.RequestInterceptor
 import caliban.interop.tapir.TapirAdapter._
 import caliban.schema.GenericSchema
+import caliban.{ AkkaHttpAdapter, RootResolver }
+import sttp.model.StatusCode
 import sttp.tapir.json.circe._
+import sttp.tapir.model.ServerRequest
 import zio.blocking.Blocking
 import zio.internal.Platform
 import zio.random.Random
-import zio.{ FiberRef, Has, RIO, Runtime, URIO, ZIO }
+import zio.{ FiberRef, Has, RIO, Runtime, ZIO }
 
 import scala.concurrent.ExecutionContextExecutor
 import scala.io.StdIn
@@ -25,15 +25,15 @@ object AuthExampleApp extends App {
 
   type Auth = Has[FiberRef[Option[AuthToken]]]
 
-  object AuthWrapper extends ContextWrapper[Auth, HttpResponse] {
-    override def apply[R <: Auth, A >: HttpResponse](
-      ctx: RequestContext
-    )(effect: URIO[R, A]): URIO[R, A] =
-      ctx.request.headers.collectFirst {
+  object AuthInterceptor extends RequestInterceptor[Auth] {
+    override def apply[R <: Auth](
+      request: ServerRequest
+    ): ZIO[R, StatusCode, Unit] =
+      request.headers.collectFirst {
         case header if header.is("token") => header.value
       } match {
-        case Some(token) => ZIO.accessM[Auth](_.get.set(Some(AuthToken(token)))) *> effect
-        case _           => ZIO.succeed(HttpResponse(StatusCodes.Forbidden))
+        case Some(token) => ZIO.accessM[Auth](_.get.set(Some(AuthToken(token))))
+        case _           => ZIO.fail(StatusCode.Forbidden)
       }
   }
 
@@ -57,7 +57,7 @@ object AuthExampleApp extends App {
 
   val route =
     path("api" / "graphql") {
-      AkkaHttpAdapter.makeHttpService(interpreter, contextWrapper = AuthWrapper)
+      AkkaHttpAdapter.makeHttpService(interpreter, requestInterceptor = AuthInterceptor)
     } ~ path("graphiql") {
       getFromResource("graphiql.html")
     }

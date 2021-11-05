@@ -2,7 +2,7 @@ package caliban
 
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.execution.QueryExecution
-import caliban.interop.tapir.TapirAdapter
+import caliban.interop.tapir.{ RequestInterceptor, TapirAdapter }
 import caliban.interop.tapir.TapirAdapter._
 import io.circe._
 import io.circe.parser._
@@ -87,9 +87,16 @@ object ZHttpAdapter {
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
-    queryExecution: QueryExecution = QueryExecution.Parallel
+    queryExecution: QueryExecution = QueryExecution.Parallel,
+    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
   ): HttpApp[R, Throwable] = {
-    val endpoints = TapirAdapter.makeHttpService[R, E](interpreter, skipValidation, enableIntrospection, queryExecution)
+    val endpoints = TapirAdapter.makeHttpService[R, E](
+      interpreter,
+      skipValidation,
+      enableIntrospection,
+      queryExecution,
+      requestInterceptor
+    )
     ZioHttpInterpreter().toHttp(endpoints)
   }
 

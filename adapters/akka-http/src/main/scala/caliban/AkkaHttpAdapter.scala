@@ -1,16 +1,17 @@
 package caliban
 
-import akka.http.scaladsl.model._
-import akka.http.scaladsl.server.{ RequestContext, Route }
+import akka.http.scaladsl.server.Route
 import akka.stream.scaladsl.{ Flow, Sink, Source }
 import akka.stream.{ Materializer, OverflowStrategy }
 import caliban.execution.QueryExecution
-import caliban.interop.tapir.{ TapirAdapter, WebSocketHooks }
+import caliban.interop.tapir.{ RequestInterceptor, TapirAdapter, WebSocketHooks }
 import sttp.capabilities.WebSockets
 import sttp.capabilities.akka.AkkaStreams
 import sttp.capabilities.akka.AkkaStreams.Pipe
+import sttp.model.StatusCode
 import sttp.monad.MonadError
 import sttp.tapir.Codec.JsonCodec
+import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.server.akkahttp.AkkaHttpServerInterpreter
 import sttp.tapir.{ Endpoint, Schema }
@@ -39,17 +40,23 @@ object AkkaHttpAdapter {
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
-    contextWrapper: ContextWrapper[R, HttpResponse] = ContextWrapper.empty,
-    queryExecution: QueryExecution = QueryExecution.Parallel
+    queryExecution: QueryExecution = QueryExecution.Parallel,
+    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
   )(implicit
     runtime: Runtime[R],
     requestCodec: JsonCodec[GraphQLRequest],
     responseCodec: JsonCodec[GraphQLResponse[E]]
   ): Route = {
-    val endpoints = TapirAdapter.makeHttpService[R, E](interpreter, skipValidation, enableIntrospection, queryExecution)
+    val endpoints = TapirAdapter.makeHttpService[R, E](
+      interpreter,
+      skipValidation,
+      enableIntrospection,
+      queryExecution,
+      requestInterceptor
+    )
     AkkaHttpServerInterpreter().toRoute(
       endpoints.map(endpoint =>
-        ServerEndpoint[GraphQLRequest, Unit, GraphQLResponse[E], Any, Future](
+        ServerEndpoint[(GraphQLRequest, ServerRequest), StatusCode, GraphQLResponse[E], Any, Future](
           endpoint.endpoint,
           _ => req => runtime.unsafeRunToFuture(endpoint.logic(zioMonadError)(req)).future
         )
@@ -62,8 +69,8 @@ object AkkaHttpAdapter {
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     keepAliveTime: Option[Duration] = None,
-    contextWrapper: ContextWrapper[R, GraphQLResponse[E]] = ContextWrapper.empty,
     queryExecution: QueryExecution = QueryExecution.Parallel,
+    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty,
     webSocketHooks: WebSocketHooks[R, E] = WebSocketHooks.empty
   )(implicit
     ec: ExecutionContext,
@@ -79,11 +86,15 @@ object AkkaHttpAdapter {
       enableIntrospection,
       keepAliveTime,
       queryExecution,
+      requestInterceptor,
       webSocketHooks
     )
     AkkaHttpServerInterpreter().toRoute(
-      ServerEndpoint[Unit, Unit, Pipe[GraphQLWSInput, GraphQLWSOutput], AkkaStreams with WebSockets, Future](
-        endpoint.endpoint.asInstanceOf[Endpoint[Unit, Unit, Pipe[GraphQLWSInput, GraphQLWSOutput], Any]],
+      ServerEndpoint[ServerRequest, StatusCode, Pipe[
+        GraphQLWSInput,
+        GraphQLWSOutput
+      ], AkkaStreams with WebSockets, Future](
+        endpoint.endpoint.asInstanceOf[Endpoint[ServerRequest, StatusCode, Pipe[GraphQLWSInput, GraphQLWSOutput], Any]],
         _ =>
           req =>
             runtime
@@ -108,24 +119,5 @@ object AkkaHttpAdapter {
               })
       )
     )
-  }
-
-  /**
-   * ContextWrapper provides a way to pass context from http request into Caliban's query handling.
-   */
-  trait ContextWrapper[-R, +A] { self =>
-    def apply[R1 <: R, A1 >: A](ctx: RequestContext)(e: URIO[R1, A1]): URIO[R1, A1]
-
-    def |+|[R1 <: R, A1 >: A](that: ContextWrapper[R1, A1]): ContextWrapper[R1, A1] = new ContextWrapper[R1, A1] {
-      override def apply[R2 <: R1, A2 >: A1](ctx: RequestContext)(e: URIO[R2, A2]): URIO[R2, A2] =
-        that.apply[R2, A2](ctx)(self.apply[R2, A2](ctx)(e))
-    }
-  }
-
-  object ContextWrapper {
-    def empty: ContextWrapper[Any, Nothing] = new ContextWrapper[Any, Nothing] {
-      override def apply[R, Nothing](ctx: RequestContext)(effect: URIO[R, Nothing]): URIO[R, Nothing] =
-        effect
-    }
   }
 }
