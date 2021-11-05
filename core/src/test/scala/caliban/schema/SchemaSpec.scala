@@ -144,6 +144,24 @@ object SchemaSpec extends DefaultRunnableSpec {
           )
         ) &&
         assert(fieldNames)(hasSameElements(List("common")))
+      },
+      test("value type not scalar") {
+        @GQLValueType
+        case class Wrapper(value: Int)
+        case class Queries(test: Option[Wrapper])
+
+        assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
+          isSome(hasField[__Type, Option[String]]("name", _.name, equalTo(Some("Int"))))
+        )
+      },
+      test("value not scalar") {
+        @GQLValueType(isScalar = true)
+        case class Wrapper(value: Int)
+        case class Queries(test: Option[Wrapper])
+
+        assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
+          isSome(hasField[__Type, Option[String]]("name", _.name, equalTo(Some("Wrapper"))))
+        )
       }
     )
 
