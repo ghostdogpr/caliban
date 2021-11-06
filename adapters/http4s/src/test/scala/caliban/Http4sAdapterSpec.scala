@@ -3,7 +3,6 @@ package caliban
 import caliban.GraphQL.graphQL
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.uploads.{ Upload, Uploads }
-import cats.syntax.semigroupk._
 import io.circe.parser.parse
 import io.circe.generic.auto._
 import org.http4s.syntax.all._
@@ -26,7 +25,6 @@ import sttp.model._
 import java.io.File
 import java.math.BigInteger
 import java.net.URL
-import java.nio.file.Paths
 import java.security.MessageDigest
 
 case class Response[A](data: A)
@@ -40,7 +38,6 @@ object Service {
       meta  <- file.meta
     } yield TestAPI.File(
       Service.hex(Service.sha256(bytes.toArray)),
-      meta.map(_.path.toAbsolutePath.toString).getOrElse(""),
       meta.map(_.fileName).getOrElse(""),
       meta.flatMap(_.contentType).getOrElse("")
     )
@@ -54,7 +51,6 @@ object Service {
         meta  <- file.meta
       } yield TestAPI.File(
         Service.hex(Service.sha256(bytes.toArray)),
-        meta.map(_.path.toAbsolutePath.toString).getOrElse(""),
         meta.map(_.fileName).getOrElse(""),
         meta.flatMap(_.contentType).getOrElse("")
       )
@@ -80,12 +76,12 @@ object TestAPI extends GenericSchema[Blocking with Uploads with Console with Clo
   val api: GraphQL[Env] =
     graphQL(
       RootResolver(
-        Queries(args => UIO("stub")),
+        Queries(_ => UIO("stub")),
         Mutations(args => Service.uploadFile(args.file), args => Service.uploadFiles(args.files))
       )
     )
 
-  case class File(hash: String, path: String, filename: String, mimetype: String)
+  case class File(hash: String, filename: String, mimetype: String)
 
   case class Queries(stub: Unit => UIO[String])
 
@@ -108,16 +104,14 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
   val apiLayer: RLayer[R, Has[Server]] =
     (for {
       interpreter <- TestAPI.api.interpreter.toManaged_
-      server      <- BlazeServerBuilder[RIO[R, *]]
-                       .bindHttp(uri.port.get, uri.host.get)
-                       .withHttpApp(
-                         (Http4sAdapter.makeHttpUploadService(
-                           interpreter,
-                           Paths.get(System.getProperty("java.io.tmpdir"))
-                         ) <+> Http4sAdapter.makeHttpService(interpreter)).orNotFound
-                       )
-                       .resource
-                       .toManagedZIO
+      server      <-
+        BlazeServerBuilder[RIO[R, *]]
+          .bindHttp(uri.port.get, uri.host.get)
+          .withHttpApp(
+            Http4sAdapter.makeHttpUploadService[R, CalibanError](interpreter).orNotFound
+          )
+          .resource
+          .toManagedZIO
     } yield server).toLayer
 
   val specLayer = ZLayer.requires[ZEnv] ++ Uploads.empty >>> apiLayer
@@ -130,7 +124,7 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
         val fileURL: URL     = getClass.getResource(s"/$fileName")
 
         val query: String =
-          """{ "query": "mutation ($file: Upload!) { uploadFile(file: $file) { hash, path, filename, mimetype } }",   "variables": {  "file": null }}"""
+          """{ "query": "mutation ($file: Upload!) { uploadFile(file: $file) { hash, filename, mimetype } }",   "variables": {  "file": null }}"""
 
         val request = basicRequest
           .post(uri)
@@ -169,7 +163,7 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
         val file2URL: URL     = getClass.getResource(s"/$file2Name")
 
         val query: String =
-          """{ "query": "mutation ($files: [Upload!]!) { uploadFiles(files: $files) { hash, path, filename, mimetype } }",   "variables": {  "files": [null, null] }}"""
+          """{ "query": "mutation ($files: [Upload!]!) { uploadFiles(files: $files) { hash, filename, mimetype } }",   "variables": {  "files": [null, null] }}"""
 
         val request = basicRequest
           .post(uri)

@@ -13,6 +13,7 @@ import zio.blocking.Blocking
 import zio.clock.Clock
 import zio.duration.Duration
 import zio.interop.catz.concurrentInstance
+import zio.random.Random
 
 object Http4sAdapter {
 
@@ -31,6 +32,23 @@ object Http4sAdapter {
       requestInterceptor
     )
     ZHttp4sServerInterpreter().from(endpoints).toRoutes
+  }
+
+  def makeHttpUploadService[R <: Has[_] with Random, E: Schema](
+    interpreter: GraphQLInterpreter[R, E],
+    skipValidation: Boolean = false,
+    enableIntrospection: Boolean = true,
+    queryExecution: QueryExecution = QueryExecution.Parallel,
+    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
+  ): HttpRoutes[RIO[R with Clock with Blocking, *]] = {
+    val endpoint = TapirAdapter.makeHttpUploadService[R, E](
+      interpreter,
+      skipValidation,
+      enableIntrospection,
+      queryExecution,
+      requestInterceptor
+    )
+    ZHttp4sServerInterpreter().from(endpoint).toRoutes
   }
 
   def makeWebSocketService[R, E](

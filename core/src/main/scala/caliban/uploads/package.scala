@@ -1,10 +1,7 @@
 package caliban
 
-import zio.blocking.Blocking
 import zio.stream.{ Stream, ZStream }
-import zio.{ Has, Layer, UIO, URIO, ZIO, ZLayer }
-
-import java.nio.file.Files
+import zio.{ Chunk, Has, Layer, UIO, URIO, ZIO, ZLayer }
 
 package object uploads {
   type Uploads = Has[Multipart]
@@ -12,12 +9,12 @@ package object uploads {
   object Uploads {
     val empty: Layer[Nothing, Uploads] =
       ZLayer.succeed(new Multipart {
-        def stream(name: String): ZStream[Blocking, Throwable, Byte] = Stream.empty
+        def stream(name: String): ZStream[Any, Throwable, Byte] = Stream.empty
 
         def file(name: String): UIO[Option[FileMeta]] = ZIO.none
       })
 
-    def stream(name: String): ZStream[Uploads with Blocking, Throwable, Byte] =
+    def stream(name: String): ZStream[Uploads, Throwable, Byte] =
       ZStream.accessStream(_.get.stream(name))
 
     def fileMeta(name: String): URIO[Uploads, Option[FileMeta]] =
@@ -26,11 +23,10 @@ package object uploads {
     def handler(fileHandle: String => UIO[Option[FileMeta]]): UIO[Uploads] =
       ZIO
         .succeed(new Multipart {
-          def stream(name: String): ZStream[Blocking, Throwable, Byte] =
+          def stream(name: String): ZStream[Any, Throwable, Byte] =
             for {
               ref   <- ZStream.fromEffectOption(fileHandle(name).some)
-              bytes <- ZStream
-                         .fromInputStream(Files.newInputStream(ref.path))
+              bytes <- ZStream.fromChunk(Chunk.fromArray(ref.bytes))
             } yield bytes
 
           def file(name: String): UIO[Option[FileMeta]] =

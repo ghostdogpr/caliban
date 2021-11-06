@@ -4,10 +4,11 @@ import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.StringValue
 import caliban._
 import caliban.execution.QueryExecution
+import caliban.uploads.{ FileMeta, GraphQLUploadRequest, Uploads }
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.zio.ZioStreams.Pipe
-import sttp.model.{ Header, QueryParams, StatusCode }
+import sttp.model.{ headers => _, _ }
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir._
 import sttp.tapir.model.ServerRequest
@@ -15,7 +16,10 @@ import sttp.tapir.server.ServerEndpoint
 import zio._
 import zio.clock.Clock
 import zio.duration.Duration
+import zio.random.Random
 import zio.stream._
+
+import scala.util.Try
 
 object TapirAdapter {
 
@@ -50,15 +54,18 @@ object TapirAdapter {
             val getRequest =
               if (params.get("query").isDefined)
                 queryFromQueryParams(params)
-              else if (headers.contains(Header("content/type", "application/graphql")))
+              else if (
+                headers.exists(header =>
+                  header.name == HeaderNames.ContentType &&
+                    MediaType
+                      .parse(header.value)
+                      .exists(mediaType => mediaType.mainType == "application" && mediaType.subType == "graphql")
+                )
+              )
                 DecodeResult.Value(GraphQLRequest(query = Some(body)))
               else requestCodec.decode(body)
 
-            getRequest.map(request =>
-              headers
-                .find(r => r.name == GraphQLRequest.`apollo-federation-include-trace` && r.value == GraphQLRequest.ftv1)
-                .fold(request)(_ => request.withFederatedTracing)
-            )
+            getRequest.map(request => headers.find(isFtv1Header).fold(request)(_ => request.withFederatedTracing))
           }(request => (Nil, requestCodec.encode(request), QueryParams()))
         )
         .in(extractFromRequest(identity))
@@ -101,6 +108,81 @@ object TapirAdapter {
     }
 
     postEndpoint.serverLogic(logic) :: getEndpoint.serverLogic(logic) :: Nil
+  }
+
+  def makeHttpUploadService[R <: Has[_] with Random, E](
+    interpreter: GraphQLInterpreter[R, E],
+    skipValidation: Boolean = false,
+    enableIntrospection: Boolean = true,
+    queryExecution: QueryExecution = QueryExecution.Parallel,
+    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
+  )(implicit
+    requestCodec: JsonCodec[GraphQLRequest],
+    mapCodec: JsonCodec[Map[String, Seq[String]]],
+    responseCodec: JsonCodec[GraphQLResponse[E]]
+  ): ServerEndpoint[(Seq[Part[Array[Byte]]], ServerRequest), StatusCode, GraphQLResponse[E], Any, RIO[R, *]] = {
+    val postEndpoint: Endpoint[(Seq[Part[Array[Byte]]], ServerRequest), StatusCode, GraphQLResponse[E], Any] =
+      endpoint.post
+        .in(mediaType("multipart", "form-data"))
+        .in(multipartBody)
+        .in(extractFromRequest(identity))
+        .out(customJsonBody[GraphQLResponse[E]])
+        .errorOut(statusCode)
+
+    def logic(request: (Seq[Part[Array[Byte]]], ServerRequest)): RIO[R, Either[StatusCode, GraphQLResponse[E]]] = {
+      val (parts, serverRequest) = request
+      val partsMap               = parts.map(part => part.name -> part).toMap
+
+      val io =
+        for {
+          _             <- requestInterceptor(serverRequest)
+          rawOperations <- ZIO.fromOption(partsMap.get("operations")) orElseFail StatusCode.BadRequest
+          request       <- requestCodec.rawDecode(new String(rawOperations.body, "utf-8")) match {
+                             case _: DecodeResult.Failure => ZIO.fail(StatusCode.BadRequest)
+                             case DecodeResult.Value(v)   => UIO(v)
+                           }
+          rawMap        <- ZIO.fromOption(partsMap.get("map")) orElseFail StatusCode.BadRequest
+          map           <- mapCodec.rawDecode(new String(rawMap.body, "utf-8")) match {
+                             case _: DecodeResult.Failure => ZIO.fail(StatusCode.BadRequest)
+                             case DecodeResult.Value(v)   => UIO(v)
+                           }
+          filePaths      = map.map { case (key, value) => (key, value.map(parsePath).toList) }.toList
+                             .flatMap(kv => kv._2.map(kv._1 -> _))
+          random        <- ZIO.service[Random.Service]
+          handler        = Uploads.handler(handle =>
+                             UIO(partsMap.get(handle)).some
+                               .flatMap(fp =>
+                                 random.nextUUID.asSomeError
+                                   .map(uuid =>
+                                     FileMeta(
+                                       uuid.toString,
+                                       fp.body,
+                                       fp.contentType,
+                                       fp.fileName.getOrElse(""),
+                                       fp.body.length
+                                     )
+                                   )
+                               )
+                               .optional
+                           )
+          uploadQuery    = GraphQLUploadRequest(request, filePaths, handler)
+          query          = serverRequest.headers
+                             .find(isFtv1Header)
+                             .fold(uploadQuery.remap)(_ => uploadQuery.remap.withFederatedTracing)
+          response      <- interpreter
+                             .executeRequest(
+                               query,
+                               skipValidation = skipValidation,
+                               enableIntrospection = enableIntrospection,
+                               queryExecution
+                             )
+                             .provideSomeLayer[R](uploadQuery.fileHandle.toLayerMany)
+        } yield response
+
+      io.either
+    }
+
+    postEndpoint.serverLogic(logic)
   }
 
   def makeWebSocketService[R, E](
@@ -266,4 +348,20 @@ object TapirAdapter {
 
   private def toResponse[E](id: String, r: GraphQLResponse[E]): GraphQLWSOutput =
     GraphQLWSOutput("data", Some(id), Some(r.toResponseValue))
+
+  private def parsePath(path: String): List[Either[String, Int]] =
+    path.split('.').map(c => Try(c.toInt).toEither.left.map(_ => c)).toList
+
+  private def isFtv1Header(r: Header): Boolean =
+    r.name == GraphQLRequest.`apollo-federation-include-trace` && r.value == GraphQLRequest.ftv1
+
+  private def mediaType(mainType: String, subType: String): EndpointIO.Header[Unit] =
+    header[String](HeaderNames.ContentType).mapDecode { h =>
+      DecodeResult
+        .fromEitherString(h, MediaType.parse(h))
+        .flatMap(mediaType =>
+          if (mediaType.mainType == mainType && mediaType.subType == subType) DecodeResult.Value(())
+          else DecodeResult.Mismatch(s"$mainType/$subType", s"${mediaType.mainType}/${mediaType.subType}")
+        )
+    }(_ => s"$mainType/$subType")
 }

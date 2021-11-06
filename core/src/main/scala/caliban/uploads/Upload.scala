@@ -1,22 +1,13 @@
 package caliban.uploads
 
-import caliban.CalibanError
 import caliban.InputValue.ListValue
 import caliban.Value.{ NullValue, StringValue }
-import caliban.schema.Annotations
-import caliban.schema.Annotations.GQLName
-import caliban.schema.ArgBuilder
-import caliban.schema.GenericSchema
-import caliban.schema.Schema
 import caliban.{ GraphQLRequest, InputValue }
-import zio.blocking.Blocking
 import zio.stream.{ ZSink, ZStream }
 import zio.{ Chunk, RIO, UIO, URIO, ZIO }
 
-import java.nio.file.Path
-
 final case class Upload(name: String) {
-  val allBytes: RIO[Uploads with Blocking, Chunk[Byte]] =
+  val allBytes: RIO[Uploads, Chunk[Byte]] =
     Uploads.stream(name).run(ZSink.foldLeftChunks(Chunk[Byte]())(_ ++ (_: Chunk[Byte])))
 
   val meta: URIO[Uploads, Option[FileMeta]] =
@@ -25,15 +16,14 @@ final case class Upload(name: String) {
 
 case class FileMeta(
   id: String,
-  path: Path,
-  dispositionType: Option[String],
+  bytes: Array[Byte],
   contentType: Option[String],
   fileName: String,
   fileSize: Long
 )
 
 trait Multipart {
-  def stream(name: String): ZStream[Blocking, Throwable, Byte]
+  def stream(name: String): ZStream[Any, Throwable, Byte]
   def file(name: String): ZIO[Any, Nothing, Option[FileMeta]]
 }
 
