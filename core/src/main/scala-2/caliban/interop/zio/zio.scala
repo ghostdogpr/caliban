@@ -1,15 +1,6 @@
 package caliban.interop.zio
 
-import caliban.{
-  CalibanError,
-  GraphQLRequest,
-  GraphQLResponse,
-  GraphQLWSInput,
-  GraphQLWSOutput,
-  InputValue,
-  ResponseValue,
-  Value
-}
+import caliban._
 import caliban.Value.{ BooleanValue, EnumValue, FloatValue, IntValue, NullValue, StringValue }
 import caliban.parsing.adt.LocationInfo
 import zio.Chunk
