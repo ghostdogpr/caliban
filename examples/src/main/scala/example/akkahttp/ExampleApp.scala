@@ -10,7 +10,6 @@ import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives._
 import caliban.AkkaHttpAdapter
-import caliban.interop.tapir.TapirAdapter._
 import sttp.tapir.json.circe._
 import zio.clock.Clock
 import zio.console.Console

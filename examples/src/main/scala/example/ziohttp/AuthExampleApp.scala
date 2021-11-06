@@ -2,7 +2,6 @@ package example.ziohttp
 
 import caliban.GraphQL.graphQL
 import caliban._
-import caliban.interop.tapir.TapirAdapter._
 import caliban.schema.GenericSchema
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }

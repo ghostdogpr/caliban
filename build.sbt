@@ -124,13 +124,14 @@ lazy val core = project
       }
     } ++
       Seq(
-        "dev.zio"  %% "zio"          % zioVersion,
-        "dev.zio"  %% "zio-streams"  % zioVersion,
-        "dev.zio"  %% "zio-query"    % zqueryVersion,
-        "dev.zio"  %% "zio-test"     % zioVersion   % Test,
-        "dev.zio"  %% "zio-test-sbt" % zioVersion   % Test,
-        "io.circe" %% "circe-core"   % circeVersion % Optional,
-        "io.circe" %% "circe-parser" % circeVersion % Test
+        "dev.zio"                     %% "zio"          % zioVersion,
+        "dev.zio"                     %% "zio-streams"  % zioVersion,
+        "dev.zio"                     %% "zio-query"    % zqueryVersion,
+        "dev.zio"                     %% "zio-test"     % zioVersion   % Test,
+        "dev.zio"                     %% "zio-test-sbt" % zioVersion   % Test,
+        "com.softwaremill.sttp.tapir" %% "tapir-core"   % tapirVersion % Optional,
+        "io.circe"                    %% "circe-core"   % circeVersion % Optional,
+        "io.circe"                    %% "circe-parser" % circeVersion % Test
       )
   )
   .dependsOn(macros)

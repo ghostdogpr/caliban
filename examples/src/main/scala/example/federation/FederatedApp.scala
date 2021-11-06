@@ -4,7 +4,6 @@ import example.federation.FederationData.characters.sampleCharacters
 import example.federation.FederationData.episodes.sampleEpisodes
 
 import caliban.Http4sAdapter
-import caliban.interop.tapir.TapirAdapter._
 import cats.data.Kleisli
 import org.http4s.StaticFile
 import org.http4s.implicits._

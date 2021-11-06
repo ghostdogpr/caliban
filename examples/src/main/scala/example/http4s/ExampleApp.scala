@@ -1,7 +1,6 @@
 package example.http4s
 
 import caliban.Http4sAdapter
-import caliban.interop.tapir.TapirAdapter._
 import cats.data.Kleisli
 import example.ExampleData._
 import example.ExampleService.ExampleService

@@ -3,7 +3,6 @@ package example.http4s
 import caliban.GraphQL._
 import caliban.schema.GenericSchema
 import caliban.{ Http4sAdapter, RootResolver }
-import caliban.interop.tapir.TapirAdapter._
 import org.http4s.HttpRoutes
 import org.http4s.dsl.Http4sDsl
 import org.http4s.implicits._

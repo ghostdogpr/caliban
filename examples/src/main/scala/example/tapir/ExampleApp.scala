@@ -2,7 +2,6 @@ package example.tapir
 
 import example.tapir.Endpoints._
 import caliban.interop.tapir._
-import caliban.interop.tapir.TapirAdapter._
 import caliban.{ GraphQL, Http4sAdapter }
 import cats.data.Kleisli
 import org.http4s.StaticFile

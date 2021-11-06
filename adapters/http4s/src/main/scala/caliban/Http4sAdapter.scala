@@ -1,7 +1,6 @@
 package caliban
 
 import caliban.execution.QueryExecution
-import caliban.interop.tapir.TapirAdapter._
 import caliban.interop.tapir.{ RequestInterceptor, TapirAdapter, WebSocketHooks }
 import cats.data.Kleisli
 import cats.~>

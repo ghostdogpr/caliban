@@ -1,16 +1,15 @@
 package caliban.interop.tapir
 
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
-import caliban.Value.{ NullValue, StringValue }
-import caliban.execution.QueryExecution
+import caliban.Value.StringValue
 import caliban._
+import caliban.execution.QueryExecution
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.zio.ZioStreams.Pipe
 import sttp.model.{ Header, QueryParams, StatusCode }
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir._
-import sttp.tapir.generic.auto._
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
 import zio._
@@ -22,18 +21,6 @@ object TapirAdapter {
 
   type CalibanPipe   = Pipe[GraphQLWSInput, GraphQLWSOutput]
   type ZioWebSockets = ZioStreams with WebSockets
-
-  implicit val streamSchema: Schema[StreamValue]                     =
-    Schema.schemaForUnit.map(_ => Some(StreamValue(ZStream(NullValue))))(_ => ())
-  implicit val throwableSchema: Schema[Throwable]                    =
-    Schema.schemaForString.map(s => Some(new Throwable(s)))(_.getMessage)
-  implicit lazy val inputValueSchema: Schema[InputValue]             = Schema.derivedSchema
-  implicit lazy val responseValueSchema: Schema[ResponseValue]       = Schema.derivedSchema
-  implicit val calibanErrorSchema: Schema[CalibanError]              = Schema.derivedSchema
-  implicit val requestSchema: Schema[GraphQLRequest]                 = Schema.derivedSchema
-  implicit def responseSchema[E: Schema]: Schema[GraphQLResponse[E]] = Schema.derivedSchema
-  implicit val wsInputSchema: Schema[GraphQLWSInput]                 = Schema.derivedSchema
-  implicit val wsOutputSchema: Schema[GraphQLWSOutput]               = Schema.derivedSchema
 
   def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E],

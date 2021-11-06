@@ -5,7 +5,6 @@ import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives.{ getFromResource, path, _ }
 import caliban.GraphQL._
 import caliban.interop.tapir.RequestInterceptor
-import caliban.interop.tapir.TapirAdapter._
 import caliban.schema.GenericSchema
 import caliban.{ AkkaHttpAdapter, RootResolver }
 import sttp.model.StatusCode

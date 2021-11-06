@@ -3,7 +3,6 @@ package example.ziohttp
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
 
-import caliban.interop.tapir.TapirAdapter._
 import caliban.ZHttpAdapter
 import zio._
 import zio.stream._
