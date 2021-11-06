@@ -142,6 +142,13 @@ trait GraphQL[-R] { self =>
       override val additionalDirectives: List[__Directive] = self.additionalDirectives
     }
 
+  /**
+   * Attaches an aspect that will wrap the entire GraphQL so that it can be manipulated.
+   * This method is a higher-level abstraction of [[withWrapper]] which allows the caller to
+   * completely replace or change all aspects of the schema.
+   * @param aspect A wrapper type that will be applied to this GraphQL
+   * @return A new GraphQL API
+   */
   final def @@[LowerR <: UpperR, UpperR <: R](aspect: GraphQLAspect[LowerR, UpperR]): GraphQL[UpperR] =
     aspect(self)
 

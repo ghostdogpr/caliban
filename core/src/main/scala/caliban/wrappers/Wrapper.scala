@@ -1,15 +1,15 @@
 package caliban.wrappers
 
-import scala.annotation.tailrec
 import caliban.CalibanError.{ ExecutionError, ParsingError, ValidationError }
 import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.introspection.adt.__Introspection
 import caliban.parsing.adt.Document
 import caliban.wrappers.Wrapper.CombinedWrapper
-import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
-import zio.{ UIO, ZIO }
+import caliban._
 import zio.query.ZQuery
-import caliban.{ GraphQL, GraphQLAspect }
+import zio.{ UIO, ZIO }
+
+import scala.annotation.tailrec
 
 /**
  * A `Wrapper[-R]` represents an extra layer of computation that can be applied on top of Caliban's query handling.

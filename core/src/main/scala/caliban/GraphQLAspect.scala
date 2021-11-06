@@ -1,5 +1,10 @@
 package caliban
 
+/**
+ * A `GraphQLAspect` is wrapping type similar to a polymorphic function, which is capable
+ * of transforming a GraphQL into another while possibly enlarging the required environment type.
+ * It allows a flexible way to augment an existing GraphQL with new capabilities or features.
+ */
 trait GraphQLAspect[+LowerR, -UpperR] { self =>
   def apply[R >: LowerR <: UpperR](gql: GraphQL[R]): GraphQL[R]
 
