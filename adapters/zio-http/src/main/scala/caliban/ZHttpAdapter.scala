@@ -14,7 +14,6 @@ import zhttp.socket.{ SocketApp, _ }
 import zio._
 import zio.clock.Clock
 import zio.duration._
-import zio.random.Random
 import zio.stream._
 
 object ZHttpAdapter {
