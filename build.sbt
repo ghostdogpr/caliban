@@ -379,6 +379,7 @@ lazy val examples = project
   )
   .settings(
     crossScalaVersions -= scala3,
+    libraryDependencySchemes += "org.scala-lang.modules" %% "scala-java8-compat" % "always",
     libraryDependencies ++= Seq(
       "org.http4s"                    %% "http4s-blaze-server"           % http4sVersion,
       "org.http4s"                    %% "http4s-dsl"                    % http4sVersion,
