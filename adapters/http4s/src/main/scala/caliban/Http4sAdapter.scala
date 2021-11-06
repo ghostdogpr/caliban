@@ -5,7 +5,6 @@ import caliban.interop.tapir.{ RequestInterceptor, TapirAdapter, WebSocketHooks 
 import cats.data.Kleisli
 import cats.~>
 import org.http4s._
-import sttp.tapir.Schema
 import sttp.tapir.json.circe._
 import sttp.tapir.server.http4s.ztapir.ZHttp4sServerInterpreter
 import zio._
@@ -17,7 +16,7 @@ import zio.random.Random
 
 object Http4sAdapter {
 
-  def makeHttpService[R, E: Schema](
+  def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
@@ -34,7 +33,7 @@ object Http4sAdapter {
     ZHttp4sServerInterpreter().from(endpoints).toRoutes
   }
 
-  def makeHttpUploadService[R <: Has[_] with Random, E: Schema](
+  def makeHttpUploadService[R <: Has[_] with Random, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,

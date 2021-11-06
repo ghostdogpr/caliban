@@ -3,11 +3,9 @@ package caliban
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.execution.QueryExecution
 import caliban.interop.tapir.{ RequestInterceptor, TapirAdapter }
-import caliban.interop.tapir.TapirAdapter._
 import io.circe._
 import io.circe.parser._
 import io.circe.syntax._
-import sttp.tapir.Schema
 import sttp.tapir.json.circe._
 import sttp.tapir.server.ziohttp.ZioHttpInterpreter
 import zhttp.http._
@@ -83,7 +81,7 @@ object ZHttpAdapter {
 
   type Subscriptions = Ref[Map[String, Promise[Any, Unit]]]
 
-  def makeHttpService[R, E: Schema](
+  def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,

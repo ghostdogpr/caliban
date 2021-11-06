@@ -3,7 +3,6 @@ package caliban
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ IntValue, StringValue }
 import caliban.interop.circe.{ IsCirceDecoder, IsCirceEncoder }
-import caliban.interop.tapir.IsTapirSchema
 import caliban.parsing.adt.LocationInfo
 
 /**
@@ -95,7 +94,4 @@ object CalibanError extends CalibanErrorJsonCompat {
 
   implicit def circeDecoder[F[_]](implicit ev: IsCirceDecoder[F]): F[CalibanError] =
     caliban.interop.circe.json.ErrorCirce.errorValueDecoder.asInstanceOf[F[CalibanError]]
-
-  implicit def tapirSchema[F[_]: IsTapirSchema]: F[CalibanError] =
-    caliban.interop.tapir.schema.calibanErrorSchema.asInstanceOf[F[CalibanError]]
 }

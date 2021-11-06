@@ -11,10 +11,10 @@ import sttp.capabilities.akka.AkkaStreams.Pipe
 import sttp.model.StatusCode
 import sttp.monad.MonadError
 import sttp.tapir.Codec.JsonCodec
+import sttp.tapir.Endpoint
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.server.akkahttp.AkkaHttpServerInterpreter
-import sttp.tapir.{ Endpoint, Schema }
 import zio._
 import zio.duration._
 import zio.stream.ZStream
@@ -36,7 +36,7 @@ object AkkaHttpAdapter {
     override def ensure[T](f: RIO[R, T], e: => RIO[R, Unit]): RIO[R, T]                                              = f.ensuring(e.ignore)
   }
 
-  def makeHttpService[R, E: Schema](
+  def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
