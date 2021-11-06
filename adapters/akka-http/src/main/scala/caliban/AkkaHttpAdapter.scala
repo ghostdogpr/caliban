@@ -4,12 +4,12 @@ import akka.http.scaladsl.server.Route
 import akka.stream.scaladsl.{ Flow, Sink, Source }
 import akka.stream.{ Materializer, OverflowStrategy }
 import caliban.execution.QueryExecution
+import caliban.interop.tapir.TapirAdapter.zioMonadError
 import caliban.interop.tapir.{ RequestInterceptor, TapirAdapter, WebSocketHooks }
 import sttp.capabilities.WebSockets
 import sttp.capabilities.akka.AkkaStreams
 import sttp.capabilities.akka.AkkaStreams.Pipe
-import sttp.model.StatusCode
-import sttp.monad.MonadError
+import sttp.model.{ Part, StatusCode }
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.Endpoint
 import sttp.tapir.model.ServerRequest
@@ -17,24 +17,12 @@ import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.server.akkahttp.AkkaHttpServerInterpreter
 import zio._
 import zio.duration._
+import zio.random.Random
 import zio.stream.ZStream
 
 import scala.concurrent.{ ExecutionContext, Future }
 
 object AkkaHttpAdapter {
-
-  def zioMonadError[R]: MonadError[RIO[R, *]] = new MonadError[RIO[R, *]] {
-    override def unit[T](t: T): RIO[R, T]                                                                            = URIO.succeed(t)
-    override def map[T, T2](fa: RIO[R, T])(f: T => T2): RIO[R, T2]                                                   = fa.map(f)
-    override def flatMap[T, T2](fa: RIO[R, T])(f: T => RIO[R, T2]): RIO[R, T2]                                       = fa.flatMap(f)
-    override def error[T](t: Throwable): RIO[R, T]                                                                   = RIO.fail(t)
-    override protected def handleWrappedError[T](rt: RIO[R, T])(h: PartialFunction[Throwable, RIO[R, T]]): RIO[R, T] =
-      rt.catchSome(h)
-    override def eval[T](t: => T): RIO[R, T]                                                                         = RIO.effect(t)
-    override def suspend[T](t: => RIO[R, T]): RIO[R, T]                                                              = RIO.effectSuspend(t)
-    override def flatten[T](ffa: RIO[R, RIO[R, T]]): RIO[R, T]                                                       = ffa.flatten
-    override def ensure[T](f: RIO[R, T], e: => RIO[R, Unit]): RIO[R, T]                                              = f.ensuring(e.ignore)
-  }
 
   def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E],
@@ -60,6 +48,33 @@ object AkkaHttpAdapter {
           endpoint.endpoint,
           _ => req => runtime.unsafeRunToFuture(endpoint.logic(zioMonadError)(req)).future
         )
+      )
+    )
+  }
+
+  def makeHttpUploadService[R, E](
+    interpreter: GraphQLInterpreter[R, E],
+    skipValidation: Boolean = false,
+    enableIntrospection: Boolean = true,
+    queryExecution: QueryExecution = QueryExecution.Parallel,
+    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
+  )(implicit
+    runtime: Runtime[R with Random],
+    requestCodec: JsonCodec[GraphQLRequest],
+    mapCodec: JsonCodec[Map[String, Seq[String]]],
+    responseCodec: JsonCodec[GraphQLResponse[E]]
+  ): Route = {
+    val endpoint = TapirAdapter.makeHttpUploadService[R, E](
+      interpreter,
+      skipValidation,
+      enableIntrospection,
+      queryExecution,
+      requestInterceptor
+    )
+    AkkaHttpServerInterpreter().toRoute(
+      ServerEndpoint[(Seq[Part[Array[Byte]]], ServerRequest), StatusCode, GraphQLResponse[E], Any, Future](
+        endpoint.endpoint,
+        _ => req => runtime.unsafeRunToFuture(endpoint.logic(zioMonadError)(req)).future
       )
     )
   }

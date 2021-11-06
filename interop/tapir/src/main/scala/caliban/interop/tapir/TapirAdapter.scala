@@ -9,6 +9,7 @@ import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.zio.ZioStreams.Pipe
 import sttp.model.{ headers => _, _ }
+import sttp.monad.MonadError
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir._
 import sttp.tapir.model.ServerRequest
@@ -24,6 +25,7 @@ import scala.util.Try
 object TapirAdapter {
 
   type CalibanPipe   = Pipe[GraphQLWSInput, GraphQLWSOutput]
+  type UploadRequest = (Seq[Part[Array[Byte]]], ServerRequest)
   type ZioWebSockets = ZioStreams with WebSockets
 
   def makeHttpService[R, E](
@@ -110,7 +112,7 @@ object TapirAdapter {
     postEndpoint.serverLogic(logic) :: getEndpoint.serverLogic(logic) :: Nil
   }
 
-  def makeHttpUploadService[R <: Has[_] with Random, E](
+  def makeHttpUploadService[R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
@@ -120,7 +122,7 @@ object TapirAdapter {
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
     responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): ServerEndpoint[(Seq[Part[Array[Byte]]], ServerRequest), StatusCode, GraphQLResponse[E], Any, RIO[R, *]] = {
+  ): ServerEndpoint[UploadRequest, StatusCode, GraphQLResponse[E], Any, RIO[R with Random, *]] = {
     val postEndpoint: Endpoint[(Seq[Part[Array[Byte]]], ServerRequest), StatusCode, GraphQLResponse[E], Any] =
       endpoint.post
         .in(mediaType("multipart", "form-data"))
@@ -129,7 +131,7 @@ object TapirAdapter {
         .out(customJsonBody[GraphQLResponse[E]])
         .errorOut(statusCode)
 
-    def logic(request: (Seq[Part[Array[Byte]]], ServerRequest)): RIO[R, Either[StatusCode, GraphQLResponse[E]]] = {
+    def logic(request: UploadRequest): RIO[R with Random, Either[StatusCode, GraphQLResponse[E]]] = {
       val (parts, serverRequest) = request
       val partsMap               = parts.map(part => part.name -> part).toMap
 
@@ -176,7 +178,7 @@ object TapirAdapter {
                                enableIntrospection = enableIntrospection,
                                queryExecution
                              )
-                             .provideSomeLayer[R](uploadQuery.fileHandle.toLayerMany)
+                             .provideSomeLayer[R with Random](uploadQuery.fileHandle.toLayerMany)
         } yield response
 
       io.either
@@ -272,6 +274,19 @@ object TapirAdapter {
       .serverLogic[RIO[R, *]](serverRequest =>
         requestInterceptor(serverRequest).foldM(statusCode => ZIO.left(statusCode), _ => io)
       )
+  }
+
+  def zioMonadError[R]: MonadError[RIO[R, *]] = new MonadError[RIO[R, *]] {
+    override def unit[T](t: T): RIO[R, T]                                                                            = URIO.succeed(t)
+    override def map[T, T2](fa: RIO[R, T])(f: T => T2): RIO[R, T2]                                                   = fa.map(f)
+    override def flatMap[T, T2](fa: RIO[R, T])(f: T => RIO[R, T2]): RIO[R, T2]                                       = fa.flatMap(f)
+    override def error[T](t: Throwable): RIO[R, T]                                                                   = RIO.fail(t)
+    override protected def handleWrappedError[T](rt: RIO[R, T])(h: PartialFunction[Throwable, RIO[R, T]]): RIO[R, T] =
+      rt.catchSome(h)
+    override def eval[T](t: => T): RIO[R, T]                                                                         = RIO.effect(t)
+    override def suspend[T](t: => RIO[R, T]): RIO[R, T]                                                              = RIO.effectSuspend(t)
+    override def flatten[T](ffa: RIO[R, RIO[R, T]]): RIO[R, T]                                                       = ffa.flatten
+    override def ensure[T](f: RIO[R, T], e: => RIO[R, Unit]): RIO[R, T]                                              = f.ensuring(e.ignore)
   }
 
   private def keepAlive(keepAlive: Option[Duration]): UStream[GraphQLWSOutput] =
