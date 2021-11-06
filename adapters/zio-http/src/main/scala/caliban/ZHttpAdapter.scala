@@ -99,23 +99,6 @@ object ZHttpAdapter {
     ZioHttpInterpreter().toHttp(endpoints)
   }
 
-  def makeHttpUploadService[R, E](
-    interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    queryExecution: QueryExecution = QueryExecution.Parallel,
-    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
-  ): HttpApp[R with Random, Throwable] = {
-    val endpoint = TapirAdapter.makeHttpUploadService[R, E](
-      interpreter,
-      skipValidation,
-      enableIntrospection,
-      queryExecution,
-      requestInterceptor
-    )
-    ZioHttpInterpreter().toHttp(endpoint)
-  }
-
   /**
    * Effectfully creates a `SocketApp`, which can be used from
    * a zio-http router via Http.fromEffectFunction or Http.fromResponseM.
