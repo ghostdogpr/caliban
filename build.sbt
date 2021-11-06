@@ -69,7 +69,6 @@ lazy val root = project
   .aggregate(
     macros,
     core,
-    finch,
     http4s,
     akkaHttp,
     play,
@@ -300,22 +299,6 @@ lazy val akkaHttp = project
   )
   .dependsOn(core, tapirInterop)
 
-lazy val finch = project
-  .in(file("adapters/finch"))
-  .settings(name := "caliban-finch")
-  .settings(commonSettings)
-  .settings(
-    crossScalaVersions -= scala3,
-    libraryDependencies ++= Seq(
-      "com.github.finagle" %% "finchx-core"      % "0.32.1",
-      "com.github.finagle" %% "finchx-circe"     % "0.32.1",
-      "dev.zio"            %% "zio-interop-cats" % zioInteropCats2Version,
-      "org.typelevel"      %% "cats-effect"      % catsEffect2Version,
-      "io.circe"           %% "circe-parser"     % circeVersion
-    )
-  )
-  .dependsOn(core)
-
 lazy val play = project
   .in(file("adapters/play"))
   .settings(name := "caliban-play")
@@ -410,7 +393,6 @@ lazy val examples = project
     akkaHttp,
     http4s,
     catsInterop,
-    /*finch,*/
     play,
     /*monixInterop,*/
     tapirInterop,
