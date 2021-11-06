@@ -34,7 +34,7 @@ object ExampleApp extends App {
           Pilot.shipName.map(Role.Pilot)
         )).mapN(Character)
     }
-    val query =
+    val query     =
       Queries.characters(None) {
         character
       } ~
@@ -47,7 +47,7 @@ object ExampleApp extends App {
         Queries.character("Alex Kamal") {
           character
         }
-    val mutation = Mutations.deleteCharacter("James Holden")
+    val mutation  = Mutations.deleteCharacter("James Holden")
 
     def sendRequest[T](req: Request[Either[CalibanClientError, T], Any]): RIO[Console with SttpClient, T] =
       send(req).map(_.body).absolve.tap(res => putStrLn(s"Result: $res"))

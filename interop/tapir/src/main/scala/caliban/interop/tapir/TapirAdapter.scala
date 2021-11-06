@@ -20,6 +20,7 @@ import zio.duration.Duration
 import zio.random.Random
 import zio.stream._
 
+import scala.concurrent.Future
 import scala.util.Try
 
 object TapirAdapter {
@@ -275,6 +276,14 @@ object TapirAdapter {
         requestInterceptor(serverRequest).foldM(statusCode => ZIO.left(statusCode), _ => io)
       )
   }
+
+  def convertHttpEndpointToFuture[A, E, R](
+    endpoint: ServerEndpoint[A, StatusCode, GraphQLResponse[E], Any, RIO[R, *]]
+  )(implicit runtime: Runtime[R]): ServerEndpoint[A, StatusCode, GraphQLResponse[E], Any, Future] =
+    ServerEndpoint[A, StatusCode, GraphQLResponse[E], Any, Future](
+      endpoint.endpoint,
+      _ => req => runtime.unsafeRunToFuture(endpoint.logic(zioMonadError)(req)).future
+    )
 
   def zioMonadError[R]: MonadError[RIO[R, *]] = new MonadError[RIO[R, *]] {
     override def unit[T](t: T): RIO[R, T]                                                                            = URIO.succeed(t)
