@@ -143,9 +143,14 @@ trait GraphQL[-R] { self =>
     }
 
   /**
-   * A symbolic alias for `withWrapper`.
+   * Attaches an aspect that will wrap the entire GraphQL so that it can be manipulated.
+   * This method is a higher-level abstraction of [[withWrapper]] which allows the caller to
+   * completely replace or change all aspects of the schema.
+   * @param aspect A wrapper type that will be applied to this GraphQL
+   * @return A new GraphQL API
    */
-  final def @@[R2 <: R](wrapper: Wrapper[R2]): GraphQL[R2] = withWrapper(wrapper)
+  final def @@[LowerR <: UpperR, UpperR <: R](aspect: GraphQLAspect[LowerR, UpperR]): GraphQL[UpperR] =
+    aspect(self)
 
   /**
    * Merges this GraphQL API with another GraphQL API.
