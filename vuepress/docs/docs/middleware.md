@@ -128,3 +128,30 @@ def withErrorCodeExtensions[R](
     err.copy(extensions = Some(ObjectValue(List(("errorCode", StringValue("PARSING_ERROR"))))))
 }
 ```
+
+## Wrapping the GraphQL
+
+If you need to implement new functionality that involves not just changes to execution but also to the underlying
+schema you can use the higher-level `GraphQLAspect` which allows full control of the resulting `GraphQL` that it wraps.
+
+Here is such an example that is part of the `federation` package which makes a schema available to be used as a sub-graph in
+a federated graph:
+
+```scala
+  def federate[R](original: GraphQL[R]): GraphQL[R] = {
+    import Schema._
+
+    case class Query(
+      _service: _Service,
+      _fieldSet: FieldSet = FieldSet("")
+    )
+
+    GraphQL.graphQL(RootResolver(Query(_service = _Service(original.render))), federationDirectives) |+| original
+  }
+
+  lazy val federated: GraphQLAspect[Nothing, Any] = 
+    new GraphQLAspect[Nothing, Any] {
+      def apply[R1](original: GraphQL[R1]): GraphQL[R1] =
+        federate(original)
+    }
+```

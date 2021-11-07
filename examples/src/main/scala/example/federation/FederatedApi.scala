@@ -3,7 +3,7 @@ package example.federation
 import example.federation.CharacterService.CharacterService
 import example.federation.EpisodeService.EpisodeService
 import caliban.GraphQL.graphQL
-import caliban.federation.{ federate, EntityResolver }
+import caliban.federation.{EntityResolver, federated}
 import caliban.federation.tracing.ApolloFederatedTracing
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
@@ -55,19 +55,9 @@ object FederatedApi {
     implicit val episodeArgs: Schema[Any, EpisodeArgs]                 = Schema.gen
     implicit val episodeArgBuilder: ArgBuilder[EpisodeArgs]            = ArgBuilder.gen
 
-    val api: GraphQL[Console with Clock with CharacterService] =
-      federate(
-        graphQL(
-          RootResolver(
-            Queries(
-              args => CharacterService.getCharacters(args.origin),
-              args => CharacterService.findCharacter(args.name)
-            ),
-            Mutations(args => CharacterService.deleteCharacter(args.name))
-          )
-        ) @@ standardWrappers,
-        EntityResolver.from[CharacterArgs](args => ZQuery.fromEffect(CharacterService.findCharacter(args.name))),
-        EntityResolver.from[EpisodeArgs](args =>
+    val withFederation = federated(        
+      EntityResolver.from[CharacterArgs](args => ZQuery.fromEffect(CharacterService.findCharacter(args.name))),
+      EntityResolver.from[EpisodeArgs](args =>
           ZQuery
             .fromEffect(CharacterService.getCharactersByEpisode(args.season, args.episode))
             .map(characters =>
@@ -79,8 +69,18 @@ object FederatedApi {
                 )
               )
             )
-        )
-      )
+        ))
+
+    val api: GraphQL[Console with Clock with CharacterService] =
+        graphQL(
+          RootResolver(
+            Queries(
+              args => CharacterService.getCharacters(args.origin),
+              args => CharacterService.findCharacter(args.name)
+            ),
+            Mutations(args => CharacterService.deleteCharacter(args.name))
+          )
+        ) @@ standardWrappers @@ withFederation
   }
 
   object Episodes extends GenericSchema[EpisodeService] {
@@ -96,7 +96,6 @@ object FederatedApi {
     implicit val episodeSchema: Schema[Any, Episode]           = Schema.gen
 
     val api: GraphQL[Console with Clock with EpisodeService] =
-      federate(
         graphQL(
           RootResolver(
             Queries(
@@ -104,11 +103,12 @@ object FederatedApi {
               args => EpisodeService.getEpisodes(args.season)
             )
           )
-        ) @@ standardWrappers,
+        ) @@ standardWrappers @@ federated(
         EntityResolver.from[EpisodeArgs](args =>
           ZQuery.fromEffect(EpisodeService.getEpisode(args.season, args.episode))
         )
-      )
+        )
+
   }
 
 }

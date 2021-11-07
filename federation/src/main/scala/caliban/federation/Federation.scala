@@ -6,7 +6,7 @@ import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
 import caliban.schema.Step.QueryStep
 import caliban.schema._
-import caliban.{ CalibanError, GraphQL, InputValue, RootResolver }
+import caliban.{ CalibanError, GraphQL, GraphQLAspect, InputValue, RootResolver }
 import zio.query.ZQuery
 
 trait Federation {
@@ -47,6 +47,18 @@ trait Federation {
 
     GraphQL.graphQL(RootResolver(Query(_service = _Service(original.render))), federationDirectives) |+| original
   }
+
+  def federated[R](resolver: EntityResolver[R], others: EntityResolver[R]*): GraphQLAspect[Nothing, R] =
+    new GraphQLAspect[Nothing, R] {
+      def apply[R1 <: R](original: GraphQL[R1]): GraphQL[R1] =
+        federate(original, resolver, others: _*)
+    }
+
+  lazy val federated: GraphQLAspect[Nothing, Any] =
+    new GraphQLAspect[Nothing, Any] {
+      def apply[R1](original: GraphQL[R1]): GraphQL[R1] =
+        federate(original)
+    }
 
   /**
    * Accepts a GraphQL as well as entity resolvers in order to support more advanced federation use cases. This variant

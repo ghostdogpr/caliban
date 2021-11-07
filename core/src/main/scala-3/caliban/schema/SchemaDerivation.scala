@@ -127,7 +127,9 @@ trait SchemaDerivation[A] {
         lazy val paramAnnotations = Macros.paramAnnotations[A].toMap
         new Schema[R, A] {
           def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-            if (isValueType(annotations) && fields.nonEmpty) fields.head._3.toType_(isInput, isSubscription)
+            if (isValueType(annotations) && fields.nonEmpty)
+              if (isScalarValueType(annotations)) makeScalar(getName(annotations, info), getDescription(annotations))
+              else fields.head._3.toType_(isInput, isSubscription)
             else if (isInput)
               makeInputObject(
                 Some(annotations.collectFirst { case GQLInputName(suffix) => suffix }
@@ -219,8 +221,14 @@ trait SchemaDerivation[A] {
 
   private def isValueType(annotations: Seq[Any]): Boolean =
     annotations.exists {
-      case GQLValueType() => true
-      case _              => false
+      case GQLValueType(_) => true
+      case _               => false
+    }
+
+  private def isScalarValueType(annotations: Seq[Any]): Boolean =
+    annotations.exists {
+      case GQLValueType(true) => true
+      case _                  => false
     }
 
   private def getName(annotations: Seq[Any], label: String): String =

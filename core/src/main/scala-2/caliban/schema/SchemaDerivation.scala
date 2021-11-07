@@ -24,15 +24,22 @@ trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
 
   def isValueType[T](ctx: ReadOnlyCaseClass[Typeclass, T]): Boolean =
     ctx.annotations.exists {
-      case GQLValueType() => true
-      case _              => false
+      case GQLValueType(_) => true
+      case _               => false
+    }
+
+  def isScalarValueType[T](ctx: ReadOnlyCaseClass[Typeclass, T]): Boolean =
+    ctx.annotations.exists {
+      case GQLValueType(true) => true
+      case _                  => false
     }
 
   def combine[T](ctx: ReadOnlyCaseClass[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-      if ((ctx.isValueClass || isValueType(ctx)) && ctx.parameters.nonEmpty)
-        ctx.parameters.head.typeclass.toType_(isInput, isSubscription)
-      else if (isInput)
+      if ((ctx.isValueClass || isValueType(ctx)) && ctx.parameters.nonEmpty) {
+        if (isScalarValueType(ctx)) makeScalar(getName(ctx), getDescription(ctx))
+        else ctx.parameters.head.typeclass.toType_(isInput, isSubscription)
+      } else if (isInput)
         makeInputObject(
           Some(ctx.annotations.collectFirst { case GQLInputName(suffix) => suffix }
             .getOrElse(customizeInputTypeName(getName(ctx)))),
