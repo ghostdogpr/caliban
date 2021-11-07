@@ -2,6 +2,7 @@ package caliban
 
 import akka.http.scaladsl.model.MediaTypes.`application/json`
 import akka.http.scaladsl.model._
+import akka.http.scaladsl.model.headers.Authorization
 import akka.http.scaladsl.model.ws.{ Message, TextMessage }
 import akka.http.scaladsl.server.Directives.{ complete, extractRequestContext }
 import akka.http.scaladsl.server.{ RequestContext, Route }
@@ -166,6 +167,8 @@ trait AkkaHttpAdapter {
       }
   }
 
+  private def emptyAuth[R](message: String): RIO[R, Option[Authorization]] = ZIO.succeed(Option.empty[Authorization])
+
   def makeWebSocketService[R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
@@ -173,7 +176,8 @@ trait AkkaHttpAdapter {
     keepAliveTime: Option[Duration] = None,
     contextWrapper: ContextWrapper[R, GraphQLResponse[E]] = ContextWrapper.empty,
     queryExecution: QueryExecution = QueryExecution.Parallel,
-    wsChunkTimeout: Duration = 5.seconds
+    wsChunkTimeout: Duration = 5.seconds,
+    onInitAuthHeader: String => RIO[R, Option[Authorization]] = emptyAuth(_: String)
   )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): Route = {
 
     def sendMessage(
@@ -228,6 +232,7 @@ trait AkkaHttpAdapter {
         extractWebSocketUpgrade { upgrade =>
           val (queue, source) = Source.queue[Message](0, OverflowStrategy.fail).preMaterialize()
           val subscriptions   = runtime.unsafeRun(Ref.make(Map.empty[Option[String], Fiber[Throwable, Unit]]))
+          val ctxRef          = runtime.unsafeRun(Ref.make(ctx))
           val sink            = Flow[Message].collect { case tm: TextMessage => tm }
             .mapAsync(1)(_.toStrict(ScalaDuration.fromNanos(wsChunkTimeout.toNanos)).map(_.text))
             .toMat(Sink.foreach { text =>
@@ -236,7 +241,11 @@ trait AkkaHttpAdapter {
                 msgType = msg.messageType
                 _      <- RIO.whenCase(msgType) {
                             case "connection_init"      =>
-                              Task.fromFuture(_ => queue.offer(TextMessage("""{"type":"connection_ack"}"""))) *>
+                              onInitAuthHeader(text).flatMap {
+                                case Some(h) => ctxRef.update(_.mapRequest(_.addHeader(h)))
+                                case None    => ZIO.unit
+                              } *>
+                                Task.fromFuture(_ => queue.offer(TextMessage("""{"type":"connection_ack"}"""))) *>
                                 Task.whenCase(keepAliveTime) { case Some(time) =>
                                   // Save the keep-alive fiber with a key of None so that it's interrupted later
                                   IO.fromFuture(_ => queue.offer(TextMessage("""{"type":"ka"}""")))
@@ -250,9 +259,15 @@ trait AkkaHttpAdapter {
                               IO.effect(queue.complete())
                             case "start"                =>
                               RIO.whenCase(msg.request) { case Some(req) =>
-                                startSubscription(msg.id, req, queue, subscriptions, ctx).catchAll(error =>
-                                  IO.fromFuture(_ => queue.offer(TextMessage(json.encodeWSError(msg.id, error.toString))))
-                                )
+                                for {
+                                  currentCtx <- ctxRef.get
+                                  sub        <- startSubscription(msg.id, req, queue, subscriptions, currentCtx).catchAll(error =>
+                                                  IO.fromFuture(_ =>
+                                                    queue.offer(TextMessage(json.encodeWSError(msg.id, error.toString)))
+                                                  )
+                                                )
+                                } yield sub
+
                               }
                             case "stop"                 =>
                               subscriptions
