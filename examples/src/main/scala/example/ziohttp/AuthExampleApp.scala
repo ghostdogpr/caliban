@@ -1,7 +1,9 @@
 package example.ziohttp
 
 import caliban.GraphQL.graphQL
+import caliban.Value.StringValue
 import caliban._
+import caliban.interop.tapir.{ StreamTransformer, WebSocketHooks }
 import caliban.schema.GenericSchema
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
@@ -38,21 +40,29 @@ object Auth {
           def setUser(name: String): ZIO[Any, Throwable, Any] = session.set(name)
         }
 
-        val callbacks = ZHttpAdapter.Callbacks.init[R, CalibanError](payload =>
+        val webSocketHooks = WebSocketHooks.init[R, CalibanError](payload =>
           ZIO
-            .fromEither(payload.hcursor.downField("Authorization").as[String])
+            .fromOption(payload match {
+              case InputValue.ObjectValue(fields) =>
+                fields.get("Authorization").flatMap {
+                  case StringValue(s) => Some(s)
+                  case _              => None
+                }
+              case _                              => None
+            })
             .orElseFail(CalibanError.ExecutionError("Unable to decode payload"))
             .flatMap(user => ZIO.service[Auth].flatMap(_.setUser(user).orDie))
         ) ++
-          ZHttpAdapter.Callbacks.afterInit(ZIO.sleep(10.seconds) *> ZIO.halt(Cause.empty)) ++
-          ZHttpAdapter.Callbacks
-            .message(stream => stream.updateService[Auth](_ => auth))
+          WebSocketHooks.afterInit(ZIO.halt(Cause.empty).delay(10.seconds)) ++
+          WebSocketHooks
+            .message(new StreamTransformer[Has[Auth], Nothing] {
+              def transform[R1 <: Has[Auth], E1 >: Nothing](
+                stream: ZStream[R1, E1, GraphQLWSOutput]
+              ): ZStream[R1, E1, GraphQLWSOutput] = stream.updateService[Auth](_ => auth)
+            })
 
-        HttpApp.responseM(
-          ZHttpAdapter
-            .makeWebSocketHandler(interpreter, callbacks = callbacks)
-            .map(_.asResponse)
-        )
+        ZHttpAdapter
+          .makeWebSocketService(interpreter, webSocketHooks = webSocketHooks)
       }
   }
 

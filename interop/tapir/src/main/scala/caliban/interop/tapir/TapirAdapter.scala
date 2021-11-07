@@ -298,7 +298,7 @@ object TapirAdapter {
     override def ensure[T](f: RIO[R, T], e: => RIO[R, Unit]): RIO[R, T]                                              = f.ensuring(e.ignore)
   }
 
-  private def keepAlive(keepAlive: Option[Duration]): UStream[GraphQLWSOutput] =
+  private[caliban] def keepAlive(keepAlive: Option[Duration]): UStream[GraphQLWSOutput] =
     keepAlive match {
       case None           => ZStream.empty
       case Some(duration) =>
@@ -308,14 +308,14 @@ object TapirAdapter {
           .provideLayer(Clock.live)
     }
 
-  private val connectionError: UStream[GraphQLWSOutput] =
+  private[caliban] val connectionError: UStream[GraphQLWSOutput] =
     ZStream.succeed(GraphQLWSOutput("connection_error", None, None))
-  private val connectionAck: UStream[GraphQLWSOutput]   =
+  private[caliban] val connectionAck: UStream[GraphQLWSOutput]   =
     ZStream.succeed(GraphQLWSOutput("connection_ack", None, None))
 
   type Subscriptions = Ref[Map[String, Promise[Any, Unit]]]
 
-  private def generateGraphQLResponse[R, E](
+  private[caliban] def generateGraphQLResponse[R, E](
     payload: GraphQLRequest,
     id: String,
     interpreter: GraphQLInterpreter[R, E],
@@ -341,10 +341,10 @@ object TapirAdapter {
     (resp ++ complete(id)).catchAll(toStreamError(Option(id), _))
   }
 
-  private def trackSubscription(id: String, subs: Subscriptions): UStream[Promise[Any, Unit]] =
+  private[caliban] def trackSubscription(id: String, subs: Subscriptions): UStream[Promise[Any, Unit]] =
     ZStream.fromEffect(Promise.make[Any, Unit].tap(p => subs.update(_.updated(id, p))))
 
-  private def removeSubscription(id: Option[String], subs: Subscriptions): UStream[Unit] =
+  private[caliban] def removeSubscription(id: Option[String], subs: Subscriptions): UStream[Unit] =
     ZStream
       .fromEffect(IO.whenCase(id) { case Some(id) =>
         subs.modify(map => (map.get(id), map - id)).flatMap { p =>
@@ -352,7 +352,7 @@ object TapirAdapter {
         }
       })
 
-  private def toStreamError[E](id: Option[String], e: E): UStream[GraphQLWSOutput] =
+  private[caliban] def toStreamError[E](id: Option[String], e: E): UStream[GraphQLWSOutput] =
     ZStream.succeed(
       GraphQLWSOutput(
         "error",
@@ -364,13 +364,18 @@ object TapirAdapter {
       )
     )
 
-  private def complete(id: String): UStream[GraphQLWSOutput] =
+  private[caliban] def complete(id: String): UStream[GraphQLWSOutput] =
     ZStream.succeed(GraphQLWSOutput("complete", Some(id), None))
 
-  private def toResponse[E](id: String, fieldName: String, r: ResponseValue, errors: List[E]): GraphQLWSOutput =
+  private[caliban] def toResponse[E](
+    id: String,
+    fieldName: String,
+    r: ResponseValue,
+    errors: List[E]
+  ): GraphQLWSOutput =
     toResponse(id, GraphQLResponse(ObjectValue(List(fieldName -> r)), errors))
 
-  private def toResponse[E](id: String, r: GraphQLResponse[E]): GraphQLWSOutput =
+  private[caliban] def toResponse[E](id: String, r: GraphQLResponse[E]): GraphQLWSOutput =
     GraphQLWSOutput("data", Some(id), Some(r.toResponseValue))
 
   private def parsePath(path: String): List[Either[String, Int]] =
