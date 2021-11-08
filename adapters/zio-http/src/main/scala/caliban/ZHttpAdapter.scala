@@ -1,6 +1,5 @@
 package caliban
 
-import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.StringValue
 import caliban.execution.QueryExecution
 import caliban.interop.tapir.{ TapirAdapter, WebSocketHooks }
@@ -119,38 +118,9 @@ object ZHttpAdapter {
         .flatten
         .catchAll(_ => connectionError)
         .map(output => WebSocketFrame.Text(output.asJson.noSpaces))
-        .ensuring(subscriptions.get.flatMap(m => ZIO.foreach(m.values)(_.succeed(()))))
     }
 
     SocketApp.message(routes) ++ SocketApp.protocol(protocol)
-  }
-
-  private def generateGraphQLResponse[R, E](
-    payload: GraphQLRequest,
-    id: String,
-    interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean,
-    enableIntrospection: Boolean,
-    queryExecution: QueryExecution,
-    subscriptions: Subscriptions
-  ): ZStream[R, E, GraphQLWSOutput] = {
-    val resp = ZStream
-      .fromEffect(
-        interpreter
-          .executeRequest(payload, skipValidation, enableIntrospection, queryExecution)
-      )
-      .flatMap(res =>
-        res.data match {
-          case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
-            trackSubscription(id, subscriptions).flatMap { p =>
-              stream.map(toResponse(id, fieldName, _, res.errors)).interruptWhen(p)
-            }
-          case other                                                =>
-            ZStream.succeed(toResponse(id, GraphQLResponse(other, res.errors)))
-        }
-      )
-
-    (resp ++ complete(id)).catchAll(toStreamError(Option(id), _))
   }
 
   private val protocol = SocketProtocol.subProtocol("graphql-ws")
