@@ -45,8 +45,10 @@ object AkkaHttpAdapterSpec extends DefaultRunnableSpec {
                        .toManaged(server =>
                          ZIO.fromFuture(_ => server.unbind()).ignore *> ZIO.fromFuture(_ => system.terminate()).ignore
                        )
-      _           <- clock.Clock.Service.live.sleep(3 seconds).toManaged_
-    } yield ()).toLayer
+      _           <- clock.sleep(3 seconds).toManaged_
+    } yield ())
+      .provideCustomLayer(TestService.make(sampleCharacters) ++ Uploads.empty ++ Clock.live)
+      .toLayer
 
   def spec: ZSpec[ZEnv, Any] = {
     val suite: ZSpec[Has[Unit], Throwable] =
