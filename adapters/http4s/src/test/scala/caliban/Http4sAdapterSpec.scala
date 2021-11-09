@@ -17,7 +17,8 @@ import scala.language.postfixOps
 
 object Http4sAdapterSpec extends DefaultRunnableSpec {
 
-  type TestTask[A] = RIO[ZEnv with TestService with Uploads, A]
+  type Env         = ZEnv with TestService with Uploads
+  type TestTask[A] = RIO[Env, A]
 
   val apiLayer: ZLayer[zio.ZEnv, Throwable, Has[Unit]] =
     (for {
@@ -26,9 +27,9 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
                        .bindHttp(8088, "localhost")
                        .withHttpApp(
                          Router[TestTask](
-                           "/api/graphql"    -> CORS.policy(Http4sAdapter.makeHttpService(interpreter)),
-                           "/upload/graphql" -> CORS.policy(Http4sAdapter.makeHttpUploadService(interpreter)),
-                           "/ws/graphql"     -> CORS.policy(Http4sAdapter.makeWebSocketService(interpreter))
+                           "/api/graphql"    -> CORS.policy(Http4sAdapter.makeHttpService[Env, CalibanError](interpreter)),
+                           "/upload/graphql" -> CORS.policy(Http4sAdapter.makeHttpUploadService[Env, CalibanError](interpreter)),
+                           "/ws/graphql"     -> CORS.policy(Http4sAdapter.makeWebSocketService[Env, CalibanError](interpreter))
                          ).orNotFound
                        )
                        .resource
