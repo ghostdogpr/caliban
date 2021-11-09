@@ -36,10 +36,10 @@ object TestApi extends GenericSchema[TestService with Uploads] {
   )
   case class Subscriptions(characterDeleted: ZStream[TestService, Nothing, String])
 
-  implicit val roleSchema: Schema[TestService with Uploads, Role]                     = gen[Role]
-  implicit val characterSchema: Schema[TestService with Uploads, Character]           = gen[Character]
-  implicit val characterArgsSchema: Schema[TestService with Uploads, CharacterArgs]   = gen[CharacterArgs]
-  implicit val charactersArgsSchema: Schema[TestService with Uploads, CharactersArgs] = gen[CharactersArgs]
+  implicit val roleSchema: Schema[Any, Role]                     = Schema.gen
+  implicit val characterSchema: Schema[Any, Character]           = Schema.gen
+  implicit val characterArgsSchema: Schema[Any, CharacterArgs]   = Schema.gen
+  implicit val charactersArgsSchema: Schema[Any, CharactersArgs] = Schema.gen
 
   val api: GraphQL[Console with Clock with TestService with Uploads] =
     graphQL(
