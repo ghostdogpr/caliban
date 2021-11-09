@@ -5,7 +5,7 @@ import caliban.interop.tapir.TestData._
 import caliban.interop.tapir.TestService.TestService
 import caliban.{ GraphQL, RootResolver }
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
-import caliban.schema.GenericSchema
+import caliban.schema.{ GenericSchema, Schema }
 import caliban.uploads.{ Upload, Uploads }
 import caliban.wrappers.ApolloTracing.apolloTracing
 import caliban.wrappers.Wrappers._
@@ -36,10 +36,10 @@ object TestApi extends GenericSchema[TestService with Uploads] {
   )
   case class Subscriptions(characterDeleted: ZStream[TestService, Nothing, String])
 
-  implicit val roleSchema           = gen[Role]
-  implicit val characterSchema      = gen[Character]
-  implicit val characterArgsSchema  = gen[CharacterArgs]
-  implicit val charactersArgsSchema = gen[CharactersArgs]
+  implicit val roleSchema: Schema[TestService with Uploads, Role]                     = gen[Role]
+  implicit val characterSchema: Schema[TestService with Uploads, Character]           = gen[Character]
+  implicit val characterArgsSchema: Schema[TestService with Uploads, CharacterArgs]   = gen[CharacterArgs]
+  implicit val charactersArgsSchema: Schema[TestService with Uploads, CharactersArgs] = gen[CharactersArgs]
 
   val api: GraphQL[Console with Clock with TestService with Uploads] =
     graphQL(
