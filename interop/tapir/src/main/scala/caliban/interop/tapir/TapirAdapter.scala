@@ -29,17 +29,10 @@ object TapirAdapter {
   type UploadRequest = (Seq[Part[Array[Byte]]], ServerRequest)
   type ZioWebSockets = ZioStreams with WebSockets
 
-  def makeHttpService[R, E](
-    interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    queryExecution: QueryExecution = QueryExecution.Parallel,
-    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
-  )(implicit
+  def makeHttpEndpoints[R, E](implicit
     requestCodec: JsonCodec[GraphQLRequest],
     responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): List[ServerEndpoint[(GraphQLRequest, ServerRequest), StatusCode, GraphQLResponse[E], Any, RIO[R, *]]] = {
-
+  ): List[Endpoint[(GraphQLRequest, ServerRequest), StatusCode, GraphQLResponse[E], Any]] = {
     def queryFromQueryParams(queryParams: QueryParams): DecodeResult[GraphQLRequest] =
       for {
         req <- requestCodec.decode(s"""{"query":"","variables":${queryParams
@@ -97,6 +90,19 @@ object TapirAdapter {
         .out(customJsonBody[GraphQLResponse[E]])
         .errorOut(statusCode)
 
+    postEndpoint :: getEndpoint :: Nil
+  }
+
+  def makeHttpService[R, E](
+    interpreter: GraphQLInterpreter[R, E],
+    skipValidation: Boolean = false,
+    enableIntrospection: Boolean = true,
+    queryExecution: QueryExecution = QueryExecution.Parallel,
+    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
+  )(implicit
+    requestCodec: JsonCodec[GraphQLRequest],
+    responseCodec: JsonCodec[GraphQLResponse[E]]
+  ): List[ServerEndpoint[(GraphQLRequest, ServerRequest), StatusCode, GraphQLResponse[E], Any, RIO[R, *]]] = {
     def logic(request: (GraphQLRequest, ServerRequest)): RIO[R, Either[StatusCode, GraphQLResponse[E]]] = {
       val (graphQLRequest, serverRequest) = request
 
@@ -110,8 +116,19 @@ object TapirAdapter {
           )).either
     }
 
-    postEndpoint.serverLogic(logic) :: getEndpoint.serverLogic(logic) :: Nil
+    makeHttpEndpoints.map(_.serverLogic(logic))
   }
+
+  def makeHttpUploadEndpoint[R, E](implicit
+    requestCodec: JsonCodec[GraphQLRequest],
+    mapCodec: JsonCodec[Map[String, Seq[String]]],
+    responseCodec: JsonCodec[GraphQLResponse[E]]
+  ): Endpoint[(Seq[Part[Array[Byte]]], ServerRequest), StatusCode, GraphQLResponse[E], Any] =
+    endpoint.post
+      .in(multipartBody)
+      .in(extractFromRequest(identity))
+      .out(customJsonBody[GraphQLResponse[E]])
+      .errorOut(statusCode)
 
   def makeHttpUploadService[R, E](
     interpreter: GraphQLInterpreter[R, E],
@@ -124,14 +141,6 @@ object TapirAdapter {
     mapCodec: JsonCodec[Map[String, Seq[String]]],
     responseCodec: JsonCodec[GraphQLResponse[E]]
   ): ServerEndpoint[UploadRequest, StatusCode, GraphQLResponse[E], Any, RIO[R with Random, *]] = {
-    val postEndpoint: Endpoint[(Seq[Part[Array[Byte]]], ServerRequest), StatusCode, GraphQLResponse[E], Any] =
-      endpoint.post
-        .in(mediaType("multipart", "form-data"))
-        .in(multipartBody)
-        .in(extractFromRequest(identity))
-        .out(customJsonBody[GraphQLResponse[E]])
-        .errorOut(statusCode)
-
     def logic(request: UploadRequest): RIO[R with Random, Either[StatusCode, GraphQLResponse[E]]] = {
       val (parts, serverRequest) = request
       val partsMap               = parts.map(part => part.name -> part).toMap
@@ -185,7 +194,20 @@ object TapirAdapter {
       io.either
     }
 
-    postEndpoint.serverLogic(logic)
+    makeHttpUploadEndpoint.serverLogic(logic)
+  }
+
+  def makeWebSocketEndpoint[R, E](implicit
+    inputCodec: JsonCodec[GraphQLWSInput],
+    outputCodec: JsonCodec[GraphQLWSOutput]
+  ): Endpoint[ServerRequest, StatusCode, CalibanPipe, ZioStreams with WebSockets] = {
+    val protocolHeader = Header("Sec-WebSocket-Protocol", "graphql-ws")
+    endpoint
+      .in(header(protocolHeader))
+      .in(extractFromRequest(identity))
+      .out(header(protocolHeader))
+      .out(webSocketBody[GraphQLWSInput, CodecFormat.Json, GraphQLWSOutput, CodecFormat.Json](ZioStreams))
+      .errorOut(statusCode)
   }
 
   def makeWebSocketService[R, E](
@@ -200,14 +222,6 @@ object TapirAdapter {
     inputCodec: JsonCodec[GraphQLWSInput],
     outputCodec: JsonCodec[GraphQLWSOutput]
   ): ServerEndpoint[ServerRequest, StatusCode, CalibanPipe, ZioWebSockets, RIO[R, *]] = {
-    val protocolHeader = Header("Sec-WebSocket-Protocol", "graphql-ws")
-    val wsEndpoint     =
-      endpoint
-        .in(header(protocolHeader))
-        .in(extractFromRequest(identity))
-        .out(header(protocolHeader))
-        .out(webSocketBody[GraphQLWSInput, CodecFormat.Json, GraphQLWSOutput, CodecFormat.Json](ZioStreams))
-        .errorOut(statusCode)
 
     val io: URIO[R, Either[Nothing, CalibanPipe]] =
       RIO
@@ -271,10 +285,9 @@ object TapirAdapter {
             )
         )
 
-    wsEndpoint
-      .serverLogic[RIO[R, *]](serverRequest =>
-        requestInterceptor(serverRequest).foldM(statusCode => ZIO.left(statusCode), _ => io)
-      )
+    makeWebSocketEndpoint.serverLogic[RIO[R, *]](serverRequest =>
+      requestInterceptor(serverRequest).foldM(statusCode => ZIO.left(statusCode), _ => io)
+    )
   }
 
   def convertHttpEndpointToFuture[A, E, R](
@@ -383,14 +396,4 @@ object TapirAdapter {
 
   private def isFtv1Header(r: Header): Boolean =
     r.name == GraphQLRequest.`apollo-federation-include-trace` && r.value == GraphQLRequest.ftv1
-
-  private def mediaType(mainType: String, subType: String): EndpointIO.Header[Unit] =
-    header[String](HeaderNames.ContentType).mapDecode { h =>
-      DecodeResult
-        .fromEitherString(h, MediaType.parse(h))
-        .flatMap(mediaType =>
-          if (mediaType.mainType == mainType && mediaType.subType == subType) DecodeResult.Value(())
-          else DecodeResult.Mismatch(s"$mainType/$subType", s"${mediaType.mainType}/${mediaType.subType}")
-        )
-    }(_ => s"$mainType/$subType")
 }

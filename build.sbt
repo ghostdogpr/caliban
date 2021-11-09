@@ -232,10 +232,13 @@ lazy val tapirInterop = project
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
     } ++
       Seq(
-        "com.softwaremill.sttp.tapir" %% "tapir-core"   % tapirVersion,
-        "com.softwaremill.sttp.tapir" %% "tapir-zio"    % tapirVersion,
-        "dev.zio"                     %% "zio-test"     % zioVersion % Test,
-        "dev.zio"                     %% "zio-test-sbt" % zioVersion % Test
+        "com.softwaremill.sttp.tapir"   %% "tapir-core"                    % tapirVersion,
+        "com.softwaremill.sttp.tapir"   %% "tapir-zio"                     % tapirVersion,
+        "com.softwaremill.sttp.tapir"   %% "tapir-sttp-client"             % tapirVersion % Test,
+        "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % tapirVersion % Test,
+        "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion  % Test,
+        "dev.zio"                       %% "zio-test"                      % zioVersion   % Test,
+        "dev.zio"                       %% "zio-test-sbt"                  % zioVersion   % Test
       )
   )
   .dependsOn(core)
@@ -263,7 +266,7 @@ lazy val http4s = project
         "io.circe"                      %% "circe-generic"                 % circeVersion  % Test
       )
   )
-  .dependsOn(core, tapirInterop, catsInterop)
+  .dependsOn(core, tapirInterop % "compile->compile;test->test", catsInterop)
 
 lazy val zioHttp = project
   .in(file("adapters/zio-http"))
@@ -273,13 +276,14 @@ lazy val zioHttp = project
     resolvers ++= Seq(
       "Sonatype OSS Snapshots" at "https://s01.oss.sonatype.org/content/repositories/snapshots"
     ),
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "io.d11"                      %% "zhttp"                 % zioHttpVersion,
       "com.softwaremill.sttp.tapir" %% "tapir-zio-http-server" % tapirVersion,
       "com.softwaremill.sttp.tapir" %% "tapir-json-circe"      % tapirVersion
     )
   )
-  .dependsOn(core, tapirInterop)
+  .dependsOn(core, tapirInterop % "compile->compile;test->test")
 
 lazy val akkaHttp = project
   .in(file("adapters/akka-http"))
@@ -292,12 +296,10 @@ lazy val akkaHttp = project
       "com.typesafe.akka"             %% "akka-http"                  % "10.2.7",
       "com.typesafe.akka"             %% "akka-serialization-jackson" % akkaVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-akka-http-server"     % tapirVersion,
-      "dev.zio"                       %% "zio-test"                   % zioVersion % Test,
-      "dev.zio"                       %% "zio-test-sbt"               % zioVersion % Test,
       compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.2").cross(CrossVersion.full))
     )
   )
-  .dependsOn(core, tapirInterop)
+  .dependsOn(core, tapirInterop % "compile->compile;test->test")
 
 lazy val play = project
   .in(file("adapters/play"))
