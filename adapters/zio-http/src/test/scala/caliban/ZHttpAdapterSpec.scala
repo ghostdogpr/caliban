@@ -7,6 +7,7 @@ import sttp.client3.UriContext
 import zhttp.http._
 import zhttp.service.Server
 import zio._
+import zio.clock.Clock
 import zio.duration._
 import zio.test.{ DefaultRunnableSpec, TestFailure, ZSpec }
 
@@ -26,9 +27,9 @@ object ZHttpAdapterSpec extends DefaultRunnableSpec {
                          }
                        )
                        .forkManaged
-      _           <- clock.Clock.Service.live.sleep(3 seconds).toManaged_
+      _           <- clock.sleep(3 seconds).toManaged_
     } yield ())
-      .provideCustomLayer(TestService.make(sampleCharacters) ++ Uploads.empty)
+      .provideCustomLayer(TestService.make(sampleCharacters) ++ Uploads.empty ++ Clock.live)
       .toLayer
 
   def spec: ZSpec[ZEnv, Any] = {

@@ -9,6 +9,7 @@ import org.http4s.server.Router
 import org.http4s.server.middleware.CORS
 import sttp.client3.UriContext
 import zio._
+import zio.clock.Clock
 import zio.duration._
 import zio.interop.catz._
 import zio.test.{ DefaultRunnableSpec, TestFailure, ZSpec }
@@ -34,11 +35,10 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
                        )
                        .resource
                        .toManagedZIO
-                       .useForever
-                       .forkManaged
-      _           <- clock.Clock.Service.live.sleep(3 seconds).toManaged_
+                       .fork
+      _           <- clock.sleep(3 seconds).toManaged_
     } yield ())
-      .provideCustomLayer(TestService.make(sampleCharacters) ++ Uploads.empty)
+      .provideCustomLayer(TestService.make(sampleCharacters) ++ Uploads.empty ++ Clock.live)
       .toLayer
 
   def spec: ZSpec[ZEnv, Any] = {
