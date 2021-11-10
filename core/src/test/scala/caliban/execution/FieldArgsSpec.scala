@@ -6,6 +6,7 @@ import caliban.Value.EnumValue
 import zio._
 import zio.test._
 import zio.test.environment.TestEnvironment
+import Assertion._
 
 object FieldArgsSpec extends DefaultRunnableSpec {
   sealed trait COLOR
@@ -155,6 +156,28 @@ object FieldArgsSpec extends DefaultRunnableSpec {
             )
           )
       )
+    },
+    testM("it doesn't allow strings as enums in GQL syntax") {
+      case class QueryInput(color: COLOR)
+      case class Query(query: QueryInput => UIO[String])
+      val query =
+        """query {
+          |  query(color: "BLUE")
+          |}""".stripMargin
+
+      val api = graphQL(
+        RootResolver(
+          Query(
+            query = i => ZIO.succeed(i.toString)
+          )
+        )
+      )
+
+      for {
+        interpreter <- api.interpreter
+        res         <- interpreter.execute(query)
+        _           <- ZIO.debug(res)
+      } yield assert(res.errors.headOption)(isSome(anything))
     }
   )
 }
