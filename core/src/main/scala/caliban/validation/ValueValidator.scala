@@ -59,7 +59,7 @@ object ValueValidator {
                 IO.foreach_(values)(v =>
                   validateType(inputType.ofType.getOrElse(inputType), v, context, s"List item in $errorContext")
                 )
-              case NullValue =>
+              case NullValue         =>
                 IO.unit
               case other             =>
                 // handle item as the first item in the list
