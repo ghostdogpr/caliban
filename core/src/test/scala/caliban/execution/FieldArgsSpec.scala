@@ -176,7 +176,6 @@ object FieldArgsSpec extends DefaultRunnableSpec {
       for {
         interpreter <- api.interpreter
         res         <- interpreter.execute(query)
-        _           <- ZIO.debug(res)
       } yield assert(res.errors.headOption)(isSome(anything))
     }
   )

@@ -81,11 +81,9 @@ object ValueValidator {
             }
           case ENUM         =>
             argValue match {
-              case EnumValue(value)   =>
+              case EnumValue(value) =>
                 validateEnum(value, inputType, errorContext)
-              case StringValue(value) =>
-                validateEnum(value, inputType, errorContext)
-              case _                  =>
+              case _                =>
                 failValidation(
                   s"$errorContext has invalid type: $argValue",
                   "Input field was supposed to be an enum value."
