@@ -109,38 +109,10 @@ object Field {
             definition  <- variableDefinitions.find(_.name == name)
             defaultValue = definition.defaultValue getOrElse NullValue
             value        = variableValues.getOrElse(name, defaultValue)
-          } yield resolveEnumValues(value, definition, rootType)) getOrElse NullValue
+          } yield value) getOrElse NullValue
         case value: Value                   => value
       }
     arguments.map { case (k, v) => k -> resolveVariable(v) }
-  }
-
-  // Since we cannot separate a String from an Enum when variables
-  // are parsed, we need to translate from strings to enums here
-  // if we have a valid enum field.
-  private def resolveEnumValues(
-    value: InputValue,
-    definition: VariableDefinition,
-    rootType: RootType
-  ): InputValue = {
-    val t = Type
-      .innerType(definition.variableType)
-
-    rootType.types
-      .get(t)
-      .map(_.kind)
-      .flatMap { kind =>
-        (kind, value) match {
-          case (__TypeKind.ENUM, InputValue.ListValue(v)) =>
-            Some(
-              InputValue.ListValue(v.map(resolveEnumValues(_, definition, rootType)))
-            )
-          case (__TypeKind.ENUM, Value.StringValue(v))    =>
-            Some(Value.EnumValue(v))
-          case _                                          => None
-        }
-      }
-      .getOrElse(value)
   }
 
   private def subtypeNames(typeName: String, rootType: RootType): Option[List[String]] =
