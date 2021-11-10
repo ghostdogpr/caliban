@@ -75,6 +75,8 @@ object ValueValidator {
                       .getOrElse(NullValue)
                   validateType(f.`type`(), value, context, s"Field ${f.name} in $errorContext")
                 }
+              case NullValue           =>
+                IO.unit
               case _                   =>
                 failValidation(
                   s"$errorContext has invalid type: $argValue",
@@ -85,6 +87,8 @@ object ValueValidator {
             argValue match {
               case EnumValue(value) =>
                 validateEnum(value, inputType, errorContext)
+              case NullValue        =>
+                IO.unit
               case _                =>
                 failValidation(
                   s"$errorContext has invalid type: $argValue",

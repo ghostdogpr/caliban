@@ -1,10 +1,7 @@
 package caliban.validation
 
-import caliban.CalibanError
+import caliban.{ CalibanError, GraphQLRequest, InputValue, RootResolver, TestUtils, Value }
 import caliban.GraphQL._
-import caliban.GraphQLRequest
-import caliban.{ InputValue, Value }
-import caliban.RootResolver
 import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment
@@ -59,7 +56,63 @@ object InputObjectSpec extends DefaultRunnableSpec {
           isSome((isSubtype[CalibanError.ValidationError](anything)))
         )
       },
-      testM("not fails if a null passed to optional list from variables") {
+      testM("allow null passed to optional enum") {
+        val query =
+          """query QueryName($input: TestInputObjectInput!) {
+            |  query(input: $input)
+            |}""".stripMargin
+
+        case class TestInputObject(enum: Option[TestUtils.Origin])
+        case class TestInput(input: TestInputObject)
+        case class TestOutput(value: String)
+        case class Query(query: TestInput => String)
+        val gql = graphQL(RootResolver(Query(_.input.`enum`.fold("null")(_.toString))))
+
+        for {
+          int <- gql.interpreter
+          res <- int.executeRequest(
+                   GraphQLRequest(
+                     query = Some(query),
+                     variables = Some(
+                       Map(
+                         "input" -> InputValue.ObjectValue(
+                           Map("enum" -> Value.NullValue)
+                         )
+                       )
+                     )
+                   )
+                 )
+        } yield assert(res.errors)(isEmpty)
+      },
+      testM("allow null passed to optional object") {
+        val query =
+          """query QueryName($input: TestInputObjectInput!) {
+            |  query(input: $input)
+            |}""".stripMargin
+
+        case class TestInputObject(obj: Option[TestUtils.Painter])
+        case class TestInput(input: TestInputObject)
+        case class TestOutput(value: String)
+        case class Query(query: TestInput => String)
+        val gql = graphQL(RootResolver(Query(_.input.obj.fold("null")(_.toString))))
+
+        for {
+          int <- gql.interpreter
+          res <- int.executeRequest(
+                   GraphQLRequest(
+                     query = Some(query),
+                     variables = Some(
+                       Map(
+                         "input" -> InputValue.ObjectValue(
+                           Map("obj" -> Value.NullValue)
+                         )
+                       )
+                     )
+                   )
+                 )
+        } yield assert(res.errors)(isEmpty)
+      },
+      testM("allow null passed to optional list") {
         val query =
           """query QueryName($input: TestInputObjectInput!) {
             |  query(input: $input)
