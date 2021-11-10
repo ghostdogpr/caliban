@@ -6,7 +6,7 @@ import caliban.Value.EnumValue
 import zio._
 import zio.test._
 import zio.test.environment.TestEnvironment
-import Assertion._
+import zio.test.Assertion._
 
 object FieldArgsSpec extends DefaultRunnableSpec {
   sealed trait COLOR
