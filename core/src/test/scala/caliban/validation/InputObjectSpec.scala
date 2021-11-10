@@ -62,11 +62,11 @@ object InputObjectSpec extends DefaultRunnableSpec {
             |  query(input: $input)
             |}""".stripMargin
 
-        case class TestInputObject(enum: Option[TestUtils.Origin])
+        case class TestInputObject(enumField: Option[TestUtils.Origin])
         case class TestInput(input: TestInputObject)
         case class TestOutput(value: String)
         case class Query(query: TestInput => String)
-        val gql = graphQL(RootResolver(Query(_.input.`enum`.fold("null")(_.toString))))
+        val gql = graphQL(RootResolver(Query(_.input.enumField.fold("null")(_.toString))))
 
         for {
           int <- gql.interpreter
@@ -76,7 +76,7 @@ object InputObjectSpec extends DefaultRunnableSpec {
                      variables = Some(
                        Map(
                          "input" -> InputValue.ObjectValue(
-                           Map("enum" -> Value.NullValue)
+                           Map("enumField" -> Value.NullValue)
                          )
                        )
                      )
