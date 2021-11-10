@@ -58,6 +58,34 @@ object InputObjectSpec extends DefaultRunnableSpec {
         } yield assert(res.errors.headOption)(
           isSome((isSubtype[CalibanError.ValidationError](anything)))
         )
+      },
+      testM("not fails if a null passed to optional list from variables") {
+        val query =
+          """query QueryName($input: TestInputObjectInput!) {
+            |  query(input: $input)
+            |}""".stripMargin
+
+        case class TestInputObject(list: Option[List[Long]])
+        case class TestInput(input: TestInputObject)
+        case class TestOutput(value: String)
+        case class Query(query: TestInput => String)
+        val gql = graphQL(RootResolver(Query(_.input.list.fold("null")(_.mkString(",")))))
+
+        for {
+          int <- gql.interpreter
+          res <- int.executeRequest(
+                   GraphQLRequest(
+                     query = Some(query),
+                     variables = Some(
+                       Map(
+                         "input" -> InputValue.ObjectValue(
+                           Map("list" -> Value.NullValue)
+                         )
+                       )
+                     )
+                   )
+                 )
+        } yield assert(res.errors)(isEmpty)
       }
     )
 }
