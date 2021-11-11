@@ -175,7 +175,7 @@ trait GraphQLInterpreter[-R, +E] { self =>
    * @param otherParser the parser to use
    * @return a [[GraphQLInterpreter]] that will use another parser to parse the query
    */
-  def withExecutor(otherParser: Parser): GraphQLInterpreter[R, E] =
+  def withParser(otherParser: Parser): GraphQLInterpreter[R, E] =
     new GraphQLInterpreter[R, E] {
       override val executor  = self.executor
       override val validator = self.validator
