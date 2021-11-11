@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.Value.NullValue
-import caliban.execution.QueryExecution
+import caliban.execution.{ Executor, QueryExecution }
 import zio.{ Has, IO, NeedsEnv, Tag, URIO, ZEnv, ZLayer }
 
 /**
@@ -12,6 +12,7 @@ import zio.{ Has, IO, NeedsEnv, Tag, URIO, ZEnv, ZLayer }
  * query execution, and possibly transform the environment or the error type.
  */
 trait GraphQLInterpreter[-R, +E] { self =>
+  private[caliban] val executor: Executor = Executor.defaultExecutor
 
   /**
    * Parses and validates the provided query against this API.
@@ -120,6 +121,25 @@ trait GraphQLInterpreter[-R, +E] { self =>
       f(self.executeRequest(request, skipValidation = skipValidation, enableIntrospection, queryExecution))
   }
 
+  /**
+   * Overrides the [[Executor]] for a GraphQL interpreter.
+   *
+   * @param otherExecutor the executor to use
+   * @return a [[GraphQLInterpreter]] that will use another executor to execute the query
+   */
+  def withExecutor(otherExecutor: Executor): GraphQLInterpreter[R, E] =
+    new GraphQLInterpreter[R, E] {
+      override val executor = otherExecutor
+
+      override def check(query: String): IO[CalibanError, Unit] = self.check(query)
+
+      override def executeRequest(
+        request: GraphQLRequest,
+        skipValidation: Boolean,
+        enableIntrospection: Boolean,
+        queryExecution: QueryExecution
+      ): URIO[R, GraphQLResponse[E]] = self.executeRequest(request, skipValidation, enableIntrospection, queryExecution)
+    }
 }
 
 object GraphQLInterpreter {
