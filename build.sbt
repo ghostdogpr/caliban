@@ -118,7 +118,6 @@ lazy val core = project
           "com.propensive"    %% "magnolia"  % magnoliaVersion,
           "com.propensive"    %% "mercator"  % mercatorVersion,
           "com.lihaoyi"       %% "fastparse" % "2.3.3",
-          "io.estatico"       %% "newtype"   % "0.4.4",
           "com.typesafe.play" %% "play-json" % playJsonVersion % Optional,
           "dev.zio"           %% "zio-json"  % zioJsonVersion  % Optional
         )
