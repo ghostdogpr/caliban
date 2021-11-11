@@ -126,7 +126,7 @@ trait GraphQLInterpreter[-R, +E] { self =>
   }
 
   /**
-   * Overrides the [[Executor]] for a GraphQL interpreter.
+   * Overrides the [[caliban.execution.Executor]] for a GraphQL interpreter.
    *
    * @param otherExecutor the executor to use
    * @return a [[GraphQLInterpreter]] that will use another executor to execute the query
@@ -148,7 +148,7 @@ trait GraphQLInterpreter[-R, +E] { self =>
     }
 
   /**
-   * Overrides the [[Validator]] for a GraphQL interpreter.
+   * Overrides the [[caliban.validation.Validator]] for a GraphQL interpreter.
    *
    * @param otherValidator the validator to use
    * @return a [[GraphQLInterpreter]] that will use another validator to validate the query
@@ -170,7 +170,7 @@ trait GraphQLInterpreter[-R, +E] { self =>
     }
 
   /**
-   * Overrides the [[Parser]] for a GraphQL interpreter.
+   * Overrides the [[caliban.parsing.Parser]] for a GraphQL interpreter.
    *
    * @param otherParser the parser to use
    * @return a [[GraphQLInterpreter]] that will use another parser to parse the query
