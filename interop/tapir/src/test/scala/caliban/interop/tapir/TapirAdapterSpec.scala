@@ -97,6 +97,7 @@ object TapirAdapterSpec {
                              )
               sendDelete   =
                 send(run((GraphQLRequest(Some("""mutation{ deleteCharacter(name: "Amos Burton") }""")), null)))
+                  .delay(3 seconds)
               messages    <- outputStream
                                .tap(out => ZIO.when(out.`type` == "connection_ack")(sendDelete))
                                .take(2)
