@@ -231,10 +231,7 @@ object TapirAdapter {
             .make(Map.empty[String, Promise[Any, Unit]])
             .flatMap(subscriptions =>
               UIO.right[CalibanPipe](
-                _.map { msg =>
-                  println(msg)
-                  msg
-                }.collect {
+                _.collect {
                   case GraphQLWSInput("connection_init", id, payload) =>
                     val before = (webSocketHooks.beforeInit, payload) match {
                       case (Some(beforeInit), Some(payload)) =>
@@ -280,10 +277,7 @@ object TapirAdapter {
                     removeSubscription(id, subscriptions) *> ZStream.empty
                   case GraphQLWSInput("connection_terminate", _, _)   =>
                     ZStream.fromEffect(ZIO.interrupt)
-                }.flatten.map { msg =>
-                  println(msg)
-                  msg
-                }
+                }.flatten
                   .catchAll(_ => connectionError)
                   .ensuring(subscriptions.get.flatMap(m => ZIO.foreach(m.values)(_.succeed(()))))
                   .provide(env)
