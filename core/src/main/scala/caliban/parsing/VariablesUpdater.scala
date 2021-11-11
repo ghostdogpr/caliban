@@ -24,7 +24,7 @@ object VariablesUpdater {
       val v =
         variableDefinitions
           .find(_.name == key)
-          .map { definition: VariableDefinition =>
+          .map { (definition: VariableDefinition) =>
             rewriteValues(value, definition.variableType, rootType)
           }
           .getOrElse(value)
