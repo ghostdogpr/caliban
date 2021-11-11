@@ -34,8 +34,8 @@ object Parser extends Parser {
   private final val LF                                   = '\u000A'
   private final val CR                                   = '\u000D'
   private final val Comma                                = ','
-  private val whitespace: Parser[_]                      = P.charIn(UnicodeBOM, Tab, Space, LF, CR, Comma)
-  private val comment: Parser[_]                         = P.charIn('#') ~ P.until(P.char(LF) | P.string(s"$CR$LF"))
+  private val whitespace: P[_]                           = P.charIn(UnicodeBOM, Tab, Space, LF, CR, Comma)
+  private val comment: P[_]                              = P.charIn('#') ~ P.until(P.char(LF) | P.string(s"$CR$LF"))
   private val whitespaceWithComment                      = (whitespace | comment).rep0.void
   private val whitespaceWithComment1                     = (whitespace | comment).rep.void
   private def wrapBrackets[T](t: Parser0[T]): P[T]       =
@@ -44,7 +44,7 @@ object Parser extends Parser {
     P.char('(') *> whitespaceWithComment *> t <* whitespaceWithComment <* P.char(')')
   private def wrapSquareBrackets[T](t: Parser0[T]): P[T] =
     P.char('[').surroundedBy(whitespaceWithComment) *> t <* (P.char(']').surroundedBy(whitespaceWithComment))
-  private def wrapWhitespaces[T](t: Parser[T]): P[T]     = t.surroundedBy(whitespaceWithComment)
+  private def wrapWhitespaces[T](t: P[T]): P[T]          = t.surroundedBy(whitespaceWithComment)
 
   private object StringUtil {
     private val decodeTable: Map[Char, Char] = Map(
