@@ -59,10 +59,8 @@ final case class CalibanCommonSettings(
   def imports(imports: String*): CalibanCommonSettings                  = this.copy(imports = this.imports ++ imports)
   def splitFiles(value: Boolean): CalibanCommonSettings                 = this.copy(splitFiles = Some(value))
   def enableFmt(value: Boolean): CalibanCommonSettings                  = this.copy(enableFmt = Some(value))
-
-  def extensibleEnums(value: Boolean): CalibanCommonSettings = this.copy(extensibleEnums = Some(value))
-
-  def genType(genType: GenType): CalibanCommonSettings = this.copy(genType = genType)
+  def extensibleEnums(value: Boolean): CalibanCommonSettings            = this.copy(extensibleEnums = Some(value))
+  def genType(genType: GenType): CalibanCommonSettings                  = this.copy(genType = genType)
 }
 
 object CalibanCommonSettings {

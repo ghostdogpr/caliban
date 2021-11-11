@@ -19,10 +19,8 @@ final case class CalibanFileSettings(file: File, settings: CalibanCommonSettings
   def imports(values: String*): CalibanFileSettings                  = this.copy(settings = this.settings.imports(values: _*))
   def splitFiles(value: Boolean): CalibanFileSettings                = this.copy(settings = this.settings.splitFiles(value))
   def enableFmt(value: Boolean): CalibanFileSettings                 = this.copy(settings = this.settings.enableFmt(value))
-
-  def extensibleEnums(value: Boolean): CalibanFileSettings = this.copy(settings = this.settings.extensibleEnums(value))
-
-  def genType(genType: GenType): CalibanFileSettings = this.copy(settings = this.settings.genType(genType))
+  def extensibleEnums(value: Boolean): CalibanFileSettings           = this.copy(settings = this.settings.extensibleEnums(value))
+  def genType(genType: GenType): CalibanFileSettings                 = this.copy(settings = this.settings.genType(genType))
 }
 
 final case class CalibanUrlSettings(url: URL, settings: CalibanCommonSettings) extends CalibanSettings {
@@ -37,8 +35,6 @@ final case class CalibanUrlSettings(url: URL, settings: CalibanCommonSettings) e
   def imports(values: String*): CalibanUrlSettings                  = this.copy(settings = this.settings.imports(values: _*))
   def splitFiles(value: Boolean): CalibanUrlSettings                = this.copy(settings = this.settings.splitFiles(value))
   def enableFmt(value: Boolean): CalibanUrlSettings                 = this.copy(settings = this.settings.enableFmt(value))
-
-  def extensibleEnums(value: Boolean): CalibanUrlSettings = this.copy(settings = this.settings.extensibleEnums(value))
-
-  def genType(genType: GenType): CalibanUrlSettings = this.copy(settings = this.settings.genType(genType))
+  def extensibleEnums(value: Boolean): CalibanUrlSettings           = this.copy(settings = this.settings.extensibleEnums(value))
+  def genType(genType: GenType): CalibanUrlSettings                 = this.copy(settings = this.settings.genType(genType))
 }
