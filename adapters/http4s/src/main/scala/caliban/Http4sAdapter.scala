@@ -5,6 +5,7 @@ import caliban.interop.tapir.{ RequestInterceptor, TapirAdapter, WebSocketHooks 
 import cats.data.Kleisli
 import cats.~>
 import org.http4s._
+import org.http4s.server.websocket.WebSocketBuilder2
 import sttp.tapir.json.circe._
 import sttp.tapir.server.http4s.ztapir.ZHttp4sServerInterpreter
 import zio._
@@ -50,16 +51,17 @@ object Http4sAdapter {
     ZHttp4sServerInterpreter().from(endpoint).toRoutes
   }
 
-  def makeWebSocketService[R, E](
-    interpreter: GraphQLInterpreter[R, E],
+  def makeWebSocketService[R, R1 <: R, E](
+    builder: WebSocketBuilder2[RIO[R with Clock with Blocking, *]],
+    interpreter: GraphQLInterpreter[R1, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     keepAliveTime: Option[Duration] = None,
     queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty,
-    webSocketHooks: WebSocketHooks[R, E] = WebSocketHooks.empty
-  ): HttpRoutes[RIO[R with Clock with Blocking, *]] = {
-    val endpoint = TapirAdapter.makeWebSocketService[R, E](
+    webSocketHooks: WebSocketHooks[R1, E] = WebSocketHooks.empty
+  ): HttpRoutes[RIO[R1 with Clock with Blocking, *]] = {
+    val endpoint = TapirAdapter.makeWebSocketService[R1, E](
       interpreter,
       skipValidation,
       enableIntrospection,
@@ -68,7 +70,9 @@ object Http4sAdapter {
       requestInterceptor,
       webSocketHooks
     )
-    ZHttp4sServerInterpreter().from(endpoint).toRoutes
+    ZHttp4sServerInterpreter[R1]()
+      .fromWebSocket(endpoint)
+      .toRoutes(builder.asInstanceOf[WebSocketBuilder2[RIO[R1 with Clock with Blocking, *]]])
   }
 
   /**

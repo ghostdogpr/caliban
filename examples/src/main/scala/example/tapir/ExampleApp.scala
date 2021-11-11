@@ -26,11 +26,11 @@ object ExampleApp extends CatsApp {
   // approach 2: using the `ServerEndpoint` where logic is already provided
   type MyIO[+A] = IO[String, A]
 
-  val addBookEndpoint: ServerEndpoint[(Book, String), String, Unit, Any, MyIO]                        =
+  val addBookEndpoint: ServerEndpoint.Full[Unit, Unit, (Book, String), String, Unit, Any, MyIO]                        =
     addBook.serverLogic[MyIO] { case (book, token) => bookAddLogic(book, token).either }
-  val deleteBookEndpoint: ServerEndpoint[(String, String), String, Unit, Any, MyIO]                   =
+  val deleteBookEndpoint: ServerEndpoint.Full[Unit, Unit, (String, String), String, Unit, Any, MyIO]                   =
     deleteBook.serverLogic[MyIO] { case (title, token) => bookDeleteLogic(title, token).either }
-  val booksListingEndpoint: ServerEndpoint[(Option[Int], Option[Int]), Nothing, List[Book], Any, UIO] =
+  val booksListingEndpoint: ServerEndpoint.Full[Unit, Unit, (Option[Int], Option[Int]), Nothing, List[Book], Any, UIO] =
     booksListing.serverLogic[UIO] { case (year, limit) => bookListingLogic(year, limit).map(Right(_)) }
 
   val graphql2: GraphQL[Any] =

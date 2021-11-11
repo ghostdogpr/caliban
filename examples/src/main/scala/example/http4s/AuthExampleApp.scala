@@ -58,10 +58,10 @@ object AuthExampleApp extends CatsApp {
       _           <- BlazeServerBuilder[MyTask]
                        .withServiceErrorHandler(errorHandler)
                        .bindHttp(8088, "localhost")
-                       .withHttpApp(
+                       .withHttpWebSocketApp(wsBuilder =>
                          Router[MyTask](
                            "/api/graphql" -> AuthMiddleware(Http4sAdapter.makeHttpService(interpreter)),
-                           "/ws/graphql"  -> AuthMiddleware(Http4sAdapter.makeWebSocketService(interpreter))
+                           "/ws/graphql"  -> AuthMiddleware(Http4sAdapter.makeWebSocketService(wsBuilder, interpreter))
                          ).orNotFound
                        )
                        .resource

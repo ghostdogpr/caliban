@@ -32,7 +32,7 @@ object TapirAdapter {
   def makeHttpEndpoints[R, E](implicit
     requestCodec: JsonCodec[GraphQLRequest],
     responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): List[Endpoint[(GraphQLRequest, ServerRequest), StatusCode, GraphQLResponse[E], Any]] = {
+  ): List[PublicEndpoint[(GraphQLRequest, ServerRequest), StatusCode, GraphQLResponse[E], Any]] = {
     def queryFromQueryParams(queryParams: QueryParams): DecodeResult[GraphQLRequest] =
       for {
         req <- requestCodec.decode(s"""{"query":"","variables":${queryParams
@@ -43,7 +43,7 @@ object TapirAdapter {
 
       } yield req.copy(query = queryParams.get("query"), operationName = queryParams.get("operationName"))
 
-    val postEndpoint: Endpoint[(GraphQLRequest, ServerRequest), StatusCode, GraphQLResponse[E], Any] =
+    val postEndpoint: PublicEndpoint[(GraphQLRequest, ServerRequest), StatusCode, GraphQLResponse[E], Any] =
       endpoint.post
         .in(
           (headers and stringBody and queryParams).mapDecode { case (headers, body, params) =>
@@ -68,7 +68,7 @@ object TapirAdapter {
         .out(customJsonBody[GraphQLResponse[E]])
         .errorOut(statusCode)
 
-    val getEndpoint: Endpoint[(GraphQLRequest, ServerRequest), StatusCode, GraphQLResponse[E], Any] =
+    val getEndpoint: PublicEndpoint[(GraphQLRequest, ServerRequest), StatusCode, GraphQLResponse[E], Any] =
       endpoint.get
         .in(
           queryParams.mapDecode(queryFromQueryParams)(request =>
@@ -102,7 +102,7 @@ object TapirAdapter {
   )(implicit
     requestCodec: JsonCodec[GraphQLRequest],
     responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): List[ServerEndpoint[(GraphQLRequest, ServerRequest), StatusCode, GraphQLResponse[E], Any, RIO[R, *]]] = {
+  ): List[ServerEndpoint[Any, RIO[R, *]]] = {
     def logic(request: (GraphQLRequest, ServerRequest)): RIO[R, Either[StatusCode, GraphQLResponse[E]]] = {
       val (graphQLRequest, serverRequest) = request
 
@@ -123,7 +123,7 @@ object TapirAdapter {
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
     responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): Endpoint[(Seq[Part[Array[Byte]]], ServerRequest), StatusCode, GraphQLResponse[E], Any] =
+  ): PublicEndpoint[(Seq[Part[Array[Byte]]], ServerRequest), StatusCode, GraphQLResponse[E], Any] =
     endpoint.post
       .in(multipartBody)
       .in(extractFromRequest(identity))
@@ -140,7 +140,7 @@ object TapirAdapter {
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
     responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): ServerEndpoint[UploadRequest, StatusCode, GraphQLResponse[E], Any, RIO[R with Random, *]] = {
+  ): ServerEndpoint[Any, RIO[R with Random, *]] = {
     def logic(request: UploadRequest): RIO[R with Random, Either[StatusCode, GraphQLResponse[E]]] = {
       val (parts, serverRequest) = request
       val partsMap               = parts.map(part => part.name -> part).toMap
@@ -200,7 +200,7 @@ object TapirAdapter {
   def makeWebSocketEndpoint[R, E](implicit
     inputCodec: JsonCodec[GraphQLWSInput],
     outputCodec: JsonCodec[GraphQLWSOutput]
-  ): Endpoint[ServerRequest, StatusCode, CalibanPipe, ZioStreams with WebSockets] = {
+  ): PublicEndpoint[ServerRequest, StatusCode, CalibanPipe, ZioStreams with WebSockets] = {
     val protocolHeader = Header("Sec-WebSocket-Protocol", "graphql-ws")
     endpoint
       .in(header(protocolHeader))
@@ -221,7 +221,7 @@ object TapirAdapter {
   )(implicit
     inputCodec: JsonCodec[GraphQLWSInput],
     outputCodec: JsonCodec[GraphQLWSOutput]
-  ): ServerEndpoint[ServerRequest, StatusCode, CalibanPipe, ZioWebSockets, RIO[R, *]] = {
+  ): ServerEndpoint[ZioWebSockets, RIO[R, *]] = {
 
     val io: URIO[R, Either[Nothing, CalibanPipe]] =
       RIO
@@ -290,12 +290,13 @@ object TapirAdapter {
     )
   }
 
-  def convertHttpEndpointToFuture[A, E, R](
-    endpoint: ServerEndpoint[A, StatusCode, GraphQLResponse[E], Any, RIO[R, *]]
-  )(implicit runtime: Runtime[R]): ServerEndpoint[A, StatusCode, GraphQLResponse[E], Any, Future] =
-    ServerEndpoint[A, StatusCode, GraphQLResponse[E], Any, Future](
+  def convertHttpEndpointToFuture[E, R](
+    endpoint: ServerEndpoint[Any, RIO[R, *]]
+  )(implicit runtime: Runtime[R]): ServerEndpoint[Any, Future] =
+    ServerEndpoint[endpoint.A, endpoint.U, endpoint.I, endpoint.E, endpoint.O, Any, Future](
       endpoint.endpoint,
-      _ => req => runtime.unsafeRunToFuture(endpoint.logic(zioMonadError)(req)).future
+      _ => a => runtime.unsafeRunToFuture(endpoint.securityLogic(zioMonadError)(a)).future,
+      _ => u => req => runtime.unsafeRunToFuture(endpoint.logic(zioMonadError)(u)(req)).future
     )
 
   def zioMonadError[R]: MonadError[RIO[R, *]] = new MonadError[RIO[R, *]] {

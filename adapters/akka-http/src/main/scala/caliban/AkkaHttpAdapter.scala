@@ -11,7 +11,7 @@ import sttp.capabilities.akka.AkkaStreams
 import sttp.capabilities.akka.AkkaStreams.Pipe
 import sttp.model.StatusCode
 import sttp.tapir.Codec.JsonCodec
-import sttp.tapir.Endpoint
+import sttp.tapir.{ Endpoint, PublicEndpoint }
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.server.akkahttp.AkkaHttpServerInterpreter
@@ -91,41 +91,50 @@ object AkkaHttpAdapter {
       requestInterceptor,
       webSocketHooks
     )
-    AkkaHttpServerInterpreter().toRoute(convertWebSocketEndpoint(endpoint))
+    AkkaHttpServerInterpreter().toRoute(
+      convertWebSocketEndpoint(
+        endpoint.asInstanceOf[
+          ServerEndpoint.Full[Unit, Unit, ServerRequest, StatusCode, CalibanPipe, ZioWebSockets, RIO[R, *]]
+        ]
+      )
+    )
   }
 
   type AkkaPipe = Flow[GraphQLWSInput, GraphQLWSOutput, Any]
 
   def convertWebSocketEndpoint[R](
-    endpoint: ServerEndpoint[ServerRequest, StatusCode, CalibanPipe, ZioWebSockets, RIO[R, *]]
+    endpoint: ServerEndpoint.Full[Unit, Unit, ServerRequest, StatusCode, CalibanPipe, ZioWebSockets, RIO[R, *]]
   )(implicit
     ec: ExecutionContext,
     runtime: Runtime[R],
     materializer: Materializer
-  ): ServerEndpoint[ServerRequest, StatusCode, AkkaPipe, AkkaStreams with WebSockets, Future] =
-    ServerEndpoint[ServerRequest, StatusCode, AkkaPipe, AkkaStreams with WebSockets, Future](
-      endpoint.endpoint.asInstanceOf[Endpoint[ServerRequest, StatusCode, Pipe[GraphQLWSInput, GraphQLWSOutput], Any]],
+  ): ServerEndpoint[AkkaStreams with WebSockets, Future] =
+    ServerEndpoint[Unit, Unit, ServerRequest, StatusCode, AkkaPipe, AkkaStreams with WebSockets, Future](
+      endpoint.endpoint
+        .asInstanceOf[PublicEndpoint[ServerRequest, StatusCode, Pipe[GraphQLWSInput, GraphQLWSOutput], Any]],
+      _ => _ => Future.successful(Right(())),
       _ =>
-        req =>
-          runtime
-            .unsafeRunToFuture(endpoint.logic(zioMonadError)(req))
-            .future
-            .map(_.map { zioPipe =>
-              val io =
-                for {
-                  inputQueue     <- ZQueue.unbounded[GraphQLWSInput]
-                  input           = ZStream.fromQueue(inputQueue)
-                  output          = zioPipe(input)
-                  sink            = Sink.foreachAsync[GraphQLWSInput](1)(input =>
-                                      runtime.unsafeRunToFuture(inputQueue.offer(input).unit).future
-                                    )
-                  (queue, source) = Source.queue[GraphQLWSOutput](0, OverflowStrategy.fail).preMaterialize()
-                  fiber          <- output.foreach(msg => ZIO.fromFuture(_ => queue.offer(msg))).forkDaemon
-                  flow            = Flow.fromSinkAndSourceCoupled(sink, source).watchTermination() { (_, f) =>
-                                      f.onComplete(_ => runtime.unsafeRun(fiber.interrupt))
-                                    }
-                } yield flow
-              runtime.unsafeRun(io)
-            })
+        _ =>
+          req =>
+            runtime
+              .unsafeRunToFuture(endpoint.logic(zioMonadError)(())(req))
+              .future
+              .map(_.map { zioPipe =>
+                val io =
+                  for {
+                    inputQueue     <- ZQueue.unbounded[GraphQLWSInput]
+                    input           = ZStream.fromQueue(inputQueue)
+                    output          = zioPipe(input)
+                    sink            = Sink.foreachAsync[GraphQLWSInput](1)(input =>
+                                        runtime.unsafeRunToFuture(inputQueue.offer(input).unit).future
+                                      )
+                    (queue, source) = Source.queue[GraphQLWSOutput](0, OverflowStrategy.fail).preMaterialize()
+                    fiber          <- output.foreach(msg => ZIO.fromFuture(_ => queue.offer(msg))).forkDaemon
+                    flow            = Flow.fromSinkAndSourceCoupled(sink, source).watchTermination() { (_, f) =>
+                                        f.onComplete(_ => runtime.unsafeRun(fiber.interrupt))
+                                      }
+                  } yield flow
+                runtime.unsafeRun(io)
+              })
     )
 }
