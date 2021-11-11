@@ -81,7 +81,7 @@ trait GraphQL[-R] { self =>
             document      <- Parser.parseQuery(query)
             intro          = Introspector.isIntrospection(document)
             typeToValidate = if (intro) introspectionRootType else rootType
-            _             <- Validator.validate(document, typeToValidate)
+            _             <- validator.validate(document, typeToValidate)
           } yield ()
 
         override def executeRequest(
@@ -104,7 +104,7 @@ trait GraphQL[-R] { self =>
                   updatedRequest  = VariablesUpdater.updateVariables(request, doc, typeToValidate)
 
                   validate          = (doc: Document) =>
-                                        Validator
+                                        validator
                                           .prepare(
                                             doc,
                                             typeToValidate,

@@ -21,7 +21,33 @@ import zio.IO
 
 import scala.annotation.tailrec
 
-object Validator {
+trait Validator {
+
+  /**
+   * Verifies that the given document is valid for this type. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
+   */
+  def validate(document: Document, rootType: RootType): IO[ValidationError, Unit]
+
+  /**
+   * Verifies that the given schema is valid. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
+   */
+  def validateSchema[R](schema: RootSchemaBuilder[R]): IO[ValidationError, RootSchema[R]]
+
+  /**
+   * Prepare the request for execution.
+   * Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
+   */
+  def prepare[R](
+    document: Document,
+    rootType: RootType,
+    rootSchema: RootSchema[R],
+    operationName: Option[String],
+    variables: Map[String, InputValue],
+    skipValidation: Boolean
+  ): IO[ValidationError, ExecutionRequest]
+}
+
+object Validator extends Validator {
 
   /**
    * Verifies that the given document is valid for this type. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
