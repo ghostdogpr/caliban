@@ -3,18 +3,18 @@ package caliban.tools
 import caliban.tools.Codegen.GenType
 
 final case class CalibanCommonSettings(
-                                        clientName: Option[String],
-                                        scalafmtPath: Option[String],
-                                        headers: Seq[(String, String)],
-                                        packageName: Option[String],
-                                        genView: Option[Boolean],
-                                        scalarMappings: Seq[(String, String)],
-                                        imports: Seq[String],
-                                        splitFiles: Option[Boolean],
-                                        enableFmt: Option[Boolean],
-                                        extensibleEnums: Option[Boolean],
-                                        genType: GenType
-                                      ) {
+  clientName: Option[String],
+  scalafmtPath: Option[String],
+  headers: Seq[(String, String)],
+  packageName: Option[String],
+  genView: Option[Boolean],
+  scalarMappings: Seq[(String, String)],
+  imports: Seq[String],
+  splitFiles: Option[Boolean],
+  enableFmt: Option[Boolean],
+  extensibleEnums: Option[Boolean],
+  genType: GenType
+) {
 
   private[caliban] def toOptions(schemaPath: String, toPath: String): Options =
     Options(

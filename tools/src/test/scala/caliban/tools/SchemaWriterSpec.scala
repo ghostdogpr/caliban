@@ -10,13 +10,13 @@ import zio.test.environment.TestEnvironment
 object SchemaWriterSpec extends DefaultRunnableSpec {
 
   def gen(
-           schema: String,
-           packageName: Option[String] = None,
-           effect: String = "zio.UIO",
-           imports: List[String] = List.empty,
-           scalarMappings: Map[String, String] = Map.empty,
-           isEffectTypeAbstract: Boolean = false
-         ): RIO[Blocking, String] = Parser
+    schema: String,
+    packageName: Option[String] = None,
+    effect: String = "zio.UIO",
+    imports: List[String] = List.empty,
+    scalarMappings: Map[String, String] = Map.empty,
+    isEffectTypeAbstract: Boolean = false
+  ): RIO[Blocking, String] = Parser
     .parseQuery(schema.stripMargin)
     .flatMap(doc =>
       Formatter
@@ -36,8 +36,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
   val assertions = List(
     (
       "type with field parameter",
-      gen(
-        """
+      gen("""
           type Hero {
                 name(pad: Int!): String!
                 nick: String!
@@ -52,8 +51,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
     ),
     (
       "simple queries",
-      gen(
-        """
+      gen("""
          type Query {
            user(id: Int): User
            userList: [User]!
@@ -82,8 +80,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
     ),
     (
       "simple mutation",
-      gen(
-        """
+      gen("""
          type Mutation {
            setMessage(message: String): String
          }
@@ -105,8 +102,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
     ),
     (
       "simple subscription",
-      gen(
-        """
+      gen("""
          type Subscription {
            UserWatch(id: Int!): String!
          }
@@ -189,8 +185,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
     ),
     (
       "schema test",
-      gen(
-        """
+      gen("""
           |  type Subscription {
           |    postAdded: Post
           |  }
@@ -234,8 +229,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
     ("empty schema test", gen(""), System.lineSeparator),
     (
       "enum type",
-      gen(
-        """
+      gen("""
              enum Origin {
                EARTH
                MARS
@@ -256,8 +250,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
     ),
     (
       "union type",
-      gen(
-        s"""
+      gen(s"""
               \"\"\"
              role
              Captain or Pilot
@@ -307,8 +300,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
     ),
     (
       "GQLDescription with escaped quotes",
-      gen(
-        s"""
+      gen(s"""
              type Captain {
                "foo \\"quotes\\" bar" shipName: String!
              }
@@ -326,8 +318,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
     ),
     (
       "schema",
-      gen(
-        """
+      gen("""
              schema {
                query: Queries
              }
@@ -346,8 +337,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
     ),
     (
       "input type",
-      gen(
-        """
+      gen("""
              type Character {
                 name: String!
              }
@@ -365,8 +355,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
     ),
     (
       "scala reserved word used",
-      gen(
-        """
+      gen("""
              type Character {
                private: String!
                object: String!
@@ -381,8 +370,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
     ),
     (
       "final case class reserved field name used",
-      gen(
-        """
+      gen("""
              type Character {
                wait: String!
              }
@@ -395,8 +383,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
     ),
     (
       "args unique class names",
-      gen(
-        """
+      gen("""
           |type Hero {
           |  callAllies(number: Int!): [Hero!]!
           |}
@@ -415,8 +402,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
     ),
     (
       "args names root level",
-      gen(
-        """
+      gen("""
           |schema {
           |  query: Query
           |  subscription: Subscription
