@@ -4,10 +4,8 @@ import caliban.GraphQLRequest
 import caliban.InputValue.ListValue
 import caliban.Value.StringValue
 import caliban.introspection.adt._
-import caliban.introspection.adt.__TypeKind
 import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
-import caliban.parsing.adt.Type.ListType
-import caliban.parsing.adt.Type.NamedType
+import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt._
 import caliban.schema.RootType
 import caliban.{ InputValue, Value }
@@ -24,7 +22,7 @@ object VariablesUpdater {
       val v =
         variableDefinitions
           .find(_.name == key)
-          .map { (definition: VariableDefinition) =>
+          .map { definition =>
             rewriteValues(value, definition.variableType, rootType)
           }
           .getOrElse(value)
@@ -35,15 +33,15 @@ object VariablesUpdater {
     req.copy(variables = Some(updated))
   }
 
-  def rewriteValues(value: InputValue, `type`: Type, rootType: RootType): InputValue =
+  private def rewriteValues(value: InputValue, `type`: Type, rootType: RootType): InputValue =
     `type` match {
-      case ListType(ofType, nonNull) =>
+      case ListType(ofType, _) =>
         value match {
           case ListValue(values) =>
             ListValue(values.map(v => rewriteValues(v, ofType, rootType)))
           case _                 => value
         }
-      case NamedType(name, nonNull)  =>
+      case NamedType(name, _)  =>
         rootType.types.get(name).map(t => resolveEnumValues(value, t, rootType)).getOrElse(value)
     }
 

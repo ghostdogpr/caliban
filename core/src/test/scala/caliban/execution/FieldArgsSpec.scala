@@ -215,27 +215,6 @@ object FieldArgsSpec extends DefaultRunnableSpec {
                          )
                        )
       } yield assertTrue(res.data.toString == "{\"query\":\"BLUE\"}")
-    },
-    testM("it doesn't allow strings as enums in GQL syntax") {
-      case class QueryInput(color: COLOR)
-      case class Query(query: QueryInput => UIO[String])
-      val query =
-        """query {
-          |  query(color: "BLUE")
-          |}""".stripMargin
-
-      val api = graphQL(
-        RootResolver(
-          Query(
-            query = i => ZIO.succeed(i.toString)
-          )
-        )
-      )
-
-      for {
-        interpreter <- api.interpreter
-        res         <- interpreter.execute(query)
-      } yield assert(res.errors.headOption)(isSome(anything))
     }
   )
 }
