@@ -280,7 +280,10 @@ object TapirAdapter {
                     removeSubscription(id, subscriptions) *> ZStream.empty
                   case GraphQLWSInput("connection_terminate", _, _)   =>
                     ZStream.fromEffect(ZIO.interrupt)
-                }.flatten
+                }.flatten.map { msg =>
+                  println(msg)
+                  msg
+                }
                   .catchAll(_ => connectionError)
                   .ensuring(subscriptions.get.flatMap(m => ZIO.foreach(m.values)(_.succeed(()))))
                   .provide(env)
