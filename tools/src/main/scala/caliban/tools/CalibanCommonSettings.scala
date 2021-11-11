@@ -1,17 +1,20 @@
 package caliban.tools
 
+import caliban.tools.Codegen.GenType
+
 final case class CalibanCommonSettings(
-  clientName: Option[String],
-  scalafmtPath: Option[String],
-  headers: Seq[(String, String)],
-  packageName: Option[String],
-  genView: Option[Boolean],
-  scalarMappings: Seq[(String, String)],
-  imports: Seq[String],
-  splitFiles: Option[Boolean],
-  enableFmt: Option[Boolean],
-  extensibleEnums: Option[Boolean]
-) {
+                                        clientName: Option[String],
+                                        scalafmtPath: Option[String],
+                                        headers: Seq[(String, String)],
+                                        packageName: Option[String],
+                                        genView: Option[Boolean],
+                                        scalarMappings: Seq[(String, String)],
+                                        imports: Seq[String],
+                                        splitFiles: Option[Boolean],
+                                        enableFmt: Option[Boolean],
+                                        extensibleEnums: Option[Boolean],
+                                        genType: GenType
+                                      ) {
 
   private[caliban] def toOptions(schemaPath: String, toPath: String): Options =
     Options(
@@ -42,7 +45,8 @@ final case class CalibanCommonSettings(
       imports = this.imports ++ r.imports,
       splitFiles = r.splitFiles.orElse(this.splitFiles),
       enableFmt = r.enableFmt.orElse(this.enableFmt),
-      extensibleEnums = r.extensibleEnums.orElse(this.extensibleEnums)
+      extensibleEnums = r.extensibleEnums.orElse(this.extensibleEnums),
+      genType = r.genType
     )
 
   def clientName(value: String): CalibanCommonSettings                  = this.copy(clientName = Some(value))
@@ -55,7 +59,10 @@ final case class CalibanCommonSettings(
   def imports(imports: String*): CalibanCommonSettings                  = this.copy(imports = this.imports ++ imports)
   def splitFiles(value: Boolean): CalibanCommonSettings                 = this.copy(splitFiles = Some(value))
   def enableFmt(value: Boolean): CalibanCommonSettings                  = this.copy(enableFmt = Some(value))
-  def extensibleEnums(value: Boolean): CalibanCommonSettings            = this.copy(extensibleEnums = Some(value))
+
+  def extensibleEnums(value: Boolean): CalibanCommonSettings = this.copy(extensibleEnums = Some(value))
+
+  def genType(genType: GenType): CalibanCommonSettings = this.copy(genType = genType)
 }
 
 object CalibanCommonSettings {
@@ -70,6 +77,7 @@ object CalibanCommonSettings {
       imports = Seq.empty,
       splitFiles = None,
       enableFmt = None,
-      extensibleEnums = None
+      extensibleEnums = None,
+      GenType.Schema
     )
 }

@@ -1,6 +1,7 @@
 package caliban.tools.compiletime
 
 import caliban.tools.CalibanCommonSettings
+import caliban.tools.Codegen.GenType
 import caliban.tools.compiletime.Config._
 import zio.test._
 import zio.test.environment.TestEnvironment
@@ -26,6 +27,7 @@ object ConfigSpec extends DefaultRunnableSpec {
         assertTrue(
           fullExample.toCalibanCommonSettings ==
             CalibanCommonSettings(
+              genType = GenType.Client,
               clientName = Some("CalibanClient"),
               scalafmtPath = Some("a/b/c"),
               headers = List.empty,

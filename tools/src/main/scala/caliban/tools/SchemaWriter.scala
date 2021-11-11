@@ -1,8 +1,8 @@
 package caliban.tools
 
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
-import caliban.parsing.adt.Type.{ListType, NamedType}
-import caliban.parsing.adt.{Document, Type}
+import caliban.parsing.adt.Type.{ ListType, NamedType }
+import caliban.parsing.adt.{ Document, Type }
 
 object SchemaWriter {
 
@@ -11,25 +11,36 @@ object SchemaWriter {
     packageName: Option[String] = None,
     effect: String = "zio.UIO",
     imports: Option[List[String]] = None,
-    scalarMappings: Option[Map[String,String]],
+    scalarMappings: Option[Map[String, String]],
     isEffectTypeAbstract: Boolean = false
   ): String = {
 
-    def safeName(name: String): String = ClientWriter.safeName(name)
+    val interfaceImplementationsMap = (for {
+      objectDef    <- schema.objectTypeDefinitions
+      interfaceDef <- schema.interfaceTypeDefinitions
+      if objectDef.implements.exists(_.name == interfaceDef.name)
+    } yield interfaceDef -> objectDef).groupBy(_._1).map { case (definition, tuples) =>
+      definition -> tuples.map(_._2)
+    }
+
+    def safeName(name: String): String =
+      if (reservedKeywords.contains(name) || name.endsWith("_")) s"`$name`"
+      else if (caseClassReservedFields.contains(name)) s"$name$$"
+      else name
 
     def reservedType(typeDefinition: ObjectTypeDefinition): Boolean =
       typeDefinition.name == "Query" || typeDefinition.name == "Mutation" || typeDefinition.name == "Subscription"
 
-    def writeRootField(field: FieldDefinition, od: ObjectTypeDefinition, effect: String): String = {
+    def writeRootField(field: FieldDefinition, od: ObjectTypeDefinition): String = {
       val argsTypeName = if (field.args.nonEmpty) s" ${argsName(field, od)} =>" else ""
       s"${safeName(field.name)} :$argsTypeName $effect[${writeType(field.ofType)}]"
     }
 
-    def writeRootQueryOrMutationDef(op: ObjectTypeDefinition, effect: String, isEffectTypeAbstract: Boolean): String = {
+    def writeRootQueryOrMutationDef(op: ObjectTypeDefinition): String = {
       val typeParamOrEmpty = if (isEffectTypeAbstract) s"[$effect[_]]" else ""
       s"""
          |${writeDescription(op.description)}final case class ${op.name}$typeParamOrEmpty(
-         |${op.fields.map(c => writeRootField(c, op, effect)).mkString(",\n")}
+         |${op.fields.map(c => writeRootField(c, op)).mkString(",\n")}
          |)""".stripMargin
 
     }
@@ -182,15 +193,19 @@ object SchemaWriter {
       }
 
     def writeType(t: Type): String = {
-      def withMappings(name: String): String = scalarMappings
+      def write(name: String): String = scalarMappings
         .flatMap(_.get(name))
-        .getOrElse(name)
+        .getOrElse(checkIsInterfaceImpl(name))
 
-//    def checkIsInterfaceImpl(name: String) = interfa
+      def checkIsInterfaceImpl(name: String): String = interfaceImplementationsMap.find { case (_, impls) =>
+        impls.exists(_.name == name)
+      }.map { case (interface, _) =>
+        s"${interface.name}.$name"
+      }.getOrElse(name)
 
       t match {
-        case NamedType(name, true)   => withMappings(name)
-        case NamedType(name, false)  => s"Option[${withMappings(name)}]"
+        case NamedType(name, true)   => write(name)
+        case NamedType(name, false)  => s"Option[${write(name)}]"
         case ListType(ofType, true)  => s"List[${writeType(ofType)}]"
         case ListType(ofType, false) => s"Option[List[${writeType(ofType)}]]"
       }
@@ -207,14 +222,6 @@ object SchemaWriter {
       .toMap
 
     val unions = writeUnions(unionTypes)
-
-    val interfaceImplementationsMap = (for {
-      objectDef    <- schema.objectTypeDefinitions
-      interfaceDef <- schema.interfaceTypeDefinitions
-      if objectDef.implements.exists(_.name == interfaceDef.name)
-    } yield interfaceDef -> objectDef).groupBy(_._1).map { case (definition, tuples) =>
-      definition -> tuples.map(_._2)
-    }
 
     val interfaceImplementations = interfaceImplementationsMap.values.flatten
 
@@ -240,12 +247,12 @@ object SchemaWriter {
 
     val queries = schema
       .objectTypeDefinition(schemaDef.flatMap(_.query).getOrElse("Query"))
-      .map(t => writeRootQueryOrMutationDef(t, effect, isEffectTypeAbstract))
+      .map(t => writeRootQueryOrMutationDef(t))
       .getOrElse("")
 
     val mutations = schema
       .objectTypeDefinition(schemaDef.flatMap(_.mutation).getOrElse("Mutation"))
-      .map(t => writeRootQueryOrMutationDef(t, effect, isEffectTypeAbstract))
+      .map(t => writeRootQueryOrMutationDef(t))
       .getOrElse("")
 
     val subscriptions = schema

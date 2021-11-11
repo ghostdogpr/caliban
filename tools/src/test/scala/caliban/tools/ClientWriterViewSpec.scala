@@ -1,7 +1,6 @@
 package caliban.tools
 
 import caliban.parsing.Parser
-import caliban.tools.implicits.ScalarMappings
 import zio.RIO
 import zio.blocking.Blocking
 import zio.test.Assertion._
@@ -13,7 +12,7 @@ object ClientWriterViewSpec extends DefaultRunnableSpec {
   val gen: String => RIO[Blocking, String] = (schema: String) =>
     Parser
       .parseQuery(schema)
-      .flatMap(doc => Formatter.format(ClientWriter.write(doc, genView = true)(ScalarMappings(None)).head._2, None))
+      .flatMap(doc => Formatter.format(ClientWriter.write(doc, genView = true, scalarMappings = None).head._2, None))
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("ClientWriterViewSpec")(

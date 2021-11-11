@@ -77,8 +77,8 @@ object CalibanSourceGenerator {
         for {
           generatedSource <- ZIO.succeed(transformFile(sourceRoot, sourceManaged, settings)(graphql))
           _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
-          opts            <- ZIO.fromOption(Some(settings.toOptions(graphql.toString, generatedSource.toString)))
-          files           <- Codegen.generate(opts, GenType.Client).asSomeError
+          opts <- ZIO.fromOption(Some(settings.toOptions(graphql.toString, generatedSource.toString)))
+          files <- Codegen.generate(opts, settings.genType).asSomeError
         } yield files
 
       def generateUrlSource(
@@ -91,8 +91,8 @@ object CalibanSourceGenerator {
               transformFile(sourceRoot, sourceManaged, settings)(new java.io.File(graphql.getPath.stripPrefix("/")))
             )
           _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
-          opts            <- ZIO.fromOption(Some(settings.toOptions(graphql.toString, generatedSource.toString)))
-          files           <- Codegen.generate(opts, GenType.Client).asSomeError
+          opts <- ZIO.fromOption(Some(settings.toOptions(graphql.toString, generatedSource.toString)))
+          files <- Codegen.generate(opts, settings.genType).asSomeError
         } yield files
 
       Runtime.default

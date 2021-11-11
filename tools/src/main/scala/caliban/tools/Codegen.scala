@@ -1,10 +1,9 @@
 package caliban.tools
 
-import java.io.{ File, PrintWriter }
-
-import caliban.tools.implicits.ScalarMappings
 import zio.blocking.{ blocking, Blocking }
 import zio.{ RIO, Task, UIO, ZIO }
+
+import java.io.{ File, PrintWriter }
 
 object Codegen {
 
@@ -53,9 +52,8 @@ object Codegen {
                                         genView,
                                         arguments.imports,
                                         splitFiles,
-                                        extensibleEnums
-                                      )(
-                                        ScalarMappings(scalarMappings)
+                                        extensibleEnums,
+                                        scalarMappings
                                       )
                                   }
       formatted                <- if (enableFmt) Formatter.format(code, arguments.fmtPath) else Task.succeed(code)
