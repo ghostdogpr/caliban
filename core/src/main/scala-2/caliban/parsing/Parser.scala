@@ -8,7 +8,15 @@ import zio.{ IO, Task }
 
 import scala.util.Try
 
-object Parser {
+trait Parser {
+
+  /**
+   * Parses the given string into a [[caliban.parsing.adt.Document]] object or fails with a [[caliban.CalibanError.ParsingError]].
+   */
+  def parseQuery(query: String): IO[ParsingError, Document]
+}
+
+object Parser extends Parser {
   import caliban.parsing.parsers.Parsers._
 
   /**

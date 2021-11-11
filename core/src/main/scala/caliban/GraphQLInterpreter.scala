@@ -4,6 +4,7 @@ import caliban.Value.NullValue
 import caliban.execution.{ Executor, QueryExecution }
 import caliban.validation.Validator
 import zio.{ Has, IO, NeedsEnv, Tag, URIO, ZEnv, ZLayer }
+import caliban.parsing.Parser
 
 /**
  * A `GraphQLInterpreter[-R, +E]` represents a GraphQL interpreter whose execution requires
@@ -15,6 +16,7 @@ import zio.{ Has, IO, NeedsEnv, Tag, URIO, ZEnv, ZLayer }
 trait GraphQLInterpreter[-R, +E] { self =>
   private[caliban] val executor: Executor   = Executor
   private[caliban] val validator: Validator = Validator
+  private[caliban] val parser: Parser       = Parser
 
   /**
    * Parses and validates the provided query against this API.
@@ -133,6 +135,7 @@ trait GraphQLInterpreter[-R, +E] { self =>
     new GraphQLInterpreter[R, E] {
       override val executor  = otherExecutor
       override val validator = self.validator
+      override val parser    = self.parser
 
       override def check(query: String): IO[CalibanError, Unit] = self.check(query)
 
@@ -150,10 +153,33 @@ trait GraphQLInterpreter[-R, +E] { self =>
    * @param otherValidator the validator to use
    * @return a [[GraphQLInterpreter]] that will use another validator to validate the query
    */
-  def withExecutor(otherValidator: Validator): GraphQLInterpreter[R, E] =
+  def withValidator(otherValidator: Validator): GraphQLInterpreter[R, E] =
     new GraphQLInterpreter[R, E] {
       override val executor  = self.executor
       override val validator = otherValidator
+      override val parser    = self.parser
+
+      override def check(query: String): IO[CalibanError, Unit] = self.check(query)
+
+      override def executeRequest(
+        request: GraphQLRequest,
+        skipValidation: Boolean,
+        enableIntrospection: Boolean,
+        queryExecution: QueryExecution
+      ): URIO[R, GraphQLResponse[E]] = self.executeRequest(request, skipValidation, enableIntrospection, queryExecution)
+    }
+
+  /**
+   * Overrides the [[Parser]] for a GraphQL interpreter.
+   *
+   * @param otherParser the parser to use
+   * @return a [[GraphQLInterpreter]] that will use another parser to parse the query
+   */
+  def withExecutor(otherParser: Parser): GraphQLInterpreter[R, E] =
+    new GraphQLInterpreter[R, E] {
+      override val executor  = self.executor
+      override val validator = self.validator
+      override val parser    = otherParser
 
       override def check(query: String): IO[CalibanError, Unit] = self.check(query)
 

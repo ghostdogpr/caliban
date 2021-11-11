@@ -7,7 +7,7 @@ import caliban.introspection.Introspector
 import caliban.introspection.adt._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.SchemaDefinition
 import caliban.parsing.adt.{ Document, OperationType }
-import caliban.parsing.{ Parser, SourceMapper, VariablesUpdater }
+import caliban.parsing.{ SourceMapper, VariablesUpdater }
 import caliban.schema._
 import caliban.validation.Validator
 import caliban.wrappers.Wrapper
@@ -78,7 +78,7 @@ trait GraphQL[-R] { self =>
       new GraphQLInterpreter[R, CalibanError] {
         override def check(query: String): IO[CalibanError, Unit] =
           for {
-            document      <- Parser.parseQuery(query)
+            document      <- parser.parseQuery(query)
             intro          = Introspector.isIntrospection(document)
             typeToValidate = if (intro) introspectionRootType else rootType
             _             <- validator.validate(document, typeToValidate)
@@ -94,7 +94,7 @@ trait GraphQL[-R] { self =>
             case (overallWrappers, parsingWrappers, validationWrappers, executionWrappers, fieldWrappers, _) =>
               wrap((request: GraphQLRequest) =>
                 (for {
-                  doc            <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
+                  doc            <- wrap(parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
                   intro           = Introspector.isIntrospection(doc)
                   _              <- IO.when(intro && !enableIntrospection) {
                                       IO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
