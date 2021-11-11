@@ -95,11 +95,12 @@ object TapirAdapterSpec {
                                  Some(ObjectValue(Map("query" -> StringValue("subscription { characterDeleted }"))))
                                )
                              )
-              _           <- send(run((GraphQLRequest(Some("""mutation{ deleteCharacter(name: "Amos Burton") }""")), null)))
-                               .delay(2 seconds)
-                               .provideSomeLayer[SttpClient](Clock.live)
-                               .fork
-              messages    <- outputStream.take(2).runCollect
+              sendDelete   =
+                send(run((GraphQLRequest(Some("""mutation{ deleteCharacter(name: "Amos Burton") }""")), null)))
+              messages    <- outputStream
+                               .tap(out => ZIO.when(out.`type` == "connection_ack")(sendDelete))
+                               .take(2)
+                               .runCollect
             } yield messages
 
           io.map { messages =>
