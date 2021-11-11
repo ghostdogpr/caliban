@@ -2,7 +2,7 @@ version: 2.1
 jobs:
   lint:
     docker:
-      - image: circleci/openjdk:11-jdk-node
+      - image: cimg/openjdk:11.0-node
     steps:
       - checkout
       - restore_cache:
@@ -17,7 +17,7 @@ jobs:
             - "~/.m2"
   test212_jdk:
     docker:
-      - image: circleci/openjdk:11-jdk-node
+      - image: cimg/openjdk:11.0-node
     steps:
       - checkout
       - restore_cache:
@@ -31,7 +31,7 @@ jobs:
             - "~/.m2"
   test212_jdk8:
     docker:
-      - image: circleci/openjdk:8-jdk-node
+      - image: cimg/openjdk:8.0-node
     steps:
       - checkout
       - restore_cache:
@@ -45,7 +45,7 @@ jobs:
             - "~/.m2"
   scripted212_jdk:
     docker:
-      - image: circleci/openjdk:11-jdk-node
+      - image: cimg/openjdk:11.0-node
     steps:
       - checkout
       - restore_cache:
@@ -59,7 +59,7 @@ jobs:
             - "~/.m2"
   test213_jdk:
     docker:
-      - image: circleci/openjdk:11-jdk-node
+      - image: cimg/openjdk:11.0-node
     steps:
       - checkout
       - restore_cache:
@@ -73,7 +73,7 @@ jobs:
             - "~/.m2"
   test3_jdk:
     docker:
-      - image: circleci/openjdk:11-jdk-node
+      - image: cimg/openjdk:11.0-node
     steps:
       - checkout
       - restore_cache:
@@ -87,7 +87,7 @@ jobs:
             - "~/.m2"
   test213_js:
     docker:
-      - image: circleci/openjdk:11-jdk-node
+      - image: cimg/openjdk:11.0-node
     steps:
       - checkout
       - restore_cache:
@@ -101,7 +101,7 @@ jobs:
             - "~/.m2"
   release:
     docker:
-      - image: circleci/openjdk:11-jdk-node
+      - image: cimg/openjdk:11.0-node
     steps:
       - checkout
       - run: git fetch --tags
@@ -119,7 +119,7 @@ jobs:
 
   microsite:
     docker:
-      - image: circleci/node
+      - image: cimg/node:16.13
     steps:
       - checkout
       - run: |
