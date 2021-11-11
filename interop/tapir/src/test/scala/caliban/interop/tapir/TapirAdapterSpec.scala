@@ -8,8 +8,6 @@ import sttp.model.{ MediaType, Part, Uri }
 import sttp.tapir.client.sttp.SttpClientInterpreter
 import sttp.tapir.client.sttp.ws.zio._
 import sttp.tapir.json.circe._
-import zio.clock.Clock
-import zio.duration._
 import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
@@ -61,8 +59,8 @@ object TapirAdapterSpec {
             List(
               Part("operations", query.getBytes, contentType = Some(MediaType.ApplicationJson)),
               Part("map", """{ "0": ["variables.files.0"], "1":  ["variables.files.1"]}""".getBytes),
-              Part("0", """image""".getBytes, contentType = Some(MediaType.ImagePng)),
-              Part("1", """text""".getBytes, contentType = Some(MediaType.TextPlain))
+              Part("0", """image""".getBytes, contentType = Some(MediaType.ImagePng)).fileName("a.png"),
+              Part("1", """text""".getBytes, contentType = Some(MediaType.TextPlain)).fileName("a.txt")
             )
 
           val io =
@@ -73,7 +71,7 @@ object TapirAdapterSpec {
 
           assertM(io)(
             equalTo(
-              """{"uploadFiles":[{"hash":"6105d6cc76af400325e94d588ce511be5bfdbb73b437dc51eca43917d7a43e3d","filename":"","mimetype":"image/png"},{"hash":"982d9e3eb996f559e633f4d194def3761d909f5a3b647d1a851fead67c32c9d1","filename":"","mimetype":"text/plain"}]}"""
+              """{"uploadFiles":[{"hash":"6105d6cc76af400325e94d588ce511be5bfdbb73b437dc51eca43917d7a43e3d","filename":"a.png","mimetype":"image/png"},{"hash":"982d9e3eb996f559e633f4d194def3761d909f5a3b647d1a851fead67c32c9d1","filename":"a.txt","mimetype":"text/plain"}]}"""
             )
           )
         }

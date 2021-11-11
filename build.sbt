@@ -310,15 +310,18 @@ lazy val play = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "com.typesafe.play"             %% "play"                          % playVersion,
+      "com.softwaremill.sttp.tapir"   %% "tapir-play-server"             % tapirVersion,
+      "com.softwaremill.sttp.tapir"   %% "tapir-json-play"               % tapirVersion,
       "dev.zio"                       %% "zio-test"                      % zioVersion   % Test,
       "dev.zio"                       %% "zio-test-sbt"                  % zioVersion   % Test,
       "com.typesafe.play"             %% "play-akka-http-server"         % playVersion  % Test,
       "io.circe"                      %% "circe-generic"                 % circeVersion % Test,
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion  % Test,
-      "com.softwaremill.sttp.client3" %% "circe"                         % sttpVersion  % Test
+      "com.softwaremill.sttp.client3" %% "circe"                         % sttpVersion  % Test,
+      compilerPlugin(("org.typelevel" %% "kind-projector"                % "0.13.2").cross(CrossVersion.full))
     )
   )
-  .dependsOn(core)
+  .dependsOn(core, tapirInterop % "compile->compile;test->test")
 
 lazy val client    = crossProject(JSPlatform, JVMPlatform)
   .crossType(CrossType.Pure)

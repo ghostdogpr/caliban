@@ -11,7 +11,7 @@ import sttp.capabilities.akka.AkkaStreams
 import sttp.capabilities.akka.AkkaStreams.Pipe
 import sttp.model.StatusCode
 import sttp.tapir.Codec.JsonCodec
-import sttp.tapir.{ Endpoint, PublicEndpoint }
+import sttp.tapir.PublicEndpoint
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.server.akkahttp.AkkaHttpServerInterpreter
