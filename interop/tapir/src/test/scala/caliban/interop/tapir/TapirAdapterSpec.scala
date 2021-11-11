@@ -8,6 +8,8 @@ import sttp.model.{ MediaType, Part, Uri }
 import sttp.tapir.client.sttp.SttpClientInterpreter
 import sttp.tapir.client.sttp.ws.zio._
 import sttp.tapir.json.circe._
+import zio.clock.Clock
+import zio.duration._
 import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
@@ -99,6 +101,8 @@ object TapirAdapterSpec {
                                .tap(out => ZIO.when(out.`type` == "connection_ack")(sendDelete))
                                .take(2)
                                .runCollect
+                               .timeoutFail(new Throwable("timeout ws"))(30.seconds)
+                               .provideSomeLayer[SttpClient](Clock.live)
             } yield messages
 
           io.map { messages =>
