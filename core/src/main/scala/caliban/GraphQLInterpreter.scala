@@ -2,9 +2,9 @@ package caliban
 
 import caliban.Value.NullValue
 import caliban.execution.{ Executor, QueryExecution }
+import caliban.parsing.Parser
 import caliban.validation.Validator
 import zio.{ Has, IO, NeedsEnv, Tag, URIO, ZEnv, ZLayer }
-import caliban.parsing.Parser
 
 /**
  * A `GraphQLInterpreter[-R, +E]` represents a GraphQL interpreter whose execution requires
