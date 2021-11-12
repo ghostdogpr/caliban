@@ -9,7 +9,7 @@ Caliban comes with a module called `caliban-tools` that exposes some useful feat
 ## Dependency
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-tools" % "1.2.2"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-tools" % "1.2.3"
 ```
 
 ## Schema comparison
