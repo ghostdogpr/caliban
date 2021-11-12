@@ -102,3 +102,10 @@ case class __Type(
       case _                   => true
     }
 }
+
+object __Type {
+  implicit class __TypeExtensions(val it: __Type) {
+    def list: __Type    = __Type(__TypeKind.LIST, ofType = Some(it))
+    def nonNull: __Type = __Type(__TypeKind.NON_NULL, ofType = Some(it))
+  }
+}
