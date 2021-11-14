@@ -600,9 +600,13 @@ object ClientWriter {
     if (reservedKeywords.contains(name) || name.endsWith("_") || name.charAt(0).isUpper) s"${decapitalize(name)}$$"
     else name
 
-  private def decapitalize(name: String): String = if (name.length > 1 && name.charAt(0).isUpper)
-    name.charAt(0).toLower + name.substring(1)
-  else name
+  private def decapitalize(name: String): String = if (name.length > 1 && name.charAt(0).isUpper) {
+    val chars = name.toCharArray
+    chars(0) = chars(0).toLower
+    new String(chars)
+  } else {
+    name
+  }
 
   def safeName(name: String): String =
     if (reservedKeywords.contains(name) || name.endsWith("_")) s"`$name`"
