@@ -597,10 +597,12 @@ object ClientWriter {
         """
 
   def safeUnapplyName(name: String): String =
-    if (reservedKeywords.contains(name) || name.endsWith("_") || name.charAt(0).isUpper) s"${decapitalize(name)}$$"
+    if (reservedKeywords.contains(name) || name.endsWith("_") || isCapital(name)) s"${decapitalize(name)}$$"
     else name
 
-  private def decapitalize(name: String): String = if (name.length > 1 && name.charAt(0).isUpper) {
+  private def isCapital(name: String): Boolean = name.nonEmpty && name.charAt(0).isUpper
+
+  private def decapitalize(name: String): String = if (isCapital(name)) {
     val chars = name.toCharArray
     chars(0) = chars(0).toLower
     new String(chars)
