@@ -357,8 +357,8 @@ object Client {
 
     def view[PackageSelection](
       packageSelection: SelectionBuilder[`package`, PackageSelection]
-    ): ViewSelection[PackageSelection] = (`package`(packageSelection) ~ version).map { case ($package, version) =>
-      matchView($package, version)
+    ): ViewSelection[PackageSelection] = (`package`(packageSelection) ~ version).map { case (package$, version) =>
+      matchView(package$, version)
     }
 
     def `package`[A](innerSelection: SelectionBuilder[`package`, A]): SelectionBuilder[`match`, Option[A]] =
@@ -395,7 +395,7 @@ object Client {
 
     type ViewSelection = SelectionBuilder[TypeWithCapitalFields, TypeWithCapitalFieldsView]
 
-    def view: ViewSelection = (Name ~ Value).map { case ($Name, $Value) => TypeWithCapitalFieldsView($Name, $Value) }
+    def view: ViewSelection = (Name ~ Value).map { case (name$, value$) => TypeWithCapitalFieldsView(name$, value$) }
 
     def Name: SelectionBuilder[TypeWithCapitalFields, Option[String]]  =
       _root_.caliban.client.SelectionBuilder.Field("Name", OptionOf(Scalar()))
