@@ -10,10 +10,10 @@ import zio.test.environment.TestEnvironment
 
 object ClientWriterViewSpec extends DefaultRunnableSpec {
 
-  val gen: String => RIO[Blocking, String] = (schema: String) =>
+  val gen: String ⇒ RIO[Blocking, String] = (schema: String) ⇒
     Parser
       .parseQuery(schema)
-      .flatMap(doc => Formatter.format(ClientWriter.write(doc, genView = true)(ScalarMappings(None)).head._2, None))
+      .flatMap(doc ⇒ Formatter.format(ClientWriter.write(doc, genView = true)(ScalarMappings(None)).head._2, None))
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("ClientWriterViewSpec")(
@@ -357,14 +357,50 @@ object Client {
 
     def view[PackageSelection](
       packageSelection: SelectionBuilder[`package`, PackageSelection]
-    ): ViewSelection[PackageSelection] = (`package`(packageSelection) ~ version).map { case (package$, version) =>
-      matchView(package$, version)
+    ): ViewSelection[PackageSelection] = (`package`(packageSelection) ~ version).map { case ($package, version) =>
+      matchView($package, version)
     }
 
     def `package`[A](innerSelection: SelectionBuilder[`package`, A]): SelectionBuilder[`match`, Option[A]] =
       _root_.caliban.client.SelectionBuilder.Field("package", OptionOf(Obj(innerSelection)))
     def version: SelectionBuilder[`match`, Option[String]]                                                 =
       _root_.caliban.client.SelectionBuilder.Field("version", OptionOf(Scalar()))
+  }
+
+}
+"""
+          )
+        )
+      },
+      testM("generic view for capital fields") {
+        val schema =
+          """
+          type TypeWithCapitalFields {
+            Name: String,
+            Value: String
+          }
+            """
+
+        assertM(gen(schema))(
+          equalTo(
+            """import caliban.client.FieldBuilder._
+import caliban.client._
+
+object Client {
+
+  type TypeWithCapitalFields
+  object TypeWithCapitalFields {
+
+    final case class TypeWithCapitalFieldsView(Name: Option[String], Value: Option[String])
+
+    type ViewSelection = SelectionBuilder[TypeWithCapitalFields, TypeWithCapitalFieldsView]
+
+    def view: ViewSelection = (Name ~ Value).map { case ($Name, $Value) => TypeWithCapitalFieldsView($Name, $Value) }
+
+    def Name: SelectionBuilder[TypeWithCapitalFields, Option[String]]  =
+      _root_.caliban.client.SelectionBuilder.Field("Name", OptionOf(Scalar()))
+    def Value: SelectionBuilder[TypeWithCapitalFields, Option[String]] =
+      _root_.caliban.client.SelectionBuilder.Field("Value", OptionOf(Scalar()))
   }
 
 }

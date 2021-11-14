@@ -597,7 +597,7 @@ object ClientWriter {
         """
 
   def safeUnapplyName(name: String): String =
-    if (reservedKeywords.contains(name) || name.endsWith("_")) s"$name$$"
+    if (reservedKeywords.contains(name) || name.endsWith("_") || name.charAt(0).isUpper) s"$$$name"
     else name
 
   def safeName(name: String): String =
