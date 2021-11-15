@@ -9,7 +9,7 @@ import java.io.File
 import java.net.URL
 
 object CalibanSourceGenerator {
-  import sjsonnew.{:*:, LList, LNil}
+  import sjsonnew.{ :*:, LList, LNil }
   import zio._
   import zio.console._
 
