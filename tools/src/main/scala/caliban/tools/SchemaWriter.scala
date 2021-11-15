@@ -5,7 +5,6 @@ import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt.{ Document, Type }
 
 object SchemaWriter {
-
   def write(
     schema: Document,
     packageName: Option[String] = None,
