@@ -143,8 +143,8 @@ trait SchemaDerivation[R] {
               makeObject(
                 Some(getName(annotations, info)),
                 getDescription(annotations),
-                fields.filter { case (label, _, _, _) =>
-                  !paramAnnotations.getOrElse(label, Nil).exists(_ == GQLExcluded())
+                fields.filterNot { case (label, _, _, _) =>
+                  paramAnnotations.getOrElse(label, Nil).exists(_ == GQLExcluded())
                 }.map { case (label, _, schema, _) =>
                   val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
                   __Field(

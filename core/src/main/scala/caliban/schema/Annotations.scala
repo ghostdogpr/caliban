@@ -17,7 +17,7 @@ object Annotations {
   case class GQLDescription(value: String) extends StaticAnnotation
 
   /**
-   * Annotation used to exlucde a field from a type.
+   * Annotation used to exclude a field from a type.
    */
   case class GQLExcluded() extends StaticAnnotation
 

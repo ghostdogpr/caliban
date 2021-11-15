@@ -64,7 +64,7 @@ trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
           Some(getName(ctx)),
           getDescription(ctx),
           ctx.parameters
-            .filter(p => !p.annotations.exists(_ == GQLExcluded()))
+            .filterNot(p => p.annotations.exists(_ == GQLExcluded()))
             .map(p =>
               __Field(
                 getName(p),
