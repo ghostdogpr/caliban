@@ -2,7 +2,7 @@ import org.scalajs.linker.interface.ModuleSplitStyle
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
 val scala212 = "2.12.14"
-val scala213 = "2.13.6"
+val scala213 = "2.13.7"
 val scala3   = "3.0.2"
 val allScala = Seq(scala212, scala213, scala3)
 
@@ -111,7 +111,7 @@ lazy val core = project
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) {
         Seq(
-          "org.typelevel" %% "cats-parse" % "0.3.4"
+          "org.typelevel" %% "cats-parse" % "0.3.5"
         )
       } else {
         Seq(
@@ -290,7 +290,7 @@ lazy val akkaHttp = project
     crossScalaVersions -= scala3,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "com.typesafe.akka"             %% "akka-http"                  % "10.2.6",
+      "com.typesafe.akka"             %% "akka-http"                  % "10.2.7",
       "com.typesafe.akka"             %% "akka-serialization-jackson" % akkaVersion,
       "com.typesafe.akka"             %% "akka-stream"                % akkaVersion,
       "de.heikoseeberger"             %% "akka-http-circe"            % "1.38.2"   % Optional,

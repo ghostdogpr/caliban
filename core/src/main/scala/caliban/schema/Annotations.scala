@@ -17,6 +17,11 @@ object Annotations {
   case class GQLDescription(value: String) extends StaticAnnotation
 
   /**
+   * Annotation used to exclude a field from a type.
+   */
+  case class GQLExcluded() extends StaticAnnotation
+
+  /**
    * Annotation used to customize the name of an input type.
    * This is usually needed to avoid a name clash when a type is used both as an input and an output.
    */
@@ -43,9 +48,11 @@ object Annotations {
   case class GQLUnion() extends StaticAnnotation
 
   /**
-   * Annotation to make a union or interface redirect to a value type
+   * Annotation to make a case class redirect to its inner type.
+   * The `Schema` of the inner type will be used, unless `isScalar` is true in which case
+   * a scalar with the name of the parent case class will be created.
    */
-  case class GQLValueType() extends StaticAnnotation
+  case class GQLValueType(isScalar: Boolean = false) extends StaticAnnotation
 
   /**
    * Annotation to specify the default value of an input field

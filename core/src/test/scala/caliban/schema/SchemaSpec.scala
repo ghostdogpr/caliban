@@ -1,8 +1,10 @@
 package caliban.schema
 
 import java.util.UUID
+import caliban.GraphQL.graphQL
+import caliban.RootResolver
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
-import caliban.schema.Annotations.{ GQLInterface, GQLUnion, GQLValueType }
+import caliban.schema.Annotations.{ GQLExcluded, GQLInterface, GQLUnion, GQLValueType }
 import zio.blocking.Blocking
 import zio.console.Console
 import zio.query.ZQuery
@@ -144,6 +146,41 @@ object SchemaSpec extends DefaultRunnableSpec {
           )
         ) &&
         assert(fieldNames)(hasSameElements(List("common")))
+      },
+      test("value type not scalar") {
+        @GQLValueType
+        case class Wrapper(value: Int)
+        case class Queries(test: Option[Wrapper])
+
+        assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
+          isSome(hasField[__Type, Option[String]]("name", _.name, equalTo(Some("Int"))))
+        )
+      },
+      test("value type scalar") {
+        @GQLValueType(isScalar = true)
+        case class Wrapper(value: Int)
+        case class Queries(test: Option[Wrapper])
+
+        assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
+          isSome(hasField[__Type, Option[String]]("name", _.name, equalTo(Some("Wrapper"))))
+        )
+      },
+      test("GQLExcluded") {
+        case class QueryType(a: String, @GQLExcluded b: String)
+        case class Query(query: QueryType)
+        val gql      = graphQL(RootResolver(Query(QueryType("a", "b"))))
+        val expected = """schema {
+                         |  query: Query
+                         |}
+
+                         |type Query {
+                         |  query: QueryType!
+                         |}
+
+                         |type QueryType {
+                         |  a: String!
+                         |}""".stripMargin
+        assertTrue(gql.render == expected)
       }
     )
 

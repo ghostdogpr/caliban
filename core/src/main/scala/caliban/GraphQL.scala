@@ -7,7 +7,7 @@ import caliban.introspection.Introspector
 import caliban.introspection.adt._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.SchemaDefinition
 import caliban.parsing.adt.{ Document, OperationType }
-import caliban.parsing.{ Parser, SourceMapper }
+import caliban.parsing.{ Parser, SourceMapper, VariablesUpdater }
 import caliban.schema._
 import caliban.validation.Validator
 import caliban.wrappers.Wrapper
@@ -94,21 +94,23 @@ trait GraphQL[-R] { self =>
             case (overallWrappers, parsingWrappers, validationWrappers, executionWrappers, fieldWrappers, _) =>
               wrap((request: GraphQLRequest) =>
                 (for {
-                  doc              <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
-                  intro             = Introspector.isIntrospection(doc)
-                  _                <- IO.when(intro && !enableIntrospection) {
-                                        IO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
-                                      }
-                  typeToValidate    = if (intro) introspectionRootType else rootType
-                  schemaToExecute   = if (intro) introspectionRootSchema else schema
+                  doc            <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
+                  intro           = Introspector.isIntrospection(doc)
+                  _              <- IO.when(intro && !enableIntrospection) {
+                                      IO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
+                                    }
+                  typeToValidate  = if (intro) introspectionRootType else rootType
+                  schemaToExecute = if (intro) introspectionRootSchema else schema
+                  updatedRequest  = VariablesUpdater.updateVariables(request, doc, typeToValidate)
+
                   validate          = (doc: Document) =>
                                         Validator
                                           .prepare(
                                             doc,
                                             typeToValidate,
                                             schemaToExecute,
-                                            request.operationName,
-                                            request.variables.getOrElse(Map()),
+                                            updatedRequest.operationName,
+                                            updatedRequest.variables.getOrElse(Map.empty),
                                             skipValidation
                                           )
                   executionRequest <- wrap(validate)(validationWrappers, doc)
@@ -143,9 +145,14 @@ trait GraphQL[-R] { self =>
     }
 
   /**
-   * A symbolic alias for `withWrapper`.
+   * Attaches an aspect that will wrap the entire GraphQL so that it can be manipulated.
+   * This method is a higher-level abstraction of [[withWrapper]] which allows the caller to
+   * completely replace or change all aspects of the schema.
+   * @param aspect A wrapper type that will be applied to this GraphQL
+   * @return A new GraphQL API
    */
-  final def @@[R2 <: R](wrapper: Wrapper[R2]): GraphQL[R2] = withWrapper(wrapper)
+  final def @@[LowerR <: UpperR, UpperR <: R](aspect: GraphQLAspect[LowerR, UpperR]): GraphQL[UpperR] =
+    aspect(self)
 
   /**
    * Merges this GraphQL API with another GraphQL API.

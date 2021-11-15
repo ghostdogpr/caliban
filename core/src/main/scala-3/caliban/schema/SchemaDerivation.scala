@@ -117,7 +117,9 @@ trait SchemaDerivation[R] {
         lazy val paramAnnotations = Macros.paramAnnotations[A].toMap
         new Schema[R, A] {
           def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-            if (isValueType(annotations) && fields.nonEmpty) fields.head._3.toType_(isInput, isSubscription)
+            if (isValueType(annotations) && fields.nonEmpty)
+              if (isScalarValueType(annotations)) makeScalar(getName(annotations, info), getDescription(annotations))
+              else fields.head._3.toType_(isInput, isSubscription)
             else if (isInput)
               makeInputObject(
                 Some(annotations.collectFirst { case GQLInputName(suffix) => suffix }
@@ -141,7 +143,9 @@ trait SchemaDerivation[R] {
               makeObject(
                 Some(getName(annotations, info)),
                 getDescription(annotations),
-                fields.map { case (label, _, schema, _) =>
+                fields.filterNot { case (label, _, _, _) =>
+                  paramAnnotations.getOrElse(label, Nil).exists(_ == GQLExcluded())
+                }.map { case (label, _, schema, _) =>
                   val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
                   __Field(
                     getName(fieldAnnotations, label),
@@ -209,8 +213,14 @@ trait SchemaDerivation[R] {
 
   private def isValueType(annotations: Seq[Any]): Boolean =
     annotations.exists {
-      case GQLValueType() => true
-      case _              => false
+      case GQLValueType(_) => true
+      case _               => false
+    }
+
+  private def isScalarValueType(annotations: Seq[Any]): Boolean =
+    annotations.exists {
+      case GQLValueType(true) => true
+      case _                  => false
     }
 
   private def getName(annotations: Seq[Any], label: String): String =

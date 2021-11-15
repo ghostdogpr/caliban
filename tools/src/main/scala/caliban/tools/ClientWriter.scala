@@ -3,8 +3,8 @@ package caliban.tools
 import caliban.Value.StringValue
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
-import caliban.parsing.adt.Type.{ ListType, NamedType }
-import caliban.parsing.adt.{ Document, Type }
+import caliban.parsing.adt.Type.{ListType, NamedType}
+import caliban.parsing.adt.{Document, Type}
 
 import scala.annotation.tailrec
 
@@ -49,6 +49,20 @@ object ClientWriter {
       },
       if (splitFiles) List("package") else Nil
     )
+
+    def safeUnapplyName(name: String): String =
+      if (reservedKeywords.contains(name) || name.endsWith("_") || isCapital(name)) s"${decapitalize(name)}$$"
+      else name
+
+    def isCapital(name: String): Boolean = name.nonEmpty && name.charAt(0).isUpper
+
+    def decapitalize(name: String): String = if (isCapital(name)) {
+      val chars = name.toCharArray
+      chars(0) = chars(0).toLower
+      new String(chars)
+    } else {
+      name
+    }
 
     def safeName(name: String): String =
       if (reservedKeywords.contains(name) || name.endsWith("_")) s"`$name`"
@@ -540,10 +554,6 @@ object ClientWriter {
     ): String =
       s"""type ${safeTypeName(typedef.name)} = String
         """
-
-    def safeUnapplyName(name: String): String =
-      if (reservedKeywords.contains(name) || name.endsWith("_")) s"$name$$"
-      else name
 
     @tailrec
     def getTypeLetter(typesMap: Map[String, TypeDefinition], letter: String = "A"): String =

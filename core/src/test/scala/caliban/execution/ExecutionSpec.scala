@@ -973,6 +973,40 @@ object ExecutionSpec extends DefaultRunnableSpec {
             """{"foos":[{"common":true,"int":42},{"common":false,"value":"hello"}]}"""
           )
         )
+      },
+      testM("value type not scalar") {
+        @GQLValueType
+        case class Wrapper(value: Int)
+        case class Queries(test: Wrapper)
+
+        val queries = Queries(Wrapper(2))
+
+        val api: GraphQL[Any] = GraphQL.graphQL(RootResolver(queries))
+        val interpreter       = api.interpreter
+        val query             = gqldoc("""{test}""")
+
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
+          equalTo(
+            """{"test":2}"""
+          )
+        )
+      },
+      testM("value type scalar") {
+        @GQLValueType(isScalar = true)
+        case class Wrapper(value: Int)
+        case class Queries(test: Wrapper)
+
+        val queries = Queries(Wrapper(2))
+
+        val api: GraphQL[Any] = GraphQL.graphQL(RootResolver(queries))
+        val interpreter       = api.interpreter
+        val query             = gqldoc("""{test}""")
+
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
+          equalTo(
+            """{"test":2}"""
+          )
+        )
       }
     )
 }
