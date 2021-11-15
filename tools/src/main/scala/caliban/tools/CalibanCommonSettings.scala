@@ -76,6 +76,6 @@ object CalibanCommonSettings {
       splitFiles = None,
       enableFmt = None,
       extensibleEnums = None,
-      GenType.Schema
+      GenType.Client
     )
 }

@@ -1,6 +1,5 @@
 package caliban.codegen
 
-import _root_.caliban.tools.Codegen.GenType
 import _root_.caliban.tools._
 import sbt._
 import sjsonnew.IsoLList.Aux
@@ -10,7 +9,7 @@ import java.io.File
 import java.net.URL
 
 object CalibanSourceGenerator {
-  import sjsonnew.{ :*:, LList, LNil }
+  import sjsonnew.{:*:, LList, LNil}
   import zio._
   import zio.console._
 
