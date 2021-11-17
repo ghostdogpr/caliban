@@ -138,8 +138,8 @@ object ValueValidator {
         }
       case "Float"   =>
         argValue match {
-          case _: Value.FloatValue | NullValue => IO.unit
-          case t                               => failValidation(s"$errorContext has invalid type $t", "Expected 'Float'")
+          case _: Value.FloatValue | _: Value.IntValue | NullValue => IO.unit
+          case t                                                   => failValidation(s"$errorContext has invalid type $t", "Expected 'Float'")
         }
       case "Boolean" =>
         argValue match {

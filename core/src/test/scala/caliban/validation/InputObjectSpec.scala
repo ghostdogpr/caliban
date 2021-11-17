@@ -142,6 +142,23 @@ object InputObjectSpec extends DefaultRunnableSpec {
       },
       testM("allow Int passed to Float field") {
         val query =
+          """query {
+            |  query(input: { float: 42 })
+            |}""".stripMargin
+
+        case class TestInputObject(float: Float)
+        case class TestInput(input: TestInputObject)
+        case class TestOutput(value: String)
+        case class Query(query: TestInput => String)
+        val gql = graphQL(RootResolver(Query(_.input.float.toString)))
+
+        for {
+          int <- gql.interpreter
+          res <- int.executeRequest(GraphQLRequest(query = Some(query)))
+        } yield assert(res.errors)(isEmpty)
+      },
+      testM("allow Int passed to Float field in a variable") {
+        val query =
           """query QueryName($input: TestInputObjectInput!) {
             |  query(input: $input)
             |}""".stripMargin
