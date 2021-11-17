@@ -123,10 +123,11 @@ object SchemaComparisonChange {
     override def breaking: Boolean = true
   }
 
-  case class ArgumentAdded(argName: String, target: Target)   extends SchemaComparisonChange {
-    override def toString: String = s"Argument '$argName' was added on $target."
+  case class ArgumentAdded(argName: String, target: Target, optional: Boolean) extends SchemaComparisonChange {
+    override def toString: String  = s"Argument '$argName' was added on $target."
+    override def breaking: Boolean = !optional
   }
-  case class ArgumentDeleted(argName: String, target: Target) extends SchemaComparisonChange {
+  case class ArgumentDeleted(argName: String, target: Target)                  extends SchemaComparisonChange {
     override def toString: String  = s"Argument '$argName' was deleted from $target."
     override def breaking: Boolean = true
   }

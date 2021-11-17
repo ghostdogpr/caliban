@@ -9,7 +9,7 @@
 To use, add the following line to your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-federation" % "1.2.3"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-federation" % "1.2.4"
 ```
 
 ## Federating
