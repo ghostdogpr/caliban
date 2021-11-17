@@ -702,49 +702,92 @@ object ClientWriter {
           .toList
       else Nil
 
-  val reservedKeywords = Set(
-    "abstract",
-    "case",
-    "catch",
-    "class",
-    "def",
-    "do",
-    "else",
-    "extends",
-    "false",
-    "final",
-    "finally",
-    "for",
-    "forSome",
-    "if",
-    "implicit",
-    "import",
-    "lazy",
-    "match",
-    "new",
-    "null",
-    "object",
-    "override",
-    "package",
-    "private",
-    "protected",
-    "return",
-    "sealed",
-    "super",
-    "then",
-    "this",
-    "throw",
-    "trait",
-    "try",
-    "true",
-    "type",
-    "val",
-    "var",
-    "while",
-    "with",
-    "yield",
-    "_"
-  )
+    val mutations = schema
+      .objectTypeDefinition(schemaDef.flatMap(_.mutation).getOrElse("Mutation"))
+      .map { typedef =>
+        val content     = writeRootMutation(typedef)
+        val fullContent =
+          if (splitFiles)
+            s"""import caliban.client.FieldBuilder._
+               |import caliban.client._
+               |
+               |$content
+               |""".stripMargin
+          else
+            s"""${writeRootMutationType(typedef)}
+               |$content
+               |""".stripMargin
+        safeTypeName(typedef.name) -> fullContent
+      }
+
+    val subscriptionTypes =
+      if (splitFiles)
+        schema
+          .objectTypeDefinition(schemaDef.flatMap(_.subscription).getOrElse("Subscription"))
+          .map(writeRootSubscriptionType)
+          .toList
+      else Nil
+
+    val subscriptions = schema
+      .objectTypeDefinition(schemaDef.flatMap(_.subscription).getOrElse("Subscription"))
+      .map { typedef =>
+        val content     = writeRootSubscription(typedef)
+        val fullContent =
+          if (splitFiles)
+            s"""import caliban.client.FieldBuilder._
+               |import caliban.client._
+               |
+               |$content
+               |""".stripMargin
+          else
+            s"""${writeRootSubscriptionType(typedef)}
+               |$content
+               |""".stripMargin
+        safeTypeName(typedef.name) -> fullContent
+      }
+
+    val additionalImportsString = additionalImports.fold("")(_.map(i => s"import $i").mkString("\n"))
+
+    if (splitFiles) {
+      val parentPackageName = packageName.filter(_.contains(".")).map(_.reverse.dropWhile(_ != '.').drop(1).reverse)
+      val packageObject     = "package" ->
+        s"""${parentPackageName.fold("")(p => s"package $p\n")}
+           |$additionalImportsString
+           |
+           |package object ${packageName.get.reverse.takeWhile(_ != '.').reverse} {
+           |  ${(scalars ::: objectTypes ::: queryTypes ::: mutationTypes ::: subscriptionTypes).mkString("\n")}
+           |}
+           |""".stripMargin
+      val classFiles        =
+        (enums ::: objects ::: inputs ::: queries.toList ::: mutations.toList ::: subscriptions.toList).map {
+          case (name, content) =>
+            val fullContent =
+              s"""${packageName.fold("")(p => s"package $p\n\n")}
+                 |$additionalImportsString
+                 |
+                 |$content
+                 |""".stripMargin
+            name -> fullContent
+        }
+      packageObject :: classFiles
+    } else {
+      val imports =
+        s"""${if (enums.nonEmpty)
+          """import caliban.client.CalibanClientError.DecodingError
+            |""".stripMargin
+        else ""}${if (objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty)
+          """import caliban.client.FieldBuilder._
+            |""".stripMargin
+        else
+          ""}${if (
+          enums.nonEmpty || objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty || inputs.nonEmpty
+        )
+          """import caliban.client._
+            |""".stripMargin
+        else ""}${if (enums.nonEmpty || inputs.nonEmpty)
+          """import caliban.client.__Value._
+            |""".stripMargin
+        else ""}"""
 
       List(objectName -> s"""${packageName.fold("")(p => s"package $p\n\n")}$imports\n
                             |$additionalImportsString
