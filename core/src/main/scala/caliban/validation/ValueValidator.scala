@@ -59,6 +59,8 @@ object ValueValidator {
                 IO.foreach_(values)(v =>
                   validateType(inputType.ofType.getOrElse(inputType), v, context, s"List item in $errorContext")
                 )
+              case NullValue         =>
+                IO.unit
               case other             =>
                 // handle item as the first item in the list
                 validateType(inputType.ofType.getOrElse(inputType), other, context, s"List item in $errorContext")
@@ -73,6 +75,8 @@ object ValueValidator {
                       .getOrElse(NullValue)
                   validateType(f.`type`(), value, context, s"Field ${f.name} in $errorContext")
                 }
+              case NullValue           =>
+                IO.unit
               case _                   =>
                 failValidation(
                   s"$errorContext has invalid type: $argValue",
@@ -81,11 +85,11 @@ object ValueValidator {
             }
           case ENUM         =>
             argValue match {
-              case EnumValue(value)   =>
+              case EnumValue(value) =>
                 validateEnum(value, inputType, errorContext)
-              case StringValue(value) =>
-                validateEnum(value, inputType, errorContext)
-              case _                  =>
+              case NullValue        =>
+                IO.unit
+              case _                =>
                 failValidation(
                   s"$errorContext has invalid type: $argValue",
                   "Input field was supposed to be an enum value."
@@ -134,8 +138,8 @@ object ValueValidator {
         }
       case "Float"   =>
         argValue match {
-          case _: Value.FloatValue | NullValue => IO.unit
-          case t                               => failValidation(s"$errorContext has invalid type $t", "Expected 'Float'")
+          case _: Value.FloatValue | _: Value.IntValue | NullValue => IO.unit
+          case t                                                   => failValidation(s"$errorContext has invalid type $t", "Expected 'Float'")
         }
       case "Boolean" =>
         argValue match {

@@ -597,8 +597,18 @@ object ClientWriter {
         """
 
   def safeUnapplyName(name: String): String =
-    if (reservedKeywords.contains(name) || name.endsWith("_")) s"$name$$"
+    if (reservedKeywords.contains(name) || name.endsWith("_") || isCapital(name)) s"${decapitalize(name)}$$"
     else name
+
+  private def isCapital(name: String): Boolean = name.nonEmpty && name.charAt(0).isUpper
+
+  private def decapitalize(name: String): String = if (isCapital(name)) {
+    val chars = name.toCharArray
+    chars(0) = chars(0).toLower
+    new String(chars)
+  } else {
+    name
+  }
 
   def safeName(name: String): String =
     if (reservedKeywords.contains(name) || name.endsWith("_")) s"`$name`"
@@ -841,26 +851,36 @@ object ClientWriter {
 
   val reservedKeywords = Set(
     "abstract",
+    "as",
     "case",
     "catch",
     "class",
     "def",
+    "derives",
     "do",
     "else",
+    "enum",
+    "export",
     "extends",
+    "extension",
     "false",
     "final",
     "finally",
     "for",
     "forSome",
+    "given",
     "if",
     "implicit",
     "import",
+    "infix",
+    "inline",
     "lazy",
     "match",
     "new",
     "null",
     "object",
+    "opaque",
+    "open",
     "override",
     "package",
     "private",
@@ -872,9 +892,11 @@ object ClientWriter {
     "this",
     "throw",
     "trait",
+    "transparent",
     "try",
     "true",
     "type",
+    "using",
     "val",
     "var",
     "while",

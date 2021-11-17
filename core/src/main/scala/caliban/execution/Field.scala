@@ -1,13 +1,12 @@
 package caliban.execution
 
-import caliban.InputValue
-import caliban.Value
+import caliban.{ InputValue, Value }
 import caliban.Value.{ BooleanValue, NullValue }
-import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
+import caliban.introspection.adt.{ __DeprecatedArgs, __Type }
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.FragmentDefinition
 import caliban.parsing.adt.Selection.{ Field => F, FragmentSpread, InlineFragment }
-import caliban.parsing.adt.{ Directive, LocationInfo, Selection, Type, VariableDefinition }
+import caliban.parsing.adt.{ Directive, LocationInfo, Selection, VariableDefinition }
 import caliban.schema.{ RootType, Types }
 
 case class Field(
@@ -58,7 +57,7 @@ object Field {
               alias,
               field.fields,
               None,
-              resolveVariables(arguments, variableDefinitions, variableValues, rootType),
+              resolveVariables(arguments, variableDefinitions, variableValues),
               () => sourceMapper.getLocation(index),
               directives ++ schemaDirectives
             )
@@ -96,8 +95,7 @@ object Field {
   private def resolveVariables(
     arguments: Map[String, InputValue],
     variableDefinitions: List[VariableDefinition],
-    variableValues: Map[String, InputValue],
-    rootType: RootType
+    variableValues: Map[String, InputValue]
   ): Map[String, InputValue] = {
     def resolveVariable(value: InputValue): InputValue =
       value match {
@@ -109,38 +107,10 @@ object Field {
             definition  <- variableDefinitions.find(_.name == name)
             defaultValue = definition.defaultValue getOrElse NullValue
             value        = variableValues.getOrElse(name, defaultValue)
-          } yield resolveEnumValues(value, definition, rootType)) getOrElse NullValue
+          } yield value) getOrElse NullValue
         case value: Value                   => value
       }
     arguments.map { case (k, v) => k -> resolveVariable(v) }
-  }
-
-  // Since we cannot separate a String from an Enum when variables
-  // are parsed, we need to translate from strings to enums here
-  // if we have a valid enum field.
-  private def resolveEnumValues(
-    value: InputValue,
-    definition: VariableDefinition,
-    rootType: RootType
-  ): InputValue = {
-    val t = Type
-      .innerType(definition.variableType)
-
-    rootType.types
-      .get(t)
-      .map(_.kind)
-      .flatMap { kind =>
-        (kind, value) match {
-          case (__TypeKind.ENUM, InputValue.ListValue(v)) =>
-            Some(
-              InputValue.ListValue(v.map(resolveEnumValues(_, definition, rootType)))
-            )
-          case (__TypeKind.ENUM, Value.StringValue(v))    =>
-            Some(Value.EnumValue(v))
-          case _                                          => None
-        }
-      }
-      .getOrElse(value)
   }
 
   private def subtypeNames(typeName: String, rootType: RootType): Option[List[String]] =

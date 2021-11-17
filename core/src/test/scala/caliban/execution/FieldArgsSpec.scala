@@ -6,6 +6,7 @@ import caliban.Value.EnumValue
 import zio._
 import zio.test._
 import zio.test.environment.TestEnvironment
+import zio.test.Assertion._
 
 object FieldArgsSpec extends DefaultRunnableSpec {
   sealed trait COLOR
@@ -155,6 +156,65 @@ object FieldArgsSpec extends DefaultRunnableSpec {
             )
           )
       )
+    },
+    testM("it doesn't allow strings as enums in GQL syntax") {
+      case class QueryInput(color: COLOR)
+      case class Query(query: QueryInput => UIO[String])
+      val query =
+        """query {
+          |  query(color: "BLUE")
+          |}""".stripMargin
+
+      val api = graphQL(
+        RootResolver(
+          Query(
+            query = i => ZIO.succeed(i.toString)
+          )
+        )
+      )
+
+      for {
+        interpreter <- api.interpreter
+        res         <- interpreter.execute(query)
+      } yield assert(res.errors.headOption)(isSome(anything))
+    },
+    testM("it correctly handles lists of objects with enums") {
+      case class QueryInput(filter: List[Filter])
+      case class Filter(color: COLOR)
+      case class Query(query: QueryInput => String)
+      val query =
+        """query MyQuery($filter: [FilterInput!]!) {
+          |  query(filter: $filter)
+          |}""".stripMargin
+
+      val api = graphQL(
+        RootResolver(
+          Query(
+            query = q => q.filter.headOption.map(_.color.toString).getOrElse("Missing")
+          )
+        )
+      )
+
+      for {
+        interpreter <- api.interpreter
+        res         <- interpreter.executeRequest(
+                         request = GraphQLRequest(
+                           query = Some(query),
+                           variables = Some(
+                             Map(
+                               "filter" ->
+                                 InputValue.ListValue(
+                                   List(
+                                     InputValue.ObjectValue(
+                                       Map("color" -> Value.StringValue("BLUE"))
+                                     )
+                                   )
+                                 )
+                             )
+                           )
+                         )
+                       )
+      } yield assertTrue(res.data.toString == "{\"query\":\"BLUE\"}")
     }
   )
 }
