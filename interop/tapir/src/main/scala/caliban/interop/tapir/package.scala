@@ -140,7 +140,7 @@ package object tapir {
       )
 
     override protected val schemaBuilder: RootSchemaBuilder[R] =
-      serverEndpoint.endpoint.httpMethod.getOrElse(Method.GET) match {
+      serverEndpoint.endpoint.method.getOrElse(Method.GET) match {
         case Method.PUT | Method.POST | Method.DELETE =>
           RootSchemaBuilder(None, Some(makeOperation("Mutation")), None)
         case _                                        =>

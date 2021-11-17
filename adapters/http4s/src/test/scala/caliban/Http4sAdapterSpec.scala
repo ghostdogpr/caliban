@@ -49,7 +49,7 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
         "Http4sAdapterSpec",
         uri"http://localhost:8088/api/graphql",
         uploadUri = Some(uri"http://localhost:8088/upload/graphql"),
-        wsUri = None // TODO: fix Some(uri"ws://localhost:8088/ws/graphql")
+        wsUri = Some(uri"ws://localhost:8088/ws/graphql")
       )
     suite.provideSomeLayerShared[ZEnv](apiLayer.mapError(TestFailure.fail))
   }
