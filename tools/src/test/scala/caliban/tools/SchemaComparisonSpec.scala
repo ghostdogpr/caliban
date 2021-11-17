@@ -142,6 +142,50 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
 
         compare(schema1, schema2, expected)
       },
+      testM("optional argument added") {
+        val schema1: String =
+          """
+          input HeroInput {
+            test: String
+          }
+            |""".stripMargin
+
+        val schema2: String =
+          """
+          input HeroInput {
+            test: String
+            test2: String
+          }
+            |""".stripMargin
+
+        assertM(for {
+          s1  <- Parser.parseQuery(schema1)
+          s2  <- Parser.parseQuery(schema2)
+          diff = compareDocuments(s1, s2)
+        } yield diff)(hasFirst(hasField("breaking", _.breaking, equalTo(false))))
+      },
+      testM("non-optional argument added") {
+        val schema1: String =
+          """
+          input HeroInput {
+            test: String
+          }
+            |""".stripMargin
+
+        val schema2: String =
+          """
+          input HeroInput {
+            test: String
+            test2: String!
+          }
+            |""".stripMargin
+
+        assertM(for {
+          s1  <- Parser.parseQuery(schema1)
+          s2  <- Parser.parseQuery(schema2)
+          diff = compareDocuments(s1, s2)
+        } yield diff)(hasFirst(hasField("breaking", _.breaking, equalTo(true))))
+      },
       testM("deprecated") {
         val schema1: String =
           """

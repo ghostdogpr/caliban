@@ -137,7 +137,9 @@ object SchemaComparison {
   ): List[SchemaComparisonChange] = {
     val leftKeys     = left.keySet
     val rightKeys    = right.keySet
-    val added        = (rightKeys -- leftKeys).map(ArgumentAdded(_, target)).toList
+    val added        = (right -- leftKeys).map { case (name, arg) =>
+      ArgumentAdded(name, target, arg.ofType.nullable || arg.defaultValue.isDefined)
+    }.toList
     val deleted      = (leftKeys -- rightKeys).map(ArgumentDeleted(_, target)).toList
     val commonFields = leftKeys intersect rightKeys
     val changes      = commonFields.toList.flatMap(key => compareArgumentDefinition(left(key), right(key), target))
