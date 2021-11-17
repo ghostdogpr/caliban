@@ -37,7 +37,7 @@ object DefaultValueSpec extends DefaultRunnableSpec {
           )
         },
         testM("invalid float validation") {
-          case class TestInput(@GQLDefault("1") float: Float)
+          case class TestInput(@GQLDefault("true") float: Float)
           case class Query(test: TestInput => Float)
           val gql = graphQL(RootResolver(Query(i => i.float)))
           assertM(gql.interpreter.run)(

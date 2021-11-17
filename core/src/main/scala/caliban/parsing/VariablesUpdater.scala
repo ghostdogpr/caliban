@@ -1,15 +1,12 @@
 package caliban.parsing
 
-import caliban.GraphQLRequest
 import caliban.InputValue.ListValue
-import caliban.Value.StringValue
+import caliban.Value._
 import caliban.introspection.adt._
-import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
 import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt._
 import caliban.schema.RootType
-import caliban.{ InputValue, Value }
-import zio.{ IO, UIO }
+import caliban.{ GraphQLRequest, InputValue, Value }
 
 object VariablesUpdater {
   def updateVariables(
@@ -42,13 +39,14 @@ object VariablesUpdater {
           case _                 => value
         }
       case NamedType(name, _)  =>
-        rootType.types.get(name).map(t => resolveEnumValues(value, t, rootType)).getOrElse(value)
+        rootType.types.get(name).map(t => coerceValues(value, t, rootType)).getOrElse(value)
     }
 
   // Since we cannot separate a String from an Enum when variables
   // are parsed, we need to translate from strings to enums here
   // if we have a valid enum field.
-  private def resolveEnumValues(
+  // Same thing with Int into Float.
+  private def coerceValues(
     value: InputValue,
     typ: __Type,
     rootType: RootType
@@ -60,7 +58,7 @@ object VariablesUpdater {
             val defs = typ.inputFields.getOrElse(List.empty)
             InputValue.ObjectValue(fields.map { case (k, v) =>
               val updated =
-                defs.find(_.name == k).map(field => resolveEnumValues(v, field.`type`(), rootType)).getOrElse(value)
+                defs.find(_.name == k).map(field => coerceValues(v, field.`type`(), rootType)).getOrElse(value)
 
               (k, updated)
             })
@@ -72,22 +70,29 @@ object VariablesUpdater {
         value match {
           case ListValue(values) =>
             typ.ofType
-              .map(innerType => ListValue(values.map(value => resolveEnumValues(value, innerType, rootType))))
+              .map(innerType => ListValue(values.map(value => coerceValues(value, innerType, rootType))))
               .getOrElse(value)
           case _                 => value
         }
 
       case __TypeKind.NON_NULL =>
         typ.ofType
-          .map(innerType => resolveEnumValues(value, innerType, rootType))
+          .map(innerType => coerceValues(value, innerType, rootType))
           .getOrElse(value)
 
-      case __TypeKind.ENUM =>
+      case __TypeKind.ENUM                                 =>
         value match {
           case StringValue(value) => Value.EnumValue(value)
           case _                  => value
         }
-      case _               =>
+      case __TypeKind.SCALAR if typ.name.contains("Float") =>
+        value match {
+          case IntValue.IntNumber(value)    => Value.FloatValue(value.toDouble)
+          case IntValue.LongNumber(value)   => Value.FloatValue(value.toDouble)
+          case IntValue.BigIntNumber(value) => Value.FloatValue(BigDecimal(value))
+          case _                            => value
+        }
+      case _                                               =>
         value
     }
 }

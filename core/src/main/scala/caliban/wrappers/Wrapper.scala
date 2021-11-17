@@ -31,14 +31,6 @@ sealed trait Wrapper[-R] extends GraphQLAspect[Nothing, R] { self =>
 
 object Wrapper {
 
-  /**
-   * `WrappingFunction[R, E, A, Info]` is an alias for a function that transforms an initial function
-   * from `Info` to `ZIO[R, E, A]` into a new function from `Info` to `ZIO[R, E, A]`.
-   */
-  trait WrappingFunction[-R, E, A, Info] {
-    def wrap[R1 <: R](f: Info => ZIO[R1, E, A]): Info => ZIO[R1, E, A]
-  }
-
   sealed trait SimpleWrapper[-R, E, A, Info] extends Wrapper[R] {
     def wrap[R1 <: R](f: Info => ZIO[R1, E, A]): Info => ZIO[R1, E, A]
   }
@@ -80,8 +72,6 @@ object Wrapper {
       info: FieldInfo
     ): ZQuery[R1, ExecutionError, ResponseValue]
   }
-
-  trait EffectWrappingFunction[-R]
 
   /**
    * Wrapper for the introspection query processing.
