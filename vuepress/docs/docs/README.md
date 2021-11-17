@@ -15,21 +15,21 @@ The design principles of Caliban are the following:
 To use `caliban`, add the following line in your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "1.2.3"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "1.2.4"
 ```
 
 The following modules are optional:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-http4s"     % "1.2.3" // routes for http4s
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-akka-http"  % "1.2.3" // routes for akka-http
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-play"       % "1.2.3" // routes for play
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-finch"      % "1.2.3" // routes for finch
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-zio-http"   % "1.2.3" // routes for zio-http
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-cats"       % "1.2.3" // interop with cats effect
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-monix"      % "1.2.3" // interop with monix
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-tapir"      % "1.2.3" // interop with tapir
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-federation" % "1.2.3" // interop with apollo federation
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-http4s"     % "1.2.4" // routes for http4s
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-akka-http"  % "1.2.4" // routes for akka-http
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-play"       % "1.2.4" // routes for play
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-finch"      % "1.2.4" // routes for finch
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-zio-http"   % "1.2.4" // routes for zio-http
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-cats"       % "1.2.4" // interop with cats effect
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-monix"      % "1.2.4" // interop with monix
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-tapir"      % "1.2.4" // interop with tapir
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-federation" % "1.2.4" // interop with apollo federation
 ```
 
 ## A simple example
