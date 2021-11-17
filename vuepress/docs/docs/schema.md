@@ -214,6 +214,7 @@ Caliban supports a few annotations to enrich data types:
 - `@GQLInputName("name")` allows you to specify a different name for a data type used as an input (by default, the suffix `Input` is appended to the type name).
 - `@GQLDescription("description")` lets you provide a description for a data type or field. This description will be visible when your schema is introspected.
 - `@GQLDeprecated("reason")` allows deprecating a field or an enum value.
+- `@GQLExcluded` allows you to hide a field from the generated schema.
 - `@GQLInterface` to force a sealed trait generating an interface instead of a union.
 - `@GQLDirective(directive: Directive)` to add a directive to a field or type.
 - `@GQLValueType(isScalar)` forces a type to behave as a value type for derivation. Meaning that caliban will ignore the outer type and take the first case class parameter as the real type. If `isScalar` is true, it will generate a scalar named after the case class (default: false).
