@@ -372,6 +372,42 @@ object Client {
           )
         )
       },
+      testM("generic view for capital fields") {
+        val schema =
+          """
+          type TypeWithCapitalFields {
+            Name: String,
+            Value: String
+          }
+            """
+
+        assertM(gen(schema))(
+          equalTo(
+            """import caliban.client.FieldBuilder._
+import caliban.client._
+
+object Client {
+
+  type TypeWithCapitalFields
+  object TypeWithCapitalFields {
+
+    final case class TypeWithCapitalFieldsView(Name: Option[String], Value: Option[String])
+
+    type ViewSelection = SelectionBuilder[TypeWithCapitalFields, TypeWithCapitalFieldsView]
+
+    def view: ViewSelection = (Name ~ Value).map { case (name$, value$) => TypeWithCapitalFieldsView(name$, value$) }
+
+    def Name: SelectionBuilder[TypeWithCapitalFields, Option[String]]  =
+      _root_.caliban.client.SelectionBuilder.Field("Name", OptionOf(Scalar()))
+    def Value: SelectionBuilder[TypeWithCapitalFields, Option[String]] =
+      _root_.caliban.client.SelectionBuilder.Field("Value", OptionOf(Scalar()))
+  }
+
+}
+"""
+          )
+        )
+      },
       testM("union case") {
         val schema =
           """

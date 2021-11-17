@@ -177,6 +177,44 @@ object FieldArgsSpec extends DefaultRunnableSpec {
         interpreter <- api.interpreter
         res         <- interpreter.execute(query)
       } yield assert(res.errors.headOption)(isSome(anything))
+    },
+    testM("it correctly handles lists of objects with enums") {
+      case class QueryInput(filter: List[Filter])
+      case class Filter(color: COLOR)
+      case class Query(query: QueryInput => String)
+      val query =
+        """query MyQuery($filter: [FilterInput!]!) {
+          |  query(filter: $filter)
+          |}""".stripMargin
+
+      val api = graphQL(
+        RootResolver(
+          Query(
+            query = q => q.filter.headOption.map(_.color.toString).getOrElse("Missing")
+          )
+        )
+      )
+
+      for {
+        interpreter <- api.interpreter
+        res         <- interpreter.executeRequest(
+                         request = GraphQLRequest(
+                           query = Some(query),
+                           variables = Some(
+                             Map(
+                               "filter" ->
+                                 InputValue.ListValue(
+                                   List(
+                                     InputValue.ObjectValue(
+                                       Map("color" -> Value.StringValue("BLUE"))
+                                     )
+                                   )
+                                 )
+                             )
+                           )
+                         )
+                       )
+      } yield assertTrue(res.data.toString == "{\"query\":\"BLUE\"}")
     }
   )
 }

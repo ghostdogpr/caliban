@@ -111,7 +111,7 @@ lazy val core = project
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) {
         Seq(
-          "org.typelevel" %% "cats-parse" % "0.3.4"
+          "org.typelevel" %% "cats-parse" % "0.3.5"
         )
       } else {
         Seq(
