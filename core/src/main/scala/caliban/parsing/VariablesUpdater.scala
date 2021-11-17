@@ -87,8 +87,8 @@ object VariablesUpdater {
         }
       case __TypeKind.SCALAR if typ.name.contains("Float") =>
         value match {
-          case IntValue.IntNumber(value)    => Value.FloatValue(value)
-          case IntValue.LongNumber(value)   => Value.FloatValue(value)
+          case IntValue.IntNumber(value)    => Value.FloatValue(value.toDouble)
+          case IntValue.LongNumber(value)   => Value.FloatValue(value.toDouble)
           case IntValue.BigIntNumber(value) => Value.FloatValue(BigDecimal(value))
           case _                            => value
         }
