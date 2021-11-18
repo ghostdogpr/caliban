@@ -15,7 +15,7 @@ object TapirSpec extends DefaultRunnableSpec {
   val titleParameter: EndpointInput[String] =
     query[String]("title").description("The title of the book")
 
-  val getBook: Endpoint[(String, String), String, String, Any] =
+  val getBook: PublicEndpoint[(String, String), String, String, Any] =
     endpoint.get
       .errorOut(stringBody)
       .in("book")

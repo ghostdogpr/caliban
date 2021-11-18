@@ -20,10 +20,10 @@ object Endpoints {
     Book("Lords and Ladies", 1992)
   )
 
-  val baseEndpoint: Endpoint[Unit, String, Unit, Any] = endpoint.errorOut(stringBody).in("books")
+  val baseEndpoint: PublicEndpoint[Unit, String, Unit, Any] = endpoint.errorOut(stringBody).in("books")
 
   // POST /books
-  val addBook: Endpoint[(Book, String), String, Unit, Any] =
+  val addBook: PublicEndpoint[(Book, String), String, Unit, Any] =
     baseEndpoint.post
       .in("add")
       .in(
@@ -37,20 +37,20 @@ object Endpoints {
     query[String]("title").description("The title of the book")
 
   // DELETE /books
-  val deleteBook: Endpoint[(String, String), String, Unit, Any] =
+  val deleteBook: PublicEndpoint[(String, String), String, Unit, Any] =
     baseEndpoint.delete
       .in("delete")
       .in(titleParameter)
       .in(header[String]("X-Auth-Token").description("The token is 'secret'"))
 
   // Re-usable parameter description
-  val yearParameter: EndpointInput[Option[Int]] =
+  val yearParameter: EndpointInput[Option[Int]]  =
     query[Option[Int]]("year").description("The year from which to retrieve books")
   val limitParameter: EndpointInput[Option[Int]] =
     query[Option[Int]]("limit").description("Maximum number of books to retrieve")
 
   // GET /books
-  val booksListing: Endpoint[(Option[Int], Option[Int]), Nothing, List[Book], Any] =
+  val booksListing: PublicEndpoint[(Option[Int], Option[Int]), Nothing, List[Book], Any] =
     infallibleEndpoint
       .in("books")
       .get
@@ -80,7 +80,7 @@ object Endpoints {
         case None    => books
         case Some(y) => books.filter(_.year == y)
       }
-      val limitedBooks = limit match {
+      val limitedBooks  = limit match {
         case None    => filteredBooks
         case Some(l) => filteredBooks.take(l)
       }

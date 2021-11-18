@@ -9,13 +9,13 @@ import sttp.model.Method
 import sttp.monad.MonadError
 import sttp.tapir.internal._
 import sttp.tapir.server.ServerEndpoint
-import sttp.tapir.{ Endpoint, EndpointIO, EndpointInput, EndpointOutput }
+import sttp.tapir.{ EndpointIO, EndpointInput, EndpointOutput, PublicEndpoint }
 import _root_.zio.query.{ URQuery, ZQuery }
 import _root_.zio.{ IO, URIO, ZIO }
 
 package object tapir {
 
-  implicit class GraphQLInfallibleEndpoint[I, O](e: Endpoint[I, Nothing, O, Any]) {
+  implicit class GraphQLInfallibleEndpoint[I, O](e: PublicEndpoint[I, Nothing, O, Any]) {
     def toGraphQL[R](logic: I => URIO[R, O])(implicit
       inputSchema: caliban.schema.Schema[R, I],
       outputSchema: caliban.schema.Schema[R, O],
@@ -31,7 +31,7 @@ package object tapir {
       tapir.toGraphQL(e.serverLogic[URQuery[R, *]](input => logic(input).map(Right(_))))
   }
 
-  implicit class GraphQLEndpoint[I, E, O](e: Endpoint[I, E, O, Any]) {
+  implicit class GraphQLEndpoint[I, E, O](e: PublicEndpoint[I, E, O, Any]) {
     def toGraphQL[R](logic: I => ZIO[R, E, O])(implicit
       inputSchema: caliban.schema.Schema[R, I],
       outputSchema: caliban.schema.Schema[R, O],
@@ -47,27 +47,31 @@ package object tapir {
       tapir.toGraphQL(e.serverLogic[URQuery[R, *]](logic(_).either))
   }
 
-  implicit class GraphQLInfallibleServerEndpoint[R, I, O](e: ServerEndpoint[I, Nothing, O, Any, URIO[R, *]]) {
+  implicit class GraphQLInfallibleServerEndpoint[R, I, O](
+    e: ServerEndpoint.Full[Unit, Unit, I, Nothing, O, Any, URIO[R, *]]
+  ) {
     def toGraphQL(implicit
       inputSchema: caliban.schema.Schema[R, I],
       outputSchema: caliban.schema.Schema[R, O],
       argBuilder: ArgBuilder[I]
     ): GraphQL[R] =
-      tapir.toGraphQL(e.endpoint.serverLogic(input => ZQuery.fromEffect(e.logic(monadError)(input))))
+      tapir.toGraphQL(e.endpoint.serverLogic(input => ZQuery.fromEffect(e.logic(monadError)(())(input))))
   }
 
-  implicit class GraphQLServerEndpoint[R, I, E, O](e: ServerEndpoint[I, E, O, Any, ZIO[R, E, *]]) {
+  implicit class GraphQLServerEndpoint[R, I, E, O](e: ServerEndpoint.Full[Unit, Unit, I, E, O, Any, ZIO[R, E, *]]) {
     def toGraphQL(implicit
       inputSchema: caliban.schema.Schema[R, I],
       outputSchema: caliban.schema.Schema[R, O],
       argBuilder: ArgBuilder[I]
     ): GraphQL[R] =
       tapir.toGraphQL(
-        e.endpoint.serverLogic(input => ZQuery.fromEffect(e.logic(monadError)(input).either.map(_.flatMap(identity))))
+        e.endpoint.serverLogic(input =>
+          ZQuery.fromEffect(e.logic(monadError)(())(input).either.map(_.flatMap(identity)))
+        )
       )
   }
 
-  def toGraphQL[R, I, E, O, S](serverEndpoint: ServerEndpoint[I, E, O, S, URQuery[R, *]])(implicit
+  def toGraphQL[R, I, E, O, S](serverEndpoint: ServerEndpoint.Full[Unit, Unit, I, E, O, S, URQuery[R, *]])(implicit
     inputSchema: caliban.schema.Schema[R, I],
     outputSchema: caliban.schema.Schema[R, O],
     argBuilder: ArgBuilder[I]
@@ -106,7 +110,7 @@ package object tapir {
               serverEndpoint.endpoint.info.description,
               getArgs(inputSchema.toType_(isInput = true), inputSchema.optional),
               () =>
-                if (serverEndpoint.endpoint.errorOutput == EndpointOutput.Void())
+                if (serverEndpoint.endpoint.errorOutput == EndpointOutput.Void[E]())
                   Types.makeNonNull(outputSchema.toType_())
                 else outputSchema.toType_(),
               serverEndpoint.endpoint.info.deprecated
@@ -123,7 +127,7 @@ package object tapir {
                 QueryStep(
                   ZQuery
                     .fromEffect(IO.fromEither(argBuilder.build(InputValue.ObjectValue(replacedArgs))))
-                    .flatMap(input => serverEndpoint.logic(queryMonadError)(input))
+                    .flatMap(input => serverEndpoint.logic(queryMonadError)(())(input))
                     .map {
                       case Left(error: Throwable) => QueryStep(ZQuery.fail(error))
                       case Left(otherError)       => QueryStep(ZQuery.fail(new Throwable(otherError.toString)))
@@ -136,7 +140,7 @@ package object tapir {
       )
 
     override protected val schemaBuilder: RootSchemaBuilder[R] =
-      serverEndpoint.endpoint.httpMethod.getOrElse(Method.GET) match {
+      serverEndpoint.endpoint.method.getOrElse(Method.GET) match {
         case Method.PUT | Method.POST | Method.DELETE =>
           RootSchemaBuilder(None, Some(makeOperation("Mutation")), None)
         case _                                        =>

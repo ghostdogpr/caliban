@@ -15,6 +15,5 @@ The [examples](https://github.com/ghostdogpr/caliban/tree/master/examples/) proj
 
 #### Available only with cats-effect 2.x
 - [Interop with Monix](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/example/interop/monix)
-- [GraphQL API exposed with finch](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/example/finch)
 
 You may also check out [the repository](https://github.com/ghostdogpr/caliban-blog-series) accompanying my [blog series](https://medium.com/@ghostdogpr/graphql-in-scala-with-caliban-part-1-8ceb6099c3c2) on Caliban.

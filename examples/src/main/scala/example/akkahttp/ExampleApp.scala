@@ -4,25 +4,22 @@ import example.ExampleData.sampleCharacters
 import example.ExampleService.ExampleService
 import example.{ ExampleApi, ExampleService }
 
-import caliban.interop.circe.AkkaHttpCirceAdapter
-
 import scala.concurrent.ExecutionContextExecutor
 import scala.io.StdIn
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives._
+import caliban.AkkaHttpAdapter
+import sttp.tapir.json.circe._
 import zio.clock.Clock
 import zio.console.Console
 import zio.internal.Platform
 import zio.Runtime
 
-/**
- * There's also an [[caliban.interop.play.AkkaHttpPlayJsonAdapter]] if you use play-json and don't want to have circe dependency
- */
-object ExampleApp extends App with AkkaHttpCirceAdapter {
+object ExampleApp extends App {
 
-  implicit val system: ActorSystem                        = ActorSystem()
-  implicit val executionContext: ExecutionContextExecutor = system.dispatcher
+  implicit val system: ActorSystem                                      = ActorSystem()
+  implicit val executionContext: ExecutionContextExecutor               = system.dispatcher
   implicit val runtime: Runtime[ExampleService with Console with Clock] =
     Runtime.unsafeFromLayer(ExampleService.make(sampleCharacters) ++ Console.live ++ Clock.live, Platform.default)
 
@@ -39,9 +36,9 @@ object ExampleApp extends App with AkkaHttpCirceAdapter {
    */
   val route =
     path("api" / "graphql") {
-      adapter.makeHttpService(interpreter)
+      AkkaHttpAdapter.makeHttpService(interpreter)
     } ~ path("ws" / "graphql") {
-      adapter.makeWebSocketService(interpreter)
+      AkkaHttpAdapter.makeWebSocketService(interpreter)
     } ~ path("graphiql") {
       getFromResource("graphiql.html")
     }

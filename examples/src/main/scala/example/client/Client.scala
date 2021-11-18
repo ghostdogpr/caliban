@@ -43,7 +43,7 @@ object Client {
       onEngineer: SelectionBuilder[Engineer, A],
       onMechanic: SelectionBuilder[Mechanic, A],
       onPilot: SelectionBuilder[Pilot, A]
-    ): SelectionBuilder[Character, Option[A]]                =
+    ): SelectionBuilder[Character, Option[A]] =
       Field(
         "role",
         OptionOf(
@@ -78,7 +78,7 @@ object Client {
   object Queries {
     def characters[A](
       origin: Option[Origin] = None
-    )(innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[RootQuery, List[A]]   =
+    )(innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[RootQuery, List[A]] =
       Field("characters", ListOf(Obj(innerSelection)), arguments = List(Argument("origin", origin, "Origin")))
     def character[A](
       name: String

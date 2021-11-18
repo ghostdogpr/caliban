@@ -3,7 +3,6 @@ package example.http4s
 import caliban.GraphQL._
 import caliban.schema.GenericSchema
 import caliban.{ Http4sAdapter, RootResolver }
-
 import org.http4s.HttpRoutes
 import org.http4s.dsl.Http4sDsl
 import org.http4s.implicits._
@@ -11,6 +10,8 @@ import org.http4s.blaze.server.BlazeServerBuilder
 import org.http4s.server.{ Router, ServiceErrorHandler }
 import org.typelevel.ci.CIString
 import zio._
+import zio.blocking.Blocking
+import zio.clock.Clock
 import zio.interop.catz._
 
 object AuthExampleApp extends CatsApp {
@@ -22,14 +23,15 @@ object AuthExampleApp extends CatsApp {
       def token: String
     }
   }
-  type AuthTask[A] = RIO[Auth, A]
+  type AuthTask[A] = RIO[Auth with Clock with Blocking, A]
+  type MyTask[A] = RIO[Clock with Blocking, A]
 
   case class MissingToken() extends Throwable
 
   // http4s middleware that extracts a token from the request and eliminate the Auth layer dependency
   object AuthMiddleware {
-    def apply(route: HttpRoutes[AuthTask]): HttpRoutes[Task] =
-      Http4sAdapter.provideLayerFromRequest(
+    def apply(route: HttpRoutes[AuthTask]): HttpRoutes[MyTask] =
+      Http4sAdapter.provideSomeLayerFromRequest[Clock with Blocking, Auth](
         route,
         _.headers.get(CIString("token")) match {
           case Some(value) => ZLayer.succeed(new Auth.Service { override def token: String = value.head.value })
@@ -39,9 +41,9 @@ object AuthExampleApp extends CatsApp {
   }
 
   // http4s error handler to customize the response for our throwable
-  object dsl extends Http4sDsl[Task]
+  object dsl extends Http4sDsl[MyTask]
   import dsl._
-  val errorHandler: ServiceErrorHandler[Task] = _ => { case MissingToken() => Forbidden() }
+  val errorHandler: ServiceErrorHandler[MyTask] = _ => { case MissingToken() => Forbidden() }
 
   // our GraphQL API
   val schema: GenericSchema[Auth] = new GenericSchema[Auth] {}
@@ -53,13 +55,13 @@ object AuthExampleApp extends CatsApp {
   override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
     (for {
       interpreter <- api.interpreter
-      _           <- BlazeServerBuilder[Task]
+      _           <- BlazeServerBuilder[MyTask]
                        .withServiceErrorHandler(errorHandler)
                        .bindHttp(8088, "localhost")
-                       .withHttpWebSocketApp(builder =>
-                         Router[Task](
+                       .withHttpWebSocketApp(wsBuilder =>
+                         Router[MyTask](
                            "/api/graphql" -> AuthMiddleware(Http4sAdapter.makeHttpService(interpreter)),
-                           "/ws/graphql"  -> AuthMiddleware(Http4sAdapter.makeWebSocketService(builder, interpreter))
+                           "/ws/graphql"  -> AuthMiddleware(Http4sAdapter.makeWebSocketService(wsBuilder, interpreter))
                          ).orNotFound
                        )
                        .resource

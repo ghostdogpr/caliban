@@ -13,17 +13,16 @@ libraryDependencies ++= Seq(
   "com.github.ghostdogpr"         %% "caliban-zio-http"              % calibanVersion,
   "com.github.ghostdogpr"         %% "caliban-cats"                  % calibanVersion,
   "com.github.ghostdogpr"         %% "caliban-monix"                 % calibanVersion,
-  "com.github.ghostdogpr"         %% "caliban-finch"                 % calibanVersion,
   "com.github.ghostdogpr"         %% "caliban-federation"            % calibanVersion,
   "com.github.ghostdogpr"         %% "caliban-tapir"                 % calibanVersion,
   "com.github.ghostdogpr"         %% "caliban-client"                % calibanVersion,
   "com.github.ghostdogpr"         %% "caliban-tools"                 % calibanVersion,
-  "de.heikoseeberger"             %% "akka-http-circe"               % "1.36.0",
-  "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % "3.2.3",
-  "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % "0.17.18",
-  "io.circe"                      %% "circe-generic"                 % "0.13.0",
+  "org.http4s"                    %% "http4s-blaze-server"           % "0.23.6",
+  "org.http4s"                    %% "http4s-dsl"                    % "0.23.6",
+  "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % "3.3.15",
+  "io.circe"                      %% "circe-generic"                 % "0.14.1",
   "com.typesafe.play"             %% "play-akka-http-server"         % "2.8.8",
-  "com.typesafe.akka"             %% "akka-actor-typed"              % "2.6.14",
+  "com.typesafe.akka"             %% "akka-actor-typed"              % "2.6.17"
 )
 ```
 

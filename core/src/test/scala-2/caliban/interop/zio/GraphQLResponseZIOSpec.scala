@@ -37,7 +37,7 @@ object GraphQLResponseZIOSpec extends DefaultRunnableSpec {
 
         assert(response.toJson)(
           equalTo(
-            """{"data":"data","errors":[{"message":"Resolution failed","extensions":{"errorCode":"TEST_ERROR","myCustomKey":"my-value"},"locations":[{"line":2,"column":1}]}]}"""
+            """{"data":"data","errors":[{"message":"Resolution failed","locations":[{"line":2,"column":1}],"extensions":{"errorCode":"TEST_ERROR","myCustomKey":"my-value"}}]}"""
           )
         )
       },
