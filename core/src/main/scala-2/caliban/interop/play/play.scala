@@ -6,7 +6,7 @@ import caliban.parsing.adt.LocationInfo
 import caliban.schema.Step.QueryStep
 import caliban.schema.Types.makeScalar
 import caliban.schema.{ ArgBuilder, PureStep, Schema, Step }
-import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue, ResponseValue, Value }
+import caliban._
 import play.api.libs.json.{ JsPath, JsValue, Json, JsonValidationError, Reads, Writes }
 import play.api.libs.functional.syntax._
 import zio.ZIO
@@ -148,31 +148,8 @@ object json {
       path: Option[JsArray]
     )
 
-    implicit val locationInfoWrites: Writes[LocationInfo]                     = Json.writes[LocationInfo]
-    implicit val responseObjectValueWrites: Writes[ResponseValue.ObjectValue] = ValuePlayJson.responseObjectValueWrites
-    private implicit val errorDTOWrites: Writes[ErrorDTO]                     = Json.writes[ErrorDTO]
-
-    val errorValueWrites: Writes[CalibanError] = errorDTOWrites.contramap[CalibanError] {
-      case CalibanError.ParsingError(msg, locationInfo, _, extensions) =>
-        ErrorDTO(s"Parsing Error: $msg", extensions, locationInfo.map(List(_)), None)
-
-      case CalibanError.ValidationError(msg, _, locationInfo, extensions) =>
-        ErrorDTO(msg, extensions, locationInfo.map(List(_)), None)
-
-      case CalibanError.ExecutionError(msg, path, locationInfo, _, extensions) =>
-        ErrorDTO(
-          msg,
-          extensions,
-          locationInfo.map(List(_)),
-          Some(path).collect {
-            case p if p.nonEmpty =>
-              JsArray(p.map {
-                case Left(value)  => JsString(value)
-                case Right(value) => JsNumber(value)
-              })
-          }
-        )
-    }
+    val errorValueWrites: Writes[CalibanError] =
+      Writes(e => ValuePlayJson.responseValueWrites.writes(e.toResponseValue))
 
     private implicit val locationInfoReads: Reads[LocationInfo]                     = Json.reads[LocationInfo]
     private implicit val responseObjectValueReads: Reads[ResponseValue.ObjectValue] =
@@ -203,25 +180,8 @@ object json {
     import play.api.libs.json._
     import play.api.libs.json.Json.toJson
 
-    val graphQLResponseWrites: Writes[GraphQLResponse[Any]] = Writes {
-      case GraphQLResponse(data, Nil, None)                => Json.obj("data" -> data)
-      case GraphQLResponse(data, Nil, Some(extensions))    =>
-        Json.obj("data" -> data, "extensions" -> extensions.asInstanceOf[ResponseValue])
-      case GraphQLResponse(data, errors, None)             =>
-        Json.obj("data" -> data, "errors" -> JsArray(errors.map(handleError)))
-      case GraphQLResponse(data, errors, Some(extensions)) =>
-        Json.obj(
-          "data"       -> data,
-          "errors"     -> JsArray(errors.map(handleError)),
-          "extensions" -> extensions.asInstanceOf[ResponseValue]
-        )
-    }
-
-    private def handleError(err: Any): JsValue =
-      err match {
-        case ce: CalibanError => toJson(ce)
-        case _                => Json.obj("message" -> err.toString)
-      }
+    val graphQLResponseWrites: Writes[GraphQLResponse[Any]] =
+      Writes(r => ValuePlayJson.responseValueWrites.writes(r.toResponseValue))
 
     implicit val errorReads: Reads[CalibanError]                   = ErrorPlayJson.errorValueReads
     val graphQLResponseReads: Reads[GraphQLResponse[CalibanError]] =
@@ -245,6 +205,20 @@ object json {
 
     val graphQLRequestReads: Reads[GraphQLRequest]   = Json.reads[GraphQLRequest]
     val graphQLRequestWrites: Writes[GraphQLRequest] = Json.writes[GraphQLRequest]
+  }
+
+  private[caliban] object GraphQLWSInputPlayJson {
+    import play.api.libs.json._
+
+    val graphQLWSInputReads: Reads[GraphQLWSInput]   = Json.reads[GraphQLWSInput]
+    val graphQLWSInputWrites: Writes[GraphQLWSInput] = Json.writes[GraphQLWSInput]
+  }
+
+  private[caliban] object GraphQLWSOutputPlayJson {
+    import play.api.libs.json._
+
+    val graphQLWSOutputReads: Reads[GraphQLWSOutput]   = Json.reads[GraphQLWSOutput]
+    val graphQLWSOutputWrites: Writes[GraphQLWSOutput] = Json.writes[GraphQLWSOutput]
   }
 
 }

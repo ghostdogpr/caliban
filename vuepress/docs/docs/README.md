@@ -8,7 +8,7 @@ The design principles of Caliban are the following:
 
 - **pure interface**: errors and effects are returned explicitly (no exceptions thrown), all returned types are referentially transparent (no usage of `Future`).
 - **minimal amount of boilerplate**: no need to manually define a schema for every type in your API. Let the compiler do the boring work.
-- **excellent interoperability**: out-of-the-box support for major HTTP server libraries ([http4s](https://http4s.org/), [Akka HTTP](https://doc.akka.io/docs/akka-http/current/index.html), [Play](https://www.playframework.com/), [Finch](https://github.com/finagle/finch), [ZIO HTTP](https://github.com/dream11/zio-http)), effect types (Future, [ZIO](https://zio.dev/), [Cats Effect](https://typelevel.org/cats-effect/), [Monix](https://monix.io/)), Json libraries ([Circe](https://circe.github.io/circe/), [Play Json](https://github.com/playframework/play-json), [ZIO Json](https://github.com/zio/zio-json)), various integrations ([Apollo Tracing](https://github.com/apollographql/apollo-tracing), [Apollo Federation](https://www.apollographql.com/docs/federation/), [Tapir](https://tapir.softwaremill.com/en/latest/), etc.) and more.
+- **excellent interoperability**: out-of-the-box support for major HTTP server libraries ([http4s](https://http4s.org/), [Akka HTTP](https://doc.akka.io/docs/akka-http/current/index.html), [Play](https://www.playframework.com/), [ZIO HTTP](https://github.com/dream11/zio-http)), effect types (Future, [ZIO](https://zio.dev/), [Cats Effect](https://typelevel.org/cats-effect/), [Monix](https://monix.io/)), Json libraries ([Circe](https://circe.github.io/circe/), [Play Json](https://github.com/playframework/play-json), [ZIO Json](https://github.com/zio/zio-json)), various integrations ([Apollo Tracing](https://github.com/apollographql/apollo-tracing), [Apollo Federation](https://www.apollographql.com/docs/federation/), [Tapir](https://tapir.softwaremill.com/en/latest/), etc.) and more.
 
 ## Dependencies
 
@@ -24,7 +24,6 @@ The following modules are optional:
 libraryDependencies += "com.github.ghostdogpr" %% "caliban-http4s"     % "1.2.4" // routes for http4s
 libraryDependencies += "com.github.ghostdogpr" %% "caliban-akka-http"  % "1.2.4" // routes for akka-http
 libraryDependencies += "com.github.ghostdogpr" %% "caliban-play"       % "1.2.4" // routes for play
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-finch"      % "1.2.4" // routes for finch
 libraryDependencies += "com.github.ghostdogpr" %% "caliban-zio-http"   % "1.2.4" // routes for zio-http
 libraryDependencies += "com.github.ghostdogpr" %% "caliban-cats"       % "1.2.4" // interop with cats effect
 libraryDependencies += "com.github.ghostdogpr" %% "caliban-monix"      % "1.2.4" // interop with monix
@@ -119,7 +118,7 @@ A `CalibanError` can be:
 - a `ValidationError`: the query was parsed but does not match the schema
 - an `ExecutionError`: an error happened while executing the query
 
-Caliban itself is not tied to any web framework, you are free to expose this function using the protocol and library of your choice. The [caliban-http4s](https://github.com/ghostdogpr/caliban/tree/master/adapters/http4s) module provides an `Http4sAdapter` that exposes an interpreter over HTTP and WebSocket using http4s. There are also similar adapters for Akka HTTP, Play, Finch and zio-http.
+Caliban itself is not tied to any web framework, you are free to expose this function using the protocol and library of your choice. The [caliban-http4s](https://github.com/ghostdogpr/caliban/tree/master/adapters/http4s) module provides an `Http4sAdapter` that exposes an interpreter over HTTP and WebSocket using http4s. There are also similar adapters for Akka HTTP, Play and zio-http.
 
 ::: tip Combining GraphQL APIs
 You don't have to define all your root fields into a single case class: you can use smaller case classes and combine `GraphQL` objects using the `|+|` operator.

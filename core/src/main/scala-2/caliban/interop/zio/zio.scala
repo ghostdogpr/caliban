@@ -1,6 +1,6 @@
 package caliban.interop.zio
 
-import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue, ResponseValue, Value }
+import caliban._
 import caliban.Value.{ BooleanValue, EnumValue, FloatValue, IntValue, NullValue, StringValue }
 import caliban.parsing.adt.LocationInfo
 import zio.Chunk
@@ -372,43 +372,8 @@ private[caliban] object ErrorZioJson {
   import zio.json._
   import zio.json.internal.Write
 
-  private def locationToResponse(li: LocationInfo): ResponseValue =
-    ResponseValue.ListValue(
-      List(ResponseValue.ObjectValue(List("line" -> IntValue(li.line), "column" -> IntValue(li.column))))
-    )
-
-  private[caliban] def errorToResponseValue(e: CalibanError): ResponseValue =
-    ResponseValue.ObjectValue(e match {
-      case CalibanError.ParsingError(msg, locationInfo, _, extensions)         =>
-        List(
-          "message"                                               -> StringValue(s"Parsing Error: $msg")
-        ) ++ (extensions: Option[ResponseValue]).map("extensions" -> _) ++
-          locationInfo.map(locationToResponse).map("locations" -> _)
-      case CalibanError.ValidationError(msg, _, locationInfo, extensions)      =>
-        List(
-          "message"                                               -> StringValue(msg)
-        ) ++ (extensions: Option[ResponseValue]).map("extensions" -> _) ++
-          locationInfo.map(locationToResponse).map("locations" -> _)
-      case CalibanError.ExecutionError(msg, path, locationInfo, _, extensions) =>
-        List(
-          "message"                                               -> StringValue(msg)
-        ) ++ (extensions: Option[ResponseValue]).map("extensions" -> _) ++
-          locationInfo.map(locationToResponse).map("locations" -> _) ++
-          Some(path).collect {
-            case p if p.nonEmpty =>
-              "path" -> ResponseValue.ListValue(p.map {
-                case Left(value)  => StringValue(value)
-                case Right(value) => IntValue(value)
-              })
-          }
-    })
-
   val errorValueEncoder: JsonEncoder[CalibanError] = (a: CalibanError, indent: Option[Int], out: Write) =>
-    ValueZIOJson.responseValueEncoder.unsafeEncode(
-      errorToResponseValue(a),
-      indent,
-      out
-    )
+    ValueZIOJson.responseValueEncoder.unsafeEncode(a.toResponseValue, indent, out)
 
   private case class ErrorDTO(
     message: String,
@@ -428,7 +393,7 @@ private[caliban] object ErrorZioJson {
       CalibanError.ExecutionError(
         e.message,
         e.path.getOrElse(List()),
-        e.locations.flatMap(locations => locations.lift(0)),
+        e.locations.flatMap(_.headOption),
         None,
         e.extensions
       )
@@ -439,52 +404,19 @@ private[caliban] object GraphQLResponseZioJson {
   import zio.json._
   import zio.json.internal.Write
 
-  private def handleError(err: Any): ResponseValue =
-    err match {
-      case ce: CalibanError => ErrorZioJson.errorToResponseValue(ce)
-      case _                => ResponseValue.ObjectValue(List("message" -> StringValue(err.toString)))
-    }
-
   val graphQLResponseEncoder: JsonEncoder[GraphQLResponse[Any]] =
-    (a: GraphQLResponse[Any], indent: Option[Int], out: Write) => {
-      val responseEncoder = JsonEncoder.map[String, ResponseValue]
-      a match {
-        case GraphQLResponse(data, Nil, None)                =>
-          responseEncoder.unsafeEncode(Map("data" -> data), indent, out)
-        case GraphQLResponse(data, Nil, Some(extensions))    =>
-          responseEncoder.unsafeEncode(
-            Map("data" -> data, "extension" -> extensions.asInstanceOf[ResponseValue]),
-            indent,
-            out
-          )
-        case GraphQLResponse(data, errors, None)             =>
-          responseEncoder.unsafeEncode(
-            Map("data" -> data, "errors" -> ResponseValue.ListValue(errors.map(handleError))),
-            indent,
-            out
-          )
-        case GraphQLResponse(data, errors, Some(extensions)) =>
-          responseEncoder.unsafeEncode(
-            Map(
-              "data"       -> data,
-              "errors"     -> ResponseValue.ListValue(errors.map(handleError)),
-              "extensions" -> extensions.asInstanceOf[ResponseValue]
-            ),
-            indent,
-            out
-          )
-      }
-    }
+    (a: GraphQLResponse[Any], indent: Option[Int], out: Write) =>
+      ValueZIOJson.responseValueEncoder.unsafeEncode(a.toResponseValue, indent, out)
 
   case class GQLResponse(data: ResponseValue, errors: List[CalibanError])
   object GQLResponse {
-    implicit val errorValueDecoder                 = ErrorZioJson.errorValueDecoder
-    implicit val decoder: JsonDecoder[GQLResponse] = DeriveJsonDecoder.gen[GQLResponse]
+    implicit val errorValueDecoder: JsonDecoder[CalibanError] = ErrorZioJson.errorValueDecoder
+    implicit val decoder: JsonDecoder[GQLResponse]            = DeriveJsonDecoder.gen[GQLResponse]
   }
 
-  implicit val errorValueDecoder                                         = ErrorZioJson.errorValueDecoder
-  implicit val responseValueDecoder                                      = ValueZIOJson.Obj.responseDecoder
-  val graphQLResponseDecoder: JsonDecoder[GraphQLResponse[CalibanError]] =
+  implicit val errorValueDecoder: JsonDecoder[CalibanError]                 = ErrorZioJson.errorValueDecoder
+  implicit val responseValueDecoder: JsonDecoder[ResponseValue.ObjectValue] = ValueZIOJson.Obj.responseDecoder
+  val graphQLResponseDecoder: JsonDecoder[GraphQLResponse[CalibanError]]    =
     DeriveJsonDecoder.gen[GraphQLResponse[CalibanError]]
 }
 
@@ -493,4 +425,18 @@ private[caliban] object GraphQLRequestZioJson {
 
   val graphQLRequestDecoder: JsonDecoder[GraphQLRequest] = DeriveJsonDecoder.gen[GraphQLRequest]
   val graphQLRequestEncoder: JsonEncoder[GraphQLRequest] = DeriveJsonEncoder.gen[GraphQLRequest]
+}
+
+private[caliban] object GraphQLWSInputZioJson {
+  import zio.json._
+
+  val graphQLWSInputDecoder: JsonDecoder[GraphQLWSInput] = DeriveJsonDecoder.gen[GraphQLWSInput]
+  val graphQLWSInputEncoder: JsonEncoder[GraphQLWSInput] = DeriveJsonEncoder.gen[GraphQLWSInput]
+}
+
+private[caliban] object GraphQLWSOutputZioJson {
+  import zio.json._
+
+  val graphQLWSOutputDecoder: JsonDecoder[GraphQLWSOutput] = DeriveJsonDecoder.gen[GraphQLWSOutput]
+  val graphQLWSOutputEncoder: JsonEncoder[GraphQLWSOutput] = DeriveJsonEncoder.gen[GraphQLWSOutput]
 }

@@ -1,18 +1,24 @@
 package example.play
 
+import akka.actor.ActorSystem
 import caliban.GraphQL.graphQL
-import caliban.PlayAdapter.RequestWrapper
+import caliban.interop.tapir.RequestInterceptor
 import caliban.schema.GenericSchema
-import caliban.{ PlayRouter, RootResolver }
+import caliban.{ PlayAdapter, RootResolver }
 import play.api.Mode
-import play.api.mvc.{ DefaultControllerComponents, RequestHeader, Result, Results }
+import play.api.routing._
+import play.api.routing.sird._
 import play.core.server.{ AkkaHttpServer, ServerConfig }
+import sttp.model.StatusCode
+import sttp.tapir.json.play._
+import sttp.tapir.model.ServerRequest
 import zio.blocking.Blocking
 import zio.internal.Platform
 import zio.random.Random
 import zio.stream.ZStream
-import zio.{ FiberRef, Has, RIO, Runtime, URIO, ZIO }
+import zio.{ FiberRef, Has, RIO, Runtime, ZIO }
 
+import scala.concurrent.ExecutionContextExecutor
 import scala.io.StdIn.readLine
 
 object AuthExampleApp extends App {
@@ -20,11 +26,14 @@ object AuthExampleApp extends App {
 
   type Auth = Has[FiberRef[Option[AuthToken]]]
 
-  object AuthWrapper extends RequestWrapper[Auth] {
-    override def apply[R <: Auth](ctx: RequestHeader)(effect: URIO[R, Result]): URIO[R, Result] =
-      ctx.headers.get("token") match {
-        case Some(token) => ZIO.accessM[Auth](_.get.set(Some(AuthToken(token)))) *> effect
-        case _           => ZIO.succeed(Results.Forbidden)
+  implicit val system: ActorSystem                        = ActorSystem()
+  implicit val executionContext: ExecutionContextExecutor = system.dispatcher
+
+  object AuthWrapper extends RequestInterceptor[Auth] {
+    def apply[R1 <: Auth](request: ServerRequest): ZIO[R1, StatusCode, Unit] =
+      request.header("token") match {
+        case Some(token) => ZIO.accessM[Auth](_.get.set(Some(AuthToken(token))))
+        case None        => ZIO.fail(StatusCode.Forbidden)
       }
   }
 
@@ -55,19 +64,12 @@ object AuthExampleApp extends App {
       port = Some(8088),
       address = "127.0.0.1"
     )
-  ) { components =>
-    PlayRouter(
-      interpreter,
-      DefaultControllerComponents(
-        components.defaultActionBuilder,
-        components.playBodyParsers,
-        components.messagesApi,
-        components.langs,
-        components.fileMimeTypes,
-        components.executionContext
-      ),
-      requestWrapper = AuthWrapper
-    )(runtime, components.materializer).routes
+  ) { _ =>
+    Router.from {
+      case req @ POST(p"/api/graphql") =>
+        PlayAdapter.makeHttpService(interpreter, requestInterceptor = AuthWrapper).apply(req)
+      case req @ GET(p"/ws/graphql")   => PlayAdapter.makeWebSocketService(interpreter).apply(req)
+    }.routes
   }
 
   println("Server online at http://localhost:8088/\nPress RETURN to stop...")

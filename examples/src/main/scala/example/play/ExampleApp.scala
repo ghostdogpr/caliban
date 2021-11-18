@@ -1,26 +1,35 @@
 package example.play
 
+import akka.actor.ActorSystem
 import example.{ ExampleApi, ExampleService }
 import example.ExampleData.sampleCharacters
 import example.ExampleService.ExampleService
-
-import caliban.PlayRouter
+import caliban.PlayAdapter
 import play.api.Mode
-import play.api.mvc.DefaultControllerComponents
+import play.api.routing._
+import play.api.routing.sird._
 import play.core.server.{ AkkaHttpServer, ServerConfig }
+import sttp.tapir.json.play._
 import zio.clock.Clock
 import zio.console.Console
 import zio.internal.Platform
 import zio.Runtime
-import scala.io.StdIn.readLine
 
+import scala.io.StdIn.readLine
 import zio.blocking.Blocking
 import zio.random.Random
 
+import scala.concurrent.ExecutionContextExecutor
+
 object ExampleApp extends App {
 
+  implicit val system: ActorSystem                                                                = ActorSystem()
+  implicit val executionContext: ExecutionContextExecutor                                         = system.dispatcher
   implicit val runtime: Runtime[ExampleService with Console with Clock with Blocking with Random] =
-    Runtime.unsafeFromLayer(ExampleService.make(sampleCharacters) ++ Console.live ++ Clock.live ++ Random.live ++ Blocking.live, Platform.default)
+    Runtime.unsafeFromLayer(
+      ExampleService.make(sampleCharacters) ++ Console.live ++ Clock.live ++ Random.live ++ Blocking.live,
+      Platform.default
+    )
 
   val interpreter = runtime.unsafeRun(ExampleApi.api.interpreter)
 
@@ -30,18 +39,11 @@ object ExampleApp extends App {
       port = Some(8088),
       address = "127.0.0.1"
     )
-  ) { components =>
-    PlayRouter(
-      interpreter,
-      DefaultControllerComponents(
-        components.defaultActionBuilder,
-        components.playBodyParsers,
-        components.messagesApi,
-        components.langs,
-        components.fileMimeTypes,
-        components.executionContext
-      )
-    )(runtime, components.materializer).routes
+  ) { _ =>
+    Router.from {
+      case req @ POST(p"/api/graphql") => PlayAdapter.makeHttpService(interpreter).apply(req)
+      case req @ GET(p"/ws/graphql")   => PlayAdapter.makeWebSocketService(interpreter).apply(req)
+    }.routes
   }
 
   println("Server online at http://localhost:8088/\nPress RETURN to stop...")
