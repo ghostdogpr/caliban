@@ -42,7 +42,7 @@ object TestApi extends GenericSchema[TestService with Uploads] {
   implicit val charactersArgsSchema: Schema[Any, CharactersArgs] = Schema.gen
 
   val api: GraphQL[Console with Clock with TestService with Uploads] =
-    graphQL(
+    graphQL[Console with Clock with TestService with Uploads, Queries, Mutations, Subscriptions](
       RootResolver(
         Queries(
           args => TestService.getCharacters(args.origin),
