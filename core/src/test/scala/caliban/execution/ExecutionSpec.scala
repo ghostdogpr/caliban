@@ -413,7 +413,6 @@ object ExecutionSpec extends DefaultRunnableSpec {
         // create a custom schema for the Auth Env
         object schema extends GenericSchema[Auth]
         import schema._
-        import schema.gen
 
         // effectfully produce a stream using the environment
         def getStream(req: Req) = ZStream.fromEffect(for {
@@ -423,7 +422,13 @@ object ExecutionSpec extends DefaultRunnableSpec {
 
         // set up a wrapped interpreter, setting the authentication token in the auth context
         val interpreter        =
-          graphQL(RootResolver(Queries(1), Option.empty[Unit], Subscriptions(getStream))).interpreter
+          graphQL[Auth, Queries, Unit, Subscriptions](
+            RootResolver(
+              queryResolver = Some(Queries(1)),
+              mutationResolver = Option.empty[Unit],
+              subscriptionResolver = Some(Subscriptions(getStream))
+            )
+          ).interpreter
         val wrappedInterpreter = for {
           auth <- ZIO.service[FiberRef[Option[AuthToken]]]
           _    <- auth.set(Some(AuthToken("TOKEN")))
@@ -489,9 +494,9 @@ object ExecutionSpec extends DefaultRunnableSpec {
         case class Query(test: Obj)
 
         object Schemas {
-          implicit val schemaUnionChild: Schema[Any, Union.Child] = Schema.gen[Union.Child].rename("UnionChild")
-          implicit val schemaTestUnion: Schema[Any, Union]        = Schema.gen[Union]
-          implicit val schemaQuery: Schema[Any, Query]            = Schema.gen[Query]
+          implicit val schemaUnionChild: Schema[Any, Union.Child] = Schema.gen[Any, Union.Child].rename("UnionChild")
+          implicit val schemaTestUnion: Schema[Any, Union]        = Schema.gen
+          implicit val schemaQuery: Schema[Any, Query]            = Schema.gen
         }
         import Schemas._
 
@@ -521,9 +526,9 @@ object ExecutionSpec extends DefaultRunnableSpec {
         case class Query(test: Obj)
 
         object Schemas {
-          implicit val schemaUnionChild: Schema[Any, Union.Child] = Schema.gen[Union.Child].rename("UnionChild")
-          implicit val schemaTestUnion: Schema[Any, Union]        = Schema.gen[Union].rename("UnionRenamed")
-          implicit val schemaQuery: Schema[Any, Query]            = Schema.gen[Query]
+          implicit val schemaUnionChild: Schema[Any, Union.Child] = Schema.gen[Any, Union.Child].rename("UnionChild")
+          implicit val schemaTestUnion: Schema[Any, Union]        = Schema.gen[Any, Union].rename("UnionRenamed")
+          implicit val schemaQuery: Schema[Any, Query]            = Schema.gen
         }
         import Schemas._
 
@@ -554,11 +559,11 @@ object ExecutionSpec extends DefaultRunnableSpec {
         case class Query(test: Obj)
 
         object Schemas {
-          implicit val schemaUnionChild: Schema[Any, Union.Child]        = Schema.gen[Union.Child].rename("UnionChild")
+          implicit val schemaUnionChild: Schema[Any, Union.Child]        = Schema.gen[Any, Union.Child].rename("UnionChild")
           implicit val schemaUnionChildO: Schema[Any, Union.ChildO.type] =
-            Schema.gen[Union.ChildO.type].rename("UnionChildO")
-          implicit val schemaTestUnion: Schema[Any, Union]               = Schema.gen[Union].rename("UnionRenamed")
-          implicit val schemaQuery: Schema[Any, Query]                   = Schema.gen[Query]
+            Schema.gen[Any, Union.ChildO.type].rename("UnionChildO")
+          implicit val schemaTestUnion: Schema[Any, Union]               = Schema.gen[Any, Union].rename("UnionRenamed")
+          implicit val schemaQuery: Schema[Any, Query]                   = Schema.gen
         }
         import Schemas._
 
@@ -782,7 +787,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
           implicit val schemaHuman: Schema[Any, Character.Human]     = Schema.gen
           implicit val schemaDroid: Schema[Any, Character.Droid]     = Schema.gen
           implicit val schemaSearchResult: Schema[Any, SearchResult] = eitherUnionSchema("SearchResult")
-          implicit val schemaQuery: Schema[Any, Query]               = Schema.gen[Query]
+          implicit val schemaQuery: Schema[Any, Query]               = Schema.gen
         }
 
         import CustomSchema._

@@ -2,7 +2,6 @@ package example.federation
 
 import example.federation.CharacterService.CharacterService
 import example.federation.EpisodeService.EpisodeService
-
 import caliban.GraphQL.graphQL
 import caliban.federation.{ EntityResolver, federated }
 import caliban.federation.tracing.ApolloFederatedTracing
@@ -47,13 +46,13 @@ object FederatedApi {
     case class Mutations(deleteCharacter: CharacterArgs => URIO[CharacterService, Boolean])
     case class Subscriptions(characterDeleted: ZStream[CharacterService, Nothing, String])
 
-    implicit val roleSchema                                            = gen[Role]
-    implicit lazy val episodeSchema: Schema[CharacterService, Episode] = gen[Episode]
-    implicit val characterSchema                                       = gen[Character]
-    implicit val characterArgsSchema                                   = gen[CharacterArgs]
-    implicit val charactersArgsSchema                                  = gen[CharactersArgs]
-    implicit val episodeArgs                                           = gen[EpisodeArgs]
-    implicit val episodeArgBuilder: ArgBuilder[EpisodeArgs]            = ArgBuilder.gen[EpisodeArgs]
+    implicit val roleSchema: Schema[Any, Role]                         = Schema.gen
+    implicit lazy val episodeSchema: Schema[CharacterService, Episode] = Schema.gen
+    implicit val characterSchema: Schema[CharacterService, Character]  = Schema.gen
+    implicit val characterArgsSchema: Schema[Any, CharacterArgs]       = Schema.gen
+    implicit val charactersArgsSchema: Schema[Any, CharactersArgs]     = Schema.gen
+    implicit val episodeArgs: Schema[Any, EpisodeArgs]                 = Schema.gen
+    implicit val episodeArgBuilder: ArgBuilder[EpisodeArgs]            = ArgBuilder.gen
 
     val withFederation = federated(        
       EntityResolver.from[CharacterArgs](args => ZQuery.fromEffect(CharacterService.findCharacter(args.name))),
@@ -91,9 +90,9 @@ object FederatedApi {
       episodes: EpisodesArgs => URIO[EpisodeService, List[Episode]]
     )
 
-    implicit val episodeArgsSchema  = gen[EpisodeArgs]
-    implicit val episodesArgsSchema = gen[EpisodesArgs]
-    implicit val episodeSchema      = gen[Episode]
+    implicit val episodeArgsSchema: Schema[Any, EpisodeArgs]   = Schema.gen
+    implicit val episodesArgsSchema: Schema[Any, EpisodesArgs] = Schema.gen
+    implicit val episodeSchema: Schema[Any, Episode]           = Schema.gen
 
     val api: GraphQL[Console with Clock with EpisodeService] =
         graphQL(

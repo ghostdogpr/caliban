@@ -233,7 +233,7 @@ trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
    * For a case class or sealed trait, you can call `genMacro[T].schema` instead to get more details if the
    * schema can't be derived.
    */
-  def gen[T](implicit derived: Derived[Schema[R, T]]): Schema[R, T] = derived.schema
+  def gen[R0, T](implicit derived: Derived[Schema[R0, T]]): Schema[R0, T] = derived.schema
 
 }
 

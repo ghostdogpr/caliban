@@ -2,15 +2,13 @@ package example
 
 import example.ExampleData._
 import example.ExampleService.ExampleService
-
 import caliban.GraphQL
 import caliban.GraphQL.graphQL
 import caliban.RootResolver
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
-import caliban.schema.GenericSchema
+import caliban.schema.{ GenericSchema, Schema }
 import caliban.wrappers.ApolloTracing.apolloTracing
 import caliban.wrappers.Wrappers._
-
 import zio.URIO
 import zio.clock.Clock
 import zio.console.Console
@@ -30,10 +28,10 @@ object ExampleApi extends GenericSchema[ExampleService] {
   case class Mutations(deleteCharacter: CharacterArgs => URIO[ExampleService, Boolean])
   case class Subscriptions(characterDeleted: ZStream[ExampleService, Nothing, String])
 
-  implicit val roleSchema           = gen[Role]
-  implicit val characterSchema      = gen[Character]
-  implicit val characterArgsSchema  = gen[CharacterArgs]
-  implicit val charactersArgsSchema = gen[CharactersArgs]
+  implicit val roleSchema: Schema[Any, Role]                     = Schema.gen
+  implicit val characterSchema: Schema[Any, Character]           = Schema.gen
+  implicit val characterArgsSchema: Schema[Any, CharacterArgs]   = Schema.gen
+  implicit val charactersArgsSchema: Schema[Any, CharactersArgs] = Schema.gen
 
   val api: GraphQL[Console with Clock with ExampleService] =
     graphQL(

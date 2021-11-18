@@ -35,7 +35,7 @@ object FederationTracingSpec extends DefaultRunnableSpec with GenericSchema[Cloc
 
   case class Queries(me: ZQuery[Any, Nothing, User])
 
-  val api: GraphQL[Clock] = GraphQL.graphQL(
+  val api: GraphQL[Clock] = GraphQL.graphQL[Clock, Queries, Unit, Unit](
     RootResolver(
       Queries(
         me = ZQuery.succeed(
