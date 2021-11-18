@@ -1,8 +1,8 @@
 package caliban.tools
 
-import caliban.tools.implicits.ScalarMappings
 import zio.blocking.{ blocking, Blocking }
 import zio.{ RIO, Task, UIO, ZIO }
+
 import java.io.{ File, PrintWriter }
 
 object Codegen {
@@ -35,8 +35,13 @@ object Codegen {
       code                      = genType match {
                                     case GenType.Schema =>
                                       List(
-                                        objectName -> SchemaWriter.write(schema, packageName, effect, arguments.imports, abstractEffectType)(
-                                          ScalarMappings(scalarMappings)
+                                        objectName -> SchemaWriter.write(
+                                          schema,
+                                          packageName,
+                                          effect,
+                                          arguments.imports,
+                                          scalarMappings,
+                                          abstractEffectType
                                         )
                                       )
                                     case GenType.Client =>
@@ -47,9 +52,8 @@ object Codegen {
                                         genView,
                                         arguments.imports,
                                         splitFiles,
-                                        extensibleEnums
-                                      )(
-                                        ScalarMappings(scalarMappings)
+                                        extensibleEnums,
+                                        scalarMappings
                                       )
                                   }
       formatted                <- if (enableFmt) Formatter.format(code, arguments.fmtPath) else Task.succeed(code)

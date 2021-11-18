@@ -1,6 +1,7 @@
 package caliban.tools.compiletime
 
 import caliban.tools.CalibanCommonSettings
+import caliban.tools.Codegen.GenType
 
 trait Config {
   case class ClientGenerationSettings(
@@ -25,7 +26,8 @@ trait Config {
         imports = imports,
         splitFiles = Some(splitFiles),
         enableFmt = Some(enableFmt),
-        extensibleEnums = Some(extensibleEnums)
+        extensibleEnums = Some(extensibleEnums),
+        GenType.Client
       )
 
     private[caliban] def asScalaCode: String = {

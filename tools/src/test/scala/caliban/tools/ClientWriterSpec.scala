@@ -1,7 +1,6 @@
 package caliban.tools
 
 import caliban.parsing.Parser
-import caliban.tools.implicits.ScalarMappings
 import zio.RIO
 import zio.blocking.Blocking
 import zio.test.Assertion._
@@ -20,8 +19,11 @@ object ClientWriterSpec extends DefaultRunnableSpec {
     .flatMap(doc =>
       Formatter.format(
         ClientWriter
-          .write(doc, additionalImports = Some(additionalImports), extensibleEnums = extensibleEnums)(
-            ScalarMappings(Some(scalarMappings))
+          .write(
+            doc,
+            additionalImports = Some(additionalImports),
+            extensibleEnums = extensibleEnums,
+            scalarMappings = Some(scalarMappings)
           )
           .head
           ._2,
@@ -36,9 +38,7 @@ object ClientWriterSpec extends DefaultRunnableSpec {
     .parseQuery(schema)
     .flatMap(doc =>
       Formatter.format(
-        ClientWriter.write(doc, packageName = Some("test"), splitFiles = true)(
-          ScalarMappings(Some(scalarMappings))
-        ),
+        ClientWriter.write(doc, packageName = Some("test"), splitFiles = true, scalarMappings = Some(scalarMappings)),
         None
       )
     )

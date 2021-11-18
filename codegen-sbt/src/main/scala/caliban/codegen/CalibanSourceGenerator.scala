@@ -1,6 +1,5 @@
 package caliban.codegen
 
-import _root_.caliban.tools.Codegen.GenType
 import _root_.caliban.tools._
 import sbt._
 import sjsonnew.IsoLList.Aux
@@ -30,7 +29,7 @@ object CalibanSourceGenerator {
     implicit val analysisIso: Aux[TrackedSettings, Seq[String] :*: LNil] =
       LList.iso[TrackedSettings, Seq[String] :*: LNil](
         { case TrackedSettings(arguments) => ("args", arguments) :*: LNil },
-        { case ((_, args) :*: LNil) => TrackedSettings(args) }
+        { case (_, args) :*: LNil => TrackedSettings(args) }
       )
   }
 
@@ -78,7 +77,7 @@ object CalibanSourceGenerator {
           generatedSource <- ZIO.succeed(transformFile(sourceRoot, sourceManaged, settings)(graphql))
           _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
           opts            <- ZIO.fromOption(Some(settings.toOptions(graphql.toString, generatedSource.toString)))
-          files           <- Codegen.generate(opts, GenType.Client).asSomeError
+          files           <- Codegen.generate(opts, settings.genType).asSomeError
         } yield files
 
       def generateUrlSource(
@@ -92,7 +91,7 @@ object CalibanSourceGenerator {
             )
           _               <- Task(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
           opts            <- ZIO.fromOption(Some(settings.toOptions(graphql.toString, generatedSource.toString)))
-          files           <- Codegen.generate(opts, GenType.Client).asSomeError
+          files           <- Codegen.generate(opts, settings.genType).asSomeError
         } yield files
 
       Runtime.default

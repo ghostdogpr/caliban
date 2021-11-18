@@ -1,6 +1,7 @@
 package caliban.codegen
 
 import caliban.tools.CalibanCommonSettings
+import caliban.tools.Codegen.GenType
 
 import java.io.File
 import java.net.URL
@@ -19,6 +20,7 @@ final case class CalibanFileSettings(file: File, settings: CalibanCommonSettings
   def splitFiles(value: Boolean): CalibanFileSettings                = this.copy(settings = this.settings.splitFiles(value))
   def enableFmt(value: Boolean): CalibanFileSettings                 = this.copy(settings = this.settings.enableFmt(value))
   def extensibleEnums(value: Boolean): CalibanFileSettings           = this.copy(settings = this.settings.extensibleEnums(value))
+  def genType(genType: GenType): CalibanFileSettings                 = this.copy(settings = this.settings.genType(genType))
 }
 
 final case class CalibanUrlSettings(url: URL, settings: CalibanCommonSettings) extends CalibanSettings {
@@ -34,4 +36,5 @@ final case class CalibanUrlSettings(url: URL, settings: CalibanCommonSettings) e
   def splitFiles(value: Boolean): CalibanUrlSettings                = this.copy(settings = this.settings.splitFiles(value))
   def enableFmt(value: Boolean): CalibanUrlSettings                 = this.copy(settings = this.settings.enableFmt(value))
   def extensibleEnums(value: Boolean): CalibanUrlSettings           = this.copy(settings = this.settings.extensibleEnums(value))
+  def genType(genType: GenType): CalibanUrlSettings                 = this.copy(settings = this.settings.genType(genType))
 }
