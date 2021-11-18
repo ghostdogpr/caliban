@@ -72,7 +72,7 @@ trait Federation {
     val resolvers = resolver +: otherResolvers.toList
 
     val genericSchema = new GenericSchema[R] {}
-    import genericSchema.{ gen, _ }
+    import genericSchema._
 
     implicit val entitySchema: Schema[R, _Entity] = new Schema[R, _Entity] {
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
@@ -109,6 +109,8 @@ trait Federation {
     )
 
     val withSDL = original.withAdditionalTypes(resolvers.map(_.toType).flatMap(Types.collectTypes(_)))
+
+    implicit val querySchema: Schema[R, Query] = genericSchema.gen[Query]
 
     GraphQL.graphQL(
       RootResolver(
