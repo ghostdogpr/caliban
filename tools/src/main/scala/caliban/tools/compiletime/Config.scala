@@ -27,7 +27,9 @@ trait Config {
         splitFiles = Some(splitFiles),
         enableFmt = Some(enableFmt),
         extensibleEnums = Some(extensibleEnums),
-        GenType.Client
+        GenType.Client,
+        effect = None,
+        abstractEffectType = None
       )
 
     private[caliban] def asScalaCode: String = {
