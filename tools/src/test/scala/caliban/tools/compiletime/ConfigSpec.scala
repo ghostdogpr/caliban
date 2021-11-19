@@ -37,7 +37,9 @@ object ConfigSpec extends DefaultRunnableSpec {
               imports = List("zio.test._", "caliban.tools.compiletime._"),
               splitFiles = Some(true),
               enableFmt = Some(false),
-              extensibleEnums = Some(true)
+              extensibleEnums = Some(true),
+              effect = None,
+              abstractEffectType = None
             )
         )
       )
