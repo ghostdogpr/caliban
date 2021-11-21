@@ -49,6 +49,13 @@ object ValidationSpec extends DefaultRunnableSpec {
               }""")
         check(query, "Subscription 's' has more than one root field.")
       },
+      testM("subscription doesn't have a __typename field") {
+        val query = gqldoc("""
+             subscription s {
+               __typename
+              }""")
+        check(query, "Subscription 's' has a field named '__typename'.")
+      },
       testM("invalid field") {
         val query = gqldoc("""
              {

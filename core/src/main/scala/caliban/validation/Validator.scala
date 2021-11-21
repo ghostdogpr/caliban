@@ -673,33 +673,45 @@ object Validator {
       } else IO.succeed(fragmentMap.updated(fragment.name, fragment))
     }
 
-  private def validateSubscriptionOperation(context: Context): IO[ValidationError, Unit] =
-    IO.fromOption(
+  private def validateSubscriptionOperation(context: Context): IO[ValidationError, Unit] = {
+    val error = {
       for {
-        t  <- context.rootType.subscriptionType
-        op <- context.operations
-                .filter(_.operationType == OperationType.Subscription)
-                .find(op =>
-                  F(
-                    op.selectionSet,
-                    context.fragments,
-                    Map.empty[String, InputValue],
-                    List.empty[VariableDefinition],
-                    t,
-                    SourceMapper.empty,
-                    Nil,
-                    context.rootType
-                  ).fields.length > 1
-                )
-      } yield op
-    ).map { op =>
-      val subscription = op.name.fold("")(n => s"'$n'")
-      ValidationError(
-        s"Subscription $subscription has more than one root field.",
-        "Subscription operations must have exactly one root field."
-      )
-    }.flip
-      .unit
+        t           <- context.rootType.subscriptionType
+        op          <- context.operations.find(_.operationType == OperationType.Subscription)
+        field        = F(
+                         op.selectionSet,
+                         context.fragments,
+                         Map.empty[String, InputValue],
+                         List.empty[VariableDefinition],
+                         t,
+                         SourceMapper.empty,
+                         Nil,
+                         context.rootType
+                       )
+        subscription = op.name.fold("")(n => s"'$n'")
+        error       <- field.fields match {
+                         case Nil         => None
+                         case head :: Nil =>
+                           if (head.name == "__typename")
+                             Some(
+                               ValidationError(
+                                 s"Subscription $subscription has a field named '__typename'.",
+                                 "The root field of a subscription operation must not be an introspection field."
+                               )
+                             )
+                           else None
+                         case _           =>
+                           Some(
+                             ValidationError(
+                               s"Subscription $subscription has more than one root field.",
+                               "Subscription operations must have exactly one root field."
+                             )
+                           )
+                       }
+      } yield error
+    }
+    IO.fromOption(error).flip.unit
+  }
 
   private def validateFragmentType(name: Option[String], targetType: __Type): IO[ValidationError, Unit] =
     targetType.kind match {
