@@ -292,6 +292,9 @@ You can also indicate that the effect type is abstract via `--abstractEffectType
 If you want to force a mapping between a GraphQL type and a Scala class (such as scalars), you can use the
 `--scalarMappings` option. Also you can add additional imports by providing `--imports` option.
 
+Since Caliban 1.2.4, you can generate schemas using an sbt `sourceGenerator`, which means your schemas will be generated every time you compile (or when you import your build into [Metals](https://scalameta.org/metals/)).
+This can be configured with the same settings as [the client generators](client.md#code-generation), but you have to specify `.genType(Codegen.GenType.Schema)` in the `calibanSettings` entry for a given file.
+
 ## Building Schemas by hand
 
 Sometimes for whatever reason schema generation fails. This can happen if your schema has co-recursive types and Magnolia is unable

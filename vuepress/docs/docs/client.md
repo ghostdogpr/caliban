@@ -27,7 +27,7 @@ Caliban provides two sbt plugins to generate your client(s) code.
 
 The first one, named `CalibanPlugin`, allows you to generate the client code from a schema file or from a server URL.
 
-The second one, named `CompileTimeCalibanPlugin`, allows you to generate the client code from your server code.    
+The second one, named `CompileTimeCalibanPlugin`, allows you to generate the client code from your server code.
 This second "meta" plugin is actually made of two "concrete" plugins, `CompileTimeCalibanServerPlugin` and `CompileTimeCalibanClientPlugin`, that you'll
 both need to configure in your project to be able to generate you Caliban client code from your Caliban server code.
 
@@ -68,6 +68,20 @@ In order to supply more configuration options to the code generator, you can use
             .imports("com.example.graphql.client.implicits._")
       )
 ```
+
+The path where the generator will look for schemas can be customized by overriding the `calibanSources` settings:
+
+```scala
+Compile / caliban / calibanSources := file("caliban")
+```
+
+If you want to only include certain files in a directory, you can override that as well with an explicit `caliban / sources` entry:
+
+```scala
+Compile / caliban / sources := file("caliban") / "Service.graphql"
+```
+
+For every entry in `calibanSettings` for the same file, a separate client (or [schema](schema.md#code-generation), depending on the entry's `genType` value) will be generated.
 
 #### From a server URL
 
