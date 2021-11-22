@@ -12,6 +12,7 @@ object CalibanPlugin extends AutoPlugin {
 
   lazy val baseSettings = Seq(
     caliban                    := (caliban / calibanGenerator).value,
+    calibanVersion             := BuildInfo.version,
     (caliban / sourceManaged)  := {
       sourceManaged.value / "caliban-codegen-sbt"
     },
