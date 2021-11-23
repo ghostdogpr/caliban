@@ -66,7 +66,10 @@ case class GraphQLUploadRequest(
       case Some(Left(key))  =>
         value match {
           case InputValue.ObjectValue(fields) =>
-            fields.get(key).fold[InputValue](NullValue)(loop(_, path.drop(1), name))
+            InputValue.ObjectValue(
+              fields + (key ->
+                fields.get(key).fold[InputValue](NullValue)(loop(_, path.drop(1), name)))
+            )
           case _                              => NullValue
         }
       case Some(Right(idx)) =>

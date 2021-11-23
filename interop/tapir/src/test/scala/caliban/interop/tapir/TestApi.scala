@@ -22,6 +22,9 @@ object TestApi extends GenericSchema[TestService with Uploads] {
   case class File(hash: String, filename: String, mimetype: String)
   case class UploadFileArgs(file: Upload)
   case class UploadFilesArgs(files: List[Upload])
+  case class UploadedDocument(file: Upload, someField1: Int, someField2: Option[Int])
+  case class UploadWithExtraFields(uploadedDocuments: List[UploadedDocument])
+  case class SomeFieldOutput(someField1: Int, someField2: Option[Int])
 
   case class Queries(
     @GQLDescription("Return all characters from a given origin")
@@ -32,7 +35,8 @@ object TestApi extends GenericSchema[TestService with Uploads] {
   case class Mutations(
     deleteCharacter: CharacterArgs => URIO[TestService, Boolean],
     uploadFile: UploadFileArgs => ZIO[Uploads, Throwable, File],
-    uploadFiles: UploadFilesArgs => ZIO[Uploads, Throwable, List[File]]
+    uploadFiles: UploadFilesArgs => ZIO[Uploads, Throwable, List[File]],
+    uploadFilesWithExtraFields: UploadWithExtraFields => ZIO[Uploads, Throwable, List[SomeFieldOutput]]
   )
   case class Subscriptions(characterDeleted: ZStream[TestService, Nothing, String])
 
@@ -51,7 +55,8 @@ object TestApi extends GenericSchema[TestService with Uploads] {
         Mutations(
           args => TestService.deleteCharacter(args.name),
           args => TestService.uploadFile(args.file),
-          args => TestService.uploadFiles(args.files)
+          args => TestService.uploadFiles(args.files),
+          args => TestService.uploadFilesWithOtherFields(args.uploadedDocuments)
         ),
         Subscriptions(TestService.deletedEvents)
       )

@@ -1,6 +1,6 @@
 package caliban.interop.tapir
 
-import caliban.interop.tapir.TestApi.File
+import caliban.interop.tapir.TestApi.{ File, SomeFieldOutput, UploadedDocument }
 import caliban.interop.tapir.TestData._
 import caliban.uploads.{ Upload, Uploads }
 import zio.stream.ZStream
@@ -57,6 +57,15 @@ object TestService {
         meta.map(_.fileName).getOrElse(""),
         meta.flatMap(_.contentType).getOrElse("")
       )
+    )
+
+  def uploadFilesWithOtherFields(
+    uploadedDocuments: List[UploadedDocument]
+  ): ZIO[Uploads, Throwable, List[SomeFieldOutput]] =
+    ZIO.succeed(
+      for {
+        document <- uploadedDocuments
+      } yield SomeFieldOutput(document.someField1, document.someField2)
     )
 
   def make(initial: List[Character]): ZLayer[Any, Nothing, TestService] =
