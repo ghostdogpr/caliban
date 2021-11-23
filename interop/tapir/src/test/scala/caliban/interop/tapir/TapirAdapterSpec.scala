@@ -98,7 +98,6 @@ object TapirAdapterSpec {
             for {
               res      <- send(runUpload((parts, null)))
               response <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
-              _         = println(response.data.toString)
             } yield response.data.toString
 
           assertM(io)(
