@@ -5,7 +5,7 @@ import caliban.ResponseValue._
 import caliban.Value._
 import caliban.execution.Field
 import caliban.introspection.adt._
-import caliban.parsing.adt.Directive
+import caliban.parsing.adt.{ Directive, Directives }
 import caliban.schema.Step._
 import caliban.schema.Types._
 import caliban.uploads.Upload
@@ -144,7 +144,6 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     directives: List[Directive] = List.empty
   ): Schema[R1, A] =
     new Schema[R1, A] {
-
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
         if (isInput) {
           makeInputObject(
@@ -612,16 +611,8 @@ abstract class PartiallyAppliedFieldBase[V](name: String, description: Option[St
       () =>
         if (ev.optional) ev.toType_(ft.isInput, ft.isSubscription)
         else Types.makeNonNull(ev.toType_(ft.isInput, ft.isSubscription)),
-      isDeprecated = directives.exists(_.name == "deprecated"),
-      deprecationReason = directives.collectFirst {
-        case f if f.name == "deprecated" =>
-          f.arguments
-            .get("reason")
-            .flatMap(_ match {
-              case StringValue(value) => Some(value)
-              case _                  => None
-            })
-      }.flatten,
+      isDeprecated = Directives.isDeprecated(directives),
+      deprecationReason = Directives.deprecationReason(directives),
       directives = Some(directives.filter(_.name != "deprecated")).filter(_.nonEmpty)
     )
 }
@@ -650,16 +641,8 @@ case class PartiallyAppliedFieldWithArgs[V, A](name: String, description: Option
         description,
         ev1.arguments,
         () => ev1.toType_(fa.isInput, fa.isSubscription),
-        isDeprecated = directives.exists(_.name == "deprecated"),
-        deprecationReason = directives.collectFirst {
-          case f if f.name == "deprecated" =>
-            f.arguments
-              .get("reason")
-              .flatMap(_ match {
-                case StringValue(value) => Some(value)
-                case _                  => None
-              })
-        }.flatten,
+        isDeprecated = Directives.isDeprecated(directives),
+        deprecationReason = Directives.deprecationReason(directives),
         directives = Some(directives.filter(_.name != "deprecated")).filter(_.nonEmpty)
       ),
       (v: V) => ev1.resolve(fn(v))
