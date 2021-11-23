@@ -81,7 +81,7 @@ object TapirAdapterSpec {
       runUpload.map(runUpload =>
         testM("test http upload endpoint for extra fields") {
           val query =
-            """{ "query": "mutation ($uploadedDocuments: [UploadedDocumentInput!]!) { uploadFilesWithExtraFields(uploadedDocuments: $uploadedDocuments) { someField1, someField2} }", "variables": { "uploadedDocuments": [{"file": null, "someField1": 100, "someField2": 100}, {"file": null, "someField1": 200}] }}"""
+            """{ "query": "mutation ($uploadedDocuments: [UploadedDocumentInput!]!) { uploadFilesWithExtraFields(uploadedDocuments: $uploadedDocuments) { someField1, someField2} }", "variables": { "uploadedDocuments": [{"file": null, "someField1": 1, "someField2": 2}, {"file": null, "someField1": 3}] }}"""
 
           val parts =
             List(
@@ -103,7 +103,7 @@ object TapirAdapterSpec {
 
           assertM(io)(
             equalTo(
-              """{"uploadFilesWithExtraFields":[{"someField1": 1,"someField2": 1},[{"someField1": 2}]}"""
+              """{"uploadFilesWithExtraFields":[{"someField1": 1,"someField2": 2},[{"someField1": 2}]}"""
             )
           )
         }
