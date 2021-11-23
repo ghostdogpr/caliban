@@ -103,7 +103,7 @@ object TapirAdapterSpec {
 
           assertM(io)(
             equalTo(
-              """{"uploadFilesWithExtraFields":[{"someField1": 1,"someField2": 2},[{"someField1": 2}]}"""
+              """{"uploadFilesWithExtraFields":[{"someField1":1,"someField2":2},[{"someField1":3,"someField2":null}]}"""
             )
           )
         }

@@ -46,14 +46,12 @@ case class GraphQLUploadRequest(
   def remap: GraphQLRequest =
     request.copy(
       variables = request.variables.map { vars =>
-        val files = fileMap.flatMap {
-          case (name, Left("variables") :: Left(key) :: path) => vars.get(key).map(loop(_, path, name)).map(key -> _)
-          case _                                              => None
-        }
-
-        vars ++ files.groupBy(_._1).map {
-          case (key, value :: Nil) => (key, value._2)
-          case (key, values)       => (key, ListValue(values.map(_._2)))
+        fileMap.foldLeft(vars) { case (acc, (name, rest)) =>
+          val value = rest match {
+            case Left("variables") :: Left(key) :: path => acc.get(key).map(loop(_, path, name)).map(key -> _)
+            case _                                      => None
+          }
+          value.fold(acc)(v => acc + v)
         }
       }
     )
@@ -67,10 +65,8 @@ case class GraphQLUploadRequest(
       case Some(Left(key))  =>
         value match {
           case InputValue.ObjectValue(fields) =>
-            InputValue.ObjectValue(
-              fields + (key ->
-                fields.get(key).fold[InputValue](NullValue)(loop(_, path.drop(1), name)))
-            )
+            val v = fields.get(key).fold[InputValue](NullValue)(loop(_, path.drop(1), name))
+            InputValue.ObjectValue(fields + (key -> v))
           case _                              => NullValue
         }
       case Some(Right(idx)) =>
