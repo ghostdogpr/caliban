@@ -949,12 +949,12 @@ object ExecutionSpec extends DefaultRunnableSpec {
         import Schema._
         import caliban.parsing.adt.Directive
 
-        case class Foo(field: String = "foo")
+        case class Foo(fieldA: String => String = _ => "foo", fieldB: String = "foo")
 
         implicit lazy val fooSchema: Schema[Any, Foo] = obj("Foo", None)(implicit ft =>
           List(
-            field(
-              "field",
+            fieldWithArgs(
+              "fieldA",
               Some("Description"),
               List(
                 Directive(
@@ -964,7 +964,19 @@ object ExecutionSpec extends DefaultRunnableSpec {
                   )
                 )
               )
-            )(_.field)
+            )(_.fieldA),
+            field(
+              "fieldB",
+              Some("Description"),
+              List(
+                Directive(
+                  "deprecated",
+                  Map(
+                    "reason" -> Value.StringValue("due to reasons")
+                  )
+                )
+              )
+            )(_.fieldB)
           )
         )
 
@@ -987,7 +999,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
           }""")
 
         val expected =
-          """{"__type":{"name":"Foo","fields":[{"name":"field","isDeprecated":true,"deprecationReason":"due to reasons"}]}}"""
+          """{"__type":{"name":"Foo","fields":[{"name":"fieldA","isDeprecated":true,"deprecationReason":"due to reasons"},{"name":"fieldB","isDeprecated":true,"deprecationReason":"due to reasons"}]}}"""
 
         assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo(expected))
       },
