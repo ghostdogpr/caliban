@@ -75,10 +75,10 @@ The path where the generator will look for schemas can be customized by overridi
 Compile / caliban / calibanSources := file("caliban")
 ```
 
-If you want to only include certain files in a directory, you can override that as well with an explicit `caliban / sources` entry:
+If you want to cherry-pick certain files yourself, you can override that as well with an explicit `caliban / sources` entry:
 
 ```scala
-Compile / caliban / sources := file("caliban") / "Service.graphql"
+Compile / caliban / sources := List(file("caliban") / "Service.graphql")
 ```
 
 For every entry in `calibanSettings` for the same file, a separate client (or [schema](schema.md#code-generation), depending on the entry's `genType` value) will be generated.
