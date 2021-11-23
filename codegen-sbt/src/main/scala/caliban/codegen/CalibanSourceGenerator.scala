@@ -2,7 +2,7 @@ package caliban.codegen
 
 import _root_.caliban.tools._
 import sbt._
-import sjsonnew.IsoLList.Aux
+import sjsonnew.IsoLList
 import zio.blocking.Blocking
 
 import java.io.File
@@ -26,7 +26,7 @@ object CalibanSourceGenerator {
       TrackedSettings(allSettings.map(_.toString))
     }
 
-    implicit val analysisIso: Aux[TrackedSettings, Seq[String] :*: LNil] =
+    implicit val analysisIso: IsoLList.Aux[TrackedSettings, Seq[String] :*: LNil] =
       LList.iso[TrackedSettings, Seq[String] :*: LNil](
         { case TrackedSettings(arguments) => ("args", arguments) :*: LNil },
         { case (_, args) :*: LNil => TrackedSettings(args) }
