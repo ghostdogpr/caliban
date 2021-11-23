@@ -945,6 +945,52 @@ object ExecutionSpec extends DefaultRunnableSpec {
           )
         )
       },
+      testM("directives on hand-rolled schema") {
+        import Schema._
+        import caliban.parsing.adt.Directive
+
+        case class Foo(field: String = "foo")
+
+        implicit lazy val fooSchema: Schema[Any, Foo] = obj("Foo", None)(implicit ft =>
+          List(
+            field(
+              "field",
+              Some("Description"),
+              List(
+                Directive(
+                  "deprecated",
+                  Map(
+                    "reason" -> Value.StringValue("due to reasons")
+                  )
+                )
+              )
+            )(_.field)
+          )
+        )
+
+        case class Queries(foo: Foo)
+
+        val queries: Queries = Queries(Foo())
+
+        val api: GraphQL[Any] = GraphQL.graphQL(RootResolver(queries))
+        val interpreter       = api.interpreter
+
+        val query = gqldoc("""{
+            __type(name: "Foo") {
+              name
+              fields {
+                name
+                isDeprecated
+                deprecationReason
+              }
+            }
+          }""")
+
+        val expected =
+          """{"data":{"__type":{"name":"Foo","fields":[{"name":"field","isDeprecated":true,"deprecationReason":"due to reasons"}]}}"""
+
+        assertM(ZIO.debug(api.render) *> interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo(expected))
+      },
       testM("union redirect") {
         sealed trait Foo
 

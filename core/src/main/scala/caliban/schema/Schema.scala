@@ -612,7 +612,17 @@ abstract class PartiallyAppliedFieldBase[V](name: String, description: Option[St
       () =>
         if (ev.optional) ev.toType_(ft.isInput, ft.isSubscription)
         else Types.makeNonNull(ev.toType_(ft.isInput, ft.isSubscription)),
-      directives = Some(directives).filter(_.nonEmpty)
+      isDeprecated = directives.exists(_.name == "deprecated"),
+      deprecationReason = directives.collectFirst {
+        case f if f.name == "deprecated" =>
+          f.arguments
+            .get("reason")
+            .flatMap(_ match {
+              case StringValue(value) => Some(value)
+              case _                  => None
+            })
+      }.flatten,
+      directives = Some(directives.filter(_.name != "deprecated")).filter(_.nonEmpty)
     )
 }
 
