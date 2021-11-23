@@ -978,7 +978,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
         val query = gqldoc("""{
             __type(name: "Foo") {
               name
-              fields {
+              fields(includeDeprecated: true) {
                 name
                 isDeprecated
                 deprecationReason
@@ -987,9 +987,9 @@ object ExecutionSpec extends DefaultRunnableSpec {
           }""")
 
         val expected =
-          """{"data":{"__type":{"name":"Foo","fields":[{"name":"field","isDeprecated":true,"deprecationReason":"due to reasons"}]}}"""
+          """{"__type":{"name":"Foo","fields":[{"name":"field","isDeprecated":true,"deprecationReason":"due to reasons"}]}}"""
 
-        assertM(ZIO.debug(api.render) *> interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo(expected))
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo(expected))
       },
       testM("union redirect") {
         sealed trait Foo
