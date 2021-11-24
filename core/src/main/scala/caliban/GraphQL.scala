@@ -207,7 +207,8 @@ trait GraphQL[-R] { self =>
    * @param types The type definitions to add.
    */
   final def withAdditionalTypes(types: List[__Type]): GraphQL[R] = new GraphQL[R] {
-    override protected val schemaBuilder: RootSchemaBuilder[R]     = self.schemaBuilder.copy(additionalTypes = types)
+    override protected val schemaBuilder: RootSchemaBuilder[R]     =
+      self.schemaBuilder.copy(additionalTypes = self.schemaBuilder.additionalTypes ++ types)
     override protected val wrappers: List[Wrapper[R]]              = self.wrappers
     override protected val additionalDirectives: List[__Directive] = self.additionalDirectives
   }
