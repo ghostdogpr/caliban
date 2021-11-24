@@ -865,6 +865,11 @@ import caliban.client._
 
 object Client {
 
+  type Order
+  object Order {
+    def name: SelectionBuilder[Order, String] = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
+  }
+
   type Ascending
   object Ascending {
     def name: SelectionBuilder[Ascending, String] = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
@@ -882,6 +887,8 @@ object Client {
         ChoiceOf(Map("Ascending" -> onAscending.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))))
       )
     )
+    def orderInterface[A](order: SelectionBuilder[Order, A]): SelectionBuilder[Sort, Option[A]]  =
+      _root_.caliban.client.SelectionBuilder.Field("order", OptionOf(Obj(order)))
   }
 
 }

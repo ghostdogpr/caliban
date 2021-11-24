@@ -113,7 +113,8 @@ object ClientWriter {
       field: FieldDefinition,
       typeName: String,
       optionalUnion: Boolean,
-      optionalInterface: Boolean
+      optionalInterface: Boolean,
+      commonInterface: Boolean
     ): FieldInfo = {
       val description                                      = field.description match {
         case Some(d) if d.trim.nonEmpty => s"/**\n * ${d.trim}\n */\n"
@@ -193,7 +194,14 @@ object ClientWriter {
             )
           }
         } else if (interfaceTypes.nonEmpty) {
-          if (optionalInterface) {
+          if (commonInterface) {
+            (
+              s"[$typeLetter]",
+              s"(${field.name}: SelectionBuilder[${safeTypeName(getTypeName(field.ofType))}, $typeLetter])",
+              writeType(field.ofType).replace(fieldType, typeLetter),
+              writeTypeBuilder(field.ofType, s"Obj(${field.name})")
+            )
+          } else if (optionalInterface) {
             (
               s"[$typeLetter]",
               s"(${interfaceTypes.map(t => s"""on${t.name}: Option[SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]] = None""").mkString(", ")})",
@@ -244,6 +252,8 @@ object ClientWriter {
       val name          =
         if ((optionalUnion && unionTypes.nonEmpty) || (optionalInterface && interfaceTypes.nonEmpty))
           safeName(field.name + "Option")
+        else if (commonInterface && interfaceTypes.nonEmpty)
+          safeName(field.name + "Interface")
         else safeName(field.name)
       val owner         = if (typeParam.nonEmpty) Some(fieldType) else None
       val fieldTypeInfo = FieldTypeInfo(
@@ -284,9 +294,10 @@ object ClientWriter {
       field: FieldDefinition,
       typeName: String,
       optionalUnion: Boolean,
-      optionalInterface: Boolean
+      optionalInterface: Boolean,
+      commonInterface: Boolean
     ): String =
-      writeFieldInfo(collectFieldInfo(field, typeName, optionalUnion, optionalInterface))
+      writeFieldInfo(collectFieldInfo(field, typeName, optionalUnion, optionalInterface, commonInterface))
 
     def reservedType(typeDefinition: ObjectTypeDefinition): Boolean =
       typeDefinition.name == "Query" || typeDefinition.name == "Mutation" || typeDefinition.name == "Subscription"
@@ -300,7 +311,13 @@ object ClientWriter {
       s"""object ${typedef.name} {
          |  ${typedef.fields
         .map(
-          writeField(_, "_root_.caliban.client.Operations.RootQuery", optionalUnion = false, optionalInterface = false)
+          writeField(
+            _,
+            "_root_.caliban.client.Operations.RootQuery",
+            optionalUnion = false,
+            optionalInterface = false,
+            commonInterface = false
+          )
         )
         .mkString("\n  ")}
          |}
@@ -319,7 +336,8 @@ object ClientWriter {
             _,
             "_root_.caliban.client.Operations.RootMutation",
             optionalUnion = false,
-            optionalInterface = false
+            optionalInterface = false,
+            commonInterface = false
           )
         )
         .mkString("\n  ")}
@@ -339,7 +357,8 @@ object ClientWriter {
             _,
             "_root_.caliban.client.Operations.RootSubscription",
             optionalUnion = false,
-            optionalInterface = false
+            optionalInterface = false,
+            commonInterface = false
           )
         )
         .mkString("\n  ")}
@@ -361,7 +380,15 @@ object ClientWriter {
       val optionalUnionTypeFields = typedef.fields.flatMap { field =>
         val isOptionalUnionType = unionTypes.exists(_.compareToIgnoreCase(field.ofType.toString) == 0)
         if (isOptionalUnionType)
-          Some(collectFieldInfo(field, objectName, optionalUnion = true, optionalInterface = false))
+          Some(
+            collectFieldInfo(
+              field,
+              objectName,
+              optionalUnion = true,
+              optionalInterface = false,
+              commonInterface = false
+            )
+          )
         else None
       }
 
@@ -369,11 +396,28 @@ object ClientWriter {
       val optionalInterfaceTypeFields = typedef.fields.flatMap { field =>
         val isOptionalInterfaceType = interfaceTypes.exists(_.compareToIgnoreCase(field.ofType.toString) == 0)
         if (isOptionalInterfaceType)
-          Some(collectFieldInfo(field, objectName, optionalUnion = false, optionalInterface = true))
-        else None
+          Vector(
+            collectFieldInfo(
+              field,
+              objectName,
+              optionalUnion = false,
+              optionalInterface = true,
+              commonInterface = false
+            ),
+            collectFieldInfo(
+              field,
+              objectName,
+              optionalUnion = false,
+              optionalInterface = false,
+              commonInterface = true
+            )
+          )
+        else Vector.empty
       }
 
-      val fields = typedef.fields.map(collectFieldInfo(_, objectName, optionalUnion = false, optionalInterface = false))
+      val fields = typedef.fields.map(
+        collectFieldInfo(_, objectName, optionalUnion = false, optionalInterface = false, commonInterface = false)
+      )
       val view   = if (genView) "\n  " + writeView(typedef.name, fields.map(_.typeInfo)) else ""
 
       val allFields = fields ++ optionalUnionTypeFields ++ optionalInterfaceTypeFields
@@ -650,6 +694,43 @@ object ClientWriter {
 
     val schemaDef = schema.schemaDefinition
 
+    val interfaceTypes =
+      if (splitFiles) schema.interfaceTypeDefinitions.map { typedef =>
+        writeObjectType(
+          ObjectTypeDefinition(
+            description = typedef.description,
+            name = typedef.name,
+            implements = List.empty,
+            directives = typedef.directives,
+            fields = typedef.fields
+          )
+        )
+      }
+      else Nil
+
+    val interfaces = schema.interfaceTypeDefinitions.map { typedef =>
+      val objDef      = ObjectTypeDefinition(
+        description = typedef.description,
+        name = typedef.name,
+        implements = List.empty,
+        directives = typedef.directives,
+        fields = typedef.fields
+      )
+      val content     = writeObject(objDef, genView)
+      val fullContent =
+        if (splitFiles)
+          s"""import caliban.client.FieldBuilder._
+             |import caliban.client._
+             |
+             |$content
+             |""".stripMargin
+        else
+          s"""${writeObjectType(objDef)}
+             |$content
+             |""".stripMargin
+      safeTypeName(typedef.name) -> fullContent
+    }
+
     val objectTypes =
       if (splitFiles)
         schema.objectTypeDefinitions
@@ -807,11 +888,12 @@ object ClientWriter {
            |$additionalImportsString
            |
            |package object ${packageName.get.reverse.takeWhile(_ != '.').reverse} {
-           |  ${(scalars ::: objectTypes ::: queryTypes ::: mutationTypes ::: subscriptionTypes).mkString("\n")}
+           |  ${(scalars ::: interfaceTypes ::: objectTypes ::: queryTypes ::: mutationTypes ::: subscriptionTypes)
+          .mkString("\n")}
            |}
            |""".stripMargin
       val classFiles        =
-        (enums ::: objects ::: inputs ::: queries.toList ::: mutations.toList ::: subscriptions.toList).map {
+        (enums ::: interfaces ::: objects ::: inputs ::: queries.toList ::: mutations.toList ::: subscriptions.toList).map {
           case (name, content) =>
             val fullContent =
               s"""${packageName.fold("")(p => s"package $p\n\n")}
@@ -827,12 +909,14 @@ object ClientWriter {
         s"""${if (enums.nonEmpty)
           """import caliban.client.CalibanClientError.DecodingError
             |""".stripMargin
-        else ""}${if (objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty)
+        else ""}${if (
+          interfaces.nonEmpty || objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty
+        )
           """import caliban.client.FieldBuilder._
             |""".stripMargin
         else
           ""}${if (
-          enums.nonEmpty || objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty || inputs.nonEmpty
+          enums.nonEmpty || interfaces.nonEmpty || objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty || inputs.nonEmpty
         )
           """import caliban.client._
             |""".stripMargin
@@ -848,6 +932,7 @@ object ClientWriter {
                             |
                             |  ${scalars.mkString("\n")}
                             |  ${enums.map(_._2).mkString("\n")}
+                            |  ${interfaces.map(_._2).mkString("\n")}
                             |  ${objects.map(_._2).mkString("\n")}
                             |  ${inputs.map(_._2).mkString("\n")}
                             |  ${queries.map(_._2).mkString("\n")}
