@@ -3,6 +3,7 @@ package caliban.uploads
 import caliban.InputValue.ListValue
 import caliban.Value.{ NullValue, StringValue }
 import caliban.{ GraphQLRequest, InputValue }
+import scala.annotation.tailrec
 import zio.stream.{ ZSink, ZStream }
 import zio.{ Chunk, RIO, UIO, URIO, ZIO }
 
@@ -45,14 +46,12 @@ case class GraphQLUploadRequest(
   def remap: GraphQLRequest =
     request.copy(
       variables = request.variables.map { vars =>
-        val files = fileMap.flatMap {
-          case (name, Left("variables") :: Left(key) :: path) => vars.get(key).map(loop(_, path, name)).map(key -> _)
-          case _                                              => None
-        }
-
-        vars ++ files.groupBy(_._1).map {
-          case (key, value :: Nil) => (key, value._2)
-          case (key, values)       => (key, ListValue(values.map(_._2)))
+        fileMap.foldLeft(vars) { case (acc, (name, rest)) =>
+          val value = rest match {
+            case Left("variables") :: Left(key) :: path => acc.get(key).map(loop(_, path, name)).map(key -> _)
+            case _                                      => None
+          }
+          value.fold(acc)(v => acc + v)
         }
       }
     )
@@ -66,13 +65,14 @@ case class GraphQLUploadRequest(
       case Some(Left(key))  =>
         value match {
           case InputValue.ObjectValue(fields) =>
-            fields.get(key).fold[InputValue](NullValue)(loop(_, path.drop(1), name))
+            val v = fields.get(key).fold[InputValue](NullValue)(loop(_, path.drop(1), name))
+            InputValue.ObjectValue(fields + (key -> v))
           case _                              => NullValue
         }
       case Some(Right(idx)) =>
         value match {
           case InputValue.ListValue(values) =>
-            values.lift(idx).fold[InputValue](NullValue)(loop(_, path.drop(1), name))
+            InputValue.ListValue(replaceAt(values, idx)(loop(_, path.drop(1), name)))
           case _                            => NullValue
         }
       case None             =>
@@ -80,5 +80,17 @@ case class GraphQLUploadRequest(
         // with a string node containing the file name
         StringValue(name)
     }
+
+  private def replaceAt[A](xs: List[A], idx: Int)(f: A => A): List[A] = {
+    @tailrec
+    def loop[A](xs: List[A], idx: Int, acc: List[A], f: A => A): List[A] =
+      (xs, idx) match {
+        case (x :: xs, 0)   => (f(x) :: acc).reverse ++ xs
+        case (Nil, _)       => acc.reverse
+        case (x :: xs, idx) => loop(xs, idx - 1, x :: acc, f)
+      }
+
+    loop(xs, idx, List(), f)
+  }
 
 }

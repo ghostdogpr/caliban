@@ -78,6 +78,35 @@ object TapirAdapterSpec {
           )
         }
       ),
+      runUpload.map(runUpload =>
+        testM("test http upload endpoint for extra fields") {
+          val query =
+            """{ "query": "mutation ($uploadedDocuments: [UploadedDocumentInput!]!) { uploadFilesWithExtraFields(uploadedDocuments: $uploadedDocuments) { someField1, someField2} }", "variables": { "uploadedDocuments": [{"file": null, "someField1": 1, "someField2": 2}, {"file": null, "someField1": 3}] }}"""
+
+          val parts =
+            List(
+              Part("operations", query.getBytes, contentType = Some(MediaType.ApplicationJson)),
+              Part(
+                "map",
+                """{ "0": ["variables.uploadedDocuments.0.file"], "1":  ["variables.uploadedDocuments.1.file"]}""".getBytes
+              ),
+              Part("0", """image""".getBytes, contentType = Some(MediaType.ImagePng)).fileName("a.png"),
+              Part("1", """text""".getBytes, contentType = Some(MediaType.TextPlain)).fileName("a.txt")
+            )
+
+          val io =
+            for {
+              res      <- send(runUpload((parts, null)))
+              response <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
+            } yield response.data.toString
+
+          assertM(io)(
+            equalTo(
+              """{"uploadFilesWithExtraFields":[{"someField1":1,"someField2":2},{"someField1":3,"someField2":null}]}"""
+            )
+          )
+        }
+      ),
       runWS.map(runWS =>
         testM("test ws endpoint") {
           val io =
