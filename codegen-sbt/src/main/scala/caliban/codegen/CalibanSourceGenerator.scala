@@ -2,7 +2,7 @@ package caliban.codegen
 
 import _root_.caliban.tools._
 import sbt._
-import sjsonnew.IsoLList.Aux
+import sjsonnew.IsoLList
 import zio.blocking.Blocking
 
 import java.io.File
@@ -22,11 +22,11 @@ object CalibanSourceGenerator {
       fileSettings: Seq[CalibanFileSettings],
       urlSettings: Seq[CalibanUrlSettings]
     ): TrackedSettings = {
-      val allSettings: Seq[CalibanSettings] = sources.toList.map(collectSettingsFor(fileSettings, _)) ++ urlSettings
+      val allSettings: Seq[CalibanSettings] = sources.toList.flatMap(collectSettingsFor(fileSettings, _)) ++ urlSettings
       TrackedSettings(allSettings.map(_.toString))
     }
 
-    implicit val analysisIso: Aux[TrackedSettings, Seq[String] :*: LNil] =
+    implicit val analysisIso: IsoLList.Aux[TrackedSettings, Seq[String] :*: LNil] =
       LList.iso[TrackedSettings, Seq[String] :*: LNil](
         { case TrackedSettings(arguments) => ("args", arguments) :*: LNil },
         { case (_, args) :*: LNil => TrackedSettings(args) }
@@ -45,17 +45,19 @@ object CalibanSourceGenerator {
       interimPath.getParent.resolve(scalaName).toFile
   }
 
-  def collectSettingsFor(fileSettings: Seq[CalibanFileSettings], source: File): CalibanFileSettings = {
+  def collectSettingsFor(fileSettings: Seq[CalibanFileSettings], source: File): Seq[CalibanFileSettings] = {
     // Supply a default packageName.
     // If we do not, `src_managed.main.caliban-codegen-sbt` will be used,
     // which is not only terrible, but invalid.
     val defaults: CalibanCommonSettings = CalibanCommonSettings.empty.copy(packageName = Some("caliban"))
 
-    CalibanFileSettings(
-      file = source,
-      settings = fileSettings.collect { case needle if source.toPath.endsWith(needle.file.toPath) => needle }
-        .foldLeft[CalibanCommonSettings](defaults) { case (acc, next) => acc.combine(next.settings) }
-    )
+    val matchingSettingSets = fileSettings.collect {
+      case needle if source.toPath.endsWith(needle.file.toPath) => needle.settings
+    }.map(defaults.combine(_))
+
+    val finalSettingSets = if (matchingSettingSets.isEmpty) List(defaults) else matchingSettingSets
+
+    finalSettingSets.map(settings => CalibanFileSettings(file = source, settings = settings))
   }
 
   def apply(
@@ -94,25 +96,31 @@ object CalibanSourceGenerator {
           files           <- Codegen.generate(opts, settings.genType).asSomeError
         } yield files
 
-      Runtime.default
-        .unsafeRun(
-          for {
-            fromFiles <- ZIO.foreach(sources.toList)(source =>
-                           generateFileSource(source, collectSettingsFor(fileSettings, source).settings).catchAll {
-                             case Some(reason) =>
-                               putStrLn(reason.toString) *> putStrLn(reason.getStackTrace.mkString("\n")).as(List.empty)
-                             case None         => ZIO.succeed(List.empty)
-                           }
-                         )
-            fromUrls  <- ZIO.foreach(urlSettings)(setting =>
-                           generateUrlSource(setting.url, setting.settings).catchAll {
-                             case Some(reason) =>
-                               putStrLn(reason.toString) *> putStrLn(reason.getStackTrace.mkString("\n")).as(List.empty)
-                             case None         => ZIO.succeed(List.empty)
-                           }
-                         )
-          } yield (fromFiles ++ fromUrls).flatten
-        )
+      val generateFromFiles = ZIO
+        .foreach(sources.toList) { source =>
+          ZIO
+            .collectAll(
+              collectSettingsFor(fileSettings, source).map(s => generateFileSource(source, s.settings))
+            )
+            .catchAll {
+              case Some(reason) =>
+                putStrLn(reason.toString) *> putStrLn(reason.getStackTrace.mkString("\n")).as(List.empty)
+              case None         => ZIO.succeed(List.empty)
+            }
+            .map(_.flatten)
+        }
+
+      val generateFromURLs = ZIO.foreach(urlSettings)(setting =>
+        generateUrlSource(setting.url, setting.settings).catchAll {
+          case Some(reason) =>
+            putStrLn(reason.toString) *> putStrLn(reason.getStackTrace.mkString("\n")).as(List.empty)
+          case None         => ZIO.succeed(List.empty)
+        }
+      )
+
+      Runtime.default.unsafeRun {
+        ZIO.mapN(generateFromFiles, generateFromURLs)((_ ++ _)).map(_.flatten)
+      }
     }
 
     // NB: This is heavily inspired by the caching technique from eed3si9n's sbt-scalaxb plugin
