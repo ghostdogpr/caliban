@@ -5,7 +5,7 @@ import caliban.ResponseValue._
 import caliban.Value._
 import caliban.execution.Field
 import caliban.introspection.adt._
-import caliban.parsing.adt.Directive
+import caliban.parsing.adt.{ Directive, Directives }
 import caliban.schema.Step._
 import caliban.schema.Types._
 import caliban.uploads.Upload
@@ -144,7 +144,6 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     directives: List[Directive] = List.empty
   ): Schema[R1, A] =
     new Schema[R1, A] {
-
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
         if (isInput) {
           makeInputObject(
@@ -612,7 +611,9 @@ abstract class PartiallyAppliedFieldBase[V](name: String, description: Option[St
       () =>
         if (ev.optional) ev.toType_(ft.isInput, ft.isSubscription)
         else Types.makeNonNull(ev.toType_(ft.isInput, ft.isSubscription)),
-      directives = Some(directives).filter(_.nonEmpty)
+      isDeprecated = Directives.isDeprecated(directives),
+      deprecationReason = Directives.deprecationReason(directives),
+      directives = Some(directives.filter(_.name != "deprecated")).filter(_.nonEmpty)
     )
 }
 
@@ -635,7 +636,15 @@ case class PartiallyAppliedFieldLazy[V](name: String, description: Option[String
 case class PartiallyAppliedFieldWithArgs[V, A](name: String, description: Option[String], directives: List[Directive]) {
   def apply[R, V1](fn: V => (A => V1))(implicit ev1: Schema[R, A => V1], fa: FieldAttributes): (__Field, V => Step[R]) =
     (
-      __Field(name, description, ev1.arguments, () => ev1.toType_(fa.isInput, fa.isSubscription)),
+      __Field(
+        name,
+        description,
+        ev1.arguments,
+        () => ev1.toType_(fa.isInput, fa.isSubscription),
+        isDeprecated = Directives.isDeprecated(directives),
+        deprecationReason = Directives.deprecationReason(directives),
+        directives = Some(directives.filter(_.name != "deprecated")).filter(_.nonEmpty)
+      ),
       (v: V) => ev1.resolve(fn(v))
     )
 }

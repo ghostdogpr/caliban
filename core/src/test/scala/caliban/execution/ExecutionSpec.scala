@@ -945,6 +945,64 @@ object ExecutionSpec extends DefaultRunnableSpec {
           )
         )
       },
+      testM("directives on hand-rolled schema") {
+        import Schema._
+        import caliban.parsing.adt.Directive
+
+        case class Foo(fieldA: String => String = _ => "foo", fieldB: String = "foo")
+
+        implicit lazy val fooSchema: Schema[Any, Foo] = obj("Foo", None)(implicit ft =>
+          List(
+            fieldWithArgs(
+              "fieldA",
+              Some("Description"),
+              List(
+                Directive(
+                  "deprecated",
+                  Map(
+                    "reason" -> Value.StringValue("due to reasons")
+                  )
+                )
+              )
+            )(_.fieldA),
+            field(
+              "fieldB",
+              Some("Description"),
+              List(
+                Directive(
+                  "deprecated",
+                  Map(
+                    "reason" -> Value.StringValue("due to reasons")
+                  )
+                )
+              )
+            )(_.fieldB)
+          )
+        )
+
+        case class Queries(foo: Foo)
+
+        val queries: Queries = Queries(Foo())
+
+        val api: GraphQL[Any] = GraphQL.graphQL(RootResolver(queries))
+        val interpreter       = api.interpreter
+
+        val query = gqldoc("""{
+            __type(name: "Foo") {
+              name
+              fields(includeDeprecated: true) {
+                name
+                isDeprecated
+                deprecationReason
+              }
+            }
+          }""")
+
+        val expected =
+          """{"__type":{"name":"Foo","fields":[{"name":"fieldA","isDeprecated":true,"deprecationReason":"due to reasons"},{"name":"fieldB","isDeprecated":true,"deprecationReason":"due to reasons"}]}}"""
+
+        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo(expected))
+      },
       testM("union redirect") {
         sealed trait Foo
 
