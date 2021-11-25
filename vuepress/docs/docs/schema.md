@@ -62,7 +62,7 @@ The compilation will return better error messages in case something is missing:
 implicit val characterSchema = Schema.genMacro[Character].schema
 ```
 
-In Scala 3, derivation doesn't support value classes and opaque types. You can use `genDebug` to print the generated code in the console.
+In Scala 3, derivation doesn't support value classes and opaque types. You can use `Schema.genDebug` to print the generated code in the console.
 
 :::
 
