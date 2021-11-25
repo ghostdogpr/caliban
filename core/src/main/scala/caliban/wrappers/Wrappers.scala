@@ -97,15 +97,15 @@ object Wrappers {
       ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
         (doc: Document) =>
           for {
-            req   <- process(doc)
-            depth <- calculateDepth(req.field)
-            _     <- IO.when(depth > maxDepth)(
-                       IO.fail(ValidationError(s"Query is too deep: $depth. Max depth: $maxDepth.", ""))
-                     )
+            req  <- process(doc)
+            depth = calculateDepth(req.field)
+            _    <- IO.when(depth > maxDepth)(
+                      IO.fail(ValidationError(s"Query is too deep: $depth. Max depth: $maxDepth.", ""))
+                    )
           } yield req
     }
 
-  private def calculateDepth(field: Field): UIO[Int] = {
+  private def calculateDepth(field: Field): Int = {
     @inline def depth(field: Field): Int = if (field.name.isEmpty) 0 else 1
 
     @tailrec
@@ -115,7 +115,7 @@ object Wrappers {
         case h :: t => doCalculateDepth(acc + depth(h))(t)
       }
 
-    UIO(doCalculateDepth(depth(field))(field.fields))
+    doCalculateDepth(depth(field))(field.fields)
   }
 
   /**
