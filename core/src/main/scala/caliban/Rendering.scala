@@ -94,10 +94,8 @@ object Rendering {
     case Some(value)            => if (value.contains("\n")) s"""\"\"\"$value\"\"\" """ else s""""$value" """
   }
 
-  private def renderSpecifiedBy(specifiedBy: Option[String]): String = specifiedBy match {
-    case None      => ""
-    case Some(url) => s""" @specifiedBy(url: "$url")"""
-  }
+  private def renderSpecifiedBy(specifiedBy: Option[String]): String =
+    specifiedBy.fold("")(url => s""" @specifiedBy(url: "$url")""")
 
   private def renderDirectiveArgument(value: InputValue): Option[String] = value match {
     case InputValue.ListValue(values)   =>
