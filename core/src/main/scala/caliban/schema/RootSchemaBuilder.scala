@@ -13,7 +13,8 @@ case class RootSchemaBuilder[-R](
     RootSchemaBuilder(
       (query ++ that.query).reduceOption(_ |+| _),
       (mutation ++ that.mutation).reduceOption(_ |+| _),
-      (subscription ++ that.subscription).reduceOption(_ |+| _)
+      (subscription ++ that.subscription).reduceOption(_ |+| _),
+      (additionalTypes ++ that.additionalTypes)
     )
 
   def types: List[__Type] = {
