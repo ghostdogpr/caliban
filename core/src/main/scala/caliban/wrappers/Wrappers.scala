@@ -106,14 +106,16 @@ object Wrappers {
     }
 
   private def calculateDepth(field: Field): UIO[Int] = {
-    val self     = if (field.name.nonEmpty) 1 else 0
-    val children = field.fields
-    ZIO
-      .foreach(children)(calculateDepth)
-      .map {
-        case Nil  => self
-        case list => list.max + self
+    @inline def depth(field: Field): Int = if (field.name.isEmpty) 0 else 1
+
+    @tailrec
+    def doCalculateDepth(acc: Int)(rest: List[Field]): Int =
+      rest match {
+        case Nil    => acc
+        case h :: t => doCalculateDepth(acc + depth(h))(t)
       }
+
+    UIO(doCalculateDepth(depth(field))(field.fields))
   }
 
   /**
