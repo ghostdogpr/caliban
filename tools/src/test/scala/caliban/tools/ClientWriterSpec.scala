@@ -843,6 +843,51 @@ object Client {
             )
           )
         )
+      },
+      testM("interface") {
+        val schema =
+          """
+             interface Order {
+               name: String!
+             }
+             type Ascending implements Order {
+               name: String!
+             }
+             type Sort {
+               order: Order
+             }
+            """.stripMargin
+
+        assertM(gen(schema, Map.empty, List.empty)) {
+          equalTo(
+            """import caliban.client.FieldBuilder._
+import caliban.client._
+
+object Client {
+
+  type Ascending
+  object Ascending {
+    def name: SelectionBuilder[Ascending, String] = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
+  }
+
+  type Sort
+  object Sort {
+    def order[A](onAscending: SelectionBuilder[Ascending, A]): SelectionBuilder[Sort, Option[A]] =
+      _root_.caliban.client.SelectionBuilder.Field("order", OptionOf(ChoiceOf(Map("Ascending" -> Obj(onAscending)))))
+    def orderOption[A](
+      onAscending: Option[SelectionBuilder[Ascending, A]] = None
+    ): SelectionBuilder[Sort, Option[Option[A]]] = _root_.caliban.client.SelectionBuilder.Field(
+      "order",
+      OptionOf(
+        ChoiceOf(Map("Ascending" -> onAscending.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))))
+      )
+    )
+  }
+
+}
+"""
+          )
+        }
       }
     ) @@ TestAspect.sequential
 }
