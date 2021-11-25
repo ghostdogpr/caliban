@@ -89,3 +89,26 @@ implicit def customEffectSchema[A](implicit s: Schema[Any, A]): Schema[Any, IO[I
 ```
 With this implicit in scope, Caliban will know how to handle any `IO[Int, A]` effects.
 Caliban will automatically fill the error path and the error location inside `ExecutionError` if an error happens during the query execution.
+
+### My interface is missing from the schema
+
+If you have an interface that is not directly returned by any field, it will be missing from the schema. This is a constraint from the way the typeclass derivation works. A workaround is to use `withAdditionalTypes` on your `GraphQL` object to explicitly add the interface. See the following example:
+```scala
+import caliban.GraphQL._
+import caliban._
+import caliban.schema.Schema
+import caliban.schema.Annotations._
+
+@GQLInterface
+sealed trait Interface
+
+case class A(s: String) extends Interface
+case class B(s: String) extends Interface
+
+case class Query(a: A, b: B)
+
+val interfaceSchema = Schema.gen[Interface]
+
+val api = graphQL(RootResolver(Query(A("a"), B("b")))).withAdditionalTypes(List(interfaceSchema.toType_()))
+```
+
