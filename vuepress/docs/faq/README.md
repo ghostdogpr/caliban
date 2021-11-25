@@ -107,8 +107,8 @@ case class B(s: String) extends Interface
 
 case class Query(a: A, b: B)
 
-val interfaceSchema = Schema.gen[Interface]
+val interfaceType = Schema.gen[Interface].toType_()
 
-val api = graphQL(RootResolver(Query(A("a"), B("b")))).withAdditionalTypes(List(interfaceSchema.toType_()))
+val api = graphQL(RootResolver(Query(A("a"), B("b")))).withAdditionalTypes(List(interfaceType))
 ```
 
