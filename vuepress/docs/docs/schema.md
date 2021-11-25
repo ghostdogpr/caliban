@@ -48,8 +48,8 @@ The schema derivation sometimes has some trouble generating schemas with a lot o
 To deal with this, you can declare schemas for your case classes and sealed traits explicitly:
 
 ```scala
-implicit val roleSchema      = Schema.gen[Role]
-implicit val characterSchema = Schema.gen[Character]
+implicit val roleSchema      = Schema.gen[Any, Role]
+implicit val characterSchema = Schema.gen[Any, Character]
 ```
 
 Make sure those implicits are in scope when you call `graphQL(...)`. This will make derivation's job easier by pre-generating schemas for those classes and re-using them when needed.
@@ -62,7 +62,8 @@ The compilation will return better error messages in case something is missing:
 implicit val characterSchema = Schema.genMacro[Character].schema
 ```
 
-In Scala 3, derivation doesn't support value classes, opaque types and nested sealed traits.
+In Scala 3, derivation doesn't support value classes and opaque types. You can use `genDebug` to print the generated code in the console.
+
 :::
 
 ## Enums, unions, interfaces
@@ -195,16 +196,25 @@ case class Queries(characters: Task[List[Character]],
 
 If you don't use ZIO environment (`R` = `Any`), there is nothing special to do to get it working.
 
-If you require a ZIO environment, you will need to have the content of `caliban.schema.GenericSchema[R]` for your custom `R` in scope when you call `graphQL(...)`.
-
+If you require a ZIO environment and use Scala 2, you will need to have the content of `caliban.schema.GenericSchema[R]` for your custom `R` in scope when you call `graphQL(...)`.
+When you call `Schema.gen`, make sure to use your environment as the first type parameter.
 ```scala
 object schema extends GenericSchema[MyEnv]
 import schema._
-import schema.gen // Necessary for scala 3 due to https://docs.scala-lang.org/scala3/book/ca-given-imports.html
+
+implicit val queriesSchema: Schema[MyEnv, Queries] = Schema.gen
+// or
+implicit val queriesSchema = Schema.gen[MyEnv, Queries]
 ```
-Note: If you ever need to declare schemas explicitly (by calling `gen` directly, as explained above), and you require a ZIO environment (explained in this section), 
-then you must use the `gen` from this `object schema`. If you call `gen` to derive schemas in the same module and you `import schema._` at the top of this module, 
-you'd be fine. However, if you derive schemas in a separate module, then make sure you import this schema object in that module so that you'll be using the `gen` from the `schema` object.
+
+If you require a ZIO environment and use Scala 3, things are simpler since you don't need `GenericSchema`. Make sure to use `Schema.gen` with the proper R type parameter.
+To make sure Caliban uses the proper environment, you need to specify it explicitly to `graphQL(...)`, unless you already have `Schema` instances for your root operations in scope.
+```scala
+val api = graphQL[MyEnv, Queries, Unit, Unit](RootResolver(queries))
+// or
+implicit val queriesSchema: Schema[MyEnv, Queries] = Schema.gen
+val api = graphQL(RootResolver(queries)) // it will infer MyEnv thanks to the instance above
+```
 
 ## Annotations
 
@@ -265,7 +275,7 @@ Caliban can automatically generate Scala code from a GraphQL schema.
 
 In order to use this feature, add the `caliban-codegen-sbt` sbt plugin to your `project/plugins.sbt` file:
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "1.2.4")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "1.3.0")
 ```
 
 And enable it in your `build.sbt` file:
