@@ -30,6 +30,14 @@ object Introspector extends IntrospectionDerivation {
       ),
       Set(__DirectiveLocation.FIELD, __DirectiveLocation.FRAGMENT_SPREAD, __DirectiveLocation.INLINE_FRAGMENT),
       List(__InputValue("if", None, () => Types.makeNonNull(Types.boolean), None))
+    ),
+    __Directive(
+      "specifiedBy",
+      Some(
+        "The @specifiedBy directive is used within the type system definition language to provide a URL for specifying the behavior of custom scalar types. The URL should point to a human-readable specification of the data format, serialization, and coercion rules. It must not appear on built-in scalar types."
+      ),
+      Set(__DirectiveLocation.SCALAR),
+      List(__InputValue("url", None, () => Types.makeNonNull(Types.string), None))
     )
   )
 

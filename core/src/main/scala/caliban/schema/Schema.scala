@@ -123,11 +123,18 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
    * Creates a scalar schema for a type `A`
    * @param name name of the scalar type
    * @param description description of the scalar type
+   * @param specifiedBy URL of the scalar specification
    * @param makeResponse function from `A` to [[ResponseValue]] that defines how to resolve `A`
    */
-  def scalarSchema[A](name: String, description: Option[String], makeResponse: A => ResponseValue): Schema[Any, A] =
+  def scalarSchema[A](
+    name: String,
+    description: Option[String],
+    specifiedBy: Option[String],
+    makeResponse: A => ResponseValue
+  ): Schema[Any, A] =
     new Schema[Any, A] {
-      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = makeScalar(name, description)
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
+        makeScalar(name, description, specifiedBy)
       override def resolve(value: A): Step[Any]                              = PureStep(makeResponse(value))
     }
 
@@ -239,18 +246,18 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
       directives
     )
 
-  implicit val unitSchema: Schema[Any, Unit]             = scalarSchema("Unit", None, _ => ObjectValue(Nil))
-  implicit val booleanSchema: Schema[Any, Boolean]       = scalarSchema("Boolean", None, BooleanValue.apply)
-  implicit val stringSchema: Schema[Any, String]         = scalarSchema("String", None, StringValue.apply)
-  implicit val uuidSchema: Schema[Any, UUID]             = scalarSchema("ID", None, uuid => StringValue(uuid.toString))
-  implicit val shortSchema: Schema[Any, Short]           = scalarSchema("Short", None, IntValue(_))
-  implicit val intSchema: Schema[Any, Int]               = scalarSchema("Int", None, IntValue(_))
-  implicit val longSchema: Schema[Any, Long]             = scalarSchema("Long", None, IntValue(_))
-  implicit val bigIntSchema: Schema[Any, BigInt]         = scalarSchema("BigInt", None, IntValue(_))
-  implicit val doubleSchema: Schema[Any, Double]         = scalarSchema("Float", None, FloatValue(_))
-  implicit val floatSchema: Schema[Any, Float]           = scalarSchema("Float", None, FloatValue(_))
-  implicit val bigDecimalSchema: Schema[Any, BigDecimal] = scalarSchema("BigDecimal", None, FloatValue(_))
-  implicit val uploadSchema: Schema[Any, Upload]         = scalarSchema("Upload", None, _ => StringValue("<upload>"))
+  implicit val unitSchema: Schema[Any, Unit]             = scalarSchema("Unit", None, None, _ => ObjectValue(Nil))
+  implicit val booleanSchema: Schema[Any, Boolean]       = scalarSchema("Boolean", None, None, BooleanValue.apply)
+  implicit val stringSchema: Schema[Any, String]         = scalarSchema("String", None, None, StringValue.apply)
+  implicit val uuidSchema: Schema[Any, UUID]             = scalarSchema("ID", None, None, uuid => StringValue(uuid.toString))
+  implicit val shortSchema: Schema[Any, Short]           = scalarSchema("Short", None, None, IntValue(_))
+  implicit val intSchema: Schema[Any, Int]               = scalarSchema("Int", None, None, IntValue(_))
+  implicit val longSchema: Schema[Any, Long]             = scalarSchema("Long", None, None, IntValue(_))
+  implicit val bigIntSchema: Schema[Any, BigInt]         = scalarSchema("BigInt", None, None, IntValue(_))
+  implicit val doubleSchema: Schema[Any, Double]         = scalarSchema("Float", None, None, FloatValue(_))
+  implicit val floatSchema: Schema[Any, Float]           = scalarSchema("Float", None, None, FloatValue(_))
+  implicit val bigDecimalSchema: Schema[Any, BigDecimal] = scalarSchema("BigDecimal", None, None, FloatValue(_))
+  implicit val uploadSchema: Schema[Any, Upload]         = scalarSchema("Upload", None, None, _ => StringValue("<upload>"))
 
   implicit def optionSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Option[A]]                                  = new Schema[R0, Option[A]] {
     override def optional: Boolean                                         = true

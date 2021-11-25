@@ -40,6 +40,7 @@ object TestUtils {
     implicit val captainShipNameSchema: Schema[Any, CaptainShipName] = scalarSchema(
       "CaptainShipName",
       Some("Description of custom scalar emphasizing proper captain ship names"),
+      Some("http://someUrl"),
       name => StringValue(name.value)
     )
   }

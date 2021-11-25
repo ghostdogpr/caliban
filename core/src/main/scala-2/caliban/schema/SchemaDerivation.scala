@@ -124,7 +124,7 @@ trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
         makeEnum(
           Some(getName(ctx)),
           getDescription(ctx),
-          subtypes.collect { case (__Type(_, Some(name), description, _, _, _, _, _, _, _, _), annotations) =>
+          subtypes.collect { case (__Type(_, Some(name), description, _, _, _, _, _, _, _, _, _), annotations) =>
             __EnumValue(
               name,
               description,
