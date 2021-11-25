@@ -348,6 +348,50 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
           assert(query.toGraphQL().query)(
             equalTo("""query{addCharacter(character:{name:"name",nicknames:[]}){name}}""")
           )
+        },
+        test("interface common fields and subtype fields combination") {
+          import caliban.client.FieldBuilder._
+          import caliban.client._
+
+          type Order = String
+          object Order {
+            def name: SelectionBuilder[Order, String] = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
+          }
+
+          type Ascending = String
+          object Ascending {
+            def name: SelectionBuilder[Ascending, String] =
+              _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
+          }
+
+          type Sort = String
+          object Sort {
+            def orderOption[A](
+              onAscending: Option[SelectionBuilder[Ascending, A]] = None
+            ): SelectionBuilder[Sort, Option[Option[A]]] = _root_.caliban.client.SelectionBuilder.Field(
+              "order",
+              OptionOf(
+                ChoiceOf(
+                  Map("Ascending" -> onAscending.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a))))
+                )
+              )
+            )
+            def orderInterface[A](order: SelectionBuilder[Order, A]): SelectionBuilder[Sort, Option[A]] =
+              _root_.caliban.client.SelectionBuilder.Field("order", OptionOf(Obj(order)))
+          }
+
+          object Query {
+            def sort[A](sel: SelectionBuilder[Sort, A]): Field[RootQuery, A] =
+              Field("sort", Obj(sel))
+          }
+
+          val selection = Sort.orderInterface(Order.name).withAlias("common") ~
+            Sort.orderOption(Some(Ascending.name)).withAlias("subtype")
+          assert(Query.sort(selection).toGraphQL().query)(
+            equalTo(
+              "query{sort{common:order{name} subtype:order{__typename ... on Ascending{name}}}}"
+            )
+          )
         }
       )
     )
