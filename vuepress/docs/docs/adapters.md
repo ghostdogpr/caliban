@@ -1,6 +1,6 @@
 # Http Adapters
 
-Once you have an interpreter able to execute GraphQL queries, you usually want to expose this using an HTTP API.
+Once you have an interpreter able to execute GraphQL queries, you usually want to expose it using an HTTP API.
 Caliban comes with a few "ready-to-use" components (called "adapters") to expose your API with the most popular HTTP libraries. 
 You can also create a custom adapter easily.
 
