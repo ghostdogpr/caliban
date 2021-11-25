@@ -68,6 +68,7 @@ trait GraphQL[-R] { self =>
           schema.query.opType,
           schema.mutation.map(_.opType),
           schema.subscription.map(_.opType),
+          schemaBuilder.additionalTypes,
           additionalDirectives
         )
 
