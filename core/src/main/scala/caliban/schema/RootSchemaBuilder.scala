@@ -17,10 +17,11 @@ case class RootSchemaBuilder[-R](
     )
 
   def types: List[__Type] = {
-    val empty = additionalTypes
-    (query.map(_.opType).fold(empty)(collectTypes(_)) ++
-      mutation.map(_.opType).fold(empty)(collectTypes(_)) ++
-      subscription.map(_.opType).fold(empty)(collectTypes(_)))
+    val init = additionalTypes.foldLeft(List.empty[__Type]) { case (acc, t) => collectTypes(t, acc) }
+    (init ++
+      query.map(_.opType).fold(List.empty[__Type])(collectTypes(_, init)) ++
+      mutation.map(_.opType).fold(List.empty[__Type])(collectTypes(_, init)) ++
+      subscription.map(_.opType).fold(List.empty[__Type])(collectTypes(_, init)))
       .groupBy(t => (t.name, t.kind, t.origin))
       .flatMap(_._2.headOption)
       .toList
