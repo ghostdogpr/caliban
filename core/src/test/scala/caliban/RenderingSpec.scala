@@ -17,7 +17,7 @@ object RenderingSpec extends DefaultRunnableSpec {
                     |}
                     |
                     |"Description of custom scalar emphasizing proper captain ship names"
-                    |scalar CaptainShipName
+                    |scalar CaptainShipName @specifiedBy(url: "http://someUrl")
                     |
                     |union Role = Captain | Engineer | Mechanic | Pilot
                     |

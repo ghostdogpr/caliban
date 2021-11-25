@@ -95,7 +95,7 @@ object FragmentValidator {
 
           fields.foreach {
             case field @ SelectedField(
-                  __Type(_, Some(name), _, _, _, _, _, _, _, _, _),
+                  __Type(_, Some(name), _, _, _, _, _, _, _, _, _, _),
                   _,
                   _
                 ) if isConcrete(field.parentType) =>

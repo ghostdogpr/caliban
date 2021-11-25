@@ -1,5 +1,6 @@
 package caliban.introspection.adt
 
+import caliban.Value.StringValue
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Type.{ ListType, NamedType }
@@ -15,6 +16,7 @@ case class __Type(
   enumValues: __DeprecatedArgs => Option[List[__EnumValue]] = _ => None,
   inputFields: Option[List[__InputValue]] = None,
   ofType: Option[__Type] = None,
+  specifiedBy: Option[String] = None,
   directives: Option[List[Directive]] = None,
   origin: Option[String] = None
 ) {
@@ -28,6 +30,7 @@ case class __Type(
     args => (enumValues(args) ++ that.enumValues(args)).reduceOption(_ ++ _),
     (inputFields ++ that.inputFields).reduceOption(_ ++ _),
     (ofType ++ that.ofType).reduceOption(_ |+| _),
+    (specifiedBy ++ that.specifiedBy).reduceOption((_, b) => b),
     (directives ++ that.directives).reduceOption(_ ++ _),
     (origin ++ that.origin).reduceOption((_, b) => b)
   )
@@ -46,7 +49,17 @@ case class __Type(
   def toTypeDefinition: Option[TypeDefinition] =
     kind match {
       case __TypeKind.SCALAR       =>
-        Some(ScalarTypeDefinition(description, name.getOrElse(""), directives.getOrElse(Nil)))
+        Some(
+          ScalarTypeDefinition(
+            description,
+            name.getOrElse(""),
+            directives
+              .getOrElse(Nil) ++
+              specifiedBy
+                .map(url => Directive("specifiedBy", Map("url" -> StringValue(url)), directives.size))
+                .toList
+          )
+        )
       case __TypeKind.OBJECT       =>
         Some(
           ObjectTypeDefinition(

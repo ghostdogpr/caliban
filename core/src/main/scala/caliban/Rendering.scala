@@ -18,7 +18,10 @@ object Rendering {
           case __TypeKind.SCALAR   =>
             t.name.flatMap(name =>
               if (isBuiltinScalar(name)) None
-              else Some(s"""${renderDescription(t.description)}scalar $name""".stripMargin)
+              else
+                Some(
+                  s"""${renderDescription(t.description)}scalar $name${renderSpecifiedBy(t.specifiedBy)}""".stripMargin
+                )
             )
           case __TypeKind.NON_NULL => None
           case __TypeKind.LIST     => None
@@ -89,6 +92,11 @@ object Rendering {
     case None                   => ""
     case Some(value) if newline => if (value.contains("\n")) s"""\"\"\"\n$value\"\"\"\n""" else s""""$value"\n"""
     case Some(value)            => if (value.contains("\n")) s"""\"\"\"$value\"\"\" """ else s""""$value" """
+  }
+
+  private def renderSpecifiedBy(specifiedBy: Option[String]): String = specifiedBy match {
+    case None      => ""
+    case Some(url) => s""" @specifiedBy(url: "$url")"""
   }
 
   private def renderDirectiveArgument(value: InputValue): Option[String] = value match {

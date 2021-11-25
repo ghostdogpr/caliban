@@ -73,7 +73,7 @@ trait SchemaDerivation[A] {
               makeEnum(
                 Some(getName(annotations, info)),
                 getDescription(annotations),
-                subTypes.collect { case (name, __Type(_, _, description, _, _, _, _, _, _, _, _), annotations) =>
+                subTypes.collect { case (name, __Type(_, _, description, _, _, _, _, _, _, _, _, _), annotations) =>
                   __EnumValue(
                     name,
                     description,
