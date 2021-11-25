@@ -181,6 +181,40 @@ object SchemaSpec extends DefaultRunnableSpec {
                          |  a: String!
                          |}""".stripMargin
         assertTrue(gql.render == expected)
+      },
+      test("Pass interface to withAdditionalTypes") {
+        @GQLInterface
+        sealed trait Interface
+
+        case class A(s: String) extends Interface
+        case class B(s: String) extends Interface
+
+        case class Query(a: A, b: B)
+
+        val interfaceType = Schema.gen[Any, Interface].toType_()
+
+        val gql      = graphQL(RootResolver(Query(A("a"), B("b")))).withAdditionalTypes(List(interfaceType))
+        val expected = """schema {
+                         |  query: Query
+                         |}
+                         |
+                         |interface Interface {
+                         |  s: String!
+                         |}
+                         |
+                         |type A implements Interface {
+                         |  s: String!
+                         |}
+                         |
+                         |type B implements Interface {
+                         |  s: String!
+                         |}
+                         |
+                         |type Query {
+                         |  a: A!
+                         |  b: B!
+                         |}""".stripMargin
+        assertTrue(gql.render == expected)
       }
     )
 
