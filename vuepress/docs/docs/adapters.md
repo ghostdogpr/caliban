@@ -34,10 +34,10 @@ All existing adapters are actually using a common adapter under the hood, called
 
 This adapter, available in the `caliban-tapir` dependency, also have the same 3 methods `makeHttpService`, `makeHttpUploadService` and `makeWebSocketService`.
 There are 2 main differences between these and the methods from the built-in adapters:
-- they return tapir `ServerEndpoint` objects, which you can then pass to a tapir interpreter
+- they return one or several tapir `ServerEndpoint`, which you can then pass to a tapir interpreter. The returned `ServerEndpoint` use `RIO[R, *]` as an effect type, but you can easily transform it to another effect type. A helper `convertHttpEndpointToFuture` allows converting the effect type to a scala `Future` (this is used in the Akka and Play interpreters).
 - they require some implicit `JsonCodec`, which you can get by importing the proper tapir json object
 
-Let's say we want to use `Http4sAdapter` but with play-json instead of circe. The built-in adapter uses circe so instead, we will directly use `TapirAdapter`.
+Let's say we want to use http4s but with play-json instead of circe. The built-in `Http4sAdapter` uses circe so instead, we will directly use `TapirAdapter`.
 First, we need to import 2 tapir dependencies in our project (in addition to `caliban-tapir`):
 - a tapir interpreter for http4s: `tapir-zio-http4s-server`
 - a tapir json codec for play-json: `tapir-json-play`
@@ -50,7 +50,7 @@ val endpoints   = TapirAdapter.makeHttpService(interpreter)
 val http4sRoute = ZHttp4sServerInterpreter().from(endpoints).toRoutes
 ```
 
-That's it! `http4sRoute` is a valid http4s route ready to serve your API.
+That's it! `http4sRoute` is a valid http4s route ready to serve our API.
 
 ::: tip Limitations
 The zio-http interpreter in tapir does not include multipart and websocket support.
