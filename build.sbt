@@ -279,7 +279,7 @@ lazy val zioHttp = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "io.d11"                      %% "zhttp"                 % zioHttpVersion,
-      "com.softwaremill.sttp.tapir" %% "tapir-zio-http-server" % tapirVersion,
+      "com.softwaremill.sttp.tapir" %% "tapir-zio-http-server" % tapirVersion exclude ("dev.zio", "zio-interop-cats"),
       "com.softwaremill.sttp.tapir" %% "tapir-json-circe"      % tapirVersion
     )
   )
