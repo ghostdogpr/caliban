@@ -1,8 +1,9 @@
 # Http Adapters
 
 Once you have an interpreter able to execute GraphQL queries, you usually want to expose it using an HTTP API.
-Caliban comes with a few "ready-to-use" components (called "adapters") to expose your API with the most popular HTTP libraries. 
-You can also create a custom adapter easily.
+Caliban comes with a few "ready-to-use" components (called "adapters") to expose your API with the most popular HTTP libraries.
+
+Under the hood, adapters use the [tapir](https://tapir.softwaremill.com/en/latest/) library, so you can easily create a custom adapter with anything that tapir supports.
 
 ## Built-in adapters
 Each built-in adapter comes with 3 main functions:
@@ -25,6 +26,35 @@ The following adapters are provided:
 
 Want to use something else? Want to use one of them with a different Json library? Check the next section!
 
-Make sure to check the many [examples](examples.md) as well.
+Make sure to check the [examples](examples.md) to see the adapters in action.
 
 ## Make you own adapter
+
+All existing adapters are actually using a common adapter under the hood, called `TapirAdapter`.
+
+This adapter, available in the `caliban-tapir` dependency, also have the same 3 methods `makeHttpService`, `makeHttpUploadService` and `makeWebSocketService`.
+There are 2 main differences between these and the methods from the built-in adapters:
+- they return tapir `ServerEndpoint` objects, which you can then pass to a tapir interpreter
+- they require some implicit `JsonCodec`, which you can get by importing the proper tapir json object
+
+Let's say we want to use `Http4sAdapter` but with play-json instead of circe. The built-in adapter uses circe so instead, we will directly use `TapirAdapter`.
+First, we need to import 2 tapir dependencies in our project (in addition to `caliban-tapir`):
+- a tapir interpreter for http4s: `tapir-zio-http4s-server`
+- a tapir json codec for play-json: `tapir-json-play`
+
+```scala
+import sttp.tapir.json.play._
+import sttp.tapir.server.http4s.ztapir.ZHttp4sServerInterpreter
+
+val endpoints   = TapirAdapter.makeHttpService(interpreter)
+val http4sRoute = ZHttp4sServerInterpreter().from(endpoints).toRoutes
+```
+
+That's it! `http4sRoute` is a valid http4s route ready to serve your API.
+
+::: tip Limitations
+The zio-http interpreter in tapir does not include multipart and websocket support.
+
+Caliban comes with json encoders and decoders for circe, zio-json and play-json.
+If you use another json library, you will need to create encoders and decoders for it (which is very simple, you can simply look at the existing ones).
+:::
