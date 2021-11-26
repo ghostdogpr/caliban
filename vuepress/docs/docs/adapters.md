@@ -22,7 +22,7 @@ The following adapters are provided:
 - `Http4sAdapter` exposes a route for http4s, using circe for the Json handling.
 - `ZHttpAdapter` exposes a route for zio-http, using circe for the Json handling. This one doesn't support upload yet.
 - `PlayHttpAdapter` exposes a route for play, using play-json for the Json handling.
-- `AkkaHttpAdapter` exposes a route for akka. For historical reasons, this adapter is not fixed to any Json library, which needs that you need depend on one of the tapir Json libraries and import it.
+- `AkkaHttpAdapter` exposes a route for akka. For historical reasons, this adapter is not fixed to any Json library, which means that you need depend on one of the tapir Json libraries and import it.
 
 Want to use something else? Want to use one of them with a different Json library? Check the next section!
 
