@@ -15,20 +15,20 @@ The design principles of Caliban are the following:
 To use `caliban`, add the following line in your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "1.2.4"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "1.3.0"
 ```
 
 The following modules are optional:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-http4s"     % "1.2.4" // routes for http4s
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-akka-http"  % "1.2.4" // routes for akka-http
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-play"       % "1.2.4" // routes for play
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-zio-http"   % "1.2.4" // routes for zio-http
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-cats"       % "1.2.4" // interop with cats effect
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-monix"      % "1.2.4" // interop with monix
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-tapir"      % "1.2.4" // interop with tapir
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-federation" % "1.2.4" // interop with apollo federation
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-http4s"     % "1.3.0" // routes for http4s
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-akka-http"  % "1.3.0" // routes for akka-http
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-play"       % "1.3.0" // routes for play
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-zio-http"   % "1.3.0" // routes for zio-http
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-cats"       % "1.3.0" // interop with cats effect
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-monix"      % "1.3.0" // interop with monix
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-tapir"      % "1.3.0" // interop with tapir
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-federation" % "1.3.0" // interop with apollo federation
 ```
 
 ## A simple example
@@ -118,7 +118,9 @@ A `CalibanError` can be:
 - a `ValidationError`: the query was parsed but does not match the schema
 - an `ExecutionError`: an error happened while executing the query
 
-Caliban itself is not tied to any web framework, you are free to expose this function using the protocol and library of your choice. The [caliban-http4s](https://github.com/ghostdogpr/caliban/tree/master/adapters/http4s) module provides an `Http4sAdapter` that exposes an interpreter over HTTP and WebSocket using http4s. There are also similar adapters for Akka HTTP, Play and zio-http.
+Caliban itself is not tied to any web framework, you are free to expose this function using the protocol and library of your choice.
+The [caliban-http4s](https://github.com/ghostdogpr/caliban/tree/master/adapters/http4s) module provides an `Http4sAdapter` that exposes an interpreter over HTTP and WebSocket using http4s. There are also similar adapters for Akka HTTP, Play and zio-http.
+Read more on the [adapters' documentation](adapters.md).
 
 ::: tip Combining GraphQL APIs
 You don't have to define all your root fields into a single case class: you can use smaller case classes and combine `GraphQL` objects using the `|+|` operator.
