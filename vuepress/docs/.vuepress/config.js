@@ -56,6 +56,7 @@ module.exports = {
               'optimization',
               'validation',
               'introspection',
+              'adapters',
               'interop',
               'client',
               'federation',
