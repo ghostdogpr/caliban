@@ -34,7 +34,7 @@ object CostEstimation {
   }
 
   /**
-   * Computes field cost by examining the @cost directive. This can be used in conjunction with [[queryCost()]] or [[maxCost()]]
+   * Computes field cost by examining the @cost directive. This can be used in conjunction with [[queryCost]] or [[maxCost]]
    * In order to compute the estimated cost of executing a query.
    *
    * @note This will be executed *before* the actual resolvers are called, which allows you to stop potentially expensive queries
@@ -85,9 +85,11 @@ object CostEstimation {
   }
 
   /**
-   * Computes the estimated cost of the query based on the provide field cost function and adds it as an extension to the GraphQLResponse.
+   * Computes the estimated cost of the query based on the provided field cost function and adds it as an extension to the GraphQLResponse.
    * This is useful for tracking the overall cost of a query either when you are trying to dial in a correct heuristic or when you
-   * want to inform user's of your graph how expensive their queries are.
+   * want to inform users of your graph how expensive their queries are.
+   *
+   * @see queryCostWith, queryCostZIO
    */
   def queryCost(f: Field => Double): Wrapper[Any] = EffectfulWrapper(
     Ref.make(0.0).map { cost =>
@@ -95,6 +97,12 @@ object CostEstimation {
     }
   )
 
+  /**
+   * Computes the estimated cost of the query based on the provided field cost function and passes it to the second function
+   * which can run an arbitrary side effect with the result.
+   *
+   * @see queryCost
+   */
   def queryCostWith[R](f: Field => Double)(p: Double => URIO[R, Any]): Wrapper[R] = EffectfulWrapper(
     Ref.make(0.0).map { cost =>
       costWrapper(cost)(f) |+| costOverall(cost.get.flatMap(p) as _)
@@ -102,8 +110,11 @@ object CostEstimation {
   )
 
   /**
-   * A more powerful version of [[queryCost()]] which allows the field cost computation to return an effect instead of a plain value
+   * A more powerful version of [[queryCost]] which allows the field cost computation to return an effect instead of a plain value
    * when computing the cost estimate.
+   * @param f The field cost estimate function
+   *
+   * @see queryCostZIOWith for a more powerful version
    */
   def queryCostZIO[R](f: Field => URIO[R, Double]): Wrapper[R] = EffectfulWrapper(
     Ref.make(0.0).map { cost =>
@@ -112,12 +123,10 @@ object CostEstimation {
   )
 
   /**
-   * A more powerful version of [[queryCostZIO()]] that allows the total result of the query to be pushed into a separate effect.
+   * A more powerful version of [[queryCostZIO]] that allows the total result of the query to be pushed into a separate effect.
    * This is useful when you want to compute the cost of the query but you already have your own system for recording the cost.
    * @param f The field cost estimate function
    * @param p A function which receives the total estimated cost of executing the query and can
-   * @tparam R
-   * @return
    */
   def queryCostZIOWith[R](f: Field => URIO[R, Double])(p: Double => URIO[R, Any]): Wrapper[R] = EffectfulWrapper(
     Ref.make(0.0).map { cost =>
@@ -128,6 +137,9 @@ object CostEstimation {
   /**
    * Computes the estimated cost of executing the query using the provided function and compares it to
    * the `maxCost` parameter which determines the maximum allowable cost for a query.
+   *
+   * @param maxCost The maximum allowable cost for executing a query
+   * @param f The field cost estimate function
    */
   def maxCost(maxCost: Double)(f: Field => Double): ValidationWrapper[Any] =
     maxCostOrError(maxCost)(f)(cost => ValidationError(s"Query costs too much: $cost. Max cost: $maxCost.", ""))
