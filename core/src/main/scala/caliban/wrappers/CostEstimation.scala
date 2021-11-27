@@ -61,7 +61,7 @@ object CostEstimation {
               values.collect {
                 case StringValue(name) =>
                   f.arguments.get(name).collectFirst {
-                    case i: IntValue   => i.toInt
+                    case i: IntValue   => i.toInt.toDouble
                     case d: FloatValue => d.toDouble
                   }
                 case _                 => None
