@@ -56,6 +56,8 @@ val api = graphQL(...) @@ wrapper
 Caliban comes with a few pre-made wrappers in `caliban.wrappers.Wrappers`:
 - `maxDepth` returns a wrapper that fails queries whose depth is higher than a given value
 - `maxFields` returns a wrapper that fails queries whose number of fields is higher than a given value
+- `maxCost` returns a wrapper that fails queries when the estimated cost of execution exceeds a given value
+- `queryCost` returns a wrapper which adds an extension field that includes the cost of executing the query
 - `timeout` returns a wrapper that fails queries taking more than a specified time
 - `printErrors` returns a wrapper that prints errors
 - `printSlowQueries` returns a wrapper that prints slow queries
@@ -155,3 +157,36 @@ a federated graph:
         federate(original)
     }
 ```
+
+## Cost Estimation
+
+The `queryCost` and `maxCost` wrappers as well as their variants can be used to estimate the cost of a query, however they require a bit 
+more set up to work properly.
+
+These wrappers are in the `CostEstimation` object which also comes with a special directive that can be used out of the box to instrument your
+schema for cost analysis.
+
+Given a schema in which different fields have different costs to execute, either because they require additional network or computing resources, or database access, or they 
+have some other dependency that makes them expensive to compute. You can add the `CostDirective` to your resolver like so:
+
+```scala
+case class SpokenLineArgs(offset: Int, limit: Int)
+
+@GQLDirective(CostDirective(2))
+case class Character(
+  name: String,
+  // Compute a realtime list of all the spoken lines for this character
+  @GQLDirective(CostDirective(100, multipliers = List("limit")))
+  spokenLines: SpokenLineArgs => UIO[List[String]]
+)
+
+case class Query(
+  @GQLDirective(CostDirective(5)) characters: UIO[List[Character]],
+)
+```
+
+In the above example we have provided a couple different examples. For instance, we can add the directive to both types and 
+to fields. In this case the field resolver will override the type cost, however if there is no field cost then the type cost will be used.
+We may also specify a "multipliers" argument when using arguments. This will match the argument names and use numeric argument values to multiply the base value.
+In the above case this means that a query that specifies a `limit` of `10` for the `spokenLines` field will have the base field cost multipled by 10 resulting in a total cost
+of execution of `1000`
