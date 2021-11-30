@@ -91,11 +91,8 @@ object CostEstimation {
    *
    * @see queryCostWith, queryCostZIO
    */
-  def queryCost(f: Field => Double): Wrapper[Any] = EffectfulWrapper(
-    Ref.make(0.0).map { cost =>
-      costWrapper(cost)(f) |+| costOverall(addCostToExtensions(cost))
-    }
-  )
+  def queryCost(f: Field => Double): Wrapper[Any] =
+    queryCostZIOWrapperState(costWrapper(_)(f))(addCostToExtensions)
 
   /**
    * Computes the estimated cost of the query based on the provided field cost function and passes it to the second function
@@ -103,11 +100,8 @@ object CostEstimation {
    *
    * @see queryCost
    */
-  def queryCostWith[R](f: Field => Double)(p: Double => URIO[R, Any]): Wrapper[R] = EffectfulWrapper(
-    Ref.make(0.0).map { cost =>
-      costWrapper(cost)(f) |+| costOverall(cost.get.flatMap(p) as _)
-    }
-  )
+  def queryCostWith[R](f: Field => Double)(p: Double => URIO[R, Any]): Wrapper[R] =
+    queryCostZIOWrapperState[R](costWrapper(_)(f))((cost, r) => p(cost).as(r))
 
   /**
    * A more powerful version of [[queryCost]] which allows the field cost computation to return an effect instead of a plain value
@@ -116,11 +110,8 @@ object CostEstimation {
    *
    * @see queryCostZIOWith for a more powerful version
    */
-  def queryCostZIO[R](f: Field => URIO[R, Double]): Wrapper[R] = EffectfulWrapper(
-    Ref.make(0.0).map { cost =>
-      costWrapperZIO(cost)(f) |+| costOverall[Any](addCostToExtensions(cost))
-    }
-  )
+  def queryCostZIO[R](f: Field => URIO[R, Double]): Wrapper[R] =
+    queryCostZIOWrapperState(costWrapperZIO(_)(f))(addCostToExtensions)
 
   /**
    * A more powerful version of [[queryCostZIO]] that allows the total result of the query to be pushed into a separate effect.
@@ -128,9 +119,28 @@ object CostEstimation {
    * @param f The field cost estimate function
    * @param p A function which receives the total estimated cost of executing the query and can
    */
-  def queryCostZIOWith[R](f: Field => URIO[R, Double])(p: Double => URIO[R, Any]): Wrapper[R] = EffectfulWrapper(
+  def queryCostZIOWith[R](f: Field => URIO[R, Double])(p: Double => URIO[R, Any]): Wrapper[R] =
+    queryCostZIOWrapperState(costWrapperZIO(_)(f))((cost, r) => p(cost) as r)
+
+  /**
+   * The most powerful version of [[queryCost]] that allows maximum freedom in how the wrapper is defined. The function accepts
+   * a function that will take a Ref that can be used for book keeping to track the current cost of the query, and returns a wrapper.
+   * Normally this wrapper is a validation wrapper because it should be run before execution for the purposes of cost estimation.
+   * However, the API provides the flexibility to redefine that. The second parameter of the function will receive the final cost estimate of the query
+   * as well as the current graphql response, it returns an effect that produces a potentially modified response.
+   *
+   * @param costWrapper User provided function that will result in a wrapper that may be used when computing the cost of a query
+   * @param p The response transforming function which receives the cost estimate as well as the response value.
+   *
+   * @see queryCostZIOWith, queryCostZIO, queryCost
+   */
+  def queryCostZIOWrapperState[R](
+    costWrapper: Ref[Double] => Wrapper[R]
+  )(
+    p: (Double, GraphQLResponse[CalibanError]) => URIO[R, GraphQLResponse[CalibanError]]
+  ): Wrapper[R] = EffectfulWrapper(
     Ref.make(0.0).map { cost =>
-      costWrapperZIO(cost)(f) |+| costOverall(cost.get.flatMap(p) as _)
+      costWrapper(cost) |+| costOverall(resp => cost.get.flatMap(p(_, resp)))
     }
   )
 
@@ -209,19 +219,20 @@ object CostEstimation {
     }
 
   private def addCostToExtensions(
-    cost: Ref[Double]
-  )(resp: GraphQLResponse[CalibanError]): UIO[GraphQLResponse[CalibanError]] =
-    cost.get.map { total =>
+    cost: Double,
+    resp: GraphQLResponse[CalibanError]
+  ): UIO[GraphQLResponse[CalibanError]] =
+    UIO.succeed(
       resp.copy(
         extensions = Some(
           ObjectValue(
             resp.extensions.foldLeft[List[(String, ResponseValue)]](
-              List(COST_EXTENSION_NAME -> FloatValue(total))
+              List(COST_EXTENSION_NAME -> FloatValue(cost))
             )(_ ++ _.fields)
           )
         )
       )
-    }
+    )
 
   private def costOverall[R](
     f: GraphQLResponse[CalibanError] => URIO[R, GraphQLResponse[CalibanError]]
