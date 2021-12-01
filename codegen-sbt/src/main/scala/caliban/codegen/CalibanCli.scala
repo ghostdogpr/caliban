@@ -52,7 +52,7 @@ object CalibanCli {
 
   private val genSchemaHelpMsg =
     s"""
-       |calibanGenSchema schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name] [--effect fqdn.Effect] [--abstractEffectType true|false]
+       |calibanGenSchema schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name] [--effect fqdn.Effect] [--abstractEffectType true|false] [--preserveInputNames true|false]
        |
        |This command will create a Scala file in `outputPath` containing all the types
        |defined in the provided GraphQL schema defined at `schemaPath`. Instead of a path,
@@ -66,6 +66,8 @@ object CalibanCli {
        |type is abstract, so that it will be added as a type parameter to the generated
        |Query and Mutation classes (if applicable).  In such cases `F` will be used by
        |as the type parameter unless the `--effect` option is explicitly given.
+       |By default all input types will have 'Input' appended to their names in the
+       |derived schema.  Use the --preserveInputNames flag to disable this.
        |""".stripMargin
 
   private val genClientHelpMsg =
