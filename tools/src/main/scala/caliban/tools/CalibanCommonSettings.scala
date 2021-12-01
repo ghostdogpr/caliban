@@ -15,7 +15,8 @@ final case class CalibanCommonSettings(
   extensibleEnums: Option[Boolean],
   genType: GenType,
   effect: Option[String],
-  abstractEffectType: Option[Boolean]
+  abstractEffectType: Option[Boolean],
+  preserveInputNames: Option[Boolean]
 ) {
 
   private[caliban] def toOptions(schemaPath: String, toPath: String): Options =
@@ -33,7 +34,8 @@ final case class CalibanCommonSettings(
       abstractEffectType = abstractEffectType,
       splitFiles = splitFiles,
       enableFmt = enableFmt,
-      extensibleEnums = extensibleEnums
+      extensibleEnums = extensibleEnums,
+      preserveInputNames = preserveInputNames
     )
 
   private[caliban] def combine(r: => CalibanCommonSettings): CalibanCommonSettings =
@@ -50,7 +52,8 @@ final case class CalibanCommonSettings(
       extensibleEnums = r.extensibleEnums.orElse(this.extensibleEnums),
       genType = r.genType,
       effect = r.effect.orElse(this.effect),
-      abstractEffectType = r.abstractEffectType.orElse(this.abstractEffectType)
+      abstractEffectType = r.abstractEffectType.orElse(this.abstractEffectType),
+      preserveInputNames = r.preserveInputNames.orElse(this.preserveInputNames)
     )
 
   def clientName(value: String): CalibanCommonSettings                       = this.copy(clientName = Some(value))
@@ -68,6 +71,8 @@ final case class CalibanCommonSettings(
   def effect(effect: String): CalibanCommonSettings                          = this.copy(effect = Some(effect))
   def abstractEffectType(abstractEffectType: Boolean): CalibanCommonSettings =
     this.copy(abstractEffectType = Some(abstractEffectType))
+  def preserveInputNames(preserveInputNames: Boolean): CalibanCommonSettings =
+    this.copy(preserveInputNames = Some(preserveInputNames))
 }
 
 object CalibanCommonSettings {
@@ -85,6 +90,7 @@ object CalibanCommonSettings {
       extensibleEnums = None,
       genType = GenType.Client,
       effect = None,
-      abstractEffectType = None
+      abstractEffectType = None,
+      preserveInputNames = None
     )
 }

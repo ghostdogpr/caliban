@@ -39,7 +39,8 @@ object ConfigSpec extends DefaultRunnableSpec {
               enableFmt = Some(false),
               extensibleEnums = Some(true),
               effect = None,
-              abstractEffectType = None
+              abstractEffectType = None,
+              preserveInputNames = None
             )
         )
       )
