@@ -6,20 +6,21 @@ import caliban.federation
 import caliban.schema.Annotations.GQLDirective
 
 import zio.query.ZQuery
+import _root_.caliban.federation._
 
 object FederationData {
 
   object episodes {
-    @GQLDirective(federation.Key("season episode"))
+    @GQLKey("season episode")
     case class Episode(
       name: String,
       season: Int,
       episode: Int
     )
 
-    @GQLDirective(federation.Key("name"))
-    @GQLDirective(federation.Extend)
-    case class Character(@GQLDirective(federation.External) name: String)
+    @GQLKey("name")
+    @GQLExtend
+    case class Character(@GQLExternal name: String)
 
     case class EpisodeArgs(season: Int, episode: Int)
     case class EpisodesArgs(season: Option[Int])
@@ -52,7 +53,7 @@ object FederationData {
     import Role._
     import Origin._
 
-    @GQLDirective(federation.Key("name"))
+    @GQLKey("name")
     case class Character(
       name: String,
       nicknames: List[String],
@@ -61,11 +62,11 @@ object FederationData {
       starredIn: List[Episode] = Nil
     )
 
-    @GQLDirective(federation.Key("season episode"))
-    @GQLDirective(federation.Extend)
+    @GQLKey("season episode")
+    @GQLExtend
     case class Episode(
-      @GQLDirective(federation.External) season: Int,
-      @GQLDirective(federation.External) episode: Int,
+      @GQLExternal season: Int,
+      @GQLExternal episode: Int,
       characters: ZQuery[CharacterService, Nothing, List[Character]] = ZQuery.succeed(List.empty)
     )
 

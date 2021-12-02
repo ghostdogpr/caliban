@@ -4,6 +4,7 @@ import caliban.CalibanError.ExecutionError
 import caliban.Value.{ NullValue, StringValue }
 import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
+import caliban.schema.Annotations.GQLDirective
 import caliban.schema.Step.QueryStep
 import caliban.schema._
 import caliban.{ CalibanError, GraphQL, GraphQLAspect, InputValue, RootResolver }
@@ -12,22 +13,32 @@ import zio.query.ZQuery
 trait Federation {
   import Federation._
 
+  case class GQLKey(fields: String) extends GQLDirective(Key(fields))
+
   object Key {
     def apply(fields: String): Directive =
       Directive("key", Map("fields" -> StringValue(fields)))
   }
+
+  case class GQLProvides(fields: String) extends GQLDirective(Provides(fields))
 
   object Provides {
     def apply(fields: String): Directive =
       Directive("provides", Map("fields" -> StringValue(fields)))
   }
 
+  case class GQLRequires(fields: String) extends GQLDirective(Requires(fields))
+
   object Requires {
     def apply(fields: String): Directive =
       Directive("requires", Map("fields" -> StringValue(fields)))
   }
 
+  case class GQLExtend() extends GQLDirective(Extend)
+
   val Extend = Directive("extends")
+
+  case class GQLExternal() extends GQLDirective(External)
 
   val External = Directive("external")
 

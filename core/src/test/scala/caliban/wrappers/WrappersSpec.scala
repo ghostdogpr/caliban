@@ -11,7 +11,7 @@ import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
 import caliban.schema.Annotations.GQLDirective
 import caliban.schema.{ GenericSchema, Schema }
-import caliban.wrappers.ApolloCaching.CacheControl
+import caliban.wrappers.ApolloCaching.{ CacheControl, GQLCacheControl }
 import caliban.wrappers.ApolloPersistedQueries.apolloPersistedQueries
 import caliban.wrappers.Wrapper.{ ExecutionWrapper, FieldWrapper }
 import caliban.wrappers.Wrappers._
@@ -191,9 +191,9 @@ object WrappersSpec extends DefaultRunnableSpec {
         )
       },
       testM("Apollo Caching") {
-        case class Query(@GQLDirective(CacheControl(10.seconds)) hero: Hero)
+        case class Query(@GQLCacheControl(maxAge = Some(10.seconds)) hero: Hero)
 
-        @GQLDirective(CacheControl(2.seconds))
+        @GQLCacheControl(maxAge = Some(2.seconds))
         case class Hero(name: URIO[Clock, String], friends: List[Hero] = Nil)
 
         object schema extends GenericSchema[Clock] {
