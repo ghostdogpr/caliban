@@ -172,17 +172,40 @@ have some other dependency that makes them expensive to compute. You can add the
 ```scala
 case class SpokenLineArgs(offset: Int, limit: Int)
 
-@GQLDirective(CostDirective(2))
+@GQLCost(2)
 case class Character(
   name: String,
   // Compute a realtime list of all the spoken lines for this character
-  @GQLDirective(CostDirective(100, multipliers = List("limit")))
+  @GQLCost(100, multipliers = List("limit"))
   spokenLines: SpokenLineArgs => UIO[List[String]]
 )
 
 case class Query(
-  @GQLDirective(CostDirective(5)) characters: UIO[List[Character]],
+  @GQLCost(5) characters: UIO[List[Character]],
 )
+
+def allCharacterNames: UIO[List[String]] = ???
+def getLines(name: String, offset: Int, limit: Int): UIO[List[String]] = ???
+
+val api = GraphQL.graphQL(RootResolver(Query(
+  characters = allCharacters.flatMap { 
+    names => ZIO.foreach(names) { name =>
+      Character(
+        name,
+        spokenLines = args => getLines(name, args.offset, args.limit)
+      )
+    } 
+  }
+)))
+
+val apiWithCost = api @@ 
+  queryCost @@ // or queryCost(f: Field => Double) to specify your own field cost estimation
+  // or queryCostWith(f: Field => Double)(p: Double => URIO[R, Any]) to also specify a side effect after computing the total cost
+  // or queryCostZIO(f: Field => URIO[R, Double]) if your field calculation returns an effect
+  maxCost(100)(CostEstimate.costDirective)
+  // or maxCostOrError(maxCost)(f: Double => ValidationError) to specify a different error
+  // or maxCostZIO(maxCost)(f: Field => URIO[R, Double]) if your field calculation returns an effect
+
 ```
 
 In the above example we have provided a couple different examples. For instance, we can add the directive to both types and 

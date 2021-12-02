@@ -6,6 +6,7 @@ import caliban.ResponseValue.ObjectValue
 import caliban.Value.{ FloatValue, IntValue, StringValue }
 import caliban.execution.{ ExecutionRequest, Field }
 import caliban.parsing.adt.{ Directive, Document }
+import caliban.schema.Annotations.GQLDirective
 import caliban.schema.Types
 import caliban.wrappers.Wrapper.{ EffectfulWrapper, OverallWrapper, ValidationWrapper }
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
@@ -18,6 +19,9 @@ object CostEstimation {
   final val COST_DIRECTIVE_NAME = "cost"
   final val COST_EXTENSION_NAME = "queryCost"
 
+  case class GQLCost(cost: Double, multipliers: List[String] = Nil)
+      extends GQLDirective(CostDirective(cost, multipliers))
+
   /**
    * A directive that can be applied to both fields and types to flag them as targets for cost analysis.
    * This allows a simple estimation to be applied which can be used to prevent overly expensive queries from being executed
@@ -26,11 +30,16 @@ object CostEstimation {
     def apply(cost: Double): Directive =
       Directive(COST_DIRECTIVE_NAME, arguments = Map("weight" -> FloatValue(cost)))
 
-    def apply(cost: Double, multipliers: List[String]): Directive =
+    def apply(cost: Double, multipliers: List[String]): Directive = {
+      val multi = multipliers match {
+        case Nil => Map.empty
+        case _   => Map("multipliers" -> ListValue(multipliers.map(StringValue.apply)))
+      }
       Directive(
         COST_DIRECTIVE_NAME,
-        arguments = Map("weight" -> FloatValue(cost), "multipliers" -> ListValue(multipliers.map(StringValue.apply)))
+        arguments = Map("weight" -> FloatValue(cost)) ++ multi
       )
+    }
   }
 
   /**
@@ -40,12 +49,10 @@ object CostEstimation {
    * @note This will be executed *before* the actual resolvers are called, which allows you to stop potentially expensive queries
    *       from being run, but may also require more work on the developer part to determine the correct heuristic for estimating field cost.
    */
-  val costDirective = (f: Field) => {
+  val costDirective: Field => Double = (f: Field) => {
     def computeDirectiveCost(directives: List[Directive]) =
       directives.collectFirst {
         case d if d.name == COST_DIRECTIVE_NAME =>
-          // TODO should we support string backed formulas?
-          // TODO Support list arguments / multipliers
           val weight = d.arguments
             .get("weight")
             .collect {
@@ -83,6 +90,15 @@ object CostEstimation {
 
     (directiveCost orElse typeCost).getOrElse(1.0)
   }
+
+  /**
+   * Computes the estimated cost of the query based on the default cost estimation (backed by the @GQLCost directive) and adds it as an extension to the GraphQLResponse.
+   * This is useful for tracking the overall cost of a query either when you are trying to dial in a correct heuristic or when you
+   * want to inform users of your graph how expensive their queries are.
+   *
+   * @see queryCostWith, queryCostZIO
+   */
+  lazy val queryCost: Wrapper[Any] = queryCost(costDirective)
 
   /**
    * Computes the estimated cost of the query based on the provided field cost function and adds it as an extension to the GraphQLResponse.

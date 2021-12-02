@@ -6,8 +6,7 @@ import caliban.Macros.gqldoc
 import caliban.ResponseValue.ObjectValue
 import caliban.RootResolver
 import caliban.Value.{ FloatValue, IntValue }
-import caliban.schema.Annotations.GQLDirective
-import caliban.wrappers.CostEstimation.CostDirective
+import caliban.wrappers.CostEstimation.GQLCost
 import zio.console.putStr
 import zio.test.environment.TestConsole
 import zio.test.{ assertTrue, DefaultRunnableSpec, ZSpec }
@@ -16,13 +15,13 @@ import zio.{ Ref, UIO }
 object CostEstimationSpec extends DefaultRunnableSpec {
   case class WithArgs(limit: Int)
   case class E(value: Int)
-  @GQLDirective(CostDirective(10))
-  case class D(e: E, @GQLDirective(CostDirective(1, List("limit"))) f: List[String])
+  @GQLCost(10)
+  case class D(e: E, @GQLCost(1, List("limit")) f: List[String])
   case class Test(
     a: Int,
-    @GQLDirective(CostDirective(100)) b: UIO[Int],
-    @GQLDirective(CostDirective(5, multipliers = List("limit"))) c: WithArgs => UIO[List[Int]],
-    @GQLDirective(CostDirective(2)) d: D
+    @GQLCost(100) b: UIO[Int],
+    @GQLCost(5, multipliers = List("limit")) c: WithArgs => UIO[List[Int]],
+    @GQLCost(2) d: D
   )
 
   val api = graphQL(
