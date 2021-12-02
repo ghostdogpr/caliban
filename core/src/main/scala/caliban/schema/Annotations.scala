@@ -35,7 +35,12 @@ object Annotations {
   /**
    * Annotation used to provide directives to a schema type
    */
-  case class GQLDirective(directive: Directive) extends StaticAnnotation
+  class GQLDirective(val directive: Directive) extends StaticAnnotation
+
+  object GQLDirective {
+    def unapply(annotation: GQLDirective): Option[Directive] =
+      Some(annotation.directive)
+  }
 
   /**
    * Annotation to make a sealed trait an interface instead of a union type or an enum
