@@ -43,7 +43,7 @@ object CostEstimation {
   }
 
   /**
-   * Computes field cost by examining the @cost directive. This can be used in conjunction with [[queryCost]] or [[maxCost]]
+   * Computes field cost by examining the @cost directive. This can be used in conjunction with `queryCost` or [[maxCost]]
    * In order to compute the estimated cost of executing a query.
    *
    * @note This will be executed *before* the actual resolvers are called, which allows you to stop potentially expensive queries
@@ -120,7 +120,7 @@ object CostEstimation {
     queryCostZIOWrapperState[R](costWrapper(_)(f))((cost, r) => p(cost).as(r))
 
   /**
-   * A more powerful version of [[queryCost]] which allows the field cost computation to return an effect instead of a plain value
+   * A more powerful version of `queryCost` which allows the field cost computation to return an effect instead of a plain value
    * when computing the cost estimate.
    * @param f The field cost estimate function
    *
@@ -139,7 +139,7 @@ object CostEstimation {
     queryCostZIOWrapperState(costWrapperZIO(_)(f))((cost, r) => p(cost) as r)
 
   /**
-   * The most powerful version of [[queryCost]] that allows maximum freedom in how the wrapper is defined. The function accepts
+   * The most powerful version of `queryCost` that allows maximum freedom in how the wrapper is defined. The function accepts
    * a function that will take a Ref that can be used for book keeping to track the current cost of the query, and returns a wrapper.
    * Normally this wrapper is a validation wrapper because it should be run before execution for the purposes of cost estimation.
    * However, the API provides the flexibility to redefine that. The second parameter of the function will receive the final cost estimate of the query
