@@ -41,7 +41,7 @@ First, any types that will be "resolvable" need to be annotated with a `@key` di
 in the `federation` package to help with that. 
 
 ```scala
-@GQLDirective(Key("name"))
+@GQLKey("name")
 case class Character(name: String)
 ```
 
@@ -51,9 +51,9 @@ If you need to extend a type from another service, you will need to define a stu
 and annotate it with the `@extends` annotation
 
 ```scala
-@GQLDirective(Key("season episode")) 
-@GQLDirective(Extend)
-case class Episode(@GQLDirective(External) season: Int, @GQLDirective(External) episode: Int, cast: List[Character])
+@GQLKey("season episode") 
+@GQLExtend
+case class Episode(@GQLExternal season: Int, @GQLExternal episode: Int, cast: List[Character])
 ```
 
 Note the additional annotations we needed in this case. `Extend` is needed to tell the gateway that this type is defined within

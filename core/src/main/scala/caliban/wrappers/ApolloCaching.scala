@@ -5,6 +5,7 @@ import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ EnumValue, IntValue, StringValue }
 import caliban.execution.FieldInfo
 import caliban.parsing.adt.Directive
+import caliban.schema.Annotations.GQLDirective
 import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper }
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
 import zio.duration.Duration
@@ -20,7 +21,18 @@ object ApolloCaching {
 
   private val directiveName = "cacheControl"
 
+  case class GQLCacheControl(maxAge: Option[Duration] = None, scope: Option[CacheScope] = None)
+      extends GQLDirective(CacheControl(scope, maxAge))
+
   object CacheControl {
+
+    def apply(scope: Option[CacheScope], maxAge: Option[Duration]): Directive =
+      (scope, maxAge) match {
+        case (Some(scope), Some(age)) => apply(age, scope)
+        case (None, Some(age))        => apply(age)
+        case (Some(scope), None)      => apply(scope)
+        case _                        => Directive(directiveName, Map.empty)
+      }
 
     def apply(scope: ApolloCaching.CacheScope): Directive =
       Directive(directiveName, Map("scope" -> EnumValue(scope.toString)))
