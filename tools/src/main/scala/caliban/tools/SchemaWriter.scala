@@ -12,7 +12,8 @@ object SchemaWriter {
     effect: String = "zio.UIO",
     imports: Option[List[String]] = None,
     scalarMappings: Option[Map[String, String]],
-    isEffectTypeAbstract: Boolean = false
+    isEffectTypeAbstract: Boolean = false,
+    preserveInputNames: Boolean = false
   ): String = {
 
     val interfaceImplementationsMap = (for {
@@ -62,10 +63,13 @@ object SchemaWriter {
         .map(writeField(_, typedef))
         .mkString(", ")})"""
 
-    def writeInputObject(typedef: InputObjectTypeDefinition): String =
-      s"""${writeDescription(typedef.description)}final case class ${typedef.name}(${typedef.fields
+    def writeInputObject(typedef: InputObjectTypeDefinition): String = {
+      val name            = typedef.name
+      val maybeAnnotation = if (preserveInputNames) s"""@GQLInputName("$name")\n""" else ""
+      s"""${maybeAnnotation}${writeDescription(typedef.description)}final case class $name(${typedef.fields
         .map(writeInputValue)
         .mkString(", ")})"""
+    }
 
     def writeEnum(typedef: EnumTypeDefinition): String =
       s"""${writeDescription(typedef.description)}sealed trait ${typedef.name} extends scala.Product with scala.Serializable

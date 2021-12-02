@@ -29,7 +29,8 @@ trait Config {
         extensibleEnums = Some(extensibleEnums),
         GenType.Client,
         effect = None,
-        abstractEffectType = None
+        abstractEffectType = None,
+        preserveInputNames = None
       )
 
     private[caliban] def asScalaCode: String = {

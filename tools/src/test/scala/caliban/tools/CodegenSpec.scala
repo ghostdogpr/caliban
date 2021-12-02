@@ -81,7 +81,8 @@ object CodegenSpec extends DefaultRunnableSpec {
       abstractEffectType = None,
       splitFiles = None,
       enableFmt = None,
-      extensibleEnums = None
+      extensibleEnums = None,
+      preserveInputNames = None
     )
 
     getPackageAndObjectName(arguments)

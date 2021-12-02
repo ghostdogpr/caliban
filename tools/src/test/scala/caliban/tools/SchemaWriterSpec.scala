@@ -15,7 +15,8 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
     effect: String = "zio.UIO",
     imports: List[String] = List.empty,
     scalarMappings: Map[String, String] = Map.empty,
-    isEffectTypeAbstract: Boolean = false
+    isEffectTypeAbstract: Boolean = false,
+    preserveInputNames: Boolean = false
   ): RIO[Blocking, String] = Parser
     .parseQuery(schema.stripMargin)
     .flatMap(doc =>
@@ -27,7 +28,8 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
             effect,
             Some(imports),
             Some(scalarMappings),
-            isEffectTypeAbstract
+            isEffectTypeAbstract,
+            preserveInputNames
           ),
           None
         )
@@ -350,6 +352,30 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
         |
         |  final case class Character(name: String)
         |  final case class CharacterArgs(name: String)
+        |
+        |}"""
+    ),
+    (
+      "input type with preserved input",
+      gen(
+        """
+             type Character {
+                name: String!
+             }
+
+             input CharacterInput {
+               name: String!
+             }
+            """,
+        preserveInputNames = true
+      ),
+      """import caliban.schema.Annotations._
+        |
+        |object Types {
+        |
+        |  final case class Character(name: String)
+        |  @GQLInputName("CharacterInput")
+        |  final case class CharacterInput(name: String)
         |
         |}"""
     ),

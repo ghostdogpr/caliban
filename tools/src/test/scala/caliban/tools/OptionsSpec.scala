@@ -28,6 +28,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -54,6 +55,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -66,7 +68,7 @@ object OptionsSpec extends DefaultRunnableSpec {
         assert(result)(
           equalTo(
             Some(
-              Options("schema", "output", None, None, None, None, None, None, None, None, None, None, None, None)
+              Options("schema", "output", None, None, None, None, None, None, None, None, None, None, None, None, None)
             )
           )
         )
@@ -105,6 +107,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -124,6 +127,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 Some("GraphqlClient.scala"),
+                None,
                 None,
                 None,
                 None,
@@ -157,6 +161,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -177,6 +182,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 Some(true),
+                None,
                 None,
                 None,
                 None,
@@ -209,7 +215,8 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
-                Some(true)
+                Some(true),
+                None
               )
             )
           )
@@ -231,6 +238,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 Some(Map("Long" -> "scala.Long")),
+                None,
                 None,
                 None,
                 None,
@@ -261,6 +269,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 None,
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -287,7 +296,35 @@ object OptionsSpec extends DefaultRunnableSpec {
                 Some(true),
                 None,
                 None,
+                None,
                 None
+              )
+            )
+          )
+        )
+      },
+      test("provide preserveInputNames") {
+        val input  = List("schema", "output", "--preserveInputNames", "true")
+        val result = Options.fromArgs(input)
+        assert(result)(
+          equalTo(
+            Some(
+              Options(
+                "schema",
+                "output",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(true)
               )
             )
           )
@@ -304,6 +341,7 @@ object OptionsSpec extends DefaultRunnableSpec {
                 "output",
                 Some("fmtPath"),
                 Some(List(Header("aaa", "bbb:ccc"))),
+                None,
                 None,
                 None,
                 None,
