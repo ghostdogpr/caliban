@@ -63,7 +63,7 @@ object MonixInterop {
       override def optional: Boolean                                         = true
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
         val t = ev.toType_(isInput, isSubscription)
-        if (isSubscription) t else Types.makeList(if (ev.optional) t else Types.makeNonNull(t))
+        if (isSubscription) t else (if (ev.optional) t else t.nonNull).list
       }
       override def resolve(value: Observable[A]): Step[R]                    =
         StreamStep(

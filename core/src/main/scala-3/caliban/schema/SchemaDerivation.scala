@@ -142,7 +142,7 @@ trait SchemaDerivation[A] {
                     getDescription(fieldAnnotations),
                     () =>
                       if (schema.optional) schema.toType_(isInput, isSubscription)
-                      else makeNonNull(schema.toType_(isInput, isSubscription)),
+                      else schema.toType_(isInput, isSubscription).nonNull,
                     getDefaultValue(fieldAnnotations),
                     Some(fieldAnnotations.collect { case GQLDirective(dir) => dir }).filter(_.nonEmpty)
                   )
@@ -163,7 +163,7 @@ trait SchemaDerivation[A] {
                     schema.arguments,
                     () =>
                       if (schema.optional) schema.toType_(isInput, isSubscription)
-                      else makeNonNull(schema.toType_(isInput, isSubscription)),
+                      else schema.toType_(isInput, isSubscription).nonNull,
                     fieldAnnotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
                     fieldAnnotations.collectFirst { case GQLDeprecated(reason) => reason },
                     Option(fieldAnnotations.collect { case GQLDirective(dir) => dir }).filter(_.nonEmpty)

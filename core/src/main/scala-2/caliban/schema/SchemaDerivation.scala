@@ -51,7 +51,7 @@ trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
                 getDescription(p),
                 () =>
                   if (p.typeclass.optional) p.typeclass.toType_(isInput, isSubscription)
-                  else makeNonNull(p.typeclass.toType_(isInput, isSubscription)),
+                  else p.typeclass.toType_(isInput, isSubscription).nonNull,
                 p.annotations.collectFirst { case GQLDefault(v) => v },
                 Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
               )
@@ -72,7 +72,7 @@ trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
                 p.typeclass.arguments,
                 () =>
                   if (p.typeclass.optional) p.typeclass.toType_(isInput, isSubscription)
-                  else makeNonNull(p.typeclass.toType_(isInput, isSubscription)),
+                  else p.typeclass.toType_(isInput, isSubscription).nonNull,
                 p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
                 p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
                 Option(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)

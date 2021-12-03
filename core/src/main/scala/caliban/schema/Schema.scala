@@ -272,7 +272,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   implicit def listSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, List[A]]                                      = new Schema[R0, List[A]] {
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
       val t = ev.toType_(isInput, isSubscription)
-      makeList(if (ev.optional) t else makeNonNull(t))
+      (if (ev.optional) t else t.nonNull).list
     }
 
     override def resolve(value: List[A]): Step[R0] = ListStep(value.map(ev.resolve))
@@ -358,7 +358,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
       )
 
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-        makeList(makeNonNull(kvSchema.toType_(isInput, isSubscription)))
+        kvSchema.toType_(isInput, isSubscription).nonNull.list
 
       override def resolve(value: Map[A, B]): Step[RA with RB] = ListStep(value.toList.map(kvSchema.resolve))
     }
@@ -377,7 +377,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
               __InputValue(
                 unwrappedArgumentName,
                 None,
-                () => if (ev1.optional) inputType else makeNonNull(inputType),
+                () => if (ev1.optional) inputType else inputType.nonNull,
                 None
               )
             )
@@ -465,7 +465,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
       override def optional: Boolean                                         = false
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
         val t = ev.toType_(isInput, isSubscription)
-        if (isSubscription) t else makeList(if (ev.optional) t else makeNonNull(t))
+        if (isSubscription) t else (if (ev.optional) t else t.nonNull).list
       }
       override def resolve(value: ZStream[R1, Nothing, A]): Step[R1]         = StreamStep(value.map(ev.resolve))
     }
@@ -476,7 +476,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
       override def optional: Boolean                                         = true
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
         val t = ev.toType_(isInput, isSubscription)
-        if (isSubscription) t else makeList(if (ev.optional) t else makeNonNull(t))
+        if (isSubscription) t else (if (ev.optional) t else t.nonNull).list
       }
       override def resolve(value: ZStream[R1, E, A]): Step[R0]               = StreamStep(value.map(ev.resolve))
     }
@@ -487,7 +487,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
       override def optional: Boolean                                         = true
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
         val t = ev.toType_(isInput, isSubscription)
-        if (isSubscription) t else makeList(if (ev.optional) t else makeNonNull(t))
+        if (isSubscription) t else (if (ev.optional) t else t.nonNull).list
       }
       override def resolve(value: ZStream[R1, E, A]): Step[R0]               = StreamStep(value.mapBoth(convertError, ev.resolve))
     }
@@ -617,7 +617,7 @@ abstract class PartiallyAppliedFieldBase[V](name: String, description: Option[St
       Nil,
       () =>
         if (ev.optional) ev.toType_(ft.isInput, ft.isSubscription)
-        else Types.makeNonNull(ev.toType_(ft.isInput, ft.isSubscription)),
+        else ev.toType_(ft.isInput, ft.isSubscription).nonNull,
       isDeprecated = Directives.isDeprecated(directives),
       deprecationReason = Directives.deprecationReason(directives),
       directives = Some(directives.filter(_.name != "deprecated")).filter(_.nonEmpty)
