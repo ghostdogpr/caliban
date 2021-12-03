@@ -9,27 +9,23 @@ import caliban.Value.StringValue
 import caliban._
 import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
-import caliban.schema.Annotations.GQLDirective
 import caliban.schema.{ GenericSchema, Schema }
-import caliban.wrappers.ApolloCaching.{ CacheControl, GQLCacheControl }
+import caliban.wrappers.ApolloCaching.GQLCacheControl
 import caliban.wrappers.ApolloPersistedQueries.apolloPersistedQueries
 import caliban.wrappers.Wrapper.{ ExecutionWrapper, FieldWrapper }
 import caliban.wrappers.Wrappers._
 import io.circe.syntax._
-import zio.clock.Clock
-import zio.duration._
+import zio._
 import zio.query.ZQuery
 import zio.test.Assertion._
 import zio.test._
-import zio.test.environment.{ TestClock, TestEnvironment }
-import zio.{ clock, Promise, Ref, UIO, URIO, ZIO }
 
 import scala.language.postfixOps
 
 object WrappersSpec extends DefaultRunnableSpec {
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("WrappersSpec")(
-      testM("wrapPureValues false") {
+      test("wrapPureValues false") {
         case class Test(a: Int, b: UIO[Int])
         for {
           ref         <- Ref.make[Int](0)
@@ -38,15 +34,15 @@ object WrappersSpec extends DefaultRunnableSpec {
                              query: ZQuery[R1, ExecutionError, ResponseValue],
                              info: FieldInfo
                            ): ZQuery[R1, ExecutionError, ResponseValue] =
-                             ZQuery.fromEffect(ref.update(_ + 1)) *> query
+                             ZQuery.fromZIO(ref.update(_ + 1)) *> query
                          }
           interpreter <- (graphQL(RootResolver(Test(1, UIO(2)))) @@ wrapper).interpreter.orDie
           query        = gqldoc("""{ a b }""")
           _           <- interpreter.execute(query)
           counter     <- ref.get
-        } yield assert(counter)(equalTo(1))
+        } yield assertTrue(counter == 1)
       },
-      testM("wrapPureValues true") {
+      test("wrapPureValues true") {
         case class Test(a: Int, b: UIO[Int])
         for {
           ref         <- Ref.make[Int](0)
@@ -55,15 +51,15 @@ object WrappersSpec extends DefaultRunnableSpec {
                              query: ZQuery[R1, ExecutionError, ResponseValue],
                              info: FieldInfo
                            ): ZQuery[R1, ExecutionError, ResponseValue] =
-                             ZQuery.fromEffect(ref.update(_ + 1)) *> query
+                             ZQuery.fromZIO(ref.update(_ + 1)) *> query
                          }
           interpreter <- (graphQL(RootResolver(Test(1, UIO(2)))) @@ wrapper).interpreter.orDie
           query        = gqldoc("""{ a b }""")
           _           <- interpreter.execute(query)
           counter     <- ref.get
-        } yield assert(counter)(equalTo(2))
+        } yield assertTrue(counter == 2)
       },
-      testM("Max fields") {
+      test("Max fields") {
         case class A(b: B)
         case class B(c: Int)
         case class Test(a: A)
@@ -80,7 +76,7 @@ object WrappersSpec extends DefaultRunnableSpec {
           equalTo(List(ValidationError("Query has too many fields: 3. Max fields: 2.", "")))
         )
       },
-      testM("Max fields with fragment") {
+      test("Max fields with fragment") {
         case class A(b: B)
         case class B(c: Int)
         case class Test(a: A)
@@ -102,7 +98,7 @@ object WrappersSpec extends DefaultRunnableSpec {
           equalTo(List(ValidationError("Query has too many fields: 3. Max fields: 2.", "")))
         )
       },
-      testM("Max depth") {
+      test("Max depth") {
         case class A(b: B)
         case class B(c: Int)
         case class Test(a: A)
@@ -119,12 +115,12 @@ object WrappersSpec extends DefaultRunnableSpec {
           equalTo(List(ValidationError("Query is too deep: 3. Max depth: 2.", "")))
         )
       },
-      testM("Timeout") {
+      test("Timeout") {
         case class Test(a: URIO[Clock, Int])
 
         object schema extends GenericSchema[Clock] {
           val interpreter =
-            (graphQL[Clock, Test, Unit, Unit](RootResolver(Test(clock.sleep(2 minutes).as(0)))) @@
+            (graphQL[Clock, Test, Unit, Unit](RootResolver(Test(Clock.sleep(2 minutes).as(0)))) @@
               timeout(1 minute)).interpreter
         }
 
@@ -142,7 +138,7 @@ object WrappersSpec extends DefaultRunnableSpec {
                 a
               }""".stripMargin))))
       },
-      testM("Apollo Tracing") {
+      test("Apollo Tracing") {
         case class Query(hero: Hero)
         case class Hero(name: URIO[Clock, String], friends: List[Hero] = Nil)
 
@@ -190,7 +186,7 @@ object WrappersSpec extends DefaultRunnableSpec {
           )
         )
       },
-      testM("Apollo Caching") {
+      test("Apollo Caching") {
         case class Query(@GQLCacheControl(maxAge = Some(10.seconds)) hero: Hero)
 
         @GQLCacheControl(maxAge = Some(2.seconds))
@@ -236,7 +232,7 @@ object WrappersSpec extends DefaultRunnableSpec {
         )
       },
       suite("Apollo Persisted Queries")(
-        testM("hash not found") {
+        test("hash not found") {
           case class Test(test: String)
           val interpreter = (graphQL(RootResolver(Test("ok"))) @@ apolloPersistedQueries).interpreter
           assertM(
@@ -250,9 +246,9 @@ object WrappersSpec extends DefaultRunnableSpec {
               )
               .map(_.asJson.noSpaces)
           )(equalTo("""{"data":null,"errors":[{"message":"PersistedQueryNotFound"}]}"""))
-            .provideLayer(ApolloPersistedQueries.live)
+            .provide(ApolloPersistedQueries.live)
         },
-        testM("hash found") {
+        test("hash found") {
           case class Test(test: String)
 
           (for {
@@ -260,11 +256,11 @@ object WrappersSpec extends DefaultRunnableSpec {
             extensions   = Some(Map("persistedQuery" -> ObjectValue(Map("sha256Hash" -> StringValue("my-hash")))))
             _           <- interpreter.executeRequest(GraphQLRequest(query = Some("{test}"), extensions = extensions))
             result      <- interpreter.executeRequest(GraphQLRequest(extensions = extensions))
-          } yield assert(result.asJson.noSpaces)(equalTo("""{"data":{"test":"ok"}}""")))
-            .provideLayer(ApolloPersistedQueries.live)
+          } yield assertTrue(result.asJson.noSpaces == """{"data":{"test":"ok"}}"""))
+            .provide(ApolloPersistedQueries.live)
         }
       ),
-      testM("custom query directive") {
+      test("custom query directive") {
         val customWrapper        = new ExecutionWrapper[Any] {
           def wrap[R1 <: Any](
             f: ExecutionRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]]

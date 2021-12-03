@@ -9,9 +9,7 @@ import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.parsing.adt.Document
 import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper, ParsingWrapper, ValidationWrapper }
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, Rendering, ResponseValue }
-import zio.{ clock, Ref, ZIO }
-import zio.clock.Clock
-import zio.duration.Duration
+import zio._
 import zio.query.ZQuery
 
 object ApolloTracing {
@@ -110,12 +108,12 @@ object ApolloTracing {
       ): GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] =
         (request: GraphQLRequest) =>
           for {
-            nanoTime    <- clock.nanoTime
-            currentTime <- clock.currentTime(TimeUnit.MILLISECONDS)
+            nanoTime    <- Clock.nanoTime
+            currentTime <- Clock.currentTime(TimeUnit.MILLISECONDS)
             _           <- ref.update(_.copy(startTime = currentTime, startTimeMonotonic = nanoTime))
             result      <- process(request).timed.flatMap { case (duration, result) =>
                              for {
-                               endTime <- clock.currentTime(TimeUnit.MILLISECONDS)
+                               endTime <- Clock.currentTime(TimeUnit.MILLISECONDS)
                                _       <- ref.update(_.copy(duration = duration, endTime = endTime))
                                tracing <- ref.get
                              } yield result.copy(
@@ -137,7 +135,7 @@ object ApolloTracing {
       ): String => ZIO[R1, CalibanError.ParsingError, Document] =
         (query: String) =>
           for {
-            start              <- clock.nanoTime
+            start              <- Clock.nanoTime
             resultWithDuration <- process(query).timed
             (duration, result)  = resultWithDuration
             _                  <- ref.update(state =>
@@ -155,7 +153,7 @@ object ApolloTracing {
       ): Document => ZIO[R1, CalibanError.ValidationError, ExecutionRequest] =
         (doc: Document) =>
           for {
-            start              <- clock.nanoTime
+            start              <- Clock.nanoTime
             resultWithDuration <- process(doc).timed
             (duration, result)  = resultWithDuration
             _                  <- ref.update(state =>
@@ -174,10 +172,10 @@ object ApolloTracing {
         fieldInfo: FieldInfo
       ): ZQuery[R1, CalibanError.ExecutionError, ResponseValue] =
         for {
-          summarized            <- query.summarized(clock.nanoTime)((_, _))
+          summarized            <- query.summarized(Clock.nanoTime)((_, _))
           ((start, end), result) = summarized
           duration               = Duration.fromNanos(end - start)
-          _                     <- ZQuery.fromEffect(
+          _                     <- ZQuery.fromZIO(
                                      ref
                                        .update(state =>
                                          state.copy(

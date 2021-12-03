@@ -5,13 +5,12 @@ import caliban.Macros.gqldoc
 import caliban.RootResolver
 import zio.test.Assertion._
 import zio.test._
-import zio.test.environment.TestEnvironment
 
 object ExecutionSpec extends DefaultRunnableSpec {
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("Play ExecutionSpec")(
-      testM("Play Json scalar") {
+      test("Play Json scalar") {
         import caliban.interop.play.json._
         import play.api.libs.json._
         case class Queries(test: JsValue)

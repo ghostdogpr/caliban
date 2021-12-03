@@ -5,7 +5,6 @@ import io.circe._
 import io.circe.syntax._
 import zio.test.Assertion._
 import zio.test._
-import zio.test.environment.TestEnvironment
 
 object GraphQLWSInputCirceSpec extends DefaultRunnableSpec {
 
@@ -39,11 +38,7 @@ object GraphQLWSInputCirceSpec extends DefaultRunnableSpec {
           payload = Some(InputValue.ObjectValue(Map("field" -> Value.StringValue("yo"))))
         )
 
-        assert(res.asJson.noSpaces)(
-          equalTo(
-            """{"id":"id","type":"some type","payload":{"field":"yo"}}"""
-          )
-        )
+        assertTrue(res.asJson.noSpaces == """{"id":"id","type":"some type","payload":{"field":"yo"}}""")
       }
     )
 }

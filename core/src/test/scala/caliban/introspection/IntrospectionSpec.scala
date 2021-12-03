@@ -11,7 +11,6 @@ import caliban.wrappers.Wrapper.IntrospectionWrapper
 import zio.ZIO
 import zio.test.Assertion._
 import zio.test._
-import zio.test.environment.TestEnvironment
 
 object IntrospectionSpec extends DefaultRunnableSpec {
 
@@ -111,7 +110,7 @@ object IntrospectionSpec extends DefaultRunnableSpec {
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("IntrospectionSpec")(
-      testM("fail when introspection is disabled") {
+      test("fail when introspection is disabled") {
         val interpreter = graphQL(resolverIO).interpreter
 
         assertM(
@@ -119,7 +118,7 @@ object IntrospectionSpec extends DefaultRunnableSpec {
             .flatMap(_.execute(fullIntrospectionQuery, enableIntrospection = false))
         )(equalTo(GraphQLResponse(NullValue, List(ValidationError("Introspection is disabled", "")))))
       },
-      testM("introspect schema") {
+      test("introspect schema") {
         val interpreter = graphQL(resolverIO).interpreter
 
         assertM(interpreter.flatMap(_.execute(fullIntrospectionQuery)).map(_.data.toString))(
@@ -128,7 +127,7 @@ object IntrospectionSpec extends DefaultRunnableSpec {
           )
         )
       },
-      testM("introspect schema with wrapper") {
+      test("introspect schema with wrapper") {
         val hideWrapper = new IntrospectionWrapper[Any] {
           def wrap[R1 <: Any](
             effect: ZIO[R1, ExecutionError, __Introspection]
@@ -155,7 +154,7 @@ object IntrospectionSpec extends DefaultRunnableSpec {
           )
         )
       },
-      testM("introspect type") {
+      test("introspect type") {
         val interpreter = graphQL(resolverIO).interpreter
         val query       = gqldoc("""
               query {
@@ -169,7 +168,7 @@ object IntrospectionSpec extends DefaultRunnableSpec {
           equalTo("""{"__type":{"name":"Captain"}}""")
         )
       },
-      testM("introspect non-existent type") {
+      test("introspect non-existent type") {
         val interpreter = graphQL(resolverIO).interpreter
         val query       = gqldoc("""
               query {

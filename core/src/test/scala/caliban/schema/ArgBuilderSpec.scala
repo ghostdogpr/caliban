@@ -6,7 +6,6 @@ import caliban.InputValue.ObjectValue
 import caliban.Value.{ IntValue, NullValue, StringValue }
 import zio.test.Assertion._
 import zio.test._
-import zio.test.environment.TestEnvironment
 
 import java.time._
 
@@ -83,9 +82,9 @@ object ArgBuilderSpec extends DefaultRunnableSpec {
 
         val derivedAB = implicitly[ArgBuilder[Wrapper]]
 
-        assert(derivedAB.build(ObjectValue(Map())))(equalTo(Right(Wrapper(MissingNullable)))) &&
-        assert(derivedAB.build(ObjectValue(Map("a" -> NullValue))))(equalTo(Right(Wrapper(NullNullable)))) &&
-        assert(derivedAB.build(ObjectValue(Map("a" -> StringValue("x")))))(equalTo(Right(Wrapper(SomeNullable("x")))))
+        assertTrue(derivedAB.build(ObjectValue(Map())) == Right(Wrapper(MissingNullable))) &&
+        assertTrue(derivedAB.build(ObjectValue(Map("a" -> NullValue))) == Right(Wrapper(NullNullable))) &&
+        assertTrue(derivedAB.build(ObjectValue(Map("a" -> StringValue("x")))) == Right(Wrapper(SomeNullable("x"))))
       }
     )
   )

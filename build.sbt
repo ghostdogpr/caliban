@@ -42,6 +42,9 @@ inThisBuild(
         "scm:git:git@github.com:ghostdogpr/caliban.git"
       )
     ),
+    resolvers ++= Seq(
+      "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots"
+    ),
     developers               := List(
       Developer(
         "ghostdogpr",
@@ -123,11 +126,11 @@ lazy val core = project
       }
     } ++
       Seq(
-        "dev.zio"                     %% "zio"          % zioVersion,
-        "dev.zio"                     %% "zio-streams"  % zioVersion,
-        "dev.zio"                     %% "zio-query"    % zqueryVersion,
-        "dev.zio"                     %% "zio-test"     % zioVersion   % Test,
-        "dev.zio"                     %% "zio-test-sbt" % zioVersion   % Test,
+        "dev.zio"                     %% "zio"          % "2.0.0-M6-2",
+        "dev.zio"                     %% "zio-streams"  % "2.0.0-M6-2",
+        "dev.zio"                     %% "zio-query"    % "0.2.10+20-fe9db387-SNAPSHOT",
+        "dev.zio"                     %% "zio-test"     % "2.0.0-M6"   % Test,
+        "dev.zio"                     %% "zio-test-sbt" % "2.0.0-M6"   % Test,
         "com.softwaremill.sttp.tapir" %% "tapir-core"   % tapirVersion % Optional,
         "io.circe"                    %% "circe-core"   % circeVersion % Optional,
         "io.circe"                    %% "circe-parser" % circeVersion % Test
@@ -273,9 +276,6 @@ lazy val zioHttp = project
   .settings(name := "caliban-zio-http")
   .settings(commonSettings)
   .settings(
-    resolvers ++= Seq(
-      "Sonatype OSS Snapshots" at "https://s01.oss.sonatype.org/content/repositories/snapshots"
-    ),
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "io.d11"                      %% "zhttp"                 % zioHttpVersion,

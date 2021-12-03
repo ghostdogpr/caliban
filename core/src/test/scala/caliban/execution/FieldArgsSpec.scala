@@ -5,7 +5,6 @@ import caliban.{ GraphQLRequest, InputValue, RootResolver, Value }
 import caliban.Value.EnumValue
 import zio._
 import zio.test._
-import zio.test.environment.TestEnvironment
 import zio.test.Assertion._
 
 object FieldArgsSpec extends DefaultRunnableSpec {
@@ -16,7 +15,7 @@ object FieldArgsSpec extends DefaultRunnableSpec {
   }
 
   override def spec: ZSpec[TestEnvironment, Any] = suite("FieldArgsSpec")(
-    testM("it forward args of correct type") {
+    test("it forward args of correct type") {
       case class QueryInput(color: COLOR, string: String)
       case class Query(query: Field => QueryInput => UIO[String])
       val query =
@@ -41,7 +40,7 @@ object FieldArgsSpec extends DefaultRunnableSpec {
         res.get.arguments("color") == EnumValue("BLUE")
       )
     },
-    testM("it forward args as correct type from variables") {
+    test("it forward args as correct type from variables") {
       case class QueryInput(color: COLOR, string: String)
       case class Query(query: Field => QueryInput => UIO[String])
       val query =
@@ -74,7 +73,7 @@ object FieldArgsSpec extends DefaultRunnableSpec {
         res.get.arguments("color") == EnumValue("BLUE")
       )
     },
-    testM("it correctly handles lists of enums") {
+    test("it correctly handles lists of enums") {
       case class QueryInput(color: List[COLOR], string: String)
       case class Query(query: Field => QueryInput => UIO[String])
       val query =
@@ -112,7 +111,7 @@ object FieldArgsSpec extends DefaultRunnableSpec {
         res.get.arguments("color") == InputValue.ListValue(List(EnumValue("BLUE")))
       )
     },
-    testM("it correctly handles objects of enums") {
+    test("it correctly handles objects of enums") {
       case class QueryInput(nested: QueryInputInput)
       case class QueryInputInput(color: List[COLOR], string: String)
       case class Query(query: Field => QueryInput => UIO[String])
@@ -157,7 +156,7 @@ object FieldArgsSpec extends DefaultRunnableSpec {
           )
       )
     },
-    testM("it doesn't allow strings as enums in GQL syntax") {
+    test("it doesn't allow strings as enums in GQL syntax") {
       case class QueryInput(color: COLOR)
       case class Query(query: QueryInput => UIO[String])
       val query =
@@ -178,7 +177,7 @@ object FieldArgsSpec extends DefaultRunnableSpec {
         res         <- interpreter.execute(query)
       } yield assert(res.errors.headOption)(isSome(anything))
     },
-    testM("it correctly handles lists of objects with enums") {
+    test("it correctly handles lists of objects with enums") {
       case class QueryInput(filter: List[Filter])
       case class Filter(color: COLOR)
       case class Query(query: QueryInput => String)

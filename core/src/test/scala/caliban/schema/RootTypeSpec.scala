@@ -2,15 +2,13 @@ package caliban.schema
 
 import caliban.schema.Annotations.GQLInterface
 import caliban.{ GraphQL, RootResolver }
-import zio.test.Assertion._
 import zio.test._
-import zio.test.environment.TestEnvironment
 
 object RootTypeSpec extends DefaultRunnableSpec {
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("RootTypeSpec")(
-      testM("do not override interface") {
+      test("do not override interface") {
         case class Queries(findCommon: CommonInterface, findInterface: MyInterface, findField: MyField)
         case class Mutations(createA: String => MyInterface.A, createB: String => MyInterface.B)
 
@@ -36,9 +34,9 @@ object RootTypeSpec extends DefaultRunnableSpec {
           def interfaceName(tpe: String): Option[List[String]] =
             rootType.types.get(tpe).flatMap(_.interfaces()).map(_.flatMap(_.name))
 
-          assert(interfaceName("A"))(equalTo(Some(List("CommonInterface", "MyInterface")))) &&
-          assert(interfaceName("B"))(equalTo(Some(List("MyInterface")))) &&
-          assert(interfaceName("MyField"))(equalTo(Some(List("CommonInterface"))))
+          assertTrue(interfaceName("A").contains(List("CommonInterface", "MyInterface"))) &&
+          assertTrue(interfaceName("B").contains(List("MyInterface"))) &&
+          assertTrue(interfaceName("MyField").contains(List("CommonInterface")))
         }
       }
     )

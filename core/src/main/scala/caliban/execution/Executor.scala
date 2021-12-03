@@ -87,8 +87,8 @@ object Executor {
           reduceObject(items, fieldWrappers)
         case QueryStep(inner)               =>
           ReducedStep.QueryStep(
-            inner.foldCauseM(
-              e => ZQuery.halt(effectfulExecutionError(path, Some(currentField.locationInfo), e)),
+            inner.foldCauseQuery(
+              e => ZQuery.failCause(effectfulExecutionError(path, Some(currentField.locationInfo), e)),
               a => ZQuery.succeed(reduceStep(a, currentField, arguments, path))
             )
           )
@@ -101,7 +101,7 @@ object Executor {
             )
           } else {
             reduceStep(
-              QueryStep(ZQuery.fromEffect(stream.runCollect.map(chunk => ListStep(chunk.toList)))),
+              QueryStep(ZQuery.fromZIO(stream.runCollect.map(chunk => ListStep(chunk.toList)))),
               currentField,
               arguments,
               path
@@ -112,7 +112,7 @@ object Executor {
     def makeQuery(step: ReducedStep[R], errors: Ref[List[CalibanError]]): ZQuery[R, Nothing, ResponseValue] = {
 
       def handleError(error: ExecutionError, isNullable: Boolean): ZQuery[Any, ExecutionError, ResponseValue] =
-        if (isNullable) ZQuery.fromEffect(errors.update(error :: _)).as(NullValue)
+        if (isNullable) ZQuery.fromZIO(errors.update(error :: _)).as(NullValue)
         else ZQuery.fail(error)
 
       @tailrec
@@ -136,29 +136,29 @@ object Executor {
           case ReducedStep.ObjectStep(steps)                 =>
             val queries = steps.map { case (name, step, info) =>
               wrap(loop(step).flatMap(_.fold(ZQuery.fail(_), ZQuery.succeed(_))), step.isPure)(fieldWrappers, info)
-                .foldM(handleError(_, info.details.fieldType.isNullable), ZQuery.succeed(_))
+                .foldQuery(handleError(_, info.details.fieldType.isNullable), ZQuery.succeed(_))
                 .map(name -> _)
             }
             collectAll(queries).map(f => ObjectValue(f)).either
           case ReducedStep.QueryStep(step)                   =>
-            step.foldM(
+            step.foldQuery(
               error => ZQuery.succeed(Left(error)),
               query => loop(query)
             )
           case ReducedStep.StreamStep(stream)                =>
             ZQuery
-              .fromEffect(ZIO.environment[R])
+              .environment[R]
               .map(env =>
                 Right(
                   ResponseValue.StreamValue(
                     stream
-                      .mapM(loop(_).flatMap(_.fold(_ => ZQuery.succeed(NullValue), ZQuery.succeed(_))).run)
-                      .provide(env)
+                      .mapZIO(loop(_).flatMap(_.fold(_ => ZQuery.succeed(NullValue), ZQuery.succeed(_))).run)
+                      .provideEnvironment(env)
                   )
                 )
               )
         }
-      loop(step).flatMap(_.fold(error => ZQuery.fromEffect(errors.update(error :: _)).as(NullValue), ZQuery.succeed(_)))
+      loop(step).flatMap(_.fold(error => ZQuery.fromZIO(errors.update(error :: _)).as(NullValue), ZQuery.succeed(_)))
     }
 
     for {

@@ -73,7 +73,7 @@ object Introspector extends IntrospectionDerivation {
     RootSchema(
       Operation(
         introspectionSchema.toType_(),
-        QueryStep(ZQuery.fromEffect(wrap(ZIO.succeed(resolver))(introWrappers)).map(introspectionSchema.resolve))
+        QueryStep(ZQuery.fromZIO(wrap(ZIO.succeed(resolver))(introWrappers)).map(introspectionSchema.resolve))
       ),
       None,
       None

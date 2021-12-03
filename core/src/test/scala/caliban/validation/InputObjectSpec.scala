@@ -4,12 +4,11 @@ import caliban.{ CalibanError, GraphQLRequest, InputValue, RootResolver, TestUti
 import caliban.GraphQL._
 import zio.test.Assertion._
 import zio.test._
-import zio.test.environment.TestEnvironment
 
 object InputObjectSpec extends DefaultRunnableSpec {
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("InputObjectSpec")(
-      testM("fails if a non-null field on an input object is null") {
+      test("fails if a non-null field on an input object is null") {
         val query =
           """query {
             |  query(input: {string: null})
@@ -27,7 +26,7 @@ object InputObjectSpec extends DefaultRunnableSpec {
           isSome(isSubtype[CalibanError.ValidationError](anything))
         )
       },
-      testM("fails if a non-null field on an input object is null from variables") {
+      test("fails if a non-null field on an input object is null from variables") {
         val query =
           """query QueryName($input: TestInputObjectInput!) {
             |  query(input: $input)
@@ -56,7 +55,7 @@ object InputObjectSpec extends DefaultRunnableSpec {
           isSome(isSubtype[CalibanError.ValidationError](anything))
         )
       },
-      testM("allow null passed to optional enum") {
+      test("allow null passed to optional enum") {
         val query =
           """query QueryName($input: TestInputObjectInput!) {
             |  query(input: $input)
@@ -82,9 +81,9 @@ object InputObjectSpec extends DefaultRunnableSpec {
                      )
                    )
                  )
-        } yield assert(res.errors)(isEmpty)
+        } yield assertTrue(res.errors.isEmpty)
       },
-      testM("allow null passed to optional object") {
+      test("allow null passed to optional object") {
         val query =
           """query QueryName($input: TestInputObjectInput!) {
             |  query(input: $input)
@@ -110,9 +109,9 @@ object InputObjectSpec extends DefaultRunnableSpec {
                      )
                    )
                  )
-        } yield assert(res.errors)(isEmpty)
+        } yield assertTrue(res.errors.isEmpty)
       },
-      testM("allow null passed to optional list") {
+      test("allow null passed to optional list") {
         val query =
           """query QueryName($input: TestInputObjectInput!) {
             |  query(input: $input)
@@ -138,9 +137,9 @@ object InputObjectSpec extends DefaultRunnableSpec {
                      )
                    )
                  )
-        } yield assert(res.errors)(isEmpty)
+        } yield assertTrue(res.errors.isEmpty)
       },
-      testM("allow Int passed to Float field") {
+      test("allow Int passed to Float field") {
         val query =
           """query {
             |  query(input: { float: 42 })
@@ -155,9 +154,9 @@ object InputObjectSpec extends DefaultRunnableSpec {
         for {
           int <- gql.interpreter
           res <- int.executeRequest(GraphQLRequest(query = Some(query)))
-        } yield assert(res.errors)(isEmpty)
+        } yield assertTrue(res.errors.isEmpty)
       },
-      testM("allow Int passed to Float field in a variable") {
+      test("allow Int passed to Float field in a variable") {
         val query =
           """query QueryName($input: TestInputObjectInput!) {
             |  query(input: $input)
@@ -183,7 +182,7 @@ object InputObjectSpec extends DefaultRunnableSpec {
                      )
                    )
                  )
-        } yield assert(res.errors)(isEmpty)
+        } yield assertTrue(res.errors.isEmpty)
       }
     )
 }

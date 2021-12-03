@@ -116,6 +116,6 @@ object FragmentValidator {
 
     IO.whenCase(conflicts) { case Chunk(head, _*) =>
       IO.fail(ValidationError(head, ""))
-    }
+    }.unit
   }
 }

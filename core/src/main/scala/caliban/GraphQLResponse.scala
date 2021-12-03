@@ -4,7 +4,6 @@ import caliban.ResponseValue._
 import caliban.Value._
 import caliban.interop.circe._
 import caliban.interop.tapir.IsTapirSchema
-import sttp.tapir.Schema
 
 /**
  * Represents the result of a GraphQL query, containing a data object and a list of errors.

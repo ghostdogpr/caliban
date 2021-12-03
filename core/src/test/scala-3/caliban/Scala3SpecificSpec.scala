@@ -7,7 +7,6 @@ import zio.clock._
 import zio.console._
 import zio.test.Assertion._
 import zio.test._
-import zio.test.environment.TestEnvironment
 
 object Scala3SpecificSpec extends DefaultRunnableSpec {
 
@@ -28,7 +27,7 @@ object Scala3SpecificSpec extends DefaultRunnableSpec {
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("Scala3SpecificSpec")(
-      testM("Scala 3 enum") {
+      test("Scala 3 enum") {
         case class Queries(item: MyEnum)
         val api         = graphQL(RootResolver(Queries(MyEnum.A)))
         val interpreter = api.interpreter
@@ -40,7 +39,7 @@ object Scala3SpecificSpec extends DefaultRunnableSpec {
           equalTo("""{"item":"A"}""")
         )
       },
-      testM("Scala 3 union") {
+      test("Scala 3 union") {
         case class Queries(item: MyADT)
         val api         = graphQL(RootResolver(Queries(MyADT.A(1))))
         val interpreter = api.interpreter
@@ -59,7 +58,7 @@ object Scala3SpecificSpec extends DefaultRunnableSpec {
           equalTo("""{"item":{"a":1}}""")
         )
       },
-      testM("Scala 3 interface") {
+      test("Scala 3 interface") {
         case class Queries(item: MyADT2)
         val api         = graphQL(RootResolver(Queries(MyADT2.A(1))))
         val interpreter = api.interpreter
@@ -73,7 +72,7 @@ object Scala3SpecificSpec extends DefaultRunnableSpec {
           equalTo("""{"item":{"a":1}}""")
         )
       },
-      testM("Derive R without imports") {
+      test("Derive R without imports") {
         case class Inner(io: RIO[Console, String])
         case class Queries(io: RIO[Clock, Int], inner: Inner)
         val api         = graphQL[Clock with Console, Queries, Unit, Unit](RootResolver(Queries(UIO(1), Inner(UIO("ok")))))

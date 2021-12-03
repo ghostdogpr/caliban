@@ -1,21 +1,14 @@
 package caliban.interop.circe
 
-import caliban.CalibanError
 import caliban.CalibanError.ExecutionError
-import caliban.GraphQLResponse
-import caliban.ResponseValue
-import caliban.ResponseValue.ListValue
-import caliban.ResponseValue.ObjectValue
-import caliban.Value.FloatValue
-import caliban.Value.IntValue
-import caliban.Value.StringValue
+import caliban.ResponseValue.{ ListValue, ObjectValue }
+import caliban.Value.{ IntValue, StringValue }
 import caliban.parsing.adt.LocationInfo
+import caliban.{ CalibanError, GraphQLResponse }
 import io.circe._
 import io.circe.parser.decode
 import io.circe.syntax._
-import zio.test.Assertion._
 import zio.test._
-import zio.test.environment.TestEnvironment
 
 object GraphQLResponseCirceSpec extends DefaultRunnableSpec {
 
@@ -23,9 +16,7 @@ object GraphQLResponseCirceSpec extends DefaultRunnableSpec {
     suite("GraphQLResponseCirceSpec")(
       test("can be converted to JSON [circe]") {
         val response = GraphQLResponse(StringValue("data"), Nil)
-        assert(response.asJson)(
-          equalTo(Json.obj("data" -> Json.fromString("data")))
-        )
+        assertTrue(response.asJson == Json.obj("data" -> Json.fromString("data")))
       },
       test("should include error objects for every error, including extensions [circe]") {
 
@@ -45,16 +36,14 @@ object GraphQLResponseCirceSpec extends DefaultRunnableSpec {
           )
         )
 
-        assert(response.asJson)(
-          equalTo(
-            Json.obj(
-              "data"   -> Json.fromString("data"),
-              "errors" -> Json.arr(
-                Json.obj(
-                  "message"    -> Json.fromString("Resolution failed"),
-                  "locations"  -> Json.arr(Json.obj("column" -> Json.fromInt(1), "line" -> Json.fromInt(2))),
-                  "extensions" -> Json.obj("errorCode" -> "TEST_ERROR".asJson, "myCustomKey" -> "my-value".asJson)
-                )
+        assertTrue(
+          response.asJson == Json.obj(
+            "data"   -> Json.fromString("data"),
+            "errors" -> Json.arr(
+              Json.obj(
+                "message"    -> Json.fromString("Resolution failed"),
+                "locations"  -> Json.arr(Json.obj("column" -> Json.fromInt(1), "line" -> Json.fromInt(2))),
+                "extensions" -> Json.obj("errorCode" -> "TEST_ERROR".asJson, "myCustomKey" -> "my-value".asJson)
               )
             )
           )
@@ -66,11 +55,9 @@ object GraphQLResponseCirceSpec extends DefaultRunnableSpec {
           List.empty
         )
 
-        assert(response.asJson)(
-          equalTo(
-            Json.obj(
-              "data" -> Json.fromString("data")
-            )
+        assertTrue(
+          response.asJson == Json.obj(
+            "data" -> Json.fromString("data")
           )
         )
       },
@@ -95,24 +82,22 @@ object GraphQLResponseCirceSpec extends DefaultRunnableSpec {
             |     }]
             |}""".stripMargin
 
-        assert(decode[GraphQLResponse[CalibanError]](req))(
-          equalTo(
-            Right(
-              GraphQLResponse(
-                data = ObjectValue(List("value" -> IntValue(BigInt(42)))),
-                errors = List(
-                  ExecutionError(
-                    "boom",
-                    path = List(Left("step"), Right(0)),
-                    locationInfo = Some(LocationInfo(1, 2)),
-                    extensions = Some(
-                      ObjectValue(
-                        List(
-                          "argumentName" -> StringValue("id"),
-                          "code"         -> StringValue("BAD_USER_INPUT"),
-                          "exception"    -> ObjectValue(
-                            List("stacktrace" -> ListValue(List(StringValue("trace"))))
-                          )
+        assertTrue(
+          decode[GraphQLResponse[CalibanError]](req) == Right(
+            GraphQLResponse(
+              data = ObjectValue(List("value" -> IntValue(BigInt(42)))),
+              errors = List(
+                ExecutionError(
+                  "boom",
+                  path = List(Left("step"), Right(0)),
+                  locationInfo = Some(LocationInfo(1, 2)),
+                  extensions = Some(
+                    ObjectValue(
+                      List(
+                        "argumentName" -> StringValue("id"),
+                        "code"         -> StringValue("BAD_USER_INPUT"),
+                        "exception"    -> ObjectValue(
+                          List("stacktrace" -> ListValue(List(StringValue("trace"))))
                         )
                       )
                     )

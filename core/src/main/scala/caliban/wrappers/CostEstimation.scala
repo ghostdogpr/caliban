@@ -229,8 +229,9 @@ object CostEstimation {
       ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
         (doc: Document) =>
           for {
-            req <- process(doc)
-            _   <- computeCostZIO(req.field)(f) >>= total.set
+            req  <- process(doc)
+            cost <- computeCostZIO(req.field)(f)
+            _    <- total.set(cost)
           } yield req
     }
 

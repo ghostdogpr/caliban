@@ -33,7 +33,7 @@ object json {
   implicit val jsonSchema: Schema[Any, Json]    = new Schema[Any, Json] {
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = makeScalar("Json")
     override def resolve(value: Json): Step[Any]                           =
-      QueryStep(ZQuery.fromEffect(ZIO.fromEither(Decoder[ResponseValue].decodeJson(value))).map(PureStep.apply))
+      QueryStep(ZQuery.fromZIO(ZIO.fromEither(Decoder[ResponseValue].decodeJson(value))).map(PureStep.apply))
   }
   implicit val jsonArgBuilder: ArgBuilder[Json] = (input: InputValue) => Right(Encoder[InputValue].apply(input))
 

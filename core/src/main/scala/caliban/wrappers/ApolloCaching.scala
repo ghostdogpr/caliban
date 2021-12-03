@@ -8,9 +8,8 @@ import caliban.parsing.adt.Directive
 import caliban.schema.Annotations.GQLDirective
 import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper }
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
-import zio.duration.Duration
+import zio._
 import zio.query.ZQuery
-import zio.{ Ref, ZIO }
 
 import java.util.concurrent.TimeUnit
 
@@ -142,7 +141,7 @@ object ApolloCaching {
         )
 
         cacheDirectives.foldLeft(query) { case (q, cacheDirective) =>
-          q <* ZQuery.fromEffect(
+          q <* ZQuery.fromZIO(
             ref.update(state =>
               state.copy(
                 hints = CacheHint(

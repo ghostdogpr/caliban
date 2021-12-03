@@ -8,12 +8,11 @@ import caliban.Value.StringValue
 import caliban.schema.Annotations.GQLDefault
 import zio.test.Assertion._
 import zio.test._
-import zio.test.environment.TestEnvironment
 
 object FragmentSpec extends DefaultRunnableSpec {
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("FragmentSpec")(
-      testM("fragments") {
+      test("fragments") {
         val interpreter = graphQL(resolver).interpreter
         val query       = gqldoc("""
                    {
@@ -29,11 +28,9 @@ object FragmentSpec extends DefaultRunnableSpec {
         for {
           int <- interpreter
           res <- int.execute(query)
-        } yield assert(res.data.toString)(
-          equalTo("""{"amos":{"name":"Amos Burton"}}""")
-        )
+        } yield assertTrue(res.data.toString == """{"amos":{"name":"Amos Burton"}}""")
       },
-      testM("fragment on union") {
+      test("fragment on union") {
         val query = gqldoc("""
                    {
                      amos: character(name: "Amos Burton") {
@@ -52,9 +49,9 @@ object FragmentSpec extends DefaultRunnableSpec {
         for {
           interpreter <- graphQL(resolver).interpreter
           res         <- interpreter.execute(query)
-        } yield assert(res.data.toString)(equalTo("""{"amos":{"role":{"shipName":"Rocinante"}}}"""))
+        } yield assertTrue(res.data.toString == """{"amos":{"role":{"shipName":"Rocinante"}}}""")
       },
-      testM("inline fragment") {
+      test("inline fragment") {
         val interpreter = graphQL(resolver).interpreter
         val query       = gqldoc("""
                      {
@@ -72,7 +69,7 @@ object FragmentSpec extends DefaultRunnableSpec {
           equalTo("""{"amos":{"name":"Amos Burton","role":{"shipName":"Rocinante"}}}""")
         )
       },
-      testM("inline fragment selection with equal field types") {
+      test("inline fragment selection with equal field types") {
         sealed trait Union
         case class A(name: String) extends Union
         case class B(name: String) extends Union
@@ -90,11 +87,9 @@ object FragmentSpec extends DefaultRunnableSpec {
         for {
           int <- gql.interpreter
           res <- int.execute(query)
-        } yield assert(res.errors)(
-          isEmpty
-        )
+        } yield assertTrue(res.errors.isEmpty)
       },
-      testM("inline fragment selection with different field types") {
+      test("inline fragment selection with different field types") {
         sealed trait Union
         case class A(name: String)         extends Union
         case class B(name: Option[String]) extends Union
@@ -114,7 +109,7 @@ object FragmentSpec extends DefaultRunnableSpec {
           res <- int.execute(query)
         } yield assert(res.errors.headOption)(isSome(anything))
       },
-      testM("inline fragment selection with same arguments") {
+      test("inline fragment selection with same arguments") {
         sealed trait Union
         case class A(name: String => String) extends Union
         case class B(name: String => String) extends Union
@@ -134,7 +129,7 @@ object FragmentSpec extends DefaultRunnableSpec {
           res <- int.execute(query)
         } yield assert(res.errors)(isEmpty)
       },
-      testM("inline fragment selection with different arguments") {
+      test("inline fragment selection with different arguments") {
         sealed trait Union
         case class A(name: Int => String) extends Union
 
@@ -157,7 +152,7 @@ object FragmentSpec extends DefaultRunnableSpec {
       },
       suite("spec examples")(
         suite("simple fields")(
-          testM("merge identical fields") {
+          test("merge identical fields") {
             case class Dog(name: String)
 
             case class Query(dog: Dog)
@@ -180,7 +175,7 @@ object FragmentSpec extends DefaultRunnableSpec {
               res         <- interpreter.execute(query)
             } yield assert(res.errors)(isEmpty)
           },
-          testM("merge identical fields with alias") {
+          test("merge identical fields with alias") {
             case class Dog(name: String)
 
             case class Query(dog: Dog)
@@ -203,7 +198,7 @@ object FragmentSpec extends DefaultRunnableSpec {
               res         <- interpreter.execute(query)
             } yield assert(res.errors)(isEmpty)
           },
-          testM("alias conflict") {
+          test("alias conflict") {
             case class Dog(name: String, nickname: String)
 
             case class Query(dog: Dog)
@@ -228,7 +223,7 @@ object FragmentSpec extends DefaultRunnableSpec {
           }
         ),
         suite("args")(
-          testM("identical fields with args") {
+          test("identical fields with args") {
             sealed trait DogCommand
             case object SIT extends DogCommand
             case class Dog(doesKnowCommand: DogCommand => Boolean)
@@ -251,9 +246,9 @@ object FragmentSpec extends DefaultRunnableSpec {
             for {
               interpreter <- gql.interpreter
               res         <- interpreter.execute(query)
-            } yield assert(res.errors)(isEmpty)
+            } yield assertTrue(res.errors.isEmpty)
           },
-          testM("identical fields with identical values") {
+          test("identical fields with identical values") {
             sealed trait DogCommand
             case object SIT extends DogCommand
             case class Dog(doesKnowCommand: DogCommand => Boolean)
@@ -276,9 +271,9 @@ object FragmentSpec extends DefaultRunnableSpec {
             for {
               interpreter <- gql.interpreter
               res         <- interpreter.execute(query, variables = Map("dogCommand" -> StringValue("SIT")))
-            } yield assert(res.errors)(isEmpty)
+            } yield assertTrue(res.errors.isEmpty)
           },
-          testM("identical fields with args") {
+          test("identical fields with args") {
             sealed trait DogCommand
             case object SIT  extends DogCommand
             case object HEEL extends DogCommand
@@ -304,7 +299,7 @@ object FragmentSpec extends DefaultRunnableSpec {
               res         <- interpreter.execute(query)
             } yield assert(res.errors.headOption)(isSome(anything))
           },
-          testM("conflicting value and arg") {
+          test("conflicting value and arg") {
             sealed trait DogCommand
             case object SIT extends DogCommand
             case class Dog(doesKnowCommand: DogCommand => Boolean)
@@ -329,7 +324,7 @@ object FragmentSpec extends DefaultRunnableSpec {
               res         <- interpreter.execute(query, variables = Map("dogCommand" -> StringValue("SIT")))
             } yield assert(res.errors.headOption)(isSome(anything))
           },
-          testM("conflicting args") {
+          test("conflicting args") {
             sealed trait DogCommand
             case object SIT extends DogCommand
             case class Dog(doesKnowCommand: DogCommand => Boolean)
@@ -354,7 +349,7 @@ object FragmentSpec extends DefaultRunnableSpec {
               res         <- interpreter.execute(query, variables = Map("dogCommand" -> StringValue("SIT")))
             } yield assert(res.errors.headOption)(isSome(anything))
           },
-          testM("conflicting args") {
+          test("conflicting args") {
             sealed trait DogCommand
             case object SIT extends DogCommand
             case class Dog(@GQLDefault("SIT") doesKnowCommand: DogCommand => Boolean)
@@ -381,7 +376,7 @@ object FragmentSpec extends DefaultRunnableSpec {
           }
         ),
         suite("different types")(
-          testM("safe differing fields") {
+          test("safe differing fields") {
             sealed trait Pet
             case class Dog(barkVolume: Int) extends Pet
             case class Cat(meowVolume: Int) extends Pet
@@ -408,9 +403,9 @@ object FragmentSpec extends DefaultRunnableSpec {
             for {
               interpreter <- gql.interpreter
               res         <- interpreter.execute(query, variables = Map("dogCommand" -> StringValue("SIT")))
-            } yield assert(res.errors)(isEmpty)
+            } yield assertTrue(res.errors.isEmpty)
           },
-          testM("safe differing args") {
+          test("safe differing args") {
             sealed trait Pet
 
             sealed trait DogCommand
@@ -443,9 +438,9 @@ object FragmentSpec extends DefaultRunnableSpec {
             for {
               interpreter <- gql.interpreter
               res         <- interpreter.execute(query)
-            } yield assert(res.errors)(isEmpty)
+            } yield assertTrue(res.errors.isEmpty)
           },
-          testM("conflicting different responses") {
+          test("conflicting different responses") {
             sealed trait Pet
 
             case class Dog(nickname: String) extends Pet

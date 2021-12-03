@@ -414,7 +414,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     new Schema[R0, URIO[R1, A]] {
       override def optional: Boolean                                         = ev.optional
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
-      override def resolve(value: URIO[R1, A]): Step[R0]                     = QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
+      override def resolve(value: URIO[R1, A]): Step[R0]                     = QueryStep(ZQuery.fromZIO(value.map(ev.resolve)))
     }
   implicit def effectSchema[R0, R1 >: R0, R2 >: R0, E <: Throwable, A](implicit
     ev: Schema[R2, A]
@@ -422,7 +422,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     new Schema[R0, ZIO[R1, E, A]] {
       override def optional: Boolean                                         = true
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
-      override def resolve(value: ZIO[R1, E, A]): Step[R0]                   = QueryStep(ZQuery.fromEffect(value.map(ev.resolve)))
+      override def resolve(value: ZIO[R1, E, A]): Step[R0]                   = QueryStep(ZQuery.fromZIO(value.map(ev.resolve)))
     }
   def customErrorEffectSchema[R0, R1 >: R0, R2 >: R0, E, A](convertError: E => ExecutionError)(implicit
     ev: Schema[R2, A]
@@ -431,7 +431,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
       override def optional: Boolean                                         = true
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: ZIO[R1, E, A]): Step[R0]                   = QueryStep(
-        ZQuery.fromEffect(value.mapBoth(convertError, ev.resolve))
+        ZQuery.fromZIO(value.mapBoth(convertError, ev.resolve))
       )
     }
   implicit def infallibleQuerySchema[R0, R1 >: R0, R2 >: R0, A](implicit
@@ -456,7 +456,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     new Schema[R0, ZQuery[R1, E, A]] {
       override def optional: Boolean                                         = true
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
-      override def resolve(value: ZQuery[R1, E, A]): Step[R0]                = QueryStep(value.bimap(convertError, ev.resolve))
+      override def resolve(value: ZQuery[R1, E, A]): Step[R0]                = QueryStep(value.mapBoth(convertError, ev.resolve))
     }
   implicit def infallibleStreamSchema[R1, R2 >: R1, A](implicit
     ev: Schema[R2, A]

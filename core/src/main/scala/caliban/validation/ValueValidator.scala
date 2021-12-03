@@ -23,7 +23,7 @@ object ValueValidator {
             )
         _     <- Validator.validateInputValues(field, value, Context.empty, errorContext)
       } yield ()
-    }
+    }.unit
 
   def validateInputTypes(
     inputValue: __InputValue,
@@ -56,7 +56,7 @@ object ValueValidator {
           case LIST     =>
             argValue match {
               case ListValue(values) =>
-                IO.foreach_(values)(v =>
+                IO.foreachDiscard(values)(v =>
                   validateType(inputType.ofType.getOrElse(inputType), v, context, s"List item in $errorContext")
                 )
               case NullValue         =>
@@ -69,7 +69,7 @@ object ValueValidator {
           case INPUT_OBJECT =>
             argValue match {
               case ObjectValue(fields) =>
-                IO.foreach_(inputType.inputFields.getOrElse(List.empty)) { f =>
+                IO.foreachDiscard(inputType.inputFields.getOrElse(List.empty)) { f =>
                   val value =
                     fields.collectFirst { case (name, fieldValue) if name == f.name => fieldValue }
                       .getOrElse(NullValue)
@@ -116,7 +116,7 @@ object ValueValidator {
         s"$errorContext has invalid enum value: $value",
         s"Was supposed to be one of ${possible.mkString(", ")}"
       )
-    )
+    ).unit
   }
 
   def validateScalar(inputType: __Type, argValue: InputValue, errorContext: String): IO[ValidationError, Unit] =

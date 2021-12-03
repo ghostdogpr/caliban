@@ -1,7 +1,6 @@
 package caliban.interop.play
 
 import caliban.GraphQLRequest
-import zio.test.environment.TestEnvironment
 import zio.test.Assertion.{ equalTo, isRight }
 import zio.test._
 import play.api.libs.json._
@@ -34,10 +33,10 @@ object GraphQLRequestPlaySpec extends DefaultRunnableSpec {
           )
         )
 
-        assert(Json.toJson(res).toString())(
-          equalTo(
-            """{"query":"{}","operationName":"op","variables":{"hello":"world","answer":42,"isAwesome":true,"name":null}}"""
-          )
+        assertTrue(
+          Json
+            .toJson(res)
+            .toString() == """{"query":"{}","operationName":"op","variables":{"hello":"world","answer":42,"isAwesome":true,"name":null}}"""
         )
       }
     )

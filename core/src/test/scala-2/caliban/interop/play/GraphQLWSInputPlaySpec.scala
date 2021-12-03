@@ -1,10 +1,9 @@
 package caliban.interop.play
 
-import caliban.{ GraphQLRequest, GraphQLWSInput, InputValue, Value }
+import caliban.{ GraphQLWSInput, InputValue, Value }
 import play.api.libs.json._
 import zio.test.Assertion.{ equalTo, isRight }
 import zio.test._
-import zio.test.environment.TestEnvironment
 
 object GraphQLWSInputPlaySpec extends DefaultRunnableSpec {
 
@@ -38,11 +37,7 @@ object GraphQLWSInputPlaySpec extends DefaultRunnableSpec {
           payload = Some(InputValue.ObjectValue(Map("field" -> Value.StringValue("yo"))))
         )
 
-        assert(Json.toJson(res).toString())(
-          equalTo(
-            """{"type":"some type","id":"id","payload":{"field":"yo"}}"""
-          )
-        )
+        assertTrue(Json.toJson(res).toString() == """{"type":"some type","id":"id","payload":{"field":"yo"}}""")
       }
     )
 }

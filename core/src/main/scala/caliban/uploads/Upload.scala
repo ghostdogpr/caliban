@@ -1,11 +1,11 @@
 package caliban.uploads
 
-import caliban.InputValue.ListValue
 import caliban.Value.{ NullValue, StringValue }
 import caliban.{ GraphQLRequest, InputValue }
+import zio.stream.ZSink
+import zio.{ Chunk, RIO, UIO, URIO }
+
 import scala.annotation.tailrec
-import zio.stream.{ ZSink, ZStream }
-import zio.{ Chunk, RIO, UIO, URIO, ZIO }
 
 final case class Upload(name: String) {
   val allBytes: RIO[Uploads, Chunk[Byte]] =
@@ -22,11 +22,6 @@ case class FileMeta(
   fileName: String,
   fileSize: Long
 )
-
-trait Multipart {
-  def stream(name: String): ZStream[Any, Throwable, Byte]
-  def file(name: String): ZIO[Any, Nothing, Option[FileMeta]]
-}
 
 /**
  * Wraps a request which included an upload request,

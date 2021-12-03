@@ -34,7 +34,7 @@ object Validator {
    */
   def validateSchema[R](schema: RootSchemaBuilder[R]): IO[ValidationError, RootSchema[R]] = {
     val types = schema.types
-    IO.foreach_(types.sorted)(validateType) *>
+    IO.foreachDiscard(types.sorted)(validateType) *>
       validateClashingTypes(types) *>
       validateDirectives(types) *>
       validateRootQuery(schema)
@@ -245,12 +245,12 @@ object Validator {
         s"Directive '$name' is defined twice.",
         "Directives are used to describe some metadata or behavioral change on the definition they apply to. When more than one directive of the same name is used, the expected metadata or behavior becomes ambiguous, therefore only one of each directive is allowed per location."
       )
-    }
+    }.unit
 
   private def validateDirectives(context: Context): IO[ValidationError, Unit] =
     for {
       directives <- collectAllDirectives(context)
-      _          <- IO.foreach_(directives) { case (d, location) =>
+      _          <- IO.foreachDiscard(directives) { case (d, location) =>
                       (Introspector.directives ++ context.rootType.additionalDirectives).find(_.name == d.name) match {
                         case None            =>
                           failValidation(
@@ -258,7 +258,7 @@ object Validator {
                             "GraphQL servers define what directives they support. For each usage of a directive, the directive must be available on that server."
                           )
                         case Some(directive) =>
-                          IO.foreach_(d.arguments) { case (arg, argValue) =>
+                          IO.foreachDiscard(d.arguments) { case (arg, argValue) =>
                             directive.args.find(_.name == arg) match {
                               case None             =>
                                 failValidation(
@@ -285,15 +285,15 @@ object Validator {
     } yield ()
 
   private def validateVariables(context: Context): IO[ValidationError, Unit] =
-    IO.foreach_(context.operations)(op =>
-      IO.foreach_(op.variableDefinitions.groupBy(_.name)) { case (name, variables) =>
+    IO.foreachDiscard(context.operations)(op =>
+      IO.foreachDiscard(op.variableDefinitions.groupBy(_.name)) { case (name, variables) =>
         IO.when(variables.length > 1)(
           failValidation(
             s"Variable '$name' is defined more than once.",
             "If any operation defines more than one variable with the same name, it is ambiguous and invalid. It is invalid even if the type of the duplicate variable is the same."
           )
         )
-      } *> IO.foreach_(op.variableDefinitions) { v =>
+      } *> IO.foreachDiscard(op.variableDefinitions) { v =>
         val t = Type.innerType(v.variableType)
         IO.whenCase(context.rootType.types.get(t).map(_.kind)) {
           case Some(__TypeKind.OBJECT) | Some(__TypeKind.UNION) | Some(__TypeKind.INTERFACE) =>
@@ -304,14 +304,14 @@ object Validator {
         }
       } *> {
         val variableUsages = collectVariablesUsed(context, op.selectionSet)
-        IO.foreach_(variableUsages)(v =>
+        IO.foreachDiscard(variableUsages)(v =>
           IO.when(!op.variableDefinitions.exists(_.name == v))(
             failValidation(
               s"Variable '$v' is not defined.",
               "Variables are scoped on a per‐operation basis. That means that any variable used within the context of an operation must be defined at the top level of that operation"
             )
           )
-        ) *> IO.foreach_(op.variableDefinitions)(v =>
+        ) *> IO.foreachDiscard(op.variableDefinitions)(v =>
           IO.when(!variableUsages.contains(v.name))(
             failValidation(
               s"Variable '${v.name}' is not used.",
@@ -328,7 +328,7 @@ object Validator {
   private def validateFragmentSpreads(context: Context): IO[ValidationError, Unit] = {
     val spreads     = collectFragmentSpreads(context.selectionSets)
     val spreadNames = spreads.map(_.name).toSet
-    IO.foreach_(context.fragments.values)(f =>
+    IO.foreachDiscard(context.fragments.values)(f =>
       if (!spreadNames.contains(f.name))
         failValidation(
           s"Fragment '${f.name}' is not used in any spread.",
@@ -352,7 +352,7 @@ object Validator {
   }
 
   private def validateDocumentFields(context: Context): IO[ValidationError, Unit] =
-    IO.foreach_(context.document.definitions) {
+    IO.foreachDiscard(context.document.definitions) {
       case OperationDefinition(opType, _, _, _, selectionSet) =>
         opType match {
           case OperationType.Query =>
@@ -393,7 +393,7 @@ object Validator {
     selectionSet: List[Selection],
     currentType: __Type
   ): IO[ValidationError, Unit] =
-    IO.foreach_(selectionSet) {
+    IO.foreachDiscard(selectionSet) {
       case f: Field                                       => validateField(context, f, currentType)
       case FragmentSpread(name, _)                        =>
         context.fragments.get(name) match {
@@ -458,7 +458,7 @@ object Validator {
           validateFields(context, field.selectionSet, Types.innerType(f.`type`())) *>
             validateArguments(field, f, currentType, context)
         }
-    }
+    }.unit
 
   private def validateArguments(
     field: Field,
@@ -466,7 +466,7 @@ object Validator {
     currentType: __Type,
     context: Context
   ): IO[ValidationError, Unit] =
-    IO.foreach_(f.args.filter(a => a.`type`().kind == __TypeKind.NON_NULL))(arg =>
+    IO.foreachDiscard(f.args.filter(a => a.`type`().kind == __TypeKind.NON_NULL))(arg =>
       (arg.defaultValue, field.arguments.get(arg.name)) match {
         case (None, None) | (None, Some(NullValue)) =>
           failValidation(
@@ -484,7 +484,7 @@ object Validator {
         case _                          => IO.unit
       }
     ) *>
-      IO.foreach_(field.arguments) { case (arg, argValue) =>
+      IO.foreachDiscard(field.arguments) { case (arg, argValue) =>
         f.args.find(_.name == arg) match {
           case None             =>
             failValidation(
@@ -513,7 +513,7 @@ object Validator {
 
     argValue match {
       case InputValue.ObjectValue(fields) if inputType.kind == __TypeKind.INPUT_OBJECT =>
-        IO.foreach_(fields) { case (k, v) =>
+        IO.foreachDiscard(fields) { case (k, v) =>
           inputFields.find(_.name == k) match {
             case None        =>
               failValidation(
@@ -529,7 +529,7 @@ object Validator {
               )
           }
         } *> IO
-          .foreach_(inputFields)(inputField =>
+          .foreachDiscard(inputFields)(inputField =>
             IO.when(
               inputField.defaultValue.isEmpty &&
                 inputField.`type`().kind == __TypeKind.NON_NULL &&
@@ -622,7 +622,7 @@ object Validator {
                 .getOrElse("")}).",
               explanation
             )
-          )
+          ).unit
       }
   }
 
@@ -638,7 +638,7 @@ object Validator {
           s"Field selection is mandatory on type '${currentType.name.getOrElse("")}'.",
           "Leaf selections on objects, interfaces, and unions without subfields are disallowed."
         )
-    }
+    }.unit
 
   private def validateOperationNameUniqueness(operations: List[OperationDefinition]): IO[ValidationError, Unit] = {
     val names         = operations.flatMap(_.name).groupBy(identity)
@@ -648,7 +648,7 @@ object Validator {
         s"Multiple operations have the same name: ${repeatedNames.mkString(", ")}.",
         "Each named operation definition must be unique within a document when referred to by its name."
       )
-    )
+    ).unit
   }
 
   private def validateLoneAnonymousOperation(operations: List[OperationDefinition]): IO[ValidationError, Unit] = {
@@ -658,7 +658,7 @@ object Validator {
         "Found both anonymous and named operations.",
         "GraphQL allows a short‐hand form for defining query operations when only that one operation exists in the document."
       )
-    )
+    ).unit
   }
 
   private def validateFragments(
@@ -761,7 +761,7 @@ object Validator {
     }
 
     def validateFields(fields: List[__InputValue]): IO[ValidationError, Unit] =
-      IO.foreach_(fields)(validateInputValue(_, inputObjectContext)) *>
+      IO.foreachDiscard(fields)(validateInputValue(_, inputObjectContext)) *>
         noDuplicateInputValueName(fields, inputObjectContext)
 
     t.inputFields match {
@@ -842,7 +842,7 @@ object Validator {
           isNonNullableSubtype(supertypeFieldType, objectFieldType)
         }
 
-        IO.foreach_(objectFields) { objField =>
+        IO.foreachDiscard(objectFields) { objField =>
           val fieldContext = s"Field '${objField.name}'"
 
           IO.whenCase(supertypeFields.find(_.name == objField.name)) { case Some(superField) =>
@@ -919,17 +919,17 @@ object Validator {
         s"${errorType.name.getOrElse("")} of $errorContext is of kind ${errorType.kind}, must be an InputType",
         """The input field must accept a type where IsInputType(type) returns true, https://spec.graphql.org/June2018/#IsInputType()"""
       )
-    }
+    }.unit
   }
 
   private[caliban] def validateFields(fields: List[__Field], context: String): IO[ValidationError, Unit] =
     noDuplicateFieldName(fields, context) <*
-      IO.foreach_(fields) { field =>
+      IO.foreachDiscard(fields) { field =>
         val fieldContext = s"Field '${field.name}' of $context"
         for {
           _ <- doesNotStartWithUnderscore(field, fieldContext)
           _ <- onlyOutputType(field.`type`(), fieldContext)
-          _ <- IO.foreach_(field.args)(validateInputValue(_, fieldContext))
+          _ <- IO.foreachDiscard(field.args)(validateInputValue(_, fieldContext))
         } yield ()
       }
 
@@ -956,7 +956,7 @@ object Validator {
         s"${errorType.name.getOrElse("")} of $errorContext is of kind ${errorType.kind}, must be an OutputType",
         """The input field must accept a type where IsOutputType(type) returns true, https://spec.graphql.org/June2018/#IsInputType()"""
       )
-    }
+    }.unit
   }
 
   private[caliban] def noDuplicateName[T](
@@ -998,7 +998,7 @@ object Validator {
   ): IO[ValidationError, Unit] =
     IO.when(nameExtractor(t).startsWith("__"))(
       failValidation(s"$errorContext can't start with '__'", explanatoryText)
-    )
+    ).unit
 
   private[caliban] def validateRootQuery[R](schema: RootSchemaBuilder[R]): IO[ValidationError, RootSchema[R]] =
     schema.query match {
@@ -1020,7 +1020,7 @@ object Validator {
           .mkString(", ")}).",
         "Each type must be defined only once."
       )
-    }
+    }.unit
   }
 
   private def validateDirectives(types: List[__Type]): IO[ValidationError, Unit] = {
@@ -1029,7 +1029,7 @@ object Validator {
       val explanatoryText             =
         s"""The directive argument must not have a name which begins with the characters "__" (two underscores)"""
       val argumentErrorContextBuilder = (name: String) => s"Argument '$name' of $errorContext"
-      IO.foreach_(args.keys)(argName =>
+      IO.foreachDiscard(args.keys)(argName =>
         doesNotStartWithUnderscore[String](argName, identity, argumentErrorContextBuilder(argName), explanatoryText)
       )
     }
@@ -1045,14 +1045,14 @@ object Validator {
       directives: Option[List[Directive]],
       errorContext: String
     ): IO[ValidationError, Unit] =
-      IO.foreach_(directives.getOrElse(List.empty))(validateDirective(_, errorContext))
+      IO.foreachDiscard(directives.getOrElse(List.empty))(validateDirective(_, errorContext))
 
     def validateInputValueDirectives(
       inputValues: List[__InputValue],
       errorContext: String
     ): IO[ValidationError, Unit] = {
       val inputValueErrorContextBuilder = (name: String) => s"InputValue '$name' of $errorContext"
-      IO.foreach_(inputValues)(iv => validateDirectives(iv.directives, inputValueErrorContextBuilder(iv.name)))
+      IO.foreachDiscard(inputValues)(iv => validateDirectives(iv.directives, inputValueErrorContextBuilder(iv.name)))
     }
 
     def validateFieldDirectives(
@@ -1064,12 +1064,12 @@ object Validator {
         validateInputValueDirectives(field.args, fieldErrorContext)
     }
 
-    IO.foreach_(types) { t =>
+    IO.foreachDiscard(types) { t =>
       val typeErrorContext = s"Type '${t.name.getOrElse("")}'"
       for {
         _ <- validateDirectives(t.directives, typeErrorContext)
         _ <- validateInputValueDirectives(t.inputFields.getOrElse(List.empty[__InputValue]), typeErrorContext)
-        _ <- IO.foreach_(t.fields(__DeprecatedArgs(Some(true))).getOrElse(List.empty[__Field]))(
+        _ <- IO.foreachDiscard(t.fields(__DeprecatedArgs(Some(true))).getOrElse(List.empty[__Field]))(
                validateFieldDirectives(_, typeErrorContext)
              )
       } yield ()

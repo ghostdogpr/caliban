@@ -4,7 +4,6 @@ import caliban.GraphQLRequest
 import io.circe._
 import io.circe.syntax._
 import zio.test.Assertion._
-import zio.test.environment.TestEnvironment
 import zio.test._
 import caliban.Value
 
@@ -35,10 +34,8 @@ object GraphQLRequestCirceSpec extends DefaultRunnableSpec {
           )
         )
 
-        assert(res.asJson.noSpaces)(
-          equalTo(
-            """{"query":"{}","operationName":"op","variables":{"hello":"world","answer":42,"isAwesome":true,"name":null},"extensions":null}"""
-          )
+        assertTrue(
+          res.asJson.noSpaces == """{"query":"{}","operationName":"op","variables":{"hello":"world","answer":42,"isAwesome":true,"name":null},"extensions":null}"""
         )
       }
     )

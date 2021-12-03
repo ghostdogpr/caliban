@@ -6,7 +6,6 @@ import caliban.introspection.adt.__DeprecatedArgs
 import caliban.schema.SchemaSpec.introspect
 import zio.test.Assertion._
 import zio.test._
-import zio.test.environment.TestEnvironment
 
 object Scala2SpecificSpec extends DefaultRunnableSpec {
 
@@ -15,9 +14,9 @@ object Scala2SpecificSpec extends DefaultRunnableSpec {
       test("value classes should unwrap") {
         case class Queries(organizationId: OrganizationId, painter: WrappedPainter)
         val fieldTypes = introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.map(_.`type`())
-        assert(fieldTypes.map(_.ofType.flatMap(_.name)))(equalTo(Some("Long") :: Some("Painter") :: Nil))
+        assertTrue(fieldTypes.map(_.ofType.flatMap(_.name)) == Some("Long") :: Some("Painter") :: Nil)
       },
-      testM("value classes") {
+      test("value classes") {
         case class Queries(events: List[Event], painters: List[WrappedPainter])
         val event       = Event(OrganizationId(7), "Frida Kahlo exhibition")
         val painter     = Painter("Claude Monet", "Impressionism")

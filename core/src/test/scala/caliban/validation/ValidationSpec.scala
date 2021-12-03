@@ -8,7 +8,6 @@ import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, StringValue }
 import zio.IO
 import zio.test.Assertion._
-import zio.test.environment.TestEnvironment
 import zio.test._
 
 object ValidationSpec extends DefaultRunnableSpec {
@@ -22,7 +21,7 @@ object ValidationSpec extends DefaultRunnableSpec {
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("ValidationSpec")(
-      testM("operation name uniqueness") {
+      test("operation name uniqueness") {
         val query = gqldoc("""
              query a {
                characters {
@@ -37,7 +36,7 @@ object ValidationSpec extends DefaultRunnableSpec {
               }""")
         check(query, "Multiple operations have the same name: a.")
       },
-      testM("subscription has only one root") {
+      test("subscription has only one root") {
         val query = gqldoc("""
              subscription s {
                characters {
@@ -49,14 +48,14 @@ object ValidationSpec extends DefaultRunnableSpec {
               }""")
         check(query, "Subscription 's' has more than one root field.")
       },
-      testM("subscription doesn't have a __typename field") {
+      test("subscription doesn't have a __typename field") {
         val query = gqldoc("""
              subscription s {
                __typename
               }""")
         check(query, "Subscription 's' has a field named '__typename'.")
       },
-      testM("invalid field") {
+      test("invalid field") {
         val query = gqldoc("""
              {
                characters {
@@ -65,7 +64,7 @@ object ValidationSpec extends DefaultRunnableSpec {
               }""")
         check(query, "Field 'unknown' does not exist on type 'Character'.")
       },
-      testM("invalid field in fragment") {
+      test("invalid field in fragment") {
         val query = gqldoc("""
              query {
                characters {
@@ -78,7 +77,7 @@ object ValidationSpec extends DefaultRunnableSpec {
               }""")
         check(query, "Field 'unknown' does not exist on type 'Character'.")
       },
-      testM("field on enum") {
+      test("field on enum") {
         val query = gqldoc("""
              {
                characters {
@@ -89,14 +88,14 @@ object ValidationSpec extends DefaultRunnableSpec {
               }""")
         check(query, "Field selection is impossible on type 'Origin'.")
       },
-      testM("missing field on object") {
+      test("missing field on object") {
         val query = gqldoc("""
              {
                characters
               }""")
         check(query, "Field selection is mandatory on type 'Character'.")
       },
-      testM("invalid argument") {
+      test("invalid argument") {
         val query = gqldoc("""
              {
                characters(arg: 1) {
@@ -105,7 +104,7 @@ object ValidationSpec extends DefaultRunnableSpec {
               }""")
         check(query, "Argument 'arg' is not defined on field 'characters' of type 'Query'.")
       },
-      testM("missing argument") {
+      test("missing argument") {
         val query = gqldoc("""
              {
                character(name: null) {
@@ -114,7 +113,7 @@ object ValidationSpec extends DefaultRunnableSpec {
               }""")
         check(query, "Required argument 'name' is null or missing on field 'character' of type 'Query'.")
       },
-      testM("duplicated fragment name") {
+      test("duplicated fragment name") {
         val query = gqldoc("""
              query {
                characters {
@@ -130,7 +129,7 @@ object ValidationSpec extends DefaultRunnableSpec {
               }""")
         check(query, "Fragment 'f' is defined more than once.")
       },
-      testM("fragment on invalid type") {
+      test("fragment on invalid type") {
         val query = gqldoc("""
              query {
                characters {
@@ -145,7 +144,7 @@ object ValidationSpec extends DefaultRunnableSpec {
           "Inline fragment is defined on invalid type 'Boolean'"
         )
       },
-      testM("fragment on impossible type") {
+      test("fragment on impossible type") {
         val query = gqldoc("""
              query {
                characters {
@@ -160,7 +159,7 @@ object ValidationSpec extends DefaultRunnableSpec {
           "Inline fragment spread is not possible: possible types are 'Character' and possible fragment types are 'Captain, Engineer, Mechanic, Pilot'."
         )
       },
-      testM("fragment unused") {
+      test("fragment unused") {
         val query = gqldoc("""
              query {
                characters {
@@ -173,7 +172,7 @@ object ValidationSpec extends DefaultRunnableSpec {
               }""")
         check(query, "Fragment 'f' is not used in any spread.")
       },
-      testM("fragment spreads not defined") {
+      test("fragment spreads not defined") {
         val query = gqldoc("""
              query {
                characters {
@@ -182,7 +181,7 @@ object ValidationSpec extends DefaultRunnableSpec {
               }""")
         check(query, "Fragment spread 'f' is not defined.")
       },
-      testM("fragment cycle") {
+      test("fragment cycle") {
         val query = gqldoc("""
              query {
                characters {
@@ -198,7 +197,7 @@ object ValidationSpec extends DefaultRunnableSpec {
               }""")
         check(query, "Fragment 'f2' forms a cycle.")
       },
-      testM("unsupported directive") {
+      test("unsupported directive") {
         val query = gqldoc("""
              query {
                characters {
@@ -207,7 +206,7 @@ object ValidationSpec extends DefaultRunnableSpec {
               }""")
         check(query, "Directive 'yolo' is not supported.")
       },
-      testM("variable defined twice") {
+      test("variable defined twice") {
         val query = gqldoc("""
              query($name: String, $name: String) {
                characters {
@@ -216,7 +215,7 @@ object ValidationSpec extends DefaultRunnableSpec {
               }""")
         check(query, "Variable 'name' is defined more than once.")
       },
-      testM("invalid variable") {
+      test("invalid variable") {
         val query = gqldoc("""
              query($x: Character) {
                characters {
@@ -225,7 +224,7 @@ object ValidationSpec extends DefaultRunnableSpec {
               }""")
         check(query, "Type of variable 'x' is not a valid input type.")
       },
-      testM("variable not defined") {
+      test("variable not defined") {
         val query = gqldoc("""
              query {
                character(name: $x) {
@@ -234,7 +233,7 @@ object ValidationSpec extends DefaultRunnableSpec {
               }""")
         check(query, "Variable 'x' is not defined.")
       },
-      testM("variable not used") {
+      test("variable not used") {
         val query = gqldoc("""
              query($x: String) {
                characters {
@@ -243,7 +242,7 @@ object ValidationSpec extends DefaultRunnableSpec {
               }""")
         check(query, "Variable 'x' is not used.")
       },
-      testM("variable used in list") {
+      test("variable used in list") {
         val query = gqldoc("""
              query($x: String) {
                charactersIn(names: [$x]){
@@ -254,7 +253,7 @@ object ValidationSpec extends DefaultRunnableSpec {
           isNone
         )
       },
-      testM("variable used in object") {
+      test("variable used in object") {
         val query = gqldoc("""
              query($x: String!) {
                exists(character: { name: $x, nicknames: [], origin: EARTH })
@@ -263,21 +262,21 @@ object ValidationSpec extends DefaultRunnableSpec {
           isNone
         )
       },
-      testM("invalid input field") {
+      test("invalid input field") {
         val query = gqldoc("""
              query {
                exists(character: { unknown: "" })
              }""")
         check(query, "Input field 'unknown' is not defined on type 'CharacterInput'.")
       },
-      testM("required input field not defined") {
+      test("required input field not defined") {
         val query = gqldoc("""
              query {
                exists(character: { name: "name" })
              }""")
         check(query, "Required field 'nicknames' on object 'CharacterInput' was not provided.")
       },
-      testM("directive used in wrong location") {
+      test("directive used in wrong location") {
         val query = gqldoc("""
              query @skip(if: true) {
                characters {
@@ -286,7 +285,7 @@ object ValidationSpec extends DefaultRunnableSpec {
              }""")
         check(query, "Directive 'skip' is used in invalid location 'QUERY'.")
       },
-      testM("directive used twice") {
+      test("directive used twice") {
         val query = gqldoc("""
              query {
                characters {
@@ -295,7 +294,7 @@ object ValidationSpec extends DefaultRunnableSpec {
              }""")
         check(query, "Directive 'skip' is defined twice.")
       },
-      testM("variable type doesn't match") {
+      test("variable type doesn't match") {
         val query = gqldoc("""
              query($x: Int!) {
                exists(character: { name: $x, nicknames: [], origin: EARTH })
@@ -305,28 +304,28 @@ object ValidationSpec extends DefaultRunnableSpec {
           "Variable 'x' usage is not allowed because its type doesn't match the schema (Int instead of String)."
         )
       },
-      testM("variable cardinality is the same") {
+      test("variable cardinality is the same") {
         val query = gqldoc("""
              query($x: [String]!) {
                exists(character: { name: $x, nicknames: [], origin: EARTH })
               }""")
         check(query, "Variable 'x' usage is not allowed because it is a list but it should not be.")
       },
-      testM("variable nullability is the same") {
+      test("variable nullability is the same") {
         val query = gqldoc("""
              query($x: String) {
                exists(character: { name: $x, nicknames: [], origin: EARTH })
               }""")
         check(query, "Variable 'x' usage is not allowed because it is nullable and doesn't have a default value.")
       },
-      testM("variable nullability with default") {
+      test("variable nullability with default") {
         val query = gqldoc("""
              query($x: String = "test") {
                exists(character: { name: $x, nicknames: [], origin: EARTH })
               }""")
         assertM(interpreter.flatMap(_.execute(query, None, Map())).map(_.errors.headOption))(isNone)
       },
-      testM("directive with variable of the wrong type") {
+      test("directive with variable of the wrong type") {
         val query = gqldoc("""
              query($x: String!) {
                characters {
@@ -338,7 +337,7 @@ object ValidationSpec extends DefaultRunnableSpec {
           "Variable 'x' usage is not allowed because its type doesn't match the schema (String instead of Boolean)."
         )
       },
-      testM("directive with variable of the right type") {
+      test("directive with variable of the right type") {
         val query = gqldoc("""
              query($x: Boolean!) {
                characters {

@@ -5,7 +5,6 @@ import caliban.schema.Schema
 import play.api.libs.json.JsValue
 import zio.test.Assertion._
 import zio.test._
-import zio.test.environment.TestEnvironment
 
 object SchemaSpec extends DefaultRunnableSpec {
 

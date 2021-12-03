@@ -6,10 +6,8 @@ import caliban.execution.{ ExecutionRequest, Field }
 import caliban.parsing.adt.Document
 import caliban.wrappers.Wrapper.{ OverallWrapper, ValidationWrapper }
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse }
-import zio.clock.Clock
-import zio.console.{ putStrLn, putStrLnErr, Console }
-import zio.duration._
-import zio.{ Chunk, IO, UIO, URIO, ZIO }
+import zio._
+import zio.Console.{ printLine, printLineError }
 
 import scala.annotation.tailrec
 
@@ -26,7 +24,7 @@ object Wrappers {
         request =>
           process(request).tap(response =>
             ZIO.when(response.errors.nonEmpty)(
-              putStrLnErr(response.errors.flatMap(prettyStackStrace).mkString("", "\n", "\n")).orDie
+              printLineError(response.errors.flatMap(prettyStackStrace).mkString("", "\n", "\n")).orDie
             )
           )
     }
@@ -43,7 +41,7 @@ object Wrappers {
    * @param duration threshold above which queries are considered slow
    */
   def printSlowQueries(duration: Duration): OverallWrapper[Console with Clock] =
-    onSlowQueries(duration) { case (time, query) => putStrLn(s"Slow query took ${time.render}:\n$query").orDie }
+    onSlowQueries(duration) { case (time, query) => printLine(s"Slow query took ${time.render}:\n$query").orDie }
 
   /**
    * Returns a wrapper that runs a given function in case of slow queries

@@ -5,14 +5,11 @@ import caliban.GraphQL.graphQL
 import caliban.RootResolver
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
 import caliban.schema.Annotations.{ GQLExcluded, GQLInterface, GQLUnion, GQLValueType }
-import zio.blocking.Blocking
-import zio.console.Console
 import zio.query.ZQuery
 import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
-import zio.test.environment.TestEnvironment
-import zio.{ Task, UIO }
+import zio._
 
 import scala.concurrent.Future
 
@@ -32,9 +29,9 @@ object SchemaSpec extends DefaultRunnableSpec {
       },
       test("tricky case with R") {
         case class Field(value: ZQuery[Console, Nothing, String])
-        case class Queries(field: ZQuery[Blocking, Nothing, Field])
-        object MySchema extends GenericSchema[Console with Blocking] {
-          implicit lazy val queriesSchema: Schema[Console with Blocking, Queries] = gen
+        case class Queries(field: ZQuery[Clock, Nothing, Field])
+        object MySchema extends GenericSchema[Console with Clock] {
+          implicit lazy val queriesSchema: Schema[Console with Clock, Queries] = gen
         }
         assert(MySchema.queriesSchema.toType_().fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
           isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.NON_NULL)))
@@ -62,20 +59,20 @@ object SchemaSpec extends DefaultRunnableSpec {
         )
       },
       test("nested types with explicit schema in companion object") {
-        object blockingSchema extends GenericSchema[Blocking] {
+        object consoleSchema extends GenericSchema[Console] {
 
           case class A(s: String)
           object A {
-            implicit val aSchema: Schema[Blocking, A] = gen
+            implicit val aSchema: Schema[Console, A] = gen
           }
           case class B(a: List[Option[A]])
 
           A.aSchema.toType_()
 
-          val schema: Schema[Blocking, B] = gen
+          val schema: Schema[Console, B] = gen
         }
 
-        assert(Types.collectTypes(blockingSchema.schema.toType_()).map(_.name.getOrElse("")))(
+        assert(Types.collectTypes(consoleSchema.schema.toType_()).map(_.name.getOrElse("")))(
           not(contains("SomeA")) && not(contains("OptionA")) && not(contains("None"))
         )
       },
@@ -85,9 +82,7 @@ object SchemaSpec extends DefaultRunnableSpec {
         )
       },
       test("interface only take fields that return the same type") {
-        assert(introspect[MyInterface].fields(__DeprecatedArgs()).toList.flatten.map(_.name))(
-          equalTo(List("common"))
-        )
+        assertTrue(introspect[MyInterface].fields(__DeprecatedArgs()).toList.flatten.map(_.name) == List("common"))
       },
       test("enum-like sealed traits annotated with GQLUnion") {
         assert(introspect[EnumLikeUnion])(
@@ -110,15 +105,19 @@ object SchemaSpec extends DefaultRunnableSpec {
       test("ZStream in a Query returns a list type") {
         case class Query(a: ZStream[Any, Throwable, Int])
 
-        assert(introspect[Query].fields(__DeprecatedArgs()).flatMap(_.headOption).map(_.`type`().kind))(
-          isSome(equalTo(__TypeKind.LIST))
+        assertTrue(
+          introspect[Query].fields(__DeprecatedArgs()).flatMap(_.headOption).map(_.`type`().kind).get == __TypeKind.LIST
         )
       },
       test("ZStream in a Subscription doesn't return a list type") {
         case class Query(a: ZStream[Any, Throwable, Int])
 
-        assert(introspectSubscription[Query].fields(__DeprecatedArgs()).flatMap(_.headOption).map(_.`type`().kind))(
-          isSome(equalTo(__TypeKind.SCALAR))
+        assertTrue(
+          introspectSubscription[Query]
+            .fields(__DeprecatedArgs())
+            .flatMap(_.headOption)
+            .map(_.`type`().kind)
+            .get == __TypeKind.SCALAR
         )
       },
       test("rename") {
@@ -127,7 +126,7 @@ object SchemaSpec extends DefaultRunnableSpec {
 
         implicit val somethingSchema: Schema[Any, Something] = Schema.gen[Any, Something].rename("SomethingElse")
 
-        assert(Types.innerType(introspectSubscription[Something]).name)(isSome(equalTo("SomethingElse")))
+        assertTrue(Types.innerType(introspectSubscription[Something]).name.get == "SomethingElse")
       },
       test("union redirect") {
         case class Queries(union: RedirectingUnion)
