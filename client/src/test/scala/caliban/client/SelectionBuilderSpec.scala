@@ -7,7 +7,6 @@ import caliban.client.SelectionBuilder.Field
 import caliban.client.TestData._
 import caliban.client.__Value.{ __ListValue, __ObjectValue, __StringValue }
 import zio.test.Assertion._
-import zio.test.environment.TestEnvironment
 import zio.test._
 
 object SelectionBuilderSpec extends DefaultRunnableSpec {
@@ -125,8 +124,8 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
                 .withAlias("naomi")
           val (s, variables) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = true)
           assertTrue(s == """amos:character(name:$name){name} naomi:character(name:$name1){name}""") &&
-          assertTrue(variables("name") == (__StringValue("Amos Burton"), "String!")) &&
-          assertTrue(variables("name1") == (__StringValue("Naomi Nagata"), "String!"))
+          assertTrue(variables("name") == ((__StringValue("Amos Burton"), "String!"))) &&
+          assertTrue(variables("name1") == ((__StringValue("Naomi Nagata"), "String!")))
         },
         test("directives") {
           val query  =
@@ -147,8 +146,8 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
               .withDirective(Directive("yo", List(Argument("value", "what's up", "String!"))))
           val (s, variables) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = true)
           assertTrue(s == """character(name:$name) @yo(value:$value){name}""") &&
-          assertTrue(variables("name") == (__StringValue("Amos Burton"), "String!")) &&
-          assertTrue(variables("value") == (__StringValue("what's up"), "String!"))
+          assertTrue(variables("name") == ((__StringValue("Amos Burton"), "String!"))) &&
+          assertTrue(variables("value") == ((__StringValue("what's up"), "String!")))
         },
         test("query name") {
           val query = Queries.character("Amos Burton")(Character.name) toGraphQL (queryName = Some("GetCharacter"))

@@ -2,7 +2,6 @@ package caliban.client
 
 import caliban.client.GraphQLResponseError.Location
 import zio.test.Assertion._
-import zio.test.environment.TestEnvironment
 import zio.test._
 
 import zio.ZIO
@@ -35,7 +34,7 @@ object GraphQLResponseSpec extends DefaultRunnableSpec {
           )
         )
       },
-      testM("can parse extensions from JSON") {
+      test("can parse extensions from JSON") {
         val dataRawJson =
           """|{
              |  "shop": {

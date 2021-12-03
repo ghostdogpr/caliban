@@ -3,7 +3,6 @@ package caliban.client
 import caliban.client.CalibanClientError.{ CommunicationError, DecodingError, ServerError }
 import caliban.client.GraphQLResponseError.Location
 import zio.test._
-import zio.test.environment.TestEnvironment
 
 object CalibanClientErrorSpec extends DefaultRunnableSpec {
   override def spec: ZSpec[TestEnvironment, Any] = {

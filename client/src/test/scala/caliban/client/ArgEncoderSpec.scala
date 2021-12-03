@@ -1,7 +1,6 @@
 package caliban.client
 
 import zio.test._
-import zio.test.environment.TestEnvironment
 
 object ArgEncoderSpec extends DefaultRunnableSpec {
   override def spec: ZSpec[TestEnvironment, Any] =
