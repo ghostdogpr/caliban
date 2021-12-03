@@ -20,10 +20,6 @@ object Types {
   val float: __Type   = makeScalar("Float")
   val double: __Type  = makeScalar("Double")
 
-  def makeList(underlying: __Type): __Type = __Type(__TypeKind.LIST, ofType = Some(underlying))
-
-  def makeNonNull(underlying: __Type): __Type = __Type(__TypeKind.NON_NULL, ofType = Some(underlying))
-
   def makeEnum(
     name: Option[String],
     description: Option[String],

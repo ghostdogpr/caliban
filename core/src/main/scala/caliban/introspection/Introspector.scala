@@ -21,7 +21,7 @@ object Introspector extends IntrospectionDerivation {
         "The @skip directive may be provided for fields, fragment spreads, and inline fragments, and allows for conditional exclusion during execution as described by the if argument."
       ),
       Set(__DirectiveLocation.FIELD, __DirectiveLocation.FRAGMENT_SPREAD, __DirectiveLocation.INLINE_FRAGMENT),
-      List(__InputValue("if", None, () => Types.makeNonNull(Types.boolean), None))
+      List(__InputValue("if", None, () => Types.boolean.nonNull, None))
     ),
     __Directive(
       "include",
@@ -29,7 +29,7 @@ object Introspector extends IntrospectionDerivation {
         "The @include directive may be provided for fields, fragment spreads, and inline fragments, and allows for conditional inclusion during execution as described by the if argument."
       ),
       Set(__DirectiveLocation.FIELD, __DirectiveLocation.FRAGMENT_SPREAD, __DirectiveLocation.INLINE_FRAGMENT),
-      List(__InputValue("if", None, () => Types.makeNonNull(Types.boolean), None))
+      List(__InputValue("if", None, () => Types.boolean.nonNull, None))
     ),
     __Directive(
       "specifiedBy",
@@ -37,7 +37,7 @@ object Introspector extends IntrospectionDerivation {
         "The @specifiedBy directive is used within the type system definition language to provide a URL for specifying the behavior of custom scalar types. The URL should point to a human-readable specification of the data format, serialization, and coercion rules. It must not appear on built-in scalar types."
       ),
       Set(__DirectiveLocation.SCALAR),
-      List(__InputValue("url", None, () => Types.makeNonNull(Types.string), None))
+      List(__InputValue("url", None, () => Types.string.nonNull, None))
     )
   )
 

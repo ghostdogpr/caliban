@@ -95,7 +95,7 @@ package object tapir {
         case _                       =>
           argNames.values.headOption.flatten
             .fold(List.empty[__InputValue]) { case (name, desc) =>
-              List(__InputValue(name, desc, () => if (optional) t else Types.makeNonNull(t), None))
+              List(__InputValue(name, desc, () => if (optional) t else t.nonNull, None))
             }
       }
 
@@ -111,7 +111,7 @@ package object tapir {
               getArgs(inputSchema.toType_(isInput = true), inputSchema.optional),
               () =>
                 if (serverEndpoint.endpoint.errorOutput == EndpointOutput.Void[E]())
-                  Types.makeNonNull(outputSchema.toType_())
+                  outputSchema.toType_().nonNull
                 else outputSchema.toType_(),
               serverEndpoint.endpoint.info.deprecated
             )

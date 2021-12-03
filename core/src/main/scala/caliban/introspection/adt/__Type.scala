@@ -19,7 +19,7 @@ case class __Type(
   specifiedBy: Option[String] = None,
   directives: Option[List[Directive]] = None,
   origin: Option[String] = None
-) {
+) { self =>
   def |+|(that: __Type): __Type = __Type(
     kind,
     (name ++ that.name).reduceOption((_, b) => b),
@@ -114,4 +114,7 @@ case class __Type(
       case __TypeKind.NON_NULL => false
       case _                   => true
     }
+
+  def list: __Type    = __Type(__TypeKind.LIST, ofType = Some(self))
+  def nonNull: __Type = __Type(__TypeKind.NON_NULL, ofType = Some(self))
 }

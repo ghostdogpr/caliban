@@ -10,8 +10,8 @@ import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
 import caliban.schema.Schema.scalarSchema
 import caliban.schema.{ Schema, Types }
+import zio.UIO
 import zio.stream.ZStream
-import zio.{ Task, UIO }
 
 object TestUtils {
 
@@ -383,13 +383,13 @@ object TestUtils {
       val withListFieldInterface     = Types.makeInterface(
         name = Some("WithListFieldInterface"),
         description = None,
-        fields = () => List(__Field("a", None, Nil, () => Types.makeList(fieldInterface))),
+        fields = () => List(__Field("a", None, Nil, () => fieldInterface.list)),
         subTypes = Nil
       )
       val objectWrongListItemSubtype = __Type(
         kind = __TypeKind.OBJECT,
         name = Some("ObjectWrongListItemSubtype"),
-        fields = _ => Some(List(__Field("a", None, Nil, () => Types.makeList(Types.string)))),
+        fields = _ => Some(List(__Field("a", None, Nil, () => Types.string.list))),
         interfaces = () => Some(List(withListFieldInterface))
       )
 
@@ -449,7 +449,7 @@ object TestUtils {
                   __InputValue(
                     name = "extraArg",
                     description = None,
-                    `type` = () => Types.makeNonNull(Types.string),
+                    `type` = () => Types.string.nonNull,
                     defaultValue = None
                   )
                 ),
