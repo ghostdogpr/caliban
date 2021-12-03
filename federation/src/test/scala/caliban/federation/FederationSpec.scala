@@ -7,7 +7,6 @@ import caliban.Macros.gqldoc
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, StringValue }
-import caliban.schema.Annotations.GQLDirective
 import caliban.schema.Schema
 import zio.test.Assertion._
 import zio.test._
@@ -51,7 +50,7 @@ object FederationSpec extends DefaultRunnableSpec {
     )
 
   override def spec = suite("FederationSpec")(
-    testM("should resolve federated types") {
+    test("should resolve federated types") {
       val interpreter = (graphQL(resolver) @@ federated(entityResolver)).interpreter
 
       val query = gqldoc("""
@@ -68,7 +67,7 @@ object FederationSpec extends DefaultRunnableSpec {
         equalTo("""{"_entities":[{"__typename":"Character","name":"Amos Burton"}]}""")
       )
     },
-    testM("should not include _entities if not resolvers provided") {
+    test("should not include _entities if not resolvers provided") {
       val interpreter = (graphQL(resolver) @@ federated).interpreter
 
       val query = gqldoc("""
@@ -92,7 +91,7 @@ object FederationSpec extends DefaultRunnableSpec {
         )
       )
     },
-    testM("should include orphan entities in sdl") {
+    test("should include orphan entities in sdl") {
       val interpreter = (graphQL(resolver) @@ federated(orphanResolver)).interpreter
 
       val query = gqldoc("""{ _service { sdl } }""")
@@ -105,7 +104,7 @@ object FederationSpec extends DefaultRunnableSpec {
           )
       )
     },
-    testM("should include field metadata") {
+    test("should include field metadata") {
       val interpreter = (graphQL(resolver) @@ federated(functionEntityResolver)).interpreter
       val query       = gqldoc("""
            query Entities($withNicknames: Boolean = false) {

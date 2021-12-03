@@ -432,9 +432,9 @@ lazy val federation = project
   .settings(
     testFrameworks       := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "dev.zio" %% "zio"          % zioVersion,
-      "dev.zio" %% "zio-test"     % zioVersion % Test,
-      "dev.zio" %% "zio-test-sbt" % zioVersion % Test
+      "dev.zio" %% "zio"          % zio2Version,
+      "dev.zio" %% "zio-test"     % zio2Version % Test,
+      "dev.zio" %% "zio-test-sbt" % zio2Version % Test
     ),
     Compile / PB.targets := Seq(
       scalapb.gen(grpc = false) -> (Compile / sourceManaged).value / "scalapb"

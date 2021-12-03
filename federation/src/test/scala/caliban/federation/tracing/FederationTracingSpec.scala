@@ -6,13 +6,10 @@ import caliban.Value.{ IntValue, StringValue }
 import caliban.{ GraphQL, GraphQLRequest, RootResolver }
 import caliban.schema.GenericSchema
 import mdg.engine.proto.reports.Trace
-import zio.{ UIO, URIO }
-import zio.clock.Clock
-import zio.duration.durationInt
+import zio._
 import zio.query.ZQuery
 import zio.test.Assertion._
 import zio.test.TestAspect.{ flaky, timed }
-import zio.test.environment.TestClock
 import zio.test._
 import com.google.protobuf.timestamp.Timestamp
 import mdg.engine.proto.reports.Trace.Node
@@ -123,19 +120,15 @@ object FederationTracingSpec extends DefaultRunnableSpec with GenericSchema[Cloc
 
   override def spec =
     suite("Federation Tracing")(
-      testM("disabled by default") {
+      test("disabled by default") {
         for {
           _           <- TestClock.setTime(1.second)
           interpreter <- api.interpreter
           resultFiber <- interpreter.execute(query).fork
           result      <- TestClock.adjust(1.second) *> resultFiber.join
-        } yield assert(result.data)(equalTo(body)) && assert(
-          result.extensions
-        )(
-          isNone
-        )
+        } yield assertTrue(result.data == body) && assert(result.extensions)(isNone)
       },
-      testM("enabled") {
+      test("enabled") {
         for {
           _              <- TestClock.setTime(1.second)
           interpreter    <- api.interpreter
@@ -156,13 +149,7 @@ object FederationTracingSpec extends DefaultRunnableSpec with GenericSchema[Cloc
                                 root = trace.root.map(sortNode)
                               )
                             )
-        } yield assert(actualBody)(equalTo(body)) && assert(sortedTrace)(
-          isSome(
-            equalTo(
-              expectedTrace
-            )
-          )
-        )
+        } yield assertTrue(actualBody == body) && assertTrue(sortedTrace.get == expectedTrace)
       }
     ) @@ flaky @@ timed
 }

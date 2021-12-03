@@ -21,7 +21,7 @@ object EntityResolver {
   )(implicit schema: Schema[R, T]): EntityResolver[R] =
     new EntityResolver[R] {
       override def resolve(value: InputValue): ZQuery[R, CalibanError, Step[R]] =
-        ZQuery.fromEffect(IO.fromEither(implicitly[ArgBuilder[A]].build(value))).flatMap { arg =>
+        ZQuery.fromEither(implicitly[ArgBuilder[A]].build(value)).flatMap { arg =>
           resolver(arg).map(_.fold[Step[R]](Step.NullStep)(schema.resolve))
         }
 
