@@ -21,7 +21,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
               Character.name
             }
           val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
-          assert(s)(equalTo("characters{name}"))
+          assertTrue(s == "characters{name}")
         },
         test("combine 2 fields") {
           val query  =
@@ -29,7 +29,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
               Character.name ~ Character.nicknames
             }
           val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
-          assert(s)(equalTo("characters{name nicknames}"))
+          assertTrue(s == "characters{name nicknames}")
         },
         test("union type") {
           val query  =
@@ -40,10 +40,8 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
                   .role(Role.Captain.shipName, Role.Pilot.shipName, Role.Mechanic.shipName, Role.Engineer.shipName)
             }
           val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
-          assert(s)(
-            equalTo(
-              "characters{name nicknames role{__typename ... on Captain{shipName} ... on Pilot{shipName} ... on Mechanic{shipName} ... on Engineer{shipName}}}"
-            )
+          assertTrue(
+            s == "characters{name nicknames role{__typename ... on Captain{shipName} ... on Pilot{shipName} ... on Mechanic{shipName} ... on Engineer{shipName}}}"
           )
         },
         test("union type optional") {
@@ -54,7 +52,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
                 Character.roleOption(onCaptain = Some(Role.Captain.shipName))
             }
           val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
-          assert(s)(equalTo("characters{name nicknames role{__typename ... on Captain{shipName}}}"))
+          assertTrue(s == "characters{name nicknames role{__typename ... on Captain{shipName}}}")
         },
         test("argument") {
           val query  =
@@ -62,7 +60,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
               Character.name
             }
           val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
-          assert(s)(equalTo("""characters(origin:"MARS"){name}"""))
+          assertTrue(s == """characters(origin:"MARS"){name}""")
         },
         test("union type with optional parameters") {
           case class CharacterView(name: String, nicknames: List[String], role: Option[Option[String]])
@@ -111,7 +109,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
                 }
                 .copy(alias = Some("naomi"))
           val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
-          assert(s)(equalTo("""amos:character(name:"Amos Burton"){name} naomi:character(name:"Naomi Nagata"){name}"""))
+          assertTrue(s == """amos:character(name:"Amos Burton"){name} naomi:character(name:"Naomi Nagata"){name}""")
         },
         test("variables") {
           val query          =
@@ -126,9 +124,9 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
                 }
                 .withAlias("naomi")
           val (s, variables) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = true)
-          assert(s)(equalTo("""amos:character(name:$name){name} naomi:character(name:$name1){name}""")) &&
-          assert(variables.get("name"))(isSome(equalTo((__StringValue("Amos Burton"), "String!")))) &&
-          assert(variables.get("name1"))(isSome(equalTo((__StringValue("Naomi Nagata"), "String!"))))
+          assertTrue(s == """amos:character(name:$name){name} naomi:character(name:$name1){name}""") &&
+          assertTrue(variables("name") == (__StringValue("Amos Burton"), "String!")) &&
+          assertTrue(variables("name1") == (__StringValue("Naomi Nagata"), "String!"))
         },
         test("directives") {
           val query  =
@@ -138,7 +136,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
               }
               .withDirective(Directive("yo", List(Argument("value", "what's up", "String!"))))
           val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
-          assert(s)(equalTo("""character(name:"Amos Burton") @yo(value:"what's up"){name}"""))
+          assertTrue(s == """character(name:"Amos Burton") @yo(value:"what's up"){name}""")
         },
         test("directives + variables") {
           val query          =
@@ -148,17 +146,17 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
               }
               .withDirective(Directive("yo", List(Argument("value", "what's up", "String!"))))
           val (s, variables) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = true)
-          assert(s)(equalTo("""character(name:$name) @yo(value:$value){name}""")) &&
-          assert(variables.get("name"))(isSome(equalTo((__StringValue("Amos Burton"), "String!")))) &&
-          assert(variables.get("value"))(isSome(equalTo((__StringValue("what's up"), "String!"))))
+          assertTrue(s == """character(name:$name) @yo(value:$value){name}""") &&
+          assertTrue(variables("name") == (__StringValue("Amos Burton"), "String!")) &&
+          assertTrue(variables("value") == (__StringValue("what's up"), "String!"))
         },
         test("query name") {
           val query = Queries.character("Amos Burton")(Character.name) toGraphQL (queryName = Some("GetCharacter"))
-          assert(query.query)(equalTo("""query GetCharacter {character(name:"Amos Burton"){name}}"""))
+          assertTrue(query.query == """query GetCharacter {character(name:"Amos Burton"){name}}""")
         },
         test("pure fields") {
           val query = Queries.character("Amos Burton")(Character.name ~ SelectionBuilder.pure("Fake")).toGraphQL()
-          assert(query.query)(equalTo("""query{character(name:"Amos Burton"){name}}"""))
+          assertTrue(query.query == """query{character(name:"Amos Burton"){name}}""")
         }
       ),
       suite("response parsing")(
@@ -308,8 +306,10 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
 
           val query = Query.addCharacter(CharacterInput("name", None, Nil))(Character.name)
 
-          assert(query.toGraphQL(dropNullInputValues = true).query)(
-            equalTo("""query{addCharacter(character:{name:"name",nicknames:[]}){name}}""")
+          assertTrue(
+            query
+              .toGraphQL(dropNullInputValues = true)
+              .query == """query{addCharacter(character:{name:"name",nicknames:[]}){name}}"""
           )
         },
         test("drop null values in input object by explicit ArgEncoder") {
@@ -345,9 +345,7 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
 
           val query = Query.addCharacter(CharacterInput("name", None, Nil))(Character.name)
 
-          assert(query.toGraphQL().query)(
-            equalTo("""query{addCharacter(character:{name:"name",nicknames:[]}){name}}""")
-          )
+          assertTrue(query.toGraphQL().query == """query{addCharacter(character:{name:"name",nicknames:[]}){name}}""")
         },
         test("interface common fields and subtype fields combination") {
           import caliban.client.FieldBuilder._
@@ -387,10 +385,11 @@ object SelectionBuilderSpec extends DefaultRunnableSpec {
 
           val selection = Sort.orderInterface(Order.name).withAlias("common") ~
             Sort.orderOption(Some(Ascending.name)).withAlias("subtype")
-          assert(Query.sort(selection).toGraphQL().query)(
-            equalTo(
-              "query{sort{common:order{name} subtype:order{__typename ... on Ascending{name}}}}"
-            )
+          assertTrue(
+            Query
+              .sort(selection)
+              .toGraphQL()
+              .query == "query{sort{common:order{name} subtype:order{__typename ... on Ascending{name}}}}"
           )
         }
       )

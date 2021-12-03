@@ -75,13 +75,11 @@ object GraphQLResponseSpec extends DefaultRunnableSpec {
           response   <- ZIO.fromEither(decode[GraphQLResponse](responseRawJson))
           data       <- ZIO.fromEither(decode[__Value](dataRawJson))
           extensions <- ZIO.fromEither(decode[Json](extensionsRawJson))
-        } yield assert(response)(
-          equalTo(
-            GraphQLResponse(
-              Some(data),
-              Nil,
-              Some(extensions)
-            )
+        } yield assertTrue(
+          response == GraphQLResponse(
+            Some(data),
+            Nil,
+            Some(extensions)
           )
         )
       }

@@ -19,10 +19,12 @@ val playJsonVersion        = "2.9.2"
 val sttpVersion            = "3.3.18"
 val tapirVersion           = "0.19.1"
 val zioVersion             = "1.0.12"
+val zio2Version            = "2.0.0-M6-2"
 val zioInteropCats2Version = "2.5.1.0"
 val zioInteropCats3Version = "3.2.9.0"
 val zioConfigVersion       = "1.0.10"
 val zqueryVersion          = "0.2.10"
+val zquery2Version         = "0.2.10+20-fe9db387-SNAPSHOT"
 val zioJsonVersion         = "0.1.5"
 val zioHttpVersion         = "1.0.0.0-RC17"
 
@@ -126,11 +128,11 @@ lazy val core = project
       }
     } ++
       Seq(
-        "dev.zio"                     %% "zio"          % "2.0.0-M6-2",
-        "dev.zio"                     %% "zio-streams"  % "2.0.0-M6-2",
-        "dev.zio"                     %% "zio-query"    % "0.2.10+20-fe9db387-SNAPSHOT",
-        "dev.zio"                     %% "zio-test"     % "2.0.0-M6"   % Test,
-        "dev.zio"                     %% "zio-test-sbt" % "2.0.0-M6"   % Test,
+        "dev.zio"                     %% "zio"          % zio2Version,
+        "dev.zio"                     %% "zio-streams"  % zio2Version,
+        "dev.zio"                     %% "zio-query"    % zquery2Version,
+        "dev.zio"                     %% "zio-test"     % zio2Version  % Test,
+        "dev.zio"                     %% "zio-test-sbt" % zio2Version  % Test,
         "com.softwaremill.sttp.tapir" %% "tapir-core"   % tapirVersion % Optional,
         "io.circe"                    %% "circe-core"   % circeVersion % Optional,
         "io.circe"                    %% "circe-parser" % circeVersion % Test
@@ -334,8 +336,8 @@ lazy val client    = crossProject(JSPlatform, JVMPlatform)
       "io.circe"                      %%% "circe-parser" % circeVersion,
       "com.softwaremill.sttp.client3" %%% "core"         % sttpVersion,
       "com.softwaremill.sttp.client3" %%% "circe"        % sttpVersion,
-      "dev.zio"                       %%% "zio-test"     % zioVersion % Test,
-      "dev.zio"                       %%% "zio-test-sbt" % zioVersion % Test
+      "dev.zio"                       %%% "zio-test"     % zio2Version % Test,
+      "dev.zio"                       %%% "zio-test-sbt" % zio2Version % Test
     )
   )
 lazy val clientJVM = client.jvm
@@ -370,8 +372,8 @@ lazy val clientLaminext = crossProject(JSPlatform)
       "io.laminext" %%% "fetch-circe"     % laminextVersion,
       "io.laminext" %%% "websocket"       % laminextVersion,
       "io.laminext" %%% "websocket-circe" % laminextVersion,
-      "dev.zio"     %%% "zio-test"        % zioVersion % Test,
-      "dev.zio"     %%% "zio-test-sbt"    % zioVersion % Test
+      "dev.zio"     %%% "zio-test"        % zio2Version % Test,
+      "dev.zio"     %%% "zio-test-sbt"    % zio2Version % Test
     )
   )
 
