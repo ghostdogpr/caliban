@@ -4,7 +4,7 @@ import caliban.CalibanError.ValidationError
 import caliban.Value.{ NullValue, StringValue }
 import caliban.wrappers.Wrapper.OverallWrapper
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue }
-import zio.{ Accessible, Layer, Ref, UIO, ZIO }
+import zio._
 
 object ApolloPersistedQueries {
 

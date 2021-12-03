@@ -3,10 +3,8 @@ package caliban
 import caliban.GraphQL._
 import caliban.schema.Annotations.GQLInterface
 import zio._
-import zio.clock._
-import zio.console._
-import zio.test.Assertion._
 import zio.test._
+import zio.test.Assertion._
 
 object Scala3SpecificSpec extends DefaultRunnableSpec {
 
