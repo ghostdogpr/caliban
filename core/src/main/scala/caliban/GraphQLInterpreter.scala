@@ -2,7 +2,7 @@ package caliban
 
 import caliban.Value.NullValue
 import caliban.execution.QueryExecution
-import zio.{ IO, NeedsEnv, Tag, URIO, ZEnv, ZLayer }
+import zio.{ IO, Tag, URIO, ZEnv, ZLayer }
 
 /**
  * A `GraphQLInterpreter[-R, +E]` represents a GraphQL interpreter whose execution requires
@@ -80,26 +80,26 @@ trait GraphQLInterpreter[-R, +E] { self =>
   /**
    * Provides a layer to this interpreter, which translates it to another level.
    */
-  final def provideLayer[E1 >: E, R0, R1](
+  final def provide[E1 >: E, R0, R1](
     layer: ZLayer[R0, E1, R1]
-  )(implicit ev1: R1 <:< R, ev2: NeedsEnv[R]): GraphQLInterpreter[R0, E1] =
+  )(implicit ev1: R1 <:< R): GraphQLInterpreter[R0, E1] =
     wrapExecutionWith(_.provide(layer).fold(e => GraphQLResponse(NullValue, List(e)), identity))
 
   /**
    * Provides the part of the environment that is not part of the `ZEnv`,
    * leaving a query that only depends on the `ZEnv`.
    */
-  final def provideCustomLayer[E1 >: E, R1](
+  final def provideCustom[E1 >: E, R1](
     layer: ZLayer[ZEnv, E1, R1]
   )(implicit ev: ZEnv with R1 <:< R, tagged: Tag[R1]): GraphQLInterpreter[ZEnv, E1] =
-    provideSomeLayer[ZEnv](layer)
+    provideSome[ZEnv](layer)
 
   /**
    * Splits the environment into two parts, providing one part using the
    * specified layer and leaving the remainder `R0`.
    */
-  final def provideSomeLayer[R0]: GraphQLInterpreter.ProvideSomeLayer[R0, R, E] =
-    new GraphQLInterpreter.ProvideSomeLayer[R0, R, E](self)
+  final def provideSome[R0]: GraphQLInterpreter.ProvideSome[R0, R, E] =
+    new GraphQLInterpreter.ProvideSome[R0, R, E](self)
 
   /**
    * Wraps the `execute` method of the interpreter with the given function.
@@ -124,10 +124,10 @@ trait GraphQLInterpreter[-R, +E] { self =>
 
 object GraphQLInterpreter {
 
-  final class ProvideSomeLayer[R0, -R, +E](private val self: GraphQLInterpreter[R, E]) extends AnyVal {
+  final class ProvideSome[R0, -R, +E](private val self: GraphQLInterpreter[R, E]) extends AnyVal {
     def apply[E1 >: E, R1](
       layer: ZLayer[R0, E1, R1]
-    )(implicit ev1: R0 with R1 <:< R, ev2: NeedsEnv[R], tagged: Tag[R1]): GraphQLInterpreter[R0, E1] =
-      self.provideLayer[E1, R0, R0 with R1](ZLayer.environment[R0] ++ layer)
+    )(implicit ev1: R0 with R1 <:< R, tagged: Tag[R1]): GraphQLInterpreter[R0, E1] =
+      self.provide[E1, R0, R0 with R1](ZLayer.environment[R0] ++ layer)
   }
 }
