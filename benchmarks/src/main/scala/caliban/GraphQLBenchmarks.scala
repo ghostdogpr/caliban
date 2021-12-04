@@ -13,8 +13,7 @@ import sangria.macros.derive._
 import sangria.marshalling.circe._
 import sangria.parser.QueryParser
 import sangria.schema._
-import zio.internal.Platform
-import zio.{ BootstrapRuntime, Runtime, UIO, ZEnv }
+import zio.{ Runtime, RuntimeConfig, UIO, ZEnv, ZEnvironment }
 
 @State(Scope.Thread)
 @BenchmarkMode(Array(Mode.Throughput))
@@ -223,8 +222,9 @@ class GraphQLBenchmarks {
               }
                 """
 
-  val runtime: Runtime[ZEnv] = new BootstrapRuntime {
-    override val platform: Platform = Platform.benchmark
+  val runtime: Runtime[ZEnv] = new Runtime[ZEnv] {
+    val environment: ZEnvironment[ZEnv] = ZEnvironment.default
+    val runtimeConfig: RuntimeConfig    = RuntimeConfig.benchmark
   }
 
   case class CharactersArgs(origin: Option[Origin])
@@ -361,7 +361,7 @@ class GraphQLBenchmarks {
           new NoUndefinedVariables,
           new NoUnusedFragments,
           new NoUnusedVariables,
-          //new OverlappingFieldsCanBeMerged,
+          // new OverlappingFieldsCanBeMerged,
           new experimental.OverlappingFieldsCanBeMerged,
           new PossibleFragmentSpreads,
           new ProvidedRequiredArguments,

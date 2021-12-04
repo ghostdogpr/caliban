@@ -50,7 +50,7 @@ object Validator {
       case _                       => IO.unit
     }
 
-  def failValidation[T](msg: String, explanatoryText: String): IO[ValidationError, T] =
+  def failValidation(msg: String, explanatoryText: String): IO[ValidationError, Nothing] =
     IO.fail(ValidationError(msg, explanatoryText))
 
   /**
