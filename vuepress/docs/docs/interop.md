@@ -9,7 +9,7 @@ You first need to import `caliban.interop.cats.implicits._` and have an implicit
 
 - the `GraphQL` object is enriched with `interpreterAsync`, a variant of `interpreter` that return an `F[_]: Async` instead of a `ZIO`.
 - the `GraphQLInterpreter` object is enriched with `executeAsync` and `checkAsync`, variants of `execute` and `check` that return an `F[_]: Async` instead of a `ZIO`.
-- the `Http4sAdapter` also has cats-effect variants named `makeRestServiceF` and `makeWebSocketServiceF`.
+- the `Http4sAdapter` also has a helper to turn endpoints into cats-effect named `convertHttpEndpointToF`.
 
 In addition to that, a `Schema` for any `F[_]: Effect` is provided. That means you can include fields with results wrapped in `F` in your queries, mutations or subscriptions.
 

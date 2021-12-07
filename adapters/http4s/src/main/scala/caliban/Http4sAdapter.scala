@@ -1,12 +1,16 @@
 package caliban
 
 import caliban.execution.QueryExecution
+import caliban.interop.cats.CatsInterop
+import caliban.interop.tapir.TapirAdapter.zioMonadError
 import caliban.interop.tapir.{ RequestInterceptor, TapirAdapter, WebSocketHooks }
 import cats.data.Kleisli
+import cats.effect.Async
 import cats.~>
 import org.http4s._
 import org.http4s.server.websocket.WebSocketBuilder2
 import sttp.tapir.json.circe._
+import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.server.http4s.ztapir.ZHttp4sServerInterpreter
 import zio._
 import zio.blocking.Blocking
@@ -122,4 +126,18 @@ object Http4sAdapter {
 
       route(req.mapK(to)).mapK(from).map(_.mapK(from))
     }
+
+  /**
+   * If you wish to use `Http4sServerInterpreter` with cats-effect IO instead of `ZHttp4sServerInterpreter`,
+   * you can use this function to convert the tapir endpoints to their cats-effect counterpart.
+   */
+  def convertHttpEndpointToF[E, R, F[_]: Async](
+    endpoint: ServerEndpoint[Any, RIO[R, *]]
+  )(implicit runtime: Runtime[R]): ServerEndpoint[Any, F] =
+    ServerEndpoint[endpoint.A, endpoint.U, endpoint.I, endpoint.E, endpoint.O, Any, F](
+      endpoint.endpoint,
+      _ => a => CatsInterop.toEffect(endpoint.securityLogic(zioMonadError)(a)),
+      _ => u => req => CatsInterop.toEffect(endpoint.logic(zioMonadError)(u)(req))
+    )
+
 }
