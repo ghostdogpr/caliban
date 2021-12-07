@@ -7,6 +7,7 @@ import caliban.interop.tapir.{ StreamTransformer, WebSocketHooks }
 import caliban.schema.GenericSchema
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
+import io.netty.handler.codec.http.{HttpHeaderNames, HttpHeaderValues}
 import zhttp.http._
 import zhttp.service.Server
 import zio._
@@ -96,8 +97,13 @@ object Authed extends GenericSchema[ZEnv with Has[Auth]] {
 
 object AuthExampleApp extends App {
   private val graphiql =
-    Http.succeed(Response.http(content = HttpData.fromStream(ZStream.fromResource("graphiql.html"))))
-
+    Http.succeed(
+      Response.http(
+        content = HttpData.fromStream(ZStream.fromResource("graphiql.html")),
+        headers = List(Header(HttpHeaderNames.CONTENT_TYPE, HttpHeaderValues.TEXT_HTML))
+      )
+    )
+  
   override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
     (for {
       interpreter <- (ExampleApi.api |+| Authed.api).interpreter
