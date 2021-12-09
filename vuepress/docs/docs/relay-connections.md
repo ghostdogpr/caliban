@@ -123,7 +123,7 @@ object ElasticCursor {
 }
 ```
 
-and then the schema:
+and the schema:
 
 ```scala
   implicit val schema: Schema[Any, ElasticCursor] = Schema.scalarSchema(
@@ -133,4 +133,3 @@ and then the schema:
     c => Value.StringValue(Cursor[ElasticCursor].encode(c))
   )
 ```
-.

@@ -69,12 +69,36 @@ object ConnectionSpec extends DefaultRunnableSpec {
           )
       )
     },
-    testM("it paginates the response") {
+    testM("it paginates the response forwards") {
       for {
         int <- api.interpreter
         res <- int.execute("""{connection(first:2) { edges { node { name } } } }""")
       } yield assert(res.data.toString)(
         equalTo("""{"connection":{"edges":[{"node":{"name":"1"}},{"node":{"name":"2"}}]}}""")
+      )
+    },
+    testM("it paginates the response forwards with a cursor") {
+      for {
+        int <- api.interpreter
+        res <- int.execute("""{connection(first:2, after:"Y3Vyc29yOjE=") { edges { node { name } } } }""")
+      } yield assert(res.data.toString)(
+        equalTo("""{"connection":{"edges":[{"node":{"name":"3"}}]}}""")
+      )
+    },
+    testM("it paginates the response backwards") {
+      for {
+        int <- api.interpreter
+        res <- int.execute("""{connection(last:2) { edges { node { name } } } }""")
+      } yield assert(res.data.toString)(
+        equalTo("""{"connection":{"edges":[{"node":{"name":"2"}},{"node":{"name":"3"}}]}}""")
+      )
+    },
+    testM("it paginates the response backwards with a cursor") {
+      for {
+        int <- api.interpreter
+        res <- int.execute("""{connection(last:2, before: "Y3Vyc29yOjE=") { edges { node { name } } } }""")
+      } yield assert(res.data.toString)(
+        equalTo("""{"connection":{"edges":[{"node":{"name":"1"}}]}}""")
       )
     },
     test("it correctly renders as GraphQL") {
@@ -155,9 +179,8 @@ object ConnectionSpec extends DefaultRunnableSpec {
         assertM(res)(
           fails(
             hasMessage(
-              equalTo(
-                "both first and last cannot be set, both before and after may not be set"
-              )
+              containsString("both first and last cannot be set") &&
+                containsString("both before and after may not be set")
             )
           )
         )

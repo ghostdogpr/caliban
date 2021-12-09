@@ -1,5 +1,9 @@
 package caliban.relay
 
+/**
+ * The Relay PageInfo type which models pagination info
+ * for a connection.
+ */
 case class PageInfo(
   hasNextPage: Boolean,
   hasPreviousPage: Boolean,
@@ -7,6 +11,10 @@ case class PageInfo(
   endCursor: Option[String]
 )
 
+/**
+ * An abstract class representing a Relay connection edge
+ * for some type `T`.
+ */
 abstract class Edge[+C: Cursor, +T] {
   def cursor: C
   def node: T
@@ -14,12 +22,28 @@ abstract class Edge[+C: Cursor, +T] {
   def encodeCursor = Cursor[C].encode(cursor)
 }
 
+/**
+ * An abstract class representing a Relay connection for
+ * some edge `T`.
+ */
 abstract class Connection[T <: Edge[_, _]] {
   val pageInfo: PageInfo
   val edges: List[T]
 }
 
 object Connection {
+
+  /**
+   * A function that returns a sliced result set based
+   * on some mapping functions, a full input list of entities
+   * and pagination information.
+   *
+   * @param f translates a [[caliban.relay.PageInfo]] object and a list of edges to a `Connection`
+   * @param g translates an entity and an offseet to an `Edge`
+   * @param items the list of items to paginate
+   * @param args a set of [[caliban.relay.Pagination]] arguments
+   * @return a paginated connection
+   */
   def fromList[A, E <: Edge[Base64Cursor, _], R <: Connection[E]](
     f: (PageInfo, List[E]) => R
   )(g: (A, Int) => E)(
@@ -30,8 +54,8 @@ object Connection {
 
     val sliced = (args.cursor match {
       case PaginationCursor.NoCursor       => itemsWithIndex
-      case PaginationCursor.After(cursor)  => itemsWithIndex.drop(cursor.value)
-      case PaginationCursor.Before(cursor) => itemsWithIndex.dropRight(cursor.value)
+      case PaginationCursor.After(cursor)  => itemsWithIndex.drop(cursor.value + 1)
+      case PaginationCursor.Before(cursor) => itemsWithIndex.dropRight(cursor.value + 1)
     })
 
     val dropped = args.count match {

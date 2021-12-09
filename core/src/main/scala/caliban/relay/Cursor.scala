@@ -1,5 +1,8 @@
 package caliban.relay
 
+/**
+ * A trait representing an abstract Relay Connection cursor.
+ */
 trait Cursor[A] {
   type T
   def encode(a: A): String

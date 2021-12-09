@@ -4,6 +4,10 @@ import caliban.schema.Schema
 import caliban.Value
 import scala.util.Try
 
+/**
+ * A cursor implementation that models an index/offset as an
+ * opaque base64 cursor.
+ */
 case class Base64Cursor(value: Int)
 object Base64Cursor {
   import java.util.Base64
