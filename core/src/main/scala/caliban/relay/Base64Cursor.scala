@@ -16,7 +16,7 @@ object Base64Cursor {
 
   private val prefix = "cursor:"
 
-  implicit val cursor = new Cursor[Base64Cursor] {
+  implicit val cursor: Cursor[Base64Cursor] = new Cursor[Base64Cursor] {
     type T = Int
     def encode(a: Base64Cursor): String =
       encoder.encodeToString(s"$prefix${a.value}".getBytes("UTF-8"))
