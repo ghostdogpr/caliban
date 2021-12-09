@@ -97,20 +97,21 @@ object Field {
     variableDefinitions: List[VariableDefinition],
     variableValues: Map[String, InputValue]
   ): Map[String, InputValue] = {
-    def resolveVariable(value: InputValue): InputValue =
+    def resolveVariable(value: InputValue): Option[InputValue] =
       value match {
-        case InputValue.ListValue(values)   => InputValue.ListValue(values.map(resolveVariable))
+        case InputValue.ListValue(values)   =>
+          Some(InputValue.ListValue(values.flatMap(resolveVariable)))
         case InputValue.ObjectValue(fields) =>
-          InputValue.ObjectValue(fields.map { case (k, v) => k -> resolveVariable(v) })
+          Some(InputValue.ObjectValue(fields.flatMap { case (k, v) => resolveVariable(v).map(k -> _) }))
         case InputValue.VariableValue(name) =>
-          (for {
-            definition  <- variableDefinitions.find(_.name == name)
-            defaultValue = definition.defaultValue getOrElse NullValue
-            value        = variableValues.getOrElse(name, defaultValue)
-          } yield value) getOrElse NullValue
-        case value: Value                   => value
+          for {
+            definition <- variableDefinitions.find(_.name == name)
+            value      <- variableValues.get(name).orElse(definition.defaultValue)
+          } yield value
+        case value: Value                   =>
+          Some(value)
       }
-    arguments.map { case (k, v) => k -> resolveVariable(v) }
+    arguments.flatMap { case (k, v) => resolveVariable(v).map(k -> _) }
   }
 
   private def subtypeNames(typeName: String, rootType: RootType): Option[List[String]] =
