@@ -38,18 +38,18 @@ object Connection {
    * on some mapping functions, a full input list of entities
    * and pagination information.
    *
-   * @param f translates a [[caliban.relay.PageInfo]] object and a list of edges to a `Connection`
-   * @param g translates an entity and an offset to an `Edge`
+   * @param makeConnection translates a [[caliban.relay.PageInfo]] object and a list of edges to a `Connection`
+   * @param makeEdge translates an entity and an offset to an `Edge`
    * @param items the list of items to paginate
    * @param args a set of [[caliban.relay.Pagination]] arguments
    * @return a paginated connection
    */
-  def fromList[A, E <: Edge[Base64Cursor, _], R <: Connection[E]](
-    f: (PageInfo, List[E]) => R
-  )(g: (A, Int) => E)(
+  def fromList[A, E <: Edge[Base64Cursor, _], C <: Connection[E]](
+    makeConnection: (PageInfo, List[E]) => C
+  )(makeEdge: (A, Int) => E)(
     items: List[A],
     args: Pagination[Base64Cursor]
-  ): R = {
+  ): C = {
     val itemsWithIndex = items.zipWithIndex
 
     val sliced = (args.cursor match {
@@ -63,7 +63,7 @@ object Connection {
       case PaginationCount.Last(count)  => sliced.takeRight(count)
     }
 
-    val edges = dropped.map(g.tupled)
+    val edges = dropped.map(makeEdge.tupled)
 
     val pageInfo = PageInfo(
       hasNextPage = edges.headOption
@@ -75,6 +75,6 @@ object Connection {
       startCursor = edges.headOption.map(start => start.encodeCursor),
       endCursor = edges.lastOption.map(end => end.encodeCursor)
     )
-    f(pageInfo, edges)
+    makeConnection(pageInfo, edges)
   }
 }

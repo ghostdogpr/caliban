@@ -126,10 +126,7 @@ object ElasticCursor {
 and the schema:
 
 ```scala
-  implicit val schema: Schema[Any, ElasticCursor] = Schema.scalarSchema(
-    "String",
-    Some("A cursor representing the current page of the pagination"),
-    None,
-    c => Value.StringValue(Cursor[ElasticCursor].encode(c))
+  implicit val schema: Schema[Any, ElasticCursor] = Schema.stringSchema.contramap(
+    c => Cursor[ElasticCursor].encode(c)
   )
 ```

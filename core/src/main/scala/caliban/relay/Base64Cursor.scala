@@ -31,10 +31,6 @@ object Base64Cursor {
     def value(cursor: Base64Cursor): Int = cursor.value
   }
 
-  implicit val schema: Schema[Any, Base64Cursor] = Schema.scalarSchema(
-    "String",
-    None,
-    None,
-    cursor => Value.StringValue(Cursor[Base64Cursor].encode(cursor))
-  )
+  implicit val schema: Schema[Any, Base64Cursor] =
+    Schema.stringSchema.contramap(cursor => Cursor[Base64Cursor].encode(cursor))
 }
