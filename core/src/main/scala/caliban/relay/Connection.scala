@@ -39,7 +39,7 @@ object Connection {
    * and pagination information.
    *
    * @param f translates a [[caliban.relay.PageInfo]] object and a list of edges to a `Connection`
-   * @param g translates an entity and an offseet to an `Edge`
+   * @param g translates an entity and an offset to an `Edge`
    * @param items the list of items to paginate
    * @param args a set of [[caliban.relay.Pagination]] arguments
    * @return a paginated connection
