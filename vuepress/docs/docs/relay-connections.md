@@ -97,7 +97,7 @@ Start off by implementing a case class to represent your cursor:
 case class ElasticCursor(value: String)
 ```
 
-To make turn your case class into a usable cursor, you need to do two things: implement the `Cursor` trait and specify a schema for the case class to make sure it's always serialized as a scalar value.
+To turn your case class into a usable cursor, you need to do two things: implement the `Cursor` trait and specify a schema for the case class to make sure it's always serialized as a scalar value.
 
 First, let's implement the trait:
 ```scala
