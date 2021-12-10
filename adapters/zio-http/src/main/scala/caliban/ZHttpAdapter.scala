@@ -40,7 +40,7 @@ object ZHttpAdapter {
     queryExecution: QueryExecution = QueryExecution.Parallel,
     webSocketHooks: WebSocketHooks[R, E] = WebSocketHooks.empty
   ): HttpApp[R with Clock, E] =
-    HttpApp.responseM(
+    Http.responseM(
       for {
         ref <- Ref.make(Map.empty[String, Promise[Any, Unit]])
       } yield Response.socket(

@@ -101,7 +101,7 @@ import caliban.ZHttpAdapter
 
 object ExampleApp extends App {
   private val graphiql =
-    Http.succeed(Response.http(content = HttpData.fromStream(ZStream.fromResource("graphiql.html"))))
+    Http.succeed(Response(data = HttpData.fromStream(ZStream.fromResource("graphiql.html"))))
 
   override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
     (for {
@@ -111,9 +111,9 @@ object ExampleApp extends App {
                        .start(
                          8088,
                          Http.route {
-                           case _ -> Root / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
-                           case _ -> Root / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
-                           case _ -> Root / "graphiql"        => graphiql
+                           case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
+                           case _ -> !! / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
+                           case _ -> !! / "graphiql"        => graphiql
                          }
                        )
                        .forever

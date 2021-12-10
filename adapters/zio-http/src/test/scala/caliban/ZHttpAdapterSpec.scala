@@ -22,8 +22,8 @@ object ZHttpAdapterSpec extends DefaultRunnableSpec {
                        .start(
                          8088,
                          Http.route {
-                           case _ -> Root / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
-                           case _ -> Root / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
+                           case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
+                           case _ -> !! / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
                          }
                        )
                        .forkManaged
