@@ -32,5 +32,5 @@ object Base64Cursor {
   }
 
   implicit val schema: Schema[Any, Base64Cursor] =
-    Schema.stringSchema.contramap(cursor => Cursor[Base64Cursor].encode(cursor))
+    Schema.stringSchema.contramap(Cursor[Base64Cursor].encode)
 }
