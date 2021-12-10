@@ -21,7 +21,7 @@ object ZHttpAdapterSpec extends DefaultRunnableSpec {
       _           <- Server
                        .start(
                          8088,
-                         Http.route {
+                         Http.route[Request] {
                            case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
                            case _ -> !! / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
                          }

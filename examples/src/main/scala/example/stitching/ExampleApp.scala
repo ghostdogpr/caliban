@@ -110,7 +110,7 @@ object ExampleApp extends App {
       _           <- Server
                        .start(
                          8088,
-                         Http.route {
+                         Http.route[Request] {
                            case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
                            case _ -> !! / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
                            case _ -> !! / "graphiql"        => graphiql

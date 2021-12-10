@@ -1,14 +1,13 @@
 package example.ziohttp
 
+import caliban.ZHttpAdapter
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
-
-import caliban.ZHttpAdapter
 import io.netty.handler.codec.http.{ HttpHeaderNames, HttpHeaderValues }
-import zio._
-import zio.stream._
 import zhttp.http._
 import zhttp.service.Server
+import zio._
+import zio.stream._
 
 object ExampleApp extends App {
   private val graphiql =
@@ -25,10 +24,10 @@ object ExampleApp extends App {
       _           <- Server
                        .start(
                          8088,
-                         Http.route {
-                           case _ -> Root / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
-                           case _ -> Root / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
-                           case _ -> Root / "graphiql"        => graphiql
+                         Http.route[Request] {
+                           case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
+                           case _ -> !! / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
+                           case _ -> !! / "graphiql"        => graphiql
                          }
                        )
                        .forever
