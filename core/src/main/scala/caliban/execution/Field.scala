@@ -1,13 +1,14 @@
 package caliban.execution
 
-import caliban.{ InputValue, Value }
-import caliban.Value.{ BooleanValue, NullValue }
+import scala.collection.mutable.ArrayBuffer
+import caliban.Value.BooleanValue
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type }
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.FragmentDefinition
 import caliban.parsing.adt.Selection.{ Field => F, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.{ Directive, LocationInfo, Selection, VariableDefinition }
 import caliban.schema.{ RootType, Types }
+import caliban.{ InputValue, Value }
 
 case class Field(
   name: String,
@@ -15,7 +16,7 @@ case class Field(
   parentType: Option[__Type],
   alias: Option[String] = None,
   fields: List[Field] = Nil,
-  condition: Option[List[String]] = None,
+  condition: Option[Set[String]] = None,
   arguments: Map[String, InputValue] = Map(),
   _locationInfo: () => LocationInfo = () => LocationInfo.origin,
   directives: List[Directive] = List.empty
@@ -35,7 +36,33 @@ object Field {
     rootType: RootType
   ): Field = {
     def loop(selectionSet: List[Selection], fieldType: __Type): Field = {
-      val fieldList = List.newBuilder[Field]
+      val fieldList  = ArrayBuffer.empty[Field]
+      val map        = collection.mutable.Map.empty[String, Int]
+      var fieldIndex = 0
+
+      def addField(f: Field): Unit = {
+        val name = f.alias.getOrElse(f.name)
+        map.get(name) match {
+          case None        =>
+            // first time we see this field, add it to the array
+            fieldList += f
+            map.update(name, fieldIndex)
+            fieldIndex = fieldIndex + 1
+          case Some(index) =>
+            // field already existed, merge it
+            val existing = fieldList(index)
+            fieldList(index) = existing.copy(
+              fields = existing.fields ::: f.fields,
+              condition = (existing.condition, f.condition) match {
+                case (Some(v1), Some(v2)) => if (v1 == v2) existing.condition else Some(v1 ++ v2)
+                case (Some(_), None)      => existing.condition
+                case (None, Some(_))      => f.condition
+                case (None, None)         => None
+              }
+            )
+        }
+      }
+
       val innerType = Types.innerType(fieldType)
       selectionSet.foreach {
         case F(alias, name, arguments, directives, selectionSet, index)
@@ -49,7 +76,8 @@ object Field {
           val t = selected.fold(Types.string)(_.`type`()) // default only case where it's not found is __typename
 
           val field = loop(selectionSet, t)
-          fieldList +=
+
+          addField(
             Field(
               name,
               t,
@@ -61,16 +89,19 @@ object Field {
               () => sourceMapper.getLocation(index),
               directives ++ schemaDirectives
             )
+          )
         case FragmentSpread(name, directives) if checkDirectives(directives, variableValues)                        =>
           fragments
             .get(name)
             .foreach { f =>
               val t =
                 innerType.possibleTypes.flatMap(_.find(_.name.contains(f.typeCondition.name))).getOrElse(fieldType)
-              fieldList ++= loop(f.selectionSet, t).fields.map(field =>
-                if (field.condition.isDefined) field
-                else field.copy(condition = subtypeNames(f.typeCondition.name, rootType))
-              )
+              loop(f.selectionSet, t).fields
+                .map(field =>
+                  if (field.condition.isDefined) field
+                  else field.copy(condition = subtypeNames(f.typeCondition.name, rootType))
+                )
+                .foreach(addField)
             }
         case InlineFragment(typeCondition, directives, selectionSet) if checkDirectives(directives, variableValues) =>
           val t     = innerType.possibleTypes
@@ -78,15 +109,18 @@ object Field {
             .getOrElse(fieldType)
           val field = loop(selectionSet, t)
           typeCondition match {
-            case None           => fieldList ++= field.fields
+            case None           => if (field.fields.nonEmpty) fieldList ++= field.fields
             case Some(typeName) =>
-              fieldList ++= field.fields.map(field =>
-                if (field.condition.isDefined) field else field.copy(condition = subtypeNames(typeName.name, rootType))
-              )
+              field.fields
+                .map(field =>
+                  if (field.condition.isDefined) field
+                  else field.copy(condition = subtypeNames(typeName.name, rootType))
+                )
+                .foreach(addField)
           }
         case _                                                                                                      =>
       }
-      Field("", fieldType, None, fields = fieldList.result())
+      Field("", fieldType, None, fields = fieldList.result().toList)
     }
 
     loop(selectionSet, fieldType).copy(directives = directives)
@@ -114,13 +148,14 @@ object Field {
     arguments.flatMap { case (k, v) => resolveVariable(v).map(k -> _) }
   }
 
-  private def subtypeNames(typeName: String, rootType: RootType): Option[List[String]] =
+  private def subtypeNames(typeName: String, rootType: RootType): Option[Set[String]] =
     rootType.types
       .get(typeName)
       .map(t =>
-        typeName ::
-          t.possibleTypes
-            .fold(List.empty[String])(_.flatMap(_.name.map(subtypeNames(_, rootType).getOrElse(Nil))).flatten)
+        t.possibleTypes
+          .fold(Set.empty[String])(
+            _.map(_.name.map(subtypeNames(_, rootType).getOrElse(Set.empty))).toSet.flatten.flatten
+          ) + typeName
       )
 
   private def checkDirectives(directives: List[Directive], variableValues: Map[String, InputValue]): Boolean =
