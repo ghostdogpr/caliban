@@ -120,7 +120,7 @@ object Field {
           }
         case _                                                                                                      =>
       }
-      Field("", fieldType, None, fields = fieldList.result().toList)
+      Field("", fieldType, None, fields = fieldList.toList)
     }
 
     loop(selectionSet, fieldType).copy(directives = directives)
