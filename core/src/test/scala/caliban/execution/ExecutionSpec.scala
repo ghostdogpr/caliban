@@ -357,8 +357,8 @@ object ExecutionSpec extends DefaultRunnableSpec {
         for {
           interpreter <- api.interpreter
           result      <- interpreter.mapError(_ => "my custom error").execute(query)
-        } yield assert(result.errors)(equalTo(List("my custom error"))) &&
-          assert(result.asJson.noSpaces)(equalTo("""{"data":null,"errors":[{"message":"my custom error"}]}"""))
+        } yield assertTrue(result.errors == List("my custom error")) &&
+          assertTrue(result.asJson.noSpaces == """{"data":null,"errors":[{"message":"my custom error"}]}""")
       },
       testM("customErrorEffectSchema") {
         import io.circe.syntax._
@@ -689,11 +689,10 @@ object ExecutionSpec extends DefaultRunnableSpec {
         interpreter
           .flatMap(_.execute(query))
           .map(result =>
-            assert(result.data.toString)(
-              equalTo("""{"user1":{"name":"user","friends":["friend"]},"user2":null}""")
-            ) &&
-              assert(result.errors.collectFirst { case e: ExecutionError => e }.map(_.path))(
-                isSome(equalTo(List(Left("user2"), Left("friends"))))
+            assertTrue(result.data.toString == """{"user1":{"name":"user","friends":["friend"]},"user2":null}""") &&
+              assertTrue(
+                result.errors.collectFirst { case e: ExecutionError => e }.map(_.path).get ==
+                  List(Left("user2"), Left("friends"))
               )
           )
       },
@@ -715,7 +714,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
             |}""".stripMargin
         interpreter
           .flatMap(_.execute(query))
-          .map(result => assert(result.data.toString)(equalTo("""{"user":null}""")))
+          .map(result => assertTrue(result.data.toString == """{"user":null}"""))
       },
       testM("failure in ArgBuilder, non optional field") {
         case class UserArgs(id: Int)
@@ -733,7 +732,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
             |}""".stripMargin
         interpreter
           .flatMap(_.execute(query))
-          .map(result => assert(result.data.toString)(equalTo("""null""")))
+          .map(result => assertTrue(result.data.toString == """null"""))
       },
       testM("die inside a nullable list") {
         case class Queries(test: List[Task[String]])
@@ -867,6 +866,9 @@ object ExecutionSpec extends DefaultRunnableSpec {
             |    __typename
             |    ... on Character {
             |      name
+            |    }
+            |    ... on Human {
+            |      height
             |    }
             |    ... on Human {
             |      height
