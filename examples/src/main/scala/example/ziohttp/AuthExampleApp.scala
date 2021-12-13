@@ -7,7 +7,7 @@ import caliban.interop.tapir.{ StreamTransformer, WebSocketHooks }
 import caliban.schema.GenericSchema
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
-import io.netty.handler.codec.http.{HttpHeaderNames, HttpHeaderValues}
+import io.netty.handler.codec.http.{ HttpHeaderNames, HttpHeaderValues }
 import zhttp.http._
 import zhttp.service.Server
 import zio._
@@ -15,31 +15,40 @@ import zio.clock._
 import zio.duration._
 import zio.stream._
 
+case object Unauthorized extends RuntimeException("Unauthorized")
+
 trait Auth {
-  def currentUser: ZIO[Any, Throwable, String]
-  def setUser(name: String): ZIO[Any, Throwable, Any]
+  type Unauthorized = Unauthorized.type
+
+  def currentUser: IO[Unauthorized, String]
+  def setUser(name: String): UIO[Unit]
 }
 
 object Auth {
-  val http = FiberRef
-    .make("unknown")
-    .map { ref =>
-      new Auth {
-        def currentUser: ZIO[Any, Throwable, String]        = ref.get
-        def setUser(name: String): ZIO[Any, Throwable, Any] = ref.set(name)
+
+  val http: ULayer[Has[Auth]] =
+    FiberRef
+      .make[String](null)
+      .map { ref =>
+        new Auth {
+          def currentUser: IO[Unauthorized, String] =
+            ref.get.flatMap(v => if (v eq null) ZIO.fail(Unauthorized) else ZIO.succeed(v))
+          def setUser(name: String): UIO[Unit]      = ref.set(name)
+        }
       }
-    }
-    .toLayer
+      .toLayer
 
   object WebSockets {
-    val wsSession = Http.fromEffect(Ref.make[String]("unknown"))
+    private val wsSession = Http.fromEffect(Ref.make[String](null))
 
     def live[R <: Has[Auth] with Clock](interpreter: GraphQLInterpreter[R, CalibanError]) =
       wsSession.flatMap { session =>
-        val auth = new Auth {
-          def currentUser: ZIO[Any, Throwable, String]        = session.get
-          def setUser(name: String): ZIO[Any, Throwable, Any] = session.set(name)
-        }
+        val auth =
+          new Auth {
+            def currentUser: IO[Unauthorized, String] =
+              session.get.flatMap(v => if (v eq null) ZIO.fail(Unauthorized) else ZIO.succeed(v))
+            def setUser(name: String): UIO[Unit]      = session.set(name)
+          }
 
         val webSocketHooks = WebSocketHooks.init[R, CalibanError](payload =>
           ZIO
@@ -52,7 +61,7 @@ object Auth {
               case _                              => None
             })
             .orElseFail(CalibanError.ExecutionError("Unable to decode payload"))
-            .flatMap(user => ZIO.service[Auth].flatMap(_.setUser(user).orDie))
+            .flatMap(auth.setUser)
         ) ++
           WebSocketHooks.afterInit(ZIO.halt(Cause.empty).delay(10.seconds)) ++
           WebSocketHooks
@@ -67,7 +76,7 @@ object Auth {
       }
   }
 
-  def middleware[R, B](app: Http[R, Throwable, Request, Response[R, Throwable]]) =
+  def middleware[R, B](app: Http[R, Throwable, Request, Response[R, Throwable]]): HttpApp[Has[Auth], Nothing] =
     Http
       .fromEffectFunction[Request] { (request: Request) =>
         val user = request.headers
@@ -85,11 +94,11 @@ object Auth {
 
 object Authed extends GenericSchema[ZEnv with Has[Auth]] {
   case class Queries(
-    whoAmI: ZIO[Has[Auth], Nothing, String] = ZIO.service[Auth].flatMap(_.currentUser.orDie)
+    whoAmI: ZIO[Has[Auth], Nothing, String] = ZIO.service[Auth].flatMap(_.currentUser)
   )
   case class Subscriptions(
-    whoAmI: ZStream[Has[Auth] with Clock, Nothing, String] =
-      ZStream.fromEffect(ZIO.service[Auth].flatMap(_.currentUser.orDie)).repeat(Schedule.spaced(10.seconds))
+    whoAmI: ZStream[Has[Auth] with Clock, Unauthorized.type, String] =
+      ZStream.fromEffect(ZIO.service[Auth].flatMap(_.currentUser)).repeat(Schedule.spaced(10.seconds))
   )
 
   val api = graphQL(RootResolver(Queries(), None, Subscriptions()))
@@ -103,7 +112,7 @@ object AuthExampleApp extends App {
         headers = List(Header(HttpHeaderNames.CONTENT_TYPE, HttpHeaderValues.TEXT_HTML))
       )
     )
-  
+
   override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
     (for {
       interpreter <- (ExampleApi.api |+| Authed.api).interpreter
