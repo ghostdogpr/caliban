@@ -69,7 +69,7 @@ object Auth {
               case _                              => None
             })
             .orElseFail(CalibanError.ExecutionError("Unable to decode payload"))
-            .flatMap(user => auth.setUser(Some(user))
+            .flatMap(user => auth.setUser(Some(user)))
         ) ++
           WebSocketHooks.afterInit(ZIO.halt(Cause.empty).delay(10.seconds)) ++
           WebSocketHooks
