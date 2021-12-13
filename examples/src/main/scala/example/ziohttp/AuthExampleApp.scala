@@ -21,7 +21,7 @@ trait Auth {
   type Unauthorized = Unauthorized.type
 
   def currentUser: IO[Unauthorized, String]
-  def setUser(name: String): UIO[Unit]
+  def setUser(name: Option[String]): UIO[Unit]
 }
 
 object Auth {
@@ -31,12 +31,12 @@ object Auth {
       .make[Option[String]](None)
       .map { ref =>
         new Auth {
-          def currentUser: IO[Unauthorized, String] =
+          def currentUser: IO[Unauthorized, String]    =
             ref.get.flatMap {
               case Some(v) => ZIO.succeed(v)
               case None    => ZIO.fail(Unauthorized)
             }
-          def setUser(name: String): UIO[Unit]      = ref.set(Some(name))
+          def setUser(name: Option[String]): UIO[Unit] = ref.set(name)
         }
       }
       .toLayer
@@ -50,12 +50,12 @@ object Auth {
       wsSession.flatMap { session =>
         val auth =
           new Auth {
-            def currentUser: IO[Unauthorized, String] =
+            def currentUser: IO[Unauthorized, String]    =
               session.get.flatMap {
                 case Some(v) => ZIO.succeed(v)
                 case None    => ZIO.fail(Unauthorized)
               }
-            def setUser(name: String): UIO[Unit]      = session.set(Some(name))
+            def setUser(name: Option[String]): UIO[Unit] = session.set(name)
           }
 
         val webSocketHooks = WebSocketHooks.init[R, CalibanError](payload =>
@@ -69,7 +69,7 @@ object Auth {
               case _                              => None
             })
             .orElseFail(CalibanError.ExecutionError("Unable to decode payload"))
-            .flatMap(auth.setUser)
+            .flatMap(user => auth.setUser(Some(user))
         ) ++
           WebSocketHooks.afterInit(ZIO.halt(Cause.empty).delay(10.seconds)) ++
           WebSocketHooks
@@ -88,10 +88,9 @@ object Auth {
   ): HttpApp[R with Has[Auth], Throwable] =
     Http
       .fromEffectFunction[Request] { (request: Request) =>
-        request.headers.find(_.name == "Authorization").map(_.value.toString()) match {
-          case Some(user) => ZIO.serviceWith[Auth](_.setUser(user)).as(app)
-          case None       => ZIO.succeed(Http.fail(CalibanError.ExecutionError("Failed to decode user")))
-        }
+        val user = request.headers.find(_.name == "Authorization").map(_.value.toString())
+
+        ZIO.serviceWith[Auth](_.setUser(user)).as(app)
       }
       .flatten
 }
