@@ -28,26 +28,34 @@ object Auth {
 
   val http: ULayer[Has[Auth]] =
     FiberRef
-      .make[String](null)
+      .make[Option[String]](None)
       .map { ref =>
         new Auth {
           def currentUser: IO[Unauthorized, String] =
-            ref.get.flatMap(v => if (v eq null) ZIO.fail(Unauthorized) else ZIO.succeed(v))
-          def setUser(name: String): UIO[Unit]      = ref.set(name)
+            ref.get.flatMap {
+              case Some(v) => ZIO.succeed(v)
+              case None    => ZIO.fail(Unauthorized)
+            }
+          def setUser(name: String): UIO[Unit]      = ref.set(Some(name))
         }
       }
       .toLayer
 
   object WebSockets {
-    private val wsSession = Http.fromEffect(Ref.make[String](null))
+    private val wsSession = Http.fromEffect(Ref.make[Option[String]](None))
 
-    def live[R <: Has[Auth] with Clock](interpreter: GraphQLInterpreter[R, CalibanError]) =
+    def live[R <: Has[Auth] with Clock](
+      interpreter: GraphQLInterpreter[R, CalibanError]
+    ): HttpApp[R, CalibanError] =
       wsSession.flatMap { session =>
         val auth =
           new Auth {
             def currentUser: IO[Unauthorized, String] =
-              session.get.flatMap(v => if (v eq null) ZIO.fail(Unauthorized) else ZIO.succeed(v))
-            def setUser(name: String): UIO[Unit]      = session.set(name)
+              session.get.flatMap {
+                case Some(v) => ZIO.succeed(v)
+                case None    => ZIO.fail(Unauthorized)
+              }
+            def setUser(name: String): UIO[Unit]      = session.set(Some(name))
           }
 
         val webSocketHooks = WebSocketHooks.init[R, CalibanError](payload =>
@@ -71,30 +79,26 @@ object Auth {
               ): ZStream[R1, E1, GraphQLWSOutput] = stream.updateService[Auth](_ => auth)
             })
 
-        ZHttpAdapter
-          .makeWebSocketService(interpreter, webSocketHooks = webSocketHooks)
+        ZHttpAdapter.makeWebSocketService(interpreter, webSocketHooks = webSocketHooks)
       }
   }
 
-  def middleware[R, B](app: Http[R, Throwable, Request, Response[R, Throwable]]): HttpApp[Has[Auth], Nothing] =
+  def middleware[R, B](
+    app: Http[R, Throwable, Request, Response[R, Throwable]]
+  ): HttpApp[R with Has[Auth], Throwable] =
     Http
       .fromEffectFunction[Request] { (request: Request) =>
-        val user = request.headers
-          .find(_.name == "Authorization")
-          .map(_.value.toString())
-          .getOrElse("unknown")
-
-        ZIO
-          .service[Auth]
-          .flatMap(_.setUser(user))
-          .fold(_ => Http.fail(CalibanError.ExecutionError("Failed to decode user")), _ => app)
+        request.headers.find(_.name == "Authorization").map(_.value.toString()) match {
+          case Some(user) => ZIO.serviceWith[Auth](_.setUser(user)).as(app)
+          case None       => ZIO.succeed(Http.fail(CalibanError.ExecutionError("Failed to decode user")))
+        }
       }
       .flatten
 }
 
 object Authed extends GenericSchema[ZEnv with Has[Auth]] {
   case class Queries(
-    whoAmI: ZIO[Has[Auth], Nothing, String] = ZIO.service[Auth].flatMap(_.currentUser)
+    whoAmI: ZIO[Has[Auth], Unauthorized.type, String] = ZIO.service[Auth].flatMap(_.currentUser)
   )
   case class Subscriptions(
     whoAmI: ZStream[Has[Auth] with Clock, Unauthorized.type, String] =
