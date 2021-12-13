@@ -379,8 +379,9 @@ lazy val examples = project
   .in(file("examples"))
   .settings(commonSettings)
   .settings(
-    publish / skip := true,
-    run / fork     := true
+    publish / skip     := true,
+    run / fork         := true,
+    run / connectInput := true
   )
   .settings(
     crossScalaVersions -= scala3,
