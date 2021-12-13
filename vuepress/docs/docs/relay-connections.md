@@ -127,6 +127,6 @@ and the schema:
 
 ```scala
   implicit val schema: Schema[Any, ElasticCursor] = Schema.stringSchema.contramap(
-    c => Cursor[ElasticCursor].encode(c)
+    Cursor[ElasticCursor].encode
   )
 ```
