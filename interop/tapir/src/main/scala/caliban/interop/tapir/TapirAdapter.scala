@@ -228,64 +228,64 @@ object TapirAdapter {
         env           <- RIO.environment[R]
         subscriptions <- Ref.make(Map.empty[String, Promise[Any, Unit]])
         output        <- Queue.unbounded[GraphQLWSOutput]
-        res           <- UIO.right[CalibanPipe] { input =>
-                           val processedInput = input.collectM {
-                             case GraphQLWSInput("connection_init", id, payload) =>
-                               val before   = ZIO.whenCase((webSocketHooks.beforeInit, payload)) {
-                                 case (Some(beforeInit), Some(payload)) =>
-                                   beforeInit(payload).catchAll(e => output.offer(makeError(id, e)))
-                               }
-                               val response = output.offer(connectionAck)
-                               val ka       = keepAlive(keepAliveTime).runDrain.fork
-                               val after    = ZIO.whenCase(webSocketHooks.afterInit) { case Some(afterInit) =>
-                                 afterInit.catchAll(e => output.offer(makeError(id, e)))
-                               }
-
-                               before *> response *> ka *> after
-                             case GraphQLWSInput("start", id, payload)           =>
-                               val request = payload.collect { case InputValue.ObjectValue(fields) =>
-                                 val query         = fields.get("query").collect { case StringValue(v) => v }
-                                 val operationName = fields.get("operationName").collect { case StringValue(v) => v }
-                                 val variables     = fields.get("variables").collect { case InputValue.ObjectValue(v) => v }
-                                 val extensions    = fields.get("extensions").collect { case InputValue.ObjectValue(v) => v }
-                                 GraphQLRequest(query, operationName, variables, extensions)
-                               }
-                               request match {
-                                 case Some(req) =>
-                                   val stream = generateGraphQLResponse(
-                                     req,
-                                     id.getOrElse(""),
-                                     interpreter,
-                                     skipValidation,
-                                     enableIntrospection,
-                                     queryExecution,
-                                     subscriptions
-                                   )
-                                   webSocketHooks.onMessage
-                                     .map(_.transform(stream))
-                                     .getOrElse(stream)
-                                     .mapM(output.offer)
-                                     .runDrain
-                                     .catchAll(e => output.offer(makeError(id, e)))
-                                     .fork
-                                     .unit
-
-                                 case None => output.offer(connectionError)
-                               }
-                             case GraphQLWSInput("stop", id, _)                  =>
-                               removeSubscription(id, subscriptions)
-                             case GraphQLWSInput("connection_terminate", _, _)   =>
-                               ZIO.interrupt
-                           }
-                             .catchAll(_ => ZStream.succeed(connectionError))
-                             .ensuring(subscriptions.get.flatMap(m => ZIO.foreach(m.values)(_.succeed(()))))
-                             .provide(env)
-
+        pipe          <- UIO.right[CalibanPipe] { input =>
                            ZStream
-                             .fromEffect(processedInput.runDrain.forkDaemon)
-                             .flatMap(fiber => ZStream.fromQueue(output).ensuring(fiber.interrupt))
+                             .bracket(
+                               input.collectM {
+                                 case GraphQLWSInput("connection_init", id, payload) =>
+                                   val before   = ZIO.whenCase((webSocketHooks.beforeInit, payload)) {
+                                     case (Some(beforeInit), Some(payload)) =>
+                                       beforeInit(payload).catchAll(e => output.offer(makeError(id, e)))
+                                   }
+                                   val response = output.offer(connectionAck)
+                                   val ka       = keepAlive(keepAliveTime).runDrain.fork
+                                   val after    = ZIO.whenCase(webSocketHooks.afterInit) { case Some(afterInit) =>
+                                     afterInit.catchAll(e => output.offer(makeError(id, e)))
+                                   }
+
+                                   before *> response *> ka *> after
+                                 case GraphQLWSInput("start", id, payload)           =>
+                                   val request = payload.collect { case InputValue.ObjectValue(fields) =>
+                                     val query         = fields.get("query").collect { case StringValue(v) => v }
+                                     val operationName = fields.get("operationName").collect { case StringValue(v) => v }
+                                     val variables     = fields.get("variables").collect { case InputValue.ObjectValue(v) => v }
+                                     val extensions    = fields.get("extensions").collect { case InputValue.ObjectValue(v) => v }
+                                     GraphQLRequest(query, operationName, variables, extensions)
+                                   }
+                                   request match {
+                                     case Some(req) =>
+                                       val stream = generateGraphQLResponse(
+                                         req,
+                                         id.getOrElse(""),
+                                         interpreter,
+                                         skipValidation,
+                                         enableIntrospection,
+                                         queryExecution,
+                                         subscriptions
+                                       )
+                                       webSocketHooks.onMessage
+                                         .map(_.transform(stream))
+                                         .getOrElse(stream)
+                                         .mapM(output.offer)
+                                         .runDrain
+                                         .catchAll(e => output.offer(makeError(id, e)))
+                                         .fork
+                                         .unit
+
+                                     case None => output.offer(connectionError)
+                                   }
+                                 case GraphQLWSInput("stop", id, _)                  =>
+                                   removeSubscription(id, subscriptions)
+                                 case GraphQLWSInput("connection_terminate", _, _)   =>
+                                   ZIO.interrupt
+                               }.runDrain
+                                 .catchAll(_ => output.offer(connectionError))
+                                 .ensuring(subscriptions.get.flatMap(m => ZIO.foreach(m.values)(_.succeed(()))))
+                                 .provide(env)
+                                 .forkDaemon
+                             )(_.interrupt) *> ZStream.fromQueue(output)
                          }
-      } yield res
+      } yield pipe
 
     makeWebSocketEndpoint.serverLogic[RIO[R, *]](serverRequest =>
       requestInterceptor(serverRequest).foldM(statusCode => ZIO.left(statusCode), _ => io)
