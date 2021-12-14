@@ -76,7 +76,7 @@ object ZHttpAdapter {
               case _                                 => Stream.empty
             }
 
-            val response = connectionAck ++ keepAlive(keepAliveTime)
+            val response = ZStream.succeed(connectionAck) ++ keepAlive(keepAliveTime)
 
             val after = webSocketHooks.afterInit match {
               case Some(afterInit) => ZStream.fromEffect(afterInit).drain.catchAll(toStreamError(id, _))
@@ -109,14 +109,14 @@ object ZHttpAdapter {
 
                 webSocketHooks.onMessage.map(_.transform(stream)).getOrElse(stream).catchAll(toStreamError(id, _))
 
-              case None => connectionError
+              case None => ZStream.succeed(connectionError)
             }
           case GraphQLWSInput("stop", id, _)                =>
-            removeSubscription(id, subscriptions) *> ZStream.empty
+            ZStream.fromEffect(removeSubscription(id, subscriptions)) *> ZStream.empty
 
         }
         .flatten
-        .catchAll(_ => connectionError)
+        .catchAll(_ => ZStream.succeed(connectionError))
         .map(output => WebSocketFrame.Text(output.asJson.noSpaces))
     }
 
