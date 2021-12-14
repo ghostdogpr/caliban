@@ -248,7 +248,7 @@ object Validator {
       }
     loop(selectionSet)
     val directiveLists                            = builder.result()
-    IO.foreach_(directiveLists)(list => checkDirectivesUniqueness(list.map(_._1))).as(directiveLists.flatten)
+    IO.foreachDiscard(directiveLists)(list => checkDirectivesUniqueness(list.map(_._1))).as(directiveLists.flatten)
   }
 
   private def checkDirectivesUniqueness(directives: List[Directive]): IO[ValidationError, Unit] =

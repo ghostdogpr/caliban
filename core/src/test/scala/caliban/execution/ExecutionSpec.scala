@@ -146,7 +146,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
           api.interpreter.flatMap(_.execute(query, None, Map("term" -> StringValue("search")))).map(_.asJson.noSpaces)
         )(equalTo("""{"data":{"getId":null}}"""))
       },
-      testM("respects variables that are not provided") {
+      test("respects variables that are not provided") {
         sealed trait ThreeState
         object ThreeState {
           case object Undefined extends ThreeState
@@ -202,7 +202,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
           assertTrue(default.data.toString == """{"getState":false}""") &&
           assertTrue(defaultValue.data.toString == """{"getState":true}""")
       },
-      testM("field function") {
+      test("field function") {
         import io.circe.syntax._
 
         case class Character(name: String = "Bob")
