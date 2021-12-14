@@ -238,7 +238,7 @@ object TapirAdapter {
                                        beforeInit(payload).catchAll(e => output.offer(makeError(id, e)))
                                    }
                                    val response = output.offer(connectionAck)
-                                   val ka       = keepAlive(keepAliveTime).runDrain.fork
+                                   val ka       = keepAlive(keepAliveTime).mapM(output.offer).runDrain.fork
                                    val after    = ZIO.whenCase(webSocketHooks.afterInit) { case Some(afterInit) =>
                                      afterInit.catchAll(e => output.offer(makeError(id, e)))
                                    }
