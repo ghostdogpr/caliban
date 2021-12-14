@@ -283,7 +283,7 @@ object TapirAdapter {
                                  .ensuring(subscriptions.get.flatMap(m => ZIO.foreach(m.values)(_.succeed(()))))
                                  .provide(env)
                                  .forkDaemon
-                             )(_.interrupt) *> ZStream.fromQueue(output)
+                             )(_.interrupt) *> ZStream.fromQueueWithShutdown(output)
                          }
       } yield pipe
 
