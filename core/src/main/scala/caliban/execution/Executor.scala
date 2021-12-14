@@ -1,7 +1,6 @@
 package caliban.execution
 
 import scala.annotation.tailrec
-import scala.collection.mutable.ArrayBuffer
 import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue._
 import caliban.Value._
@@ -52,7 +51,7 @@ object Executor {
           value match {
             case EnumValue(v) =>
               // special case of an hybrid union containing case objects, those should return an object instead of a string
-              val obj = mergeFields(currentField, v).collectFirst {
+              val obj = filterFields(currentField, v).collectFirst {
                 case f: Field if f.name == "__typename" =>
                   ObjectValue(List(f.alias.getOrElse(f.name) -> StringValue(v)))
                 case f: Field if f.name == "_"          =>
@@ -71,8 +70,8 @@ object Executor {
             Types.listOf(currentField.fieldType).fold(false)(_.isNullable)
           )
         case ObjectStep(objectName, fields) =>
-          val mergedFields = mergeFields(currentField, objectName)
-          val items        = mergedFields.map {
+          val filteredFields = filterFields(currentField, objectName)
+          val items          = filteredFields.map {
             case f @ Field(name @ "__typename", _, _, alias, _, _, _, _, directives) =>
               (alias.getOrElse(name), PureStep(StringValue(objectName)), fieldInfo(f, path, directives))
             case f @ Field(name, _, _, alias, _, _, args, _, directives)             =>
@@ -173,28 +172,8 @@ object Executor {
   private[caliban] def fail(error: CalibanError): UIO[GraphQLResponse[CalibanError]] =
     IO.succeed(GraphQLResponse(NullValue, List(error)))
 
-  private[caliban] def mergeFields(field: Field, typeName: String): List[Field] = {
-    // ugly mutable code but it's worth it for the speed ;)
-    val array = ArrayBuffer.empty[Field]
-    val map   = collection.mutable.Map.empty[String, Int]
-
-    field.fields.foreach { field =>
-      if (field.condition.forall(_.contains(typeName))) {
-        val name = field.alias.getOrElse(field.name)
-        map.get(name) match {
-          case None        =>
-            // first time we see this field, add it to the array
-            array += field
-          case Some(index) =>
-            // field already existed, merge it
-            val f = array(index)
-            array(index) = f.copy(fields = f.fields ::: field.fields)
-        }
-      }
-    }
-
-    array.toList
-  }
+  private[caliban] def filterFields(field: Field, typeName: String): List[Field] =
+    field.fields.filter(_.condition.forall(_.contains(typeName)))
 
   private def fieldInfo(field: Field, path: List[Either[String, Int]], fieldDirectives: List[Directive]): FieldInfo =
     FieldInfo(field.alias.getOrElse(field.name), field, path, fieldDirectives)

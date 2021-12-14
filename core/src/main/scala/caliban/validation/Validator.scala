@@ -161,23 +161,25 @@ object Validator {
   private def collectVariablesUsed(context: Context, selectionSet: List[Selection]): Set[String] = {
     def collectValues(selectionSet: List[Selection]): List[InputValue] = {
       // ugly mutable code but it's worth it for the speed ;)
-      val inputValues = List.newBuilder[InputValue]
+      val inputValues                     = List.newBuilder[InputValue]
+      def add(list: Iterable[InputValue]) = if (list.nonEmpty) inputValues ++= list
+
       selectionSet.foreach {
         case FragmentSpread(name, directives)                    =>
-          directives.foreach(inputValues ++= _.arguments.values)
+          directives.foreach(d => add(d.arguments.values))
           context.fragments
             .get(name)
             .foreach { f =>
-              f.directives.foreach(inputValues ++= _.arguments.values)
-              inputValues ++= collectValues(f.selectionSet)
+              f.directives.foreach(d => add(d.arguments.values))
+              add(collectValues(f.selectionSet))
             }
         case Field(_, _, arguments, directives, selectionSet, _) =>
-          inputValues ++= arguments.values
-          directives.foreach(inputValues ++= _.arguments.values)
-          inputValues ++= collectValues(selectionSet)
+          add(arguments.values)
+          directives.foreach(d => add(d.arguments.values))
+          add(collectValues(selectionSet))
         case InlineFragment(_, directives, selectionSet)         =>
-          directives.foreach(inputValues ++= _.arguments.values)
-          inputValues ++= collectValues(selectionSet)
+          directives.foreach(d => add(d.arguments.values))
+          add(collectValues(selectionSet))
       }
       inputValues.result()
     }
@@ -197,7 +199,7 @@ object Validator {
   private def collectSelectionSets(selectionSet: List[Selection]): List[Selection] = {
     val sets                                      = List.newBuilder[Selection]
     def loop(selectionSet: List[Selection]): Unit = {
-      sets ++= selectionSet
+      if (selectionSet.nonEmpty) sets ++= selectionSet
       selectionSet.foreach {
         case f: Field          => loop(f.selectionSet)
         case f: InlineFragment => loop(f.selectionSet)
@@ -227,17 +229,27 @@ object Validator {
 
   private def collectDirectives(
     selectionSet: List[Selection]
-  ): IO[ValidationError, List[(Directive, __DirectiveLocation)]] =
-    IO.foreach(selectionSet) {
-      case FragmentSpread(_, directives)               =>
-        checkDirectivesUniqueness(directives).as(directives.map((_, __DirectiveLocation.FRAGMENT_SPREAD)))
-      case Field(_, _, _, directives, selectionSet, _) =>
-        checkDirectivesUniqueness(directives) *>
-          collectDirectives(selectionSet).map(directives.map((_, __DirectiveLocation.FIELD)) ++ _)
-      case InlineFragment(_, directives, selectionSet) =>
-        checkDirectivesUniqueness(directives) *>
-          collectDirectives(selectionSet).map(directives.map((_, __DirectiveLocation.INLINE_FRAGMENT)) ++ _)
-    }.map(_.flatten)
+  ): IO[ValidationError, List[(Directive, __DirectiveLocation)]] = {
+    val builder = List.newBuilder[List[(Directive, __DirectiveLocation)]]
+
+    def loop(selectionSet: List[Selection]): Unit =
+      selectionSet.foreach {
+        case FragmentSpread(_, directives)               =>
+          if (directives.nonEmpty)
+            builder += directives.map((_, __DirectiveLocation.FRAGMENT_SPREAD))
+        case Field(_, _, _, directives, selectionSet, _) =>
+          if (directives.nonEmpty)
+            builder += directives.map((_, __DirectiveLocation.FIELD))
+          loop(selectionSet)
+        case InlineFragment(_, directives, selectionSet) =>
+          if (directives.nonEmpty)
+            builder += directives.map((_, __DirectiveLocation.INLINE_FRAGMENT))
+          loop(selectionSet)
+      }
+    loop(selectionSet)
+    val directiveLists                            = builder.result()
+    IO.foreach_(directiveLists)(list => checkDirectivesUniqueness(list.map(_._1))).as(directiveLists.flatten)
+  }
 
   private def checkDirectivesUniqueness(directives: List[Directive]): IO[ValidationError, Unit] =
     IO.whenCase(directives.groupBy(_.name).find { case (_, v) => v.length > 1 }) { case Some((name, _)) =>

@@ -124,20 +124,23 @@ object TapirAdapterSpec {
                                  Some(ObjectValue(Map("query" -> StringValue("subscription { characterDeleted }"))))
                                )
                              )
-              sendDelete   =
-                send(run((GraphQLRequest(Some("""mutation{ deleteCharacter(name: "Amos Burton") }""")), null)))
-                  .delay(3 seconds)
+              sendDelete   = send(
+                               run((GraphQLRequest(Some("""mutation{ deleteCharacter(name: "Amos Burton") }""")), null))
+                             ).delay(3 seconds)
+              stop         = inputQueue.offer(GraphQLWSInput("stop", Some("id"), None))
               messages    <- outputStream
                                .tap(out => ZIO.when(out.`type` == "connection_ack")(sendDelete))
-                               .take(2)
+                               .tap(out => ZIO.when(out.`type` == "data")(stop))
+                               .take(3)
                                .runCollect
                                .timeoutFail(new Throwable("timeout ws"))(30.seconds)
                                .provideSomeLayer[SttpClient](Clock.live)
             } yield messages
 
           io.map { messages =>
-            assert(messages.head.`type`)(equalTo("connection_ack")) &&
-            assert(messages(1).payload.get.toString)(equalTo("""{"data":{"characterDeleted":"Amos Burton"}}"""))
+            assertTrue(messages.head.`type` == "connection_ack") &&
+            assertTrue(messages(1).payload.get.toString == """{"data":{"characterDeleted":"Amos Burton"}}""") &&
+            assertTrue(messages(2).`type` == "complete")
           }
         }
       )
