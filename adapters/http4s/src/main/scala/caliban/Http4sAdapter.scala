@@ -2,15 +2,20 @@ package caliban
 
 import caliban.execution.QueryExecution
 import caliban.interop.cats.CatsInterop
-import caliban.interop.tapir.TapirAdapter.zioMonadError
+import caliban.interop.tapir.TapirAdapter.{ zioMonadError, CalibanPipe, ZioWebSockets }
 import caliban.interop.tapir.{ RequestInterceptor, TapirAdapter, WebSocketHooks }
 import cats.data.Kleisli
 import cats.effect.Async
+import cats.effect.std.Dispatcher
 import cats.~>
 import org.http4s._
 import org.http4s.server.websocket.WebSocketBuilder2
+import sttp.capabilities.WebSockets
+import sttp.capabilities.fs2.Fs2Streams
+import sttp.tapir.Endpoint
 import sttp.tapir.json.circe._
 import sttp.tapir.server.ServerEndpoint
+import sttp.tapir.server.http4s.Http4sServerInterpreter
 import sttp.tapir.server.http4s.ztapir.ZHttp4sServerInterpreter
 import zio._
 import zio.blocking.Blocking
@@ -38,6 +43,24 @@ object Http4sAdapter {
     ZHttp4sServerInterpreter().from(endpoints).toRoutes
   }
 
+  def makeHttpServiceF[F[_]: Async, R, E](
+    interpreter: GraphQLInterpreter[R, E],
+    skipValidation: Boolean = false,
+    enableIntrospection: Boolean = true,
+    queryExecution: QueryExecution = QueryExecution.Parallel,
+    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
+  )(implicit runtime: Runtime[R]): HttpRoutes[F] = {
+    val endpoints  = TapirAdapter.makeHttpService[R, E](
+      interpreter,
+      skipValidation,
+      enableIntrospection,
+      queryExecution,
+      requestInterceptor
+    )
+    val endpointsF = endpoints.map(convertHttpEndpointToF[F, R, E])
+    Http4sServerInterpreter().toRoutes(endpointsF)
+  }
+
   def makeHttpUploadService[R <: Has[_] with Random, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
@@ -53,6 +76,24 @@ object Http4sAdapter {
       requestInterceptor
     )
     ZHttp4sServerInterpreter().from(endpoint).toRoutes
+  }
+
+  def makeHttpUploadServiceF[F[_]: Async, R <: Has[_] with Random, E](
+    interpreter: GraphQLInterpreter[R, E],
+    skipValidation: Boolean = false,
+    enableIntrospection: Boolean = true,
+    queryExecution: QueryExecution = QueryExecution.Parallel,
+    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
+  )(implicit runtime: Runtime[R]): HttpRoutes[F] = {
+    val endpoint  = TapirAdapter.makeHttpUploadService[R, E](
+      interpreter,
+      skipValidation,
+      enableIntrospection,
+      queryExecution,
+      requestInterceptor
+    )
+    val endpointF = convertHttpEndpointToF[F, R, E](endpoint)
+    Http4sServerInterpreter().toRoutes(endpointF)
   }
 
   def makeWebSocketService[R, R1 <: R, E](
@@ -77,6 +118,29 @@ object Http4sAdapter {
     ZHttp4sServerInterpreter[R1]()
       .fromWebSocket(endpoint)
       .toRoutes(builder.asInstanceOf[WebSocketBuilder2[RIO[R1 with Clock with Blocking, *]]])
+  }
+
+  def makeWebSocketServiceF[F[_]: Async: Dispatcher, R, E](
+    builder: WebSocketBuilder2[F],
+    interpreter: GraphQLInterpreter[R, E],
+    skipValidation: Boolean = false,
+    enableIntrospection: Boolean = true,
+    keepAliveTime: Option[Duration] = None,
+    queryExecution: QueryExecution = QueryExecution.Parallel,
+    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty,
+    webSocketHooks: WebSocketHooks[R, E] = WebSocketHooks.empty
+  )(implicit runtime: Runtime[R]): HttpRoutes[F] = {
+    val endpoint  = TapirAdapter.makeWebSocketService[R, E](
+      interpreter,
+      skipValidation,
+      enableIntrospection,
+      keepAliveTime,
+      queryExecution,
+      requestInterceptor,
+      webSocketHooks
+    )
+    val endpointF = convertWebSocketEndpointToF[F, R, E](endpoint)
+    Http4sServerInterpreter().toWebSocketRoutes(endpointF)(builder)
   }
 
   /**
@@ -131,7 +195,7 @@ object Http4sAdapter {
    * If you wish to use `Http4sServerInterpreter` with cats-effect IO instead of `ZHttp4sServerInterpreter`,
    * you can use this function to convert the tapir endpoints to their cats-effect counterpart.
    */
-  def convertHttpEndpointToF[E, R, F[_]: Async](
+  def convertHttpEndpointToF[F[_]: Async, R, E](
     endpoint: ServerEndpoint[Any, RIO[R, *]]
   )(implicit runtime: Runtime[R]): ServerEndpoint[Any, F] =
     ServerEndpoint[endpoint.A, endpoint.U, endpoint.I, endpoint.E, endpoint.O, Any, F](
@@ -139,5 +203,37 @@ object Http4sAdapter {
       _ => a => CatsInterop.toEffect(endpoint.securityLogic(zioMonadError)(a)),
       _ => u => req => CatsInterop.toEffect(endpoint.logic(zioMonadError)(u)(req))
     )
+
+  /**
+   * If you wish to use `Http4sServerInterpreter` with cats-effect IO instead of `ZHttp4sServerInterpreter`,
+   * you can use this function to convert the tapir endpoints to their cats-effect counterpart.
+   */
+  def convertWebSocketEndpointToF[F[_]: Async: Dispatcher, R, E](
+    endpoint: ServerEndpoint[ZioWebSockets, RIO[R, *]]
+  )(implicit runtime: Runtime[R]): ServerEndpoint[Fs2Streams[F] with WebSockets, F] = {
+    type Fs2Pipe = fs2.Pipe[F, GraphQLWSInput, GraphQLWSOutput]
+
+    val e = endpoint
+      .asInstanceOf[
+        ServerEndpoint.Full[endpoint.A, endpoint.U, endpoint.I, endpoint.E, CalibanPipe, ZioWebSockets, RIO[R, *]]
+      ]
+
+    ServerEndpoint[endpoint.A, endpoint.U, endpoint.I, endpoint.E, Fs2Pipe, Fs2Streams[F] with WebSockets, F](
+      e.endpoint.asInstanceOf[Endpoint[endpoint.A, endpoint.I, endpoint.E, Fs2Pipe, Any]],
+      _ => a => CatsInterop.toEffect(e.securityLogic(zioMonadError)(a)),
+      _ =>
+        u =>
+          req =>
+            CatsInterop.toEffect(
+              e.logic(zioMonadError)(u)(req)
+                .map(_.map { zioPipe =>
+                  import zio.stream.interop.fs2z._
+                  fs2InputStream =>
+                    zioPipe(fs2InputStream.translate(CatsInterop.fromEffectK[F, Any]).toZStream()).toFs2Stream
+                      .translate(CatsInterop.toEffectK)
+                })
+            )
+    )
+  }
 
 }
