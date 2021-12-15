@@ -106,14 +106,15 @@ object TapirAdapter {
     def logic(request: (GraphQLRequest, ServerRequest)): RIO[R, Either[StatusCode, GraphQLResponse[E]]] = {
       val (graphQLRequest, serverRequest) = request
 
-      (requestInterceptor(serverRequest) *>
+      requestInterceptor(serverRequest)(
         interpreter
           .executeRequest(
             graphQLRequest,
             skipValidation = skipValidation,
             enableIntrospection = enableIntrospection,
             queryExecution
-          )).either
+          )
+      ).either
     }
 
     makeHttpEndpoints.map(_.serverLogic(logic))
@@ -147,7 +148,6 @@ object TapirAdapter {
 
       val io =
         for {
-          _             <- requestInterceptor(serverRequest)
           rawOperations <- ZIO.fromOption(partsMap.get("operations")) orElseFail StatusCode.BadRequest
           request       <- requestCodec.rawDecode(new String(rawOperations.body, "utf-8")) match {
                              case _: DecodeResult.Failure => ZIO.fail(StatusCode.BadRequest)
@@ -191,7 +191,7 @@ object TapirAdapter {
                              .provideSomeLayer[R with Random](uploadQuery.fileHandle.toLayerMany)
         } yield response
 
-      io.either
+      requestInterceptor(serverRequest)(io).either
     }
 
     makeHttpUploadEndpoint.serverLogic(logic)
@@ -288,7 +288,7 @@ object TapirAdapter {
       } yield pipe
 
     makeWebSocketEndpoint.serverLogic[RIO[R, *]](serverRequest =>
-      requestInterceptor(serverRequest).foldM(statusCode => ZIO.left(statusCode), _ => io)
+      requestInterceptor(serverRequest)(io).catchAll(ZIO.left(_))
     )
   }
 
