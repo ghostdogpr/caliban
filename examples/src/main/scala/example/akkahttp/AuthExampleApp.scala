@@ -25,13 +25,11 @@ object AuthExampleApp extends App {
   type Auth = Has[FiberRef[Option[AuthToken]]]
 
   object AuthInterceptor extends RequestInterceptor[Auth] {
-    override def apply[R <: Auth](
-      request: ServerRequest
-    ): ZIO[R, StatusCode, Unit] =
+    override def apply[R <: Auth, A](request: ServerRequest)(effect: ZIO[R, StatusCode, A]): ZIO[R, StatusCode, A] =
       request.headers.collectFirst {
         case header if header.is("token") => header.value
       } match {
-        case Some(token) => ZIO.accessM[Auth](_.get.set(Some(AuthToken(token))))
+        case Some(token) => ZIO.accessM[Auth](_.get.set(Some(AuthToken(token)))) *> effect
         case _           => ZIO.fail(StatusCode.Forbidden)
       }
   }
