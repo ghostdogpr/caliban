@@ -509,7 +509,7 @@ object ExecutionSpec extends DefaultRunnableSpec {
               }
             case x                                 => ZIO.succeed(s"No stream found in ${x.getClass}")
           }
-          .provideSome(authLayer)
+          .provideSomeLayer(authLayer)
 
         assertM(exec)(equalTo("TOKEN"))
       },
