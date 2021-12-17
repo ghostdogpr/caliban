@@ -6,27 +6,28 @@ val scala213 = "2.13.7"
 val scala3   = "3.1.0"
 val allScala = Seq(scala212, scala213, scala3)
 
-val akkaVersion            = "2.6.17"
-val catsEffect2Version     = "2.5.4"
-val catsEffect3Version     = "3.3.0"
-val circeVersion           = "0.14.1"
-val http4sVersion          = "0.23.7"
-val laminextVersion        = "0.14.2"
-val magnoliaVersion        = "0.17.0"
-val mercatorVersion        = "0.2.1"
-val playVersion            = "2.8.11"
-val playJsonVersion        = "2.9.2"
-val sttpVersion            = "3.3.18"
-val tapirVersion           = "0.19.1"
-val zioVersion             = "1.0.12"
-val zio2Version            = "2.0.0-RC1"
-val zioInteropCats2Version = "2.5.1.0"
-val zioInteropCats3Version = "3.2.9.0"
-val zioConfigVersion       = "1.0.10"
-val zqueryVersion          = "0.2.10"
-val zquery2Version         = "0.2.10+21-07833cec-SNAPSHOT"
-val zioJsonVersion         = "0.1.5"
-val zioHttpVersion         = "1.0.0.0-RC17"
+val akkaVersion             = "2.6.17"
+val catsEffect2Version      = "2.5.4"
+val catsEffect3Version      = "3.3.0"
+val circeVersion            = "0.14.1"
+val http4sVersion           = "0.23.7"
+val laminextVersion         = "0.14.2"
+val magnoliaVersion         = "0.17.0"
+val mercatorVersion         = "0.2.1"
+val playVersion             = "2.8.11"
+val playJsonVersion         = "2.9.2"
+val sttpVersion             = "3.3.18"
+val tapirVersion            = "0.19.1"
+val zioVersion              = "1.0.12"
+val zio2Version             = "2.0.0-RC1"
+val zioInteropCats2Version  = "2.5.1.0"
+val zioInteropCats3Version  = "3.2.9.0"
+val zio2InteropCats3Version = "3.3.0-RC1"
+val zioConfigVersion        = "1.0.10"
+val zqueryVersion           = "0.2.10"
+val zquery2Version          = "0.3.0-RC1"
+val zioJsonVersion          = "0.1.5"
+val zioHttpVersion          = "1.0.0.0-RC17"
 
 inThisBuild(
   List(
@@ -207,7 +208,7 @@ lazy val catsInterop = project
       if (scalaVersion.value == scala3) Seq()
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
     } ++ Seq(
-      "dev.zio"       %% "zio-interop-cats" % zioInteropCats3Version,
+      "dev.zio"       %% "zio-interop-cats" % zio2InteropCats3Version,
       "org.typelevel" %% "cats-effect"      % catsEffect3Version
     )
   )

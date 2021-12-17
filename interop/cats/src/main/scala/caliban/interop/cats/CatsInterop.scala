@@ -58,12 +58,12 @@ object CatsInterop {
         ev.optional
 
       override def resolve(value: F[A]): Step[R] =
-        QueryStep(ZQuery.fromEffect(fromEffect(value).map(ev.resolve)))
+        QueryStep(ZQuery.fromZIO(fromEffect(value).map(ev.resolve)))
     }
 
   def fromEffect[F[_], A](fa: F[A])(implicit F: Dispatcher[F]): Task[A] =
     ZIO
-      .effectTotal(F.unsafeToFutureCancelable(fa))
+      .succeed(F.unsafeToFutureCancelable(fa))
       .flatMap { case (future, cancel) =>
         ZIO.fromFuture(_ => future).onInterrupt(ZIO.fromFuture(_ => cancel()).orDie).interruptible
       }
