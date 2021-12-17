@@ -1172,6 +1172,8 @@ object ExecutionSpec extends DefaultRunnableSpec {
         )
         case class Test(bases: List[Base])
 
+        implicit val baseSchema: Schema[Any, Base] = Schema.gen
+
         val api   = graphQL(RootResolver(Test(List(base1, base2))))
         val query = """
         query {
