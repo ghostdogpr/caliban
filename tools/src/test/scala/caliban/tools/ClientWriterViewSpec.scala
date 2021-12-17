@@ -40,7 +40,7 @@ object Client {
 
     type ViewSelection = SelectionBuilder[Character, CharacterView]
 
-    def view: ViewSelection = (name ~ age ~ nicknames).map { case ((name, age), nicknames) =>
+    def view: ViewSelection = (name ~ age ~ nicknames).map { case (name, age, nicknames) =>
       CharacterView(name, age, nicknames)
     }
 
@@ -102,7 +102,7 @@ object Client {
     type ViewSelection = SelectionBuilder[Character, CharacterView]
 
     def view(nicknamesArg: Option[Int] = None): ViewSelection = (name ~ age ~ nicknames(nicknamesArg)).map {
-      case ((name, age), nicknames) => CharacterView(name, age, nicknames)
+      case (name, age, nicknames) => CharacterView(name, age, nicknames)
     }
 
     def name: SelectionBuilder[Character, String] = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
@@ -163,7 +163,7 @@ object Client {
     def view[FriendsSelection](friendsFilter: Option[String] = None)(
       friendsSelection: SelectionBuilder[Character, FriendsSelection]
     ): ViewSelection[FriendsSelection] = (name ~ age ~ friends(friendsFilter)(friendsSelection)).map {
-      case ((name, age), friends) => CharacterView(name, age, friends)
+      case (name, age, friends) => CharacterView(name, age, friends)
     }
 
     def name: SelectionBuilder[Character, String] = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
@@ -260,7 +260,7 @@ object Client {
     type ViewSelection = SelectionBuilder[PageInfo, PageInfoView]
 
     def view: ViewSelection = (endCursor ~ hasNextPage ~ hasPreviousPage ~ startCursor).map {
-      case (((endCursor, hasNextPage), hasPreviousPage), startCursor) =>
+      case (endCursor, hasNextPage, hasPreviousPage, startCursor) =>
         PageInfoView(endCursor, hasNextPage, hasPreviousPage, startCursor)
     }
 
@@ -294,7 +294,7 @@ object Client {
       pageInfoSelection: SelectionBuilder[PageInfo, PageInfoSelection]
     ): ViewSelection[EdgesSelection, NodesSelection, PageInfoSelection] =
       (edges(edgesSelection) ~ nodes(nodesSelection) ~ pageInfo(pageInfoSelection)).map {
-        case ((edges, nodes), pageInfo) => ProjectMemberConnectionView(edges, nodes, pageInfo)
+        case (edges, nodes, pageInfo) => ProjectMemberConnectionView(edges, nodes, pageInfo)
       }
 
     def edges[A](
@@ -443,7 +443,7 @@ object Client {
       roleSelectionOnCaptain: SelectionBuilder[Captain, RoleSelection],
       roleSelectionOnPilot: SelectionBuilder[Pilot, RoleSelection]
     ): ViewSelection[RoleSelection] = (name ~ nicknames ~ role(roleSelectionOnCaptain, roleSelectionOnPilot)).map {
-      case ((name, nicknames), role) => CharacterView(name, nicknames, role)
+      case (name, nicknames, role) => CharacterView(name, nicknames, role)
     }
 
     def name: SelectionBuilder[Character, String]            = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
