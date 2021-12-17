@@ -37,16 +37,17 @@ object Field {
   ): Field = {
     def loop(selectionSet: List[Selection], fieldType: __Type): Field = {
       val fieldList  = ArrayBuffer.empty[Field]
-      val map        = collection.mutable.Map.empty[String, Int]
+      val map        = collection.mutable.Map.empty[(String, String), Int]
       var fieldIndex = 0
 
-      def addField(f: Field): Unit = {
+      def addField(f: Field, condition: Option[String]): Unit = {
         val name = f.alias.getOrElse(f.name)
-        map.get(name) match {
+        val key  = (name, condition.getOrElse(""))
+        map.get(key) match {
           case None        =>
             // first time we see this field, add it to the array
             fieldList += f
-            map.update(name, fieldIndex)
+            map.update(key, fieldIndex)
             fieldIndex = fieldIndex + 1
           case Some(index) =>
             // field already existed, merge it
@@ -88,7 +89,8 @@ object Field {
               resolveVariables(arguments, variableDefinitions, variableValues),
               () => sourceMapper.getLocation(index),
               directives ++ schemaDirectives
-            )
+            ),
+            None
           )
         case FragmentSpread(name, directives) if checkDirectives(directives, variableValues)                        =>
           fragments
@@ -101,7 +103,7 @@ object Field {
                   if (field.condition.isDefined) field
                   else field.copy(condition = subtypeNames(f.typeCondition.name, rootType))
                 )
-                .foreach(addField)
+                .foreach(addField(_, Some(f.typeCondition.name)))
             }
         case InlineFragment(typeCondition, directives, selectionSet) if checkDirectives(directives, variableValues) =>
           val t     = innerType.possibleTypes
@@ -116,7 +118,7 @@ object Field {
                   if (field.condition.isDefined) field
                   else field.copy(condition = subtypeNames(typeName.name, rootType))
                 )
-                .foreach(addField)
+                .foreach(addField(_, Some(typeName.name)))
           }
         case _                                                                                                      =>
       }
