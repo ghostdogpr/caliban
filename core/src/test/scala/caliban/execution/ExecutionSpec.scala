@@ -20,6 +20,35 @@ import zio.test.environment.TestEnvironment
 
 object ExecutionSpec extends DefaultRunnableSpec {
 
+  @GQLInterface
+  sealed trait Base {
+    def id: String
+    def name: String
+  }
+  object Base {
+    @GQLName("BaseOne")
+    case class One(
+      id: String,
+      name: String,
+      inner: List[One.Inner]
+    ) extends Base
+    object One {
+      @GQLName("BaseOneInner")
+      case class Inner(a: String)
+    }
+
+    @GQLName("BaseTwoOne")
+    case class Two(
+      id: String,
+      name: String,
+      inner: List[Two.Inner]
+    ) extends Base
+    object Two {
+      @GQLName("BaseTwoInner")
+      case class Inner(b: Int)
+    }
+  }
+
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("ExecutionSpec")(
       testM("skip directive") {
@@ -1128,6 +1157,47 @@ object ExecutionSpec extends DefaultRunnableSpec {
             """{"test":2}"""
           )
         )
+      },
+      testM("conflicting fragments selection merging") {
+
+        val base1 = Base.One(
+          id = "1",
+          name = "base 1",
+          inner = List(Base.One.Inner(a = "a"))
+        )
+        val base2 = Base.Two(
+          id = "2",
+          name = "base 2",
+          inner = List(Base.Two.Inner(b = 2))
+        )
+        case class Test(bases: List[Base])
+
+        implicit val baseSchema: Schema[Any, Base] = Schema.gen
+
+        val api   = graphQL(RootResolver(Test(List(base1, base2))))
+        val query = """
+        query {
+          bases {
+            id
+            ... on BaseOne {
+              id
+              name
+              inner { a }
+            }
+            ... on BaseTwoOne {
+              id
+              name
+              inner { b }
+            }
+          }
+        }
+      """
+
+        api.interpreter.flatMap(_.execute(query)).map { response =>
+          assertTrue(
+            response.data.toString == """{"bases":[{"id":"1","name":"base 1","inner":[{"a":"a"}]},{"id":"2","name":"base 2","inner":[{"b":2}]}]}"""
+          )
+        }
       }
     )
 }
