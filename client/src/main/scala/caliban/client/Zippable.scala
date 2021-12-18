@@ -1,5 +1,8 @@
 package caliban.client
 
+/**
+ * Implementation taken from https://github.com/zio/zio/blob/28a8b2d5cc1e361abc3bb3421bb015b2c063776b/core/shared/src/main/scala/zio/Zippable.scala
+ */
 trait Zippable[-A, -B] {
   type Out
   def zip(left: A, right: B): Out
