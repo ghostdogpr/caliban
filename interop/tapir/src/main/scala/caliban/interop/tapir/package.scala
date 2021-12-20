@@ -139,7 +139,7 @@ package object tapir {
         )
       )
 
-    override protected val schemaBuilder: RootSchemaBuilder[R] =
+    override private[caliban] val schemaBuilder: RootSchemaBuilder[R] =
       serverEndpoint.endpoint.method.getOrElse(Method.GET) match {
         case Method.PUT | Method.POST | Method.DELETE =>
           RootSchemaBuilder(None, Some(makeOperation("Mutation")), None)
@@ -147,8 +147,8 @@ package object tapir {
           RootSchemaBuilder(Some(makeOperation("Query")), None, None)
       }
 
-    override protected val wrappers: List[Wrapper[R]]              = Nil
-    override protected val additionalDirectives: List[__Directive] = Nil
+    override private[caliban] val wrappers: List[Wrapper[R]]              = Nil
+    override private[caliban] val additionalDirectives: List[__Directive] = Nil
   }
 
   private def extractPath[I](endpointName: Option[String], input: EndpointInput[I]): String =

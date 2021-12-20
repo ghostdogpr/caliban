@@ -9,6 +9,7 @@ import caliban.schema.Step.QueryStep
 import caliban.schema._
 import caliban.{ CalibanError, GraphQL, GraphQLAspect, InputValue, RootResolver }
 import zio.query.ZQuery
+import caliban.wrappers.Wrapper
 
 trait Federation {
   import Federation._
@@ -48,7 +49,7 @@ trait Federation {
    * @param original The original schema
    * @return A new schema which has been augmented with federation types
    */
-  def federate[R](original: GraphQL[R]): GraphQL[R] = {
+  def federate[R](original: GraphQL[R]): FederatedGraphQL[R] = {
     import Schema._
 
     case class Query(
@@ -56,7 +57,14 @@ trait Federation {
       _fieldSet: FieldSet = FieldSet("")
     )
 
-    GraphQL.graphQL(RootResolver(Query(_service = _Service(original.render))), federationDirectives) |+| original
+
+    new FederatedGraphQL[R] {
+      private val underlying = GraphQL.graphQL(RootResolver(Query(_service = _Service(original.render))), federationDirectives) |+| original
+      override val schemaBuilder: RootSchemaBuilder[R] = underlying.schemaBuilder
+      override val wrappers: List[Wrapper[R]] = underlying.wrappers
+      override val additionalDirectives: List[__Directive] = underlying.additionalDirectives
+      val service: GraphQL[R] = original
+    }
   }
 
   def federated[R](resolver: EntityResolver[R], others: EntityResolver[R]*): GraphQLAspect[Nothing, R] =
@@ -78,7 +86,7 @@ trait Federation {
    * @param resolver A type which can resolve a single type by a key which is provided per type using the @key directive
    * @param otherResolvers Additional resolvers to supply
    */
-  def federate[R](original: GraphQL[R], resolver: EntityResolver[R], otherResolvers: EntityResolver[R]*): GraphQL[R] = {
+  def federate[R](original: GraphQL[R], resolver: EntityResolver[R], otherResolvers: EntityResolver[R]*): FederatedGraphQL[R] = {
 
     val resolvers = resolver +: otherResolvers.toList
 
@@ -119,18 +127,23 @@ trait Federation {
       _fieldSet: FieldSet = FieldSet("")
     )
 
-    val withSDL = original.withAdditionalTypes(resolvers.map(_.toType).flatMap(Types.collectTypes(_)))
 
-    GraphQL.graphQL[R, Query, Unit, Unit](
-      RootResolver(
-        Query(
-          _entities = args => args.representations.map(rep => _Entity(rep.__typename, rep.fields)),
-          _service = ZQuery.succeed(_Service(withSDL.render))
-        )
-      ),
-      federationDirectives
-    ) |+| original
-
+    new FederatedGraphQL[R] {
+      private val withSDL                                  = original.withAdditionalTypes(resolvers.map(_.toType).flatMap(Types.collectTypes(_)))
+      private val underlying                               = GraphQL.graphQL[R, Query, Unit, Unit](
+        RootResolver(
+          Query(
+            _entities = args => args.representations.map(rep => _Entity(rep.__typename, rep.fields)),
+            _service = ZQuery.succeed(_Service(withSDL.render))
+          )
+        ),
+        federationDirectives
+      ) |+| original
+      override val schemaBuilder: RootSchemaBuilder[R]     = underlying.schemaBuilder
+      override val wrappers: List[Wrapper[R]]              = underlying.wrappers
+      override val additionalDirectives: List[__Directive] = underlying.additionalDirectives
+      val service: GraphQL[R] = withSDL
+    }
   }
 }
 

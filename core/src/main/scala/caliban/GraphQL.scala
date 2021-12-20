@@ -22,9 +22,9 @@ import zio.{ IO, URIO }
  */
 trait GraphQL[-R] { self =>
 
-  protected val schemaBuilder: RootSchemaBuilder[R]
-  protected val wrappers: List[Wrapper[R]]
-  protected val additionalDirectives: List[__Directive]
+  private[caliban] val schemaBuilder: RootSchemaBuilder[R]
+  private[caliban] val wrappers: List[Wrapper[R]]
+  private[caliban] val additionalDirectives: List[__Directive]
 
   private[caliban] def validateRootSchema: IO[ValidationError, RootSchema[R]] =
     Validator.validateSchema(schemaBuilder)
@@ -171,9 +171,9 @@ trait GraphQL[-R] { self =>
    */
   final def combine[R1 <: R](that: GraphQL[R1]): GraphQL[R1] =
     new GraphQL[R1] {
-      override val schemaBuilder: RootSchemaBuilder[R1]              = self.schemaBuilder |+| that.schemaBuilder
-      override protected val wrappers: List[Wrapper[R1]]             = self.wrappers ++ that.wrappers
-      override protected val additionalDirectives: List[__Directive] =
+      override private[caliban] val schemaBuilder: RootSchemaBuilder[R1]              = self.schemaBuilder |+| that.schemaBuilder
+      override private[caliban] val wrappers: List[Wrapper[R1]]             = self.wrappers ++ that.wrappers
+      override private[caliban] val additionalDirectives: List[__Directive] =
         self.additionalDirectives ++ that.additionalDirectives
     }
 
@@ -194,7 +194,7 @@ trait GraphQL[-R] { self =>
     mutationsName: Option[String] = None,
     subscriptionsName: Option[String] = None
   ): GraphQL[R] = new GraphQL[R] {
-    override protected val schemaBuilder: RootSchemaBuilder[R]     = self.schemaBuilder.copy(
+    override private[caliban] val schemaBuilder: RootSchemaBuilder[R]     = self.schemaBuilder.copy(
       query = queriesName.fold(self.schemaBuilder.query)(name =>
         self.schemaBuilder.query.map(m => m.copy(opType = m.opType.copy(name = Some(name))))
       ),
@@ -205,8 +205,8 @@ trait GraphQL[-R] { self =>
         self.schemaBuilder.subscription.map(m => m.copy(opType = m.opType.copy(name = Some(name))))
       )
     )
-    override protected val wrappers: List[Wrapper[R]]              = self.wrappers
-    override protected val additionalDirectives: List[__Directive] = self.additionalDirectives
+    override private[caliban] val wrappers: List[Wrapper[R]]              = self.wrappers
+    override private[caliban] val additionalDirectives: List[__Directive] = self.additionalDirectives
   }
 
   /**
@@ -216,10 +216,9 @@ trait GraphQL[-R] { self =>
    * @param types The type definitions to add.
    */
   final def withAdditionalTypes(types: List[__Type]): GraphQL[R] = new GraphQL[R] {
-    override protected val schemaBuilder: RootSchemaBuilder[R]     =
-      self.schemaBuilder.copy(additionalTypes = self.schemaBuilder.additionalTypes ++ types)
-    override protected val wrappers: List[Wrapper[R]]              = self.wrappers
-    override protected val additionalDirectives: List[__Directive] = self.additionalDirectives
+    override private[caliban] val schemaBuilder: RootSchemaBuilder[R]     = self.schemaBuilder.copy(additionalTypes = types)
+    override private[caliban] val wrappers: List[Wrapper[R]]              = self.wrappers
+    override private[caliban] val additionalDirectives: List[__Directive] = self.additionalDirectives
   }
 }
 

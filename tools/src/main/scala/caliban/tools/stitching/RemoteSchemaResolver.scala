@@ -54,9 +54,9 @@ case class RemoteSchemaResolver(schema: __Schema, typeMap: Map[String, __Type]) 
     )
 
     new GraphQL[R] {
-      protected val additionalDirectives: List[__Directive]            = schema.directives
-      protected val schemaBuilder: caliban.schema.RootSchemaBuilder[R] = builder
-      protected val wrappers: List[caliban.wrappers.Wrapper[R]]        = List()
+      private[caliban] val additionalDirectives: List[__Directive]            = schema.directives
+      private[caliban] val schemaBuilder: caliban.schema.RootSchemaBuilder[R] = builder
+      private[caliban] val wrappers: List[caliban.wrappers.Wrapper[R]]        = List()
     }
   }
 }

@@ -97,7 +97,7 @@ object RemoteSchemaSpec extends DefaultRunnableSpec {
 
   def fromRemoteSchema(s: __Schema): GraphQL[Any] =
     new GraphQL[Any] {
-      protected val schemaBuilder                                 =
+      private[caliban] val schemaBuilder                                 =
         RootSchemaBuilder(
           query = Some(
             Operation[Any](
@@ -108,8 +108,8 @@ object RemoteSchemaSpec extends DefaultRunnableSpec {
           mutation = None,
           subscription = None
         )
-      protected val additionalDirectives: List[__Directive]       = List()
-      protected val wrappers: List[caliban.wrappers.Wrapper[Any]] = List()
+      private[caliban] val additionalDirectives: List[__Directive]       = List()
+      private[caliban] val wrappers: List[caliban.wrappers.Wrapper[Any]] = List()
     }
 
 }
