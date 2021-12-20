@@ -95,6 +95,19 @@ object RenderingSpec extends DefaultRunnableSpec {
                                      |  "field-description"
                                      |  age: Int!
                                      |}""".stripMargin.trim))
+      },
+      test("it should render empty objects without field list") {
+        assert(graphQL(InvalidSchemas.Object.resolverEmpty).render.trim)(
+          equalTo("""schema {
+                    |  query: TestEmptyObject
+                    |}
+                    |
+                    |type EmptyObject
+                    |
+                    |type TestEmptyObject {
+                    |  o: EmptyObject!
+                    |}""".stripMargin.trim)
+        )
       }
     )
 }
