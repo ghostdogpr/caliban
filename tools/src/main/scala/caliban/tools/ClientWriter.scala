@@ -378,7 +378,7 @@ object ClientWriter {
 
       val unionTypes              = typesMap.collect { case (key, _: UnionTypeDefinition) => key }
       val optionalUnionTypeFields = typedef.fields.flatMap { field =>
-        val isOptionalUnionType = unionTypes.exists(_.compareToIgnoreCase(field.ofType.toString) == 0)
+        val isOptionalUnionType = unionTypes.exists(_.compareToIgnoreCase(Type.innerType(field.ofType)) == 0)
         if (isOptionalUnionType)
           Some(
             collectFieldInfo(
@@ -394,7 +394,7 @@ object ClientWriter {
 
       val interfaceTypes              = typesMap.collect { case (key, _: InterfaceTypeDefinition) => key }
       val optionalInterfaceTypeFields = typedef.fields.flatMap { field =>
-        val isOptionalInterfaceType = interfaceTypes.exists(_.compareToIgnoreCase(field.ofType.toString) == 0)
+        val isOptionalInterfaceType = interfaceTypes.exists(_.compareToIgnoreCase(Type.innerType(field.ofType)) == 0)
         if (isOptionalInterfaceType)
           Vector(
             collectFieldInfo(
