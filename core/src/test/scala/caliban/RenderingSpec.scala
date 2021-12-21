@@ -108,6 +108,11 @@ object RenderingSpec extends DefaultRunnableSpec {
                     |  o: EmptyObject!
                     |}""".stripMargin.trim)
         )
+      },
+      test("it should not render a schema in no queries, mutations, or subscription") {
+        assert(graphQL(InvalidSchemas.resolverEmpty).render.trim)(
+          equalTo("")
+        )
       }
     )
 }

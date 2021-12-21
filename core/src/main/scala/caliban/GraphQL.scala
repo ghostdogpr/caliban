@@ -32,15 +32,23 @@ trait GraphQL[-R] { self =>
   /**
    * Returns a string that renders the API types into the GraphQL format.
    */
-  final def render: String =
-    s"""schema {
-       |${schemaBuilder.query.flatMap(_.opType.name).fold("")(n => s"  query: $n\n")}${schemaBuilder.mutation
-      .flatMap(_.opType.name)
-      .fold("")(n => s"  mutation: $n\n")}${schemaBuilder.subscription
-      .flatMap(_.opType.name)
-      .fold("")(n => s"  subscription: $n\n")}}
+  final def render: String = {
+    val parts  = Seq(
+      schemaBuilder.query.flatMap(_.opType.name).map(n => s"  query: $n"),
+      schemaBuilder.mutation.flatMap(_.opType.name).map(n => s"  mutation: $n"),
+      schemaBuilder.subscription.flatMap(_.opType.name).map(n => s"  subscription: $n")
+    )
+    val schema = parts.flatten.mkString("\n") match {
+      case ""        => ""
+      case something => s"""schema {
+                           |$something
+                           |}""".stripMargin
+    }
+
+    s"""$schema
        |
        |${renderTypes(schemaBuilder.types)}""".stripMargin
+  }
 
   /**
    * Converts the schema to a Document.

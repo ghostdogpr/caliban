@@ -517,5 +517,6 @@ object TestUtils {
       TestWrongFieldArgDirectiveName(_ => UIO.unit)
     )
 
+    val resolverEmpty = new RootResolver(Option.empty[Unit], Option.empty[Unit], Option.empty[Unit])
   }
 }
