@@ -62,11 +62,19 @@ object Rendering {
               .enumValues(__DeprecatedArgs(Some(true)))
               .fold(List.empty[String])(_.map(renderEnumValue))
               .mkString("\n  ")
-            Some(
-              s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)}${renderInterfaces(t)}$renderedDirectives {
-                 |  $renderedFields$renderedInputFields$renderedEnumValues
-                 |}""".stripMargin
-            )
+
+            val typedef =
+              s"${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)}${renderInterfaces(t)}$renderedDirectives"
+
+            s"$renderedFields$renderedInputFields$renderedEnumValues" match {
+              case ""       => Some(typedef)
+              case interior =>
+                Some(
+                  s"""$typedef {
+                     |  $interior
+                     |}""".stripMargin
+                )
+            }
         }
       }
       .mkString("\n\n")
