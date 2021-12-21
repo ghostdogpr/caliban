@@ -60,15 +60,17 @@ object Rendering {
               .fold(List.empty[String])(_.map(renderEnumValue))
               .mkString("\n  ")
 
-            val typedef = s"${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)}${renderInterfaces(t)}$renderedDirectives"
+            val typedef =
+              s"${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)}${renderInterfaces(t)}$renderedDirectives"
 
             s"$renderedFields$renderedInputFields$renderedEnumValues" match {
-              case "" => Some(typedef)
-              case interior => Some(
-                s"""$typedef {
-                   |  $interior
-                   |}""".stripMargin
-              )
+              case ""       => Some(typedef)
+              case interior =>
+                Some(
+                  s"""$typedef {
+                     |  $interior
+                     |}""".stripMargin
+                )
             }
         }
       }
