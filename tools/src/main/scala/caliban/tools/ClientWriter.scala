@@ -88,6 +88,15 @@ object ClientWriter {
       safeTypeName(name) -> op
     }.toMap
 
+    val knownInterfaceTypes = typesMap.collect { case (key, _: InterfaceTypeDefinition) => key }
+    val knownUnionTypes     = typesMap.collect { case (key, _: UnionTypeDefinition) => key }
+
+    def isOptionalInterfaceType(field: FieldDefinition): Boolean =
+      knownInterfaceTypes.exists(_.compareToIgnoreCase(Type.innerType(field.ofType)) == 0)
+
+    def isOptionalUnionType(field: FieldDefinition): Boolean =
+      knownUnionTypes.exists(_.compareToIgnoreCase(Type.innerType(field.ofType)) == 0)
+
     def writeFieldInfo(fieldInfo: FieldInfo): String = {
       val FieldInfo(
         name,
@@ -197,9 +206,9 @@ object ClientWriter {
           if (commonInterface) {
             (
               s"[$typeLetter]",
-              s"(${field.name}: SelectionBuilder[${safeTypeName(getTypeName(field.ofType))}, $typeLetter])",
+              s"(${safeName(field.name)}: SelectionBuilder[${safeTypeName(getTypeName(field.ofType))}, $typeLetter])",
               writeType(field.ofType).replace(fieldType, typeLetter),
-              writeTypeBuilder(field.ofType, s"Obj(${field.name})")
+              writeTypeBuilder(field.ofType, s"Obj(${safeName(field.name)})")
             )
           } else if (optionalInterface) {
             (
@@ -309,16 +318,36 @@ object ClientWriter {
 
     def writeRootQuery(typedef: ObjectTypeDefinition): String =
       s"""object ${typedef.name} {
-         |  ${typedef.fields
-        .map(
-          writeField(
-            _,
-            "_root_.caliban.client.Operations.RootQuery",
-            optionalUnion = false,
-            optionalInterface = false,
-            commonInterface = false
+         |  ${typedef.fields.flatMap { field =>
+        if (isOptionalInterfaceType(field)) {
+          Vector(
+            writeField(
+              field,
+              "_root_.caliban.client.Operations.RootQuery",
+              optionalUnion = false,
+              optionalInterface = false,
+              commonInterface = false
+            ),
+            writeField(
+              field,
+              "_root_.caliban.client.Operations.RootQuery",
+              optionalUnion = false,
+              optionalInterface = true,
+              commonInterface = false
+            )
           )
-        )
+        } else {
+          Vector(
+            writeField(
+              field,
+              "_root_.caliban.client.Operations.RootQuery",
+              optionalUnion = false,
+              optionalInterface = false,
+              commonInterface = false
+            )
+          )
+        }
+      }
         .mkString("\n  ")}
          |}
          |""".stripMargin
@@ -330,16 +359,36 @@ object ClientWriter {
 
     def writeRootMutation(typedef: ObjectTypeDefinition): String =
       s"""object ${typedef.name} {
-         |  ${typedef.fields
-        .map(
-          writeField(
-            _,
-            "_root_.caliban.client.Operations.RootMutation",
-            optionalUnion = false,
-            optionalInterface = false,
-            commonInterface = false
+         |  ${typedef.fields.flatMap { field =>
+        if (isOptionalInterfaceType(field)) {
+          Vector(
+            writeField(
+              field,
+              "_root_.caliban.client.Operations.RootMutation",
+              optionalUnion = false,
+              optionalInterface = false,
+              commonInterface = false
+            ),
+            writeField(
+              field,
+              "_root_.caliban.client.Operations.RootMutation",
+              optionalUnion = false,
+              optionalInterface = true,
+              commonInterface = false
+            )
           )
-        )
+        } else {
+          Vector(
+            writeField(
+              field,
+              "_root_.caliban.client.Operations.RootMutation",
+              optionalUnion = false,
+              optionalInterface = false,
+              commonInterface = false
+            )
+          )
+        }
+      }
         .mkString("\n  ")}
          |}
          |""".stripMargin
@@ -351,16 +400,36 @@ object ClientWriter {
 
     def writeRootSubscription(typedef: ObjectTypeDefinition): String =
       s"""object ${typedef.name} {
-         |  ${typedef.fields
-        .map(
-          writeField(
-            _,
-            "_root_.caliban.client.Operations.RootSubscription",
-            optionalUnion = false,
-            optionalInterface = false,
-            commonInterface = false
+         |  ${typedef.fields.flatMap { field =>
+        if (isOptionalInterfaceType(field)) {
+          Vector(
+            writeField(
+              field,
+              "_root_.caliban.client.Operations.RootSubscription",
+              optionalUnion = false,
+              optionalInterface = false,
+              commonInterface = false
+            ),
+            writeField(
+              field,
+              "_root_.caliban.client.Operations.RootSubscription",
+              optionalUnion = false,
+              optionalInterface = true,
+              commonInterface = false
+            )
           )
-        )
+        } else {
+          Vector(
+            writeField(
+              field,
+              "_root_.caliban.client.Operations.RootSubscription",
+              optionalUnion = false,
+              optionalInterface = false,
+              commonInterface = false
+            )
+          )
+        }
+      }
         .mkString("\n  ")}
          |}
          |""".stripMargin
@@ -376,10 +445,8 @@ object ClientWriter {
 
       val objectName: String = safeTypeName(typedef.name)
 
-      val unionTypes              = typesMap.collect { case (key, _: UnionTypeDefinition) => key }
       val optionalUnionTypeFields = typedef.fields.flatMap { field =>
-        val isOptionalUnionType = unionTypes.exists(_.compareToIgnoreCase(field.ofType.toString) == 0)
-        if (isOptionalUnionType)
+        if (isOptionalUnionType(field))
           Some(
             collectFieldInfo(
               field,
@@ -392,10 +459,8 @@ object ClientWriter {
         else None
       }
 
-      val interfaceTypes              = typesMap.collect { case (key, _: InterfaceTypeDefinition) => key }
       val optionalInterfaceTypeFields = typedef.fields.flatMap { field =>
-        val isOptionalInterfaceType = interfaceTypes.exists(_.compareToIgnoreCase(field.ofType.toString) == 0)
-        if (isOptionalInterfaceType)
+        if (isOptionalInterfaceType(field))
           Vector(
             collectFieldInfo(
               field,

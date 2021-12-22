@@ -9,16 +9,16 @@ import zio.ZIO
  * query execution or injecting context into ZIO environment.
  */
 trait RequestInterceptor[-R] { self =>
-  def apply[R1 <: R](request: ServerRequest): ZIO[R1, StatusCode, Unit]
+  def apply[R1 <: R, A](request: ServerRequest)(e: ZIO[R1, StatusCode, A]): ZIO[R1, StatusCode, A]
 
   def |+|[R1 <: R](that: RequestInterceptor[R1]): RequestInterceptor[R1] = new RequestInterceptor[R1] {
-    override def apply[R2 <: R1](request: ServerRequest): ZIO[R2, StatusCode, Unit] =
-      that.apply[R2](request) *> self.apply[R2](request)
+    override def apply[R2 <: R1, A](request: ServerRequest)(e: ZIO[R2, StatusCode, A]): ZIO[R2, StatusCode, A] =
+      that.apply[R2, A](request)(self.apply[R2, A](request)(e))
   }
 }
 
 object RequestInterceptor {
   def empty: RequestInterceptor[Any] = new RequestInterceptor[Any] {
-    override def apply[R](request: ServerRequest): ZIO[R, StatusCode, Unit] = ZIO.unit
+    override def apply[R, A](request: ServerRequest)(e: ZIO[R, StatusCode, A]): ZIO[R, StatusCode, A] = e
   }
 }

@@ -12,13 +12,13 @@ Just like Caliban, `caliban-client` offers a purely functional interface and kee
 To use `caliban-client`, add the following line in your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-client" % "1.3.0"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-client" % "1.3.1"
 ```
 
 Caliban-client is available for ScalaJS. To use it in a ScalaJS project, instead add this line to your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client" % "1.3.0"
+libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client" % "1.3.1"
 ```
 
 ## Code generation
@@ -33,7 +33,7 @@ both need to configure in your project to be able to generate you Caliban client
 
 To use any of these two plugins, you'll first need to add following dependency to your `project/plugins.sbt` file:
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "1.3.0")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "1.3.1")
 ```
 
 ### CalibanPlugin
@@ -475,7 +475,7 @@ It is depending on [Laminext](https://laminext.dev), a library that provides nic
 
 To use it, import the `caliban-client-laminext` module:
 ```
-libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client-laminext" % "1.3.0"
+libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client-laminext" % "1.3.1"
 ```
 
 Add the following import to your code:

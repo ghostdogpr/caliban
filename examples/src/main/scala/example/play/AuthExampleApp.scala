@@ -30,9 +30,9 @@ object AuthExampleApp extends App {
   implicit val executionContext: ExecutionContextExecutor = system.dispatcher
 
   object AuthWrapper extends RequestInterceptor[Auth] {
-    def apply[R1 <: Auth](request: ServerRequest): ZIO[R1, StatusCode, Unit] =
+    override def apply[R <: Auth, A](request: ServerRequest)(effect: ZIO[R, StatusCode, A]): ZIO[R, StatusCode, A] =
       request.header("token") match {
-        case Some(token) => ZIO.accessM[Auth](_.get.set(Some(AuthToken(token))))
+        case Some(token) => ZIO.accessM[Auth](_.get.set(Some(AuthToken(token)))) *> effect
         case None        => ZIO.fail(StatusCode.Forbidden)
       }
   }
