@@ -854,7 +854,7 @@ object Client {
                name: String!
              }
              type Sort {
-               order: Order
+               object: Order
              }
             """.stripMargin
 
@@ -877,18 +877,18 @@ object Client {
 
   type Sort
   object Sort {
-    def order[A](onAscending: SelectionBuilder[Ascending, A]): SelectionBuilder[Sort, Option[A]] =
-      _root_.caliban.client.SelectionBuilder.Field("order", OptionOf(ChoiceOf(Map("Ascending" -> Obj(onAscending)))))
-    def orderOption[A](
+    def `object`[A](onAscending: SelectionBuilder[Ascending, A]): SelectionBuilder[Sort, Option[A]] =
+      _root_.caliban.client.SelectionBuilder.Field("object", OptionOf(ChoiceOf(Map("Ascending" -> Obj(onAscending)))))
+    def objectOption[A](
       onAscending: Option[SelectionBuilder[Ascending, A]] = None
     ): SelectionBuilder[Sort, Option[Option[A]]] = _root_.caliban.client.SelectionBuilder.Field(
-      "order",
+      "object",
       OptionOf(
         ChoiceOf(Map("Ascending" -> onAscending.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))))
       )
     )
-    def orderInterface[A](order: SelectionBuilder[Order, A]): SelectionBuilder[Sort, Option[A]]  =
-      _root_.caliban.client.SelectionBuilder.Field("order", OptionOf(Obj(order)))
+    def objectInterface[A](`object`: SelectionBuilder[Order, A]): SelectionBuilder[Sort, Option[A]] =
+      _root_.caliban.client.SelectionBuilder.Field("object", OptionOf(Obj(`object`)))
   }
 
 }
