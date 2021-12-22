@@ -383,7 +383,7 @@ object ClientWriter {
               field,
               "_root_.caliban.client.Operations.RootMutation",
               optionalUnion = false,
-              optionalInterface = true,
+              optionalInterface = false,
               commonInterface = false
             )
           )
