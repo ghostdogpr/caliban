@@ -1158,9 +1158,19 @@ object Client {
           """
           schema {
             query: Queries
+            mutation: Mutations
+            subscription: Subscriptions
           }
 
           type Queries {
+            node(id: ID!): Node
+          }
+
+          type Mutations {
+            updateNode(id: ID!, name: String): Node
+          }
+
+          type Subscriptions {
             node(id: ID!): Node
           }
 
@@ -1237,6 +1247,70 @@ object Client {
     )(onNodeA: Option[SelectionBuilder[NodeA, A]] = None, onNodeB: Option[SelectionBuilder[NodeB, A]] = None)(implicit
       encoder0: ArgEncoder[String]
     ): SelectionBuilder[_root_.caliban.client.Operations.RootQuery, Option[Option[A]]] =
+      _root_.caliban.client.SelectionBuilder.Field(
+        "node",
+        OptionOf(
+          ChoiceOf(
+            Map(
+              "NodeA" -> onNodeA.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a))),
+              "NodeB" -> onNodeB.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))
+            )
+          )
+        ),
+        arguments = List(Argument("id", id, "ID!")(encoder0))
+      )
+  }
+
+  type Mutations = _root_.caliban.client.Operations.RootMutation
+  object Mutations {
+    def updateNode[A](
+      id: String,
+      name: Option[String] = None
+    )(onNodeA: SelectionBuilder[NodeA, A], onNodeB: SelectionBuilder[NodeB, A])(implicit
+      encoder0: ArgEncoder[String],
+      encoder1: ArgEncoder[Option[String]]
+    ): SelectionBuilder[_root_.caliban.client.Operations.RootMutation, Option[A]] =
+      _root_.caliban.client.SelectionBuilder.Field(
+        "updateNode",
+        OptionOf(ChoiceOf(Map("NodeA" -> Obj(onNodeA), "NodeB" -> Obj(onNodeB)))),
+        arguments = List(Argument("id", id, "ID!")(encoder0), Argument("name", name, "String")(encoder1))
+      )
+    def updateNodeOption[A](
+      id: String,
+      name: Option[String] = None
+    )(onNodeA: Option[SelectionBuilder[NodeA, A]] = None, onNodeB: Option[SelectionBuilder[NodeB, A]] = None)(implicit
+      encoder0: ArgEncoder[String],
+      encoder1: ArgEncoder[Option[String]]
+    ): SelectionBuilder[_root_.caliban.client.Operations.RootMutation, Option[Option[A]]] =
+      _root_.caliban.client.SelectionBuilder.Field(
+        "updateNode",
+        OptionOf(
+          ChoiceOf(
+            Map(
+              "NodeA" -> onNodeA.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a))),
+              "NodeB" -> onNodeB.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))
+            )
+          )
+        ),
+        arguments = List(Argument("id", id, "ID!")(encoder0), Argument("name", name, "String")(encoder1))
+      )
+  }
+
+  type Subscriptions = _root_.caliban.client.Operations.RootSubscription
+  object Subscriptions {
+    def node[A](id: String)(onNodeA: SelectionBuilder[NodeA, A], onNodeB: SelectionBuilder[NodeB, A])(implicit
+      encoder0: ArgEncoder[String]
+    ): SelectionBuilder[_root_.caliban.client.Operations.RootSubscription, Option[A]] =
+      _root_.caliban.client.SelectionBuilder.Field(
+        "node",
+        OptionOf(ChoiceOf(Map("NodeA" -> Obj(onNodeA), "NodeB" -> Obj(onNodeB)))),
+        arguments = List(Argument("id", id, "ID!")(encoder0))
+      )
+    def nodeOption[A](
+      id: String
+    )(onNodeA: Option[SelectionBuilder[NodeA, A]] = None, onNodeB: Option[SelectionBuilder[NodeB, A]] = None)(implicit
+      encoder0: ArgEncoder[String]
+    ): SelectionBuilder[_root_.caliban.client.Operations.RootSubscription, Option[Option[A]]] =
       _root_.caliban.client.SelectionBuilder.Field(
         "node",
         OptionOf(

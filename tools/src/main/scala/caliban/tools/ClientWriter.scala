@@ -359,16 +359,36 @@ object ClientWriter {
 
     def writeRootMutation(typedef: ObjectTypeDefinition): String =
       s"""object ${typedef.name} {
-         |  ${typedef.fields
-        .map(
-          writeField(
-            _,
-            "_root_.caliban.client.Operations.RootMutation",
-            optionalUnion = false,
-            optionalInterface = false,
-            commonInterface = false
+         |  ${typedef.fields.flatMap { field =>
+        if (isOptionalInterfaceType(field)) {
+          Vector(
+            writeField(
+              field,
+              "_root_.caliban.client.Operations.RootMutation",
+              optionalUnion = false,
+              optionalInterface = false,
+              commonInterface = false
+            ),
+            writeField(
+              field,
+              "_root_.caliban.client.Operations.RootMutation",
+              optionalUnion = false,
+              optionalInterface = true,
+              commonInterface = false
+            )
           )
-        )
+        } else {
+          Vector(
+            writeField(
+              field,
+              "_root_.caliban.client.Operations.RootMutation",
+              optionalUnion = false,
+              optionalInterface = true,
+              commonInterface = false
+            )
+          )
+        }
+      }
         .mkString("\n  ")}
          |}
          |""".stripMargin
@@ -380,16 +400,36 @@ object ClientWriter {
 
     def writeRootSubscription(typedef: ObjectTypeDefinition): String =
       s"""object ${typedef.name} {
-         |  ${typedef.fields
-        .map(
-          writeField(
-            _,
-            "_root_.caliban.client.Operations.RootSubscription",
-            optionalUnion = false,
-            optionalInterface = false,
-            commonInterface = false
+         |  ${typedef.fields.flatMap { field =>
+        if (isOptionalInterfaceType(field)) {
+          Vector(
+            writeField(
+              field,
+              "_root_.caliban.client.Operations.RootSubscription",
+              optionalUnion = false,
+              optionalInterface = false,
+              commonInterface = false
+            ),
+            writeField(
+              field,
+              "_root_.caliban.client.Operations.RootSubscription",
+              optionalUnion = false,
+              optionalInterface = true,
+              commonInterface = false
+            )
           )
-        )
+        } else {
+          Vector(
+            writeField(
+              field,
+              "_root_.caliban.client.Operations.RootSubscription",
+              optionalUnion = false,
+              optionalInterface = false,
+              commonInterface = false
+            )
+          )
+        }
+      }
         .mkString("\n  ")}
          |}
          |""".stripMargin
