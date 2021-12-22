@@ -206,9 +206,9 @@ object ClientWriter {
           if (commonInterface) {
             (
               s"[$typeLetter]",
-              s"(${field.name}: SelectionBuilder[${safeTypeName(getTypeName(field.ofType))}, $typeLetter])",
+              s"(${safeName(field.name)}: SelectionBuilder[${safeTypeName(getTypeName(field.ofType))}, $typeLetter])",
               writeType(field.ofType).replace(fieldType, typeLetter),
-              writeTypeBuilder(field.ofType, s"Obj(${field.name})")
+              writeTypeBuilder(field.ofType, s"Obj(${safeName(field.name)})")
             )
           } else if (optionalInterface) {
             (
