@@ -35,25 +35,25 @@ object MonixInterop {
         enableIntrospection = enableIntrospection,
         queryExecution
       )
-      runtime.unsafeRunAsync(execution)(exit => cb(exit.toEither))
+      runtime.unsafeRunAsyncWith(execution)(exit => cb(exit.toEither))
     }
 
   def checkAsync[R](
     graphQL: GraphQLInterpreter[R, Any]
   )(query: String)(implicit runtime: Runtime[Any]): MonixTask[Unit] =
-    MonixTask.async(cb => runtime.unsafeRunAsync(graphQL.check(query))(exit => cb(exit.toEither)))
+    MonixTask.async(cb => runtime.unsafeRunAsyncWith(graphQL.check(query))(exit => cb(exit.toEither)))
 
   def interpreterAsync[R](
     graphQL: GraphQL[R]
   )(implicit runtime: Runtime[Any]): MonixTask[GraphQLInterpreter[R, CalibanError]] =
-    MonixTask.async(cb => runtime.unsafeRunAsync(graphQL.interpreter)(exit => cb(exit.toEither)))
+    MonixTask.async(cb => runtime.unsafeRunAsyncWith(graphQL.interpreter)(exit => cb(exit.toEither)))
 
   def taskSchema[R, A](implicit ev: Schema[R, A], ev2: ConcurrentEffect[MonixTask]): Schema[R, MonixTask[A]] =
     new Schema[R, MonixTask[A]] {
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def optional: Boolean                                         = ev.optional
       override def resolve(value: MonixTask[A]): Step[R]                     =
-        QueryStep(ZQuery.fromEffect(value.to[Task].map(ev.resolve)))
+        QueryStep(ZQuery.fromZIO(value.to[Task].map(ev.resolve)))
     }
 
   def observableSchema[R, A](
@@ -68,7 +68,7 @@ object MonixInterop {
       override def resolve(value: Observable[A]): Step[R]                    =
         StreamStep(
           ZStream
-            .fromEffect(
+            .fromZIO(
               MonixTask
                 .deferAction(implicit sc =>
                   MonixTask.eval(value.toReactivePublisher.toStream(queueSize).map(ev.resolve))
