@@ -171,7 +171,7 @@ trait GraphQL[-R] { self =>
    */
   final def combine[R1 <: R](that: GraphQL[R1]): GraphQL[R1] =
     new GraphQL[R1] {
-      override private[caliban] val schemaBuilder: RootSchemaBuilder[R1]              = self.schemaBuilder |+| that.schemaBuilder
+      override private[caliban] val schemaBuilder: RootSchemaBuilder[R1]    = self.schemaBuilder |+| that.schemaBuilder
       override private[caliban] val wrappers: List[Wrapper[R1]]             = self.wrappers ++ that.wrappers
       override private[caliban] val additionalDirectives: List[__Directive] =
         self.additionalDirectives ++ that.additionalDirectives
