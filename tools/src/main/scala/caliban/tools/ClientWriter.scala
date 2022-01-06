@@ -185,7 +185,7 @@ object ClientWriter {
             (
               s"[$typeLetter]",
               s"(${unionTypes.map(t => s"""on${t.name}: Option[SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]] = None""").mkString(", ")})",
-              s"Option[${writeType(field.ofType).replace(fieldType, typeLetter)}]",
+              s"${writeType(field.ofType).replace(fieldType, s"Option[$typeLetter]")}",
               writeTypeBuilder(
                 field.ofType,
                 s"ChoiceOf(Map(${unionTypes.map(t => s""""${t.name}" -> on${t.name}.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))""").mkString(", ")}))"
@@ -214,7 +214,7 @@ object ClientWriter {
             (
               s"[$typeLetter]",
               s"(${interfaceTypes.map(t => s"""on${t.name}: Option[SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]] = None""").mkString(", ")})",
-              s"Option[${writeType(field.ofType).replace(fieldType, typeLetter)}]",
+              s"${writeType(field.ofType).replace(fieldType, s"Option[$typeLetter]")}",
               writeTypeBuilder(
                 field.ofType,
                 s"ChoiceOf(Map(${interfaceTypes.map(t => s""""${t.name}" -> on${t.name}.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))""").mkString(", ")}))"
