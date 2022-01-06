@@ -32,7 +32,7 @@ object ZHttpAdapter {
     ZioHttpInterpreter().toHttp(endpoints)
   }
 
-  def makeWebSocketService[R <: Has[_], E](
+  def makeWebSocketService[R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
@@ -56,7 +56,7 @@ object ZHttpAdapter {
       )
     )
 
-  private def socketHandler[R <: Has[_], E](
+  private def socketHandler[R, E](
     subscriptions: Subscriptions,
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean,
