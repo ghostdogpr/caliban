@@ -1,7 +1,7 @@
 package caliban.tools
 
 import caliban.parsing.Parser
-import zio.{ RIO, UIO }
+import zio.RIO
 import zio.blocking.Blocking
 import zio.test.Assertion._
 import zio.test._
@@ -948,7 +948,7 @@ object Client {
     def ordersOption[A](
       onAscending: Option[SelectionBuilder[Ascending, A]] = None,
       onDescending: Option[SelectionBuilder[Descending, A]] = None
-    ): SelectionBuilder[Sort, Option[Option[List[Option[A]]]]] = _root_.caliban.client.SelectionBuilder.Field(
+    ): SelectionBuilder[Sort, Option[List[Option[Option[A]]]]] = _root_.caliban.client.SelectionBuilder.Field(
       "orders",
       OptionOf(
         ListOf(
