@@ -1,7 +1,9 @@
 package caliban.tools
 
-import zio.config.magnolia.DeriveConfigDescriptor.descriptor
+//import zio.config.magnolia.DeriveConfigDescriptor.descriptor
 import zio.config.{ read, ConfigDescriptor, ConfigSource }
+import zio.config._, ConfigDescriptor._
+import zio.config.magnolia._
 
 final case class Options(
   schemaPath: String,
