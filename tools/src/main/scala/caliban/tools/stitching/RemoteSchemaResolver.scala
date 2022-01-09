@@ -38,7 +38,7 @@ case class RemoteSchemaResolver(schema: __Schema, typeMap: Map[String, __Type]) 
                 field.name ->
                   Step.MetadataFunctionStep((args: caliban.execution.Field) =>
                     Step.QueryStep(
-                      ZQuery.fromEffect(resolver.run(args)).map(Step.PureStep)
+                      ZQuery.fromEffect(resolver.run(args)).map(Step.PureStep.apply)
                     )
                   )
               }
