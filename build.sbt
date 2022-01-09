@@ -198,12 +198,15 @@ lazy val catsInterop = project
   .settings(name := "caliban-cats")
   .settings(commonSettings)
   .settings(
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) Seq()
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
     } ++ Seq(
+      "org.typelevel" %% "cats-effect"      % catsEffect3Version,
       "dev.zio"       %% "zio-interop-cats" % zioInteropCats3Version,
-      "org.typelevel" %% "cats-effect"      % catsEffect3Version
+      "dev.zio"       %% "zio-test"         % zioVersion % Test,
+      "dev.zio"       %% "zio-test-sbt"     % zioVersion % Test
     )
   )
   .dependsOn(core)
