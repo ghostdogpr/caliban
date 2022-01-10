@@ -154,7 +154,6 @@ lazy val tools = project
     buildInfoObject  := "BuildInfo"
   )
   .settings(
-    // crossScalaVersions -= scala3,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "org.scalameta"                  % "scalafmt-interfaces"           % scalafmtVersion,
