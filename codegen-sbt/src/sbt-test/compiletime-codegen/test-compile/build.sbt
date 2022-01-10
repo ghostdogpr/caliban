@@ -4,12 +4,13 @@ import sbt.librarymanagement.Resolver
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
 ThisBuild / organization := "Conduktor"
-ThisBuild / homepage := Some(url("https://www.conduktor.io/"))
-ThisBuild / licenses := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0"))
-ThisBuild / version := "0.0.1"
+ThisBuild / homepage     := Some(url("https://www.conduktor.io/"))
+ThisBuild / licenses     := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0"))
+ThisBuild / version      := "0.0.1"
 ThisBuild / scalaVersion := "2.12.14" // Must stay 2.12 in these tests because the plugin is compiled with 2.12
 ThisBuild / resolvers += Resolver.mavenLocal
 ThisBuild / resolvers += Resolver.sonatypeRepo("snapshots")
+ThisBuild / scalacOptions ++= Seq("-Xfatal-warnings", "-feature")
 
 // ### Dependencies ###
 
@@ -54,7 +55,7 @@ lazy val root =
           preserveExecutable = args(2).toBoolean
         )
       },
-      InputKey[Unit]("sed-in-place") := {
+      InputKey[Unit]("sed-in-place")           := {
         val args: Vector[String] = spaceDelimited("<arg>").parsed.toVector
 
         val previousValue = args(0)
@@ -120,7 +121,7 @@ lazy val postsClients =
     .in(file("modules/posts-clients"))
     .enablePlugins(CompileTimeCalibanClientPlugin)
     .settings(
-      Compile / ctCalibanClient / ctCalibanClientsSettings := Seq(posts),
+      Compile / ctCalibanClient / ctCalibanClientsSettings      := Seq(posts),
       Compile / ctCalibanClient / ctCalibanClientsVersionedCode := false
     )
 
