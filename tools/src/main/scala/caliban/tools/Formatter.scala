@@ -52,8 +52,16 @@ object Formatter {
     import java.io.{File, PrintStream}
     import java.net.URLClassLoader
     import scala.jdk.CollectionConverters._
+
+    val scalaVersion = BuildInfo.scalaPartialVersion match {
+      case Some((2, 12)) => "2.12"
+      case Some((2, 13)) => "2.13"
+      case Some((3, _)) => "2.13"
+      case _ => "2.12"
+    }
+
     val files = Fetch.create()
-      .addDependencies(Dependency.of("org.scalameta", "scalafmt-dynamic_2.13", "3.1.2"))
+      .addDependencies(Dependency.of("org.scalameta", s"scalafmt-dynamic_$scalaVersion", BuildInfo.scalafmtVersion))
       .fetch()
     val classLoader = new URLClassLoader(files.asScala.toArray.map(_.toURI().toURL()), this.getClass.getClassLoader)
     val fmt = Scalafmt.create(classLoader)
