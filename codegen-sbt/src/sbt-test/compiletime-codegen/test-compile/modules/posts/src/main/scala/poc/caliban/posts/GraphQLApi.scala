@@ -8,6 +8,8 @@ import zio._
 import zio.duration.durationInt
 import zio.stream.ZStream
 
+import scala.language.higherKinds
+
 object Operations {
 
   final case class CreatePostMutationParams(authorName: AuthorName, title: PostTitle, content: PostContent)

@@ -1,3 +1,7 @@
+# 0. Reset/clean project
+
+> clean
+
 # 1. Test code generation
 # ## From the 'posts' "default" config
 $ absent modules/posts-clients/target/scala-2.12/src_managed/main/generated/Client.scala
