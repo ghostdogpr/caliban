@@ -256,7 +256,7 @@ object Client {
       case Origin.BELT  => __EnumValue("BELT")
     }
 
-    val values: Vector[Origin] = Vector(EARTH, MARS, BELT)
+    val values: scala.collection.immutable.Vector[Origin] = scala.collection.immutable.Vector(EARTH, MARS, BELT)
   }
 
 }
@@ -311,7 +311,7 @@ object Client {
       case Origin.BELT  => __EnumValue("BELT")
     }
 
-    val values: Vector[Origin] = Vector(EARTH, MARS, BELT)
+    val values: scala.collection.immutable.Vector[Origin] = scala.collection.immutable.Vector(EARTH, MARS, BELT)
   }
 
   final case class Routes(origin: Origin, destinations: List[com.example.Destination] = Nil)
@@ -373,7 +373,7 @@ object Client {
       case Origin.__Unknown(value) => __EnumValue(value)
     }
 
-    val values: Vector[Origin] = Vector(EARTH, MARS, BELT)
+    val values: scala.collection.immutable.Vector[Origin] = scala.collection.immutable.Vector(EARTH, MARS, BELT)
   }
 
 }
@@ -684,7 +684,8 @@ object Client {
       case Episode.jedi_1  => __EnumValue("jedi")
     }
 
-    val values: Vector[Episode] = Vector(NEWHOPE, EMPIRE, JEDI, jedi_1)
+    val values: scala.collection.immutable.Vector[Episode] =
+      scala.collection.immutable.Vector(NEWHOPE, EMPIRE, JEDI, jedi_1)
   }
 
 }
