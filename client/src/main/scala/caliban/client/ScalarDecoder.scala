@@ -45,6 +45,9 @@ object ScalarDecoder {
           case None    => Left(DecodingError(s"Can't build a BigInt from input $value"))
           case Some(v) => Right(v)
         }
+    case __StringValue(value) =>
+      Try(BigInt(value)).toEither.left
+        .map(ex => DecodingError(s"Can't build a BigInt from input $value", Some(ex)))
     case other                => Left(DecodingError(s"Can't build a BigInt from input $other"))
   }
   implicit val float: ScalarDecoder[Float]           = {
@@ -57,6 +60,9 @@ object ScalarDecoder {
   }
   implicit val bigDecimal: ScalarDecoder[BigDecimal] = {
     case __NumberValue(value) => Right(value)
+    case __StringValue(value) =>
+      Try(BigDecimal(value)).toEither.left
+        .map(ex => DecodingError(s"Can't build a BigDecimal from input $value", Some(ex)))
     case other                => Left(DecodingError(s"Can't build a BigDecimal from input $other"))
   }
   implicit val boolean: ScalarDecoder[Boolean]       = {
