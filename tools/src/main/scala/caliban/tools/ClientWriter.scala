@@ -703,7 +703,7 @@ object ClientWriter {
             ${encoderCases.mkString("\n")}
           }
 
-          val values: Vector[$enumName] = Vector(${typedef.enumValuesDefinition
+          val values: scala.collection.immutable.Vector[$enumName] = scala.collection.immutable.Vector(${typedef.enumValuesDefinition
         .map(v => safeEnumValue(v.enumValue))
         .mkString(", ")})
         }
