@@ -25,7 +25,11 @@ object Base64Cursor {
       Try({
         val bytes = decoder.decode(raw)
         val s     = new String(bytes, "UTF-8")
-        Base64Cursor(s.replaceFirst(prefix, "").toInt)
+        if (s.startsWith(prefix)) {
+          Base64Cursor(s.replaceFirst(prefix, "").toInt)
+        } else {
+          throw new Throwable("invalid cursor")
+        }
       }).toEither.left.map(_.getMessage())
 
     def value(cursor: Base64Cursor): Int = cursor.value
