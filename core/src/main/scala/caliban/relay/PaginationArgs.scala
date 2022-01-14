@@ -32,7 +32,7 @@ object Pagination {
   ) =
     (before, after) match {
       case (Some(_), Some(_)) =>
-        ZIO.fail("both before and after may not be set")
+        ZIO.fail("before and after cannot both be set")
       case (Some(x), _)       =>
         ZIO.fromEither(Cursor[C].decode(x)).map(Before(_))
       case (_, Some(x))       =>
@@ -53,8 +53,7 @@ object Pagination {
     }
 
   private def validatePositive(which: String, i: Int) =
-    if (i < 0) ZIO.fail(s"$which cannot be negative")
-    else ZIO.succeed(i)
+    ZIO.cond(i > -1, i, s"$which cannot be negative")
 }
 
 sealed trait PaginationCount extends Product with Serializable {

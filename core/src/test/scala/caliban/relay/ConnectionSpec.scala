@@ -179,8 +179,8 @@ object ConnectionSpec extends DefaultRunnableSpec {
         assertM(res)(
           fails(
             hasMessage(
-              containsString("both first and last cannot be set") &&
-                containsString("both before and after may not be set")
+              containsString("first and last cannot both be set") &&
+                containsString("before and after cannot both be set")
             )
           )
         )
