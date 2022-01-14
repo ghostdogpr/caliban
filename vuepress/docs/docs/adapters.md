@@ -28,7 +28,7 @@ Want to use something else? Want to use one of them with a different Json librar
 
 Make sure to check the [examples](examples.md) to see the adapters in action.
 
-## Make you own adapter
+## Make your own adapter
 
 All existing adapters are actually using a common adapter under the hood, called `TapirAdapter`.
 
