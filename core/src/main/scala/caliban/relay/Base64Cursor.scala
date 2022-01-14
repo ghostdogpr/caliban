@@ -9,6 +9,7 @@ import scala.util.Try
  * opaque base64 cursor.
  */
 case class Base64Cursor(value: Int)
+
 object Base64Cursor {
   import java.util.Base64
   lazy val encoder = Base64.getEncoder()

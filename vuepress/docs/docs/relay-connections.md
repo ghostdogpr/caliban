@@ -3,7 +3,7 @@
 The *GraphQL Cursors Connection Specification* is an additional spec that extends GraphQL to support paginating over collections in a standardized way, defined by facebook's [Relay GraphQL client](https://relay.dev/).
 
 
-The spec defines a couple of types:
+The spec defines several types:
 
 * Connections - the paginated 1:N relationship itself
 * PageInfo - an object describing the pagination information of the current relation
