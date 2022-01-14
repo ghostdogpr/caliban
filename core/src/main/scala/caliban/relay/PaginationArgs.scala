@@ -45,7 +45,7 @@ object Pagination {
       case (None, None)       =>
         ZIO.fail("first and last cannot both be empty")
       case (Some(_), Some(_)) =>
-        ZIO.fail("both first and last cannot be set")
+        ZIO.fail("first and last cannot both be set")
       case (Some(a), _)       =>
         validatePositive("first", a).map(First(_))
       case (_, Some(b))       =>
