@@ -42,6 +42,23 @@ implicit val catsInterop: CatsInterop[Effect, Context] = CatsInterop.contextual(
 """)
 trait CatsInterop[F[_], R] extends FromEffect[F, R] with ToEffect[F, R]
 
+/**
+ * @define contextualInterop
+ *         Contextual interop between `F` and [[zio.RIO]].
+ *
+ *         An environment of type `R` is injected into the effect `F` via `injector`.
+ *         The execution of `RIO[R, A]` relies on the environment `R` modified by [[InjectEnv.modify]].
+ *
+ *         @see See [[InjectEnv]] for more details about injection.
+ *
+ * @define dispatcherParam the instance of [[cats.effect.std.Dispatcher]]. Required in order to perform the conversion
+ *
+ * @define injectorParam injects the given environment of type `R` into the effect `F`
+ *
+ * @define fParam the higher-kinded type of a polymorphic effect
+ *
+ * @define rParam the type of ZIO environment
+ */
 object CatsInterop {
 
   def apply[F[_], R](implicit ev: CatsInterop[F, R]): CatsInterop[F, R] = ev
@@ -56,37 +73,29 @@ object CatsInterop {
    *   def fromEffect[A](fa: F[A], env: R): RIO[R, A]
    * }}}
    *
-   * @tparam F the higher-kinded type of a polymorphic effect
-   * @tparam R the type of ZIO environment
+   * @tparam F $fParam
+   * @tparam R $rParam
    */
   trait Contextual[F[_], R] extends CatsInterop[F, R] with FromEffect.Contextual[F, R] with ToEffect.Contextual[F, R]
 
   /**
-   * Contextual interop between `F` and [[zio.RIO]].
+   * $contextualInterop
    *
-   * An environment of type `R` can be injected into the effect `F` via `injector`.
-   *
-   * @see See [[InjectEnv]] for more details about injection.
-   *
-   * @param dispatcher the instance of [[cats.effect.std.Dispatcher]]. Required in order to perform the conversion
-   * @param injector injects the given environment of type `R` into the effect `F`
-   * @tparam F the higher-kinded type of a polymorphic effect
-   * @tparam R the type of ZIO environment
+   * @param dispatcher $dispatcherParam
+   * @param injector $injectorParam
+   * @tparam F $fParam
+   * @tparam R $rParam
    */
   def contextual[F[_]: Async, R](dispatcher: Dispatcher[F])(implicit injector: InjectEnv[F, R]): Contextual[F, R] =
     contextual(CatsInterop.default[F, R](dispatcher))
 
   /**
-   * Contextual interop between `F` and [[zio.RIO]].
-   *
-   * An environment of type `R` can be injected into the effect `F` via `injector`.
-   *
-   * @see See [[InjectEnv]] for more details about injection.
+   * $contextualInterop
    *
    * @param underlying the underlying interop between `F` and [[zio.RIO]]
-   * @param injector injects the given environment of type `R` into the effect `F`
-   * @tparam F the higher-kinded type of a polymorphic effect
-   * @tparam R the type of ZIO environment
+   * @param injector $injectorParam
+   * @tparam F $fParam
+   * @tparam R $rParam
    */
   def contextual[F[_]: Async, R](underlying: CatsInterop[F, R])(implicit injector: InjectEnv[F, R]): Contextual[F, R] =
     new CatsInterop.Contextual[F, R] {
@@ -109,9 +118,9 @@ object CatsInterop {
    *
    * @see See [[ToEffect.forAsync]] and [[FromEffect.forDispatcher]] for more details.
    *
-   * @param dispatcher the instance of [[cats.effect.std.Dispatcher]]. Required in order to perform the conversion
-   * @tparam F the higher-kinded type of a polymorphic effect
-   * @tparam R the type of ZIO environment
+   * @param dispatcher $dispatcherParam
+   * @tparam F $fParam
+   * @tparam R $rParam
    */
   def default[F[_], R](dispatcher: Dispatcher[F])(implicit F: Async[F]): CatsInterop[F, R] =
     make(ToEffect.forAsync[F, R], FromEffect.forDispatcher(dispatcher))
@@ -121,8 +130,8 @@ object CatsInterop {
    *
    * @param to the conversion from [[zio.RIO]] to `F`
    * @param from the conversion from `F` to [[zio.RIO]]
-   * @tparam F the higher-kinded type of a polymorphic effect
-   * @tparam R the type of ZIO environment
+   * @tparam F $fParam
+   * @tparam R $rParam
    */
   def make[F[_], R](to: ToEffect[F, R], from: FromEffect[F, R]): CatsInterop[F, R] =
     new CatsInterop[F, R] {
@@ -138,8 +147,8 @@ object CatsInterop {
    *
    * @param to the conversion from [[zio.RIO]] to `F`
    * @param from the conversion from `F` to [[zio.RIO]]
-   * @tparam F the higher-kinded type of a polymorphic effect
-   * @tparam R the type of ZIO environment
+   * @tparam F $fParam
+   * @tparam R $rParam
    */
   implicit def materialize[F[_], R](implicit to: ToEffect[F, R], from: FromEffect[F, R]): CatsInterop[F, R] =
     make(to, from)

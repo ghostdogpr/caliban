@@ -9,6 +9,7 @@ val allScala = Seq(scala212, scala213, scala3)
 val akkaVersion            = "2.6.17"
 val catsEffect2Version     = "2.5.4"
 val catsEffect3Version     = "3.3.4"
+val catsMtlVersion         = "1.2.1"
 val circeVersion           = "0.14.1"
 val http4sVersion          = "0.23.7"
 val laminextVersion        = "0.14.2"
@@ -391,6 +392,7 @@ lazy val examples = project
     crossScalaVersions -= scala3,
     libraryDependencySchemes += "org.scala-lang.modules" %% "scala-java8-compat" % "always",
     libraryDependencies ++= Seq(
+      "org.typelevel"                 %% "cats-mtl"                      % catsMtlVersion,
       "org.http4s"                    %% "http4s-blaze-server"           % http4sVersion,
       "org.http4s"                    %% "http4s-dsl"                    % http4sVersion,
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,

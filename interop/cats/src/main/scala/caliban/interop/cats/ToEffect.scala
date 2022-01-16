@@ -40,13 +40,29 @@ trait ToEffect[F[_], R] {
     }
 }
 
+/**
+ * @define contextualConversion
+ *         Contextual conversion from [[zio.RIO]] to a polymorphic effect `F`.
+ *
+ *         An environment of type `R` is injected into the effect `F` via `injector`.
+ *         The execution of `RIO[R, A]` relies on the environment `R` taken from the parent `F` context via `askEnv`.
+ *
+ *         @see See [[InjectEnv]] for more details about injection.
+ *
+ * @define injectorParam injects the given environment of type `R` into the effect `F`
+ *
+ * @define fParam the higher-kinded type of a polymorphic effect
+ *
+ * @define rParam the type of ZIO environment
+ *
+ */
 object ToEffect {
 
   /**
    * Contextual version of the [[ToEffect]].
    *
-   * @tparam F the higher-kinded type of a polymorphic effect
-   * @tparam R the type of ZIO environment
+   * @tparam F $fParam
+   * @tparam R $rParam
    */
   trait Contextual[F[_], R] extends ToEffect[F, R] {
     def toEffect[A](rio: RIO[R, A], env: R)(implicit runtime: Runtime[R]): F[A]
@@ -55,51 +71,44 @@ object ToEffect {
   def apply[F[_], R](implicit ev: ToEffect[F, R]): ToEffect[F, R] = ev
 
   /**
-   * Contextual conversion of [[zio.RIO]] to a polymorphic effect `F`.
+   * $contextualConversion
    *
-   * An environment of type `R` can be injected into the effect `F` via `injector`.
-   *
-   * @see See [[InjectEnv]] for more details about injection.
-   *
-   * @param injector injects the given environment of type `R` into the effect `F`
-   * @tparam F the higher-kinded type of a polymorphic effect
-   * @tparam R the type of ZIO environment
+   * @param injector $injectorParam
+   * @tparam F $fParam
+   * @tparam R $rParam
    */
   def contextual[F[_]: Async, R](implicit injector: InjectEnv[F, R]): ToEffect.Contextual[F, R] =
     contextual(forAsync[F, R])
 
   /**
-   * Contextual conversion of [[zio.RIO]] to a polymorphic effect `F`.
-   *
-   * An environment of type `R` can be injected into the effect `F` via `injector`.
-   *
-   * @see See [[InjectEnv]] for more details about injection.
+   * $contextualConversion
    *
    * @param to the underlying conversion from [[zio.RIO]] to `F`
-   * @param injector injects the given environment of type `R` into the effect `F`
-   * @tparam F the higher-kinded type of a polymorphic effect
-   * @tparam R the type of ZIO environment
+   * @param injector $injectorParam
+   * @tparam F $fParam
+   * @tparam R $rParam
    */
   def contextual[F[_]: Monad, R](to: ToEffect[F, R])(implicit injector: InjectEnv[F, R]): ToEffect.Contextual[F, R] =
     new ToEffect.Contextual[F, R] {
       def toEffect[A](rio: RIO[R, A])(implicit runtime: Runtime[R]): F[A] =
         for {
-          env    <- to.toEffect(RIO.environment[R])
+          rEnv   <- to.toEffect(RIO.environment[R])
+          env    <- injector.modify(rEnv)
           result <- toEffect(rio, env)
         } yield result
 
       def toEffect[A](rio: RIO[R, A], env: R)(implicit runtime: Runtime[R]): F[A] =
-        injector.inject(to.toEffect(rio), env)
+        injector.inject(to.toEffect(rio)(runtime.as(env)), env)
     }
 
   /**
-   * Default (non-contextual) conversion of [[zio.RIO]] to a polymorphic effect `F`.
+   * Default (non-contextual) conversion from [[zio.RIO]] to a polymorphic effect `F`.
    *
    * Identical to what [[https://github.com/zio/interop-cats]] offers.
    *
    * @param F the instance of [[cats.effect.Async]]. Required in order to perform the conversion
-   * @tparam F the higher-kinded type of a polymorphic effect
-   * @tparam R the type of ZIO environment
+   * @tparam F $fParam
+   * @tparam R $rParam
    */
   implicit def forAsync[F[_], R](implicit F: Async[F]): ToEffect[F, R] =
     new ToEffect[F, R] {

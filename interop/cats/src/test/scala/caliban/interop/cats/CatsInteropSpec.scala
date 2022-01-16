@@ -55,32 +55,35 @@ object CatsInteropSpec extends DefaultRunnableSpec {
   )
 
   private def program[F[_]: Async, R](interop: CatsInterop[F, R], inner: R)(implicit
-    ask: Ask[F, R],
+    local: Local[F, R],
     runtime: Runtime[ZEnv]
   ): F[List[R]] = {
 
     def snapshot(ref: Ref[F, Chain[R]]): F[Unit] =
       for {
-        current <- ask.ask
+        current <- local.ask
         _       <- ref.update(_.append(current))
       } yield ()
 
     for {
       ref <- Ref.of(Chain.empty[R])
       _   <- snapshot(ref)
-      _   <- interop.toEffect(interop.fromEffect(snapshot(ref)))(runtime.as(inner))
+      _   <- local.local(interop.toEffect(interop.fromEffect(snapshot(ref)))(runtime.as(inner)), inner)
       _   <- snapshot(ref)
       r   <- ref.get
     } yield r.toList
   }
 
-  trait Ask[F[_], R] {
+  trait Local[F[_], R] {
     def ask: F[R]
+    def local[A](fa: F[A], r: R): F[A]
   }
-  object Ask         {
-    implicit def askForKleisli[F[_]: Applicative, R]: Ask[Kleisli[F, R, *], R] =
-      new Ask[Kleisli[F, R, *], R] {
-        def ask: Kleisli[F, R, R] = Kleisli.ask
+
+  object Local {
+    implicit def localForKleisli[F[_]: Applicative, R]: Local[Kleisli[F, R, *], R] =
+      new Local[Kleisli[F, R, *], R] {
+        def ask: Kleisli[F, R, R]                                  = Kleisli.ask
+        def local[A](fa: Kleisli[F, R, A], r: R): Kleisli[F, R, A] = Kleisli.liftF(fa.run(r))
       }
   }
 
