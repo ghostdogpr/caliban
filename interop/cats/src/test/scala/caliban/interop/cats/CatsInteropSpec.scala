@@ -8,7 +8,7 @@ import cats.effect.{ IO, Ref }
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.effect.unsafe.implicits.global
-import zio.{ Runtime, ZEnv, ZIO }
+import zio.{ Runtime, ZIO }
 import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment
@@ -26,13 +26,13 @@ object CatsInteropSpec extends DefaultRunnableSpec {
       val rootCtx = RootContext(SecurityContext(false), LogContext("external-trace-id"))
       val inner   = RootContext(SecurityContext(true), LogContext("internal-trace-id"))
 
-      def main(inner: RootContext)(implicit runtime: Runtime[ZEnv]) =
+      def main(inner: RootContext)(implicit runtime: Runtime[RootContext]) =
         Dispatcher[Effect].use { dispatcher =>
           program[Effect, RootContext](CatsInterop.contextual(dispatcher), inner)
         }
 
       for {
-        contextual <- ZIO.effectTotal(main(inner)(Runtime.default).run(rootCtx).unsafeRunSync())
+        contextual <- ZIO.effectTotal(main(inner)(Runtime.default.as(rootCtx)).run(rootCtx).unsafeRunSync())
       } yield assert(contextual)(equalTo(List(rootCtx, inner, rootCtx)))
     },
     testM("plain interop: do not inject an environment") {
@@ -43,21 +43,18 @@ object CatsInteropSpec extends DefaultRunnableSpec {
       val rootCtx = Context("external-trace-id")
       val inner   = Context("internal-trace-id")
 
-      def main(inner: Context)(implicit runtime: Runtime[ZEnv]) =
+      def main(inner: Context)(implicit runtime: Runtime[Context]) =
         Dispatcher[Effect].use { dispatcher =>
           program[Effect, Context](CatsInterop.default(dispatcher), inner)
         }
 
       for {
-        contextual <- ZIO.effectTotal(main(inner)(Runtime.default).run(rootCtx).unsafeRunSync())
+        contextual <- ZIO.effectTotal(main(inner)(Runtime.default.as(rootCtx)).run(rootCtx).unsafeRunSync())
       } yield assert(contextual)(equalTo(List(rootCtx, rootCtx, rootCtx)))
     }
   )
 
-  private def program[F[_]: Async, R](interop: CatsInterop[F, R], inner: R)(implicit
-    local: Local[F, R],
-    runtime: Runtime[ZEnv]
-  ): F[List[R]] = {
+  private def program[F[_]: Async, R](interop: CatsInterop[F, R], inner: R)(implicit local: Local[F, R]): F[List[R]] = {
 
     def snapshot(ref: Ref[F, Chain[R]]): F[Unit] =
       for {
@@ -68,7 +65,7 @@ object CatsInteropSpec extends DefaultRunnableSpec {
     for {
       ref <- Ref.of(Chain.empty[R])
       _   <- snapshot(ref)
-      _   <- local.local(interop.toEffect(interop.fromEffect(snapshot(ref)))(runtime.as(inner)), inner)
+      _   <- local.local(interop.toEffect(interop.fromEffect(snapshot(ref))), inner)
       _   <- snapshot(ref)
       r   <- ref.get
     } yield r.toList

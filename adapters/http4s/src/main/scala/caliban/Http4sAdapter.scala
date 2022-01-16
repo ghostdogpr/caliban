@@ -48,7 +48,7 @@ object Http4sAdapter {
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
-  )(implicit interop: ToEffect[F, R], runtime: Runtime[R]): HttpRoutes[F] = {
+  )(implicit interop: ToEffect[F, R]): HttpRoutes[F] = {
     val endpoints  = TapirAdapter.makeHttpService[R, E](
       interpreter,
       skipValidation,
@@ -83,7 +83,7 @@ object Http4sAdapter {
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
-  )(implicit interop: ToEffect[F, R], runtime: Runtime[R]): HttpRoutes[F] = {
+  )(implicit interop: ToEffect[F, R]): HttpRoutes[F] = {
     val endpoint  = TapirAdapter.makeHttpUploadService[R, E](
       interpreter,
       skipValidation,
@@ -196,7 +196,7 @@ object Http4sAdapter {
    */
   def convertHttpEndpointToF[F[_], R, E](
     endpoint: ServerEndpoint[Any, RIO[R, *]]
-  )(implicit interop: ToEffect[F, R], runtime: Runtime[R]): ServerEndpoint[Any, F] =
+  )(implicit interop: ToEffect[F, R]): ServerEndpoint[Any, F] =
     ServerEndpoint[endpoint.A, endpoint.U, endpoint.I, endpoint.E, endpoint.O, Any, F](
       endpoint.endpoint,
       _ => a => interop.toEffect(endpoint.securityLogic(zioMonadError)(a)),

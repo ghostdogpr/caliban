@@ -5,7 +5,7 @@ import caliban.introspection.adt.__Type
 import caliban.schema.Step.QueryStep
 import caliban.schema.{ Schema, Step }
 import caliban.{ CalibanError, GraphQL, GraphQLInterpreter, GraphQLResponse, InputValue }
-import cats.~>
+import cats.{ ~>, Monad }
 import cats.effect.Async
 import cats.effect.std.Dispatcher
 import zio.{ RIO, Runtime, Task }
@@ -25,6 +25,7 @@ Could not find `CatsInterop` for effect ${F} and environment ${R}. `CatsInterop`
 
 1) Non-contextual: default conversion between RIO and ${F}. A way to go for non-contextual effects (e.g. `cats.effect.IO`):
 
+implicit val runtime: Runtime[${R}] = ???
 val dispatcher: Dispatcher[${F}] = ???
 
 implicit val catsInterop: CatsInterop[${F}, ${R}] = CatsInterop.default(dispatcher)
@@ -36,6 +37,7 @@ type Effect[A] = Kleisli[IO, Context, A]
 
 val dispatcher: Dispatcher[Effect] = ???
 
+implicit val runtime: Runtime[Context] = ???
 implicit val injectContext: InjectEnv[Effect, Context] = InjectEnv.kleisli
 implicit val catsInterop: CatsInterop[Effect, Context] = CatsInterop.contextual(dispatcher)
 
@@ -68,7 +70,7 @@ object CatsInterop {
    *
    * Inherits two utility methods from [[ToEffect.Contextual]] and [[FromEffect.Contextual]]:
    * {{{
-   *   def toEffect[A](rio: RIO[R, A], env: R)(implicit runtime: Runtime[R]): F[A]
+   *   def toEffect[A](rio: RIO[R, A], env: R): F[A]
    *
    *   def fromEffect[A](fa: F[A], env: R): RIO[R, A]
    * }}}
@@ -86,7 +88,10 @@ object CatsInterop {
    * @tparam F $fParam
    * @tparam R $rParam
    */
-  def contextual[F[_]: Async, R](dispatcher: Dispatcher[F])(implicit injector: InjectEnv[F, R]): Contextual[F, R] =
+  def contextual[F[_]: Async, R](dispatcher: Dispatcher[F])(implicit
+    injector: InjectEnv[F, R],
+    runtime: Runtime[R]
+  ): Contextual[F, R] =
     contextual(CatsInterop.default[F, R](dispatcher))
 
   /**
@@ -97,7 +102,7 @@ object CatsInterop {
    * @tparam F $fParam
    * @tparam R $rParam
    */
-  def contextual[F[_]: Async, R](underlying: CatsInterop[F, R])(implicit injector: InjectEnv[F, R]): Contextual[F, R] =
+  def contextual[F[_]: Monad, R](underlying: CatsInterop[F, R])(implicit injector: InjectEnv[F, R]): Contextual[F, R] =
     new CatsInterop.Contextual[F, R] {
       private val to   = ToEffect.contextual(underlying)
       private val from = FromEffect.contextual(underlying)
@@ -105,10 +110,10 @@ object CatsInterop {
       def fromEffect[A](fa: F[A], env: R): RIO[R, A] =
         from.fromEffect(fa, env)
 
-      def toEffect[A](rio: RIO[R, A], env: R)(implicit runtime: Runtime[R]): F[A] =
+      def toEffect[A](rio: RIO[R, A], env: R): F[A] =
         to.toEffect(rio, env)
 
-      def toEffect[A](rio: RIO[R, A])(implicit runtime: Runtime[R]): F[A] =
+      def toEffect[A](rio: RIO[R, A]): F[A] =
         to.toEffect(rio)
     }
 
@@ -122,7 +127,7 @@ object CatsInterop {
    * @tparam F $fParam
    * @tparam R $rParam
    */
-  def default[F[_], R](dispatcher: Dispatcher[F])(implicit F: Async[F]): CatsInterop[F, R] =
+  def default[F[_]: Async, R](dispatcher: Dispatcher[F])(implicit runtime: Runtime[R]): CatsInterop[F, R] =
     make(ToEffect.forAsync[F, R], FromEffect.forDispatcher(dispatcher))
 
   /**
@@ -138,7 +143,7 @@ object CatsInterop {
       def fromEffect[A](fa: F[A]): RIO[R, A] =
         from.fromEffect(fa)
 
-      def toEffect[A](rio: RIO[R, A])(implicit runtime: Runtime[R]): F[A] =
+      def toEffect[A](rio: RIO[R, A]): F[A] =
         to.toEffect(rio)
     }
 
@@ -163,7 +168,7 @@ object CatsInterop {
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel
-  )(implicit interop: ToEffect[F, R], runtime: Runtime[R]): F[GraphQLResponse[E]] = {
+  )(implicit interop: ToEffect[F, R]): F[GraphQLResponse[E]] = {
     val execution = graphQL.execute(
       query,
       operationName,
@@ -179,12 +184,12 @@ object CatsInterop {
 
   def checkAsync[F[_], R](
     graphQL: GraphQLInterpreter[R, Any]
-  )(query: String)(implicit interop: ToEffect[F, Any], runtime: Runtime[Any]): F[Unit] =
+  )(query: String)(implicit interop: ToEffect[F, Any]): F[Unit] =
     interop.toEffect(graphQL.check(query))
 
   def interpreterAsync[F[_], R](
     graphQL: GraphQL[R]
-  )(implicit interop: ToEffect[F, Any], runtime: Runtime[Any]): F[GraphQLInterpreter[R, CalibanError]] =
+  )(implicit interop: ToEffect[F, Any]): F[GraphQLInterpreter[R, CalibanError]] =
     interop.toEffect(graphQL.interpreter)
 
   def schema[F[_], R, A](implicit interop: FromEffect[F, R], ev: Schema[R, A]): Schema[R, F[A]] =

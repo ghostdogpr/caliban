@@ -21,7 +21,6 @@ import org.http4s.blaze.server.BlazeServerBuilder
 import org.http4s.server.{ Router, ServiceErrorHandler }
 import org.typelevel.ci._
 import zio.Runtime
-import zio.ZEnv
 
 /**
  * The examples shows how to utilize contextual interop between cats-effect and ZIO.
@@ -88,26 +87,26 @@ object AuthExampleAppF extends IOApp.Simple {
       )
   }
 
-  class Api[F[_]: Async: AuthLocal](implicit r: Runtime[ZEnv], interop: CatsInterop[F, AuthInfo]) extends Http4sDsl[F] {
+  class Api[F[_]: Async: AuthLocal](implicit interop: CatsInterop[F, AuthInfo]) extends Http4sDsl[F] {
 
     def httpApp(graphQL: GraphQL[AuthInfo]): F[HttpApp[F]] =
       for {
         routes <- createRoutes(graphQL)
       } yield Router("/api/graphql" -> AuthMiddleware.httpRoutes(routes)).orNotFound
 
-    def createRoutes(graphQL: GraphQL[AuthInfo]): F[HttpRoutes[F]] = {
-      implicit val runtime: Runtime[AuthInfo] = r.as(AuthInfo.Empty)
-
+    def createRoutes(graphQL: GraphQL[AuthInfo]): F[HttpRoutes[F]] =
       for {
         interpreter <- interop.toEffect(graphQL.interpreter)
       } yield Http4sAdapter.makeHttpServiceF[F, AuthInfo, CalibanError](interpreter)
-    }
 
     // http4s error handler to customize the response for our throwable
     def errorHandler: ServiceErrorHandler[F] = _ => { case MissingToken() => Forbidden() }
   }
 
-  def program[F[_]: Async: AuthLocal](implicit r: Runtime[ZEnv], inj: InjectEnv[F, AuthInfo]): Resource[F, Server] = {
+  def program[F[_]: Async: AuthLocal](implicit
+    runtime: Runtime[AuthInfo],
+    injector: InjectEnv[F, AuthInfo]
+  ): Resource[F, Server] = {
 
     def makeHttpServer(httpApp: HttpApp[F], errorHandler: ServiceErrorHandler[F]): Resource[F, Server] =
       BlazeServerBuilder[F]
@@ -132,7 +131,7 @@ object AuthExampleAppF extends IOApp.Simple {
   def run: IO[Unit] = {
     type Effect[A] = Kleisli[IO, AuthInfo, A]
 
-    implicit val runtime: Runtime[ZEnv] = Runtime.default
+    implicit val runtime: Runtime[AuthInfo] = Runtime.default.as(AuthInfo.Empty)
 
     program[Effect].useForever.run(AuthInfo.Empty).void
   }

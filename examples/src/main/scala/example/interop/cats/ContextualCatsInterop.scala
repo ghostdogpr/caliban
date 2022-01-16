@@ -61,7 +61,7 @@ object ContextualCatsInterop extends IOApp {
             } yield ()
         }
 
-      implicit val zioRuntime: Runtime[ZEnv]                = Runtime.default
+      implicit val zioRuntime: Runtime[LogContext]          = Runtime.default.as(root)
       implicit val interop: CatsInterop[Effect, LogContext] = CatsInterop.contextual(dispatcher)
 
       program[Effect]
@@ -71,7 +71,7 @@ object ContextualCatsInterop extends IOApp {
   def program[F[_]: Async: Logger](implicit
     local: Local[F, LogContext],
     interop: CatsInterop[F, LogContext], // required for a derivation of the schema
-    runtime: Runtime[ZEnv]
+    runtime: Runtime[LogContext]
   ): F[ExitCode] = {
     val numbers = List(1, 2, 3, 4).map(Number)
 
@@ -97,10 +97,7 @@ object ContextualCatsInterop extends IOApp {
       interpreter <- api.interpreterAsync[F]
       _           <- interpreter.checkAsync[F](query)
       _           <- Logger[F].info("Executing request")
-      current     <- local.ask
-      result      <- interpreter
-                       .executeAsync[F](query)(interop, runtime.as(current.child("execute-request")))
-                       .local[LogContext](_.child("execute-request"))
+      result      <- interpreter.executeAsync[F](query)(interop).local[LogContext](_.child("execute-request"))
       _           <- Logger[F].info(s"Request result: ${result.data}")
     } yield ExitCode.Success
   }

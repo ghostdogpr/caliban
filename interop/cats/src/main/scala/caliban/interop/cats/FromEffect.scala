@@ -56,7 +56,6 @@ trait FromEffect[F[_], R] {
  * @define fParam the higher-kinded type of a polymorphic effect
  *
  * @define rParam the type of ZIO environment
- *
  */
 object FromEffect {
 
