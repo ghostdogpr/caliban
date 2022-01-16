@@ -13,8 +13,8 @@ You first need to import `caliban.interop.cats.implicits._` and have an implicit
 
 In addition to that, a `Schema` for any `F[_]: Async` is provided. That means you can include fields with results wrapped in `F` in your queries, mutations or subscriptions.
 
-There are two type classes responsible for the conversion between two effects: `caliban.interop.cats.ToEffect` and `caliban.interop.cats.FromEffect`.
-The instances are derived implicitly when `Async[F]` and `Dispatcher[F]` are available in the implicit scope.
+There are two type classes responsible for the conversion between effects: `caliban.interop.cats.ToEffect` and `caliban.interop.cats.FromEffect`.
+The instances are derived implicitly when `Async[F]`, `Dispatcher[F]`, and `Runtime[R]` are available in the implicit scope.
 
 #### Interop with cats.effect.IO
 
@@ -160,7 +160,7 @@ object Simple extends IOApp {
 }
 ```
 
-There is another real world [example](https://github.com/ghostdogpr/caliban/blob/master/examples/src/main/scala/example/interop/cats/ContextualCatsInterop.scala), that shows how to share auth info between cats-effect and ZIO.
+There is another real world [example](https://github.com/ghostdogpr/caliban/blob/master/examples/src/main/scala/example/http4s/AuthExampleAppF.scala), that shows how to share auth info between cats-effect and ZIO.
 
 ## Monix (only with cats-effect 2.x)
 You first need to import `caliban.interop.monix.implicits._` and have an implicit `zio.Runtime` in scope. Then a few helpers are available:

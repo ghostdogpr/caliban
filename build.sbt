@@ -199,7 +199,7 @@ lazy val catsInterop = project
   .settings(name := "caliban-cats")
   .settings(commonSettings)
   .settings(
-    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    testFrameworks  := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     autoAPIMappings := true,
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) Seq()
