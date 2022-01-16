@@ -2,7 +2,7 @@ package caliban.interop.cats
 
 import cats.~>
 import cats.effect.std.Dispatcher
-import zio.{ RIO, ZIO }
+import zio.RIO
 
 /**
  * Describes how [[zio.RIO]] can be created from a polymorphic effect `F`.
@@ -71,7 +71,7 @@ object FromEffect {
 
     final def fromEffect[A](fa: F[A]): RIO[R, A] =
       for {
-        env    <- ZIO.environment[R]
+        env    <- RIO.environment[R]
         result <- fromEffect(fa, env)
       } yield result
   }

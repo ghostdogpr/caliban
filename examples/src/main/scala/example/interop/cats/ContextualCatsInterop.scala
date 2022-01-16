@@ -5,10 +5,12 @@ import caliban.interop.cats.CatsInterop
 import caliban.schema.GenericSchema
 import caliban.{ GraphQL, RootResolver }
 import cats.data.Kleisli
-import cats.syntax.functor._
-import cats.syntax.flatMap._
 import cats.effect.{ Async, ExitCode, IO, IOApp }
 import cats.effect.std.{ Console, Dispatcher }
+import cats.mtl.syntax.local._
+import cats.mtl.Local
+import cats.syntax.functor._
+import cats.syntax.flatMap._
 import zio.{ Runtime, ZEnv }
 
 object ContextualCatsInterop extends IOApp {
@@ -50,17 +52,11 @@ object ContextualCatsInterop extends IOApp {
     val root = LogContext("root")
 
     Dispatcher[Effect].use { dispatcher =>
-      implicit val local: Local[Effect, LogContext] =
-        new Local[Effect, LogContext] {
-          def ask: Effect[LogContext]                                         = Kleisli.ask
-          def local[A](r: LogContext => LogContext)(fa: Effect[A]): Effect[A] = fa.local(r)
-        }
-
       implicit val logger: Logger[Effect] =
         new Logger[Effect] {
           def info(message: String): Effect[Unit] =
             for {
-              ctx <- Local[Effect, LogContext].ask
+              ctx <- Local[Effect, LogContext].ask[LogContext]
               _   <- Console[Effect].println(s"$message - ${ctx.operation}")
             } yield ()
         }
@@ -74,19 +70,19 @@ object ContextualCatsInterop extends IOApp {
 
   def program[F[_]: Async: Logger](implicit
     local: Local[F, LogContext],
-    interop: CatsInterop[F, LogContext],  // required for a derivation of the schema
+    interop: CatsInterop[F, LogContext], // required for a derivation of the schema
     runtime: Runtime[ZEnv]
   ): F[ExitCode] = {
     val numbers = List(1, 2, 3, 4).map(Number)
 
     val randomNumber =
-      Logger[F].info("Get random number") >> local.local(_.child("random-number")) {
+      Logger[F].info("Get random number") >> {
         for {
           _      <- Logger[F].info("Generating a random number")
           number <- Async[F].delay(scala.util.Random.nextInt())
           _      <- Logger[F].info(s"Generated number: $number")
         } yield Number(number)
-      }
+      }.local[LogContext](_.child("random-number"))
 
     val queries = Queries[F](numbers, randomNumber)
 
@@ -102,7 +98,9 @@ object ContextualCatsInterop extends IOApp {
       _           <- interpreter.checkAsync[F](query)
       _           <- Logger[F].info("Executing request")
       current     <- local.ask
-      result      <- interpreter.executeAsync[F](query)(interop, runtime.as(current.child("execute-request")))
+      result      <- interpreter
+                       .executeAsync[F](query)(interop, runtime.as(current.child("execute-request")))
+                       .local[LogContext](_.child("execute-request"))
       _           <- Logger[F].info(s"Request result: ${result.data}")
     } yield ExitCode.Success
   }
@@ -114,12 +112,4 @@ object ContextualCatsInterop extends IOApp {
     def apply[F[_]](implicit ev: Logger[F]): Logger[F] = ev
   }
 
-  // Emulate cats-mtl
-  trait Local[F[_], R] {
-    def ask: F[R]
-    def local[A](r: R => R)(fa: F[A]): F[A]
-  }
-  object Local         {
-    def apply[F[_], R](implicit ev: Local[F, R]): Local[F, R] = ev
-  }
 }
