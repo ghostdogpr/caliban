@@ -199,6 +199,7 @@ lazy val catsInterop = project
   .settings(commonSettings)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    autoAPIMappings := true,
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) Seq()
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))

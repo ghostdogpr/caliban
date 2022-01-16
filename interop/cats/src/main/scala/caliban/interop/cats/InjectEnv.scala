@@ -6,8 +6,8 @@ import cats.effect.IO
 /**
  * Injects a given environment of type `R` into the effect `F`.
  *
- * @tparam F the higher-kinded type of an effect
- * @tparam R the type of the environment
+ * @tparam F the higher-kinded type of a polymorphic effect
+ * @tparam R the type of ZIO environment
  */
 @annotation.implicitNotFound("""
 Could not find `InjectEnv` for effect ${F} and environment ${R}. `InjectEnv` can be one of the following:
@@ -51,8 +51,8 @@ object InjectEnv {
    * Injects a zoomed value (via lens) of the given environment into the underlying effect in Kleisli.
    *
    * @param lens zooms `R1` inside of the `R`
-   * @tparam F the higher-kinded type of an effect
-   * @tparam R the type of the environment
+   * @tparam F the higher-kinded type of a polymorphic effect
+   * @tparam R the type of ZIO environment
    * @tparam R1 the zoomed typed inside of the `R`
    * @return
    */
@@ -65,8 +65,8 @@ object InjectEnv {
   /**
    * Injects a given environment into the underlying effect in Kleisli:
    *
-   * @tparam F the higher-kinded type of an effect
-   * @tparam R the type of the environment
+   * @tparam F the higher-kinded type of a polymorphic effect
+   * @tparam R the type of ZIO environment
    */
   def kleisli[F[_], R]: InjectEnv[Kleisli[F, R, *], R] =
     new InjectEnv[Kleisli[F, R, *], R] {
