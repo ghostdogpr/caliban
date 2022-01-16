@@ -108,7 +108,7 @@ object ToEffect {
    * Identical to what [[https://github.com/zio/interop-cats]] offers.
    *
    * @param F the instance of [[cats.effect.Async]]. Required in order to perform the conversion
-   * @param runtime the instance of [[zio.Runtime]]. Required in order to perform the conversion
+   * @param runtime the instance of `zio.Runtime`. Required in order to perform the conversion
    * @tparam F $fParam
    * @tparam R $rParam
    */
