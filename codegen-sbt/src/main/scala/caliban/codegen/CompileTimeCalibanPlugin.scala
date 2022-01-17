@@ -338,6 +338,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                     TrackedSettings(
                       List(
                         caliban.codegen.BuildInfo.version,
+                        caliban.codegen.BuildInfo.scalaVersion,
                         zio.BuildInfo.version,
                         clientsSettings.map(_.id).mkString,
                         serverProjectSettings.mkString,
