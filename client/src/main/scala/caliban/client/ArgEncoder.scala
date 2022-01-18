@@ -1,14 +1,6 @@
 package caliban.client
 
-import caliban.client.__Value.{
-  __BooleanValue,
-  __ListValue,
-  __NullValue,
-  __NumberValue,
-  __ObjectValue,
-  __StringValue,
-  __UUIDValue
-}
+import caliban.client.__Value.{ __BooleanValue, __ListValue, __NullValue, __NumberValue, __ObjectValue, __StringValue }
 import io.circe.Json
 
 import scala.annotation.implicitNotFound
@@ -51,7 +43,7 @@ object ArgEncoder {
 
   implicit val unit: ArgEncoder[Unit] = (_: Unit) => __ObjectValue(Nil)
 
-  implicit val uuid: ArgEncoder[UUID] = (value: UUID) => __UUIDValue(value)
+  implicit val uuid: ArgEncoder[UUID] = (value: UUID) => __StringValue(value.toString())
 
   implicit def option[A](implicit ev: ArgEncoder[A]): ArgEncoder[Option[A]] = (value: Option[A]) =>
     value.fold(__NullValue: __Value)(ev.encode)
