@@ -36,8 +36,8 @@ object __Value {
   case class __BooleanValue(value: Boolean)   extends __Value {
     override def toString: String = value.toString
   }
-  case class __UUIDValue(value: UUID) extends __Value {
-    override def toString: String = value.toString
+  case class __UUIDValue(value: UUID)         extends __Value {
+    override def toString: String = Json.fromString(value.toString()).toString
 
   }
   case class __ListValue(values: List[__Value])             extends __Value {
