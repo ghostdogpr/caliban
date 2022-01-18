@@ -1,6 +1,7 @@
 package caliban.client
 
 import io.circe.{ Decoder, Encoder, Json }
+import java.util.UUID
 
 /**
  * Value that can be returned by the server or sent as an argument.
@@ -20,20 +21,24 @@ sealed trait __Value { self =>
 }
 
 object __Value {
-  case object __NullValue                                   extends __Value {
+  case object __NullValue                     extends __Value {
     override def toString: String = "null"
   }
-  case class __NumberValue(value: BigDecimal)               extends __Value {
+  case class __NumberValue(value: BigDecimal) extends __Value {
     override def toString: String = s"$value"
   }
-  case class __EnumValue(value: String)                     extends __Value {
+  case class __EnumValue(value: String)       extends __Value {
     override def toString: String = value
   }
-  case class __StringValue(value: String)                   extends __Value {
+  case class __StringValue(value: String)     extends __Value {
     override def toString: String = Json.fromString(value).toString
   }
-  case class __BooleanValue(value: Boolean)                 extends __Value {
+  case class __BooleanValue(value: Boolean)   extends __Value {
     override def toString: String = value.toString
+  }
+  case class __UUIDValue(value: UUID) extends __Value {
+    override def toString: String = value.toString
+
   }
   case class __ListValue(values: List[__Value])             extends __Value {
     override def toString: String = values.map(_.toString).mkString("[", ",", "]")
@@ -59,6 +64,7 @@ object __Value {
     case __StringValue(value)  => Json.fromString(value)
     case __EnumValue(value)    => Json.fromString(value)
     case __BooleanValue(value) => Json.fromBoolean(value)
+    case __UUIDValue(value)    => Json.fromString(value.toString())
     case __ListValue(values)   => Json.fromValues(values.map(valueToJson))
     case __ObjectValue(fields) => Json.obj(fields.map { case (k, v) => k -> valueToJson(v) }: _*)
   }
