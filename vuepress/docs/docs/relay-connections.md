@@ -35,8 +35,10 @@ The field can be paginated forwards by using `first` (number of items) and `afte
 
 Caliban ships with a set of abstract classes to make it easier to use Relay connections in your schema:
 
-```scala
+```scala mdoc:silent
+import caliban._
 import caliban.relay._
+import zio._
 
 // The entity you want to paginate over
 case class Item(name: String)
@@ -100,7 +102,10 @@ case class ElasticCursor(value: String)
 To turn your case class into a usable cursor, you need to do two things: implement the `Cursor` trait and specify a schema for the case class to make sure it's always serialized as a scalar value.
 
 First, let's implement the trait:
-```scala
+```scala mdoc:silent
+import java.util.Base64
+import scala.util.Try
+
 case class ElasticCursor(value: String)
 object ElasticCursor {
   lazy val decoder = Base64.getDecoder()

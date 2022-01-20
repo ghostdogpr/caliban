@@ -37,16 +37,16 @@ Creating a GraphQL API with Caliban is as simple as creating a case class. Indee
 
 Let's say we have a class `Character` and 2 functions: `getCharacters` and `getCharacter`:
 
-```scala
+```scala mdoc:silent
 case class Character(name: String, age: Int)
 
-def getCharacters: List[Character] = ???
+def getCharacters: List[Character] = Nil
 def getCharacter(name: String): Option[Character] = ???
 ```
 
 Let's create a case class named `Queries` that will represent our API, with 2 fields named and modeled after the functions we want to expose (a _record of functions_). We then create a value of this class that calls our actual functions. This is our resolver.
 
-```scala
+```scala mdoc:silent
 // schema
 case class CharacterName(name: String)
 case class Queries(characters: List[Character],
@@ -59,7 +59,7 @@ The next step is creating our GraphQL API definition. First, we wrap our query r
 Then we can call the `graphQL` function which will turn our simple resolver value into a GraphQL API definition.
 The whole schema will be derived at compile time, meaning that if it compiles, it will be able to serve it.
 
-```scala
+```scala mdoc:silent
 import caliban.GraphQL.graphQL
 import caliban.RootResolver
 
@@ -84,7 +84,7 @@ In order to process requests, you need to turn your API into an interpreter, whi
 An interpreter is a light wrapper around the API definition that allows plugging in some middleware and possibly modifying the environment and error types (see [Middleware](middleware.md) for more info).
 Creating the interpreter may fail with a `ValidationError` if some type is found invalid.
 
-```scala
+```scala mdoc:silent
 for {
   interpreter <- api.interpreter
 } yield interpreter
@@ -98,7 +98,7 @@ case class GraphQLResponse[+E](data: ResponseValue, errors: List[E])
 
 Use `ResponseValue#toString` to get the JSON representation of the result.
 
-```scala
+```scala mdoc:silent
 val query = """
   {
     characters {
@@ -107,8 +107,9 @@ val query = """
   }"""
 
 for {
-  result <- interpreter.execute(query)
-  _      <- zio.console.putStrLn(result.data.toString)
+  interpreter <- api.interpreter
+  result      <- interpreter.execute(query)
+  _           <- zio.console.putStrLn(result.data.toString)
 } yield ()
 ```
 
@@ -139,10 +140,12 @@ You can use `.rename` to change the names of the generated root types.
 
 Creating mutations is the same as queries, except you pass them as the second argument to `RootResolver`:
 
-```scala
+```scala mdoc:nest:silent
+import zio.Task
+
 case class CharacterArgs(name: String)
 case class Mutations(deleteCharacter: CharacterArgs => Task[Boolean])
-val mutations = Mutations(???)
+val mutations = Mutations(_ => ???)
 val api = graphQL(RootResolver(queries, mutations))
 ```
 
@@ -150,9 +153,11 @@ val api = graphQL(RootResolver(queries, mutations))
 
 Similarly, subscriptions are passed as the third argument to `RootResolver`:
 
-```scala
+```scala mdoc:nest:silent
+import zio.stream.ZStream
+
 case class Subscriptions(deletedCharacter: ZStream[Any, Nothing, Character])
-val subscriptions = Subscriptions(???)
+val subscriptions = Subscriptions(ZStream())
 val api = graphQL(RootResolver(queries, mutations, subscriptions))
 ```
 
