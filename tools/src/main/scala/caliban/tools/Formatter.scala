@@ -2,19 +2,18 @@ package caliban.tools
 
 import org.scalafmt.dynamic.ConsoleScalafmtReporter
 import org.scalafmt.interfaces.Scalafmt
-import zio.RIO
-import zio.blocking.{ effectBlocking, Blocking }
+import zio.Task
 
 import java.nio.file.{ Files, Path, Paths, StandardCopyOption }
 import java.util.jar.JarFile
 
 object Formatter {
 
-  def format(str: String, fmtPath: Option[String]): RIO[Blocking, String] =
+  def format(str: String, fmtPath: Option[String]): Task[String] =
     format(List("Nil.scala" -> str), fmtPath).map(_.head._2)
 
-  def format(strs: List[(String, String)], fmtPath: Option[String]): RIO[Blocking, List[(String, String)]] =
-    effectBlocking {
+  def format(strs: List[(String, String)], fmtPath: Option[String]): Task[List[(String, String)]] =
+    Task.attemptBlocking {
       val config: Path = {
         @inline def defaultConfigPath = Paths.get(".scalafmt.conf")
         @inline def defaultConfig     =

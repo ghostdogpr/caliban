@@ -1,12 +1,11 @@
 package caliban.codegen
 
 import caliban.tools.Codegen.GenType
-import caliban.tools._
+import caliban.tools.*
 import sbt.Keys.commands
 import sbt.{ Command, State }
-import zio.blocking.Blocking
-import zio.console.{ putStrLn, Console }
-import zio.{ RIO, Runtime }
+import zio.Console.printLine
+import zio.{ Console, RIO, Runtime }
 
 object CalibanCli {
   lazy val genSchemaCommand =
@@ -31,7 +30,7 @@ object CalibanCli {
     Command.args(name, helpMsg) { (state: State, args: Seq[String]) =>
       Runtime.default.unsafeRun(
         execGenCommand(helpMsg, args.toList, genType)
-          .catchAll(reason => putStrLn(reason.toString) *> putStrLn(reason.getStackTrace.mkString("\n")))
+          .catchAll(reason => printLine(reason.toString) *> printLine(reason.getStackTrace.mkString("\n")))
           .as(1)
       )
       state
@@ -85,16 +84,18 @@ object CalibanCli {
     helpMsg: String,
     args: List[String],
     genType: GenType
-  ): RIO[Console with Blocking, Unit] =
-    Options.fromArgs(args) match {
-      case Some(arguments) =>
-        for {
-          _ <- putStrLn(s"Generating code for ${arguments.schemaPath}")
-          _ <- Codegen.generate(arguments, genType)
-          _ <- putStrLn(s"Code generation done")
-        } yield ()
-      case None            => putStrLn(helpMsg)
-    }
+  ): RIO[Console, Unit] =
+    Options
+      .fromArgs(args)
+      .foldZIO(
+        ex => printLine(ex.getMessage) *> printLine(helpMsg),
+        arguments =>
+          for {
+            _ <- printLine(s"Generating code for ${arguments.schemaPath}")
+            _ <- Codegen.generate(arguments, genType)
+            _ <- printLine(s"Code generation done")
+          } yield ()
+      )
 
   def projectSettings = Seq(commands ++= Seq(genSchemaCommand, genClientCommand))
 }

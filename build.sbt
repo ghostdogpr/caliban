@@ -16,14 +16,14 @@ val magnoliaVersion         = "0.17.0"
 val mercatorVersion         = "0.2.1"
 val playVersion             = "2.8.12"
 val playJsonVersion         = "2.9.2"
-val sttpVersion             = "3.3.18"
+val sttpVersion             = "3.4.0"
 val tapirVersion            = "0.19.3"
 val zioVersion              = "1.0.13"
 val zio2Version             = "2.0.0-RC1"
 val zioInteropCats2Version  = "2.5.1.0"
 val zioInteropCats3Version  = "3.2.9.0"
 val zio2InteropCats3Version = "3.3.0-RC1"
-val zioConfigVersion        = "1.0.10" // 1.0.10+11-5e644c33-SNAPSHOT
+val zioConfigVersion        = "3.0.0-RC1"
 val zqueryVersion           = "0.3.0-RC1"
 val zioJsonVersion          = "0.1.5"
 val zioHttpVersion          = "1.0.0.0-RC17"
@@ -157,8 +157,8 @@ lazy val tools = project
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
       "dev.zio"                       %% "zio-config"                    % zioConfigVersion,
       "dev.zio"                       %% "zio-config-magnolia"           % zioConfigVersion,
-      "dev.zio"                       %% "zio-test"                      % zioVersion % Test,
-      "dev.zio"                       %% "zio-test-sbt"                  % zioVersion % Test
+      "dev.zio"                       %% "zio-test"                      % zio2Version % Test,
+      "dev.zio"                       %% "zio-test-sbt"                  % zio2Version % Test
     )
   )
   .dependsOn(core, clientJVM)

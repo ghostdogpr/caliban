@@ -1,5 +1,6 @@
 package caliban.tools
 
+import zio.Task
 import zio.config.magnolia.DeriveConfigDescriptor.descriptor
 import zio.config.{ read, ConfigDescriptor, ConfigSource }
 
@@ -39,7 +40,7 @@ object Options {
     preserveInputNames: Option[Boolean]
   )
 
-  def fromArgs(args: List[String]): Option[Options] =
+  def fromArgs(args: List[String]): Task[Options] =
     args match {
       case schemaPath :: toPath :: other =>
         val configSource: ConfigSource                     =
@@ -50,7 +51,7 @@ object Options {
           )
         val configDescriptor: ConfigDescriptor[RawOptions] = descriptor[RawOptions] from configSource
 
-        read(configDescriptor).toOption.map { rawOpts =>
+        read(configDescriptor).map { rawOpts =>
           Options(
             schemaPath,
             toPath,
@@ -83,6 +84,6 @@ object Options {
             rawOpts.preserveInputNames
           )
         }
-      case _                             => None
+      case _                             => Task.fail(new Exception(s"Can't parse options from arguments list $args"))
     }
 }

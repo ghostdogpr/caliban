@@ -66,7 +66,7 @@ object SchemaWriter {
     def writeInputObject(typedef: InputObjectTypeDefinition): String = {
       val name            = typedef.name
       val maybeAnnotation = if (preserveInputNames) s"""@GQLInputName("$name")\n""" else ""
-      s"""${maybeAnnotation}${writeDescription(typedef.description)}final case class $name(${typedef.fields
+      s"""$maybeAnnotation${writeDescription(typedef.description)}final case class $name(${typedef.fields
         .map(writeInputValue)
         .mkString(", ")})"""
     }

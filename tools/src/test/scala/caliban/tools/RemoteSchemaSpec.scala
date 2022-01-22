@@ -51,16 +51,16 @@ object RemoteSchemaSpec extends DefaultRunnableSpec {
   )
 
   def spec = suite("ParserSpec")(
-    testM("is isomorphic") {
+    test("is isomorphic") {
       for {
         introspected <- SchemaLoader.fromCaliban(api).load
         remoteSchema <- ZIO.fromOption(RemoteSchema.parseRemoteSchema(introspected))
-        remoteAPI    <- ZIO.effectTotal(fromRemoteSchema(remoteSchema))
+        remoteAPI    <- ZIO.succeed(fromRemoteSchema(remoteSchema))
         sdl           = api.render
         remoteSDL     = remoteAPI.render
-      } yield assert(remoteSDL)(equalTo(sdl))
+      } yield assertTrue(remoteSDL == sdl)
     },
-    testM("properly resolves interface types") {
+    test("properly resolves interface types") {
       @GQLInterface
       sealed trait Node
 
@@ -88,7 +88,7 @@ object RemoteSchemaSpec extends DefaultRunnableSpec {
       for {
         introspected <- SchemaLoader.fromCaliban(api).load
         remoteSchema <- ZIO.fromOption(RemoteSchema.parseRemoteSchema(introspected))
-        remoteAPI    <- ZIO.effectTotal(fromRemoteSchema(remoteSchema))
+        remoteAPI    <- ZIO.succeed(fromRemoteSchema(remoteSchema))
         interpreter  <- remoteAPI.interpreter
         res          <- interpreter.check(query)
       } yield assert(res)(isUnit)

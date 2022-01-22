@@ -1,22 +1,20 @@
 package caliban.tools
 
 import caliban.parsing.Parser
-import zio.RIO
-import zio.blocking.Blocking
+import zio.Task
 import zio.test.Assertion._
 import zio.test._
-import zio.test.environment.TestEnvironment
 
 object ClientWriterViewSpec extends DefaultRunnableSpec {
 
-  val gen: String => RIO[Blocking, String] = (schema: String) =>
+  val gen: String => Task[String] = (schema: String) =>
     Parser
       .parseQuery(schema)
       .flatMap(doc => Formatter.format(ClientWriter.write(doc, genView = true, scalarMappings = None).head._2, None))
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("ClientWriterViewSpec")(
-      testM("simple object type") {
+      test("simple object type") {
         val schema =
           """
              type Character {
@@ -55,7 +53,7 @@ object Client {
           )
         )
       },
-      testM("nested object type") {
+      test("nested object type") {
         val schema =
           """
              type Q {
@@ -136,7 +134,7 @@ object Client {
           )
         )
       },
-      testM("recursive object type") {
+      test("recursive object type") {
         val schema =
           """
              type Character {
@@ -179,7 +177,7 @@ object Client {
           )
         )
       },
-      testM("generic view for Option[List[Option[A]] types") {
+      test("generic view for Option[List[Option[A]] types") {
         val schema =
           """
             type ProjectMember {
@@ -314,7 +312,7 @@ object Client {
           )
         )
       },
-      testM("generic view for scala keywords") {
+      test("generic view for scala keywords") {
         val schema =
           """
           type package {
@@ -371,7 +369,7 @@ object Client {
           )
         )
       },
-      testM("generic view for capital fields") {
+      test("generic view for capital fields") {
         val schema =
           """
           type TypeWithCapitalFields {
@@ -407,7 +405,7 @@ object Client {
           )
         )
       },
-      testM("union case") {
+      test("union case") {
         val schema =
           """
           type Character {
@@ -499,7 +497,7 @@ object Client {
           )
         )
       },
-      testM("type with more than 22 fields / function args / selection args") {
+      test("type with more than 22 fields / function args / selection args") {
         val schema =
           """
              type Big {
@@ -1153,7 +1151,7 @@ object Client {
           )
         )
       },
-      testM("root schema optional interface") {
+      test("root schema optional interface") {
         val schema =
           """
           schema {

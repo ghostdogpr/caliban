@@ -4,7 +4,6 @@ import caliban.tools.CalibanCommonSettings
 import caliban.tools.Codegen.GenType
 import caliban.tools.compiletime.Config._
 import zio.test._
-import zio.test.environment.TestEnvironment
 
 object ConfigSpec extends DefaultRunnableSpec {
 

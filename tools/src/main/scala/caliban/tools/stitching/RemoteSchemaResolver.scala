@@ -9,7 +9,7 @@ import zio._
 import zio.query._
 
 case class RemoteSchemaResolver(schema: __Schema, typeMap: Map[String, __Type]) {
-  def remoteResolver[R, R0 <: Has[_], A](typeName: String)(
+  def remoteResolver[R, R0, A](typeName: String)(
     resolver: RemoteResolver[R0, CalibanError.ExecutionError, ResolveRequest[A], ResponseValue]
   ): PartialRemoteSchema[R0, R, A] = new PartialRemoteSchema[R0, R, A] {
     def resolve(a: A, args: caliban.execution.Field): ZIO[R0, CalibanError, ResponseValue] =
@@ -38,7 +38,7 @@ case class RemoteSchemaResolver(schema: __Schema, typeMap: Map[String, __Type]) 
                 field.name ->
                   Step.MetadataFunctionStep((args: caliban.execution.Field) =>
                     Step.QueryStep(
-                      ZQuery.fromEffect(resolver.run(args)).map(Step.PureStep)
+                      ZQuery.fromZIO(resolver.run(args)).map(Step.PureStep)
                     )
                   )
               }

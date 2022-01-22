@@ -148,8 +148,7 @@ object RemoteSchema {
     definitions: List[Definition.TypeSystemDefinition.TypeDefinition]
   ): __Type = {
     val implementations = definitions.collect {
-      case t @ ObjectTypeDefinition(description, name, implements, directives, fields)
-          if implements.map(_.name).toSet.contains(definition.name) =>
+      case t @ ObjectTypeDefinition(_, _, implements, _, _) if implements.map(_.name).toSet.contains(definition.name) =>
         toObjectType(t, definitions)
     }
 

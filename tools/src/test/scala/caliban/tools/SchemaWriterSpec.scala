@@ -1,11 +1,9 @@
 package caliban.tools
 
 import caliban.parsing.Parser
-import zio.RIO
-import zio.blocking.Blocking
+import zio.Task
 import zio.test.Assertion.equalTo
 import zio.test._
-import zio.test.environment.TestEnvironment
 
 object SchemaWriterSpec extends DefaultRunnableSpec {
 
@@ -17,7 +15,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
     scalarMappings: Map[String, String] = Map.empty,
     isEffectTypeAbstract: Boolean = false,
     preserveInputNames: Boolean = false
-  ): RIO[Blocking, String] = Parser
+  ): Task[String] = Parser
     .parseQuery(schema.stripMargin)
     .flatMap(doc =>
       Formatter
@@ -580,7 +578,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
 
   override def spec: ZSpec[TestEnvironment, Any] = suite("SchemaWriterSpec")(
     assertions.map { case (name, actual, expected) =>
-      testM(name)(
+      test(name)(
         assertM(actual.map(_.stripMargin.trim))(equalTo(expected.stripMargin.trim))
       )
     }: _*

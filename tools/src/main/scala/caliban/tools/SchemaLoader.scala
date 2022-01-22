@@ -19,7 +19,7 @@ object SchemaLoader {
   case class FromFile private (path: String)                                                extends SchemaLoader {
     override def load: Task[Document] =
       Task(scala.io.Source.fromFile(path))
-        .bracket(f => UIO(f.close()), f => Task(f.mkString))
+        .acquireReleaseWith(f => UIO(f.close()), f => Task(f.mkString))
         .flatMap(Parser.parseQuery)
   }
   case class FromString private (schema: String)                                            extends SchemaLoader {

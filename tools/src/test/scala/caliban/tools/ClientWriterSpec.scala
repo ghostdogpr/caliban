@@ -1,11 +1,9 @@
 package caliban.tools
 
 import caliban.parsing.Parser
-import zio.RIO
-import zio.blocking.Blocking
+import zio.Task
 import zio.test.Assertion._
 import zio.test._
-import zio.test.environment.TestEnvironment
 
 object ClientWriterSpec extends DefaultRunnableSpec {
 
@@ -14,7 +12,7 @@ object ClientWriterSpec extends DefaultRunnableSpec {
     scalarMappings: Map[String, String] = Map.empty,
     additionalImports: List[String] = List.empty,
     extensibleEnums: Boolean = false
-  ): RIO[Blocking, String] = Parser
+  ): Task[String] = Parser
     .parseQuery(schema)
     .flatMap(doc =>
       Formatter.format(
@@ -34,7 +32,7 @@ object ClientWriterSpec extends DefaultRunnableSpec {
   def genSplit(
     schema: String,
     scalarMappings: Map[String, String] = Map.empty
-  ): RIO[Blocking, List[(String, String)]] = Parser
+  ): Task[List[(String, String)]] = Parser
     .parseQuery(schema)
     .flatMap(doc =>
       Formatter.format(
@@ -45,7 +43,7 @@ object ClientWriterSpec extends DefaultRunnableSpec {
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("ClientWriterSpec")(
-      testM("simple object type") {
+      test("simple object type") {
         val schema =
           """
              type Character {
@@ -73,7 +71,7 @@ object Client {
           )
         )
       },
-      testM("object type with reserved name") {
+      test("object type with reserved name") {
         val schema =
           """
              type Character {
@@ -98,7 +96,7 @@ object Client {
           )
         )
       },
-      testM("nested object type") {
+      test("nested object type") {
         val schema =
           """
              type Q {
@@ -136,7 +134,7 @@ object Client {
           )
         )
       },
-      testM("object type with arguments") {
+      test("object type with arguments") {
         val schema =
           """
              type Q {
@@ -176,7 +174,7 @@ object Client {
           )
         )
       },
-      testM("schema") {
+      test("schema") {
         val schema =
           """
              schema {
@@ -220,7 +218,7 @@ object Client {
           )
         )
       },
-      testM("enum") {
+      test("enum") {
         val schema =
           """
              enum Origin {
@@ -264,7 +262,7 @@ object Client {
           )
         )
       },
-      testM("scalar mapped enum") {
+      test("scalar mapped enum") {
         val schema =
           """
              enum Origin {
@@ -334,7 +332,7 @@ object Client {
           )
         )
       },
-      testM("extensible enum") {
+      test("extensible enum") {
         val schema =
           """
              enum Origin {
@@ -381,7 +379,7 @@ object Client {
           )
         )
       },
-      testM("input object") {
+      test("input object") {
         val schema =
           """
              input CharacterInput {
@@ -415,7 +413,7 @@ object Client {
           )
         )
       },
-      testM("input object with reserved name") {
+      test("input object with reserved name") {
         val schema =
           """
              input CharacterInput {
@@ -443,7 +441,7 @@ object Client {
           )
         )
       },
-      testM("union") {
+      test("union") {
         val schema =
           """
              union Role = Captain | Pilot
@@ -506,7 +504,7 @@ object Client {
           )
         )
       },
-      testM("deprecated field + comment") {
+      test("deprecated field + comment") {
         val schema =
           """
              type Character {
@@ -541,7 +539,7 @@ object Client {
           )
         )
       },
-      testM("deprecated field + comment newline") {
+      test("deprecated field + comment newline") {
         val tripleQuotes = "\"\"\""
         val schema       =
           """
@@ -577,7 +575,7 @@ bar$tripleQuotes,
           )
         )
       },
-      testM("default arguments for optional and list arguments") {
+      test("default arguments for optional and list arguments") {
         val schema =
           """
               type Query {
@@ -618,7 +616,7 @@ object Client {
           )
         )
       },
-      testM("support for Json scalar") {
+      test("support for Json scalar") {
         val schema =
           """
               scalar Json
@@ -645,7 +643,7 @@ object Client {
           )
         )
       },
-      testM("case-sensitive name uniqueness in enum's values") {
+      test("case-sensitive name uniqueness in enum's values") {
         val schema =
           """
               enum Episode {
@@ -692,7 +690,7 @@ object Client {
           )
         )
       },
-      testM("case-insensitive name uniqueness in 2 basic objects") {
+      test("case-insensitive name uniqueness in 2 basic objects") {
         val schema =
           """
              type Character {
@@ -732,7 +730,7 @@ object Client {
           )
         )
       },
-      testM("safe names with leading and tailing _") {
+      test("safe names with leading and tailing _") {
         val schema =
           """
              type Character {
@@ -761,7 +759,7 @@ object Client {
           )
         )
       },
-      testM("add scalar mappings and additional imports") {
+      test("add scalar mappings and additional imports") {
         val schema =
           """
              scalar OffsetDateTime
@@ -792,7 +790,7 @@ object Client {
           )
         }
       },
-      testM("schema with splitFiles") {
+      test("schema with splitFiles") {
         val schema =
           """
              schema {
@@ -844,7 +842,7 @@ object Client {
           )
         )
       },
-      testM("interface") {
+      test("interface") {
         val schema =
           """
              interface Order {
@@ -896,7 +894,7 @@ object Client {
           )
         }
       },
-      testM("interface with list") {
+      test("interface with list") {
         val schema =
           """
              interface Order {

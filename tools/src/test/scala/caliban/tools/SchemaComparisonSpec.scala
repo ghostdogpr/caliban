@@ -8,7 +8,6 @@ import caliban.{ CalibanError, RootResolver }
 import zio.ZIO
 import zio.test.Assertion._
 import zio.test._
-import zio.test.environment.TestEnvironment
 
 object SchemaComparisonSpec extends DefaultRunnableSpec {
 
@@ -25,7 +24,7 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("SchemaComparisonSpec")(
-      testM("field changed") {
+      test("field changed") {
         val schema1: String =
           """
           input HeroInput {
@@ -59,7 +58,7 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
 
         compare(schema1, schema2, expected)
       },
-      testM("type added") {
+      test("type added") {
         val schema1: String =
           """
           type Hero {
@@ -80,7 +79,7 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
 
         compare(schema1, schema2, List("Type 'HeroInput' was added."))
       },
-      testM("description changes") {
+      test("description changes") {
         val schema1: String =
           """
           type DescTest {
@@ -110,7 +109,7 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
         )
         compare(schema1, schema2, expected)
       },
-      testM("various changes") {
+      test("various changes") {
         val schema1: String =
           """
           input HeroInput {
@@ -142,7 +141,7 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
 
         compare(schema1, schema2, expected)
       },
-      testM("optional argument added") {
+      test("optional argument added") {
         val schema1: String =
           """
           input HeroInput {
@@ -164,7 +163,7 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
           diff = compareDocuments(s1, s2)
         } yield diff)(hasFirst(hasField("breaking", _.breaking, equalTo(false))))
       },
-      testM("non-optional argument added") {
+      test("non-optional argument added") {
         val schema1: String =
           """
           input HeroInput {
@@ -186,7 +185,7 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
           diff = compareDocuments(s1, s2)
         } yield diff)(hasFirst(hasField("breaking", _.breaking, equalTo(true))))
       },
-      testM("deprecated") {
+      test("deprecated") {
         val schema1: String =
           """
           input HeroInput {
@@ -211,7 +210,7 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
 
         compare(schema1, schema2, List("Directive 'deprecated' was deleted from field 'test' of type 'HeroInput'."))
       },
-      testM("compare Caliban schema with string schema") {
+      test("compare Caliban schema with string schema") {
         val schema: String =
           """
           type Hero {

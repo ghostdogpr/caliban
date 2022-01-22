@@ -1,7 +1,6 @@
 package caliban.tools
 
-import zio.blocking.{ blocking, Blocking }
-import zio.{ RIO, Task, UIO, ZIO }
+import zio.{ Task, UIO, ZIO }
 
 import java.io.{ File, PrintWriter }
 
@@ -19,7 +18,7 @@ object Codegen {
     loader: SchemaLoader,
     arguments: Options,
     genType: GenType
-  ): RIO[Blocking, List[File]] =
+  ): Task[List[File]] =
     for {
       schema                   <- loader.load
       (packageName, objectName) = getPackageAndObjectName(arguments)
@@ -64,15 +63,15 @@ object Codegen {
                                       if (splitFiles) s"${arguments.toPath.reverse.dropWhile(_ != '/').reverse}$objectName.scala"
                                       else arguments.toPath
 
-                                    blocking(
+                                    Task.blocking(
                                       Task(new PrintWriter(new File(path)))
-                                        .bracket(q => UIO(q.close()), pw => Task(pw.println(objectCode)))
+                                        .acquireReleaseWith(q => UIO(q.close()), pw => Task(pw.println(objectCode)))
                                         .as(new File(path))
                                     )
                                   }
     } yield paths
 
-  def generate(arguments: Options, genType: GenType): RIO[Blocking, List[File]] =
+  def generate(arguments: Options, genType: GenType): Task[List[File]] =
     generate(
       getSchemaLoader(arguments.schemaPath, arguments.headers),
       arguments,
@@ -83,7 +82,7 @@ object Codegen {
     if (path.startsWith("http")) SchemaLoader.fromIntrospection(path, schemaPathHeaders)
     else SchemaLoader.fromFile(path)
 
-  def getPackageAndObjectName(arguments: Options) = {
+  def getPackageAndObjectName(arguments: Options): (Option[String], String) = {
     val s           = ".*(?:scala|play.*?|app)[^/]*/(?:(.*)/)?(.*).scala".r.findFirstMatchIn(arguments.toPath)
     val packageName = arguments.packageName.orElse(s.flatMap(x => Option(x.group(1)).map(_.split("/").mkString("."))))
     val objectName  = arguments.clientName.orElse(s.map(_.group(2))).getOrElse("Client")
