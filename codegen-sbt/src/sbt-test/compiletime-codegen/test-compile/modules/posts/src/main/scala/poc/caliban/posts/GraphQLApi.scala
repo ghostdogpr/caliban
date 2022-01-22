@@ -5,7 +5,6 @@ import caliban.schema.GenericSchema
 import caliban.wrappers.Wrappers._
 import caliban.{GraphQL, RootResolver}
 import zio._
-import zio.duration.durationInt
 import zio.stream.ZStream
 
 object Operations {
@@ -13,16 +12,16 @@ object Operations {
   final case class CreatePostMutationParams(authorName: AuthorName, title: PostTitle, content: PostContent)
 
   final case class Query(
-    postById: PostId => ZIO[Has[PostService], PostServiceError, Post]
+    postById: PostId => ZIO[PostService, PostServiceError, Post]
   )
 
   final case class Mutation(
-    createPost: CreatePostMutationParams => ZIO[Has[PostService], PostServiceError, Post],
-    deletePost: PostId => ZIO[Has[PostService], PostServiceError, Unit]
+    createPost: CreatePostMutationParams => ZIO[PostService, PostServiceError, Post],
+    deletePost: PostId => ZIO[PostService, PostServiceError, Unit]
   )
 
   final case class Subscription(
-    allPostsByAuthor: AuthorName => ZStream[Has[PostService], PostServiceError, Post]
+    allPostsByAuthor: AuthorName => ZStream[PostService, PostServiceError, Post]
   )
 }
 
@@ -51,12 +50,12 @@ object Resolvers {
   val resolver: RootResolver[Query, Mutation, Subscription] = RootResolver(queries, mutations, subscriptions)
 }
 
-object Schemas extends GenericSchema[ZEnv with Has[PostService]]
+object Schemas extends GenericSchema[ZEnv with PostService]
 
 object GraphQLApi {
   import Schemas._
 
-  val api: GraphQL[ZEnv with Has[PostService]] =
+  val api: GraphQL[ZEnv with PostService] =
     graphQL(
       Resolvers.resolver
     ) @@

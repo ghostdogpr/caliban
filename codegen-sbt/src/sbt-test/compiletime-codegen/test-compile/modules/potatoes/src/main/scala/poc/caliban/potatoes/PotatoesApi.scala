@@ -5,7 +5,6 @@ import caliban.schema.GenericSchema
 import caliban.wrappers.Wrappers._
 import caliban.{GraphQL, RootResolver}
 import zio._
-import zio.duration.durationInt
 import zio.stream.ZStream
 
 object Operations {
@@ -13,17 +12,17 @@ object Operations {
   final case class MakeNewSpeciesMutationParams(name: Potato.Name, color: Potato.Color)
 
   final case class Query(
-    byName: Potato.Name => ZIO[Has[PotatoesService], PotatoesServiceError, Option[Potato]],
-    byColor: Potato.Color => ZIO[Has[PotatoesService], PotatoesServiceError, List[Potato]]
+    byName: Potato.Name => ZIO[PotatoesService, PotatoesServiceError, Option[Potato]],
+    byColor: Potato.Color => ZIO[PotatoesService, PotatoesServiceError, List[Potato]]
   )
 
   final case class Mutation(
-    makeNewSpecies: MakeNewSpeciesMutationParams => ZIO[Has[PotatoesService], PotatoesServiceError, Potato],
-    eradicate: Potato.Name => ZIO[Has[PotatoesService], PotatoesServiceError, Unit]
+    makeNewSpecies: MakeNewSpeciesMutationParams => ZIO[PotatoesService, PotatoesServiceError, Potato],
+    eradicate: Potato.Name => ZIO[PotatoesService, PotatoesServiceError, Unit]
   )
 
   final case class Subscription(
-    allPotatoes: ZStream[Has[PotatoesService], PotatoesServiceError, Potato]
+    allPotatoes: ZStream[PotatoesService, PotatoesServiceError, Potato]
   )
 }
 
@@ -50,12 +49,12 @@ object Resolvers {
   val resolver: RootResolver[Query, Mutation, Subscription] = RootResolver(queries, mutations, subscriptions)
 }
 
-object Schemas extends GenericSchema[ZEnv with Has[PotatoesService]]
+object Schemas extends GenericSchema[ZEnv with PotatoesService]
 
 object PotatoesApi {
   import Schemas._
 
-  val api: GraphQL[ZEnv with Has[PotatoesService]] =
+  val api: GraphQL[ZEnv with PotatoesService] =
     graphQL(
       Resolvers.resolver
     ) @@
