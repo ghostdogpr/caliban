@@ -82,16 +82,16 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
                        |
                        |import caliban.tools.compiletime.CompileTime
                        |import caliban.tools.compiletime.Config.ClientGenerationSettings
-                       |import zio.{ExitCode, URIO}
                        |
                        |private[generator] object $generatorName {
-                       |  def main(args: Array[String]): Unit =
-                       |    zio.Runtime.default.unsafeRun(
+                       |  def main(args: Array[String]): Unit = {
+                       |    val _  = zio.Runtime.default.unsafeRun(
                        |      CompileTime.generateClient(args.toList)(
                        |        $ref,
                        |        ${clientSettings.asScalaCode}
                        |      )
                        |    )
+                       |  }
                        |}
                        |""".stripMargin.trim
 

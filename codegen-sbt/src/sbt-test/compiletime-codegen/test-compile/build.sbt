@@ -10,6 +10,7 @@ ThisBuild / version      := "0.0.1"
 ThisBuild / scalaVersion := "2.12.14" // Must stay 2.12 in these tests because the plugin is compiled with 2.12
 ThisBuild / resolvers += Resolver.mavenLocal
 ThisBuild / resolvers += Resolver.sonatypeRepo("snapshots")
+ThisBuild / scalacOptions ++= Seq("-Xfatal-warnings", "-feature")
 
 // ### Dependencies ###
 

@@ -175,6 +175,27 @@ object ExecutionSpec extends DefaultRunnableSpec {
           api.interpreter.flatMap(_.execute(query, None, Map("term" -> StringValue("search")))).map(_.asJson.noSpaces)
         )(equalTo("""{"data":{"getId":null}}"""))
       },
+      test("default values for variables in directives") {
+        import io.circe.syntax._
+
+        case class TestQuery(field1: String, field2: String)
+        case class Query(test: TestQuery)
+        val api = graphQL(RootResolver(Query(TestQuery(field1 = "1234", field2 = "5421"))))
+
+        val query =
+          """
+            |query ($a: Boolean = true, $b: Boolean = false) {
+            | test {
+            |   field1 @include(if: $a)
+            |   field2 @include(if: $b)
+            | }
+            |}
+            |""".stripMargin
+
+        assertM(
+          api.interpreter.flatMap(_.execute(query, None, Map())).map(_.asJson.noSpaces)
+        )(equalTo("""{"data":{"test":{"field1":"1234"}}}"""))
+      },
       test("respects variables that are not provided") {
         sealed trait ThreeState
         object ThreeState {

@@ -7,6 +7,8 @@ import caliban.{GraphQL, RootResolver}
 import zio._
 import zio.stream.ZStream
 
+import scala.language.higherKinds
+
 object Operations {
 
   final case class MakeNewSpeciesMutationParams(name: Potato.Name, color: Potato.Color)
