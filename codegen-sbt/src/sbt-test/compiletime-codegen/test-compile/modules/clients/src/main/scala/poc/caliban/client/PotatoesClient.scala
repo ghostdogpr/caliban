@@ -20,6 +20,6 @@ final class PotatoesClientLive(backend: SttpBackend[Task, ZioStreams with WebSoc
       .eradicate(name)
       .toRequest(serverUrl)
       .send(backend)
-      .foldM(Task.fail(_), r => Task.fromEither(r.body).unit)
+      .foldZIO(Task.fail(_), r => Task.fromEither(r.body).unit)
 
 }
