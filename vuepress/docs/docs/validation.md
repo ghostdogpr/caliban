@@ -1,7 +1,7 @@
 # Validation
 Caliban provides a little macro called `gqldoc` that can check at **compile-time** that a GraphQL query (a *document* to be exact) has valid syntax.
 
-```scala
+```scala mdoc:silent
 import caliban.Macros.gqldoc
 
 val query = gqldoc("""

@@ -443,6 +443,25 @@ lazy val federation = project
     )
   )
 
+lazy val docs = project
+  .in(file("mdoc"))
+  .enablePlugins(MdocPlugin)
+  .settings(commonSettings)
+  .settings(
+    scalaVersion       := scala213,
+    crossScalaVersions := Seq(scala213),
+    name               := "caliban-docs",
+    mdocIn             := (ThisBuild / baseDirectory).value / "vuepress" / "docs",
+    run / fork         := true,
+    scalacOptions -= "-Xfatal-warnings",
+    scalacOptions += "-Wunused:imports",
+    libraryDependencies ++= Seq(
+      "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
+      "io.circe"                      %% "circe-generic"                 % circeVersion
+    )
+  )
+  .dependsOn(core, catsInterop, tapirInterop, http4s, tools)
+
 lazy val commonSettings = Def.settings(
   scalacOptions ++= Seq(
     "-deprecation",

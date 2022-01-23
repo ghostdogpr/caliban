@@ -99,6 +99,20 @@ jobs:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
+  test213_docs:
+    docker:
+      - image: cimg/openjdk:11.0-node
+    steps:
+      - checkout
+      - restore_cache:
+          key: sbtcache
+      - run: sbt ++2.13.8! docs/mdoc
+      - save_cache:
+          key: sbtcache
+          paths:
+            - "~/.ivy2/cache"
+            - "~/.sbt"
+            - "~/.m2"
   release:
     docker:
       - image: cimg/openjdk:11.0-node
@@ -175,6 +189,12 @@ workflows:
           filters:
             tags:
               only: /^v[0-9]+(\.[0-9]+)*$/
+      - test213_docs:
+          requires:
+            - lint
+          filters:
+            tags:
+              only: /^v[0-9]+(\.[0-9]+)*$/
       - test3_jdk:
           requires:
             - lint
@@ -189,6 +209,7 @@ workflows:
             - scripted212_jdk
             - test213_jdk
             - test213_js
+            - test213_docs
             - test3_jdk
           filters:
             branches:
