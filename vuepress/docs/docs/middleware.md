@@ -22,14 +22,22 @@ Each one requires a function that takes a `ZIO` or `ZQuery` computation together
 
 Let's see how to implement a wrapper that times out the whole query if its processing takes longer than 1 minute.
 
-```scala
+```scala mdoc:silent
+import caliban._
+import caliban.CalibanError._
+import caliban.Value._
+import caliban.wrappers.Wrapper._
+import zio._
+import zio.clock._
+import zio.duration._
+
 val wrapper = new OverallWrapper[Clock] {
   def wrap[R <: Clock](
     process: GraphQLRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]]
   ): GraphQLRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]] =
     (request: GraphQLRequest) =>
       process(request)
-        .timeout(1 minute)
+        .timeout(1.minute)
         .map(
           _.getOrElse(
             GraphQLResponse(
@@ -109,7 +117,9 @@ During various phases of executing a query, an error may occur. Caliban renders 
 
 For more meaningful error handling, GraphQL spec allows for an [`extension`](http://spec.graphql.org/June2018/#example-fce18) object in the error response. This object may include, for instance, `code` information to model enum-like error codes that can be handled by a front-end. In order to generate this information, one can use the `mapError` function on a `GraphQLInterpreter`. An example is provided below in which we map a custom domain error within an `ExecutionError` to a meaningful error code.
 
-```scala
+```scala mdoc:silent
+import caliban.ResponseValue.ObjectValue
+
 sealed trait ExampleAppEncodableError extends Throwable {
     def errorCode: String
 }
@@ -169,7 +179,10 @@ schema for cost analysis.
 Given a schema in which different fields have different costs to execute, either because they require additional network or computing resources, or database access, or they 
 have some other dependency that makes them expensive to compute. You can add the `CostDirective` to your resolver like so:
 
-```scala
+```scala mdoc:silent
+import caliban.wrappers.CostEstimation
+import caliban.wrappers.CostEstimation._
+
 case class SpokenLineArgs(offset: Int, limit: Int)
 
 @GQLCost(2)
@@ -184,16 +197,17 @@ case class Query(
   @GQLCost(5) characters: UIO[List[Character]],
 )
 
-def allCharacterNames: UIO[List[String]] = ???
+def allCharacterNames: UIO[List[String]] = UIO(???)
 def getLines(name: String, offset: Int, limit: Int): UIO[List[String]] = ???
 
 val api = GraphQL.graphQL(RootResolver(Query(
-  characters = allCharacters.flatMap { 
-    names => ZIO.foreach(names) { name =>
-      Character(
+  characters = allCharacterNames.flatMap { 
+    names => UIO.foreach(names) { name =>
+      val character = Character(
         name,
         spokenLines = args => getLines(name, args.offset, args.limit)
       )
+      UIO(character)
     } 
   }
 )))
@@ -202,7 +216,7 @@ val apiWithCost = api @@
   queryCost @@ // or queryCost(f: Field => Double) to specify your own field cost estimation
   // or queryCostWith(f: Field => Double)(p: Double => URIO[R, Any]) to also specify a side effect after computing the total cost
   // or queryCostZIO(f: Field => URIO[R, Double]) if your field calculation returns an effect
-  maxCost(100)(CostEstimate.costDirective)
+  maxCost(100)(CostEstimation.costDirective)
   // or maxCostOrError(maxCost)(f: Double => ValidationError) to specify a different error
   // or maxCostZIO(maxCost)(f: Field => URIO[R, Double]) if your field calculation returns an effect
 

@@ -20,7 +20,7 @@ The instances are derived implicitly when `Async[F]`, `Dispatcher[F]`, and `Runt
 
 The following example shows how to create an interpreter and run a query while only using Cats IO.
 
-```scala
+```scala mdoc:silent
 import caliban.GraphQL.graphQL
 import caliban.RootResolver
 import caliban.interop.cats.implicits._
@@ -221,8 +221,15 @@ The conversion rules are the following:
 - there should be an implicit `Schema` for both the input and the output types and an implicit `ArgBuilder` for the input type (see the [dedicated docs](schema.md))
 
 Let's look at an example. Imagine we have the following Tapir endpoint:
-```scala
-val addBook: Endpoint[(Book, String), Nothing, Unit, Nothing] =
+```scala mdoc:silent:reset
+import io.circe.generic.auto._
+import sttp.tapir._
+import sttp.tapir.generic.auto._
+import sttp.tapir.json.circe._
+
+case class Book(title: String, year: Int)
+
+val addBook: PublicEndpoint[(Book, String), Nothing, Unit, Any] =
   infallibleEndpoint
     .post
     .in("books")
@@ -236,23 +243,30 @@ val addBook: Endpoint[(Book, String), Nothing, Unit, Nothing] =
 ```
 
 And a possible implementation:
-```scala
+```scala mdoc:silent
+import zio.UIO
+
 def bookAddLogic(book: Book, token: String): UIO[Unit] = ???
 ```
 
 Just like you can create an http4s route by calling `toRoute` and passing an implementation, call `toGraphQL` to create a GraphQL API:
-```scala
+```scala mdoc:silent
+import caliban.GraphQL
+import caliban.interop.tapir._ // summons 'toGraphQL' extension
+
 val api: GraphQL[Any] = addBook.toGraphQL((bookAddLogic _).tupled)
 ```
 That's it! You can combine multiple `GraphQL` objects using `|+|` and expose the result using one of Caliban's adapters.
 
-If you want to reuse `bookAddLogic` for both GraphQL and regular HTTP, you can turn your `Endpoint` into a `ServerEndpoint` by calling `.serverLogic`:
-```scala
-val addBookEndpoint: ServerEndpoint[(Book, String), Nothing, Unit, Nothing, UIO] =
-  addBook.serverLogic[UIO] { case (book, token) => bookAddLogic(book, token).either }
+If you want to reuse `bookAddLogic` for both GraphQL and regular HTTP, you can turn your `Endpoint` into a `ServerEndpoint` by calling `.serverLogicSuccess`:
+```scala mdoc:silent
+import sttp.tapir.server.ServerEndpoint
+
+val addBookEndpoint: ServerEndpoint.Full[Unit, Unit, (Book, String), Nothing, Unit, Any, UIO] =
+  addBook.serverLogicSuccess[UIO] { case (book, token) => bookAddLogic(book, token) }
 ```
 This can then be used to generate both an HTTP route (e.g. `toRoutes` with http4s) and a GraphQL API (`.toGraphQL`).
-```scala
+```scala mdoc:silent:nest
 val api: GraphQL[Any] = addBookEndpoint.toGraphQL
 ```
 

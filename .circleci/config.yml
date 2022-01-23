@@ -7,7 +7,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.6! check
+      - run: sbt ++2.13.8! check
       - run: sbt ++3.1.0! check
       - save_cache:
           key: sbtcache
@@ -64,7 +64,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.7! core/test http4s/test akkaHttp/test play/test zioHttp/test examples/compile catsInterop/compile monixInterop/compile tapirInterop/test clientJVM/test federation/test
+      - run: sbt ++2.13.8! core/test http4s/test akkaHttp/test play/test zioHttp/test examples/compile catsInterop/compile monixInterop/compile tapirInterop/test clientJVM/test federation/test
       - save_cache:
           key: sbtcache
           paths:
@@ -92,7 +92,21 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.7! clientJS/test clientLaminextJS/Test/fastLinkJS
+      - run: sbt ++2.13.8! clientJS/test clientLaminextJS/Test/fastLinkJS
+      - save_cache:
+          key: sbtcache
+          paths:
+            - "~/.ivy2/cache"
+            - "~/.sbt"
+            - "~/.m2"
+  test213_docs:
+    docker:
+      - image: cimg/openjdk:11.0-node
+    steps:
+      - checkout
+      - restore_cache:
+          key: sbtcache
+      - run: sbt ++2.13.8! docs/mdoc
       - save_cache:
           key: sbtcache
           paths:
@@ -175,6 +189,12 @@ workflows:
           filters:
             tags:
               only: /^v[0-9]+(\.[0-9]+)*$/
+      - test213_docs:
+          requires:
+            - lint
+          filters:
+            tags:
+              only: /^v[0-9]+(\.[0-9]+)*$/
       - test3_jdk:
           requires:
             - lint
@@ -189,6 +209,7 @@ workflows:
             - scripted212_jdk
             - test213_jdk
             - test213_js
+            - test213_docs
             - test3_jdk
           filters:
             branches:

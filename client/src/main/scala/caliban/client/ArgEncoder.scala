@@ -4,6 +4,7 @@ import caliban.client.__Value.{ __BooleanValue, __ListValue, __NullValue, __Numb
 import io.circe.Json
 
 import scala.annotation.implicitNotFound
+import java.util.UUID
 
 /**
  * Typeclass that defines how to encode an argument of type `A` into a valid [[caliban.client.__Value]].
@@ -41,6 +42,8 @@ object ArgEncoder {
   implicit val boolean: ArgEncoder[Boolean] = (value: Boolean) => __BooleanValue(value)
 
   implicit val unit: ArgEncoder[Unit] = (_: Unit) => __ObjectValue(Nil)
+
+  implicit val uuid: ArgEncoder[UUID] = (value: UUID) => __StringValue(value.toString())
 
   implicit def option[A](implicit ev: ArgEncoder[A]): ArgEncoder[Option[A]] = (value: Option[A]) =>
     value.fold(__NullValue: __Value)(ev.encode)
