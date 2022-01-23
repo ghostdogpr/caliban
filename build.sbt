@@ -451,8 +451,10 @@ lazy val docs = project
     scalaVersion       := scala213,
     crossScalaVersions := Seq(scala213),
     name               := "caliban-docs",
-    mdocIn             := file(".") / "vuepress" / "docs",
+    mdocIn             := (ThisBuild / baseDirectory).value / "vuepress" / "docs",
+    run / fork         := true,
     scalacOptions -= "-Xfatal-warnings",
+    scalacOptions += "-Wunused:imports",
     libraryDependencies ++= Seq(
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
       "io.circe"                      %% "circe-generic"                 % circeVersion

@@ -153,11 +153,11 @@ val api = graphQL(RootResolver(queries, mutations))
 
 Similarly, subscriptions are passed as the third argument to `RootResolver`:
 
-```scala mdoc:nest:silent
+```scala mdoc:compile-only
 import zio.stream.ZStream
 
 case class Subscriptions(deletedCharacter: ZStream[Any, Nothing, Character])
-val subscriptions = Subscriptions(ZStream())
+val subscriptions = Subscriptions(???)
 val api = graphQL(RootResolver(queries, mutations, subscriptions))
 ```
 
