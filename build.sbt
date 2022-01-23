@@ -463,7 +463,8 @@ lazy val docs = project
     scalacOptions += "-Wunused:imports",
     libraryDependencies ++= Seq(
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
-      "io.circe"                      %% "circe-generic"                 % circeVersion
+      "io.circe"                      %% "circe-generic"                 % circeVersion,
+      "org.typelevel"                 %% "cats-mtl"                      % catsMtlVersion
     )
   )
   .dependsOn(core, catsInterop, tapirInterop, http4s, tools)

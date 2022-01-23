@@ -60,15 +60,20 @@ You can find this example within the [examples](https://github.com/ghostdogpr/ca
 #### Interop with contextual effect (e.g. Kleisli)
 
 `CatsInterop` (the combination of `ToEffect` and `FromEffect`) allows sharing a context between cats-effect and ZIO:
-```scala
+```scala mdoc:compile-only
+import cats.data.Kleisli
+import cats.effect.IO
+import cats.effect.std.Dispatcher
+import caliban.interop.cats.CatsInterop
+import zio.RIO
+
 trait Context
+type Effect[A] = Kleisli[IO, Context, A]
 
-type CatsEffect[A] = Kleisli[IO, Context, A]
-
-implicit val dispatcher: Dispatcher[CatsEffect] = ???
+implicit val dispatcher: Dispatcher[Effect] = ???
 implicit val runtime: Runtime[Context] = ???
 
-val interop: CatsInterop.Contextual[F, TraceId] = CatsInterop.contextual(dispatcher)
+val interop: CatsInterop.Contextual[Effect, Context] = CatsInterop.contextual(dispatcher)
 
 val rio: RIO[Context, Int] = ???
 val ce: Kleisli[IO, Context, Int] = ???
@@ -77,7 +82,7 @@ val fromRIO: Kleisli[IO, Context, Int] = interop.toEffect(rio)
 val fromCE: RIO[Context, Int] = interop.fromEffect(ce)
 ```
 
-```scala
+```scala mdoc:silent
 import caliban.GraphQL.graphQL
 import caliban.{ GraphQL, RootResolver }
 import caliban.interop.cats._
