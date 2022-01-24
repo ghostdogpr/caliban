@@ -12,6 +12,7 @@ import caliban.schema.Schema.scalarSchema
 import caliban.schema.{ Schema, Types }
 import zio.UIO
 import zio.stream.ZStream
+import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
 
 object TestUtils {
 
@@ -139,6 +140,23 @@ object TestUtils {
     MutationIO(_ => UIO.unit),
     SubscriptionIO(ZStream.empty)
   )
+
+  object Directives {
+    val Test = __Directive(
+      name = "test",
+      description = Some("Test directive"),
+      locations = Set(__DirectiveLocation.FIELD_DEFINITION),
+      args = List(
+        __InputValue(
+          "foo",
+          None,
+          () => Types.int,
+          None,
+          None
+        )
+      )
+    ),
+  }
 
   object InvalidSchemas {
     case class DoubleUnderscoreArg(__name: String)

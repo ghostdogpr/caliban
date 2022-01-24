@@ -79,6 +79,44 @@ object Rendering {
       }
       .mkString("\n\n")
 
+  def renderDirectives(directives: List[__Directive]): String =
+    directives.map(renderDirective).mkString("\n")
+
+  private def renderDirective(directive: __Directive): String = {
+    val inputs             = directive.args match {
+      case i if i.nonEmpty => s"""(${i.map(renderInputValue).mkString(", ")})"""
+      case _               => ""
+    }
+    val locationStrings    = directive.locations.map {
+      case __DirectiveLocation.QUERY                  => "QUERY"
+      case __DirectiveLocation.MUTATION               => "MUTATION"
+      case __DirectiveLocation.SUBSCRIPTION           => "SUBSCRIPTION"
+      case __DirectiveLocation.FIELD                  => "FIELD"
+      case __DirectiveLocation.FRAGMENT_DEFINITION    => "FRAGMENT_DEFINITION"
+      case __DirectiveLocation.FRAGMENT_SPREAD        => "FRAGMENT_SPREAD"
+      case __DirectiveLocation.INLINE_FRAGMENT        => "INLINE_FRAGMENT"
+      case __DirectiveLocation.SCHEMA                 => "SCHEMA"
+      case __DirectiveLocation.SCALAR                 => "SCALAR"
+      case __DirectiveLocation.OBJECT                 => "OBJECT"
+      case __DirectiveLocation.FIELD_DEFINITION       => "FIELD_DEFINITION"
+      case __DirectiveLocation.ARGUMENT_DEFINITION    => "ARGUMENT_DEFINITION"
+      case __DirectiveLocation.INTERFACE              => "INTERFACE"
+      case __DirectiveLocation.UNION                  => "UNION"
+      case __DirectiveLocation.ENUM                   => "ENUM"
+      case __DirectiveLocation.ENUM_VALUE             => "ENUM_VALUE"
+      case __DirectiveLocation.INPUT_OBJECT           => "INPUT_OBJECT"
+      case __DirectiveLocation.INPUT_FIELD_DEFINITION => "INPUT_FIELD_DEFINITION"
+    }
+    val directiveLocations = locationStrings.mkString(" | ")
+
+    val body = s"""directive @${directive.name}${inputs} repeatable on ${directiveLocations}""".stripMargin
+
+    renderDescription(directive.description) match {
+      case ""        => body
+      case something => something + body
+    }
+  }
+
   private def renderInterfaces(t: __Type): String =
     t.interfaces()
       .fold("")(_.flatMap(_.name) match {
