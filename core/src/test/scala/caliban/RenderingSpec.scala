@@ -13,7 +13,7 @@ object RenderingSpec extends DefaultRunnableSpec {
       test("it should render directives") {
         assert(graphQL(resolver, directives = List(Directives.Test)).render.trim)(
           equalTo(""""Test directive"
-                    |directive @test(foo: Int) repeatable on FIELD_DEFINITION
+                    |directive @test(foo: Int) on FIELD_DEFINITION
                     |
                     |schema {
                     |  query: Query
