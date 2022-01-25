@@ -155,7 +155,7 @@ object TestUtils {
           None
         )
       )
-    ),
+    )
   }
 
   object InvalidSchemas {
