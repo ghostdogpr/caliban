@@ -448,8 +448,7 @@ lazy val docs = project
   .enablePlugins(MdocPlugin)
   .settings(commonSettings)
   .settings(
-    scalaVersion       := scala213,
-    crossScalaVersions := Seq(scala213),
+    crossScalaVersions := Seq(scala212, scala213),
     name               := "caliban-docs",
     mdocIn             := (ThisBuild / baseDirectory).value / "vuepress" / "docs",
     run / fork         := true,
