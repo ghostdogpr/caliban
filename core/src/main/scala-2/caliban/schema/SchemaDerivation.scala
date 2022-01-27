@@ -142,7 +142,7 @@ trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
           getDescription(ctx),
           subtypes.map { case (t, _) => fixEmptyUnionObject(t) },
           Some(ctx.typeName.full),
-          directives = Some(getDirectives(ctx.annotations))
+          Some(getDirectives(ctx.annotations))
         )
       else {
         val impl         = subtypes.map(_._1.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
