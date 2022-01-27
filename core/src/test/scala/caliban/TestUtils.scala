@@ -54,13 +54,20 @@ object TestUtils {
     case class Mechanic(shipName: String)         extends Role
   }
 
+  @GQLInterface
+  sealed trait Human
+
   @GQLDirective(Directive("key", Map("name" -> StringValue("name"))))
   case class Character(
     @GQLDirective(Directive("external")) name: String,
     @GQLDirective(Directive("required")) nicknames: List[String],
     origin: Origin,
     role: Option[Role]
-  )
+  ) extends Human
+
+  case class Narrator(
+    name: String
+  ) extends Human
 
   case class OrganizationId(self: Long) extends AnyVal
   case class Event(organizationId: OrganizationId, title: String)
@@ -100,7 +107,8 @@ object TestUtils {
     @GQLDescription("Return all characters from a given origin") characters: CharactersArgs => List[Character],
     @GQLDeprecated("Use `characters`") character: CharacterArgs => Option[Character],
     charactersIn: CharacterInArgs => List[Character],
-    exists: CharacterObjectArgs => Boolean
+    exists: CharacterObjectArgs => Boolean,
+    human: Human
   )
 
   @GQLDescription("Queries")
@@ -124,7 +132,8 @@ object TestUtils {
       args => characters.filter(c => args.origin.forall(c.origin == _)),
       args => characters.find(c => c.name == args.name),
       args => characters.filter(c => args.names.contains(c.name)),
-      args => characters.exists(_.name == args.character.name)
+      args => characters.exists(_.name == args.character.name),
+      Narrator("narrator")
     )
   )
   val resolverIO               = RootResolver(

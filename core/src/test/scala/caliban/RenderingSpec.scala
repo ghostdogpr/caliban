@@ -34,11 +34,15 @@ object RenderingSpec extends DefaultRunnableSpec {
                     |  origin: Origin!
                     |}
                     |
+                    |interface Human {
+                    |  name: String! @external
+                    |}
+                    |
                     |type Captain {
                     |  shipName: CaptainShipName!
                     |}
                     |
-                    |type Character @key(name: "name") {
+                    |type Character implements Human @key(name: "name") {
                     |  name: String! @external
                     |  nicknames: [String!]! @required
                     |  origin: Origin!
@@ -53,6 +57,10 @@ object RenderingSpec extends DefaultRunnableSpec {
                     |  shipName: String!
                     |}
                     |
+                    |type Narrator implements Human {
+                    |  name: String!
+                    |}
+                    |
                     |type Pilot {
                     |  shipName: String!
                     |}
@@ -64,6 +72,7 @@ object RenderingSpec extends DefaultRunnableSpec {
                     |  character(name: String!): Character @deprecated(reason: "Use `characters`")
                     |  charactersIn(names: [String!]!): [Character!]!
                     |  exists(character: CharacterInput!): Boolean!
+                    |  human: Human!
                     |}""".stripMargin.trim)
         )
       },
