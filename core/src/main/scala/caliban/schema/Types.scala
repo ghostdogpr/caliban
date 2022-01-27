@@ -65,9 +65,12 @@ object Types {
     name: Option[String],
     description: Option[String],
     subTypes: List[__Type],
-    origin: Option[String] = None
-  ): __Type =
-    __Type(__TypeKind.UNION, name, description, possibleTypes = Some(subTypes), origin = origin)
+    origin: Option[String] = None,
+    directives: Option[List[Directive]] = None
+  ): __Type = {
+    __Type(__TypeKind.UNION, name, description, possibleTypes = Some(subTypes), origin = origin, directives = directives)
+  }
+
 
   def makeInterface(
     name: Option[String],

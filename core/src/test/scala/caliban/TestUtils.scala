@@ -33,6 +33,7 @@ object TestUtils {
     case object MOON extends Origin
   }
 
+  @GQLDirective(Directive("uniondirective"))
   sealed trait Role
 
   case class CaptainShipName(value: String)
