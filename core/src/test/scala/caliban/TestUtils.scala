@@ -23,6 +23,7 @@ object TestUtils {
     case class C(id: String, blah: Boolean) extends Interface
   }
 
+  @GQLDirective(Directive("enumdirective"))
   sealed trait Origin
 
   object Origin {
@@ -68,6 +69,7 @@ object TestUtils {
   case class WrappedPainter(self: Painter) extends AnyVal
 
   @GQLInputName("CharacterInput")
+  @GQLDirective(Directive("inputobjdirective"))
   case class CharacterInput(
     @GQLDirective(Directive("external")) name: String,
     @GQLDirective(Directive("required")) nicknames: List[String],

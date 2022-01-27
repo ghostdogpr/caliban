@@ -21,14 +21,14 @@ object RenderingSpec extends DefaultRunnableSpec {
                     |
                     |union Role @uniondirective = Captain | Engineer | Mechanic | Pilot
                     |
-                    |enum Origin {
+                    |enum Origin @enumdirective {
                     |  BELT
                     |  EARTH
                     |  MARS
                     |  MOON @deprecated(reason: "Use: EARTH | MARS | BELT")
                     |}
                     |
-                    |input CharacterInput {
+                    |input CharacterInput @inputobjdirective {
                     |  name: String! @external
                     |  nicknames: [String!]! @required
                     |  origin: Origin!
