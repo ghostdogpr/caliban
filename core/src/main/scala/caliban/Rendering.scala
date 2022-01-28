@@ -31,7 +31,9 @@ object Rendering {
                 .fold(List.empty[String])(_.flatMap(_.name))
                 .mkString(" | ")
             Some(
-              s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)} = $renderedTypes"""
+              s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)}${renderDirectives(
+                t.directives
+              )} = $renderedTypes"""
             )
           case _                   =>
             val renderedDirectives: String  = renderDirectives(t.directives)
