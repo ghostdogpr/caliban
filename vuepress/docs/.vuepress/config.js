@@ -61,7 +61,7 @@ module.exports = {
               'client',
               'federation',
               'stitching',
-              'relay-connections'
+              'relay-connections',
               'tools',
               'examples',
             ]
