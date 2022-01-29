@@ -12,6 +12,7 @@ import caliban.schema.Schema.scalarSchema
 import caliban.schema.{ Schema, Types }
 import zio.UIO
 import zio.stream.ZStream
+import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
 
 object TestUtils {
 
@@ -23,6 +24,7 @@ object TestUtils {
     case class C(id: String, blah: Boolean) extends Interface
   }
 
+  @GQLDirective(Directive("enumdirective"))
   sealed trait Origin
 
   object Origin {
@@ -33,6 +35,7 @@ object TestUtils {
     case object MOON extends Origin
   }
 
+  @GQLDirective(Directive("uniondirective"))
   sealed trait Role
 
   case class CaptainShipName(value: String)
@@ -52,13 +55,20 @@ object TestUtils {
     case class Mechanic(shipName: String)         extends Role
   }
 
+  @GQLInterface
+  sealed trait Human
+
   @GQLDirective(Directive("key", Map("name" -> StringValue("name"))))
   case class Character(
     @GQLDirective(Directive("external")) name: String,
     @GQLDirective(Directive("required")) nicknames: List[String],
     origin: Origin,
     role: Option[Role]
-  )
+  ) extends Human
+
+  case class Narrator(
+    name: String
+  ) extends Human
 
   case class OrganizationId(self: Long) extends AnyVal
   case class Event(organizationId: OrganizationId, title: String)
@@ -67,6 +77,7 @@ object TestUtils {
   case class WrappedPainter(self: Painter) extends AnyVal
 
   @GQLInputName("CharacterInput")
+  @GQLDirective(Directive("inputobjdirective"))
   case class CharacterInput(
     @GQLDirective(Directive("external")) name: String,
     @GQLDirective(Directive("required")) nicknames: List[String],
@@ -97,7 +108,8 @@ object TestUtils {
     @GQLDescription("Return all characters from a given origin") characters: CharactersArgs => List[Character],
     @GQLDeprecated("Use `characters`") character: CharacterArgs => Option[Character],
     charactersIn: CharacterInArgs => List[Character],
-    exists: CharacterObjectArgs => Boolean
+    exists: CharacterObjectArgs => Boolean,
+    human: Human
   )
 
   @GQLDescription("Queries")
@@ -121,7 +133,8 @@ object TestUtils {
       args => characters.filter(c => args.origin.forall(c.origin == _)),
       args => characters.find(c => c.name == args.name),
       args => characters.filter(c => args.names.contains(c.name)),
-      args => characters.exists(_.name == args.character.name)
+      args => characters.exists(_.name == args.character.name),
+      Narrator("narrator")
     )
   )
   val resolverIO               = RootResolver(
@@ -139,6 +152,23 @@ object TestUtils {
     MutationIO(_ => UIO.unit),
     SubscriptionIO(ZStream.empty)
   )
+
+  object Directives {
+    val Test = __Directive(
+      name = "test",
+      description = Some("Test directive"),
+      locations = Set(__DirectiveLocation.FIELD_DEFINITION),
+      args = List(
+        __InputValue(
+          "foo",
+          None,
+          () => Types.int,
+          None,
+          None
+        )
+      )
+    )
+  }
 
   object InvalidSchemas {
     case class DoubleUnderscoreArg(__name: String)

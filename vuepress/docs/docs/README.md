@@ -15,20 +15,20 @@ The design principles of Caliban are the following:
 To use `caliban`, add the following line in your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "1.3.2"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "1.3.3"
 ```
 
 The following modules are optional:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-http4s"     % "1.3.2" // routes for http4s
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-akka-http"  % "1.3.2" // routes for akka-http
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-play"       % "1.3.2" // routes for play
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-zio-http"   % "1.3.2" // routes for zio-http
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-cats"       % "1.3.2" // interop with cats effect
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-monix"      % "1.3.2" // interop with monix
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-tapir"      % "1.3.2" // interop with tapir
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-federation" % "1.3.2" // interop with apollo federation
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-http4s"     % "1.3.3" // routes for http4s
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-akka-http"  % "1.3.3" // routes for akka-http
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-play"       % "1.3.3" // routes for play
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-zio-http"   % "1.3.3" // routes for zio-http
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-cats"       % "1.3.3" // interop with cats effect
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-monix"      % "1.3.3" // interop with monix
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-tapir"      % "1.3.3" // interop with tapir
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-federation" % "1.3.3" // interop with apollo federation
 ```
 
 ## A simple example
