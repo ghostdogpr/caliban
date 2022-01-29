@@ -31,7 +31,7 @@ An example query for a connection field looks something like this:
 }
 ```
 
-The field can be paginated forwards by using `first` (number of items) and `after` (the current cursor), or backwards by using `last` (numbmer of items) and `before` (the cursor).
+The field can be paginated forwards by using `first` (number of items) and `after` (the current cursor), or backwards by using `last` (number of items) and `before` (the cursor).
 
 Caliban ships with a set of abstract classes to make it easier to use Relay connections in your schema:
 
@@ -131,7 +131,7 @@ object ElasticCursor {
 and the schema:
 
 ```scala
-  implicit val schema: Schema[Any, ElasticCursor] = Schema.stringSchema.contramap(
-    Cursor[ElasticCursor].encode
-  )
+implicit val schema: Schema[Any, ElasticCursor] = Schema.stringSchema.contramap(
+  Cursor[ElasticCursor].encode
+)
 ```
