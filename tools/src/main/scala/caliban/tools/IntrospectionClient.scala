@@ -227,5 +227,5 @@ object IntrospectionClient {
             __Directive.locations ~
             __Directive.args(inputValue)).mapN(mapDirective _)
         }
-    }.map { case ((schema, types), directives) => Document(schema :: types ++ directives, SourceMapper.empty) }
+    }.map { case (schema, types, directives) => Document(schema :: types ++ directives, SourceMapper.empty) }
 }

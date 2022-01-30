@@ -62,7 +62,7 @@ object Client {
       roleSelectionOnEngineer,
       roleSelectionOnMechanic,
       roleSelectionOnPilot
-    )).map { case (((name, nicknames), origin), role) => CharacterView(name, nicknames, origin, role) }
+    )).map { case (name, nicknames, origin, role) => CharacterView(name, nicknames, origin, role) }
 
     def name: SelectionBuilder[Character, String]            = Field("name", Scalar())
     def nicknames: SelectionBuilder[Character, List[String]] = Field("nicknames", ListOf(Scalar()))
