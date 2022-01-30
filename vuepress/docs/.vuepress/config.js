@@ -46,8 +46,8 @@ module.exports = {
         ],
         sidebar: {
           '/docs/': [{
-            title: 'Caliban',
-            collapsable: false,
+            title: 'Caliban Server',
+            collapsable: true,
             sidebarDepth: 2,
             children: [
               '',
@@ -58,13 +58,33 @@ module.exports = {
               'introspection',
               'adapters',
               'interop',
-              'client',
               'federation',
-              'stitching',
-              'relay-connections',
-              'tools',
-              'examples',
+              'relay-connections'
             ]
+          },
+          {
+            title: 'Caliban Client',
+            collapsable: true,
+            sidebarDepth: 2,
+            children: [
+              'client',
+              'client-codegen',
+              'laminext'
+            ]
+          },
+          {
+            title: 'Caliban Tools',
+            collapsable: true,
+            sidebarDepth: 2,
+            children: [
+              'tools',
+              'stitching',
+              'schema-comparison',
+            ]
+          },
+          {
+            title: 'Examples',
+            path: 'examples'
           }]
         }
       }
