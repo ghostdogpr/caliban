@@ -4,36 +4,33 @@ import caliban.interop.tapir.TestApi.{ File, SomeFieldOutput, UploadedDocument }
 import caliban.interop.tapir.TestData._
 import caliban.uploads.{ Upload, Uploads }
 import zio.stream.ZStream
-import zio.{ Has, Hub, Ref, UIO, URIO, ZIO, ZLayer }
+import zio.{ Hub, Ref, UIO, URIO, ZIO, ZLayer }
 
 import java.math.BigInteger
 import java.security.MessageDigest
 
+trait TestService {
+  def getCharacters(origin: Option[Origin]): UIO[List[Character]]
+
+  def findCharacter(name: String): UIO[Option[Character]]
+
+  def deleteCharacter(name: String): UIO[Boolean]
+
+  def deletedEvents: ZStream[Any, Nothing, String]
+}
+
 object TestService {
-
-  type TestService = Has[Service]
-
-  trait Service {
-    def getCharacters(origin: Option[Origin]): UIO[List[Character]]
-
-    def findCharacter(name: String): UIO[Option[Character]]
-
-    def deleteCharacter(name: String): UIO[Boolean]
-
-    def deletedEvents: ZStream[Any, Nothing, String]
-  }
-
   def getCharacters(origin: Option[Origin]): URIO[TestService, List[Character]] =
-    URIO.serviceWith(_.getCharacters(origin))
+    URIO.serviceWithZIO(_.getCharacters(origin))
 
   def findCharacter(name: String): URIO[TestService, Option[Character]] =
-    URIO.serviceWith(_.findCharacter(name))
+    URIO.serviceWithZIO(_.findCharacter(name))
 
   def deleteCharacter(name: String): URIO[TestService, Boolean] =
-    URIO.serviceWith(_.deleteCharacter(name))
+    URIO.serviceWithZIO(_.deleteCharacter(name))
 
   def deletedEvents: ZStream[TestService, Nothing, String] =
-    ZStream.accessStream(_.get.deletedEvents)
+    ZStream.serviceWithStream(_.deletedEvents)
 
   def uploadFile(file: Upload): ZIO[Uploads, Throwable, File] =
     for {
@@ -72,7 +69,7 @@ object TestService {
     (for {
       characters  <- Ref.make(initial)
       subscribers <- Hub.unbounded[String]
-    } yield new Service {
+    } yield new TestService {
 
       def getCharacters(origin: Option[Origin]): UIO[List[Character]] =
         characters.get.map(_.filter(c => origin.forall(c.origin == _)))

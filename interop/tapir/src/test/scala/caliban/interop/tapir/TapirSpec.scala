@@ -5,7 +5,6 @@ import sttp.tapir._
 import zio.UIO
 import zio.test.Assertion._
 import zio.test._
-import zio.test.environment.TestEnvironment
 import zio.query.ZQuery
 
 object TapirSpec extends DefaultRunnableSpec {
@@ -25,7 +24,7 @@ object TapirSpec extends DefaultRunnableSpec {
 
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("TapirSpec")(
-      testM("test simple endpoint") {
+      test("test simple endpoint") {
         val api         = getBook.toGraphQL[Any] { case (title, token) => UIO(s"$title+$token") }
         val interpreter = api.interpreter
         val query       = gqldoc("""
@@ -37,7 +36,7 @@ object TapirSpec extends DefaultRunnableSpec {
           equalTo("""{"book":"Title+token"}""")
         )
       },
-      testM("test simple endpoint with ZQuery") {
+      test("test simple endpoint with ZQuery") {
         val api         = getBook.toGraphQLQuery { case (title, token) => ZQuery.succeed(s"$title+$token") }
         val interpreter = api.interpreter
         val query       = gqldoc("""
@@ -49,7 +48,7 @@ object TapirSpec extends DefaultRunnableSpec {
           equalTo("""{"book":"Title+token"}""")
         )
       },
-      testM("test override operation name") {
+      test("test override operation name") {
         val api         = getBook
           .name("overRide with IllEgal-ChaRs !@()[]/,>")
           .toGraphQLQuery { case (title, token) => ZQuery.succeed(s"$title+$token") }

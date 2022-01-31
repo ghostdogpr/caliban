@@ -15,9 +15,6 @@ import sttp.tapir._
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
 import zio._
-import zio.clock.Clock
-import zio.duration.Duration
-import zio.random.Random
 import zio.stream._
 
 import scala.concurrent.Future
@@ -160,7 +157,7 @@ object TapirAdapter {
                            }
           filePaths      = map.map { case (key, value) => (key, value.map(parsePath).toList) }.toList
                              .flatMap(kv => kv._2.map(kv._1 -> _))
-          random        <- ZIO.service[Random.Service]
+          random        <- ZIO.service[Random]
           handler        = Uploads.handler(handle =>
                              UIO(partsMap.get(handle)).some
                                .flatMap(fp =>
@@ -175,7 +172,7 @@ object TapirAdapter {
                                      )
                                    )
                                )
-                               .optional
+                               .unsome
                            )
           uploadQuery    = GraphQLUploadRequest(request, filePaths, handler)
           query          = serverRequest.headers
@@ -188,7 +185,7 @@ object TapirAdapter {
                                enableIntrospection = enableIntrospection,
                                queryExecution
                              )
-                             .provideSomeLayer[R with Random](uploadQuery.fileHandle.toLayerMany)
+                             .provideSomeLayer[R with Random](uploadQuery.fileHandle.toLayer)
         } yield response
 
       requestInterceptor(serverRequest)(io).either
@@ -230,15 +227,15 @@ object TapirAdapter {
         output        <- Queue.unbounded[GraphQLWSOutput]
         pipe          <- UIO.right[CalibanPipe] { input =>
                            ZStream
-                             .bracket(
-                               input.collectM {
+                             .acquireReleaseWith(
+                               input.collectZIO {
                                  case GraphQLWSInput("connection_init", id, payload) =>
                                    val before   = ZIO.whenCase((webSocketHooks.beforeInit, payload)) {
                                      case (Some(beforeInit), Some(payload)) =>
                                        beforeInit(payload).catchAll(e => output.offer(makeError(id, e)))
                                    }
                                    val response = output.offer(connectionAck)
-                                   val ka       = keepAlive(keepAliveTime).mapM(output.offer).runDrain.fork
+                                   val ka       = keepAlive(keepAliveTime).mapZIO(output.offer).runDrain.fork
                                    val after    = ZIO.whenCase(webSocketHooks.afterInit) { case Some(afterInit) =>
                                      afterInit.catchAll(e => output.offer(makeError(id, e)))
                                    }
@@ -266,7 +263,7 @@ object TapirAdapter {
                                        webSocketHooks.onMessage
                                          .map(_.transform(stream))
                                          .getOrElse(stream)
-                                         .mapM(output.offer)
+                                         .mapZIO(output.offer)
                                          .runDrain
                                          .catchAll(e => output.offer(makeError(id, e)))
                                          .fork
@@ -281,7 +278,7 @@ object TapirAdapter {
                                }.runDrain
                                  .catchAll(_ => output.offer(connectionError))
                                  .ensuring(subscriptions.get.flatMap(m => ZIO.foreach(m.values)(_.succeed(()))))
-                                 .provide(env)
+                                 .provideEnvironment(env)
                                  .forkDaemon
                              )(_.interrupt) *> ZStream.fromQueueWithShutdown(output)
                          }
@@ -308,8 +305,8 @@ object TapirAdapter {
     override def error[T](t: Throwable): RIO[R, T]                                                                   = RIO.fail(t)
     override protected def handleWrappedError[T](rt: RIO[R, T])(h: PartialFunction[Throwable, RIO[R, T]]): RIO[R, T] =
       rt.catchSome(h)
-    override def eval[T](t: => T): RIO[R, T]                                                                         = RIO.effect(t)
-    override def suspend[T](t: => RIO[R, T]): RIO[R, T]                                                              = RIO.effectSuspend(t)
+    override def eval[T](t: => T): RIO[R, T]                                                                         = RIO.attempt(t)
+    override def suspend[T](t: => RIO[R, T]): RIO[R, T]                                                              = RIO.suspend(t)
     override def flatten[T](ffa: RIO[R, RIO[R, T]]): RIO[R, T]                                                       = ffa.flatten
     override def ensure[T](f: RIO[R, T], e: => RIO[R, Unit]): RIO[R, T]                                              = f.ensuring(e.ignore)
   }
@@ -340,7 +337,7 @@ object TapirAdapter {
   ): ZStream[R, E, GraphQLWSOutput] = {
     val resp =
       ZStream
-        .fromEffect(interpreter.executeRequest(payload, skipValidation, enableIntrospection, queryExecution))
+        .fromZIO(interpreter.executeRequest(payload, skipValidation, enableIntrospection, queryExecution))
         .flatMap(res =>
           res.data match {
             case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
@@ -356,14 +353,14 @@ object TapirAdapter {
   }
 
   private def trackSubscription(id: String, subs: Subscriptions): UStream[Promise[Any, Unit]] =
-    ZStream.fromEffect(Promise.make[Any, Unit].tap(p => subs.update(_.updated(id, p))))
+    ZStream.fromZIO(Promise.make[Any, Unit].tap(p => subs.update(_.updated(id, p))))
 
   private[caliban] def removeSubscription(id: Option[String], subs: Subscriptions): UIO[Unit] =
     IO.whenCase(id) { case Some(id) =>
       subs.modify(map => (map.get(id), map - id)).flatMap { p =>
         IO.whenCase(p) { case Some(p) => p.succeed(()) }
       }
-    }
+    }.unit
 
   private[caliban] def toStreamError[E](id: Option[String], e: E): UStream[GraphQLWSOutput] =
     ZStream.succeed(makeError(id, e))

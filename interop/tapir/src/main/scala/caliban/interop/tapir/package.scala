@@ -21,7 +21,7 @@ package object tapir {
       outputSchema: caliban.schema.Schema[R, O],
       argBuilder: ArgBuilder[I]
     ): GraphQL[R] =
-      tapir.toGraphQL(e.serverLogic[URQuery[R, *]](input => ZQuery.fromEffect(logic(input).map(Right(_)))))
+      tapir.toGraphQL(e.serverLogic[URQuery[R, *]](input => ZQuery.fromZIO(logic(input).map(Right(_)))))
 
     def toGraphQLQuery[R](logic: I => URQuery[R, O])(implicit
       inputSchema: caliban.schema.Schema[R, I],
@@ -37,7 +37,7 @@ package object tapir {
       outputSchema: caliban.schema.Schema[R, O],
       argBuilder: ArgBuilder[I]
     ): GraphQL[R] =
-      tapir.toGraphQL(e.serverLogic[URQuery[R, *]](input => ZQuery.fromEffect(logic(input).either)))
+      tapir.toGraphQL(e.serverLogic[URQuery[R, *]](input => ZQuery.fromZIO(logic(input).either)))
 
     def toGraphQLQuery[R](logic: I => ZQuery[R, E, O])(implicit
       inputSchema: caliban.schema.Schema[R, I],
@@ -55,7 +55,7 @@ package object tapir {
       outputSchema: caliban.schema.Schema[R, O],
       argBuilder: ArgBuilder[I]
     ): GraphQL[R] =
-      tapir.toGraphQL(e.endpoint.serverLogic(input => ZQuery.fromEffect(e.logic(monadError)(())(input))))
+      tapir.toGraphQL(e.endpoint.serverLogic(input => ZQuery.fromZIO(e.logic(monadError)(())(input))))
   }
 
   implicit class GraphQLServerEndpoint[R, I, E, O](e: ServerEndpoint.Full[Unit, Unit, I, E, O, Any, ZIO[R, E, *]]) {
@@ -65,9 +65,7 @@ package object tapir {
       argBuilder: ArgBuilder[I]
     ): GraphQL[R] =
       tapir.toGraphQL(
-        e.endpoint.serverLogic(input =>
-          ZQuery.fromEffect(e.logic(monadError)(())(input).either.map(_.flatMap(identity)))
-        )
+        e.endpoint.serverLogic(input => ZQuery.fromZIO(e.logic(monadError)(())(input).either.map(_.flatMap(identity))))
       )
   }
 
@@ -126,7 +124,7 @@ package object tapir {
                 val replacedArgs = args.map { case (k, v) => reverseArgNames.getOrElse(k, k) -> v }
                 QueryStep(
                   ZQuery
-                    .fromEffect(IO.fromEither(argBuilder.build(InputValue.ObjectValue(replacedArgs))))
+                    .fromZIO(IO.fromEither(argBuilder.build(InputValue.ObjectValue(replacedArgs))))
                     .flatMap(input => serverEndpoint.logic(queryMonadError)(())(input))
                     .map {
                       case Left(error: Throwable) => QueryStep(ZQuery.fail(error))
@@ -205,6 +203,6 @@ package object tapir {
     def error[T](t: Throwable): ZQuery[R, E, T]                                                                     = ZQuery.die(t)
     def handleWrappedError[T](rt: ZQuery[R, E, T])(h: PartialFunction[Throwable, ZQuery[R, E, T]]): ZQuery[R, E, T] = rt
     def ensure[T](f: ZQuery[R, E, T], e: => ZQuery[R, E, Unit]): ZQuery[R, E, T]                                    =
-      f.foldCauseM(cause => e.catchAll(_ => ZQuery.succeed(())) *> ZQuery.halt(cause), res => e.as(res))
+      f.foldCauseQuery(cause => e.catchAll(_ => ZQuery.succeed(())) *> ZQuery.failCause(cause), res => e.as(res))
   }
 }

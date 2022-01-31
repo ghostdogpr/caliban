@@ -2,17 +2,13 @@ package caliban.interop.tapir
 
 import caliban.GraphQL.graphQL
 import caliban.interop.tapir.TestData._
-import caliban.interop.tapir.TestService.TestService
 import caliban.{ GraphQL, RootResolver }
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.uploads.{ Upload, Uploads }
 import caliban.wrappers.ApolloTracing.apolloTracing
 import caliban.wrappers.Wrappers._
-import zio.{ URIO, ZIO }
-import zio.clock.Clock
-import zio.console.Console
-import zio.duration._
+import zio._
 import zio.stream.ZStream
 
 import scala.language.postfixOps

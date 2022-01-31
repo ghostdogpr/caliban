@@ -8,12 +8,10 @@ import sttp.model.{ MediaType, Part, Uri }
 import sttp.tapir.client.sttp.SttpClientInterpreter
 import sttp.tapir.client.sttp.ws.zio._
 import sttp.tapir.json.circe._
-import zio.clock.Clock
-import zio.duration._
 import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
-import zio.{ Queue, ZIO }
+import zio.{ test => _, _ }
 
 import scala.language.postfixOps
 
@@ -38,7 +36,7 @@ object TapirAdapterSpec {
 
     val tests: List[Option[ZSpec[SttpClient, Throwable]]] = List(
       Some(
-        testM("test http endpoint") {
+        test("test http endpoint") {
           val io =
             for {
               res      <- send(run((GraphQLRequest(Some("{ characters { name }  }")), null)))
@@ -53,7 +51,7 @@ object TapirAdapterSpec {
         }
       ),
       runUpload.map(runUpload =>
-        testM("test http upload endpoint") {
+        test("test http upload endpoint") {
           val query =
             """{ "query": "mutation ($files: [Upload!]!) { uploadFiles(files: $files) { hash, filename, mimetype } }", "variables": { "files": [null, null] }}"""
 
@@ -79,7 +77,7 @@ object TapirAdapterSpec {
         }
       ),
       runUpload.map(runUpload =>
-        testM("test http upload endpoint for extra fields") {
+        test("test http upload endpoint for extra fields") {
           val query =
             """{ "query": "mutation ($uploadedDocuments: [UploadedDocumentInput!]!) { uploadFilesWithExtraFields(uploadedDocuments: $uploadedDocuments) { someField1, someField2} }", "variables": { "uploadedDocuments": [{"file": null, "someField1": 1, "someField2": 2}, {"file": null, "someField1": 3}] }}"""
 
@@ -108,7 +106,7 @@ object TapirAdapterSpec {
         }
       ),
       runWS.map(runWS =>
-        testM("test ws endpoint") {
+        test("test ws endpoint") {
           val io =
             for {
               res         <- send(runWS(null))

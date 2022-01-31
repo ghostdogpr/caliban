@@ -247,8 +247,8 @@ lazy val tapirInterop = project
         "com.softwaremill.sttp.tapir"   %% "tapir-sttp-client"             % tapirVersion % Test,
         "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % tapirVersion % Test,
         "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion  % Test,
-        "dev.zio"                       %% "zio-test"                      % zioVersion   % Test,
-        "dev.zio"                       %% "zio-test-sbt"                  % zioVersion   % Test
+        "dev.zio"                       %% "zio-test"                      % zio2Version  % Test,
+        "dev.zio"                       %% "zio-test-sbt"                  % zio2Version  % Test
       )
   )
   .dependsOn(core)
