@@ -8,8 +8,8 @@ private[caliban] trait GraphQLWSInputJsonCompat {
     caliban.interop.play.json.GraphQLWSInputPlayJson.graphQLWSInputReads.asInstanceOf[F[GraphQLWSInput]]
   implicit def playJsonWrites[F[_]: IsPlayJsonWrites]: F[GraphQLWSInput] =
     caliban.interop.play.json.GraphQLWSInputPlayJson.graphQLWSInputWrites.asInstanceOf[F[GraphQLWSInput]]
-//  implicit def zioJsonDecoder[F[_]: IsZIOJsonDecoder]: F[GraphQLWSInput] =
-//    caliban.interop.zio.GraphQLWSInputZioJson.graphQLWSInputDecoder.asInstanceOf[F[GraphQLWSInput]]
-//  implicit def zioJsonEncoder[F[_]: IsZIOJsonEncoder]: F[GraphQLWSInput] =
-//    caliban.interop.zio.GraphQLWSInputZioJson.graphQLWSInputEncoder.asInstanceOf[F[GraphQLWSInput]]
+  implicit def zioJsonDecoder[F[_]: IsZIOJsonDecoder]: F[GraphQLWSInput] =
+    caliban.interop.zio.GraphQLWSInputZioJson.graphQLWSInputDecoder.asInstanceOf[F[GraphQLWSInput]]
+  implicit def zioJsonEncoder[F[_]: IsZIOJsonEncoder]: F[GraphQLWSInput] =
+    caliban.interop.zio.GraphQLWSInputZioJson.graphQLWSInputEncoder.asInstanceOf[F[GraphQLWSInput]]
 }
