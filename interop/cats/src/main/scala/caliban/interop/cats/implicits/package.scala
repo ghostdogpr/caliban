@@ -3,22 +3,19 @@ package caliban.interop.cats
 import caliban.execution.QueryExecution
 import caliban.schema.Schema
 import caliban.{ CalibanError, GraphQL, GraphQLInterpreter, GraphQLResponse, InputValue }
-import cats.effect.Async
-import cats.effect.std.Dispatcher
-import zio.Runtime
 
 package object implicits {
 
-  implicit class CatsEffectGraphQLInterpreter[R, E](underlying: GraphQLInterpreter[R, E]) {
-    def executeAsync[F[_]: Async](
+  implicit class CatsEffectGraphQLInterpreter[R, E](private val underlying: GraphQLInterpreter[R, E]) extends AnyVal {
+    def executeAsync[F[_]](
       query: String,
       operationName: Option[String] = None,
-      variables: Map[String, InputValue] = Map(),
-      extensions: Map[String, InputValue] = Map(),
+      variables: Map[String, InputValue] = Map.empty,
+      extensions: Map[String, InputValue] = Map.empty,
       skipValidation: Boolean = false,
       enableIntrospection: Boolean = true,
       queryExecution: QueryExecution = QueryExecution.Parallel
-    )(implicit runtime: Runtime[R]): F[GraphQLResponse[E]] =
+    )(implicit interop: ToEffect[F, R]): F[GraphQLResponse[E]] =
       CatsInterop.executeAsync(underlying)(
         query,
         operationName,
@@ -29,15 +26,15 @@ package object implicits {
         queryExecution
       )
 
-    def checkAsync[F[_]: Async](query: String)(implicit runtime: Runtime[Any]): F[Unit] =
+    def checkAsync[F[_]](query: String)(implicit interop: ToEffect[F, Any]): F[Unit] =
       CatsInterop.checkAsync(underlying)(query)
   }
 
-  implicit class CatsEffectGraphQL[R, E](underlying: GraphQL[R]) {
-    def interpreterAsync[F[_]: Async](implicit runtime: Runtime[Any]): F[GraphQLInterpreter[R, CalibanError]] =
-      CatsInterop.interpreterAsync(underlying)
+  implicit class CatsEffectGraphQL[R](private val underlying: GraphQL[R]) extends AnyVal {
+    def interpreterAsync[F[_]](implicit interop: ToEffect[F, Any]): F[GraphQLInterpreter[R, CalibanError]] =
+      CatsInterop.interpreterAsync[F, R](underlying)
   }
 
-  implicit def catsEffectSchema[F[_], R, A](implicit F: Dispatcher[F], ev: Schema[R, A]): Schema[R, F[A]] =
+  implicit def catsEffectSchema[F[_], R, A](implicit interop: FromEffect[F, R], ev: Schema[R, A]): Schema[R, F[A]] =
     CatsInterop.schema
 }
