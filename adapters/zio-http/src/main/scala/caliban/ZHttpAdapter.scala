@@ -12,8 +12,6 @@ import zhttp.http._
 import zhttp.socket.WebSocketFrame.Text
 import zhttp.socket.{ SocketApp, _ }
 import zio._
-import zio.clock.Clock
-import zio.duration._
 import zio.stream._
 
 object ZHttpAdapter {
@@ -67,26 +65,26 @@ object ZHttpAdapter {
   ): SocketApp[R with Clock, E] = {
     val routes = Socket.collect[WebSocketFrame] { case Text(text) =>
       ZStream
-        .fromEffect(ZIO.fromEither(decode[GraphQLWSInput](text)))
+        .fromZIO(ZIO.fromEither(decode[GraphQLWSInput](text)))
         .collect {
           case GraphQLWSInput("connection_init", id, payload) =>
             val before = (webSocketHooks.beforeInit, payload) match {
               case (Some(beforeInit), Some(payload)) =>
-                ZStream.fromEffect(beforeInit(payload)).drain.catchAll(toStreamError(id, _))
+                ZStream.fromZIO(beforeInit(payload)).drain.catchAll(toStreamError(id, _))
               case _                                 => Stream.empty
             }
 
             val response = ZStream.succeed(connectionAck) ++ keepAlive(keepAliveTime)
 
             val after = webSocketHooks.afterInit match {
-              case Some(afterInit) => ZStream.fromEffect(afterInit).drain.catchAll(toStreamError(id, _))
+              case Some(afterInit) => ZStream.fromZIO(afterInit).drain.catchAll(toStreamError(id, _))
               case _               => Stream.empty
             }
 
             before ++ ZStream.mergeAllUnbounded()(response, after)
 
           case GraphQLWSInput("connection_terminate", _, _) =>
-            ZStream.fromEffect(ZIO.interrupt)
+            ZStream.fromZIO(ZIO.interrupt)
           case GraphQLWSInput("start", id, payload)         =>
             val request = payload.collect { case InputValue.ObjectValue(fields) =>
               val query         = fields.get("query").collect { case StringValue(v) => v }
@@ -112,7 +110,7 @@ object ZHttpAdapter {
               case None => ZStream.succeed(connectionError)
             }
           case GraphQLWSInput("stop", id, _)                =>
-            ZStream.fromEffect(removeSubscription(id, subscriptions)) *> ZStream.empty
+            ZStream.fromZIO(removeSubscription(id, subscriptions)) *> ZStream.empty
 
         }
         .flatten

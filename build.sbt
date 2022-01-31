@@ -264,13 +264,13 @@ lazy val http4s = project
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
     } ++
       Seq(
-        "dev.zio"                       %% "zio-interop-cats"              % zioInteropCats3Version,
+        "dev.zio"                       %% "zio-interop-cats"              % zio2InteropCats3Version,
         "org.typelevel"                 %% "cats-effect"                   % catsEffect3Version,
         "com.softwaremill.sttp.tapir"   %% "tapir-zio-http4s-server"       % tapirVersion,
         "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % tapirVersion,
         "org.http4s"                    %% "http4s-blaze-server"           % http4sVersion % Test,
-        "dev.zio"                       %% "zio-test"                      % zioVersion    % Test,
-        "dev.zio"                       %% "zio-test-sbt"                  % zioVersion    % Test,
+        "dev.zio"                       %% "zio-test"                      % zio2Version   % Test,
+        "dev.zio"                       %% "zio-test-sbt"                  % zio2Version   % Test,
         "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion   % Test,
         "com.softwaremill.sttp.client3" %% "circe"                         % sttpVersion   % Test,
         "io.circe"                      %% "circe-generic"                 % circeVersion  % Test
@@ -319,8 +319,8 @@ lazy val play = project
       "com.typesafe.play"             %% "play"                          % playVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-play-server"             % tapirVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-json-play"               % tapirVersion,
-      "dev.zio"                       %% "zio-test"                      % zioVersion   % Test,
-      "dev.zio"                       %% "zio-test-sbt"                  % zioVersion   % Test,
+      "dev.zio"                       %% "zio-test"                      % zio2Version  % Test,
+      "dev.zio"                       %% "zio-test-sbt"                  % zio2Version  % Test,
       "com.typesafe.play"             %% "play-akka-http-server"         % playVersion  % Test,
       "io.circe"                      %% "circe-generic"                 % circeVersion % Test,
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion  % Test,

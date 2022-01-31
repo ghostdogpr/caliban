@@ -7,17 +7,15 @@ import sttp.client3.UriContext
 import zhttp.http._
 import zhttp.service.Server
 import zio._
-import zio.clock.Clock
-import zio.duration._
 import zio.test.{ DefaultRunnableSpec, TestFailure, ZSpec }
 
 import scala.language.postfixOps
 
 object ZHttpAdapterSpec extends DefaultRunnableSpec {
 
-  val apiLayer: ZLayer[zio.ZEnv, Throwable, Has[Unit]] =
+  val apiLayer: ZLayer[zio.ZEnv, Throwable, Unit] =
     (for {
-      interpreter <- TestApi.api.interpreter.toManaged_
+      interpreter <- TestApi.api.interpreter.toManaged
       _           <- Server
                        .start(
                          8088,
@@ -27,13 +25,13 @@ object ZHttpAdapterSpec extends DefaultRunnableSpec {
                          }
                        )
                        .forkManaged
-      _           <- clock.sleep(3 seconds).toManaged_
+      _           <- Clock.sleep(3 seconds).toManaged
     } yield ())
       .provideCustomLayer(TestService.make(sampleCharacters) ++ Uploads.empty ++ Clock.live)
       .toLayer
 
   def spec: ZSpec[ZEnv, Any] = {
-    val suite: ZSpec[Has[Unit], Throwable] =
+    val suite: ZSpec[Unit, Throwable] =
       TapirAdapterSpec.makeSuite(
         "ZHttpAdapterSpec",
         uri"http://localhost:8088/api/graphql",

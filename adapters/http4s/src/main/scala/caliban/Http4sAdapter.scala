@@ -17,11 +17,7 @@ import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.server.http4s.Http4sServerInterpreter
 import sttp.tapir.server.http4s.ztapir.ZHttp4sServerInterpreter
 import zio._
-import zio.blocking.Blocking
-import zio.clock.Clock
-import zio.duration.Duration
 import zio.interop.catz.concurrentInstance
-import zio.random.Random
 
 object Http4sAdapter {
 
@@ -31,7 +27,7 @@ object Http4sAdapter {
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
-  ): HttpRoutes[RIO[R with Clock with Blocking, *]] = {
+  ): HttpRoutes[RIO[R with Clock, *]] = {
     val endpoints = TapirAdapter.makeHttpService[R, E](
       interpreter,
       skipValidation,
@@ -60,13 +56,13 @@ object Http4sAdapter {
     Http4sServerInterpreter().toRoutes(endpointsF)
   }
 
-  def makeHttpUploadService[R <: Has[_] with Random, E](
+  def makeHttpUploadService[R <: Random, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
-  ): HttpRoutes[RIO[R with Clock with Blocking, *]] = {
+  ): HttpRoutes[RIO[R with Clock, *]] = {
     val endpoint = TapirAdapter.makeHttpUploadService[R, E](
       interpreter,
       skipValidation,
@@ -77,7 +73,7 @@ object Http4sAdapter {
     ZHttp4sServerInterpreter().from(endpoint).toRoutes
   }
 
-  def makeHttpUploadServiceF[F[_]: Async, R <: Has[_] with Random, E](
+  def makeHttpUploadServiceF[F[_]: Async, R <: Random, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
@@ -96,7 +92,7 @@ object Http4sAdapter {
   }
 
   def makeWebSocketService[R, R1 <: R, E](
-    builder: WebSocketBuilder2[RIO[R with Clock with Blocking, *]],
+    builder: WebSocketBuilder2[RIO[R with Clock, *]],
     interpreter: GraphQLInterpreter[R1, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
@@ -104,7 +100,7 @@ object Http4sAdapter {
     queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty,
     webSocketHooks: WebSocketHooks[R1, E] = WebSocketHooks.empty
-  ): HttpRoutes[RIO[R1 with Clock with Blocking, *]] = {
+  ): HttpRoutes[RIO[R1 with Clock, *]] = {
     val endpoint = TapirAdapter.makeWebSocketService[R1, E](
       interpreter,
       skipValidation,
@@ -116,7 +112,7 @@ object Http4sAdapter {
     )
     ZHttp4sServerInterpreter[R1]()
       .fromWebSocket(endpoint)
-      .toRoutes(builder.asInstanceOf[WebSocketBuilder2[RIO[R1 with Clock with Blocking, *]]])
+      .toRoutes(builder.asInstanceOf[WebSocketBuilder2[RIO[R1 with Clock, *]]])
   }
 
   def makeWebSocketServiceF[F[_]: Async, R, E](
@@ -150,7 +146,7 @@ object Http4sAdapter {
    * @tparam R the environment type to eliminate
    * @return a new route without the R requirement
    */
-  def provideLayerFromRequest[R <: Has[_]](route: HttpRoutes[RIO[R, *]], f: Request[Task] => TaskLayer[R])(implicit
+  def provideLayerFromRequest[R](route: HttpRoutes[RIO[R, *]], f: Request[Task] => TaskLayer[R])(implicit
     tagged: Tag[R]
   ): HttpRoutes[Task] =
     Kleisli { (req: Request[Task[*]]) =>
@@ -174,7 +170,7 @@ object Http4sAdapter {
    * @tparam R1 the environment to eliminate
    * @return a new route that requires only R
    */
-  def provideSomeLayerFromRequest[R <: Has[_], R1 <: Has[_]](
+  def provideSomeLayerFromRequest[R, R1](
     route: HttpRoutes[RIO[R with R1, *]],
     f: Request[RIO[R, *]] => RLayer[R, R1]
   )(implicit tagged: Tag[R1]): HttpRoutes[RIO[R, *]] =
@@ -229,7 +225,7 @@ object Http4sAdapter {
                   import zio.stream.interop.fs2z._
                   fs2InputStream =>
                     zioPipe(
-                      fs2InputStream.translate(interop.fromEffectK).toZStream().provide(runtime.environment)
+                      fs2InputStream.translate(interop.fromEffectK).toZStream().provideEnvironment(runtime.environment)
                     ).toFs2Stream
                       .translate(interop.toEffectK)
                 })

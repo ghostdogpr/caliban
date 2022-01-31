@@ -16,8 +16,6 @@ import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.server.akkahttp.AkkaHttpServerInterpreter
 import zio._
-import zio.duration._
-import zio.random.Random
 import zio.stream.ZStream
 
 import scala.concurrent.{ ExecutionContext, Future }
