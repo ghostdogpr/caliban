@@ -10,12 +10,12 @@ import zio.{ Has, IO, Tag, ZIO, ZLayer }
 import zio.system.System
 
 trait SchemaReporter {
-  def report(ref: SchemaReportingRef, withCoreSchema: Boolean): IO[ReportingError, ReportingResponse]
+  def report[A](ref: SchemaReportingRef[A], withCoreSchema: Boolean): IO[ReportingError, ReportingResponse]
 }
 
 object SchemaReporter {
 
-  def make(accessToken: String) = (for {
+  def make(accessToken: String): ZIO[Has[SttpClient.Service], Nothing, SchemaReporter] = (for {
     client <- ZIO.service[SttpClient.Service]
   } yield new SchemaReporter {
     import caliban.reporting.client.{ Mutation, ReportSchemaError, ReportSchemaResponse, SchemaReport }
@@ -40,25 +40,29 @@ object SchemaReporter {
         onReportSchemaResponse = onReportSchemaResponse.map(Right(_))
       )
 
-    override def report(ref: SchemaReportingRef, withCoreSchema: Boolean): IO[ReportingError, ReportingResponse] =
-      client
-        .send(
-          reportSchemaMutation(
-            coreSchema = if (withCoreSchema) Some(ref.coreSchema) else None,
-            SchemaReport(
-              bootId = ref.bootId.toString,
-              coreSchemaHash = ref.coreSchemaHash,
-              graphRef = ref.graphRef,
-              libraryVersion = ref.libraryVersion,
-              platform = ref.platform,
-              runtimeVersion = ref.runtimeVersion,
-              serverId = ref.serverId,
-              userVersion = ref.userVersion
+    override def report[A](ref: SchemaReportingRef[A], withCoreSchema: Boolean): IO[ReportingError, ReportingResponse] =
+      ref.coreSchema.get.flatMap { coreSchema =>
+        Util.hashSchema(coreSchema).flatMap { hash =>
+          client
+            .send(
+              reportSchemaMutation(
+                coreSchema = if (withCoreSchema) Some(coreSchema) else None,
+                SchemaReport(
+                  bootId = ref.bootId.toString,
+                  coreSchemaHash = hash,
+                  graphRef = ref.graphRef,
+                  libraryVersion = ref.libraryVersion,
+                  platform = ref.platform,
+                  runtimeVersion = ref.runtimeVersion,
+                  serverId = ref.serverId,
+                  userVersion = ref.userVersion
+                )
+              )
+                .toRequest(uri"$REPORTING_URL/api/graphql", useVariables = true)
+                .header("X-API-Key", accessToken)
             )
-          )
-            .toRequest(uri"$REPORTING_URL/api/graphql", useVariables = true)
-            .header("X-API-Key", accessToken)
-        )
+        }
+      }
         .mapError(error => RetryableError(error))
         .flatMap { response =>
           response.body match {

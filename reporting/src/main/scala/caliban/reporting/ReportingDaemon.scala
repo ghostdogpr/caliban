@@ -2,7 +2,7 @@ package caliban.reporting
 
 import zio.clock.Clock
 import zio.duration.{ durationInt, Duration }
-import zio.{ Has, UIO, ZIO, ZLayer, ZManaged }
+import zio.{ Fiber, Has, Ref, UIO, UManaged, URManaged, ZIO, ZLayer, ZManaged }
 
 /**
  * Manages schema reporting on start up, can be provided a set of ReportingRefs which will then be periodically
@@ -11,29 +11,28 @@ import zio.{ Has, UIO, ZIO, ZLayer, ZManaged }
 trait ReportingDaemon {
 
   /**
-   * Returns the list of refs that are being tracked by the daemon
+   * Registers a schema reference for upload. Returns a managed which can be used to manage the lifespan of the
+   * reporting.
    */
-  def refs: UIO[List[SchemaReportingRef]]
+  def register(ref: SchemaReportingRef[_]): UManaged[Unit]
 }
 
 object ReportingDaemon {
 
-  def layer(
-    ref: SchemaReportingRef,
-    rest: SchemaReportingRef*
-  ): ZLayer[Clock with Has[SchemaReporter], Nothing, Has[ReportingDaemon]] =
-    make(ref, rest: _*).toLayer
+  def register(ref: SchemaReportingRef[_]): URManaged[Has[ReportingDaemon], Unit] =
+    ZManaged.serviceWithManaged(_.register(ref))
 
-  def make(
-    ref: SchemaReportingRef,
-    rest: SchemaReportingRef*
-  ): ZManaged[Clock with Has[SchemaReporter], Nothing, ReportingDaemon] =
+  def live: ZLayer[Clock with Has[SchemaReporter], Nothing, Has[ReportingDaemon]] =
+    make.toLayer
+
+  def make: ZManaged[Clock with Has[SchemaReporter], Nothing, ReportingDaemon] =
     ZManaged.suspend {
-      val schemaRefs = ref :: rest.toList
       for {
+        clock    <- ZManaged.environment[Clock]
         reporter <- ZManaged.service[SchemaReporter]
-        _        <- ZIO
-                      .foreachPar_(schemaRefs) { ref =>
+        daemon    = new ReportingDaemon {
+
+                      override def register(ref: SchemaReportingRef[_]): UManaged[Unit] = {
                         def loop(withCoreSchema: Boolean): ZIO[Clock, Nothing, Unit] =
                           reporter
                             .report(ref, withCoreSchema)
@@ -43,7 +42,7 @@ object ReportingDaemon {
                                   ZIO.debug(s"Schema reporting failed for ${ref.graphRef}: $message")
                                 case ReportingError.ClientError(error)             =>
                                   ZIO.debug(
-                                    s"Schema reporting for ${ref.graphRef} failed because of a client error ${error.getMessage}. This is likely a defect, will not retry"
+                                    s"Schema reporting for ${ref.graphRef} failed because of a client error ${error.getMessage}. This is likely a defect, halting retries"
                                   )
                                 case ReportingError.RetryableError(innerThrowable) =>
                                   ZIO.debug(
@@ -52,16 +51,10 @@ object ReportingDaemon {
                               },
                               resp => loop(resp.withCoreSchema).delay(resp.in)
                             )
-                        loop(false)
-                      }
-                      .forkManaged
-      } yield new ReportingDaemon {
-
-        /**
-         * Returns the list of refs that are being tracked by the daemon
-         */
-        override def refs: UIO[List[SchemaReportingRef]] = UIO.succeed(schemaRefs)
-      }
+                        loop(false).forkManaged
+                      }.unit.provide(clock)
+                    }
+      } yield daemon
     }
 
 }

@@ -121,4 +121,3 @@ object ReportSchemaErrorCode {
     USER_VERSION_IS_TOO_LONG
   )
 }
-

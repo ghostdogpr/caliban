@@ -9,4 +9,3 @@ object ReportSchemaResponse {
   def withCoreSchema: SelectionBuilder[ReportSchemaResponse, Boolean] =
     _root_.caliban.client.SelectionBuilder.Field("withCoreSchema", Scalar())
 }
-

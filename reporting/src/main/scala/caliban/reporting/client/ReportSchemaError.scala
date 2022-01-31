@@ -13,4 +13,3 @@ object ReportSchemaError {
   def withCoreSchema: SelectionBuilder[ReportSchemaError, Boolean]     =
     _root_.caliban.client.SelectionBuilder.Field("withCoreSchema", Scalar())
 }
-
