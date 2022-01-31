@@ -24,8 +24,22 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    * Combines this selection with another selection, returning a tuple of both results.
    * To be combines, selections needs to have the same origin.
    */
-  def ~[Origin1 <: Origin, B](that: SelectionBuilder[Origin1, B]): SelectionBuilder[Origin1, (A, B)] =
-    SelectionBuilder.Concat(self, that)
+  def ~[Origin1 <: Origin, B](that: SelectionBuilder[Origin1, B])(implicit
+    zippable: Zippable[A, B]
+  ): SelectionBuilder[Origin1, zippable.Out] = new SelectionBuilder[Origin1, zippable.Out] { newSelf =>
+    def fromGraphQL(value: __Value): Either[DecodingError, zippable.Out] =
+      for {
+        v1 <- self.fromGraphQL(value)
+        v2 <- that.fromGraphQL(value)
+      } yield zippable.zip(v1, v2)
+
+    def withDirective(directive: Directive): SelectionBuilder[Origin1, zippable.Out] =
+      self.withDirective(directive) ~ that.withDirective(directive)
+
+    def toSelectionSet: List[Selection] = self.toSelectionSet ++ that.toSelectionSet
+
+    def withAlias(alias: String): SelectionBuilder[Origin1, zippable.Out] = newSelf // makes no sense, do nothing
+  }
 
   /**
    * Maps the result of this selection to a new type `B`
@@ -142,104 +156,94 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
   /**
    * Maps a tupled result to a type `Res` using a  function `f` with 3 parameters
    */
-  def mapN[B, C, D, Res](f: (B, C, D) => Res)(implicit ev: A <:< ((B, C), D)): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen { case ((b, c), d) => f(b, c, d) })
+  def mapN[B, C, D, Res](f: (B, C, D) => Res)(implicit ev: A <:< (B, C, D)): SelectionBuilder[Origin, Res] =
+    self.map(ev.andThen { case (b, c, d) => f(b, c, d) })
 
   /**
    * Maps a tupled result to a type `Res` using a  function `f` with 4 parameters
    */
-  def mapN[B, C, D, E, Res](
-    f: (B, C, D, E) => Res
-  )(implicit ev: A <:< (((B, C), D), E)): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen { case (((b, c), d), e) => f(b, c, d, e) })
+  def mapN[B, C, D, E, Res](f: (B, C, D, E) => Res)(implicit ev: A <:< (B, C, D, E)): SelectionBuilder[Origin, Res] =
+    self.map(ev.andThen { case (b, c, d, e) => f(b, c, d, e) })
 
   /**
    * Maps a tupled result to a type `Res` using a  function `f` with 5 parameters
    */
   def mapN[B, C, D, E, F, Res](
     f: (B, C, D, E, F) => Res
-  )(implicit ev: A <:< ((((B, C), D), E), F)): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen { case ((((b, c), d), e), ff) => f(b, c, d, e, ff) })
+  )(implicit ev: A <:< (B, C, D, E, F)): SelectionBuilder[Origin, Res] =
+    self.map(ev.andThen { case (b, c, d, e, ff) => f(b, c, d, e, ff) })
 
   /**
    * Maps a tupled result to a type `Res` using a  function `f` with 6 parameters
    */
   def mapN[B, C, D, E, F, G, Res](
     f: (B, C, D, E, F, G) => Res
-  )(implicit ev: A <:< (((((B, C), D), E), F), G)): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen { case (((((b, c), d), e), ff), g) => f(b, c, d, e, ff, g) })
+  )(implicit ev: A <:< (B, C, D, E, F, G)): SelectionBuilder[Origin, Res] =
+    self.map(ev.andThen { case (b, c, d, e, ff, g) => f(b, c, d, e, ff, g) })
 
   /**
    * Maps a tupled result to a type `Res` using a  function `f` with 7 parameters
    */
   def mapN[B, C, D, E, F, G, H, Res](
     f: (B, C, D, E, F, G, H) => Res
-  )(implicit ev: A <:< ((((((B, C), D), E), F), G), H)): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen { case ((((((b, c), d), e), ff), g), h) => f(b, c, d, e, ff, g, h) })
+  )(implicit ev: A <:< (B, C, D, E, F, G, H)): SelectionBuilder[Origin, Res] =
+    self.map(ev.andThen { case (b, c, d, e, ff, g, h) => f(b, c, d, e, ff, g, h) })
 
   /**
    * Maps a tupled result to a type `Res` using a  function `f` with 8 parameters
    */
   def mapN[B, C, D, E, F, G, H, I, Res](
     f: (B, C, D, E, F, G, H, I) => Res
-  )(implicit ev: A <:< (((((((B, C), D), E), F), G), H), I)): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen { case (((((((b, c), d), e), ff), g), h), i) => f(b, c, d, e, ff, g, h, i) })
+  )(implicit ev: A <:< (B, C, D, E, F, G, H, I)): SelectionBuilder[Origin, Res] =
+    self.map(ev.andThen { case (b, c, d, e, ff, g, h, i) => f(b, c, d, e, ff, g, h, i) })
 
   /**
    * Maps a tupled result to a type `Res` using a  function `f` with 9 parameters
    */
   def mapN[B, C, D, E, F, G, H, I, J, Res](
     f: (B, C, D, E, F, G, H, I, J) => Res
-  )(implicit ev: A <:< ((((((((B, C), D), E), F), G), H), I), J)): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen { case ((((((((b, c), d), e), ff), g), h), i), j) => f(b, c, d, e, ff, g, h, i, j) })
+  )(implicit ev: A <:< (B, C, D, E, F, G, H, I, J)): SelectionBuilder[Origin, Res] =
+    self.map(ev.andThen { case (b, c, d, e, ff, g, h, i, j) => f(b, c, d, e, ff, g, h, i, j) })
 
   /**
    * Maps a tupled result to a type `Res` using a  function `f` with 10 parameters
    */
   def mapN[B, C, D, E, F, G, H, I, J, K, Res](
     f: (B, C, D, E, F, G, H, I, J, K) => Res
-  )(implicit ev: A <:< (((((((((B, C), D), E), F), G), H), I), J), K)): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen { case (((((((((b, c), d), e), ff), g), h), i), j), k) => f(b, c, d, e, ff, g, h, i, j, k) })
+  )(implicit ev: A <:< (B, C, D, E, F, G, H, I, J, K)): SelectionBuilder[Origin, Res] =
+    self.map(ev.andThen { case (b, c, d, e, ff, g, h, i, j, k) => f(b, c, d, e, ff, g, h, i, j, k) })
 
   /**
    * Maps a tupled result to a type `Res` using a  function `f` with 11 parameters
    */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L) => Res
-  )(implicit ev: A <:< ((((((((((B, C), D), E), F), G), H), I), J), K), L)): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen { case ((((((((((b, c), d), e), ff), g), h), i), j), k), l) =>
-      f(b, c, d, e, ff, g, h, i, j, k, l)
-    })
+  )(implicit ev: A <:< (B, C, D, E, F, G, H, I, J, K, L)): SelectionBuilder[Origin, Res] =
+    self.map(ev.andThen { case (b, c, d, e, ff, g, h, i, j, k, l) => f(b, c, d, e, ff, g, h, i, j, k, l) })
 
   /**
    * Maps a tupled result to a type `Res` using a  function `f` with 12 parameters
    */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M) => Res
-  )(implicit ev: A <:< (((((((((((B, C), D), E), F), G), H), I), J), K), L), M)): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen { case (((((((((((b, c), d), e), ff), g), h), i), j), k), l), m) =>
-      f(b, c, d, e, ff, g, h, i, j, k, l, m)
-    })
+  )(implicit ev: A <:< (B, C, D, E, F, G, H, I, J, K, L, M)): SelectionBuilder[Origin, Res] =
+    self.map(ev.andThen { case (b, c, d, e, ff, g, h, i, j, k, l, m) => f(b, c, d, e, ff, g, h, i, j, k, l, m) })
 
   /**
    * Maps a tupled result to a type `Res` using a  function `f` with 13 parameters
    */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N) => Res
-  )(implicit ev: A <:< ((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N)): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen { case ((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n) =>
-      f(b, c, d, e, ff, g, h, i, j, k, l, m, n)
-    })
+  )(implicit ev: A <:< (B, C, D, E, F, G, H, I, J, K, L, M, N)): SelectionBuilder[Origin, Res] =
+    self.map(ev.andThen { case (b, c, d, e, ff, g, h, i, j, k, l, m, n) => f(b, c, d, e, ff, g, h, i, j, k, l, m, n) })
 
   /**
    * Maps a tupled result to a type `Res` using a  function `f` with 14 parameters
    */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O) => Res
-  )(implicit
-    ev: A <:< (((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O)
-  ): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen { case (((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o) =>
+  )(implicit ev: A <:< (B, C, D, E, F, G, H, I, J, K, L, M, N, O)): SelectionBuilder[Origin, Res] =
+    self.map(ev.andThen { case (b, c, d, e, ff, g, h, i, j, k, l, m, n, o) =>
       f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o)
     })
 
@@ -248,10 +252,8 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P) => Res
-  )(implicit
-    ev: A <:< ((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P)
-  ): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen { case ((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p) =>
+  )(implicit ev: A <:< (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P)): SelectionBuilder[Origin, Res] =
+    self.map(ev.andThen { case (b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p) =>
       f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p)
     })
 
@@ -260,10 +262,8 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q) => Res
-  )(implicit
-    ev: A <:< (((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q)
-  ): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen { case (((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q) =>
+  )(implicit ev: A <:< (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q)): SelectionBuilder[Origin, Res] =
+    self.map(ev.andThen { case (b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q) =>
       f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q)
     })
 
@@ -272,10 +272,8 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R) => Res
-  )(implicit
-    ev: A <:< ((((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q), R)
-  ): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen { case ((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r) =>
+  )(implicit ev: A <:< (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R)): SelectionBuilder[Origin, Res] =
+    self.map(ev.andThen { case (b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r) =>
       f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r)
     })
 
@@ -284,12 +282,9 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S) => Res
-  )(implicit
-    ev: A <:< (((((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q), R), S)
-  ): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen {
-      case (((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r), s) =>
-        f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s)
+  )(implicit ev: A <:< (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S)): SelectionBuilder[Origin, Res] =
+    self.map(ev.andThen { case (b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s) =>
+      f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s)
     })
 
   /**
@@ -297,12 +292,9 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T) => Res
-  )(implicit
-    ev: A <:< ((((((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q), R), S), T)
-  ): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen {
-      case ((((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r), s), t) =>
-        f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s, t)
+  )(implicit ev: A <:< (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T)): SelectionBuilder[Origin, Res] =
+    self.map(ev.andThen { case (b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s, t) =>
+      f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s, t)
     })
 
   /**
@@ -310,12 +302,9 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U) => Res
-  )(implicit
-    ev: A <:< (((((((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q), R), S), T), U)
-  ): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen {
-      case (((((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r), s), t), u) =>
-        f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u)
+  )(implicit ev: A <:< (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U)): SelectionBuilder[Origin, Res] =
+    self.map(ev.andThen { case (b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u) =>
+      f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u)
     })
 
   /**
@@ -323,15 +312,9 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V) => Res
-  )(implicit
-    ev: A <:< (
-      (((((((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q), R), S), T), U),
-      V
-    )
-  ): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen {
-      case ((((((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r), s), t), u), v) =>
-        f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v)
+  )(implicit ev: A <:< (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V)): SelectionBuilder[Origin, Res] =
+    self.map(ev.andThen { case (b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v) =>
+      f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v)
     })
 
   /**
@@ -340,17 +323,10 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
   def mapN[B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, Res](
     f: (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W) => Res
   )(implicit
-    ev: A <:< (
-      ((((((((((((((((((((B, C), D), E), F), G), H), I), J), K), L), M), N), O), P), Q), R), S), T), U), V),
-      W
-    )
+    ev: A <:< (B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W)
   ): SelectionBuilder[Origin, Res] =
-    self.map(ev.andThen {
-      case (
-            ((((((((((((((((((((b, c), d), e), ff), g), h), i), j), k), l), m), n), o), p), q), r), s), t), u), v),
-            w
-          ) =>
-        f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w)
+    self.map(ev.andThen { case (b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w) =>
+      f(b, c, d, e, ff, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w)
     })
 }
 
@@ -384,23 +360,8 @@ object SelectionBuilder {
 
     override def withAlias(alias: String): SelectionBuilder[Origin, A] = self.copy(alias = Some(alias))
   }
-  case class Concat[Origin, A, B](first: SelectionBuilder[Origin, A], second: SelectionBuilder[Origin, B])
-      extends SelectionBuilder[Origin, (A, B)] { self =>
-    override def fromGraphQL(value: __Value): Either[DecodingError, (A, B)] =
-      for {
-        v1 <- first.fromGraphQL(value)
-        v2 <- second.fromGraphQL(value)
-      } yield (v1, v2)
-
-    override def withDirective(directive: Directive): SelectionBuilder[Origin, (A, B)] =
-      Concat(first.withDirective(directive), second.withDirective(directive))
-
-    override def toSelectionSet: List[Selection] = first.toSelectionSet ++ second.toSelectionSet
-
-    override def withAlias(alias: String): SelectionBuilder[Origin, (A, B)] = self // makes no sense, do nothing
-  }
   case class Mapping[Origin, A, B](builder: SelectionBuilder[Origin, A], f: A => Either[DecodingError, B])
-      extends SelectionBuilder[Origin, B]      {
+      extends SelectionBuilder[Origin, B] {
     override def fromGraphQL(value: __Value): Either[DecodingError, B] = builder.fromGraphQL(value).flatMap(f)
 
     override def withDirective(directive: Directive): SelectionBuilder[Origin, B] =

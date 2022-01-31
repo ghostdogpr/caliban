@@ -57,7 +57,8 @@ trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
               )
             )
             .toList,
-          Some(ctx.typeName.full)
+          Some(ctx.typeName.full),
+          Some(getDirectives(ctx))
         )
       else
         makeObject(
@@ -132,14 +133,16 @@ trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
               annotations.collectFirst { case GQLDeprecated(reason) => reason }
             )
           },
-          Some(ctx.typeName.full)
+          Some(ctx.typeName.full),
+          Some(getDirectives(ctx.annotations))
         )
       else if (!isInterface)
         makeUnion(
           Some(getName(ctx)),
           getDescription(ctx),
           subtypes.map { case (t, _) => fixEmptyUnionObject(t) },
-          Some(ctx.typeName.full)
+          Some(ctx.typeName.full),
+          Some(getDirectives(ctx.annotations))
         )
       else {
         val impl         = subtypes.map(_._1.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
@@ -157,7 +160,14 @@ trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
             .flatten
             .toList
 
-        makeInterface(Some(getName(ctx)), getDescription(ctx), commonFields, impl, Some(ctx.typeName.full))
+        makeInterface(
+          Some(getName(ctx)),
+          getDescription(ctx),
+          commonFields,
+          impl,
+          Some(ctx.typeName.full),
+          Some(getDirectives(ctx.annotations))
+        )
       }
     }
 

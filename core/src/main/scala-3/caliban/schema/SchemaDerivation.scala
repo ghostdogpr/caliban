@@ -81,14 +81,16 @@ trait SchemaDerivation[A] {
                     annotations.collectFirst { case GQLDeprecated(reason) => reason }
                   )
                 },
-                Some(info.full)
+                Some(info.full),
+                Some(getDirectives(annotations))
               )
             } else if (!isInterface)
               makeUnion(
                 Some(getName(annotations, info)),
                 getDescription(annotations),
                 subTypes.map { case (_, t, _) => fixEmptyUnionObject(t) },
-                Some(info.full)
+                Some(info.full),
+                Some(getDirectives(annotations))
               )
             else {
               val impl         = subTypes.map(_._2.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
@@ -111,7 +113,8 @@ trait SchemaDerivation[A] {
                 getDescription(annotations),
                 commonFields,
                 impl,
-                Some(info.full)
+                Some(info.full),
+                Some(getDirectives(annotations))
               )
             }
 
@@ -147,7 +150,8 @@ trait SchemaDerivation[A] {
                     Some(fieldAnnotations.collect { case GQLDirective(dir) => dir }).filter(_.nonEmpty)
                   )
                 },
-                Some(info.full)
+                Some(info.full),
+                Some(getDirectives(annotations))
               )
             else
               makeObject(

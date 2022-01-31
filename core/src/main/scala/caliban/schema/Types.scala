@@ -24,7 +24,8 @@ object Types {
     name: Option[String],
     description: Option[String],
     values: List[__EnumValue],
-    origin: Option[String]
+    origin: Option[String],
+    directives: Option[List[Directive]] = None
   ): __Type =
     __Type(
       __TypeKind.ENUM,
@@ -32,7 +33,8 @@ object Types {
       description,
       enumValues =
         args => if (args.includeDeprecated.getOrElse(false)) Some(values) else Some(values.filter(!_.isDeprecated)),
-      origin = origin
+      origin = origin,
+      directives = directives
     )
 
   def makeObject(
@@ -57,24 +59,41 @@ object Types {
     name: Option[String],
     description: Option[String],
     fields: List[__InputValue],
-    origin: Option[String] = None
+    origin: Option[String] = None,
+    directives: Option[List[Directive]] = None
   ): __Type =
-    __Type(__TypeKind.INPUT_OBJECT, name, description, inputFields = Some(fields), origin = origin)
+    __Type(
+      __TypeKind.INPUT_OBJECT,
+      name,
+      description,
+      inputFields = Some(fields),
+      origin = origin,
+      directives = directives
+    )
 
   def makeUnion(
     name: Option[String],
     description: Option[String],
     subTypes: List[__Type],
-    origin: Option[String] = None
+    origin: Option[String] = None,
+    directives: Option[List[Directive]] = None
   ): __Type =
-    __Type(__TypeKind.UNION, name, description, possibleTypes = Some(subTypes), origin = origin)
+    __Type(
+      __TypeKind.UNION,
+      name,
+      description,
+      possibleTypes = Some(subTypes),
+      origin = origin,
+      directives = directives
+    )
 
   def makeInterface(
     name: Option[String],
     description: Option[String],
     fields: () => List[__Field],
     subTypes: List[__Type],
-    origin: Option[String] = None
+    origin: Option[String] = None,
+    directives: Option[List[Directive]] = None
   ): __Type =
     __Type(
       __TypeKind.INTERFACE,
@@ -83,7 +102,8 @@ object Types {
       fields =
         args => if (args.includeDeprecated.getOrElse(false)) Some(fields()) else Some(fields().filter(!_.isDeprecated)),
       possibleTypes = Some(subTypes),
-      origin = origin
+      origin = origin,
+      directives = directives
     )
 
   /**

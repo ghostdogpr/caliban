@@ -31,12 +31,14 @@ An example query for a connection field looks something like this:
 }
 ```
 
-The field can be paginated forwards by using `first` (number of items) and `after` (the current cursor), or backwards by using `last` (numbmer of items) and `before` (the cursor).
+The field can be paginated forwards by using `first` (number of items) and `after` (the current cursor), or backwards by using `last` (number of items) and `before` (the cursor).
 
 Caliban ships with a set of abstract classes to make it easier to use Relay connections in your schema:
 
-```scala
+```scala mdoc:silent
+import caliban._
 import caliban.relay._
+import zio._
 
 // The entity you want to paginate over
 case class Item(name: String)
@@ -97,10 +99,13 @@ Start off by implementing a case class to represent your cursor:
 case class ElasticCursor(value: String)
 ```
 
-To turn your case class into a usable cursor, you need to do two things: implement the `Cursor` trait and specify a schema for the case class to make sure it's always serialized as a scalar value.
+To turn your case class into a usable cursor, you need to do two things: implement the `Cursor` trait and specify a `Schema` for the case class to make sure it's always serialized as a scalar value.
 
 First, let's implement the trait:
-```scala
+```scala mdoc:silent
+import java.util.Base64
+import scala.util.Try
+
 case class ElasticCursor(value: String)
 object ElasticCursor {
   lazy val decoder = Base64.getDecoder()
@@ -126,7 +131,7 @@ object ElasticCursor {
 and the schema:
 
 ```scala
-  implicit val schema: Schema[Any, ElasticCursor] = Schema.stringSchema.contramap(
-    Cursor[ElasticCursor].encode
-  )
+implicit val schema: Schema[Any, ElasticCursor] = Schema.stringSchema.contramap(
+  Cursor[ElasticCursor].encode
+)
 ```

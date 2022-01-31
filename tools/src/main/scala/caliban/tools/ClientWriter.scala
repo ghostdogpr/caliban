@@ -591,9 +591,7 @@ object ClientWriter {
             s"$viewFunctionBody.map(${head.name} => $viewName(${head.name}))"
 
           case other =>
-            val unapply = fields.tail.foldLeft(safeUnapplyName(fields.head.rawName)) { case (acc, field) =>
-              "(" + acc + ", " + safeUnapplyName(field.rawName) + ")"
-            }
+            val unapply = fields.map(field => safeUnapplyName(field.rawName)).mkString("(", ", ", ")")
             s"($viewFunctionBody).map { case $unapply => $viewName(${other.map(f => safeUnapplyName(f.rawName)).mkString(", ")}) }"
         }
 

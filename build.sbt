@@ -8,9 +8,10 @@ val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion             = "2.6.17"
 val catsEffect2Version      = "2.5.4"
-val catsEffect3Version      = "3.3.4"
+val catsEffect3Version      = "3.3.5"
+val catsMtlVersion          = "1.2.1"
 val circeVersion            = "0.14.1"
-val http4sVersion           = "0.23.7"
+val http4sVersion           = "0.23.9"
 val laminextVersion         = "0.14.3"
 val magnoliaVersion         = "0.17.0"
 val mercatorVersion         = "0.2.1"
@@ -203,12 +204,16 @@ lazy val catsInterop = project
   .settings(name := "caliban-cats")
   .settings(commonSettings)
   .settings(
+    testFrameworks  := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    autoAPIMappings := true,
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) Seq()
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
     } ++ Seq(
+      "org.typelevel" %% "cats-effect"      % catsEffect3Version,
       "dev.zio"       %% "zio-interop-cats" % zio2InteropCats3Version,
-      "org.typelevel" %% "cats-effect"      % catsEffect3Version
+      "dev.zio"       %% "zio-test"         % zio2Version % Test,
+      "dev.zio"       %% "zio-test-sbt"     % zio2Version % Test
     )
   )
   .dependsOn(core)
@@ -389,6 +394,7 @@ lazy val examples = project
     crossScalaVersions -= scala3,
     libraryDependencySchemes += "org.scala-lang.modules" %% "scala-java8-compat" % "always",
     libraryDependencies ++= Seq(
+      "org.typelevel"                 %% "cats-mtl"                      % catsMtlVersion,
       "org.http4s"                    %% "http4s-blaze-server"           % http4sVersion,
       "org.http4s"                    %% "http4s-dsl"                    % http4sVersion,
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
@@ -444,6 +450,25 @@ lazy val federation = project
       "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion % "protobuf"
     )
   )
+
+lazy val docs = project
+  .in(file("mdoc"))
+  .enablePlugins(MdocPlugin)
+  .settings(commonSettings)
+  .settings(
+    crossScalaVersions := Seq(scala212, scala213),
+    name               := "caliban-docs",
+    mdocIn             := (ThisBuild / baseDirectory).value / "vuepress" / "docs",
+    run / fork         := true,
+    scalacOptions -= "-Xfatal-warnings",
+    scalacOptions += "-Wunused:imports",
+    libraryDependencies ++= Seq(
+      "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
+      "io.circe"                      %% "circe-generic"                 % circeVersion,
+      "org.typelevel"                 %% "cats-mtl"                      % catsMtlVersion
+    )
+  )
+  .dependsOn(core, catsInterop, tapirInterop, http4s, tools)
 
 lazy val commonSettings = Def.settings(
   scalacOptions ++= Seq(

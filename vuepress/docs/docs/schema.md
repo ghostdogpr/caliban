@@ -75,12 +75,12 @@ A sealed trait will be converted to a different GraphQL type depending on its co
 
 GraphQL does not support empty objects, so in case a sealed trait mixes case classes and case objects, a union type will be created and the case objects will have a "fake" field named `_` which is not queryable.
 
-```scala
-sealed trait ORIGIN
-object ORIGIN {
-  case object EARTH extends ORIGIN
-  case object MARS  extends ORIGIN
-  case object BELT  extends ORIGIN
+```scala mdoc:silent
+sealed trait Origin
+object Origin {
+  case object EARTH extends Origin
+  case object MARS  extends Origin
+  case object BELT  extends Origin
 }
 ```
 
@@ -166,7 +166,8 @@ If you prefer to have a `Union` type instead of an `Enum`, even when the sealed 
 
 To declare a field that take arguments, create a dedicated case class representing the arguments and make the field a _function_ from this class to the result type.
 
-```scala
+```scala mdoc:silent
+case class Character(name: String, origin: Origin)
 case class FilterArgs(origin: Option[Origin])
 case class Queries(characters: FilterArgs => List[Character])
 ```
@@ -189,7 +190,11 @@ There is no `ArgBuilder` for tuples. If you have multiple arguments, use a case 
 
 Fields can return ZIO effects. This allows you to leverage all the features provided by ZIO: timeouts, retries, access to ZIO environment, memoizing, etc. An effect will be run every time a query requiring the corresponding field is executed.
 
-```scala
+```scala mdoc:silent:nest
+import zio._
+import zio.console.Console
+
+type CharacterName = String
 case class Queries(characters: Task[List[Character]],
                    character: CharacterName => RIO[Console, Character])
 ```
@@ -198,22 +203,28 @@ If you don't use ZIO environment (`R` = `Any`), there is nothing special to do t
 
 If you require a ZIO environment and use Scala 2, you will need to have the content of `caliban.schema.GenericSchema[R]` for your custom `R` in scope when you call `graphQL(...)`.
 When you call `Schema.gen`, make sure to use your environment as the first type parameter.
-```scala
+```scala mdoc:silent
+import caliban._
+import caliban.schema._
+
+type MyEnv = Console 
+
 object schema extends GenericSchema[MyEnv]
 import schema._
 
 implicit val queriesSchema: Schema[MyEnv, Queries] = Schema.gen
 // or
-implicit val queriesSchema = Schema.gen[MyEnv, Queries]
+// implicit val queriesSchema = Schema.gen[MyEnv, Queries]
 ```
 
 If you require a ZIO environment and use Scala 3, things are simpler since you don't need `GenericSchema`. Make sure to use `Schema.gen` with the proper R type parameter.
 To make sure Caliban uses the proper environment, you need to specify it explicitly to `graphQL(...)`, unless you already have `Schema` instances for your root operations in scope.
-```scala
-val api = graphQL[MyEnv, Queries, Unit, Unit](RootResolver(queries))
+```scala mdoc:silent
+val queries = Queries(Task(???), _ => RIO(???))
+val api = GraphQL.graphQL[MyEnv, Queries, Unit, Unit](RootResolver(queries))
 // or
-implicit val queriesSchema: Schema[MyEnv, Queries] = Schema.gen
-val api = graphQL(RootResolver(queries)) // it will infer MyEnv thanks to the instance above
+// implicit val queriesSchema: Schema[MyEnv, Queries] = Schema.gen
+// val api = graphQL(RootResolver(queries)) // it will infer MyEnv thanks to the instance above
 ```
 
 ## Annotations
@@ -251,16 +262,25 @@ implicit val nonEmptyStringSchema: Schema[Any, NonEmptyString] = Schema.stringSc
 
 You can also use the `scalarSchema` helper to create your own scalar types, providing a name, an optional description, and a function from your type to a `ResponseValue`:
 
-```scala
+```scala mdoc:silent:reset
 import caliban.schema._
-implicit val unitSchema: Schema[Any, Unit] = scalarSchema("Unit", None, _ => ObjectValue(Nil))
+import caliban.ResponseValue.ObjectValue
+
+implicit val unitSchema: Schema[Any, Unit] = Schema.scalarSchema("Unit", None, None, _ => ObjectValue(Nil))
 ```
 
 If you are using a custom type as part of the input you also have to provide an implicit instance of `caliban.schema.ArgBuilder`. For example here's how to do that for `java.time.LocalDate`:
 
-```scala
+```scala mdoc:silent
+import java.time.LocalDate
+import scala.util.Try
+
+import caliban.Value
+import caliban.CalibanError.ExecutionError
+import caliban.schema.ArgBuilder
+
 implicit val localDateArgBuilder: ArgBuilder[LocalDate] = {
-  case StringValue(value) =>
+  case Value.StringValue(value) =>
     Try(LocalDate.parse(value))
       .fold(ex => Left(ExecutionError(s"Can't parse $value into a LocalDate", innerThrowable = Some(ex))), Right(_))
   case other => Left(ExecutionError(s"Can't build a LocalDate from input $other"))
@@ -275,7 +295,7 @@ Caliban can automatically generate Scala code from a GraphQL schema.
 
 In order to use this feature, add the `caliban-codegen-sbt` sbt plugin to your `project/plugins.sbt` file:
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "1.3.2")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "1.3.3")
 ```
 
 And enable it in your `build.sbt` file:
@@ -314,7 +334,10 @@ to generate a schema for them. In cases like these you may need to instead creat
 
 Consider the case where you have three types which create cyclical dependencies on one another
 
-```scala
+```scala mdoc:silent
+import java.util.UUID
+import zio.UIO
+
 case class Group(id: String, users: UIO[List[User]], parent: UIO[Option[Group]], organization: UIO[Organization])
 case class Organization(id: String, groups: UIO[List[Group]])
 case class User(id: String, group: UIO[Group])
@@ -323,7 +346,8 @@ case class User(id: String, group: UIO[Group])
 These three types all depend on one another and if you attempt to generate a schema from them you will either end up with compiler errors or you will end up with a nasty runtime
 error from a `NullPointerException`. To help the compiler out we can hand generate the types for these case classes instead.
 
-```scala
+```scala mdoc:silent
+import caliban.schema.Schema
 import caliban.schema.Schema.{obj, field}
 
 implicit lazy val groupSchema: Schema[Any, Group] = obj("Group", Some("A group of users"))(

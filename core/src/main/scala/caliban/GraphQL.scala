@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.CalibanError.ValidationError
-import caliban.Rendering.renderTypes
+import caliban.Rendering.{ renderDirectives, renderTypes }
 import caliban.execution.{ ExecutionRequest, Executor, QueryExecution }
 import caliban.introspection.Introspector
 import caliban.introspection.adt._
@@ -45,7 +45,12 @@ trait GraphQL[-R] { self =>
                            |}""".stripMargin
     }
 
-    s"""$schema
+    val directivesPrefix = renderDirectives(additionalDirectives) match {
+      case ""           => ""
+      case directiveStr => directiveStr + "\n\n"
+    }
+
+    s"""${directivesPrefix}${schema}
        |
        |${renderTypes(schemaBuilder.types)}""".stripMargin
   }

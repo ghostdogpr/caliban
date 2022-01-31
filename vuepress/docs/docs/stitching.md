@@ -11,14 +11,18 @@ You should also be careful when using stitching since it's very easy to pull in 
 In order to use stitching, add `caliban-tools` to your dependencies:
 
 ```scala
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-tools" % "1.3.2"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-tools" % "1.3.3"
 ```
 
 ## Stitching in Action
 
 Let's start out by defining our API. We'll have `AppUser` profiles, that has a linked `featuredRepository`. For the `featuredRepository`, we want to leverage [Github's GraphQL API](https://docs.github.com/en/graphql).
 
-```scala
+```scala mdoc:silent
+import caliban._
+import caliban.schema._
+import zio._
+
 object StitchingExample extends GenericSchema[ZEnv] {
   case class AppUser(id: String, name: String, featuredRepository: Repository)
   case class Repository(owner: String, name: String)
@@ -29,7 +33,7 @@ object StitchingExample extends GenericSchema[ZEnv] {
     GetUser: GetUserQuery => URIO[ZEnv, AppUser]
   )
 
-  graphQL(
+  val graphQL: GraphQL[ZEnv] = GraphQL.graphQL(
     RootResolver(
       Queries(
         GetUser = query =>
@@ -38,8 +42,8 @@ object StitchingExample extends GenericSchema[ZEnv] {
               id = uuid.toString,
               name = query.name,
               featuredRepository = Repository(query.name, query.repository)
+            )
           )
-        )
       )
     )
   )
