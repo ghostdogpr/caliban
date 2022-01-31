@@ -18,12 +18,12 @@ val mercatorVersion        = "0.2.1"
 val playVersion            = "2.8.13"
 val playJsonVersion        = "2.9.2"
 val sttpVersion            = "3.4.0"
-val tapirVersion           = "0.19.3"  // todo update
-val zioVersion             = "2.0.0-RC1"
-val zioInteropCats2Version = "2.5.1.0" // todo update
-val zioInteropCats3Version = "3.3.0-RC1"
+val tapirVersion           = "0.19.3" // todo update
+val zioVersion             = "2.0.0-RC2"
+val zioInteropCats2Version = "2.5.1.0+11-d4b128a4-SNAPSHOT"
+val zioInteropCats3Version = "3.3.0-RC2"
 val zioConfigVersion       = "3.0.0-RC1"
-val zqueryVersion          = "0.3.0-RC1"
+val zqueryVersion          = "0.3.0-RC2"
 val zioJsonVersion         = "0.3.0-RC2"
 val zioHttpVersion         = "1.0.0.0-RC17"
 
