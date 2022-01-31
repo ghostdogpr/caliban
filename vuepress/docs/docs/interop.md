@@ -11,7 +11,7 @@ You first need to import `caliban.interop.cats.implicits._` and have an implicit
 - the `GraphQLInterpreter` object is enriched with `executeAsync` and `checkAsync`, variants of `execute` and `check` that return an `F[_]: Async` instead of a `ZIO`.
 - the `Http4sAdapter` also has a helper to turn endpoints into cats-effect named `convertHttpEndpointToF`.
 
-In addition to that, a `Schema` for any `F[_]: Async` is provided. That means you can include fields with results wrapped in `F` in your queries, mutations or subscriptions.
+In addition to that, a `Schema` for any `F[_]: Async: Dispatcher` is provided. That means you can include fields with results wrapped in `F` in your queries, mutations or subscriptions.
 
 There are two type classes responsible for the conversion between effects: `caliban.interop.cats.ToEffect` and `caliban.interop.cats.FromEffect`.
 The instances are derived implicitly when `Async[F]`, `Dispatcher[F]`, and `Runtime[R]` are available in the implicit scope.
