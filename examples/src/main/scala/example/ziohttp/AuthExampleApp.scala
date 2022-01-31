@@ -11,8 +11,6 @@ import io.netty.handler.codec.http.{ HttpHeaderNames, HttpHeaderValues }
 import zhttp.http._
 import zhttp.service.Server
 import zio._
-import zio.clock._
-import zio.duration._
 import zio.stream._
 
 case object Unauthorized extends RuntimeException("Unauthorized")
@@ -26,7 +24,7 @@ trait Auth {
 
 object Auth {
 
-  val http: ULayer[Has[Auth]] =
+  val http: ULayer[Auth] =
     FiberRef
       .make[Option[String]](None)
       .map { ref =>
@@ -44,7 +42,7 @@ object Auth {
   object WebSockets {
     private val wsSession = Http.fromEffect(Ref.make[Option[String]](None))
 
-    def live[R <: Has[Auth] with Clock](
+    def live[R <: Auth with Clock](
       interpreter: GraphQLInterpreter[R, CalibanError]
     ): HttpApp[R, CalibanError] =
       wsSession.flatMap { session =>
@@ -71,10 +69,10 @@ object Auth {
             .orElseFail(CalibanError.ExecutionError("Unable to decode payload"))
             .flatMap(user => auth.setUser(Some(user)))
         ) ++
-          WebSocketHooks.afterInit(ZIO.halt(Cause.empty).delay(10.seconds)) ++
+          WebSocketHooks.afterInit(ZIO.failCause(Cause.empty).delay(10.seconds)) ++
           WebSocketHooks
-            .message(new StreamTransformer[Has[Auth], Nothing] {
-              def transform[R1 <: Has[Auth], E1 >: Nothing](
+            .message(new StreamTransformer[Auth, Nothing] {
+              def transform[R1 <: Auth, E1 >: Nothing](
                 stream: ZStream[R1, E1, GraphQLWSOutput]
               ): ZStream[R1, E1, GraphQLWSOutput] = stream.updateService[Auth](_ => auth)
             })
@@ -85,29 +83,29 @@ object Auth {
 
   def middleware[R, B](
     app: Http[R, Throwable, Request, Response[R, Throwable]]
-  ): HttpApp[R with Has[Auth], Throwable] =
+  ): HttpApp[R with Auth, Throwable] =
     Http
       .fromEffectFunction[Request] { (request: Request) =>
         val user = request.headers.find(_.name == "Authorization").map(_.value.toString())
 
-        ZIO.serviceWith[Auth](_.setUser(user)).as(app)
+        ZIO.serviceWithZIO[Auth](_.setUser(user)).as(app)
       }
       .flatten
 }
 
-object Authed extends GenericSchema[ZEnv with Has[Auth]] {
+object Authed extends GenericSchema[ZEnv with Auth] {
   case class Queries(
-    whoAmI: ZIO[Has[Auth], Unauthorized.type, String] = ZIO.service[Auth].flatMap(_.currentUser)
+    whoAmI: ZIO[Auth, Unauthorized.type, String] = ZIO.serviceWithZIO[Auth](_.currentUser)
   )
   case class Subscriptions(
-    whoAmI: ZStream[Has[Auth] with Clock, Unauthorized.type, String] =
-      ZStream.fromEffect(ZIO.service[Auth].flatMap(_.currentUser)).repeat(Schedule.spaced(10.seconds))
+    whoAmI: ZStream[Auth with Clock, Unauthorized.type, String] =
+      ZStream.fromZIO(ZIO.serviceWithZIO[Auth](_.currentUser)).repeat(Schedule.spaced(10.seconds))
   )
 
   val api = graphQL(RootResolver(Queries(), None, Subscriptions()))
 }
 
-object AuthExampleApp extends App {
+object AuthExampleApp extends ZIOAppDefault {
   private val graphiql =
     Http.succeed(
       Response.http(
@@ -116,7 +114,7 @@ object AuthExampleApp extends App {
       )
     )
 
-  override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
+  override def run: ZIO[ZEnv, Nothing, ExitCode] =
     (for {
       interpreter <- (ExampleApi.api |+| Authed.api).interpreter
       _           <- Server

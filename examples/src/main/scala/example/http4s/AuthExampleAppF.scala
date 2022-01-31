@@ -20,7 +20,7 @@ import org.http4s.implicits._
 import org.http4s.blaze.server.BlazeServerBuilder
 import org.http4s.server.{ Router, ServiceErrorHandler }
 import org.typelevel.ci._
-import zio.Runtime
+import zio.{ Runtime, ZEnvironment }
 
 /**
  * The examples shows how to utilize contextual interop between cats-effect and ZIO.
@@ -131,7 +131,7 @@ object AuthExampleAppF extends IOApp.Simple {
   def run: IO[Unit] = {
     type Effect[A] = Kleisli[IO, AuthInfo, A]
 
-    implicit val runtime: Runtime[AuthInfo] = Runtime.default.as(AuthInfo.Empty)
+    implicit val runtime: Runtime[AuthInfo] = Runtime.default.as(ZEnvironment(AuthInfo.Empty))
 
     program[Effect].useForever.run(AuthInfo.Empty).void
   }

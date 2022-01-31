@@ -5,13 +5,13 @@ import caliban.interop.cats.CatsInterop
 import caliban.schema.GenericSchema
 import caliban.{ GraphQL, RootResolver }
 import cats.data.Kleisli
-import cats.effect.{ Async, ExitCode, IO, IOApp }
 import cats.effect.std.{ Console, Dispatcher }
-import cats.mtl.syntax.local._
+import cats.effect.{ Async, ExitCode, IO, IOApp }
 import cats.mtl.Local
-import cats.syntax.functor._
+import cats.mtl.syntax.local._
 import cats.syntax.flatMap._
-import zio.{ Runtime, ZEnv }
+import cats.syntax.functor._
+import zio.{ Runtime, ZEnvironment }
 
 object ContextualCatsInterop extends IOApp {
 
@@ -53,15 +53,13 @@ object ContextualCatsInterop extends IOApp {
 
     Dispatcher[Effect].use { dispatcher =>
       implicit val logger: Logger[Effect] =
-        new Logger[Effect] {
-          def info(message: String): Effect[Unit] =
-            for {
-              ctx <- Local[Effect, LogContext].ask[LogContext]
-              _   <- Console[Effect].println(s"$message - ${ctx.operation}")
-            } yield ()
-        }
+        (message: String) =>
+          for {
+            ctx <- Local[Effect, LogContext].ask[LogContext]
+            _   <- Console[Effect].println(s"$message - ${ctx.operation}")
+          } yield ()
 
-      implicit val zioRuntime: Runtime[LogContext]          = Runtime.default.as(root)
+      implicit val zioRuntime: Runtime[LogContext]          = Runtime.default.as(ZEnvironment(root))
       implicit val interop: CatsInterop[Effect, LogContext] = CatsInterop.contextual(dispatcher)
 
       program[Effect]

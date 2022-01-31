@@ -1,18 +1,16 @@
 package example.optimizations
 
 import example.optimizations.CommonData._
-
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.{ GraphQL, RootResolver }
-
-import zio.console.{ putStrLn, Console }
-import zio.{ App, ExitCode, ZIO }
+import zio.Console.printLine
+import zio.{ Console, ExitCode, ZIO, ZIOAppDefault }
 
 /**
  * Naive implementation of https://blog.apollographql.com/optimizing-your-graphql-request-waterfalls-7c3f3360b051
  * Will result in 47 requests.
  */
-object NaiveTest extends App with GenericSchema[Console] {
+object NaiveTest extends ZIOAppDefault with GenericSchema[Console] {
 
   type MyIO[A] = ZIO[Console, Nothing, A]
 
@@ -38,20 +36,20 @@ object NaiveTest extends App with GenericSchema[Console] {
   )
 
   def getUpcomingEventIdsForUser(id: Int, first: Int): MyIO[List[Int]] =
-    putStrLn("getUpcomingEventIdsForUser").orDie.as((1 to first).toList)
+    printLine("getUpcomingEventIdsForUser").orDie.as((1 to first).toList)
 
   def getViewerMetadataForEvent(id: Int): MyIO[ViewerMetadata] =
-    putStrLn("getViewerMetadataForEvent").orDie.as(ViewerMetadata(""))
+    printLine("getViewerMetadataForEvent").orDie.as(ViewerMetadata(""))
 
-  def getVenue(id: Int): MyIO[Venue] = putStrLn("getVenue").orDie.as(Venue("venue"))
+  def getVenue(id: Int): MyIO[Venue] = printLine("getVenue").orDie.as(Venue("venue"))
 
-  def getTags(ids: List[Int]): MyIO[List[Tag]] = putStrLn("getTags").orDie.as(ids.map(id => Tag(id.toString)))
+  def getTags(ids: List[Int]): MyIO[List[Tag]] = printLine("getTags").orDie.as(ids.map(id => Tag(id.toString)))
 
   def getViewerFriendIdsAttendingEvent(id: Int, first: Int): MyIO[List[Int]] =
-    putStrLn("getViewerFriendIdsAttendingEvent").orDie.as((1 to first).toList)
+    printLine("getViewerFriendIdsAttendingEvent").orDie.as((1 to first).toList)
 
   def getEvent(id: Int): MyIO[Event] =
-    putStrLn("getEvent").orDie.as(
+    printLine("getEvent").orDie.as(
       Event(
         id,
         "name",
@@ -66,7 +64,7 @@ object NaiveTest extends App with GenericSchema[Console] {
     )
 
   def getUser(id: Int): MyIO[User] =
-    putStrLn("getUser").orDie.as(
+    printLine("getUser").orDie.as(
       User(
         "name",
         "name",
@@ -86,7 +84,7 @@ object NaiveTest extends App with GenericSchema[Console] {
   val resolver = Queries(args => getUser(args.id))
   val api      = GraphQL.graphQL(RootResolver(resolver))
 
-  override def run(args: List[String]): ZIO[zio.ZEnv, Nothing, ExitCode] =
+  override def run: ZIO[zio.ZEnv, Nothing, ExitCode] =
     api.interpreter
       .flatMap(_.execute(query).map(res => ExitCode(res.errors.length)))
       .exitCode

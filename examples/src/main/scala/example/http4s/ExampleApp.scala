@@ -13,11 +13,11 @@ import org.http4s.server.middleware.CORS
 import zio._
 import zio.interop.catz._
 
-object ExampleApp extends App {
+object ExampleApp extends ZIOAppDefault {
 
   type ExampleTask[A] = RIO[ZEnv with ExampleService, A]
 
-  override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
+  override def run: URIO[ZEnv, ExitCode] =
     ZIO
       .runtime[ZEnv with ExampleService]
       .flatMap(implicit runtime =>

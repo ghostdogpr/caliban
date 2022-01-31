@@ -16,46 +16,48 @@ import zio.interop.catz._
 object FederatedApp extends CatsApp {
   type ExampleTask[A] = RIO[ZEnv, A]
 
-  val service1 = CharacterService
-    .make(sampleCharacters)
-    .memoize
-    .use(layer =>
-      for {
-        interpreter <- FederatedApi.Characters.api.interpreter.map(_.provideCustomLayer(layer))
-        _           <- BlazeServerBuilder[ExampleTask]
-                         .bindHttp(8089, "localhost")
-                         .withHttpApp(
-                           Router[ExampleTask](
-                             "/api/graphql" -> CORS.policy(Http4sAdapter.makeHttpService(interpreter)),
-                             "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
-                           ).orNotFound
-                         )
-                         .resource
-                         .toManagedZIO
-                         .useForever
-      } yield ()
-    )
+  val service1 =
+    CharacterService
+      .make(sampleCharacters)
+      .memoize
+      .use(layer =>
+        for {
+          interpreter <- FederatedApi.Characters.api.interpreter.map(_.provideCustomLayer(layer))
+          _           <- BlazeServerBuilder[ExampleTask]
+                           .bindHttp(8089, "localhost")
+                           .withHttpApp(
+                             Router[ExampleTask](
+                               "/api/graphql" -> CORS.policy(Http4sAdapter.makeHttpService(interpreter)),
+                               "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
+                             ).orNotFound
+                           )
+                           .resource
+                           .toManagedZIO
+                           .useForever
+        } yield ()
+      )
 
-  val service2 = EpisodeService
-    .make(sampleEpisodes)
-    .memoize
-    .use(layer =>
-      for {
-        interpreter <- FederatedApi.Episodes.api.interpreter.map(_.provideCustomLayer(layer))
-        _           <- BlazeServerBuilder[ExampleTask]
-                         .bindHttp(8088, "localhost")
-                         .withHttpApp(
-                           Router[ExampleTask](
-                             "/api/graphql" -> CORS.policy(Http4sAdapter.makeHttpService(interpreter)),
-                             "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
-                           ).orNotFound
-                         )
-                         .resource
-                         .toManagedZIO
-                         .useForever
-      } yield ()
-    )
+  val service2 =
+    EpisodeService
+      .make(sampleEpisodes)
+      .memoize
+      .use(layer =>
+        for {
+          interpreter <- FederatedApi.Episodes.api.interpreter.map(_.provideCustomLayer(layer))
+          _           <- BlazeServerBuilder[ExampleTask]
+                           .bindHttp(8088, "localhost")
+                           .withHttpApp(
+                             Router[ExampleTask](
+                               "/api/graphql" -> CORS.policy(Http4sAdapter.makeHttpService(interpreter)),
+                               "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
+                             ).orNotFound
+                           )
+                           .resource
+                           .toManagedZIO
+                           .useForever
+        } yield ()
+      )
 
-  override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
+  override def run: URIO[ZEnv, ExitCode] =
     (service1 race service2).exitCode
 }

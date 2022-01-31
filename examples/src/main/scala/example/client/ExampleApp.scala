@@ -1,15 +1,13 @@
 package example.client
 
 import example.client.Client._
-
 import caliban.client.CalibanClientError
-
 import sttp.client3._
 import sttp.client3.asynchttpclient.zio._
-import zio.console.{ putStrLn, Console }
-import zio.{ App, ExitCode, RIO, ZIO }
+import zio.Console.printLine
+import zio._
 
-object ExampleApp extends App {
+object ExampleApp extends ZIOAppDefault {
 
   sealed trait Role
   object Role {
@@ -21,7 +19,7 @@ object ExampleApp extends App {
 
   case class Character(name: String, nicknames: List[String], origin: Origin, role: Option[Role])
 
-  override def run(args: List[String]): ZIO[zio.ZEnv, Nothing, ExitCode] = {
+  override def run: URIO[ZEnv, ExitCode] = {
     val character = {
       import example.client.Client.Character._
       (name ~
@@ -50,7 +48,7 @@ object ExampleApp extends App {
     val mutation  = Mutations.deleteCharacter("James Holden")
 
     def sendRequest[T](req: Request[Either[CalibanClientError, T], Any]): RIO[Console with SttpClient, T] =
-      send(req).map(_.body).absolve.tap(res => putStrLn(s"Result: $res"))
+      send(req).map(_.body).absolve.tap(res => printLine(s"Result: $res"))
 
     val uri   = uri"http://localhost:8088/api/graphql"
     val call1 = sendRequest(mutation.toRequest(uri))

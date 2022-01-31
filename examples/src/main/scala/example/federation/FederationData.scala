@@ -1,10 +1,5 @@
 package example.federation
 
-import example.federation.CharacterService.CharacterService
-
-import caliban.federation
-import caliban.schema.Annotations.GQLDirective
-
 import zio.query.ZQuery
 import _root_.caliban.federation._
 
@@ -71,39 +66,40 @@ object FederationData {
     )
 
     def queryCharacters(season: Int, episode: Int): ZQuery[CharacterService, Nothing, List[Character]] =
-      ZQuery.fromEffect(CharacterService.getCharactersByEpisode(season, episode))
+      ZQuery.fromZIO(CharacterService.getCharactersByEpisode(season, episode))
 
     case class CharactersArgs(origin: Option[Origin])
     case class CharacterArgs(name: String)
     case class EpisodeArgs(season: Int, episode: Int)
 
-    lazy val sampleCharacters = List(
-      Character(
-        "James Holden",
-        List("Jim", "Hoss"),
-        EARTH,
-        Some(Captain("Rocinante")),
-        List(Episode(1, 1), Episode(1, 2), Episode(2, 1))
-      ),
-      Character(
-        "Naomi Nagata",
-        Nil,
-        BELT,
-        Some(Engineer("Rocinante")),
-        List(Episode(1, 1), Episode(1, 2), Episode(2, 1))
-      ),
-      Character(
-        "Amos Burton",
-        Nil,
-        EARTH,
-        Some(Mechanic("Rocinante")),
-        List(Episode(1, 1), Episode(1, 2), Episode(2, 1))
-      ),
-      Character("Alex Kamal", Nil, MARS, Some(Pilot("Rocinante")), List(Episode(1, 1), Episode(1, 2), Episode(2, 1))),
-      Character("Chrisjen Avasarala", Nil, EARTH, None, List(Episode(1, 1), Episode(1, 2), Episode(2, 1))),
-      Character("Josephus Miller", List("Joe"), BELT, None, List(Episode(1, 1), Episode(1, 2), Episode(2, 1))),
-      Character("Roberta Draper", List("Bobbie", "Gunny"), MARS, None, List(Episode(2, 1)))
-    ).map(c => c.copy(starredIn = c.starredIn.map(e => e.copy(characters = queryCharacters(e.season, e.episode)))))
+    lazy val sampleCharacters: List[Character] =
+      List(
+        Character(
+          "James Holden",
+          List("Jim", "Hoss"),
+          EARTH,
+          Some(Captain("Rocinante")),
+          List(Episode(1, 1), Episode(1, 2), Episode(2, 1))
+        ),
+        Character(
+          "Naomi Nagata",
+          Nil,
+          BELT,
+          Some(Engineer("Rocinante")),
+          List(Episode(1, 1), Episode(1, 2), Episode(2, 1))
+        ),
+        Character(
+          "Amos Burton",
+          Nil,
+          EARTH,
+          Some(Mechanic("Rocinante")),
+          List(Episode(1, 1), Episode(1, 2), Episode(2, 1))
+        ),
+        Character("Alex Kamal", Nil, MARS, Some(Pilot("Rocinante")), List(Episode(1, 1), Episode(1, 2), Episode(2, 1))),
+        Character("Chrisjen Avasarala", Nil, EARTH, None, List(Episode(1, 1), Episode(1, 2), Episode(2, 1))),
+        Character("Josephus Miller", List("Joe"), BELT, None, List(Episode(1, 1), Episode(1, 2), Episode(2, 1))),
+        Character("Roberta Draper", List("Bobbie", "Gunny"), MARS, None, List(Episode(2, 1)))
+      ).map(c => c.copy(starredIn = c.starredIn.map(e => e.copy(characters = queryCharacters(e.season, e.episode)))))
   }
 
 }

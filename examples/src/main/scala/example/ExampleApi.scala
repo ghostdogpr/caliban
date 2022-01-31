@@ -9,10 +9,7 @@ import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.wrappers.ApolloTracing.apolloTracing
 import caliban.wrappers.Wrappers._
-import zio.URIO
-import zio.clock.Clock
-import zio.console.Console
-import zio.duration._
+import zio._
 import zio.stream.ZStream
 
 import scala.language.postfixOps

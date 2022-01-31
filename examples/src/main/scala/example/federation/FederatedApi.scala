@@ -5,14 +5,10 @@ import caliban.federation.tracing.ApolloFederatedTracing
 import caliban.federation.{ federated, EntityResolver, GQLKey }
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
+import caliban.wrappers.Wrapper
 import caliban.wrappers.Wrappers.{ maxDepth, maxFields, printSlowQueries, timeout }
-import caliban.{ GraphQL, RootResolver }
-import example.federation.CharacterService.CharacterService
-import example.federation.EpisodeService.EpisodeService
-import zio.URIO
-import zio.clock.Clock
-import zio.console.Console
-import zio.duration._
+import caliban.{ GraphQL, GraphQLAspect, RootResolver }
+import zio._
 import zio.query.ZQuery
 import zio.stream.ZStream
 
@@ -20,11 +16,12 @@ import scala.language.postfixOps
 
 object FederatedApi {
 
-  val standardWrappers = maxFields(200) |+| // query analyzer that limit query fields
-    maxDepth(30) |+|                 // query analyzer that limit query depth
-    timeout(3 seconds) |+|           // wrapper that fails slow queries
-    printSlowQueries(500 millis) |+| // wrapper that logs slow queries
-    ApolloFederatedTracing.wrapper   // wrapper for https://github.com/apollographql/apollo-tracing
+  val standardWrappers: Wrapper[Console with Clock] =
+    maxFields(200) |+|                 // query analyzer that limit query fields
+      maxDepth(30) |+|                 // query analyzer that limit query depth
+      timeout(3 seconds) |+|           // wrapper that fails slow queries
+      printSlowQueries(500 millis) |+| // wrapper that logs slow queries
+      ApolloFederatedTracing.wrapper   // wrapper for https://github.com/apollographql/apollo-tracing
 
   object Characters extends GenericSchema[CharacterService] {
     import example.federation.FederationData.characters.{
@@ -63,22 +60,23 @@ object FederatedApi {
     implicit val episodeArgs: Schema[Any, EpisodeArgs]                 = Schema.gen
     implicit val episodeArgBuilder: ArgBuilder[EpisodeArgs]            = ArgBuilder.gen
 
-    val withFederation = federated(
-      EntityResolver.from[CharacterArgs](args => ZQuery.fromEffect(CharacterService.findCharacter(args.name))),
-      EntityResolver.from[EpisodeArgs](args =>
-        ZQuery
-          .fromEffect(CharacterService.getCharactersByEpisode(args.season, args.episode))
-          .map(characters =>
-            Some(
-              Episode(
-                args.season,
-                args.episode,
-                ZQuery.succeed(characters)
+    val withFederation: GraphQLAspect[Nothing, CharacterService] =
+      federated(
+        EntityResolver.from[CharacterArgs](args => ZQuery.fromZIO(CharacterService.findCharacter(args.name))),
+        EntityResolver.from[EpisodeArgs](args =>
+          ZQuery
+            .fromZIO(CharacterService.getCharactersByEpisode(args.season, args.episode))
+            .map(characters =>
+              Some(
+                Episode(
+                  args.season,
+                  args.episode,
+                  ZQuery.succeed(characters)
+                )
               )
             )
-          )
+        )
       )
-    )
 
     val api: GraphQL[Console with Clock with CharacterService] =
       graphQL(
@@ -113,9 +111,7 @@ object FederatedApi {
           )
         )
       ) @@ standardWrappers @@ federated(
-        EntityResolver.from[EpisodeArgs](args =>
-          ZQuery.fromEffect(EpisodeService.getEpisode(args.season, args.episode))
-        )
+        EntityResolver.from[EpisodeArgs](args => ZQuery.fromZIO(EpisodeService.getEpisode(args.season, args.episode)))
       )
 
   }

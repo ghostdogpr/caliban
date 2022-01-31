@@ -6,28 +6,26 @@ val scala213 = "2.13.8"
 val scala3   = "3.1.0"
 val allScala = Seq(scala212, scala213, scala3)
 
-val akkaVersion             = "2.6.17"
-val catsEffect2Version      = "2.5.4"
-val catsEffect3Version      = "3.3.5"
-val catsMtlVersion          = "1.2.1"
-val circeVersion            = "0.14.1"
-val http4sVersion           = "0.23.9"
-val laminextVersion         = "0.14.3"
-val magnoliaVersion         = "0.17.0"
-val mercatorVersion         = "0.2.1"
-val playVersion             = "2.8.13"
-val playJsonVersion         = "2.9.2"
-val sttpVersion             = "3.4.0"
-val tapirVersion            = "0.19.3"
-val zioVersion              = "1.0.13"
-val zio2Version             = "2.0.0-RC1"
-val zioInteropCats2Version  = "2.5.1.0"
-val zioInteropCats3Version  = "3.2.9.0"
-val zio2InteropCats3Version = "3.3.0-RC1"
-val zioConfigVersion        = "3.0.0-RC1"
-val zqueryVersion           = "0.3.0-RC1"
-val zioJsonVersion          = "0.1.5"
-val zioHttpVersion          = "1.0.0.0-RC17"
+val akkaVersion            = "2.6.17"
+val catsEffect2Version     = "2.5.4"
+val catsEffect3Version     = "3.3.5"
+val catsMtlVersion         = "1.2.1"
+val circeVersion           = "0.14.1"
+val http4sVersion          = "0.23.9"
+val laminextVersion        = "0.14.3"
+val magnoliaVersion        = "0.17.0"
+val mercatorVersion        = "0.2.1"
+val playVersion            = "2.8.13"
+val playJsonVersion        = "2.9.2"
+val sttpVersion            = "3.4.0"
+val tapirVersion           = "0.19.3"
+val zioVersion             = "2.0.0-RC1"
+val zioInteropCats2Version = "2.5.1.0"
+val zioInteropCats3Version = "3.3.0-RC1"
+val zioConfigVersion       = "3.0.0-RC1"
+val zqueryVersion          = "0.3.0-RC1"
+val zioJsonVersion         = "0.1.5"
+val zioHttpVersion         = "1.0.0.0-RC17"
 
 inThisBuild(
   List(
@@ -129,11 +127,11 @@ lazy val core = project
       }
     } ++
       Seq(
-        "dev.zio"                     %% "zio"          % zio2Version,
-        "dev.zio"                     %% "zio-streams"  % zio2Version,
+        "dev.zio"                     %% "zio"          % zioVersion,
+        "dev.zio"                     %% "zio-streams"  % zioVersion,
         "dev.zio"                     %% "zio-query"    % zqueryVersion,
-        "dev.zio"                     %% "zio-test"     % zio2Version  % Test,
-        "dev.zio"                     %% "zio-test-sbt" % zio2Version  % Test,
+        "dev.zio"                     %% "zio-test"     % zioVersion   % Test,
+        "dev.zio"                     %% "zio-test-sbt" % zioVersion   % Test,
         "com.softwaremill.sttp.tapir" %% "tapir-core"   % tapirVersion % Optional,
         "io.circe"                    %% "circe-core"   % circeVersion % Optional,
         "io.circe"                    %% "circe-parser" % circeVersion % Test
@@ -158,8 +156,8 @@ lazy val tools = project
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
       "dev.zio"                       %% "zio-config"                    % zioConfigVersion,
       "dev.zio"                       %% "zio-config-magnolia"           % zioConfigVersion,
-      "dev.zio"                       %% "zio-test"                      % zio2Version % Test,
-      "dev.zio"                       %% "zio-test-sbt"                  % zio2Version % Test
+      "dev.zio"                       %% "zio-test"                      % zioVersion % Test,
+      "dev.zio"                       %% "zio-test-sbt"                  % zioVersion % Test
     )
   )
   .dependsOn(core, clientJVM)
@@ -211,9 +209,9 @@ lazy val catsInterop = project
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
     } ++ Seq(
       "org.typelevel" %% "cats-effect"      % catsEffect3Version,
-      "dev.zio"       %% "zio-interop-cats" % zio2InteropCats3Version,
-      "dev.zio"       %% "zio-test"         % zio2Version % Test,
-      "dev.zio"       %% "zio-test-sbt"     % zio2Version % Test
+      "dev.zio"       %% "zio-interop-cats" % zioInteropCats3Version,
+      "dev.zio"       %% "zio-test"         % zioVersion % Test,
+      "dev.zio"       %% "zio-test-sbt"     % zioVersion % Test
     )
   )
   .dependsOn(core)
@@ -247,8 +245,8 @@ lazy val tapirInterop = project
         "com.softwaremill.sttp.tapir"   %% "tapir-sttp-client"             % tapirVersion % Test,
         "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % tapirVersion % Test,
         "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion  % Test,
-        "dev.zio"                       %% "zio-test"                      % zio2Version  % Test,
-        "dev.zio"                       %% "zio-test-sbt"                  % zio2Version  % Test
+        "dev.zio"                       %% "zio-test"                      % zioVersion   % Test,
+        "dev.zio"                       %% "zio-test-sbt"                  % zioVersion   % Test
       )
   )
   .dependsOn(core)
@@ -264,13 +262,13 @@ lazy val http4s = project
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
     } ++
       Seq(
-        "dev.zio"                       %% "zio-interop-cats"              % zio2InteropCats3Version,
+        "dev.zio"                       %% "zio-interop-cats"              % zioInteropCats3Version,
         "org.typelevel"                 %% "cats-effect"                   % catsEffect3Version,
         "com.softwaremill.sttp.tapir"   %% "tapir-zio-http4s-server"       % tapirVersion,
         "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % tapirVersion,
         "org.http4s"                    %% "http4s-blaze-server"           % http4sVersion % Test,
-        "dev.zio"                       %% "zio-test"                      % zio2Version   % Test,
-        "dev.zio"                       %% "zio-test-sbt"                  % zio2Version   % Test,
+        "dev.zio"                       %% "zio-test"                      % zioVersion    % Test,
+        "dev.zio"                       %% "zio-test-sbt"                  % zioVersion    % Test,
         "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion   % Test,
         "com.softwaremill.sttp.client3" %% "circe"                         % sttpVersion   % Test,
         "io.circe"                      %% "circe-generic"                 % circeVersion  % Test
@@ -319,8 +317,8 @@ lazy val play = project
       "com.typesafe.play"             %% "play"                          % playVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-play-server"             % tapirVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-json-play"               % tapirVersion,
-      "dev.zio"                       %% "zio-test"                      % zio2Version  % Test,
-      "dev.zio"                       %% "zio-test-sbt"                  % zio2Version  % Test,
+      "dev.zio"                       %% "zio-test"                      % zioVersion   % Test,
+      "dev.zio"                       %% "zio-test-sbt"                  % zioVersion   % Test,
       "com.typesafe.play"             %% "play-akka-http-server"         % playVersion  % Test,
       "io.circe"                      %% "circe-generic"                 % circeVersion % Test,
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion  % Test,
@@ -341,8 +339,8 @@ lazy val client    = crossProject(JSPlatform, JVMPlatform)
       "io.circe"                      %%% "circe-parser" % circeVersion,
       "com.softwaremill.sttp.client3" %%% "core"         % sttpVersion,
       "com.softwaremill.sttp.client3" %%% "circe"        % sttpVersion,
-      "dev.zio"                       %%% "zio-test"     % zio2Version % Test,
-      "dev.zio"                       %%% "zio-test-sbt" % zio2Version % Test
+      "dev.zio"                       %%% "zio-test"     % zioVersion % Test,
+      "dev.zio"                       %%% "zio-test-sbt" % zioVersion % Test
     )
   )
 lazy val clientJVM = client.jvm
@@ -377,8 +375,8 @@ lazy val clientLaminext = crossProject(JSPlatform)
       "io.laminext" %%% "fetch-circe"     % laminextVersion,
       "io.laminext" %%% "websocket"       % laminextVersion,
       "io.laminext" %%% "websocket-circe" % laminextVersion,
-      "dev.zio"     %%% "zio-test"        % zio2Version % Test,
-      "dev.zio"     %%% "zio-test-sbt"    % zio2Version % Test
+      "dev.zio"     %%% "zio-test"        % zioVersion % Test,
+      "dev.zio"     %%% "zio-test-sbt"    % zioVersion % Test
     )
   )
 
@@ -439,9 +437,9 @@ lazy val federation = project
   .settings(
     testFrameworks       := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "dev.zio" %% "zio"          % zio2Version,
-      "dev.zio" %% "zio-test"     % zio2Version % Test,
-      "dev.zio" %% "zio-test-sbt" % zio2Version % Test
+      "dev.zio" %% "zio"          % zioVersion,
+      "dev.zio" %% "zio-test"     % zioVersion % Test,
+      "dev.zio" %% "zio-test-sbt" % zioVersion % Test
     ),
     Compile / PB.targets := Seq(
       scalapb.gen(grpc = false) -> (Compile / sourceManaged).value / "scalapb"

@@ -3,44 +3,42 @@ package example.federation
 import example.federation.FederationData.characters._
 
 import zio.stream.ZStream
-import zio.{ Has, Queue, Ref, UIO, URIO, ZLayer }
+import zio.{ Queue, Ref, UIO, URIO, ZLayer }
+
+trait CharacterService {
+  def getCharactersByEpisode(season: Int, episode: Int): UIO[List[Character]]
+
+  def getCharacters(origin: Option[Origin]): UIO[List[Character]]
+
+  def findCharacter(name: String): UIO[Option[Character]]
+
+  def deleteCharacter(name: String): UIO[Boolean]
+
+  def deletedEvents: ZStream[Any, Nothing, String]
+}
 
 object CharacterService {
 
-  type CharacterService = Has[Service]
-
-  trait Service {
-    def getCharactersByEpisode(season: Int, episode: Int): UIO[List[Character]]
-
-    def getCharacters(origin: Option[Origin]): UIO[List[Character]]
-
-    def findCharacter(name: String): UIO[Option[Character]]
-
-    def deleteCharacter(name: String): UIO[Boolean]
-
-    def deletedEvents: ZStream[Any, Nothing, String]
-  }
-
   def getCharacters(origin: Option[Origin]): URIO[CharacterService, List[Character]] =
-    URIO.accessM(_.get.getCharacters(origin))
+    URIO.serviceWithZIO(_.getCharacters(origin))
 
   def findCharacter(name: String): URIO[CharacterService, Option[Character]] =
-    URIO.accessM(_.get.findCharacter(name))
+    URIO.serviceWithZIO(_.findCharacter(name))
 
   def deleteCharacter(name: String): URIO[CharacterService, Boolean] =
-    URIO.accessM(_.get.deleteCharacter(name))
+    URIO.serviceWithZIO(_.deleteCharacter(name))
 
   def deletedEvents: ZStream[CharacterService, Nothing, String] =
-    ZStream.accessStream(_.get.deletedEvents)
+    ZStream.serviceWithStream(_.deletedEvents)
 
   def getCharactersByEpisode(season: Int, episode: Int): URIO[CharacterService, List[Character]] =
-    URIO.accessM(_.get.getCharactersByEpisode(season, episode))
+    URIO.serviceWithZIO(_.getCharactersByEpisode(season, episode))
 
   def make(initial: List[Character]): ZLayer[Any, Nothing, CharacterService] =
     (for {
       characters  <- Ref.make(initial)
       subscribers <- Ref.make(List.empty[Queue[String]])
-    } yield new Service {
+    } yield new CharacterService {
 
       def getCharacters(origin: Option[Origin]): UIO[List[Character]] =
         characters.get.map(_.filter(c => origin.forall(c.origin == _)))
@@ -61,7 +59,7 @@ object CharacterService {
                   queue
                     .offer(name)
                     .catchSomeCause {
-                      case cause if cause.interrupted =>
+                      case cause if cause.isInterrupted =>
                         subscribers.update(_.filterNot(_ == queue)).as(false)
                     } // if queue was shutdown, remove from subscribers
                 )
@@ -76,7 +74,7 @@ object CharacterService {
         } yield ZStream.fromQueue(queue).ensuring(queue.shutdown)
       }
 
-      override def getCharactersByEpisode(season: Int, episode: Int): UIO[List[Character]] =
+      def getCharactersByEpisode(season: Int, episode: Int): UIO[List[Character]] =
         characters.get.map(_.filter(c => c.starredIn.exists(e => e.episode == episode && e.season == season)))
     }).toLayer
 }

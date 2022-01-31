@@ -10,31 +10,27 @@ import org.http4s.blaze.server.BlazeServerBuilder
 import org.http4s.server.{ Router, ServiceErrorHandler }
 import org.typelevel.ci.CIString
 import zio._
-import zio.blocking.Blocking
-import zio.clock.Clock
 import zio.interop.catz._
 
 object AuthExampleApp extends CatsApp {
 
   // Simple service that returns the token coming from the request
-  type Auth = Has[Auth.Service]
-  object Auth {
-    trait Service {
-      def token: String
-    }
+  trait Auth {
+    def token: String
   }
-  type AuthTask[A] = RIO[Auth with Clock with Blocking, A]
-  type MyTask[A] = RIO[Clock with Blocking, A]
+
+  type AuthTask[A] = RIO[Auth with Clock, A]
+  type MyTask[A]   = RIO[Clock, A]
 
   case class MissingToken() extends Throwable
 
   // http4s middleware that extracts a token from the request and eliminate the Auth layer dependency
   object AuthMiddleware {
     def apply(route: HttpRoutes[AuthTask]): HttpRoutes[MyTask] =
-      Http4sAdapter.provideSomeLayerFromRequest[Clock with Blocking, Auth](
+      Http4sAdapter.provideSomeLayerFromRequest[Clock, Auth](
         route,
         _.headers.get(CIString("token")) match {
-          case Some(value) => ZLayer.succeed(new Auth.Service { override def token: String = value.head.value })
+          case Some(value) => ZLayer.succeed(new Auth { override def token: String = value.head.value })
           case None        => ZLayer.fail(MissingToken())
         }
       )
@@ -49,7 +45,7 @@ object AuthExampleApp extends CatsApp {
   val schema: GenericSchema[Auth] = new GenericSchema[Auth] {}
   import schema._
   case class Query(token: RIO[Auth, String])
-  private val resolver            = RootResolver(Query(ZIO.access[Auth](_.get[Auth.Service].token)))
+  private val resolver            = RootResolver(Query(ZIO.serviceWith[Auth](_.token)))
   private val api                 = graphQL(resolver)
 
   override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =

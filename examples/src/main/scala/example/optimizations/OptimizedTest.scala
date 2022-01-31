@@ -1,20 +1,18 @@
 package example.optimizations
 
 import example.optimizations.CommonData._
-
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.{ GraphQL, RootResolver }
-
-import zio.console.{ putStrLn, Console }
-import zio.{ App, ExitCode, ZIO }
-import zio.query.DataSource.fromFunctionBatchedM
+import zio.Console.printLine
+import zio.{ Console, ExitCode, ZIO, ZIOAppDefault }
+import zio.query.DataSource.fromFunctionBatchedZIO
 import zio.query.{ CompletedRequestMap, DataSource, Request, ZQuery }
 
 /**
  * Optimized implementation of https://blog.apollographql.com/optimizing-your-graphql-request-waterfalls-7c3f3360b051
  * Will result in 8 requests.
  */
-object OptimizedTest extends App with GenericSchema[Console] {
+object OptimizedTest extends ZIOAppDefault with GenericSchema[Console] {
 
   type ConsoleQuery[A] = ZQuery[Console, Nothing, A]
 
@@ -61,9 +59,10 @@ object OptimizedTest extends App with GenericSchema[Console] {
   case class GetUser(id: Int) extends Request[Nothing, User]
   val UserDataSource: DataSource[Console, GetUser] = DataSource.Batched.make("UserDataSource") { requests =>
     requests.toList match {
-      case head :: Nil => putStrLn("getUser").orDie.as(CompletedRequestMap.empty.insert(head)(Right(fakeUser(head.id))))
+      case head :: Nil =>
+        printLine("getUser").orDie.as(CompletedRequestMap.empty.insert(head)(Right(fakeUser(head.id))))
       case list        =>
-        putStrLn("getUsers").orDie.as(list.foldLeft(CompletedRequestMap.empty) { case (map, req) =>
+        printLine("getUsers").orDie.as(list.foldLeft(CompletedRequestMap.empty) { case (map, req) =>
           map.insert(req)(Right(fakeUser(req.id)))
         })
     }
@@ -71,34 +70,34 @@ object OptimizedTest extends App with GenericSchema[Console] {
 
   case class GetEvent(id: Int) extends Request[Nothing, Event]
   val EventDataSource: DataSource[Console, GetEvent] =
-    fromFunctionBatchedM("EventDataSource")(requests => putStrLn("getEvents").as(requests.map(r => fakeEvent(r.id))))
+    fromFunctionBatchedZIO("EventDataSource")(requests => printLine("getEvents").as(requests.map(r => fakeEvent(r.id))))
 
   case class GetViewerMetadataForEvents(id: Int) extends Request[Nothing, ViewerMetadata]
   val ViewerMetadataDataSource: DataSource[Console, GetViewerMetadataForEvents] =
-    fromFunctionBatchedM("ViewerMetadataDataSource") { requests =>
-      putStrLn("getViewerMetadataForEvents").as(requests.map(_ => ViewerMetadata("")))
+    fromFunctionBatchedZIO("ViewerMetadataDataSource") { requests =>
+      printLine("getViewerMetadataForEvents").as(requests.map(_ => ViewerMetadata("")))
     }
 
   case class GetVenue(id: Int) extends Request[Nothing, Venue]
   val VenueDataSource: DataSource[Console, GetVenue] =
-    fromFunctionBatchedM("VenueDataSource")(requests => putStrLn("getVenues").as(requests.map(_ => Venue("venue"))))
+    fromFunctionBatchedZIO("VenueDataSource")(requests => printLine("getVenues").as(requests.map(_ => Venue("venue"))))
 
   case class GetTags(ids: List[Int]) extends Request[Nothing, List[Tag]]
   val TagsDataSource: DataSource[Console, GetTags] =
-    fromFunctionBatchedM("TagsDataSource") { requests =>
-      putStrLn("getTags").as(requests.map(_.ids.map(id => Tag(id.toString))))
+    fromFunctionBatchedZIO("TagsDataSource") { requests =>
+      printLine("getTags").as(requests.map(_.ids.map(id => Tag(id.toString))))
     }
 
   case class GetViewerFriendIdsAttendingEvent(id: Int, first: Int) extends Request[Nothing, List[Int]]
   val ViewerFriendDataSource: DataSource[Console, GetViewerFriendIdsAttendingEvent] =
-    fromFunctionBatchedM("ViewerFriendDataSource") { requests =>
-      putStrLn("getViewerFriendIdsAttendingEvent").as(requests.map(r => (1 to r.first).toList))
+    fromFunctionBatchedZIO("ViewerFriendDataSource") { requests =>
+      printLine("getViewerFriendIdsAttendingEvent").as(requests.map(r => (1 to r.first).toList))
     }
 
   case class GetUpcomingEventIdsForUser(id: Int, first: Int) extends Request[Nothing, List[Int]]
   val UpcomingEventDataSource: DataSource[Console, GetUpcomingEventIdsForUser] =
-    fromFunctionBatchedM("UpcomingEventDataSource") { requests =>
-      putStrLn("getUpcomingEventIdsForUser").as(requests.map(r => (1 to r.first).toList))
+    fromFunctionBatchedZIO("UpcomingEventDataSource") { requests =>
+      printLine("getUpcomingEventIdsForUser").as(requests.map(r => (1 to r.first).toList))
     }
 
   def getUser(id: Int): ConsoleQuery[User]                                           = ZQuery.fromRequest(GetUser(id))(UserDataSource)
@@ -123,7 +122,7 @@ object OptimizedTest extends App with GenericSchema[Console] {
   val resolver = Queries(args => getUser(args.id))
   val api      = GraphQL.graphQL(RootResolver(resolver))
 
-  override def run(args: List[String]): ZIO[zio.ZEnv, Nothing, ExitCode] =
+  override def run: ZIO[zio.ZEnv, Nothing, ExitCode] =
     api.interpreter
       .flatMap(_.execute(query).map(res => ExitCode(res.errors.length)))
       .exitCode

@@ -11,17 +11,14 @@ import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives._
 import caliban.AkkaHttpAdapter
 import sttp.tapir.json.circe._
-import zio.clock.Clock
-import zio.console.Console
-import zio.internal.Platform
-import zio.Runtime
+import zio.{ Clock, Console, Runtime, RuntimeConfig }
 
 object ExampleApp extends App {
 
   implicit val system: ActorSystem                                      = ActorSystem()
   implicit val executionContext: ExecutionContextExecutor               = system.dispatcher
   implicit val runtime: Runtime[ExampleService with Console with Clock] =
-    Runtime.unsafeFromLayer(ExampleService.make(sampleCharacters) ++ Console.live ++ Clock.live, Platform.default)
+    Runtime.unsafeFromLayer(ExampleService.make(sampleCharacters) ++ Console.live ++ Clock.live, RuntimeConfig.default)
 
   val interpreter = runtime.unsafeRun(ExampleApi.api.interpreter)
 

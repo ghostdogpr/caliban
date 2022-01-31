@@ -12,11 +12,8 @@ import play.core.server.{ AkkaHttpServer, ServerConfig }
 import sttp.model.StatusCode
 import sttp.tapir.json.play._
 import sttp.tapir.model.ServerRequest
-import zio.blocking.Blocking
-import zio.internal.Platform
-import zio.random.Random
 import zio.stream.ZStream
-import zio.{ FiberRef, Has, RIO, Runtime, ZIO }
+import zio.{ FiberRef, RIO, Random, Runtime, RuntimeConfig, ZIO }
 
 import scala.concurrent.ExecutionContextExecutor
 import scala.io.StdIn.readLine
@@ -24,7 +21,7 @@ import scala.io.StdIn.readLine
 object AuthExampleApp extends App {
   case class AuthToken(value: String)
 
-  type Auth = Has[FiberRef[Option[AuthToken]]]
+  type Auth = FiberRef[Option[AuthToken]]
 
   implicit val system: ActorSystem                        = ActorSystem()
   implicit val executionContext: ExecutionContextExecutor = system.dispatcher
@@ -32,7 +29,7 @@ object AuthExampleApp extends App {
   object AuthWrapper extends RequestInterceptor[Auth] {
     override def apply[R <: Auth, A](request: ServerRequest)(effect: ZIO[R, StatusCode, A]): ZIO[R, StatusCode, A] =
       request.header("token") match {
-        case Some(token) => ZIO.accessM[Auth](_.get.set(Some(AuthToken(token)))) *> effect
+        case Some(token) => ZIO.serviceWithZIO[Auth](_.set(Some(AuthToken(token)))) *> effect
         case None        => ZIO.fail(StatusCode.Forbidden)
       }
   }
@@ -43,7 +40,7 @@ object AuthExampleApp extends App {
   case class Mutation(x: RIO[Auth, Option[String]])
   case class Subscription(x: ZStream[Auth, Throwable, Option[String]])
   private val resolver            = RootResolver(
-    Query(ZIO.accessM[Auth](_.get.get).map(_.map(_.value))),
+    Query(ZIO.serviceWithZIO[Auth](_.get).map(_.map(_.value))),
     Mutation(ZIO.some("foo")),
     Subscription(ZStream.empty)
   )
@@ -53,8 +50,8 @@ object AuthExampleApp extends App {
   // pass on so that they are present in the environment for our ResultWrapper(s)
   // For the auth we wrap in an option, but you could just as well use something
   // like AuthToken("__INVALID") or a sealed trait hierarchy with an invalid member
-  val initLayer                                                 = FiberRef.make(Option.empty[AuthToken]).toLayer ++ Blocking.live ++ Random.live
-  implicit val runtime: Runtime[Auth with Blocking with Random] = Runtime.unsafeFromLayer(initLayer, Platform.default)
+  val initLayer                                   = FiberRef.make(Option.empty[AuthToken]).toLayer ++ Random.live
+  implicit val runtime: Runtime[Auth with Random] = Runtime.unsafeFromLayer(initLayer, RuntimeConfig.default)
 
   val interpreter = runtime.unsafeRun(api.interpreter)
 
