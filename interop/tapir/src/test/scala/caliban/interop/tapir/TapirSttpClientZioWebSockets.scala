@@ -11,6 +11,7 @@ import zio.stream.{ Stream, ZStream }
 import scala.reflect.ClassTag
 
 object TapirSttpClientZioWebSockets {
+  // copied from tapir, ZIO 2.0 is not yet supported for this module
   implicit val webSocketsSupportedForZioStreams: WebSocketToPipe[ZioStreams with WebSockets] =
     new WebSocketToZioPipe[ZioStreams with WebSockets]
 
