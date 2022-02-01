@@ -6,7 +6,7 @@ val scala213 = "2.13.8"
 val scala3   = "3.1.0"
 val allScala = Seq(scala212, scala213, scala3)
 
-val akkaVersion            = "2.6.17"
+val akkaVersion            = "2.6.18"
 val catsEffect2Version     = "2.5.4"
 val catsEffect3Version     = "3.3.5"
 val catsMtlVersion         = "1.2.1"

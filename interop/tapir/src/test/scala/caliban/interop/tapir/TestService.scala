@@ -85,7 +85,8 @@ object TestService {
           .tap(deleted => UIO.when(deleted)(subscribers.publish(name)))
 
       def deletedEvents: ZStream[Any, Nothing, String] =
-        ZStream.unwrapManaged(subscribers.subscribe.map(ZStream.fromQueue(_)))
+        ZStream.fromHub(subscribers)
+
     }).toLayer
 
   private def sha256(b: Array[Byte]): Array[Byte] =
