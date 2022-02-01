@@ -229,7 +229,7 @@ object ParserSpec extends DefaultRunnableSpec {
                   index = 39
                 )
               ),
-              sourceMapper = SourceMapper(query)
+              sourceMapper = SourceMapper.apply(query)
             )
           )
         )
@@ -493,7 +493,7 @@ object ParserSpec extends DefaultRunnableSpec {
         )
       },
       testM("input with no body") {
-        val inputWithNoBody = "input BarBaz"
+        val inputWithNoBody = "input BarBaz".stripMargin
         assertM(Parser.parseQuery(inputWithNoBody))(
           equalTo(
             Document(
@@ -511,8 +511,8 @@ object ParserSpec extends DefaultRunnableSpec {
         )
       },
       testM("input with empty body") {
-        val inputWithNoBody = "input BarBaz { }"
-        assertM(Parser.parseQuery(inputWithNoBody))(
+        val inputWithEmptyBody = "input BarBaz { }"
+        assertM(Parser.parseQuery(inputWithEmptyBody))(
           equalTo(
             Document(
               List(
@@ -523,7 +523,7 @@ object ParserSpec extends DefaultRunnableSpec {
                   fields = Nil
                 )
               ),
-              sourceMapper = SourceMapper.apply(inputWithNoBody)
+              sourceMapper = SourceMapper.apply(inputWithEmptyBody)
             )
           )
         )

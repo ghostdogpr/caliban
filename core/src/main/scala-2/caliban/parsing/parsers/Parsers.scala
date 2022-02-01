@@ -77,7 +77,7 @@ private[caliban] object Parsers extends SelectionParsers {
     }
 
   def inputObjectTypeDefinition(implicit ev: P[Any]): P[InputObjectTypeDefinition] =
-    P(inputObjectTypeDefinitionWithoutBody | inputObjectTypeDefinitionWithBody)
+    inputObjectTypeDefinitionWithBody | inputObjectTypeDefinitionWithoutBody
 
   def inputObjectTypeDefinitionWithBody(implicit ev: P[Any]): P[InputObjectTypeDefinition] =
     P(stringValue.? ~ "input" ~/ name ~ directives.? ~ "{" ~ argumentDefinition.rep ~ "}").map {
@@ -98,7 +98,7 @@ private[caliban] object Parsers extends SelectionParsers {
   def enumName(implicit ev: P[Any]): P[String] = name.filter(s => s != "true" && s != "false" && s != "null")
 
   def enumTypeDefinition(implicit ev: P[Any]): P[EnumTypeDefinition] =
-    P(enumTypeDefinitionWithoutBody | enumTypeDefinitionWithBody)
+    P(enumTypeDefinitionWithBody | enumTypeDefinitionWithoutBody)
 
   def enumTypeDefinitionWithBody(implicit ev: P[Any]): P[EnumTypeDefinition] =
     P(stringValue.? ~ "enum" ~/ enumName ~ directives.? ~ "{" ~ enumValueDefinition.rep ~ "}").map {
@@ -108,7 +108,12 @@ private[caliban] object Parsers extends SelectionParsers {
 
   def enumTypeDefinitionWithoutBody(implicit ev: P[Any]): P[EnumTypeDefinition] =
     P(stringValue.? ~ "enum" ~/ enumName ~ directives.?).map { case (description, name, directives) =>
-      EnumTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), enumValuesDefinition = Nil)
+      EnumTypeDefinition(
+        description.map(_.value),
+        name,
+        directives.getOrElse(Nil),
+        enumValuesDefinition = Nil
+      )
     }
 
   def unionTypeDefinition(implicit ev: P[Any]): P[UnionTypeDefinition] =
