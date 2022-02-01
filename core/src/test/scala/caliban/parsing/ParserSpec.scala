@@ -493,7 +493,7 @@ object ParserSpec extends DefaultRunnableSpec {
         )
       },
       testM("input with no body") {
-        val inputWithNoBody = "input BarBaz".stripMargin
+        val inputWithNoBody = "input BarBaz"
         assertM(Parser.parseQuery(inputWithNoBody))(
           equalTo(
             Document(
