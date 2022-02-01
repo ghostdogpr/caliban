@@ -362,8 +362,13 @@ object Parser {
     ((P.string(
       "input"
     ) *> whitespaceWithComment1 *> name <* whitespaceWithComment) ~ (directives <* whitespaceWithComment).? ~
-      wrapBrackets(argumentDefinition.repSep0(whitespaceWithComment))).map { case ((name, directives), fields) =>
-      InputObjectTypeDefinition(description, name, directives.getOrElse(Nil), fields)
+      wrapBrackets(argumentDefinition.repSep0(whitespaceWithComment)).?).map { case ((name, directives), fields) =>
+      InputObjectTypeDefinition(
+        description,
+        name,
+        directives.getOrElse(Nil),
+        fields.fold(List[InputValueDefinition]())(_.toList)
+      )
     }
 
   private val enumValueDefinition: P[EnumValueDefinition] =
@@ -378,8 +383,13 @@ object Parser {
     ((P.string("enum") *> whitespaceWithComment1 *> enumName <* whitespaceWithComment) ~
       (directives <* whitespaceWithComment).? ~ wrapBrackets(
         enumValueDefinition.repSep0(whitespaceWithComment)
-      )).map { case ((name, directives), enumValuesDefinition) =>
-      EnumTypeDefinition(description, name, directives.getOrElse(Nil), enumValuesDefinition)
+      ).?).map { case ((name, directives), enumValuesDefinition) =>
+      EnumTypeDefinition(
+        description,
+        name,
+        directives.getOrElse(Nil),
+        enumValuesDefinition.fold(List[EnumValueDefinition]())(_.toList)
+      )
     }
 
   private def unionTypeDefinition(description: Option[String]): P[UnionTypeDefinition] =
