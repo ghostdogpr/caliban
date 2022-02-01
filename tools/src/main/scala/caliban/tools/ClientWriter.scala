@@ -661,35 +661,34 @@ object ClientWriter {
         s"$fieldName.fold(__NullValue: __Value)(value => ${writeInputValue(ListType(ofType, nonNull = true), "value", typeName)})"
     }
 
-    def writeEnum(
-      typedef: EnumTypeDefinition,
-      extensibleEnums: Boolean
-    ): String = {
+    def writeEnum(typedef: EnumTypeDefinition, extensibleEnums: Boolean): String =
+      typedef.enumValuesDefinition match {
+        case Nil           => throw new Exception("Invalid GraphQL Schema: an enum must have at least one value")
+        case enumValueDefs =>
+          val enumName = safeTypeName(typedef.name)
 
-      val enumName = safeTypeName(typedef.name)
+          val mappingClashedEnumValues = getMappingsClashedNames(
+            enumValueDefs.map(_.enumValue)
+          )
 
-      val mappingClashedEnumValues = getMappingsClashedNames(
-        typedef.enumValuesDefinition.map(_.enumValue)
-      )
+          def safeEnumValue(enumValue: String): String =
+            safeName(mappingClashedEnumValues.getOrElse(enumValue, enumValue))
 
-      def safeEnumValue(enumValue: String): String =
-        safeName(mappingClashedEnumValues.getOrElse(enumValue, enumValue))
+          val enumCases = enumValueDefs
+            .map(v =>
+              s"case object ${safeEnumValue(v.enumValue)} extends $enumName { val value: String = ${"\"" + safeEnumValue(v.enumValue) + "\""} }"
+            ) ++
+            (if (extensibleEnums) Some(s"final case class __Unknown(value: String) extends $enumName") else None)
 
-      val enumCases = typedef.enumValuesDefinition
-        .map(v =>
-          s"case object ${safeEnumValue(v.enumValue)} extends $enumName { val value: String = ${"\"" + safeEnumValue(v.enumValue) + "\""} }"
-        ) ++
-        (if (extensibleEnums) Some(s"final case class __Unknown(value: String) extends $enumName") else None)
+          val decoderCases = enumValueDefs
+            .map(v => s"""case __StringValue ("${v.enumValue}") => Right($enumName.${safeEnumValue(v.enumValue)})""") ++
+            (if (extensibleEnums) Some(s"case __StringValue (other) => Right($enumName.__Unknown(other))") else None)
 
-      val decoderCases = typedef.enumValuesDefinition
-        .map(v => s"""case __StringValue ("${v.enumValue}") => Right($enumName.${safeEnumValue(v.enumValue)})""") ++
-        (if (extensibleEnums) Some(s"case __StringValue (other) => Right($enumName.__Unknown(other))") else None)
+          val encoderCases = enumValueDefs
+            .map(v => s"""case ${typedef.name}.${safeEnumValue(v.enumValue)} => __EnumValue("${v.enumValue}")""") ++
+            (if (extensibleEnums) Some(s"case ${typedef.name}.__Unknown (value) => __EnumValue(value)") else None)
 
-      val encoderCases = typedef.enumValuesDefinition
-        .map(v => s"""case ${typedef.name}.${safeEnumValue(v.enumValue)} => __EnumValue("${v.enumValue}")""") ++
-        (if (extensibleEnums) Some(s"case ${typedef.name}.__Unknown (value) => __EnumValue(value)") else None)
-
-      s"""sealed trait $enumName extends scala.Product with scala.Serializable { def value: String }
+          s"""sealed trait $enumName extends scala.Product with scala.Serializable { def value: String }
         object $enumName {
           ${enumCases.mkString("\n")}
 
@@ -701,12 +700,12 @@ object ClientWriter {
             ${encoderCases.mkString("\n")}
           }
 
-          val values: scala.collection.immutable.Vector[$enumName] = scala.collection.immutable.Vector(${typedef.enumValuesDefinition
-        .map(v => safeEnumValue(v.enumValue))
-        .mkString(", ")})
+          val values: scala.collection.immutable.Vector[$enumName] = scala.collection.immutable.Vector(${enumValueDefs
+            .map(v => safeEnumValue(v.enumValue))
+            .mkString(", ")})
         }
        """
-    }
+      }
 
     def writeScalar(
       typedef: ScalarTypeDefinition
