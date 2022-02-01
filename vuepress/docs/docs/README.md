@@ -109,7 +109,7 @@ val query = """
 for {
   interpreter <- api.interpreter
   result      <- interpreter.execute(query)
-  _           <- zio.console.putStrLn(result.data.toString)
+  _           <- zio.ZIO.debug(result.data.toString)
 } yield ()
 ```
 
