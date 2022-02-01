@@ -541,6 +541,19 @@ object ParserSpec extends DefaultRunnableSpec {
           )
         )
       },
+      testM("enum with empty body") {
+        val enumWithNoBody = "enum BarBaz { }"
+        assertM(Parser.parseQuery(enumWithNoBody))(
+          equalTo(
+            Document(
+              List(
+                EnumTypeDefinition(description = None, name = "BarBaz", directives = Nil, enumValuesDefinition = Nil)
+              ),
+              sourceMapper = SourceMapper.apply(enumWithNoBody)
+            )
+          )
+        )
+      },
       testM("extend schema with directives") {
         val gqlSchemaExtension = "extend schema @addedDirective"
         assertM(Parser.parseQuery(gqlSchemaExtension))(
