@@ -37,7 +37,7 @@ object StitchingExample extends GenericSchema[ZEnv] {
     RootResolver(
       Queries(
         GetUser = query =>
-          random.nextUUID.map(uuid =>
+          Random.nextUUID.map(uuid =>
             AppUser(
               id = uuid.toString,
               name = query.name,

@@ -192,7 +192,6 @@ Fields can return ZIO effects. This allows you to leverage all the features prov
 
 ```scala mdoc:silent:nest
 import zio._
-import zio.console.Console
 
 type CharacterName = String
 case class Queries(characters: Task[List[Character]],

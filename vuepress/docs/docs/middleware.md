@@ -28,8 +28,6 @@ import caliban.CalibanError._
 import caliban.Value._
 import caliban.wrappers.Wrapper._
 import zio._
-import zio.clock._
-import zio.duration._
 
 val wrapper = new OverallWrapper[Clock] {
   def wrap[R <: Clock](
