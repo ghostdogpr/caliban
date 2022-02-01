@@ -87,11 +87,6 @@ private[caliban] object Parsers extends SelectionParsers {
         )
     }
 
-  def inputObjectTypeDefinitionWithoutBody(implicit ev: P[Any]): P[InputObjectTypeDefinition] =
-    P(stringValue.? ~ "input" ~/ name ~ directives.?).map { case (description, name, directives) =>
-      InputObjectTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), fields = Nil)
-    }
-
   def enumValueDefinition(implicit ev: P[Any]): P[EnumValueDefinition] =
     P(stringValue.? ~ name ~ directives.?).map { case (description, enumValue, directives) =>
       EnumValueDefinition(description.map(_.value), enumValue, directives.getOrElse(Nil))
