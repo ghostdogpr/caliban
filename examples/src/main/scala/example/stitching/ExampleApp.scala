@@ -93,15 +93,13 @@ object Configuration {
   private def read(key: String): Task[String] = Task.attempt(sys.env(key))
 }
 
-import zio._
 import zio.stream._
 import zhttp.http._
 import zhttp.service.Server
 import caliban.ZHttpAdapter
 
 object ExampleApp extends ZIOAppDefault {
-  private val graphiql =
-    Http.succeed(Response.http(content = HttpData.fromStream(ZStream.fromResource("graphiql.html"))))
+  private val graphiql = Http.fromStream(ZStream.fromResource("graphiql.html"))
 
   override def run: ZIO[ZEnv, Nothing, ExitCode] =
     (for {
@@ -110,10 +108,10 @@ object ExampleApp extends ZIOAppDefault {
       _           <- Server
                        .start(
                          8088,
-                         Http.route {
-                           case _ -> Root / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
-                           case _ -> Root / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
-                           case _ -> Root / "graphiql"        => graphiql
+                         Http.route[Request] {
+                           case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
+                           case _ -> !! / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
+                           case _ -> !! / "graphiql"        => graphiql
                          }
                        )
                        .forever

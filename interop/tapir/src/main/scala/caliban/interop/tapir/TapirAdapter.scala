@@ -121,7 +121,7 @@ object TapirAdapter {
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
     responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): PublicEndpoint[(Seq[Part[Array[Byte]]], ServerRequest), StatusCode, GraphQLResponse[E], Any] =
+  ): PublicEndpoint[UploadRequest, StatusCode, GraphQLResponse[E], Any] =
     endpoint.post
       .in(multipartBody)
       .in(extractFromRequest(identity))

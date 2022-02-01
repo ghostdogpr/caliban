@@ -7,7 +7,6 @@ import caliban.interop.tapir.{ StreamTransformer, WebSocketHooks }
 import caliban.schema.GenericSchema
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
-import io.netty.handler.codec.http.{ HttpHeaderNames, HttpHeaderValues }
 import zhttp.http._
 import zhttp.service.Server
 import zio._
@@ -40,7 +39,7 @@ object Auth {
       .toLayer
 
   object WebSockets {
-    private val wsSession = Http.fromEffect(Ref.make[Option[String]](None))
+    private val wsSession = Http.fromZIO(Ref.make[Option[String]](None))
 
     def live[R <: Auth with Clock](
       interpreter: GraphQLInterpreter[R, CalibanError]
@@ -82,11 +81,11 @@ object Auth {
   }
 
   def middleware[R, B](
-    app: Http[R, Throwable, Request, Response[R, Throwable]]
+    app: Http[R, Throwable, Request, Response]
   ): HttpApp[R with Auth, Throwable] =
     Http
-      .fromEffectFunction[Request] { (request: Request) =>
-        val user = request.headers.find(_.name == "Authorization").map(_.value.toString())
+      .fromFunctionZIO[Request] { (request: Request) =>
+        val user = request.getHeaders.getAuthorization.map(_.toString())
 
         ZIO.serviceWithZIO[Auth](_.setUser(user)).as(app)
       }
@@ -106,13 +105,7 @@ object Authed extends GenericSchema[ZEnv with Auth] {
 }
 
 object AuthExampleApp extends ZIOAppDefault {
-  private val graphiql =
-    Http.succeed(
-      Response.http(
-        content = HttpData.fromStream(ZStream.fromResource("graphiql.html")),
-        headers = List(Header(HttpHeaderNames.CONTENT_TYPE, HttpHeaderValues.TEXT_HTML))
-      )
-    )
+  private val graphiql = Http.fromStream(ZStream.fromResource("graphiql.html"))
 
   override def run: ZIO[ZEnv, Nothing, ExitCode] =
     (for {
@@ -120,10 +113,10 @@ object AuthExampleApp extends ZIOAppDefault {
       _           <- Server
                        .start(
                          8088,
-                         Http.route {
-                           case _ -> Root / "api" / "graphql" => Auth.middleware(ZHttpAdapter.makeHttpService(interpreter))
-                           case _ -> Root / "ws" / "graphql"  => Auth.WebSockets.live(interpreter)
-                           case _ -> Root / "graphiql"        => graphiql
+                         Http.route[Request] {
+                           case _ -> !! / "api" / "graphql" => Auth.middleware(ZHttpAdapter.makeHttpService(interpreter))
+                           case _ -> !! / "ws" / "graphql"  => Auth.WebSockets.live(interpreter)
+                           case _ -> !! / "graphiql"        => graphiql
                          }
                        )
                        .forever

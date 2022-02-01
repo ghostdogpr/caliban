@@ -221,6 +221,7 @@ lazy val monixInterop = project
   .settings(name := "caliban-monix")
   .settings(commonSettings)
   .settings(
+    crossScalaVersions -= scala3, // temporarily for ZIO 2.0
     libraryDependencies ++= Seq(
       "dev.zio"  %% "zio-interop-reactivestreams" % "2.0.0-RC1",
       "dev.zio"  %% "zio-interop-cats"            % zioInteropCats2Version,

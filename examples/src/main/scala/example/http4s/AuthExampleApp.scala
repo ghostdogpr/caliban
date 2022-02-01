@@ -5,7 +5,6 @@ import caliban.schema.GenericSchema
 import caliban.{ Http4sAdapter, RootResolver }
 import org.http4s.HttpRoutes
 import org.http4s.dsl.Http4sDsl
-import org.http4s.implicits._
 import org.http4s.blaze.server.BlazeServerBuilder
 import org.http4s.server.{ Router, ServiceErrorHandler }
 import org.typelevel.ci.CIString
@@ -48,7 +47,7 @@ object AuthExampleApp extends CatsApp {
   private val resolver            = RootResolver(Query(ZIO.serviceWith[Auth](_.token)))
   private val api                 = graphQL(resolver)
 
-  override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
+  override def run: ZIO[ZEnv, Nothing, ExitCode] =
     (for {
       interpreter <- api.interpreter
       _           <- BlazeServerBuilder[MyTask]
