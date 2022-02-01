@@ -510,7 +510,7 @@ object ParserSpec extends DefaultRunnableSpec {
           )
         )
       },
-      testM("input with no body") {
+      testM("input with empty body") {
         val inputWithNoBody = "input BarBaz { }"
         assertM(Parser.parseQuery(inputWithNoBody))(
           equalTo(
