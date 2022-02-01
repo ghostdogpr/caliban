@@ -212,20 +212,20 @@ object ParserSpec extends DefaultRunnableSpec {
         )
       },
       test("directives") {
-        val query = """query myQuery($someTestM: Boolean) {
-                      |  experimentalField @skip(if: $someTestM)
+        val query = """query myQuery($sometest: Boolean) {
+                      |  experimentalField @skip(if: $sometest)
                       |}""".stripMargin
         assertM(Parser.parseQuery(query))(
           equalTo(
             simpleQuery(
               name = Some("myQuery"),
               variableDefinitions =
-                List(VariableDefinition("someTestM", NamedType("Boolean", nonNull = false), None, Nil)),
+                List(VariableDefinition("sometest", NamedType("Boolean", nonNull = false), None, Nil)),
               selectionSet = List(
                 simpleField(
                   "experimentalField",
-                  directives = List(Directive("skip", Map("if" -> VariableValue("someTestM")), 57)),
-                  index = 39
+                  directives = List(Directive("skip", Map("if" -> VariableValue("sometest")), 56)),
+                  index = 38
                 )
               ),
               sourceMapper = SourceMapper(query)
@@ -487,6 +487,68 @@ object ParserSpec extends DefaultRunnableSpec {
                 )
               ),
               sourceMapper = SourceMapper.apply(gqltype)
+            )
+          )
+        )
+      },
+      test("input with no body") {
+        val inputWithNoBody = "input BarBaz"
+        assertM(Parser.parseQuery(inputWithNoBody))(
+          equalTo(
+            Document(
+              List(
+                InputObjectTypeDefinition(
+                  description = None,
+                  name = "BarBaz",
+                  directives = Nil,
+                  fields = Nil
+                )
+              ),
+              sourceMapper = SourceMapper.apply(inputWithNoBody)
+            )
+          )
+        )
+      },
+      test("input with empty body") {
+        val inputWithEmptyBody = "input BarBaz { }"
+        assertM(Parser.parseQuery(inputWithEmptyBody))(
+          equalTo(
+            Document(
+              List(
+                InputObjectTypeDefinition(
+                  description = None,
+                  name = "BarBaz",
+                  directives = Nil,
+                  fields = Nil
+                )
+              ),
+              sourceMapper = SourceMapper.apply(inputWithEmptyBody)
+            )
+          )
+        )
+      },
+      test("enum with no body") {
+        val enumWithNoBody = "enum BarBaz"
+        assertM(Parser.parseQuery(enumWithNoBody))(
+          equalTo(
+            Document(
+              List(
+                EnumTypeDefinition(description = None, name = "BarBaz", directives = Nil, enumValuesDefinition = Nil)
+              ),
+              sourceMapper = SourceMapper.apply(enumWithNoBody)
+            )
+          )
+        )
+      },
+      test("enum with empty body") {
+        val enumWithNoBody = "enum BarBaz { }"
+        assertM(Parser.parseQuery(enumWithNoBody))(
+          equalTo(
+            Document(
+              List(
+                EnumTypeDefinition(description = None, name = "BarBaz", directives = Nil, enumValuesDefinition = Nil)
+              ),
+              sourceMapper = SourceMapper.apply(enumWithNoBody)
             )
           )
         )
