@@ -77,9 +77,17 @@ private[caliban] object Parsers extends SelectionParsers {
     }
 
   def inputObjectTypeDefinition(implicit ev: P[Any]): P[InputObjectTypeDefinition] =
+    P(inputObjectTypeDefinitionWithoutBody | inputObjectTypeDefinitionWithBody)
+
+  def inputObjectTypeDefinitionWithBody(implicit ev: P[Any]): P[InputObjectTypeDefinition] =
     P(stringValue.? ~ "input" ~/ name ~ directives.? ~ "{" ~ argumentDefinition.rep ~ "}").map {
       case (description, name, directives, fields) =>
         InputObjectTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), fields.toList)
+    }
+
+  def inputObjectTypeDefinitionWithoutBody(implicit ev: P[Any]): P[InputObjectTypeDefinition] =
+    P(stringValue.? ~ "input" ~/ name ~ directives.?).map { case (description, name, directives) =>
+      InputObjectTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), fields = Nil)
     }
 
   def enumValueDefinition(implicit ev: P[Any]): P[EnumValueDefinition] =
@@ -90,9 +98,17 @@ private[caliban] object Parsers extends SelectionParsers {
   def enumName(implicit ev: P[Any]): P[String] = name.filter(s => s != "true" && s != "false" && s != "null")
 
   def enumTypeDefinition(implicit ev: P[Any]): P[EnumTypeDefinition] =
+    P(enumTypeDefinitionWithoutBody | enumTypeDefinitionWithBody)
+
+  def enumTypeDefinitionWithBody(implicit ev: P[Any]): P[EnumTypeDefinition] =
     P(stringValue.? ~ "enum" ~/ enumName ~ directives.? ~ "{" ~ enumValueDefinition.rep ~ "}").map {
       case (description, name, directives, enumValuesDefinition) =>
         EnumTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), enumValuesDefinition.toList)
+    }
+
+  def enumTypeDefinitionWithoutBody(implicit ev: P[Any]): P[EnumTypeDefinition] =
+    P(stringValue.? ~ "enum" ~/ enumName ~ directives.?).map { case (description, name, directives) =>
+      EnumTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), enumValuesDefinition = Nil)
     }
 
   def unionTypeDefinition(implicit ev: P[Any]): P[UnionTypeDefinition] =

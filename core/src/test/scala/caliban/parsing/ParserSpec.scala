@@ -492,6 +492,55 @@ object ParserSpec extends DefaultRunnableSpec {
           )
         )
       },
+      testM("input with no body") {
+        val inputWithNoBody = "input BarBaz"
+        assertM(Parser.parseQuery(inputWithNoBody))(
+          equalTo(
+            Document(
+              List(
+                InputObjectTypeDefinition(
+                  description = None,
+                  name = "BarBaz",
+                  directives = Nil,
+                  fields = Nil
+                )
+              ),
+              sourceMapper = SourceMapper.apply(inputWithNoBody)
+            )
+          )
+        )
+      },
+      testM("input with no body") {
+        val inputWithNoBody = "input BarBaz { }"
+        assertM(Parser.parseQuery(inputWithNoBody))(
+          equalTo(
+            Document(
+              List(
+                InputObjectTypeDefinition(
+                  description = None,
+                  name = "BarBaz",
+                  directives = Nil,
+                  fields = Nil
+                )
+              ),
+              sourceMapper = SourceMapper.apply(inputWithNoBody)
+            )
+          )
+        )
+      },
+      testM("enum with no body") {
+        val enumWithNoBody = "enum BarBaz"
+        assertM(Parser.parseQuery(enumWithNoBody))(
+          equalTo(
+            Document(
+              List(
+                EnumTypeDefinition(description = None, name = "BarBaz", directives = Nil, enumValuesDefinition = Nil)
+              ),
+              sourceMapper = SourceMapper.apply(enumWithNoBody)
+            )
+          )
+        )
+      },
       testM("extend schema with directives") {
         val gqlSchemaExtension = "extend schema @addedDirective"
         assertM(Parser.parseQuery(gqlSchemaExtension))(
