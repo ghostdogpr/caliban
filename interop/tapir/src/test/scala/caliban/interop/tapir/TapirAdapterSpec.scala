@@ -3,10 +3,10 @@ package caliban.interop.tapir
 import caliban.InputValue.ObjectValue
 import caliban.Value.StringValue
 import caliban.{ CalibanError, GraphQLRequest, GraphQLWSInput }
+import caliban.interop.tapir.TapirSttpClientZioWebSockets._
 import sttp.client3.asynchttpclient.zio._
 import sttp.model.{ MediaType, Part, Uri }
 import sttp.tapir.client.sttp.SttpClientInterpreter
-import sttp.tapir.client.sttp.ws.zio._
 import sttp.tapir.json.circe._
 import zio.stream.ZStream
 import zio.test.Assertion._
