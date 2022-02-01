@@ -229,7 +229,7 @@ object ParserSpec extends DefaultRunnableSpec {
                   index = 39
                 )
               ),
-              sourceMapper = SourceMapper.apply(query)
+              sourceMapper = SourceMapper(query)
             )
           )
         )
