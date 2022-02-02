@@ -1,13 +1,13 @@
 package caliban.interop.zio
 
 import caliban.CalibanError.ExecutionError
-import caliban.{ CalibanError, GraphQLResponse }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ IntValue, StringValue }
 import caliban.parsing.adt.LocationInfo
+import caliban.{ CalibanError, GraphQLResponse }
 import zio.json._
-import zio.test.Assertion._
-import zio.test._
+import zio.test.Assertion.{ equalTo, isRight }
+import zio.test.{ assert, assertTrue, DefaultRunnableSpec, TestEnvironment, ZSpec }
 
 object GraphQLResponseZIOSpec extends DefaultRunnableSpec {
   implicit val encoder: JsonEncoder[GraphQLResponse[Any]] = GraphQLResponse.zioJsonEncoder

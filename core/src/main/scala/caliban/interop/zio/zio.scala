@@ -262,7 +262,7 @@ private[caliban] object ValueZIOJson {
   }
 
   object Bool {
-    implicit val decoder: JsonDecoder[BooleanValue] = JsonDecoder.boolean.map(BooleanValue)
+    implicit val decoder: JsonDecoder[BooleanValue] = JsonDecoder.boolean.map(BooleanValue.apply)
   }
 
   object Obj {
@@ -302,7 +302,7 @@ private[caliban] object ValueZIOJson {
   }
 
   object Str {
-    val decoder: JsonDecoder[StringValue] = JsonDecoder.string.map(StringValue)
+    val decoder: JsonDecoder[StringValue] = JsonDecoder.string.map(StringValue.apply)
   }
 
   object Num {

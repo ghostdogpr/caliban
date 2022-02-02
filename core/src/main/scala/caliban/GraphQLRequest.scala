@@ -4,6 +4,7 @@ import caliban.GraphQLRequest.{ `apollo-federation-include-trace`, ftv1 }
 import caliban.Value.StringValue
 import caliban.interop.circe.{ IsCirceDecoder, IsCirceEncoder }
 import caliban.interop.tapir.IsTapirSchema
+import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
 
 /**
  * Represents a GraphQL request, containing a query, an operation name and a map of variables.
@@ -24,11 +25,15 @@ case class GraphQLRequest(
 }
 
 object GraphQLRequest extends GraphQLRequestJsonCompat {
-  implicit def circeDecoder[F[_]: IsCirceDecoder]: F[GraphQLRequest] =
+  implicit def circeDecoder[F[_]: IsCirceDecoder]: F[GraphQLRequest]     =
     caliban.interop.circe.json.GraphQLRequestCirce.graphQLRequestDecoder.asInstanceOf[F[GraphQLRequest]]
-  implicit def circeEncoder[F[_]: IsCirceEncoder]: F[GraphQLRequest] =
+  implicit def circeEncoder[F[_]: IsCirceEncoder]: F[GraphQLRequest]     =
     caliban.interop.circe.json.GraphQLRequestCirce.graphQLRequestEncoder.asInstanceOf[F[GraphQLRequest]]
-  implicit def tapirSchema[F[_]: IsTapirSchema]: F[GraphQLRequest]   =
+  implicit def zioJsonDecoder[F[_]: IsZIOJsonDecoder]: F[GraphQLRequest] =
+    caliban.interop.zio.GraphQLRequestZioJson.graphQLRequestDecoder.asInstanceOf[F[GraphQLRequest]]
+  implicit def zioJsonEncoder[F[_]: IsZIOJsonEncoder]: F[GraphQLRequest] =
+    caliban.interop.zio.GraphQLRequestZioJson.graphQLRequestEncoder.asInstanceOf[F[GraphQLRequest]]
+  implicit def tapirSchema[F[_]: IsTapirSchema]: F[GraphQLRequest]       =
     caliban.interop.tapir.schema.requestSchema.asInstanceOf[F[GraphQLRequest]]
 
   private[caliban] val ftv1                              = "ftv1"

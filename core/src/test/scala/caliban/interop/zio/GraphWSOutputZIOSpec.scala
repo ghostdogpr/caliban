@@ -2,8 +2,8 @@ package caliban.interop.zio
 
 import caliban.{ GraphQLWSOutput, ResponseValue, Value }
 import zio.json._
-import zio.test.Assertion._
-import zio.test._
+import zio.test.Assertion.{ equalTo, isRight }
+import zio.test.{ assert, assertTrue, DefaultRunnableSpec, TestEnvironment, ZSpec }
 
 object GraphWSOutputZIOSpec extends DefaultRunnableSpec {
   override def spec: ZSpec[TestEnvironment, Any] =

@@ -1,10 +1,10 @@
 package caliban.interop.zio
 
 import caliban.GraphQLRequest
-import zio.test._
-import Assertion._
 import caliban.Value.{ BooleanValue, IntValue, NullValue, StringValue }
 import zio.json._
+import zio.test.Assertion.{ equalTo, isRight }
+import zio.test._
 
 object GraphQLRequestZIOSpec extends DefaultRunnableSpec {
   override def spec: ZSpec[TestEnvironment, Any] = suite("GraphQLRequestZIOSpec")(

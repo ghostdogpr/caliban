@@ -2,6 +2,7 @@ package caliban
 
 import scala.util.Try
 import caliban.interop.circe._
+import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
 import zio.stream.Stream
 
 sealed trait InputValue {
@@ -23,10 +24,14 @@ object InputValue extends ValueJsonCompat {
     override def toString: String = s"$$$name"
   }
 
-  implicit def circeEncoder[F[_]: IsCirceEncoder]: F[InputValue] =
+  implicit def circeEncoder[F[_]: IsCirceEncoder]: F[InputValue]               =
     caliban.interop.circe.json.ValueCirce.inputValueEncoder.asInstanceOf[F[InputValue]]
-  implicit def circeDecoder[F[_]: IsCirceDecoder]: F[InputValue] =
+  implicit def circeDecoder[F[_]: IsCirceDecoder]: F[InputValue]               =
     caliban.interop.circe.json.ValueCirce.inputValueDecoder.asInstanceOf[F[InputValue]]
+  implicit def inputValueZioJsonEncoder[F[_]: IsZIOJsonEncoder]: F[InputValue] =
+    caliban.interop.zio.ValueZIOJson.inputValueEncoder.asInstanceOf[F[InputValue]]
+  implicit def inputValueZioJsonDecoder[F[_]: IsZIOJsonDecoder]: F[InputValue] =
+    caliban.interop.zio.ValueZIOJson.inputValueDecoder.asInstanceOf[F[InputValue]]
 }
 
 sealed trait ResponseValue
@@ -49,10 +54,14 @@ object ResponseValue extends ValueJsonCompat {
     override def toString: String = "<stream>"
   }
 
-  implicit def circeEncoder[F[_]: IsCirceEncoder]: F[ResponseValue] =
+  implicit def circeEncoder[F[_]: IsCirceEncoder]: F[ResponseValue]                  =
     caliban.interop.circe.json.ValueCirce.responseValueEncoder.asInstanceOf[F[ResponseValue]]
-  implicit def circeDecoder[F[_]: IsCirceDecoder]: F[ResponseValue] =
+  implicit def circeDecoder[F[_]: IsCirceDecoder]: F[ResponseValue]                  =
     caliban.interop.circe.json.ValueCirce.responseValueDecoder.asInstanceOf[F[ResponseValue]]
+  implicit def responseValueZioJsonEncoder[F[_]: IsZIOJsonEncoder]: F[ResponseValue] =
+    caliban.interop.zio.ValueZIOJson.responseValueEncoder.asInstanceOf[F[ResponseValue]]
+  implicit def responseValueZioJsonDecoder[F[_]: IsZIOJsonDecoder]: F[ResponseValue] =
+    caliban.interop.zio.ValueZIOJson.responseValueDecoder.asInstanceOf[F[ResponseValue]]
 }
 
 sealed trait Value extends InputValue with ResponseValue
