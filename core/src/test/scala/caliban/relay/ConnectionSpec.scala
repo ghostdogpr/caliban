@@ -3,6 +3,7 @@ package caliban.relay
 import caliban._
 import zio.test.Assertion._
 import zio.test._
+import zio.test.TestAspect.nonFlaky
 import zio.ZIO
 
 object ConnectionSpec extends DefaultRunnableSpec {
@@ -184,7 +185,7 @@ object ConnectionSpec extends DefaultRunnableSpec {
             )
           )
         )
-      },
+      } @@ nonFlaky,
       testM("must set first or last") {
         val res = Pagination[Base64Cursor](
           first = None,
