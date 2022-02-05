@@ -2,9 +2,9 @@ package example.ziohttp
 
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
-
-import caliban.ZHttpAdapter
-import io.netty.handler.codec.http.{HttpHeaderNames, HttpHeaderValues}
+import caliban.{ CalibanError, ZHttpAdapter }
+import example.ExampleService.ExampleService
+import io.netty.handler.codec.http.{ HttpHeaderNames, HttpHeaderValues }
 import zio._
 import zio.stream._
 import zhttp.http._
@@ -18,7 +18,7 @@ object ExampleApp extends App {
         headers = List(Header(HttpHeaderNames.CONTENT_TYPE, HttpHeaderValues.TEXT_HTML))
       )
     )
-  
+
   override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
     (for {
       interpreter <- ExampleApi.api.interpreter
@@ -26,7 +26,8 @@ object ExampleApp extends App {
                        .start(
                          8088,
                          Http.route {
-                           case _ -> Root / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
+                           case _ -> Root / "api" / "graphql" =>
+                             ZHttpAdapter.makeHttpService[ZEnv with ExampleService, CalibanError](interpreter)
                            case _ -> Root / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
                            case _ -> Root / "graphiql"        => graphiql
                          }

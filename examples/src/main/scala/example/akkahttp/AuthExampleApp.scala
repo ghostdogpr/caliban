@@ -5,6 +5,7 @@ import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives.{ getFromResource, path, _ }
 import caliban.GraphQL._
 import caliban.interop.tapir.RequestInterceptor
+import caliban.interop.tapir.TapirAdapter.TapirResponse
 import caliban.schema.GenericSchema
 import caliban.{ AkkaHttpAdapter, RootResolver }
 import sttp.model.StatusCode
@@ -25,12 +26,14 @@ object AuthExampleApp extends App {
   type Auth = Has[FiberRef[Option[AuthToken]]]
 
   object AuthInterceptor extends RequestInterceptor[Auth] {
-    override def apply[R <: Auth, A](request: ServerRequest)(effect: ZIO[R, StatusCode, A]): ZIO[R, StatusCode, A] =
+    override def apply[R <: Auth, A](
+      request: ServerRequest
+    )(effect: ZIO[R, TapirResponse, A]): ZIO[R, TapirResponse, A] =
       request.headers.collectFirst {
         case header if header.is("token") => header.value
       } match {
         case Some(token) => ZIO.accessM[Auth](_.get.set(Some(AuthToken(token)))) *> effect
-        case _           => ZIO.fail(StatusCode.Forbidden)
+        case _           => ZIO.fail(TapirResponse(StatusCode.Forbidden))
       }
   }
 
