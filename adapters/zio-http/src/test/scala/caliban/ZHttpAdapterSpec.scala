@@ -25,7 +25,7 @@ object ZHttpAdapterSpec extends DefaultRunnableSpec {
                          8088,
                          Http.route {
                            case _ -> Root / "api" / "graphql" =>
-                             ZHttpAdapter.makeHttpService[Console with Clock with TestService with Uploads, CalibanError](
+                             ZHttpAdapter.makeHttpService(
                                interpreter,
                                requestInterceptor = FakeAuthorizationInterceptor.bearer
                              )

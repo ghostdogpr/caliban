@@ -126,7 +126,7 @@ object AuthExampleApp extends App {
                          Http.route {
                            case _ -> Root / "api" / "graphql" =>
                              Auth.middleware(
-                               ZHttpAdapter.makeHttpService[ZEnv with Has[Auth] with ExampleService, CalibanError](interpreter)
+                               ZHttpAdapter.makeHttpService(interpreter)
                              )
                            case _ -> Root / "ws" / "graphql"  => Auth.WebSockets.live(interpreter)
                            case _ -> Root / "graphiql"        => graphiql

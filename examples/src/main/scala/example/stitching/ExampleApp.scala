@@ -111,7 +111,7 @@ object ExampleApp extends App {
                        .start(
                          8088,
                          Http.route {
-                           case _ -> Root / "api" / "graphql" => ZHttpAdapter.makeHttpService[ZEnv, CalibanError](interpreter)
+                           case _ -> Root / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
                            case _ -> Root / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
                            case _ -> Root / "graphiql"        => graphiql
                          }

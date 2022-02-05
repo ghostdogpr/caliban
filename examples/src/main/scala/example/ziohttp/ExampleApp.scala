@@ -27,7 +27,7 @@ object ExampleApp extends App {
                          8088,
                          Http.route {
                            case _ -> Root / "api" / "graphql" =>
-                             ZHttpAdapter.makeHttpService[ZEnv with ExampleService, CalibanError](interpreter)
+                             ZHttpAdapter.makeHttpService(interpreter)
                            case _ -> Root / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
                            case _ -> Root / "graphiql"        => graphiql
                          }

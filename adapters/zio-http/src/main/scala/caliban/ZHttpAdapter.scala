@@ -22,9 +22,8 @@ object ZHttpAdapter {
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel,
-    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty,
-    serverOptions: ZioHttpServerOptions[R] = ZioHttpServerOptions.default[R]
-  ): HttpApp[R, Throwable] = {
+    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
+  )(implicit serverOptions: ZioHttpServerOptions[R] = ZioHttpServerOptions.default[R]): HttpApp[R, Throwable] = {
     val endpoints = TapirAdapter.makeHttpService[R, E](
       interpreter,
       skipValidation,
