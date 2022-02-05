@@ -36,6 +36,12 @@ object TapirAdapter {
   ) {
     def withBody(body: String): TapirResponse =
       copy(body = body)
+
+    def withHeader(key: String, value: String): TapirResponse =
+      copy(headers = Header(key, value) :: headers)
+
+    def withHeaders(_headers: List[Header]): TapirResponse =
+      copy(headers = _headers ++ headers)
   }
 
   object TapirResponse {
@@ -43,6 +49,8 @@ object TapirAdapter {
     val ok                             = TapirResponse(StatusCode.Ok)
     def status(statusCode: StatusCode) = TapirResponse(statusCode)
   }
+
+  private val errorBody = statusCode.and(stringBody).and(headers).mapTo[TapirResponse]
 
   def makeHttpEndpoints[R, E](implicit
     requestCodec: JsonCodec[GraphQLRequest],
@@ -83,7 +91,7 @@ object TapirAdapter {
         )
         .in(extractFromRequest(identity))
         .out(customJsonBody[GraphQLResponse[E]])
-        .errorOut(statusCode.and(stringBody).and(headers).mapTo[TapirResponse])
+        .errorOut(errorBody)
 
     val getEndpoint: PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, GraphQLResponse[E], Any] =
       endpoint.get
@@ -105,7 +113,7 @@ object TapirAdapter {
         )
         .in(extractFromRequest(identity))
         .out(customJsonBody[GraphQLResponse[E]])
-        .errorOut(statusCode.and(stringBody).and(headers).mapTo[TapirResponse])
+        .errorOut(errorBody)
 
     postEndpoint :: getEndpoint :: Nil
   }
@@ -148,7 +156,7 @@ object TapirAdapter {
       .in(multipartBody)
       .in(extractFromRequest(identity))
       .out(customJsonBody[GraphQLResponse[E]])
-      .errorOut(statusCode.and(stringBody).and(headers).mapTo[TapirResponse])
+      .errorOut(errorBody)
 
   def makeHttpUploadService[R, E](
     interpreter: GraphQLInterpreter[R, E],
@@ -228,7 +236,7 @@ object TapirAdapter {
       .in(extractFromRequest(identity))
       .out(header(protocolHeader))
       .out(webSocketBody[GraphQLWSInput, CodecFormat.Json, GraphQLWSOutput, CodecFormat.Json](ZioStreams))
-      .errorOut(statusCode.and(stringBody).and(headers).mapTo[TapirResponse])
+      .errorOut(errorBody)
   }
 
   def makeWebSocketService[R, E](
