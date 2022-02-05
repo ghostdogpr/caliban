@@ -1,5 +1,6 @@
 package caliban.interop.tapir
 
+import caliban.interop.tapir.TapirAdapter.TapirResponse
 import sttp.model.StatusCode
 import sttp.tapir.model.ServerRequest
 import zio.ZIO
@@ -9,16 +10,16 @@ import zio.ZIO
  * query execution or injecting context into ZIO environment.
  */
 trait RequestInterceptor[-R] { self =>
-  def apply[R1 <: R, A](request: ServerRequest)(e: ZIO[R1, StatusCode, A]): ZIO[R1, StatusCode, A]
+  def apply[R1 <: R, A](request: ServerRequest)(e: ZIO[R1, TapirResponse, A]): ZIO[R1, TapirResponse, A]
 
   def |+|[R1 <: R](that: RequestInterceptor[R1]): RequestInterceptor[R1] = new RequestInterceptor[R1] {
-    override def apply[R2 <: R1, A](request: ServerRequest)(e: ZIO[R2, StatusCode, A]): ZIO[R2, StatusCode, A] =
+    override def apply[R2 <: R1, A](request: ServerRequest)(e: ZIO[R2, TapirResponse, A]): ZIO[R2, TapirResponse, A] =
       that.apply[R2, A](request)(self.apply[R2, A](request)(e))
   }
 }
 
 object RequestInterceptor {
   def empty: RequestInterceptor[Any] = new RequestInterceptor[Any] {
-    override def apply[R, A](request: ServerRequest)(e: ZIO[R, StatusCode, A]): ZIO[R, StatusCode, A] = e
+    override def apply[R, A](request: ServerRequest)(e: ZIO[R, TapirResponse, A]): ZIO[R, TapirResponse, A] = e
   }
 }
