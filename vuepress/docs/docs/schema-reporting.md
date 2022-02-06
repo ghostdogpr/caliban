@@ -5,17 +5,16 @@ This enables your servers to automatically publish updated schemas on start up w
 
 You can enable the settings by providing the `ReportingDaemon` to your `Runtime` during setup.
 
-```scala mdoc:silent
-import caliban.GraphQL
-import caliban.reporting._
-import sttp.client3.
-
-val api: GraphQL[Any] = ??? // Define your GraphQL schema normally
+```scala
+// Define your GraphQL schema normally
+val api: GraphQL[Any] = graphQL(RootResolver(Queries(
+  characters = List(Character("Amos"))
+))) 
 
 // Define a SchemaReporter that will communicate with Apollo
 val reporterL = SchemaReporter.fromDefaultConfig // Loads the access token from an environment variable called "APOLLO_KEY"
 // Or load it from a configuration type
-// val reporterL = SchemaReporter.fromConfig[ApolloConfig](_.key)
+// val reporterL = (ZLayer.service[ApolloConfig] ++ AsyncHttpClientZioBackend.layer()) >>> SchemaReporter.fromConfig[ApolloConfig](_.key)
 
 // Define your graph references
 val daemon: URManaged[Random with Has[ReportingDaemon], Unit] = for {
@@ -30,5 +29,5 @@ val daemon: URManaged[Random with Has[ReportingDaemon], Unit] = for {
 
 // Now wire it up
 daemon.useForever
-  .provideCustomLayer((ZEnv.any ++ reporterL) >>> ReportingDaemon.live))
+  .provideCustomLayer((ZEnv.any ++ reporterL) >>> ReportingDaemon.live)
 ```
