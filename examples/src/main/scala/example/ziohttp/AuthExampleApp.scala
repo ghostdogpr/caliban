@@ -6,6 +6,7 @@ import caliban._
 import caliban.interop.tapir.{ StreamTransformer, WebSocketHooks }
 import caliban.schema.GenericSchema
 import example.ExampleData._
+import example.ExampleService.ExampleService
 import example.{ ExampleApi, ExampleService }
 import io.netty.handler.codec.http.{ HttpHeaderNames, HttpHeaderValues }
 import zhttp.http._
@@ -123,7 +124,10 @@ object AuthExampleApp extends App {
                        .start(
                          8088,
                          Http.route {
-                           case _ -> Root / "api" / "graphql" => Auth.middleware(ZHttpAdapter.makeHttpService(interpreter))
+                           case _ -> Root / "api" / "graphql" =>
+                             Auth.middleware(
+                               ZHttpAdapter.makeHttpService(interpreter)
+                             )
                            case _ -> Root / "ws" / "graphql"  => Auth.WebSockets.live(interpreter)
                            case _ -> Root / "graphiql"        => graphiql
                          }

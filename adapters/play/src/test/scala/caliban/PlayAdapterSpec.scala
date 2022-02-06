@@ -3,7 +3,7 @@ package caliban
 import akka.actor.ActorSystem
 import caliban.interop.tapir.TestData.sampleCharacters
 import caliban.interop.tapir.TestService.TestService
-import caliban.interop.tapir.{ TapirAdapterSpec, TestApi, TestService }
+import caliban.interop.tapir.{ FakeAuthorizationInterceptor, TapirAdapterSpec, TestApi, TestService }
 import caliban.uploads.Uploads
 import play.api.Mode
 import play.api.routing._
@@ -32,11 +32,14 @@ object PlayAdapterSpec extends DefaultRunnableSpec {
       Platform.default
     )
 
+  val interceptor = FakeAuthorizationInterceptor.bearer
+
   val apiLayer: ZLayer[zio.ZEnv, Throwable, Has[Unit]] =
     (for {
       interpreter <- TestApi.api.interpreter.toManaged_
       router       = Router.from {
-                       case req @ POST(p"/api/graphql")    => PlayAdapter.makeHttpService(interpreter).apply(req)
+                       case req @ POST(p"/api/graphql")    =>
+                         PlayAdapter.makeHttpService(interpreter, requestInterceptor = interceptor).apply(req)
                        case req @ POST(p"/upload/graphql") => PlayAdapter.makeHttpUploadService(interpreter).apply(req)
                        case req @ GET(p"/ws/graphql")      => PlayAdapter.makeWebSocketService(interpreter).apply(req)
                      }

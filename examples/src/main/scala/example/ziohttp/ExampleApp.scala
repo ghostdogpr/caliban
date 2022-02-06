@@ -4,7 +4,7 @@ import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
 
 import caliban.ZHttpAdapter
-import io.netty.handler.codec.http.{HttpHeaderNames, HttpHeaderValues}
+import io.netty.handler.codec.http.{ HttpHeaderNames, HttpHeaderValues }
 import zio._
 import zio.stream._
 import zhttp.http._
@@ -18,7 +18,7 @@ object ExampleApp extends App {
         headers = List(Header(HttpHeaderNames.CONTENT_TYPE, HttpHeaderValues.TEXT_HTML))
       )
     )
-  
+
   override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
     (for {
       interpreter <- ExampleApi.api.interpreter
