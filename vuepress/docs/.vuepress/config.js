@@ -60,7 +60,7 @@ module.exports = {
               'interop',
               'federation',
               'relay-connections',
-              'reporting'
+              'schema-reporting'
             ]
           },
           {

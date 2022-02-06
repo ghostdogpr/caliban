@@ -4,7 +4,6 @@ import caliban.client.CalibanClientError.CommunicationError
 import caliban.reporting.ReportingError.{ ClientError, RetryableError }
 import sttp.client3.UriContext
 import sttp.client3.asynchttpclient.zio.SttpClient
-import sttp.client3.asynchttpclient.zio.SttpClient.Service
 import zio.duration.durationInt
 import zio.{ Has, IO, Tag, ZIO, ZLayer }
 import zio.system.System
@@ -15,7 +14,7 @@ trait SchemaReporter {
 
 object SchemaReporter {
 
-  def make(accessToken: String): ZIO[Has[SttpClient.Service], Nothing, SchemaReporter] = (for {
+  def make(accessToken: String): ZIO[Has[SttpClient.Service], Nothing, SchemaReporter] = for {
     client <- ZIO.service[SttpClient.Service]
   } yield new SchemaReporter {
     import caliban.reporting.client.{ Mutation, ReportSchemaError, ReportSchemaResponse, SchemaReport }
@@ -27,12 +26,12 @@ object SchemaReporter {
         ReportSchemaError.code.map(_.value) ~
         ReportSchemaError.message ~
         ReportSchemaError.inSeconds.map(_.seconds)
-    ).mapN(ReportingError.SchemaError)
+    ).mapN(ReportingError.SchemaError(_, _, _, _))
 
     private val onReportSchemaResponse = (
       ReportSchemaResponse.withCoreSchema ~
         ReportSchemaResponse.inSeconds.map(_.seconds)
-    ).mapN(ReportingResponse)
+    ).mapN(ReportingResponse.apply(_, _))
 
     private def reportSchemaMutation(coreSchema: Option[String], report: SchemaReport) =
       Mutation.reportSchema(coreSchema, report)(
@@ -75,7 +74,7 @@ object SchemaReporter {
               ZIO.dieMessage("You should never see this error, as it indicates there is something wrong with Caliban!")
           }
         }
-  })
+  }
 
   def fromConfig[R: Tag](
     f: R => String

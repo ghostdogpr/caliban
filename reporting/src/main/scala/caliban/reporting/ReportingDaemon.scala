@@ -2,7 +2,7 @@ package caliban.reporting
 
 import zio.clock.Clock
 import zio.duration.{ durationInt, Duration }
-import zio.{ Fiber, Has, Ref, UIO, UManaged, URManaged, ZIO, ZLayer, ZManaged }
+import zio.{ Has, UManaged, URManaged, ZIO, ZLayer, ZManaged }
 
 /**
  * Manages schema reporting on start up, can be provided a set of ReportingRefs which will then be periodically
