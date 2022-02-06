@@ -10,7 +10,7 @@ import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.zio.ZioStreams.Pipe
 import sttp.model.{ headers => _, _ }
 import sttp.monad.MonadError
-import sttp.tapir.Codec.JsonCodec
+import sttp.tapir.Codec.{ mediaType, JsonCodec }
 import sttp.tapir._
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
@@ -50,7 +50,11 @@ object TapirAdapter {
     def status(statusCode: StatusCode) = TapirResponse(statusCode)
   }
 
-  private val errorBody = statusCode.and(stringBody).and(headers).mapTo[TapirResponse]
+  private val responseMapping = Mapping.from[(StatusCode, String, List[Header]), TapirResponse](
+    (TapirResponse.apply _).tupled
+  )(resp => (resp.code, resp.body, resp.headers))
+
+  private val errorBody = statusCode.and(stringBody).and(headers).map(responseMapping)
 
   def makeHttpEndpoints[R, E](implicit
     requestCodec: JsonCodec[GraphQLRequest],
