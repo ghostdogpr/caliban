@@ -2,8 +2,8 @@ package example.ziohttp
 
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
-import caliban.{ CalibanError, ZHttpAdapter }
-import example.ExampleService.ExampleService
+
+import caliban.ZHttpAdapter
 import io.netty.handler.codec.http.{ HttpHeaderNames, HttpHeaderValues }
 import zio._
 import zio.stream._
@@ -26,8 +26,7 @@ object ExampleApp extends App {
                        .start(
                          8088,
                          Http.route {
-                           case _ -> Root / "api" / "graphql" =>
-                             ZHttpAdapter.makeHttpService(interpreter)
+                           case _ -> Root / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
                            case _ -> Root / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
                            case _ -> Root / "graphiql"        => graphiql
                          }
