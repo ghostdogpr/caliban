@@ -59,7 +59,8 @@ module.exports = {
               'adapters',
               'interop',
               'federation',
-              'relay-connections'
+              'relay-connections',
+              'reporting'
             ]
           },
           {

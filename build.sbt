@@ -82,7 +82,8 @@ lazy val root = project
     clientLaminext,
     tools,
     codegenSbt,
-    federation
+    federation,
+    reporting
   )
 
 lazy val macros = project
@@ -413,6 +414,21 @@ lazy val examples = project
     federation,
     zioHttp,
     tools
+  )
+
+lazy val reporting = project
+  .in(file("reporting"))
+  .settings(name := "caliban-reporting")
+  .settings(commonSettings)
+  .dependsOn(clientJVM, core)
+  .settings(
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    libraryDependencies ++= Seq(
+      "dev.zio"                       %% "zio"                           % zioVersion,
+      "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
+      "dev.zio"                       %% "zio-test"                      % zioVersion % Test,
+      "dev.zio"                       %% "zio-test-sbt"                  % zioVersion % Test
+    )
   )
 
 lazy val benchmarks = project
