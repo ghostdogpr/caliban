@@ -369,6 +369,7 @@ private[caliban] object Functions {
     Def.taskDyn((project / compile).map(_ => ()))
 
   implicit final class SeqTaskOps[A](private val seq: Seq[A]) extends AnyVal {
+    import sbt.Scoped.richTaskSeq
 
     def traverseT[B](f: A => Def.Initialize[Task[B]]): Def.Initialize[Task[Seq[B]]] =
       seq.map(f).join
