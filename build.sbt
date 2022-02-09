@@ -166,7 +166,7 @@ lazy val codegenSbt = project
   .settings(commonSettings)
   .enablePlugins(BuildInfoPlugin)
   .settings(
-    buildInfoKeys    := Seq[BuildInfoKey](version, scalaVersion),
+    buildInfoKeys    := Seq[BuildInfoKey](version),
     buildInfoPackage := "caliban.codegen",
     buildInfoObject  := "BuildInfo"
   )
