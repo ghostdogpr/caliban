@@ -2,7 +2,7 @@ package caliban.codegen
 
 import caliban.codegen.CalibanSourceGenerator.TrackedSettings
 import caliban.tools.compiletime.Utils
-import sbt.Keys._
+import sbt.Keys.*
 import sbt.io.IO.defaultCharset
 import sbt.{ Compile, Def, Project, _ }
 
@@ -29,7 +29,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
     // ## Plugin task
     lazy val ctCalibanServerGenerate: TaskKey[Seq[File]] = taskKey[Seq[File]]("Internal task")
   }
-  import autoImport._
+  import autoImport.*
 
   private val helpMsg: String =
     """
@@ -63,7 +63,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
         ctCalibanServerGenerate :=
           // That helped: https://stackoverflow.com/q/26244115/2431728
           Def.taskDyn {
-            import Functions._
+            import Functions.*
 
             val log         = streams.value.log("ctCalibanServer")
             val metadataDir = s"${(thisProject / target).value.getAbsolutePath}/ctCalibanServer"
@@ -228,7 +228,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
       "Generate Caliban Client(s) code at compile time. Automatically configured to be triggered when compilation is triggered"
     )
   }
-  import autoImport._
+  import autoImport.*
 
   /**
    * I have to apologize for the readability and complexity of this code.
@@ -242,7 +242,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
         ctCalibanClientGenerate       := {
           // That helped: https://stackoverflow.com/q/26244115/2431728
           Def.taskDyn {
-            import Functions._
+            import Functions.*
 
             val log = streams.value.log("ctCalibanClient")
 
@@ -326,7 +326,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                */
               val trackedSettings: Def.Initialize[Task[TrackedSettings]] =
                 Def.taskDyn {
-                  import CompileTimeCalibanServerPlugin.autoImport._
+                  import CompileTimeCalibanServerPlugin.autoImport.*
 
                   // We need to track the server settings here so if they change the clients are re-generated.
                   val serverProjectSettings: Seq[(String, ClientGenerationSettings)] =
@@ -338,7 +338,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                     TrackedSettings(
                       List(
                         caliban.codegen.BuildInfo.version,
-                        caliban.codegen.BuildInfo.scalaVersion,
+                        (thisProject / scalaVersion).value,
                         zio.BuildInfo.version,
                         clientsSettings.map(_.id).mkString,
                         serverProjectSettings.mkString,
@@ -369,7 +369,6 @@ private[caliban] object Functions {
     Def.taskDyn((project / compile).map(_ => ()))
 
   implicit final class SeqTaskOps[A](private val seq: Seq[A]) extends AnyVal {
-    import sbt.Scoped.richTaskSeq
 
     def traverseT[B](f: A => Def.Initialize[Task[B]]): Def.Initialize[Task[Seq[B]]] =
       seq.map(f).join
@@ -401,7 +400,7 @@ private[caliban] object Functions {
        */
       val cachedGenerateSources
         : TrackedSettings => (() => FilesInfo[PlainFileInfo]) => Def.Initialize[Task[Seq[File]]] = {
-        import sbt.util.CacheImplicits._
+        import sbt.util.CacheImplicits.*
 
         Tracked.inputChanged(cacheDirectory / s"$cacheName-inputs") { (inChanged: Boolean, _: TrackedSettings) =>
           Tracked.outputChanged(cacheDirectory / s"$cacheName-output") {
