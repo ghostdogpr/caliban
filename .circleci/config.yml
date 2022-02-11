@@ -50,7 +50,10 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt +publishLocal;+codegenSbt/scripted
+      - run: |
+          echo 'ThisBuild / version := "0.0.1-TEST"' >> build.sbt
+          cat build.sbt
+          sbt +publishLocal;+codegenSbt/scripted
       - save_cache:
           key: sbtcache
           paths:
