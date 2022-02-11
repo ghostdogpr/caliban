@@ -53,7 +53,7 @@ jobs:
       - run: |
           echo 'ThisBuild / version := "0.0.1-TEST"' >> build.sbt
           cat build.sbt
-          sbt +publishLocal;+codegenSbt/scripted
+          sbt "+publishLocal;+codegenSbt/scripted"
       - save_cache:
           key: sbtcache
           paths:
