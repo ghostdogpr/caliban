@@ -50,7 +50,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.12.15! codegenSbt/scripted
+      - run: sbt +publishLocal;+codegenSbt/scripted
       - save_cache:
           key: sbtcache
           paths:
