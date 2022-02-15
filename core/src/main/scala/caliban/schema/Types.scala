@@ -42,7 +42,8 @@ object Types {
     description: Option[String],
     fields: List[__Field],
     directives: List[Directive],
-    origin: Option[String] = None
+    origin: Option[String] = None,
+    interfaces: () => Option[List[__Type]] = () => Some(Nil)
   ): __Type =
     __Type(
       __TypeKind.OBJECT,
@@ -50,7 +51,7 @@ object Types {
       description,
       fields =
         args => if (args.includeDeprecated.getOrElse(false)) Some(fields) else Some(fields.filter(!_.isDeprecated)),
-      interfaces = () => Some(Nil),
+      interfaces = interfaces,
       directives = Some(directives),
       origin = origin
     )
