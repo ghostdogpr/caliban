@@ -86,9 +86,9 @@ trait Schema[-R, T] { self =>
   }
 
   /**
-   * Maps over this schema's [[__Type]], converting it to another [[__Type]].
+   * Maps over this schema's type, converting it to another type.
    *
-   * @param op The operation to run on this schemas [[__Type]]
+   * @param op The operation to run on this schemas __Type.
    */
   def mapType(op: __Type => __Type): Schema[R, T] = new Schema[R, T] {
     override def resolve(value: T): Step[R]                                = self.resolve(value)
