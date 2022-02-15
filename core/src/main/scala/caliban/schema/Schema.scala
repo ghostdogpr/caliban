@@ -91,10 +91,9 @@ trait Schema[-R, T] { self =>
    * @param op The operation to run on this schemas [[__Type]]
    */
   def mapType(op: __Type => __Type): Schema[R, T] = new Schema[R, T] {
-    override def resolve(value: T): Step[R] = self.resolve(value)
-    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
+    override def resolve(value: T): Step[R]                                = self.resolve(value)
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
       op(self.toType_(isInput, isSubscription))
-    }
   }
 
   /**
