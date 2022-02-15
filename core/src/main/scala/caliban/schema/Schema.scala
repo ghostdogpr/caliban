@@ -86,6 +86,18 @@ trait Schema[-R, T] { self =>
   }
 
   /**
+   * Maps over this schema's [[__Type]], converting it to another [[__Type]].
+   *
+   * @param op The operation to run on this schemas [[__Type]]
+   */
+  def mapType(op: __Type => __Type): Schema[R, T] = new Schema[R, T] {
+    override def resolve(value: T): Step[R] = self.resolve(value)
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
+      op(self.toType_(isInput, isSubscription))
+    }
+  }
+
+  /**
    * Changes the name of the generated graphql type.
    * @param name new name for the type
    * @param inputName new name for the type when it's an input type (by default "Input" is added after the name)

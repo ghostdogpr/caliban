@@ -129,6 +129,16 @@ object SchemaSpec extends DefaultRunnableSpec {
 
         assert(Types.innerType(introspectSubscription[Something]).name)(isSome(equalTo("SomethingElse")))
       },
+      test("mapType") {
+        case class Something(b: Int)
+        case class Query(something: Something)
+
+        implicit val somethingSchema: Schema[Any, Something] = Schema.gen[Any, Something].mapType { t =>
+          t.copy(description = Some("Changed description"))
+        }
+
+        assert(Types.innerType(introspectSubscription[Something]).description)(isSome(equalTo("Changed description")))
+      },
       test("union redirect") {
         case class Queries(union: RedirectingUnion)
 
