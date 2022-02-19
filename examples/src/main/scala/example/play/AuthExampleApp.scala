@@ -3,6 +3,7 @@ package example.play
 import akka.actor.ActorSystem
 import caliban.GraphQL.graphQL
 import caliban.interop.tapir.RequestInterceptor
+import caliban.interop.tapir.TapirAdapter.TapirResponse
 import caliban.schema.GenericSchema
 import caliban.{ PlayAdapter, RootResolver }
 import play.api.Mode
@@ -27,10 +28,12 @@ object AuthExampleApp extends App {
   implicit val executionContext: ExecutionContextExecutor = system.dispatcher
 
   object AuthWrapper extends RequestInterceptor[Auth] {
-    override def apply[R <: Auth, A](request: ServerRequest)(effect: ZIO[R, StatusCode, A]): ZIO[R, StatusCode, A] =
+    override def apply[R <: Auth, A](
+      request: ServerRequest
+    )(effect: ZIO[R, TapirResponse, A]): ZIO[R, TapirResponse, A] =
       request.header("token") match {
         case Some(token) => ZIO.serviceWithZIO[Auth](_.set(Some(AuthToken(token)))) *> effect
-        case None        => ZIO.fail(StatusCode.Forbidden)
+        case None        => ZIO.fail(TapirResponse(StatusCode.Forbidden))
       }
   }
 

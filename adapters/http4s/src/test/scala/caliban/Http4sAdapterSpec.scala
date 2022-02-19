@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.interop.tapir.TestData.sampleCharacters
-import caliban.interop.tapir.{ TapirAdapterSpec, TestApi, TestService }
+import caliban.interop.tapir.{ FakeAuthorizationInterceptor, TapirAdapterSpec, TestApi, TestService }
 import caliban.uploads.Uploads
 import org.http4s.blaze.server.BlazeServerBuilder
 import org.http4s.server.Router
@@ -25,7 +25,12 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
                        .bindHttp(8088, "localhost")
                        .withHttpWebSocketApp(wsBuilder =>
                          Router[TestTask](
-                           "/api/graphql"    -> CORS.policy(Http4sAdapter.makeHttpService[Env, CalibanError](interpreter)),
+                           "/api/graphql"    -> CORS.policy(
+                             Http4sAdapter.makeHttpService[Env, CalibanError](
+                               interpreter,
+                               requestInterceptor = FakeAuthorizationInterceptor.bearer
+                             )
+                           ),
                            "/upload/graphql" -> CORS.policy(Http4sAdapter.makeHttpUploadService[Env, CalibanError](interpreter)),
                            "/ws/graphql"     -> CORS.policy(
                              Http4sAdapter.makeWebSocketService[Env, Env, CalibanError](wsBuilder, interpreter)

@@ -53,7 +53,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
       |    )
       |```
       |
-      |See documentation for more details: (TODO Add link)
+      |See documentation for more details: https://ghostdogpr.github.io/caliban/docs/client-codegen.html#compiletimecalibanplugin
       |""".stripMargin.trim
 
   private lazy val pluginSettings =
@@ -200,7 +200,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
       |    )
       |```
       |
-      |See documentation for more details: (TODO Add link)
+      |See documentation for more details: https://ghostdogpr.github.io/caliban/docs/client-codegen.html#compiletimecalibanplugin
       |""".stripMargin.trim
 
   object autoImport {

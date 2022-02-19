@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.interop.tapir.TestData.sampleCharacters
-import caliban.interop.tapir.{ TapirAdapterSpec, TestApi, TestService }
+import caliban.interop.tapir.{ FakeAuthorizationInterceptor, TapirAdapterSpec, TestApi, TestService }
 import caliban.uploads.Uploads
 import sttp.client3.UriContext
 import zhttp.http._
@@ -20,7 +20,11 @@ object ZHttpAdapterSpec extends DefaultRunnableSpec {
                        .start(
                          8088,
                          Http.route[Request] {
-                           case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
+                           case _ -> !! / "api" / "graphql" =>
+                             ZHttpAdapter.makeHttpService(
+                               interpreter,
+                               requestInterceptor = FakeAuthorizationInterceptor.bearer
+                             )
                            case _ -> !! / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
                          }
                        )

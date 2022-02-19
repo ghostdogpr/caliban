@@ -3,6 +3,7 @@ package caliban
 import akka.http.scaladsl.server.Route
 import akka.stream.scaladsl.{ Flow, Sink, Source }
 import akka.stream.{ Materializer, OverflowStrategy }
+import caliban.AkkaHttpAdapter.convertWebSocketEndpoint
 import caliban.execution.QueryExecution
 import caliban.interop.tapir.TapirAdapter.{ zioMonadError, CalibanPipe, ZioWebSockets }
 import caliban.interop.tapir.{ RequestInterceptor, TapirAdapter, WebSocketHooks }
@@ -14,13 +15,14 @@ import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.PublicEndpoint
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
-import sttp.tapir.server.akkahttp.AkkaHttpServerInterpreter
+import sttp.tapir.server.akkahttp.{ AkkaHttpServerInterpreter, AkkaHttpServerOptions }
 import zio._
 import zio.stream.ZStream
 
 import scala.concurrent.{ ExecutionContext, Future }
 
-object AkkaHttpAdapter {
+class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions) {
+  private def akkaInterpreter = AkkaHttpServerInterpreter(options)
 
   def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E],
@@ -40,7 +42,7 @@ object AkkaHttpAdapter {
       queryExecution,
       requestInterceptor
     )
-    AkkaHttpServerInterpreter().toRoute(endpoints.map(TapirAdapter.convertHttpEndpointToFuture(_)))
+    akkaInterpreter.toRoute(endpoints.map(TapirAdapter.convertHttpEndpointToFuture(_)))
   }
 
   def makeHttpUploadService[R, E](
@@ -62,7 +64,7 @@ object AkkaHttpAdapter {
       queryExecution,
       requestInterceptor
     )
-    AkkaHttpServerInterpreter().toRoute(TapirAdapter.convertHttpEndpointToFuture(endpoint))
+    akkaInterpreter.toRoute(TapirAdapter.convertHttpEndpointToFuture(endpoint))
   }
 
   def makeWebSocketService[R, E](
@@ -89,7 +91,7 @@ object AkkaHttpAdapter {
       requestInterceptor,
       webSocketHooks
     )
-    AkkaHttpServerInterpreter().toRoute(
+    akkaInterpreter.toRoute(
       convertWebSocketEndpoint(
         endpoint.asInstanceOf[
           ServerEndpoint.Full[Unit, Unit, ServerRequest, StatusCode, CalibanPipe, ZioWebSockets, RIO[R, *]]
@@ -97,6 +99,12 @@ object AkkaHttpAdapter {
       )
     )
   }
+}
+
+object AkkaHttpAdapter extends AkkaHttpAdapter(AkkaHttpServerOptions.default) {
+
+  def apply(options: AkkaHttpServerOptions): AkkaHttpAdapter =
+    new AkkaHttpAdapter(options)
 
   type AkkaPipe = Flow[GraphQLWSInput, GraphQLWSOutput, Any]
 

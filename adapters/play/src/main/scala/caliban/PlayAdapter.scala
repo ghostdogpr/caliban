@@ -15,13 +15,15 @@ import sttp.tapir.PublicEndpoint
 import sttp.tapir.json.play._
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
-import sttp.tapir.server.play.PlayServerInterpreter
+import sttp.tapir.server.play.{ PlayServerInterpreter, PlayServerOptions }
 import zio._
 import zio.stream.ZStream
 
 import scala.concurrent.{ ExecutionContext, Future }
 
-object PlayAdapter {
+class PlayAdapter private (private val options: Option[PlayServerOptions]) {
+  private def playInterpreter(implicit mat: Materializer) =
+    options.fold(PlayServerInterpreter())(PlayServerInterpreter(_))
 
   def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E],
@@ -37,7 +39,7 @@ object PlayAdapter {
       queryExecution,
       requestInterceptor
     )
-    PlayServerInterpreter().toRoutes(endpoints.map(TapirAdapter.convertHttpEndpointToFuture(_)))
+    playInterpreter.toRoutes(endpoints.map(TapirAdapter.convertHttpEndpointToFuture(_)))
   }
 
   def makeHttpUploadService[R, E](
@@ -54,7 +56,7 @@ object PlayAdapter {
       queryExecution,
       requestInterceptor
     )
-    PlayServerInterpreter().toRoutes(TapirAdapter.convertHttpEndpointToFuture(endpoint))
+    playInterpreter.toRoutes(TapirAdapter.convertHttpEndpointToFuture(endpoint))
   }
 
   def makeWebSocketService[R, E](
@@ -81,14 +83,20 @@ object PlayAdapter {
       requestInterceptor,
       webSocketHooks
     )
-    PlayServerInterpreter().toRoutes(
-      convertWebSocketEndpoint(
+    playInterpreter.toRoutes(
+      PlayAdapter.convertWebSocketEndpoint(
         endpoint.asInstanceOf[
           ServerEndpoint.Full[Unit, Unit, ServerRequest, StatusCode, CalibanPipe, ZioWebSockets, RIO[R, *]]
         ]
       )
     )
   }
+}
+
+object PlayAdapter extends PlayAdapter(None) {
+
+  def apply(options: PlayServerOptions) =
+    new PlayAdapter(Some(options))
 
   type AkkaPipe = Flow[GraphQLWSInput, GraphQLWSOutput, Any]
 

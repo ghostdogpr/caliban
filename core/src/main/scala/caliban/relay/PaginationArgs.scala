@@ -19,14 +19,17 @@ object Pagination {
     after: Option[String]
   ): ZIO[Any, CalibanError, Pagination[C]] =
     validateFirstLast(first, last)
-      .zipWithPar(validateCursors(before, after))((count, cursor) => new Pagination[C](count, cursor))
+      .validate(
+        validateCursors(before, after)
+      )
+      .map { case (count, cursor) => new Pagination[C](count, cursor) }
       .parallelErrors
       .mapError((errors: ::[String]) => CalibanError.ValidationError(msg = errors.mkString(", "), explanatoryText = ""))
 
   private def validateCursors[C: Cursor](
     before: Option[String],
     after: Option[String]
-  ) =
+  ): ZIO[Any, String, PaginationCursor[C]] =
     (before, after) match {
       case (Some(_), Some(_)) =>
         ZIO.fail("before and after cannot both be set")

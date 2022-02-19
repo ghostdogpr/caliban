@@ -4,7 +4,7 @@ import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives._
 import caliban.interop.tapir.TestData.sampleCharacters
-import caliban.interop.tapir.{ TapirAdapterSpec, TestApi, TestService }
+import caliban.interop.tapir.{ FakeAuthorizationInterceptor, TapirAdapterSpec, TestApi, TestService }
 import caliban.uploads.Uploads
 import sttp.client3.UriContext
 import sttp.tapir.json.circe._
@@ -28,7 +28,7 @@ object AkkaHttpAdapterSpec extends DefaultRunnableSpec {
     (for {
       interpreter <- TestApi.api.interpreter.toManaged
       route        = path("api" / "graphql") {
-                       AkkaHttpAdapter.makeHttpService(interpreter)
+                       AkkaHttpAdapter.makeHttpService(interpreter, requestInterceptor = FakeAuthorizationInterceptor.bearer)
                      } ~ path("upload" / "graphql") {
                        AkkaHttpAdapter.makeHttpUploadService(interpreter)
                      } ~ path("ws" / "graphql") {

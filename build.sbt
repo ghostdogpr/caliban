@@ -3,7 +3,7 @@ import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
 val scala212 = "2.12.14"
 val scala213 = "2.13.8"
-val scala3   = "3.1.0"
+val scala3   = "3.1.1"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion               = "2.6.18"
@@ -11,7 +11,7 @@ val catsEffect2Version        = "2.5.4"
 val catsEffect3Version        = "3.3.5"
 val catsMtlVersion            = "1.2.1"
 val circeVersion              = "0.14.1"
-val http4sVersion             = "0.23.9"
+val http4sVersion             = "0.23.10"
 val laminextVersion           = "0.14.3"
 val magnoliaVersion           = "0.17.0"
 val mercatorVersion           = "0.2.1"
@@ -86,7 +86,8 @@ lazy val root = project
     clientLaminext,
     tools,
     codegenSbt,
-    federation
+    federation,
+    reporting
   )
 
 lazy val macros = project
@@ -299,7 +300,7 @@ lazy val akkaHttp = project
     crossScalaVersions -= scala3,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "com.typesafe.akka"             %% "akka-http"                  % "10.2.7",
+      "com.typesafe.akka"             %% "akka-http"                  % "10.2.8",
       "com.typesafe.akka"             %% "akka-serialization-jackson" % akkaVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-akka-http-server"     % tapirVersion,
       compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.2").cross(CrossVersion.full))
@@ -414,6 +415,21 @@ lazy val examples = project
     federation,
     zioHttp,
     tools
+  )
+
+lazy val reporting = project
+  .in(file("reporting"))
+  .settings(name := "caliban-reporting")
+  .settings(commonSettings)
+  .dependsOn(clientJVM, core)
+  .settings(
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    libraryDependencies ++= Seq(
+      "dev.zio"                       %% "zio"                           % zioVersion,
+      "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
+      "dev.zio"                       %% "zio-test"                      % zioVersion % Test,
+      "dev.zio"                       %% "zio-test-sbt"                  % zioVersion % Test
+    )
   )
 
 lazy val benchmarks = project

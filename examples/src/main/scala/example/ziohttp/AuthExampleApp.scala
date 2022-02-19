@@ -6,6 +6,7 @@ import caliban._
 import caliban.interop.tapir.{ StreamTransformer, WebSocketHooks }
 import caliban.schema.GenericSchema
 import example.ExampleData._
+import example.ExampleService.ExampleService
 import example.{ ExampleApi, ExampleService }
 import zhttp.http._
 import zhttp.service.Server
@@ -114,7 +115,10 @@ object AuthExampleApp extends ZIOAppDefault {
                        .start(
                          8088,
                          Http.route[Request] {
-                           case _ -> !! / "api" / "graphql" => Auth.middleware(ZHttpAdapter.makeHttpService(interpreter))
+                           case _ -> !! / "api" / "graphql" =>
+                             Auth.middleware(
+                               ZHttpAdapter.makeHttpService(interpreter)
+                             )
                            case _ -> !! / "ws" / "graphql"  => Auth.WebSockets.live(interpreter)
                            case _ -> !! / "graphiql"        => graphiql
                          }

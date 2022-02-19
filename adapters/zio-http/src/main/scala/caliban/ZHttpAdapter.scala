@@ -2,12 +2,12 @@ package caliban
 
 import caliban.Value.StringValue
 import caliban.execution.QueryExecution
-import caliban.interop.tapir.{ TapirAdapter, WebSocketHooks }
+import caliban.interop.tapir.{ RequestInterceptor, TapirAdapter, WebSocketHooks }
 import caliban.interop.tapir.TapirAdapter._
 import io.circe.parser._
 import io.circe.syntax._
 import sttp.tapir.json.circe._
-import sttp.tapir.server.ziohttp.ZioHttpInterpreter
+import sttp.tapir.server.ziohttp.{ ZioHttpInterpreter, ZioHttpServerOptions }
 import zhttp.http._
 import zhttp.socket.WebSocketFrame.Text
 import zhttp.socket.{ SocketApp, _ }
@@ -19,15 +19,17 @@ object ZHttpAdapter {
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
-    queryExecution: QueryExecution = QueryExecution.Parallel
-  ): HttpApp[R, Throwable] = {
+    queryExecution: QueryExecution = QueryExecution.Parallel,
+    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
+  )(implicit serverOptions: ZioHttpServerOptions[R] = ZioHttpServerOptions.default[R]): HttpApp[R, Throwable] = {
     val endpoints = TapirAdapter.makeHttpService[R, E](
       interpreter,
       skipValidation,
       enableIntrospection,
-      queryExecution
+      queryExecution,
+      requestInterceptor
     )
-    ZioHttpInterpreter().toHttp(endpoints)
+    ZioHttpInterpreter(serverOptions).toHttp(endpoints)
   }
 
   def makeWebSocketService[R, E](

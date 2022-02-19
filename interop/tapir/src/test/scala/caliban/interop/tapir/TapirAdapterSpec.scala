@@ -3,19 +3,35 @@ package caliban.interop.tapir
 import caliban.InputValue.ObjectValue
 import caliban.Value.StringValue
 import caliban.{ CalibanError, GraphQLRequest, GraphQLWSInput }
+import sttp.client3.UriContext
 import sttp.client3.asynchttpclient.zio._
-import sttp.model.{ MediaType, Part, Uri }
+import sttp.model.{ Header, MediaType, Method, Part, QueryParams, StatusCode, Uri }
 import sttp.tapir.client.sttp.SttpClientInterpreter
 import sttp.tapir.client.sttp.ws.zio._
 import sttp.tapir.json.circe._
+import sttp.tapir.model.{ ConnectionInfo, ServerRequest }
 import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
 import zio.{ test => _, _ }
 
+import scala.collection.immutable
 import scala.language.postfixOps
 
 object TapirAdapterSpec {
+  case class FakeServerRequest(method: Method, uri: Uri, headers: List[Header] = Nil) extends ServerRequest {
+    override def protocol: String = "http"
+
+    override def connectionInfo: ConnectionInfo = ConnectionInfo.NoInfo
+
+    override def underlying: Any = ()
+
+    override def pathSegments: List[String] =
+      uri.pathSegments.segments.map(_.v).toList
+
+    override def queryParameters: QueryParams = uri.params
+  }
+
   def makeSuite(
     label: String,
     httpUri: Uri,
@@ -36,19 +52,36 @@ object TapirAdapterSpec {
 
     val tests: List[Option[ZSpec[SttpClient, Throwable]]] = List(
       Some(
-        test("test http endpoint") {
-          val io =
-            for {
-              res      <- send(run((GraphQLRequest(Some("{ characters { name }  }")), null)))
-              response <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
-            } yield response.data.toString
+        suite("http")(
+          test("test http endpoint") {
+            val io =
+              for {
+                res      <- send(run((GraphQLRequest(Some("{ characters { name }  }")), null)))
+                response <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
+              } yield response.data.toString
 
-          assertM(io)(
-            equalTo(
-              """{"characters":[{"name":"James Holden"},{"name":"Naomi Nagata"},{"name":"Amos Burton"},{"name":"Alex Kamal"},{"name":"Chrisjen Avasarala"},{"name":"Josephus Miller"},{"name":"Roberta Draper"}]}"""
+            assertM(io)(
+              equalTo(
+                """{"characters":[{"name":"James Holden"},{"name":"Naomi Nagata"},{"name":"Amos Burton"},{"name":"Alex Kamal"},{"name":"Chrisjen Avasarala"},{"name":"Josephus Miller"},{"name":"Roberta Draper"}]}"""
+              )
             )
-          )
-        }
+          },
+          test("test interceptor failure") {
+            for {
+              res      <- send(
+                            run(
+                              (
+                                GraphQLRequest(Some("{ characters { name }  }")),
+                                null
+                              )
+                            ).header("X-Invalid", "1")
+                          )
+              response <- ZIO.fromEither(res.body).flip.orElseFail(new Throwable("Failed to parse result"))
+            } yield assert(response.code)(equalTo(StatusCode.Unauthorized)) && assert(response.body)(
+              equalTo("You are unauthorized!")
+            )
+          }
+        )
       ),
       runUpload.map(runUpload =>
         test("test http upload endpoint") {
