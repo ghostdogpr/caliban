@@ -77,7 +77,7 @@ object SchemaReporter {
   def fromConfig[R: Tag](
     f: R => String
   ): ZLayer[R with SttpClient, Nothing, SchemaReporter] =
-    fromConfigZIO((r: R) => ZIO.succeed(f(r)))
+    fromConfigZIO[R, Nothing]((r: R) => ZIO.succeed(f(r)))
 
   def fromConfigZIO[R: Tag, E](
     f: R => IO[E, String]
