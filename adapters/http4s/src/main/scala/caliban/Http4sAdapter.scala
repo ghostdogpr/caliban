@@ -193,7 +193,15 @@ object Http4sAdapter {
   def convertHttpEndpointToF[F[_], R, E](
     endpoint: ServerEndpoint[Any, RIO[R, *]]
   )(implicit interop: ToEffect[F, R]): ServerEndpoint[Any, F] =
-    ServerEndpoint[endpoint.A, endpoint.U, endpoint.I, endpoint.E, endpoint.O, Any, F](
+    ServerEndpoint[
+      endpoint.SECURITY_INPUT,
+      endpoint.PRINCIPAL,
+      endpoint.INPUT,
+      endpoint.ERROR_OUTPUT,
+      endpoint.OUTPUT,
+      Any,
+      F
+    ](
       endpoint.endpoint,
       _ => a => interop.toEffect(endpoint.securityLogic(zioMonadError)(a)),
       _ => u => req => interop.toEffect(endpoint.logic(zioMonadError)(u)(req))
@@ -210,11 +218,27 @@ object Http4sAdapter {
 
     val e = endpoint
       .asInstanceOf[
-        ServerEndpoint.Full[endpoint.A, endpoint.U, endpoint.I, endpoint.E, CalibanPipe, ZioWebSockets, RIO[R, *]]
+        ServerEndpoint.Full[
+          endpoint.SECURITY_INPUT,
+          endpoint.PRINCIPAL,
+          endpoint.INPUT,
+          endpoint.ERROR_OUTPUT,
+          CalibanPipe,
+          ZioWebSockets,
+          RIO[R, *]
+        ]
       ]
 
-    ServerEndpoint[endpoint.A, endpoint.U, endpoint.I, endpoint.E, Fs2Pipe, Fs2Streams[F] with WebSockets, F](
-      e.endpoint.asInstanceOf[Endpoint[endpoint.A, endpoint.I, endpoint.E, Fs2Pipe, Any]],
+    ServerEndpoint[
+      endpoint.SECURITY_INPUT,
+      endpoint.PRINCIPAL,
+      endpoint.INPUT,
+      endpoint.ERROR_OUTPUT,
+      Fs2Pipe,
+      Fs2Streams[F] with WebSockets,
+      F
+    ](
+      e.endpoint.asInstanceOf[Endpoint[endpoint.SECURITY_INPUT, endpoint.INPUT, endpoint.ERROR_OUTPUT, Fs2Pipe, Any]],
       _ => a => interop.toEffect(e.securityLogic(zioMonadError)(a)),
       _ =>
         u =>

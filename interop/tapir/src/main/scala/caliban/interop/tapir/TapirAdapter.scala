@@ -293,7 +293,15 @@ object TapirAdapter {
   def convertHttpEndpointToFuture[E, R](
     endpoint: ServerEndpoint[Any, RIO[R, *]]
   )(implicit runtime: Runtime[R]): ServerEndpoint[Any, Future] =
-    ServerEndpoint[endpoint.A, endpoint.U, endpoint.I, endpoint.E, endpoint.O, Any, Future](
+    ServerEndpoint[
+      endpoint.SECURITY_INPUT,
+      endpoint.PRINCIPAL,
+      endpoint.INPUT,
+      endpoint.ERROR_OUTPUT,
+      endpoint.OUTPUT,
+      Any,
+      Future
+    ](
       endpoint.endpoint,
       _ => a => runtime.unsafeRunToFuture(endpoint.securityLogic(zioMonadError)(a)).future,
       _ => u => req => runtime.unsafeRunToFuture(endpoint.logic(zioMonadError)(u)(req)).future

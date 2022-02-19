@@ -17,16 +17,16 @@ val magnoliaVersion           = "0.17.0"
 val mercatorVersion           = "0.2.1"
 val playVersion               = "2.8.13"
 val playJsonVersion           = "2.9.2"
-val sttpVersion               = "3.4.0"     // "3.5.0"
-val tapirVersion              = "0.20.0-M9"
-val zioVersion                = "2.0.0-RC1" // "2.0.0-RC2"
-val zioInteropCats2Version    = "2.5.1.0"   // "2.5.1.0+11-d4b128a4-SNAPSHOT"
-val zioInteropCats3Version    = "3.3.0-RC1" // "3.3.0-RC2"
-val zioInteropReactiveVersion = "2.0.0-RC1" // "2.0.0-RC3"
-val zioConfigVersion          = "3.0.0-RC1" // "3.0.0-RC2"
-val zqueryVersion             = "0.3.0-RC1" // "0.3.0-RC2"
-val zioJsonVersion            = "0.3.0-RC2" // "0.3.0-RC3"
-val zioHttpVersion            = "2.0.0-RC2" // "2.0.0-RC3"
+val sttpVersion               = "3.5.0"
+val tapirVersion              = "0.20.0-M10"
+val zioVersion                = "2.0.0-RC2"
+val zioInteropCats2Version    = "2.5.1.0+11-d4b128a4-SNAPSHOT"
+val zioInteropCats3Version    = "3.3.0-RC2"
+val zioInteropReactiveVersion = "2.0.0-RC3"
+val zioConfigVersion          = "3.0.0-RC2"
+val zqueryVersion             = "0.3.0-RC2"
+val zioJsonVersion            = "0.3.0-RC3"
+val zioHttpVersion            = "2.0.0-RC3"
 
 inThisBuild(
   List(
@@ -222,7 +222,6 @@ lazy val monixInterop = project
   .settings(name := "caliban-monix")
   .settings(commonSettings)
   .settings(
-    crossScalaVersions -= scala3, // temporarily for ZIO 2.0
     libraryDependencies ++= Seq(
       "dev.zio"  %% "zio-interop-reactivestreams" % zioInteropReactiveVersion,
       "dev.zio"  %% "zio-interop-cats"            % zioInteropCats2Version,

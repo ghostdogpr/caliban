@@ -85,7 +85,7 @@ object Auth {
   ): HttpApp[R with Auth, Throwable] =
     Http
       .fromFunctionZIO[Request] { (request: Request) =>
-        val user = request.getHeaders.getAuthorization.map(_.toString())
+        val user = request.headers.authorization.map(_.toString())
 
         ZIO.serviceWithZIO[Auth](_.setUser(user)).as(app)
       }
