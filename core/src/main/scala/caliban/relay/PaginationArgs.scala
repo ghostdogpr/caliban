@@ -24,7 +24,7 @@ object Pagination {
       )
       .map { case (count, cursor) => new Pagination[C](count, cursor) }
       .parallelErrors
-      .mapError((errors: ::[String]) => CalibanError.ValidationError(msg = errors.mkString(", "), explanatoryText = ""))
+      .mapError((errors: ::[String]) => CalibanError.ExecutionError(msg = errors.mkString(", ")))
 
   private def validateCursors[C: Cursor](
     before: Option[String],
