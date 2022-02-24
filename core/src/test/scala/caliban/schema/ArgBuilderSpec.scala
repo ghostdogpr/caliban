@@ -24,6 +24,15 @@ object ArgBuilderSpec extends DefaultRunnableSpec {
         )
       )
     ),
+    suite("long")(
+      testM("Long from string")(
+        check(Gen.anyLong) { value =>
+          assert(ArgBuilder.long.build(StringValue(s"$value")))(
+            isRight(equalTo(value))
+          )
+        }
+      )
+    ),
     suite("java.time")(
       test("Instant from epoch")(
         assert(ArgBuilder.instantEpoch.build(IntValue.LongNumber(100)))(
