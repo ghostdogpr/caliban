@@ -55,8 +55,18 @@ object Connection {
     val sliced = (args.cursor match {
       case PaginationCursor.NoCursor       => itemsWithIndex
       case PaginationCursor.After(cursor)  => itemsWithIndex.drop(cursor.value + 1)
-      case PaginationCursor.Before(cursor) => itemsWithIndex.dropRight(cursor.value + 1)
+      case PaginationCursor.Before(cursor) => itemsWithIndex.slice(0, cursor.value)
     })
+
+    val hasNextPage = args.count match {
+      case PaginationCount.First(count) => sliced.length > count
+      case PaginationCount.Last(_)      => false
+    }
+
+    val hasPreviousPage = args.count match {
+      case PaginationCount.Last(count) => sliced.length > count
+      case PaginationCount.First(_)    => false
+    }
 
     val dropped = args.count match {
       case PaginationCount.First(count) => sliced.take(count)
@@ -66,12 +76,8 @@ object Connection {
     val edges = dropped.map(makeEdge.tupled)
 
     val pageInfo = PageInfo(
-      hasNextPage = edges.headOption
-        .map(e => e.cursor.value + args.count.count < items.size)
-        .getOrElse(false),
-      hasPreviousPage = edges.lastOption
-        .map(e => e.cursor.value > args.count.count)
-        .getOrElse(false),
+      hasNextPage = hasNextPage,
+      hasPreviousPage = hasPreviousPage,
       startCursor = edges.headOption.map(start => start.encodeCursor),
       endCursor = edges.lastOption.map(end => end.encodeCursor)
     )
