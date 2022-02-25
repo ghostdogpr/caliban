@@ -303,6 +303,7 @@ object TapirAdapter {
                                          .runDrain
                                          .catchAll(e => output.offer(makeError(id, e)))
                                          .fork
+                                         .interruptible
                                          .unit
 
                                      case None => output.offer(connectionError)
