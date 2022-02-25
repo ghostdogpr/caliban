@@ -69,6 +69,19 @@ object ConnectionSpec extends DefaultRunnableSpec {
           )
       )
     },
+    test("it correctly slices the list when before is set") {
+      assertTrue(
+        ItemConnection
+          .fromList(
+            List(Item("a"), Item("b"), Item("c")),
+            Pagination(cursor = PaginationCursor.Before(Base64Cursor(2)), count = PaginationCount.First(3))
+          )
+          .edges == List(
+          ItemEdge(Base64Cursor(0), Item("a")),
+          ItemEdge(Base64Cursor(1), Item("b"))
+        )
+      )
+    },
     test("it correctly calculates hasNextPage") {
       val list = List(Item("a"), Item("b"), Item("c"))
 
