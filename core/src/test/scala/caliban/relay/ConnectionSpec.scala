@@ -69,6 +69,56 @@ object ConnectionSpec extends DefaultRunnableSpec {
           )
       )
     },
+    test("it correctly calculates hasNextPage") {
+      val list = List(Item("a"), Item("b"), Item("c"))
+
+      val calcHasNextPage = (cursor: PaginationCursor[Base64Cursor], count: PaginationCount) =>
+        ItemConnection
+          .fromList(
+            list,
+            Pagination(cursor = cursor, count = count)
+          )
+          .pageInfo
+          .hasNextPage
+
+      // when first is set
+      assert(calcHasNextPage(PaginationCursor.NoCursor, PaginationCount.First(2)))(isTrue) &&
+      assert(calcHasNextPage(PaginationCursor.NoCursor, PaginationCount.First(3)))(isFalse) &&
+      assert(calcHasNextPage(PaginationCursor.After(Base64Cursor(0)), PaginationCount.First(1)))(isTrue) &&
+      assert(calcHasNextPage(PaginationCursor.After(Base64Cursor(1)), PaginationCount.First(1)))(isFalse) &&
+      // when before is set
+      assert(calcHasNextPage(PaginationCursor.Before(Base64Cursor(2)), PaginationCount.First(1)))(isTrue) &&
+      assert(calcHasNextPage(PaginationCursor.Before(Base64Cursor(2)), PaginationCount.First(2)))(isFalse)
+      // when last is set, the result is always false
+      assert(calcHasNextPage(PaginationCursor.NoCursor, PaginationCount.Last(3)))(isFalse)
+      assert(calcHasNextPage(PaginationCursor.After(Base64Cursor(0)), PaginationCount.Last(3)))(isFalse)
+      assert(calcHasNextPage(PaginationCursor.Before(Base64Cursor(1)), PaginationCount.Last(3)))(isFalse)
+    },
+    test("it correctly calculates hasPreviousPage") {
+      val list = List(Item("a"), Item("b"), Item("c"))
+
+      val calcHasPreviousPage = (cursor: PaginationCursor[Base64Cursor], count: PaginationCount) =>
+        ItemConnection
+          .fromList(
+            list,
+            Pagination(cursor = cursor, count = count)
+          )
+          .pageInfo
+          .hasPreviousPage
+
+      // when last is set
+      assert(calcHasPreviousPage(PaginationCursor.NoCursor, PaginationCount.Last(2)))(isTrue) &&
+      assert(calcHasPreviousPage(PaginationCursor.NoCursor, PaginationCount.Last(3)))(isFalse) &&
+      assert(calcHasPreviousPage(PaginationCursor.After(Base64Cursor(0)), PaginationCount.Last(1)))(isTrue) &&
+      assert(calcHasPreviousPage(PaginationCursor.After(Base64Cursor(1)), PaginationCount.Last(1)))(isFalse) &&
+      // when after is set
+      assert(calcHasPreviousPage(PaginationCursor.After(Base64Cursor(0)), PaginationCount.Last(1)))(isTrue) &&
+      assert(calcHasPreviousPage(PaginationCursor.After(Base64Cursor(0)), PaginationCount.Last(2)))(isFalse)
+      // when first is set, the result is always false
+      assert(calcHasPreviousPage(PaginationCursor.NoCursor, PaginationCount.First(3)))(isFalse)
+      assert(calcHasPreviousPage(PaginationCursor.After(Base64Cursor(0)), PaginationCount.First(3)))(isFalse)
+      assert(calcHasPreviousPage(PaginationCursor.Before(Base64Cursor(1)), PaginationCount.First(3)))(isFalse)
+    },
     testM("it paginates the response forwards") {
       for {
         int <- api.interpreter
