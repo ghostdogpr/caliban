@@ -5,6 +5,8 @@ import caliban.InputValue
 import caliban.InputValue._
 import caliban.Value._
 import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
+import caliban.parsing.adt.Definition.TypeSystemDefinition
+import caliban.parsing.adt.Definition.TypeSystemDefinition.DirectiveDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemExtension.SchemaExtension
 import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension._
@@ -1086,6 +1088,26 @@ object ParserSpec extends DefaultRunnableSpec {
                   Nil,
                   List(
                     InputValueDefinition(None, "z", NamedType("Int", nonNull = true), None, Nil)
+                  )
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlInputExtension)
+            )
+          )
+        )
+      },
+      testM("parse custom directives") {
+        val gqlInputExtension = "directive @test on FIELD_DEFINITION"
+        assertM(Parser.parseQuery(gqlInputExtension))(
+          equalTo(
+            Document(
+              List(
+                DirectiveDefinition(
+                  None,
+                  "test",
+                  List.empty,
+                  Set(
+                    TypeSystemDefinition.DirectiveLocation.TypeSystemDirectiveLocation.FIELD_DEFINITION
                   )
                 )
               ),
