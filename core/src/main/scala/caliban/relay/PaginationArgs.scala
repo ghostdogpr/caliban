@@ -15,7 +15,10 @@ object Pagination {
   def apply[C: Cursor](
     args: ForwardPaginationArgs[C]
   ): ZIO[Any, CalibanError, Pagination[C]] =
-    validatePositivePresence(args.first, "first")
+    (args.first match {
+      case None    => ZIO.fail(s"first cannot be empty")
+      case Some(a) => validatePositive("first", a).map(First(_))
+    })
       .validate(args.after match {
         case None    => ZIO.succeed(NoCursor)
         case Some(x) => ZIO.fromEither(Cursor[C].decode(x)).map(After(_))
@@ -27,10 +30,13 @@ object Pagination {
   def apply[C: Cursor](
     args: BackwardPaginationArgs[C]
   ): ZIO[Any, CalibanError, Pagination[C]] =
-    validatePositivePresence(args.last, "last")
+    (args.last match {
+      case None    => ZIO.fail(s"last cannot be empty")
+      case Some(a) => validatePositive("last", a).map(Last(_))
+    })
       .validate(args.before match {
         case None    => ZIO.succeed(NoCursor)
-        case Some(x) => ZIO.fromEither(Cursor[C].decode(x)).map(After(_))
+        case Some(x) => ZIO.fromEither(Cursor[C].decode(x)).map(Before(_))
       })
       .map { case (count, cursor) => new Pagination[C](count, cursor) }
       .parallelErrors
@@ -63,11 +69,6 @@ object Pagination {
         ZIO.fromEither(Cursor[C].decode(x)).map(After(_))
       case (None, None)       => ZIO.succeed(NoCursor)
     }
-
-  private def validatePositivePresence(item: Option[Int], name: String) = item match {
-    case None    => ZIO.fail(s"$name cannot be empty")
-    case Some(a) => validatePositive(name, a).map(First(_))
-  }
 
   private def validateFirstLast(first: Option[Int], last: Option[Int]) =
     (first, last) match {

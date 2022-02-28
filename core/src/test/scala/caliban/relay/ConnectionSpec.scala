@@ -274,6 +274,21 @@ object ConnectionSpec extends DefaultRunnableSpec {
       }
     ),
     suite("ForwardPagination")(
+      testM("successfully returns a Pagination case class") {
+        val res = ForwardArgs(
+          first = Some(1),
+          after = Some(Cursor[Base64Cursor].encode(Base64Cursor(1)))
+        ).toPagination
+
+        assertM(res)(
+          equalTo(
+            Pagination(
+              count = PaginationCount.First(1),
+              cursor = PaginationCursor.After(Base64Cursor(1))
+            )
+          )
+        )
+      },
       testM("must set first") {
         val res = ForwardArgs(
           first = None,
@@ -300,6 +315,21 @@ object ConnectionSpec extends DefaultRunnableSpec {
       }
     ),
     suite("BackwardPagination")(
+      testM("successfully returns a Pagination case class") {
+        val res = BackwardArgs(
+          last = Some(1),
+          before = Some(Cursor[Base64Cursor].encode(Base64Cursor(1)))
+        ).toPagination
+
+        assertM(res)(
+          equalTo(
+            Pagination(
+              count = PaginationCount.Last(1),
+              cursor = PaginationCursor.Before(Base64Cursor(1))
+            )
+          )
+        )
+      },
       testM("must set last") {
         val res = BackwardArgs(
           last = None,
