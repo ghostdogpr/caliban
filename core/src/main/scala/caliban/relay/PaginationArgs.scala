@@ -13,6 +13,30 @@ object Pagination {
     apply(args.first, args.last, args.before, args.after)
 
   def apply[C: Cursor](
+    args: ForwardPaginationArgs[C]
+  ): ZIO[Any, CalibanError, Pagination[C]] =
+    validatePositivePresence(args.first, "first")
+      .validate(args.after match {
+        case None    => ZIO.succeed(NoCursor)
+        case Some(x) => ZIO.fromEither(Cursor[C].decode(x)).map(After(_))
+      })
+      .map { case (count, cursor) => new Pagination[C](count, cursor) }
+      .parallelErrors
+      .mapError((errors: ::[String]) => CalibanError.ExecutionError(msg = errors.mkString(", ")))
+
+  def apply[C: Cursor](
+    args: BackwardPaginationArgs[C]
+  ): ZIO[Any, CalibanError, Pagination[C]] =
+    validatePositivePresence(args.last, "last")
+      .validate(args.before match {
+        case None    => ZIO.succeed(NoCursor)
+        case Some(x) => ZIO.fromEither(Cursor[C].decode(x)).map(After(_))
+      })
+      .map { case (count, cursor) => new Pagination[C](count, cursor) }
+      .parallelErrors
+      .mapError((errors: ::[String]) => CalibanError.ExecutionError(msg = errors.mkString(", ")))
+
+  def apply[C: Cursor](
     first: Option[Int],
     last: Option[Int],
     before: Option[String],
@@ -39,6 +63,11 @@ object Pagination {
         ZIO.fromEither(Cursor[C].decode(x)).map(After(_))
       case (None, None)       => ZIO.succeed(NoCursor)
     }
+
+  private def validatePositivePresence(item: Option[Int], name: String) = item match {
+    case None    => ZIO.fail(s"$name cannot be empty")
+    case Some(a) => validatePositive(name, a).map(First(_))
+  }
 
   private def validateFirstLast(first: Option[Int], last: Option[Int]) =
     (first, last) match {
@@ -81,6 +110,24 @@ abstract class PaginationArgs[C: Cursor] { self =>
   val last: Option[Int]
   val before: Option[String]
   val after: Option[String]
+
+  def toPagination: ZIO[Any, CalibanError, Pagination[C]] = Pagination(
+    self
+  )
+}
+
+abstract class ForwardPaginationArgs[C: Cursor] { self =>
+  val first: Option[Int]
+  val after: Option[String]
+
+  def toPagination: ZIO[Any, CalibanError, Pagination[C]] = Pagination(
+    self
+  )
+}
+
+abstract class BackwardPaginationArgs[C: Cursor] { self =>
+  val last: Option[Int]
+  val before: Option[String]
 
   def toPagination: ZIO[Any, CalibanError, Pagination[C]] = Pagination(
     self
