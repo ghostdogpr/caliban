@@ -3,7 +3,6 @@ package caliban.interop.tapir
 import caliban.InputValue.ObjectValue
 import caliban.Value.StringValue
 import caliban.{ CalibanError, GraphQLRequest, GraphQLWSInput }
-import sttp.client3.UriContext
 import sttp.client3.asynchttpclient.zio._
 import sttp.model.{ Header, MediaType, Method, Part, QueryParams, StatusCode, Uri }
 import sttp.tapir.client.sttp.SttpClientInterpreter
@@ -15,7 +14,6 @@ import zio.test.Assertion._
 import zio.test._
 import zio.{ test => _, _ }
 
-import scala.collection.immutable
 import scala.language.postfixOps
 
 object TapirAdapterSpec {

@@ -299,8 +299,8 @@ object TapirAdapter {
                                          .mapZIO(output.offer)
                                          .runDrain
                                          .catchAll(e => output.offer(makeError(id, e)))
-                                         .interruptible
                                          .fork
+                                         .interruptible
                                          .unit
 
                                      case None => output.offer(connectionError)

@@ -31,7 +31,7 @@ object ZHttpAdapterSpec extends DefaultRunnableSpec {
                        .forkManaged
       _           <- Clock.sleep(3 seconds).toManaged
     } yield ())
-      .provideCustomLayer(TestService.make(sampleCharacters) ++ Uploads.empty ++ Clock.live)
+      .provideCustomLayer(TestService.make(sampleCharacters) ++ Uploads.empty +!+ Clock.live)
       .toLayer
 
   def spec: ZSpec[ZEnv, Any] = {

@@ -7,9 +7,9 @@ import caliban.parsing.Parser
 import caliban.uploads.Upload
 import zio.Chunk
 
+import java.time._
 import java.time.format.DateTimeFormatter
 import java.time.temporal.Temporal
-import java.time._
 import java.util.UUID
 import scala.annotation.implicitNotFound
 import scala.util.Try
@@ -85,8 +85,10 @@ object ArgBuilder extends ArgBuilderDerivation {
     case other           => Left(ExecutionError(s"Can't build an Int from input $other"))
   }
   implicit lazy val long: ArgBuilder[Long]             = {
-    case value: IntValue => Right(value.toLong)
-    case other           => Left(ExecutionError(s"Can't build a Long from input $other"))
+    case value: IntValue    => Right(value.toLong)
+    case StringValue(value) =>
+      Try(value.toLong).fold(_ => Left(ExecutionError(s"Can't build a Long from input $value")), Right(_))
+    case other              => Left(ExecutionError(s"Can't build a Long from input $other"))
   }
   implicit lazy val bigInt: ArgBuilder[BigInt]         = {
     case value: IntValue => Right(value.toBigInt)
