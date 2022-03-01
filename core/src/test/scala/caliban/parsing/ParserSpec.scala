@@ -1095,7 +1095,7 @@ object ParserSpec extends DefaultRunnableSpec {
           )
         )
       },
-      testM("parse custom directives") {
+      test("parse custom directives") {
         val gqlInputExtension = "directive @test on FIELD_DEFINITION"
         assertM(Parser.parseQuery(gqlInputExtension))(
           equalTo(
