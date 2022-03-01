@@ -49,7 +49,7 @@ object ReportingDaemonSpec extends DefaultRunnableSpec {
     def whenReport(
       f: (SchemaReportingRef[_], Boolean, List[Invocation]) => IO[ReportingError, ReportingResponse]
     ): URIO[FakeSchemaReporter, Unit] =
-      ZIO.serviceWith(_.whenReport(f))
+      ZIO.serviceWithZIO(_.whenReport(f))
 
     val defaultResponse: (SchemaReportingRef[_], Boolean, List[Invocation]) => IO[ReportingError, ReportingResponse] =
       (_, _, _) => UIO.succeed(ReportingResponse(false, 0.seconds))
