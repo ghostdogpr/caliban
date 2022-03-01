@@ -10,7 +10,7 @@ both need to configure in your project to be able to generate you Caliban client
 
 To use any of these two plugins, you'll first need to add following dependency to your `project/plugins.sbt` file:
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "1.3.3")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "1.4.0")
 ```
 
 ## CalibanPlugin
