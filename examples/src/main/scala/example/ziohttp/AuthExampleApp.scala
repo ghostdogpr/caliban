@@ -43,7 +43,7 @@ object Auth {
       .toLayer
 
   object WebSockets {
-    private val wsSession = Http.fromEffect(Ref.make[Option[String]](None))
+    private val wsSession = Http.fromZIO(Ref.make[Option[String]](None))
 
     def live[R <: Has[Auth] with Clock](
       interpreter: GraphQLInterpreter[R, CalibanError]
@@ -85,11 +85,11 @@ object Auth {
   }
 
   def middleware[R, B](
-    app: Http[R, Throwable, Request, Response[R, Throwable]]
+    app: Http[R, Throwable, Request, Response]
   ): HttpApp[R with Has[Auth], Throwable] =
     Http
-      .fromEffectFunction[Request] { (request: Request) =>
-        val user = request.headers.find(_.name == "Authorization").map(_.value.toString())
+      .fromFunctionZIO[Request] { (request: Request) =>
+        val user = request.headers.authorization.map(_.toString())
 
         ZIO.serviceWith[Auth](_.setUser(user)).as(app)
       }
@@ -109,13 +109,7 @@ object Authed extends GenericSchema[ZEnv with Has[Auth]] {
 }
 
 object AuthExampleApp extends App {
-  private val graphiql =
-    Http.succeed(
-      Response.http(
-        content = HttpData.fromStream(ZStream.fromResource("graphiql.html")),
-        headers = List(Header(HttpHeaderNames.CONTENT_TYPE, HttpHeaderValues.TEXT_HTML))
-      )
-    )
+  private val graphiql = Http.fromStream(ZStream.fromResource("graphiql.html"))
 
   override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
     (for {
@@ -123,13 +117,13 @@ object AuthExampleApp extends App {
       _           <- Server
                        .start(
                          8088,
-                         Http.route {
-                           case _ -> Root / "api" / "graphql" =>
+                         Http.route[Request] {
+                           case _ -> !! / "api" / "graphql" =>
                              Auth.middleware(
                                ZHttpAdapter.makeHttpService(interpreter)
                              )
-                           case _ -> Root / "ws" / "graphql"  => Auth.WebSockets.live(interpreter)
-                           case _ -> Root / "graphiql"        => graphiql
+                           case _ -> !! / "ws" / "graphql"  => Auth.WebSockets.live(interpreter)
+                           case _ -> !! / "graphiql"        => graphiql
                          }
                        )
                        .forever

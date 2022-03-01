@@ -42,20 +42,21 @@ object ZHttpAdapter {
     queryExecution: QueryExecution = QueryExecution.Parallel,
     webSocketHooks: WebSocketHooks[R, E] = WebSocketHooks.empty
   ): HttpApp[R with Clock, E] =
-    HttpApp.responseM(
+    Http.responseZIO[R with Clock, E](
       for {
         ref <- Ref.make(Map.empty[String, Promise[Any, Unit]])
-      } yield Response.socket(
-        socketHandler[R, E](
-          ref,
-          interpreter,
-          skipValidation,
-          enableIntrospection,
-          keepAliveTime,
-          queryExecution,
-          webSocketHooks
-        )
-      )
+        app <- Response.fromSocketApp[R with Clock](
+                 socketHandler[R, E](
+                   ref,
+                   interpreter,
+                   skipValidation,
+                   enableIntrospection,
+                   keepAliveTime,
+                   queryExecution,
+                   webSocketHooks
+                 )
+               )
+      } yield app
     )
 
   private def socketHandler[R, E](
@@ -66,7 +67,7 @@ object ZHttpAdapter {
     keepAliveTime: Option[Duration],
     queryExecution: QueryExecution,
     webSocketHooks: WebSocketHooks[R, E] = WebSocketHooks.empty
-  ): SocketApp[R with Clock, E] = {
+  ): SocketApp[R with Clock] = {
     val routes = Socket.collect[WebSocketFrame] { case Text(text) =>
       ZStream
         .fromEffect(ZIO.fromEither(decode[GraphQLWSInput](text)))
@@ -122,7 +123,7 @@ object ZHttpAdapter {
         .map(output => WebSocketFrame.Text(output.asJson.noSpaces))
     }
 
-    SocketApp.message(routes) ++ SocketApp.protocol(protocol)
+    SocketApp(routes).withProtocol(protocol)
   }
 
   private val protocol = SocketProtocol.subProtocol("graphql-ws")
