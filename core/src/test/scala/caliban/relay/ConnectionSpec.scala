@@ -31,6 +31,16 @@ object ConnectionSpec extends DefaultRunnableSpec {
     after: Option[String]
   ) extends PaginationArgs[Base64Cursor]
 
+  case class ForwardArgs(
+    first: Option[Int],
+    after: Option[String]
+  ) extends ForwardPaginationArgs[Base64Cursor]
+
+  case class BackwardArgs(
+    last: Option[Int],
+    before: Option[String]
+  ) extends BackwardPaginationArgs[Base64Cursor]
+
   val conn = ItemConnection.fromList(
     List(Item("a"), Item("b"), Item("c")),
     Pagination(
@@ -259,6 +269,88 @@ object ConnectionSpec extends DefaultRunnableSpec {
         assertM(res)(
           fails(
             hasMessage(equalTo("first and last cannot both be empty"))
+          )
+        )
+      }
+    ),
+    suite("ForwardPagination")(
+      testM("successfully returns a Pagination case class") {
+        val res = ForwardArgs(
+          first = Some(1),
+          after = Some(Cursor[Base64Cursor].encode(Base64Cursor(1)))
+        ).toPagination
+
+        assertM(res)(
+          equalTo(
+            Pagination(
+              count = PaginationCount.First(1),
+              cursor = PaginationCursor.After(Base64Cursor(1))
+            )
+          )
+        )
+      },
+      testM("must set first") {
+        val res = ForwardArgs(
+          first = None,
+          after = None
+        ).toPagination.run
+
+        assertM(res)(
+          fails(
+            hasMessage(equalTo("first cannot be empty"))
+          )
+        )
+      },
+      testM("first cannot be negative") {
+        val res = ForwardArgs(
+          first = Some(-1),
+          after = None
+        ).toPagination.run
+
+        assertM(res)(
+          fails(
+            hasMessage(equalTo("first cannot be negative"))
+          )
+        )
+      }
+    ),
+    suite("BackwardPagination")(
+      testM("successfully returns a Pagination case class") {
+        val res = BackwardArgs(
+          last = Some(1),
+          before = Some(Cursor[Base64Cursor].encode(Base64Cursor(1)))
+        ).toPagination
+
+        assertM(res)(
+          equalTo(
+            Pagination(
+              count = PaginationCount.Last(1),
+              cursor = PaginationCursor.Before(Base64Cursor(1))
+            )
+          )
+        )
+      },
+      testM("must set last") {
+        val res = BackwardArgs(
+          last = None,
+          before = None
+        ).toPagination.run
+
+        assertM(res)(
+          fails(
+            hasMessage(equalTo("last cannot be empty"))
+          )
+        )
+      },
+      testM("last cannot be negative") {
+        val res = BackwardArgs(
+          last = Some(-1),
+          before = None
+        ).toPagination.run
+
+        assertM(res)(
+          fails(
+            hasMessage(equalTo("last cannot be negative"))
           )
         )
       }

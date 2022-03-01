@@ -13,6 +13,36 @@ object Pagination {
     apply(args.first, args.last, args.before, args.after)
 
   def apply[C: Cursor](
+    args: ForwardPaginationArgs[C]
+  ): ZIO[Any, CalibanError, Pagination[C]] =
+    (args.first match {
+      case None    => ZIO.fail(s"first cannot be empty")
+      case Some(a) => validatePositive("first", a).map(First(_))
+    })
+      .validate(args.after match {
+        case None    => ZIO.succeed(NoCursor)
+        case Some(x) => ZIO.fromEither(Cursor[C].decode(x)).map(After(_))
+      })
+      .map { case (count, cursor) => new Pagination[C](count, cursor) }
+      .parallelErrors
+      .mapError((errors: ::[String]) => CalibanError.ExecutionError(msg = errors.mkString(", ")))
+
+  def apply[C: Cursor](
+    args: BackwardPaginationArgs[C]
+  ): ZIO[Any, CalibanError, Pagination[C]] =
+    (args.last match {
+      case None    => ZIO.fail(s"last cannot be empty")
+      case Some(a) => validatePositive("last", a).map(Last(_))
+    })
+      .validate(args.before match {
+        case None    => ZIO.succeed(NoCursor)
+        case Some(x) => ZIO.fromEither(Cursor[C].decode(x)).map(Before(_))
+      })
+      .map { case (count, cursor) => new Pagination[C](count, cursor) }
+      .parallelErrors
+      .mapError((errors: ::[String]) => CalibanError.ExecutionError(msg = errors.mkString(", ")))
+
+  def apply[C: Cursor](
     first: Option[Int],
     last: Option[Int],
     before: Option[String],
@@ -81,6 +111,24 @@ abstract class PaginationArgs[C: Cursor] { self =>
   val last: Option[Int]
   val before: Option[String]
   val after: Option[String]
+
+  def toPagination: ZIO[Any, CalibanError, Pagination[C]] = Pagination(
+    self
+  )
+}
+
+abstract class ForwardPaginationArgs[C: Cursor] { self =>
+  val first: Option[Int]
+  val after: Option[String]
+
+  def toPagination: ZIO[Any, CalibanError, Pagination[C]] = Pagination(
+    self
+  )
+}
+
+abstract class BackwardPaginationArgs[C: Cursor] { self =>
+  val last: Option[Int]
+  val before: Option[String]
 
   def toPagination: ZIO[Any, CalibanError, Pagination[C]] = Pagination(
     self
