@@ -6,7 +6,7 @@ val scala213 = "2.13.8"
 val scala3   = "3.1.1"
 val allScala = Seq(scala212, scala213, scala3)
 
-val akkaVersion            = "2.6.17"
+val akkaVersion            = "2.6.18"
 val catsEffect2Version     = "2.5.4"
 val catsEffect3Version     = "3.3.6"
 val catsMtlVersion         = "1.2.1"
@@ -18,14 +18,14 @@ val mercatorVersion        = "0.2.1"
 val playVersion            = "2.8.13"
 val playJsonVersion        = "2.9.2"
 val sttpVersion            = "3.3.18"
-val tapirVersion           = "0.19.4"
+val tapirVersion           = "0.20.0"
 val zioVersion             = "1.0.13"
 val zioInteropCats2Version = "2.5.1.0"
 val zioInteropCats3Version = "3.2.9.1"
 val zioConfigVersion       = "1.0.10"
 val zqueryVersion          = "0.2.10"
 val zioJsonVersion         = "0.1.5"
-val zioHttpVersion         = "1.0.0.0-RC17"
+val zioHttpVersion         = "1.0.0.0-RC25"
 
 inThisBuild(
   List(
@@ -239,8 +239,9 @@ lazy val tapirInterop = project
     } ++
       Seq(
         "com.softwaremill.sttp.tapir"   %% "tapir-core"                    % tapirVersion,
-        "com.softwaremill.sttp.tapir"   %% "tapir-zio"                     % tapirVersion,
+        "com.softwaremill.sttp.tapir"   %% "tapir-zio1"                    % tapirVersion,
         "com.softwaremill.sttp.tapir"   %% "tapir-sttp-client"             % tapirVersion % Test,
+        "com.softwaremill.sttp.tapir"   %% "tapir-sttp-client-ws-zio1"     % tapirVersion % Test,
         "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % tapirVersion % Test,
         "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion  % Test,
         "dev.zio"                       %% "zio-test"                      % zioVersion   % Test,
@@ -262,7 +263,7 @@ lazy val http4s = project
       Seq(
         "dev.zio"                       %% "zio-interop-cats"              % zioInteropCats3Version,
         "org.typelevel"                 %% "cats-effect"                   % catsEffect3Version,
-        "com.softwaremill.sttp.tapir"   %% "tapir-zio-http4s-server"       % tapirVersion,
+        "com.softwaremill.sttp.tapir"   %% "tapir-zio1-http4s-server"      % tapirVersion,
         "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % tapirVersion,
         "org.http4s"                    %% "http4s-blaze-server"           % http4sVersion % Test,
         "dev.zio"                       %% "zio-test"                      % zioVersion    % Test,
@@ -284,9 +285,9 @@ lazy val zioHttp = project
     ),
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "io.d11"                      %% "zhttp"                 % zioHttpVersion,
-      "com.softwaremill.sttp.tapir" %% "tapir-zio-http-server" % tapirVersion,
-      "com.softwaremill.sttp.tapir" %% "tapir-json-circe"      % tapirVersion
+      "io.d11"                      %% "zhttp"                  % zioHttpVersion,
+      "com.softwaremill.sttp.tapir" %% "tapir-zio1-http-server" % tapirVersion,
+      "com.softwaremill.sttp.tapir" %% "tapir-json-circe"       % tapirVersion
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")

@@ -10,7 +10,7 @@ import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.zio.ZioStreams.Pipe
 import sttp.model.{ headers => _, _ }
 import sttp.monad.MonadError
-import sttp.tapir.Codec.{ mediaType, JsonCodec }
+import sttp.tapir.Codec.JsonCodec
 import sttp.tapir._
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
@@ -329,7 +329,15 @@ object TapirAdapter {
   def convertHttpEndpointToFuture[E, R](
     endpoint: ServerEndpoint[Any, RIO[R, *]]
   )(implicit runtime: Runtime[R]): ServerEndpoint[Any, Future] =
-    ServerEndpoint[endpoint.A, endpoint.U, endpoint.I, endpoint.E, endpoint.O, Any, Future](
+    ServerEndpoint[
+      endpoint.SECURITY_INPUT,
+      endpoint.PRINCIPAL,
+      endpoint.INPUT,
+      endpoint.ERROR_OUTPUT,
+      endpoint.OUTPUT,
+      Any,
+      Future
+    ](
       endpoint.endpoint,
       _ => a => runtime.unsafeRunToFuture(endpoint.securityLogic(zioMonadError)(a)).future,
       _ => u => req => runtime.unsafeRunToFuture(endpoint.logic(zioMonadError)(u)(req)).future
