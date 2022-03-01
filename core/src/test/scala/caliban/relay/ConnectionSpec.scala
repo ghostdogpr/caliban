@@ -270,7 +270,7 @@ object ConnectionSpec extends DefaultRunnableSpec {
       }
     ),
     suite("ForwardPagination")(
-      testM("successfully returns a Pagination case class") {
+      test("successfully returns a Pagination case class") {
         val res = ForwardArgs(
           first = Some(1),
           after = Some(Cursor[Base64Cursor].encode(Base64Cursor(1)))
@@ -285,11 +285,11 @@ object ConnectionSpec extends DefaultRunnableSpec {
           )
         )
       },
-      testM("must set first") {
+      test("must set first") {
         val res = ForwardArgs(
           first = None,
           after = None
-        ).toPagination.run
+        ).toPagination.exit
 
         assertM(res)(
           fails(
@@ -297,11 +297,11 @@ object ConnectionSpec extends DefaultRunnableSpec {
           )
         )
       },
-      testM("first cannot be negative") {
+      test("first cannot be negative") {
         val res = ForwardArgs(
           first = Some(-1),
           after = None
-        ).toPagination.run
+        ).toPagination.exit
 
         assertM(res)(
           fails(
@@ -311,7 +311,7 @@ object ConnectionSpec extends DefaultRunnableSpec {
       }
     ),
     suite("BackwardPagination")(
-      testM("successfully returns a Pagination case class") {
+      test("successfully returns a Pagination case class") {
         val res = BackwardArgs(
           last = Some(1),
           before = Some(Cursor[Base64Cursor].encode(Base64Cursor(1)))
@@ -326,11 +326,11 @@ object ConnectionSpec extends DefaultRunnableSpec {
           )
         )
       },
-      testM("must set last") {
+      test("must set last") {
         val res = BackwardArgs(
           last = None,
           before = None
-        ).toPagination.run
+        ).toPagination.exit
 
         assertM(res)(
           fails(
@@ -338,11 +338,11 @@ object ConnectionSpec extends DefaultRunnableSpec {
           )
         )
       },
-      testM("last cannot be negative") {
+      test("last cannot be negative") {
         val res = BackwardArgs(
           last = Some(-1),
           before = None
-        ).toPagination.run
+        ).toPagination.exit
 
         assertM(res)(
           fails(
