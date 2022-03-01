@@ -509,6 +509,7 @@ object Parser {
         P.string("QUERY").as(ExecutableDirectiveLocation.QUERY),
         P.string("MUTATION").as(ExecutableDirectiveLocation.MUTATION),
         P.string("SUBSCRIPTION").as(ExecutableDirectiveLocation.SUBSCRIPTION),
+        P.string("FIELD_DEFINITION").as(TypeSystemDirectiveLocation.FIELD_DEFINITION),
         P.string("FIELD").as(ExecutableDirectiveLocation.FIELD),
         P.string("FRAGMENT_DEFINITION").as(ExecutableDirectiveLocation.FRAGMENT_DEFINITION),
         P.string("FRAGMENT_SPREAD").as(ExecutableDirectiveLocation.FRAGMENT_SPREAD),
@@ -516,12 +517,11 @@ object Parser {
         P.string("SCHEMA").as(TypeSystemDirectiveLocation.SCHEMA),
         P.string("SCALAR").as(TypeSystemDirectiveLocation.SCALAR),
         P.string("OBJECT").as(TypeSystemDirectiveLocation.OBJECT),
-        P.string("FIELD_DEFINITION").as(TypeSystemDirectiveLocation.FIELD_DEFINITION),
         P.string("ARGUMENT_DEFINITION").as(TypeSystemDirectiveLocation.ARGUMENT_DEFINITION),
         P.string("INTERFACE").as(TypeSystemDirectiveLocation.INTERFACE),
         P.string("UNION").as(TypeSystemDirectiveLocation.UNION),
-        P.string("ENUM").as(TypeSystemDirectiveLocation.ENUM),
         P.string("ENUM_VALUE").as(TypeSystemDirectiveLocation.ENUM_VALUE),
+        P.string("ENUM").as(TypeSystemDirectiveLocation.ENUM),
         P.string("INPUT_OBJECT").as(TypeSystemDirectiveLocation.INPUT_OBJECT),
         P.string("INPUT_FIELD_DEFINITION").as(TypeSystemDirectiveLocation.INPUT_FIELD_DEFINITION)
       )
@@ -532,7 +532,7 @@ object Parser {
       (P.string("directive @") *> name <* whitespaceWithComment) ~
       ((argumentDefinitions <* whitespaceWithComment).? <* P.string("on") <* whitespaceWithComment1) ~
       ((P.char('|') <* whitespaceWithComment).? *> directiveLocation <* whitespaceWithComment) ~
-      (P.char('|') *> whitespaceWithComment *> directiveLocation).repSep(whitespaceWithComment)).map {
+      (P.char('|') *> whitespaceWithComment *> directiveLocation).repSep0(whitespaceWithComment)).map {
       case ((((description, name), args), firstLoc), otherLoc) =>
         DirectiveDefinition(description.map(_.value), name, args.getOrElse(Nil), otherLoc.toList.toSet + firstLoc)
     }
