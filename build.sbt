@@ -300,7 +300,7 @@ lazy val akkaHttp = project
     crossScalaVersions -= scala3,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "com.typesafe.akka"             %% "akka-http"                  % "10.2.8",
+      "com.typesafe.akka"             %% "akka-http"                  % "10.2.9",
       "com.typesafe.akka"             %% "akka-serialization-jackson" % akkaVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-akka-http-server"     % tapirVersion,
       compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.2").cross(CrossVersion.full))
