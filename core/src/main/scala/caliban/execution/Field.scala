@@ -16,12 +16,31 @@ case class Field(
   parentType: Option[__Type],
   alias: Option[String] = None,
   fields: List[Field] = Nil,
-  condition: Option[Set[String]] = None,
+  targets: Option[Set[String]] = None,
+  // The possible types that can contain this field
+  _condition: Option[Set[String]] = None,
   arguments: Map[String, InputValue] = Map(),
   _locationInfo: () => LocationInfo = () => LocationInfo.origin,
   directives: List[Directive] = List.empty
-) {
+) { self =>
   lazy val locationInfo: LocationInfo = _locationInfo()
+
+  def combine(other: Field): Field =
+    self.copy(
+      fields = self.fields ::: other.fields,
+      targets = (self.targets, other.targets) match {
+        case (Some(t1), Some(t2)) => if (t1 == t2) self.targets else Some(t1 ++ t2)
+        case (Some(_), None)      => self.targets
+        case (None, Some(_))      => other.targets
+        case (None, None)         => None
+      },
+      _condition = (self._condition, other._condition) match {
+        case (Some(v1), Some(v2)) => if (v1 == v2) self._condition else Some(v1 ++ v2)
+        case (Some(_), None)      => self._condition
+        case (None, Some(_))      => other._condition
+        case (None, None)         => None
+      }
+    )
 }
 
 object Field {
@@ -52,15 +71,7 @@ object Field {
           case Some(index) =>
             // field already existed, merge it
             val existing = fieldList(index)
-            fieldList(index) = existing.copy(
-              fields = existing.fields ::: f.fields,
-              condition = (existing.condition, f.condition) match {
-                case (Some(v1), Some(v2)) => if (v1 == v2) existing.condition else Some(v1 ++ v2)
-                case (Some(_), None)      => existing.condition
-                case (None, Some(_))      => f.condition
-                case (None, None)         => None
-              }
-            )
+            fieldList(index) = existing.combine(f)
         }
       }
 
@@ -89,6 +100,7 @@ object Field {
                 alias,
                 field.fields,
                 None,
+                None,
                 resolveVariables(arguments, variableDefinitions, variableValues),
                 () => sourceMapper.getLocation(index),
                 resolvedDirectives
@@ -109,8 +121,12 @@ object Field {
                   innerType.possibleTypes.flatMap(_.find(_.name.contains(f.typeCondition.name))).getOrElse(fieldType)
                 loop(f.selectionSet, t).fields
                   .map(field =>
-                    if (field.condition.isDefined) field
-                    else field.copy(condition = subtypeNames(f.typeCondition.name, rootType))
+                    if (field._condition.isDefined) field
+                    else
+                      field.copy(
+                        targets = Some(Set(f.typeCondition.name)),
+                        _condition = subtypeNames(f.typeCondition.name, rootType)
+                      )
                   )
                   .foreach(addField(_, Some(f.typeCondition.name)))
               }
@@ -130,8 +146,13 @@ object Field {
               case Some(typeName) =>
                 field.fields
                   .map(field =>
-                    if (field.condition.isDefined) field
-                    else field.copy(condition = subtypeNames(typeName.name, rootType))
+                    if (field._condition.isDefined) field
+                    else
+                      field
+                        .copy(
+                          targets = typeCondition.map(t => Some(Set(t.name))).getOrElse(None),
+                          _condition = subtypeNames(typeName.name, rootType)
+                        )
                   )
                   .foreach(addField(_, Some(typeName.name)))
             }

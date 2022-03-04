@@ -11,6 +11,7 @@ import zio.test.ZSpec
 import zio.test._
 
 import Assertion._
+import caliban.parsing.adt.Selection
 
 object FieldSpec extends DefaultRunnableSpec {
 
@@ -29,27 +30,72 @@ object FieldSpec extends DefaultRunnableSpec {
     interface: Interface
   )
 
+  def api(ref: Ref[Set[String]]) = {
+    val api = graphQL(
+      RootResolver(
+        Queries(
+          A(field => ref.set(field.targets.getOrElse(Set.empty)).as("id-a")),
+          C("id-c")
+        )
+      )
+    )
+
+    api.interpreter
+  }
+
   def spec: ZSpec[Environment, Failure] = suite("FieldSpec")(
-    testM("fails") {
+    testM("gets populated with inline fragments") {
       val query = gqldoc("""{
-          union { ...on Interface { id } }
-        }""")
+              union { ...on Interface { id }  }
+            }""")
 
       for {
-        ref <- Ref.make[Set[String]](Set.empty)
-        api  = graphQL(
-                 RootResolver(
-                   Queries(
-                     A(field => ref.set(field.condition.getOrElse(Set.empty)).as("id-a")),
-                     C("id-c")
-                   )
-                 )
-               )
-
-        i      <- api.interpreter
+        ref    <- Ref.make[Set[String]](Set.empty)
+        i      <- api(ref)
         _      <- i.execute(query)
         actual <- ref.get
       } yield assertTrue(actual == Set("Interface"))
+    },
+    testM("doesn't get populated with mismatching type conditions") {
+      val query = gqldoc("""{
+              union { ...on B { id }  }
+            }""")
+
+      for {
+        ref    <- Ref.make[Set[String]](Set.empty)
+        i      <- api(ref)
+        _      <- i.execute(query)
+        actual <- ref.get
+      } yield assertTrue(actual == Set.empty[String])
+    },
+    testM("gets populated with named fragment") {
+      val query = gqldoc("""
+        fragment Frag on A {
+          id
+        }
+        {
+          union { ...Frag }
+        }""")
+
+      for {
+        ref    <- Ref.make[Set[String]](Set.empty)
+        i      <- api(ref)
+        _      <- i.execute(query)
+        actual <- ref.get
+      } yield assertTrue(actual == Set("A"))
+    },
+    testM("gets populated with unnamed fragment") {
+      val query = gqldoc("""
+        {
+          union { ... { id } }
+        }""")
+
+      for {
+        ref    <- Ref.make[Set[String]](Set.empty)
+        i      <- api(ref)
+        _      <- i.execute(query)
+        actual <- ref.get
+      } yield assertTrue(actual == Set.empty[String])
     }
   )
 }

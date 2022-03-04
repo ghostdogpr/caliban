@@ -74,9 +74,9 @@ object Executor {
         case ObjectStep(objectName, fields) =>
           val filteredFields = mergeFields(currentField, objectName)
           val items          = filteredFields.map {
-            case f @ Field(name @ "__typename", _, _, alias, _, _, _, _, directives) =>
+            case f @ Field(name @ "__typename", _, _, alias, _, _, _, _, _, directives) =>
               (alias.getOrElse(name), PureStep(StringValue(objectName)), fieldInfo(f, path, directives))
-            case f @ Field(name, _, _, alias, _, _, args, _, directives)             =>
+            case f @ Field(name, _, _, alias, _, _, _, args, _, directives)             =>
               (
                 alias.getOrElse(name),
                 fields
@@ -181,7 +181,7 @@ object Executor {
     var index = 0
 
     field.fields.foreach { field =>
-      if (field.condition.forall(_.contains(typeName))) {
+      if (field._condition.forall(_.contains(typeName))) {
         val name = field.alias.getOrElse(field.name)
         map.get(name) match {
           case None        =>
