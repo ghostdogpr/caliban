@@ -6,6 +6,9 @@ import caliban.Value._
 import caliban.InputValue._
 import caliban.Value.FloatValue._
 import caliban.Value.IntValue._
+import caliban.parsing.adt.Selection
+import caliban.parsing.adt.Selection.FragmentSpread
+import caliban.parsing.adt.Selection.InlineFragment
 
 case class RemoteQuery(field: Field) { self =>
   def toGraphQLRequest: GraphQLRequest =
@@ -36,29 +39,10 @@ object RemoteQuery {
       val alias    = field.alias.map(a => s"$a: ").getOrElse("")
       val str      = s"$alias${field.name}$args$children"
 
-      withCondition(field)(str)
+      field.targets
+        .map(typeConditions => typeConditions.map(condition => s"...on $condition { $str }").mkString("\n"))
+        .getOrElse(str)
     }
-
-    private def withCondition(f: Field)(inner: String): String =
-      f.condition.flatMap(_.headOption).map(x => s"...on $x { $inner }").getOrElse(inner)
-
-    private def renderInputValue(v: InputValue): String =
-      v match {
-        case StringValue(value)      => s""""$value""""
-        case ListValue(values)       => values.map(renderInputValue).mkString("[", ",", "]")
-        case ObjectValue(fields)     =>
-          fields.map { case (k, v) => s"""$k: ${renderInputValue(v)}""" }.mkString("{ ", ", ", " }")
-        case NullValue               => "null"
-        case VariableValue(name)     => s"$$$name"
-        case BigDecimalNumber(value) => s"$value"
-        case BigIntNumber(value)     => s"$value"
-        case BooleanValue(value)     => s"$value"
-        case DoubleNumber(value)     => s"$value"
-        case EnumValue(value)        => s"$value"
-        case FloatNumber(value)      => s"$value"
-        case IntNumber(value)        => s"$value"
-        case LongNumber(value)       => s"$value"
-      }
 
     private def renderFields(f: Field): String =
       if (f.fields.isEmpty) ""
@@ -66,9 +50,6 @@ object RemoteQuery {
         f.fields.map(renderField).mkString(" { ", " ", " }")
 
     private def renderArguments(args: Map[String, InputValue]): String =
-      if (args.isEmpty) ""
-      else
-        args.map { case (k, v) => s"$k: ${renderInputValue(v)}" }
-          .mkString("(", ", ", ")")
+      if (args.isEmpty) "" else args.map { case (k, v) => s"$k: ${v.toInputString}" }.mkString("(", ", ", ")")
   }
 }
