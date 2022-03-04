@@ -10,6 +10,20 @@ import caliban.parsing.adt.{ Directive, LocationInfo, Selection, VariableDefinit
 import caliban.schema.{ RootType, Types }
 import caliban.{ InputValue, Value }
 
+/**
+ * Represents a field used during the exeuction of a query
+ *
+ * @param name The name
+ * @param fieldType The GraphQL type
+ * @param parentType The parent type of the field
+ * @param alias A potential alias specified in the query, i.e `alias: field`
+ * @param fields The selected subfields, if any, i.e `field { a b }`
+ * @param targets The type conditions used to select this field, i.e `...on Type { field }`
+ * @param _condition Internal, the possible types that contains this field
+ * @param arguments The specified arguments for the field's resolver
+ * @param _locationInfo Internal, the source location in the query
+ * @param directives The directives specified on the field
+ */
 case class Field(
   name: String,
   fieldType: __Type,
@@ -17,7 +31,6 @@ case class Field(
   alias: Option[String] = None,
   fields: List[Field] = Nil,
   targets: Option[Set[String]] = None,
-  // The possible types that can contain this field
   _condition: Option[Set[String]] = None,
   arguments: Map[String, InputValue] = Map(),
   _locationInfo: () => LocationInfo = () => LocationInfo.origin,
