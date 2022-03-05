@@ -19,10 +19,10 @@ import caliban.{ InputValue, Value }
  * @param alias A potential alias specified in the query, i.e `alias: field`
  * @param fields The selected subfields, if any, i.e `field { a b }`
  * @param targets The type conditions used to select this field, i.e `...on Type { field }`
- * @param _condition Internal, the possible types that contains this field
  * @param arguments The specified arguments for the field's resolver
- * @param _locationInfo Internal, the source location in the query
  * @param directives The directives specified on the field
+ * @param _condition Internal, the possible types that contains this field
+ * @param _locationInfo Internal, the source location in the query
  */
 case class Field(
   name: String,
@@ -31,10 +31,10 @@ case class Field(
   alias: Option[String] = None,
   fields: List[Field] = Nil,
   targets: Option[Set[String]] = None,
-  _condition: Option[Set[String]] = None,
   arguments: Map[String, InputValue] = Map(),
-  _locationInfo: () => LocationInfo = () => LocationInfo.origin,
-  directives: List[Directive] = List.empty
+  directives: List[Directive] = List.empty,
+  _condition: Option[Set[String]] = None,
+  _locationInfo: () => LocationInfo = () => LocationInfo.origin
 ) { self =>
   lazy val locationInfo: LocationInfo = _locationInfo()
 
@@ -113,10 +113,10 @@ object Field {
                 alias,
                 field.fields,
                 None,
-                None,
                 resolveVariables(arguments, variableDefinitions, variableValues),
-                () => sourceMapper.getLocation(index),
-                resolvedDirectives
+                resolvedDirectives,
+                None,
+                () => sourceMapper.getLocation(index)
               ),
               None
             )
