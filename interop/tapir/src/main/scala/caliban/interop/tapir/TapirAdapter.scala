@@ -81,7 +81,7 @@ object TapirAdapter {
                 queryFromQueryParams(params)
               else if (
                 headers.exists(header =>
-                  header.name == HeaderNames.ContentType &&
+                  header.name.equalsIgnoreCase(HeaderNames.ContentType) &&
                     MediaType
                       .parse(header.value)
                       .exists(mediaType => mediaType.mainType == "application" && mediaType.subType == "graphql")
