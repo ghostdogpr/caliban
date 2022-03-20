@@ -80,6 +80,26 @@ object TapirAdapterSpec {
             } yield assert(response.code)(equalTo(StatusCode.Unauthorized)) && assert(response.body)(
               equalTo("You are unauthorized!")
             )
+          },
+          testM("lower-case content-type header") {
+            val q = "{ characters { name }  }"
+            val r = run((GraphQLRequest(), null))
+              .header(Header("content-type", "application/graphql; charset=utf-8"), true)
+              .body(q)
+              // if we don't set content-length here it gets incorrectly set to 70 rather than 24.
+              .contentLength(q.length)
+
+            val io =
+              for {
+                res      <- send(r)
+                response <- ZIO.fromEither(res.body).orElseFail(new Throwable(s"Failed to parse result: ${res}"))
+              } yield response.data.toString
+
+            assertM(io)(
+              equalTo(
+                """{"characters":[{"name":"James Holden"},{"name":"Naomi Nagata"},{"name":"Amos Burton"},{"name":"Alex Kamal"},{"name":"Chrisjen Avasarala"},{"name":"Josephus Miller"},{"name":"Roberta Draper"}]}"""
+              )
+            )
           }
         )
       ),
