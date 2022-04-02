@@ -11,7 +11,12 @@ You first need to import `caliban.interop.cats.implicits._` and have an implicit
 - the `GraphQLInterpreter` object is enriched with `executeAsync` and `checkAsync`, variants of `execute` and `check` that return an `F[_]: Async` instead of a `ZIO`.
 - the `Http4sAdapter` also has a helper to turn endpoints into cats-effect named `convertHttpEndpointToF`.
 
-In addition to that, a `Schema` for any `F[_]: Effect` is provided. That means you can include fields with results wrapped in `F` in your queries, mutations or subscriptions.
+In addition to that, a `Schema` for any `F[_]: Async: Dispatcher` is provided. That means you can include fields with results wrapped in `F` in your queries, mutations or subscriptions.
+
+There are two type classes responsible for the conversion between effects: `caliban.interop.cats.ToEffect` and `caliban.interop.cats.FromEffect`.
+The instances are derived implicitly when `Async[F]`, `Dispatcher[F]`, and `Runtime[R]` are available in the implicit scope.
+
+#### Interop with cats.effect.IO
 
 The following example shows how to create an interpreter and run a query while only using Cats IO.
 
@@ -51,6 +56,116 @@ object ExampleCatsInterop extends IOApp {
 ```
 
 You can find this example within the [examples](https://github.com/ghostdogpr/caliban/blob/master/examples/src/main/scala/example/interop/cats/ExampleCatsInterop.scala) project.
+
+#### Interop with contextual effect (e.g. Kleisli)
+
+`CatsInterop` (the combination of `ToEffect` and `FromEffect`) allows sharing a context between cats-effect and ZIO:
+```scala mdoc:compile-only
+import cats.data.Kleisli
+import cats.effect.IO
+import cats.effect.std.Dispatcher
+import caliban.interop.cats.CatsInterop
+import zio.RIO
+
+trait Context
+type Effect[A] = Kleisli[IO, Context, A]
+
+implicit val dispatcher: Dispatcher[Effect] = ???
+implicit val runtime: Runtime[Context] = ???
+
+val interop: CatsInterop.Contextual[Effect, Context] = CatsInterop.contextual(dispatcher)
+
+val rio: RIO[Context, Int] = ???
+val ce: Kleisli[IO, Context, Int] = ???
+
+val fromRIO: Kleisli[IO, Context, Int] = interop.toEffect(rio)
+val fromCE: RIO[Context, Int] = interop.fromEffect(ce)
+```
+
+```scala mdoc:silent
+import caliban.GraphQL.graphQL
+import caliban.{ GraphQL, RootResolver }
+import caliban.interop.cats._
+import caliban.interop.cats.implicits._
+import caliban.schema.GenericSchema
+import cats.data.Kleisli
+import cats.effect.{ Async, ExitCode, IO, IOApp }
+import cats.effect.std.Dispatcher
+import cats.effect.std.Console
+import cats.syntax.flatMap._
+import cats.syntax.functor._
+import cats.mtl.Local
+import cats.mtl.syntax.local._
+import zio.Runtime
+
+object Simple extends IOApp {
+
+  case class Queries[F[_]](numbers: List[Int], randomNumber: F[Int])
+
+  val query = """
+  {
+    numbers
+    randomNumber
+  }"""
+
+  case class TraceId(value: String)
+
+  type TraceLocal[F[_]] = Local[F, TraceId]
+
+  trait Logger[F[_]] {
+    def info(message: String): F[Unit]
+  }
+
+  def program[F[_]: Async](implicit
+    logger: Logger[F],
+    local: Local[F, TraceId],
+    inject: InjectEnv[F, TraceId],
+    runtime: Runtime[TraceId]
+  ): F[ExitCode] =
+    Dispatcher[F].use { implicit dispatcher => 
+      implicit val interop: CatsInterop.Contextual[F, TraceId] = CatsInterop.contextual(dispatcher) // required for a derivation of the schema
+      
+      val genRandomNumber = logger.info("Generating number") >> Async[F].delay(scala.util.Random.nextInt())
+
+      val queries = Queries(
+        List(1, 2, 3, 4),
+        genRandomNumber.scope[TraceId](TraceId("gen-number"))
+      )
+
+      val api: GraphQL[TraceId] = {
+        val schema: GenericSchema[TraceId] = new GenericSchema[TraceId] {}
+        import schema._
+
+        graphQL(RootResolver(queries))
+      }
+
+      for {
+        interpreter <- api.interpreterAsync[F]
+        result      <- interpreter.executeAsync[F](query)
+        _           <- logger.info(result.data.toString)
+      } yield ExitCode.Success
+    }
+
+  override def run(args: List[String]): IO[ExitCode] = {
+    type Effect[A] = Kleisli[IO, TraceId, A]
+
+    val root = TraceId("root")
+
+    implicit val runtime = Runtime.default.as(root)
+    implicit val logger  = new Logger[Effect] {
+      def info(message: String): Effect[Unit] =
+        for {
+          traceId <- Local[Effect, TraceId].ask[TraceId]
+          _       <- Console[Effect].println(s"$message - $traceId")
+        } yield ()
+    }
+
+    program[Effect].run(root)
+  }
+}
+```
+
+There is another real world [example](https://github.com/ghostdogpr/caliban/blob/master/examples/src/main/scala/example/http4s/AuthExampleAppF.scala), that shows how to share auth info between cats-effect and ZIO.
 
 ## Monix (only with cats-effect 2.x)
 You first need to import `caliban.interop.monix.implicits._` and have an implicit `zio.Runtime` in scope. Then a few helpers are available:

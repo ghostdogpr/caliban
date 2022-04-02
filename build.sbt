@@ -8,17 +8,17 @@ val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion               = "2.6.18"
 val catsEffect2Version        = "2.5.4"
-val catsEffect3Version        = "3.3.6"
+val catsEffect3Version        = "3.3.9"
 val catsMtlVersion            = "1.2.1"
 val circeVersion              = "0.14.1"
-val http4sVersion             = "0.23.10"
+val http4sVersion             = "0.23.11"
 val laminextVersion           = "0.14.3"
 val magnoliaVersion           = "0.17.0"
 val mercatorVersion           = "0.2.1"
-val playVersion               = "2.8.13"
+val playVersion               = "2.8.15"
 val playJsonVersion           = "2.9.2"
 val sttpVersion               = "3.5.0"
-val tapirVersion              = "0.20.0"
+val tapirVersion              = "0.20.1"
 val zioVersion                = "2.0.0-RC2"
 val zioInteropCats2Version    = "2.5.1.0+11-d4b128a4-SNAPSHOT"
 val zioInteropCats3Version    = "3.3.0-RC2"
@@ -116,7 +116,7 @@ lazy val core = project
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) {
         Seq(
-          "org.typelevel" %% "cats-parse" % "0.3.6"
+          "org.typelevel" %% "cats-parse" % "0.3.7"
         )
       } else {
         Seq(
@@ -300,7 +300,7 @@ lazy val akkaHttp = project
     crossScalaVersions -= scala3,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "com.typesafe.akka"             %% "akka-http"                  % "10.2.8",
+      "com.typesafe.akka"             %% "akka-http"                  % "10.2.9",
       "com.typesafe.akka"             %% "akka-serialization-jackson" % akkaVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-akka-http-server"     % tapirVersion,
       compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.2").cross(CrossVersion.full))
