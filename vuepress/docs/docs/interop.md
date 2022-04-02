@@ -96,7 +96,7 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.mtl.Local
 import cats.mtl.syntax.local._
-import zio.Runtime
+import zio.{ Runtime, ZEnvironment }
 
 object Simple extends IOApp {
 
