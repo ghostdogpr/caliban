@@ -151,7 +151,7 @@ object Simple extends IOApp {
 
     val root = TraceId("root")
 
-    implicit val runtime = Runtime.default.as(root)
+    implicit val runtime = Runtime.default.as(ZEnvironment(root))
     implicit val logger  = new Logger[Effect] {
       def info(message: String): Effect[Unit] =
         for {
