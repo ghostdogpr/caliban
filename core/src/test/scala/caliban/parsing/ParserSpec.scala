@@ -1115,6 +1115,26 @@ object ParserSpec extends DefaultRunnableSpec {
             )
           )
         )
+      },
+      testM("parse empty comment line with no comment") {
+        val gqlInputExtension =
+          """# foo
+            |#
+            |
+            |scalar Foo
+            |""".stripMargin
+        assertM(Parser.parseQuery(gqlInputExtension))(
+          equalTo(Document(
+            List(
+              ScalarTypeDefinition(
+                None,
+                "Foo",
+                List.empty
+              )
+            ),
+            sourceMapper = SourceMapper(gqlInputExtension)
+          ))
+        )
       }
     )
 
