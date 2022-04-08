@@ -1124,16 +1124,18 @@ object ParserSpec extends DefaultRunnableSpec {
             |scalar Foo
             |""".stripMargin
         assertM(Parser.parseQuery(gqlInputExtension))(
-          equalTo(Document(
-            List(
-              ScalarTypeDefinition(
-                None,
-                "Foo",
-                List.empty
-              )
-            ),
-            sourceMapper = SourceMapper(gqlInputExtension)
-          ))
+          equalTo(
+            Document(
+              List(
+                ScalarTypeDefinition(
+                  None,
+                  "Foo",
+                  List.empty
+                )
+              ),
+              sourceMapper = SourceMapper(gqlInputExtension)
+            )
+          )
         )
       }
     )
