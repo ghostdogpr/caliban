@@ -27,7 +27,7 @@ object Parser {
   private final val CR                                   = '\u000D'
   private final val Comma                                = ','
   private val whitespace: Parser[_]                      = P.charIn(UnicodeBOM, Tab, Space, LF, CR, Comma)
-  private val comment: Parser[_]                         = P.charIn('#') ~ P.until(P.char(LF) | P.string(s"$CR$LF"))
+  private val comment: Parser[_]                         = P.charIn('#') ~ P.until0(P.char(LF) | P.string(s"$CR$LF"))
   private val whitespaceWithComment                      = (whitespace | comment).rep0.void
   private val whitespaceWithComment1                     = (whitespace | comment).rep.void
   private def wrapBrackets[T](t: Parser0[T]): P[T]       =
