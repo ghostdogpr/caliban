@@ -1115,7 +1115,7 @@ object ParserSpec extends DefaultRunnableSpec {
           )
         )
       },
-      testM("parse empty comment line with no comment") {
+      test("parse empty comment line with no comment") {
         val gqlInputExtension =
           """# foo
             |#
