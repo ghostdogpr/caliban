@@ -312,7 +312,7 @@ object TapirAdapter {
                                    removeSubscription(id, subscriptions)
                                  case GraphQLWSInput("connection_terminate", _, _)   =>
                                    ZIO.interrupt
-                               }.runDrain
+                               }.runDrain.interruptible
                                  .catchAll(_ => output.offer(connectionError))
                                  .ensuring(subscriptions.get.flatMap(m => ZIO.foreach(m.values)(_.succeed(()))))
                                  .provide(env)
