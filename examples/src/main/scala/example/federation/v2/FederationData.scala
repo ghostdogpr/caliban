@@ -1,14 +1,13 @@
-package example.federation
+package example.federation.v2
 
-import example.federation.CharacterService.CharacterService
-
-import caliban.federation._
-
+import caliban.federation.v2._
+import zio.Has
 import zio.query.ZQuery
 
 object FederationData {
 
   object episodes {
+
     @GQLKey("season episode")
     case class Episode(
       name: String,
@@ -17,8 +16,7 @@ object FederationData {
     )
 
     @GQLKey("name")
-    @GQLExtend
-    case class Character(@GQLExternal name: String)
+    case class Character(name: String)
 
     case class EpisodeArgs(season: Int, episode: Int)
     case class EpisodesArgs(season: Option[Int])
@@ -48,8 +46,8 @@ object FederationData {
       case class Mechanic(shipName: String) extends Role
     }
 
-    import Role._
     import Origin._
+    import Role._
 
     @GQLKey("name")
     case class Character(
@@ -61,14 +59,13 @@ object FederationData {
     )
 
     @GQLKey("season episode")
-    @GQLExtend
     case class Episode(
-      @GQLExternal season: Int,
-      @GQLExternal episode: Int,
-      characters: ZQuery[CharacterService, Nothing, List[Character]] = ZQuery.succeed(List.empty)
+      season: Int,
+      episode: Int,
+      characters: ZQuery[Has[CharacterService], Nothing, List[Character]] = ZQuery.succeed(List.empty)
     )
 
-    def queryCharacters(season: Int, episode: Int): ZQuery[CharacterService, Nothing, List[Character]] =
+    def queryCharacters(season: Int, episode: Int): ZQuery[Has[CharacterService], Nothing, List[Character]] =
       ZQuery.fromEffect(CharacterService.getCharactersByEpisode(season, episode))
 
     case class CharactersArgs(origin: Option[Origin])

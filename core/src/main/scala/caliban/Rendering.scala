@@ -81,6 +81,18 @@ object Rendering {
       }
       .mkString("\n\n")
 
+  def renderSchemaDirectives(directives: List[Directive]): String =
+    directives
+      .map(renderSchemaDirective)
+      .mkString(" ")
+
+  private def renderSchemaDirective(directive: Directive): String = {
+    val args =
+      if (directive.arguments.isEmpty) ""
+      else directive.arguments.map { case (k, v) => s"$k: ${v.toInputString}" }.mkString("(", ", ", ") ")
+    s"@${directive.name}$args"
+  }
+
   def renderDirectives(directives: List[__Directive]): String =
     directives.map(renderDirective).mkString("\n")
 
