@@ -13,7 +13,7 @@ import zio.test.Assertion._
 import zio.test._
 import zio.query.ZQuery
 
-object FederationSpec extends DefaultRunnableSpec {
+object FederationV1Spec extends DefaultRunnableSpec {
   case class OrphanChild(id: String)
 
   object OrphanChild {

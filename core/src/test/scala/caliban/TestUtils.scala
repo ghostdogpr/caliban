@@ -1,5 +1,6 @@
 package caliban
 
+import caliban.InputValue.{ ListValue, ObjectValue }
 import caliban.TestUtils.InvalidSchemas.Interface.WrongArgumentName
 import caliban.TestUtils.InvalidSchemas.Object.FieldInterface.FieldObject
 import caliban.TestUtils.Origin._
@@ -165,6 +166,18 @@ object TestUtils {
           () => Types.int,
           None,
           None
+        )
+      )
+    )
+  }
+
+  object SchemaDirectives {
+    val Link = Directive(
+      name = "link",
+      arguments = Map(
+        "url"    -> StringValue("https://example.com"),
+        "import" -> ListValue(
+          List(StringValue("@key"), ObjectValue(Map("name" -> StringValue("@provides"), "as" -> StringValue("@self"))))
         )
       )
     )
