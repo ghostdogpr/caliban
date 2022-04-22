@@ -21,7 +21,12 @@ object VariablesUpdater {
 
     IO.foldLeft(variableDefinitions)(Map.empty[String, InputValue]) { case (coercedValues, definition) =>
       IO.fromEither(isInputType(definition.variableType, rootType))
-        .mapError(e => ValidationError(s"Type of variable '${definition.name}' $e", "")) *> {
+        .mapError(e =>
+          ValidationError(
+            s"Type of variable '${definition.name}' $e",
+            "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
+          )
+        ) *> {
         val value =
           variables
             .get(definition.name)
@@ -96,8 +101,8 @@ object VariablesUpdater {
                 .getOrElse(IO.succeed(k -> value))
             }.map(InputValue.ObjectValue(_))
           case NullValue                      => IO.succeed(NullValue)
-          case _                              =>
-            IO.fail(ValidationError(s"cannot coerce ${typ.kind} to INPUT_OBJECT", ""))
+          case v                              =>
+            IO.fail(ValidationError(s"Cannot coerce $v to INPUT_OBJECT", ""))
         }
 
       case __TypeKind.LIST =>
@@ -107,12 +112,18 @@ object VariablesUpdater {
               .map(innerType => IO.foreach(values)(coerceValues(_, innerType, rootType)).map(ListValue(_)))
               .getOrElse(IO.succeed(value))
           case NullValue         => IO.succeed(NullValue)
-          case _                 => IO.fail(ValidationError(s"cannot coerce ${typ.kind} to LIST", ""))
+          case v                 => IO.fail(ValidationError(s"Cannot coerce $v into LIST", ""))
         }
 
       case __TypeKind.NON_NULL =>
         value match {
-          case NullValue => IO.fail(ValidationError("${value} is null, expected NON-NULL", ""))
+          case NullValue =>
+            IO.fail(
+              ValidationError(
+                s"$value is null",
+                "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
+              )
+            )
           case _         =>
             typ.ofType
               .map(innerType => coerceValues(value, innerType, rootType))
@@ -123,7 +134,7 @@ object VariablesUpdater {
         value match {
           case StringValue(value) => IO.succeed(Value.EnumValue(value))
           case NullValue          => IO.succeed(NullValue)
-          case _                  => IO.fail(ValidationError("expected string value", ""))
+          case v                  => IO.fail(ValidationError(s"Cannot coerce $v into ENUM.", ""))
         }
       case __TypeKind.SCALAR if typ.name.contains("Float") =>
         value match {
@@ -131,7 +142,7 @@ object VariablesUpdater {
           case IntValue.IntNumber(value)    => IO.succeed(Value.FloatValue(value.toDouble))
           case IntValue.LongNumber(value)   => IO.succeed(Value.FloatValue(value.toDouble))
           case IntValue.BigIntNumber(value) => IO.succeed(Value.FloatValue(BigDecimal(value)))
-          case _                            => IO.fail(ValidationError("expected number", ""))
+          case v                            => IO.fail(ValidationError(s"Cannot coerce $v into number", ""))
         }
       case _                                               =>
         IO.succeed(value)
