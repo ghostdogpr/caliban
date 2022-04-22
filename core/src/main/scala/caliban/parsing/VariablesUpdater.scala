@@ -95,6 +95,7 @@ object VariablesUpdater {
                 .map(field => coerceValues(v, field.`type`(), rootType).map(k -> _))
                 .getOrElse(IO.succeed(k -> value))
             }.map(InputValue.ObjectValue(_))
+          case NullValue                      => IO.succeed(NullValue)
           case _                              =>
             IO.fail(ValidationError(s"cannot coerce ${typ.kind} to INPUT_OBJECT", ""))
         }
@@ -105,6 +106,7 @@ object VariablesUpdater {
             typ.ofType
               .map(innerType => IO.foreach(values)(coerceValues(_, innerType, rootType)).map(ListValue(_)))
               .getOrElse(IO.succeed(value))
+          case NullValue         => IO.succeed(NullValue)
           case _                 => IO.fail(ValidationError(s"cannot coerce ${typ.kind} to LIST", ""))
         }
 
@@ -120,10 +122,12 @@ object VariablesUpdater {
       case __TypeKind.ENUM                                 =>
         value match {
           case StringValue(value) => IO.succeed(Value.EnumValue(value))
+          case NullValue          => IO.succeed(NullValue)
           case _                  => IO.fail(ValidationError("expected string value", ""))
         }
       case __TypeKind.SCALAR if typ.name.contains("Float") =>
         value match {
+          case NullValue                    => IO.succeed(NullValue)
           case IntValue.IntNumber(value)    => IO.succeed(Value.FloatValue(value.toDouble))
           case IntValue.LongNumber(value)   => IO.succeed(Value.FloatValue(value.toDouble))
           case IntValue.BigIntNumber(value) => IO.succeed(Value.FloatValue(BigDecimal(value)))
