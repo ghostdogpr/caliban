@@ -110,14 +110,14 @@ trait GraphQL[-R] { self =>
             case (overallWrappers, parsingWrappers, validationWrappers, executionWrappers, fieldWrappers, _) =>
               wrap((request: GraphQLRequest) =>
                 (for {
-                  doc            <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
-                  intro           = Introspector.isIntrospection(doc)
-                  _              <- IO.when(intro && !enableIntrospection) {
-                                      IO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
-                                    }
-                  typeToValidate  = if (intro) introspectionRootType else rootType
-                  schemaToExecute = if (intro) introspectionRootSchema else schema
-                  updatedRequest  = VariablesUpdater.updateVariables(request, doc, typeToValidate)
+                  doc              <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
+                  intro             = Introspector.isIntrospection(doc)
+                  _                <- IO.when(intro && !enableIntrospection) {
+                                        IO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
+                                      }
+                  typeToValidate    = if (intro) introspectionRootType else rootType
+                  schemaToExecute   = if (intro) introspectionRootSchema else schema
+                  validatedRequest <- VariablesUpdater.prepare(request, doc, typeToValidate)
 
                   validate          = (doc: Document) =>
                                         Validator
@@ -125,8 +125,8 @@ trait GraphQL[-R] { self =>
                                             doc,
                                             typeToValidate,
                                             schemaToExecute,
-                                            updatedRequest.operationName,
-                                            updatedRequest.variables.getOrElse(Map.empty),
+                                            validatedRequest.operationName,
+                                            validatedRequest.variables.getOrElse(Map.empty),
                                             skipValidation
                                           )
                   executionRequest <- wrap(validate)(validationWrappers, doc)

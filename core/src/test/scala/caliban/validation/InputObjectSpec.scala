@@ -184,6 +184,28 @@ object InputObjectSpec extends DefaultRunnableSpec {
                    )
                  )
         } yield assert(res.errors)(isEmpty)
+      },
+      testM("disallows nullable input for non-null variable") {
+        val query =
+          """query QueryName($nonNull: Int!) {
+            |  query(input: $nonNull)
+            |}""".stripMargin
+
+        case class TestInput(input: Option[Int])
+        case class TestOutput(value: String)
+        case class Query(query: TestInput => String)
+        val gql = graphQL(RootResolver(Query(_.input.getOrElse(1000).toString)))
+
+        for {
+          int <- gql.interpreter
+          res <- int.executeRequest(
+                   GraphQLRequest(
+                     query = Some(query),
+                     variables = Some(Map())
+                   )
+                 )
+          _   <- zio.ZIO.debug(res)
+        } yield assert(res.errors)(isNonEmpty)
       }
     )
 }
