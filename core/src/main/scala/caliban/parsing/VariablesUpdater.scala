@@ -21,7 +21,7 @@ object VariablesUpdater {
 
     IO.foldLeft(variableDefinitions)(Map.empty[String, InputValue]) { case (coercedValues, definition) =>
       IO.fromEither(isInputType(definition.variableType, rootType))
-        .mapError(e => ValidationError(e, "")) *> {
+        .mapError(e => ValidationError(s"Type of variable '${definition.name}' $e", "")) *> {
         val value =
           variables
             .get(definition.name)
@@ -46,11 +46,11 @@ object VariablesUpdater {
           .get(name)
           .map { t =>
             isInputType(t).left
-              .map(_ => s"'${t.toString}' is not an input type")
+              .map(_ => s"is not a valid input type.")
           }
-          .getOrElse({ Left(s"'${t.toString}' is not an input type") })
+          .getOrElse({ Left(s"is not a valid input type.") })
       case ListType(ofType, nonNull) =>
-        isInputType(ofType, rootType).left.map(_ => s"'${t.toString}' is not an input type")
+        isInputType(ofType, rootType).left.map(_ => s"is not a valid input type.")
     }
 
   private def isInputType(t: __Type): Either[__Type, Unit] = {

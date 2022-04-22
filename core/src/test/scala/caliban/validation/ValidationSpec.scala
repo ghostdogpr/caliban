@@ -348,7 +348,10 @@ object ValidationSpec extends DefaultRunnableSpec {
              }""")
         check(
           query,
-          "Variable 'x' usage is not allowed because its type doesn't match the schema (String instead of Boolean)."
+          "Variable 'x' usage is not allowed because its type doesn't match the schema (String instead of Boolean).",
+          Map(
+            "x" -> StringValue("foo")
+          )
         )
       },
       testM("directive with variable of the right type") {
