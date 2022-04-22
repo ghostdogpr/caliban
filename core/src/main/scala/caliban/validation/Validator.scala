@@ -128,7 +128,6 @@ object Validator {
       selectionSets = collectSelectionSets(operations.flatMap(_.selectionSet) ++ fragments.flatMap(_.selectionSet))
       context       = Context(document, rootType, operations, fragmentMap, selectionSets, variables)
       _            <- validateFragmentSpreads(context)
-      _            <- validateVariables(context)
       _            <- validateOperationNameUniqueness(operations)
       _            <- validateLoneAnonymousOperation(operations)
       _            <- validateDirectives(context)
