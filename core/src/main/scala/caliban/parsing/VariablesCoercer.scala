@@ -10,8 +10,8 @@ import caliban.{ GraphQLRequest, InputValue, Value }
 import zio._
 import caliban.CalibanError.ValidationError
 
-object VariablesUpdater {
-  def prepare(
+object VariablesCoercer {
+  def coerceVariables(
     req: GraphQLRequest,
     doc: Document,
     rootType: RootType

@@ -7,7 +7,7 @@ import caliban.introspection.Introspector
 import caliban.introspection.adt._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.SchemaDefinition
 import caliban.parsing.adt.{ Directive, Document, OperationType }
-import caliban.parsing.{ Parser, SourceMapper, VariablesUpdater }
+import caliban.parsing.{ Parser, SourceMapper, VariablesCoercer }
 import caliban.schema._
 import caliban.validation.Validator
 import caliban.wrappers.Wrapper
@@ -117,7 +117,7 @@ trait GraphQL[-R] { self =>
                                       }
                   typeToValidate    = if (intro) introspectionRootType else rootType
                   schemaToExecute   = if (intro) introspectionRootSchema else schema
-                  validatedRequest <- VariablesUpdater.prepare(request, doc, typeToValidate)
+                  validatedRequest <- VariablesCoercer.coerceVariables(request, doc, typeToValidate)
 
                   validate          = (doc: Document) =>
                                         Validator
