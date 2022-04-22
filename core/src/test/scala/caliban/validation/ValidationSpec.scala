@@ -317,7 +317,13 @@ object ValidationSpec extends DefaultRunnableSpec {
              query($x: [String]!) {
                exists(character: { name: $x, nicknames: [], origin: EARTH })
               }""")
-        check(query, "Variable 'x' usage is not allowed because it is a list but it should not be.")
+        check(
+          query,
+          "Variable 'x' usage is not allowed because it is a list but it should not be.",
+          Map(
+            "x" -> InputValue.ListValue(List())
+          )
+        )
       },
       testM("variable nullability is the same") {
         val query = gqldoc("""
