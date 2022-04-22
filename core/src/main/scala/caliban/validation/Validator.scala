@@ -915,23 +915,24 @@ object Validator {
   private def isListField(field: __Field) =
     field.`type`().kind == __TypeKind.LIST
 
-  // https://spec.graphql.org/June2018/#IsInputType()
-  private[caliban] def isInputType(t: __Type): Either[__Type, Unit] = {
-    import __TypeKind._
-    t.kind match {
-      case LIST | NON_NULL              => t.ofType.fold[Either[__Type, Unit]](Left(t))(isInputType)
-      case SCALAR | ENUM | INPUT_OBJECT => Right(())
-      case _                            => Left(t)
+  private[caliban] def onlyInputType(`type`: __Type, errorContext: String): IO[ValidationError, Unit] = {
+    // https://spec.graphql.org/June2018/#IsInputType()
+    def isInputType(t: __Type): Either[__Type, Unit] = {
+      import __TypeKind._
+      t.kind match {
+        case LIST | NON_NULL              => t.ofType.fold[Either[__Type, Unit]](Left(t))(isInputType)
+        case SCALAR | ENUM | INPUT_OBJECT => Right(())
+        case _                            => Left(t)
+      }
     }
-  }
 
-  private[caliban] def onlyInputType(`type`: __Type, errorContext: String): IO[ValidationError, Unit] =
     IO.whenCase(isInputType(`type`)) { case Left(errorType) =>
       failValidation(
         s"${errorType.name.getOrElse("")} of $errorContext is of kind ${errorType.kind}, must be an InputType",
         """The input field must accept a type where IsInputType(type) returns true, https://spec.graphql.org/June2018/#IsInputType()"""
       )
     }
+  }
 
   private[caliban] def validateFields(fields: List[__Field], context: String): IO[ValidationError, Unit] =
     noDuplicateFieldName(fields, context) <*
