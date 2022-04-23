@@ -22,7 +22,7 @@ You can read more about federation and why it may be useful [here](https://www.a
 Federation creates a wrapper over your existing schema so that it can add the necessary hooks to support
 interaction with the gateway.
 
-If you already have a graph you can add federation simply by calling the wrapper function `federate`
+If you already have a graph you can add federation simply by adding the `federated` annotation:
 
 ```scala
 import caliban.federation._
@@ -31,7 +31,7 @@ val schema: GraphQL[R] = graphQL(RootResolver(Queries(
   characters = List(Character("Amos"))
 )))
 
-val federatedSchema: GraphQL[R] = federate(schema)
+val federatedSchema: GraphQL[R] = schema @@ federated
 ```
 
 This will wrap the bare minimum schema additions around your API so that the gateway will recognize your schema.
@@ -85,7 +85,7 @@ an `A` which has an implicit `ArgBuilder` and an `Option[Out]` where `Out` has a
 `Schema[R, Out]` available. Creating the above we can now add these resolvers to our federated schema like so:
 
 ```scala
-federate(schema, aResolver, additionalResolvers:_*)
+schema @@ federated(aResolver, additionalResolvers:_*)
 ```
 
 You can now use the resulting `GraphQL[R]` to start querying. You can also see the full code example [here](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/example/federation)
@@ -98,7 +98,7 @@ Federated tracing is slightly different from standard apollo-tracing thus it com
 import caliban.federation.tracing.ApolloFederatedTracing
 
 
-val api = federate(schema, resolver, additionalResolvers: _*) @@ ApolloFederatedTracing.wrapper
+val api = schema @@ federated(resolver, additionalResolvers: _*) @@ ApolloFederatedTracing.wrapper
 ```
 In federated tracing the gateway communicates with the implementing service via a header `apollo-federation-include-trace`,
 for now the only value it can send is `ftv1`. Thus if you detect this header then you should enable tracing otherwise you can disable it.
@@ -109,3 +109,23 @@ set up you will need to add one more step to enable tracing.
 
 If you wish to enable it manually (after detecting the header with your preferred framework) you can call: `request.withFederatedTracing` which will return a new `GraphQLRequest` that informs the wrapper
 that it should include tracing data as part of the response extensions.
+
+
+## Federation V2
+
+If your gateway supports the [Federation V2 specification](https://www.apollographql.com/docs/federation/federation-spec), then you can use just need to use the `caliban.federation.v2` package
+instead of `caliban.federation`. This package includes the newer directives available in v2:
+
+| Directive    | Caliban Type
+--------------| ---
+| `@shareable` | `@GQLShareable`
+| `@inaccessable` | `@GQLInaccessible`
+| `@override`  | `@GQLOverride`
+| `@tag`       | `@GQLTag`
+
+The `GQLKey` field now also supports the `resolvable` argument. 
+
+Using the new `federated` aspect from the v2 package will automatically make your graph available as a v2 schema,
+even if you aren't using the new directives.
+
+For more information see the [Federation V2 specification](https://www.apollographql.com/docs/federation/federation-2/new-in-federation-2/). 
