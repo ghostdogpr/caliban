@@ -1,6 +1,6 @@
 package caliban.interop.tapir
 
-import caliban.{ GraphQLWSOutput, InputValue }
+import caliban.{ GraphQLWSOutput, InputValue, ResponseValue }
 import zio.ZIO
 import zio.stream.ZStream
 
@@ -12,6 +12,8 @@ trait WebSocketHooks[-R, +E] { self =>
   def beforeInit: Option[InputValue => ZIO[R, E, Any]] = None
   def afterInit: Option[ZIO[R, E, Any]]                = None
   def onMessage: Option[StreamTransformer[R, E]]       = None
+  def onPong: Option[InputValue => ZIO[R, E, Any]]     = None
+  def onAck: Option[ZIO[R, E, ResponseValue]]          = None
 
   def ++[R2 <: R, E2 >: E](other: WebSocketHooks[R2, E2]): WebSocketHooks[R2, E2] =
     new WebSocketHooks[R2, E2] {
@@ -40,6 +42,13 @@ trait WebSocketHooks[-R, +E] { self =>
             })
           case _                    => None
         }
+
+      override def onPong: Option[InputValue => ZIO[R2, E2, Any]] = (self.onPong, other.onPong) match {
+        case (None, Some(f))      => Some(f)
+        case (Some(f), None)      => Some(f)
+        case (Some(f1), Some(f2)) => Some((x: InputValue) => f1(x) &> f2(x))
+        case _                    => None
+      }
     }
 }
 
@@ -75,5 +84,13 @@ object WebSocketHooks {
   def message[R, E](f: StreamTransformer[R, E]): WebSocketHooks[R, E] =
     new WebSocketHooks[R, E] {
       override def onMessage: Option[StreamTransformer[R, E]] = Some(f)
+    }
+
+  /**
+   * Specifies a callback that will be run when ever a pong message is received.
+   */
+  def pong[R, E](f: InputValue => ZIO[R, E, Any]): WebSocketHooks[R, E] =
+    new WebSocketHooks[R, E] {
+      override def onPong: Option[InputValue => ZIO[R, E, Any]] = Some(f)
     }
 }

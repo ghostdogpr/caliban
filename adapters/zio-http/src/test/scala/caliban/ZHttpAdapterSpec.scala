@@ -1,6 +1,7 @@
 package caliban
 
 import caliban.interop.tapir.TestData.sampleCharacters
+import caliban.interop.tapir.TestService.TestService
 import caliban.interop.tapir.{ FakeAuthorizationInterceptor, TapirAdapterSpec, TestApi, TestService }
 import caliban.uploads.Uploads
 import sttp.client3.UriContext
@@ -15,8 +16,9 @@ import scala.language.postfixOps
 
 object ZHttpAdapterSpec extends DefaultRunnableSpec {
 
-  val apiLayer: ZLayer[zio.ZEnv, Throwable, Has[Unit]] =
+  val apiLayer: ZLayer[zio.ZEnv, Throwable, TestService] =
     (for {
+      service     <- ZManaged.service[TestService.Service]
       interpreter <- TestApi.api.interpreter.toManaged_
       _           <- Server
                        .start(
@@ -32,12 +34,12 @@ object ZHttpAdapterSpec extends DefaultRunnableSpec {
                        )
                        .forkManaged
       _           <- clock.sleep(3 seconds).toManaged_
-    } yield ())
+    } yield service)
       .provideCustomLayer(TestService.make(sampleCharacters) ++ Uploads.empty +!+ Clock.live)
       .toLayer
 
   def spec: ZSpec[ZEnv, Any] = {
-    val suite: ZSpec[Has[Unit], Throwable] =
+    val suite: ZSpec[TestService, Throwable] =
       TapirAdapterSpec.makeSuite(
         "ZHttpAdapterSpec",
         uri"http://localhost:8088/api/graphql",

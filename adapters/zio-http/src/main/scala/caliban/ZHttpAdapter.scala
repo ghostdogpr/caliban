@@ -1,16 +1,14 @@
 package caliban
 
-import caliban.Value.StringValue
 import caliban.execution.QueryExecution
-import caliban.interop.tapir.{ RequestInterceptor, TapirAdapter, WebSocketHooks }
-import caliban.interop.tapir.TapirAdapter._
+import caliban.interop.tapir.ws.Protocol
+import caliban.interop.tapir.{ ws, RequestInterceptor, TapirAdapter, WebSocketHooks }
 import io.circe.parser._
 import io.circe.syntax._
 import sttp.tapir.json.circe._
 import sttp.tapir.server.ziohttp.{ ZioHttpInterpreter, ZioHttpServerOptions }
 import zhttp.http._
-import zhttp.socket.WebSocketFrame.Text
-import zhttp.socket.{ SocketApp, _ }
+import zhttp.socket._
 import zio._
 import zio.clock.Clock
 import zio.duration._
@@ -42,89 +40,38 @@ object ZHttpAdapter {
     queryExecution: QueryExecution = QueryExecution.Parallel,
     webSocketHooks: WebSocketHooks[R, E] = WebSocketHooks.empty
   ): HttpApp[R with Clock, E] =
-    Http.responseZIO[R with Clock, E](
+    Http.fromFunctionZIO[Request] { req =>
+      val protocol = req.headers.header("Sec-WebSocket-Protocol") match {
+        case Some((_, value)) => Protocol.fromName(value.toString)
+        case None             => Protocol.Legacy
+      }
+
       for {
-        ref <- Ref.make(Map.empty[String, Promise[Any, Unit]])
-        app <- Response.fromSocketApp[R with Clock](
-                 socketHandler[R, E](
-                   ref,
-                   interpreter,
-                   skipValidation,
-                   enableIntrospection,
-                   keepAliveTime,
-                   queryExecution,
-                   webSocketHooks
+        queue <- Queue.unbounded[GraphQLWSInput]
+        pipe  <- protocol
+                   .make(
+                     interpreter,
+                     skipValidation,
+                     enableIntrospection,
+                     keepAliveTime,
+                     queryExecution,
+                     webSocketHooks
+                   )
+        in     = ZStream.fromQueueWithShutdown(queue)
+        out    = pipe(in).map {
+                   case Right(output) => WebSocketFrame.Text(output.asJson.dropNullValues.noSpaces)
+                   case Left(close)   => WebSocketFrame.Close(close.code, Some(close.reason))
+                 }
+        socket = Socket
+                   .collect[WebSocketFrame] { case WebSocketFrame.Text(text) =>
+                     ZStream
+                       .fromEffect(ZIO.fromEither(decode[GraphQLWSInput](text)))
+                       .mapM(queue.offer) *> ZStream.empty
+                   }
+                   .merge(Socket.fromStream[Any, Throwable, WebSocketFrame](out))
+        app   <- Response.fromSocketApp[R with Clock](
+                   SocketApp(socket).withProtocol(SocketProtocol.subProtocol(protocol.name))
                  )
-               )
       } yield app
-    )
-
-  private def socketHandler[R, E](
-    subscriptions: Subscriptions,
-    interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean,
-    enableIntrospection: Boolean,
-    keepAliveTime: Option[Duration],
-    queryExecution: QueryExecution,
-    webSocketHooks: WebSocketHooks[R, E] = WebSocketHooks.empty
-  ): SocketApp[R with Clock] = {
-    val routes = Socket.collect[WebSocketFrame] { case Text(text) =>
-      ZStream
-        .fromEffect(ZIO.fromEither(decode[GraphQLWSInput](text)))
-        .collect {
-          case GraphQLWSInput("connection_init", id, payload) =>
-            val before = (webSocketHooks.beforeInit, payload) match {
-              case (Some(beforeInit), Some(payload)) =>
-                ZStream.fromEffect(beforeInit(payload)).drain.catchAll(toStreamError(id, _))
-              case _                                 => Stream.empty
-            }
-
-            val response = ZStream.succeed(connectionAck) ++ keepAlive(keepAliveTime)
-
-            val after = webSocketHooks.afterInit match {
-              case Some(afterInit) => ZStream.fromEffect(afterInit).drain.catchAll(toStreamError(id, _))
-              case _               => Stream.empty
-            }
-
-            before ++ ZStream.mergeAllUnbounded()(response, after)
-
-          case GraphQLWSInput("connection_terminate", _, _) =>
-            ZStream.fromEffect(ZIO.interrupt)
-          case GraphQLWSInput("start", id, payload)         =>
-            val request = payload.collect { case InputValue.ObjectValue(fields) =>
-              val query         = fields.get("query").collect { case StringValue(v) => v }
-              val operationName = fields.get("operationName").collect { case StringValue(v) => v }
-              val variables     = fields.get("variables").collect { case InputValue.ObjectValue(v) => v }
-              val extensions    = fields.get("extensions").collect { case InputValue.ObjectValue(v) => v }
-              GraphQLRequest(query, operationName, variables, extensions)
-            }
-            request match {
-              case Some(req) =>
-                val stream = generateGraphQLResponse(
-                  req,
-                  id.getOrElse(""),
-                  interpreter,
-                  skipValidation,
-                  enableIntrospection,
-                  queryExecution,
-                  subscriptions
-                )
-
-                webSocketHooks.onMessage.map(_.transform(stream)).getOrElse(stream).catchAll(toStreamError(id, _))
-
-              case None => ZStream.succeed(connectionError)
-            }
-          case GraphQLWSInput("stop", id, _)                =>
-            ZStream.fromEffect(removeSubscription(id, subscriptions)) *> ZStream.empty
-
-        }
-        .flatten
-        .catchAll(_ => ZStream.succeed(connectionError))
-        .map(output => WebSocketFrame.Text(output.asJson.noSpaces))
     }
-
-    SocketApp(routes).withProtocol(protocol)
-  }
-
-  private val protocol = SocketProtocol.subProtocol("graphql-ws")
 }

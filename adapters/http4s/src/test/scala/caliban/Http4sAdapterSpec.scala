@@ -21,7 +21,7 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
   type Env         = ZEnv with TestService with Uploads
   type TestTask[A] = RIO[Env, A]
 
-  val apiLayer: ZLayer[zio.ZEnv, Throwable, Has[Unit]] =
+  val apiLayer: ZLayer[zio.ZEnv, Throwable, TestService] =
     (for {
       interpreter <- TestApi.api.interpreter.toManaged_
       _           <- BlazeServerBuilder[TestTask]
@@ -44,12 +44,13 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
                        .toManagedZIO
                        .fork
       _           <- clock.sleep(3 seconds).toManaged_
-    } yield ())
+      service     <- ZManaged.service[TestService.Service]
+    } yield service)
       .provideCustomLayer(TestService.make(sampleCharacters) ++ Uploads.empty ++ Clock.live)
       .toLayer
 
   def spec: ZSpec[ZEnv, Any] = {
-    val suite: ZSpec[Has[Unit], Throwable] =
+    val suite: ZSpec[TestService, Throwable] =
       TapirAdapterSpec.makeSuite(
         "Http4sAdapterSpec",
         uri"http://localhost:8088/api/graphql",

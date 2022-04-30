@@ -1,6 +1,7 @@
 package caliban
 
 import akka.actor.ActorSystem
+import akka.stream.Materializer
 import caliban.interop.tapir.TestData.sampleCharacters
 import caliban.interop.tapir.TestService.TestService
 import caliban.interop.tapir.{ FakeAuthorizationInterceptor, TapirAdapterSpec, TestApi, TestService }
@@ -24,24 +25,24 @@ import scala.language.postfixOps
 
 object PlayAdapterSpec extends DefaultRunnableSpec {
 
-  implicit val system: ActorSystem                                                            = ActorSystem()
-  implicit val executionContext: ExecutionContextExecutor                                     = system.dispatcher
-  implicit val runtime: Runtime[TestService with Console with Clock with Random with Uploads] =
-    Runtime.unsafeFromLayer(
-      TestService.make(sampleCharacters) ++ Console.live ++ Clock.live ++ Random.live ++ Uploads.empty,
-      Platform.default
-    )
-
   val interceptor = FakeAuthorizationInterceptor.bearer
 
-  val apiLayer: ZLayer[zio.ZEnv, Throwable, Has[Unit]] =
+  val apiLayer: ZLayer[zio.ZEnv, Throwable, TestService] =
     (for {
+      system      <- ZManaged.make(Task.effectTotal(ActorSystem()))(sys => ZIO.fromFuture(_ => sys.terminate()).ignore)
+      ec           = system.dispatcher
+      mat          = Materializer(system)
+      runtime     <- ZManaged.runtime[TestService with Console with Clock with Random with Uploads]
       interpreter <- TestApi.api.interpreter.toManaged_
       router       = Router.from {
                        case req @ POST(p"/api/graphql")    =>
-                         PlayAdapter.makeHttpService(interpreter, requestInterceptor = interceptor).apply(req)
-                       case req @ POST(p"/upload/graphql") => PlayAdapter.makeHttpUploadService(interpreter).apply(req)
-                       case req @ GET(p"/ws/graphql")      => PlayAdapter.makeWebSocketService(interpreter).apply(req)
+                         PlayAdapter
+                           .makeHttpService(interpreter, requestInterceptor = interceptor)(runtime, mat)
+                           .apply(req)
+                       case req @ POST(p"/upload/graphql") =>
+                         PlayAdapter.makeHttpUploadService(interpreter)(runtime, mat).apply(req)
+                       case req @ GET(p"/ws/graphql")      =>
+                         PlayAdapter.makeWebSocketService(interpreter)(ec, runtime, mat, implicitly, implicitly).apply(req)
                      }
       _           <- ZIO
                        .effect(
@@ -53,14 +54,15 @@ object PlayAdapterSpec extends DefaultRunnableSpec {
                            )
                          )(_ => router.routes)
                        )
-                       .toManaged(server => ZIO.effect(server.stop()).ignore *> ZIO.fromFuture(_ => system.terminate()).ignore)
+                       .toManaged(server => ZIO.effect(server.stop()).ignore)
       _           <- clock.sleep(3 seconds).toManaged_
-    } yield ())
+      service     <- ZManaged.service[TestService.Service]
+    } yield service)
       .provideCustomLayer(TestService.make(sampleCharacters) ++ Uploads.empty ++ Clock.live)
       .toLayer
 
   def spec: ZSpec[ZEnv, Any] = {
-    val suite: ZSpec[Has[Unit], Throwable] =
+    val suite: ZSpec[TestService, Throwable] =
       TapirAdapterSpec.makeSuite(
         "PlayAdapterSpec",
         uri"http://localhost:8088/api/graphql",
