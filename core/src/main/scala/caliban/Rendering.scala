@@ -162,7 +162,8 @@ object Rendering {
       Some(values.flatMap(renderDirectiveArgument).mkString("[", ",", "]"))
     case InputValue.ObjectValue(fields) =>
       Some(
-        fields.map { case (key, value) => renderDirectiveArgument(value).map(v => s"$key: $v") }.mkString("{", ",", "}")
+        fields.flatMap { case (key, value) => renderDirectiveArgument(value).map(v => s"$key: $v") }
+          .mkString("{", ",", "}")
       )
     case NullValue                      => Some("null")
     case StringValue(value)             => Some("\"" + value + "\"")

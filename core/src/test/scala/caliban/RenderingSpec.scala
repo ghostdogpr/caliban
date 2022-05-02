@@ -2,6 +2,8 @@ package caliban
 
 import caliban.GraphQL._
 import caliban.TestUtils._
+import caliban.introspection.adt.{ __Type, __TypeKind }
+import caliban.parsing.adt.Directive
 import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment
@@ -133,6 +135,29 @@ object RenderingSpec extends DefaultRunnableSpec {
         assert(graphQL(InvalidSchemas.resolverEmpty).render.trim)(
           equalTo("")
         )
+      },
+      test("it should render object arguments in type directives") {
+        val testType     = __Type(
+          __TypeKind.OBJECT,
+          name = Some("TestType"),
+          directives = Some(
+            List(
+              Directive(
+                name = "testdirective",
+                arguments = Map(
+                  "object" -> InputValue.ObjectValue(
+                    Map(
+                      "key1" -> Value.StringValue("value1"),
+                      "key2" -> Value.StringValue("value2")
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+        val renderedType = Rendering.renderTypes(List(testType))
+        assert(renderedType)(equalTo("type TestType @testdirective(object: {key1: \"value1\",key2: \"value2\"})"))
       }
     )
 }
