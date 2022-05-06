@@ -11,16 +11,24 @@ import zio._
 import caliban.CalibanError.ValidationError
 
 object VariablesCoercer {
+  private val primitiveTypes: List[__Type] = List(
+    __Type(kind = __TypeKind.SCALAR, name = Some("Boolean")),
+    __Type(kind = __TypeKind.SCALAR, name = Some("Int")),
+    __Type(kind = __TypeKind.SCALAR, name = Some("Float")),
+    __Type(kind = __TypeKind.SCALAR, name = Some("String"))
+  )
+
   def coerceVariables(
     req: GraphQLRequest,
     doc: Document,
     rootType: RootType
   ): IO[ValidationError, GraphQLRequest] = {
-    val variableDefinitions = doc.operationDefinitions.flatMap(_.variableDefinitions)
-    var variables           = req.variables.getOrElse(Map.empty)
+    val variableDefinitions    = doc.operationDefinitions.flatMap(_.variableDefinitions)
+    var variables              = req.variables.getOrElse(Map.empty)
+    val rootTypeWithPrimitives = rootType.copy(additionalTypes = rootType.additionalTypes ++ primitiveTypes)
 
     IO.foldLeft(variableDefinitions)(Map.empty[String, InputValue]) { case (coercedValues, definition) =>
-      IO.fromEither(isInputType(definition.variableType, rootType))
+      IO.fromEither(isInputType(definition.variableType, rootTypeWithPrimitives))
         .mapError(e =>
           ValidationError(
             s"Type of variable '${definition.name}' $e",
@@ -30,7 +38,7 @@ object VariablesCoercer {
         val value =
           variables
             .get(definition.name)
-            .map(rewriteValues(_, definition.variableType, rootType))
+            .map(rewriteValues(_, definition.variableType, rootTypeWithPrimitives))
             .orElse(definition.defaultValue.map(IO.succeed(_)))
 
         (value, definition.variableType.nonNull) match {
