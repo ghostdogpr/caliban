@@ -28,21 +28,28 @@ object VariablesCoercer {
     val rootTypeWithPrimitives = rootType.copy(additionalTypes = rootType.additionalTypes ++ primitiveTypes)
 
     IO.foldLeft(variableDefinitions)(Map.empty[String, InputValue]) { case (coercedValues, definition) =>
+      val variableName = definition.name
       IO.fromEither(isInputType(definition.variableType, rootTypeWithPrimitives))
         .mapError(e =>
           ValidationError(
-            s"Type of variable '${definition.name}' $e",
+            s"Type of variable '$variableName' $e",
             "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
           )
         ) *> {
         val value =
           variables
             .get(definition.name)
-            .map(rewriteValues(_, definition.variableType, rootTypeWithPrimitives))
+            .map(rewriteValues(_, definition.variableType, rootTypeWithPrimitives, s"Variable '$variableName':"))
             .orElse(definition.defaultValue.map(IO.succeed(_)))
 
         (value, definition.variableType.nonNull) match {
-          case (None, true)  => IO.fail(ValidationError("null for non-null", ""))
+          case (None, true)  =>
+            IO.fail(
+              ValidationError(
+                s"Variable '$variableName' usage is not allowed because it is nullable but it shouldn't be.",
+                "Variable usages must be compatible with the arguments they are passed to."
+              )
+            )
           case (None, false) => IO.succeed(coercedValues)
           case (Some(v), _)  =>
             v.map(value => coercedValues + (definition.name -> value))
@@ -76,16 +83,21 @@ object VariablesCoercer {
     }
   }
 
-  private def rewriteValues(value: InputValue, `type`: Type, rootType: RootType): IO[ValidationError, InputValue] =
+  private def rewriteValues(
+    value: InputValue,
+    `type`: Type,
+    rootType: RootType,
+    context: String
+  ): IO[ValidationError, InputValue] =
     `type` match {
       case ListType(ofType, _) =>
         value match {
           case ListValue(values) =>
-            IO.foreach(values)(v => rewriteValues(v, ofType, rootType)).map(ListValue(_))
-          case _                 => rewriteValues(value, ofType, rootType)
+            IO.foreach(values)(v => rewriteValues(v, ofType, rootType, context)).map(ListValue(_))
+          case _                 => rewriteValues(value, ofType, rootType, context)
         }
       case NamedType(name, _)  =>
-        rootType.types.get(name).map(t => coerceValues(value, t, rootType)).getOrElse(IO.succeed(value))
+        rootType.types.get(name).map(t => coerceValues(value, t, rootType, context)).getOrElse(IO.succeed(value))
     }
 
   // Since we cannot separate a String from an Enum when variables
@@ -95,7 +107,8 @@ object VariablesCoercer {
   private def coerceValues(
     value: InputValue,
     typ: __Type,
-    rootType: RootType
+    rootType: RootType,
+    context: String
   ): IO[ValidationError, InputValue] =
     typ.kind match {
       case __TypeKind.INPUT_OBJECT =>
@@ -105,22 +118,33 @@ object VariablesCoercer {
             IO.foreach(fields) { case (k, v) =>
               defs
                 .find(_.name == k)
-                .map(field => coerceValues(v, field.`type`(), rootType).map(k -> _))
+                .map(field => coerceValues(v, field.`type`(), rootType, context).map(k -> _))
                 .getOrElse(IO.succeed(k -> value))
             }.map(InputValue.ObjectValue(_))
           case NullValue                      => IO.succeed(NullValue)
           case v                              =>
-            IO.fail(ValidationError(s"Cannot coerce $v to INPUT_OBJECT", ""))
+            IO.fail(
+              ValidationError(
+                s"$context cannot coerce $v to INPUT_OBJECT",
+                "Some types can be coerced into others following GraphQL's coercion rules."
+              )
+            )
         }
 
       case __TypeKind.LIST =>
         value match {
           case ListValue(values) =>
             typ.ofType
-              .map(innerType => IO.foreach(values)(coerceValues(_, innerType, rootType)).map(ListValue(_)))
+              .map(innerType => IO.foreach(values)(coerceValues(_, innerType, rootType, context)).map(ListValue(_)))
               .getOrElse(IO.succeed(value))
           case NullValue         => IO.succeed(NullValue)
-          case v                 => IO.fail(ValidationError(s"Cannot coerce $v into LIST", ""))
+          case v                 =>
+            IO.fail(
+              ValidationError(
+                s"$context cannot coerce $v into ${typ.toType(false)}",
+                "Some types can be coerced into others following GraphQL's coercion rules."
+              )
+            )
         }
 
       case __TypeKind.NON_NULL =>
@@ -128,13 +152,13 @@ object VariablesCoercer {
           case NullValue =>
             IO.fail(
               ValidationError(
-                s"$value is null",
+                s"$context $value is null, should be ${typ.toType(true)}",
                 "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
               )
             )
           case _         =>
             typ.ofType
-              .map(innerType => coerceValues(value, innerType, rootType))
+              .map(innerType => coerceValues(value, innerType, rootType, context))
               .getOrElse(IO.succeed(value))
         }
 
@@ -142,7 +166,13 @@ object VariablesCoercer {
         value match {
           case StringValue(value) => IO.succeed(Value.EnumValue(value))
           case NullValue          => IO.succeed(NullValue)
-          case v                  => IO.fail(ValidationError(s"Cannot coerce $v into ENUM.", ""))
+          case v                  =>
+            IO.fail(
+              ValidationError(
+                s"context cannot coerce $v into Cannot coerce $v into ${typ.toType(false)}.",
+                "Some types can be coerced into others following GraphQL's coercion rules."
+              )
+            )
         }
       case __TypeKind.SCALAR if typ.name.contains("Float") =>
         value match {
@@ -150,7 +180,13 @@ object VariablesCoercer {
           case IntValue.IntNumber(value)    => IO.succeed(Value.FloatValue(value.toDouble))
           case IntValue.LongNumber(value)   => IO.succeed(Value.FloatValue(value.toDouble))
           case IntValue.BigIntNumber(value) => IO.succeed(Value.FloatValue(BigDecimal(value)))
-          case v                            => IO.fail(ValidationError(s"Cannot coerce $v into number", ""))
+          case v                            =>
+            IO.fail(
+              ValidationError(
+                s"$context cannot coerce $v into float.",
+                "Some types can be coerced into others following GraphQL's coercion rules."
+              )
+            )
         }
       case _                                               =>
         IO.succeed(value)

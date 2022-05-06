@@ -205,7 +205,14 @@ object InputObjectSpec extends DefaultRunnableSpec {
                    )
                  )
           _   <- zio.ZIO.debug(res)
-        } yield assert(res.errors)(isNonEmpty)
+        } yield assertTrue(
+          res.errors == List(
+            CalibanError.ValidationError(
+              "Variable 'nonNull' usage is not allowed because it is nullable but it shouldn't be.",
+              "Variable usages must be compatible with the arguments they are passed to."
+            )
+          )
+        )
       }
     )
 }
