@@ -28,6 +28,7 @@ Here is a partial list of companies using Caliban in production.
 
 Want to see your company here? [Submit a PR](https://github.com/ghostdogpr/caliban/edit/master/README.md)!
 
+* [Anduin Transactions](https://www.anduintransact.com)
 * [AutoScout24](https://www.autoscout24.de)
 * [BusinessChat.io](https://businesschat.io)
 * [Carvana](https://www.carvana.com)
