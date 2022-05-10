@@ -184,7 +184,8 @@ object InputObjectSpec extends DefaultRunnableSpec {
                    )
                  )
         } yield assert(res.errors)(isEmpty)
-      },
+      }
+    ) + suite("input arguments validation")(
       testM("disallows nullable input for non-null variable") {
         val query =
           """query QueryName($nonNull: Int!) {

@@ -39,15 +39,15 @@ object VariablesCoercer {
         val value =
           variables
             .get(definition.name)
-            .map(rewriteValues(_, definition.variableType, rootTypeWithPrimitives, s"Variable '$variableName':"))
+            .map(rewriteValues(_, definition.variableType, rootTypeWithPrimitives, s"Variable '$variableName'"))
             .orElse(definition.defaultValue.map(IO.succeed(_)))
 
         (value, definition.variableType.nonNull) match {
           case (None, true)  =>
             IO.fail(
               ValidationError(
-                s"Variable '$variableName' usage is not allowed because it is nullable but it shouldn't be.",
-                "Variable usages must be compatible with the arguments they are passed to."
+                s"Variable '$variableName' is null but is specified to be non-null.",
+                "The value of a variable must be compatible with its type."
               )
             )
           case (None, false) => IO.succeed(coercedValues)
@@ -100,6 +100,8 @@ object VariablesCoercer {
         rootType.types.get(name).map(t => coerceValues(value, t, rootType, context)).getOrElse(IO.succeed(value))
     }
 
+  private val coercionDescription = "Variable values need to follow GraphQL's coercion rules."
+
   // Since we cannot separate a String from an Enum when variables
   // are parsed, we need to translate from strings to enums here
   // if we have a valid enum field.
@@ -126,7 +128,7 @@ object VariablesCoercer {
             IO.fail(
               ValidationError(
                 s"$context cannot coerce $v to INPUT_OBJECT",
-                "Some types can be coerced into others following GraphQL's coercion rules."
+                coercionDescription
               )
             )
         }
@@ -141,8 +143,8 @@ object VariablesCoercer {
           case v                 =>
             IO.fail(
               ValidationError(
-                s"$context cannot coerce $v into ${typ.toType(false)}",
-                "Some types can be coerced into others following GraphQL's coercion rules."
+                s"$context with value $v cannot coerced into ${typ.toType(false)}",
+                coercionDescription
               )
             )
         }
@@ -162,18 +164,58 @@ object VariablesCoercer {
               .getOrElse(IO.succeed(value))
         }
 
-      case __TypeKind.ENUM                                 =>
+      case __TypeKind.ENUM =>
         value match {
           case StringValue(value) => IO.succeed(Value.EnumValue(value))
           case NullValue          => IO.succeed(NullValue)
           case v                  =>
             IO.fail(
               ValidationError(
-                s"context cannot coerce $v into Cannot coerce $v into ${typ.toType(false)}.",
-                "Some types can be coerced into others following GraphQL's coercion rules."
+                s"$context with value $v cannot be coerced into into ${typ.toType(false)}.",
+                coercionDescription
               )
             )
         }
+
+      case __TypeKind.SCALAR if typ.name.contains("String") =>
+        value match {
+          case NullValue      => IO.succeed(NullValue)
+          case v: StringValue => IO.succeed(v)
+          case v              =>
+            IO.fail(
+              ValidationError(
+                s"$context with value $v cannot be coerced into String.",
+                coercionDescription
+              )
+            )
+        }
+
+      case __TypeKind.SCALAR if typ.name.contains("Boolean") =>
+        value match {
+          case NullValue       => IO.succeed(NullValue)
+          case v: BooleanValue => IO.succeed(v)
+          case v               =>
+            IO.fail(
+              ValidationError(
+                s"$context with value $v cannot be coerced into Boolean.",
+                coercionDescription
+              )
+            )
+        }
+
+      case __TypeKind.SCALAR if typ.name.contains("Int") =>
+        value match {
+          case NullValue   => IO.succeed(NullValue)
+          case v: IntValue => IO.succeed(v)
+          case v           =>
+            IO.fail(
+              ValidationError(
+                s"$context with value $v cannot be coerced into Int.",
+                coercionDescription
+              )
+            )
+        }
+
       case __TypeKind.SCALAR if typ.name.contains("Float") =>
         value match {
           case NullValue                    => IO.succeed(NullValue)
@@ -183,8 +225,8 @@ object VariablesCoercer {
           case v                            =>
             IO.fail(
               ValidationError(
-                s"$context cannot coerce $v into float.",
-                "Some types can be coerced into others following GraphQL's coercion rules."
+                s"$context with value $v cannot be coerced into Float.",
+                coercionDescription
               )
             )
         }
