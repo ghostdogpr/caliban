@@ -7,12 +7,16 @@ import zio.test._
 import zio.test.environment.TestEnvironment
 
 object InputArgumentSpec extends DefaultRunnableSpec {
+  sealed trait Enum
+  case object Valid extends Enum
+
   case class BoolArg(input: Option[Boolean])
   case class BoolArgNonNull(input: Boolean)
   case class FloatArg(input: Option[Float])
   case class IntArg(input: Option[Int])
   case class ListArg(input: Option[List[String]])
   case class StringArg(input: Option[String])
+  case class EnumArg(input: Option[Enum])
 
   // TODO: INPUT_OBJECT
 
@@ -23,7 +27,8 @@ object InputArgumentSpec extends DefaultRunnableSpec {
     float: FloatArg => String = _ => "result",
     int: IntArg => String = _ => "result",
     list: ListArg => String = _ => "result",
-    string: StringArg => String = _ => "result"
+    string: StringArg => String = _ => "result",
+    `enum`: EnumArg => String = _ => "result"
   )
   val gql = graphQL(RootResolver(Query()))
 
@@ -174,30 +179,184 @@ object InputArgumentSpec extends DefaultRunnableSpec {
                    )
           } yield assertTrue(res.errors == List())
         }
-      )
-      //   testM("non-null bool") {
-      //     val query =
-      //       """query QueryName($bool: Int!) {
-      //         |  boolNonNull(input: $bool)
-      //         |}""".stripMargin
+      ),
+      suite("floats")(
+        testM("invalid coercion") {
+          val query =
+            """query QueryName($float: Float!) {
+              |  float(input: $float)
+              |}""".stripMargin
 
-      //     for {
-      //       int <- gql.interpreter
-      //       res <- int.executeRequest(
-      //                GraphQLRequest(
-      //                  query = Some(query),
-      //                  variables = Some(Map())
-      //                )
-      //              )
-      //       _   <- zio.ZIO.debug(res)
-      //     } yield assertTrue(
-      //       res.errors == List(
-      //         CalibanError.ValidationError(
-      //           "Variable 'nonNull' usage is not allowed because it is nullable but it shouldn't be.",
-      //           "Variable usages must be compatible with the arguments they are passed to."
-      //         )
-      //       )
-      //     )
-      //   }
+          for {
+            int <- gql.interpreter
+            res <- int.executeRequest(
+                     GraphQLRequest(
+                       query = Some(query),
+                       variables = Some(Map("float" -> Value.StringValue("invalid")))
+                     )
+                   )
+          } yield assertTrue(
+            res.errors == List(
+              CalibanError.ValidationError(
+                "Variable 'float' with value \"invalid\" cannot be coerced into Float.",
+                "Variable values need to follow GraphQL's coercion rules."
+              )
+            )
+          )
+        },
+        testM("valid coercion (int -> float)") {
+          val query =
+            """query QueryName($float: Float!) {
+              |  float(input: $float)
+              |}""".stripMargin
+
+          for {
+            int <- gql.interpreter
+            res <- int.executeRequest(
+                     GraphQLRequest(
+                       query = Some(query),
+                       variables = Some(Map("float" -> Value.IntValue.IntNumber(1)))
+                     )
+                   )
+          } yield assertTrue(res.errors == List())
+        },
+        testM("valid coercion (long -> float)") {
+          val query =
+            """query QueryName($float: Float!) {
+              |  float(input: $float)
+              |}""".stripMargin
+
+          for {
+            int <- gql.interpreter
+            res <- int.executeRequest(
+                     GraphQLRequest(
+                       query = Some(query),
+                       variables = Some(Map("float" -> Value.IntValue.LongNumber(1L)))
+                     )
+                   )
+          } yield assertTrue(res.errors == List())
+        },
+        testM("valid coercion (bigint -> float)") {
+          val query =
+            """query QueryName($float: Float!) {
+              |  float(input: $float)
+              |}""".stripMargin
+
+          for {
+            int <- gql.interpreter
+            res <- int.executeRequest(
+                     GraphQLRequest(
+                       query = Some(query),
+                       variables = Some(Map("float" -> Value.IntValue.BigIntNumber(BigInt(1))))
+                     )
+                   )
+          } yield assertTrue(res.errors == List())
+        }
+      ),
+      suite("enums")(
+        testM("invalid coercion") {
+          val query =
+            """query QueryName($enum: Enum) {
+              |  enum(input: $enum)
+              |}""".stripMargin
+
+          for {
+            int <- gql.interpreter
+            res <- int.executeRequest(
+                     GraphQLRequest(
+                       query = Some(query),
+                       variables = Some(Map("enum" -> Value.IntValue(2)))
+                     )
+                   )
+          } yield assertTrue(
+            res.errors == List(
+              CalibanError.ValidationError(
+                "Variable 'enum' with value 2 cannot be coerced into Enum.",
+                "Variable values need to follow GraphQL's coercion rules."
+              )
+            )
+          )
+        },
+        testM("valid coercion") {
+          val query =
+            """query QueryName($enum: Enum!) {
+              |  enum(input: $enum)
+              |}""".stripMargin
+
+          for {
+            int <- gql.interpreter
+            res <- int.executeRequest(
+                     GraphQLRequest(
+                       query = Some(query),
+                       variables = Some(Map("enum" -> Value.StringValue("Valid")))
+                     )
+                   )
+          } yield assertTrue(res.errors == List())
+        }
+      ),
+      suite("lists")(
+        testM("invalid coercion") {
+          val query =
+            """query QueryName($list: [String!]!) {
+              |  list(input: $list)
+              |}""".stripMargin
+
+          for {
+            int <- gql.interpreter
+            res <- int.executeRequest(
+                     GraphQLRequest(
+                       query = Some(query),
+                       variables = Some(Map("list" -> InputValue.ListValue(List(Value.IntValue(2)))))
+                     )
+                   )
+          } yield assertTrue(
+            res.errors == List(
+              CalibanError.ValidationError(
+                "Variable 'list' at index '0' with value 2 cannot be coerced into String.",
+                "Variable values need to follow GraphQL's coercion rules."
+              )
+            )
+          )
+        },
+        testM("invalid coercion") {
+          val query =
+            """query QueryName($list: [String!]!) {
+              |  list(input: $list)
+              |}""".stripMargin
+
+          for {
+            int <- gql.interpreter
+            res <- int.executeRequest(
+                     GraphQLRequest(
+                       query = Some(query),
+                       variables = Some(Map("list" -> Value.IntValue(2)))
+                     )
+                   )
+          } yield assertTrue(
+            res.errors == List(
+              CalibanError.ValidationError(
+                "Variable 'list' with value 2 cannot be coerced into into [String].",
+                "Variable values need to follow GraphQL's coercion rules."
+              )
+            )
+          )
+        },
+        testM("valid coercion") {
+          val query =
+            """query QueryName($list: [String!]!) {
+              |  list(input: $list)
+              |}""".stripMargin
+
+          for {
+            int <- gql.interpreter
+            res <- int.executeRequest(
+                     GraphQLRequest(
+                       query = Some(query),
+                       variables = Some(Map("list" -> InputValue.ListValue(List(Value.StringValue("valid")))))
+                     )
+                   )
+          } yield assertTrue(res.errors == List())
+        }
+      )
     )
 }

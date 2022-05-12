@@ -89,15 +89,21 @@ object VariablesCoercer {
     rootType: RootType,
     context: String
   ): IO[ValidationError, InputValue] =
+    resolveType(rootType, `type`) match {
+      case Some(typ) => coerceValues(value, typ, rootType, context)
+      case None      => ZIO.succeed(value)
+    }
+
+  private def resolveType(rootType: RootType, `type`: Type): Option[__Type] =
     `type` match {
-      case ListType(ofType, _) =>
-        value match {
-          case ListValue(values) =>
-            IO.foreach(values)(v => rewriteValues(v, ofType, rootType, context)).map(ListValue(_))
-          case _                 => rewriteValues(value, ofType, rootType, context)
-        }
-      case NamedType(name, _)  =>
-        rootType.types.get(name).map(t => coerceValues(value, t, rootType, context)).getOrElse(IO.succeed(value))
+      case NamedType(name, nonNull)  => rootType.types.get(name)
+      case ListType(ofType, nonNull) =>
+        Some(
+          __Type(
+            kind = __TypeKind.LIST,
+            ofType = resolveType(rootType, ofType)
+          )
+        )
     }
 
   private val coercionDescription = "Variable values need to follow GraphQL's coercion rules."
@@ -127,7 +133,7 @@ object VariablesCoercer {
           case v                              =>
             IO.fail(
               ValidationError(
-                s"$context cannot coerce $v to INPUT_OBJECT",
+                s"$context cannot coerce $v to Input Object",
                 coercionDescription
               )
             )
@@ -135,15 +141,19 @@ object VariablesCoercer {
 
       case __TypeKind.LIST =>
         value match {
+          case NullValue         => ZIO.succeed(NullValue)
           case ListValue(values) =>
-            typ.ofType
-              .map(innerType => IO.foreach(values)(coerceValues(_, innerType, rootType, context)).map(ListValue(_)))
-              .getOrElse(IO.succeed(value))
-          case NullValue         => IO.succeed(NullValue)
+            typ.ofType match {
+              case None         => ZIO.succeed(value)
+              case Some(ofType) =>
+                IO.foreach(values.zipWithIndex) { case (value, i) =>
+                  coerceValues(value, ofType, rootType, s"$context at index '$i'")
+                }.map(InputValue.ListValue(_))
+            }
           case v                 =>
             IO.fail(
               ValidationError(
-                s"$context with value $v cannot coerced into ${typ.toType(false)}",
+                s"$context with value $v cannot be coerced into into ${typ.toType(false)}.",
                 coercionDescription
               )
             )
@@ -171,7 +181,7 @@ object VariablesCoercer {
           case v                  =>
             IO.fail(
               ValidationError(
-                s"$context with value $v cannot be coerced into into ${typ.toType(false)}.",
+                s"$context with value $v cannot be coerced into ${typ.toType(false)}.",
                 coercionDescription
               )
             )
