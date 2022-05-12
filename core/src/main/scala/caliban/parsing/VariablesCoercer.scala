@@ -126,7 +126,9 @@ object VariablesCoercer {
             IO.foreach(fields) { case (k, v) =>
               defs
                 .find(_.name == k)
-                .map(field => coerceValues(v, field.`type`(), rootType, context).map(k -> _))
+                .map(field =>
+                  coerceValues(v, field.`type`(), rootType, s"$context at field '${field.name}'").map(k -> _)
+                )
                 .getOrElse(IO.succeed(k -> value))
             }.map(InputValue.ObjectValue(_))
           case NullValue                      => IO.succeed(NullValue)

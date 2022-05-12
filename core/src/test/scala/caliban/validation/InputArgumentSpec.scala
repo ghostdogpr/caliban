@@ -10,6 +10,8 @@ object InputArgumentSpec extends DefaultRunnableSpec {
   sealed trait Enum
   case object Valid extends Enum
 
+  case class InputObject(int: Option[Int])
+
   case class BoolArg(input: Option[Boolean])
   case class BoolArgNonNull(input: Boolean)
   case class FloatArg(input: Option[Float])
@@ -17,6 +19,7 @@ object InputArgumentSpec extends DefaultRunnableSpec {
   case class ListArg(input: Option[List[String]])
   case class StringArg(input: Option[String])
   case class EnumArg(input: Option[Enum])
+  case class InputArg(input: Option[InputObject])
 
   // TODO: INPUT_OBJECT
 
@@ -28,7 +31,8 @@ object InputArgumentSpec extends DefaultRunnableSpec {
     int: IntArg => String = _ => "result",
     list: ListArg => String = _ => "result",
     string: StringArg => String = _ => "result",
-    `enum`: EnumArg => String = _ => "result"
+    `enum`: EnumArg => String = _ => "result",
+    input: InputArg => String = _ => "result"
   )
   val gql = graphQL(RootResolver(Query()))
 
@@ -353,6 +357,63 @@ object InputArgumentSpec extends DefaultRunnableSpec {
                      GraphQLRequest(
                        query = Some(query),
                        variables = Some(Map("list" -> InputValue.ListValue(List(Value.StringValue("valid")))))
+                     )
+                   )
+          } yield assertTrue(res.errors == List())
+        }
+      ),
+      suite("input objects")(
+        testM("invalid coercion") {
+          val query =
+            """query QueryName($input: InputObjectInput!) {
+              |  input(input: $input)
+              |}""".stripMargin
+
+          for {
+            int <- gql.interpreter
+            res <- int.executeRequest(
+                     GraphQLRequest(
+                       query = Some(query),
+                       variables = Some(
+                         Map(
+                           "input" -> InputValue.ObjectValue(
+                             Map(
+                               "int" -> Value.StringValue("invalid")
+                             )
+                           )
+                         )
+                       )
+                     )
+                   )
+          } yield assertTrue(
+            res.errors == List(
+              CalibanError.ValidationError(
+                "Variable 'input' at field 'int' with value \"invalid\" cannot be coerced into Int.",
+                "Variable values need to follow GraphQL's coercion rules."
+              )
+            )
+          )
+        },
+        testM("valid coercion") {
+          val query =
+            """query QueryName($input: InputObjectInput!) {
+              |  input(input: $input)
+              |}""".stripMargin
+
+          for {
+            int <- gql.interpreter
+            res <- int.executeRequest(
+                     GraphQLRequest(
+                       query = Some(query),
+                       variables = Some(
+                         Map(
+                           "input" -> InputValue.ObjectValue(
+                             Map(
+                               "int" -> Value.IntValue(2)
+                             )
+                           )
+                         )
+                       )
                      )
                    )
           } yield assertTrue(res.errors == List())
