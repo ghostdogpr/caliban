@@ -1,11 +1,11 @@
 package caliban.validation
 
-import caliban.CalibanError
+import caliban.{ CalibanError, InputValue }
 import caliban.CalibanError.ValidationError
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
-import caliban.Value.{ BooleanValue, StringValue }
+import caliban.Value.{ BooleanValue, IntValue, StringValue }
 import zio.IO
 import zio.test.Assertion._
 import zio.test.environment.TestEnvironment
@@ -15,8 +15,12 @@ object ValidationSpec extends DefaultRunnableSpec {
   private val gql         = graphQL(resolverWithSubscription)
   private val interpreter = gql.interpreter
 
-  def check(query: String, expectedMessage: String): IO[ValidationError, TestResult] = {
-    val io = interpreter.flatMap(_.execute(query)).map(_.errors.headOption)
+  def check(
+    query: String,
+    expectedMessage: String,
+    variables: Map[String, InputValue] = Map.empty
+  ): IO[ValidationError, TestResult] = {
+    val io = interpreter.flatMap(_.execute(query, variables = variables)).map(_.errors.headOption)
     assertM(io)(isSome(hasField[CalibanError, String]("msg", _.msg, equalTo(expectedMessage))))
   }
 
@@ -295,14 +299,17 @@ object ValidationSpec extends DefaultRunnableSpec {
              }""")
         check(query, "Directive 'skip' is defined twice.")
       },
-      testM("variable type doesn't match") {
+      testM("variable types don't match") {
         val query = gqldoc("""
              query($x: Int!) {
                exists(character: { name: $x, nicknames: [], origin: EARTH })
               }""")
         check(
           query,
-          "Variable 'x' usage is not allowed because its type doesn't match the schema (Int instead of String)."
+          "Variable 'x' usage is not allowed because its type doesn't match the schema (Int instead of String).",
+          Map(
+            "x" -> IntValue(1)
+          )
         )
       },
       testM("variable cardinality is the same") {
@@ -310,7 +317,13 @@ object ValidationSpec extends DefaultRunnableSpec {
              query($x: [String]!) {
                exists(character: { name: $x, nicknames: [], origin: EARTH })
               }""")
-        check(query, "Variable 'x' usage is not allowed because it is a list but it should not be.")
+        check(
+          query,
+          "Variable 'x' usage is not allowed because it is a list but it should not be.",
+          Map(
+            "x" -> InputValue.ListValue(List())
+          )
+        )
       },
       testM("variable nullability is the same") {
         val query = gqldoc("""
@@ -335,7 +348,10 @@ object ValidationSpec extends DefaultRunnableSpec {
              }""")
         check(
           query,
-          "Variable 'x' usage is not allowed because its type doesn't match the schema (String instead of Boolean)."
+          "Variable 'x' usage is not allowed because its type doesn't match the schema (String instead of Boolean).",
+          Map(
+            "x" -> StringValue("foo")
+          )
         )
       },
       testM("directive with variable of the right type") {
