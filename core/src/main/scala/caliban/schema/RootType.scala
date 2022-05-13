@@ -2,7 +2,6 @@ package caliban.schema
 
 import caliban.introspection.adt.{ __Directive, __Type }
 import caliban.schema.Types.collectTypes
-import caliban.introspection.adt.__TypeKind
 
 case class RootType(
   queryType: __Type,

@@ -1,5 +1,6 @@
 package caliban.parsing
 
+import caliban.CalibanError.ValidationError
 import caliban.InputValue.ListValue
 import caliban.Value._
 import caliban.introspection.adt._
@@ -8,7 +9,6 @@ import caliban.parsing.adt._
 import caliban.schema.RootType
 import caliban.{ GraphQLRequest, InputValue, Value }
 import zio._
-import caliban.CalibanError.ValidationError
 
 object VariablesCoercer {
   private val primitiveTypes: List[__Type] = List(
