@@ -18,14 +18,14 @@ val mercatorVersion        = "0.2.1"
 val playVersion            = "2.8.15"
 val playJsonVersion        = "2.9.2"
 val sttpVersion            = "3.3.18"
-val tapirVersion           = "0.20.1"
+val tapirVersion           = "0.20.2"
 val zioVersion             = "1.0.14"
 val zioInteropCats2Version = "2.5.1.0"
 val zioInteropCats3Version = "3.2.9.1"
 val zioConfigVersion       = "1.0.10"
 val zqueryVersion          = "0.2.10"
 val zioJsonVersion         = "0.1.5"
-val zioHttpVersion         = "1.0.0.0-RC25"
+val zioHttpVersion         = "1.0.0.0-RC27"
 
 inThisBuild(
   List(
