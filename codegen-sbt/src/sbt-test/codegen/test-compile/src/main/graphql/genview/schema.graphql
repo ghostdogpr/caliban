@@ -78,3 +78,30 @@ type Pilot {
 
 # Json
 scalar Json
+
+# Big type to ensure correct handling of types with the number of fields larger than tuple max of 22 for Scala 2.x
+type Big {
+    field1: Character!
+    field2: Character!
+    field3: Character!
+    field4: Character!
+    field5: Character!
+    field6: Character!
+    field7: Character!
+    field8: Character!
+    field9: Character!
+    field10: Character!
+    field11: Character!
+    field12: Character!
+    field13: Character!
+    field14: Character!
+    field15: Character!
+    field16: Character!
+    field17: Character!
+    field18: Character!
+    field19: Character!
+    field20: Character!
+    field21: Character!
+    field22: Character!
+    field23: Character!
+}
