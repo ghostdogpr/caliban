@@ -7,7 +7,7 @@ import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue }
 import zio.{ Has, Layer, Ref, UIO, ZIO }
 
 import java.nio.charset.StandardCharsets
-import javax.xml.bind.DatatypeConverter
+import scala.collection.mutable
 
 object ApolloPersistedQueries {
 
@@ -71,9 +71,15 @@ object ApolloPersistedQueries {
         case _                              => None
       }
 
+  private def hex(bytes: Array[Byte]): String = {
+    val builder = new mutable.StringBuilder(bytes.length * 2)
+    bytes.foreach(byte => builder.append(f"$byte%02x".toLowerCase))
+    builder.mkString
+  }
+
   private def checkHash(hash: String, query: String): Boolean = {
     val sha256 = java.security.MessageDigest.getInstance("SHA-256")
     val digest = sha256.digest(query.getBytes(StandardCharsets.UTF_8))
-    DatatypeConverter.printHexBinary(digest).toLowerCase == hash
+    hex(digest) == hash
   }
 }
