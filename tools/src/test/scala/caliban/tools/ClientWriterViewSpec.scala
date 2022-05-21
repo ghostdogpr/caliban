@@ -787,7 +787,7 @@ object Client {
       User21Selection,
       User22Selection,
       User23Selection
-    ] = (user1(selectionArgs.user1Selection) ~ user2(selectionArgs.user2Selection) ~ user3(
+    ] = (((user1(selectionArgs.user1Selection) ~ user2(selectionArgs.user2Selection) ~ user3(
       selectionArgs.user3Selection
     ) ~ user4(selectionArgs.user4Selection) ~ user5(selectionArgs.user5Selection) ~ user6(
       selectionArgs.user6Selection
@@ -801,31 +801,33 @@ object Client {
       selectionArgs.user18Selection
     ) ~ user19(selectionArgs.user19Selection) ~ user20(selectionArgs.user20Selection) ~ user21(
       selectionArgs.user21Selection
-    ) ~ user22(selectionArgs.user22Selection) ~ user23(selectionArgs.user23Selection)).map {
+    ) ~ user22(selectionArgs.user22Selection)) ~ (user23(selectionArgs.user23Selection)))).map {
       case (
-            user1,
-            user2,
-            user3,
-            user4,
-            user5,
-            user6,
-            user7,
-            user8,
-            user9,
-            user10,
-            user11,
-            user12,
-            user13,
-            user14,
-            user15,
-            user16,
-            user17,
-            user18,
-            user19,
-            user20,
-            user21,
-            user22,
-            user23
+            (
+              user1,
+              user2,
+              user3,
+              user4,
+              user5,
+              user6,
+              user7,
+              user8,
+              user9,
+              user10,
+              user11,
+              user12,
+              user13,
+              user14,
+              user15,
+              user16,
+              user17,
+              user18,
+              user19,
+              user20,
+              user21,
+              user22
+            ),
+            (user23)
           ) =>
         BigView(
           user1,
@@ -960,45 +962,47 @@ object Client {
     type ViewSelection = SelectionBuilder[User, UserView]
 
     def view(args: UserViewArgs): ViewSelection =
-      (character1(args.character1Name) ~ character2(args.character2Name) ~ character3(args.character3Name) ~ character4(
-        args.character4Name
-      ) ~ character5(args.character5Name) ~ character6(args.character6Name) ~ character7(
-        args.character7Name
-      ) ~ character8(args.character8Name) ~ character9(args.character9Name) ~ character10(
-        args.character10Name
-      ) ~ character11(args.character11Name) ~ character12(args.character12Name) ~ character13(
-        args.character13Name
-      ) ~ character14(args.character14Name) ~ character15(args.character15Name) ~ character16(
-        args.character16Name
-      ) ~ character17(args.character17Name) ~ character18(args.character18Name) ~ character19(
-        args.character19Name
-      ) ~ character20(args.character20Name) ~ character21(args.character21Name) ~ character22(
-        args.character22Name
-      ) ~ character23(args.character23Name)).map {
+      (((character1(args.character1Name) ~ character2(args.character2Name) ~ character3(
+        args.character3Name
+      ) ~ character4(args.character4Name) ~ character5(args.character5Name) ~ character6(
+        args.character6Name
+      ) ~ character7(args.character7Name) ~ character8(args.character8Name) ~ character9(
+        args.character9Name
+      ) ~ character10(args.character10Name) ~ character11(args.character11Name) ~ character12(
+        args.character12Name
+      ) ~ character13(args.character13Name) ~ character14(args.character14Name) ~ character15(
+        args.character15Name
+      ) ~ character16(args.character16Name) ~ character17(args.character17Name) ~ character18(
+        args.character18Name
+      ) ~ character19(args.character19Name) ~ character20(args.character20Name) ~ character21(
+        args.character21Name
+      ) ~ character22(args.character22Name)) ~ (character23(args.character23Name)))).map {
         case (
-              character1,
-              character2,
-              character3,
-              character4,
-              character5,
-              character6,
-              character7,
-              character8,
-              character9,
-              character10,
-              character11,
-              character12,
-              character13,
-              character14,
-              character15,
-              character16,
-              character17,
-              character18,
-              character19,
-              character20,
-              character21,
-              character22,
-              character23
+              (
+                character1,
+                character2,
+                character3,
+                character4,
+                character5,
+                character6,
+                character7,
+                character8,
+                character9,
+                character10,
+                character11,
+                character12,
+                character13,
+                character14,
+                character15,
+                character16,
+                character17,
+                character18,
+                character19,
+                character20,
+                character21,
+                character22
+              ),
+              (character23)
             ) =>
           UserView(
             character1,

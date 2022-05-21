@@ -6,6 +6,9 @@ import caliban.wrappers.Wrapper.OverallWrapper
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue }
 import zio._
 
+import java.nio.charset.StandardCharsets
+import scala.collection.mutable
+
 object ApolloPersistedQueries {
 
   trait ApolloPersistence {
@@ -39,8 +42,9 @@ object ApolloPersistedQueries {
                 case Some(query) => UIO(request.copy(query = Some(query)))
                 case None        =>
                   request.query match {
-                    case Some(value) => ApolloPersistence(_.add(hash, value)).as(request)
-                    case None        => ZIO.fail(ValidationError("PersistedQueryNotFound", ""))
+                    case Some(value) if checkHash(hash, value) => ApolloPersistence(_.add(hash, value)).as(request)
+                    case Some(_)                               => ZIO.fail(ValidationError("Provided sha does not match any query", ""))
+                    case None                                  => ZIO.fail(ValidationError("PersistedQueryNotFound", ""))
                   }
 
               }
@@ -60,4 +64,16 @@ object ApolloPersistedQueries {
           }
         case _                              => None
       }
+
+  private def hex(bytes: Array[Byte]): String = {
+    val builder = new mutable.StringBuilder(bytes.length * 2)
+    bytes.foreach(byte => builder.append(f"$byte%02x".toLowerCase))
+    builder.mkString
+  }
+
+  private def checkHash(hash: String, query: String): Boolean = {
+    val sha256 = java.security.MessageDigest.getInstance("SHA-256")
+    val digest = sha256.digest(query.getBytes(StandardCharsets.UTF_8))
+    hex(digest) == hash
+  }
 }

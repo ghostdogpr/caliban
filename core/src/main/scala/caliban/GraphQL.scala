@@ -1,13 +1,13 @@
 package caliban
 
 import caliban.CalibanError.ValidationError
-import caliban.Rendering.{ renderDirectives, renderTypes }
+import caliban.Rendering.{ renderDirectives, renderSchemaDirectives, renderTypes }
 import caliban.execution.{ ExecutionRequest, Executor, QueryExecution }
 import caliban.introspection.Introspector
 import caliban.introspection.adt._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.SchemaDefinition
-import caliban.parsing.adt.{ Document, OperationType }
-import caliban.parsing.{ Parser, SourceMapper, VariablesUpdater }
+import caliban.parsing.adt.{ Directive, Document, OperationType }
+import caliban.parsing.{ Parser, SourceMapper, VariablesCoercer }
 import caliban.schema._
 import caliban.validation.Validator
 import caliban.wrappers.Wrapper
@@ -33,14 +33,16 @@ trait GraphQL[-R] { self =>
    * Returns a string that renders the API types into the GraphQL format.
    */
   final def render: String = {
-    val parts  = Seq(
+    val parts            = Seq(
       schemaBuilder.query.flatMap(_.opType.name).map(n => s"  query: $n"),
       schemaBuilder.mutation.flatMap(_.opType.name).map(n => s"  mutation: $n"),
       schemaBuilder.subscription.flatMap(_.opType.name).map(n => s"  subscription: $n")
     )
+    val schemaDirectives = renderSchemaDirectives(schemaBuilder.schemaDirectives)
+
     val schema = parts.flatten.mkString("\n") match {
       case ""        => ""
-      case something => s"""schema {
+      case something => s"""schema ${schemaDirectives}{
                            |$something
                            |}""".stripMargin
     }
@@ -61,7 +63,7 @@ trait GraphQL[-R] { self =>
   final def toDocument: Document =
     Document(
       SchemaDefinition(
-        Nil,
+        schemaBuilder.schemaDirectives,
         schemaBuilder.query.flatMap(_.opType.name),
         schemaBuilder.mutation.flatMap(_.opType.name),
         schemaBuilder.subscription.flatMap(_.opType.name)
@@ -108,14 +110,14 @@ trait GraphQL[-R] { self =>
             case (overallWrappers, parsingWrappers, validationWrappers, executionWrappers, fieldWrappers, _) =>
               wrap((request: GraphQLRequest) =>
                 (for {
-                  doc            <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
-                  intro           = Introspector.isIntrospection(doc)
-                  _              <- IO.when(intro && !enableIntrospection) {
-                                      IO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
-                                    }
-                  typeToValidate  = if (intro) introspectionRootType else rootType
-                  schemaToExecute = if (intro) introspectionRootSchema else schema
-                  updatedRequest  = VariablesUpdater.updateVariables(request, doc, typeToValidate)
+                  doc              <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
+                  intro             = Introspector.isIntrospection(doc)
+                  _                <- IO.when(intro && !enableIntrospection) {
+                                        IO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
+                                      }
+                  typeToValidate    = if (intro) introspectionRootType else rootType
+                  schemaToExecute   = if (intro) introspectionRootSchema else schema
+                  validatedRequest <- VariablesCoercer.coerceVariables(request, doc, typeToValidate)
 
                   validate          = (doc: Document) =>
                                         Validator
@@ -123,8 +125,8 @@ trait GraphQL[-R] { self =>
                                             doc,
                                             typeToValidate,
                                             schemaToExecute,
-                                            updatedRequest.operationName,
-                                            updatedRequest.variables.getOrElse(Map.empty),
+                                            validatedRequest.operationName,
+                                            validatedRequest.variables.getOrElse(Map.empty),
                                             skipValidation
                                           )
                   executionRequest <- wrap(validate)(validationWrappers, doc)
@@ -226,6 +228,13 @@ trait GraphQL[-R] { self =>
     override protected val wrappers: List[Wrapper[R]]              = self.wrappers
     override protected val additionalDirectives: List[__Directive] = self.additionalDirectives
   }
+
+  final def withSchemaDirectives(directives: List[Directive]): GraphQL[R] = new GraphQL[R] {
+    override protected val schemaBuilder: RootSchemaBuilder[R]     =
+      self.schemaBuilder.copy(schemaDirectives = self.schemaBuilder.schemaDirectives ++ directives)
+    override protected val wrappers: List[Wrapper[R]]              = self.wrappers
+    override protected val additionalDirectives: List[__Directive] = self.additionalDirectives
+  }
 }
 
 object GraphQL {
@@ -236,8 +245,11 @@ object GraphQL {
    * It requires an instance of [[caliban.schema.Schema]] for each operation type.
    * This schema will be derived by Magnolia automatically.
    */
-  def graphQL[R, Q, M, S: SubscriptionSchema](resolver: RootResolver[Q, M, S], directives: List[__Directive] = Nil)(
-    implicit
+  def graphQL[R, Q, M, S: SubscriptionSchema](
+    resolver: RootResolver[Q, M, S],
+    directives: List[__Directive] = Nil,
+    schemaDirectives: List[Directive] = Nil
+  )(implicit
     querySchema: Schema[R, Q],
     mutationSchema: Schema[R, M],
     subscriptionSchema: Schema[R, S]
@@ -247,7 +259,8 @@ object GraphQL {
       resolver.mutationResolver.map(r => Operation(mutationSchema.toType_(), mutationSchema.resolve(r))),
       resolver.subscriptionResolver.map(r =>
         Operation(subscriptionSchema.toType_(isSubscription = true), subscriptionSchema.resolve(r))
-      )
+      ),
+      schemaDirectives = schemaDirectives
     )
     val wrappers: List[Wrapper[R]]              = Nil
     val additionalDirectives: List[__Directive] = directives

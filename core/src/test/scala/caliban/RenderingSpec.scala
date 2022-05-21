@@ -2,6 +2,9 @@ package caliban
 
 import caliban.GraphQL._
 import caliban.TestUtils._
+import caliban.introspection.adt.{ __Type, __TypeKind }
+import caliban.parsing.adt.Directive
+import zio.test.Assertion._
 import zio.test._
 
 object RenderingSpec extends DefaultRunnableSpec {
@@ -9,12 +12,18 @@ object RenderingSpec extends DefaultRunnableSpec {
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("rendering")(
       test("it should render directives") {
-        assertTrue(
-          graphQL(resolver, directives = List(Directives.Test)).render.trim ==
+        assert(
+          graphQL(
+            resolver,
+            directives = List(Directives.Test),
+            schemaDirectives = List(SchemaDirectives.Link)
+          ).render.trim
+        )(
+          equalTo(
             """"Test directive"
               |directive @test(foo: Int) on FIELD_DEFINITION
               |
-              |schema {
+              |schema @link(url: "https://example.com", import: ["@key", {name: "@provides", as: "@self"}]) {
               |  query: Query
               |}
               |
@@ -76,6 +85,7 @@ object RenderingSpec extends DefaultRunnableSpec {
               |  exists(character: CharacterInput!): Boolean!
               |  human: Human!
               |}""".stripMargin.trim
+          )
         )
       },
       test("it should render descriptions") {
@@ -119,7 +129,32 @@ object RenderingSpec extends DefaultRunnableSpec {
                                                                                  |}""".stripMargin.trim)
       },
       test("it should not render a schema in no queries, mutations, or subscription") {
-        assertTrue(graphQL(InvalidSchemas.resolverEmpty).render.trim.isEmpty)
+        assert(graphQL(InvalidSchemas.resolverEmpty).render.trim)(
+          equalTo("")
+        )
+      },
+      test("it should render object arguments in type directives") {
+        val testType     = __Type(
+          __TypeKind.OBJECT,
+          name = Some("TestType"),
+          directives = Some(
+            List(
+              Directive(
+                name = "testdirective",
+                arguments = Map(
+                  "object" -> InputValue.ObjectValue(
+                    Map(
+                      "key1" -> Value.StringValue("value1"),
+                      "key2" -> Value.StringValue("value2")
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+        val renderedType = Rendering.renderTypes(List(testType))
+        assert(renderedType)(equalTo("type TestType @testdirective(object: {key1: \"value1\",key2: \"value2\"})"))
       }
     )
 }

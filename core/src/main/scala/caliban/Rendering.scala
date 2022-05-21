@@ -81,6 +81,18 @@ object Rendering {
       }
       .mkString("\n\n")
 
+  def renderSchemaDirectives(directives: List[Directive]): String =
+    directives
+      .map(renderSchemaDirective)
+      .mkString(" ")
+
+  private def renderSchemaDirective(directive: Directive): String = {
+    val args =
+      if (directive.arguments.isEmpty) ""
+      else directive.arguments.map { case (k, v) => s"$k: ${v.toInputString}" }.mkString("(", ", ", ") ")
+    s"@${directive.name}$args"
+  }
+
   def renderDirectives(directives: List[__Directive]): String =
     directives.map(renderDirective).mkString("\n")
 
@@ -150,7 +162,8 @@ object Rendering {
       Some(values.flatMap(renderDirectiveArgument).mkString("[", ",", "]"))
     case InputValue.ObjectValue(fields) =>
       Some(
-        fields.map { case (key, value) => renderDirectiveArgument(value).map(v => s"$key: $v") }.mkString("{", ",", "}")
+        fields.flatMap { case (key, value) => renderDirectiveArgument(value).map(v => s"$key: $v") }
+          .mkString("{", ",", "}")
       )
     case NullValue                      => Some("null")
     case StringValue(value)             => Some("\"" + value + "\"")

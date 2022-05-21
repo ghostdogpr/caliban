@@ -503,6 +503,14 @@ object ClientWriter {
       def withRoundBrackets(input: List[String]): String =
         if (input.nonEmpty) input.mkString("(", ", ", ")") else ""
 
+      def withRoundBracketsTuples(input: List[String]): String =
+        if (input.nonEmpty) {
+          if (input.size > MaxTupleLength)
+            input.grouped(MaxTupleLength).map(_.mkString("(", ", ", ")")).mkString("(", ", ", ")")
+          else
+            input.mkString("(", ", ", ")")
+        } else ""
+
       val genericSelectionFields =
         fields.collect {
           case field if field.owner.nonEmpty =>
@@ -560,8 +568,8 @@ object ClientWriter {
             s"${field.name}: $outputType"
         }
 
-      val viewFunctionBody: String =
-        fields.map { case field @ FieldTypeInfo(_, _, _, interfaceTypes, unionTypes, _, _) =>
+      val viewFunctionBody: String = {
+        val selectors = fields.map { case field @ FieldTypeInfo(_, _, _, interfaceTypes, unionTypes, _, _) =>
           val argsPart      = withRoundBrackets(
             field.arguments
               .map(a => argumentName(field.name, a.name))
@@ -580,7 +588,11 @@ object ClientWriter {
           }
 
           s"${field.name}$argsPart$selectionPart"
-        }.mkString(" ~ ")
+        }
+        if (selectors.length > MaxTupleLength) {
+          selectors.grouped(MaxTupleLength).map(_.mkString("(", " ~ ", ")")).mkString("(", " ~ ", ")")
+        } else selectors.mkString(" ~ ")
+      }
 
       val viewClassFieldParams: String = withRoundBrackets(viewClassFields)
 
@@ -591,7 +603,7 @@ object ClientWriter {
             s"$viewFunctionBody.map(${head.name} => $viewName(${head.name}))"
 
           case other =>
-            val unapply = fields.map(field => safeUnapplyName(field.rawName)).mkString("(", ", ", ")")
+            val unapply = withRoundBracketsTuples(fields.map(field => safeUnapplyName(field.rawName)))
             s"($viewFunctionBody).map { case $unapply => $viewName(${other.map(f => safeUnapplyName(f.rawName)).mkString(", ")}) }"
         }
 

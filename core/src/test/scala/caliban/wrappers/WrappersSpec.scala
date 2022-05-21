@@ -248,12 +248,40 @@ object WrappersSpec extends DefaultRunnableSpec {
           )(equalTo("""{"data":null,"errors":[{"message":"PersistedQueryNotFound"}]}"""))
             .provide(ApolloPersistedQueries.live)
         },
+        test("cache poisoning") {
+          case class Test(test: String, malicious: String)
+
+          (for {
+            interpreter <- (graphQL(RootResolver(Test("ok", "malicious"))) @@ apolloPersistedQueries).interpreter
+            // The hash for the query "{test}"  attempting to poison the cache by passing in a different query
+            extensions   =
+              Some(
+                Map(
+                  "persistedQuery" -> ObjectValue(
+                    Map("sha256Hash" -> StringValue("e005c1d727f7776a57a661d61a182816d8953c0432780beeae35e337830b1746"))
+                  )
+                )
+              )
+            r1          <- interpreter.executeRequest(GraphQLRequest(query = Some("{malicious}"), extensions = extensions))
+            r2          <- interpreter.executeRequest(GraphQLRequest(extensions = extensions))
+          } yield assertTrue(
+            r1.asJson.noSpaces == """{"data":null,"errors":[{"message":"Provided sha does not match any query"}]}"""
+          ) && assertTrue(r2.asJson.noSpaces == """{"data":null,"errors":[{"message":"PersistedQueryNotFound"}]}"""))
+            .provideLayer(ApolloPersistedQueries.live)
+        },
         test("hash found") {
           case class Test(test: String)
 
           (for {
             interpreter <- (graphQL(RootResolver(Test("ok"))) @@ apolloPersistedQueries).interpreter
-            extensions   = Some(Map("persistedQuery" -> ObjectValue(Map("sha256Hash" -> StringValue("my-hash")))))
+            extensions   =
+              Some(
+                Map(
+                  "persistedQuery" -> ObjectValue(
+                    Map("sha256Hash" -> StringValue("e005c1d727f7776a57a661d61a182816d8953c0432780beeae35e337830b1746"))
+                  )
+                )
+              )
             _           <- interpreter.executeRequest(GraphQLRequest(query = Some("{test}"), extensions = extensions))
             result      <- interpreter.executeRequest(GraphQLRequest(extensions = extensions))
           } yield assertTrue(result.asJson.noSpaces == """{"data":{"test":"ok"}}"""))
