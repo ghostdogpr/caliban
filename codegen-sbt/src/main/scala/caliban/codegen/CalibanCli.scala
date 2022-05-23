@@ -86,7 +86,7 @@ object CalibanCli {
     args: List[String],
     genType: GenType
   ): RIO[Console with Blocking, Unit] =
-    Options.fromArgs(args) match {
+    Options.fromArgs(args).flatMap {
       case Some(arguments) =>
         for {
           _ <- putStrLn(s"Generating code for ${arguments.schemaPath}")
@@ -95,6 +95,5 @@ object CalibanCli {
         } yield ()
       case None            => putStrLn(helpMsg)
     }
-
-  def projectSettings = Seq(commands ++= Seq(genSchemaCommand, genClientCommand))
+  def projectSettings          = Seq(commands ++= Seq(genSchemaCommand, genClientCommand))
 }

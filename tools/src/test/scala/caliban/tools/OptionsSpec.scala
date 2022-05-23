@@ -8,10 +8,10 @@ import zio.test.environment.TestEnvironment
 object OptionsSpec extends DefaultRunnableSpec {
   override def spec: ZSpec[TestEnvironment, Any] =
     suite("OptionsSpec")(
-      test("full arguments") {
+      testM("full arguments") {
         val input  = List("schema", "output", "--scalafmtPath", "fmtPath", "--headers", "header1:value1,header2:value2")
         val result = Options.fromArgs(input)
-        assert(result)(
+        assertM(result)(
           equalTo(
             Some(
               Options(
@@ -34,11 +34,12 @@ object OptionsSpec extends DefaultRunnableSpec {
             )
           )
         )
+
       },
-      test("full arguments (--headers option first)") {
+      testM("full arguments (--headers option first)") {
         val input  = List("schema", "output", "--headers", "header1:value1,header2:value2", "--scalafmtPath", "fmtPath")
         val result = Options.fromArgs(input)
-        assert(result)(
+        assertM(result)(
           equalTo(
             Some(
               Options(
@@ -62,10 +63,10 @@ object OptionsSpec extends DefaultRunnableSpec {
           )
         )
       },
-      test("minimum arguments") {
+      testM("minimum arguments") {
         val input  = List("schema", "output")
         val result = Options.fromArgs(input)
-        assert(result)(
+        assertM(result)(
           equalTo(
             Some(
               Options("schema", "output", None, None, None, None, None, None, None, None, None, None, None, None, None)
@@ -73,24 +74,24 @@ object OptionsSpec extends DefaultRunnableSpec {
           )
         )
       },
-      test("not enough arguments") {
+      testM("not enough arguments") {
         val input  = List("schema")
         val result = Options.fromArgs(input)
-        assert(result)(equalTo(None))
+        assertM(result)(equalTo(None))
       },
-      test("--scalafmtPath value missing") {
+      testM("--scalafmtPath value missing") {
         val input  = List("schema", "output", "--scalafmtPath", "--headers", "header1:value1,header2:value2")
         val result = Options.fromArgs(input)
-        assert(result)(equalTo(None))
+        assertM(result)(equalTo(None))
       },
-      test("empty list") {
+      testM("empty list") {
         val result = Options.fromArgs(Nil)
-        assert(result)(equalTo(None))
+        assertM(result)(equalTo(None))
       },
-      test("provide package name") {
+      testM("provide package name") {
         val input  = List("schema", "output", "--packageName", "com.github.ghostdogpr")
         val result = Options.fromArgs(input)
-        assert(result)(
+        assertM(result)(
           equalTo(
             Some(
               Options(
@@ -114,10 +115,10 @@ object OptionsSpec extends DefaultRunnableSpec {
           )
         )
       },
-      test("provide client name") {
+      testM("provide client name") {
         val input  = List("schema", "output", "--clientName", "GraphqlClient.scala")
         val result = Options.fromArgs(input)
-        assert(result)(
+        assertM(result)(
           equalTo(
             Some(
               Options(
@@ -141,10 +142,10 @@ object OptionsSpec extends DefaultRunnableSpec {
           )
         )
       },
-      test("provide effect") {
+      testM("provide effect") {
         val input  = List("schema", "output", "--effect", "cats.effect.IO")
         val result = Options.fromArgs(input)
-        assert(result)(
+        assertM(result)(
           equalTo(
             Some(
               Options(
@@ -168,10 +169,10 @@ object OptionsSpec extends DefaultRunnableSpec {
           )
         )
       },
-      test("provide genView") {
+      testM("provide genView") {
         val input  = List("schema", "output", "--genView", "true")
         val result = Options.fromArgs(input)
-        assert(result)(
+        assertM(result)(
           equalTo(
             Some(
               Options(
@@ -195,10 +196,10 @@ object OptionsSpec extends DefaultRunnableSpec {
           )
         )
       },
-      test("provide extensibleEnums") {
+      testM("provide extensibleEnums") {
         val input  = List("schema", "output", "--extensibleEnums", "true")
         val result = Options.fromArgs(input)
-        assert(result)(
+        assertM(result)(
           equalTo(
             Some(
               Options(
@@ -222,10 +223,10 @@ object OptionsSpec extends DefaultRunnableSpec {
           )
         )
       },
-      test("provide scalarMappings") {
+      testM("provide scalarMappings") {
         val input  = List("schema", "output", "--scalarMappings", "Long:scala.Long")
         val result = Options.fromArgs(input)
-        assert(result)(
+        assertM(result)(
           equalTo(
             Some(
               Options(
@@ -249,10 +250,10 @@ object OptionsSpec extends DefaultRunnableSpec {
           )
         )
       },
-      test("provide imports") {
+      testM("provide imports") {
         val input  = List("schema", "output", "--imports", "a.b.Clazz,b.c._")
         val result = Options.fromArgs(input)
-        assert(result)(
+        assertM(result)(
           equalTo(
             Some(
               Options(
@@ -276,10 +277,10 @@ object OptionsSpec extends DefaultRunnableSpec {
           )
         )
       },
-      test("provide abstractEffectType") {
+      testM("provide abstractEffectType") {
         val input  = List("schema", "output", "--effect", "F", "--abstractEffectType", "true")
         val result = Options.fromArgs(input)
-        assert(result)(
+        assertM(result)(
           equalTo(
             Some(
               Options(
@@ -303,10 +304,10 @@ object OptionsSpec extends DefaultRunnableSpec {
           )
         )
       },
-      test("provide preserveInputNames") {
+      testM("provide preserveInputNames") {
         val input  = List("schema", "output", "--preserveInputNames", "true")
         val result = Options.fromArgs(input)
-        assert(result)(
+        assertM(result)(
           equalTo(
             Some(
               Options(
@@ -330,10 +331,10 @@ object OptionsSpec extends DefaultRunnableSpec {
           )
         )
       },
-      test("header with a colon in the value") {
+      testM("header with a colon in the value") {
         val input  = List("schema", "output", "--scalafmtPath", "fmtPath", "--headers", "aaa:bbb:ccc")
         val result = Options.fromArgs(input)
-        assert(result)(
+        assertM(result)(
           equalTo(
             Some(
               Options(
