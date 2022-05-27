@@ -231,6 +231,7 @@ object VariablesCoercer {
       case __TypeKind.SCALAR if typ.name.contains("Float") =>
         value match {
           case NullValue                    => IO.succeed(NullValue)
+          case v: FloatValue                => IO.succeed(v)
           case IntValue.IntNumber(value)    => IO.succeed(Value.FloatValue(value.toDouble))
           case IntValue.LongNumber(value)   => IO.succeed(Value.FloatValue(value.toDouble))
           case IntValue.BigIntNumber(value) => IO.succeed(Value.FloatValue(BigDecimal(value)))
