@@ -62,7 +62,7 @@ object ApolloPersistedQueries {
                   case Some(doc) => docVar.set(Some(Right(doc))) as request
                   case None      =>
                     request.query match {
-                      case Some(value) if checkHash(hash, value) => docVar.set(Some(Left(hash))) as request
+                      case Some(value) if checkHash(hash, value) => docVar.set(Some(Left(hash))).as(request)
                       case Some(_)                               => ZIO.fail(ValidationError("Provided sha does not match any query", ""))
                       case None                                  => ZIO.fail(ValidationError("PersistedQueryNotFound", ""))
                     }
