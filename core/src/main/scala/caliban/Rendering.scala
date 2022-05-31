@@ -225,5 +225,12 @@ object Rendering {
     "\"\"\"" + value.replace("\"\"\"", "\\\"\"\"") + "\"\"\""
 
   private def renderString(value: String) =
-    "\"" + value.replace("\"", "\\\"") + "\""
+    "\"" + value
+      .replace("\\", "\\\\")
+      .replace("\b", "\\b")
+      .replace("\f", "\\f")
+      .replace("\n", "\\n")
+      .replace("\r", "\\r")
+      .replace("\t", "\\t")
+      .replace("\"", "\\\"") + "\""
 }
