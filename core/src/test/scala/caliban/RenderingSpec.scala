@@ -158,6 +158,26 @@ object RenderingSpec extends DefaultRunnableSpec {
         )
         val renderedType = Rendering.renderTypes(List(testType))
         assert(renderedType)(equalTo("type TestType @testdirective(object: {key1: \"value1\",key2: \"value2\"})"))
+      },
+      test("it should escape \" inside a normally quoted description string") {
+        val testType     = __Type(
+          __TypeKind.OBJECT,
+          name = Some("TestType"),
+          description = Some("A \"TestType\" description")
+        )
+        val renderedType = Rendering.renderTypes(List(testType))
+        assert(renderedType)(equalTo("\"A \\\"TestType\\\" description\"\ntype TestType"))
+      },
+      test("it should escape \"\"\" inside a triple-quoted description string") {
+        val testType     = __Type(
+          __TypeKind.OBJECT,
+          name = Some("TestType"),
+          description = Some("A multiline \"TestType\" description\ngiven inside \"\"\"-quotes\n")
+        )
+        val renderedType = Rendering.renderTypes(List(testType))
+        assert(renderedType)(
+          equalTo("\"\"\"\nA multiline \"TestType\" description\ngiven inside \\\"\"\"-quotes\n\"\"\"\ntype TestType")
+        )
       }
     )
 }
