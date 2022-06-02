@@ -24,7 +24,7 @@ object VariablesCoercer {
     rootType: RootType
   ): IO[ValidationError, GraphQLRequest] = {
     val variableDefinitions    = doc.operationDefinitions.flatMap(_.variableDefinitions)
-    var variables              = req.variables.getOrElse(Map.empty)
+    val variables              = req.variables.getOrElse(Map.empty)
     val rootTypeWithPrimitives = rootType.copy(additionalTypes = rootType.additionalTypes ++ primitiveTypes)
 
     IO.foldLeft(variableDefinitions)(Map.empty[String, InputValue]) { case (coercedValues, definition) =>
@@ -90,7 +90,7 @@ object VariablesCoercer {
     context: String
   ): IO[ValidationError, InputValue] =
     resolveType(rootType, `type`) match {
-      case Some(typ) => coerceValues(value, typ, rootType, context)
+      case Some(typ) => coerceValues(value, typ, context)
       case None      => ZIO.succeed(value)
     }
 
@@ -115,7 +115,6 @@ object VariablesCoercer {
   private def coerceValues(
     value: InputValue,
     typ: __Type,
-    rootType: RootType,
     context: String
   ): IO[ValidationError, InputValue] =
     typ.kind match {
@@ -126,39 +125,34 @@ object VariablesCoercer {
             IO.foreach(fields) { case (k, v) =>
               defs
                 .find(_.name == k)
-                .map(field =>
-                  coerceValues(v, field.`type`(), rootType, s"$context at field '${field.name}'").map(k -> _)
-                )
-                .getOrElse(IO.succeed(k -> value))
+                .map(field => coerceValues(v, field.`type`(), s"$context at field '${field.name}'").map(k -> _))
+                .getOrElse {
+                  IO.fail(ValidationError(s"$context field '$k' does not exist", coercionDescription))
+                }
             }.map(InputValue.ObjectValue(_))
           case NullValue                      => IO.succeed(NullValue)
           case v                              =>
             IO.fail(
               ValidationError(
-                s"$context cannot coerce $v to Input Object",
+                s"$context cannot coerce $v to ${typ.name.getOrElse("Input Object")}",
                 coercionDescription
               )
             )
         }
 
       case __TypeKind.LIST =>
-        value match {
-          case NullValue         => ZIO.succeed(NullValue)
-          case ListValue(values) =>
-            typ.ofType match {
-              case None         => ZIO.succeed(value)
-              case Some(ofType) =>
+        typ.ofType match {
+          case None           => IO.succeed(value)
+          case Some(itemType) =>
+            value match {
+              case NullValue         => IO.succeed(NullValue)
+              case ListValue(values) =>
                 IO.foreach(values.zipWithIndex) { case (value, i) =>
-                  coerceValues(value, ofType, rootType, s"$context at index '$i'")
-                }.map(InputValue.ListValue(_))
+                  coerceValues(value, itemType, s"$context at index '$i'")
+                }.map(ListValue(_))
+              case v                 =>
+                coerceValues(v, itemType, context).map(iv => ListValue(List(iv)))
             }
-          case v                 =>
-            IO.fail(
-              ValidationError(
-                s"$context with value $v cannot be coerced into into ${typ.toType(false)}.",
-                coercionDescription
-              )
-            )
         }
 
       case __TypeKind.NON_NULL =>
@@ -172,7 +166,7 @@ object VariablesCoercer {
             )
           case _         =>
             typ.ofType
-              .map(innerType => coerceValues(value, innerType, rootType, context))
+              .map(innerType => coerceValues(value, innerType, context))
               .getOrElse(IO.succeed(value))
         }
 
