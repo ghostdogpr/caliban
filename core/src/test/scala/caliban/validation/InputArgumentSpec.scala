@@ -2,6 +2,7 @@ package caliban.validation
 
 import caliban.{ CalibanError, GraphQLRequest, InputValue, ResponseValue, RootResolver, TriState, Value }
 import caliban.GraphQL._
+import caliban.schema.ArgBuilder
 import caliban.schema.Schema
 import caliban.schema.Step
 import zio.test._
@@ -26,27 +27,32 @@ object InputArgumentSpec extends DefaultRunnableSpec {
 
   case class ExampleObject(a: TriState[String], b: Int)
   object ExampleObject {
-    implicit val schemaTriState: Schema[Any, TriState[String]] =
+    implicit val schemaTriState: Schema[Any, TriState[String]]    =
       TriState.schemaCustom(Step.PureStep(Value.StringValue("__undefined__")))
+    implicit val argBuilderTriState: ArgBuilder[TriState[String]] =
+      TriState.argBuilder
 
-    implicit val schema: Schema[Any, ExampleObject] = Schema.genMacro[ExampleObject].schema
+    implicit val schema: Schema[Any, ExampleObject]    = Schema.gen
+    implicit val argBuilder: ArgBuilder[ExampleObject] = ArgBuilder.gen
   }
   case class ExampleObjectArg(input: Option[ExampleObject])
 
-  case class Query(
-    bool: BoolArg => String = _ => "result",
-    boolNonNull: BoolArgNonNull => String = _ => "result",
-    float: FloatArg => String = _ => "result",
-    int: IntArg => String = _ => "result",
-    list: ListArg => String = _ => "result",
-    listInt: ListIntArg => Option[List[Option[Int]]] = _.input,
-    listListInt: ListListIntArg => Option[List[Option[List[Option[Int]]]]] = _.input,
-    string: StringArg => String = _ => "result",
-    `enum`: EnumArg => String = _ => "result",
-    input: InputArg => String = _ => "result",
-    exampleObject: ExampleObjectArg => Option[ExampleObject] = _.input
-  )
-  val gql = graphQL(RootResolver(Query()))
+  val gql = {
+    // explicit instances to avoid "given instance gen is declared as erased, but is in fact used" on Scala 3
+    implicit val schemaListInt: Schema[Any, Option[List[Option[Int]]]]    =
+      Schema.optionSchema(Schema.listSchema(Schema.optionSchema(Schema.intSchema)))
+    implicit val argBuilderListInt: ArgBuilder[Option[List[Option[Int]]]] =
+      ArgBuilder.option(ArgBuilder.list(ArgBuilder.option(ArgBuilder.int)))
+
+    implicit val schemaListListInt: Schema[Any, Option[List[Option[List[Option[Int]]]]]]    =
+      Schema.optionSchema(
+        Schema.listSchema(Schema.optionSchema(Schema.listSchema(Schema.optionSchema(Schema.intSchema))))
+      )
+    implicit val argBuilderListListInt: ArgBuilder[Option[List[Option[List[Option[Int]]]]]] =
+      ArgBuilder.option(ArgBuilder.list(ArgBuilder.option(ArgBuilder.list(ArgBuilder.option(ArgBuilder.int)))))
+
+    graphQL(RootResolver(InputArgumentSpecInterop.Query()))
+  }
 
   private def execute(query: String, variables: Map[String, InputValue] = Map.empty) = for {
     int <- gql.interpreter
@@ -551,7 +557,7 @@ object InputArgumentSpec extends DefaultRunnableSpec {
               )
             )
           }
-        )
+        ) @@ TestAspect.scala2Only
       ),
       suite("input objects")(
         testM("invalid coercion") {
