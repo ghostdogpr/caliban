@@ -130,8 +130,10 @@ object Field {
             fragments
               .get(name)
               .foreach { f =>
-                val t =
-                  innerType.possibleTypes.flatMap(_.find(_.name.contains(f.typeCondition.name))).getOrElse(fieldType)
+                val t = innerType.possibleTypes
+                  .flatMap(_.find(_.name.contains(f.typeCondition.name)))
+                  .orElse(rootType.types.get(f.typeCondition.name))
+                  .getOrElse(fieldType)
                 loop(f.selectionSet, t).fields
                   .map(field =>
                     if (field._condition.isDefined) field
@@ -152,6 +154,7 @@ object Field {
           if (checkDirectives(resolvedDirectives)) {
             val t     = innerType.possibleTypes
               .flatMap(_.find(_.name.exists(typeCondition.map(_.name).contains)))
+              .orElse(typeCondition.flatMap(typeName => rootType.types.get(typeName.name)))
               .getOrElse(fieldType)
             val field = loop(selectionSet, t)
             typeCondition match {
