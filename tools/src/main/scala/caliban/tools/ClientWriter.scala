@@ -184,11 +184,11 @@ object ClientWriter {
           if (optionalUnion) {
             (
               s"[$typeLetter]",
-              s"(${unionTypes.map(t => s"""on${t.name}: Option[SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]] = None""").mkString(", ")})",
-              s"${writeType(field.ofType).replace(fieldType, s"Option[$typeLetter]")}",
+              s"(${unionTypes.map(t => s"""on${t.name}: scala.Option[SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]] = None""").mkString(", ")})",
+              s"${writeType(field.ofType).replace(fieldType, s"scala.Option[$typeLetter]")}",
               writeTypeBuilder(
                 field.ofType,
-                s"ChoiceOf(Map(${unionTypes.map(t => s""""${t.name}" -> on${t.name}.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))""").mkString(", ")}))"
+                s"ChoiceOf(Map(${unionTypes.map(t => s""""${t.name}" -> on${t.name}.fold[FieldBuilder[scala.Option[A]]](NullField)(a => OptionOf(Obj(a)))""").mkString(", ")}))"
               )
             )
           } else {
@@ -213,11 +213,11 @@ object ClientWriter {
           } else if (optionalInterface) {
             (
               s"[$typeLetter]",
-              s"(${interfaceTypes.map(t => s"""on${t.name}: Option[SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]] = None""").mkString(", ")})",
-              s"${writeType(field.ofType).replace(fieldType, s"Option[$typeLetter]")}",
+              s"(${interfaceTypes.map(t => s"""on${t.name}: scala.Option[SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]] = None""").mkString(", ")})",
+              s"${writeType(field.ofType).replace(fieldType, s"""scala.Option[$typeLetter]""")}",
               writeTypeBuilder(
                 field.ofType,
-                s"ChoiceOf(Map(${interfaceTypes.map(t => s""""${t.name}" -> on${t.name}.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))""").mkString(", ")}))"
+                s"ChoiceOf(Map(${interfaceTypes.map(t => s""""${t.name}" -> on${t.name}.fold[FieldBuilder[scala.Option[A]]](NullField)(a => OptionOf(Obj(a)))""").mkString(", ")}))"
               )
             )
           } else {
@@ -746,9 +746,9 @@ object ClientWriter {
       t: Type
     ): String = t match {
       case NamedType(name, true)   => mapTypeName(name)
-      case NamedType(name, false)  => s"Option[${mapTypeName(name)}]"
+      case NamedType(name, false)  => s"scala.Option[${mapTypeName(name)}]"
       case ListType(ofType, true)  => s"List[${writeType(ofType)}]"
-      case ListType(ofType, false) => s"Option[List[${writeType(ofType)}]]"
+      case ListType(ofType, false) => s"scala.Option[List[${writeType(ofType)}]]"
     }
 
     def writeTypeBuilder(t: Type, inner: String): String = t match {
