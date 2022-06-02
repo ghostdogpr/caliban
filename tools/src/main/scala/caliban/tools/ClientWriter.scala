@@ -3,10 +3,11 @@ package caliban.tools
 import caliban.Value.StringValue
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
-import caliban.parsing.adt.Type.{ ListType, NamedType }
-import caliban.parsing.adt.{ Document, Type }
+import caliban.parsing.adt.Type.{ListType, NamedType}
+import caliban.parsing.adt.{Document, Type}
 
 import scala.annotation.tailrec
+import scala.util.matching.Regex
 
 object ClientWriter {
 
@@ -232,12 +233,21 @@ object ClientWriter {
             )
           }
         } else {
-          (
-            s"[$typeLetter]",
-            s"(innerSelection: SelectionBuilder[$fieldType, $typeLetter])",
-            writeType(field.ofType).replace(fieldType, typeLetter),
-            writeTypeBuilder(field.ofType, "Obj(innerSelection)")
-          )
+          if (fieldType == "Option") {
+            (
+              s"[$typeLetter]",
+              s"(innerSelection: SelectionBuilder[$fieldType, $typeLetter])",
+              writeType(field.ofType).reverse.replaceFirst(fieldType.reverse, typeLetter).reverse,
+              writeTypeBuilder(field.ofType, "Obj(innerSelection)")
+            )
+          } else {
+            (
+              s"[$typeLetter]",
+              s"(innerSelection: SelectionBuilder[$fieldType, $typeLetter])",
+              writeType(field.ofType).replace(fieldType, typeLetter),
+              writeTypeBuilder(field.ofType, "Obj(innerSelection)")
+            )
+          }
         }
       val args                                             = field.args match {
         case Nil  => ""
