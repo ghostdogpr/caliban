@@ -1,0 +1,24 @@
+# Schema
+schema {
+    query: Q
+}
+
+# Query
+type Q {
+    defaultOptionForProductId(id: String!): Option
+    availableOptionsForProductId(id: String!): [Option!]
+}
+
+# A type that could conflict with scala.Option
+type Option {
+    defaultColor: String!
+}
+
+
+type Product {
+    id: String
+    defaultOption: Option!
+    configuredOption: Option
+    availableOptions: [Option!]!
+    specialOrderOption: [Option]
+}
