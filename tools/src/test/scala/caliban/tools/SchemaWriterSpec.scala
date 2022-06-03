@@ -47,7 +47,7 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
             |"""),
       """  object Types {
         |  final case class HeroNameArgs(pad: Int)
-        |  final case class Hero(name: HeroNameArgs => String, nick: String, bday: Option[Int])
+        |  final case class Hero(name: HeroNameArgs => String, nick: String, bday: scala.Option[Int])
         |
         |}"""
     ),
@@ -66,16 +66,16 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
       """import Types._
         |
         |object Types {
-        |  final case class QueryUserArgs(id: Option[Int])
-        |  final case class User(id: Option[Int], name: Option[String], profilePic: Option[String])
+        |  final case class QueryUserArgs(id: scala.Option[Int])
+        |  final case class User(id: scala.Option[Int], name: scala.Option[String], profilePic: scala.Option[String])
         |
         |}
         |
         |object Operations {
         |
         |  final case class Query(
-        |    user: QueryUserArgs => zio.UIO[Option[User]],
-        |    userList: zio.UIO[List[Option[User]]]
+        |    user: QueryUserArgs => zio.UIO[scala.Option[User]],
+        |    userList: zio.UIO[List[scala.Option[User]]]
         |  )
         |
         |}"""
@@ -90,14 +90,14 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
       """import Types._
         |
         |object Types {
-        |  final case class MutationSetMessageArgs(message: Option[String])
+        |  final case class MutationSetMessageArgs(message: scala.Option[String])
         |
         |}
         |
         |object Operations {
         |
         |  final case class Mutation(
-        |    setMessage: MutationSetMessageArgs => zio.UIO[Option[String]]
+        |    setMessage: MutationSetMessageArgs => zio.UIO[scala.Option[String]]
         |  )
         |
         |}"""
@@ -145,16 +145,16 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
       """import Types._
         |
         |object Types {
-        |  final case class QueryUserArgs(id: Option[Int])
-        |  final case class User(id: Option[Int], name: Option[String], profilePic: Option[String])
+        |  final case class QueryUserArgs(id: scala.Option[Int])
+        |  final case class User(id: scala.Option[Int], name: scala.Option[String], profilePic: scala.Option[String])
         |
         |}
         |
         |object Operations {
         |
         |  final case class Query[F[_]](
-        |    user: QueryUserArgs => F[Option[User]],
-        |    userList: F[List[Option[User]]]
+        |    user: QueryUserArgs => F[scala.Option[User]],
+        |    userList: F[List[scala.Option[User]]]
         |  )
         |
         |}"""
@@ -173,14 +173,14 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
       """import Types._
         |
         |object Types {
-        |  final case class MutationSetMessageArgs(message: Option[String])
+        |  final case class MutationSetMessageArgs(message: scala.Option[String])
         |
         |}
         |
         |object Operations {
         |
         |  final case class Mutation[F[_]](
-        |    setMessage: MutationSetMessageArgs => F[Option[String]]
+        |    setMessage: MutationSetMessageArgs => F[scala.Option[String]]
         |  )
         |
         |}"""
@@ -207,23 +207,23 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
         |import zio.stream.ZStream
         |
         |object Types {
-        |  final case class MutationAddPostArgs(author: Option[String], comment: Option[String])
-        |  final case class Post(author: Option[String], comment: Option[String])
+        |  final case class MutationAddPostArgs(author: scala.Option[String], comment: scala.Option[String])
+        |  final case class Post(author: scala.Option[String], comment: scala.Option[String])
         |
         |}
         |
         |object Operations {
         |
         |  final case class Query(
-        |    posts: zio.UIO[Option[List[Option[Post]]]]
+        |    posts: zio.UIO[scala.Option[List[scala.Option[Post]]]]
         |  )
         |
         |  final case class Mutation(
-        |    addPost: MutationAddPostArgs => zio.UIO[Option[Post]]
+        |    addPost: MutationAddPostArgs => zio.UIO[scala.Option[Post]]
         |  )
         |
         |  final case class Subscription(
-        |    postAdded: ZStream[Any, Nothing, Option[Post]]
+        |    postAdded: ZStream[Any, Nothing, scala.Option[Post]]
         |  )
         |
         |}"""
@@ -501,23 +501,23 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
         |import a.b._
         |
         |object Types {
-        |  final case class MutationAddPostArgs(author: Option[String], comment: Option[String])
-        |  final case class Post(date: java.time.OffsetDateTime, author: Option[String], comment: Option[String])
+        |  final case class MutationAddPostArgs(author: scala.Option[String], comment: scala.Option[String])
+        |  final case class Post(date: java.time.OffsetDateTime, author: scala.Option[String], comment: scala.Option[String])
         |
         |}
         |
         |object Operations {
         |
         |  final case class Query(
-        |    posts: zio.UIO[Option[List[Option[Post]]]]
+        |    posts: zio.UIO[scala.Option[List[scala.Option[Post]]]]
         |  )
         |
         |  final case class Mutation(
-        |    addPost: MutationAddPostArgs => zio.UIO[Option[Post]]
+        |    addPost: MutationAddPostArgs => zio.UIO[scala.Option[Post]]
         |  )
         |
         |  final case class Subscription(
-        |    postAdded: ZStream[Any, Nothing, Option[Post]]
+        |    postAdded: ZStream[Any, Nothing, scala.Option[Post]]
         |  )
         |
         |}"""

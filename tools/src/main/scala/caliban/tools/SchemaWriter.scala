@@ -209,9 +209,9 @@ object SchemaWriter {
 
       t match {
         case NamedType(name, true)   => write(name)
-        case NamedType(name, false)  => s"Option[${write(name)}]"
+        case NamedType(name, false)  => s"scala.Option[${write(name)}]"
         case ListType(ofType, true)  => s"List[${writeType(ofType)}]"
-        case ListType(ofType, false) => s"Option[List[${writeType(ofType)}]]"
+        case ListType(ofType, false) => s"scala.Option[List[${writeType(ofType)}]]"
       }
     }
 
