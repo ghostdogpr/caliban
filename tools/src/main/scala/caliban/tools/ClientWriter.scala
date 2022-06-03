@@ -3,11 +3,10 @@ package caliban.tools
 import caliban.Value.StringValue
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
-import caliban.parsing.adt.Type.{ListType, NamedType}
-import caliban.parsing.adt.{Document, Type}
+import caliban.parsing.adt.Type.{ ListType, NamedType }
+import caliban.parsing.adt.{ Document, Type }
 
 import scala.annotation.tailrec
-import scala.util.matching.Regex
 
 object ClientWriter {
 
