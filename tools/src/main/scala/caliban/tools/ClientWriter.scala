@@ -232,21 +232,12 @@ object ClientWriter {
             )
           }
         } else {
-          if (fieldType == "Option") {
-            (
-              s"[$typeLetter]",
-              s"(innerSelection: SelectionBuilder[$fieldType, $typeLetter])",
-              writeType(field.ofType).reverse.replaceFirst(fieldType.reverse, typeLetter).reverse,
-              writeTypeBuilder(field.ofType, "Obj(innerSelection)")
-            )
-          } else {
-            (
-              s"[$typeLetter]",
-              s"(innerSelection: SelectionBuilder[$fieldType, $typeLetter])",
-              writeType(field.ofType).replace(fieldType, typeLetter),
-              writeTypeBuilder(field.ofType, "Obj(innerSelection)")
-            )
-          }
+          (
+            s"[$typeLetter]",
+            s"(innerSelection: SelectionBuilder[$fieldType, $typeLetter])",
+            safeFieldTypeReplace(writeType(field.ofType), fieldType, typeLetter),
+            writeTypeBuilder(field.ofType, "Obj(innerSelection)")
+          )
         }
       val args                                             = field.args match {
         case Nil  => ""
@@ -759,6 +750,13 @@ object ClientWriter {
       case ListType(ofType, true)  => s"List[${writeType(ofType)}]"
       case ListType(ofType, false) => s"scala.Option[List[${writeType(ofType)}]]"
     }
+
+    def safeFieldTypeReplace(writtenType: String, fieldType: String, typeLetter: String): String =
+      if (fieldType == "Option") {
+        writtenType.reverse.replaceFirst(fieldType.reverse, typeLetter).reverse
+      } else {
+        writtenType.replace(fieldType, typeLetter)
+      }
 
     def writeTypeBuilder(t: Type, inner: String): String = t match {
       case NamedType(_, true)  => inner
