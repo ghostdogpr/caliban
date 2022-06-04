@@ -30,14 +30,9 @@ sealed trait Protocol {
 object Protocol {
 
   def fromName(name: String): Protocol = name match {
-    case "graphql-transport-ws" => GraphQLWS
-    case _                      => Legacy
+    case GraphQLWS.name => GraphQLWS
+    case _              => Legacy
   }
-
-  def fromRequest(serverRequest: ServerRequest): Protocol =
-    serverRequest
-      .header("Sec-WebSocket-Protocol")
-      .fold[Protocol](GraphQLWS)(fromName)
 
   object GraphQLWS extends Protocol {
     object Ops {

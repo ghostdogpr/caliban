@@ -42,7 +42,7 @@ object AkkaHttpAdapterSpec extends DefaultRunnableSpec {
                      }
       _           <- ZIO.fromFuture { _ =>
                        implicit val s: ActorSystem = system
-                       Http()(system).newServerAt("localhost", 8088).bind(route)
+                       Http().newServerAt("localhost", 8088).bind(route)
                      }
                        .toManaged(server => ZIO.fromFuture(_ => server.unbind()).ignore)
       _           <- clock.sleep(3 seconds).toManaged_

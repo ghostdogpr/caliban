@@ -49,6 +49,13 @@ trait WebSocketHooks[-R, +E] { self =>
         case (Some(f1), Some(f2)) => Some((x: InputValue) => f1(x) &> f2(x))
         case _                    => None
       }
+
+      override def onAck: Option[ZIO[R2, E2, ResponseValue]] = (self.onAck, other.onAck) match {
+        case (None, Some(f))      => Some(f)
+        case (Some(f), None)      => Some(f)
+        case (Some(f1), Some(f2)) => Some((f1 zipWithPar f2)(_ deepMerge _))
+        case _                    => None
+      }
     }
 }
 
@@ -92,5 +99,10 @@ object WebSocketHooks {
   def pong[R, E](f: InputValue => ZIO[R, E, Any]): WebSocketHooks[R, E] =
     new WebSocketHooks[R, E] {
       override def onPong: Option[InputValue => ZIO[R, E, Any]] = Some(f)
+    }
+
+  def ack[R, E](f: ZIO[R, E, ResponseValue]): WebSocketHooks[R, E] =
+    new WebSocketHooks[R, E] {
+      override def onAck: Option[ZIO[R, E, ResponseValue]] = Some(f)
     }
 }

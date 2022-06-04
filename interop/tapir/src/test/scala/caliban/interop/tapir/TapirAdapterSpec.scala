@@ -260,7 +260,7 @@ object TapirAdapterSpec {
               assertTrue(messages(2).map(_.`type`) == Right(Ops.Complete))
             }
           }
-        ) @@ TestAspect.sequential
+        )
       )
     )
 

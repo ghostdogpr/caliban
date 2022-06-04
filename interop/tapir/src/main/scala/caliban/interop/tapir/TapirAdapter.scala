@@ -277,10 +277,10 @@ object TapirAdapter {
     inputCodec: JsonCodec[GraphQLWSInput],
     outputCodec: JsonCodec[GraphQLWSOutput]
   ): ServerEndpoint[ZioWebSockets, RIO[R, *]] =
-    makeWebSocketEndpoint.serverLogic[RIO[R, *]](serverRequest =>
-      requestInterceptor(serverRequest._1)(
+    makeWebSocketEndpoint.serverLogic[RIO[R, *]] { case (serverRequest, protocol) =>
+      requestInterceptor(serverRequest)(
         Protocol
-          .fromName(serverRequest._2)
+          .fromName(protocol)
           .make(
             interpreter,
             skipValidation,
@@ -291,7 +291,7 @@ object TapirAdapter {
           )
           .map(Right(_))
       ).catchAll(ZIO.left(_))
-    )
+    }
 
   def convertHttpEndpointToFuture[E, R](
     endpoint: ServerEndpoint[Any, RIO[R, *]]

@@ -95,7 +95,7 @@ object TestService {
       def deletedEvents: ZStream[Any, Nothing, String] =
         ZStream.unwrapManaged(subscribers.subscribe.map(ZStream.fromQueue(_)))
 
-      override def reset: UIO[Unit] = characters.set(initial)
+      def reset: UIO[Unit] = characters.set(initial)
     }).toLayer
 
   private def sha256(b: Array[Byte]): Array[Byte] =
