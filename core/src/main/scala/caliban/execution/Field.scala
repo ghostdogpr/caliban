@@ -23,6 +23,7 @@ import caliban.{ InputValue, Value }
  * @param directives The directives specified on the field
  * @param _condition Internal, the possible types that contains this field
  * @param _locationInfo Internal, the source location in the query
+ * @param fragment The fragment that is directly wrapping this field
  */
 case class Field(
   name: String,
@@ -34,7 +35,8 @@ case class Field(
   arguments: Map[String, InputValue] = Map(),
   directives: List[Directive] = List.empty,
   _condition: Option[Set[String]] = None,
-  _locationInfo: () => LocationInfo = () => LocationInfo.origin
+  _locationInfo: () => LocationInfo = () => LocationInfo.origin,
+  fragment: Option[Fragment] = None
 ) { self =>
   lazy val locationInfo: LocationInfo = _locationInfo()
 
@@ -67,7 +69,7 @@ object Field {
     directives: List[Directive],
     rootType: RootType
   ): Field = {
-    def loop(selectionSet: List[Selection], fieldType: __Type): Field = {
+    def loop(selectionSet: List[Selection], fieldType: __Type, fragment: Option[Fragment]): Field = {
       val fieldList  = ArrayBuffer.empty[Field]
       val map        = collection.mutable.Map.empty[(String, String), Int]
       var fieldIndex = 0
@@ -103,7 +105,7 @@ object Field {
           if (checkDirectives(resolvedDirectives)) {
             val t = selected.fold(Types.string)(_.`type`()) // default only case where it's not found is __typename
 
-            val field = loop(selectionSet, t)
+            val field = loop(selectionSet, t, None) // Fragments apply on to the direct children of the fragment spread
 
             addField(
               Field(
@@ -116,7 +118,8 @@ object Field {
                 resolveVariables(arguments, variableDefinitions, variableValues),
                 resolvedDirectives,
                 None,
-                () => sourceMapper.getLocation(index)
+                () => sourceMapper.getLocation(index),
+                fragment
               ),
               None
             )
@@ -134,7 +137,7 @@ object Field {
                   .flatMap(_.find(_.name.contains(f.typeCondition.name)))
                   .orElse(rootType.types.get(f.typeCondition.name))
                   .getOrElse(fieldType)
-                loop(f.selectionSet, t).fields
+                loop(f.selectionSet, t, Some(Fragment(Some(name), resolvedDirectives))).fields
                   .map(field =>
                     if (field._condition.isDefined) field
                     else
@@ -156,7 +159,7 @@ object Field {
               .flatMap(_.find(_.name.exists(typeCondition.map(_.name).contains)))
               .orElse(typeCondition.flatMap(typeName => rootType.types.get(typeName.name)))
               .getOrElse(fieldType)
-            val field = loop(selectionSet, t)
+            val field = loop(selectionSet, t, Some(Fragment(None, resolvedDirectives)))
             typeCondition match {
               case None           => if (field.fields.nonEmpty) fieldList ++= field.fields
               case Some(typeName) =>
@@ -166,7 +169,7 @@ object Field {
                     else
                       field
                         .copy(
-                          targets = typeCondition.map(t => Some(Set(t.name))).getOrElse(None),
+                          targets = typeCondition.map(t => Set(t.name)),
                           _condition = subtypeNames(typeName.name, rootType)
                         )
                   )
@@ -177,7 +180,7 @@ object Field {
       Field("", fieldType, None, fields = fieldList.toList)
     }
 
-    loop(selectionSet, fieldType).copy(directives = directives)
+    loop(selectionSet, fieldType, None).copy(directives = directives)
   }
 
   private def resolveVariables(
