@@ -11,6 +11,7 @@ import org.http4s._
 import org.http4s.server.websocket.WebSocketBuilder2
 import sttp.capabilities.WebSockets
 import sttp.capabilities.fs2.Fs2Streams
+import sttp.capabilities.zio.ZioStreams
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.Endpoint
 import sttp.tapir.server.ServerEndpoint
@@ -52,14 +53,14 @@ object Http4sAdapter {
     requestCodec: JsonCodec[GraphQLRequest],
     responseCodec: JsonCodec[GraphQLResponse[E]]
   ): HttpRoutes[F] = {
-    val endpoints  = TapirAdapter.makeHttpService[R, E](
+    val endpoints                                          = TapirAdapter.makeHttpService[R, E](
       interpreter,
       skipValidation,
       enableIntrospection,
       queryExecution,
       requestInterceptor
     )
-    val endpointsF = endpoints.map(convertHttpEndpointToF[F, R])
+    val endpointsF: List[ServerEndpoint[Fs2Streams[F], F]] = endpoints.map(convertHttpEndpointToF[F, R])
     Http4sServerInterpreter().toRoutes(endpointsF)
   }
 
@@ -215,18 +216,19 @@ object Http4sAdapter {
    * you can use this function to convert the tapir endpoints to their cats-effect counterpart.
    */
   def convertHttpEndpointToF[F[_], R](
-    endpoint: ServerEndpoint[Any, RIO[R, *]]
-  )(implicit interop: ToEffect[F, R]): ServerEndpoint[Any, F] =
+    endpoint: ServerEndpoint[ZioStreams, RIO[R, *]]
+  )(implicit interop: ToEffect[F, R]): ServerEndpoint[Fs2Streams[F], F] =
     ServerEndpoint[
       endpoint.SECURITY_INPUT,
       endpoint.PRINCIPAL,
       endpoint.INPUT,
       endpoint.ERROR_OUTPUT,
       endpoint.OUTPUT,
-      Any,
+      Fs2Streams[F],
       F
     ](
-      endpoint.endpoint,
+      endpoint.endpoint
+        .asInstanceOf[Endpoint[endpoint.SECURITY_INPUT, endpoint.INPUT, endpoint.ERROR_OUTPUT, endpoint.OUTPUT, Any]],
       _ => a => interop.toEffect(endpoint.securityLogic(zioMonadError)(a)),
       _ => u => req => interop.toEffect(endpoint.logic(zioMonadError)(u)(req))
     )

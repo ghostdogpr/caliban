@@ -2,11 +2,12 @@ package example.ziohttp
 
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
-
 import caliban.ZHttpAdapter
+import zhttp.http.Middleware.cors
 import zio._
 import zio.stream._
 import zio.http._
+import zio.Console
 
 object ExampleApp extends ZIOAppDefault {
   import sttp.tapir.json.circe._
@@ -26,6 +27,8 @@ object ExampleApp extends ZIOAppDefault {
                            }
                            .withDefaultErrorResponse
                        )
+      _           <- Console.printLine("Server online at http://localhost:8088/")
+      _           <- Console.printLine("Press RETURN to stop...") *> Console.readLine
     } yield ())
       .provide(ExampleService.make(sampleCharacters), Server.default)
       .exitCode

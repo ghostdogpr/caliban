@@ -10,7 +10,12 @@ import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
 /**
  * Represents the result of a GraphQL query, containing a data object and a list of errors.
  */
-case class GraphQLResponse[+E](data: ResponseValue, errors: List[E], extensions: Option[ObjectValue] = None) {
+case class GraphQLResponse[+E](
+  data: ResponseValue,
+  errors: List[E],
+  extensions: Option[ObjectValue] = None,
+  hasNext: Option[Boolean] = None
+) {
   def toResponseValue: ResponseValue =
     ObjectValue(
       List(
@@ -21,9 +26,15 @@ case class GraphQLResponse[+E](data: ResponseValue, errors: List[E], extensions:
                          case e               => ObjectValue(List("message" -> StringValue(e.toString)))
                        }))
                      else None),
-        "extensions" -> extensions
+        "extensions" -> extensions,
+        "hasNext"    -> hasNext.map(BooleanValue.apply)
       ).collect { case (name, Some(v)) => name -> v }
     )
+
+  def withExtension(key: String, value: ResponseValue): GraphQLResponse[E] =
+    copy(extensions = Some(ObjectValue(extensions.foldLeft(List(key -> value)) { case (value, ObjectValue(fields)) =>
+      value ::: fields
+    })))
 }
 
 object GraphQLResponse extends GraphQLResponseJsonCompat {

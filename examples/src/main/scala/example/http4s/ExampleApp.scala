@@ -37,7 +37,9 @@ object ExampleApp extends ZIOAppDefault {
                              ).orNotFound
                            )
                            .build
-                           .toScopedZIO *> ZIO.never
+                           .toScopedZIO
+          _           <- Console.printLine("Server online at http://localhost:8088/\nPress RETURN to stop...")
+          _           <- Console.readLine
         } yield ()
       )
       .provideSomeLayer[Scope](ExampleService.make(sampleCharacters))

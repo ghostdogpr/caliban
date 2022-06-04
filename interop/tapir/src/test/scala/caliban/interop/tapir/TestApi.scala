@@ -7,6 +7,7 @@ import caliban.schema.{ GenericSchema, Schema }
 import caliban.schema.ArgBuilder.auto._
 import caliban.uploads.{ Upload, Uploads }
 import caliban.wrappers.ApolloTracing.apolloTracing
+import caliban.wrappers.DeferSupport
 import caliban.wrappers.Wrappers._
 import zio._
 import zio.stream.ZStream
@@ -64,5 +65,6 @@ object TestApi extends GenericSchema[TestService with Uploads] {
       timeout(3 seconds) @@           // wrapper that fails slow queries
       printSlowQueries(500 millis) @@ // wrapper that logs slow queries
       printErrors @@                  // wrapper that logs errors
-      apolloTracing                   // wrapper for https://github.com/apollographql/apollo-tracing
+      apolloTracing @@                // wrapper for https://github.com/apollographql/apollo-tracing
+      DeferSupport.deferSupport
 }

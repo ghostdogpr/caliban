@@ -24,6 +24,7 @@ import scala.jdk.CollectionConverters._
  * @param directives The directives specified on the field
  * @param _condition Internal, the possible types that contains this field
  * @param _locationInfo Internal, the source location in the query
+ * @param fragment The fragment that is directly wrapping this field
  */
 case class Field(
   name: String,
@@ -35,7 +36,8 @@ case class Field(
   arguments: Map[String, InputValue] = Map(),
   directives: List[Directive] = List.empty,
   _condition: Option[Set[String]] = None,
-  _locationInfo: () => LocationInfo = () => LocationInfo.origin
+  _locationInfo: () => LocationInfo = () => LocationInfo.origin,
+  fragment: Option[Fragment] = None
 ) { self =>
   lazy val locationInfo: LocationInfo = _locationInfo()
 
@@ -70,7 +72,7 @@ object Field {
   ): Field = {
     val memoizedFragments = collection.mutable.Map.empty[FragmentSpread, (List[Field], Option[String])]
 
-    def loop(selectionSet: List[Selection], fieldType: __Type): List[Field] = {
+    def loop(selectionSet: List[Selection], fieldType: __Type, fragment: Option[Fragment]): List[Field] = {
       val map = new java.util.LinkedHashMap[(String, String), Field](selectionSet.length)
 
       def addField(f: Field, condition: Option[String]): Unit = {
@@ -93,7 +95,7 @@ object Field {
           if (checkDirectives(resolvedDirectives)) {
             val t = selected.fold(Types.string)(_.`type`()) // default only case where it's not found is __typename
 
-            val fields = if (selectionSet.nonEmpty) loop(selectionSet, t) else Nil
+            val fields = if (selectionSet.nonEmpty) loop(selectionSet, t, None) else Nil // Fragments apply on to the direct children of the fragment spread
 
             addField(
               Field(
@@ -106,7 +108,8 @@ object Field {
                 resolveVariables(arguments, variableDefinitions, variableValues),
                 resolvedDirectives,
                 None,
-                () => sourceMapper.getLocation(index)
+                () => sourceMapper.getLocation(index),
+                fragment
               ),
               None
             )
@@ -119,7 +122,7 @@ object Field {
               val _fields = if (checkDirectives(resolvedDirectives)) {
                 fragments.get(name).map { f =>
                   val t = rootType.types.getOrElse(f.typeCondition.name, fieldType)
-                  loop(f.selectionSet, t).map { field =>
+                  loop(f.selectionSet, t, Some(Fragment(Some(name), resolvedDirectives))).map { field =>
                     if (field._condition.isDefined) field
                     else
                       field.copy(
@@ -141,7 +144,7 @@ object Field {
               .flatMap(_.find(_.name.exists(typeCondition.map(_.name).contains)))
               .orElse(typeCondition.flatMap(typeName => rootType.types.get(typeName.name)))
               .getOrElse(fieldType)
-            val fields = loop(selectionSet, t)
+            val fields = loop(selectionSet, t, Some(Fragment(None, resolvedDirectives)))
             typeCondition match {
               case None           => fields.map(addField(_, None))
               case Some(typeName) =>
@@ -161,7 +164,7 @@ object Field {
       map.values().asScala.toList
     }
 
-    val fields = loop(selectionSet, fieldType)
+    val fields = loop(selectionSet, fieldType, None)
     Field("", fieldType, None, fields = fields, directives = directives)
   }
 

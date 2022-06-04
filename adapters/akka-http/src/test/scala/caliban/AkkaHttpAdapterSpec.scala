@@ -29,13 +29,14 @@ object AkkaHttpAdapterSpec extends ZIOSpecDefault {
       route        = path("api" / "graphql") {
                        adapter.makeHttpService(interpreter, requestInterceptor = FakeAuthorizationInterceptor.bearer)(
                          runtime,
+                         mat,
                          implicitly,
                          implicitly
                        )
                      } ~ path("upload" / "graphql") {
-                       adapter.makeHttpUploadService(interpreter)(runtime, implicitly, implicitly, implicitly)
+                       adapter.makeHttpUploadService(interpreter)(runtime, mat, implicitly, implicitly, implicitly)
                      } ~ path("ws" / "graphql") {
-                       adapter.makeWebSocketService(interpreter)(ec, runtime, mat, implicitly, implicitly)
+                       adapter.makeWebSocketService(interpreter)(runtime, mat, implicitly, implicitly)
                      }
       _           <- ZIO.fromFuture { _ =>
                        implicit val s: ActorSystem = system

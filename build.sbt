@@ -430,7 +430,7 @@ lazy val examples = project
   .settings(commonSettings)
   .settings(
     publish / skip     := true,
-    run / fork         := true,
+//    run / fork         := true,
     run / connectInput := true
   )
   .settings(
