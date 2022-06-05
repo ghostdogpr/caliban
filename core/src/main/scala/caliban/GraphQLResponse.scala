@@ -9,7 +9,14 @@ import sttp.tapir.Schema
 /**
  * Represents the result of a GraphQL query, containing a data object and a list of errors.
  */
-case class GraphQLResponse[+E](data: ResponseValue, errors: List[E], extensions: Option[ObjectValue] = None) {
+case class GraphQLResponse[+E](
+  data: ResponseValue,
+  errors: List[E],
+  extensions: Option[ObjectValue] = None,
+  label: Option[String] = None,
+  hasNext: Option[Boolean] = None,
+  path: Option[ListValue] = None
+) {
   def toResponseValue: ResponseValue =
     ObjectValue(
       List(
@@ -20,9 +27,17 @@ case class GraphQLResponse[+E](data: ResponseValue, errors: List[E], extensions:
                          case e               => ObjectValue(List("message" -> StringValue(e.toString)))
                        }))
                      else None),
-        "extensions" -> extensions
+        "extensions" -> extensions,
+        "label"      -> label.map(StringValue),
+        "hasNext"    -> hasNext.map(BooleanValue),
+        "path"       -> path
       ).collect { case (name, Some(v)) => name -> v }
     )
+
+  def withExtension(key: String, value: ResponseValue): GraphQLResponse[E] =
+    copy(extensions = Some(ObjectValue(extensions.foldLeft(List(key -> value)) { case (value, ObjectValue(fields)) =>
+      value ::: fields
+    })))
 }
 
 object GraphQLResponse extends GraphQLResponseJsonCompat {

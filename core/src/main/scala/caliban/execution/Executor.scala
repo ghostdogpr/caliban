@@ -6,11 +6,13 @@ import caliban.ResponseValue._
 import caliban.Value._
 import caliban._
 import caliban.parsing.adt._
+import caliban.schema.ReducedStep.DeferStep
 import caliban.schema.Step._
 import caliban.schema.{ ReducedStep, Step, Types }
 import caliban.wrappers.Wrapper.FieldWrapper
 import zio._
-import zio.query.ZQuery
+import zio.query.{ Cache, Described, ZQuery }
+import zio.stream.ZStream
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -72,20 +74,47 @@ object Executor {
             Types.listOf(currentField.fieldType).fold(false)(_.isNullable)
           )
         case ObjectStep(objectName, fields) =>
-          val filteredFields = mergeFields(currentField, objectName)
-          val items          = filteredFields.map {
-            case f @ Field(name @ "__typename", _, _, alias, _, _, _, directives, _, _) =>
-              (alias.getOrElse(name), PureStep(StringValue(objectName)), fieldInfo(f, path, directives))
-            case f @ Field(name, _, _, alias, _, _, args, directives, _, _)             =>
-              (
-                alias.getOrElse(name),
-                fields
-                  .get(name)
-                  .fold(NullStep: ReducedStep[R])(reduceStep(_, f, args, Left(alias.getOrElse(name)) :: path)),
-                fieldInfo(f, path, directives)
+          val filteredFields    = mergeFields(currentField, objectName)
+          val (deferred, items) = filteredFields.partitionMap {
+            case f @ Field(name @ "__typename", _, _, alias, _, _, _, directives, _, _, _)                    =>
+              Right((alias.getOrElse(name), PureStep(StringValue(objectName)), fieldInfo(f, path, directives)))
+            case f @ Field(name, _, _, alias, _, _, args, directives, _, _, Some(Fragment.IsDeferred(label))) =>
+              Left(
+                (
+                  label,
+                  (
+                    alias.getOrElse(name),
+                    fields
+                      .get(name)
+                      .fold(NullStep: ReducedStep[R])(reduceStep(_, f, args, Left(alias.getOrElse(name)) :: path)),
+                    fieldInfo(f, path, directives)
+                  )
+                )
+              )
+            case f @ Field(name, _, _, alias, _, _, args, directives, _, _, _)                                =>
+              Right(
+                (
+                  alias.getOrElse(name),
+                  fields
+                    .get(name)
+                    .fold(NullStep: ReducedStep[R])(reduceStep(_, f, args, Left(alias.getOrElse(name)) :: path)),
+                  fieldInfo(f, path, directives)
+                )
               )
           }
-          reduceObject(items, fieldWrappers)
+
+          deferred match {
+            case Nil => reduceObject(items, fieldWrappers)
+            case d   =>
+              DeferStep(
+                reduceObject(items, fieldWrappers),
+                d.groupBy(_._1).toList.map { case (label, labelAndFields) =>
+                  val (_, fields) = labelAndFields.unzip
+                  reduceObject(fields, fieldWrappers) -> label
+                },
+                path
+              )
+          }
         case QueryStep(inner)               =>
           ReducedStep.QueryStep(
             inner.foldCauseM(
@@ -110,7 +139,11 @@ object Executor {
           }
       }
 
-    def makeQuery(step: ReducedStep[R], errors: Ref[List[CalibanError]]): ZQuery[R, Nothing, ResponseValue] = {
+    def makeQuery(
+      step: ReducedStep[R],
+      errors: Ref[List[CalibanError]],
+      deferred: Ref[List[Deferred[R]]]
+    ): ZQuery[R, Nothing, ResponseValue] = {
 
       def handleError(error: ExecutionError, isNullable: Boolean): ZQuery[Any, ExecutionError, ResponseValue] =
         if (isNullable) ZQuery.fromEffect(errors.update(error :: _)).as(NullValue)
@@ -148,7 +181,7 @@ object Executor {
             )
           case ReducedStep.StreamStep(stream)                =>
             ZQuery
-              .fromEffect(ZIO.environment[R])
+              .environment[R]
               .map(env =>
                 Right(
                   ResponseValue.StreamValue(
@@ -158,17 +191,66 @@ object Executor {
                   )
                 )
               )
+          case ReducedStep.DeferStep(obj, nextSteps, path)   =>
+            val deferredSteps = nextSteps.map { case (step, label) =>
+              Deferred(path, step, label)
+            }
+            ZQuery.fromEffect(deferred.update(deferredSteps ::: _)) *> loop(obj)
         }
       loop(step).flatMap(_.fold(error => ZQuery.fromEffect(errors.update(error :: _)).as(NullValue), ZQuery.succeed(_)))
     }
 
+    def runQuery(step: ReducedStep[R], cache: Cache, path: Option[List[Either[String, Int]]], label: Option[String]) =
+      for {
+        deferred     <- Ref.make(List.empty[Deferred[R]])
+        errors       <- Ref.make(List.empty[CalibanError])
+        query         = makeQuery(step, errors, deferred)
+        result       <- query.runCache(cache)
+        resultErrors <- errors.get
+        defers       <- deferred.get
+      } yield (GraphQLResponse(
+        result,
+        resultErrors.reverse,
+        extensions = None,
+        label = label,
+        path = path.map(path =>
+          ListValue(path.map {
+            case Left(value)  => StringValue(value)
+            case Right(value) => IntValue(value)
+          })
+        )
+      ) -> defers)
+
+    def makeDeferStream(
+      defers: List[Deferred[R]],
+      remaining: Ref[Int],
+      cache: Cache
+    ): ZStream[R, Nothing, ResponseValue] = {
+      def run(d: Deferred[R]) =
+        ZStream.unwrap(runQuery(d.step, cache, Some(d.path), d.label).map {
+          case (resp, Nil)  =>
+            ZStream.fromEffect(
+              remaining.updateAndGet(_ - 1).map(more => resp.copy(hasNext = Some(more > 0))).map(_.toResponseValue)
+            )
+          case (resp, more) =>
+            ZStream.fromEffect(remaining.updateAndGet(_ - 1 + more.size).as(resp.toResponseValue)) ++
+              makeDeferStream(more, remaining, cache)
+        })
+
+      ZStream.mergeAllUnbounded()(defers.map(run): _*)
+    }
+
     for {
-      errors       <- Ref.make(List.empty[CalibanError])
-      reduced       = reduceStep(plan, request.field, Map(), Nil)
-      query         = makeQuery(reduced, errors)
-      result       <- query.run
-      resultErrors <- errors.get
-    } yield GraphQLResponse(result, resultErrors.reverse)
+      env               <- ZIO.environment[R]
+      cache             <- Cache.empty
+      reduced            = reduceStep(plan, request.field, Map(), Nil)
+      responseAndDefers <- runQuery(reduced, cache, None, None)
+      (response, defers) = responseAndDefers
+      remaining         <- Ref.make(defers.size)
+      deferStream        = makeDeferStream(defers, remaining, cache).provide(env)
+    } yield
+      if (defers.nonEmpty) response.withExtension("__defer", StreamValue(deferStream))
+      else response
   }
 
   private[caliban] def fail(error: CalibanError): UIO[GraphQLResponse[CalibanError]] =
@@ -227,4 +309,18 @@ object Executor {
       case Some(e: ExecutionError) => Cause.fail(e.copy(path = path.reverse, locationInfo = locationInfo))
       case other                   => Cause.fail(ExecutionError("Effect failure", path.reverse, locationInfo, other))
     }
+
+  private implicit class EnrichedListOps[+A](val list: List[A]) extends AnyVal {
+    def partitionMap[A1, A2](f: A => Either[A1, A2]): (List[A1], List[A2]) = {
+      val l = List.newBuilder[A1]
+      val r = List.newBuilder[A2]
+      list.foreach { x =>
+        f(x) match {
+          case Left(x1)  => l += x1
+          case Right(x2) => r += x2
+        }
+      }
+      (l.result(), r.result())
+    }
+  }
 }
