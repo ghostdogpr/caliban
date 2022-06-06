@@ -20,6 +20,7 @@ import zio.duration.Duration
 import zio.random.Random
 import zio.stream._
 
+import java.nio.charset.StandardCharsets
 import scala.concurrent.Future
 import scala.util.Try
 
@@ -60,7 +61,7 @@ object TapirAdapter {
     requestCodec: JsonCodec[GraphQLRequest],
     responseCodec: JsonCodec[GraphQLResponse[E]]
   ): List[
-    PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, GraphQLResponse[E], Any]
+    PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, ZioStreams.BinaryStream, ZioStreams]
   ] = {
     def queryFromQueryParams(queryParams: QueryParams): DecodeResult[GraphQLRequest] =
       for {
@@ -72,7 +73,8 @@ object TapirAdapter {
 
       } yield req.copy(query = queryParams.get("query"), operationName = queryParams.get("operationName"))
 
-    val postEndpoint: PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, GraphQLResponse[E], Any] =
+    val postEndpoint
+      : PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, ZioStreams.BinaryStream, ZioStreams] =
       endpoint.post
         .in(
           (headers and stringBody and queryParams).mapDecode { case (headers, body, params) =>
@@ -94,10 +96,11 @@ object TapirAdapter {
           }(request => (Nil, requestCodec.encode(request), QueryParams()))
         )
         .in(extractFromRequest(identity))
-        .out(customJsonBody[GraphQLResponse[E]])
+        .out(streamTextBody(ZioStreams)(CodecFormat.Json(), Some(StandardCharsets.UTF_8)))
         .errorOut(errorBody)
 
-    val getEndpoint: PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, GraphQLResponse[E], Any] =
+    val getEndpoint
+      : PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, ZioStreams.BinaryStream, ZioStreams] =
       endpoint.get
         .in(
           queryParams.mapDecode(queryFromQueryParams)(request =>
@@ -116,7 +119,7 @@ object TapirAdapter {
           )
         )
         .in(extractFromRequest(identity))
-        .out(customJsonBody[GraphQLResponse[E]])
+        .out(streamTextBody(ZioStreams)(CodecFormat.Json(), Some(StandardCharsets.UTF_8)))
         .errorOut(errorBody)
 
     postEndpoint :: getEndpoint :: Nil
@@ -131,10 +134,10 @@ object TapirAdapter {
   )(implicit
     requestCodec: JsonCodec[GraphQLRequest],
     responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): List[ServerEndpoint[Any, RIO[R, *]]] = {
+  ): List[ServerEndpoint[ZioStreams, RIO[R, *]]] = {
     def logic(
       request: (GraphQLRequest, ServerRequest)
-    ): RIO[R, Either[TapirResponse, GraphQLResponse[E]]] = {
+    ): RIO[R, Either[TapirResponse, ZioStreams.BinaryStream]] = {
       val (graphQLRequest, serverRequest) = request
 
       requestInterceptor(serverRequest)(
@@ -145,7 +148,7 @@ object TapirAdapter {
             enableIntrospection = enableIntrospection,
             queryExecution
           )
-      ).either
+      ).map(response => ZStream.fromIterable(responseCodec.encode(response).getBytes(StandardCharsets.UTF_8))).either
     }
 
     makeHttpEndpoints.map(_.serverLogic(logic))
@@ -155,11 +158,11 @@ object TapirAdapter {
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
     responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): PublicEndpoint[(Seq[Part[Array[Byte]]], ServerRequest), TapirResponse, GraphQLResponse[E], Any] =
+  ): PublicEndpoint[(Seq[Part[Array[Byte]]], ServerRequest), TapirResponse, ZioStreams.BinaryStream, ZioStreams] =
     endpoint.post
       .in(multipartBody)
       .in(extractFromRequest(identity))
-      .out(customJsonBody[GraphQLResponse[E]])
+      .out(streamTextBody(ZioStreams)(CodecFormat.Json(), Some(StandardCharsets.UTF_8)))
       .errorOut(errorBody)
 
   def makeHttpUploadService[R, E](
@@ -172,10 +175,10 @@ object TapirAdapter {
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
     responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): ServerEndpoint[Any, RIO[R with Random, *]] = {
+  ): ServerEndpoint[ZioStreams, RIO[R with Random, *]] = {
     def logic(
       request: UploadRequest
-    ): RIO[R with Random, Either[TapirResponse, GraphQLResponse[E]]] = {
+    ): RIO[R with Random, Either[TapirResponse, ZioStreams.BinaryStream]] = {
       val (parts, serverRequest) = request
       val partsMap               = parts.map(part => part.name -> part).toMap
 
@@ -224,7 +227,9 @@ object TapirAdapter {
                              .provideSomeLayer[R with Random](uploadQuery.fileHandle.toLayerMany)
         } yield response
 
-      requestInterceptor(serverRequest)(io).either
+      requestInterceptor(serverRequest)(io)
+        .map(response => ZStream.fromIterable(responseCodec.encode(response).getBytes(StandardCharsets.UTF_8)))
+        .either
     }
 
     makeHttpUploadEndpoint.serverLogic(logic)
@@ -327,15 +332,15 @@ object TapirAdapter {
   }
 
   def convertHttpEndpointToFuture[E, R](
-    endpoint: ServerEndpoint[Any, RIO[R, *]]
-  )(implicit runtime: Runtime[R]): ServerEndpoint[Any, Future] =
+    endpoint: ServerEndpoint[ZioStreams, RIO[R, *]]
+  )(implicit runtime: Runtime[R]): ServerEndpoint[ZioStreams, Future] =
     ServerEndpoint[
       endpoint.SECURITY_INPUT,
       endpoint.PRINCIPAL,
       endpoint.INPUT,
       endpoint.ERROR_OUTPUT,
       endpoint.OUTPUT,
-      Any,
+      ZioStreams,
       Future
     ](
       endpoint.endpoint,

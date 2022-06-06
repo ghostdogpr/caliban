@@ -217,7 +217,7 @@ object Executor {
           ListValue(path.map {
             case Left(value)  => StringValue(value)
             case Right(value) => IntValue(value)
-          })
+          }.reverse)
         )
       ) -> defers)
 
@@ -233,7 +233,9 @@ object Executor {
               remaining.updateAndGet(_ - 1).map(more => resp.copy(hasNext = Some(more > 0))).map(_.toResponseValue)
             )
           case (resp, more) =>
-            ZStream.fromEffect(remaining.updateAndGet(_ - 1 + more.size).as(resp.toResponseValue)) ++
+            ZStream.fromEffect(
+              remaining.updateAndGet(_ - 1 + more.size).as(resp.copy(hasNext = Some(true)).toResponseValue)
+            ) ++
               makeDeferStream(more, remaining, cache)
         })
 

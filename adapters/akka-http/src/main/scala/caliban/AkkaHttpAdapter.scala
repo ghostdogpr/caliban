@@ -3,13 +3,15 @@ package caliban
 import akka.http.scaladsl.server.Route
 import akka.stream.scaladsl.{ Flow, Sink, Source }
 import akka.stream.{ Materializer, OverflowStrategy }
-import caliban.AkkaHttpAdapter.convertWebSocketEndpoint
+import akka.util.ByteString
+import caliban.AkkaHttpAdapter.{ convertHttpStreamingEndpoint, convertWebSocketEndpoint }
 import caliban.execution.QueryExecution
-import caliban.interop.tapir.TapirAdapter.{ zioMonadError, CalibanPipe, ZioWebSockets }
+import caliban.interop.tapir.TapirAdapter.{ zioMonadError, CalibanPipe, TapirResponse, ZioWebSockets }
 import caliban.interop.tapir.{ RequestInterceptor, TapirAdapter, WebSocketHooks }
 import sttp.capabilities.WebSockets
 import sttp.capabilities.akka.AkkaStreams
 import sttp.capabilities.akka.AkkaStreams.Pipe
+import sttp.capabilities.zio.ZioStreams
 import sttp.model.StatusCode
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.PublicEndpoint
@@ -33,18 +35,31 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions) {
     queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
   )(implicit
+    executionContext: ExecutionContext,
     runtime: Runtime[R],
+    materializer: Materializer,
     requestCodec: JsonCodec[GraphQLRequest],
     responseCodec: JsonCodec[GraphQLResponse[E]]
   ): Route = {
-    val endpoints = TapirAdapter.makeHttpService[R, E](
+    val endpoints: List[ServerEndpoint[ZioStreams, RIO[R, *]]] = TapirAdapter.makeHttpService[R, E](
       interpreter,
       skipValidation,
       enableIntrospection,
       queryExecution,
       requestInterceptor
     )
-    akkaInterpreter.toRoute(endpoints.map(TapirAdapter.convertHttpEndpointToFuture(_)))
+    akkaInterpreter.toRoute(
+      endpoints.map(endpoint =>
+        convertHttpStreamingEndpoint(
+          endpoint.asInstanceOf[
+            ServerEndpoint.Full[Unit, Unit, ServerRequest, TapirResponse, ZioStreams.BinaryStream, ZioStreams, RIO[
+              R,
+              *
+            ]]
+          ]
+        )
+      )
+    )
   }
 
   def makeHttpUploadService[R, E](
@@ -54,7 +69,9 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions) {
     queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
   )(implicit
+    executionContext: ExecutionContext,
     runtime: Runtime[R with Random],
+    materializer: Materializer,
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
     responseCodec: JsonCodec[GraphQLResponse[E]]
@@ -66,7 +83,13 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions) {
       queryExecution,
       requestInterceptor
     )
-    akkaInterpreter.toRoute(TapirAdapter.convertHttpEndpointToFuture(endpoint))
+    akkaInterpreter.toRoute(
+      convertHttpStreamingEndpoint(
+        endpoint.asInstanceOf[
+          ServerEndpoint.Full[Unit, Unit, ServerRequest, TapirResponse, ZioStreams.BinaryStream, ZioStreams, RIO[R, *]]
+        ]
+      )
+    )
   }
 
   def makeWebSocketService[R, E](
@@ -109,6 +132,35 @@ object AkkaHttpAdapter extends AkkaHttpAdapter(AkkaHttpServerOptions.default) {
     new AkkaHttpAdapter(options)
 
   type AkkaPipe = Flow[GraphQLWSInput, GraphQLWSOutput, Any]
+
+  def convertHttpStreamingEndpoint[R](
+    endpoint: ServerEndpoint.Full[Unit, Unit, ServerRequest, TapirResponse, ZioStreams.BinaryStream, ZioStreams, RIO[
+      R,
+      *
+    ]]
+  )(implicit ec: ExecutionContext, runtime: Runtime[R], mat: Materializer): ServerEndpoint[AkkaStreams, Future] =
+    ServerEndpoint[Unit, Unit, ServerRequest, TapirResponse, AkkaStreams.BinaryStream, AkkaStreams, Future](
+      endpoint.endpoint
+        .asInstanceOf[PublicEndpoint[ServerRequest, TapirResponse, AkkaStreams.BinaryStream, AkkaStreams]],
+      _ => _ => Future.successful(Right(())),
+      _ =>
+        _ =>
+          req =>
+            runtime
+              .unsafeRunToFuture(endpoint.logic(zioMonadError)(())(req))
+              .future
+              .map(_.map { stream =>
+                val (queue, source) = Source.queue[ByteString](0, OverflowStrategy.fail).preMaterialize()
+                runtime.unsafeRun(
+                  stream
+                    .foreachChunk(msg => ZIO.fromFuture(_ => queue.offer(ByteString(msg.toArray))))
+                    .forkDaemon
+                    .map(fiber =>
+                      source.watchTermination()((_, f) => f.onComplete(_ => runtime.unsafeRun(fiber.interrupt)))
+                    )
+                )
+              })
+    )
 
   def convertWebSocketEndpoint[R](
     endpoint: ServerEndpoint.Full[Unit, Unit, ServerRequest, StatusCode, CalibanPipe, ZioWebSockets, RIO[R, *]]
