@@ -50,15 +50,16 @@ object Http4sAdapter {
     queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
   )(implicit interop: ToEffect[F, R]): HttpRoutes[F] = {
-    val endpoints                                       = TapirAdapter.makeHttpService[R, E](
+    val endpoints = TapirAdapter.makeHttpService[R, E](
       interpreter,
       skipValidation,
       enableIntrospection,
       queryExecution,
       requestInterceptor
     )
-    val endpointsF: List[ServerEndpoint[ZioStreams, F]] = endpoints.map(convertHttpEndpointToF[F, R, E])
-    Http4sServerInterpreter().toRoutes(endpointsF)
+//    val endpointsF: List[ServerEndpoint[ZioStreams, F]] = endpoints.map(convertHttpEndpointToF[F, R, E])
+//    Http4sServerInterpreter().toRoutes(endpointsF)
+    ???
   }
 
   def makeHttpUploadService[R <: Has[_] with Random, E](
@@ -197,20 +198,20 @@ object Http4sAdapter {
    */
   def convertHttpEndpointToF[F[_], R, E](
     endpoint: ServerEndpoint[ZioStreams, RIO[R, *]]
-  )(implicit interop: ToEffect[F, R]): ServerEndpoint[Fs2Streams[F], F] =
-    ServerEndpoint[
-      endpoint.SECURITY_INPUT,
-      endpoint.PRINCIPAL,
-      endpoint.INPUT,
-      endpoint.ERROR_OUTPUT,
-      endpoint.OUTPUT,
-      Fs2Streams[F],
-      F
-    ](
-      endpoint.endpoint,
-      _ => a => interop.toEffect(endpoint.securityLogic(zioMonadError)(a)),
-      _ => u => req => interop.toEffect(endpoint.logic(zioMonadError)(u)(req))
-    )
+  )(implicit interop: ToEffect[F, R]): ServerEndpoint[Fs2Streams[F], F] = ???
+//    ServerEndpoint[
+//      endpoint.SECURITY_INPUT,
+//      endpoint.PRINCIPAL,
+//      endpoint.INPUT,
+//      endpoint.ERROR_OUTPUT,
+//      endpoint.OUTPUT,
+//      Fs2Streams[F],
+//      F
+//    ](
+//      endpoint.endpoint,
+//      _ => a => interop.toEffect(endpoint.securityLogic(zioMonadError)(a)),
+//      _ => u => req => interop.toEffect(endpoint.logic(zioMonadError)(u)(req))
+//    )
 
   /**
    * If you wish to use `Http4sServerInterpreter` with cats-effect IO instead of `ZHttp4sServerInterpreter`,

@@ -79,18 +79,16 @@ object Executor {
             case f @ Field(name @ "__typename", _, _, alias, _, _, _, directives, _, _, _)                    =>
               Right((alias.getOrElse(name), PureStep(StringValue(objectName)), fieldInfo(f, path, directives)))
             case f @ Field(name, _, _, alias, _, _, args, directives, _, _, Some(Fragment.IsDeferred(label))) =>
-              Left(
-                (
-                  label,
-                  (
-                    alias.getOrElse(name),
-                    fields
-                      .get(name)
-                      .fold(NullStep: ReducedStep[R])(reduceStep(_, f, args, Left(alias.getOrElse(name)) :: path)),
-                    fieldInfo(f, path, directives)
-                  )
-                )
-              )
+              val aliasedName = alias.getOrElse(name)
+              val field       = fields
+                .get(name)
+                .fold(NullStep: ReducedStep[R])(reduceStep(_, f, args, Left(alias.getOrElse(name)) :: path))
+
+              val info = fieldInfo(f, path, directives)
+
+              // The defer spec provides some latitude on how we handle responses. Since it is more performant to return
+              // pure fields rather than spin up the defer machinery we return pure fields immediately to the caller.
+              Either.cond(field.isPure, (aliasedName, field, info), (label, (aliasedName, field, info)))
             case f @ Field(name, _, _, alias, _, _, args, directives, _, _, _)                                =>
               Right(
                 (

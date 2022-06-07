@@ -39,7 +39,7 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions) {
     runtime: Runtime[R],
     materializer: Materializer,
     requestCodec: JsonCodec[GraphQLRequest],
-    responseCodec: JsonCodec[GraphQLResponse[E]]
+    responseCodec: JsonCodec[ResponseValue]
   ): Route = {
     val endpoints: List[ServerEndpoint[ZioStreams, RIO[R, *]]] = TapirAdapter.makeHttpService[R, E](
       interpreter,

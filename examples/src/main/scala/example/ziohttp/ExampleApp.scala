@@ -9,6 +9,7 @@ import zio._
 import zio.stream._
 import zhttp.http._
 import zhttp.service.Server
+import zio.console._
 
 object ExampleApp extends App {
   private val graphiql = Http.fromStream(ZStream.fromResource("graphiql.html"))
@@ -26,6 +27,8 @@ object ExampleApp extends App {
                          }
                        )
                        .forever
+                       .fork
+      _           <- getStrLn
     } yield ())
       .provideCustomLayer(ExampleService.make(sampleCharacters))
       .exitCode

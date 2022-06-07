@@ -3,7 +3,7 @@ package caliban.interop.tapir
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.StringValue
 import caliban._
-import caliban.execution.QueryExecution
+import caliban.execution.{ DeferredGraphQLResponse, QueryExecution }
 import caliban.uploads.{ FileMeta, GraphQLUploadRequest, Uploads }
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
@@ -148,7 +148,10 @@ object TapirAdapter {
             enableIntrospection = enableIntrospection,
             queryExecution
           )
-      ).map(response => ZStream.fromIterable(responseCodec.encode(response).getBytes(StandardCharsets.UTF_8))).either
+      ).map { response =>
+        val deferredResponse = DeferredGraphQLResponse(response)
+        ZStream.fromIterable(responseCodec.encode(response).getBytes(StandardCharsets.UTF_8))
+      }.either
     }
 
     makeHttpEndpoints.map(_.serverLogic(logic))
