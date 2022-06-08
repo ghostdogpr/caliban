@@ -59,9 +59,9 @@ object TapirAdapter {
 
   def makeHttpEndpoints[R, E](implicit
     requestCodec: JsonCodec[GraphQLRequest],
-    responseCodec: JsonCodec[GraphQLResponse[E]]
+    responseCodec: JsonCodec[ResponseValue]
   ): List[
-    PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, ZioStreams.BinaryStream, ZioStreams]
+    PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, (MediaType, ZioStreams.BinaryStream), ZioStreams]
   ] = {
     def queryFromQueryParams(queryParams: QueryParams): DecodeResult[GraphQLRequest] =
       for {
@@ -73,8 +73,12 @@ object TapirAdapter {
 
       } yield req.copy(query = queryParams.get("query"), operationName = queryParams.get("operationName"))
 
-    val postEndpoint
-      : PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, ZioStreams.BinaryStream, ZioStreams] =
+    val postEndpoint: PublicEndpoint[
+      (GraphQLRequest, ServerRequest),
+      TapirResponse,
+      (MediaType, ZioStreams.BinaryStream),
+      ZioStreams
+    ] =
       endpoint.post
         .in(
           (headers and stringBody and queryParams).mapDecode { case (headers, body, params) =>
@@ -96,11 +100,16 @@ object TapirAdapter {
           }(request => (Nil, requestCodec.encode(request), QueryParams()))
         )
         .in(extractFromRequest(identity))
+        .out(header[MediaType](HeaderNames.ContentType))
         .out(streamTextBody(ZioStreams)(CodecFormat.Json(), Some(StandardCharsets.UTF_8)))
         .errorOut(errorBody)
 
-    val getEndpoint
-      : PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, ZioStreams.BinaryStream, ZioStreams] =
+    val getEndpoint: PublicEndpoint[
+      (GraphQLRequest, ServerRequest),
+      TapirResponse,
+      (MediaType, ZioStreams.BinaryStream),
+      ZioStreams
+    ] =
       endpoint.get
         .in(
           queryParams.mapDecode(queryFromQueryParams)(request =>
@@ -119,6 +128,7 @@ object TapirAdapter {
           )
         )
         .in(extractFromRequest(identity))
+        .out(header[MediaType](HeaderNames.ContentType))
         .out(streamTextBody(ZioStreams)(CodecFormat.Json(), Some(StandardCharsets.UTF_8)))
         .errorOut(errorBody)
 
@@ -133,11 +143,11 @@ object TapirAdapter {
     requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
   )(implicit
     requestCodec: JsonCodec[GraphQLRequest],
-    responseCodec: JsonCodec[GraphQLResponse[E]]
+    responseCodec: JsonCodec[ResponseValue]
   ): List[ServerEndpoint[ZioStreams, RIO[R, *]]] = {
     def logic(
       request: (GraphQLRequest, ServerRequest)
-    ): RIO[R, Either[TapirResponse, ZioStreams.BinaryStream]] = {
+    ): RIO[R, Either[TapirResponse, (MediaType, ZioStreams.BinaryStream)]] = {
       val (graphQLRequest, serverRequest) = request
 
       requestInterceptor(serverRequest)(
@@ -148,9 +158,28 @@ object TapirAdapter {
             enableIntrospection = enableIntrospection,
             queryExecution
           )
-      ).map { response =>
-        val deferredResponse = DeferredGraphQLResponse(response)
-        ZStream.fromIterable(responseCodec.encode(response).getBytes(StandardCharsets.UTF_8))
+      ).map {
+        case DeferredGraphQLResponse(response, rest) =>
+          val Newline     = "\r\n"
+          val contentType = "Content-Type: application/json; charset=utf-8"
+          val subHeader   = s"$Newline$contentType$Newline$Newline"
+          val boundary    = "---"
+          val theBoundary = s"$Newline$boundary$subHeader"
+          val endBoundary = s"$Newline-----$Newline"
+
+          (
+            MediaType.MultipartMixed.copy(otherParameters = Map("boundary" -> "-")),
+            ((ZStream.succeed(response.toResponseValue) ++ rest)
+              .map(responseCodec.encode)
+              .intersperse(theBoundary, theBoundary, endBoundary))
+              .mapConcat(_.getBytes(StandardCharsets.UTF_8))
+          )
+
+        case response =>
+          (
+            MediaType.ApplicationJson,
+            ZStream.fromIterable(responseCodec.encode(response.toResponseValue).getBytes(StandardCharsets.UTF_8))
+          )
       }.either
     }
 

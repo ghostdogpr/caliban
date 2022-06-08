@@ -2,12 +2,12 @@ package example.ziohttp
 
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
-
 import caliban.ZHttpAdapter
-import io.netty.handler.codec.http.{ HttpHeaderNames, HttpHeaderValues }
+import zhttp.http.Middleware.cors
 import zio._
 import zio.stream._
 import zhttp.http._
+import zhttp.http.middleware.Cors.CorsConfig
 import zhttp.service.Server
 import zio.console._
 
@@ -24,7 +24,7 @@ object ExampleApp extends App {
                            case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
                            case _ -> !! / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
                            case _ -> !! / "graphiql"        => graphiql
-                         }
+                         } @@ cors(CorsConfig())
                        )
                        .forever
                        .fork

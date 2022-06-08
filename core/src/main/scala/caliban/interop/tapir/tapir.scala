@@ -13,12 +13,14 @@ private[caliban] object IsTapirSchema {
 }
 
 object schema {
-  implicit lazy val requestSchema: Schema[GraphQLRequest]    =
+  implicit lazy val requestSchema: Schema[GraphQLRequest]      =
     sttp.tapir.Schema[GraphQLRequest](SchemaType.SString[GraphQLRequest]())
-  implicit def responseSchema[E]: Schema[GraphQLResponse[E]] =
+  implicit def responseSchema[E]: Schema[GraphQLResponse[E]]   =
     sttp.tapir.Schema[GraphQLResponse[E]](SchemaType.SString[GraphQLResponse[E]]())
-  implicit lazy val wsInputSchema: Schema[GraphQLWSInput]    =
+  implicit lazy val wsInputSchema: Schema[GraphQLWSInput]      =
     sttp.tapir.Schema[GraphQLWSInput](SchemaType.SString[GraphQLWSInput]())
-  implicit lazy val wsOutputSchema: Schema[GraphQLWSOutput]  =
+  implicit lazy val wsOutputSchema: Schema[GraphQLWSOutput]    =
     sttp.tapir.Schema[GraphQLWSOutput](SchemaType.SString[GraphQLWSOutput]())
+  implicit lazy val responseValueSchema: Schema[ResponseValue] =
+    sttp.tapir.Schema[ResponseValue](SchemaType.SString[ResponseValue]())
 }

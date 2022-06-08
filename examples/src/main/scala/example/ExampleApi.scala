@@ -9,7 +9,7 @@ import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLName }
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.wrappers.ApolloTracing.apolloTracing
 import caliban.wrappers.Wrappers._
-import zio.{ URIO, ZIO }
+import zio.{ UIO, URIO, ZIO }
 import zio.clock.Clock
 import zio.console.Console
 import zio.duration._
@@ -33,7 +33,7 @@ object ExampleApi extends GenericSchema[ExampleService] {
     name: String,
     nicknames: List[String],
     origin: Origin,
-    role: Option[Role],
+    role: UIO[Option[Role]],
     connections: ConnectionArgs => URIO[ExampleService, List[CharacterZIO]]
   )
 
@@ -42,9 +42,9 @@ object ExampleApi extends GenericSchema[ExampleService] {
       name = ch.name,
       nicknames = ch.nicknames,
       origin = ch.origin,
-      role = ch.role,
+      role = UIO.succeed(ch.role),
       connections = args =>
-        (args.by match {
+        ZIO.sleep(5.seconds).provideLayer(Clock.live) *> (args.by match {
           case ConnectedBy.Origin => ExampleService.getCharacters(Some(ch.origin))
           case ConnectedBy.Ship   =>
             ExampleService.getCharacters(None).map { characters =>
@@ -63,7 +63,7 @@ object ExampleApi extends GenericSchema[ExampleService] {
                 })
 
             }
-        }).map(_.filter(_.name == ch.name).map(character2CharacterZIO))
+        }).map(_.filter(_.name != ch.name).map(character2CharacterZIO))
     )
 
   case class Queries(

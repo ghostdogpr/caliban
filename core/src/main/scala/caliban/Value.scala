@@ -2,6 +2,7 @@ package caliban
 
 import scala.util.Try
 import caliban.interop.circe._
+import caliban.interop.tapir.IsTapirSchema
 import zio.stream.Stream
 
 sealed trait InputValue {
@@ -53,6 +54,8 @@ object ResponseValue extends ValueJsonCompat {
     caliban.interop.circe.json.ValueCirce.responseValueEncoder.asInstanceOf[F[ResponseValue]]
   implicit def circeDecoder[F[_]: IsCirceDecoder]: F[ResponseValue] =
     caliban.interop.circe.json.ValueCirce.responseValueDecoder.asInstanceOf[F[ResponseValue]]
+  implicit def tapirSchema[F[_]: IsTapirSchema]: F[ResponseValue]   =
+    caliban.interop.tapir.schema.responseValueSchema.asInstanceOf[F[ResponseValue]]
 }
 
 sealed trait Value extends InputValue with ResponseValue

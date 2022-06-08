@@ -10,6 +10,11 @@ case class DeferredGraphQLResponse[+E] private (
 )
 
 object DeferredGraphQLResponse {
+  def unapply[E](response: GraphQLResponse[E]): Option[(GraphQLResponse[E], ZStream[Any, Throwable, ResponseValue])] =
+    response.extensions.flatMap(_.fields.collectFirst { case ("__defer", StreamValue(stream)) =>
+      response -> stream
+    })
+
   def apply[E](response: GraphQLResponse[E]): DeferredGraphQLResponse[E] =
     DeferredGraphQLResponse(
       response,

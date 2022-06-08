@@ -216,7 +216,8 @@ object Executor {
             case Left(value)  => StringValue(value)
             case Right(value) => IntValue(value)
           }.reverse)
-        )
+        ),
+        hasNext = if (defers.nonEmpty) Some(true) else None
       ) -> defers)
 
     def makeDeferStream(
