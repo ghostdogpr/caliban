@@ -5,6 +5,7 @@ import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue._
 import caliban.Value._
 import caliban._
+import caliban.execution.Fragment.IsDeferred
 import caliban.parsing.adt._
 import caliban.schema.ReducedStep.DeferStep
 import caliban.schema.Step._
@@ -75,10 +76,10 @@ object Executor {
           )
         case ObjectStep(objectName, fields) =>
           val filteredFields    = mergeFields(currentField, objectName)
-          val (deferred, items) = filteredFields.partitionMap {
-            case f @ Field(name @ "__typename", _, _, alias, _, _, _, directives, _, _, _)                    =>
+          val (deferred, eager) = filteredFields.partitionMap {
+            case f @ Field(name @ "__typename", _, _, alias, _, _, _, directives, _, _, _) =>
               Right((alias.getOrElse(name), PureStep(StringValue(objectName)), fieldInfo(f, path, directives)))
-            case f @ Field(name, _, _, alias, _, _, args, directives, _, _, Some(Fragment.IsDeferred(label))) =>
+            case f @ Field(name, _, _, alias, _, _, args, directives, _, _, fragment)      =>
               val aliasedName = alias.getOrElse(name)
               val field       = fields
                 .get(name)
@@ -86,26 +87,19 @@ object Executor {
 
               val info = fieldInfo(f, path, directives)
 
-              // The defer spec provides some latitude on how we handle responses. Since it is more performant to return
-              // pure fields rather than spin up the defer machinery we return pure fields immediately to the caller.
-              Either.cond(field.isPure, (aliasedName, field, info), (label, (aliasedName, field, info)))
-            case f @ Field(name, _, _, alias, _, _, args, directives, _, _, _)                                =>
-              Right(
-                (
-                  alias.getOrElse(name),
-                  fields
-                    .get(name)
-                    .fold(NullStep: ReducedStep[R])(reduceStep(_, f, args, Left(alias.getOrElse(name)) :: path)),
-                  fieldInfo(f, path, directives)
-                )
-              )
+              fragment.collectFirst {
+                // The defer spec provides some latitude on how we handle responses. Since it is more performant to return
+                // pure fields rather than spin up the defer machinery we return pure fields immediately to the caller.
+                case IsDeferred(label) if !field.isPure =>
+                  (label, (aliasedName, field, info))
+              }.toLeft((aliasedName, field, info))
           }
 
           deferred match {
-            case Nil => reduceObject(items, fieldWrappers)
+            case Nil => reduceObject(eager, fieldWrappers)
             case d   =>
               DeferStep(
-                reduceObject(items, fieldWrappers),
+                reduceObject(eager, fieldWrappers),
                 d.groupBy(_._1).toList.map { case (label, labelAndFields) =>
                   val (_, fields) = labelAndFields.unzip
                   reduceObject(fields, fieldWrappers) -> label

@@ -13,7 +13,7 @@ object Fragment {
               case BooleanValue(v) => v
               case _               => true
             } =>
-          args.get("name").collect { case StringValue(v) => v }
+          args.get("label").collect { case StringValue(v) => v }
       }
   }
 }
