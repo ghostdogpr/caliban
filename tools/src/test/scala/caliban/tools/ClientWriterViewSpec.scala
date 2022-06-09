@@ -3,6 +3,7 @@ package caliban.tools
 import caliban.parsing.Parser
 import zio.RIO
 import zio.blocking.Blocking
+import zio.console.putStrLn
 import zio.test.Assertion._
 import zio.test._
 import zio.test.environment.TestEnvironment
@@ -101,14 +102,14 @@ object Client {
 
     type ViewSelection = SelectionBuilder[Character, CharacterView]
 
-    def view(nicknamesArg: Option[Int] = None): ViewSelection = (name ~ age ~ nicknames(nicknamesArg)).map {
+    def view(nicknamesArg: scala.Option[Int] = None): ViewSelection = (name ~ age ~ nicknames(nicknamesArg)).map {
       case (name, age, nicknames) => CharacterView(name, age, nicknames)
     }
 
     def name: SelectionBuilder[Character, String] = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
     def age: SelectionBuilder[Character, Int]     = _root_.caliban.client.SelectionBuilder.Field("age", Scalar())
-    def nicknames(arg: Option[Int] = None)(implicit
-      encoder0: ArgEncoder[Option[Int]]
+    def nicknames(arg: scala.Option[Int] = None)(implicit
+      encoder0: ArgEncoder[scala.Option[Int]]
     ): SelectionBuilder[Character, List[String]] = _root_.caliban.client.SelectionBuilder
       .Field("nicknames", ListOf(Scalar()), arguments = List(Argument("arg", arg, "Int")(encoder0)))
   }
@@ -160,7 +161,7 @@ object Client {
 
     type ViewSelection[FriendsSelection] = SelectionBuilder[Character, CharacterView[FriendsSelection]]
 
-    def view[FriendsSelection](friendsFilter: Option[String] = None)(
+    def view[FriendsSelection](friendsFilter: scala.Option[String] = None)(
       friendsSelection: SelectionBuilder[Character, FriendsSelection]
     ): ViewSelection[FriendsSelection] = (name ~ age ~ friends(friendsFilter)(friendsSelection)).map {
       case (name, age, friends) => CharacterView(name, age, friends)
@@ -168,8 +169,8 @@ object Client {
 
     def name: SelectionBuilder[Character, String] = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
     def age: SelectionBuilder[Character, Int]     = _root_.caliban.client.SelectionBuilder.Field("age", Scalar())
-    def friends[A](filter: Option[String] = None)(innerSelection: SelectionBuilder[Character, A])(implicit
-      encoder0: ArgEncoder[Option[String]]
+    def friends[A](filter: scala.Option[String] = None)(innerSelection: SelectionBuilder[Character, A])(implicit
+      encoder0: ArgEncoder[scala.Option[String]]
     ): SelectionBuilder[Character, List[A]] = _root_.caliban.client.SelectionBuilder
       .Field("friends", ListOf(Obj(innerSelection)), arguments = List(Argument("filter", filter, "String")(encoder0)))
   }
@@ -179,7 +180,7 @@ object Client {
           )
         )
       },
-      testM("generic view for Option[List[Option[A]] types") {
+      testM("generic view for scala.Option[List[scala.Option[A]] types") {
         val schema =
           """
             type ProjectMember {
@@ -216,22 +217,22 @@ object Client {
   type ProjectMember
   object ProjectMember {
 
-    final case class ProjectMemberView(id: Option[Int], name: Option[String])
+    final case class ProjectMemberView(id: scala.Option[Int], name: scala.Option[String])
 
     type ViewSelection = SelectionBuilder[ProjectMember, ProjectMemberView]
 
     def view: ViewSelection = (id ~ name).map { case (id, name) => ProjectMemberView(id, name) }
 
-    def id: SelectionBuilder[ProjectMember, Option[Int]]      =
+    def id: SelectionBuilder[ProjectMember, scala.Option[Int]]      =
       _root_.caliban.client.SelectionBuilder.Field("id", OptionOf(Scalar()))
-    def name: SelectionBuilder[ProjectMember, Option[String]] =
+    def name: SelectionBuilder[ProjectMember, scala.Option[String]] =
       _root_.caliban.client.SelectionBuilder.Field("name", OptionOf(Scalar()))
   }
 
   type ProjectMemberEdge
   object ProjectMemberEdge {
 
-    final case class ProjectMemberEdgeView[NodeSelection](cursor: String, node: Option[NodeSelection])
+    final case class ProjectMemberEdgeView[NodeSelection](cursor: String, node: scala.Option[NodeSelection])
 
     type ViewSelection[NodeSelection] = SelectionBuilder[ProjectMemberEdge, ProjectMemberEdgeView[NodeSelection]]
 
@@ -241,9 +242,11 @@ object Client {
       ProjectMemberEdgeView(cursor, node)
     }
 
-    def cursor: SelectionBuilder[ProjectMemberEdge, String]                                                         =
+    def cursor: SelectionBuilder[ProjectMemberEdge, String] =
       _root_.caliban.client.SelectionBuilder.Field("cursor", Scalar())
-    def node[A](innerSelection: SelectionBuilder[ProjectMember, A]): SelectionBuilder[ProjectMemberEdge, Option[A]] =
+    def node[A](
+      innerSelection: SelectionBuilder[ProjectMember, A]
+    ): SelectionBuilder[ProjectMemberEdge, scala.Option[A]] =
       _root_.caliban.client.SelectionBuilder.Field("node", OptionOf(Obj(innerSelection)))
   }
 
@@ -251,10 +254,10 @@ object Client {
   object PageInfo {
 
     final case class PageInfoView(
-      endCursor: Option[String],
+      endCursor: scala.Option[String],
       hasNextPage: Boolean,
       hasPreviousPage: Boolean,
-      startCursor: Option[String]
+      startCursor: scala.Option[String]
     )
 
     type ViewSelection = SelectionBuilder[PageInfo, PageInfoView]
@@ -264,13 +267,13 @@ object Client {
         PageInfoView(endCursor, hasNextPage, hasPreviousPage, startCursor)
     }
 
-    def endCursor: SelectionBuilder[PageInfo, Option[String]]   =
+    def endCursor: SelectionBuilder[PageInfo, scala.Option[String]]   =
       _root_.caliban.client.SelectionBuilder.Field("endCursor", OptionOf(Scalar()))
-    def hasNextPage: SelectionBuilder[PageInfo, Boolean]        =
+    def hasNextPage: SelectionBuilder[PageInfo, Boolean]              =
       _root_.caliban.client.SelectionBuilder.Field("hasNextPage", Scalar())
-    def hasPreviousPage: SelectionBuilder[PageInfo, Boolean]    =
+    def hasPreviousPage: SelectionBuilder[PageInfo, Boolean]          =
       _root_.caliban.client.SelectionBuilder.Field("hasPreviousPage", Scalar())
-    def startCursor: SelectionBuilder[PageInfo, Option[String]] =
+    def startCursor: SelectionBuilder[PageInfo, scala.Option[String]] =
       _root_.caliban.client.SelectionBuilder.Field("startCursor", OptionOf(Scalar()))
   }
 
@@ -278,8 +281,8 @@ object Client {
   object ProjectMemberConnection {
 
     final case class ProjectMemberConnectionView[EdgesSelection, NodesSelection, PageInfoSelection](
-      edges: Option[List[Option[EdgesSelection]]],
-      nodes: Option[List[Option[NodesSelection]]],
+      edges: scala.Option[List[scala.Option[EdgesSelection]]],
+      nodes: scala.Option[List[scala.Option[NodesSelection]]],
       pageInfo: PageInfoSelection
     )
 
@@ -299,11 +302,11 @@ object Client {
 
     def edges[A](
       innerSelection: SelectionBuilder[ProjectMemberEdge, A]
-    ): SelectionBuilder[ProjectMemberConnection, Option[List[Option[A]]]] =
+    ): SelectionBuilder[ProjectMemberConnection, scala.Option[List[scala.Option[A]]]] =
       _root_.caliban.client.SelectionBuilder.Field("edges", OptionOf(ListOf(OptionOf(Obj(innerSelection)))))
     def nodes[A](
       innerSelection: SelectionBuilder[ProjectMember, A]
-    ): SelectionBuilder[ProjectMemberConnection, Option[List[Option[A]]]] =
+    ): SelectionBuilder[ProjectMemberConnection, scala.Option[List[scala.Option[A]]]] =
       _root_.caliban.client.SelectionBuilder.Field("nodes", OptionOf(ListOf(OptionOf(Obj(innerSelection)))))
     def pageInfo[A](innerSelection: SelectionBuilder[PageInfo, A]): SelectionBuilder[ProjectMemberConnection, A] =
       _root_.caliban.client.SelectionBuilder.Field("pageInfo", Obj(innerSelection))
@@ -337,20 +340,23 @@ object Client {
   type `package`
   object `package` {
 
-    final case class packageView(name: Option[String])
+    final case class packageView(name: scala.Option[String])
 
     type ViewSelection = SelectionBuilder[`package`, packageView]
 
     def view: ViewSelection = name.map(name => packageView(name))
 
-    def name: SelectionBuilder[`package`, Option[String]] =
+    def name: SelectionBuilder[`package`, scala.Option[String]] =
       _root_.caliban.client.SelectionBuilder.Field("name", OptionOf(Scalar()))
   }
 
   type `match`
   object `match` {
 
-    final case class matchView[PackageSelection](`package`: Option[PackageSelection], version: Option[String])
+    final case class matchView[PackageSelection](
+      `package`: scala.Option[PackageSelection],
+      version: scala.Option[String]
+    )
 
     type ViewSelection[PackageSelection] = SelectionBuilder[`match`, matchView[PackageSelection]]
 
@@ -360,9 +366,9 @@ object Client {
       matchView(package$, version)
     }
 
-    def `package`[A](innerSelection: SelectionBuilder[`package`, A]): SelectionBuilder[`match`, Option[A]] =
+    def `package`[A](innerSelection: SelectionBuilder[`package`, A]): SelectionBuilder[`match`, scala.Option[A]] =
       _root_.caliban.client.SelectionBuilder.Field("package", OptionOf(Obj(innerSelection)))
-    def version: SelectionBuilder[`match`, Option[String]]                                                 =
+    def version: SelectionBuilder[`match`, scala.Option[String]]                                                 =
       _root_.caliban.client.SelectionBuilder.Field("version", OptionOf(Scalar()))
   }
 
@@ -390,15 +396,15 @@ object Client {
   type TypeWithCapitalFields
   object TypeWithCapitalFields {
 
-    final case class TypeWithCapitalFieldsView(Name: Option[String], Value: Option[String])
+    final case class TypeWithCapitalFieldsView(Name: scala.Option[String], Value: scala.Option[String])
 
     type ViewSelection = SelectionBuilder[TypeWithCapitalFields, TypeWithCapitalFieldsView]
 
     def view: ViewSelection = (Name ~ Value).map { case (name$, value$) => TypeWithCapitalFieldsView(name$, value$) }
 
-    def Name: SelectionBuilder[TypeWithCapitalFields, Option[String]]  =
+    def Name: SelectionBuilder[TypeWithCapitalFields, scala.Option[String]]  =
       _root_.caliban.client.SelectionBuilder.Field("Name", OptionOf(Scalar()))
-    def Value: SelectionBuilder[TypeWithCapitalFields, Option[String]] =
+    def Value: SelectionBuilder[TypeWithCapitalFields, scala.Option[String]] =
       _root_.caliban.client.SelectionBuilder.Field("Value", OptionOf(Scalar()))
   }
 
@@ -435,7 +441,11 @@ object Client {
   type Character
   object Character {
 
-    final case class CharacterView[RoleSelection](name: String, nicknames: List[String], role: Option[RoleSelection])
+    final case class CharacterView[RoleSelection](
+      name: String,
+      nicknames: List[String],
+      role: scala.Option[RoleSelection]
+    )
 
     type ViewSelection[RoleSelection] = SelectionBuilder[Character, CharacterView[RoleSelection]]
 
@@ -452,18 +462,18 @@ object Client {
     def role[A](
       onCaptain: SelectionBuilder[Captain, A],
       onPilot: SelectionBuilder[Pilot, A]
-    ): SelectionBuilder[Character, Option[A]] = _root_.caliban.client.SelectionBuilder
+    ): SelectionBuilder[Character, scala.Option[A]] = _root_.caliban.client.SelectionBuilder
       .Field("role", OptionOf(ChoiceOf(Map("Captain" -> Obj(onCaptain), "Pilot" -> Obj(onPilot)))))
     def roleOption[A](
-      onCaptain: Option[SelectionBuilder[Captain, A]] = None,
-      onPilot: Option[SelectionBuilder[Pilot, A]] = None
-    ): SelectionBuilder[Character, Option[Option[A]]] = _root_.caliban.client.SelectionBuilder.Field(
+      onCaptain: scala.Option[SelectionBuilder[Captain, A]] = None,
+      onPilot: scala.Option[SelectionBuilder[Pilot, A]] = None
+    ): SelectionBuilder[Character, scala.Option[scala.Option[A]]] = _root_.caliban.client.SelectionBuilder.Field(
       "role",
       OptionOf(
         ChoiceOf(
           Map(
-            "Captain" -> onCaptain.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a))),
-            "Pilot"   -> onPilot.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))
+            "Captain" -> onCaptain.fold[FieldBuilder[scala.Option[A]]](NullField)(a => OptionOf(Obj(a))),
+            "Pilot"   -> onPilot.fold[FieldBuilder[scala.Option[A]]](NullField)(a => OptionOf(Obj(a)))
           )
         )
       )
@@ -1164,52 +1174,54 @@ object Client {
   type NodeA
   object NodeA {
 
-    final case class NodeAView(id: String, a: Option[String])
+    final case class NodeAView(id: String, a: scala.Option[String])
 
     type ViewSelection = SelectionBuilder[NodeA, NodeAView]
 
     def view: ViewSelection = (id ~ a).map { case (id, a) => NodeAView(id, a) }
 
-    def id: SelectionBuilder[NodeA, String]        = _root_.caliban.client.SelectionBuilder.Field("id", Scalar())
-    def a: SelectionBuilder[NodeA, Option[String]] =
+    def id: SelectionBuilder[NodeA, String]              = _root_.caliban.client.SelectionBuilder.Field("id", Scalar())
+    def a: SelectionBuilder[NodeA, scala.Option[String]] =
       _root_.caliban.client.SelectionBuilder.Field("a", OptionOf(Scalar()))
   }
 
   type NodeB
   object NodeB {
 
-    final case class NodeBView(id: String, b: Option[Int])
+    final case class NodeBView(id: String, b: scala.Option[Int])
 
     type ViewSelection = SelectionBuilder[NodeB, NodeBView]
 
     def view: ViewSelection = (id ~ b).map { case (id, b) => NodeBView(id, b) }
 
-    def id: SelectionBuilder[NodeB, String]     = _root_.caliban.client.SelectionBuilder.Field("id", Scalar())
-    def b: SelectionBuilder[NodeB, Option[Int]] = _root_.caliban.client.SelectionBuilder.Field("b", OptionOf(Scalar()))
+    def id: SelectionBuilder[NodeB, String]           = _root_.caliban.client.SelectionBuilder.Field("id", Scalar())
+    def b: SelectionBuilder[NodeB, scala.Option[Int]] =
+      _root_.caliban.client.SelectionBuilder.Field("b", OptionOf(Scalar()))
   }
 
   type Queries = _root_.caliban.client.Operations.RootQuery
   object Queries {
     def node[A](id: String)(onNodeA: SelectionBuilder[NodeA, A], onNodeB: SelectionBuilder[NodeB, A])(implicit
       encoder0: ArgEncoder[String]
-    ): SelectionBuilder[_root_.caliban.client.Operations.RootQuery, Option[A]] =
+    ): SelectionBuilder[_root_.caliban.client.Operations.RootQuery, scala.Option[A]] =
       _root_.caliban.client.SelectionBuilder.Field(
         "node",
         OptionOf(ChoiceOf(Map("NodeA" -> Obj(onNodeA), "NodeB" -> Obj(onNodeB)))),
         arguments = List(Argument("id", id, "ID!")(encoder0))
       )
-    def nodeOption[A](
-      id: String
-    )(onNodeA: Option[SelectionBuilder[NodeA, A]] = None, onNodeB: Option[SelectionBuilder[NodeB, A]] = None)(implicit
+    def nodeOption[A](id: String)(
+      onNodeA: scala.Option[SelectionBuilder[NodeA, A]] = None,
+      onNodeB: scala.Option[SelectionBuilder[NodeB, A]] = None
+    )(implicit
       encoder0: ArgEncoder[String]
-    ): SelectionBuilder[_root_.caliban.client.Operations.RootQuery, Option[Option[A]]] =
+    ): SelectionBuilder[_root_.caliban.client.Operations.RootQuery, scala.Option[scala.Option[A]]] =
       _root_.caliban.client.SelectionBuilder.Field(
         "node",
         OptionOf(
           ChoiceOf(
             Map(
-              "NodeA" -> onNodeA.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a))),
-              "NodeB" -> onNodeB.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))
+              "NodeA" -> onNodeA.fold[FieldBuilder[scala.Option[A]]](NullField)(a => OptionOf(Obj(a))),
+              "NodeB" -> onNodeB.fold[FieldBuilder[scala.Option[A]]](NullField)(a => OptionOf(Obj(a)))
             )
           )
         ),
@@ -1221,30 +1233,30 @@ object Client {
   object Mutations {
     def updateNode[A](
       id: String,
-      name: Option[String] = None
+      name: scala.Option[String] = None
     )(onNodeA: SelectionBuilder[NodeA, A], onNodeB: SelectionBuilder[NodeB, A])(implicit
       encoder0: ArgEncoder[String],
-      encoder1: ArgEncoder[Option[String]]
-    ): SelectionBuilder[_root_.caliban.client.Operations.RootMutation, Option[A]] =
+      encoder1: ArgEncoder[scala.Option[String]]
+    ): SelectionBuilder[_root_.caliban.client.Operations.RootMutation, scala.Option[A]] =
       _root_.caliban.client.SelectionBuilder.Field(
         "updateNode",
         OptionOf(ChoiceOf(Map("NodeA" -> Obj(onNodeA), "NodeB" -> Obj(onNodeB)))),
         arguments = List(Argument("id", id, "ID!")(encoder0), Argument("name", name, "String")(encoder1))
       )
-    def updateNodeOption[A](
-      id: String,
-      name: Option[String] = None
-    )(onNodeA: Option[SelectionBuilder[NodeA, A]] = None, onNodeB: Option[SelectionBuilder[NodeB, A]] = None)(implicit
+    def updateNodeOption[A](id: String, name: scala.Option[String] = None)(
+      onNodeA: scala.Option[SelectionBuilder[NodeA, A]] = None,
+      onNodeB: scala.Option[SelectionBuilder[NodeB, A]] = None
+    )(implicit
       encoder0: ArgEncoder[String],
-      encoder1: ArgEncoder[Option[String]]
-    ): SelectionBuilder[_root_.caliban.client.Operations.RootMutation, Option[Option[A]]] =
+      encoder1: ArgEncoder[scala.Option[String]]
+    ): SelectionBuilder[_root_.caliban.client.Operations.RootMutation, scala.Option[scala.Option[A]]] =
       _root_.caliban.client.SelectionBuilder.Field(
         "updateNode",
         OptionOf(
           ChoiceOf(
             Map(
-              "NodeA" -> onNodeA.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a))),
-              "NodeB" -> onNodeB.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))
+              "NodeA" -> onNodeA.fold[FieldBuilder[scala.Option[A]]](NullField)(a => OptionOf(Obj(a))),
+              "NodeB" -> onNodeB.fold[FieldBuilder[scala.Option[A]]](NullField)(a => OptionOf(Obj(a)))
             )
           )
         ),
@@ -1256,24 +1268,25 @@ object Client {
   object Subscriptions {
     def node[A](id: String)(onNodeA: SelectionBuilder[NodeA, A], onNodeB: SelectionBuilder[NodeB, A])(implicit
       encoder0: ArgEncoder[String]
-    ): SelectionBuilder[_root_.caliban.client.Operations.RootSubscription, Option[A]] =
+    ): SelectionBuilder[_root_.caliban.client.Operations.RootSubscription, scala.Option[A]] =
       _root_.caliban.client.SelectionBuilder.Field(
         "node",
         OptionOf(ChoiceOf(Map("NodeA" -> Obj(onNodeA), "NodeB" -> Obj(onNodeB)))),
         arguments = List(Argument("id", id, "ID!")(encoder0))
       )
-    def nodeOption[A](
-      id: String
-    )(onNodeA: Option[SelectionBuilder[NodeA, A]] = None, onNodeB: Option[SelectionBuilder[NodeB, A]] = None)(implicit
+    def nodeOption[A](id: String)(
+      onNodeA: scala.Option[SelectionBuilder[NodeA, A]] = None,
+      onNodeB: scala.Option[SelectionBuilder[NodeB, A]] = None
+    )(implicit
       encoder0: ArgEncoder[String]
-    ): SelectionBuilder[_root_.caliban.client.Operations.RootSubscription, Option[Option[A]]] =
+    ): SelectionBuilder[_root_.caliban.client.Operations.RootSubscription, scala.Option[scala.Option[A]]] =
       _root_.caliban.client.SelectionBuilder.Field(
         "node",
         OptionOf(
           ChoiceOf(
             Map(
-              "NodeA" -> onNodeA.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a))),
-              "NodeB" -> onNodeB.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))
+              "NodeA" -> onNodeA.fold[FieldBuilder[scala.Option[A]]](NullField)(a => OptionOf(Obj(a))),
+              "NodeB" -> onNodeB.fold[FieldBuilder[scala.Option[A]]](NullField)(a => OptionOf(Obj(a)))
             )
           )
         ),
