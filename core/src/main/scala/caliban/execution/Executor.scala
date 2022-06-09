@@ -5,6 +5,7 @@ import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue._
 import caliban.Value._
 import caliban._
+import caliban.execution.Executor.{ effectfulExecutionError, fieldInfo, mergeFields, reduceList, reduceObject }
 import caliban.execution.Fragment.IsDeferred
 import caliban.parsing.adt._
 import caliban.schema.ReducedStep.DeferStep
@@ -242,9 +243,9 @@ object Executor {
       responseAndDefers <- runQuery(reduced, cache, None, None)
       (response, defers) = responseAndDefers
       remaining         <- Ref.make(defers.size)
-      deferStream        = makeDeferStream(defers, remaining, cache).provide(env)
     } yield
-      if (defers.nonEmpty) response.withExtension("__defer", StreamValue(deferStream))
+      if (defers.nonEmpty)
+        response.withExtension("__defer", StreamValue(makeDeferStream(defers, remaining, cache).provide(env)))
       else response
   }
 
@@ -319,3 +320,5 @@ object Executor {
     }
   }
 }
+
+object Reducer {}
