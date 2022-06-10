@@ -2,7 +2,7 @@ package caliban
 
 import caliban.CalibanError.ValidationError
 import caliban.Rendering.{ renderDirectives, renderSchemaDirectives, renderTypes }
-import caliban.execution.{ ExecutionRequest, Executor, QueryExecution }
+import caliban.execution.{ ExecutionRequest, Executor, Feature, QueryExecution }
 import caliban.introspection.Introspector
 import caliban.introspection.adt._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.SchemaDefinition
@@ -25,6 +25,7 @@ trait GraphQL[-R] { self =>
   protected val schemaBuilder: RootSchemaBuilder[R]
   protected val wrappers: List[Wrapper[R]]
   protected val additionalDirectives: List[__Directive]
+  protected val features: Set[Feature]
 
   private[caliban] def validateRootSchema: IO[ValidationError, RootSchema[R]] =
     Validator.validateSchema(schemaBuilder)
@@ -139,7 +140,7 @@ trait GraphQL[-R] { self =>
                   execute           =
                     (req: ExecutionRequest) =>
                       Executor
-                        .executeRequest(req, op.plan, fieldWrappers, queryExecution)
+                        .executeRequest(req, op.plan, fieldWrappers, queryExecution, features)
                   result           <- wrap(execute)(executionWrappers, executionRequest)
                 } yield result).catchAll(Executor.fail)
               )(overallWrappers, request)
@@ -158,6 +159,7 @@ trait GraphQL[-R] { self =>
       override val schemaBuilder: RootSchemaBuilder[R2]    = self.schemaBuilder
       override val wrappers: List[Wrapper[R2]]             = wrapper :: self.wrappers
       override val additionalDirectives: List[__Directive] = self.additionalDirectives
+      override val features: Set[Feature]                  = self.features
     }
 
   /**
@@ -182,6 +184,8 @@ trait GraphQL[-R] { self =>
       override protected val wrappers: List[Wrapper[R1]]             = self.wrappers ++ that.wrappers
       override protected val additionalDirectives: List[__Directive] =
         self.additionalDirectives ++ that.additionalDirectives
+
+      override protected val features: Set[Feature] = self.features ++ that.features
     }
 
   /**
@@ -214,6 +218,7 @@ trait GraphQL[-R] { self =>
     )
     override protected val wrappers: List[Wrapper[R]]              = self.wrappers
     override protected val additionalDirectives: List[__Directive] = self.additionalDirectives
+    override protected val features: Set[Feature]                  = self.features
   }
 
   /**
@@ -227,6 +232,7 @@ trait GraphQL[-R] { self =>
       self.schemaBuilder.copy(additionalTypes = self.schemaBuilder.additionalTypes ++ types)
     override protected val wrappers: List[Wrapper[R]]              = self.wrappers
     override protected val additionalDirectives: List[__Directive] = self.additionalDirectives
+    override protected val features: Set[Feature]                  = self.features
   }
 
   final def withSchemaDirectives(directives: List[Directive]): GraphQL[R] = new GraphQL[R] {
@@ -234,6 +240,21 @@ trait GraphQL[-R] { self =>
       self.schemaBuilder.copy(schemaDirectives = self.schemaBuilder.schemaDirectives ++ directives)
     override protected val wrappers: List[Wrapper[R]]              = self.wrappers
     override protected val additionalDirectives: List[__Directive] = self.additionalDirectives
+    override protected val features: Set[Feature]                  = self.features
+  }
+
+  final def withAdditionalDirectives(directives: List[__Directive]): GraphQL[R] = new GraphQL[R] {
+    override protected val schemaBuilder: RootSchemaBuilder[R]     = self.schemaBuilder
+    override protected val wrappers: List[Wrapper[R]]              = self.wrappers
+    override protected val additionalDirectives: List[__Directive] = self.additionalDirectives ++ directives
+    override protected val features: Set[Feature]                  = self.features
+  }
+
+  final def enable(feature: Feature): GraphQL[R] = new GraphQL[R] {
+    override protected val schemaBuilder: RootSchemaBuilder[R]     = self.schemaBuilder
+    override protected val wrappers: List[Wrapper[R]]              = self.wrappers
+    override protected val additionalDirectives: List[__Directive] = self.additionalDirectives
+    override protected val features: Set[Feature]                  = self.features + feature
   }
 }
 
@@ -264,5 +285,6 @@ object GraphQL {
     )
     val wrappers: List[Wrapper[R]]              = Nil
     val additionalDirectives: List[__Directive] = directives
+    val features                                = Set.empty
   }
 }

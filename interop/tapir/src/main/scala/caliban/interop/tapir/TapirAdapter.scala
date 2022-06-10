@@ -10,7 +10,7 @@ import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.zio.ZioStreams.Pipe
 import sttp.model.{ headers => _, _ }
 import sttp.monad.MonadError
-import sttp.tapir.Codec.JsonCodec
+import sttp.tapir.Codec.{ mediaType, JsonCodec }
 import sttp.tapir._
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
@@ -158,42 +158,52 @@ object TapirAdapter {
             enableIntrospection = enableIntrospection,
             queryExecution
           )
-      ).map {
-        case DeferredGraphQLResponse(response, rest) =>
-          val Newline     = "\r\n"
-          val contentType = "Content-Type: application/json; charset=utf-8"
-          val subHeader   = s"$Newline$contentType$Newline$Newline"
-          val boundary    = "---"
-          val theBoundary = s"$Newline$boundary$subHeader"
-          val endBoundary = s"$Newline-----$Newline"
-
-          (
-            MediaType.MultipartMixed.copy(otherParameters = Map("boundary" -> "-")),
-            ((ZStream.succeed(response.toResponseValue) ++ rest)
-              .map(responseCodec.encode)
-              .intersperse(theBoundary, theBoundary, endBoundary))
-              .mapConcat(_.getBytes(StandardCharsets.UTF_8))
-          )
-
-        case response =>
-          (
-            MediaType.ApplicationJson,
-            ZStream.fromIterable(responseCodec.encode(response.toResponseValue).getBytes(StandardCharsets.UTF_8))
-          )
-      }.either
+      ).map(buildResponse).either
     }
 
     makeHttpEndpoints.map(_.serverLogic(logic))
   }
 
+  private[caliban] def buildResponse[E](response: GraphQLResponse[E])(implicit
+    responseCodec: JsonCodec[ResponseValue]
+  ) =
+    response match {
+      case DeferredGraphQLResponse(head, tail) =>
+        val Newline     = "\r\n"
+        val ContentType = "Content-Type: application/json; charset=utf-8"
+        val SubHeader   = s"$Newline$ContentType$Newline$Newline"
+        val Boundary    = "---"
+        val theBoundary = s"$Newline$Boundary$SubHeader"
+        val endBoundary = s"$Newline-----$Newline"
+
+        (
+          MediaType.MultipartMixed.copy(otherParameters = Map("boundary" -> "-")),
+          ((ZStream.succeed(head.toResponseValue) ++ tail)
+            .map(responseCodec.encode)
+            .intersperse(theBoundary, theBoundary, endBoundary))
+            .mapConcat(_.getBytes(StandardCharsets.UTF_8))
+        )
+
+      case response =>
+        val encodedResponse =
+          ZStream.fromIterable(responseCodec.encode(response.toResponseValue).getBytes(StandardCharsets.UTF_8))
+        (MediaType.ApplicationJson, encodedResponse)
+    }
+
   def makeHttpUploadEndpoint[R, E](implicit
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
-    responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): PublicEndpoint[(Seq[Part[Array[Byte]]], ServerRequest), TapirResponse, ZioStreams.BinaryStream, ZioStreams] =
+    responseCodec: JsonCodec[ResponseValue]
+  ): PublicEndpoint[
+    (Seq[Part[Array[Byte]]], ServerRequest),
+    TapirResponse,
+    (MediaType, ZioStreams.BinaryStream),
+    ZioStreams
+  ] =
     endpoint.post
       .in(multipartBody)
       .in(extractFromRequest(identity))
+      .out(header[MediaType](HeaderNames.ContentType))
       .out(streamTextBody(ZioStreams)(CodecFormat.Json(), Some(StandardCharsets.UTF_8)))
       .errorOut(errorBody)
 
@@ -206,11 +216,11 @@ object TapirAdapter {
   )(implicit
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
-    responseCodec: JsonCodec[GraphQLResponse[E]]
+    responseCodec: JsonCodec[ResponseValue]
   ): ServerEndpoint[ZioStreams, RIO[R with Random, *]] = {
     def logic(
       request: UploadRequest
-    ): RIO[R with Random, Either[TapirResponse, ZioStreams.BinaryStream]] = {
+    ): RIO[R with Random, Either[TapirResponse, (sttp.model.MediaType, ZioStreams.BinaryStream)]] = {
       val (parts, serverRequest) = request
       val partsMap               = parts.map(part => part.name -> part).toMap
 
@@ -260,7 +270,7 @@ object TapirAdapter {
         } yield response
 
       requestInterceptor(serverRequest)(io)
-        .map(response => ZStream.fromIterable(responseCodec.encode(response).getBytes(StandardCharsets.UTF_8)))
+        .map(buildResponse)
         .either
     }
 

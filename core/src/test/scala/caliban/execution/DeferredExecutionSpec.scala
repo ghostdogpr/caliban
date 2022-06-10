@@ -8,6 +8,7 @@ import caliban.TestUtils.Role.{ Captain, Engineer, Mechanic, Pilot }
 import caliban.TestUtils.{ characters, resolverIO, CaptainShipName, Character, CharacterArgs, Origin, Role }
 import caliban.schema.Annotations.GQLName
 import caliban.schema.GenericSchema
+import caliban.wrappers.DeferSupport
 import zio.{ Has, UIO, URIO, ZIO, ZLayer }
 import zio.stream.ZStream
 import zio.test.Assertion.{ equalTo, hasSameElements }
@@ -41,7 +42,7 @@ object DeferredExecutionSpec extends DefaultRunnableSpec {
   @GQLName("Character")
   case class CharacterZIO(
     name: String,
-    nicknames: UIO[List[String]],
+    nicknames: UIO[List[UIO[String]]],
     origin: Origin,
     role: Option[Role],
     connections: ConnectionArgs => URIO[Has[CharacterService], List[CharacterZIO]]
@@ -54,7 +55,7 @@ object DeferredExecutionSpec extends DefaultRunnableSpec {
   def character2CharacterZIO(ch: Character): CharacterZIO =
     CharacterZIO(
       name = ch.name,
-      nicknames = UIO.succeed(ch.nicknames),
+      nicknames = UIO.succeed(ch.nicknames.map(UIO.succeed(_))),
       origin = ch.origin,
       role = ch.role,
       connections = {
@@ -88,10 +89,12 @@ object DeferredExecutionSpec extends DefaultRunnableSpec {
       )
     )
 
+  val interpreter = (graphQL(resolver) @@ DeferSupport.deferSupport @@ DeferSupport.streamSupport).interpreter
+
   override def spec: ZSpec[_root_.zio.test.environment.TestEnvironment, Any] = suite("Defer Execution")(
     testM("don't defer pure fields") {
-      val interpreter = graphQL(resolver).interpreter
-      val query       = gqldoc("""
+
+      val query = gqldoc("""
         {
            character(name: "Roberta Draper") {
              ... @defer {
@@ -109,8 +112,7 @@ object DeferredExecutionSpec extends DefaultRunnableSpec {
       )
     },
     testM("inline fragments") {
-      val interpreter = graphQL(resolver).interpreter
-      val query       = gqldoc("""
+      val query = gqldoc("""
         {
            character(name: "Roberta Draper") {
              ... @defer {
@@ -133,8 +135,7 @@ object DeferredExecutionSpec extends DefaultRunnableSpec {
       )
     },
     testM("named fragments") {
-      val interpreter = graphQL(resolver).interpreter
-      val query       = gqldoc("""
+      val query = gqldoc("""
         {
            character(name: "Roberta Draper") {
              ...Fragment @defer
@@ -159,8 +160,7 @@ object DeferredExecutionSpec extends DefaultRunnableSpec {
       )
     },
     testM("disable") {
-      val interpreter = graphQL(resolver).interpreter
-      val query       = gqldoc("""
+      val query = gqldoc("""
         {
            character(name: "Roberta Draper") {
              ... @defer(if: false, label: "first") { nicknames }
@@ -176,8 +176,7 @@ object DeferredExecutionSpec extends DefaultRunnableSpec {
       ) && assertTrue(rest.isEmpty)
     },
     testM("different labels") {
-      val interpreter = graphQL(resolver).interpreter
-      val query       = gqldoc("""
+      val query = gqldoc("""
         {
            character(name: "Roberta Draper") {
              ... @defer(label: "first") { n1: nicknames }
@@ -201,8 +200,7 @@ object DeferredExecutionSpec extends DefaultRunnableSpec {
       )
     },
     testM("nested defers") {
-      val interpreter = graphQL(resolver).interpreter
-      val query       = gqldoc("""
+      val query = gqldoc("""
            query test {
              character(name: "Roberta Draper") {
                name
@@ -227,6 +225,27 @@ object DeferredExecutionSpec extends DefaultRunnableSpec {
         rest.toList.map(_.toString) == List(
           """{"data":{"connections":[{"name":"Alex Kamal"}]},"label":"outer","hasNext":true,"path":["character"]}""",
           """{"data":{"nicknames":[]},"label":"inner","hasNext":false,"path":["character","connections",0]}"""
+        )
+      )
+    },
+    testM("streaming values") {
+      val query = gqldoc("""
+           query test {
+            character(name: "Roberta Draper") {
+               name
+               nicknames @stream(label: "nicknames", initialCount: 1)
+            }
+           }
+          """)
+
+      for {
+        first <- interpreter.flatMap(_.execute(query))
+        rest  <- DeferredGraphQLResponse(first).tail.runCollect
+      } yield assertTrue(
+        first.data.toString == """{"character":{"name":"Roberta Draper","nicknames":["Bobbie",null]}}"""
+      ) && assertTrue(
+        rest.toList.map(_.toString) == List(
+          """{"data":"Gunny","label":"nicknames","hasNext":false,"path":["character","nicknames",1]}"""
         )
       )
     }

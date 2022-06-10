@@ -38,12 +38,6 @@ object Introspector extends IntrospectionDerivation {
       ),
       Set(__DirectiveLocation.SCALAR),
       List(__InputValue("url", None, () => Types.string.nonNull, None))
-    ),
-    __Directive(
-      "defer",
-      Some(""),
-      Set(__DirectiveLocation.FRAGMENT_SPREAD, __DirectiveLocation.INLINE_FRAGMENT),
-      List(__InputValue("if", None, () => Types.boolean, None), __InputValue("label", None, () => Types.string, None))
     )
   )
 

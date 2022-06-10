@@ -1,11 +1,9 @@
 package caliban.execution
 
-import scala.annotation.tailrec
 import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue._
 import caliban.Value._
 import caliban._
-import caliban.execution.Executor.{ effectfulExecutionError, fieldInfo, mergeFields, reduceList, reduceObject }
 import caliban.execution.Fragment.IsDeferred
 import caliban.parsing.adt._
 import caliban.schema.ReducedStep.DeferStep
@@ -13,9 +11,10 @@ import caliban.schema.Step._
 import caliban.schema.{ ReducedStep, Step, Types }
 import caliban.wrappers.Wrapper.FieldWrapper
 import zio._
-import zio.query.{ Cache, Described, ZQuery }
+import zio.query.{ Cache, ZQuery }
 import zio.stream.ZStream
 
+import scala.annotation.tailrec
 import scala.collection.mutable.ArrayBuffer
 
 object Executor {
@@ -31,7 +30,8 @@ object Executor {
     request: ExecutionRequest,
     plan: Step[R],
     fieldWrappers: List[FieldWrapper[R]] = Nil,
-    queryExecution: QueryExecution = QueryExecution.Parallel
+    queryExecution: QueryExecution = QueryExecution.Parallel,
+    featureSet: Set[Feature] = Set.empty
   ): URIO[R, GraphQLResponse[CalibanError]] = {
 
     val execution                                                          = request.operationType match {
@@ -69,12 +69,30 @@ object Executor {
         case FunctionStep(step)             => reduceStep(step(arguments), currentField, Map(), path)
         case MetadataFunctionStep(step)     => reduceStep(step(currentField), currentField, arguments, path)
         case ListStep(steps)                =>
-          reduceList(
-            steps.zipWithIndex.map { case (step, i) =>
-              reduceStep(step, currentField, arguments, Right(i) :: path)
-            },
-            Types.listOf(currentField.fieldType).fold(false)(_.isNullable)
-          )
+          currentField match {
+            case IsStream(label, initialValue) =>
+              val splitAt = initialValue.getOrElse(0)
+              reduceList(
+                steps.zipWithIndex.map { case (step, i) =>
+                  val reducedStep = reduceStep(step, currentField, arguments, Right(i) :: path)
+                  if (i < splitAt || reducedStep.isPure) reducedStep
+                  else
+                    DeferStep(
+                      PureStep(Value.NullValue),
+                      List(reducedStep -> label),
+                      Right(i) :: path
+                    )
+                },
+                Types.listOf(currentField.fieldType).fold(false)(_.isNullable)
+              )
+            case _                             =>
+              reduceList(
+                steps.zipWithIndex.map { case (step, i) =>
+                  reduceStep(step, currentField, arguments, Right(i) :: path),
+                },
+                Types.listOf(currentField.fieldType).fold(false)(_.isNullable)
+              )
+          }
         case ObjectStep(objectName, fields) =>
           val filteredFields    = mergeFields(currentField, objectName)
           val (deferred, eager) = filteredFields.partitionMap {
@@ -91,7 +109,7 @@ object Executor {
               fragment.collectFirst {
                 // The defer spec provides some latitude on how we handle responses. Since it is more performant to return
                 // pure fields rather than spin up the defer machinery we return pure fields immediately to the caller.
-                case IsDeferred(label) if !field.isPure =>
+                case IsDeferred(label) if featureSet(Feature.Defer) && !field.isPure =>
                   (label, (aliasedName, field, info))
               }.toLeft((aliasedName, field, info))
           }
@@ -320,5 +338,3 @@ object Executor {
     }
   }
 }
-
-object Reducer {}

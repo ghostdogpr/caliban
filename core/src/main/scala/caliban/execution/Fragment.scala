@@ -1,6 +1,6 @@
 package caliban.execution
 
-import caliban.Value.{ BooleanValue, StringValue }
+import caliban.Value.{ BooleanValue, IntValue, StringValue }
 import caliban.parsing.adt.Directive
 
 case class Fragment(name: Option[String], directives: List[Directive]) {}
@@ -16,4 +16,14 @@ object Fragment {
           args.get("label").collect { case StringValue(v) => v }
       }
   }
+}
+
+object IsStream {
+  def unapply(field: Field): Option[(Option[String], Option[Int])] =
+    field.directives.collectFirst { case Directive("stream", args, _) =>
+      (
+        args.get("label").collect { case StringValue(v) => v },
+        args.get("initialCount").collect { case v: IntValue => v.toInt }
+      )
+    }
 }
