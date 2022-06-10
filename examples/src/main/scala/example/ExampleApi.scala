@@ -8,6 +8,7 @@ import caliban.RootResolver
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLName }
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.wrappers.ApolloTracing.apolloTracing
+import caliban.wrappers.DeferSupport
 import caliban.wrappers.Wrappers._
 import zio.{ UIO, URIO, ZIO }
 import zio.clock.Clock
@@ -31,7 +32,7 @@ object ExampleApi extends GenericSchema[ExampleService] {
   @GQLName("Character")
   case class CharacterZIO(
     name: String,
-    nicknames: List[String],
+    nicknames: UIO[List[UIO[String]]],
     origin: Origin,
     role: UIO[Option[Role]],
     connections: ConnectionArgs => URIO[ExampleService, List[CharacterZIO]]
@@ -40,7 +41,7 @@ object ExampleApi extends GenericSchema[ExampleService] {
   def character2CharacterZIO(ch: Character): CharacterZIO =
     CharacterZIO(
       name = ch.name,
-      nicknames = ch.nicknames,
+      nicknames = UIO.succeed(ch.nicknames.map(UIO.succeed(_))),
       origin = ch.origin,
       role = UIO.succeed(ch.role),
       connections = args =>
@@ -98,6 +99,7 @@ object ExampleApi extends GenericSchema[ExampleService] {
       timeout(3 seconds) @@           // wrapper that fails slow queries
       printSlowQueries(500 millis) @@ // wrapper that logs slow queries
       printErrors @@                  // wrapper that logs errors
-      apolloTracing                   // wrapper for https://github.com/apollographql/apollo-tracing
-
+      apolloTracing @@                // wrapper for https://github.com/apollographql/apollo-tracing
+      DeferSupport.deferSupport @@    // wrapper that enables @defer directive support
+      DeferSupport.streamSupport      // wrapper that enables @stream directive support
 }

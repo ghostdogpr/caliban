@@ -74,7 +74,7 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions) {
     materializer: Materializer,
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
-    responseCodec: JsonCodec[GraphQLResponse[E]]
+    responseCodec: JsonCodec[ResponseValue]
   ): Route = {
     val endpoint = TapirAdapter.makeHttpUploadService[R, E](
       interpreter,
