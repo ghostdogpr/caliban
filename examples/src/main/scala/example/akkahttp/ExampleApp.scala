@@ -18,9 +18,9 @@ import zio.Runtime
 
 object ExampleApp extends App {
 
-  implicit val system: ActorSystem                                      = ActorSystem()
-  implicit val executionContext: ExecutionContextExecutor               = system.dispatcher
-  implicit val runtime: Runtime[ExampleService with Console with Clock] =
+  implicit val system: ActorSystem                                              = ActorSystem()
+  implicit val executionContext: ExecutionContextExecutor                       = system.dispatcher
+  implicit val runtime: Runtime.Managed[ExampleService with Console with Clock] =
     Runtime.unsafeFromLayer(ExampleService.make(sampleCharacters) ++ Console.live ++ Clock.live, Platform.default)
 
   val interpreter = runtime.unsafeRun(ExampleApi.api.interpreter)
@@ -48,5 +48,8 @@ object ExampleApp extends App {
   StdIn.readLine()
   bindingFuture
     .flatMap(_.unbind())
-    .onComplete(_ => system.terminate())
+    .onComplete { _ =>
+      system.terminate()
+      runtime.shutdown()
+    }
 }

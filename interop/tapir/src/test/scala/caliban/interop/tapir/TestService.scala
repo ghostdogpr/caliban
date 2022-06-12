@@ -21,7 +21,12 @@ object TestService {
     def deleteCharacter(name: String): UIO[Boolean]
 
     def deletedEvents: ZStream[Any, Nothing, String]
+
+    def reset: UIO[Unit]
   }
+
+  def reset: URIO[TestService, Unit] =
+    URIO.serviceWith(_.reset)
 
   def getCharacters(origin: Option[Origin]): URIO[TestService, List[Character]] =
     URIO.serviceWith(_.getCharacters(origin))
@@ -89,6 +94,8 @@ object TestService {
 
       def deletedEvents: ZStream[Any, Nothing, String] =
         ZStream.unwrapManaged(subscribers.subscribe.map(ZStream.fromQueue(_)))
+
+      def reset: UIO[Unit] = characters.set(initial)
     }).toLayer
 
   private def sha256(b: Array[Byte]): Array[Byte] =

@@ -4,6 +4,7 @@ import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.StringValue
 import caliban._
 import caliban.execution.QueryExecution
+import caliban.interop.tapir.ws.Protocol
 import caliban.uploads.{ FileMeta, GraphQLUploadRequest, Uploads }
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
@@ -14,6 +15,7 @@ import sttp.tapir.Codec.JsonCodec
 import sttp.tapir._
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
+import sttp.ws.WebSocketFrame
 import zio._
 import zio.clock.Clock
 import zio.duration.Duration
@@ -25,7 +27,7 @@ import scala.util.Try
 
 object TapirAdapter {
 
-  type CalibanPipe   = Pipe[GraphQLWSInput, GraphQLWSOutput]
+  type CalibanPipe   = Pipe[GraphQLWSInput, Either[GraphQLWSClose, GraphQLWSOutput]]
   type UploadRequest = (Seq[Part[Array[Byte]]], ServerRequest)
   type ZioWebSockets = ZioStreams with WebSockets
 
@@ -230,18 +232,38 @@ object TapirAdapter {
     makeHttpUploadEndpoint.serverLogic(logic)
   }
 
-  def makeWebSocketEndpoint[R, E](implicit
+  /**
+   * A codec which expects only text and close frames (all other frames cause a decoding error). Close frames correspond to a `Left`,
+   * while text frames are handled using the given `stringCodec` and wrapped with a `Right`
+   * @return
+   */
+  private implicit def textOrCloseWebSocketFrameEither[A, CF <: CodecFormat](implicit
+    stringCodec: Codec[String, A, CF]
+  ): Codec[WebSocketFrame, Either[GraphQLWSClose, A], CF] =
+    Codec
+      .id[WebSocketFrame, CF](stringCodec.format, Schema.string)
+      .mapDecode {
+        case WebSocketFrame.Text(s, _, _)       => stringCodec.decode(s).map(Right(_))
+        case WebSocketFrame.Close(code, reason) => DecodeResult.Value(Left(GraphQLWSClose(code, reason)))
+        case f                                  => DecodeResult.Error(f.toString, new UnsupportedWebSocketFrameException(f))
+      } {
+        case Left(value)  => WebSocketFrame.Close(value.code, value.reason)
+        case Right(value) => WebSocketFrame.text(stringCodec.encode(value))
+      }
+
+  def makeWebSocketEndpoint(implicit
     inputCodec: JsonCodec[GraphQLWSInput],
     outputCodec: JsonCodec[GraphQLWSOutput]
-  ): PublicEndpoint[ServerRequest, TapirResponse, CalibanPipe, ZioStreams with WebSockets] = {
-    val protocolHeader = Header("Sec-WebSocket-Protocol", "graphql-ws")
+  ): PublicEndpoint[(ServerRequest, String), TapirResponse, CalibanPipe, ZioStreams with WebSockets] =
     endpoint
-      .in(header(protocolHeader))
       .in(extractFromRequest(identity))
-      .out(header(protocolHeader))
-      .out(webSocketBody[GraphQLWSInput, CodecFormat.Json, GraphQLWSOutput, CodecFormat.Json](ZioStreams))
+      .in(header[String]("sec-websocket-protocol"))
+      .out(
+        webSocketBody[GraphQLWSInput, CodecFormat.Json, Either[GraphQLWSClose, GraphQLWSOutput], CodecFormat.Json](
+          ZioStreams
+        )
+      )
       .errorOut(errorBody)
-  }
 
   def makeWebSocketService[R, E](
     interpreter: GraphQLInterpreter[R, E],
@@ -254,77 +276,22 @@ object TapirAdapter {
   )(implicit
     inputCodec: JsonCodec[GraphQLWSInput],
     outputCodec: JsonCodec[GraphQLWSOutput]
-  ): ServerEndpoint[ZioWebSockets, RIO[R, *]] = {
-
-    val io: URIO[R, Either[Nothing, CalibanPipe]] =
-      for {
-        env           <- RIO.environment[R]
-        subscriptions <- Ref.make(Map.empty[String, Promise[Any, Unit]])
-        output        <- Queue.unbounded[GraphQLWSOutput]
-        pipe          <- UIO.right[CalibanPipe] { input =>
-                           ZStream
-                             .bracket(
-                               input.collectM {
-                                 case GraphQLWSInput("connection_init", id, payload) =>
-                                   val before   = ZIO.whenCase((webSocketHooks.beforeInit, payload)) {
-                                     case (Some(beforeInit), Some(payload)) =>
-                                       beforeInit(payload).catchAll(e => output.offer(makeError(id, e)))
-                                   }
-                                   val response = output.offer(connectionAck)
-                                   val ka       = keepAlive(keepAliveTime).mapM(output.offer).runDrain.fork
-                                   val after    = ZIO.whenCase(webSocketHooks.afterInit) { case Some(afterInit) =>
-                                     afterInit.catchAll(e => output.offer(makeError(id, e)))
-                                   }
-
-                                   before *> response *> ka *> after
-                                 case GraphQLWSInput("start", id, payload)           =>
-                                   val request = payload.collect { case InputValue.ObjectValue(fields) =>
-                                     val query         = fields.get("query").collect { case StringValue(v) => v }
-                                     val operationName = fields.get("operationName").collect { case StringValue(v) => v }
-                                     val variables     = fields.get("variables").collect { case InputValue.ObjectValue(v) => v }
-                                     val extensions    = fields.get("extensions").collect { case InputValue.ObjectValue(v) => v }
-                                     GraphQLRequest(query, operationName, variables, extensions)
-                                   }
-                                   request match {
-                                     case Some(req) =>
-                                       val stream = generateGraphQLResponse(
-                                         req,
-                                         id.getOrElse(""),
-                                         interpreter,
-                                         skipValidation,
-                                         enableIntrospection,
-                                         queryExecution,
-                                         subscriptions
-                                       )
-                                       webSocketHooks.onMessage
-                                         .map(_.transform(stream))
-                                         .getOrElse(stream)
-                                         .mapM(output.offer)
-                                         .runDrain
-                                         .catchAll(e => output.offer(makeError(id, e)))
-                                         .fork
-                                         .interruptible
-                                         .unit
-
-                                     case None => output.offer(connectionError)
-                                   }
-                                 case GraphQLWSInput("stop", id, _)                  =>
-                                   removeSubscription(id, subscriptions)
-                                 case GraphQLWSInput("connection_terminate", _, _)   =>
-                                   ZIO.interrupt
-                               }.runDrain.interruptible
-                                 .catchAll(_ => output.offer(connectionError))
-                                 .ensuring(subscriptions.get.flatMap(m => ZIO.foreach(m.values)(_.succeed(()))))
-                                 .provide(env)
-                                 .forkDaemon
-                             )(_.interrupt) *> ZStream.fromQueueWithShutdown(output)
-                         }
-      } yield pipe
-
-    makeWebSocketEndpoint.serverLogic[RIO[R, *]](serverRequest =>
-      requestInterceptor(serverRequest)(io).catchAll(ZIO.left(_))
-    )
-  }
+  ): ServerEndpoint[ZioWebSockets, RIO[R, *]] =
+    makeWebSocketEndpoint.serverLogic[RIO[R, *]] { case (serverRequest, protocol) =>
+      requestInterceptor(serverRequest)(
+        Protocol
+          .fromName(protocol)
+          .make(
+            interpreter,
+            skipValidation,
+            enableIntrospection,
+            keepAliveTime,
+            queryExecution,
+            webSocketHooks
+          )
+          .map(Right(_))
+      ).catchAll(ZIO.left(_))
+    }
 
   def convertHttpEndpointToFuture[E, R](
     endpoint: ServerEndpoint[Any, RIO[R, *]]
@@ -355,79 +322,6 @@ object TapirAdapter {
     override def flatten[T](ffa: RIO[R, RIO[R, T]]): RIO[R, T]                                                       = ffa.flatten
     override def ensure[T](f: RIO[R, T], e: => RIO[R, Unit]): RIO[R, T]                                              = f.ensuring(e.ignore)
   }
-
-  private[caliban] def keepAlive(keepAlive: Option[Duration]): UStream[GraphQLWSOutput] =
-    keepAlive match {
-      case None           => ZStream.empty
-      case Some(duration) =>
-        ZStream
-          .succeed(GraphQLWSOutput("ka", None, None))
-          .repeat(Schedule.spaced(duration))
-          .provideLayer(Clock.live)
-    }
-
-  private[caliban] val connectionError: GraphQLWSOutput = GraphQLWSOutput("connection_error", None, None)
-  private[caliban] val connectionAck: GraphQLWSOutput   = GraphQLWSOutput("connection_ack", None, None)
-
-  type Subscriptions = Ref[Map[String, Promise[Any, Unit]]]
-
-  private[caliban] def generateGraphQLResponse[R, E](
-    payload: GraphQLRequest,
-    id: String,
-    interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean,
-    enableIntrospection: Boolean,
-    queryExecution: QueryExecution,
-    subscriptions: Subscriptions
-  ): ZStream[R, E, GraphQLWSOutput] = {
-    val resp =
-      ZStream
-        .fromEffect(interpreter.executeRequest(payload, skipValidation, enableIntrospection, queryExecution))
-        .flatMap(res =>
-          res.data match {
-            case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
-              trackSubscription(id, subscriptions).flatMap { p =>
-                stream.map(toResponse(id, fieldName, _, res.errors)).interruptWhen(p)
-              }
-            case other                                                =>
-              ZStream.succeed(toResponse(id, GraphQLResponse(other, res.errors)))
-          }
-        )
-
-    (resp ++ complete(id)).catchAll(toStreamError(Option(id), _))
-  }
-
-  private def trackSubscription(id: String, subs: Subscriptions): UStream[Promise[Any, Unit]] =
-    ZStream.fromEffect(Promise.make[Any, Unit].tap(p => subs.update(_.updated(id, p))))
-
-  private[caliban] def removeSubscription(id: Option[String], subs: Subscriptions): UIO[Unit] =
-    IO.whenCase(id) { case Some(id) =>
-      subs.modify(map => (map.get(id), map - id)).flatMap { p =>
-        IO.whenCase(p) { case Some(p) => p.succeed(()) }
-      }
-    }
-
-  private[caliban] def toStreamError[E](id: Option[String], e: E): UStream[GraphQLWSOutput] =
-    ZStream.succeed(makeError(id, e))
-
-  private def makeError[E](id: Option[String], e: E): GraphQLWSOutput =
-    GraphQLWSOutput(
-      "error",
-      id,
-      Some(ResponseValue.ListValue(List(e match {
-        case e: CalibanError => e.toResponseValue
-        case e               => StringValue(e.toString)
-      })))
-    )
-
-  private def complete(id: String): UStream[GraphQLWSOutput] =
-    ZStream.succeed(GraphQLWSOutput("complete", Some(id), None))
-
-  private def toResponse[E](id: String, fieldName: String, r: ResponseValue, errors: List[E]): GraphQLWSOutput =
-    toResponse(id, GraphQLResponse(ObjectValue(List(fieldName -> r)), errors))
-
-  private def toResponse[E](id: String, r: GraphQLResponse[E]): GraphQLWSOutput =
-    GraphQLWSOutput("data", Some(id), Some(r.toResponseValue))
 
   private def parsePath(path: String): List[Either[String, Int]] =
     path.split('.').map(c => Try(c.toInt).toEither.left.map(_ => c)).toList

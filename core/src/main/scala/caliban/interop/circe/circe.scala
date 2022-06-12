@@ -226,10 +226,14 @@ object json {
 
     implicit val graphQLWSOutputEncoder: Encoder[GraphQLWSOutput] =
       Encoder.instance[GraphQLWSOutput](r =>
-        Json.obj(
-          "id"      -> r.id.asJson,
-          "type"    -> r.`type`.asJson,
-          "payload" -> r.payload.asJson
+        Json.fromJsonObject(
+          r.payload
+            .foldLeft(
+              JsonObject(
+                "id"   -> r.id.asJson,
+                "type" -> r.`type`.asJson
+              )
+            )((obj, v) => obj.add("payload", v.asJson))
         )
       )
 

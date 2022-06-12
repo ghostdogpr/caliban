@@ -96,7 +96,7 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions) {
     akkaInterpreter.toRoute(
       convertWebSocketEndpoint(
         endpoint.asInstanceOf[
-          ServerEndpoint.Full[Unit, Unit, ServerRequest, StatusCode, CalibanPipe, ZioWebSockets, RIO[R, *]]
+          ServerEndpoint.Full[Unit, Unit, (ServerRequest, String), StatusCode, CalibanPipe, ZioWebSockets, RIO[R, *]]
         ]
       )
     )
@@ -108,18 +108,28 @@ object AkkaHttpAdapter extends AkkaHttpAdapter(AkkaHttpServerOptions.default) {
   def apply(options: AkkaHttpServerOptions): AkkaHttpAdapter =
     new AkkaHttpAdapter(options)
 
-  type AkkaPipe = Flow[GraphQLWSInput, GraphQLWSOutput, Any]
+  type AkkaPipe = Flow[GraphQLWSInput, Either[GraphQLWSClose, GraphQLWSOutput], Any]
 
   def convertWebSocketEndpoint[R](
-    endpoint: ServerEndpoint.Full[Unit, Unit, ServerRequest, StatusCode, CalibanPipe, ZioWebSockets, RIO[R, *]]
+    endpoint: ServerEndpoint.Full[Unit, Unit, (ServerRequest, String), StatusCode, CalibanPipe, ZioWebSockets, RIO[
+      R,
+      *
+    ]]
   )(implicit
     ec: ExecutionContext,
     runtime: Runtime[R],
     materializer: Materializer
   ): ServerEndpoint[AkkaStreams with WebSockets, Future] =
-    ServerEndpoint[Unit, Unit, ServerRequest, StatusCode, AkkaPipe, AkkaStreams with WebSockets, Future](
+    ServerEndpoint[Unit, Unit, (ServerRequest, String), StatusCode, AkkaPipe, AkkaStreams with WebSockets, Future](
       endpoint.endpoint
-        .asInstanceOf[PublicEndpoint[ServerRequest, StatusCode, Pipe[GraphQLWSInput, GraphQLWSOutput], Any]],
+        .asInstanceOf[
+          PublicEndpoint[
+            (ServerRequest, String),
+            StatusCode,
+            Pipe[GraphQLWSInput, Either[GraphQLWSClose, GraphQLWSOutput]],
+            Any
+          ]
+        ],
       _ => _ => Future.successful(Right(())),
       _ =>
         _ =>
@@ -136,7 +146,8 @@ object AkkaHttpAdapter extends AkkaHttpAdapter(AkkaHttpServerOptions.default) {
                     sink            = Sink.foreachAsync[GraphQLWSInput](1)(input =>
                                         runtime.unsafeRunToFuture(inputQueue.offer(input).unit).future
                                       )
-                    (queue, source) = Source.queue[GraphQLWSOutput](0, OverflowStrategy.fail).preMaterialize()
+                    (queue, source) =
+                      Source.queue[Either[GraphQLWSClose, GraphQLWSOutput]](0, OverflowStrategy.fail).preMaterialize()
                     fiber          <- output.foreach(msg => ZIO.fromFuture(_ => queue.offer(msg))).forkDaemon
                     flow            = Flow.fromSinkAndSourceCoupled(sink, source).watchTermination() { (_, f) =>
                                         f.onComplete(_ => runtime.unsafeRun(fiber.interrupt))

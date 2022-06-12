@@ -3,6 +3,7 @@ package caliban
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives._
+import akka.stream.Materializer
 import caliban.interop.tapir.TestData.sampleCharacters
 import caliban.interop.tapir.TestService.TestService
 import caliban.interop.tapir.{ FakeAuthorizationInterceptor, TapirAdapterSpec, TestApi, TestService }
@@ -13,45 +14,44 @@ import zio._
 import zio.clock.Clock
 import zio.console.Console
 import zio.duration._
-import zio.internal.Platform
 import zio.random.Random
 import zio.test.{ DefaultRunnableSpec, TestFailure, ZSpec }
 
-import scala.concurrent.ExecutionContextExecutor
 import scala.language.postfixOps
 
 object AkkaHttpAdapterSpec extends DefaultRunnableSpec {
 
-  implicit val system: ActorSystem                                                            = ActorSystem()
-  implicit val executionContext: ExecutionContextExecutor                                     = system.dispatcher
-  implicit val runtime: Runtime[TestService with Console with Clock with Random with Uploads] =
-    Runtime.unsafeFromLayer(
-      TestService.make(sampleCharacters) ++ Console.live ++ Clock.live ++ Random.live ++ Uploads.empty,
-      Platform.default
-    )
-
-  val apiLayer: ZLayer[zio.ZEnv, Throwable, Has[Unit]] =
+  val apiLayer: ZLayer[zio.ZEnv, Throwable, TestService] =
     (for {
+      runtime     <- ZManaged.runtime[TestService with Console with Clock with Random with Uploads]
+      system      <- ZManaged.make(Task.effectTotal(ActorSystem()))(sys => ZIO.fromFuture(_ => sys.terminate()).ignore)
+      ec           = system.dispatcher
+      mat          = Materializer(system)
+      service     <- ZManaged.service[TestService.Service]
       interpreter <- TestApi.api.interpreter.toManaged_
       route        = path("api" / "graphql") {
-                       AkkaHttpAdapter.makeHttpService(interpreter, requestInterceptor = FakeAuthorizationInterceptor.bearer)
-                     } ~ path("upload" / "graphql") {
-                       AkkaHttpAdapter.makeHttpUploadService(interpreter)
-                     } ~ path("ws" / "graphql") {
-                       AkkaHttpAdapter.makeWebSocketService(interpreter)
-                     }
-      _           <- ZIO
-                       .fromFuture(_ => Http().newServerAt("localhost", 8088).bind(route))
-                       .toManaged(server =>
-                         ZIO.fromFuture(_ => server.unbind()).ignore *> ZIO.fromFuture(_ => system.terminate()).ignore
+                       AkkaHttpAdapter.makeHttpService(interpreter, requestInterceptor = FakeAuthorizationInterceptor.bearer)(
+                         runtime,
+                         implicitly,
+                         implicitly
                        )
+                     } ~ path("upload" / "graphql") {
+                       AkkaHttpAdapter.makeHttpUploadService(interpreter)(runtime, implicitly, implicitly, implicitly)
+                     } ~ path("ws" / "graphql") {
+                       AkkaHttpAdapter.makeWebSocketService(interpreter)(ec, runtime, mat, implicitly, implicitly)
+                     }
+      _           <- ZIO.fromFuture { _ =>
+                       implicit val s: ActorSystem = system
+                       Http().newServerAt("localhost", 8088).bind(route)
+                     }
+                       .toManaged(server => ZIO.fromFuture(_ => server.unbind()).ignore)
       _           <- clock.sleep(3 seconds).toManaged_
-    } yield ())
+    } yield service)
       .provideCustomLayer(TestService.make(sampleCharacters) ++ Uploads.empty ++ Clock.live)
       .toLayer
 
   def spec: ZSpec[ZEnv, Any] = {
-    val suite: ZSpec[Has[Unit], Throwable] =
+    val suite: ZSpec[TestService, Throwable] =
       TapirAdapterSpec.makeSuite(
         "AkkaHttpAdapterSpec",
         uri"http://localhost:8088/api/graphql",
