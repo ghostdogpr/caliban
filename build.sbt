@@ -19,6 +19,7 @@ val playJsonVersion           = "2.9.2"
 val sttpVersion               = "3.6.2"
 val tapirVersion              = "1.0.0-RC3"
 val zioVersion                = "2.0.0-RC6"
+val zioInteropCats2Version    = "2.5.1.1"
 val zioInteropCats3Version    = "3.3.0-RC7"
 val zioInteropReactiveVersion = "2.0.0-RC7"
 val zioConfigVersion          = "3.0.0-RC9"
@@ -75,7 +76,7 @@ lazy val root = project
     play,
     zioHttp,
     catsInterop,
-    /*monixInterop,*/
+    monixInterop,
     tapirInterop,
     clientJVM,
     clientJS,
@@ -214,18 +215,18 @@ lazy val catsInterop = project
   )
   .dependsOn(core)
 
-//lazy val monixInterop = project
-//  .in(file("interop/monix"))
-//  .settings(name := "caliban-monix")
-//  .settings(commonSettings)
-//  .settings(
-//    libraryDependencies ++= Seq(
-//      "dev.zio"  %% "zio-interop-reactivestreams" % zioInteropReactiveVersion,
-//      "dev.zio"  %% "zio-interop-cats"            % zioInteropCats2Version,
-//      "io.monix" %% "monix"                       % "3.4.1"
-//    )
-//  )
-//  .dependsOn(core)
+lazy val monixInterop = project
+  .in(file("interop/monix"))
+  .settings(name := "caliban-monix")
+  .settings(commonSettings)
+  .settings(
+    libraryDependencies ++= Seq(
+      "dev.zio"  %% "zio-interop-reactivestreams" % zioInteropReactiveVersion,
+      "dev.zio"  %% "zio-interop-cats"            % zioInteropCats2Version,
+      "io.monix" %% "monix"                       % "3.4.1"
+    )
+  )
+  .dependsOn(core)
 
 lazy val tapirInterop = project
   .in(file("interop/tapir"))
