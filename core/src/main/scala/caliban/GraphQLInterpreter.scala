@@ -87,15 +87,6 @@ trait GraphQLInterpreter[-R, +E] { self =>
     wrapExecutionWith(_.provideLayer(layer).fold(e => GraphQLResponse(NullValue, List(e)), identity))
 
   /**
-   * Provides the part of the environment that is not part of the `ZEnv`,
-   * leaving a query that only depends on the `ZEnv`.
-   */
-  final def provideCustomLayer[E1 >: E, R1](
-    layer: => ZLayer[ZEnv, E1, R1]
-  )(implicit ev: ZEnv with R1 <:< R, tagged: Tag[R1]): GraphQLInterpreter[ZEnv, E1] =
-    provideSomeLayer[ZEnv](layer)
-
-  /**
    * Splits the environment into two parts, providing one part using the
    * specified layer and leaving the remainder `R0`.
    */
