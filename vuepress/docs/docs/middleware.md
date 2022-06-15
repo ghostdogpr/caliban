@@ -29,8 +29,8 @@ import caliban.Value._
 import caliban.wrappers.Wrapper._
 import zio._
 
-val wrapper = new OverallWrapper[Clock] {
-  def wrap[R <: Clock](
+val wrapper = new OverallWrapper[Any] {
+  def wrap[R](
     process: GraphQLRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]]
   ): GraphQLRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]] =
     (request: GraphQLRequest) =>
@@ -101,7 +101,7 @@ val i2: GraphQLInterpreter[MyEnv, String] = i.mapError(_.toString)
 val i3: GraphQLInterpreter[Any, CalibanError] = i.provide(myEnv)
 
 // add a timeout on every query execution
-val i4: GraphQLInterpreter[MyEnv with Clock, CalibanError] =
+val i4: GraphQLInterpreter[MyEnv, CalibanError] =
   i.wrapExecutionWith(
     _.timeout(30 seconds).map(
       _.getOrElse(GraphQLResponse(NullValue, List(ExecutionError("Timeout!"))))
@@ -195,17 +195,17 @@ case class Query(
   @GQLCost(5) characters: UIO[List[Character]],
 )
 
-def allCharacterNames: UIO[List[String]] = UIO(???)
+def allCharacterNames: UIO[List[String]] = ZIO.succeed(???)
 def getLines(name: String, offset: Int, limit: Int): UIO[List[String]] = ???
 
 val api = GraphQL.graphQL(RootResolver(Query(
   characters = allCharacterNames.flatMap { 
-    names => UIO.foreach(names) { name =>
+    names => ZIO.foreach(names) { name =>
       val character = Character(
         name,
         spokenLines = args => getLines(name, args.offset, args.limit)
       )
-      UIO(character)
+      ZIO.succeed(character)
     } 
   }
 )))
