@@ -1,7 +1,7 @@
 package caliban.tools
 
-import zio.Task
-import zio.config.magnolia.DeriveConfigDescriptor.descriptor
+import zio.{ Task, ZIO }
+import zio.config.magnolia.Descriptor
 import zio.config.{ read, ConfigDescriptor, ConfigSource }
 
 final case class Options(
@@ -49,7 +49,7 @@ object Options {
             keyDelimiter = Some('.'),
             valueDelimiter = Some(',')
           )
-        val configDescriptor: ConfigDescriptor[RawOptions] = descriptor[RawOptions] from configSource
+        val configDescriptor: ConfigDescriptor[RawOptions] = Descriptor.descriptor[RawOptions] from configSource
 
         read(configDescriptor).map { rawOpts =>
           Options(
@@ -84,6 +84,6 @@ object Options {
             rawOpts.preserveInputNames
           )
         }
-      case _                             => Task.fail(new Exception(s"Can't parse options from arguments list $args"))
+      case _                             => ZIO.fail(new Exception(s"Can't parse options from arguments list $args"))
     }
 }

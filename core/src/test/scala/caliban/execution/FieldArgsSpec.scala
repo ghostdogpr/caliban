@@ -7,14 +7,14 @@ import zio._
 import zio.test._
 import zio.test.Assertion._
 
-object FieldArgsSpec extends DefaultRunnableSpec {
+object FieldArgsSpec extends ZIOSpecDefault {
   sealed trait COLOR
   object COLOR {
     case object GREEN extends COLOR
     case object BLUE  extends COLOR
   }
 
-  override def spec: ZSpec[TestEnvironment, Any] = suite("FieldArgsSpec")(
+  override def spec = suite("FieldArgsSpec")(
     test("it forward args of correct type") {
       case class QueryInput(color: COLOR, string: String)
       case class Query(query: Field => QueryInput => UIO[String])

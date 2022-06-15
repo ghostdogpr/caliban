@@ -11,26 +11,24 @@ import play.core.server.{ AkkaHttpServer, ServerConfig }
 import sttp.client3.UriContext
 import sttp.tapir.json.play._
 import zio._
-import zio.test.{ DefaultRunnableSpec, TestFailure, ZSpec }
+import zio.test.{ Live, ZIOSpecDefault }
 
 import scala.concurrent.ExecutionContextExecutor
 import scala.language.postfixOps
 
-object PlayAdapterSpec extends DefaultRunnableSpec {
+object PlayAdapterSpec extends ZIOSpecDefault {
 
-  implicit val system: ActorSystem                                                            = ActorSystem()
-  implicit val executionContext: ExecutionContextExecutor                                     = system.dispatcher
-  implicit val runtime: Runtime[TestService with Console with Clock with Random with Uploads] =
-    Runtime.unsafeFromLayer(
-      TestService.make(sampleCharacters) ++ Console.live ++ Clock.live ++ Random.live ++ Uploads.empty,
-      RuntimeConfig.default
-    )
+  private val envLayer = TestService.make(sampleCharacters) ++ Uploads.empty
+
+  implicit val system: ActorSystem                                 = ActorSystem()
+  implicit val executionContext: ExecutionContextExecutor          = system.dispatcher
+  override implicit val runtime: Runtime[TestService with Uploads] = Runtime.unsafeFromLayer(envLayer)
 
   val interceptor = FakeAuthorizationInterceptor.bearer
 
-  val apiLayer: ZLayer[zio.ZEnv, Throwable, Unit] =
-    (for {
-      interpreter <- TestApi.api.interpreter.toManaged
+  val apiLayer: ZLayer[Live, Throwable, Unit] = ZLayer.scoped {
+    for {
+      interpreter <- TestApi.api.interpreter
       router       = Router.from {
                        case req @ POST(p"/api/graphql")    =>
                          PlayAdapter.makeHttpService(interpreter, requestInterceptor = interceptor).apply(req)
@@ -48,20 +46,19 @@ object PlayAdapterSpec extends DefaultRunnableSpec {
               )
             )(_ => router.routes)
           )
-          .toManagedWith(server => ZIO.attempt(server.stop()).ignore *> ZIO.fromFuture(_ => system.terminate()).ignore)
-      _           <- Clock.sleep(3 seconds).toManaged
-    } yield ())
-      .provideCustomLayer(TestService.make(sampleCharacters) ++ Uploads.empty ++ Clock.live)
-      .toLayer
+          .withFinalizer(server => ZIO.attempt(server.stop()).ignore *> ZIO.fromFuture(_ => system.terminate()).ignore)
+      _           <- Live.live(Clock.sleep(3 seconds))
+    } yield ()
+  }
 
-  def spec: ZSpec[ZEnv, Any] = {
-    val suite: ZSpec[Unit, Throwable] =
+  override def spec = {
+    val suite =
       TapirAdapterSpec.makeSuite(
         "PlayAdapterSpec",
         uri"http://localhost:8088/api/graphql",
         uploadUri = Some(uri"http://localhost:8088/upload/graphql"),
         wsUri = Some(uri"ws://localhost:8088/ws/graphql")
       )
-    suite.provideSomeLayerShared[ZEnv](apiLayer.mapError(TestFailure.fail))
+    suite.provideCustomLayerShared(apiLayer)
   }
 }

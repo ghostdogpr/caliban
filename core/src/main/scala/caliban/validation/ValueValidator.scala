@@ -7,23 +7,26 @@ import caliban.introspection.adt._
 import caliban.introspection.adt.__TypeKind._
 import caliban.parsing.Parser
 import caliban.{ InputValue, Value }
-import zio.IO
+import zio.{ IO, ZIO }
 
 object ValueValidator {
   def validateDefaultValue(field: __InputValue, errorContext: String): IO[ValidationError, Unit] =
-    IO.whenCase(field.defaultValue) { case Some(v) =>
-      for {
-        value <-
-          IO.fromEither(Parser.parseInputValue(v))
-            .mapError(e =>
-              ValidationError(
-                s"$errorContext failed to parse default value: ${e.msg}",
-                "The default value for a field must be written using GraphQL input syntax."
+    ZIO
+      .whenCase(field.defaultValue) { case Some(v) =>
+        for {
+          value <-
+            ZIO
+              .fromEither(Parser.parseInputValue(v))
+              .mapError(e =>
+                ValidationError(
+                  s"$errorContext failed to parse default value: ${e.msg}",
+                  "The default value for a field must be written using GraphQL input syntax."
+                )
               )
-            )
-        _     <- Validator.validateInputValues(field, value, Context.empty, errorContext)
-      } yield ()
-    }.unit
+          _     <- Validator.validateInputValues(field, value, Context.empty, errorContext)
+        } yield ()
+      }
+      .unit
 
   def validateInputTypes(
     inputValue: __InputValue,
@@ -56,11 +59,11 @@ object ValueValidator {
           case LIST     =>
             argValue match {
               case ListValue(values) =>
-                IO.foreachDiscard(values)(v =>
+                ZIO.foreachDiscard(values)(v =>
                   validateType(inputType.ofType.getOrElse(inputType), v, context, s"List item in $errorContext")
                 )
               case NullValue         =>
-                IO.unit
+                ZIO.unit
               case other             =>
                 // handle item as the first item in the list
                 validateType(inputType.ofType.getOrElse(inputType), other, context, s"List item in $errorContext")
@@ -69,14 +72,14 @@ object ValueValidator {
           case INPUT_OBJECT =>
             argValue match {
               case ObjectValue(fields) =>
-                IO.foreachDiscard(inputType.inputFields.getOrElse(List.empty)) { f =>
+                ZIO.foreachDiscard(inputType.inputFields.getOrElse(List.empty)) { f =>
                   val value =
                     fields.collectFirst { case (name, fieldValue) if name == f.name => fieldValue }
                       .getOrElse(NullValue)
                   validateType(f.`type`(), value, context, s"Field ${f.name} in $errorContext")
                 }
               case NullValue           =>
-                IO.unit
+                ZIO.unit
               case _                   =>
                 failValidation(
                   s"$errorContext has invalid type: $argValue",
@@ -88,7 +91,7 @@ object ValueValidator {
               case EnumValue(value) =>
                 validateEnum(value, inputType, errorContext)
               case NullValue        =>
-                IO.unit
+                ZIO.unit
               case _                =>
                 failValidation(
                   s"$errorContext has invalid type: $argValue",
@@ -111,45 +114,47 @@ object ValueValidator {
       .map(_.name)
     val exists   = possible.contains(value)
 
-    IO.unless(exists)(
-      failValidation(
-        s"$errorContext has invalid enum value: $value",
-        s"Was supposed to be one of ${possible.mkString(", ")}"
+    ZIO
+      .unless(exists)(
+        failValidation(
+          s"$errorContext has invalid enum value: $value",
+          s"Was supposed to be one of ${possible.mkString(", ")}"
+        )
       )
-    ).unit
+      .unit
   }
 
   def validateScalar(inputType: __Type, argValue: InputValue, errorContext: String): IO[ValidationError, Unit] =
     inputType.name.getOrElse("") match {
       case "String"  =>
         argValue match {
-          case _: StringValue | NullValue => IO.unit
+          case _: StringValue | NullValue => ZIO.unit
           case t                          => failValidation(s"$errorContext has invalid type $t", "Expected 'String'")
         }
       case "ID"      =>
         argValue match {
-          case _: StringValue | NullValue => IO.unit
+          case _: StringValue | NullValue => ZIO.unit
           case t                          => failValidation(s"$errorContext has invalid type $t", "Expected 'ID'")
         }
       case "Int"     =>
         argValue match {
-          case _: Value.IntValue | NullValue => IO.unit
+          case _: Value.IntValue | NullValue => ZIO.unit
           case t                             => failValidation(s"$errorContext has invalid type $t", "Expected 'Int'")
         }
       case "Float"   =>
         argValue match {
-          case _: Value.FloatValue | _: Value.IntValue | NullValue => IO.unit
+          case _: Value.FloatValue | _: Value.IntValue | NullValue => ZIO.unit
           case t                                                   => failValidation(s"$errorContext has invalid type $t", "Expected 'Float'")
         }
       case "Boolean" =>
         argValue match {
-          case _: BooleanValue | NullValue => IO.unit
+          case _: BooleanValue | NullValue => ZIO.unit
           case t                           => failValidation(s"$errorContext has invalid type $t", "Expected 'Boolean'")
         }
       // We can't really validate custom scalars here (since we can't summon a correct ArgBuilder instance), so just pass them along
-      case _         => IO.unit
+      case _         => ZIO.unit
     }
 
   def failValidation[T](msg: String, explanatoryText: String): IO[ValidationError, T] =
-    IO.fail(ValidationError(msg, explanatoryText))
+    ZIO.fail(ValidationError(msg, explanatoryText))
 }

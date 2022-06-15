@@ -7,9 +7,9 @@ import caliban.parsing.adt.Directive
 import zio.test.Assertion._
 import zio.test._
 
-object RenderingSpec extends DefaultRunnableSpec {
+object RenderingSpec extends ZIOSpecDefault {
 
-  override def spec: ZSpec[TestEnvironment, Any] =
+  override def spec =
     suite("rendering")(
       test("it should render directives") {
         assert(

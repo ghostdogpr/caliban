@@ -9,7 +9,7 @@ import caliban.tools.stitching.{ HttpRequest, RemoteResolver, RemoteSchemaResolv
 import sttp.client3.asynchttpclient.zio._
 import zio._
 
-object StitchingExample extends GenericSchema[ZEnv] {
+object StitchingExample extends GenericSchema[Any] {
   val GITHUB_API = "https://api.github.com/graphql"
 
   case class AppUser(id: String, name: String, featuredRepository: Repository)
@@ -18,7 +18,7 @@ object StitchingExample extends GenericSchema[ZEnv] {
   case class GetUserQuery(name: String, repository: String)
 
   case class Queries(
-    GetUser: GetUserQuery => URIO[ZEnv, AppUser]
+    GetUser: GetUserQuery => URIO[Any, AppUser]
   )
 
   val api =
@@ -50,7 +50,7 @@ object StitchingExample extends GenericSchema[ZEnv] {
             } yield r.header("Authorization", s"Bearer ${config.githubToken}")
         ) >>> RemoteResolver.execute >>> RemoteResolver.unwrap
 
-      implicit val githubProfileSchema: Schema[ZEnv, Repository] =
+      implicit val githubProfileSchema: Schema[Any, Repository] =
         remoteSchemaResolvers
           .remoteResolver("Repository")(
             RemoteResolver.fromFunction((r: ResolveRequest[Repository]) =>
@@ -85,12 +85,13 @@ object StitchingExample extends GenericSchema[ZEnv] {
 case class Configuration(githubToken: String)
 
 object Configuration {
-  def fromEnvironment =
-    (for {
+  def fromEnvironment = ZLayer.fromZIO {
+    for {
       githubToken <- read("GITHUB_TOKEN")
-    } yield Configuration(githubToken)).toLayer
+    } yield Configuration(githubToken)
+  }
 
-  private def read(key: String): Task[String] = Task.attempt(sys.env(key))
+  private def read(key: String): Task[String] = ZIO.attempt(sys.env(key))
 }
 
 import zio.stream._
@@ -101,14 +102,14 @@ import caliban.ZHttpAdapter
 object ExampleApp extends ZIOAppDefault {
   private val graphiql = Http.fromStream(ZStream.fromResource("graphiql.html"))
 
-  override def run: ZIO[ZEnv, Nothing, ExitCode] =
+  override def run =
     (for {
       api         <- StitchingExample.api
       interpreter <- api.interpreter
       _           <- Server
                        .start(
                          8088,
-                         Http.route[Request] {
+                         Http.collectHttp[Request] {
                            case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
                            case _ -> !! / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
                            case _ -> !! / "graphiql"        => graphiql
@@ -116,7 +117,7 @@ object ExampleApp extends ZIOAppDefault {
                        )
                        .forever
     } yield ())
-      .provideCustomLayer(
+      .provideSomeLayer[Scope](
         AsyncHttpClientZioBackend.layer() ++ Configuration.fromEnvironment
       )
       .exitCode

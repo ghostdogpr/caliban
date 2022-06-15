@@ -15,11 +15,11 @@ import zio.interop.catz._
 
 object ExampleApp extends ZIOAppDefault {
 
-  type ExampleTask[A] = RIO[ZEnv with ExampleService, A]
+  type ExampleTask[A] = RIO[ExampleService, A]
 
-  override def run: URIO[ZEnv, ExitCode] =
+  override def run =
     ZIO
-      .runtime[ZEnv with ExampleService]
+      .runtime[ExampleService]
       .flatMap(implicit runtime =>
         for {
           interpreter <- ExampleApi.api.interpreter
@@ -33,10 +33,10 @@ object ExampleApp extends ZIOAppDefault {
                              ).orNotFound
                            )
                            .resource
-                           .toManagedZIO
-                           .useForever
+                           .toScopedZIO
+                           .forever
         } yield ()
       )
-      .provideCustomLayer(ExampleService.make(sampleCharacters))
+      .provideSomeLayer[Scope](ExampleService.make(sampleCharacters))
       .exitCode
 }

@@ -4,12 +4,11 @@ import caliban.GraphQL._
 import caliban.TestUtils._
 import caliban.introspection.adt.__DeprecatedArgs
 import caliban.schema.SchemaSpec.introspect
-import zio.test.Assertion._
 import zio.test._
 
-object Scala2SpecificSpec extends DefaultRunnableSpec {
+object Scala2SpecificSpec extends ZIOSpecDefault {
 
-  override def spec: ZSpec[TestEnvironment, Any] =
+  override def spec =
     suite("Scala2SpecificSpec")(
       test("value classes should unwrap") {
         case class Queries(organizationId: OrganizationId, painter: WrappedPainter)
@@ -33,11 +32,12 @@ object Scala2SpecificSpec extends DefaultRunnableSpec {
             |    movement
             |  }
             |}""".stripMargin
-        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
-          equalTo(
-            """{"events":[{"organizationId":7,"title":"Frida Kahlo exhibition"}],"painters":[{"name":"Claude Monet","movement":"Impressionism"}]}"""
+        interpreter.flatMap(_.execute(query)).map(_.data.toString).map { str =>
+          assertTrue(
+            str ==
+              """{"events":[{"organizationId":7,"title":"Frida Kahlo exhibition"}],"painters":[{"name":"Claude Monet","movement":"Impressionism"}]}"""
           )
-        )
+        }
       }
     )
 }

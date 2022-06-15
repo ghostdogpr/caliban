@@ -3,7 +3,7 @@ package caliban.tools
 import caliban.GraphQL
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document
-import zio.{ Task, UIO }
+import zio.{ Task, ZIO }
 
 trait SchemaLoader {
   def load: Task[Document]
@@ -11,16 +11,17 @@ trait SchemaLoader {
 
 object SchemaLoader {
   case class FromCaliban private (api: GraphQL[_])                                          extends SchemaLoader {
-    override def load: Task[Document] = UIO(api.toDocument)
+    override def load: Task[Document] = ZIO.succeed(api.toDocument)
   }
   case class FromDocument private (doc: Document)                                           extends SchemaLoader {
-    override def load: Task[Document] = UIO(doc)
+    override def load: Task[Document] = ZIO.succeed(doc)
   }
   case class FromFile private (path: String)                                                extends SchemaLoader {
-    override def load: Task[Document] =
-      Task(scala.io.Source.fromFile(path))
-        .acquireReleaseWith(f => UIO(f.close()), f => Task(f.mkString))
-        .flatMap(Parser.parseQuery)
+    override def load: Task[Document] = ZIO.blocking {
+      ZIO
+        .attempt(scala.io.Source.fromFile(path))
+        .acquireReleaseWithAuto(f => ZIO.attempt(f.mkString))
+    }.flatMap(Parser.parseQuery)
   }
   case class FromString private (schema: String)                                            extends SchemaLoader {
     override def load: Task[Document] = Parser.parseQuery(schema)

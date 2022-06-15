@@ -18,29 +18,29 @@ import mdg.engine.proto.reports.Trace.Node.Id.{ Index, ResponseName }
 
 import java.util.Base64
 
-object FederationTracingSpec extends DefaultRunnableSpec with GenericSchema[Clock] {
+object FederationTracingSpec extends ZIOSpecDefault with GenericSchema[Any] {
 
   case class Parent(name: String)
   case class Name(first: String, last: Option[String])
 
   case class User(
     id: String,
-    username: URIO[Clock, Name],
+    username: UIO[Name],
     age: Int,
     parents: UIO[List[Parent]]
   )
 
   case class Queries(me: ZQuery[Any, Nothing, User])
 
-  val api: GraphQL[Clock] = GraphQL.graphQL[Clock, Queries, Unit, Unit](
+  val api = GraphQL.graphQL(
     RootResolver(
       Queries(
         me = ZQuery.succeed(
           User(
             "abc123",
-            URIO.sleep(100.millis) as Name("my_first", Some("my_last")),
+            ZIO.sleep(100.millis) as Name("my_first", Some("my_last")),
             age = 42,
-            parents = UIO(List(Parent("my_parent")))
+            parents = ZIO.succeed(List(Parent("my_parent")))
           )
         )
       )
@@ -97,11 +97,11 @@ object FederationTracingSpec extends DefaultRunnableSpec with GenericSchema[Cloc
           Node(
             ResponseName("me"),"","User!","Queries",None,0,100000000,Vector(),
             Vector(
-              Node(ResponseName("age"),"","Int!","User"), 
-              Node(ResponseName("id"),"","String!","User"), 
+              Node(ResponseName("age"),"","Int!","User"),
+              Node(ResponseName("id"),"","String!","User"),
               Node(ResponseName("parents"),"","[Parent!]!","User", child = Vector(
                 Node(Index(0), child = Vector(Node(ResponseName("name"),"","String!","Parent")))
-              )), 
+              )),
               Node(ResponseName("username"),"","Name!","User",None,0,100000000,Vector(),
                 Vector(
                   Node(ResponseName("family"),"last","String","Name",None,100000000,100000000),

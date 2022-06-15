@@ -10,7 +10,7 @@ import zio.test._
 import schema.Annotations._
 import caliban.Macros.gqldoc
 
-object RemoteSchemaSpec extends DefaultRunnableSpec {
+object RemoteSchemaSpec extends ZIOSpecDefault {
   sealed trait EnumType  extends Product with Serializable
   case object EnumValue1 extends EnumType
   case object EnumValue2 extends EnumType

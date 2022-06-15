@@ -6,9 +6,9 @@ import play.api.libs.json.JsValue
 import zio.test.Assertion._
 import zio.test._
 
-object SchemaSpec extends DefaultRunnableSpec {
+object SchemaSpec extends ZIOSpecDefault {
 
-  override def spec: ZSpec[TestEnvironment, Any] =
+  override def spec =
     suite("Play SchemaSpec")(
       test("field with Json object [play]") {
         import caliban.interop.play.json._

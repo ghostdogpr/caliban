@@ -9,8 +9,8 @@ import caliban.schema.Annotations.GQLDefault
 import zio.test.Assertion._
 import zio.test._
 
-object FragmentSpec extends DefaultRunnableSpec {
-  override def spec: ZSpec[TestEnvironment, Any] =
+object FragmentSpec extends ZIOSpecDefault {
+  override def spec =
     suite("FragmentSpec")(
       test("fragments") {
         val interpreter = graphQL(resolver).interpreter
@@ -65,9 +65,9 @@ object FragmentSpec extends DefaultRunnableSpec {
                        }
                      }""")
 
-        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
-          equalTo("""{"amos":{"name":"Amos Burton","role":{"shipName":"Rocinante"}}}""")
-        )
+        interpreter.flatMap(_.execute(query)).map { response =>
+          assertTrue(response.data.toString == """{"amos":{"name":"Amos Burton","role":{"shipName":"Rocinante"}}}""")
+        }
       },
       test("inline fragment selection with equal field types") {
         sealed trait Union

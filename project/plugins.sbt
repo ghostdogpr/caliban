@@ -8,3 +8,5 @@ addSbtPlugin("com.eed3si9n"       % "sbt-buildinfo"            % "0.11.0")
 addSbtPlugin("org.scalameta"      % "sbt-mdoc"                 % "2.3.2")
 
 libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.10"
+
+addSbtPlugin("com.timushev.sbt" % "sbt-updates" % "0.6.3")

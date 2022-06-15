@@ -5,7 +5,7 @@ import caliban.introspection.adt._
 import caliban.parsing.adt.Selection
 import caliban.validation.Utils._
 import caliban.validation.Utils.syntax._
-import zio.{ Chunk, IO }
+import zio.{ Chunk, IO, ZIO }
 
 import scala.collection.mutable
 
@@ -113,9 +113,9 @@ object FragmentValidator {
       }
 
     val conflicts = sameResponseShapeByName(selectionSet) ++ sameForCommonParentsByName(selectionSet)
-
-    IO.whenCase(conflicts) { case Chunk(head, _*) =>
-      IO.fail(ValidationError(head, ""))
-    }.unit
+    conflicts match {
+      case Chunk(head, _*) => ZIO.fail(ValidationError(head, ""))
+      case _               => ZIO.unit
+    }
   }
 }

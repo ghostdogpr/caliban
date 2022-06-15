@@ -28,7 +28,7 @@ object Executor {
     plan: Step[R],
     fieldWrappers: List[FieldWrapper[R]] = Nil,
     queryExecution: QueryExecution = QueryExecution.Parallel
-  ): URIO[R, GraphQLResponse[CalibanError]] = {
+  )(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] = {
 
     val execution                                                          = request.operationType match {
       case OperationType.Query        => queryExecution
@@ -172,7 +172,7 @@ object Executor {
   }
 
   private[caliban] def fail(error: CalibanError): UIO[GraphQLResponse[CalibanError]] =
-    IO.succeed(GraphQLResponse(NullValue, List(error)))
+    ZIO.succeed(GraphQLResponse(NullValue, List(error)))
 
   private[caliban] def mergeFields(field: Field, typeName: String): List[Field] = {
     // ugly mutable code but it's worth it for the speed ;)

@@ -6,9 +6,9 @@ import caliban.Macros.gqldoc
 import caliban.{ CalibanError, GraphQLInterpreter, RootResolver }
 import caliban.schema.Annotations.GQLInterface
 import zio._
-import zio.test.{ DefaultRunnableSpec, ZSpec, _ }
+import zio.test._
 
-object FieldSpec extends DefaultRunnableSpec {
+object FieldSpec extends ZIOSpecDefault {
 
   sealed trait Union
   @GQLInterface
@@ -38,7 +38,7 @@ object FieldSpec extends DefaultRunnableSpec {
     api.interpreter
   }
 
-  def spec: ZSpec[Environment, Failure] = suite("FieldSpec")(
+  def spec = suite("FieldSpec")(
     test("gets populated with inline fragments") {
       val query = gqldoc("""{
               union { ...on Interface { id }  }

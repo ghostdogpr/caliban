@@ -5,7 +5,7 @@ import caliban.tools.*
 import sbt.Keys.commands
 import sbt.{ Command, State }
 import zio.Console.printLine
-import zio.{ Console, RIO, Runtime }
+import zio.{ Runtime, Task }
 
 object CalibanCli {
   lazy val genSchemaCommand =
@@ -59,7 +59,7 @@ object CalibanCli {
        |
        |$commonHelp
        |
-       |By default, each Query and Mutation will be wrapped into a `zio.UIO` effect. 
+       |By default, each Query and Mutation will be wrapped into a `zio.UIO` effect.
        |This can be overridden by providing an alternative effect with the `--effect` option.
        |The --abstractEffectType flag can also be used to indicate that the effect
        |type is abstract, so that it will be added as a type parameter to the generated
@@ -84,7 +84,7 @@ object CalibanCli {
     helpMsg: String,
     args: List[String],
     genType: GenType
-  ): RIO[Console, Unit] =
+  ): Task[Unit] =
     Options
       .fromArgs(args)
       .foldZIO(

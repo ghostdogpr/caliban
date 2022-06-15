@@ -9,9 +9,9 @@ import zio.ZIO
 import io.circe.parser.decode
 import io.circe.Json
 
-object GraphQLResponseSpec extends DefaultRunnableSpec {
+object GraphQLResponseSpec extends ZIOSpecDefault {
 
-  override def spec: ZSpec[TestEnvironment, Any] =
+  override def spec =
     suite("GraphQLResponseSpec")(
       test("can be parsed from JSON") {
         val response =

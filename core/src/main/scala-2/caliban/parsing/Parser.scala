@@ -4,7 +4,7 @@ import caliban.CalibanError.ParsingError
 import caliban.InputValue
 import caliban.parsing.adt._
 import fastparse._
-import zio.{ IO, Task }
+import zio.{ IO, ZIO }
 
 import scala.util.Try
 
@@ -16,11 +16,12 @@ object Parser {
    */
   def parseQuery(query: String): IO[ParsingError, Document] = {
     val sm = SourceMapper(query)
-    Task(parse(query, document(_)))
+    ZIO
+      .attempt(parse(query, document(_)))
       .mapError(ex => ParsingError(s"Internal parsing error", innerThrowable = Some(ex)))
       .flatMap {
-        case Parsed.Success(value, _) => IO.succeed(Document(value.definitions, sm))
-        case f: Parsed.Failure        => IO.fail(ParsingError(f.msg, Some(sm.getLocation(f.index))))
+        case Parsed.Success(value, _) => ZIO.succeed(Document(value.definitions, sm))
+        case f: Parsed.Failure        => ZIO.fail(ParsingError(f.msg, Some(sm.getLocation(f.index))))
       }
   }
 

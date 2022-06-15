@@ -57,15 +57,16 @@ object Codegen {
                                         scalarMappings
                                       )
                                   }
-      formatted                <- if (enableFmt) Formatter.format(code, arguments.fmtPath) else Task.succeed(code)
+      formatted                <- if (enableFmt) Formatter.format(code, arguments.fmtPath) else ZIO.succeed(code)
       paths                    <- ZIO.foreach(formatted) { case (objectName, objectCode) =>
                                     val path =
                                       if (splitFiles) s"${arguments.toPath.reverse.dropWhile(_ != '/').reverse}$objectName.scala"
                                       else arguments.toPath
 
-                                    Task.blocking(
-                                      Task(new PrintWriter(new File(path)))
-                                        .acquireReleaseWith(q => UIO(q.close()), pw => Task(pw.println(objectCode)))
+                                    ZIO.blocking(
+                                      ZIO
+                                        .attempt(new PrintWriter(new File(path)))
+                                        .acquireReleaseWithAuto(pw => ZIO.attempt(pw.println(objectCode)))
                                         .as(new File(path))
                                     )
                                   }

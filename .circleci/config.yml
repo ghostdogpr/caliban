@@ -29,20 +29,6 @@ jobs:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
-  test212_jdk8:
-    docker:
-      - image: cimg/openjdk:8.0-node
-    steps:
-      - checkout
-      - restore_cache:
-          key: sbtcache
-      - run: sbt ++2.12.14! core/test http4s/test akkaHttp/test play/test zioHttp/test examples/compile catsInterop/compile benchmarks/compile tools/test codegenSbt/test clientJVM/test monixInterop/compile tapirInterop/test federation/test reporting/test
-      - save_cache:
-          key: sbtcache
-          paths:
-            - "~/.ivy2/cache"
-            - "~/.sbt"
-            - "~/.m2"
   scripted212_jdk:
     docker:
       - image: cimg/openjdk:11.0-node
@@ -165,12 +151,6 @@ workflows:
           filters:
             tags:
               only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
-      - test212_jdk8:
-          requires:
-            - lint
-          filters:
-            tags:
-              only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
       - scripted212_jdk:
           requires:
             - lint
@@ -205,7 +185,6 @@ workflows:
           context: Sonatype
           requires:
             - test212_jdk
-            - test212_jdk8
             - scripted212_jdk
             - test213_jdk
             - test213_js

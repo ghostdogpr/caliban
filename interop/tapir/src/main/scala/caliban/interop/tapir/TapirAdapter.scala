@@ -1,5 +1,7 @@
 package caliban.interop.tapir
 
+import java.nio.charset.StandardCharsets
+
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.StringValue
 import caliban._
@@ -16,7 +18,6 @@ import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
 import zio._
 import zio.stream._
-
 import scala.concurrent.Future
 import scala.util.Try
 
@@ -91,7 +92,7 @@ object TapirAdapter {
           }(request => (Nil, requestCodec.encode(request), QueryParams()))
         )
         .in(extractFromRequest(identity))
-        .out(customJsonBody[GraphQLResponse[E]])
+        .out(customCodecJsonBody[GraphQLResponse[E]])
         .errorOut(errorBody)
 
     val getEndpoint: PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, GraphQLResponse[E], Any] =
@@ -113,7 +114,7 @@ object TapirAdapter {
           )
         )
         .in(extractFromRequest(identity))
-        .out(customJsonBody[GraphQLResponse[E]])
+        .out(customCodecJsonBody[GraphQLResponse[E]])
         .errorOut(errorBody)
 
     postEndpoint :: getEndpoint :: Nil
@@ -156,7 +157,7 @@ object TapirAdapter {
     endpoint.post
       .in(multipartBody)
       .in(extractFromRequest(identity))
-      .out(customJsonBody[GraphQLResponse[E]])
+      .out(customCodecJsonBody[GraphQLResponse[E]])
       .errorOut(errorBody)
 
   def makeHttpUploadService[R, E](
@@ -169,32 +170,33 @@ object TapirAdapter {
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
     responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): ServerEndpoint[Any, RIO[R with Random, *]] = {
+  ): ServerEndpoint[Any, RIO[R, *]] = {
     def logic(
       request: UploadRequest
-    ): RIO[R with Random, Either[TapirResponse, GraphQLResponse[E]]] = {
+    ): RIO[R, Either[TapirResponse, GraphQLResponse[E]]] = {
       val (parts, serverRequest) = request
       val partsMap               = parts.map(part => part.name -> part).toMap
 
       val io =
         for {
           rawOperations <- ZIO.fromOption(partsMap.get("operations")) orElseFail TapirResponse(StatusCode.BadRequest)
-          request       <- requestCodec.rawDecode(new String(rawOperations.body, "utf-8")) match {
+          request       <- requestCodec.rawDecode(new String(rawOperations.body, StandardCharsets.UTF_8)) match {
                              case _: DecodeResult.Failure => ZIO.fail(TapirResponse(StatusCode.BadRequest))
-                             case DecodeResult.Value(v)   => UIO(v)
+                             case DecodeResult.Value(v)   => ZIO.succeed(v)
                            }
           rawMap        <- ZIO.fromOption(partsMap.get("map")) orElseFail TapirResponse(StatusCode.BadRequest)
-          map           <- mapCodec.rawDecode(new String(rawMap.body, "utf-8")) match {
+          map           <- mapCodec.rawDecode(new String(rawMap.body, StandardCharsets.UTF_8)) match {
                              case _: DecodeResult.Failure => ZIO.fail(TapirResponse(StatusCode.BadRequest))
-                             case DecodeResult.Value(v)   => UIO(v)
+                             case DecodeResult.Value(v)   => ZIO.succeed(v)
                            }
           filePaths      = map.map { case (key, value) => (key, value.map(parsePath).toList) }.toList
                              .flatMap(kv => kv._2.map(kv._1 -> _))
-          random        <- ZIO.service[Random]
           handler        = Uploads.handler(handle =>
-                             UIO(partsMap.get(handle)).some
+                             ZIO
+                               .succeed(partsMap.get(handle))
+                               .some
                                .flatMap(fp =>
-                                 random.nextUUID.asSomeError
+                                 Random.nextUUID.asSomeError
                                    .map(uuid =>
                                      FileMeta(
                                        uuid.toString,
@@ -218,7 +220,7 @@ object TapirAdapter {
                                enableIntrospection = enableIntrospection,
                                queryExecution
                              )
-                             .provideSomeLayer[R with Random](uploadQuery.fileHandle.toLayer)
+                             .provideSomeLayer[R](ZLayer.fromZIO(uploadQuery.fileHandle))
         } yield response
 
       requestInterceptor(serverRequest)(io).either
@@ -255,10 +257,10 @@ object TapirAdapter {
 
     val io: URIO[R, Either[Nothing, CalibanPipe]] =
       for {
-        env           <- RIO.environment[R]
+        env           <- ZIO.environment[R]
         subscriptions <- Ref.make(Map.empty[String, Promise[Any, Unit]])
         output        <- Queue.unbounded[GraphQLWSOutput]
-        pipe          <- UIO.right[CalibanPipe] { input =>
+        pipe          <- ZIO.right[CalibanPipe] { input =>
                            ZStream
                              .acquireReleaseWith(
                                input.collectZIO {
@@ -323,7 +325,7 @@ object TapirAdapter {
     )
   }
 
-  def convertHttpEndpointToFuture[E, R](
+  def convertHttpEndpointToFuture[R](
     endpoint: ServerEndpoint[Any, RIO[R, *]]
   )(implicit runtime: Runtime[R]): ServerEndpoint[Any, Future] =
     ServerEndpoint[
@@ -341,14 +343,14 @@ object TapirAdapter {
     )
 
   def zioMonadError[R]: MonadError[RIO[R, *]] = new MonadError[RIO[R, *]] {
-    override def unit[T](t: T): RIO[R, T]                                                                            = URIO.succeed(t)
+    override def unit[T](t: T): RIO[R, T]                                                                            = ZIO.succeed(t)
     override def map[T, T2](fa: RIO[R, T])(f: T => T2): RIO[R, T2]                                                   = fa.map(f)
     override def flatMap[T, T2](fa: RIO[R, T])(f: T => RIO[R, T2]): RIO[R, T2]                                       = fa.flatMap(f)
-    override def error[T](t: Throwable): RIO[R, T]                                                                   = RIO.fail(t)
+    override def error[T](t: Throwable): RIO[R, T]                                                                   = ZIO.fail(t)
     override protected def handleWrappedError[T](rt: RIO[R, T])(h: PartialFunction[Throwable, RIO[R, T]]): RIO[R, T] =
       rt.catchSome(h)
-    override def eval[T](t: => T): RIO[R, T]                                                                         = RIO.attempt(t)
-    override def suspend[T](t: => RIO[R, T]): RIO[R, T]                                                              = RIO.suspend(t)
+    override def eval[T](t: => T): RIO[R, T]                                                                         = ZIO.attempt(t)
+    override def suspend[T](t: => RIO[R, T]): RIO[R, T]                                                              = ZIO.suspend(t)
     override def flatten[T](ffa: RIO[R, RIO[R, T]]): RIO[R, T]                                                       = ffa.flatten
     override def ensure[T](f: RIO[R, T], e: => RIO[R, Unit]): RIO[R, T]                                              = f.ensuring(e.ignore)
   }
@@ -398,11 +400,13 @@ object TapirAdapter {
     ZStream.fromZIO(Promise.make[Any, Unit].tap(p => subs.update(_.updated(id, p))))
 
   private[caliban] def removeSubscription(id: Option[String], subs: Subscriptions): UIO[Unit] =
-    IO.whenCase(id) { case Some(id) =>
-      subs.modify(map => (map.get(id), map - id)).flatMap { p =>
-        IO.whenCase(p) { case Some(p) => p.succeed(()) }
+    ZIO
+      .whenCase(id) { case Some(id) =>
+        subs.modify(map => (map.get(id), map - id)).flatMap { p =>
+          ZIO.whenCase(p) { case Some(p) => p.succeed(()) }
+        }
       }
-    }.unit
+      .unit
 
   private[caliban] def toStreamError[E](id: Option[String], e: E): UStream[GraphQLWSOutput] =
     ZStream.succeed(makeError(id, e))

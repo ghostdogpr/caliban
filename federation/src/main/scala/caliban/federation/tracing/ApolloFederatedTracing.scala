@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit
  */
 object ApolloFederatedTracing {
 
-  val wrapper: EffectfulWrapper[Clock] =
+  val wrapper: EffectfulWrapper[Any] =
     EffectfulWrapper(
       for {
         tracing <- Ref.make(Tracing(NodeTrie.empty))
@@ -36,9 +36,9 @@ object ApolloFederatedTracing {
       (epochMilli % 1000).toInt * 1000000
     )
 
-  private def apolloTracingOverall(ref: Ref[Tracing], enabled: Ref[Boolean]): OverallWrapper[Clock] =
-    new OverallWrapper[Clock] {
-      def wrap[R1 <: Clock](
+  private def apolloTracingOverall(ref: Ref[Tracing], enabled: Ref[Boolean]): OverallWrapper[Any] =
+    new OverallWrapper[Any] {
+      def wrap[R1](
         process: GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]]
       ): GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] =
         (request: GraphQLRequest) =>
@@ -78,9 +78,9 @@ object ApolloFederatedTracing {
           )
     }
 
-  private def apolloTracingField(ref: Ref[Tracing], enabled: Ref[Boolean]): FieldWrapper[Clock] =
-    new FieldWrapper[Clock](true) {
-      def wrap[R1 <: Clock](
+  private def apolloTracingField(ref: Ref[Tracing], enabled: Ref[Boolean]): FieldWrapper[Any] =
+    new FieldWrapper[Any](true) {
+      def wrap[R1](
         query: ZQuery[R1, CalibanError.ExecutionError, ResponseValue],
         fieldInfo: FieldInfo
       ): ZQuery[R1, CalibanError.ExecutionError, ResponseValue] =

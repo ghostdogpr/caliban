@@ -19,7 +19,7 @@ object ExampleApp extends ZIOAppDefault {
 
   case class Character(name: String, nicknames: List[String], origin: Origin, role: Option[Role])
 
-  override def run: URIO[ZEnv, ExitCode] = {
+  override def run = {
     val character = {
       import example.client.Client.Character._
       (name ~
@@ -47,7 +47,7 @@ object ExampleApp extends ZIOAppDefault {
         }
     val mutation  = Mutations.deleteCharacter("James Holden")
 
-    def sendRequest[T](req: Request[Either[CalibanClientError, T], Any]): RIO[Console with SttpClient, T] =
+    def sendRequest[T](req: Request[Either[CalibanClientError, T], Any]): RIO[SttpClient, T] =
       send(req).map(_.body).absolve.tap(res => printLine(s"Result: $res"))
 
     val uri   = uri"http://localhost:8088/api/graphql"
@@ -55,7 +55,7 @@ object ExampleApp extends ZIOAppDefault {
     val call2 = sendRequest(query.toRequest(uri, useVariables = true))
 
     (call1 *> call2)
-      .provideCustomLayer(AsyncHttpClientZioBackend.layer())
+      .provideLayer(AsyncHttpClientZioBackend.layer())
       .exitCode
   }
 }

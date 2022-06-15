@@ -14,15 +14,15 @@ import zio._
 import zio.interop.catz._
 
 object FederatedApp extends CatsApp {
-  type ExampleTask[A] = RIO[ZEnv, A]
+  type ExampleTask[A] = RIO[Any, A]
 
   val service1 =
     CharacterService
       .make(sampleCharacters)
       .memoize
-      .use(layer =>
+      .flatMap(layer =>
         for {
-          interpreter <- FederatedApi.Characters.api.interpreter.map(_.provideCustomLayer(layer))
+          interpreter <- FederatedApi.Characters.api.interpreter.map(_.provideLayer(layer))
           _           <- BlazeServerBuilder[ExampleTask]
                            .bindHttp(8089, "localhost")
                            .withHttpApp(
@@ -32,8 +32,8 @@ object FederatedApp extends CatsApp {
                              ).orNotFound
                            )
                            .resource
-                           .toManagedZIO
-                           .useForever
+                           .toScopedZIO
+                           .forever
         } yield ()
       )
 
@@ -41,9 +41,9 @@ object FederatedApp extends CatsApp {
     EpisodeService
       .make(sampleEpisodes)
       .memoize
-      .use(layer =>
+      .flatMap(layer =>
         for {
-          interpreter <- FederatedApi.Episodes.api.interpreter.map(_.provideCustomLayer(layer))
+          interpreter <- FederatedApi.Episodes.api.interpreter.map(_.provideLayer(layer))
           _           <- BlazeServerBuilder[ExampleTask]
                            .bindHttp(8088, "localhost")
                            .withHttpApp(
@@ -53,11 +53,11 @@ object FederatedApp extends CatsApp {
                              ).orNotFound
                            )
                            .resource
-                           .toManagedZIO
-                           .useForever
+                           .toScopedZIO
+                           .forever
         } yield ()
       )
 
-  override def run: URIO[ZEnv, ExitCode] =
+  override def run =
     (service1 race service2).exitCode
 }

@@ -3,12 +3,11 @@ package caliban.interop.play
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
 import caliban.RootResolver
-import zio.test.Assertion._
 import zio.test._
 
-object ExecutionSpec extends DefaultRunnableSpec {
+object ExecutionSpec extends ZIOSpecDefault {
 
-  override def spec: ZSpec[TestEnvironment, Any] =
+  override def spec =
     suite("Play ExecutionSpec")(
       test("Play Json scalar") {
         import caliban.interop.play.json._
@@ -21,7 +20,9 @@ object ExecutionSpec extends DefaultRunnableSpec {
                test
              }""")
 
-        assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(equalTo("""{"test":{"a":333}}"""))
+        interpreter.flatMap(_.execute(query)).map { response =>
+          assertTrue(response.data.toString == """{"test":{"a":333}}""")
+        }
       }
     )
 }

@@ -4,8 +4,8 @@ import caliban.tools.Options.Header
 import zio.test.Assertion._
 import zio.test._
 
-object OptionsSpec extends DefaultRunnableSpec {
-  override def spec: ZSpec[TestEnvironment, Any] =
+object OptionsSpec extends ZIOSpecDefault {
+  override def spec =
     suite("OptionsSpec")(
       test("full arguments") {
         val input = List("schema", "output", "--scalafmtPath", "fmtPath", "--headers", "header1:value1,header2:value2")

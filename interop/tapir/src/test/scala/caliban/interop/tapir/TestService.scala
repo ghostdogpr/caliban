@@ -21,13 +21,13 @@ trait TestService {
 
 object TestService {
   def getCharacters(origin: Option[Origin]): URIO[TestService, List[Character]] =
-    URIO.serviceWithZIO(_.getCharacters(origin))
+    ZIO.serviceWithZIO(_.getCharacters(origin))
 
   def findCharacter(name: String): URIO[TestService, Option[Character]] =
-    URIO.serviceWithZIO(_.findCharacter(name))
+    ZIO.serviceWithZIO(_.findCharacter(name))
 
   def deleteCharacter(name: String): URIO[TestService, Boolean] =
-    URIO.serviceWithZIO(_.deleteCharacter(name))
+    ZIO.serviceWithZIO(_.deleteCharacter(name))
 
   def deletedEvents: ZStream[TestService, Nothing, String] =
     ZStream.serviceWithStream(_.deletedEvents)
@@ -65,8 +65,8 @@ object TestService {
       } yield SomeFieldOutput(document.someField1, document.someField2)
     )
 
-  def make(initial: List[Character]): ZLayer[Any, Nothing, TestService] =
-    (for {
+  def make(initial: List[Character]): ZLayer[Any, Nothing, TestService] = ZLayer.fromZIO {
+    for {
       characters  <- Ref.make(initial)
       subscribers <- Hub.unbounded[String]
     } yield new TestService {
@@ -82,12 +82,13 @@ object TestService {
             if (list.exists(_.name == name)) (true, list.filterNot(_.name == name))
             else (false, list)
           )
-          .tap(deleted => UIO.when(deleted)(subscribers.publish(name)))
+          .tap(deleted => ZIO.when(deleted)(subscribers.publish(name)))
 
       def deletedEvents: ZStream[Any, Nothing, String] =
         ZStream.fromHub(subscribers)
 
-    }).toLayer
+    }
+  }
 
   private def sha256(b: Array[Byte]): Array[Byte] =
     MessageDigest.getInstance("SHA-256").digest(b)

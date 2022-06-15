@@ -2,7 +2,7 @@ package example.federation
 
 import example.federation.FederationData.episodes.Episode
 
-import zio.{ Ref, UIO, URIO, ZLayer }
+import zio.{ Ref, UIO, URIO, ZIO, ZLayer }
 
 trait EpisodeService {
   def getEpisode(season: Int, episode: Int): UIO[Option[Episode]]
@@ -11,12 +11,12 @@ trait EpisodeService {
 
 object EpisodeService {
   def getEpisode(season: Int, episode: Int): URIO[EpisodeService, Option[Episode]] =
-    URIO.serviceWithZIO[EpisodeService](_.getEpisode(season, episode))
+    ZIO.serviceWithZIO[EpisodeService](_.getEpisode(season, episode))
 
   def getEpisodes(season: Option[Int] = None): URIO[EpisodeService, List[Episode]] =
-    URIO.serviceWithZIO[EpisodeService](_.getEpisodes(season))
+    ZIO.serviceWithZIO[EpisodeService](_.getEpisodes(season))
 
-  def make(initial: List[Episode]): ZLayer[Any, Nothing, EpisodeService] =
+  def make(initial: List[Episode]): ZLayer[Any, Nothing, EpisodeService] = ZLayer.fromZIO {
     Ref
       .make(initial)
       .map { episodes =>
@@ -28,5 +28,5 @@ object EpisodeService {
             episodes.get.map(_.filter(e => season.forall(_ == e.season)))
         }
       }
-      .toLayer
+  }
 }

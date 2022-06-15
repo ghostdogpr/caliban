@@ -18,15 +18,15 @@ object AuthExampleApp extends CatsApp {
     def token: String
   }
 
-  type AuthTask[A] = RIO[Auth with Clock, A]
-  type MyTask[A]   = RIO[Clock, A]
+  type AuthTask[A] = RIO[Auth, A]
+  type MyTask[A]   = RIO[Any, A]
 
   case class MissingToken() extends Throwable
 
   // http4s middleware that extracts a token from the request and eliminate the Auth layer dependency
   object AuthMiddleware {
     def apply(route: HttpRoutes[AuthTask]): HttpRoutes[MyTask] =
-      Http4sAdapter.provideSomeLayerFromRequest[Clock, Auth](
+      Http4sAdapter.provideSomeLayerFromRequest[Any, Auth](
         route,
         _.headers.get(CIString("token")) match {
           case Some(value) => ZLayer.succeed(new Auth { override def token: String = value.head.value })
@@ -47,7 +47,7 @@ object AuthExampleApp extends CatsApp {
   private val resolver            = RootResolver(Query(ZIO.serviceWith[Auth](_.token)))
   private val api                 = graphQL(resolver)
 
-  override def run: ZIO[ZEnv, Nothing, ExitCode] =
+  override def run =
     (for {
       interpreter <- api.interpreter
       _           <- BlazeServerBuilder[MyTask]
@@ -60,7 +60,7 @@ object AuthExampleApp extends CatsApp {
                          ).orNotFound
                        )
                        .resource
-                       .toManagedZIO
-                       .useForever
+                       .toScopedZIO
+                       .forever
     } yield ()).exitCode
 }

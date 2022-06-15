@@ -2,7 +2,7 @@ package caliban.interop.cats
 
 import cats.effect.std.Dispatcher
 import cats.~>
-import zio.{ IsNotIntersection, RIO, Tag, ZEnvironment, ZIO }
+import zio.{ RIO, Tag, ZEnvironment, ZIO }
 
 /**
  * Describes how [[zio.RIO]] can be created from a polymorphic effect `F`.
@@ -70,7 +70,7 @@ object FromEffect {
 
     final def fromEffect[A](fa: F[A]): RIO[R, A] =
       for {
-        env    <- RIO.environment[R]
+        env    <- ZIO.environment[R]
         result <- fromEffect(fa, env)
       } yield result
   }
@@ -85,7 +85,7 @@ object FromEffect {
    * @tparam F $fParam
    * @tparam R $rParam
    */
-  def contextual[F[_], R: Tag: IsNotIntersection](dispatcher: Dispatcher[F])(implicit
+  def contextual[F[_], R: Tag](dispatcher: Dispatcher[F])(implicit
     injector: InjectEnv[F, R]
   ): FromEffect.Contextual[F, R] =
     contextual(forDispatcher[F, R](dispatcher))
@@ -98,7 +98,7 @@ object FromEffect {
    * @tparam F $fParam
    * @tparam R $rParam
    */
-  def contextual[F[_], R: Tag: IsNotIntersection](
+  def contextual[F[_], R: Tag](
     from: FromEffect[F, R]
   )(implicit injector: InjectEnv[F, R]): FromEffect.Contextual[F, R] =
     new FromEffect.Contextual[F, R] {

@@ -11,7 +11,7 @@ import sttp.tapir.internal._
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.{ EndpointIO, EndpointInput, EndpointOutput, PublicEndpoint }
 import _root_.zio.query.{ URQuery, ZQuery }
-import _root_.zio.{ IO, URIO, ZIO }
+import _root_.zio.{ URIO, ZIO }
 
 package object tapir {
 
@@ -124,7 +124,7 @@ package object tapir {
                 val replacedArgs = args.map { case (k, v) => reverseArgNames.getOrElse(k, k) -> v }
                 QueryStep(
                   ZQuery
-                    .fromZIO(IO.fromEither(argBuilder.build(InputValue.ObjectValue(replacedArgs))))
+                    .fromZIO(ZIO.fromEither(argBuilder.build(InputValue.ObjectValue(replacedArgs))))
                     .flatMap(input => serverEndpoint.logic(queryMonadError)(())(input))
                     .map {
                       case Left(error: Throwable) => QueryStep(ZQuery.fail(error))
@@ -171,7 +171,7 @@ package object tapir {
   private def extractArgNames[I](input: EndpointInput[I]): Map[String, Option[(String, Option[String])]] =
     input.traverseInputs {
       case EndpointInput.PathCapture(Some(name), _, info) => Vector(Some((name, info.description)))
-      case EndpointInput.Query(name, _, info)             => Vector(Some((name, info.description)))
+      case EndpointInput.Query(name, _, _, info)          => Vector(Some((name, info.description)))
       case EndpointInput.Cookie(name, _, info)            => Vector(Some((name, info.description)))
       case EndpointIO.Header(name, _, info)               => Vector(Some((name, info.description)))
       case EndpointIO.Body(_, _, info)                    => Vector(Some(("body", info.description)))

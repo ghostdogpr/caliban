@@ -4,7 +4,7 @@ import caliban.GraphQL._
 import caliban._
 import zio.test._
 
-object InputArgumentSpec extends DefaultRunnableSpec {
+object InputArgumentSpec extends ZIOSpecDefault {
   sealed trait Enum
   case object Valid extends Enum
 
@@ -32,7 +32,7 @@ object InputArgumentSpec extends DefaultRunnableSpec {
   )
   val gql = graphQL(RootResolver(Query()))
 
-  override def spec: ZSpec[TestEnvironment, Any] =
+  override def spec =
     suite("InputArgumentSpec")(
       test("non-null") {
         val query =

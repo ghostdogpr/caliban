@@ -5,8 +5,8 @@ import caliban.GraphQL._
 import zio.test.Assertion._
 import zio.test._
 
-object InputObjectSpec extends DefaultRunnableSpec {
-  override def spec: ZSpec[TestEnvironment, Any] =
+object InputObjectSpec extends ZIOSpecDefault {
+  override def spec =
     suite("InputObjectSpec")(
       test("fails if a non-null field on an input object is null") {
         val query =

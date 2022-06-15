@@ -3,8 +3,8 @@ package caliban.client
 import zio.test._
 import java.util.UUID
 
-object ArgEncoderSpec extends DefaultRunnableSpec {
-  override def spec: ZSpec[TestEnvironment, Any] =
+object ArgEncoderSpec extends ZIOSpecDefault {
+  override def spec =
     suite("ArgEncoderSpec")(
       suite("__StringValue")(
         test("regular string") {

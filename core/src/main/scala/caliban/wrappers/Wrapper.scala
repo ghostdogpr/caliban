@@ -132,12 +132,12 @@ object Wrapper {
         List.empty[IntrospectionWrapper[R]]
       )
     ) {
-      case ((o, p, v, e, f, i), wrapper: OverallWrapper[R])       => UIO.succeed((wrapper :: o, p, v, e, f, i))
-      case ((o, p, v, e, f, i), wrapper: ParsingWrapper[R])       => UIO.succeed((o, wrapper :: p, v, e, f, i))
-      case ((o, p, v, e, f, i), wrapper: ValidationWrapper[R])    => UIO.succeed((o, p, wrapper :: v, e, f, i))
-      case ((o, p, v, e, f, i), wrapper: ExecutionWrapper[R])     => UIO.succeed((o, p, v, wrapper :: e, f, i))
-      case ((o, p, v, e, f, i), wrapper: FieldWrapper[R])         => UIO.succeed((o, p, v, e, wrapper :: f, i))
-      case ((o, p, v, e, f, i), wrapper: IntrospectionWrapper[R]) => UIO.succeed((o, p, v, e, f, wrapper :: i))
+      case ((o, p, v, e, f, i), wrapper: OverallWrapper[R])       => ZIO.succeed((wrapper :: o, p, v, e, f, i))
+      case ((o, p, v, e, f, i), wrapper: ParsingWrapper[R])       => ZIO.succeed((o, wrapper :: p, v, e, f, i))
+      case ((o, p, v, e, f, i), wrapper: ValidationWrapper[R])    => ZIO.succeed((o, p, wrapper :: v, e, f, i))
+      case ((o, p, v, e, f, i), wrapper: ExecutionWrapper[R])     => ZIO.succeed((o, p, v, wrapper :: e, f, i))
+      case ((o, p, v, e, f, i), wrapper: FieldWrapper[R])         => ZIO.succeed((o, p, v, e, wrapper :: f, i))
+      case ((o, p, v, e, f, i), wrapper: IntrospectionWrapper[R]) => ZIO.succeed((o, p, v, e, f, wrapper :: i))
       case ((o, p, v, e, f, i), CombinedWrapper(wrappers))        =>
         decompose(wrappers).map { case (o2, p2, v2, e2, f2, i2) =>
           (o2 ++ o, p2 ++ p, v2 ++ v, e2 ++ e, f2 ++ f, i2 ++ i)

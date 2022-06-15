@@ -4,9 +4,9 @@ import caliban.schema.Annotations.GQLInterface
 import caliban.{ GraphQL, RootResolver }
 import zio.test._
 
-object RootTypeSpec extends DefaultRunnableSpec {
+object RootTypeSpec extends ZIOSpecDefault {
 
-  override def spec: ZSpec[TestEnvironment, Any] =
+  override def spec =
     suite("RootTypeSpec")(
       test("do not override interface") {
         case class Queries(findCommon: CommonInterface, findInterface: MyInterface, findField: MyField)

@@ -1,4 +1,5 @@
 package caliban.federation.v2
+
 import caliban.InputValue.ListValue
 import caliban.Macros.gqldoc
 import caliban.Value.StringValue
@@ -6,12 +7,12 @@ import caliban.{ GraphQL, RootResolver }
 import caliban.parsing.Parser
 import caliban.parsing.adt.{ Definition, Directive }
 import io.circe.Json
-import zio.test.{ assertTrue, DefaultRunnableSpec }
+import zio.test.{ assertTrue, ZIOSpecDefault }
 import io.circe.syntax._
 import io.circe.parser.decode
-import zio.IO
+import zio.ZIO
 
-object FederationV2Spec extends DefaultRunnableSpec {
+object FederationV2Spec extends ZIOSpecDefault {
   override def spec =
     suite("FederationV2Spec")(
       test("includes schema directives") {
@@ -30,7 +31,7 @@ object FederationV2Spec extends DefaultRunnableSpec {
         for {
           interpreter <- api.interpreter
           data        <- interpreter.execute(query).map(resp => decode[Json](resp.data.toString)).absolve
-          sdl         <- IO.fromEither(data.hcursor.downField("_service").downField("sdl").as[String])
+          sdl         <- ZIO.fromEither(data.hcursor.downField("_service").downField("sdl").as[String])
           document    <- Parser.parseQuery(sdl)
         } yield {
           val schemaDirectives =

@@ -18,7 +18,7 @@ object ApolloTracing {
    * Returns a wrapper that adds tracing information to every response
    * following Apollo Tracing format: https://github.com/apollographql/apollo-tracing.
    */
-  val apolloTracing: EffectfulWrapper[Clock] =
+  val apolloTracing: EffectfulWrapper[Any] =
     EffectfulWrapper(
       Ref
         .make(Tracing())
@@ -101,9 +101,9 @@ object ApolloTracing {
       )
   }
 
-  private def apolloTracingOverall(ref: Ref[Tracing]): OverallWrapper[Clock] =
-    new OverallWrapper[Clock] {
-      def wrap[R1 <: Clock](
+  private def apolloTracingOverall(ref: Ref[Tracing]): OverallWrapper[Any] =
+    new OverallWrapper[Any] {
+      def wrap[R1](
         process: GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]]
       ): GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] =
         (request: GraphQLRequest) =>
@@ -128,9 +128,9 @@ object ApolloTracing {
           } yield result
     }
 
-  private def apolloTracingParsing(ref: Ref[Tracing]): ParsingWrapper[Clock] =
-    new ParsingWrapper[Clock] {
-      def wrap[R1 <: Clock](
+  private def apolloTracingParsing(ref: Ref[Tracing]): ParsingWrapper[Any] =
+    new ParsingWrapper[Any] {
+      def wrap[R1](
         process: String => ZIO[R1, CalibanError.ParsingError, Document]
       ): String => ZIO[R1, CalibanError.ParsingError, Document] =
         (query: String) =>
@@ -146,9 +146,9 @@ object ApolloTracing {
           } yield result
     }
 
-  private def apolloTracingValidation(ref: Ref[Tracing]): ValidationWrapper[Clock] =
-    new ValidationWrapper[Clock] {
-      def wrap[R1 <: Clock](
+  private def apolloTracingValidation(ref: Ref[Tracing]): ValidationWrapper[Any] =
+    new ValidationWrapper[Any] {
+      def wrap[R1](
         process: Document => ZIO[R1, CalibanError.ValidationError, ExecutionRequest]
       ): Document => ZIO[R1, CalibanError.ValidationError, ExecutionRequest] =
         (doc: Document) =>
@@ -165,9 +165,9 @@ object ApolloTracing {
           } yield result
     }
 
-  private def apolloTracingField(ref: Ref[Tracing]): FieldWrapper[Clock] =
-    new FieldWrapper[Clock](true) {
-      def wrap[R1 <: Clock](
+  private def apolloTracingField(ref: Ref[Tracing]): FieldWrapper[Any] =
+    new FieldWrapper[Any](true) {
+      def wrap[R1](
         query: ZQuery[R1, CalibanError.ExecutionError, ResponseValue],
         fieldInfo: FieldInfo
       ): ZQuery[R1, CalibanError.ExecutionError, ResponseValue] =

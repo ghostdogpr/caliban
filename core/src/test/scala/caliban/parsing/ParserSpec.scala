@@ -17,9 +17,9 @@ import caliban.parsing.adt._
 import zio.test.Assertion._
 import zio.test._
 
-object ParserSpec extends DefaultRunnableSpec {
+object ParserSpec extends ZIOSpecDefault {
 
-  override def spec: ZSpec[TestEnvironment, Any] =
+  override def spec =
     suite("ParserSpec")(
       test("simple query with fields") {
         val query = """{
@@ -31,23 +31,24 @@ object ParserSpec extends DefaultRunnableSpec {
                       |    }
                       |  }
                       |}""".stripMargin
-        assertM(Parser.parseQuery(query))(
-          equalTo(
-            simpleQuery(
-              selectionSet = List(
-                simpleField(
-                  "hero",
-                  selectionSet = List(
-                    simpleField("name", index = 15),
-                    simpleField("friends", selectionSet = List(simpleField("name", index = 73)), index = 57)
-                  ),
-                  index = 4
-                )
-              ),
-              sourceMapper = SourceMapper(query)
-            )
+        Parser.parseQuery(query).map { doc =>
+          assertTrue(
+            doc ==
+              simpleQuery(
+                selectionSet = List(
+                  simpleField(
+                    "hero",
+                    selectionSet = List(
+                      simpleField("name", index = 15),
+                      simpleField("friends", selectionSet = List(simpleField("name", index = 73)), index = 57)
+                    ),
+                    index = 4
+                  )
+                ),
+                sourceMapper = SourceMapper(query)
+              )
           )
-        )
+        }
       },
       test("arguments") {
         val query = """{
@@ -56,24 +57,25 @@ object ParserSpec extends DefaultRunnableSpec {
                       |    height(unit: FOOT)
                       |  }
                       |}""".stripMargin
-        assertM(Parser.parseQuery(query))(
-          equalTo(
-            simpleQuery(
-              selectionSet = List(
-                simpleField(
-                  "human",
-                  arguments = Map("id" -> StringValue("1000")),
-                  selectionSet = List(
-                    simpleField("name", index = 28),
-                    simpleField("height", arguments = Map("unit" -> EnumValue("FOOT")), index = 37)
-                  ),
-                  index = 4
-                )
-              ),
-              sourceMapper = SourceMapper(query)
-            )
+        Parser.parseQuery(query).map { doc =>
+          assertTrue(
+            doc ==
+              simpleQuery(
+                selectionSet = List(
+                  simpleField(
+                    "human",
+                    arguments = Map("id" -> StringValue("1000")),
+                    selectionSet = List(
+                      simpleField("name", index = 28),
+                      simpleField("height", arguments = Map("unit" -> EnumValue("FOOT")), index = 37)
+                    ),
+                    index = 4
+                  )
+                ),
+                sourceMapper = SourceMapper(query)
+              )
           )
-        )
+        }
       },
       test("arguments with a backslash") {
         val query = """{
@@ -81,21 +83,22 @@ object ParserSpec extends DefaultRunnableSpec {
                       |    name
                       |  }
                       |}""".stripMargin
-        assertM(Parser.parseQuery(query))(
-          equalTo(
-            simpleQuery(
-              selectionSet = List(
-                simpleField(
-                  "human",
-                  arguments = Map("id" -> StringValue("1000\\")),
-                  selectionSet = List(simpleField("name", index = 30)),
-                  index = 4
-                )
-              ),
-              sourceMapper = SourceMapper(query)
-            )
+        Parser.parseQuery(query).map { doc =>
+          assertTrue(
+            doc ==
+              simpleQuery(
+                selectionSet = List(
+                  simpleField(
+                    "human",
+                    arguments = Map("id" -> StringValue("1000\\")),
+                    selectionSet = List(simpleField("name", index = 30)),
+                    index = 4
+                  )
+                ),
+                sourceMapper = SourceMapper(query)
+              )
           )
-        )
+        }
       },
       test("aliases") {
         val query = """{
@@ -106,29 +109,30 @@ object ParserSpec extends DefaultRunnableSpec {
                       |    name
                       |  }
                       |}""".stripMargin
-        assertM(Parser.parseQuery(query))(
-          equalTo(
-            simpleQuery(
-              selectionSet = List(
-                simpleField(
-                  "hero",
-                  alias = Some("empireHero"),
-                  arguments = Map("episode" -> EnumValue("EMPIRE")),
-                  selectionSet = List(simpleField("name", index = 44)),
-                  index = 4
+        Parser.parseQuery(query).map { doc =>
+          assertTrue(
+            doc ==
+              simpleQuery(
+                selectionSet = List(
+                  simpleField(
+                    "hero",
+                    alias = Some("empireHero"),
+                    arguments = Map("episode" -> EnumValue("EMPIRE")),
+                    selectionSet = List(simpleField("name", index = 44)),
+                    index = 4
+                  ),
+                  simpleField(
+                    "hero",
+                    alias = Some("jediHero"),
+                    arguments = Map("episode" -> EnumValue("JEDI")),
+                    selectionSet = List(simpleField("name", index = 91)),
+                    index = 55
+                  )
                 ),
-                simpleField(
-                  "hero",
-                  alias = Some("jediHero"),
-                  arguments = Map("episode" -> EnumValue("JEDI")),
-                  selectionSet = List(simpleField("name", index = 91)),
-                  index = 55
-                )
-              ),
-              sourceMapper = SourceMapper(query)
-            )
+                sourceMapper = SourceMapper(query)
+              )
           )
-        )
+        }
       },
       test("input values") {
         val query = """{
@@ -139,47 +143,49 @@ object ParserSpec extends DefaultRunnableSpec {
                       |    name
                       |  }
                       |}""".stripMargin
-        assertM(Parser.parseQuery(query))(
-          equalTo(
-            simpleQuery(
-              selectionSet = List(
-                simpleField(
-                  "human",
-                  arguments = Map(
-                    "id"    -> StringValue("1000"),
-                    "int"   -> IntValue(3),
-                    "float" -> FloatValue("3.14"),
-                    "bool"  -> BooleanValue(true),
-                    "nope"  -> NullValue,
-                    "enum"  -> EnumValue("YES"),
-                    "list"  -> ListValue(List(IntValue(1), IntValue(2), IntValue(3))),
-                    "obj"   -> ObjectValue(Map("name" -> StringValue("name")))
-                  ),
-                  selectionSet = List(simpleField("name", index = 131)),
-                  index = 4
-                )
-              ),
-              sourceMapper = SourceMapper(query)
-            )
+        Parser.parseQuery(query).map { doc =>
+          assertTrue(
+            doc ==
+              simpleQuery(
+                selectionSet = List(
+                  simpleField(
+                    "human",
+                    arguments = Map(
+                      "id"    -> StringValue("1000"),
+                      "int"   -> IntValue(3),
+                      "float" -> FloatValue("3.14"),
+                      "bool"  -> BooleanValue(true),
+                      "nope"  -> NullValue,
+                      "enum"  -> EnumValue("YES"),
+                      "list"  -> ListValue(List(IntValue(1), IntValue(2), IntValue(3))),
+                      "obj"   -> ObjectValue(Map("name" -> StringValue("name")))
+                    ),
+                    selectionSet = List(simpleField("name", index = 131)),
+                    index = 4
+                  )
+                ),
+                sourceMapper = SourceMapper(query)
+              )
           )
-        )
+        }
       },
       test("block strings") {
         val query = "{ sendEmail(message: \"\"\"\n  Hello,\n    World!\n\n  Yours,\n    GraphQL. \"\"\") }"
-        assertM(Parser.parseQuery(query))(
-          equalTo(
-            simpleQuery(
-              selectionSet = List(
-                simpleField(
-                  "sendEmail",
-                  arguments = Map("message" -> StringValue("Hello,\n  World!\n\nYours,\n  GraphQL. ")),
-                  index = 2
-                )
-              ),
-              sourceMapper = SourceMapper(query)
-            )
+        Parser.parseQuery(query).map { doc =>
+          assertTrue(
+            doc ==
+              simpleQuery(
+                selectionSet = List(
+                  simpleField(
+                    "sendEmail",
+                    arguments = Map("message" -> StringValue("Hello,\n  World!\n\nYours,\n  GraphQL. ")),
+                    index = 2
+                  )
+                ),
+                sourceMapper = SourceMapper(query)
+              )
           )
-        )
+        }
       },
       test("variables") {
         val query = """query getZuckProfile($devicePicSize: Int = 60) {
@@ -189,73 +195,76 @@ object ParserSpec extends DefaultRunnableSpec {
                       |    profilePic(size: $devicePicSize)
                       |  }
                       |}""".stripMargin
-        assertM(Parser.parseQuery(query))(
-          equalTo(
-            simpleQuery(
-              name = Some("getZuckProfile"),
-              variableDefinitions = List(
-                VariableDefinition("devicePicSize", NamedType("Int", nonNull = false), Some(IntValue(60)), Nil)
-              ),
-              selectionSet = List(
-                simpleField(
-                  "user",
-                  arguments = Map("id" -> IntValue(4)),
-                  selectionSet = List(
-                    simpleField("id", index = 69),
-                    simpleField("name", index = 76),
-                    simpleField("profilePic", arguments = Map("size" -> VariableValue("devicePicSize")), index = 85)
-                  ),
-                  index = 51
-                )
-              ),
-              sourceMapper = SourceMapper(query)
-            )
+        Parser.parseQuery(query).map { doc =>
+          assertTrue(
+            doc ==
+              simpleQuery(
+                name = Some("getZuckProfile"),
+                variableDefinitions = List(
+                  VariableDefinition("devicePicSize", NamedType("Int", nonNull = false), Some(IntValue(60)), Nil)
+                ),
+                selectionSet = List(
+                  simpleField(
+                    "user",
+                    arguments = Map("id" -> IntValue(4)),
+                    selectionSet = List(
+                      simpleField("id", index = 69),
+                      simpleField("name", index = 76),
+                      simpleField("profilePic", arguments = Map("size" -> VariableValue("devicePicSize")), index = 85)
+                    ),
+                    index = 51
+                  )
+                ),
+                sourceMapper = SourceMapper(query)
+              )
           )
-        )
+        }
       },
       test("directives") {
         val query = """query myQuery($sometest: Boolean) {
                       |  experimentalField @skip(if: $sometest)
                       |}""".stripMargin
-        assertM(Parser.parseQuery(query))(
-          equalTo(
-            simpleQuery(
-              name = Some("myQuery"),
-              variableDefinitions =
-                List(VariableDefinition("sometest", NamedType("Boolean", nonNull = false), None, Nil)),
-              selectionSet = List(
-                simpleField(
-                  "experimentalField",
-                  directives = List(Directive("skip", Map("if" -> VariableValue("sometest")), 56)),
-                  index = 38
-                )
-              ),
-              sourceMapper = SourceMapper(query)
-            )
+        Parser.parseQuery(query).map { doc =>
+          assertTrue(
+            doc ==
+              simpleQuery(
+                name = Some("myQuery"),
+                variableDefinitions =
+                  List(VariableDefinition("sometest", NamedType("Boolean", nonNull = false), None, Nil)),
+                selectionSet = List(
+                  simpleField(
+                    "experimentalField",
+                    directives = List(Directive("skip", Map("if" -> VariableValue("sometest")), 56)),
+                    index = 38
+                  )
+                ),
+                sourceMapper = SourceMapper(query)
+              )
           )
-        )
+        }
       },
       test("list and non-null types") {
         val query = """query getZuckProfile($devicePicSize: [Int!]!) {
                       |  nothing
                       |}""".stripMargin
-        assertM(Parser.parseQuery(query))(
-          equalTo(
-            simpleQuery(
-              name = Some("getZuckProfile"),
-              variableDefinitions = List(
-                VariableDefinition(
-                  "devicePicSize",
-                  ListType(NamedType("Int", nonNull = true), nonNull = true),
-                  None,
-                  Nil
-                )
-              ),
-              selectionSet = List(simpleField("nothing", index = 50)),
-              sourceMapper = SourceMapper(query)
-            )
+        Parser.parseQuery(query).map { doc =>
+          assertTrue(
+            doc ==
+              simpleQuery(
+                name = Some("getZuckProfile"),
+                variableDefinitions = List(
+                  VariableDefinition(
+                    "devicePicSize",
+                    ListType(NamedType("Int", nonNull = true), nonNull = true),
+                    None,
+                    Nil
+                  )
+                ),
+                selectionSet = List(simpleField("nothing", index = 50)),
+                sourceMapper = SourceMapper(query)
+              )
           )
-        )
+        }
       },
       test("fragments") {
         val query = """query withFragments {
@@ -274,52 +283,53 @@ object ParserSpec extends DefaultRunnableSpec {
                       |  name
                       |  profilePic(size: 50)
                       |}""".stripMargin
-        assertM(Parser.parseQuery(query))(
-          equalTo(
-            Document(
-              List(
-                OperationDefinition(
-                  Query,
-                  Some("withFragments"),
-                  Nil,
-                  Nil,
-                  List(
-                    simpleField(
-                      "user",
-                      arguments = Map("id" -> IntValue(4)),
-                      selectionSet = List(
-                        simpleField(
-                          "friends",
-                          arguments = Map("first" -> IntValue(10)),
-                          selectionSet = List(FragmentSpread("friendFields", Nil)),
-                          index = 42
+        Parser.parseQuery(query).map { doc =>
+          assertTrue(
+            doc ==
+              Document(
+                List(
+                  OperationDefinition(
+                    Query,
+                    Some("withFragments"),
+                    Nil,
+                    Nil,
+                    List(
+                      simpleField(
+                        "user",
+                        arguments = Map("id" -> IntValue(4)),
+                        selectionSet = List(
+                          simpleField(
+                            "friends",
+                            arguments = Map("first" -> IntValue(10)),
+                            selectionSet = List(FragmentSpread("friendFields", Nil)),
+                            index = 42
+                          ),
+                          simpleField(
+                            "mutualFriends",
+                            arguments = Map("first" -> IntValue(10)),
+                            selectionSet = List(FragmentSpread("friendFields", Nil)),
+                            index = 95
+                          )
                         ),
-                        simpleField(
-                          "mutualFriends",
-                          arguments = Map("first" -> IntValue(10)),
-                          selectionSet = List(FragmentSpread("friendFields", Nil)),
-                          index = 95
-                        )
-                      ),
-                      index = 24
+                        index = 24
+                      )
+                    )
+                  ),
+                  FragmentDefinition(
+                    "friendFields",
+                    NamedType("User", nonNull = false),
+                    Nil,
+                    List(
+                      simpleField("id", index = 191),
+                      simpleField("name", index = 196),
+                      simpleField("profilePic", arguments = Map("size" -> IntValue(50)), index = 203)
                     )
                   )
                 ),
-                FragmentDefinition(
-                  "friendFields",
-                  NamedType("User", nonNull = false),
-                  Nil,
-                  List(
-                    simpleField("id", index = 191),
-                    simpleField("name", index = 196),
-                    simpleField("profilePic", arguments = Map("size" -> IntValue(50)), index = 203)
-                  )
-                )
-              ),
-              SourceMapper(query)
-            )
+                SourceMapper(query)
+              )
           )
-        )
+        }
       },
       test("inline fragments") {
         val query = """query inlineFragmentTyping {
@@ -337,36 +347,37 @@ object ParserSpec extends DefaultRunnableSpec {
                       |    }
                       |  }
                       |}""".stripMargin
-        assertM(Parser.parseQuery(query))(
-          equalTo(
-            simpleQuery(
-              name = Some("inlineFragmentTyping"),
-              selectionSet = List(
-                simpleField(
-                  "profiles",
-                  arguments = Map("handles" -> ListValue(List(StringValue("zuck"), StringValue("cocacola")))),
-                  selectionSet = List(
-                    simpleField("handle", index = 77),
-                    InlineFragment(
-                      Some(NamedType("User", nonNull = false)),
-                      Nil,
-                      List(
-                        simpleField("friends", selectionSet = List(simpleField("count", index = 125)), index = 107)
+        Parser.parseQuery(query).map { doc =>
+          assertTrue(
+            doc ==
+              simpleQuery(
+                name = Some("inlineFragmentTyping"),
+                selectionSet = List(
+                  simpleField(
+                    "profiles",
+                    arguments = Map("handles" -> ListValue(List(StringValue("zuck"), StringValue("cocacola")))),
+                    selectionSet = List(
+                      simpleField("handle", index = 77),
+                      InlineFragment(
+                        Some(NamedType("User", nonNull = false)),
+                        Nil,
+                        List(
+                          simpleField("friends", selectionSet = List(simpleField("count", index = 125)), index = 107)
+                        )
+                      ),
+                      InlineFragment(
+                        Some(NamedType("Page", nonNull = false)),
+                        Nil,
+                        List(simpleField("likers", selectionSet = List(simpleField("count", index = 186)), index = 169))
                       )
                     ),
-                    InlineFragment(
-                      Some(NamedType("Page", nonNull = false)),
-                      Nil,
-                      List(simpleField("likers", selectionSet = List(simpleField("count", index = 186)), index = 169))
-                    )
-                  ),
-                  index = 31
-                )
-              ),
-              sourceMapper = SourceMapper(query)
-            )
+                    index = 31
+                  )
+                ),
+                sourceMapper = SourceMapper(query)
+              )
           )
-        )
+        }
       },
       test("inline fragments with directives") {
         val query = """query inlineFragmentNoType($expandedInfo: Boolean) {
@@ -380,36 +391,37 @@ object ParserSpec extends DefaultRunnableSpec {
                       |    }
                       |  }
                       |}""".stripMargin
-        assertM(Parser.parseQuery(query))(
-          equalTo(
-            simpleQuery(
-              name = Some("inlineFragmentNoType"),
-              variableDefinitions =
-                List(VariableDefinition("expandedInfo", NamedType("Boolean", nonNull = false), None, Nil)),
-              selectionSet = List(
-                simpleField(
-                  "user",
-                  arguments = Map("handle" -> StringValue("zuck")),
-                  selectionSet = List(
-                    simpleField("id", index = 82),
-                    simpleField("name", index = 89),
-                    InlineFragment(
-                      None,
-                      List(Directive("include", Map("if" -> VariableValue("expandedInfo")), 102)),
-                      List(
-                        simpleField("firstName", index = 138),
-                        simpleField("lastName", index = 154),
-                        simpleField("birthday", index = 169)
+        Parser.parseQuery(query).map { doc =>
+          assertTrue(
+            doc ==
+              simpleQuery(
+                name = Some("inlineFragmentNoType"),
+                variableDefinitions =
+                  List(VariableDefinition("expandedInfo", NamedType("Boolean", nonNull = false), None, Nil)),
+                selectionSet = List(
+                  simpleField(
+                    "user",
+                    arguments = Map("handle" -> StringValue("zuck")),
+                    selectionSet = List(
+                      simpleField("id", index = 82),
+                      simpleField("name", index = 89),
+                      InlineFragment(
+                        None,
+                        List(Directive("include", Map("if" -> VariableValue("expandedInfo")), 102)),
+                        List(
+                          simpleField("firstName", index = 138),
+                          simpleField("lastName", index = 154),
+                          simpleField("birthday", index = 169)
+                        )
                       )
-                    )
-                  ),
-                  index = 55
-                )
-              ),
-              sourceMapper = SourceMapper(query)
-            )
+                    ),
+                    index = 55
+                  )
+                ),
+                sourceMapper = SourceMapper(query)
+              )
           )
-        )
+        }
       },
       test("mutation") {
         val query = """mutation {
@@ -419,31 +431,32 @@ object ParserSpec extends DefaultRunnableSpec {
                       |    }
                       |  }
                       |}""".stripMargin
-        assertM(Parser.parseQuery(query))(
-          equalTo(
-            Document(
-              List(
-                OperationDefinition(
-                  Mutation,
-                  None,
-                  Nil,
-                  Nil,
-                  List(
-                    simpleField(
-                      "likeStory",
-                      arguments = Map("storyID" -> IntValue(12345)),
-                      selectionSet = List(
-                        simpleField("story", selectionSet = List(simpleField("likeCount", index = 59)), index = 45)
-                      ),
-                      index = 13
+        Parser.parseQuery(query).map { doc =>
+          assertTrue(
+            doc ==
+              Document(
+                List(
+                  OperationDefinition(
+                    Mutation,
+                    None,
+                    Nil,
+                    Nil,
+                    List(
+                      simpleField(
+                        "likeStory",
+                        arguments = Map("storyID" -> IntValue(12345)),
+                        selectionSet = List(
+                          simpleField("story", selectionSet = List(simpleField("likeCount", index = 59)), index = 45)
+                        ),
+                        index = 13
+                      )
                     )
                   )
-                )
-              ),
-              SourceMapper(query)
-            )
+                ),
+                SourceMapper(query)
+              )
           )
-        )
+        }
       },
       test("invalid syntax") {
         val query = """{
@@ -451,9 +464,16 @@ object ParserSpec extends DefaultRunnableSpec {
                       |    name(
                       |  }
                       |}""".stripMargin
-        assertM(Parser.parseQuery(query).exit)(
-          fails(isSubtype[ParsingError](hasField("locationInfo", _.locationInfo, isSome(equalTo(LocationInfo(3, 4))))))
-        )
+        Parser
+          .parseQuery(query)
+          .exit
+          .map(
+            assert(_)(
+              fails(
+                isSubtype[ParsingError](hasField("locationInfo", _.locationInfo, isSome(equalTo(LocationInfo(3, 4)))))
+              )
+            )
+          )
       },
       test("type") {
         val gqltype =
@@ -464,9 +484,9 @@ object ParserSpec extends DefaultRunnableSpec {
             |suits: [String]
             |powers: [String!]!
             |}""".stripMargin
-        assertM(Parser.parseQuery(gqltype))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqltype).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 ObjectTypeDefinition(
                   None,
@@ -491,13 +511,13 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqltype)
             )
           )
-        )
+        }
       },
       test("input with no body") {
         val inputWithNoBody = "input BarBaz"
-        assertM(Parser.parseQuery(inputWithNoBody))(
-          equalTo(
-            Document(
+        Parser.parseQuery(inputWithNoBody).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 InputObjectTypeDefinition(
                   description = None,
@@ -509,13 +529,13 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(inputWithNoBody)
             )
           )
-        )
+        }
       },
       test("input with empty body") {
         val inputWithEmptyBody = "input BarBaz { }"
-        assertM(Parser.parseQuery(inputWithEmptyBody))(
-          equalTo(
-            Document(
+        Parser.parseQuery(inputWithEmptyBody).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 InputObjectTypeDefinition(
                   description = None,
@@ -527,39 +547,39 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(inputWithEmptyBody)
             )
           )
-        )
+        }
       },
       test("enum with no body") {
         val enumWithNoBody = "enum BarBaz"
-        assertM(Parser.parseQuery(enumWithNoBody))(
-          equalTo(
-            Document(
+        Parser.parseQuery(enumWithNoBody).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 EnumTypeDefinition(description = None, name = "BarBaz", directives = Nil, enumValuesDefinition = Nil)
               ),
               sourceMapper = SourceMapper.apply(enumWithNoBody)
             )
           )
-        )
+        }
       },
       test("enum with empty body") {
         val enumWithNoBody = "enum BarBaz { }"
-        assertM(Parser.parseQuery(enumWithNoBody))(
-          equalTo(
-            Document(
+        Parser.parseQuery(enumWithNoBody).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 EnumTypeDefinition(description = None, name = "BarBaz", directives = Nil, enumValuesDefinition = Nil)
               ),
               sourceMapper = SourceMapper.apply(enumWithNoBody)
             )
           )
-        )
+        }
       },
       test("extend schema with directives") {
         val gqlSchemaExtension = "extend schema @addedDirective"
-        assertM(Parser.parseQuery(gqlSchemaExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlSchemaExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 SchemaExtension(
                   List(Directive("addedDirective", index = 14)),
@@ -571,7 +591,7 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlSchemaExtension)
             )
           )
-        )
+        }
       },
       test("extend schema with directives and operations") {
         val gqlSchemaExtension =
@@ -582,9 +602,9 @@ object ParserSpec extends DefaultRunnableSpec {
             | subscription: Subscription
             |}
             |""".stripMargin
-        assertM(Parser.parseQuery(gqlSchemaExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlSchemaExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 SchemaExtension(
                   List(Directive("addedDirective", index = 15)),
@@ -596,7 +616,7 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlSchemaExtension)
             )
           )
-        )
+        }
       },
       test("extend schema with operations") {
         val gqlSchemaExtension =
@@ -607,9 +627,9 @@ object ParserSpec extends DefaultRunnableSpec {
             | subscription: Subscription
             |}
             |""".stripMargin
-        assertM(Parser.parseQuery(gqlSchemaExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlSchemaExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 SchemaExtension(
                   Nil,
@@ -621,13 +641,13 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlSchemaExtension)
             )
           )
-        )
+        }
       },
       test("extend scalar with directives") {
         val gqlScalarExtension = "extend scalar SomeScalar @foo(arg0: $sometest)"
-        assertM(Parser.parseQuery(gqlScalarExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlScalarExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 ScalarTypeExtension(
                   "SomeScalar",
@@ -637,13 +657,13 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlScalarExtension)
             )
           )
-        )
+        }
       },
       test("extend type with interfaces") {
         val gqlTypeExtension = "extend type Hero implements SomeInterface"
-        assertM(Parser.parseQuery(gqlTypeExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlTypeExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 ObjectTypeExtension(
                   "Hero",
@@ -655,7 +675,7 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlTypeExtension)
             )
           )
-        )
+        }
       },
       test("extend type with interfaces and fields") {
         val gqlTypeExtension =
@@ -666,9 +686,9 @@ object ParserSpec extends DefaultRunnableSpec {
             |suits: [String]
             |powers: [String!]!
             |}""".stripMargin
-        assertM(Parser.parseQuery(gqlTypeExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlTypeExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 ObjectTypeExtension(
                   "Hero",
@@ -692,13 +712,13 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlTypeExtension)
             )
           )
-        )
+        }
       },
       test("extend type with interfaces and directives") {
         val gqlTypeExtension = "extend type Hero implements SomeInterface @addedDirective"
-        assertM(Parser.parseQuery(gqlTypeExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlTypeExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 ObjectTypeExtension(
                   "Hero",
@@ -710,7 +730,7 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlTypeExtension)
             )
           )
-        )
+        }
       },
       test("extend type with interfaces, directives and fields") {
         val gqlTypeExtension =
@@ -721,9 +741,9 @@ object ParserSpec extends DefaultRunnableSpec {
             |suits: [String]
             |powers: [String!]!
             |}""".stripMargin
-        assertM(Parser.parseQuery(gqlTypeExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlTypeExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 ObjectTypeExtension(
                   "Hero",
@@ -747,13 +767,13 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlTypeExtension)
             )
           )
-        )
+        }
       },
       test("extend type with directives") {
         val gqlTypeExtension = "extend type Hero @addedDirective"
-        assertM(Parser.parseQuery(gqlTypeExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlTypeExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 ObjectTypeExtension(
                   "Hero",
@@ -765,7 +785,7 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlTypeExtension)
             )
           )
-        )
+        }
       },
       test("extend type with directives and fields") {
         val gqlTypeExtension =
@@ -776,9 +796,9 @@ object ParserSpec extends DefaultRunnableSpec {
             |suits: [String]
             |powers: [String!]!
             |}""".stripMargin
-        assertM(Parser.parseQuery(gqlTypeExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlTypeExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 ObjectTypeExtension(
                   "Hero",
@@ -802,7 +822,7 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlTypeExtension)
             )
           )
-        )
+        }
       },
       test("extend type with fields") {
         val gqlTypeExtension =
@@ -813,9 +833,9 @@ object ParserSpec extends DefaultRunnableSpec {
             |suits: [String]
             |powers: [String!]!
             |}""".stripMargin
-        assertM(Parser.parseQuery(gqlTypeExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlTypeExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 ObjectTypeExtension(
                   "Hero",
@@ -839,13 +859,13 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlTypeExtension)
             )
           )
-        )
+        }
       },
       test("extend interface with directives") {
         val gqlInterfaceExtension = "extend interface NamedEntity @addedDirective"
-        assertM(Parser.parseQuery(gqlInterfaceExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlInterfaceExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 InterfaceTypeExtension(
                   "NamedEntity",
@@ -856,7 +876,7 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlInterfaceExtension)
             )
           )
-        )
+        }
       },
       test("extend interface with directives and fields") {
         val gqlInterfaceExtension =
@@ -865,9 +885,9 @@ object ParserSpec extends DefaultRunnableSpec {
             |  nickname: String
             |}
             |""".stripMargin
-        assertM(Parser.parseQuery(gqlInterfaceExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlInterfaceExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 InterfaceTypeExtension(
                   "NamedEntity",
@@ -878,7 +898,7 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlInterfaceExtension)
             )
           )
-        )
+        }
       },
       test("extend interface with fields") {
         val gqlInterfaceExtension =
@@ -887,9 +907,9 @@ object ParserSpec extends DefaultRunnableSpec {
             |  nickname: String
             |}
             |""".stripMargin
-        assertM(Parser.parseQuery(gqlInterfaceExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlInterfaceExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 InterfaceTypeExtension(
                   "NamedEntity",
@@ -900,13 +920,13 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlInterfaceExtension)
             )
           )
-        )
+        }
       },
       test("extend union with directives") {
         val gqlUnionExtension = "extend union SearchResult @addedDirective"
-        assertM(Parser.parseQuery(gqlUnionExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlUnionExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 UnionTypeExtension(
                   "SearchResult",
@@ -917,13 +937,13 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlUnionExtension)
             )
           )
-        )
+        }
       },
       test("extend union with directives and union members") {
         val gqlUnionExtension = "extend union SearchResult @addedDirective = Photo | Person"
-        assertM(Parser.parseQuery(gqlUnionExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlUnionExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 UnionTypeExtension(
                   "SearchResult",
@@ -934,13 +954,13 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlUnionExtension)
             )
           )
-        )
+        }
       },
       test("extend union with union members") {
         val gqlUnionExtension = "extend union SearchResult = Photo | Person"
-        assertM(Parser.parseQuery(gqlUnionExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlUnionExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 UnionTypeExtension(
                   "SearchResult",
@@ -951,13 +971,13 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlUnionExtension)
             )
           )
-        )
+        }
       },
       test("extend enum with directives") {
         val gqlEnumExtension = "extend enum Direction @addedDirective"
-        assertM(Parser.parseQuery(gqlEnumExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlEnumExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 EnumTypeExtension(
                   "Direction",
@@ -968,7 +988,7 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlEnumExtension)
             )
           )
-        )
+        }
       },
       test("extend enum with directives and values") {
         val gqlEnumExtension =
@@ -980,9 +1000,9 @@ object ParserSpec extends DefaultRunnableSpec {
             |  SOUTH_EAST
             |}
             |""".stripMargin
-        assertM(Parser.parseQuery(gqlEnumExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlEnumExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 EnumTypeExtension(
                   "Direction",
@@ -998,7 +1018,7 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlEnumExtension)
             )
           )
-        )
+        }
       },
       test("extend enum with values") {
         val gqlEnumExtension =
@@ -1010,9 +1030,9 @@ object ParserSpec extends DefaultRunnableSpec {
             |  SOUTH_EAST
             |}
             |""".stripMargin
-        assertM(Parser.parseQuery(gqlEnumExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlEnumExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 EnumTypeExtension(
                   "Direction",
@@ -1028,13 +1048,13 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlEnumExtension)
             )
           )
-        )
+        }
       },
       test("extend input with directives") {
         val gqlInputExtension = "extend input Point @addedDirective"
-        assertM(Parser.parseQuery(gqlInputExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlInputExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 InputObjectTypeExtension(
                   "Point",
@@ -1045,7 +1065,7 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlInputExtension)
             )
           )
-        )
+        }
       },
       test("extend input with directives and fields") {
         val gqlInputExtension =
@@ -1054,9 +1074,9 @@ object ParserSpec extends DefaultRunnableSpec {
             |  z: Int!
             |}
             |""".stripMargin
-        assertM(Parser.parseQuery(gqlInputExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlInputExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 InputObjectTypeExtension(
                   "Point",
@@ -1069,7 +1089,7 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlInputExtension)
             )
           )
-        )
+        }
       },
       test("extend input with fields") {
         val gqlInputExtension =
@@ -1078,9 +1098,9 @@ object ParserSpec extends DefaultRunnableSpec {
             |  z: Int!
             |}
             |""".stripMargin
-        assertM(Parser.parseQuery(gqlInputExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlInputExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 InputObjectTypeExtension(
                   "Point",
@@ -1093,13 +1113,13 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlInputExtension)
             )
           )
-        )
+        }
       },
       test("parse custom directives") {
         val gqlInputExtension = "directive @test on FIELD_DEFINITION"
-        assertM(Parser.parseQuery(gqlInputExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlInputExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 DirectiveDefinition(
                   None,
@@ -1113,7 +1133,7 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper.apply(gqlInputExtension)
             )
           )
-        )
+        }
       },
       test("parse empty comment line with no comment") {
         val gqlInputExtension =
@@ -1122,9 +1142,9 @@ object ParserSpec extends DefaultRunnableSpec {
             |
             |scalar Foo
             |""".stripMargin
-        assertM(Parser.parseQuery(gqlInputExtension))(
-          equalTo(
-            Document(
+        Parser.parseQuery(gqlInputExtension).map { doc =>
+          assertTrue(
+            doc == Document(
               List(
                 ScalarTypeDefinition(
                   None,
@@ -1135,7 +1155,7 @@ object ParserSpec extends DefaultRunnableSpec {
               sourceMapper = SourceMapper(gqlInputExtension)
             )
           )
-        )
+        }
       }
     )
 

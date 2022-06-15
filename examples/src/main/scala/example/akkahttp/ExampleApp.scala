@@ -11,16 +11,16 @@ import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives._
 import caliban.AkkaHttpAdapter
 import sttp.tapir.json.circe._
-import zio.{ Clock, Console, Runtime, RuntimeConfig }
+import zio.Runtime
 
 object ExampleApp extends App {
 
-  implicit val system: ActorSystem                                      = ActorSystem()
-  implicit val executionContext: ExecutionContextExecutor               = system.dispatcher
-  implicit val runtime: Runtime[ExampleService with Console with Clock] =
-    Runtime.unsafeFromLayer(ExampleService.make(sampleCharacters) ++ Console.live ++ Clock.live, RuntimeConfig.default)
+  implicit val system: ActorSystem                        = ActorSystem()
+  implicit val executionContext: ExecutionContextExecutor = system.dispatcher
+  implicit val runtime: Runtime[ExampleService]           = Runtime.unsafeFromLayer(ExampleService.make(sampleCharacters))
 
   val interpreter = runtime.unsafeRun(ExampleApi.api.interpreter)
+  val adapter     = AkkaHttpAdapter.default
 
   /**
    * curl -X POST \
@@ -33,9 +33,9 @@ object ExampleApp extends App {
    */
   val route =
     path("api" / "graphql") {
-      AkkaHttpAdapter.makeHttpService(interpreter)
+      adapter.makeHttpService(interpreter)
     } ~ path("ws" / "graphql") {
-      AkkaHttpAdapter.makeWebSocketService(interpreter)
+      adapter.makeWebSocketService(interpreter)
     } ~ path("graphiql") {
       getFromResource("graphiql.html")
     }

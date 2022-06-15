@@ -39,7 +39,7 @@ object ZHttpAdapter {
     keepAliveTime: Option[Duration] = None,
     queryExecution: QueryExecution = QueryExecution.Parallel,
     webSocketHooks: WebSocketHooks[R, E] = WebSocketHooks.empty
-  ): HttpApp[R with Clock, E] =
+  ): HttpApp[R, E] =
     Http.responseZIO(
       for {
         ref <- Ref.make(Map.empty[String, Promise[Any, Unit]])
@@ -65,7 +65,7 @@ object ZHttpAdapter {
     keepAliveTime: Option[Duration],
     queryExecution: QueryExecution,
     webSocketHooks: WebSocketHooks[R, E] = WebSocketHooks.empty
-  ): SocketApp[R with Clock] = {
+  ): SocketApp[R] = {
     val routes = Socket.collect[WebSocketFrame] { case Text(text) =>
       ZStream
         .fromZIO(ZIO.fromEither(decode[GraphQLWSInput](text)))
@@ -74,14 +74,14 @@ object ZHttpAdapter {
             val before = (webSocketHooks.beforeInit, payload) match {
               case (Some(beforeInit), Some(payload)) =>
                 ZStream.fromZIO(beforeInit(payload)).drain.catchAll(toStreamError(id, _))
-              case _                                 => Stream.empty
+              case _                                 => ZStream.empty
             }
 
             val response = ZStream.succeed(connectionAck) ++ keepAlive(keepAliveTime)
 
             val after = webSocketHooks.afterInit match {
               case Some(afterInit) => ZStream.fromZIO(afterInit).drain.catchAll(toStreamError(id, _))
-              case _               => Stream.empty
+              case _               => ZStream.empty
             }
 
             before ++ ZStream.mergeAllUnbounded()(response, after)

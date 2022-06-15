@@ -15,13 +15,13 @@ import caliban.parsing.adt.{ Directive, Document, Type }
 import sttp.client3._
 import sttp.client3.asynchttpclient.zio._
 import sttp.model.Uri
-import zio.{ IO, RIO, Task }
+import zio.{ RIO, Task, ZIO }
 
 object IntrospectionClient {
 
   def introspect(uri: String, headers: Option[List[Options.Header]]): Task[Document] =
     for {
-      parsedUri <- IO.fromEither(Uri.parse(uri)).mapError(cause => new Exception(s"Invalid URL: $cause"))
+      parsedUri <- ZIO.fromEither(Uri.parse(uri)).mapError(cause => new Exception(s"Invalid URL: $cause"))
       baseReq    = introspection.toRequest(parsedUri)
       req        = headers.map(_.map(h => h.name -> h.value).toMap).fold(baseReq)(baseReq.headers)
       result    <- sendRequest(req).provideLayer(AsyncHttpClientZioBackend.layer())

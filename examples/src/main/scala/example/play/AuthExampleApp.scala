@@ -14,8 +14,7 @@ import sttp.model.StatusCode
 import sttp.tapir.json.play._
 import sttp.tapir.model.ServerRequest
 import zio.stream.ZStream
-import zio.{ FiberRef, RIO, Random, Runtime, RuntimeConfig, ZIO }
-
+import zio.{ FiberRef, RIO, Runtime, ULayer, ZIO, ZLayer }
 import scala.concurrent.ExecutionContextExecutor
 import scala.io.StdIn.readLine
 
@@ -53,8 +52,8 @@ object AuthExampleApp extends App {
   // pass on so that they are present in the environment for our ResultWrapper(s)
   // For the auth we wrap in an option, but you could just as well use something
   // like AuthToken("__INVALID") or a sealed trait hierarchy with an invalid member
-  val initLayer                                   = FiberRef.make(Option.empty[AuthToken]).toLayer ++ Random.live
-  implicit val runtime: Runtime[Auth with Random] = Runtime.unsafeFromLayer(initLayer, RuntimeConfig.default)
+  val initLayer: ULayer[Auth]         = ZLayer.scoped(FiberRef.make(Option.empty[AuthToken]))
+  implicit val runtime: Runtime[Auth] = Runtime.unsafeFromLayer(initLayer)
 
   val interpreter = runtime.unsafeRun(api.interpreter)
 

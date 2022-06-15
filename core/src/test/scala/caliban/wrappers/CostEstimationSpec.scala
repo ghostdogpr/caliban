@@ -9,9 +9,9 @@ import caliban.Value.{ FloatValue, IntValue }
 import caliban.wrappers.CostEstimation.GQLCost
 import zio.Console.print
 import zio.test._
-import zio.{ Ref, UIO }
+import zio.{ Ref, UIO, ZIO }
 
-object CostEstimationSpec extends DefaultRunnableSpec {
+object CostEstimationSpec extends ZIOSpecDefault {
   case class WithArgs(limit: Int)
   case class E(value: Int)
   @GQLCost(10)
@@ -27,14 +27,14 @@ object CostEstimationSpec extends DefaultRunnableSpec {
     RootResolver(
       Test(
         1,
-        UIO(2),
-        args => UIO(List.fill(args.limit)(42)),
+        ZIO.succeed(2),
+        args => ZIO.succeed(List.fill(args.limit)(42)),
         D(E(99), List("Hello", "There"))
       )
     )
   )
 
-  override def spec: ZSpec[TestEnvironment, Any] =
+  override def spec =
     suite("Cost Estimation")(
       suite("maxCost")(
         test("Rejects queries that are too expensive") {
@@ -83,7 +83,7 @@ object CostEstimationSpec extends DefaultRunnableSpec {
                    ...f
                  }
                }
-               
+
                fragment f on D { # type cost: 10
                  e { value } # cost: 1 + 1
                  f # cost: 1
@@ -118,7 +118,7 @@ object CostEstimationSpec extends DefaultRunnableSpec {
                    ...f
                  }
                }
-               
+
                fragment f on D { # type cost: 10
                  e { value } # cost: 1 + 1
                  f # cost: 1
@@ -138,7 +138,7 @@ object CostEstimationSpec extends DefaultRunnableSpec {
                    ...f
                  }
                }
-               
+
                fragment f on D { # type cost: 10 overridden by the field
                  e { value } # cost: 1 + 1
                  f # cost: 1

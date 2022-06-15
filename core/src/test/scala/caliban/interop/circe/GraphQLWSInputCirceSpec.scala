@@ -6,9 +6,9 @@ import io.circe.syntax._
 import zio.test.Assertion._
 import zio.test._
 
-object GraphQLWSInputCirceSpec extends DefaultRunnableSpec {
+object GraphQLWSInputCirceSpec extends ZIOSpecDefault {
 
-  override def spec: ZSpec[TestEnvironment, Any] =
+  override def spec =
     suite("GraphQLWSInputCirceSpec")(
       test("can be parsed from JSON by circe") {
         val request = Json

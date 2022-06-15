@@ -12,13 +12,13 @@ import zhttp.service.Server
 object ExampleApp extends ZIOAppDefault {
   private val graphiql = Http.fromStream(ZStream.fromResource("graphiql.html"))
 
-  override def run: ZIO[ZEnv, Nothing, ExitCode] =
+  override def run =
     (for {
       interpreter <- ExampleApi.api.interpreter
       _           <- Server
                        .start(
                          8088,
-                         Http.route[Request] {
+                         Http.collectHttp[Request] {
                            case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
                            case _ -> !! / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
                            case _ -> !! / "graphiql"        => graphiql
@@ -26,6 +26,6 @@ object ExampleApp extends ZIOAppDefault {
                        )
                        .forever
     } yield ())
-      .provideCustomLayer(ExampleService.make(sampleCharacters))
+      .provideLayer(ExampleService.make(sampleCharacters))
       .exitCode
 }

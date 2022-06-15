@@ -6,27 +6,25 @@ val scala213 = "2.13.8"
 val scala3   = "3.1.1"
 val allScala = Seq(scala212, scala213, scala3)
 
-val akkaVersion               = "2.6.18"
-val catsEffect2Version        = "2.5.4"
+val akkaVersion               = "2.6.19"
 val catsEffect3Version        = "3.3.12"
 val catsMtlVersion            = "1.2.1"
 val circeVersion              = "0.14.2"
-val http4sVersion             = "0.23.11"
+val http4sVersion             = "0.23.12"
 val laminextVersion           = "0.14.3"
 val magnoliaVersion           = "0.17.0"
 val mercatorVersion           = "0.2.1"
-val playVersion               = "2.8.15"
+val playVersion               = "2.8.16"
 val playJsonVersion           = "2.9.2"
-val sttpVersion               = "3.5.0"
-val tapirVersion              = "0.20.2"
-val zioVersion                = "2.0.0-RC2"
-val zioInteropCats2Version    = "2.5.1.0+11-d4b128a4-SNAPSHOT"
-val zioInteropCats3Version    = "3.3.0-RC2"
-val zioInteropReactiveVersion = "2.0.0-RC3"
-val zioConfigVersion          = "3.0.0-RC2"
-val zqueryVersion             = "0.3.0-RC2"
-val zioJsonVersion            = "0.3.0-RC3"
-val zioHttpVersion            = "2.0.0-RC4"
+val sttpVersion               = "3.6.2"
+val tapirVersion              = "1.0.0-RC3"
+val zioVersion                = "2.0.0-RC6"
+val zioInteropCats3Version    = "3.3.0-RC7"
+val zioInteropReactiveVersion = "2.0.0-RC7"
+val zioConfigVersion          = "3.0.0-RC9"
+val zqueryVersion             = "0.3.0-RC5"
+val zioJsonVersion            = "0.3.0-RC8"
+val zioHttpVersion            = "2.0.0-RC9"
 
 inThisBuild(
   List(
@@ -34,9 +32,7 @@ inThisBuild(
     crossScalaVersions       := allScala,
     organization             := "com.github.ghostdogpr",
     homepage                 := Some(url("https://github.com/ghostdogpr/caliban")),
-    licenses                 := List(
-      "Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0")
-    ),
+    licenses                 := List(License.Apache2),
     Test / parallelExecution := false,
     scmInfo                  := Some(
       ScmInfo(
@@ -79,7 +75,7 @@ lazy val root = project
     play,
     zioHttp,
     catsInterop,
-    monixInterop,
+    /*monixInterop,*/
     tapirInterop,
     clientJVM,
     clientJS,
@@ -218,18 +214,18 @@ lazy val catsInterop = project
   )
   .dependsOn(core)
 
-lazy val monixInterop = project
-  .in(file("interop/monix"))
-  .settings(name := "caliban-monix")
-  .settings(commonSettings)
-  .settings(
-    libraryDependencies ++= Seq(
-      "dev.zio"  %% "zio-interop-reactivestreams" % zioInteropReactiveVersion,
-      "dev.zio"  %% "zio-interop-cats"            % zioInteropCats2Version,
-      "io.monix" %% "monix"                       % "3.4.1"
-    )
-  )
-  .dependsOn(core)
+//lazy val monixInterop = project
+//  .in(file("interop/monix"))
+//  .settings(name := "caliban-monix")
+//  .settings(commonSettings)
+//  .settings(
+//    libraryDependencies ++= Seq(
+//      "dev.zio"  %% "zio-interop-reactivestreams" % zioInteropReactiveVersion,
+//      "dev.zio"  %% "zio-interop-cats"            % zioInteropCats2Version,
+//      "io.monix" %% "monix"                       % "3.4.1"
+//    )
+//  )
+//  .dependsOn(core)
 
 lazy val tapirInterop = project
   .in(file("interop/tapir"))
@@ -266,7 +262,7 @@ lazy val http4s = project
       Seq(
         "dev.zio"                       %% "zio-interop-cats"              % zioInteropCats3Version,
         "org.typelevel"                 %% "cats-effect"                   % catsEffect3Version,
-        "com.softwaremill.sttp.tapir"   %% "tapir-zio-http4s-server"       % tapirVersion,
+        "com.softwaremill.sttp.tapir"   %% "tapir-http4s-server-zio"       % tapirVersion,
         "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % tapirVersion,
         "org.http4s"                    %% "http4s-blaze-server"           % http4sVersion % Test,
         "dev.zio"                       %% "zio-test"                      % zioVersion    % Test,

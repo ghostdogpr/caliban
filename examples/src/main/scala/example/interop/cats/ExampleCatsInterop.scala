@@ -5,13 +5,13 @@ import caliban.RootResolver
 
 import cats.effect.{ ExitCode, IO, IOApp }
 import cats.effect.std.Dispatcher
-import zio.{ Runtime, ZEnv }
+import zio.Runtime
 
 object ExampleCatsInterop extends IOApp {
 
   import caliban.interop.cats.implicits._
 
-  implicit val zioRuntime: Runtime[ZEnv] = Runtime.default
+  implicit val zioRuntime: Runtime[Any] = Runtime.default
 
   case class Number(value: Int)
 
