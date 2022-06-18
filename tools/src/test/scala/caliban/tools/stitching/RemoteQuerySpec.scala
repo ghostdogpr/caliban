@@ -7,9 +7,9 @@ import caliban.{ CalibanError, GraphQLInterpreter, RootResolver }
 import caliban.execution.Field
 import caliban.schema.Annotations.GQLInterface
 import zio._
-import zio.test.{ DefaultRunnableSpec, ZSpec, _ }
+import zio.test._
 
-object RemoteQuerySpec extends DefaultRunnableSpec {
+object RemoteQuerySpec extends ZIOSpecDefault {
   sealed trait Union
   @GQLInterface
   sealed trait Interface
@@ -42,7 +42,7 @@ object RemoteQuerySpec extends DefaultRunnableSpec {
     api.interpreter
   }
 
-  def spec: ZSpec[Environment, Failure] = suite("RemoteQuerySpec")(
+  override def spec = suite("RemoteQuerySpec")(
     test("correctly renders a query for a field") {
       val query = gqldoc("""{
               union(value: "foo\"") { ...on Interface { id }  }

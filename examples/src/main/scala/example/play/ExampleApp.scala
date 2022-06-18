@@ -10,20 +10,17 @@ import play.api.routing._
 import play.api.routing.sird._
 import play.core.server.{ AkkaHttpServer, ServerConfig }
 import sttp.tapir.json.play._
-import zio.{ Clock, Console, Random, Runtime, RuntimeConfig }
+import zio.Runtime
 
 import scala.io.StdIn.readLine
 import scala.concurrent.ExecutionContextExecutor
 
 object ExampleApp extends App {
 
-  implicit val system: ActorSystem                                                  = ActorSystem()
-  implicit val executionContext: ExecutionContextExecutor                           = system.dispatcher
-  implicit val runtime: Runtime[ExampleService with Console with Clock with Random] =
-    Runtime.unsafeFromLayer(
-      ExampleService.make(sampleCharacters) ++ Console.live ++ Clock.live ++ Random.live,
-      RuntimeConfig.default
-    )
+  implicit val system: ActorSystem                        = ActorSystem()
+  implicit val executionContext: ExecutionContextExecutor = system.dispatcher
+  implicit val runtime: Runtime[ExampleService]           =
+    Runtime.unsafeFromLayer(ExampleService.make(sampleCharacters))
 
   val interpreter = runtime.unsafeRun(ExampleApi.api.interpreter)
 

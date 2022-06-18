@@ -13,9 +13,9 @@ import zio._
 
 import scala.concurrent.Future
 
-object SchemaSpec extends DefaultRunnableSpec {
+object SchemaSpec extends ZIOSpecDefault {
 
-  override def spec: ZSpec[TestEnvironment, Any] =
+  override def spec =
     suite("SchemaSpec")(
       test("effectful field") {
         assert(introspect[EffectfulFieldSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(

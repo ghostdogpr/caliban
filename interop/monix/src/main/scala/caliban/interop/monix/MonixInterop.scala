@@ -71,7 +71,7 @@ object MonixInterop {
             .fromZIO(
               MonixTask
                 .deferAction(implicit sc =>
-                  MonixTask.eval(value.toReactivePublisher.toStream(queueSize).map(ev.resolve))
+                  MonixTask.eval(value.toReactivePublisher.toZIOStream(queueSize).map(ev.resolve))
                 )
                 .to[Task]
             )

@@ -3,7 +3,7 @@ package caliban.execution
 import caliban.GraphQL.graphQL
 import caliban.{ CalibanError, GraphQLInterpreter, RootResolver }
 import org.openjdk.jmh.annotations._
-import zio.{ Runtime, RuntimeConfig, ZEnv, ZEnvironment }
+import zio.Runtime
 
 import java.util.concurrent.TimeUnit
 
@@ -15,10 +15,7 @@ import java.util.concurrent.TimeUnit
 @Fork(1)
 class NestedZQueryBenchmark {
 
-  val runtime: Runtime[ZEnv] = new Runtime[ZEnv] {
-    val environment: ZEnvironment[ZEnv] = ZEnvironment.default
-    val runtimeConfig: RuntimeConfig    = RuntimeConfig.benchmark
-  }
+  private val runtime = Runtime.default
 
   import NestedZQueryBenchmarkSchema._
 

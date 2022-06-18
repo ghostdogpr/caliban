@@ -41,7 +41,7 @@ object TestApi extends GenericSchema[TestService with Uploads] {
   implicit val characterArgsSchema: Schema[Any, CharacterArgs]   = Schema.gen
   implicit val charactersArgsSchema: Schema[Any, CharactersArgs] = Schema.gen
 
-  val api: GraphQL[Console with Clock with TestService with Uploads] =
+  val api: GraphQL[TestService with Uploads] =
     graphQL[TestService with Uploads, Queries, Mutations, Subscriptions](
       RootResolver(
         Queries(

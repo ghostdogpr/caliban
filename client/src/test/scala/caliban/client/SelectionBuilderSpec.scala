@@ -9,9 +9,9 @@ import caliban.client.__Value.{ __ListValue, __ObjectValue, __StringValue }
 import zio.test.Assertion._
 import zio.test._
 
-object SelectionBuilderSpec extends DefaultRunnableSpec {
+object SelectionBuilderSpec extends ZIOSpecDefault {
 
-  override def spec: ZSpec[TestEnvironment, Any] =
+  override def spec =
     suite("SelectionBuilderSpec")(
       suite("query generation")(
         test("simple object") {

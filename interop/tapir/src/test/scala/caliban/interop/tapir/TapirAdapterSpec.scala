@@ -10,11 +10,11 @@ import sttp.tapir.client.sttp.ws.zio._
 import sttp.tapir.json.circe._
 import sttp.tapir.model.{ ConnectionInfo, ServerRequest }
 import zio.stream.ZStream
-import zio.test.Assertion._
 import zio.test._
 import zio.{ test => _, _ }
-
 import scala.language.postfixOps
+
+import sttp.tapir.AttributeKey
 
 object TapirAdapterSpec {
   case class FakeServerRequest(method: Method, uri: Uri, headers: List[Header] = Nil) extends ServerRequest {
@@ -28,6 +28,11 @@ object TapirAdapterSpec {
       uri.pathSegments.segments.map(_.v).toList
 
     override def queryParameters: QueryParams = uri.params
+
+    override def attribute[T](k: AttributeKey[T]): Option[T]           = None
+    override def attribute[T](k: AttributeKey[T], v: T): ServerRequest = this
+
+    override def withUnderlying(underlying: Any): ServerRequest = this
   }
 
   def makeSuite(
@@ -35,7 +40,7 @@ object TapirAdapterSpec {
     httpUri: Uri,
     uploadUri: Option[Uri] = None,
     wsUri: Option[Uri] = None
-  ): ZSpec[Any, Throwable] = {
+  ): Spec[Live, Throwable] = {
     val run       =
       SttpClientInterpreter()
         .toRequestThrowDecodeFailures(TapirAdapter.makeHttpEndpoints[Any, CalibanError].head, Some(httpUri))
@@ -48,21 +53,18 @@ object TapirAdapterSpec {
         .toRequestThrowDecodeFailures(TapirAdapter.makeWebSocketEndpoint[Any, CalibanError], Some(wsUri))
     )
 
-    val tests: List[Option[ZSpec[SttpClient, Throwable]]] = List(
+    val tests: List[Option[Spec[Live with SttpClient, Throwable]]] = List(
       Some(
         suite("http")(
           test("test http endpoint") {
-            val io =
-              for {
-                res      <- send(run((GraphQLRequest(Some("{ characters { name }  }")), null)))
-                response <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
-              } yield response.data.toString
-
-            assertM(io)(
-              equalTo(
+            for {
+              res      <- send(run((GraphQLRequest(Some("{ characters { name }  }")), null)))
+              response <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
+            } yield assertTrue(
+              response.data.toString ==
                 """{"characters":[{"name":"James Holden"},{"name":"Naomi Nagata"},{"name":"Amos Burton"},{"name":"Alex Kamal"},{"name":"Chrisjen Avasarala"},{"name":"Josephus Miller"},{"name":"Roberta Draper"}]}"""
-              )
             )
+
           },
           test("test interceptor failure") {
             for {
@@ -86,16 +88,12 @@ object TapirAdapterSpec {
               // if we don't set content-length here it gets incorrectly set to 70 rather than 24.
               .contentLength(q.length)
 
-            val io =
-              for {
-                res      <- send(r)
-                response <- ZIO.fromEither(res.body).orElseFail(new Throwable(s"Failed to parse result: $res"))
-              } yield response.data.toString
-
-            assertM(io)(
-              equalTo(
+            for {
+              res      <- send(r)
+              response <- ZIO.fromEither(res.body).orElseFail(new Throwable(s"Failed to parse result: $res"))
+            } yield assertTrue(
+              response.data.toString ==
                 """{"characters":[{"name":"James Holden"},{"name":"Naomi Nagata"},{"name":"Amos Burton"},{"name":"Alex Kamal"},{"name":"Chrisjen Avasarala"},{"name":"Josephus Miller"},{"name":"Roberta Draper"}]}"""
-              )
             )
           }
         )
@@ -113,16 +111,12 @@ object TapirAdapterSpec {
               Part("1", """text""".getBytes, contentType = Some(MediaType.TextPlain)).fileName("a.txt")
             )
 
-          val io =
-            for {
-              res      <- send(runUpload((parts, null)))
-              response <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
-            } yield response.data.toString
-
-          assertM(io)(
-            equalTo(
+          for {
+            res      <- send(runUpload((parts, null)))
+            response <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
+          } yield assertTrue(
+            response.data.toString ==
               """{"uploadFiles":[{"hash":"6105d6cc76af400325e94d588ce511be5bfdbb73b437dc51eca43917d7a43e3d","filename":"a.png","mimetype":"image/png"},{"hash":"982d9e3eb996f559e633f4d194def3761d909f5a3b647d1a851fead67c32c9d1","filename":"a.txt","mimetype":"text/plain"}]}"""
-            )
           )
         }
       ),
@@ -142,16 +136,12 @@ object TapirAdapterSpec {
               Part("1", """text""".getBytes, contentType = Some(MediaType.TextPlain)).fileName("a.txt")
             )
 
-          val io =
-            for {
-              res      <- send(runUpload((parts, null)))
-              response <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
-            } yield response.data.toString
-
-          assertM(io)(
-            equalTo(
+          for {
+            res      <- send(runUpload((parts, null)))
+            response <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
+          } yield assertTrue(
+            response.data.toString ==
               """{"uploadFilesWithExtraFields":[{"someField1":1,"someField2":2},{"someField1":3,"someField2":null}]}"""
-            )
           )
         }
       ),
@@ -176,13 +166,14 @@ object TapirAdapterSpec {
                                run((GraphQLRequest(Some("""mutation{ deleteCharacter(name: "Amos Burton") }""")), null))
                              ).delay(3 seconds)
               stop         = inputQueue.offer(GraphQLWSInput("stop", Some("id"), None))
-              messages    <- outputStream
-                               .tap(out => ZIO.when(out.`type` == "connection_ack")(sendDelete))
-                               .tap(out => ZIO.when(out.`type` == "data")(stop))
-                               .take(3)
-                               .runCollect
-                               .timeoutFail(new Throwable("timeout ws"))(30.seconds)
-                               .provideSomeLayer[SttpClient](Clock.live)
+              messages    <- Live.live {
+                               outputStream
+                                 .tap(out => ZIO.when(out.`type` == "connection_ack")(sendDelete))
+                                 .tap(out => ZIO.when(out.`type` == "data")(stop))
+                                 .take(3)
+                                 .runCollect
+                                 .timeoutFail(new Throwable("timeout ws"))(30.seconds)
+                             }
             } yield messages
 
           io.map { messages =>
@@ -194,7 +185,6 @@ object TapirAdapterSpec {
       )
     )
 
-    suite(label)(tests.flatten: _*)
-      .provideLayer(AsyncHttpClientZioBackend.layer().mapError(TestFailure.fail)) @@ TestAspect.sequential
+    suite(label)(tests.flatten: _*).provideSomeLayer[Live](AsyncHttpClientZioBackend.layer()) @@ TestAspect.sequential
   }
 }

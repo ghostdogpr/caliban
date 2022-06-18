@@ -11,9 +11,9 @@ import cats.effect.unsafe.implicits.global
 import zio.{ Runtime, ZEnvironment, ZIO }
 import zio.test._
 
-object CatsInteropSpec extends DefaultRunnableSpec {
+object CatsInteropSpec extends ZIOSpecDefault {
 
-  override def spec: ZSpec[TestEnvironment, Any] = suite("CatsInteropSpec")(
+  override def spec = suite("CatsInteropSpec")(
     test("contextual interop: inject an environment") {
       case class SecurityContext(isAdmin: Boolean)
       case class LogContext(traceId: String)

@@ -2,7 +2,7 @@ package caliban.tools.compiletime
 
 import zio.test._
 
-object UtilsSpec extends DefaultRunnableSpec {
+object UtilsSpec extends ZIOSpecDefault {
 
   private val toPathDirSpec =
     suite(".toPathDir")(
@@ -22,7 +22,7 @@ object UtilsSpec extends DefaultRunnableSpec {
       }
     )
 
-  override def spec: ZSpec[TestEnvironment, Any] =
+  override def spec =
     suite("Utils spec")(
       toPathDirSpec
     )

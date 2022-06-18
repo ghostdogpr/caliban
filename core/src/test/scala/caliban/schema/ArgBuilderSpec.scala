@@ -9,8 +9,8 @@ import zio.test._
 
 import java.time._
 
-object ArgBuilderSpec extends DefaultRunnableSpec {
-  def spec: ZSpec[TestEnvironment, Any] = suite("ArgBuilder")(
+object ArgBuilderSpec extends ZIOSpecDefault {
+  def spec = suite("ArgBuilder")(
     suite("orElse")(
       test("handles failures")(
         assert((ArgBuilder.instant orElse ArgBuilder.instantEpoch).build(IntValue.LongNumber(100)))(

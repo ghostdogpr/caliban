@@ -6,8 +6,8 @@ import zio.json._
 import zio.test.Assertion.{ equalTo, isRight }
 import zio.test._
 
-object GraphQLRequestZIOSpec extends DefaultRunnableSpec {
-  override def spec: ZSpec[TestEnvironment, Any] = suite("GraphQLRequestZIOSpec")(
+object GraphQLRequestZIOSpec extends ZIOSpecDefault {
+  override def spec = suite("GraphQLRequestZIOSpec")(
     test("can be parsed from JSON by zio-json") {
       val request =
         """{"query": "{}", "operationName": "op", "variables": {"hello":"world","answer":42,"isAwesome":true, "name": null}}"""

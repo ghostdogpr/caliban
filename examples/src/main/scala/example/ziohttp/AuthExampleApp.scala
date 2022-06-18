@@ -6,7 +6,6 @@ import caliban._
 import caliban.interop.tapir.{ StreamTransformer, WebSocketHooks }
 import caliban.schema.GenericSchema
 import example.ExampleData._
-import example.ExampleService.ExampleService
 import example.{ ExampleApi, ExampleService }
 import zhttp.http._
 import zhttp.service.Server
@@ -24,7 +23,7 @@ trait Auth {
 
 object Auth {
 
-  val http: ULayer[Auth] =
+  val http: ULayer[Auth] = ZLayer.scoped {
     FiberRef
       .make[Option[String]](None)
       .map { ref =>
@@ -37,12 +36,12 @@ object Auth {
           def setUser(name: Option[String]): UIO[Unit] = ref.set(name)
         }
       }
-      .toLayer
+  }
 
   object WebSockets {
     private val wsSession = Http.fromZIO(Ref.make[Option[String]](None))
 
-    def live[R <: Auth with Clock](
+    def live[R <: Auth](
       interpreter: GraphQLInterpreter[R, CalibanError]
     ): HttpApp[R, CalibanError] =
       wsSession.flatMap { session =>
@@ -81,7 +80,7 @@ object Auth {
       }
   }
 
-  def middleware[R, B](
+  def middleware[R](
     app: Http[R, Throwable, Request, Response]
   ): HttpApp[R with Auth, Throwable] =
     Http
@@ -93,12 +92,12 @@ object Auth {
       .flatten
 }
 
-object Authed extends GenericSchema[ZEnv with Auth] {
+object Authed extends GenericSchema[Auth] {
   case class Queries(
     whoAmI: ZIO[Auth, Unauthorized.type, String] = ZIO.serviceWithZIO[Auth](_.currentUser)
   )
   case class Subscriptions(
-    whoAmI: ZStream[Auth with Clock, Unauthorized.type, String] =
+    whoAmI: ZStream[Auth, Unauthorized.type, String] =
       ZStream.fromZIO(ZIO.serviceWithZIO[Auth](_.currentUser)).repeat(Schedule.spaced(10.seconds))
   )
 
@@ -108,13 +107,13 @@ object Authed extends GenericSchema[ZEnv with Auth] {
 object AuthExampleApp extends ZIOAppDefault {
   private val graphiql = Http.fromStream(ZStream.fromResource("graphiql.html"))
 
-  override def run: ZIO[ZEnv, Nothing, ExitCode] =
+  override def run =
     (for {
       interpreter <- (ExampleApi.api |+| Authed.api).interpreter
       _           <- Server
                        .start(
                          8088,
-                         Http.route[Request] {
+                         Http.collectHttp[Request] {
                            case _ -> !! / "api" / "graphql" =>
                              Auth.middleware(
                                ZHttpAdapter.makeHttpService(interpreter)
@@ -125,6 +124,6 @@ object AuthExampleApp extends ZIOAppDefault {
                        )
                        .forever
     } yield ())
-      .provideCustomLayer(ExampleService.make(sampleCharacters) ++ Auth.http)
+      .provideSomeLayer[Scope](ExampleService.make(sampleCharacters) ++ Auth.http)
       .exitCode
 }

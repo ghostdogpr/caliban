@@ -8,7 +8,7 @@ import caliban.{ CalibanError, GraphQL, GraphQLInterpreter, GraphQLResponse, Inp
 import cats.{ ~>, Monad }
 import cats.effect.Async
 import cats.effect.std.Dispatcher
-import zio.{ IsNotIntersection, RIO, Runtime, Tag, Task, ZEnvironment }
+import zio.{ RIO, Runtime, Tag, Task, ZEnvironment }
 import zio.query.ZQuery
 
 /**
@@ -88,7 +88,7 @@ object CatsInterop {
    * @tparam F $fParam
    * @tparam R $rParam
    */
-  def contextual[F[_]: Async, R: Tag: IsNotIntersection](dispatcher: Dispatcher[F])(implicit
+  def contextual[F[_]: Async, R: Tag](dispatcher: Dispatcher[F])(implicit
     injector: InjectEnv[F, R],
     runtime: Runtime[R]
   ): Contextual[F, R] =
@@ -102,7 +102,7 @@ object CatsInterop {
    * @tparam F $fParam
    * @tparam R $rParam
    */
-  def contextual[F[_]: Monad, R: Tag: IsNotIntersection](
+  def contextual[F[_]: Monad, R: Tag](
     underlying: CatsInterop[F, R]
   )(implicit injector: InjectEnv[F, R]): Contextual[F, R] =
     new CatsInterop.Contextual[F, R] {

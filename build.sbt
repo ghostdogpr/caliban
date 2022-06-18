@@ -1,32 +1,31 @@
 import org.scalajs.linker.interface.ModuleSplitStyle
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
-val scala212 = "2.12.14"
+val scala212 = "2.12.16"
 val scala213 = "2.13.8"
-val scala3   = "3.1.1"
+val scala3   = "3.1.2"
 val allScala = Seq(scala212, scala213, scala3)
 
-val akkaVersion               = "2.6.18"
-val catsEffect2Version        = "2.5.4"
+val akkaVersion               = "2.6.19"
 val catsEffect3Version        = "3.3.12"
 val catsMtlVersion            = "1.2.1"
 val circeVersion              = "0.14.2"
-val http4sVersion             = "0.23.11"
+val http4sVersion             = "0.23.12"
 val laminextVersion           = "0.14.3"
 val magnoliaVersion           = "0.17.0"
 val mercatorVersion           = "0.2.1"
-val playVersion               = "2.8.15"
+val playVersion               = "2.8.16"
 val playJsonVersion           = "2.9.2"
-val sttpVersion               = "3.5.0"
-val tapirVersion              = "0.20.2"
-val zioVersion                = "2.0.0-RC2"
-val zioInteropCats2Version    = "2.5.1.0+11-d4b128a4-SNAPSHOT"
-val zioInteropCats3Version    = "3.3.0-RC2"
-val zioInteropReactiveVersion = "2.0.0-RC3"
-val zioConfigVersion          = "3.0.0-RC2"
-val zqueryVersion             = "0.3.0-RC2"
-val zioJsonVersion            = "0.3.0-RC3"
-val zioHttpVersion            = "2.0.0-RC4"
+val sttpVersion               = "3.6.2"
+val tapirVersion              = "1.0.0"
+val zioVersion                = "2.0.0-RC6"
+val zioInteropCats2Version    = "2.5.1.1"
+val zioInteropCats3Version    = "3.3.0-RC7"
+val zioInteropReactiveVersion = "2.0.0-RC7"
+val zioConfigVersion          = "3.0.0-RC9"
+val zqueryVersion             = "0.3.0-RC5"
+val zioJsonVersion            = "0.3.0-RC8"
+val zioHttpVersion            = "2.0.0-RC9"
 
 inThisBuild(
   List(
@@ -34,9 +33,7 @@ inThisBuild(
     crossScalaVersions       := allScala,
     organization             := "com.github.ghostdogpr",
     homepage                 := Some(url("https://github.com/ghostdogpr/caliban")),
-    licenses                 := List(
-      "Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0")
-    ),
+    licenses                 := List(License.Apache2),
     Test / parallelExecution := false,
     scmInfo                  := Some(
       ScmInfo(
@@ -155,6 +152,7 @@ lazy val tools = project
     libraryDependencies ++= Seq(
       "org.scalameta"                 %% "scalafmt-dynamic"              % "3.1.2",
       "org.scalameta"                 %% "scalafmt-core"                 % "3.1.2",
+      "com.softwaremill.sttp.client3" %% "zio"                           % sttpVersion,
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
       "dev.zio"                       %% "zio-config"                    % zioConfigVersion,
       "dev.zio"                       %% "zio-config-magnolia"           % zioConfigVersion,
@@ -266,7 +264,7 @@ lazy val http4s = project
       Seq(
         "dev.zio"                       %% "zio-interop-cats"              % zioInteropCats3Version,
         "org.typelevel"                 %% "cats-effect"                   % catsEffect3Version,
-        "com.softwaremill.sttp.tapir"   %% "tapir-zio-http4s-server"       % tapirVersion,
+        "com.softwaremill.sttp.tapir"   %% "tapir-http4s-server-zio"       % tapirVersion,
         "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % tapirVersion,
         "org.http4s"                    %% "http4s-blaze-server"           % http4sVersion % Test,
         "dev.zio"                       %% "zio-test"                      % zioVersion    % Test,
@@ -349,7 +347,7 @@ lazy val clientJVM = client.jvm
 lazy val clientJS  = client.js
   .settings(
     libraryDependencies ++= {
-      Seq("io.github.cquiroz" %%% "scala-java-time" % "2.3.0" % Test)
+      Seq("io.github.cquiroz" %%% "scala-java-time" % "2.4.0" % Test)
     }
   )
   .settings(scalaVersion := scala213)
@@ -425,10 +423,10 @@ lazy val reporting = project
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "dev.zio"                       %% "zio"                           % zioVersion,
-      "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
-      "dev.zio"                       %% "zio-test"                      % zioVersion % Test,
-      "dev.zio"                       %% "zio-test-sbt"                  % zioVersion % Test
+      "dev.zio"                       %% "zio"          % zioVersion,
+      "com.softwaremill.sttp.client3" %% "zio"          % sttpVersion,
+      "dev.zio"                       %% "zio-test"     % zioVersion % Test,
+      "dev.zio"                       %% "zio-test-sbt" % zioVersion % Test
     )
   )
 

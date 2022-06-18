@@ -16,7 +16,7 @@ import scala.language.postfixOps
 
 object FederatedApi {
 
-  val standardWrappers: Wrapper[Console with Clock] =
+  val standardWrappers: Wrapper[Any] =
     maxFields(200) |+|                 // query analyzer that limit query fields
       maxDepth(30) |+|                 // query analyzer that limit query depth
       timeout(3 seconds) |+|           // wrapper that fails slow queries
@@ -71,7 +71,7 @@ object FederatedApi {
         )
       )
 
-    val api: GraphQL[Console with Clock with CharacterService] =
+    val api: GraphQL[CharacterService] =
       graphQL(
         RootResolver(
           Queries(
@@ -95,7 +95,7 @@ object FederatedApi {
     implicit val episodesArgsSchema: Schema[Any, EpisodesArgs] = Schema.gen
     implicit val episodeSchema: Schema[Any, Episode]           = Schema.gen
 
-    val api: GraphQL[Console with Clock with EpisodeService] =
+    val api: GraphQL[EpisodeService] =
       graphQL(
         RootResolver(
           Queries(

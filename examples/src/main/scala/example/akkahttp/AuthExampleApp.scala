@@ -11,8 +11,7 @@ import caliban.{ AkkaHttpAdapter, RootResolver }
 import sttp.model.StatusCode
 import sttp.tapir.json.circe._
 import sttp.tapir.model.ServerRequest
-import zio.{ FiberRef, RIO, Random, Runtime, RuntimeConfig, ZIO }
-
+import zio.{ FiberRef, RIO, Runtime, ZIO, ZLayer }
 import scala.concurrent.ExecutionContextExecutor
 import scala.io.StdIn
 
@@ -47,14 +46,17 @@ object AuthExampleApp extends App {
   // pass on so that they are present in the environment for our ContextWrapper(s)
   // For the auth we wrap in an option, but you could just as well use something
   // like AuthToken("__INVALID") or a sealed trait hierarchy with an invalid member
-  val initLayer                                   = FiberRef.make(Option.empty[AuthToken]).toLayer ++ Random.live
-  implicit val runtime: Runtime[Auth with Random] = Runtime.unsafeFromLayer(initLayer, RuntimeConfig.default)
+  val initLayer: ZLayer[Any, Nothing, FiberRef[Option[AuthToken]]] =
+    ZLayer.scoped(FiberRef.make(Option.empty[AuthToken]))
+
+  implicit val runtime: Runtime[Auth] = Runtime.unsafeFromLayer(initLayer)
 
   val interpreter = runtime.unsafeRun(api.interpreter)
+  val adapter     = AkkaHttpAdapter.default
 
   val route =
     path("api" / "graphql") {
-      AkkaHttpAdapter.makeHttpService(interpreter, requestInterceptor = AuthInterceptor)
+      adapter.makeHttpService(interpreter, requestInterceptor = AuthInterceptor)
     } ~ path("graphiql") {
       getFromResource("graphiql.html")
     }

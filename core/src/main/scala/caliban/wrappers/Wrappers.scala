@@ -16,9 +16,9 @@ object Wrappers {
   /**
    * Returns a wrapper that prints errors to the console
    */
-  lazy val printErrors: OverallWrapper[Console] =
-    new OverallWrapper[Console] {
-      def wrap[R1 <: Console](
+  lazy val printErrors: OverallWrapper[Any] =
+    new OverallWrapper[Any] {
+      def wrap[R1](
         process: GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]]
       ): GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] =
         request =>
@@ -40,16 +40,16 @@ object Wrappers {
    * Returns a wrapper that prints slow queries
    * @param duration threshold above which queries are considered slow
    */
-  def printSlowQueries(duration: Duration): OverallWrapper[Console with Clock] =
+  def printSlowQueries(duration: Duration): OverallWrapper[Any] =
     onSlowQueries(duration) { case (time, query) => printLine(s"Slow query took ${time.render}:\n$query").orDie }
 
   /**
    * Returns a wrapper that runs a given function in case of slow queries
    * @param duration threshold above which queries are considered slow
    */
-  def onSlowQueries[R](duration: Duration)(f: (Duration, String) => URIO[R, Any]): OverallWrapper[R with Clock] =
-    new OverallWrapper[R with Clock] {
-      def wrap[R1 <: R with Clock](
+  def onSlowQueries[R](duration: Duration)(f: (Duration, String) => URIO[R, Any]): OverallWrapper[R] =
+    new OverallWrapper[R] {
+      def wrap[R1 <: R](
         process: GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]]
       ): GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] =
         (request: GraphQLRequest) =>
@@ -62,9 +62,9 @@ object Wrappers {
    * Returns a wrapper that times out queries taking more than a specified time.
    * @param duration threshold above which queries should be timed out
    */
-  def timeout(duration: Duration): OverallWrapper[Clock] =
-    new OverallWrapper[Clock] {
-      def wrap[R1 <: Clock](
+  def timeout(duration: Duration): OverallWrapper[Any] =
+    new OverallWrapper[Any] {
+      def wrap[R1](
         process: GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]]
       ): GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] =
         (request: GraphQLRequest) =>
@@ -97,8 +97,8 @@ object Wrappers {
           for {
             req   <- process(doc)
             depth <- calculateDepth(req.field)
-            _     <- IO.when(depth > maxDepth)(
-                       IO.fail(ValidationError(s"Query is too deep: $depth. Max depth: $maxDepth.", ""))
+            _     <- ZIO.when(depth > maxDepth)(
+                       ZIO.fail(ValidationError(s"Query is too deep: $depth. Max depth: $maxDepth.", ""))
                      )
           } yield req
     }
@@ -127,8 +127,8 @@ object Wrappers {
           for {
             req    <- process(doc)
             fields <- countFields(req.field)
-            _      <- IO.when(fields > maxFields)(
-                        IO.fail(ValidationError(s"Query has too many fields: $fields. Max fields: $maxFields.", ""))
+            _      <- ZIO.when(fields > maxFields)(
+                        ZIO.fail(ValidationError(s"Query has too many fields: $fields. Max fields: $maxFields.", ""))
                       )
           } yield req
     }
@@ -137,6 +137,6 @@ object Wrappers {
     innerFields(field.fields)
 
   private def innerFields(fields: List[Field]): UIO[Int] =
-    IO.foreach(fields)(countFields).map(_.sum + fields.length)
+    ZIO.foreach(fields)(countFields).map(_.sum + fields.length)
 
 }

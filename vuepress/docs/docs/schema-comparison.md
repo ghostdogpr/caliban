@@ -14,7 +14,7 @@ The following example will compare the schema obtained by Caliban with a schema 
 import caliban.GraphQL.graphQL
 import caliban.RootResolver
 import caliban.tools._
-import zio.UIO
+import zio.ZIO
 
 // schema from String
 val schema: String =
@@ -38,6 +38,6 @@ val api = graphQL(RootResolver(Query(Hero(_ => "name", "nick", None))))
 
 for {
   diff <- SchemaComparison.compare(SchemaLoader.fromString(schema), SchemaLoader.fromCaliban(api))
-  _    <- UIO(println(diff.mkString("\n")))
+  _    <- ZIO.attempt(println(diff.mkString("\n")))
 } yield ()
 ```

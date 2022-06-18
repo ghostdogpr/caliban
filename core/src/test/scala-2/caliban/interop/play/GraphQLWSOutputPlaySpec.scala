@@ -5,9 +5,9 @@ import play.api.libs.json._
 import zio.test.Assertion.{ equalTo, isRight }
 import zio.test._
 
-object GraphQLWSOutputPlaySpec extends DefaultRunnableSpec {
+object GraphQLWSOutputPlaySpec extends ZIOSpecDefault {
 
-  override def spec: ZSpec[TestEnvironment, Any] =
+  override def spec =
     suite("GraphQLWSOutputPlaySpec")(
       test("can be parsed from JSON by play") {
         val request = Json

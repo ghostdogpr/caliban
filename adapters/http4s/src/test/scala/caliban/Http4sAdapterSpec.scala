@@ -9,20 +9,22 @@ import org.http4s.server.middleware.CORS
 import sttp.client3.UriContext
 import zio._
 import zio.interop.catz._
-import zio.test.{ DefaultRunnableSpec, TestFailure, ZSpec }
+import zio.test.{ Live, ZIOSpecDefault }
 
 import scala.language.postfixOps
 
-object Http4sAdapterSpec extends DefaultRunnableSpec {
+object Http4sAdapterSpec extends ZIOSpecDefault {
 
-  type Env         = ZEnv with TestService with Uploads
+  type Env         = TestService with Uploads
   type TestTask[A] = RIO[Env, A]
 
-  val apiLayer: ZLayer[zio.ZEnv, Throwable, Unit] =
-    (for {
-      interpreter <- TestApi.api.interpreter.toManaged
+  private val envLayer = TestService.make(sampleCharacters) ++ Uploads.empty
+
+  val apiLayer: ZLayer[Live, Throwable, Unit] = envLayer >>> ZLayer.scoped {
+    for {
+      interpreter <- TestApi.api.interpreter
       _           <- BlazeServerBuilder[TestTask]
-                       .bindHttp(8088, "localhost")
+                       .bindHttp(8087, "localhost")
                        .withHttpWebSocketApp(wsBuilder =>
                          Router[TestTask](
                            "/api/graphql"    -> CORS.policy(
@@ -38,21 +40,20 @@ object Http4sAdapterSpec extends DefaultRunnableSpec {
                          ).orNotFound
                        )
                        .resource
-                       .toManagedZIO
-                       .fork
-      _           <- Clock.sleep(3 seconds).toManaged
-    } yield ())
-      .provideCustomLayer(TestService.make(sampleCharacters) ++ Uploads.empty ++ Clock.live)
-      .toLayer
+                       .toScopedZIO
+                       .forkScoped
+      _           <- Live.live(Clock.sleep(3 seconds))
+    } yield ()
+  }
 
-  def spec: ZSpec[ZEnv, Any] = {
-    val suite: ZSpec[Unit, Throwable] =
+  override def spec = {
+    val suite =
       TapirAdapterSpec.makeSuite(
         "Http4sAdapterSpec",
-        uri"http://localhost:8088/api/graphql",
-        uploadUri = Some(uri"http://localhost:8088/upload/graphql"),
-        wsUri = Some(uri"ws://localhost:8088/ws/graphql")
+        uri"http://localhost:8087/api/graphql",
+        uploadUri = Some(uri"http://localhost:8087/upload/graphql"),
+        wsUri = Some(uri"ws://localhost:8087/ws/graphql")
       )
-    suite.provideSomeLayerShared[ZEnv](apiLayer.mapError(TestFailure.fail))
+    suite.provideCustomLayerShared(apiLayer)
   }
 }

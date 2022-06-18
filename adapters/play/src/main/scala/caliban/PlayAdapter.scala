@@ -48,7 +48,7 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
-  )(implicit runtime: Runtime[R with Random], materializer: Materializer): Routes = {
+  )(implicit runtime: Runtime[R], materializer: Materializer): Routes = {
     val endpoint = TapirAdapter.makeHttpUploadService[R, E](
       interpreter,
       skipValidation,
@@ -120,7 +120,7 @@ object PlayAdapter extends PlayAdapter(None) {
               .map(_.map { zioPipe =>
                 val io =
                   for {
-                    inputQueue     <- ZQueue.unbounded[GraphQLWSInput]
+                    inputQueue     <- Queue.unbounded[GraphQLWSInput]
                     input           = ZStream.fromQueue(inputQueue)
                     output          = zioPipe(input)
                     sink            = Sink.foreachAsync[GraphQLWSInput](1)(input =>

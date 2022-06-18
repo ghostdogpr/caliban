@@ -29,5 +29,5 @@ val daemon: URManaged[Random with Has[ReportingDaemon], Unit] = for {
 
 // Now wire it up
 daemon.useForever
-  .provideCustomLayer((ZEnv.any ++ reporterL) >>> ReportingDaemon.live)
+  .provideCustomLayer(reporterL >>> ReportingDaemon.live)
 ```

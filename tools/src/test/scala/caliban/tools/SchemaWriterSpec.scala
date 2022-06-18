@@ -5,7 +5,7 @@ import zio.Task
 import zio.test.Assertion.equalTo
 import zio.test._
 
-object SchemaWriterSpec extends DefaultRunnableSpec {
+object SchemaWriterSpec extends ZIOSpecDefault {
 
   def gen(
     schema: String,
@@ -576,10 +576,12 @@ object SchemaWriterSpec extends DefaultRunnableSpec {
     )
   )
 
-  override def spec: ZSpec[TestEnvironment, Any] = suite("SchemaWriterSpec")(
+  override def spec = suite("SchemaWriterSpec")(
     assertions.map { case (name, actual, expected) =>
       test(name)(
-        assertM(actual.map(_.stripMargin.trim))(equalTo(expected.stripMargin.trim))
+        actual.map(_.stripMargin.trim).map { str =>
+          assertTrue(str == expected.stripMargin.trim)
+        }
       )
     }: _*
   ) @@ TestAspect.sequential

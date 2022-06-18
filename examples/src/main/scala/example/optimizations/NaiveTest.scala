@@ -10,9 +10,9 @@ import zio.{ Console, ExitCode, ZIO, ZIOAppDefault }
  * Naive implementation of https://blog.apollographql.com/optimizing-your-graphql-request-waterfalls-7c3f3360b051
  * Will result in 47 requests.
  */
-object NaiveTest extends ZIOAppDefault with GenericSchema[Console] {
+object NaiveTest extends ZIOAppDefault with GenericSchema[Any] {
 
-  type MyIO[A] = ZIO[Console, Nothing, A]
+  type MyIO[A] = ZIO[Any, Nothing, A]
 
   case class Queries(user: UserArgs => MyIO[User])
 
@@ -79,12 +79,12 @@ object NaiveTest extends ZIOAppDefault with GenericSchema[Console] {
   implicit val userArgsSchema: Schema[Any, UserArgs]             = Schema.gen
   implicit val sizeArgsSchema: Schema[Any, SizeArgs]             = Schema.gen
   implicit val firstArgsSchema: Schema[Any, FirstArgs]           = Schema.gen
-  implicit lazy val user: Schema[Console, User]                  = Schema.gen
+  implicit lazy val user: Schema[Any, User]                      = Schema.gen
 
   val resolver = Queries(args => getUser(args.id))
   val api      = GraphQL.graphQL(RootResolver(resolver))
 
-  override def run: ZIO[zio.ZEnv, Nothing, ExitCode] =
+  override def run =
     api.interpreter
       .flatMap(_.execute(query).map(res => ExitCode(res.errors.length)))
       .exitCode

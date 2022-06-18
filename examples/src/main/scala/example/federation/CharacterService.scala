@@ -3,7 +3,7 @@ package example.federation
 import example.federation.FederationData.characters._
 
 import zio.stream.ZStream
-import zio.{ Queue, Ref, UIO, URIO, ZLayer }
+import zio.{ Queue, Ref, UIO, URIO, ZIO, ZLayer }
 
 trait CharacterService {
   def getCharactersByEpisode(season: Int, episode: Int): UIO[List[Character]]
@@ -20,22 +20,22 @@ trait CharacterService {
 object CharacterService {
 
   def getCharacters(origin: Option[Origin]): URIO[CharacterService, List[Character]] =
-    URIO.serviceWithZIO(_.getCharacters(origin))
+    ZIO.serviceWithZIO(_.getCharacters(origin))
 
   def findCharacter(name: String): URIO[CharacterService, Option[Character]] =
-    URIO.serviceWithZIO(_.findCharacter(name))
+    ZIO.serviceWithZIO(_.findCharacter(name))
 
   def deleteCharacter(name: String): URIO[CharacterService, Boolean] =
-    URIO.serviceWithZIO(_.deleteCharacter(name))
+    ZIO.serviceWithZIO(_.deleteCharacter(name))
 
   def deletedEvents: ZStream[CharacterService, Nothing, String] =
     ZStream.serviceWithStream(_.deletedEvents)
 
   def getCharactersByEpisode(season: Int, episode: Int): URIO[CharacterService, List[Character]] =
-    URIO.serviceWithZIO(_.getCharactersByEpisode(season, episode))
+    ZIO.serviceWithZIO(_.getCharactersByEpisode(season, episode))
 
-  def make(initial: List[Character]): ZLayer[Any, Nothing, CharacterService] =
-    (for {
+  def make(initial: List[Character]): ZLayer[Any, Nothing, CharacterService] = ZLayer {
+    for {
       characters  <- Ref.make(initial)
       subscribers <- Ref.make(List.empty[Queue[String]])
     } yield new CharacterService {
@@ -52,10 +52,10 @@ object CharacterService {
             else (false, list)
           )
           .tap(deleted =>
-            UIO.when(deleted)(
+            ZIO.when(deleted)(
               subscribers.get.flatMap(
                 // add item to all subscribers
-                UIO.foreach(_)(queue =>
+                ZIO.foreach(_)(queue =>
                   queue
                     .offer(name)
                     .catchSomeCause {
@@ -76,5 +76,6 @@ object CharacterService {
 
       def getCharactersByEpisode(season: Int, episode: Int): UIO[List[Character]] =
         characters.get.map(_.filter(c => c.starredIn.exists(e => e.episode == episode && e.season == season)))
-    }).toLayer
+    }
+  }
 }

@@ -7,9 +7,9 @@ import zio.test.Assertion._
 import zio.test._
 import caliban.Value
 
-object GraphQLRequestCirceSpec extends DefaultRunnableSpec {
+object GraphQLRequestCirceSpec extends ZIOSpecDefault {
 
-  override def spec: ZSpec[TestEnvironment, Any] =
+  override def spec =
     suite("GraphQLRequestCirceSpec")(
       test("can be parsed from JSON by circe") {
         val request = Json

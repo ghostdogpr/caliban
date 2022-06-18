@@ -4,8 +4,8 @@ import caliban.client.CalibanClientError.{ CommunicationError, DecodingError, Se
 import caliban.client.GraphQLResponseError.Location
 import zio.test._
 
-object CalibanClientErrorSpec extends DefaultRunnableSpec {
-  override def spec: ZSpec[TestEnvironment, Any] = {
+object CalibanClientErrorSpec extends ZIOSpecDefault {
+  override def spec = {
     val msg = "SOME_MSG"
     suite("CalibanClientErrorSpec")(
       suite("CommunicationError")(

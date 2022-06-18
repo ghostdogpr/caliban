@@ -4,7 +4,7 @@ import io.circe.generic.auto._
 import sttp.tapir._
 import sttp.tapir.generic.auto._
 import sttp.tapir.json.circe._
-import zio.{ IO, UIO }
+import zio.{ IO, UIO, ZIO }
 
 object Endpoints {
 
@@ -60,22 +60,22 @@ object Endpoints {
 
   def bookAddLogic(book: Book, token: String): IO[String, Unit] =
     if (token != "secret") {
-      IO.fail("Unauthorized access!!!11")
+      ZIO.fail("Unauthorized access!!!11")
     } else {
       books = book :: books
-      IO.unit
+      ZIO.unit
     }
 
   def bookDeleteLogic(title: String, token: String): IO[String, Unit] =
     if (token != "secret") {
-      IO.fail("Unauthorized access!!!11")
+      ZIO.fail("Unauthorized access!!!11")
     } else {
       books = books.filterNot(_.title == title)
-      IO.unit
+      ZIO.unit
     }
 
   def bookListingLogic(year: Option[Int], limit: Option[Int]): UIO[List[Book]] =
-    UIO {
+    ZIO.succeed {
       val filteredBooks = year match {
         case None    => books
         case Some(y) => books.filter(_.year == y)

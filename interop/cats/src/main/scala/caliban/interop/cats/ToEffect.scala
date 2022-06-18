@@ -4,7 +4,7 @@ import cats.effect.Async
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.{ ~>, Monad }
-import zio.{ IsNotIntersection, RIO, Runtime, Tag, ZEnvironment }
+import zio.{ RIO, Runtime, Tag, ZEnvironment, ZIO }
 
 import scala.concurrent.Future
 
@@ -80,7 +80,7 @@ object ToEffect {
    * @tparam F $fParam
    * @tparam R $rParam
    */
-  def contextual[F[_]: Async, R: Tag: IsNotIntersection](implicit
+  def contextual[F[_]: Async, R: Tag](implicit
     injector: InjectEnv[F, R],
     runtime: Runtime[R]
   ): ToEffect.Contextual[F, R] =
@@ -94,13 +94,13 @@ object ToEffect {
    * @tparam F $fParam
    * @tparam R $rParam
    */
-  def contextual[F[_]: Monad, R: Tag: IsNotIntersection](
+  def contextual[F[_]: Monad, R: Tag](
     to: ToEffect[F, R]
   )(implicit injector: InjectEnv[F, R]): ToEffect.Contextual[F, R] =
     new ToEffect.Contextual[F, R] {
       def toEffect[A](rio: RIO[R, A]): F[A] =
         for {
-          rEnv   <- to.toEffect(RIO.environment[R])
+          rEnv   <- to.toEffect(ZIO.environment[R])
           env    <- injector.modify(rEnv.get)
           result <- toEffect(rio, env)
         } yield result

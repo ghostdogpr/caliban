@@ -14,7 +14,7 @@ object FederatedApp extends ZIOAppDefault {
     _           <- Server
                      .start(
                        8088,
-                       Http.route[Request] { case _ -> !! / "api" / "graphql" =>
+                       Http.collectHttp[Request] { case _ -> !! / "api" / "graphql" =>
                          ZHttpAdapter.makeHttpService(interpreter)
                        }
                      )
@@ -26,15 +26,15 @@ object FederatedApp extends ZIOAppDefault {
     _           <- Server
                      .start(
                        8089,
-                       Http.route[Request] { case _ -> !! / "api" / "graphql" =>
+                       Http.collectHttp[Request] { case _ -> !! / "api" / "graphql" =>
                          ZHttpAdapter.makeHttpService(interpreter)
                        }
                      )
                      .forever
   } yield ()
 
-  override def run: URIO[ZEnv, ExitCode] =
+  override def run =
     (characterServer race episodeServer)
-      .provideCustomLayer(EpisodeService.make(sampleEpisodes) ++ CharacterService.make(sampleCharacters))
+      .provideLayer(EpisodeService.make(sampleEpisodes) ++ CharacterService.make(sampleCharacters))
       .exitCode
 }

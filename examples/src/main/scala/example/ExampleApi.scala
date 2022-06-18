@@ -30,7 +30,7 @@ object ExampleApi extends GenericSchema[ExampleService] {
   implicit val characterArgsSchema: Schema[Any, CharacterArgs]   = Schema.gen
   implicit val charactersArgsSchema: Schema[Any, CharactersArgs] = Schema.gen
 
-  val api: GraphQL[Console with Clock with ExampleService] =
+  val api: GraphQL[ExampleService] =
     graphQL(
       RootResolver(
         Queries(

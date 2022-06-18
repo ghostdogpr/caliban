@@ -27,7 +27,7 @@ object Http4sAdapter {
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
-  ): HttpRoutes[RIO[R with Clock, *]] = {
+  ): HttpRoutes[RIO[R, *]] = {
     val endpoints = TapirAdapter.makeHttpService[R, E](
       interpreter,
       skipValidation,
@@ -56,13 +56,13 @@ object Http4sAdapter {
     Http4sServerInterpreter().toRoutes(endpointsF)
   }
 
-  def makeHttpUploadService[R <: Random, E](
+  def makeHttpUploadService[R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
-  ): HttpRoutes[RIO[R with Clock, *]] = {
+  ): HttpRoutes[RIO[R, *]] = {
     val endpoint = TapirAdapter.makeHttpUploadService[R, E](
       interpreter,
       skipValidation,
@@ -73,7 +73,7 @@ object Http4sAdapter {
     ZHttp4sServerInterpreter().from(endpoint).toRoutes
   }
 
-  def makeHttpUploadServiceF[F[_]: Async, R <: Random, E](
+  def makeHttpUploadServiceF[F[_]: Async, R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
@@ -92,7 +92,7 @@ object Http4sAdapter {
   }
 
   def makeWebSocketService[R, R1 <: R, E](
-    builder: WebSocketBuilder2[RIO[R with Clock, *]],
+    builder: WebSocketBuilder2[RIO[R, *]],
     interpreter: GraphQLInterpreter[R1, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
@@ -100,7 +100,7 @@ object Http4sAdapter {
     queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty,
     webSocketHooks: WebSocketHooks[R1, E] = WebSocketHooks.empty
-  ): HttpRoutes[RIO[R1 with Clock, *]] = {
+  ): HttpRoutes[RIO[R1, *]] = {
     val endpoint = TapirAdapter.makeWebSocketService[R1, E](
       interpreter,
       skipValidation,
@@ -112,7 +112,7 @@ object Http4sAdapter {
     )
     ZHttp4sServerInterpreter[R1]()
       .fromWebSocket(endpoint)
-      .toRoutes(builder.asInstanceOf[WebSocketBuilder2[RIO[R1 with Clock, *]]])
+      .toRoutes(builder.asInstanceOf[WebSocketBuilder2[RIO[R1, *]]])
   }
 
   def makeWebSocketServiceF[F[_]: Async, R, E](

@@ -32,13 +32,13 @@ object Resolvers {
 
   private val queries =
     Query(
-      postById = id => PostService(_.findById(id))
+      postById = id => PostService.findById(id)
     )
 
   private val mutations =
     Mutation(
-      createPost = args => PostService(_.createPost(args.authorName, args.title, args.content)),
-      deletePost = id => PostService(_.deletePost(id))
+      createPost = args => PostService.createPost(args.authorName, args.title, args.content),
+      deletePost = id => PostService.deletePost(id)
     )
 
   private val subscriptions =
@@ -52,12 +52,12 @@ object Resolvers {
   val resolver: RootResolver[Query, Mutation, Subscription] = RootResolver(queries, mutations, subscriptions)
 }
 
-object Schemas extends GenericSchema[ZEnv with PostService]
+object Schemas extends GenericSchema[PostService]
 
 object GraphQLApi {
   import Schemas._
 
-  val api: GraphQL[ZEnv with PostService] =
+  val api: GraphQL[PostService] =
     graphQL(
       Resolvers.resolver
     ) @@

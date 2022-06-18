@@ -12,9 +12,9 @@ import zio.query.{ CompletedRequestMap, DataSource, Request, ZQuery }
  * Optimized implementation of https://blog.apollographql.com/optimizing-your-graphql-request-waterfalls-7c3f3360b051
  * Will result in 8 requests.
  */
-object OptimizedTest extends ZIOAppDefault with GenericSchema[Console] {
+object OptimizedTest extends ZIOAppDefault with GenericSchema[Any] {
 
-  type ConsoleQuery[A] = ZQuery[Console, Nothing, A]
+  type ConsoleQuery[A] = ZQuery[Any, Nothing, A]
 
   case class Queries(user: UserArgs => ConsoleQuery[User])
 
@@ -57,7 +57,7 @@ object OptimizedTest extends ZIOAppDefault with GenericSchema[Console] {
   )
 
   case class GetUser(id: Int) extends Request[Nothing, User]
-  val UserDataSource: DataSource[Console, GetUser] = DataSource.Batched.make("UserDataSource") { requests =>
+  val UserDataSource: DataSource[Any, GetUser] = DataSource.Batched.make("UserDataSource") { requests =>
     requests.toList match {
       case head :: Nil =>
         printLine("getUser").orDie.as(CompletedRequestMap.empty.insert(head)(Right(fakeUser(head.id))))
@@ -69,33 +69,33 @@ object OptimizedTest extends ZIOAppDefault with GenericSchema[Console] {
   }
 
   case class GetEvent(id: Int) extends Request[Nothing, Event]
-  val EventDataSource: DataSource[Console, GetEvent] =
+  val EventDataSource: DataSource[Any, GetEvent] =
     fromFunctionBatchedZIO("EventDataSource")(requests => printLine("getEvents").as(requests.map(r => fakeEvent(r.id))))
 
   case class GetViewerMetadataForEvents(id: Int) extends Request[Nothing, ViewerMetadata]
-  val ViewerMetadataDataSource: DataSource[Console, GetViewerMetadataForEvents] =
+  val ViewerMetadataDataSource: DataSource[Any, GetViewerMetadataForEvents] =
     fromFunctionBatchedZIO("ViewerMetadataDataSource") { requests =>
       printLine("getViewerMetadataForEvents").as(requests.map(_ => ViewerMetadata("")))
     }
 
   case class GetVenue(id: Int) extends Request[Nothing, Venue]
-  val VenueDataSource: DataSource[Console, GetVenue] =
+  val VenueDataSource: DataSource[Any, GetVenue] =
     fromFunctionBatchedZIO("VenueDataSource")(requests => printLine("getVenues").as(requests.map(_ => Venue("venue"))))
 
   case class GetTags(ids: List[Int]) extends Request[Nothing, List[Tag]]
-  val TagsDataSource: DataSource[Console, GetTags] =
+  val TagsDataSource: DataSource[Any, GetTags] =
     fromFunctionBatchedZIO("TagsDataSource") { requests =>
       printLine("getTags").as(requests.map(_.ids.map(id => Tag(id.toString))))
     }
 
   case class GetViewerFriendIdsAttendingEvent(id: Int, first: Int) extends Request[Nothing, List[Int]]
-  val ViewerFriendDataSource: DataSource[Console, GetViewerFriendIdsAttendingEvent] =
+  val ViewerFriendDataSource: DataSource[Any, GetViewerFriendIdsAttendingEvent] =
     fromFunctionBatchedZIO("ViewerFriendDataSource") { requests =>
       printLine("getViewerFriendIdsAttendingEvent").as(requests.map(r => (1 to r.first).toList))
     }
 
   case class GetUpcomingEventIdsForUser(id: Int, first: Int) extends Request[Nothing, List[Int]]
-  val UpcomingEventDataSource: DataSource[Console, GetUpcomingEventIdsForUser] =
+  val UpcomingEventDataSource: DataSource[Any, GetUpcomingEventIdsForUser] =
     fromFunctionBatchedZIO("UpcomingEventDataSource") { requests =>
       printLine("getUpcomingEventIdsForUser").as(requests.map(r => (1 to r.first).toList))
     }
@@ -117,12 +117,12 @@ object OptimizedTest extends ZIOAppDefault with GenericSchema[Console] {
   implicit val userArgsSchema: Schema[Any, UserArgs]             = Schema.gen
   implicit val sizeArgsSchema: Schema[Any, SizeArgs]             = Schema.gen
   implicit val firstArgsSchema: Schema[Any, FirstArgs]           = Schema.gen
-  implicit lazy val user: Schema[Console, User]                  = Schema.gen
+  implicit lazy val user: Schema[Any, User]                      = Schema.gen
 
   val resolver = Queries(args => getUser(args.id))
   val api      = GraphQL.graphQL(RootResolver(resolver))
 
-  override def run: ZIO[zio.ZEnv, Nothing, ExitCode] =
+  override def run =
     api.interpreter
       .flatMap(_.execute(query).map(res => ExitCode(res.errors.length)))
       .exitCode

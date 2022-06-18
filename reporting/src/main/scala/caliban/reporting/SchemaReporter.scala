@@ -2,8 +2,8 @@ package caliban.reporting
 
 import caliban.client.CalibanClientError.CommunicationError
 import caliban.reporting.ReportingError.{ ClientError, RetryableError }
+import sttp.client3.SttpBackend
 import sttp.client3.UriContext
-import sttp.client3.asynchttpclient.zio.SttpClient
 import zio._
 
 trait SchemaReporter {
@@ -39,11 +39,12 @@ object SchemaReporter {
 
     override def report[A](ref: SchemaReportingRef[A], withCoreSchema: Boolean): IO[ReportingError, ReportingResponse] =
       ref.coreSchema.get.flatMap { coreSchema =>
-        Util.hashSchema(coreSchema).flatMap { hash =>
+        val renderedSchema = ref.renderSchema(coreSchema)
+        Util.hashSchema(renderedSchema).flatMap { hash =>
           client
             .send(
               reportSchemaMutation(
-                coreSchema = if (withCoreSchema) Some(coreSchema) else None,
+                coreSchema = if (withCoreSchema) Some(renderedSchema) else None,
                 SchemaReport(
                   bootId = ref.bootId.toString,
                   coreSchemaHash = hash,
@@ -81,11 +82,12 @@ object SchemaReporter {
 
   def fromConfigZIO[R: Tag, E](
     f: R => IO[E, String]
-  ): ZLayer[SttpClient with R, E, SchemaReporter] =
-    (for {
+  ): ZLayer[SttpClient with R, E, SchemaReporter] = ZLayer {
+    for {
       accessToken <- ZIO.serviceWithZIO[R](f)
       reporter    <- make(accessToken)
-    } yield reporter).toLayer
+    } yield reporter
+  }
 
   def fromDefaultConfig: ZLayer[SttpClient with System, Throwable, SchemaReporter] =
     fromConfigZIO[System, Throwable](

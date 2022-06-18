@@ -2,7 +2,7 @@ package caliban.tools
 
 import org.scalafmt.dynamic.ConsoleScalafmtReporter
 import org.scalafmt.interfaces.Scalafmt
-import zio.Task
+import zio.{ Task, ZIO }
 
 import java.nio.file.{ Files, Path, Paths, StandardCopyOption }
 import java.util.jar.JarFile
@@ -13,7 +13,7 @@ object Formatter {
     format(List("Nil.scala" -> str), fmtPath).map(_.head._2)
 
   def format(strs: List[(String, String)], fmtPath: Option[String]): Task[List[(String, String)]] =
-    Task.attemptBlocking {
+    ZIO.attemptBlocking {
       val config: Path = {
         @inline def defaultConfigPath = Paths.get(".scalafmt.conf")
         @inline def defaultConfig     =

@@ -34,9 +34,9 @@ object ExampleApp extends CatsApp {
   val graphql2: GraphQL[Any] =
     addBookEndpoint.toGraphQL |+| deleteBookEndpoint.toGraphQL |+| booksListingEndpoint.toGraphQL
 
-  type MyTask[A] = RIO[Clock, A]
+  type MyTask[A] = Task[A]
 
-  override def run: ZIO[ZEnv, Nothing, ExitCode] =
+  override def run =
     (for {
       interpreter <- graphql.interpreter
       _           <- BlazeServerBuilder[MyTask]
@@ -48,7 +48,7 @@ object ExampleApp extends CatsApp {
                          ).orNotFound
                        )
                        .resource
-                       .toManagedZIO
-                       .useForever
+                       .toScopedZIO
+                       .forever
     } yield ()).exitCode
 }

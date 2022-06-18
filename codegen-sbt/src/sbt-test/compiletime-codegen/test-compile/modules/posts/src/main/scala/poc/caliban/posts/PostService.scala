@@ -24,4 +24,10 @@ trait PostService {
   def all: ZStream[Any, PostServiceError, Post]
 }
 
-object PostService extends Accessible[PostService]
+object PostService {
+  def findById(id: PostId) = ZIO.serviceWithZIO[PostService](_.findById(id))
+  def createPost(author: AuthorName, title: PostTitle, content: PostContent) =
+    ZIO.serviceWithZIO[PostService](_.createPost(author, title, content))
+  def deletePost(id: PostId) = ZIO.serviceWithZIO[PostService](_.deletePost(id))
+  def all = ZStream.serviceWithStream[PostService](_.all)
+}

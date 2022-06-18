@@ -1,6 +1,6 @@
 package caliban
 
-import zio.stream.{ Stream, ZStream }
+import zio.stream.ZStream
 import zio.{ Chunk, UIO, ULayer, URIO, ZIO, ZLayer }
 
 package object uploads {
@@ -12,7 +12,7 @@ package object uploads {
   object Uploads {
     val empty: ULayer[Uploads] =
       ZLayer.succeed(new Uploads {
-        def stream(name: String): ZStream[Any, Throwable, Byte] = Stream.empty
+        def stream(name: String): ZStream[Any, Throwable, Byte] = ZStream.empty
         def file(name: String): UIO[Option[FileMeta]]           = ZIO.none
       })
 

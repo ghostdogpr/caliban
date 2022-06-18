@@ -13,7 +13,7 @@ import sangria.macros.derive._
 import sangria.marshalling.circe._
 import sangria.parser.QueryParser
 import sangria.schema._
-import zio.{ Runtime, RuntimeConfig, UIO, ZEnv, ZEnvironment }
+import zio.{ Runtime, UIO, ZIO }
 
 @State(Scope.Thread)
 @BenchmarkMode(Array(Mode.Throughput))
@@ -222,10 +222,7 @@ class GraphQLBenchmarks {
               }
                 """
 
-  val runtime: Runtime[ZEnv] = new Runtime[ZEnv] {
-    val environment: ZEnvironment[ZEnv] = ZEnvironment.default
-    val runtimeConfig: RuntimeConfig    = RuntimeConfig.benchmark
-  }
+  private val runtime = Runtime.default
 
   case class CharactersArgs(origin: Option[Origin])
   case class CharacterArgs(name: String)
@@ -237,8 +234,8 @@ class GraphQLBenchmarks {
 
   val resolver: RootResolver[Query, Unit, Unit] = RootResolver(
     Query(
-      args => UIO(Data.characters.filter(c => args.origin.forall(c.origin == _))),
-      args => UIO(Data.characters.find(c => c.name == args.name))
+      args => ZIO.succeed(Data.characters.filter(c => args.origin.forall(c.origin == _))),
+      args => ZIO.succeed(Data.characters.find(c => c.name == args.name))
     )
   )
 

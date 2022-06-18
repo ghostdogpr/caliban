@@ -11,7 +11,7 @@ import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
 import caliban.schema.Schema.scalarSchema
 import caliban.schema.{ Schema, Types }
-import zio.UIO
+import zio.{ UIO, ZIO }
 import zio.stream.ZStream
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
 
@@ -140,17 +140,17 @@ object TestUtils {
   )
   val resolverIO               = RootResolver(
     QueryIO(
-      args => UIO(characters.filter(c => args.origin.forall(c.origin == _))),
-      args => UIO(characters.find(c => c.name == args.name))
+      args => ZIO.succeed(characters.filter(c => args.origin.forall(c.origin == _))),
+      args => ZIO.succeed(characters.find(c => c.name == args.name))
     )
   )
   val resolverWithMutation     = RootResolver(
     resolverIO.queryResolver,
-    MutationIO(_ => UIO.unit)
+    MutationIO(_ => ZIO.unit)
   )
   val resolverWithSubscription = RootResolver(
     resolver.queryResolver,
-    MutationIO(_ => UIO.unit),
+    MutationIO(_ => ZIO.unit),
     SubscriptionIO(ZStream.empty)
   )
 
@@ -190,7 +190,7 @@ object TestUtils {
 
     val resolverWrongMutationUnderscore = RootResolver(
       resolverIO.queryResolver,
-      WrongMutationUnderscore(_ => UIO.unit)
+      WrongMutationUnderscore(_ => ZIO.unit)
     )
 
     sealed trait UnionInput
@@ -204,7 +204,7 @@ object TestUtils {
 
     val resolverWrongMutationUnion = RootResolver(
       resolverIO.queryResolver,
-      WrongMutationUnion(_ => UIO.unit)
+      WrongMutationUnion(_ => ZIO.unit)
     )
 
     object Interface {
@@ -259,7 +259,7 @@ object TestUtils {
       case class TestWrongArgumentName(i: InterfaceWrongArgumentName)
 
       val resolverInterfaceWrongArgumentName = RootResolver(
-        TestWrongArgumentName(InterfaceWrongArgumentName.A(_ => UIO.unit))
+        TestWrongArgumentName(InterfaceWrongArgumentName.A(_ => ZIO.unit))
       )
 
       @GQLInterface
@@ -276,7 +276,7 @@ object TestUtils {
       case class TestWrongArgumentType(i: InterfaceWrongArgumentInputType)
 
       val resolverInterfaceWrongArgumentInputType = RootResolver(
-        TestWrongArgumentType(InterfaceWrongArgumentInputType.A(_ => UIO.unit))
+        TestWrongArgumentType(InterfaceWrongArgumentInputType.A(_ => ZIO.unit))
       )
 
       case class ClashingObjectArgs(a: ClashingObject)
@@ -317,13 +317,13 @@ object TestUtils {
       case class ObjectWrongArgumentName(x: WrongArgumentName => UIO[Unit])
       case class TestWrongObjectArgumentName(o: ObjectWrongArgumentName)
       val resolverWrongArgumentName = RootResolver(
-        TestWrongObjectArgumentName(ObjectWrongArgumentName(_ => UIO.unit))
+        TestWrongObjectArgumentName(ObjectWrongArgumentName(_ => ZIO.unit))
       )
 
       case class ObjectWrongArgumentInputType(x: UnionInputObjectArg => UIO[Unit])
       case class TestWrongObjectArgumentInputType(o: ObjectWrongArgumentInputType)
       val resolverWrongArgumentInputType = RootResolver(
-        TestWrongObjectArgumentInputType(ObjectWrongArgumentInputType(_ => UIO.unit))
+        TestWrongObjectArgumentInputType(ObjectWrongArgumentInputType(_ => ZIO.unit))
       )
 
       @GQLInterface sealed trait InterfaceA {
@@ -443,7 +443,7 @@ object TestUtils {
       case class IsNonNullable(field: UIO[String])      extends WithNullable
 
       case class TestNonNullableObject(nonNullable: WithNullable)
-      val resolverNonNullableSubtype = RootResolver(TestNonNullableObject(IsNonNullable(UIO.succeed("a"))))
+      val resolverNonNullableSubtype = RootResolver(TestNonNullableObject(IsNonNullable(ZIO.succeed("a"))))
 
       case class FieldArg(arg: String)
       @GQLInterface
@@ -551,14 +551,14 @@ object TestUtils {
     )
     val resolverWrongInputFieldDirectiveName = RootResolver(
       resolverIO.queryResolver,
-      TestWrongInputFieldDirectiveName(_ => UIO.unit)
+      TestWrongInputFieldDirectiveName(_ => ZIO.unit)
     )
 
     case class TestWrongFieldArgDirectiveName(
       field: WrongDirectiveName => UIO[Unit]
     )
     val resolverWrongFieldArgDirectiveName   = RootResolver(
-      TestWrongFieldArgDirectiveName(_ => UIO.unit)
+      TestWrongFieldArgDirectiveName(_ => ZIO.unit)
     )
 
     val resolverEmpty = new RootResolver(Option.empty[Unit], Option.empty[Unit], Option.empty[Unit])

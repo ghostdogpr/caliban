@@ -5,7 +5,7 @@ import zio.test.Assertion._
 import zio.test._
 import zio.ZIO
 
-object ConnectionSpec extends DefaultRunnableSpec {
+object ConnectionSpec extends ZIOSpecDefault {
   case class ItemEdge(cursor: Base64Cursor, node: Item) extends Edge[Base64Cursor, Item]
 
   object ItemEdge {
@@ -211,14 +211,14 @@ object ConnectionSpec extends DefaultRunnableSpec {
           before = None
         ).toPagination
 
-        assertM(res)(
-          equalTo(
-            Pagination(
+        res.map { pagination =>
+          assertTrue(
+            pagination == Pagination(
               count = PaginationCount.First(1),
               cursor = PaginationCursor.After(Base64Cursor(1))
             )
           )
-        )
+        }
       },
       test("cursor can be null") {
         val res = Args(
@@ -228,14 +228,14 @@ object ConnectionSpec extends DefaultRunnableSpec {
           before = None
         ).toPagination
 
-        assertM(res)(
-          equalTo(
-            Pagination(
+        res.map { pagination =>
+          assertTrue(
+            pagination == Pagination(
               count = PaginationCount.First(1),
               cursor = PaginationCursor.NoCursor
             )
           )
-        )
+        }
       },
       test("both cursors and counts can't be set") {
         val res = Args(
@@ -245,11 +245,13 @@ object ConnectionSpec extends DefaultRunnableSpec {
           before = Some("dummy")
         ).toPagination.exit
 
-        assertM(res)(
-          fails(
-            hasMessage(
-              containsString("first and last cannot both be set") &&
-                containsString("before and after cannot both be set")
+        res.map(
+          assert(_)(
+            fails(
+              hasMessage(
+                containsString("first and last cannot both be set") &&
+                  containsString("before and after cannot both be set")
+              )
             )
           )
         )
@@ -262,9 +264,11 @@ object ConnectionSpec extends DefaultRunnableSpec {
           before = None
         ).exit
 
-        assertM(res)(
-          fails(
-            hasMessage(equalTo("first and last cannot both be empty"))
+        res.map(
+          assert(_)(
+            fails(
+              hasMessage(equalTo("first and last cannot both be empty"))
+            )
           )
         )
       }
@@ -276,14 +280,14 @@ object ConnectionSpec extends DefaultRunnableSpec {
           after = Some(Cursor[Base64Cursor].encode(Base64Cursor(1)))
         ).toPagination
 
-        assertM(res)(
-          equalTo(
-            Pagination(
+        res.map { pagination =>
+          assertTrue(
+            pagination == Pagination(
               count = PaginationCount.First(1),
               cursor = PaginationCursor.After(Base64Cursor(1))
             )
           )
-        )
+        }
       },
       test("must set first") {
         val res = ForwardArgs(
@@ -291,9 +295,11 @@ object ConnectionSpec extends DefaultRunnableSpec {
           after = None
         ).toPagination.exit
 
-        assertM(res)(
-          fails(
-            hasMessage(equalTo("first cannot be empty"))
+        res.map(
+          assert(_)(
+            fails(
+              hasMessage(equalTo("first cannot be empty"))
+            )
           )
         )
       },
@@ -303,9 +309,11 @@ object ConnectionSpec extends DefaultRunnableSpec {
           after = None
         ).toPagination.exit
 
-        assertM(res)(
-          fails(
-            hasMessage(equalTo("first cannot be negative"))
+        res.map(
+          assert(_)(
+            fails(
+              hasMessage(equalTo("first cannot be negative"))
+            )
           )
         )
       }
@@ -317,14 +325,14 @@ object ConnectionSpec extends DefaultRunnableSpec {
           before = Some(Cursor[Base64Cursor].encode(Base64Cursor(1)))
         ).toPagination
 
-        assertM(res)(
-          equalTo(
-            Pagination(
+        res.map { pagination =>
+          assertTrue(
+            pagination == Pagination(
               count = PaginationCount.Last(1),
               cursor = PaginationCursor.Before(Base64Cursor(1))
             )
           )
-        )
+        }
       },
       test("must set last") {
         val res = BackwardArgs(
@@ -332,9 +340,11 @@ object ConnectionSpec extends DefaultRunnableSpec {
           before = None
         ).toPagination.exit
 
-        assertM(res)(
-          fails(
-            hasMessage(equalTo("last cannot be empty"))
+        res.map(
+          assert(_)(
+            fails(
+              hasMessage(equalTo("last cannot be empty"))
+            )
           )
         )
       },
@@ -344,9 +354,11 @@ object ConnectionSpec extends DefaultRunnableSpec {
           before = None
         ).toPagination.exit
 
-        assertM(res)(
-          fails(
-            hasMessage(equalTo("last cannot be negative"))
+        res.map(
+          assert(_)(
+            fails(
+              hasMessage(equalTo("last cannot be negative"))
+            )
           )
         )
       }

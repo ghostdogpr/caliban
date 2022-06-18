@@ -12,7 +12,7 @@ import zio.test.Assertion._
 import zio.test._
 import zio.query.ZQuery
 
-object FederationV1Spec extends DefaultRunnableSpec {
+object FederationV1Spec extends ZIOSpecDefault {
   case class OrphanChild(id: String)
 
   object OrphanChild {
@@ -63,9 +63,9 @@ object FederationV1Spec extends DefaultRunnableSpec {
               }
             }""")
 
-      assertM(interpreter.flatMap(_.execute(query)).map(_.data.toString))(
-        equalTo("""{"_entities":[{"__typename":"Character","name":"Amos Burton"}]}""")
-      )
+      interpreter.flatMap(_.execute(query)).map { response =>
+        assertTrue(response.data.toString == """{"_entities":[{"__typename":"Character","name":"Amos Burton"}]}""")
+      }
     },
     test("should not include _entities if not resolvers provided") {
       val interpreter = (graphQL(resolver) @@ federated).interpreter
@@ -80,29 +80,34 @@ object FederationV1Spec extends DefaultRunnableSpec {
               }
             }""")
 
-      assertM(interpreter.flatMap(_.execute(query)).map(_.errors))(
-        equalTo(
-          List(
+      interpreter.flatMap(_.execute(query)).map { response =>
+        assertTrue(
+          response.errors == List(
             ValidationError(
               "Field '_entities' does not exist on type 'Query'.",
               "The target field of a field selection must be defined on the scoped type of the selection set. There are no limitations on alias names."
             )
           )
         )
-      )
+      }
     },
     test("should include orphan entities in sdl") {
       val interpreter = (graphQL(resolver) @@ federated(orphanResolver)).interpreter
 
       val query = gqldoc("""{ _service { sdl } }""")
-      assertM(interpreter.flatMap(_.execute(query)).map(d => d.data.toString))(
-        containsString(
-          """type Orphan @extends @key(fields: \"name\") {\n  name: String! @external\n  nicknames: [String!]!\n  child: OrphanChild!\n}"""
-        ) &&
-          containsString(
-            """type OrphanChild {\n  id: String!\n}"""
+      interpreter
+        .flatMap(_.execute(query))
+        .map(d => d.data.toString)
+        .map(
+          assert(_)(
+            containsString(
+              """type Orphan @extends @key(fields: \"name\") {\n  name: String! @external\n  nicknames: [String!]!\n  child: OrphanChild!\n}"""
+            ) &&
+              containsString(
+                """type OrphanChild {\n  id: String!\n}"""
+              )
           )
-      )
+        )
     },
     test("should include field metadata") {
       val interpreter = (graphQL(resolver) @@ federated(functionEntityResolver)).interpreter

@@ -9,11 +9,11 @@ import play.api.libs.json._
 import zio.test.Assertion._
 import zio.test._
 
-object GraphQLResponsePlaySpec extends DefaultRunnableSpec {
+object GraphQLResponsePlaySpec extends ZIOSpecDefault {
 
   val writer = implicitly[Writes[GraphQLResponse[Any]]]
 
-  override def spec: ZSpec[TestEnvironment, Any] =
+  override def spec =
     suite("GraphQLResponsePlaySpec")(
       test("can be converted to JSON [play]") {
         val response = GraphQLResponse(StringValue("data"), Nil)

@@ -9,20 +9,20 @@ import zio.ZIO
 import zio.test.Assertion._
 import zio.test._
 
-object SchemaComparisonSpec extends DefaultRunnableSpec {
+object SchemaComparisonSpec extends ZIOSpecDefault {
 
   def compare(
     schema1: String,
     schema2: String,
     expected: List[String]
   ): ZIO[Any, CalibanError.ParsingError, TestResult] =
-    assertM(for {
+    for {
       s1  <- Parser.parseQuery(schema1)
       s2  <- Parser.parseQuery(schema2)
       diff = compareDocuments(s1, s2)
-    } yield diff.map(_.toString))(equalTo(expected))
+    } yield assertTrue(diff.map(_.toString) == expected)
 
-  override def spec: ZSpec[TestEnvironment, Any] =
+  override def spec =
     suite("SchemaComparisonSpec")(
       test("field changed") {
         val schema1: String =
@@ -30,7 +30,7 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
           input HeroInput {
             test: String!
           }
-          
+
           type Hero {
             name(pad: Int!): String!
             nick: String!
@@ -43,7 +43,7 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
           input HeroInput {
             test: String
           }
-          
+
           type Hero {
             name(pad: Int!): String!
             nick: String!
@@ -71,7 +71,7 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
           input HeroInput {
             test: String
           }
-          
+
           type Hero {
             name(pad: Int!): String!
           }
@@ -115,7 +115,7 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
           input HeroInput {
             test: String
           }
-          
+
           type Hero {
             name(pad: Int!): String!
           }
@@ -126,7 +126,7 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
           input HeroInput {
             test2: String
           }
-          
+
           type Hero {
             name(pad: Int!, a: String): String
           }
@@ -157,11 +157,11 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
           }
             |""".stripMargin
 
-        assertM(for {
+        for {
           s1  <- Parser.parseQuery(schema1)
           s2  <- Parser.parseQuery(schema2)
           diff = compareDocuments(s1, s2)
-        } yield diff)(hasFirst(hasField("breaking", _.breaking, equalTo(false))))
+        } yield assert(diff)(hasFirst(hasField("breaking", _.breaking, equalTo(false))))
       },
       test("non-optional argument added") {
         val schema1: String =
@@ -179,11 +179,11 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
           }
             |""".stripMargin
 
-        assertM(for {
+        for {
           s1  <- Parser.parseQuery(schema1)
           s2  <- Parser.parseQuery(schema2)
           diff = compareDocuments(s1, s2)
-        } yield diff)(hasFirst(hasField("breaking", _.breaking, equalTo(true))))
+        } yield assert(diff)(hasFirst(hasField("breaking", _.breaking, equalTo(true))))
       },
       test("deprecated") {
         val schema1: String =
@@ -191,7 +191,7 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
           input HeroInput {
             test: String @deprecated
           }
-          
+
           type Hero {
             name(pad: Int!): String!
           }
@@ -202,7 +202,7 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
           input HeroInput {
             test: String
           }
-          
+
           type Hero {
             name(pad: Int!): String!
           }
@@ -218,7 +218,7 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
             nick: String! @deprecated(reason: "some reason")
             bday: Int
           }
-          
+
           type Query {
             hero: Hero!
           }
@@ -230,9 +230,9 @@ object SchemaComparisonSpec extends DefaultRunnableSpec {
 
         val api = graphQL(RootResolver(Query(Hero(_ => "name", "nick", None))))
 
-        assertM(for {
+        for {
           diff <- SchemaComparison.compare(SchemaLoader.fromString(schema), SchemaLoader.fromCaliban(api))
-        } yield diff)(equalTo(Nil))
+        } yield assertTrue(diff == Nil)
       }
     )
 }

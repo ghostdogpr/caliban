@@ -7,12 +7,12 @@ import caliban.parsing.adt.LocationInfo
 import caliban.{ CalibanError, GraphQLResponse }
 import zio.json._
 import zio.test.Assertion.{ equalTo, isRight }
-import zio.test.{ assert, assertTrue, DefaultRunnableSpec, TestEnvironment, ZSpec }
+import zio.test.{ assert, assertTrue, ZIOSpecDefault }
 
-object GraphQLResponseZIOSpec extends DefaultRunnableSpec {
+object GraphQLResponseZIOSpec extends ZIOSpecDefault {
   implicit val encoder: JsonEncoder[GraphQLResponse[Any]] = GraphQLResponse.zioJsonEncoder
 
-  override def spec: ZSpec[TestEnvironment, Any] =
+  override def spec =
     suite("GraphQLResponseZIOSpec")(
       test("can be converted to JSON [zio]") {
         val response = GraphQLResponse(StringValue("data"), Nil)

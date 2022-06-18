@@ -10,7 +10,7 @@ import zio.IO
 import zio.test.Assertion._
 import zio.test._
 
-object ValidationSpec extends DefaultRunnableSpec {
+object ValidationSpec extends ZIOSpecDefault {
   private val gql         = graphQL(resolverWithSubscription)
   private val interpreter = gql.interpreter
 
@@ -20,10 +20,10 @@ object ValidationSpec extends DefaultRunnableSpec {
     variables: Map[String, InputValue] = Map.empty
   ): IO[ValidationError, TestResult] = {
     val io = interpreter.flatMap(_.execute(query, variables = variables)).map(_.errors.headOption)
-    assertM(io)(isSome(hasField[CalibanError, String]("msg", _.msg, equalTo(expectedMessage))))
+    io.map(assert(_)(isSome(hasField[CalibanError, String]("msg", _.msg, equalTo(expectedMessage)))))
   }
 
-  override def spec: ZSpec[TestEnvironment, Any] =
+  override def spec =
     suite("ValidationSpec")(
       test("operation name uniqueness") {
         val query = gqldoc("""
@@ -253,18 +253,18 @@ object ValidationSpec extends DefaultRunnableSpec {
                  name
                }
               }""")
-        assertM(interpreter.flatMap(_.execute(query, None, Map("x" -> StringValue("y")))).map(_.errors.headOption))(
-          isNone
-        )
+        interpreter.flatMap(_.execute(query, None, Map("x" -> StringValue("y")))).map { response =>
+          assertTrue(response.errors.isEmpty)
+        }
       },
       test("variable used in object") {
         val query = gqldoc("""
              query($x: String!) {
                exists(character: { name: $x, nicknames: [], origin: EARTH })
               }""")
-        assertM(interpreter.flatMap(_.execute(query, None, Map("x" -> StringValue("y")))).map(_.errors.headOption))(
-          isNone
-        )
+        interpreter.flatMap(_.execute(query, None, Map("x" -> StringValue("y")))).map { response =>
+          assertTrue(response.errors.isEmpty)
+        }
       },
       test("invalid input field") {
         val query = gqldoc("""
@@ -336,7 +336,9 @@ object ValidationSpec extends DefaultRunnableSpec {
              query($x: String = "test") {
                exists(character: { name: $x, nicknames: [], origin: EARTH })
               }""")
-        assertM(interpreter.flatMap(_.execute(query, None, Map())).map(_.errors.headOption))(isNone)
+        interpreter.flatMap(_.execute(query, None, Map())).map { response =>
+          assertTrue(response.errors.isEmpty)
+        }
       },
       test("directive with variable of the wrong type") {
         val query = gqldoc("""
@@ -360,9 +362,9 @@ object ValidationSpec extends DefaultRunnableSpec {
                  name @skip(if: $x)
                }
              }""")
-        assertM(interpreter.flatMap(_.execute(query, None, Map("x" -> BooleanValue(true)))).map(_.errors.headOption))(
-          isNone
-        )
+        interpreter.flatMap(_.execute(query, None, Map("x" -> BooleanValue(true)))).map { response =>
+          assertTrue(response.errors.isEmpty)
+        }
       }
     )
 }

@@ -3,9 +3,9 @@ package caliban.tools
 import Codegen.getPackageAndObjectName
 import zio.test._
 
-object CodegenSpec extends DefaultRunnableSpec {
+object CodegenSpec extends ZIOSpecDefault {
 
-  override def spec: ZSpec[TestEnvironment, Any] =
+  override def spec =
     suite("CodegenSpec")(
       test("Package name is empty or default if path doesn't follow correct format") {
         assertTrue(packageAndObject("a/b/c", None, None) == None                       -> "Client") &&

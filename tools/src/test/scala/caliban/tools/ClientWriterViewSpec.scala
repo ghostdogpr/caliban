@@ -5,14 +5,14 @@ import zio.Task
 import zio.test.Assertion._
 import zio.test._
 
-object ClientWriterViewSpec extends DefaultRunnableSpec {
+object ClientWriterViewSpec extends ZIOSpecDefault {
 
   val gen: String => Task[String] = (schema: String) =>
     Parser
       .parseQuery(schema)
       .flatMap(doc => Formatter.format(ClientWriter.write(doc, genView = true, scalarMappings = None).head._2, None))
 
-  override def spec: ZSpec[TestEnvironment, Any] =
+  override def spec =
     suite("ClientWriterViewSpec")(
       test("simple object type") {
         val schema =
@@ -24,9 +24,10 @@ object ClientWriterViewSpec extends DefaultRunnableSpec {
              }
             """.stripMargin
 
-        assertM(gen(schema))(
-          equalTo(
-            """import caliban.client.FieldBuilder._
+        gen(schema).map { str =>
+          assertTrue(
+            str ==
+              """import caliban.client.FieldBuilder._
 import caliban.client._
 
 object Client {
@@ -51,7 +52,7 @@ object Client {
 }
 """
           )
-        )
+        }
       },
       test("nested object type") {
         val schema =
@@ -59,7 +60,7 @@ object Client {
              type Q {
                users: [User!]!
              }
-             
+
              type Character {
                name: String!
                age: Int!
@@ -71,9 +72,10 @@ object Client {
              }
             """.stripMargin
 
-        assertM(gen(schema))(
-          equalTo(
-            """import caliban.client.FieldBuilder._
+        gen(schema).map { str =>
+          assertTrue(
+            str ==
+              """import caliban.client.FieldBuilder._
 import caliban.client._
 
 object Client {
@@ -132,7 +134,7 @@ object Client {
 }
 """
           )
-        )
+        }
       },
       test("recursive object type") {
         val schema =
@@ -144,9 +146,10 @@ object Client {
              }
             """.stripMargin
 
-        assertM(gen(schema))(
-          equalTo(
-            """import caliban.client.FieldBuilder._
+        gen(schema).map { str =>
+          assertTrue(
+            str ==
+              """import caliban.client.FieldBuilder._
 import caliban.client._
 
 object Client {
@@ -175,7 +178,7 @@ object Client {
 }
 """
           )
-        )
+        }
       },
       test("generic view for Option[List[Option[A]] types") {
         val schema =
@@ -204,9 +207,10 @@ object Client {
             }
             """
 
-        assertM(gen(schema))(
-          equalTo(
-            """import caliban.client.FieldBuilder._
+        gen(schema).map { str =>
+          assertTrue(
+            str ==
+              """import caliban.client.FieldBuilder._
 import caliban.client._
 
 object Client {
@@ -310,7 +314,7 @@ object Client {
 }
 """
           )
-        )
+        }
       },
       test("generic view for scala keywords") {
         val schema =
@@ -325,9 +329,10 @@ object Client {
           }
             """
 
-        assertM(gen(schema))(
-          equalTo(
-            """import caliban.client.FieldBuilder._
+        gen(schema).map { str =>
+          assertTrue(
+            str ==
+              """import caliban.client.FieldBuilder._
 import caliban.client._
 
 object Client {
@@ -367,7 +372,7 @@ object Client {
 }
 """
           )
-        )
+        }
       },
       test("generic view for capital fields") {
         val schema =
@@ -378,9 +383,10 @@ object Client {
           }
             """
 
-        assertM(gen(schema))(
-          equalTo(
-            """import caliban.client.FieldBuilder._
+        gen(schema).map { str =>
+          assertTrue(
+            str ==
+              """import caliban.client.FieldBuilder._
 import caliban.client._
 
 object Client {
@@ -403,7 +409,7 @@ object Client {
 }
 """
           )
-        )
+        }
       },
       test("union case") {
         val schema =
@@ -423,9 +429,10 @@ object Client {
           }
             """
 
-        assertM(gen(schema))(
-          equalTo(
-            """import caliban.client.FieldBuilder._
+        gen(schema).map { str =>
+          assertTrue(
+            str ==
+              """import caliban.client.FieldBuilder._
 import caliban.client._
 
 object Client {
@@ -495,7 +502,7 @@ object Client {
 }
 """
           )
-        )
+        }
       },
       test("type with more than 22 fields / function args / selection args") {
         val schema =
@@ -553,9 +560,10 @@ object Client {
              }
             """.stripMargin
 
-        assertM(gen(schema))(
-          equalTo(
-            """import caliban.client.FieldBuilder._
+        gen(schema).map { str =>
+          assertTrue(
+            str ==
+              """import caliban.client.FieldBuilder._
 import caliban.client._
 
 object Client {
@@ -1105,7 +1113,7 @@ object Client {
 }
 """
           )
-        )
+        }
       },
       test("root schema optional interface") {
         val schema =
@@ -1141,8 +1149,8 @@ object Client {
           }
           """
 
-        assertM(gen(schema))(
-          equalTo("""import caliban.client.FieldBuilder._
+        gen(schema).map { str =>
+          assertTrue(str == """import caliban.client.FieldBuilder._
 import caliban.client._
 
 object Client {
@@ -1281,7 +1289,7 @@ object Client {
 
 }
 """)
-        )
+        }
       }
     ) @@ TestAspect.sequential
 }

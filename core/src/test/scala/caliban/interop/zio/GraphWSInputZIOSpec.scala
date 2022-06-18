@@ -3,10 +3,10 @@ package caliban.interop.zio
 import caliban.{ GraphQLWSInput, InputValue, Value }
 import zio.json._
 import zio.test.Assertion.{ equalTo, isRight }
-import zio.test.{ assert, assertTrue, DefaultRunnableSpec, TestEnvironment, ZSpec }
+import zio.test.{ assert, assertTrue, ZIOSpecDefault }
 
-object GraphWSInputZIOSpec extends DefaultRunnableSpec {
-  override def spec: ZSpec[TestEnvironment, Any] =
+object GraphWSInputZIOSpec extends ZIOSpecDefault {
+  override def spec =
     suite("GraphWSInputZIOSpec")(
       test("can be parsed from JSON by zio-json") {
         val request =

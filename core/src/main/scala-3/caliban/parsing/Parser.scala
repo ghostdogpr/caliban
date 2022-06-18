@@ -16,7 +16,7 @@ import caliban.parsing.adt.Type._
 import caliban.parsing.adt._
 import cats.parse.{ Numbers, Parser => P }
 import cats.parse._
-import zio.{ IO, Task }
+import zio.{ IO, Task, ZIO }
 import scala.util.Try
 
 object Parser {
@@ -581,18 +581,19 @@ object Parser {
    */
   def parseQuery(query: String): IO[ParsingError, Document] = {
     val sm = SourceMapper(query)
-    Task(document.parse(query))
+    ZIO
+      .attempt(document.parse(query))
       .mapError(ex => ParsingError(s"Internal parsing error", innerThrowable = Some(ex)))
       .flatMap {
         case Left(error)   =>
-          IO.fail(
+          ZIO.fail(
             ParsingError(
               s"Parsing error at offset ${error.failedAtOffset}, expected: ${error.expected.toList.mkString(";")}",
               Some(sm.getLocation(error.failedAtOffset))
             )
           )
         case Right(result) =>
-          IO.succeed(Document(result._2.definitions, sm))
+          ZIO.succeed(Document(result._2.definitions, sm))
       }
   }
 

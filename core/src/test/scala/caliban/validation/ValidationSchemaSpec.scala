@@ -6,34 +6,33 @@ import caliban.TestUtils.InvalidSchemas._
 import caliban.introspection.adt._
 import caliban.schema.Types
 import caliban.{ GraphQL, RootResolver }
-import zio.IO
+import zio.{ IO, ZIO }
 import zio.test.Assertion._
 import zio.test._
 
-object ValidationSchemaSpec extends DefaultRunnableSpec {
+object ValidationSchemaSpec extends ZIOSpecDefault {
 
   def check(gql: GraphQL[Any], expectedMessage: String): IO[ValidationError, TestResult] =
-    assertM(gql.interpreter.exit)(fails[ValidationError](hasField("msg", _.msg, equalTo(expectedMessage))))
+    gql.interpreter.exit.map(assert(_)(fails[ValidationError](hasField("msg", _.msg, equalTo(expectedMessage)))))
 
   def checkTypeError(t: __Type, expectedMessage: String): IO[ValidationError, TestResult] =
-    assertM(Validator.validateType(t).exit)(fails(hasField("msg", _.msg, equalTo(expectedMessage))))
+    Validator.validateType(t).exit.map(assert(_)(fails(hasField("msg", _.msg, equalTo(expectedMessage)))))
 
-  override def spec: ZSpec[TestEnvironment, Any] =
+  override def spec =
     suite("ValidationSchemaSpec")(
       suite("Enum")(
         test("non-empty enum is ok") {
-          assertM(
-            Validator
-              .validateEnum(
-                Types.makeEnum(
-                  name = Some("nonEmptyEnum"),
-                  description = None,
-                  values = List(__EnumValue("A", None, true, None)),
-                  origin = None
-                )
+          Validator
+            .validateEnum(
+              Types.makeEnum(
+                name = Some("nonEmptyEnum"),
+                description = None,
+                values = List(__EnumValue("A", None, true, None)),
+                origin = None
               )
-              .exit
-          )(succeeds(anything))
+            )
+            .exit
+            .map(assert(_)(succeeds(anything)))
         },
         test("must be non-empty") {
           checkTypeError(
@@ -49,17 +48,16 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
       ),
       suite("Union")(
         test("union containing object types is ok") {
-          assertM(
-            Validator
-              .validateUnion(
-                Types.makeUnion(
-                  name = Some("GoodUnion"),
-                  description = None,
-                  subTypes = List(__Type(kind = __TypeKind.OBJECT))
-                )
+          Validator
+            .validateUnion(
+              Types.makeUnion(
+                name = Some("GoodUnion"),
+                description = None,
+                subTypes = List(__Type(kind = __TypeKind.OBJECT))
               )
-              .exit
-          )(succeeds(anything))
+            )
+            .exit
+            .map(assert(_)(succeeds(anything)))
         },
         test("must be non-empty") {
           val expectedMessage = "Union EmptyUnion doesn't contain any type."
@@ -248,25 +246,27 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
             )
           },
           test("may declare that it implements one or more unique interfaces") {
-            assertM(graphQL(resolverTwoInterfaces).interpreter.exit)(succeeds(anything))
+            graphQL(resolverTwoInterfaces).interpreter.exit.map(assert(_)(succeeds(anything)))
           },
           test("must include a field of the same name for every field defined in an interface") {
-            IO.collectAll(
-              List(
-                checkTypeError(objectWithFields("a"), "Object 'FieldsA' is missing field(s): b"),
-                checkTypeError(objectWithFields("b"), "Object 'FieldsB' is missing field(s): a"),
-                checkTypeError(objectWithFields("c"), "Object 'FieldsC' is missing field(s): a, b"),
-                checkTypeError(objectWithFields("a", "c"), "Object 'FieldsAC' is missing field(s): b")
+            ZIO
+              .collectAll(
+                List(
+                  checkTypeError(objectWithFields("a"), "Object 'FieldsA' is missing field(s): b"),
+                  checkTypeError(objectWithFields("b"), "Object 'FieldsB' is missing field(s): a"),
+                  checkTypeError(objectWithFields("c"), "Object 'FieldsC' is missing field(s): a, b"),
+                  checkTypeError(objectWithFields("a", "c"), "Object 'FieldsAC' is missing field(s): b")
+                )
               )
-            ).map(_.reduce(_ && _))
+              .map(_.reduce(_ && _))
           },
           test("field type when equal to interface field type is a valid sub-type") {
-            assertM(graphQL(resolverTwoInterfaces).interpreter.exit)(succeeds(anything))
+            graphQL(resolverTwoInterfaces).interpreter.exit.map(assert(_)(succeeds(anything)))
           },
           test("field type in the possible types of an interface or union is a valid sub-type") {
             for {
-              a <- assertM(graphQL(resolverUnionSubtype).interpreter.exit)(succeeds(anything))
-              b <- assertM(graphQL(resolverFieldObject).interpreter.exit)(succeeds(anything))
+              a <- graphQL(resolverUnionSubtype).interpreter.exit.map(assert(_)(succeeds(anything)))
+              b <- graphQL(resolverFieldObject).interpreter.exit.map(assert(_)(succeeds(anything)))
             } yield a && b
           },
           test("field type with the same name but not equal to or a subtype of an interface field is invalid") {
@@ -277,8 +277,8 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
           },
           test("field type that is a valid list item subtype is valid") {
             for {
-              a <- assertM(graphQL(resolverListUnionSubtype).interpreter.exit)(succeeds(anything))
-              b <- assertM(graphQL(resolverListInterfaceSubtype).interpreter.exit)(succeeds(anything))
+              a <- graphQL(resolverListUnionSubtype).interpreter.exit.map(assert(_)(succeeds(anything)))
+              b <- graphQL(resolverListInterfaceSubtype).interpreter.exit.map(assert(_)(succeeds(anything)))
             } yield a && b
           },
           test("field type that is an invalid list item subtype is invalid") {
@@ -288,13 +288,13 @@ object ValidationSchemaSpec extends DefaultRunnableSpec {
             )
           },
           test("field type that is a Non-Null variant of a valid interface field type is valid") {
-            assertM(graphQL(resolverNonNullableSubtype).interpreter.exit)(succeeds(anything))
+            graphQL(resolverNonNullableSubtype).interpreter.exit.map(assert(_)(succeeds(anything)))
           },
           test("fields including arguments of the same name and type defined in an interface are valid") {
-            assertM(graphQL(resolverFieldWithArg).interpreter.exit)(succeeds(anything))
+            graphQL(resolverFieldWithArg).interpreter.exit.map(assert(_)(succeeds(anything)))
           },
           test("fields with additional nullable args are valid") {
-            assertM(Validator.validateObject(nullableExtraArgsObject).exit)(succeeds(anything))
+            Validator.validateObject(nullableExtraArgsObject).exit.map(assert(_)(succeeds(anything)))
           },
           test("fields with additional non-nullable args are invalid") {
             checkTypeError(

@@ -12,7 +12,7 @@ import caliban.schema._
 import caliban.validation.Validator
 import caliban.wrappers.Wrapper
 import caliban.wrappers.Wrapper._
-import zio.{ IO, URIO }
+import zio.{ IO, Trace, URIO, ZIO }
 
 /**
  * A `GraphQL[-R]` represents a GraphQL API whose execution requires a ZIO environment of type `R`.
@@ -26,7 +26,7 @@ trait GraphQL[-R] { self =>
   protected val wrappers: List[Wrapper[R]]
   protected val additionalDirectives: List[__Directive]
 
-  private[caliban] def validateRootSchema: IO[ValidationError, RootSchema[R]] =
+  private[caliban] def validateRootSchema(implicit trace: Trace): IO[ValidationError, RootSchema[R]] =
     Validator.validateSchema(schemaBuilder)
 
   /**
@@ -76,7 +76,7 @@ trait GraphQL[-R] { self =>
    * adding some middleware around the query execution.
    * Fails with a [[caliban.CalibanError.ValidationError]] if the schema is invalid.
    */
-  final def interpreter: IO[ValidationError, GraphQLInterpreter[R, CalibanError]] =
+  final def interpreter(implicit trace: Trace): IO[ValidationError, GraphQLInterpreter[R, CalibanError]] =
     validateRootSchema.map { schema =>
       lazy val rootType =
         RootType(
@@ -92,7 +92,7 @@ trait GraphQL[-R] { self =>
       lazy val introspectionRootType: RootType        = RootType(introspectionRootSchema.query.opType, None, None)
 
       new GraphQLInterpreter[R, CalibanError] {
-        override def check(query: String): IO[CalibanError, Unit] =
+        override def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
           for {
             document      <- Parser.parseQuery(query)
             intro          = Introspector.isIntrospection(document)
@@ -105,15 +105,15 @@ trait GraphQL[-R] { self =>
           skipValidation: Boolean,
           enableIntrospection: Boolean,
           queryExecution: QueryExecution
-        ): URIO[R, GraphQLResponse[CalibanError]] =
+        )(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] =
           decompose(wrappers).flatMap {
             case (overallWrappers, parsingWrappers, validationWrappers, executionWrappers, fieldWrappers, _) =>
               wrap((request: GraphQLRequest) =>
                 (for {
                   doc              <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
                   intro             = Introspector.isIntrospection(doc)
-                  _                <- IO.when(intro && !enableIntrospection) {
-                                        IO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
+                  _                <- ZIO.when(intro && !enableIntrospection) {
+                                        ZIO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
                                       }
                   typeToValidate    = if (intro) introspectionRootType else rootType
                   schemaToExecute   = if (intro) introspectionRootSchema else schema
