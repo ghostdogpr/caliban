@@ -29,7 +29,7 @@ object ApolloPersistedQueries {
     def add(hash: String, query: String): UIO[Unit] = cache.update(_.updated(hash, query))
   }
 
-  val live: Layer[Nothing, ApolloPersistence] = ZLayer.fromZIO {
+  val live: Layer[Nothing, ApolloPersistence] = ZLayer {
     Ref.make(Map.empty[String, String]).map(ApolloPersistenceLive(_))
   }
 

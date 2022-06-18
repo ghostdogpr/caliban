@@ -1,6 +1,12 @@
 package caliban
 
+import sttp.client3.SttpBackend
+import zio.Task
+
 package object tools {
+
+  type SttpClient = SttpBackend[Task, Any]
+
   val supportedScalars = Set("Int", "Float", "Double", "Long", "Unit", "String", "Boolean", "BigInt", "BigDecimal")
 
   val reservedKeywords = Set(

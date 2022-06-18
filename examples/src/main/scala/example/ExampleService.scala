@@ -28,7 +28,7 @@ object ExampleService {
   def deletedEvents: ZStream[ExampleService, Nothing, String] =
     ZStream.serviceWithStream(_.deletedEvents)
 
-  def make(initial: List[Character]): ZLayer[Any, Nothing, ExampleService] = ZLayer.fromZIO {
+  def make(initial: List[Character]): ZLayer[Any, Nothing, ExampleService] = ZLayer {
     for {
       characters  <- Ref.make(initial)
       subscribers <- Hub.unbounded[String]

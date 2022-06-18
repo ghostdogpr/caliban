@@ -65,7 +65,7 @@ object TestService {
       } yield SomeFieldOutput(document.someField1, document.someField2)
     )
 
-  def make(initial: List[Character]): ZLayer[Any, Nothing, TestService] = ZLayer.fromZIO {
+  def make(initial: List[Character]): ZLayer[Any, Nothing, TestService] = ZLayer {
     for {
       characters  <- Ref.make(initial)
       subscribers <- Hub.unbounded[String]

@@ -85,7 +85,7 @@ object StitchingExample extends GenericSchema[Any] {
 case class Configuration(githubToken: String)
 
 object Configuration {
-  def fromEnvironment = ZLayer.fromZIO {
+  def fromEnvironment = ZLayer {
     for {
       githubToken <- read("GITHUB_TOKEN")
     } yield Configuration(githubToken)

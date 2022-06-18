@@ -220,7 +220,7 @@ object TapirAdapter {
                                enableIntrospection = enableIntrospection,
                                queryExecution
                              )
-                             .provideSomeLayer[R](ZLayer.fromZIO(uploadQuery.fileHandle))
+                             .provideSomeLayer[R](ZLayer(uploadQuery.fileHandle))
         } yield response
 
       requestInterceptor(serverRequest)(io).either

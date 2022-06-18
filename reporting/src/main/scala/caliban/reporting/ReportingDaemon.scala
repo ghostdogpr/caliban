@@ -20,8 +20,7 @@ object ReportingDaemon {
   def register(ref: SchemaReportingRef[_]): ZIO[ReportingDaemon with Scope, Nothing, Unit] =
     ZIO.serviceWithZIO[ReportingDaemon](_.register(ref))
 
-  def live: ZLayer[SchemaReporter, Nothing, ReportingDaemon] =
-    ZLayer.fromZIO(make)
+  def live: ZLayer[SchemaReporter, Nothing, ReportingDaemon] = ZLayer(make)
 
   def make: ZIO[SchemaReporter, Nothing, ReportingDaemon] =
     ZIO.service[SchemaReporter].map { reporter =>

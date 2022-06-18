@@ -1,9 +1,9 @@
 import org.scalajs.linker.interface.ModuleSplitStyle
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
-val scala212 = "2.12.14"
+val scala212 = "2.12.16"
 val scala213 = "2.13.8"
-val scala3   = "3.1.1"
+val scala3   = "3.1.2"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion               = "2.6.19"
@@ -17,7 +17,7 @@ val mercatorVersion           = "0.2.1"
 val playVersion               = "2.8.16"
 val playJsonVersion           = "2.9.2"
 val sttpVersion               = "3.6.2"
-val tapirVersion              = "1.0.0-RC3"
+val tapirVersion              = "1.0.0"
 val zioVersion                = "2.0.0-RC6"
 val zioInteropCats2Version    = "2.5.1.1"
 val zioInteropCats3Version    = "3.3.0-RC7"
@@ -152,6 +152,7 @@ lazy val tools = project
     libraryDependencies ++= Seq(
       "org.scalameta"                 %% "scalafmt-dynamic"              % "3.1.2",
       "org.scalameta"                 %% "scalafmt-core"                 % "3.1.2",
+      "com.softwaremill.sttp.client3" %% "zio"                           % sttpVersion,
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
       "dev.zio"                       %% "zio-config"                    % zioConfigVersion,
       "dev.zio"                       %% "zio-config-magnolia"           % zioConfigVersion,
@@ -346,7 +347,7 @@ lazy val clientJVM = client.jvm
 lazy val clientJS  = client.js
   .settings(
     libraryDependencies ++= {
-      Seq("io.github.cquiroz" %%% "scala-java-time" % "2.3.0" % Test)
+      Seq("io.github.cquiroz" %%% "scala-java-time" % "2.4.0" % Test)
     }
   )
   .settings(scalaVersion := scala213)
@@ -422,10 +423,10 @@ lazy val reporting = project
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "dev.zio"                       %% "zio"                           % zioVersion,
-      "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
-      "dev.zio"                       %% "zio-test"                      % zioVersion % Test,
-      "dev.zio"                       %% "zio-test-sbt"                  % zioVersion % Test
+      "dev.zio"                       %% "zio"          % zioVersion,
+      "com.softwaremill.sttp.client3" %% "zio"          % sttpVersion,
+      "dev.zio"                       %% "zio-test"     % zioVersion % Test,
+      "dev.zio"                       %% "zio-test-sbt" % zioVersion % Test
     )
   )
 

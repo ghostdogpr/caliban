@@ -5,10 +5,10 @@ import zio._
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
 import caliban.execution.Field
 import caliban.ResponseValue.ObjectValue
+import caliban.tools.SttpClient
 
 import sttp.client3._
 import sttp.client3.circe._
-import sttp.client3.asynchttpclient.zio._
 
 case class RemoteResolver[-R, +E, -A, +B](
   run: A => ZIO[R, E, B]
@@ -57,7 +57,7 @@ object RemoteResolver {
   def execute: RemoteResolver[SttpClient, CalibanError.ExecutionError, HttpRequest, ResponseValue] =
     RemoteResolver.fromFunctionM((r: HttpRequest) =>
       (for {
-        res  <- send(r)
+        res  <- ZIO.serviceWithZIO[SttpClient](_.send(r))
         body <- ZIO.fromEither(res.body)
       } yield body).mapError(e => CalibanError.ExecutionError(e.toString, innerThrowable = Some(e)))
     )

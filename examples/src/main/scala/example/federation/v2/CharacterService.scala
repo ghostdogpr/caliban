@@ -33,7 +33,7 @@ object CharacterService {
   def getCharactersByEpisode(season: Int, episode: Int): URIO[CharacterService, List[Character]] =
     ZIO.serviceWithZIO(_.getCharactersByEpisode(season, episode))
 
-  def make(initial: List[Character]): ZLayer[Any, Nothing, CharacterService] = ZLayer.fromZIO {
+  def make(initial: List[Character]): ZLayer[Any, Nothing, CharacterService] = ZLayer {
     for {
       characters  <- Ref.make(initial)
       subscribers <- Ref.make(List.empty[Queue[String]])

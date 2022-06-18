@@ -2,8 +2,8 @@ package caliban.reporting
 
 import caliban.client.CalibanClientError.CommunicationError
 import caliban.reporting.ReportingError.{ ClientError, RetryableError }
+import sttp.client3.SttpBackend
 import sttp.client3.UriContext
-import sttp.client3.asynchttpclient.zio.SttpClient
 import zio._
 
 trait SchemaReporter {
@@ -82,7 +82,7 @@ object SchemaReporter {
 
   def fromConfigZIO[R: Tag, E](
     f: R => IO[E, String]
-  ): ZLayer[SttpClient with R, E, SchemaReporter] = ZLayer.fromZIO {
+  ): ZLayer[SttpClient with R, E, SchemaReporter] = ZLayer {
     for {
       accessToken <- ZIO.serviceWithZIO[R](f)
       reporter    <- make(accessToken)

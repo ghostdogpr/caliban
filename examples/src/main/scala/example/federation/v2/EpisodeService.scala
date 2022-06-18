@@ -16,7 +16,7 @@ object EpisodeService {
   def getEpisodes(season: Option[Int] = None): URIO[EpisodeService, List[Episode]] =
     ZIO.serviceWithZIO[EpisodeService](_.getEpisodes(season))
 
-  def make(initial: List[Episode]): ZLayer[Any, Nothing, EpisodeService] = ZLayer.fromZIO {
+  def make(initial: List[Episode]): ZLayer[Any, Nothing, EpisodeService] = ZLayer {
     Ref
       .make(initial)
       .map { episodes =>
