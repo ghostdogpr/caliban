@@ -7,8 +7,8 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.8! check
-      - run: sbt ++3.1.1! check
+      - run: sbt ++2.13.8 check
+      - run: sbt ++3.1.1 check
       - save_cache:
           key: sbtcache
           paths:
@@ -36,7 +36,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.12.14! core/test http4s/test akkaHttp/test play/test zioHttp/test examples/compile catsInterop/compile benchmarks/compile tools/test codegenSbt/test clientJVM/test monixInterop/compile tapirInterop/test federation/test reporting/test
+      - run: sbt ++2.12.14 core/test http4s/test akkaHttp/test play/test zioHttp/test examples/compile catsInterop/compile benchmarks/compile tools/test codegenSbt/test clientJVM/test monixInterop/compile tapirInterop/test federation/test reporting/test
       - save_cache:
           key: sbtcache
           paths:
@@ -50,7 +50,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.12.14! codegenSbt/scripted
+      - run: sbt ++2.12.14 codegenSbt/scripted
       - save_cache:
           key: sbtcache
           paths:
@@ -64,7 +64,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.8! core/test http4s/test akkaHttp/test play/test zioHttp/test examples/compile catsInterop/compile monixInterop/compile tapirInterop/test clientJVM/test federation/test reporting/test
+      - run: sbt ++2.13.8 core/test http4s/test akkaHttp/test play/test zioHttp/test examples/compile catsInterop/compile monixInterop/compile tapirInterop/test clientJVM/test federation/test reporting/test
       - save_cache:
           key: sbtcache
           paths:
@@ -78,7 +78,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++3.1.1! core/test catsInterop/compile monixInterop/compile clientJVM/test clientJS/compile zioHttp/test tapirInterop/test http4s/test federation/test reporting/test
+      - run: sbt ++3.1.1 core/test catsInterop/compile monixInterop/compile clientJVM/test clientJS/compile zioHttp/test tapirInterop/test http4s/test federation/test reporting/test
       - save_cache:
           key: sbtcache
           paths:
@@ -92,7 +92,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.8! clientJS/test clientLaminextJS/Test/fastLinkJS
+      - run: sbt ++2.13.8 clientJS/test clientLaminextJS/Test/fastLinkJS
       - save_cache:
           key: sbtcache
           paths:
@@ -106,7 +106,9 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.8! docs/mdoc Compile/doc
+      - run: |
+          sbt ++2.13.8 docs/mdoc
+          sbt "++2.13.8 doc"
       - save_cache:
           key: sbtcache
           paths:
