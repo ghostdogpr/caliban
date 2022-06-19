@@ -199,9 +199,9 @@ lazy val catsInterop = project
   .in(file("interop/cats"))
   .settings(name := "caliban-cats")
   .settings(commonSettings)
+  .settings(apiMappingSettings)
   .settings(
-    testFrameworks  := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
-    autoAPIMappings := true,
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) Seq()
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
@@ -525,4 +525,26 @@ lazy val commonSettings = Def.settings(
       )
     case _            => Nil
   })
+)
+
+lazy val apiMappingSettings = Def.settings(
+  autoAPIMappings := true,
+  apiMappings ++= {
+    val depsByModule = (Compile / dependencyClasspathAsJars).value.flatMap { dep =>
+      dep.get(moduleID.key).map((_, dep.data))
+    }.groupBy { case (moduleID, _) => (moduleID.organization, moduleID.name) }.mapValues(_.head)
+
+    val cross = CrossVersion(crossVersion.value, scalaVersion.value, scalaBinaryVersion.value)
+      .getOrElse((s: String) => s)
+
+    def depFile(org: String, name: String) = depsByModule.get((org, cross(name)))
+
+    def javadocIOUrl(id: ModuleID) = url(s"https://javadoc.io/doc/${id.organization}/${id.name}/${id.revision}/")
+
+    def javadocIO(org: String, name: String) = depFile(org, name).map { case (id, f) => f -> javadocIOUrl(id) }
+
+    Seq(
+      javadocIO("dev.zio", "zio")
+    ).flatten.toMap
+  }
 )
