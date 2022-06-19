@@ -106,7 +106,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.8! docs/mdoc
+      - run: sbt ++2.13.8! docs/mdoc Compile/doc
       - save_cache:
           key: sbtcache
           paths:
