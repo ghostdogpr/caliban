@@ -20,7 +20,7 @@ object Http4sAdapterSpec extends ZIOSpecDefault {
 
   private val envLayer = TestService.make(sampleCharacters) ++ Uploads.empty
 
-  val apiLayer: ZLayer[Live, Throwable, Unit] = envLayer >>> ZLayer.scoped {
+  private val apiLayer = envLayer >>> ZLayer.scoped {
     for {
       interpreter <- TestApi.api.interpreter
       _           <- BlazeServerBuilder[TestTask]
@@ -43,17 +43,17 @@ object Http4sAdapterSpec extends ZIOSpecDefault {
                        .toScopedZIO
                        .forkScoped
       _           <- Live.live(Clock.sleep(3 seconds))
-    } yield ()
+      service     <- ZIO.service[TestService]
+    } yield service
   }
 
   override def spec = {
-    val suite =
-      TapirAdapterSpec.makeSuite(
-        "Http4sAdapterSpec",
-        uri"http://localhost:8087/api/graphql",
-        uploadUri = Some(uri"http://localhost:8087/upload/graphql"),
-        wsUri = Some(uri"ws://localhost:8087/ws/graphql")
-      )
+    val suite = TapirAdapterSpec.makeSuite(
+      "Http4sAdapterSpec",
+      uri"http://localhost:8087/api/graphql",
+      uploadUri = Some(uri"http://localhost:8087/upload/graphql"),
+      wsUri = Some(uri"ws://localhost:8087/ws/graphql")
+    )
     suite.provideCustomLayerShared(apiLayer)
   }
 }

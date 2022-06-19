@@ -17,9 +17,12 @@ trait TestService {
   def deleteCharacter(name: String): UIO[Boolean]
 
   def deletedEvents: ZStream[Any, Nothing, String]
+
+  def reset: UIO[Unit]
 }
 
 object TestService {
+
   def getCharacters(origin: Option[Origin]): URIO[TestService, List[Character]] =
     ZIO.serviceWithZIO(_.getCharacters(origin))
 
@@ -31,6 +34,9 @@ object TestService {
 
   def deletedEvents: ZStream[TestService, Nothing, String] =
     ZStream.serviceWithStream(_.deletedEvents)
+
+  def reset: URIO[TestService, Unit] =
+    ZIO.serviceWithZIO(_.reset)
 
   def uploadFile(file: Upload): ZIO[Uploads, Throwable, File] =
     for {
@@ -71,12 +77,12 @@ object TestService {
       subscribers <- Hub.unbounded[String]
     } yield new TestService {
 
-      def getCharacters(origin: Option[Origin]): UIO[List[Character]] =
+      override def getCharacters(origin: Option[Origin]): UIO[List[Character]] =
         characters.get.map(_.filter(c => origin.forall(c.origin == _)))
 
-      def findCharacter(name: String): UIO[Option[Character]] = characters.get.map(_.find(c => c.name == name))
+      override def findCharacter(name: String): UIO[Option[Character]] = characters.get.map(_.find(c => c.name == name))
 
-      def deleteCharacter(name: String): UIO[Boolean] =
+      override def deleteCharacter(name: String): UIO[Boolean] =
         characters
           .modify(list =>
             if (list.exists(_.name == name)) (true, list.filterNot(_.name == name))
@@ -84,9 +90,11 @@ object TestService {
           )
           .tap(deleted => ZIO.when(deleted)(subscribers.publish(name)))
 
-      def deletedEvents: ZStream[Any, Nothing, String] =
+      override def deletedEvents: ZStream[Any, Nothing, String] =
         ZStream.fromHub(subscribers)
 
+      override def reset: UIO[Unit] =
+        characters.set(initial)
     }
   }
 

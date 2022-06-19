@@ -1,6 +1,6 @@
 package caliban.tools
 
-import zio.{ Task, ZIO }
+import zio.{ UIO, ZIO }
 import zio.config.magnolia.Descriptor
 import zio.config.{ read, ConfigDescriptor, ConfigSource }
 
@@ -40,7 +40,7 @@ object Options {
     preserveInputNames: Option[Boolean]
   )
 
-  def fromArgs(args: List[String]): Task[Options] =
+  def fromArgs(args: List[String]): UIO[Option[Options]] =
     args match {
       case schemaPath :: toPath :: other =>
         val configSource: ConfigSource                     =
@@ -83,7 +83,7 @@ object Options {
             rawOpts.extensibleEnums,
             rawOpts.preserveInputNames
           )
-        }
-      case _                             => ZIO.fail(new Exception(s"Can't parse options from arguments list $args"))
+        }.option
+      case _                             => ZIO.none
     }
 }

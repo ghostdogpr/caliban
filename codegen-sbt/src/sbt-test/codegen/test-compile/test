@@ -4,3 +4,4 @@ $ exists target/scala-2.12/src_managed/main/caliban-codegen-sbt/caliban/Client.s
 $ exists target/scala-2.12/src_managed/main/caliban-codegen-sbt/genview/Client.scala
 $ exists target/scala-2.12/src_managed/main/caliban-codegen-sbt/caliban/schema.scala
 $ exec sh verify.sh CharacterView target/scala-2.12/src_managed/main/caliban-codegen-sbt/genview/Client.scala
+$ exec sh verify.sh OptionView target/scala-2.12/src_managed/main/caliban-codegen-sbt/genview/Client.scala

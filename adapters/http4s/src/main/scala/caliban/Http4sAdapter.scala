@@ -214,7 +214,7 @@ object Http4sAdapter {
   def convertWebSocketEndpointToF[F[_], R, E](
     endpoint: ServerEndpoint[ZioWebSockets, RIO[R, *]]
   )(implicit interop: CatsInterop[F, R], runtime: Runtime[R]): ServerEndpoint[Fs2Streams[F] with WebSockets, F] = {
-    type Fs2Pipe = fs2.Pipe[F, GraphQLWSInput, GraphQLWSOutput]
+    type Fs2Pipe = fs2.Pipe[F, GraphQLWSInput, Either[GraphQLWSClose, GraphQLWSOutput]]
 
     val e = endpoint
       .asInstanceOf[

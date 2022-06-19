@@ -2,7 +2,8 @@ package caliban.wrappers
 
 import caliban.CalibanError.ValidationError
 import caliban.Value.{ NullValue, StringValue }
-import caliban.wrappers.Wrapper.OverallWrapper
+import caliban.parsing.adt.Document
+import caliban.wrappers.Wrapper.{ EffectfulWrapper, OverallWrapper, ParsingWrapper }
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue }
 import zio._
 
@@ -12,32 +13,46 @@ import scala.collection.mutable
 object ApolloPersistedQueries {
 
   trait ApolloPersistence {
-    def get(hash: String): UIO[Option[String]]
-    def add(hash: String, query: String): UIO[Unit]
+    def get(hash: String): UIO[Option[Document]]
+    def add(hash: String, query: Document): UIO[Unit]
   }
 
   object ApolloPersistence {
 
-    def get(hash: String): ZIO[ApolloPersistence, Nothing, Option[String]]      =
+    def get(hash: String): ZIO[ApolloPersistence, Nothing, Option[Document]]      =
       ZIO.serviceWithZIO[ApolloPersistence](_.get(hash))
-    def add(hash: String, query: String): ZIO[ApolloPersistence, Nothing, Unit] =
+    def add(hash: String, query: Document): ZIO[ApolloPersistence, Nothing, Unit] =
       ZIO.serviceWithZIO[ApolloPersistence](_.add(hash, query))
+
+    val live: UIO[ApolloPersistence] = Ref.make[Map[String, Document]](Map()).map { cache =>
+      new ApolloPersistence {
+        override def get(hash: String): UIO[Option[Document]]      = cache.get.map(_.get(hash))
+        override def add(hash: String, query: Document): UIO[Unit] = cache.update(_.updated(hash, query))
+      }
+    }
   }
 
-  case class ApolloPersistenceLive(cache: Ref[Map[String, String]]) extends ApolloPersistence {
-    def get(hash: String): UIO[Option[String]]      = cache.get.map(_.get(hash))
-    def add(hash: String, query: String): UIO[Unit] = cache.update(_.updated(hash, query))
-  }
+  val live: Layer[Nothing, ApolloPersistence] = ZLayer(ApolloPersistence.live)
 
-  val live: Layer[Nothing, ApolloPersistence] = ZLayer {
-    Ref.make(Map.empty[String, String]).map(ApolloPersistenceLive(_))
-  }
+  private def parsingWrapper(docVar: Ref[Option[Either[String, Document]]]): ParsingWrapper[ApolloPersistence] =
+    new ParsingWrapper[ApolloPersistence] {
+      override def wrap[R1 <: ApolloPersistence](
+        f: String => ZIO[R1, CalibanError.ParsingError, Document]
+      ): String => ZIO[R1, CalibanError.ParsingError, Document] =
+        (query: String) =>
+          docVar.getAndSet(None).flatMap {
+            case Some(Right(doc)) => ZIO.succeed(doc)
+            case Some(Left(hash)) => f(query).tap(doc => ApolloPersistence.add(hash, doc))
+            case None             => f(query)
+          }
+    }
 
   /**
-   * Returns a wrapper that persists and retrieves queries based on a hash
-   * following Apollo Persisted Queries spec: https://github.com/apollographql/apollo-link-persisted-queries.
+   * If the query is using the persisted query protocol then this wrapper will set the inner `Either` of the `Ref` to
+   * be a `Right(document)` where the document is the persisted query document. If the query isn't yet cached this will set the
+   * `Left(hash)` which will then get passed to the parsing wrapper where it will populate the cache with the validated query document
    */
-  val apolloPersistedQueries: OverallWrapper[ApolloPersistence] =
+  private def overrallWrapper(docVar: Ref[Option[Either[String, Document]]]): OverallWrapper[ApolloPersistence] =
     new OverallWrapper[ApolloPersistence] {
       def wrap[R1 <: ApolloPersistence](
         process: GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]]
@@ -48,10 +63,10 @@ object ApolloPersistedQueries {
               ApolloPersistence
                 .get(hash)
                 .flatMap {
-                  case Some(query) => ZIO.succeed(request.copy(query = Some(query)))
-                  case None        =>
+                  case Some(doc) => docVar.set(Some(Right(doc))) as request
+                  case None      =>
                     request.query match {
-                      case Some(value) if checkHash(hash, value) => ApolloPersistence.add(hash, value).as(request)
+                      case Some(value) if checkHash(hash, value) => docVar.set(Some(Left(hash))).as(request)
                       case Some(_)                               => ZIO.fail(ValidationError("Provided sha does not match any query", ""))
                       case None                                  => ZIO.fail(ValidationError("PersistedQueryNotFound", ""))
                     }
@@ -62,6 +77,15 @@ object ApolloPersistedQueries {
             case None       => process(request)
           }
     }
+
+  /**
+   * Returns a wrapper that persists and retrieves queries based on a hash
+   * following Apollo Persisted Queries spec: https://github.com/apollographql/apollo-link-persisted-queries.
+   */
+  val apolloPersistedQueries: EffectfulWrapper[ApolloPersistence] =
+    EffectfulWrapper(Ref.make[Option[Either[String, Document]]](None).map { docVar =>
+      overrallWrapper(docVar) |+| parsingWrapper(docVar)
+    })
 
   private def readHash(request: GraphQLRequest): Option[String] =
     request.extensions

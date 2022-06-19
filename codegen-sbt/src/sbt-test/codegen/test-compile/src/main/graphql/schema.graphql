@@ -18,6 +18,10 @@ type Q {
     ): String
 
     testJson: Json!
+
+    # test for scala.Option / Option conflicts
+    defaultOptionForProductId(id: String!): Option
+    availableOptionsForProductId(id: String!): [Option!]
 }
 
 # Input object
@@ -78,3 +82,15 @@ type Pilot {
 
 # Json
 scalar Json
+
+# A type that could conflict with scala.Option
+type Option {
+    defaultColor: String!
+}
+type Product {
+    id: String
+    defaultOption: Option!
+    configuredOption: Option
+    availableOptions: [Option!]!
+    specialOrderOption: [Option]
+}

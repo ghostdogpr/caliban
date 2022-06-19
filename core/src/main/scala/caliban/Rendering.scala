@@ -150,8 +150,9 @@ object Rendering {
 
   private def renderDescription(description: Option[String], newline: Boolean = true): String = description match {
     case None                   => ""
-    case Some(value) if newline => if (value.contains("\n")) s"""\"\"\"\n$value\"\"\"\n""" else s""""$value"\n"""
-    case Some(value)            => if (value.contains("\n")) s"""\"\"\"$value\"\"\" """ else s""""$value" """
+    case Some(value) if newline =>
+      if (value.contains("\n")) renderTripleQuotedString("\n" + value) + "\n" else renderString(value) + "\n"
+    case Some(value)            => if (value.contains("\n")) renderTripleQuotedString(value) else renderString(value) + " "
   }
 
   private def renderSpecifiedBy(specifiedBy: Option[String]): String =
@@ -219,4 +220,17 @@ object Rendering {
       case _                   => s"${fieldType.name.getOrElse("null")}"
     }
   }
+
+  private def renderTripleQuotedString(value: String) =
+    "\"\"\"" + value.replace("\"\"\"", "\\\"\"\"") + "\"\"\""
+
+  private def renderString(value: String) =
+    "\"" + value
+      .replace("\\", "\\\\")
+      .replace("\b", "\\b")
+      .replace("\f", "\\f")
+      .replace("\n", "\\n")
+      .replace("\r", "\\r")
+      .replace("\t", "\\t")
+      .replace("\"", "\\\"") + "\""
 }

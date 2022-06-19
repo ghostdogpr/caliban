@@ -1,6 +1,7 @@
 package example.play
 
 import akka.actor.ActorSystem
+import akka.stream.Materializer
 import example.{ ExampleApi, ExampleService }
 import example.ExampleData.sampleCharacters
 import example.ExampleService.ExampleService
@@ -10,35 +11,37 @@ import play.api.routing._
 import play.api.routing.sird._
 import play.core.server.{ AkkaHttpServer, ServerConfig }
 import sttp.tapir.json.play._
-import zio.Runtime
-
-import scala.io.StdIn.readLine
+import zio.{ Runtime, Scope, ZIO, ZIOAppDefault }
 import scala.concurrent.ExecutionContextExecutor
 
-object ExampleApp extends App {
+object ExampleApp extends ZIOAppDefault {
 
-  implicit val system: ActorSystem                        = ActorSystem()
-  implicit val executionContext: ExecutionContextExecutor = system.dispatcher
-  implicit val runtime: Runtime[ExampleService]           =
-    Runtime.unsafeFromLayer(ExampleService.make(sampleCharacters))
-
-  val interpreter = runtime.unsafeRun(ExampleApi.api.interpreter)
-
-  val server = AkkaHttpServer.fromRouterWithComponents(
-    ServerConfig(
-      mode = Mode.Dev,
-      port = Some(8088),
-      address = "127.0.0.1"
-    )
-  ) { _ =>
-    Router.from {
-      case req @ POST(p"/api/graphql") => PlayAdapter.makeHttpService(interpreter).apply(req)
-      case req @ GET(p"/ws/graphql")   => PlayAdapter.makeWebSocketService(interpreter).apply(req)
-    }.routes
-  }
-
-  println("Server online at http://localhost:8088/\nPress RETURN to stop...")
-  readLine()
-  server.stop()
-
+  override def run =
+    (for {
+      runtime     <- ZIO.runtime[ExampleService]
+      system      <- ZIO.succeed(ActorSystem()).withFinalizer(sys => ZIO.fromFuture(_ => sys.terminate()).ignore)
+      interpreter <- ExampleApi.api.interpreter
+      _           <- ZIO.acquireRelease(
+                       ZIO.attempt(
+                         AkkaHttpServer.fromRouterWithComponents(
+                           ServerConfig(
+                             mode = Mode.Dev,
+                             port = Some(8088),
+                             address = "127.0.0.1"
+                           )
+                         ) { _ =>
+                           implicit val ec: ExecutionContextExecutor = system.dispatcher
+                           implicit val mat: Materializer            = Materializer(system)
+                           implicit val rts: Runtime[ExampleService] = runtime
+                           Router.from {
+                             case req @ POST(p"/api/graphql") => PlayAdapter.makeHttpService(interpreter).apply(req)
+                             case req @ GET(p"/ws/graphql")   => PlayAdapter.makeWebSocketService(interpreter).apply(req)
+                           }.routes
+                         }
+                       )
+                     )(server => ZIO.attempt(server.stop()).ignore)
+      _           <- zio.Console.printLine(
+                       "Server online at http://localhost:8088/\nPress RETURN to stop..."
+                     ) *> zio.Console.readLine
+    } yield ()).provideSomeLayer[Scope](ExampleService.make(sampleCharacters))
 }
