@@ -350,8 +350,8 @@ lazy val clientJS  = client.js
   .settings(
     libraryDependencies ++= {
       Seq(
-        "org.scala-js" %%% "scalajs-java-securerandom" % "1.0.0",
-        "io.github.cquiroz" %%% "scala-java-time" % "2.3.0" % Test
+        "org.scala-js"      %%% "scalajs-java-securerandom" % "1.0.0",
+        "io.github.cquiroz" %%% "scala-java-time"           % "2.3.0" % Test
       )
     }
   )
