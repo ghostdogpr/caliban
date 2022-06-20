@@ -45,5 +45,7 @@ object ExampleApp extends App {
   StdIn.readLine()
   bindingFuture
     .flatMap(_.unbind())
-    .onComplete(_ => system.terminate())
+    .onComplete { _ =>
+      system.terminate()
+    }
 }

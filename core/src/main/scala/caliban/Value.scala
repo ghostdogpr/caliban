@@ -34,7 +34,26 @@ object InputValue extends ValueJsonCompat {
     caliban.interop.zio.ValueZIOJson.inputValueDecoder.asInstanceOf[F[InputValue]]
 }
 
-sealed trait ResponseValue
+sealed trait ResponseValue { self =>
+
+  /**
+   * Performs a deep merge of two response values. This currently means that the list values will be concatenated, and
+   * object values will be merged, incompatible types will assume the right-hand side of the merge.
+   */
+  def deepMerge(other: ResponseValue): ResponseValue = (this, other) match {
+    case (ResponseValue.ObjectValue(o1), ResponseValue.ObjectValue(o2)) =>
+      val otherMap = o2.toMap
+      ResponseValue.ObjectValue(o1.map { case (k, v) =>
+        otherMap.get(k) match {
+          case Some(otherValue) => (k, v.deepMerge(otherValue))
+          case None             => (k, v)
+        }
+      })
+    case (ResponseValue.ListValue(l1), ResponseValue.ListValue(l2))     =>
+      ResponseValue.ListValue(l1 ++ l2)
+    case _                                                              => other
+  }
+}
 object ResponseValue extends ValueJsonCompat {
   case class ListValue(values: List[ResponseValue])                extends ResponseValue {
     override def toString: String = values.mkString("[", ",", "]")

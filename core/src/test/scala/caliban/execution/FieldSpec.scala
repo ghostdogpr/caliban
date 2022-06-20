@@ -1,10 +1,12 @@
 package caliban.execution
 
-import caliban.CalibanError.ValidationError
 import caliban.GraphQL.graphQL
 import caliban.Macros.gqldoc
-import caliban.{ CalibanError, GraphQLInterpreter, RootResolver }
+import caliban.RootResolver
+import caliban.parsing.Parser
 import caliban.schema.Annotations.GQLInterface
+import caliban.schema._
+import caliban.validation.Validator
 import zio._
 import zio.test._
 
@@ -12,43 +14,61 @@ object FieldSpec extends ZIOSpecDefault {
 
   sealed trait Union
   @GQLInterface
-  sealed trait Interface
+  sealed trait Interface {
+    def id: Field => UIO[String]
+    def inner: Inner
+  }
 
-  case class A(id: Field => UIO[String]) extends Union with Interface
+  case class A(id: Field => UIO[String], inner: Inner) extends Union with Interface
 
-  case class B(id: String) extends Union with Interface
+  case class B(id: Field => UIO[String], inner: Inner, count: Int) extends Union with Interface
 
-  case class C(id: String) extends Interface
+  case class C(id: Field => UIO[String], inner: Inner) extends Interface
+
+  case class Inner(num: Int)
 
   case class Queries(
     union: Union,
     interface: Interface
   )
 
-  def api(ref: Ref[Set[String]]): IO[ValidationError, GraphQLInterpreter[Any, CalibanError]] = {
-    val api = graphQL(
+  private def api(ref: Ref[Chunk[Field]]) = {
+    def track(f: Field) = ref.update(_ :+ f)
+
+    graphQL(
       RootResolver(
         Queries(
-          A(field => ref.set(field.targets.getOrElse(Set.empty)).as("id-a")),
-          C("id-c")
+          A(track(_).as("id-a"), Inner(1)),
+          C(track(_).as("id-c"), Inner(3))
         )
       )
     )
-
-    api.interpreter
   }
 
-  def spec = suite("FieldSpec")(
+  private def execute(query: String) = for {
+    ref    <- Ref.make[Chunk[Field]](Chunk.empty)
+    i      <- api(ref).interpreter
+    _      <- i.execute(query)
+    fields <- ref.get
+  } yield fields
+
+  private def prepare(query: String) = for {
+    ref     <- Ref.make[Chunk[Field]](Chunk.empty)
+    schema  <- api(ref).validateRootSchema
+    doc     <- Parser.parseQuery(query)
+    rootType = RootType(schema.query.opType, mutationType = None, subscriptionType = None)
+    req     <- Validator.prepare(doc, rootType, schema, operationName = None, Map.empty, skipValidation = false)
+  } yield req
+
+  private val targetsSpec = suite("targets")(
     test("gets populated with inline fragments") {
       val query = gqldoc("""{
               union { ...on Interface { id }  }
             }""")
 
       for {
-        ref    <- Ref.make[Set[String]](Set.empty)
-        i      <- api(ref)
-        _      <- i.execute(query)
-        actual <- ref.get
+        fields <- execute(query)
+        actual  = fields.flatMap(_.targets.getOrElse(Set.empty)).toSet
       } yield assertTrue(actual == Set("Interface"))
     },
     test("doesn't get populated with mismatching type conditions") {
@@ -57,10 +77,8 @@ object FieldSpec extends ZIOSpecDefault {
             }""")
 
       for {
-        ref    <- Ref.make[Set[String]](Set.empty)
-        i      <- api(ref)
-        _      <- i.execute(query)
-        actual <- ref.get
+        fields <- execute(query)
+        actual  = fields.flatMap(_.targets.getOrElse(Set.empty)).toSet
       } yield assertTrue(actual == Set.empty[String])
     },
     test("gets populated with named fragment") {
@@ -73,10 +91,8 @@ object FieldSpec extends ZIOSpecDefault {
         }""")
 
       for {
-        ref    <- Ref.make[Set[String]](Set.empty)
-        i      <- api(ref)
-        _      <- i.execute(query)
-        actual <- ref.get
+        fields <- execute(query)
+        actual  = fields.flatMap(_.targets.getOrElse(Set.empty)).toSet
       } yield assertTrue(actual == Set("A"))
     },
     test("gets populated with unnamed fragment") {
@@ -86,11 +102,153 @@ object FieldSpec extends ZIOSpecDefault {
         }""")
 
       for {
-        ref    <- Ref.make[Set[String]](Set.empty)
-        i      <- api(ref)
-        _      <- i.execute(query)
-        actual <- ref.get
+        fields <- execute(query)
+        actual  = fields.flatMap(_.targets.getOrElse(Set.empty)).toSet
       } yield assertTrue(actual == Set.empty[String])
     }
   )
+
+  private val fieldTypesSpec = suite("field types")(
+    test("fetching from a union with an interface using an inline fragment") {
+
+      val query = gqldoc("""{
+        union {
+          ... on Interface {
+            id
+            inner { num }
+          }
+          ... on B {
+            ... on Interface {
+              id
+            }
+            inner { num }
+            count
+          }
+        }
+      }""")
+
+      for {
+        req <- prepare(query)
+      } yield assertTrue(
+        FieldTree.from(req.field) == FieldTree.Node(
+          "",
+          "Queries",
+          List(
+            FieldTree.Node(
+              "union",
+              "Union!",
+              List(
+                FieldTree.Leaf("id", "String!"),
+                FieldTree.Node("inner", "Inner!", List(FieldTree.Leaf("num", "Int!"))),
+                FieldTree.Leaf("id", "String!"),
+                FieldTree.Node("inner", "Inner!", List(FieldTree.Leaf("num", "Int!"))),
+                FieldTree.Leaf("count", "Int!")
+              )
+            )
+          )
+        )
+      )
+    },
+    test("fetching from a union with an interface using a named fragment") {
+
+      val query = gqldoc("""
+        fragment Frag on Interface {
+          id
+          inner { num }
+        }
+        {
+          union {
+            ...Frag
+            ... on B {
+              ...Frag
+              count
+            }
+          }
+        }
+      """)
+
+      for {
+        req <- prepare(query)
+      } yield assertTrue(
+        FieldTree.from(req.field) == FieldTree.Node(
+          "",
+          "Queries",
+          List(
+            FieldTree.Node(
+              "union",
+              "Union!",
+              List(
+                FieldTree.Leaf("id", "String!"),
+                FieldTree.Node("inner", "Inner!", List(FieldTree.Leaf("num", "Int!"))),
+                FieldTree.Leaf("id", "String!"),
+                FieldTree.Node("inner", "Inner!", List(FieldTree.Leaf("num", "Int!"))),
+                FieldTree.Leaf("count", "Int!")
+              )
+            )
+          )
+        )
+      )
+    },
+    test("fetching from an interface using an inline fragment") {
+
+      val query = gqldoc("""{
+        interface {
+          ... on Interface {
+            id
+            inner { num }
+          }
+          ... on B {
+            ... on Interface {
+              id
+            }
+            inner { num }
+            count
+          }
+        }
+      }""")
+
+      for {
+        req <- prepare(query)
+      } yield assertTrue(
+        FieldTree.from(req.field) == FieldTree.Node(
+          "",
+          "Queries",
+          List(
+            FieldTree.Node(
+              "interface",
+              "Interface!",
+              List(
+                FieldTree.Leaf("id", "String!"),
+                FieldTree.Node("inner", "Inner!", List(FieldTree.Leaf("num", "Int!"))),
+                FieldTree.Leaf("id", "String!"),
+                FieldTree.Node("inner", "Inner!", List(FieldTree.Leaf("num", "Int!"))),
+                FieldTree.Leaf("count", "Int!")
+              )
+            )
+          )
+        )
+      )
+    }
+  )
+
+  override val spec = suite("FieldSpec")(targetsSpec, fieldTypesSpec)
+
+  sealed trait FieldTree {
+    def name: String
+    def fieldType: String
+  }
+  object FieldTree       {
+    case class Node(name: String, fieldType: String, children: List[FieldTree]) extends FieldTree
+    case class Leaf(name: String, fieldType: String)                            extends FieldTree
+
+    def from(field: Field): FieldTree = {
+      val name      = field.name
+      val fieldType = field.fieldType.toType().toString
+
+      field.fields match {
+        case Nil => Leaf(name, fieldType)
+        case fs  => Node(name, fieldType, fs.map(from(_)))
+      }
+    }
+  }
 }

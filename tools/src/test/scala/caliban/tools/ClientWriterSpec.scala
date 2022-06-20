@@ -159,9 +159,9 @@ object Client {
 
   type Q
   object Q {
-    def character[A](name: String)(
-      innerSelection: SelectionBuilder[Character, A]
-    )(implicit encoder0: ArgEncoder[String]): SelectionBuilder[Q, Option[A]] = _root_.caliban.client.SelectionBuilder
+    def character[A](name: String)(innerSelection: SelectionBuilder[Character, A])(implicit
+      encoder0: ArgEncoder[String]
+    ): SelectionBuilder[Q, scala.Option[A]] = _root_.caliban.client.SelectionBuilder
       .Field("character", OptionOf(Obj(innerSelection)), arguments = List(Argument("name", name, "String!")(encoder0)))
   }
 
@@ -491,18 +491,18 @@ object Client {
     def role[A](
       onCaptain: SelectionBuilder[Captain, A],
       onPilot: SelectionBuilder[Pilot, A]
-    ): SelectionBuilder[Character, Option[A]] = _root_.caliban.client.SelectionBuilder
+    ): SelectionBuilder[Character, scala.Option[A]] = _root_.caliban.client.SelectionBuilder
       .Field("role", OptionOf(ChoiceOf(Map("Captain" -> Obj(onCaptain), "Pilot" -> Obj(onPilot)))))
     def roleOption[A](
-      onCaptain: Option[SelectionBuilder[Captain, A]] = None,
-      onPilot: Option[SelectionBuilder[Pilot, A]] = None
-    ): SelectionBuilder[Character, Option[Option[A]]] = _root_.caliban.client.SelectionBuilder.Field(
+      onCaptain: scala.Option[SelectionBuilder[Captain, A]] = None,
+      onPilot: scala.Option[SelectionBuilder[Pilot, A]] = None
+    ): SelectionBuilder[Character, scala.Option[scala.Option[A]]] = _root_.caliban.client.SelectionBuilder.Field(
       "role",
       OptionOf(
         ChoiceOf(
           Map(
-            "Captain" -> onCaptain.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a))),
-            "Pilot"   -> onPilot.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))
+            "Captain" -> onCaptain.fold[FieldBuilder[scala.Option[A]]](NullField)(a => OptionOf(Obj(a))),
+            "Pilot"   -> onPilot.fold[FieldBuilder[scala.Option[A]]](NullField)(a => OptionOf(Obj(a)))
           )
         )
       )
@@ -608,11 +608,11 @@ object Client {
 
   type Query = _root_.caliban.client.Operations.RootQuery
   object Query {
-    def characters(first: Int, last: Option[Int] = None, origins: List[Option[String]] = Nil)(implicit
+    def characters(first: Int, last: scala.Option[Int] = None, origins: List[scala.Option[String]] = Nil)(implicit
       encoder0: ArgEncoder[Int],
-      encoder1: ArgEncoder[Option[Int]],
-      encoder2: ArgEncoder[List[Option[String]]]
-    ): SelectionBuilder[_root_.caliban.client.Operations.RootQuery, Option[String]] =
+      encoder1: ArgEncoder[scala.Option[Int]],
+      encoder2: ArgEncoder[List[scala.Option[String]]]
+    ): SelectionBuilder[_root_.caliban.client.Operations.RootQuery, scala.Option[String]] =
       _root_.caliban.client.SelectionBuilder.Field(
         "characters",
         OptionOf(Scalar()),
@@ -766,9 +766,9 @@ object Client {
 
   type Character
   object Character {
-    def `_name_` : SelectionBuilder[Character, Option[String]] =
+    def `_name_` : SelectionBuilder[Character, scala.Option[String]] =
       _root_.caliban.client.SelectionBuilder.Field("_name_", OptionOf(Scalar()))
-    def _nickname: SelectionBuilder[Character, Option[String]] =
+    def _nickname: SelectionBuilder[Character, scala.Option[String]] =
       _root_.caliban.client.SelectionBuilder.Field("_nickname", OptionOf(Scalar()))
   }
 
@@ -896,17 +896,17 @@ object Client {
 
   type Sort
   object Sort {
-    def `object`[A](onAscending: SelectionBuilder[Ascending, A]): SelectionBuilder[Sort, Option[A]] =
+    def `object`[A](onAscending: SelectionBuilder[Ascending, A]): SelectionBuilder[Sort, scala.Option[A]] =
       _root_.caliban.client.SelectionBuilder.Field("object", OptionOf(ChoiceOf(Map("Ascending" -> Obj(onAscending)))))
     def objectOption[A](
-      onAscending: Option[SelectionBuilder[Ascending, A]] = None
-    ): SelectionBuilder[Sort, Option[Option[A]]] = _root_.caliban.client.SelectionBuilder.Field(
+      onAscending: scala.Option[SelectionBuilder[Ascending, A]] = None
+    ): SelectionBuilder[Sort, scala.Option[scala.Option[A]]] = _root_.caliban.client.SelectionBuilder.Field(
       "object",
       OptionOf(
-        ChoiceOf(Map("Ascending" -> onAscending.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))))
+        ChoiceOf(Map("Ascending" -> onAscending.fold[FieldBuilder[scala.Option[A]]](NullField)(a => OptionOf(Obj(a)))))
       )
     )
-    def objectInterface[A](`object`: SelectionBuilder[Order, A]): SelectionBuilder[Sort, Option[A]] =
+    def objectInterface[A](`object`: SelectionBuilder[Order, A]): SelectionBuilder[Sort, scala.Option[A]] =
       _root_.caliban.client.SelectionBuilder.Field("object", OptionOf(Obj(`object`)))
   }
 
@@ -960,35 +960,118 @@ object Client {
     def orders[A](
       onAscending: SelectionBuilder[Ascending, A],
       onDescending: SelectionBuilder[Descending, A]
-    ): SelectionBuilder[Sort, Option[List[Option[A]]]] = _root_.caliban.client.SelectionBuilder.Field(
+    ): SelectionBuilder[Sort, scala.Option[List[scala.Option[A]]]] = _root_.caliban.client.SelectionBuilder.Field(
       "orders",
       OptionOf(ListOf(OptionOf(ChoiceOf(Map("Ascending" -> Obj(onAscending), "Descending" -> Obj(onDescending))))))
     )
     def ordersOption[A](
-      onAscending: Option[SelectionBuilder[Ascending, A]] = None,
-      onDescending: Option[SelectionBuilder[Descending, A]] = None
-    ): SelectionBuilder[Sort, Option[List[Option[Option[A]]]]] = _root_.caliban.client.SelectionBuilder.Field(
-      "orders",
-      OptionOf(
-        ListOf(
-          OptionOf(
-            ChoiceOf(
-              Map(
-                "Ascending"  -> onAscending.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a))),
-                "Descending" -> onDescending.fold[FieldBuilder[Option[A]]](NullField)(a => OptionOf(Obj(a)))
+      onAscending: scala.Option[SelectionBuilder[Ascending, A]] = None,
+      onDescending: scala.Option[SelectionBuilder[Descending, A]] = None
+    ): SelectionBuilder[Sort, scala.Option[List[scala.Option[scala.Option[A]]]]] =
+      _root_.caliban.client.SelectionBuilder.Field(
+        "orders",
+        OptionOf(
+          ListOf(
+            OptionOf(
+              ChoiceOf(
+                Map(
+                  "Ascending"  -> onAscending.fold[FieldBuilder[scala.Option[A]]](NullField)(a => OptionOf(Obj(a))),
+                  "Descending" -> onDescending.fold[FieldBuilder[scala.Option[A]]](NullField)(a => OptionOf(Obj(a)))
+                )
               )
             )
           )
         )
       )
-    )
-    def ordersInterface[A](orders: SelectionBuilder[Order, A]): SelectionBuilder[Sort, Option[List[Option[A]]]] =
+    def ordersInterface[A](
+      orders: SelectionBuilder[Order, A]
+    ): SelectionBuilder[Sort, scala.Option[List[scala.Option[A]]]] =
       _root_.caliban.client.SelectionBuilder.Field("orders", OptionOf(ListOf(OptionOf(Obj(orders)))))
   }
 
 }
 """
         )
+      },
+      test("Option types don't conflict with scala.Option") {
+        val schema =
+          """
+             type Option {
+               id: UUID!
+               name: String
+               character: Character
+             }
+             type Character {
+               name: String!
+               nicknames: [String!]!
+             }
+             type Query {
+               maybeOption(id: UUID!): Option
+               someOption(id: UUID!): Option!
+               maybeOptionList(id: UUID!): [Option!]
+               someOptionList(id: UUID!): [Option!]!
+               maybeMaybeOptionList: [Option]
+             }
+            """.stripMargin
+
+        gen(schema).map { str =>
+          assertTrue(
+            str ==
+              """import caliban.client.FieldBuilder._
+import caliban.client._
+
+object Client {
+
+  type Option
+  object Option {
+    def id: SelectionBuilder[Option, UUID]                                                                      = _root_.caliban.client.SelectionBuilder.Field("id", Scalar())
+    def name: SelectionBuilder[Option, scala.Option[String]]                                                    =
+      _root_.caliban.client.SelectionBuilder.Field("name", OptionOf(Scalar()))
+    def character[A](innerSelection: SelectionBuilder[Character, A]): SelectionBuilder[Option, scala.Option[A]] =
+      _root_.caliban.client.SelectionBuilder.Field("character", OptionOf(Obj(innerSelection)))
+  }
+
+  type Character
+  object Character {
+    def name: SelectionBuilder[Character, String]            = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
+    def nicknames: SelectionBuilder[Character, List[String]] =
+      _root_.caliban.client.SelectionBuilder.Field("nicknames", ListOf(Scalar()))
+  }
+
+  type Query = _root_.caliban.client.Operations.RootQuery
+  object Query {
+    def maybeOption[A](id: UUID)(innerSelection: SelectionBuilder[Option, A])(implicit
+      encoder0: ArgEncoder[UUID]
+    ): SelectionBuilder[_root_.caliban.client.Operations.RootQuery, scala.Option[A]] =
+      _root_.caliban.client.SelectionBuilder
+        .Field("maybeOption", OptionOf(Obj(innerSelection)), arguments = List(Argument("id", id, "UUID!")(encoder0)))
+    def someOption[A](id: UUID)(innerSelection: SelectionBuilder[Option, A])(implicit
+      encoder0: ArgEncoder[UUID]
+    ): SelectionBuilder[_root_.caliban.client.Operations.RootQuery, A] = _root_.caliban.client.SelectionBuilder
+      .Field("someOption", Obj(innerSelection), arguments = List(Argument("id", id, "UUID!")(encoder0)))
+    def maybeOptionList[A](id: UUID)(innerSelection: SelectionBuilder[Option, A])(implicit
+      encoder0: ArgEncoder[UUID]
+    ): SelectionBuilder[_root_.caliban.client.Operations.RootQuery, scala.Option[List[A]]] =
+      _root_.caliban.client.SelectionBuilder.Field(
+        "maybeOptionList",
+        OptionOf(ListOf(Obj(innerSelection))),
+        arguments = List(Argument("id", id, "UUID!")(encoder0))
+      )
+    def someOptionList[A](id: UUID)(innerSelection: SelectionBuilder[Option, A])(implicit
+      encoder0: ArgEncoder[UUID]
+    ): SelectionBuilder[_root_.caliban.client.Operations.RootQuery, List[A]] = _root_.caliban.client.SelectionBuilder
+      .Field("someOptionList", ListOf(Obj(innerSelection)), arguments = List(Argument("id", id, "UUID!")(encoder0)))
+    def maybeMaybeOptionList[A](
+      innerSelection: SelectionBuilder[Option, A]
+    ): SelectionBuilder[_root_.caliban.client.Operations.RootQuery, scala.Option[List[scala.Option[A]]]] =
+      _root_.caliban.client.SelectionBuilder
+        .Field("maybeMaybeOptionList", OptionOf(ListOf(OptionOf(Obj(innerSelection)))))
+  }
+
+}
+"""
+          )
+        }
       }
     ) @@ TestAspect.sequential
 }

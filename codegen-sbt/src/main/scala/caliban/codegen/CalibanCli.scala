@@ -85,17 +85,14 @@ object CalibanCli {
     args: List[String],
     genType: GenType
   ): Task[Unit] =
-    Options
-      .fromArgs(args)
-      .foldZIO(
-        ex => printLine(ex.getMessage) *> printLine(helpMsg),
-        arguments =>
-          for {
-            _ <- printLine(s"Generating code for ${arguments.schemaPath}")
-            _ <- Codegen.generate(arguments, genType)
-            _ <- printLine(s"Code generation done")
-          } yield ()
-      )
-
-  def projectSettings = Seq(commands ++= Seq(genSchemaCommand, genClientCommand))
+    Options.fromArgs(args).flatMap {
+      case Some(arguments) =>
+        for {
+          _ <- printLine(s"Generating code for ${arguments.schemaPath}")
+          _ <- Codegen.generate(arguments, genType)
+          _ <- printLine(s"Code generation done")
+        } yield ()
+      case None            => printLine(helpMsg)
+    }
+  def projectSettings          = Seq(commands ++= Seq(genSchemaCommand, genClientCommand))
 }

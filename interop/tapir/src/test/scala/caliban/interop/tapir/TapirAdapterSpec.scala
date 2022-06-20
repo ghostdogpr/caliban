@@ -10,6 +10,7 @@ import sttp.tapir.client.sttp.ws.zio._
 import sttp.tapir.json.circe._
 import sttp.tapir.model.{ ConnectionInfo, ServerRequest }
 import zio.stream.ZStream
+import zio.test.TestAspect.before
 import zio.test._
 import zio.{ test => _, _ }
 import scala.language.postfixOps
@@ -40,7 +41,7 @@ object TapirAdapterSpec {
     httpUri: Uri,
     uploadUri: Option[Uri] = None,
     wsUri: Option[Uri] = None
-  ): Spec[Live, Throwable] = {
+  ): Spec[TestEnvironment with TestService, Throwable] = suite(label) {
     val run       =
       SttpClientInterpreter()
         .toRequestThrowDecodeFailures(TapirAdapter.makeHttpEndpoints[Any, CalibanError].head, Some(httpUri))
@@ -50,7 +51,7 @@ object TapirAdapterSpec {
     )
     val runWS     = wsUri.map(wsUri =>
       SttpClientInterpreter()
-        .toRequestThrowDecodeFailures(TapirAdapter.makeWebSocketEndpoint[Any, CalibanError], Some(wsUri))
+        .toRequestThrowDecodeFailures(TapirAdapter.makeWebSocketEndpoint, Some(wsUri))
     )
 
     val tests: List[Option[Spec[Live with SttpClient, Throwable]]] = List(
@@ -146,45 +147,115 @@ object TapirAdapterSpec {
         }
       ),
       runWS.map(runWS =>
-        test("test ws endpoint") {
-          val io =
-            for {
-              res         <- send(runWS(null))
-              pipe        <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
-              inputQueue  <- Queue.unbounded[GraphQLWSInput]
-              inputStream  = ZStream.fromQueue(inputQueue)
-              outputStream = pipe(inputStream)
-              _           <- inputQueue.offer(GraphQLWSInput("connection_init", None, None))
-              _           <- inputQueue.offer(
-                               GraphQLWSInput(
-                                 "start",
-                                 Some("id"),
-                                 Some(ObjectValue(Map("query" -> StringValue("subscription { characterDeleted }"))))
+        suite("test ws endpoint")(
+          test("legacy ws") {
+            import caliban.interop.tapir.ws.Protocol.Legacy.Ops
+            val io =
+              for {
+                res         <- send(
+                                 runWS(
+                                   FakeServerRequest(
+                                     Method.GET,
+                                     Uri.unsafeParse("http://localhost:80/ws/graphql"),
+                                     Header("Sec-WebSocket-Protocol", "graphql-ws") :: Nil
+                                   ) -> "graphql-ws"
+                                 )
                                )
-                             )
-              sendDelete   = send(
-                               run((GraphQLRequest(Some("""mutation{ deleteCharacter(name: "Amos Burton") }""")), null))
-                             ).delay(3 seconds)
-              stop         = inputQueue.offer(GraphQLWSInput("stop", Some("id"), None))
-              messages    <- Live.live {
-                               outputStream
-                                 .tap(out => ZIO.when(out.`type` == "connection_ack")(sendDelete))
-                                 .tap(out => ZIO.when(out.`type` == "data")(stop))
+                pipe        <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
+                inputQueue  <- Queue.unbounded[GraphQLWSInput]
+                inputStream  = ZStream.fromQueueWithShutdown(inputQueue)
+                outputStream = pipe(inputStream)
+                _           <- inputQueue.offer(GraphQLWSInput(Ops.ConnectionInit, None, None))
+                _           <- inputQueue.offer(
+                                 GraphQLWSInput(
+                                   Ops.Start,
+                                   Some("id"),
+                                   Some(ObjectValue(Map("query" -> StringValue("subscription { characterDeleted }"))))
+                                 )
+                               )
+                sendDelete   = Live.live {
+                                 send(
+                                   run(
+                                     (GraphQLRequest(Some("""mutation{ deleteCharacter(name: "Amos Burton") }""")), null)
+                                   )
+                                 ).delay(3 seconds)
+                               }
+                stop         = inputQueue.offer(GraphQLWSInput(Ops.Stop, Some("id"), None))
+                messages    <- outputStream
+                                 .tap(out =>
+                                   ZIO.whenCase(out) {
+                                     case Right(out) if out.`type` == Ops.ConnectionAck => sendDelete
+                                     case Right(out) if out.`type` == Ops.Data          => stop
+                                   }
+                                 )
                                  .take(3)
                                  .runCollect
-                                 .timeoutFail(new Throwable("timeout ws"))(30.seconds)
-                             }
-            } yield messages
+              } yield messages
 
-          io.map { messages =>
-            assertTrue(messages.head.`type` == "connection_ack") &&
-            assertTrue(messages(1).payload.get.toString == """{"data":{"characterDeleted":"Amos Burton"}}""") &&
-            assertTrue(messages(2).`type` == "complete")
-          }
-        }
+            io.map(_.collect { case Right(value) => value }).map { messages =>
+              assertTrue(messages.head.`type` == Ops.ConnectionAck) &&
+              assertTrue(messages(1).payload.get.toString == """{"data":{"characterDeleted":"Amos Burton"}}""") &&
+              assertTrue(messages(2).`type` == Ops.Complete)
+            }
+          } @@ TestAspect.timeout(60.seconds),
+          test("graphql-ws") {
+            import caliban.interop.tapir.ws.Protocol.GraphQLWS.Ops
+            val io =
+              for {
+                res         <- send(
+                                 runWS(
+                                   FakeServerRequest(
+                                     Method.GET,
+                                     Uri.unsafeParse("http://localhost:80/ws/graphql"),
+                                     Header("Sec-WebSocket-Protocol", "graphql-transport-ws") :: Nil
+                                   ) -> "graphql-transport-ws"
+                                 )
+                               )
+                pipe        <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
+                inputQueue  <- Queue.unbounded[GraphQLWSInput]
+                inputStream  = ZStream.fromQueueWithShutdown(inputQueue)
+                outputStream = pipe(inputStream)
+                _           <- inputQueue.offer(GraphQLWSInput(Ops.ConnectionInit, None, None))
+                _           <- inputQueue.offer(
+                                 GraphQLWSInput(
+                                   Ops.Subscribe,
+                                   Some("id"),
+                                   Some(ObjectValue(Map("query" -> StringValue("subscription { characterDeleted }"))))
+                                 )
+                               )
+                sendDelete   = Live.live {
+                                 send(
+                                   run(
+                                     (GraphQLRequest(Some("""mutation{ deleteCharacter(name: "Amos Burton") }""")), null)
+                                   )
+                                 ).delay(3 seconds)
+                               }
+                stop         = inputQueue.offer(GraphQLWSInput(Ops.Complete, Some("id"), None))
+                messages    <- outputStream
+                                 .tap(out =>
+                                   ZIO.whenCase(out) {
+                                     case Right(out) if out.`type` == Ops.ConnectionAck => sendDelete
+                                     case Right(out) if out.`type` == Ops.Next          => stop
+                                   }
+                                 )
+                                 .take(3)
+                                 .runCollect
+              } yield messages
+
+            io.map { messages =>
+              assertTrue(messages.head.map(_.`type`) == Right(Ops.ConnectionAck)) &&
+              assertTrue(
+                messages(1).map(_.payload.get.toString) == Right("""{"data":{"characterDeleted":"Amos Burton"}}""")
+              ) &&
+              assertTrue(messages(2).map(_.`type`) == Right(Ops.Complete))
+            }
+          } @@ TestAspect.timeout(60.seconds)
+        )
       )
     )
 
-    suite(label)(tests.flatten: _*).provideSomeLayer[Live](AsyncHttpClientZioBackend.layer()) @@ TestAspect.sequential
-  }
+    ZIO.succeed(tests.flatten)
+  }.provideCustomLayerShared(AsyncHttpClientZioBackend.layer()) @@ before(
+    TestService.reset
+  ) @@ TestAspect.sequential
 }
