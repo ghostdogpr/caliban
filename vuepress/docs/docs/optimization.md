@@ -46,9 +46,9 @@ case class GetUserName(id: Int) extends Request[Throwable, String]
 Now let's build the corresponding `DataSource`. We need to implement the following functions:
 
 ```scala
-val UserDataSource = new DataSource[Any, GetUserName] {
+val UserDataSource = new DataSource.Batched[Any, GetUserName] {
   override val identifier: String = ???
-  override def run(requests: Iterable[GetUserName]): ZIO[Any, Throwable, CompletedRequestMap] = ???
+  override def run(requests: Chunk[GetUserName]): ZIO[Any, Nothing, CompletedRequestMap] = ???
 }
 ```
 
@@ -62,7 +62,7 @@ We will define two different behaviors depending on whether we receive a single 
 For each request, we need to insert into the result map a value of type `Either` (`Left` for an error and `Right` for a success).
 
 ```scala
-override def run(requests: Iterable[GetUserName]): ZIO[Any, Nothing, CompletedRequestMap] = {
+override def run(requests: Chunk[GetUserName]): ZIO[Any, Nothing, CompletedRequestMap] = {
   val resultMap = CompletedRequestMap.empty
   requests.toList match {
     case request :: Nil =>
@@ -83,7 +83,7 @@ override def run(requests: Iterable[GetUserName]): ZIO[Any, Nothing, CompletedRe
 Now to build a `ZQuery` from it, we can use `ZQuery.fromRequest` and just pass the request and the data source:
 
 ```scala
-def getUserNameById(id: Int): ZQuery[Any, Throwable, String] =
+def getUserNameById(id: Int): ZQuery[Any, Nothing, String] =
   ZQuery.fromRequest(GetUserName(id))(UserDataSource)
 ```
 
