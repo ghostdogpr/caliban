@@ -23,7 +23,7 @@ object ZHttpAdapterSpec extends DefaultRunnableSpec {
       _           <- Server
                        .start(
                          8088,
-                         Http.route[Request] {
+                         Http.collectHttp[Request] {
                            case _ -> !! / "api" / "graphql" =>
                              ZHttpAdapter.makeHttpService(
                                interpreter,

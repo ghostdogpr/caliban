@@ -54,10 +54,11 @@ object AuthExampleApp extends App {
   implicit val runtime: Runtime[Auth with Blocking with Random] = Runtime.unsafeFromLayer(initLayer, Platform.default)
 
   val interpreter = runtime.unsafeRun(api.interpreter)
+  val adapter = AkkaHttpAdapter.default(system.dispatcher)
 
   val route =
     path("api" / "graphql") {
-      AkkaHttpAdapter.makeHttpService(interpreter, requestInterceptor = AuthInterceptor)
+      adapter.makeHttpService(interpreter, requestInterceptor = AuthInterceptor)
     } ~ path("graphiql") {
       getFromResource("graphiql.html")
     }

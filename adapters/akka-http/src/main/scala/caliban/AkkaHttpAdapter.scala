@@ -23,8 +23,8 @@ import zio.stream.ZStream
 
 import scala.concurrent.{ ExecutionContext, Future }
 
-class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions) {
-  private def akkaInterpreter = AkkaHttpServerInterpreter(options)
+class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(implicit ec: ExecutionContext) {
+  private val akkaInterpreter = AkkaHttpServerInterpreter(options)(ec)
 
   def makeHttpService[R, E](
     interpreter: GraphQLInterpreter[R, E],
@@ -103,9 +103,12 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions) {
   }
 }
 
-object AkkaHttpAdapter extends AkkaHttpAdapter(AkkaHttpServerOptions.default) {
+object AkkaHttpAdapter {
 
-  def apply(options: AkkaHttpServerOptions): AkkaHttpAdapter =
+  def default(implicit ec: ExecutionContext): AkkaHttpAdapter =
+    apply(AkkaHttpServerOptions.default)
+
+  def apply(options: AkkaHttpServerOptions)(implicit ec: ExecutionContext): AkkaHttpAdapter =
     new AkkaHttpAdapter(options)
 
   type AkkaPipe = Flow[GraphQLWSInput, Either[GraphQLWSClose, GraphQLWSOutput], Any]

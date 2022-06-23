@@ -6,6 +6,7 @@ import caliban.interop.tapir.TestService.TestService
 import caliban.{ CalibanError, GraphQLRequest, GraphQLWSInput }
 import sttp.client3.asynchttpclient.zio._
 import sttp.model.{ Header, MediaType, Method, Part, QueryParams, StatusCode, Uri }
+import sttp.tapir.AttributeKey
 import sttp.tapir.client.sttp.SttpClientInterpreter
 import sttp.tapir.client.sttp.ws.zio1._
 import sttp.tapir.json.circe._
@@ -32,6 +33,11 @@ object TapirAdapterSpec {
       uri.pathSegments.segments.map(_.v).toList
 
     override def queryParameters: QueryParams = uri.params
+
+    override def attribute[T](k: AttributeKey[T]): Option[T]           = None
+    override def attribute[T](k: AttributeKey[T], v: T): ServerRequest = this
+
+    override def withUnderlying(underlying: Any): ServerRequest = this
   }
 
   def makeSuite(
