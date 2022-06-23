@@ -24,6 +24,7 @@ object ExampleApp extends App {
     Runtime.unsafeFromLayer(ExampleService.make(sampleCharacters) ++ Console.live ++ Clock.live, Platform.default)
 
   val interpreter = runtime.unsafeRun(ExampleApi.api.interpreter)
+  val adapter = AkkaHttpAdapter.default(system.dispatcher)
 
   /**
    * curl -X POST \
@@ -36,9 +37,9 @@ object ExampleApp extends App {
    */
   val route =
     path("api" / "graphql") {
-      AkkaHttpAdapter.makeHttpService(interpreter)
+      adapter.makeHttpService(interpreter)
     } ~ path("ws" / "graphql") {
-      AkkaHttpAdapter.makeWebSocketService(interpreter)
+      adapter.makeWebSocketService(interpreter)
     } ~ path("graphiql") {
       getFromResource("graphiql.html")
     }

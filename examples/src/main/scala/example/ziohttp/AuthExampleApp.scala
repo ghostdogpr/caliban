@@ -117,7 +117,7 @@ object AuthExampleApp extends App {
       _           <- Server
                        .start(
                          8088,
-                         Http.route[Request] {
+                         Http.collectHttp[Request] {
                            case _ -> !! / "api" / "graphql" =>
                              Auth.middleware(
                                ZHttpAdapter.makeHttpService(interpreter)
