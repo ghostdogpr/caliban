@@ -6,7 +6,7 @@ val scala213 = "2.13.8"
 val scala3   = "3.1.1"
 val allScala = Seq(scala212, scala213, scala3)
 
-val akkaVersion            = "2.6.18"
+val akkaVersion            = "2.6.19"
 val catsEffect2Version     = "2.5.4"
 val catsEffect3Version     = "3.3.12"
 val catsMtlVersion         = "1.2.1"
@@ -18,7 +18,7 @@ val mercatorVersion        = "0.2.1"
 val playVersion            = "2.8.15"
 val playJsonVersion        = "2.9.2"
 val sttpVersion            = "3.3.18"
-val tapirVersion           = "0.20.2"
+val tapirVersion           = "1.0.1"
 val zioVersion             = "1.0.14"
 val zioInteropCats2Version = "2.5.1.0"
 val zioInteropCats3Version = "3.2.9.1"
@@ -263,7 +263,7 @@ lazy val http4s = project
       Seq(
         "dev.zio"                       %% "zio-interop-cats"              % zioInteropCats3Version,
         "org.typelevel"                 %% "cats-effect"                   % catsEffect3Version,
-        "com.softwaremill.sttp.tapir"   %% "tapir-zio1-http4s-server"      % tapirVersion,
+        "com.softwaremill.sttp.tapir"   %% "tapir-http4s-server-zio1"      % tapirVersion,
         "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % tapirVersion,
         "org.http4s"                    %% "http4s-blaze-server"           % http4sVersion % Test,
         "dev.zio"                       %% "zio-test"                      % zioVersion    % Test,

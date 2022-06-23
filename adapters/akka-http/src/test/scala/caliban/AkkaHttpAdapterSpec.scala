@@ -29,16 +29,17 @@ object AkkaHttpAdapterSpec extends DefaultRunnableSpec {
       mat          = Materializer(system)
       service     <- ZManaged.service[TestService.Service]
       interpreter <- TestApi.api.interpreter.toManaged_
+      adapter      = AkkaHttpAdapter.default(ec)
       route        = path("api" / "graphql") {
-                       AkkaHttpAdapter.makeHttpService(interpreter, requestInterceptor = FakeAuthorizationInterceptor.bearer)(
+                       adapter.makeHttpService(interpreter, requestInterceptor = FakeAuthorizationInterceptor.bearer)(
                          runtime,
                          implicitly,
                          implicitly
                        )
                      } ~ path("upload" / "graphql") {
-                       AkkaHttpAdapter.makeHttpUploadService(interpreter)(runtime, implicitly, implicitly, implicitly)
+                       adapter.makeHttpUploadService(interpreter)(runtime, implicitly, implicitly, implicitly)
                      } ~ path("ws" / "graphql") {
-                       AkkaHttpAdapter.makeWebSocketService(interpreter)(ec, runtime, mat, implicitly, implicitly)
+                       adapter.makeWebSocketService(interpreter)(ec, runtime, mat, implicitly, implicitly)
                      }
       _           <- ZIO.fromFuture { _ =>
                        implicit val s: ActorSystem = system
