@@ -5,6 +5,7 @@ import caliban.Value.StringValue
 import caliban.{ CalibanError, GraphQLRequest, GraphQLWSInput }
 import sttp.client3.asynchttpclient.zio._
 import sttp.model.{ Header, MediaType, Method, Part, QueryParams, StatusCode, Uri }
+import sttp.tapir.AttributeKey
 import sttp.tapir.client.sttp.SttpClientInterpreter
 import sttp.tapir.client.sttp.ws.zio._
 import sttp.tapir.json.circe._
@@ -14,8 +15,6 @@ import zio.test.TestAspect.before
 import zio.test._
 import zio.{ test => _, _ }
 import scala.language.postfixOps
-
-import sttp.tapir.AttributeKey
 
 object TapirAdapterSpec {
   case class FakeServerRequest(method: Method, uri: Uri, headers: List[Header] = Nil) extends ServerRequest {

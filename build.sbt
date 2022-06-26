@@ -17,7 +17,7 @@ val mercatorVersion           = "0.2.1"
 val playVersion               = "2.8.16"
 val playJsonVersion           = "2.9.2"
 val sttpVersion               = "3.6.2"
-val tapirVersion              = "1.0.0"
+val tapirVersion              = "1.0.1"
 val zioVersion                = "2.0.0-RC6"
 val zioInteropCats2Version    = "2.5.1.1"
 val zioInteropCats3Version    = "3.3.0-RC7"
@@ -344,7 +344,10 @@ lazy val clientJVM = client.jvm
 lazy val clientJS  = client.js
   .settings(
     libraryDependencies ++= {
-      Seq("io.github.cquiroz" %%% "scala-java-time" % "2.4.0" % Test)
+      Seq(
+        "org.scala-js"      %%% "scalajs-java-securerandom" % "1.0.0" cross CrossVersion.for3Use2_13,
+        "io.github.cquiroz" %%% "scala-java-time"           % "2.4.0" % Test
+      )
     }
   )
   .settings(scalaVersion := scala213)

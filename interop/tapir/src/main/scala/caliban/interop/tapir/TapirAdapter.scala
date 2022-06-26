@@ -11,10 +11,9 @@ import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.zio.ZioStreams.Pipe
 import sttp.model.{ headers => _, _ }
 import sttp.monad.MonadError
-import sttp.tapir.model.UnsupportedWebSocketFrameException
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir._
-import sttp.tapir.model.ServerRequest
+import sttp.tapir.model.{ ServerRequest, UnsupportedWebSocketFrameException }
 import sttp.tapir.server.ServerEndpoint
 import sttp.ws.WebSocketFrame
 import zio._
