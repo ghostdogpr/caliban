@@ -13,7 +13,7 @@ import sttp.model.{ headers => _, _ }
 import sttp.monad.MonadError
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir._
-import sttp.tapir.model.ServerRequest
+import sttp.tapir.model.{ ServerRequest, UnsupportedWebSocketFrameException }
 import sttp.tapir.server.ServerEndpoint
 import sttp.ws.WebSocketFrame
 import zio._
@@ -96,7 +96,7 @@ object TapirAdapter {
           }(request => (Nil, requestCodec.encode(request), QueryParams()))
         )
         .in(extractFromRequest(identity))
-        .out(customJsonBody[GraphQLResponse[E]])
+        .out(customCodecJsonBody[GraphQLResponse[E]])
         .errorOut(errorBody)
 
     val getEndpoint: PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, GraphQLResponse[E], Any] =
@@ -118,7 +118,7 @@ object TapirAdapter {
           )
         )
         .in(extractFromRequest(identity))
-        .out(customJsonBody[GraphQLResponse[E]])
+        .out(customCodecJsonBody[GraphQLResponse[E]])
         .errorOut(errorBody)
 
     postEndpoint :: getEndpoint :: Nil
@@ -161,7 +161,7 @@ object TapirAdapter {
     endpoint.post
       .in(multipartBody)
       .in(extractFromRequest(identity))
-      .out(customJsonBody[GraphQLResponse[E]])
+      .out(customCodecJsonBody[GraphQLResponse[E]])
       .errorOut(errorBody)
 
   def makeHttpUploadService[R, E](

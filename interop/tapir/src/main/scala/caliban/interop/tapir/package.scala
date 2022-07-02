@@ -173,7 +173,7 @@ package object tapir {
   private def extractArgNames[I](input: EndpointInput[I]): Map[String, Option[(String, Option[String])]] =
     input.traverseInputs {
       case EndpointInput.PathCapture(Some(name), _, info) => Vector(Some((name, info.description)))
-      case EndpointInput.Query(name, _, info)             => Vector(Some((name, info.description)))
+      case EndpointInput.Query(name, _, _, info)          => Vector(Some((name, info.description)))
       case EndpointInput.Cookie(name, _, info)            => Vector(Some((name, info.description)))
       case EndpointIO.Header(name, _, info)               => Vector(Some((name, info.description)))
       case EndpointIO.Body(_, _, info)                    => Vector(Some(("body", info.description)))

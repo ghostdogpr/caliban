@@ -14,7 +14,7 @@ object FederatedApp extends App {
     _           <- Server
                      .start(
                        8088,
-                       Http.route[Request] { case _ -> !! / "api" / "graphql" =>
+                       Http.collectHttp[Request] { case _ -> !! / "api" / "graphql" =>
                          ZHttpAdapter.makeHttpService(interpreter)
                        }
                      )
@@ -26,7 +26,7 @@ object FederatedApp extends App {
     _           <- Server
                      .start(
                        8089,
-                       Http.route[Request] { case _ -> !! / "api" / "graphql" =>
+                       Http.collectHttp[Request] { case _ -> !! / "api" / "graphql" =>
                          ZHttpAdapter.makeHttpService(interpreter)
                        }
                      )
