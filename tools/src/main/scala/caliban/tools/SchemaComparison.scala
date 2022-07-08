@@ -261,8 +261,8 @@ object SchemaComparison {
   ): List[SchemaComparisonChange] = {
     val leftKeys    = left.keySet.filterNot(isBuiltinScalar)
     val rightKeys   = right.keySet.filterNot(isBuiltinScalar)
-    val added       = (rightKeys -- leftKeys).map(TypeAdded).toList
-    val deleted     = (leftKeys -- rightKeys).map(TypeDeleted).toList
+    val added       = (rightKeys -- leftKeys).map(TypeAdded.apply).toList
+    val deleted     = (leftKeys -- rightKeys).map(TypeDeleted.apply).toList
     val commonTypes = leftKeys intersect rightKeys
     val changes     = commonTypes.toList.flatMap(key => compareTypes(left(key), right(key)))
 
@@ -292,8 +292,8 @@ object SchemaComparison {
   ): List[SchemaComparisonChange] = {
     val leftKeys         = left.keySet
     val rightKeys        = right.keySet
-    val added            = (rightKeys -- leftKeys).map(DirectiveDefinitionAdded).toList
-    val deleted          = (leftKeys -- rightKeys).map(DirectiveDefinitionDeleted).toList
+    val added            = (rightKeys -- leftKeys).map(DirectiveDefinitionAdded.apply).toList
+    val deleted          = (leftKeys -- rightKeys).map(DirectiveDefinitionDeleted.apply).toList
     val commonDirectives = leftKeys intersect rightKeys
     val changes          = commonDirectives.toList.flatMap(key => compareDirectiveDefinitions(left(key), right(key)))
 
