@@ -58,7 +58,7 @@ object PotatoesApi {
   import Schemas._
 
   val api: GraphQL[ZEnv with Has[PotatoesService]] =
-    graphQL(
+    graphQL[ZEnv with Has[PotatoesService], Operations.Query, Operations.Mutation, Operations.Subscription](
       Resolvers.resolver
     ) @@
       maxFields(200) @@
