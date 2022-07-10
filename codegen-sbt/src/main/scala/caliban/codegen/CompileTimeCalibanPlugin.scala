@@ -392,7 +392,7 @@ private[caliban] object Functions {
     generateSources: Def.Initialize[Task[Seq[File]]]
   ): Def.Initialize[Task[Seq[File]]] =
     Def.taskDyn {
-      val cacheDirectory = streams.value.cacheDirectory
+      val cacheDirectory = CalibanPlugin.cacheDirectory(streams.value.cacheDirectory, scalaVersion.value)
 
       /**
        * Copied and adapted from [[CalibanSourceGenerator]] cache mechanism,
