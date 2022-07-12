@@ -131,7 +131,7 @@ object AuthExampleAppF extends IOApp.Simple {
   def run: IO[Unit] = {
     type Effect[A] = Kleisli[IO, AuthInfo, A]
 
-    implicit val runtime: Runtime[AuthInfo] = Runtime.default.as(ZEnvironment(AuthInfo.Empty))
+    implicit val runtime: Runtime[AuthInfo] = Runtime.default.withEnvironment(ZEnvironment(AuthInfo.Empty))
 
     program[Effect].useForever.run(AuthInfo.Empty).void
   }

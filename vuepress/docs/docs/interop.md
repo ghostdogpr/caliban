@@ -5,6 +5,7 @@ If you prefer using [Cats Effect](https://github.com/typelevel/cats-effect) or [
 The `caliban-tapir` module allows converting your [Tapir](https://github.com/softwaremill/tapir) endpoints into a GraphQL API.
 
 ## Cats Effect
+
 You first need to import `caliban.interop.cats.implicits._` and have an implicit `zio.Runtime` in scope. Then a few helpers are available:
 
 - the `GraphQL` object is enriched with `interpreterAsync`, a variant of `interpreter` that return an `F[_]: Async` instead of a `ZIO`.
@@ -60,6 +61,7 @@ You can find this example within the [examples](https://github.com/ghostdogpr/ca
 #### Interop with contextual effect (e.g. Kleisli)
 
 `CatsInterop` (the combination of `ToEffect` and `FromEffect`) allows sharing a context between cats-effect and ZIO:
+
 ```scala mdoc:compile-only
 import cats.data.Kleisli
 import cats.effect.IO
@@ -122,9 +124,9 @@ object Simple extends IOApp {
     inject: InjectEnv[F, TraceId],
     runtime: Runtime[TraceId]
   ): F[ExitCode] =
-    Dispatcher[F].use { implicit dispatcher => 
+    Dispatcher[F].use { implicit dispatcher =>
       implicit val interop: CatsInterop.Contextual[F, TraceId] = CatsInterop.contextual(dispatcher) // required for a derivation of the schema
-      
+
       val genRandomNumber = logger.info("Generating number") >> Async[F].delay(scala.util.Random.nextInt())
 
       val queries = Queries(
@@ -151,7 +153,7 @@ object Simple extends IOApp {
 
     val root = TraceId("root")
 
-    implicit val runtime = Runtime.default.as(ZEnvironment(root))
+    implicit val runtime = Runtime.default.withEnvironment(ZEnvironment(root))
     implicit val logger  = new Logger[Effect] {
       def info(message: String): Effect[Unit] =
         for {
@@ -168,6 +170,7 @@ object Simple extends IOApp {
 There is another real world [example](https://github.com/ghostdogpr/caliban/blob/master/examples/src/main/scala/example/http4s/AuthExampleAppF.scala), that shows how to share auth info between cats-effect and ZIO.
 
 ## Monix (only with cats-effect 2.x)
+
 You first need to import `caliban.interop.monix.implicits._` and have an implicit `zio.Runtime` in scope. Then a few helpers are available:
 
 - the `GraphQL` object is enriched with `interpreterAsync`, a variant of `interpreter` that return a Monix `Task` instead of a `ZIO`.
@@ -219,6 +222,7 @@ After adding the `caliban-tapir` dependency to your build, adding `import caliba
 This method will convert your endpoint into a `GraphQL` object that you can then combine and expose.
 
 The conversion rules are the following:
+
 - `GET` endpoints are turned into Queries
 - `PUT`, `POST` and `DELETE` endpoints are turned into Mutations
 - fixed query paths are used to name GraphQL fields (e.g. an endpoint `/book/add` will give a GraphQL field named `bookAdd`)
@@ -226,6 +230,7 @@ The conversion rules are the following:
 - there should be an implicit `Schema` for both the input and the output types and an implicit `ArgBuilder` for the input type (see the [dedicated docs](schema.md))
 
 Let's look at an example. Imagine we have the following Tapir endpoint:
+
 ```scala mdoc:silent:reset
 import io.circe.generic.auto._
 import sttp.tapir._
@@ -248,6 +253,7 @@ val addBook: PublicEndpoint[(Book, String), Nothing, Unit, Any] =
 ```
 
 And a possible implementation:
+
 ```scala mdoc:silent
 import zio.UIO
 
@@ -255,22 +261,27 @@ def bookAddLogic(book: Book, token: String): UIO[Unit] = ???
 ```
 
 Just like you can create an http4s route by calling `toRoute` and passing an implementation, call `toGraphQL` to create a GraphQL API:
+
 ```scala mdoc:silent
 import caliban.GraphQL
 import caliban.interop.tapir._ // summons 'toGraphQL' extension
 
 val api: GraphQL[Any] = addBook.toGraphQL((bookAddLogic _).tupled)
 ```
+
 That's it! You can combine multiple `GraphQL` objects using `|+|` and expose the result using one of Caliban's adapters.
 
 If you want to reuse `bookAddLogic` for both GraphQL and regular HTTP, you can turn your `Endpoint` into a `ServerEndpoint` by calling `.serverLogicSuccess`:
+
 ```scala mdoc:silent
 import sttp.tapir.server.ServerEndpoint
 
 val addBookEndpoint: ServerEndpoint.Full[Unit, Unit, (Book, String), Nothing, Unit, Any, UIO] =
   addBook.serverLogicSuccess[UIO] { case (book, token) => bookAddLogic(book, token) }
 ```
+
 This can then be used to generate both an HTTP route (e.g. `toRoutes` with http4s) and a GraphQL API (`.toGraphQL`).
+
 ```scala mdoc:silent:nest
 val api: GraphQL[Any] = addBookEndpoint.toGraphQL
 ```
@@ -286,4 +297,4 @@ To customize the [name](https://github.com/softwaremill/tapir/blob/master/core/s
 ```scala
 endpoint
   .name("overrideName")
-``` 
+```

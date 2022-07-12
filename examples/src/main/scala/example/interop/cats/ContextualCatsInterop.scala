@@ -59,7 +59,7 @@ object ContextualCatsInterop extends IOApp {
             _   <- Console[Effect].println(s"$message - ${ctx.operation}")
           } yield ()
 
-      implicit val zioRuntime: Runtime[LogContext]          = Runtime.default.as(ZEnvironment(root))
+      implicit val zioRuntime: Runtime[LogContext]          = Runtime.default.withEnvironment(ZEnvironment(root))
       implicit val interop: CatsInterop[Effect, LogContext] = CatsInterop.contextual(dispatcher)
 
       program[Effect]
