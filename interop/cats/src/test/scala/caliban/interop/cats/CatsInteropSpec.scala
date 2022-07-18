@@ -30,7 +30,8 @@ object CatsInteropSpec extends ZIOSpecDefault {
         }
 
       for {
-        contextual <- ZIO.succeed(main(inner)(Runtime.default.as(ZEnvironment(rootCtx))).run(rootCtx).unsafeRunSync())
+        contextual <-
+          ZIO.succeed(main(inner)(Runtime.default.withEnvironment(ZEnvironment(rootCtx))).run(rootCtx).unsafeRunSync())
       } yield assertTrue(contextual == List(rootCtx, inner, rootCtx))
     },
     test("plain interop: do not inject an environment") {
@@ -47,7 +48,8 @@ object CatsInteropSpec extends ZIOSpecDefault {
         }
 
       for {
-        contextual <- ZIO.succeed(main(inner)(Runtime.default.as(ZEnvironment(rootCtx))).run(rootCtx).unsafeRunSync())
+        contextual <-
+          ZIO.succeed(main(inner)(Runtime.default.withEnvironment(ZEnvironment(rootCtx))).run(rootCtx).unsafeRunSync())
       } yield assertTrue(contextual == List(rootCtx, rootCtx, rootCtx))
     }
   )

@@ -17,6 +17,7 @@ import mdg.engine.proto.reports.Trace.Node.Id
 import mdg.engine.proto.reports.Trace.Node.Id.{ Index, ResponseName }
 
 import java.util.Base64
+import java.time.Instant
 
 object FederationTracingSpec extends ZIOSpecDefault with GenericSchema[Any] {
 
@@ -122,7 +123,7 @@ object FederationTracingSpec extends ZIOSpecDefault with GenericSchema[Any] {
     suite("Federation Tracing")(
       test("disabled by default") {
         for {
-          _           <- TestClock.setTime(1.second)
+          _           <- TestClock.setTime(Instant.MIN)
           interpreter <- api.interpreter
           resultFiber <- interpreter.execute(query).fork
           result      <- TestClock.adjust(1.second) *> resultFiber.join
@@ -130,7 +131,7 @@ object FederationTracingSpec extends ZIOSpecDefault with GenericSchema[Any] {
       },
       test("enabled") {
         for {
-          _              <- TestClock.setTime(1.second)
+          _              <- TestClock.setTime(Instant.MIN)
           interpreter    <- api.interpreter
           resultFiber    <-
             interpreter

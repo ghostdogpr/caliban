@@ -124,26 +124,28 @@ object PlayAdapter extends PlayAdapter(None) {
       _ =>
         _ =>
           req =>
-            runtime
-              .unsafeRunToFuture(endpoint.logic(zioMonadError)(())(req))
-              .future
+            Unsafe
+              .unsafe(implicit u => runtime.unsafe.runToFuture(endpoint.logic(zioMonadError)(())(req)).future)
               .map(_.map { zioPipe =>
                 val io =
                   for {
                     inputQueue     <- Queue.unbounded[GraphQLWSInput]
                     input           = ZStream.fromQueue(inputQueue)
                     output          = zioPipe(input)
-                    sink            = Sink.foreachAsync[GraphQLWSInput](1)(input =>
-                                        runtime.unsafeRunToFuture(inputQueue.offer(input).unit).future
-                                      )
+                    sink            =
+                      Sink.foreachAsync[GraphQLWSInput](1)(input =>
+                        Unsafe.unsafe(implicit u => runtime.unsafe.runToFuture(inputQueue.offer(input).unit).future)
+                      )
                     (queue, source) =
                       Source.queue[Either[GraphQLWSClose, GraphQLWSOutput]](0, OverflowStrategy.fail).preMaterialize()
                     fiber          <- output.foreach(msg => ZIO.fromFuture(_ => queue.offer(msg))).forkDaemon
                     flow            = Flow.fromSinkAndSourceCoupled(sink, source).watchTermination() { (_, f) =>
-                                        f.onComplete(_ => runtime.unsafeRun(fiber.interrupt))
+                                        f.onComplete(_ =>
+                                          Unsafe.unsafe(implicit u => runtime.unsafe.run(fiber.interrupt).getOrThrowFiberFailure())
+                                        )
                                       }
                   } yield flow
-                runtime.unsafeRun(io)
+                Unsafe.unsafe(implicit u => runtime.unsafe.run(io).getOrThrowFiberFailure())
               })
     )
 }

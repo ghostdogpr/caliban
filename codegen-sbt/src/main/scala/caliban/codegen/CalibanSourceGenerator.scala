@@ -115,8 +115,10 @@ object CalibanSourceGenerator {
         }
       )
 
-      Runtime.default.unsafeRun {
-        generateFromFiles.zipWith(generateFromURLs)(_ ++ _).map(_.flatten)
+      Unsafe.unsafe { implicit u =>
+        Runtime.default.unsafe.run {
+          generateFromFiles.zipWith(generateFromURLs)(_ ++ _).map(_.flatten)
+        }.getOrThrowFiberFailure()
       }
     }
 

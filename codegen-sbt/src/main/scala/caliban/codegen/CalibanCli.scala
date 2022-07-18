@@ -5,7 +5,7 @@ import caliban.tools.*
 import sbt.Keys.commands
 import sbt.{ Command, State }
 import zio.Console.printLine
-import zio.{ Runtime, Task }
+import zio.{ Runtime, Task, Unsafe }
 
 object CalibanCli {
   lazy val genSchemaCommand =
@@ -28,11 +28,15 @@ object CalibanCli {
     genType: GenType
   ): Command =
     Command.args(name, helpMsg) { (state: State, args: Seq[String]) =>
-      Runtime.default.unsafeRun(
-        execGenCommand(helpMsg, args.toList, genType)
-          .catchAll(reason => printLine(reason.toString) *> printLine(reason.getStackTrace.mkString("\n")))
-          .as(1)
-      )
+      Unsafe.unsafe { implicit u =>
+        Runtime.default.unsafe
+          .run(
+            execGenCommand(helpMsg, args.toList, genType)
+              .catchAll(reason => printLine(reason.toString) *> printLine(reason.getStackTrace.mkString("\n")))
+              .as(1)
+          )
+          .getOrThrowFiberFailure()
+      }
       state
     }
 

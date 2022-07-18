@@ -4,7 +4,7 @@ import cats.effect.Async
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.{ ~>, Monad }
-import zio.{ RIO, Runtime, Tag, ZEnvironment, ZIO }
+import zio.{ RIO, Runtime, Tag, Unsafe, ZEnvironment, ZIO }
 
 import scala.concurrent.Future
 
@@ -123,7 +123,7 @@ object ToEffect {
     new ToEffect[F, R] {
       def toEffect[A](rio: RIO[R, A]): F[A] =
         F.uncancelable { poll =>
-          F.delay(runtime.unsafeRunToFuture(rio)).flatMap { future =>
+          F.delay(Unsafe.unsafe(implicit u => runtime.unsafe.runToFuture(rio))).flatMap { future =>
             poll(F.onCancel(F.fromFuture(F.pure[Future[A]](future)), F.fromFuture(F.delay(future.cancel())).void))
           }
         }

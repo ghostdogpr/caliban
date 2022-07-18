@@ -18,14 +18,14 @@ val playVersion               = "2.8.16"
 val playJsonVersion           = "2.9.2"
 val sttpVersion               = "3.6.2"
 val tapirVersion              = "1.0.1"
-val zioVersion                = "2.0.0-RC6"
+val zioVersion                = "2.0.0"
 val zioInteropCats2Version    = "2.5.1.1"
-val zioInteropCats3Version    = "3.3.0-RC7"
-val zioInteropReactiveVersion = "2.0.0-RC7"
-val zioConfigVersion          = "3.0.0-RC9"
-val zqueryVersion             = "0.3.0-RC5"
-val zioJsonVersion            = "0.3.0-RC8"
-val zioHttpVersion            = "2.0.0-RC9"
+val zioInteropCats3Version    = "3.3.0"
+val zioInteropReactiveVersion = "2.0.0"
+val zioConfigVersion          = "3.0.1"
+val zqueryVersion             = "0.3.0"
+val zioJsonVersion            = "0.3.0-RC10"
+val zioHttpVersion            = "2.0.0-RC9+2-4e82d839-SNAPSHOT"
 
 inThisBuild(
   List(
@@ -34,6 +34,7 @@ inThisBuild(
     organization             := "com.github.ghostdogpr",
     homepage                 := Some(url("https://github.com/ghostdogpr/caliban")),
     licenses                 := List(License.Apache2),
+    resolvers += "Sonatype OSS Snapshots" at "https://s01.oss.sonatype.org/content/repositories/snapshots",
     Test / parallelExecution := false,
     scmInfo                  := Some(
       ScmInfo(
