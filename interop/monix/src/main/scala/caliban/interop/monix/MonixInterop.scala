@@ -35,21 +35,21 @@ object MonixInterop {
         enableIntrospection = enableIntrospection,
         queryExecution
       )
-      Unsafe.unsafe(implicit u => MonixTask.deferFuture(runtime.unsafe.runToFuture(execution)))
+      Unsafe.unsafeCompat(implicit u => MonixTask.deferFuture(runtime.unsafe.runToFuture(execution)))
     }
 
   def checkAsync[R](
     graphQL: GraphQLInterpreter[R, Any]
   )(query: String)(implicit runtime: Runtime[Any]): MonixTask[Unit] =
     MonixTask.async(cb =>
-      Unsafe.unsafe(implicit u => MonixTask.deferFuture(runtime.unsafe.runToFuture(graphQL.check(query))))
+      Unsafe.unsafeCompat(implicit u => MonixTask.deferFuture(runtime.unsafe.runToFuture(graphQL.check(query))))
     )
 
   def interpreterAsync[R](
     graphQL: GraphQL[R]
   )(implicit runtime: Runtime[Any]): MonixTask[GraphQLInterpreter[R, CalibanError]] =
     MonixTask.async(cb =>
-      Unsafe.unsafe(implicit u => MonixTask.deferFuture(runtime.unsafe.runToFuture(graphQL.interpreter)))
+      Unsafe.unsafeCompat(implicit u => MonixTask.deferFuture(runtime.unsafe.runToFuture(graphQL.interpreter)))
     )
 
   def taskSchema[R, A](implicit ev: Schema[R, A], ev2: ConcurrentEffect[MonixTask]): Schema[R, MonixTask[A]] =

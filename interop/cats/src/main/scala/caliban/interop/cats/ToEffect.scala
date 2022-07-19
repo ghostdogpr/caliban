@@ -123,7 +123,7 @@ object ToEffect {
     new ToEffect[F, R] {
       def toEffect[A](rio: RIO[R, A]): F[A] =
         F.uncancelable { poll =>
-          F.delay(Unsafe.unsafe(implicit u => runtime.unsafe.runToFuture(rio))).flatMap { future =>
+          F.delay(Unsafe.unsafeCompat(implicit u => runtime.unsafe.runToFuture(rio))).flatMap { future =>
             poll(F.onCancel(F.fromFuture(F.pure[Future[A]](future)), F.fromFuture(F.delay(future.cancel())).void))
           }
         }

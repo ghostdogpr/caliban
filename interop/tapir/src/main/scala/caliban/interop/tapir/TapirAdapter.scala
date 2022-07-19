@@ -303,10 +303,14 @@ object TapirAdapter {
     ](
       endpoint.endpoint,
       _ =>
-        a => Unsafe.unsafe(implicit u => runtime.unsafe.runToFuture(endpoint.securityLogic(zioMonadError)(a)).future),
+        a =>
+          Unsafe.unsafeCompat(implicit u =>
+            runtime.unsafe.runToFuture(endpoint.securityLogic(zioMonadError)(a)).future
+          ),
       _ =>
         u =>
-          req => Unsafe.unsafe(implicit un => runtime.unsafe.runToFuture(endpoint.logic(zioMonadError)(u)(req)).future)
+          req =>
+            Unsafe.unsafeCompat(implicit un => runtime.unsafe.runToFuture(endpoint.logic(zioMonadError)(u)(req)).future)
     )
 
   def zioMonadError[R]: MonadError[RIO[R, *]] = new MonadError[RIO[R, *]] {

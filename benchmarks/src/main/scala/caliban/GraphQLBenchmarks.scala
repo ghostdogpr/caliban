@@ -1,9 +1,5 @@
 package caliban
 
-import scala.concurrent.duration._
-import scala.concurrent.{ Await, ExecutionContextExecutor, Future }
-import scala.language.postfixOps
-import java.util.concurrent.TimeUnit
 import caliban.Data._
 import caliban.GraphQL._
 import io.circe.Json
@@ -13,7 +9,12 @@ import sangria.macros.derive._
 import sangria.marshalling.circe._
 import sangria.parser.QueryParser
 import sangria.schema._
-import zio.{ Runtime, UIO, ZIO }
+import zio.{ Runtime, Task, UIO, Unsafe, ZIO }
+
+import java.util.concurrent.TimeUnit
+import scala.concurrent.duration._
+import scala.concurrent.{ Await, ExecutionContextExecutor, Future }
+import scala.language.postfixOps
 
 @State(Scope.Thread)
 @BenchmarkMode(Array(Mode.Throughput))
@@ -239,26 +240,28 @@ class GraphQLBenchmarks {
     )
   )
 
-  val interpreter: GraphQLInterpreter[Any, CalibanError] = runtime.unsafeRun(graphQL(resolver).interpreter)
+  def run[A](zio: Task[A]): A = Unsafe.unsafe(implicit u => runtime.unsafe.run(zio).getOrThrow())
+
+  val interpreter: GraphQLInterpreter[Any, CalibanError] = run(graphQL(resolver).interpreter)
 
   @Benchmark
   def simpleCaliban(): Unit = {
     val io = interpreter.execute(simpleQuery)
-    runtime.unsafeRun(io)
+    run(io)
     ()
   }
 
   @Benchmark
   def introspectCaliban(): Unit = {
     val io = interpreter.execute(fullIntrospectionQuery)
-    runtime.unsafeRun(io)
+    run(io)
     ()
   }
 
   @Benchmark
   def fragmentsCaliban(): Unit = {
     val io = interpreter.execute(fragmentsQuery)
-    runtime.unsafeRun(io)
+    run(io)
     ()
   }
 

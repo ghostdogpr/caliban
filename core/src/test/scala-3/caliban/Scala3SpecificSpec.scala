@@ -71,9 +71,11 @@ object Scala3SpecificSpec extends ZIOSpecDefault {
         }
       },
       test("Derive R without imports") {
-        case class Inner(io: RIO[Console, String])
-        case class Queries(io: RIO[Clock, Int], inner: Inner)
-        val api         = graphQL[Clock with Console, Queries, Unit, Unit](
+        trait S1
+        trait S2
+        case class Inner(io: RIO[S1, String])
+        case class Queries(io: RIO[S2, Int], inner: Inner)
+        val api         = graphQL[S1 with S2, Queries, Unit, Unit](
           RootResolver(Queries(ZIO.succeed(1), Inner(ZIO.succeed("ok"))))
         )
         val interpreter = api.interpreter
@@ -86,7 +88,7 @@ object Scala3SpecificSpec extends ZIOSpecDefault {
             |}""".stripMargin
         interpreter.flatMap(_.execute(query)).map { response =>
           assertTrue(response.data.toString == """{"io":1,"inner":{"io":"ok"}}""")
-        }
-      }.provide(Clock.live ++ Console.live)
+        }.provide(ZLayer.succeed(new S1 {}) ++ ZLayer.succeed(new S2 {}))
+      }
     )
 }
