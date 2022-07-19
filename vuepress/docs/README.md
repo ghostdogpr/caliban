@@ -9,5 +9,5 @@ features:
 - title: Minimal boilerplate
   details: No need to manually define a schema for every type in your API. Let the compiler do the boring work.
 - title: Excellent interoperability
-  details: Out-of-the-box support for major HTTP server libraries, effect types, Json libraries and more.
+  details: Out-of-the-box support for major HTTP server libraries, effect types, JSON libraries and more.
 ---
