@@ -216,12 +216,12 @@ workflows:
           filters:
             branches:
               only:
-                - master
-                - zio-2
+                - series/1.x
+                - series/2.x
             tags:
               only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
       - microsite:
           filters:
             branches:
               only:
-                - master
+                - series/1.x

@@ -3,7 +3,7 @@
 To run the examples without the rest of the project, add this to your build.sbt:
 
 ```scala
-val calibanVersion = "1.4.1"
+val calibanVersion = "1.4.2"
 
 libraryDependencies ++= Seq(
   "com.github.ghostdogpr"         %% "caliban"                       % calibanVersion,
