@@ -1,5 +1,6 @@
 package caliban.tools
 
+import org.scalafmt.interfaces.ScalafmtReporter
 import org.scalafmt.interfaces.Scalafmt
 import zio.RIO
 import zio.blocking.{ effectBlocking, Blocking }

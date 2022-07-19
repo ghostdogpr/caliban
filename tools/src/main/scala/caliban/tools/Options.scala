@@ -1,6 +1,7 @@
 package caliban.tools
 
 import zio.UIO
+import zio.config.{ read, ConfigDescriptor, ConfigSource }
 import zio.config._, ConfigDescriptor._
 import zio.config.magnolia._
 
