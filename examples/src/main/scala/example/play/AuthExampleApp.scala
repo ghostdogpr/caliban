@@ -6,6 +6,7 @@ import caliban.interop.tapir.RequestInterceptor
 import caliban.interop.tapir.TapirAdapter.TapirResponse
 import caliban.schema.GenericSchema
 import caliban.{ PlayAdapter, RootResolver }
+import example.akkahttp.AuthExampleApp.{ api, runtime }
 import play.api.Mode
 import play.api.routing._
 import play.api.routing.sird._
@@ -14,7 +15,8 @@ import sttp.model.StatusCode
 import sttp.tapir.json.play._
 import sttp.tapir.model.ServerRequest
 import zio.stream.ZStream
-import zio.{ FiberRef, RIO, Runtime, ULayer, ZIO, ZLayer }
+import zio.{ FiberRef, RIO, Runtime, ULayer, Unsafe, ZIO, ZLayer }
+
 import scala.concurrent.ExecutionContextExecutor
 import scala.io.StdIn.readLine
 
@@ -53,9 +55,9 @@ object AuthExampleApp extends App {
   // For the auth we wrap in an option, but you could just as well use something
   // like AuthToken("__INVALID") or a sealed trait hierarchy with an invalid member
   val initLayer: ULayer[Auth]         = ZLayer.scoped(FiberRef.make(Option.empty[AuthToken]))
-  implicit val runtime: Runtime[Auth] = Runtime.unsafeFromLayer(initLayer)
+  implicit val runtime: Runtime[Auth] = Unsafe.unsafe(implicit u => Runtime.unsafe.fromLayer(initLayer))
 
-  val interpreter = runtime.unsafeRun(api.interpreter)
+  val interpreter = Unsafe.unsafe(implicit u => runtime.unsafe.run(api.interpreter).getOrThrow())
 
   val server = AkkaHttpServer.fromRouterWithComponents(
     ServerConfig(

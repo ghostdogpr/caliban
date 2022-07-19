@@ -11,15 +11,16 @@ import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives._
 import caliban.AkkaHttpAdapter
 import sttp.tapir.json.circe._
-import zio.Runtime
+import zio.{ Runtime, Unsafe }
 
 object ExampleApp extends App {
 
   implicit val system: ActorSystem                        = ActorSystem()
   implicit val executionContext: ExecutionContextExecutor = system.dispatcher
-  implicit val runtime: Runtime[ExampleService]           = Runtime.unsafeFromLayer(ExampleService.make(sampleCharacters))
+  implicit val runtime: Runtime[ExampleService]           =
+    Unsafe.unsafe(implicit u => Runtime.unsafe.fromLayer(ExampleService.make(sampleCharacters)))
 
-  val interpreter = runtime.unsafeRun(ExampleApi.api.interpreter)
+  val interpreter = Unsafe.unsafe(implicit u => runtime.unsafe.run(ExampleApi.api.interpreter).getOrThrow())
   val adapter     = AkkaHttpAdapter.default
 
   /**

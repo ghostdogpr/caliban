@@ -8,6 +8,9 @@ import io.circe.syntax._
 import sttp.tapir.json.circe._
 import sttp.tapir.server.ziohttp.{ ZioHttpInterpreter, ZioHttpServerOptions }
 import zhttp.http._
+import zhttp.service.ChannelEvent
+import zhttp.service.ChannelEvent.UserEvent.HandshakeComplete
+import zhttp.service.ChannelEvent.{ ChannelRead, UserEventTriggered }
 import zhttp.socket._
 import zio._
 import zio.stream._
@@ -60,15 +63,15 @@ object ZHttpAdapter {
                    case Right(output) => WebSocketFrame.Text(output.asJson.dropNullValues.noSpaces)
                    case Left(close)   => WebSocketFrame.Close(close.code, Some(close.reason))
                  }
-        socket = Socket
-                   .collect[WebSocketFrame] { case WebSocketFrame.Text(text) =>
-                     ZStream
-                       .fromZIO(ZIO.fromEither(decode[GraphQLWSInput](text)))
-                       .mapZIO(queue.offer) *> ZStream.empty
+        socket = Http
+                   .collectZIO[WebSocketChannelEvent] {
+                     case ChannelEvent(ch, UserEventTriggered(HandshakeComplete)) =>
+                       out.runForeach(ch.writeAndFlush(_)).race(ch.awaitClose)
+                     case ChannelEvent(_, ChannelRead(WebSocketFrame.Text(text))) =>
+                       ZIO.fromEither(decode[GraphQLWSInput](text)).flatMap(queue.offer)
                    }
-                   .merge(Socket.fromStream[Any, Throwable, WebSocketFrame](out))
-        app   <- Response.fromSocketApp[R](
-                   SocketApp(socket).withProtocol(SocketProtocol.subProtocol(protocol.name))
+        app   <- Response.fromSocketApp(
+                   socket.toSocketApp.withProtocol(SocketProtocol.subProtocol(protocol.name))
                  )
       } yield app
     }

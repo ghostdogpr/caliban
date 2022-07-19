@@ -5,7 +5,9 @@ import caliban.GraphQL.graphQL
 import caliban.schema._
 import caliban.tools.{ Options, RemoteSchema, SchemaLoader }
 import caliban.tools.stitching.{ HttpRequest, RemoteResolver, RemoteSchemaResolver, ResolveRequest }
-
+import sttp.capabilities.WebSockets
+import sttp.capabilities.zio.ZioStreams
+import sttp.client3.SttpBackend
 import sttp.client3.asynchttpclient.zio._
 import zio._
 
@@ -24,7 +26,7 @@ object StitchingExample extends GenericSchema[Any] {
   val api =
     for {
       config     <- ZIO.environment[Configuration]
-      sttpClient <- ZIO.environment[SttpClient]
+      sttpClient <- ZIO.environment[SttpBackend[Task, ZioStreams with WebSockets]]
 
       schemaLoader = SchemaLoader.fromIntrospection(
                        GITHUB_API,

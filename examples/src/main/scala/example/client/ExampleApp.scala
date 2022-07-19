@@ -2,6 +2,8 @@ package example.client
 
 import example.client.Client._
 import caliban.client.CalibanClientError
+import sttp.capabilities.WebSockets
+import sttp.capabilities.zio.ZioStreams
 import sttp.client3._
 import sttp.client3.asynchttpclient.zio._
 import zio.Console.printLine
@@ -47,8 +49,14 @@ object ExampleApp extends ZIOAppDefault {
         }
     val mutation  = Mutations.deleteCharacter("James Holden")
 
-    def sendRequest[T](req: Request[Either[CalibanClientError, T], Any]): RIO[SttpClient, T] =
-      send(req).map(_.body).absolve.tap(res => printLine(s"Result: $res"))
+    def sendRequest[T](
+      req: Request[Either[CalibanClientError, T], Any]
+    ): RIO[SttpBackend[Task, ZioStreams with WebSockets], T] =
+      ZIO
+        .serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](req.send(_))
+        .map(_.body)
+        .absolve
+        .tap(res => printLine(s"Result: $res"))
 
     val uri   = uri"http://localhost:8088/api/graphql"
     val call1 = sendRequest(mutation.toRequest(uri))

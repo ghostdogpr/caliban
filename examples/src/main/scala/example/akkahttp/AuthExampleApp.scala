@@ -11,7 +11,8 @@ import caliban.{ AkkaHttpAdapter, RootResolver }
 import sttp.model.StatusCode
 import sttp.tapir.json.circe._
 import sttp.tapir.model.ServerRequest
-import zio.{ FiberRef, RIO, Runtime, ZIO, ZLayer }
+import zio.{ FiberRef, RIO, Runtime, Unsafe, ZIO, ZLayer }
+
 import scala.concurrent.ExecutionContextExecutor
 import scala.io.StdIn
 
@@ -49,9 +50,9 @@ object AuthExampleApp extends App {
   val initLayer: ZLayer[Any, Nothing, FiberRef[Option[AuthToken]]] =
     ZLayer.scoped(FiberRef.make(Option.empty[AuthToken]))
 
-  implicit val runtime: Runtime[Auth] = Runtime.unsafeFromLayer(initLayer)
+  implicit val runtime: Runtime[Auth] = Unsafe.unsafe(implicit u => Runtime.unsafe.fromLayer(initLayer))
 
-  val interpreter = runtime.unsafeRun(api.interpreter)
+  val interpreter = Unsafe.unsafe(implicit u => runtime.unsafe.run(api.interpreter).getOrThrow())
   val adapter     = AkkaHttpAdapter.default
 
   val route =

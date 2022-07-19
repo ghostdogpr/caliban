@@ -3,6 +3,9 @@ package caliban.interop.tapir
 import caliban.InputValue.ObjectValue
 import caliban.Value.StringValue
 import caliban.{ CalibanError, GraphQLRequest, GraphQLWSInput }
+import sttp.capabilities.WebSockets
+import sttp.capabilities.zio.ZioStreams
+import sttp.client3.SttpBackend
 import sttp.client3.asynchttpclient.zio._
 import sttp.model.{ Header, MediaType, Method, Part, QueryParams, StatusCode, Uri }
 import sttp.tapir.AttributeKey
@@ -14,6 +17,7 @@ import zio.stream.ZStream
 import zio.test.TestAspect.before
 import zio.test._
 import zio.{ test => _, _ }
+
 import scala.language.postfixOps
 
 object TapirAdapterSpec {
@@ -53,12 +57,14 @@ object TapirAdapterSpec {
         .toRequestThrowDecodeFailures(TapirAdapter.makeWebSocketEndpoint, Some(wsUri))
     )
 
-    val tests: List[Option[Spec[Live with SttpClient, Throwable]]] = List(
+    val tests: List[Option[Spec[Live with SttpBackend[Task, ZioStreams with WebSockets], Throwable]]] = List(
       Some(
         suite("http")(
           test("test http endpoint") {
             for {
-              res      <- send(run((GraphQLRequest(Some("{ characters { name }  }")), null)))
+              res      <- ZIO.serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](
+                            run((GraphQLRequest(Some("{ characters { name }  }")), null)).send(_)
+                          )
               response <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
             } yield assertTrue(
               response.data.toString ==
@@ -68,13 +74,8 @@ object TapirAdapterSpec {
           },
           test("test interceptor failure") {
             for {
-              res      <- send(
-                            run(
-                              (
-                                GraphQLRequest(Some("{ characters { name }  }")),
-                                null
-                              )
-                            ).header("X-Invalid", "1")
+              res      <- ZIO.serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](
+                            run((GraphQLRequest(Some("{ characters { name }  }")), null)).header("X-Invalid", "1").send(_)
                           )
               response <- ZIO.fromEither(res.body).flip.orElseFail(new Throwable("Failed to parse result"))
             } yield assertTrue(response.code == StatusCode.Unauthorized) &&
@@ -89,7 +90,7 @@ object TapirAdapterSpec {
               .contentLength(q.length)
 
             for {
-              res      <- send(r)
+              res      <- ZIO.serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](r.send(_))
               response <- ZIO.fromEither(res.body).orElseFail(new Throwable(s"Failed to parse result: $res"))
             } yield assertTrue(
               response.data.toString ==
@@ -112,7 +113,7 @@ object TapirAdapterSpec {
             )
 
           for {
-            res      <- send(runUpload((parts, null)))
+            res      <- ZIO.serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](runUpload((parts, null)).send(_))
             response <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
           } yield assertTrue(
             response.data.toString ==
@@ -137,7 +138,7 @@ object TapirAdapterSpec {
             )
 
           for {
-            res      <- send(runUpload((parts, null)))
+            res      <- ZIO.serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](runUpload((parts, null)).send(_))
             response <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
           } yield assertTrue(
             response.data.toString ==
@@ -151,14 +152,14 @@ object TapirAdapterSpec {
             import caliban.interop.tapir.ws.Protocol.Legacy.Ops
             val io =
               for {
-                res         <- send(
+                res         <- ZIO.serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](
                                  runWS(
                                    FakeServerRequest(
                                      Method.GET,
                                      Uri.unsafeParse("http://localhost:80/ws/graphql"),
                                      Header("Sec-WebSocket-Protocol", "graphql-ws") :: Nil
                                    ) -> "graphql-ws"
-                                 )
+                                 ).send(_)
                                )
                 pipe        <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
                 inputQueue  <- Queue.unbounded[GraphQLWSInput]
@@ -173,11 +174,16 @@ object TapirAdapterSpec {
                                  )
                                )
                 sendDelete   = Live.live {
-                                 send(
-                                   run(
-                                     (GraphQLRequest(Some("""mutation{ deleteCharacter(name: "Amos Burton") }""")), null)
+                                 ZIO
+                                   .serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](
+                                     run(
+                                       (
+                                         GraphQLRequest(Some("""mutation{ deleteCharacter(name: "Amos Burton") }""")),
+                                         null
+                                       )
+                                     ).send(_)
                                    )
-                                 ).delay(3 seconds)
+                                   .delay(3 seconds)
                                }
                 stop         = inputQueue.offer(GraphQLWSInput(Ops.Stop, Some("id"), None))
                 messages    <- outputStream
@@ -201,14 +207,14 @@ object TapirAdapterSpec {
             import caliban.interop.tapir.ws.Protocol.GraphQLWS.Ops
             val io =
               for {
-                res         <- send(
+                res         <- ZIO.serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](
                                  runWS(
                                    FakeServerRequest(
                                      Method.GET,
                                      Uri.unsafeParse("http://localhost:80/ws/graphql"),
                                      Header("Sec-WebSocket-Protocol", "graphql-transport-ws") :: Nil
                                    ) -> "graphql-transport-ws"
-                                 )
+                                 ).send(_)
                                )
                 pipe        <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
                 inputQueue  <- Queue.unbounded[GraphQLWSInput]
@@ -223,11 +229,16 @@ object TapirAdapterSpec {
                                  )
                                )
                 sendDelete   = Live.live {
-                                 send(
-                                   run(
-                                     (GraphQLRequest(Some("""mutation{ deleteCharacter(name: "Amos Burton") }""")), null)
+                                 ZIO
+                                   .serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](
+                                     run(
+                                       (
+                                         GraphQLRequest(Some("""mutation{ deleteCharacter(name: "Amos Burton") }""")),
+                                         null
+                                       )
+                                     ).send(_)
                                    )
-                                 ).delay(3 seconds)
+                                   .delay(3 seconds)
                                }
                 stop         = inputQueue.offer(GraphQLWSInput(Ops.Complete, Some("id"), None))
                 messages    <- outputStream
