@@ -5,7 +5,7 @@ It is depending on [Laminext](https://laminext.dev), a library that provides nic
 
 To use it, import the `caliban-client-laminext` module:
 ```
-libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client-laminext" % "1.4.1"
+libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client-laminext" % "1.4.2"
 ```
 
 Add the following import to your code:
