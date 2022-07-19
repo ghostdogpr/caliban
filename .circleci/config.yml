@@ -216,11 +216,11 @@ workflows:
           filters:
             branches:
               only:
-                - master
+                - series/1.x
             tags:
               only: /^v[0-9]+(\.[0-9]+)*$/
       - microsite:
           filters:
             branches:
               only:
-                - master
+                - series/1.x
