@@ -30,7 +30,6 @@ val zioHttpVersion         = "1.0.0.0-RC27"
 
 inThisBuild(
   List(
-    version := "pascal-SNAPSHOT",
     scalaVersion             := scala212,
     crossScalaVersions       := allScala,
     organization             := "com.github.ghostdogpr",
