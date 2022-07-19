@@ -123,7 +123,7 @@ object FederationTracingSpec extends ZIOSpecDefault with GenericSchema[Any] {
     suite("Federation Tracing")(
       test("disabled by default") {
         for {
-          _           <- TestClock.setTime(Instant.MIN)
+          _           <- TestClock.setTime(Instant.ofEpochSecond(1))
           interpreter <- api.interpreter
           resultFiber <- interpreter.execute(query).fork
           result      <- TestClock.adjust(1.second) *> resultFiber.join
@@ -131,7 +131,7 @@ object FederationTracingSpec extends ZIOSpecDefault with GenericSchema[Any] {
       },
       test("enabled") {
         for {
-          _              <- TestClock.setTime(Instant.MIN)
+          _              <- TestClock.setTime(Instant.ofEpochSecond(1))
           interpreter    <- api.interpreter
           resultFiber    <-
             interpreter
