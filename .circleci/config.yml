@@ -224,4 +224,4 @@ workflows:
           filters:
             branches:
               only:
-                - series/1.x
+                - series/2.x
