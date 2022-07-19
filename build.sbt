@@ -3,7 +3,7 @@ import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
 val scala212 = "2.12.16"
 val scala213 = "2.13.8"
-val scala3   = "3.1.2"
+val scala3   = "3.1.3"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion               = "2.6.19"
@@ -111,7 +111,7 @@ lazy val core = project
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) {
         Seq(
-          "org.typelevel" %% "cats-parse" % "0.3.7"
+          "org.typelevel" %% "cats-parse" % "0.3.8"
         )
       } else {
         Seq(
