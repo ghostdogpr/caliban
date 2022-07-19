@@ -86,9 +86,12 @@ object Scala3SpecificSpec extends ZIOSpecDefault {
             |    io
             |  }
             |}""".stripMargin
-        interpreter.flatMap(_.execute(query)).map { response =>
-          assertTrue(response.data.toString == """{"io":1,"inner":{"io":"ok"}}""")
-        }.provide(ZLayer.succeed(new S1 {}) ++ ZLayer.succeed(new S2 {}))
+        interpreter
+          .flatMap(_.execute(query))
+          .map { response =>
+            assertTrue(response.data.toString == """{"io":1,"inner":{"io":"ok"}}""")
+          }
+          .provide(ZLayer.succeed(new S1 {}) ++ ZLayer.succeed(new S2 {}))
       }
     )
 }
