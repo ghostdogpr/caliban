@@ -15,8 +15,7 @@ private[caliban] object Macros {
     val tpe = TypeRepr.of[T]
     Expr.ofList {
       tpe.typeSymbol.annotations.filter { a =>
-        a.tpe.typeSymbol.maybeOwner.isNoSymbol &&
-        a.tpe.typeSymbol.owner.fullName.startsWith("caliban.schema.Annotations")
+        a.tpe.typeSymbol.maybeOwner.isNoSymbol || (a.tpe.typeSymbol.owner.fullName != "scala.annotation.internal" && a.tpe.typeSymbol.owner.fullName != "jdk.internal")
       }.map(_.asExpr.asInstanceOf[Expr[Any]])
     }
   }
@@ -27,8 +26,8 @@ private[caliban] object Macros {
     Expr.ofList {
       tpe.typeSymbol.primaryConstructor.paramSymss.flatten.map { field =>
         Expr(field.name) -> field.annotations.filter { a =>
-          a.tpe.typeSymbol.maybeOwner.isNoSymbol &&
-          a.tpe.typeSymbol.owner.fullName.startsWith("caliban.schema.Annotations")
+          a.tpe.typeSymbol.maybeOwner.isNoSymbol ||
+          (a.tpe.typeSymbol.owner.fullName != "scala.annotation.internal" && a.tpe.typeSymbol.owner.fullName != "jdk.internal")
         }.map(_.asExpr.asInstanceOf[Expr[Any]])
       }.filter(_._2.nonEmpty).map((name, anns) => Expr.ofTuple(name, Expr.ofList(anns)))
     }
