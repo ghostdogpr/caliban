@@ -15,7 +15,7 @@ private[caliban] object Macros {
     val tpe = TypeRepr.of[T]
     Expr.ofList {
       tpe.typeSymbol.annotations.filter { a =>
-        a.tpe.typeSymbol.maybeOwner.isNoSymbol || a.tpe.typeSymbol.owner.fullName != "scala.annotation.internal"
+        a.tpe.typeSymbol.maybeOwner.isNoSymbol || a.tpe.typeSymbol.owner.fullName.startsWith("caliban.schema.Annotations")
       }.map(_.asExpr.asInstanceOf[Expr[Any]])
     }
   }
