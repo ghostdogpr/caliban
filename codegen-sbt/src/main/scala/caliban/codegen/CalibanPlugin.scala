@@ -2,6 +2,7 @@ package caliban.codegen
 
 import sbt.Keys._
 import sbt._
+import java.nio.file.Paths
 
 object CalibanPlugin extends AutoPlugin {
   override def requires = plugins.JvmPlugin
@@ -35,7 +36,7 @@ object CalibanPlugin extends AutoPlugin {
         sourceRoot = calibanSources.value,
         sources = sources.value,
         sourceManaged = sourceManaged.value,
-        cacheDirectory = streams.value.cacheDirectory,
+        cacheDirectory = cacheDirectory(streams.value.cacheDirectory, scalaVersion.value),
         fileSettings = calibanSettings.value.collect { case x: CalibanFileSettings => x },
         urlSettings = calibanSettings.value.collect { case x: CalibanUrlSettings => x }
       )
@@ -49,4 +50,7 @@ object CalibanPlugin extends AutoPlugin {
       Compile / sourceGenerators += (Compile / caliban).taskValue,
       Test / sourceGenerators += (Test / caliban).taskValue
     )
+
+  def cacheDirectory(baseCacheDirectory: File, scalaVersion: String): File =
+    Paths.get(baseCacheDirectory.getAbsolutePath).resolve(s"scala-${scalaVersion}").toFile
 }

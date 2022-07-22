@@ -58,7 +58,7 @@ object GraphQLApi {
   import Schemas._
 
   val api: GraphQL[PostService] =
-    graphQL(
+    graphQL[PostService, Operations.Query, Operations.Mutation, Operations.Subscription](
       Resolvers.resolver
     ) @@
       maxFields(200) @@

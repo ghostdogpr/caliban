@@ -15,7 +15,7 @@ trait PartialRemoteSchema[R0, R, A] { self =>
   def provideEnvironment[R1 <: R0](env: ZEnvironment[R1]): Schema[R, A] = new Schema[R, A] {
     def resolve(value: A): Step[R] =
       Step.MetadataFunctionStep { (args: caliban.execution.Field) =>
-        Step.QueryStep(ZQuery.fromZIO(self.resolve(value, args).map(Step.PureStep).provideEnvironment(env)))
+        Step.QueryStep(ZQuery.fromZIO(self.resolve(value, args).map(Step.PureStep.apply).provideEnvironment(env)))
       }
 
     protected def toType(isInput: Boolean, isSubscription: Boolean): __Type =

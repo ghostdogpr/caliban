@@ -49,7 +49,7 @@ object Options {
             keyDelimiter = Some('.'),
             valueDelimiter = Some(',')
           )
-        val configDescriptor: ConfigDescriptor[RawOptions] = Descriptor.descriptor[RawOptions] from configSource
+        val configDescriptor: ConfigDescriptor[RawOptions] = DescriptorUtils.from[RawOptions](configSource)
 
         read(configDescriptor).map { rawOpts =>
           Options(
