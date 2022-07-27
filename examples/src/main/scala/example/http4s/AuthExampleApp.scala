@@ -48,7 +48,7 @@ object AuthExampleApp extends CatsApp {
   private val api                 = graphQL(resolver)
 
   override def run =
-    (for {
+    for {
       interpreter <- api.interpreter
       _           <- BlazeServerBuilder[MyTask]
                        .withServiceErrorHandler(errorHandler)
@@ -60,7 +60,6 @@ object AuthExampleApp extends CatsApp {
                          ).orNotFound
                        )
                        .resource
-                       .toScopedZIO
-                       .forever
-    } yield ()).exitCode
+                       .toScopedZIO *> ZIO.never
+    } yield ()
 }
