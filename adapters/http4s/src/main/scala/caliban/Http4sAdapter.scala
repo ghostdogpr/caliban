@@ -252,7 +252,10 @@ object Http4sAdapter {
                     protocol,
                     fs2InputStream =>
                       zioPipe(
-                        fs2InputStream.translate(interop.fromEffectK).toZStream().provideEnvironment(runtime.environment)
+                        fs2InputStream
+                          .translate(interop.fromEffectK)
+                          .toZStream()
+                          .provideEnvironment(runtime.environment)
                       ).toFs2Stream
                         .translate(interop.toEffectK)
                   )
