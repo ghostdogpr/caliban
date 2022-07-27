@@ -47,10 +47,10 @@ object TapirAdapterSpec {
   ): Spec[TestEnvironment with TestService, Throwable] = suite(label) {
     val run       =
       SttpClientInterpreter()
-        .toRequestThrowDecodeFailures(TapirAdapter.makeHttpEndpoints[Any, CalibanError].head, Some(httpUri))
+        .toRequestThrowDecodeFailures(TapirAdapter.makeHttpEndpoints[CalibanError].head, Some(httpUri))
     val runUpload = uploadUri.map(uploadUri =>
       SttpClientInterpreter()
-        .toRequestThrowDecodeFailures(TapirAdapter.makeHttpUploadEndpoint[Any, CalibanError], Some(uploadUri))
+        .toRequestThrowDecodeFailures(TapirAdapter.makeHttpUploadEndpoint[CalibanError], Some(uploadUri))
     )
     val runWS     = wsUri.map(wsUri =>
       SttpClientInterpreter()
@@ -161,7 +161,8 @@ object TapirAdapterSpec {
                                    ) -> "graphql-ws"
                                  ).send(_)
                                )
-                pipe        <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
+                res         <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
+                (_, pipe)    = res
                 inputQueue  <- Queue.unbounded[GraphQLWSInput]
                 inputStream  = ZStream.fromQueueWithShutdown(inputQueue)
                 outputStream = pipe(inputStream)
@@ -216,7 +217,8 @@ object TapirAdapterSpec {
                                    ) -> "graphql-transport-ws"
                                  ).send(_)
                                )
-                pipe        <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
+                res         <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
+                (_, pipe)    = res
                 inputQueue  <- Queue.unbounded[GraphQLWSInput]
                 inputStream  = ZStream.fromQueueWithShutdown(inputQueue)
                 outputStream = pipe(inputStream)
