@@ -1,7 +1,5 @@
 package caliban.interop.tapir
 
-import caliban.ResponseValue.{ ObjectValue, StreamValue }
-import caliban.Value.StringValue
 import caliban._
 import caliban.execution.QueryExecution
 import caliban.interop.tapir.ws.Protocol
@@ -17,10 +15,8 @@ import sttp.tapir.model.{ ServerRequest, UnsupportedWebSocketFrameException }
 import sttp.tapir.server.ServerEndpoint
 import sttp.ws.WebSocketFrame
 import zio._
-import zio.clock.Clock
 import zio.duration.Duration
 import zio.random.Random
-import zio.stream._
 
 import scala.concurrent.Future
 import scala.util.Try
@@ -58,7 +54,7 @@ object TapirAdapter {
 
   private val errorBody = statusCode.and(stringBody).and(headers).map(responseMapping)
 
-  def makeHttpEndpoints[R, E](implicit
+  def makeHttpEndpoints[E](implicit
     requestCodec: JsonCodec[GraphQLRequest],
     responseCodec: JsonCodec[GraphQLResponse[E]]
   ): List[
@@ -153,7 +149,7 @@ object TapirAdapter {
     makeHttpEndpoints.map(_.serverLogic(logic))
   }
 
-  def makeHttpUploadEndpoint[R, E](implicit
+  def makeHttpUploadEndpoint[E](implicit
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
     responseCodec: JsonCodec[GraphQLResponse[E]]
@@ -254,16 +250,19 @@ object TapirAdapter {
   def makeWebSocketEndpoint(implicit
     inputCodec: JsonCodec[GraphQLWSInput],
     outputCodec: JsonCodec[GraphQLWSOutput]
-  ): PublicEndpoint[(ServerRequest, String), TapirResponse, CalibanPipe, ZioStreams with WebSockets] =
+  ): PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioStreams with WebSockets] = {
+    val protocolHeader: EndpointIO.Header[String] = header[String]("sec-websocket-protocol")
     endpoint
       .in(extractFromRequest(identity))
-      .in(header[String]("sec-websocket-protocol"))
+      .in(protocolHeader)
+      .out(protocolHeader)
       .out(
         webSocketBody[GraphQLWSInput, CodecFormat.Json, Either[GraphQLWSClose, GraphQLWSOutput], CodecFormat.Json](
           ZioStreams
         )
       )
       .errorOut(errorBody)
+  }
 
   def makeWebSocketService[R, E](
     interpreter: GraphQLInterpreter[R, E],
@@ -289,11 +288,11 @@ object TapirAdapter {
             queryExecution,
             webSocketHooks
           )
-          .map(Right(_))
+          .map(res => Right((protocol, res)))
       ).catchAll(ZIO.left(_))
     }
 
-  def convertHttpEndpointToFuture[E, R](
+  def convertHttpEndpointToFuture[R](
     endpoint: ServerEndpoint[Any, RIO[R, *]]
   )(implicit runtime: Runtime[R]): ServerEndpoint[Any, Future] =
     ServerEndpoint[

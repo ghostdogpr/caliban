@@ -56,7 +56,7 @@ object Http4sAdapter {
       queryExecution,
       requestInterceptor
     )
-    val endpointsF = endpoints.map(convertHttpEndpointToF[F, R, E])
+    val endpointsF = endpoints.map(convertHttpEndpointToF[F, R])
     Http4sServerInterpreter().toRoutes(endpointsF)
   }
 
@@ -91,7 +91,7 @@ object Http4sAdapter {
       queryExecution,
       requestInterceptor
     )
-    val endpointF = convertHttpEndpointToF[F, R, E](endpoint)
+    val endpointF = convertHttpEndpointToF[F, R](endpoint)
     Http4sServerInterpreter().toRoutes(endpointF)
   }
 
@@ -138,7 +138,7 @@ object Http4sAdapter {
       requestInterceptor,
       webSocketHooks
     )
-    val endpointF = convertWebSocketEndpointToF[F, R, E](endpoint)
+    val endpointF = convertWebSocketEndpointToF[F, R](endpoint)
     Http4sServerInterpreter().toWebSocketRoutes(endpointF)(builder)
   }
 
@@ -194,7 +194,7 @@ object Http4sAdapter {
    * If you wish to use `Http4sServerInterpreter` with cats-effect IO instead of `ZHttp4sServerInterpreter`,
    * you can use this function to convert the tapir endpoints to their cats-effect counterpart.
    */
-  def convertHttpEndpointToF[F[_], R, E](
+  def convertHttpEndpointToF[F[_], R](
     endpoint: ServerEndpoint[Any, RIO[R, *]]
   )(implicit interop: ToEffect[F, R]): ServerEndpoint[Any, F] =
     ServerEndpoint[
@@ -215,7 +215,7 @@ object Http4sAdapter {
    * If you wish to use `Http4sServerInterpreter` with cats-effect IO instead of `ZHttp4sServerInterpreter`,
    * you can use this function to convert the tapir endpoints to their cats-effect counterpart.
    */
-  def convertWebSocketEndpointToF[F[_], R, E](
+  def convertWebSocketEndpointToF[F[_], R](
     endpoint: ServerEndpoint[ZioWebSockets, RIO[R, *]]
   )(implicit interop: CatsInterop[F, R], runtime: Runtime[R]): ServerEndpoint[Fs2Streams[F] with WebSockets, F] = {
     type Fs2Pipe = fs2.Pipe[F, GraphQLWSInput, Either[GraphQLWSClose, GraphQLWSOutput]]
@@ -227,7 +227,7 @@ object Http4sAdapter {
           endpoint.PRINCIPAL,
           endpoint.INPUT,
           endpoint.ERROR_OUTPUT,
-          CalibanPipe,
+          (String, CalibanPipe),
           ZioWebSockets,
           RIO[R, *]
         ]
@@ -238,24 +238,28 @@ object Http4sAdapter {
       endpoint.PRINCIPAL,
       endpoint.INPUT,
       endpoint.ERROR_OUTPUT,
-      Fs2Pipe,
+      (String, Fs2Pipe),
       Fs2Streams[F] with WebSockets,
       F
     ](
-      e.endpoint.asInstanceOf[Endpoint[endpoint.SECURITY_INPUT, endpoint.INPUT, endpoint.ERROR_OUTPUT, Fs2Pipe, Any]],
+      e.endpoint
+        .asInstanceOf[Endpoint[endpoint.SECURITY_INPUT, endpoint.INPUT, endpoint.ERROR_OUTPUT, (String, Fs2Pipe), Any]],
       _ => a => interop.toEffect(e.securityLogic(zioMonadError)(a)),
       _ =>
         u =>
           req =>
             interop.toEffect(
               e.logic(zioMonadError)(u)(req)
-                .map(_.map { zioPipe =>
+                .map(_.map { case (protocol, zioPipe) =>
                   import zio.stream.interop.fs2z._
-                  fs2InputStream =>
-                    zioPipe(
-                      fs2InputStream.translate(interop.fromEffectK).toZStream().provide(runtime.environment)
-                    ).toFs2Stream
-                      .translate(interop.toEffectK)
+                  (
+                    protocol,
+                    fs2InputStream =>
+                      zioPipe(
+                        fs2InputStream.translate(interop.fromEffectK).toZStream().provide(runtime.environment)
+                      ).toFs2Stream
+                        .translate(interop.toEffectK)
+                  )
                 })
             )
     )
