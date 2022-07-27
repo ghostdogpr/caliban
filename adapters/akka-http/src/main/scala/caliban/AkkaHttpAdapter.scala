@@ -96,7 +96,15 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
     akkaInterpreter.toRoute(
       convertWebSocketEndpoint(
         endpoint.asInstanceOf[
-          ServerEndpoint.Full[Unit, Unit, (ServerRequest, String), StatusCode, CalibanPipe, ZioWebSockets, RIO[R, *]]
+          ServerEndpoint.Full[
+            Unit,
+            Unit,
+            (ServerRequest, String),
+            StatusCode,
+            (String, CalibanPipe),
+            ZioWebSockets,
+            RIO[R, *]
+          ]
         ]
       )
     )
@@ -114,22 +122,38 @@ object AkkaHttpAdapter {
   type AkkaPipe = Flow[GraphQLWSInput, Either[GraphQLWSClose, GraphQLWSOutput], Any]
 
   def convertWebSocketEndpoint[R](
-    endpoint: ServerEndpoint.Full[Unit, Unit, (ServerRequest, String), StatusCode, CalibanPipe, ZioWebSockets, RIO[
-      R,
-      *
-    ]]
+    endpoint: ServerEndpoint.Full[
+      Unit,
+      Unit,
+      (ServerRequest, String),
+      StatusCode,
+      (String, CalibanPipe),
+      ZioWebSockets,
+      RIO[
+        R,
+        *
+      ]
+    ]
   )(implicit
     ec: ExecutionContext,
     runtime: Runtime[R],
     materializer: Materializer
   ): ServerEndpoint[AkkaStreams with WebSockets, Future] =
-    ServerEndpoint[Unit, Unit, (ServerRequest, String), StatusCode, AkkaPipe, AkkaStreams with WebSockets, Future](
+    ServerEndpoint[
+      Unit,
+      Unit,
+      (ServerRequest, String),
+      StatusCode,
+      (String, AkkaPipe),
+      AkkaStreams with WebSockets,
+      Future
+    ](
       endpoint.endpoint
         .asInstanceOf[
           PublicEndpoint[
             (ServerRequest, String),
             StatusCode,
-            Pipe[GraphQLWSInput, Either[GraphQLWSClose, GraphQLWSOutput]],
+            (String, Pipe[GraphQLWSInput, Either[GraphQLWSClose, GraphQLWSOutput]]),
             Any
           ]
         ],
@@ -140,7 +164,7 @@ object AkkaHttpAdapter {
             runtime
               .unsafeRunToFuture(endpoint.logic(zioMonadError)(())(req))
               .future
-              .map(_.map { zioPipe =>
+              .map(_.map { case (protocol, zioPipe) =>
                 val io =
                   for {
                     inputQueue     <- ZQueue.unbounded[GraphQLWSInput]
@@ -155,7 +179,7 @@ object AkkaHttpAdapter {
                     flow            = Flow.fromSinkAndSourceCoupled(sink, source).watchTermination() { (_, f) =>
                                         f.onComplete(_ => runtime.unsafeRun(fiber.interrupt))
                                       }
-                  } yield flow
+                  } yield (protocol, flow)
                 runtime.unsafeRun(io)
               })
     )

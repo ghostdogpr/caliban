@@ -88,7 +88,15 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
     playInterpreter.toRoutes(
       PlayAdapter.convertWebSocketEndpoint(
         endpoint.asInstanceOf[
-          ServerEndpoint.Full[Unit, Unit, (ServerRequest, String), StatusCode, CalibanPipe, ZioWebSockets, RIO[R, *]]
+          ServerEndpoint.Full[
+            Unit,
+            Unit,
+            (ServerRequest, String),
+            StatusCode,
+            (String, CalibanPipe),
+            ZioWebSockets,
+            RIO[R, *]
+          ]
         ]
       )
     )
@@ -103,22 +111,38 @@ object PlayAdapter extends PlayAdapter(None) {
   type AkkaPipe = Flow[GraphQLWSInput, Either[GraphQLWSClose, GraphQLWSOutput], Any]
 
   def convertWebSocketEndpoint[R](
-    endpoint: ServerEndpoint.Full[Unit, Unit, (ServerRequest, String), StatusCode, CalibanPipe, ZioWebSockets, RIO[
-      R,
-      *
-    ]]
+    endpoint: ServerEndpoint.Full[
+      Unit,
+      Unit,
+      (ServerRequest, String),
+      StatusCode,
+      (String, CalibanPipe),
+      ZioWebSockets,
+      RIO[
+        R,
+        *
+      ]
+    ]
   )(implicit
     ec: ExecutionContext,
     runtime: Runtime[R],
     materializer: Materializer
   ): ServerEndpoint[AkkaStreams with WebSockets, Future] =
-    ServerEndpoint[Unit, Unit, (ServerRequest, String), StatusCode, AkkaPipe, AkkaStreams with WebSockets, Future](
+    ServerEndpoint[
+      Unit,
+      Unit,
+      (ServerRequest, String),
+      StatusCode,
+      (String, AkkaPipe),
+      AkkaStreams with WebSockets,
+      Future
+    ](
       endpoint.endpoint
         .asInstanceOf[
           PublicEndpoint[
             (ServerRequest, String),
             StatusCode,
-            Pipe[GraphQLWSInput, Either[GraphQLWSClose, GraphQLWSOutput]],
+            (String, Pipe[GraphQLWSInput, Either[GraphQLWSClose, GraphQLWSOutput]]),
             Any
           ]
         ],
@@ -129,7 +153,7 @@ object PlayAdapter extends PlayAdapter(None) {
             runtime
               .unsafeRunToFuture(endpoint.logic(zioMonadError)(())(req))
               .future
-              .map(_.map { zioPipe =>
+              .map(_.map { (protocol, zioPipe) =>
                 val io =
                   for {
                     inputQueue     <- ZQueue.unbounded[GraphQLWSInput]
@@ -144,7 +168,7 @@ object PlayAdapter extends PlayAdapter(None) {
                     flow            = Flow.fromSinkAndSourceCoupled(sink, source).watchTermination() { (_, f) =>
                                         f.onComplete(_ => runtime.unsafeRun(fiber.interrupt))
                                       }
-                  } yield flow
+                  } yield (protocol, flow)
                 runtime.unsafeRun(io)
               })
     )
