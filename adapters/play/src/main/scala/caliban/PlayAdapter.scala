@@ -153,7 +153,7 @@ object PlayAdapter extends PlayAdapter(None) {
             runtime
               .unsafeRunToFuture(endpoint.logic(zioMonadError)(())(req))
               .future
-              .map(_.map { (protocol, zioPipe) =>
+              .map(_.map { case (protocol, zioPipe) =>
                 val io =
                   for {
                     inputQueue     <- ZQueue.unbounded[GraphQLWSInput]
