@@ -1,5 +1,6 @@
 import org.scalajs.linker.interface.ModuleSplitStyle
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
+import Scala3TestHelper.scala3Version
 
 val scala212 = "2.12.16"
 val scala213 = "2.13.8"
@@ -30,7 +31,6 @@ val zioHttpVersion            = "2.0.0-RC10"
 
 inThisBuild(
   List(
-    version := "pascal-SNAPSHOT",
     scalaVersion             := scala212,
     crossScalaVersions       := allScala,
     organization             := "com.github.ghostdogpr",
@@ -68,6 +68,7 @@ lazy val root = project
   .enablePlugins(ScalaJSPlugin)
   .settings(publish / skip := true)
   .settings(crossScalaVersions := Nil)
+  .settings(commands ++= Seq(Scala3TestHelper.codegenScriptedScala3))
   .aggregate(
     macros,
     core,
@@ -201,7 +202,9 @@ lazy val codegenSbt = project
       (clientJVM / publishLocal).value
       (tools / publishLocal).value
       publishLocal.value
-    }
+    },
+    scala3Version        := scala3,
+    Global / excludeLintKeys += scala3Version
   )
   .dependsOn(tools)
 
@@ -375,9 +378,15 @@ lazy val clientLaminext = crossProject(JSPlatform)
   .dependsOn(clientJS)
   .settings(
     testFrameworks                         := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
-    Test / scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.ESModule) },
-    Test / scalaJSLinkerConfig ~= { _.withModuleSplitStyle(ModuleSplitStyle.FewestModules) },
-    Test / scalaJSLinkerConfig ~= { _.withSourceMap(false) },
+    Test / scalaJSLinkerConfig ~= {
+      _.withModuleKind(ModuleKind.ESModule)
+    },
+    Test / scalaJSLinkerConfig ~= {
+      _.withModuleSplitStyle(ModuleSplitStyle.FewestModules)
+    },
+    Test / scalaJSLinkerConfig ~= {
+      _.withSourceMap(false)
+    },
     Test / scalaJSUseMainModuleInitializer := true,
     Test / scalaJSUseTestModuleInitializer := false,
     libraryDependencies ++= Seq(
