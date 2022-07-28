@@ -21,7 +21,8 @@ object VariablesCoercer {
   def coerceVariables(
     req: GraphQLRequest,
     doc: Document,
-    rootType: RootType
+    rootType: RootType,
+    skipValidation: Boolean
   ): IO[ValidationError, GraphQLRequest] = {
     val variableDefinitions    = doc.operationDefinitions.flatMap(_.variableDefinitions)
     val variables              = req.variables.getOrElse(Map.empty)
@@ -35,23 +36,32 @@ object VariablesCoercer {
             s"Type of variable '$variableName' $e",
             "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
           )
-        ) *> {
+        )
+        .unless(skipValidation) *> {
         val value =
           variables
             .get(definition.name)
-            .map(rewriteValues(_, definition.variableType, rootTypeWithPrimitives, s"Variable '$variableName'"))
+            .map(inputValue =>
+              rewriteValues(
+                inputValue,
+                definition.variableType,
+                rootTypeWithPrimitives,
+                s"Variable '$variableName'"
+              ).catchSome { case _ if skipValidation => ZIO.succeed(inputValue) }
+            )
             .orElse(definition.defaultValue.map(IO.succeed(_)))
 
-        (value, definition.variableType.nonNull) match {
-          case (None, true)  =>
-            IO.fail(
-              ValidationError(
-                s"Variable '$variableName' is null but is specified to be non-null.",
-                "The value of a variable must be compatible with its type."
+        (value, definition.variableType.nullable) match {
+          case (None, nullable) =>
+            if (skipValidation || nullable) ZIO.succeed(coercedValues)
+            else
+              IO.fail(
+                ValidationError(
+                  s"Variable '$variableName' is null but is specified to be non-null.",
+                  "The value of a variable must be compatible with its type."
+                )
               )
-            )
-          case (None, false) => IO.succeed(coercedValues)
-          case (Some(v), _)  =>
+          case (Some(v), _)     =>
             v.map(value => coercedValues + (definition.name -> value))
         }
       }
