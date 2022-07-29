@@ -1,6 +1,5 @@
 import org.scalajs.linker.interface.ModuleSplitStyle
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
-import Scala3TestHelper.scala3Version
 
 val scala212 = "2.12.16"
 val scala213 = "2.13.8"
@@ -202,9 +201,7 @@ lazy val codegenSbt = project
       (clientJVM / publishLocal).value
       (tools / publishLocal).value
       publishLocal.value
-    },
-    scala3Version        := scala3,
-    Global / excludeLintKeys += scala3Version
+    }
   )
   .dependsOn(tools)
 
