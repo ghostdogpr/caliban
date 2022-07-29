@@ -67,7 +67,6 @@ lazy val root = project
   .enablePlugins(ScalaJSPlugin)
   .settings(publish / skip := true)
   .settings(crossScalaVersions := Nil)
-  .settings(commands ++= Seq(Scala3TestHelper.codegenScriptedScala3))
   .aggregate(
     macros,
     core,
@@ -375,15 +374,9 @@ lazy val clientLaminext = crossProject(JSPlatform)
   .dependsOn(clientJS)
   .settings(
     testFrameworks                         := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
-    Test / scalaJSLinkerConfig ~= {
-      _.withModuleKind(ModuleKind.ESModule)
-    },
-    Test / scalaJSLinkerConfig ~= {
-      _.withModuleSplitStyle(ModuleSplitStyle.FewestModules)
-    },
-    Test / scalaJSLinkerConfig ~= {
-      _.withSourceMap(false)
-    },
+    Test / scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.ESModule) },
+    Test / scalaJSLinkerConfig ~= { _.withModuleSplitStyle(ModuleSplitStyle.FewestModules) },
+    Test / scalaJSLinkerConfig ~= { _.withSourceMap(false) },
     Test / scalaJSUseMainModuleInitializer := true,
     Test / scalaJSUseTestModuleInitializer := false,
     libraryDependencies ++= Seq(
