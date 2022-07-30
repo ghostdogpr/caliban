@@ -1,16 +1,22 @@
 import sbt.Def.spaceDelimited
 import sbt.librarymanagement.Resolver
 
+val scala212 = "2.12.16"
+val scala213 = "2.13.8"
+val scala3   = "3.1.3"
+val allScala = Seq(scala212, scala213, scala3)
+
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
 ThisBuild / organization := "Conduktor"
 ThisBuild / homepage     := Some(url("https://www.conduktor.io/"))
 ThisBuild / licenses     := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0"))
 ThisBuild / version      := "0.0.1"
-ThisBuild / scalaVersion := "2.12.16" // Must stay 2.12 in these tests because the plugin is compiled with 2.12
+ThisBuild / scalaVersion := scala212
 ThisBuild / resolvers += Resolver.mavenLocal
 ThisBuild / resolvers += Resolver.sonatypeRepo("snapshots")
 ThisBuild / scalacOptions ++= Seq("-Xfatal-warnings", "-feature")
+ThisBuild / crossScalaVersions       := allScala
 
 // ### Dependencies ###
 

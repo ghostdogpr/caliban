@@ -16,6 +16,7 @@ val magnoliaVersion           = "0.17.0"
 val mercatorVersion           = "0.2.1"
 val playVersion               = "2.8.16"
 val playJsonVersion           = "2.9.2"
+val scalafmtVersion           = "3.5.8"
 val sttpVersion               = "3.7.2"
 val tapirVersion              = "1.0.3"
 val zioVersion                = "2.0.0"
@@ -142,14 +143,22 @@ lazy val core = project
 
 lazy val tools = project
   .in(file("tools"))
+  .enablePlugins(BuildInfoPlugin)
   .settings(name := "caliban-tools")
   .settings(commonSettings)
   .settings(
-    crossScalaVersions -= scala3,
+    buildInfoKeys    := Seq[BuildInfoKey](
+      "scalaPartialVersion" -> CrossVersion.partialVersion(scalaVersion.value),
+      "scalafmtVersion"     -> scalafmtVersion
+    ),
+    buildInfoPackage := "caliban.tools",
+    buildInfoObject  := "BuildInfo"
+  )
+  .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "org.scalameta"                 %% "scalafmt-dynamic"              % "3.1.2",
-      "org.scalameta"                 %% "scalafmt-core"                 % "3.1.2",
+      "org.scalameta"                  % "scalafmt-interfaces"           % scalafmtVersion,
+      "io.get-coursier"                % "interface"                     % "1.0.6",
       "com.softwaremill.sttp.client3" %% "zio"                           % sttpVersion,
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
       "dev.zio"                       %% "zio-config"                    % zioConfigVersion,

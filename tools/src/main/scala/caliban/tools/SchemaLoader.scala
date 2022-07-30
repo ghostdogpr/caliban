@@ -11,23 +11,24 @@ trait SchemaLoader {
 }
 
 object SchemaLoader {
-  case class FromCaliban private (api: GraphQL[_])                                          extends SchemaLoader {
+  case class FromCaliban private[SchemaLoader] (api: GraphQL[_]) extends SchemaLoader {
     override def load: Task[Document] = ZIO.succeed(api.toDocument)
   }
-  case class FromDocument private (doc: Document)                                           extends SchemaLoader {
+  case class FromDocument private[SchemaLoader] (doc: Document)  extends SchemaLoader {
     override def load: Task[Document] = ZIO.succeed(doc)
   }
-  case class FromFile private (path: String)                                                extends SchemaLoader {
+  case class FromFile private[SchemaLoader] (path: String)       extends SchemaLoader {
     override def load: Task[Document] = ZIO.blocking {
       ZIO
         .attempt(scala.io.Source.fromFile(path))
         .acquireReleaseWithAuto(f => ZIO.attempt(f.mkString))
     }.flatMap(Parser.parseQuery)
   }
-  case class FromString private (schema: String)                                            extends SchemaLoader {
+  case class FromString private[SchemaLoader] (schema: String)   extends SchemaLoader {
     override def load: Task[Document] = Parser.parseQuery(schema)
   }
-  case class FromIntrospection private (url: String, headers: Option[List[Options.Header]]) extends SchemaLoader {
+  case class FromIntrospection private[SchemaLoader] (url: String, headers: Option[List[Options.Header]])
+      extends SchemaLoader {
     override def load: Task[Document] =
       IntrospectionClient.introspect(url, headers).provideLayer(AsyncHttpClientZioBackend.layer())
   }
