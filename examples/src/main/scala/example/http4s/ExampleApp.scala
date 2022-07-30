@@ -33,10 +33,8 @@ object ExampleApp extends ZIOAppDefault {
                              ).orNotFound
                            )
                            .resource
-                           .toScopedZIO
-                           .forever
+                           .toScopedZIO *> ZIO.never
         } yield ()
       )
       .provideSomeLayer[Scope](ExampleService.make(sampleCharacters))
-      .exitCode
 }
