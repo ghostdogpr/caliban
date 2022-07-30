@@ -6,5 +6,4 @@ import zio.config.{ ConfigDescriptor, ConfigSource }
 object DescriptorUtils {
   def from[A](configSource: ConfigSource)(implicit config: Descriptor[A]): ConfigDescriptor[A] =
     Descriptor[A].from(configSource)
-  }
 }
