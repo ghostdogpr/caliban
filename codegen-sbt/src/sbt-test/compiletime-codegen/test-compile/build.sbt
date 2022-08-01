@@ -6,13 +6,20 @@ val scala213 = "2.13.8"
 val scala3   = "3.1.3"
 val allScala = Seq(scala212, scala213, scala3)
 
+def scalaDefaultVersion: String = {
+  sys.props.get("plugin.version") match {
+    case Some("test-codegen-sbt-compile-scala3") => scala3
+    case _ => scala212
+  }
+}
+
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
 ThisBuild / organization := "Conduktor"
 ThisBuild / homepage     := Some(url("https://www.conduktor.io/"))
 ThisBuild / licenses     := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0"))
 ThisBuild / version      := "0.0.1"
-ThisBuild / scalaVersion := scala212
+ThisBuild / scalaVersion := scalaDefaultVersion
 ThisBuild / resolvers += Resolver.mavenLocal
 ThisBuild / resolvers += Resolver.sonatypeRepo("snapshots")
 ThisBuild / scalacOptions ++= Seq("-Xfatal-warnings", "-feature")
