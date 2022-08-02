@@ -9,12 +9,19 @@ object NestedZQueryBenchmarkSchema extends GenericSchema[Any] {
   case class SimpleRoot(entities: Query[List[SimpleEntity]])
   case class SimpleEntity(id: Int, nested: Query[Int])
   case class MultifieldRoot(entities: Query[List[MultifieldEntity]])
-  case class MultifieldEntity(id: Int, nested0: Query[Int], nested1: Query[Int], nested2: Query[Int], nested3: Query[Int], nested4: Query[Int])
+  case class MultifieldEntity(
+    id: Int,
+    nested0: Query[Int],
+    nested1: Query[Int],
+    nested2: Query[Int],
+    nested3: Query[Int],
+    nested4: Query[Int]
+  )
   case class DeepRoot(entities: Query[List[DeepEntity]])
   case class DeepEntity(next: Query[Option[DeepEntity]], nested: Query[Int])
 
-  val simple100Elements: SimpleRoot = generateSimple(100)
-  val simple1000Elements: SimpleRoot = generateSimple(1000)
+  val simple100Elements: SimpleRoot   = generateSimple(100)
+  val simple1000Elements: SimpleRoot  = generateSimple(1000)
   val simple10000Elements: SimpleRoot = generateSimple(10000)
 
   val simpleQuery: String = """{
@@ -24,8 +31,8 @@ object NestedZQueryBenchmarkSchema extends GenericSchema[Any] {
     }
   }""".stripMargin
 
-  val multifield100Elements: MultifieldRoot = generateMulti(100)
-  val multifield1000Elements: MultifieldRoot = generateMulti(1000)
+  val multifield100Elements: MultifieldRoot   = generateMulti(100)
+  val multifield1000Elements: MultifieldRoot  = generateMulti(1000)
   val multifield10000Elements: MultifieldRoot = generateMulti(10000)
 
   val multifieldQuery: String = """{
@@ -39,8 +46,8 @@ object NestedZQueryBenchmarkSchema extends GenericSchema[Any] {
     }
   }""".stripMargin
 
-  val deep100Elements: DeepRoot = generateDeep(100)
-  val deep1000Elements: DeepRoot = generateDeep(1000)
+  val deep100Elements: DeepRoot   = generateDeep(100)
+  val deep1000Elements: DeepRoot  = generateDeep(1000)
   val deep10000Elements: DeepRoot = generateDeep(10000)
 
   val deepQuery: String = """{
@@ -67,7 +74,18 @@ object NestedZQueryBenchmarkSchema extends GenericSchema[Any] {
   }
 
   private def generateMulti(n: Int) = {
-    val entities = (1 to n).map(i => MultifieldEntity(i, ZQuery.succeed(i), ZQuery.succeed(i), ZQuery.succeed(i), ZQuery.succeed(i), ZQuery.succeed(i))).toList
+    val entities = (1 to n)
+      .map(i =>
+        MultifieldEntity(
+          i,
+          ZQuery.succeed(i),
+          ZQuery.succeed(i),
+          ZQuery.succeed(i),
+          ZQuery.succeed(i),
+          ZQuery.succeed(i)
+        )
+      )
+      .toList
     MultifieldRoot(ZQuery.succeed(entities))
   }
 
