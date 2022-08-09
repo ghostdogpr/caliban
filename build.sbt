@@ -29,7 +29,7 @@ val zioHttpVersion         = "1.0.0.0-RC29"
 
 inThisBuild(
   List(
-    scalaVersion             := scala212,
+    scalaVersion             := scala213,
     crossScalaVersions       := allScala,
     organization             := "com.github.ghostdogpr",
     homepage                 := Some(url("https://github.com/ghostdogpr/caliban")),
@@ -172,7 +172,7 @@ lazy val codegenSbt = project
   )
   .settings(
     sbtPlugin          := true,
-    crossScalaVersions := Seq(scala212),
+    crossScalaVersions := Seq(scala212, scala213),
     testFrameworks     := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio-test-sbt" % zioVersion % Test
