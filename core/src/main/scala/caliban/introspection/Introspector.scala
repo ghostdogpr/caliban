@@ -58,7 +58,12 @@ object Introspector extends IntrospectionDerivation {
         case wrapper :: tail => wrap(wrapper.wrap(query))(tail)
       }
 
-    val types    = rootType.types.updated("Boolean", Types.boolean).values.toList.sortBy(_.name.getOrElse(""))
+    val types = rootType.types
+      .updated("Boolean", Types.boolean) // because of skip and include
+      .updated("String", Types.string)   // because of specifiedBy
+      .values
+      .toList
+      .sortBy(_.name.getOrElse(""))
     val resolver = __Introspection(
       __Schema(
         rootType.queryType,
