@@ -12,6 +12,7 @@ object Page {
 
   private val getCharacters                 = Client.Queries.characters(None)(Client.Character.name).toEventStream(uri)
   private def deleteCharacter(name: String) = Client.Mutations.deleteCharacter(name).toEventStream(uri)
+  private def deletedCharacters             = Client.Subscriptions.characterDeleted.toSubscription(ws)
 
   val view: Div =
     div(
@@ -20,9 +21,7 @@ object Page {
       ws.connect,
       ws.connected
         .map(_ => ws.init())
-        .flatMap(_ => Client.Subscriptions.characterDeleted.toSubscription(ws).received.collectRight) --> (name =>
-        characters.update(_.filterNot(_ == name))
-      ),
+        .flatMap(_ => deletedCharacters.received.collectRight) --> (name => characters.update(_.filterNot(_ == name))),
       child <-- characters.signal.map(c => div(c.mkString(", "))),
       br(),
       button(

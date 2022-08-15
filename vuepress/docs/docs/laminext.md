@@ -35,15 +35,15 @@ Then use the extension method `toSubscription` on your `SelectionBuilder` and pa
 ```scala
 val ws = WebSocket.url("ws://localhost:8088/ws/graphql", "graphql-ws").graphql.build()
 
-val deletedCharacters = Subscriptions.characterDeleted.toSubscription(ws)
+def deletedCharacters = Subscriptions.characterDeleted.toSubscription(ws)
 ```
 
 Finally, you can use `ws.connect` to connect the `WebSocket`, `ws.init()` to initialize the communication with the graphql server and `.received` to get an `EventStream` of the type returned by your subscription.
 ```scala
 ws.connect,
-ws.connected --> (_ => ws.init()),
-deletedCharacters.received.collectRight --> 
-  (name => characters.update(_.filterNot(_ == name))),
+ws.connected
+  .map(_ => ws.init())
+  .flatMap(_ => deletedCharacters.received.collectRight) --> (name => characters.update(_.filterNot(_ == name))),
 ```
 
 There is a full example in the `test` folder of the `caliban-client-laminext` module.
