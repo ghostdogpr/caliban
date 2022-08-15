@@ -1,7 +1,6 @@
 package caliban.interop.tapir
 
 import caliban.interop.tapir.TapirAdapter.TapirResponse
-import sttp.model.StatusCode
 import sttp.tapir.model.ServerRequest
 import zio.ZIO
 
@@ -19,7 +18,7 @@ trait RequestInterceptor[-R] { self =>
 }
 
 object RequestInterceptor {
-  def empty: RequestInterceptor[Any] = new RequestInterceptor[Any] {
+  val empty: RequestInterceptor[Any] = new RequestInterceptor[Any] {
     override def apply[R, A](request: ServerRequest)(e: ZIO[R, TapirResponse, A]): ZIO[R, TapirResponse, A] = e
   }
 }
