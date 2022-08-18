@@ -120,6 +120,7 @@ object Rendering {
       case __DirectiveLocation.ENUM_VALUE             => "ENUM_VALUE"
       case __DirectiveLocation.INPUT_OBJECT           => "INPUT_OBJECT"
       case __DirectiveLocation.INPUT_FIELD_DEFINITION => "INPUT_FIELD_DEFINITION"
+      case __DirectiveLocation.VARIABLE_DEFINITION    => "VARIABLE_DEFINITION"
     }
     val directiveLocations = locationStrings.mkString(" | ")
 
