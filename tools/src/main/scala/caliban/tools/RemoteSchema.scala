@@ -296,6 +296,7 @@ object RemoteSchema {
       case DirectiveLocation.TypeSystemDirectiveLocation.INPUT_OBJECT           => __DirectiveLocation.INPUT_OBJECT
       case DirectiveLocation.TypeSystemDirectiveLocation.INPUT_FIELD_DEFINITION =>
         __DirectiveLocation.INPUT_FIELD_DEFINITION
+      case DirectiveLocation.TypeSystemDirectiveLocation.VARIABLE_DEFINITION    => __DirectiveLocation.VARIABLE_DEFINITION
     }
 
   private def filterDeprecated(x: __Field, deprecated: __DeprecatedArgs): Boolean =

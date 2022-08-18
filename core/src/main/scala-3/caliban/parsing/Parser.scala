@@ -523,7 +523,8 @@ object Parser {
         P.string("ENUM_VALUE").as(TypeSystemDirectiveLocation.ENUM_VALUE),
         P.string("ENUM").as(TypeSystemDirectiveLocation.ENUM),
         P.string("INPUT_OBJECT").as(TypeSystemDirectiveLocation.INPUT_OBJECT),
-        P.string("INPUT_FIELD_DEFINITION").as(TypeSystemDirectiveLocation.INPUT_FIELD_DEFINITION)
+        P.string("INPUT_FIELD_DEFINITION").as(TypeSystemDirectiveLocation.INPUT_FIELD_DEFINITION),
+        P.string("VARIABLE_DEFINITION").as(TypeSystemDirectiveLocation.VARIABLE_DEFINITION)
       )
     )
 
