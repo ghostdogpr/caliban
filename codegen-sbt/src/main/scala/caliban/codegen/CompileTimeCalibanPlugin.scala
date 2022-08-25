@@ -85,7 +85,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
                        |
                        |private[generator] object $generatorName {
                        |  def main(args: Array[String]): Unit = {
-                       |    val _  = zio.Unsafe.unsafeCompat { 
+                       |    val _  = zio.Unsafe.unsafe { 
                        |      implicit u => zio.Runtime.default.unsafe.run(
                        |        CompileTime.generateClient(args.toList)(
                        |          $ref,
