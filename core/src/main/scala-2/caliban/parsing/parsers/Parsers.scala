@@ -300,6 +300,7 @@ private[caliban] object Parsers extends SelectionParsers {
       case "ENUM_VALUE"             => TypeSystemDirectiveLocation.ENUM_VALUE
       case "INPUT_OBJECT"           => TypeSystemDirectiveLocation.INPUT_OBJECT
       case "INPUT_FIELD_DEFINITION" => TypeSystemDirectiveLocation.INPUT_FIELD_DEFINITION
+      case "VARIABLE_DEFINITION"    => TypeSystemDirectiveLocation.VARIABLE_DEFINITION
     }
 
   def directiveDefinition(implicit ev: P[Any]): P[DirectiveDefinition] =

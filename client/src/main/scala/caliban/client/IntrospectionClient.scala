@@ -62,6 +62,7 @@ object IntrospectionClient {
     case object ENUM_VALUE             extends __DirectiveLocation
     case object INPUT_OBJECT           extends __DirectiveLocation
     case object INPUT_FIELD_DEFINITION extends __DirectiveLocation
+    case object VARIABLE_DEFINITION    extends __DirectiveLocation
 
     implicit val decoder: ScalarDecoder[__DirectiveLocation] = {
       case __StringValue("QUERY")                  => Right(__DirectiveLocation.QUERY)
@@ -82,6 +83,7 @@ object IntrospectionClient {
       case __StringValue("ENUM_VALUE")             => Right(__DirectiveLocation.ENUM_VALUE)
       case __StringValue("INPUT_OBJECT")           => Right(__DirectiveLocation.INPUT_OBJECT)
       case __StringValue("INPUT_FIELD_DEFINITION") => Right(__DirectiveLocation.INPUT_FIELD_DEFINITION)
+      case __StringValue("VARIABLE_DEFINITION")    => Right(__DirectiveLocation.VARIABLE_DEFINITION)
       case other                                   => Left(DecodingError(s"Can't build __DirectiveLocation from input $other"))
     }
     implicit val encoder: ArgEncoder[__DirectiveLocation]    = {
@@ -103,6 +105,7 @@ object IntrospectionClient {
       case __DirectiveLocation.ENUM_VALUE             => EnumValue("ENUM_VALUE")
       case __DirectiveLocation.INPUT_OBJECT           => EnumValue("INPUT_OBJECT")
       case __DirectiveLocation.INPUT_FIELD_DEFINITION => EnumValue("INPUT_FIELD_DEFINITION")
+      case __DirectiveLocation.VARIABLE_DEFINITION    => EnumValue("VARIABLE_DEFINITION")
     }
   }
 

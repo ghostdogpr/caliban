@@ -162,6 +162,7 @@ object IntrospectionClient {
         case __DirectiveLocation.ENUM_VALUE             => TypeSystemDirectiveLocation.ENUM_VALUE
         case __DirectiveLocation.INPUT_OBJECT           => TypeSystemDirectiveLocation.INPUT_OBJECT
         case __DirectiveLocation.INPUT_FIELD_DEFINITION => TypeSystemDirectiveLocation.INPUT_FIELD_DEFINITION
+        case __DirectiveLocation.VARIABLE_DEFINITION    => TypeSystemDirectiveLocation.VARIABLE_DEFINITION
       }.toSet
     )
 

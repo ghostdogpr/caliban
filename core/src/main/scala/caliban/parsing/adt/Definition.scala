@@ -71,6 +71,7 @@ object Definition {
         case object ENUM_VALUE             extends TypeSystemDirectiveLocation
         case object INPUT_OBJECT           extends TypeSystemDirectiveLocation
         case object INPUT_FIELD_DEFINITION extends TypeSystemDirectiveLocation
+        case object VARIABLE_DEFINITION    extends TypeSystemDirectiveLocation
       }
     }
 

@@ -24,6 +24,7 @@ sealed trait __DirectiveLocation { self =>
       case __DirectiveLocation.ENUM_VALUE             => TypeSystemDirectiveLocation.ENUM_VALUE
       case __DirectiveLocation.INPUT_OBJECT           => TypeSystemDirectiveLocation.INPUT_OBJECT
       case __DirectiveLocation.INPUT_FIELD_DEFINITION => TypeSystemDirectiveLocation.INPUT_FIELD_DEFINITION
+      case __DirectiveLocation.VARIABLE_DEFINITION    => TypeSystemDirectiveLocation.VARIABLE_DEFINITION
     }
 }
 
@@ -46,4 +47,5 @@ object __DirectiveLocation {
   case object ENUM_VALUE             extends __DirectiveLocation
   case object INPUT_OBJECT           extends __DirectiveLocation
   case object INPUT_FIELD_DEFINITION extends __DirectiveLocation
+  case object VARIABLE_DEFINITION    extends __DirectiveLocation
 }
