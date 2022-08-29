@@ -175,7 +175,7 @@ Queries( (field) => {
 To use optional value with DataSource, append `.optional` to `ZQuery`
 
 ```scala
-getUserNameById(id).optinal
+getUserNameById(id).optional
 ```
 
 ### Run Only Required DataSource
