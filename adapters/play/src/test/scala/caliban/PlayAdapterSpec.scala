@@ -62,6 +62,6 @@ object PlayAdapterSpec extends ZIOSpecDefault {
       uploadUri = Some(uri"http://localhost:8088/upload/graphql"),
       wsUri = Some(uri"ws://localhost:8088/ws/graphql")
     )
-    suite.provideCustomLayerShared(apiLayer)
+    suite.provideLayerShared(apiLayer)
   }
 }

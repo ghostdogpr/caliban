@@ -130,5 +130,5 @@ object ReportingDaemonSpec extends ZIOSpecDefault {
       _     <- TestClock.adjust(1.minute) *> latch.succeed(())
       c2    <- FakeSchemaReporter.invocations
     } yield assertTrue(c1.size == 1) && assertTrue(c2.size == 2))
-  ).provideCustomLayer(FakeSchemaReporter.live() >+> ReportingDaemon.live)
+  ).provideLayer(FakeSchemaReporter.live() >+> ReportingDaemon.live)
 }

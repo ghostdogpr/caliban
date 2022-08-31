@@ -44,7 +44,7 @@ object TapirAdapterSpec {
     httpUri: Uri,
     uploadUri: Option[Uri] = None,
     wsUri: Option[Uri] = None
-  ): Spec[TestEnvironment with TestService, Throwable] = suite(label) {
+  ): Spec[TestService, Throwable] = suite(label) {
     val run       =
       SttpClientInterpreter()
         .toRequestThrowDecodeFailures(TapirAdapter.makeHttpEndpoints[CalibanError].head, Some(httpUri))
@@ -57,7 +57,7 @@ object TapirAdapterSpec {
         .toRequestThrowDecodeFailures(TapirAdapter.makeWebSocketEndpoint, Some(wsUri))
     )
 
-    val tests: List[Option[Spec[Live with SttpBackend[Task, ZioStreams with WebSockets], Throwable]]] = List(
+    val tests: List[Option[Spec[SttpBackend[Task, ZioStreams with WebSockets], Throwable]]] = List(
       Some(
         suite("http")(
           test("test http endpoint") {
@@ -267,7 +267,7 @@ object TapirAdapterSpec {
     )
 
     ZIO.succeed(tests.flatten)
-  }.provideCustomLayerShared(AsyncHttpClientZioBackend.layer()) @@ before(
-    TestService.reset
-  ) @@ TestAspect.sequential
+  }.provideLayerShared(AsyncHttpClientZioBackend.layer()) @@
+    before(TestService.reset) @@
+    TestAspect.sequential
 }
