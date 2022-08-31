@@ -168,3 +168,41 @@ Queries( (field) => {
   }
 })
 ``` 
+
+
+### Using Optional value
+
+To use optional value with DataSource, append `.optional` to `ZQuery`
+
+```scala
+getUserNameById(id).optional
+```
+
+### Run Only Required DataSource
+Run only required DataSources according to Graphql's Query.
+
+```scala
+case class Book(
+  id:String,
+  name: String,
+  author: ZQuery[Any, Nothing, User]
+) 
+
+```
+define `Book` as above, this will only run `User` DataSource when graphql query access `author`.
+
+```graphql
+query book{
+    id
+    name
+}
+
+query bookWithAuthor{
+    id
+    name
+    author {
+        id
+        name
+    }
+}
+```
