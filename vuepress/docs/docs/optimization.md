@@ -127,14 +127,14 @@ The [examples](https://github.com/ghostdogpr/caliban/tree/master/examples) proje
 - an [optimized](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/example/optimizations/OptimizedTest.scala) version where fields are returning `ZQuery`, resulting in 8 requests only
 
 ::: tip
+`ZQuery` has a lot of operators that are similar to `ZIO`, such as `.optional`, etc.
+Note that just like `ZIO`, a field returning a `ZQuery` will be executed only when it is requested by the client.
+:::
+
+::: tip 
 When all your effects are wrapped with `ZQuery.fromRequest`, it is recommended to use `queryExecution = QueryExecution.Batched` instead of the default `QueryExecution.Parallel`.
 Doing so will provide better performance as it will avoid forking unnecessary fibers.
 This setting is available in `executeRequest` as well as all the adapters.
-:::
-
-::: tip
-`ZQuery` has a lot of operators that are similar to `ZIO`, such as `.optional`, etc.
-Note that just like `ZIO`, a field returning a `ZQuery` will be executed only when it is requested by the client.
 :::
 
 ## Using field metadata 
