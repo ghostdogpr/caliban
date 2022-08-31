@@ -54,6 +54,6 @@ object Http4sAdapterSpec extends ZIOSpecDefault {
       uploadUri = Some(uri"http://localhost:8087/upload/graphql"),
       wsUri = Some(uri"ws://localhost:8087/ws/graphql")
     )
-    suite.provideCustomLayerShared(apiLayer)
+    suite.provideLayerShared(apiLayer)
   }
 }

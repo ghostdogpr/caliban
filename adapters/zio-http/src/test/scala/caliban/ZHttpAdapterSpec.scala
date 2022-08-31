@@ -40,6 +40,6 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
       uri"http://localhost:8089/api/graphql",
       wsUri = Some(uri"ws://localhost:8089/ws/graphql")
     )
-    suite.provideCustomLayerShared(apiLayer)
+    suite.provideLayerShared(apiLayer)
   }
 }
