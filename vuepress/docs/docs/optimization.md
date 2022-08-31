@@ -132,6 +132,11 @@ Doing so will provide better performance as it will avoid forking unnecessary fi
 This setting is available in `executeRequest` as well as all the adapters.
 :::
 
+::: tip
+`ZQuery` has a lot of operators that are similar to `ZIO`, such as `.optional`, etc.
+Note that just like `ZIO`, a field returning a `ZQuery` will be executed only when it is requested by the client.
+:::
+
 ## Using field metadata 
 
 To reference field metadata in your queries you can simply use a function that takes the `caliban.execution.Field` type in your queries.
@@ -167,42 +172,4 @@ Queries( (field) => {
     efficientUserRequest()
   }
 })
-``` 
-
-
-### Using Optional value
-
-To use optional value with DataSource, append `.optional` to `ZQuery`
-
-```scala
-getUserNameById(id).optional
-```
-
-### Run Only Required DataSource
-Run only required DataSources according to Graphql's Query.
-
-```scala
-case class Book(
-  id:String,
-  name: String,
-  author: ZQuery[Any, Nothing, User]
-) 
-
-```
-define `Book` as above, this will only run `User` DataSource when graphql query access `author`.
-
-```graphql
-query book{
-    id
-    name
-}
-
-query bookWithAuthor{
-    id
-    name
-    author {
-        id
-        name
-    }
-}
 ```
