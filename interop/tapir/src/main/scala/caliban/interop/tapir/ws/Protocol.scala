@@ -97,8 +97,13 @@ object Protocol {
                                  ZIO.whenCase(webSocketHooks.onPong -> payload) { case (Some(onPong), Some(payload)) =>
                                    onPong(payload).catchAll(e => output.offer(Right(handler.error(id, e))))
                                  }
-                               case GraphQLWSInput(Ops.Ping, id, _)                  =>
-                                 output.offer(Right(GraphQLWSOutput(Ops.Pong, id, None)))
+                               case GraphQLWSInput(Ops.Ping, id, payload)            =>
+                                 val sendPong = output.offer(Right(GraphQLWSOutput(Ops.Pong, id, None)))
+                                 webSocketHooks.onPing -> payload match {
+                                   case (Some(onPing), Some(payload)) =>
+                                     (onPing(payload) *> sendPong).catchAll(e => output.offer(Right(handler.error(id, e))))
+                                   case _                             => sendPong
+                                 }
                                case GraphQLWSInput(Ops.Subscribe, Some(id), payload) =>
                                  val request = payload.collect { case InputValue.ObjectValue(fields) =>
                                    val query         = fields.get("query").collect { case StringValue(v) => v }

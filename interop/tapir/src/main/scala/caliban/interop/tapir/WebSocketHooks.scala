@@ -13,6 +13,7 @@ trait WebSocketHooks[-R, +E] { self =>
   def afterInit: Option[ZIO[R, E, Any]]                = None
   def onMessage: Option[StreamTransformer[R, E]]       = None
   def onPong: Option[InputValue => ZIO[R, E, Any]]     = None
+  def onPing: Option[InputValue => ZIO[R, E, Any]]     = None
   def onAck: Option[ZIO[R, E, ResponseValue]]          = None
 
   def ++[R2 <: R, E2 >: E](other: WebSocketHooks[R2, E2]): WebSocketHooks[R2, E2] =
@@ -44,6 +45,13 @@ trait WebSocketHooks[-R, +E] { self =>
         }
 
       override def onPong: Option[InputValue => ZIO[R2, E2, Any]] = (self.onPong, other.onPong) match {
+        case (None, Some(f))      => Some(f)
+        case (Some(f), None)      => Some(f)
+        case (Some(f1), Some(f2)) => Some((x: InputValue) => f1(x) &> f2(x))
+        case _                    => None
+      }
+
+      override def onPing: Option[InputValue => ZIO[R2, E2, Any]] = (self.onPing, other.onPing) match {
         case (None, Some(f))      => Some(f)
         case (Some(f), None)      => Some(f)
         case (Some(f1), Some(f2)) => Some((x: InputValue) => f1(x) &> f2(x))
