@@ -99,11 +99,9 @@ object Protocol {
                                  }
                                case GraphQLWSInput(Ops.Ping, id, payload)            =>
                                  val sendPong = output.offer(Right(GraphQLWSOutput(Ops.Pong, id, None)))
-                                 webSocketHooks.onPing -> payload match {
-                                   case (Some(onPing), Some(payload)) =>
-                                     (onPing(payload) *> sendPong).catchAll(e => output.offer(Right(handler.error(id, e))))
-                                   case _                             => sendPong
-                                 }
+                                 webSocketHooks.onPing.map { onPingHook =>
+                                   (onPingHook(payload) *> sendPong).catchAll(e => output.offer(Right(handler.error(id, e))))
+                                 }.getOrElse(sendPong)
                                case GraphQLWSInput(Ops.Subscribe, Some(id), payload) =>
                                  val request = payload.collect { case InputValue.ObjectValue(fields) =>
                                    val query         = fields.get("query").collect { case StringValue(v) => v }
