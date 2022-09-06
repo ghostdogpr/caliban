@@ -30,7 +30,10 @@ object FederationV1Spec extends ZIOSpecDefault {
   case class OrphanArgs(name: String)
 
   val entityResolver =
-    EntityResolver[Any, CharacterArgs, Character](args => ZQuery.succeed(characters.find(_.name == args.name)))
+    EntityResolver[Any, CharacterArgs, Character] { args =>
+      val res = characters.find(_.name == args.name)
+      if (res.isDefined) ZQuery.succeed(res) else ZQuery.fail(CalibanError.ExecutionError("not found"))
+    }
 
   val orphanResolver =
     EntityResolver[Any, OrphanArgs, Orphan](args =>
@@ -65,6 +68,28 @@ object FederationV1Spec extends ZIOSpecDefault {
 
       interpreter.flatMap(_.execute(query)).map { response =>
         assertTrue(response.data.toString == """{"_entities":[{"__typename":"Character","name":"Amos Burton"}]}""")
+      }
+    },
+    test("should resolve federated types and return partial responses") {
+      val interpreter = (graphQL(resolver) @@ federated(entityResolver)).interpreter
+
+      val query = gqldoc("""
+            query test {
+              _entities(representations: [{__typename: "Character", name: "Amos Burton"},{__typename: "Character", name: "Nothing to see here"}]) {
+                  __typename
+                  ... on Character {
+                    name
+                  }
+              }
+            }""")
+
+      interpreter.flatMap(_.execute(query)).map { response =>
+        assertTrue(
+          response.data.toString == """{"_entities":[{"__typename":"Character","name":"Amos Burton"},null]}"""
+        ) &&
+        assertTrue(
+          response.errors.toString == """List(Execution Error: not found )"""
+        )
       }
     },
     test("should not include _entities if not resolvers provided") {
