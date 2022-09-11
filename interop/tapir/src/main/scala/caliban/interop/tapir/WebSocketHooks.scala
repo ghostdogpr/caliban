@@ -9,11 +9,12 @@ trait StreamTransformer[-R, +E] {
 }
 
 trait WebSocketHooks[-R, +E] { self =>
-  def beforeInit: Option[InputValue => ZIO[R, E, Any]] = None
-  def afterInit: Option[ZIO[R, E, Any]]                = None
-  def onMessage: Option[StreamTransformer[R, E]]       = None
-  def onPong: Option[InputValue => ZIO[R, E, Any]]     = None
-  def onAck: Option[ZIO[R, E, ResponseValue]]          = None
+  def beforeInit: Option[InputValue => ZIO[R, E, Any]]                       = None
+  def afterInit: Option[ZIO[R, E, Any]]                                      = None
+  def onMessage: Option[StreamTransformer[R, E]]                             = None
+  def onPong: Option[InputValue => ZIO[R, E, Any]]                           = None
+  def onPing: Option[Option[InputValue] => ZIO[R, E, Option[ResponseValue]]] = None
+  def onAck: Option[ZIO[R, E, ResponseValue]]                                = None
 
   def ++[R2 <: R, E2 >: E](other: WebSocketHooks[R2, E2]): WebSocketHooks[R2, E2] =
     new WebSocketHooks[R2, E2] {
@@ -49,6 +50,22 @@ trait WebSocketHooks[-R, +E] { self =>
         case (Some(f1), Some(f2)) => Some((x: InputValue) => f1(x) &> f2(x))
         case _                    => None
       }
+
+      override def onPing: Option[Option[InputValue] => ZIO[R2, E2, Option[ResponseValue]]] =
+        (self.onPing, other.onPing) match {
+          case (None, Some(f))      => Some(f)
+          case (Some(f), None)      => Some(f)
+          case (Some(f1), Some(f2)) =>
+            Some { (x: Option[InputValue]) =>
+              f1(x).zipWithPar(f2(x)) {
+                case (a @ Some(_), None) => a
+                case (None, b @ Some(_)) => b
+                case (Some(a), Some(b))  => Some(a.deepMerge(b))
+                case _                   => None
+              }
+            }
+          case _                    => None
+        }
 
       override def onAck: Option[ZIO[R2, E2, ResponseValue]] = (self.onAck, other.onAck) match {
         case (None, Some(f))      => Some(f)
