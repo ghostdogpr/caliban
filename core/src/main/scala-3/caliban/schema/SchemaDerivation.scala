@@ -29,7 +29,11 @@ trait SchemaDerivation[A] {
    * GraphQL needs 2 different types, and they can't have the same name.
    * By default, we add the "Input" suffix after the type name.
    */
-  def customizeInputTypeName(name: String): String = s"${name}Input"
+  def customizeInputTypeName(name: String): String = 
+    name match {
+      case s"${prefix}Input" => name
+      case _                 => s"${name}Input"
+    }
 
   inline def recurse[R, Label, A <: Tuple](index: Int = 0): List[(String, List[Any], Schema[R, Any], Int)] =
     inline erasedValue[(Label, A)] match {
