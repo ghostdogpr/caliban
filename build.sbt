@@ -1,7 +1,7 @@
 import org.scalajs.linker.interface.ModuleSplitStyle
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
-val scala212 = "2.12.16"
+val scala212 = "2.12.17"
 val scala213 = "2.13.8"
 val scala3   = "3.1.3"
 val allScala = Seq(scala212, scala213, scala3)
@@ -51,7 +51,12 @@ inThisBuild(
         url("https://github.com/ghostdogpr")
       )
     ),
-    ConsoleHelper.welcomeMessage
+    ConsoleHelper.welcomeMessage,
+    // See https://github.com/playframework/playframework/issues/11461#issuecomment-1276028512
+    // Can be removed when the entire Scala ecosystem has migrated to Scala 2.12.17+, sbt 1.8.x, and moved away from scala-xml v1 in general.
+    libraryDependencySchemes ++= Seq(
+      "org.scala-lang.modules" %% "scala-xml" % VersionScheme.Always
+    )
   )
 )
 
