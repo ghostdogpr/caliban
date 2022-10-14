@@ -6,7 +6,7 @@ import caliban.Value._
 import caliban.execution.Field
 import caliban.introspection.adt._
 import caliban.parsing.adt.{ Directive, Directives }
-import caliban.schema.Step._
+import caliban.schema.Step.{ PureStep => _, _ }
 import caliban.schema.Types._
 import caliban.uploads.Upload
 import caliban.{ InputValue, ResponseValue }
