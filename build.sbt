@@ -439,7 +439,7 @@ lazy val reporting = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "dev.zio"                       %% "zio"          % zioVersion,
-      "com.softwaremill.sttp.client3" %% "zio"          % sttpVersion,
+      "com.softwaremill.sttp.client3" %% "core"         % sttpVersion,
       "dev.zio"                       %% "zio-test"     % zioVersion % Test,
       "dev.zio"                       %% "zio-test-sbt" % zioVersion % Test
     )
