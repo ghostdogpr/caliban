@@ -9,12 +9,12 @@ val allScala = Seq(scala212, scala213, scala3)
 val akkaVersion               = "2.6.20"
 val catsEffect3Version        = "3.3.14"
 val catsMtlVersion            = "1.2.1"
-val circeVersion              = "0.14.2"
+val circeVersion              = "0.14.3"
 val http4sVersion             = "0.23.12"
 val laminextVersion           = "0.14.3"
 val magnoliaVersion           = "0.17.0"
 val mercatorVersion           = "0.2.1"
-val playVersion               = "2.8.16"
+val playVersion               = "2.8.18"
 val playJsonVersion           = "2.9.3"
 val scalafmtVersion           = "3.5.9"
 val sttpVersion               = "3.8.0"
@@ -163,7 +163,7 @@ lazy val tools = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "org.scalameta"                  % "scalafmt-interfaces"           % scalafmtVersion,
-      "io.get-coursier"                % "interface"                     % "1.0.9",
+      "io.get-coursier"                % "interface"                     % "1.0.10",
       "com.softwaremill.sttp.client3" %% "zio"                           % sttpVersion,
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
       "dev.zio"                       %% "zio-config"                    % zioConfigVersion,
