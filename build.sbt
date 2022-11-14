@@ -7,7 +7,7 @@ val scala3   = "3.2.0"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion               = "2.6.20"
-val catsEffect3Version        = "3.3.14"
+val catsEffect3Version        = "3.4.0"
 val catsMtlVersion            = "1.2.1"
 val circeVersion              = "0.14.3"
 val http4sVersion             = "0.23.12"
