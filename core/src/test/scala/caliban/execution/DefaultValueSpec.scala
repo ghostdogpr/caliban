@@ -224,7 +224,7 @@ object DefaultValueSpec extends ZIOSpecDefault {
         interpreter.flatMap(_.execute(introspectionQuery)).map { response =>
           assertTrue(
             response.data.toString ==
-              """{"__schema":{"queryType":{"name":"Query"},"mutationType":null,"subscriptionType":null,"types":[{"kind":"SCALAR","name":"Boolean","fields":null,"inputFields":null},{"kind":"SCALAR","name":"Int","fields":null,"inputFields":null},{"kind":"OBJECT","name":"Query","fields":[{"name":"testDefault","description":null,"args":[{"name":"intValue","description":null,"defaultValue":"1"}]}],"inputFields":null},{"kind":"SCALAR","name":"String","fields":null,"inputFields":null}]}}"""
+              """{"__schema":{"queryType":{"name":"Query"},"mutationType":null,"subscriptionType":null,"types":[{"kind":"SCALAR","name":"Boolean","fields":null,"inputFields":null},{"kind":"SCALAR","name":"Float","fields":null,"inputFields":null},{"kind":"SCALAR","name":"Int","fields":null,"inputFields":null},{"kind":"OBJECT","name":"Query","fields":[{"name":"testDefault","description":null,"args":[{"name":"intValue","description":null,"defaultValue":"1"}]}],"inputFields":null},{"kind":"SCALAR","name":"String","fields":null,"inputFields":null}]}}"""
           )
         }
       }
