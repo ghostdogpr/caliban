@@ -34,7 +34,7 @@ object ExampleCatsInterop extends IOApp {
   }"""
 
   override def run(args: List[String]): IO[ExitCode] =
-    Dispatcher[IO].use { implicit dispatcher => // required for a derivation of the schema
+    Dispatcher.parallel[IO].use { implicit dispatcher => // required for a derivation of the schema
       val api = graphQL(RootResolver(queries))
 
       for {

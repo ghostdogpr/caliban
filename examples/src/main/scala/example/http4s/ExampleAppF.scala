@@ -23,7 +23,7 @@ object ExampleAppF extends IOApp {
     Unsafe.unsafe(implicit u => Runtime.unsafe.fromLayer(ExampleService.make(sampleCharacters)))
 
   override def run(args: List[String]): IO[ExitCode] =
-    Dispatcher[IO].use { implicit dispatcher =>
+    Dispatcher.parallel[IO].use { implicit dispatcher =>
       for {
         interpreter <- ExampleApi.api.interpreterAsync[IO]
         _           <- BlazeServerBuilder[IO]

@@ -51,19 +51,22 @@ object ContextualCatsInterop extends IOApp {
 
     val root = LogContext("root")
 
-    Dispatcher[Effect].use { dispatcher =>
-      implicit val logger: Logger[Effect] =
-        (message: String) =>
-          for {
-            ctx <- Local[Effect, LogContext].ask[LogContext]
-            _   <- Console[Effect].println(s"$message - ${ctx.operation}")
-          } yield ()
+    Dispatcher
+      .parallel[Effect]
+      .use { dispatcher =>
+        implicit val logger: Logger[Effect] =
+          (message: String) =>
+            for {
+              ctx <- Local[Effect, LogContext].ask[LogContext]
+              _   <- Console[Effect].println(s"$message - ${ctx.operation}")
+            } yield ()
 
-      implicit val zioRuntime: Runtime[LogContext]          = Runtime.default.withEnvironment(ZEnvironment(root))
-      implicit val interop: CatsInterop[Effect, LogContext] = CatsInterop.contextual(dispatcher)
+        implicit val zioRuntime: Runtime[LogContext]          = Runtime.default.withEnvironment(ZEnvironment(root))
+        implicit val interop: CatsInterop[Effect, LogContext] = CatsInterop.contextual(dispatcher)
 
-      program[Effect]
-    }.run(root)
+        program[Effect]
+      }
+      .run(root)
   }
 
   def program[F[_]: Async: Logger](implicit
