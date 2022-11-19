@@ -4,7 +4,7 @@ import caliban.GraphQL
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document
 import sttp.client3.asynchttpclient.zio.AsyncHttpClientZioBackend
-import zio.{Task, ZIO, ZLayer}
+import zio.{ Task, ZIO, ZLayer }
 
 trait SchemaLoader {
   def load: Task[Document]
