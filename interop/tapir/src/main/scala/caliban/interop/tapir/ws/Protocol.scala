@@ -89,12 +89,7 @@ object Protocol {
                                    ack.set(true) *> ackPayload.flatMap(payload => output.offer(Right(connectionAck(payload))))
                                  val ka         = ping(keepAliveTime).mapZIO(output.offer).runDrain.fork
                                  val after      = ZIO.whenCase(webSocketHooks.afterInit) { case Some(afterInit) =>
-                                   afterInit
-                                     .catchAll(e =>
-                                       output.offer(Right(handler.error(id, e))) *>
-                                         output.offer(Left(GraphQLWSClose(4401, "Unauthorized")))
-                                     )
-                                     .fork
+                                   afterInit.catchAll(e => output.offer(Right(handler.error(id, e))))
                                  }
 
                                  before *> response *> ka *> after
