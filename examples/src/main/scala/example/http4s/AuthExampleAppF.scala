@@ -115,7 +115,7 @@ object AuthExampleAppF extends IOApp.Simple {
         .withHttpApp(httpApp)
         .resource
 
-    Dispatcher[F].flatMap { dispatcher =>
+    Dispatcher.parallel[F].flatMap { dispatcher =>
       implicit val interop: CatsInterop.Contextual[F, AuthInfo] = CatsInterop.contextual(dispatcher)
 
       val gql = new GQL[F]
