@@ -66,7 +66,7 @@ object Codegen {
                                     ZIO.blocking(
                                       ZIO
                                         .attempt(new PrintWriter(new File(path)))
-                                        .acquireReleaseWithAuto(pw => ZIO.attempt(pw.println(objectCode)))
+                                        .acquireReleaseWithAuto(pw => ZIO.attempt(pw.print(objectCode)))
                                         .as(new File(path))
                                     )
                                   }
