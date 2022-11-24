@@ -99,32 +99,33 @@ object Configuration {
 }
 
 import zio.stream._
-import zhttp.http._
-import zhttp.service.Server
+import zio.http._
 import caliban.ZHttpAdapter
 
 object ExampleApp extends ZIOAppDefault {
   import sttp.tapir.json.circe._
 
-  private val graphiql = Http.fromStream(ZStream.fromResource("graphiql.html"))
+  private val graphiql = Handler.fromStream(ZStream.fromResource("graphiql.html")).toHttp
 
   override def run =
     (for {
       api         <- StitchingExample.api
       interpreter <- api.interpreter
       _           <- Server
-                       .start(
-                         8088,
-                         Http.collectHttp[Request] {
-                           case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
-                           case _ -> !! / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
-                           case _ -> !! / "graphiql"        => graphiql
-                         }
+                       .serve(
+                         Http
+                           .collectRoute[Request] {
+                             case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
+                             case _ -> !! / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
+                             case _ -> !! / "graphiql"        => graphiql
+                           }
+                           .withDefaultErrorResponse
                        )
-                       .forever
     } yield ())
-      .provideSomeLayer[Scope](
-        AsyncHttpClientZioBackend.layer() ++ Configuration.fromEnvironment
+      .provide(
+        AsyncHttpClientZioBackend.layer(),
+        Configuration.fromEnvironment,
+        Server.default
       )
       .exitCode
 }
