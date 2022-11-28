@@ -3,6 +3,7 @@ package caliban
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ IntValue, StringValue }
 import caliban.interop.circe.{ IsCirceDecoder, IsCirceEncoder }
+import caliban.interop.jsoniter.IsJsoniterCodec
 import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
 import caliban.parsing.adt.LocationInfo
 
@@ -99,4 +100,7 @@ object CalibanError extends CalibanErrorJsonCompat {
     caliban.interop.zio.ErrorZioJson.errorValueEncoder.asInstanceOf[F[CalibanError]]
   implicit def zioJsonDecoder[F[_]](implicit ev: IsZIOJsonDecoder[F]): F[CalibanError] =
     caliban.interop.zio.ErrorZioJson.errorValueDecoder.asInstanceOf[F[CalibanError]]
+
+  implicit def jsoniterCodec[F[_]](implicit ev: IsJsoniterCodec[F]): F[CalibanError] =
+    caliban.interop.jsoniter.json.errorValueCodec.asInstanceOf[F[CalibanError]]
 }

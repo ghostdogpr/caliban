@@ -9,7 +9,7 @@ import sttp.tapir.{ Schema, SchemaType }
  */
 private[caliban] trait IsTapirSchema[F[_]]
 private[caliban] object IsTapirSchema {
-  implicit val isCirceEncoder: IsTapirSchema[Schema] = null
+  implicit val isTapirSchema: IsTapirSchema[Schema] = null
 }
 
 object schema {

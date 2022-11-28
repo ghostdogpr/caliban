@@ -3,6 +3,7 @@ package caliban
 import caliban.ResponseValue._
 import caliban.Value._
 import caliban.interop.circe._
+import caliban.interop.jsoniter.IsJsoniterCodec
 import caliban.interop.tapir.IsTapirSchema
 import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
 
@@ -36,4 +37,6 @@ object GraphQLResponse extends GraphQLResponseJsonCompat {
     caliban.interop.zio.GraphQLResponseZioJson.graphQLResponseDecoder.asInstanceOf[F[GraphQLResponse[E]]]
   implicit def tapirSchema[F[_]: IsTapirSchema, E]: F[GraphQLResponse[E]]       =
     caliban.interop.tapir.schema.responseSchema.asInstanceOf[F[GraphQLResponse[E]]]
+  implicit def jsoniterCodec[F[_]: IsJsoniterCodec, E]: F[GraphQLResponse[E]]   =
+    caliban.interop.jsoniter.json.graphQLResponseCodec.asInstanceOf[F[GraphQLResponse[E]]]
 }

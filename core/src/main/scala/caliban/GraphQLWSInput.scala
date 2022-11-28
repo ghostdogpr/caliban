@@ -1,6 +1,7 @@
 package caliban
 
 import caliban.interop.circe.{ IsCirceDecoder, IsCirceEncoder }
+import caliban.interop.jsoniter.IsJsoniterCodec
 import caliban.interop.tapir.IsTapirSchema
 import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
 
@@ -17,4 +18,6 @@ object GraphQLWSInput extends GraphQLWSInputJsonCompat {
     caliban.interop.zio.GraphQLWSInputZioJson.graphQLWSInputEncoder.asInstanceOf[F[GraphQLWSInput]]
   implicit def tapirSchema[F[_]: IsTapirSchema]: F[GraphQLWSInput]       =
     caliban.interop.tapir.schema.wsInputSchema.asInstanceOf[F[GraphQLWSInput]]
+  implicit def jsoniterCodec[F[_]: IsJsoniterCodec, E]: F[GraphQLWSInput]   =
+    caliban.interop.jsoniter.json.graphQLWSInputCodec.asInstanceOf[F[GraphQLWSInput]]
 }
