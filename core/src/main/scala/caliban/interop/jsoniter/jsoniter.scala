@@ -6,7 +6,7 @@ import caliban.parsing.adt.LocationInfo
 import com.github.plokhotnyuk.jsoniter_scala.core._
 
 import scala.annotation.switch
-import scala.jdk.CollectionConverters._
+import scala.collection.immutable.TreeMap
 
 /**
  * This class is an implementation of the pattern described in https://blog.7mind.io/no-more-orphans.html
@@ -17,8 +17,14 @@ private[caliban] object IsJsoniterCodec {
   implicit val isJsoniterCodec: IsJsoniterCodec[JsonValueCodec] = null
 }
 
+/**
+ *  Implementation of the custom decoders ported from the jsoniter-circe implementation:
+ *
+ *  https://github.com/plokhotnyuk/jsoniter-scala/blob/master/jsoniter-scala-circe/shared/src/main/scala/io/circe/JsoniterScalaCodec.scala
+ */
 private[caliban] object ValueJsoniter {
 
+  // TODO: Need to decide what to do with this
   final private val maxDepth = 512
 
   private val emptyInputList      = InputValue.ListValue(Nil)
@@ -99,12 +105,17 @@ private[caliban] object ValueJsoniter {
         else if (in.isNextToken('}')) emptyInputObject
         else {
           in.rollbackToken()
-          val x = new java.util.LinkedHashMap[String, InputValue](8)
+          /*
+            Using a TreeMap to prevent DoS explotation of the HashMap keys in Scala 2.12. We could potentially make
+            this Scala version specific, but might be unnecessary given the Input objects are most of the time very
+            small (extensions and variables). More info see: https://github.com/scala/bug/issues/11203
+           */
+          val x = TreeMap.newBuilder[String, InputValue]
           while ({
-            x.put(in.readKeyAsString(), decodeInputValue(in, depthM1))
+            x += (in.readKeyAsString() -> decodeInputValue(in, depthM1))
             in.isNextToken(',')
           }) ()
-          if (in.isCurrentToken('}')) InputValue.ObjectValue(x.asScala.toMap)
+          if (in.isCurrentToken('}')) InputValue.ObjectValue(x.result())
           else in.objectEndOrCommaError()
         }
       case '['                                                             =>
@@ -146,12 +157,12 @@ private[caliban] object ValueJsoniter {
         else if (in.isNextToken('}')) emptyResponseObject
         else {
           in.rollbackToken()
-          val x = new java.util.LinkedHashMap[String, ResponseValue](8)
+          val x = Array.newBuilder[(String, ResponseValue)]
           while ({
-            x.put(in.readKeyAsString(), decodeResponseValue(in, depthM1))
+            x += (in.readKeyAsString() -> decodeResponseValue(in, depthM1))
             in.isNextToken(',')
           }) ()
-          if (in.isCurrentToken('}')) ResponseValue.ObjectValue(x.asScala.toList)
+          if (in.isCurrentToken('}')) ResponseValue.ObjectValue(x.result().toList)
           else in.objectEndOrCommaError()
         }
       case '['                                                             =>

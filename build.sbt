@@ -140,7 +140,6 @@ lazy val core = project
         "io.circe"                              %% "circe-core"            % circeVersion    % Optional,
         "io.circe"                              %% "circe-parser"          % circeVersion    % Test,
         "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"   % jsoniterVersion % Optional,
-        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-circe"  % jsoniterVersion % Optional,
         "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % Provided
       )
   )
