@@ -37,7 +37,7 @@ object GraphQLRequest extends GraphQLRequestJsonCompat {
   implicit def tapirSchema[F[_]: IsTapirSchema]: F[GraphQLRequest]       =
     caliban.interop.tapir.schema.requestSchema.asInstanceOf[F[GraphQLRequest]]
   implicit def jsoniterCodec[F[_]: IsJsoniterCodec]: F[GraphQLRequest]   =
-    caliban.interop.jsoniter.json.graphQLRequestCodec.asInstanceOf[F[GraphQLRequest]]
+    caliban.interop.jsoniter.GraphQLRequestJsoniter.graphQLRequestCodec.asInstanceOf[F[GraphQLRequest]]
 
   private[caliban] val ftv1                              = "ftv1"
   private[caliban] val `apollo-federation-include-trace` = "apollo-federation-include-trace"

@@ -19,5 +19,5 @@ object GraphQLWSOutput extends GraphQLWSOutputJsonCompat {
   implicit def tapirSchema[F[_]: IsTapirSchema]: F[GraphQLWSOutput]        =
     caliban.interop.tapir.schema.wsOutputSchema.asInstanceOf[F[GraphQLWSOutput]]
   implicit def jsoniterCodec[F[_]: IsJsoniterCodec, E]: F[GraphQLWSOutput] =
-    caliban.interop.jsoniter.json.graphQLWSOuputCodec.asInstanceOf[F[GraphQLWSOutput]]
+    caliban.interop.jsoniter.GraphQLWSOutputJsoniter.graphQLWSOuputCodec.asInstanceOf[F[GraphQLWSOutput]]
 }

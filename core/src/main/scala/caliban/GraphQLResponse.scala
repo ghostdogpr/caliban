@@ -38,5 +38,5 @@ object GraphQLResponse extends GraphQLResponseJsonCompat {
   implicit def tapirSchema[F[_]: IsTapirSchema, E]: F[GraphQLResponse[E]]       =
     caliban.interop.tapir.schema.responseSchema.asInstanceOf[F[GraphQLResponse[E]]]
   implicit def jsoniterCodec[F[_]: IsJsoniterCodec, E]: F[GraphQLResponse[E]]   =
-    caliban.interop.jsoniter.json.graphQLResponseCodec.asInstanceOf[F[GraphQLResponse[E]]]
+    caliban.interop.jsoniter.GraphQLResponseJsoniter.graphQLResponseCodec.asInstanceOf[F[GraphQLResponse[E]]]
 }

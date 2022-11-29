@@ -4,9 +4,8 @@ import caliban.Value._
 import caliban._
 import caliban.parsing.adt.LocationInfo
 import com.github.plokhotnyuk.jsoniter_scala.core._
-import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
 
-import scala.collection.immutable.VectorBuilder
+import scala.annotation.switch
 import scala.jdk.CollectionConverters._
 
 /**
@@ -18,7 +17,14 @@ private[caliban] object IsJsoniterCodec {
   implicit val isJsoniterCodec: IsJsoniterCodec[JsonValueCodec] = null
 }
 
-object json {
+private[caliban] object ValueJsoniter {
+
+  final private val maxDepth = 512
+
+  private val emptyInputList      = InputValue.ListValue(Nil)
+  private val emptyInputObject    = InputValue.ObjectValue(Map.empty)
+  private val emptyResponseList   = ResponseValue.ListValue(Nil)
+  private val emptyResponseObject = ResponseValue.ObjectValue(Nil)
 
   private def encodeValue(out: JsonWriter): Value => Unit = {
     case NullValue           => out.writeNull()
@@ -79,97 +85,103 @@ object json {
     case s: ResponseValue.StreamValue => out.writeVal(s.toString)
   }
 
-  private val valueTokens: Set[Byte] = Set('"', '-', 't', 'f', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9')
-  private val emptyInputList         = InputValue.ListValue(Nil)
-  private val emptyInputObject       = InputValue.ObjectValue(Map.empty)
-  private val emptyResponseList      = ResponseValue.ListValue(Nil)
-  private val emptyResponseObject    = ResponseValue.ObjectValue(Nil)
-
-  private def valueDecoder(in: JsonReader): Byte => Value = { b =>
-    if (b == '"') {
-      in.rollbackToken()
-      StringValue(in.readString(null))
-    } else if (b == 'f' || b == 't') {
-      in.rollbackToken()
-      if (in.readBoolean()) BooleanValue(true)
-      else BooleanValue(false)
-    } else if (b >= '0' && b <= '9' || b == '-') {
-      in.rollbackToken()
-      defaultNumberParser(in)
-    } else in.readNullOrError(NullValue, "expected JSON value")
-  }
-
   private def decodeInputValue(in: JsonReader, depth: Int): InputValue = {
     val b = in.nextToken()
-    if (valueTokens.contains(b)) {
-      valueDecoder(in)(b)
-    } else if (b == '[') {
-      val depthM1 = depth - 1
-      if (depthM1 < 0) in.decodeError("depth limit exceeded")
-      if (in.isNextToken(']')) emptyInputList
-      else {
+    (b: @switch) match {
+      case 'n'                                                             =>
         in.rollbackToken()
-        val x = new VectorBuilder[InputValue]
-        while ({
-          x += decodeInputValue(in, depthM1)
-          in.isNextToken(',')
-        }) ()
-        if (in.isCurrentToken(']')) InputValue.ListValue(x.result().toList)
-        else in.arrayEndOrCommaError()
-      }
-    } else if (b == '{') {
-      val depthM1 = depth - 1
-      if (depthM1 < 0) in.decodeError("depth limit exceeded")
-      if (in.isNextToken('}')) emptyInputObject
-      else {
+        in.readNullOrError(NullValue, "unexpected JSON value")
+      case 'f' | 't'                                                       =>
         in.rollbackToken()
-        val x = new java.util.LinkedHashMap[String, InputValue](8)
-        while ({
-          x.put(in.readKeyAsString(), decodeInputValue(in, depthM1))
-          in.isNextToken(',')
-        }) ()
-        if (in.isCurrentToken('}')) InputValue.ObjectValue(x.asScala.toMap)
-        else in.objectEndOrCommaError()
-      }
-    } else in.readNullOrError(NullValue, "expected JSON value")
+        BooleanValue(in.readBoolean())
+      case '{'                                                             =>
+        val depthM1 = depth - 1
+        if (depthM1 < 0) in.decodeError("depth limit exceeded")
+        else if (in.isNextToken('}')) emptyInputObject
+        else {
+          in.rollbackToken()
+          val x = new java.util.LinkedHashMap[String, InputValue](8)
+          while ({
+            x.put(in.readKeyAsString(), decodeInputValue(in, depthM1))
+            in.isNextToken(',')
+          }) ()
+          if (in.isCurrentToken('}')) InputValue.ObjectValue(x.asScala.toMap)
+          else in.objectEndOrCommaError()
+        }
+      case '['                                                             =>
+        val depthM1 = depth - 1
+        if (depthM1 < 0) in.decodeError("depth limit exceeded")
+        else if (in.isNextToken(']')) emptyInputList
+        else {
+          in.rollbackToken()
+          val x = Array.newBuilder[InputValue]
+          while ({
+            x += decodeInputValue(in, depthM1)
+            in.isNextToken(',')
+          }) ()
+          if (in.isCurrentToken(']')) InputValue.ListValue(x.result().toList)
+          else in.arrayEndOrCommaError()
+        }
+      case '"'                                                             =>
+        in.rollbackToken()
+        StringValue(in.readString(null))
+      case '-' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' =>
+        in.rollbackToken()
+        numberParser(in)
+      case c                                                               =>
+        in.decodeError(s"unexpected token $c")
+    }
   }
 
   private def decodeResponseValue(in: JsonReader, depth: Int): ResponseValue = {
     val b = in.nextToken()
-    if (valueTokens.contains(b)) {
-      valueDecoder(in)(b)
-    } else if (b == '[') {
-      val depthM1 = depth - 1
-      if (depthM1 < 0) in.decodeError("depth limit exceeded")
-      if (in.isNextToken(']')) emptyResponseList
-      else {
+    (b: @switch) match {
+      case 'n'                                                             =>
         in.rollbackToken()
-        val x = new VectorBuilder[ResponseValue]
-        while ({
-          x += decodeResponseValue(in, depthM1)
-          in.isNextToken(',')
-        }) ()
-        if (in.isCurrentToken(']')) ResponseValue.ListValue(x.result().toList)
-        else in.arrayEndOrCommaError()
-      }
-    } else if (b == '{') {
-      val depthM1 = depth - 1
-      if (depthM1 < 0) in.decodeError("depth limit exceeded")
-      if (in.isNextToken('}')) emptyResponseObject
-      else {
+        in.readNullOrError(NullValue, "unexpected JSON value")
+      case 'f' | 't'                                                       =>
         in.rollbackToken()
-        val x = new java.util.LinkedHashMap[String, ResponseValue](8)
-        while ({
-          x.put(in.readKeyAsString(), decodeResponseValue(in, depthM1))
-          in.isNextToken(',')
-        }) ()
-        if (in.isCurrentToken('}')) ResponseValue.ObjectValue(x.asScala.toList)
-        else in.objectEndOrCommaError()
-      }
-    } else in.readNullOrError(NullValue, "expected JSON value")
+        BooleanValue(in.readBoolean())
+      case '{'                                                             =>
+        val depthM1 = depth - 1
+        if (depthM1 < 0) in.decodeError("depth limit exceeded")
+        else if (in.isNextToken('}')) emptyResponseObject
+        else {
+          in.rollbackToken()
+          val x = new java.util.LinkedHashMap[String, ResponseValue](8)
+          while ({
+            x.put(in.readKeyAsString(), decodeResponseValue(in, depthM1))
+            in.isNextToken(',')
+          }) ()
+          if (in.isCurrentToken('}')) ResponseValue.ObjectValue(x.asScala.toList)
+          else in.objectEndOrCommaError()
+        }
+      case '['                                                             =>
+        val depthM1 = depth - 1
+        if (depthM1 < 0) in.decodeError("depth limit exceeded")
+        else if (in.isNextToken(']')) emptyResponseList
+        else {
+          in.rollbackToken()
+          val x = Array.newBuilder[ResponseValue]
+          while ({
+            x += decodeResponseValue(in, depthM1)
+            in.isNextToken(',')
+          }) ()
+          if (in.isCurrentToken(']')) ResponseValue.ListValue(x.result().toList)
+          else in.arrayEndOrCommaError()
+        }
+      case '"'                                                             =>
+        in.rollbackToken()
+        StringValue(in.readString(null))
+      case '-' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' =>
+        in.rollbackToken()
+        numberParser(in)
+      case c                                                               =>
+        in.decodeError(s"unexpected token $c")
+    }
   }
 
-  private val defaultNumberParser: JsonReader => Value = in => {
+  private val numberParser: JsonReader => Value = in => {
     in.setMark()
     var digits = 0
     var b      = in.nextByte()
@@ -195,16 +207,20 @@ object json {
   }
 
   val inputValueCodec: JsonValueCodec[InputValue] = new JsonValueCodec[InputValue] {
-    override def decodeValue(in: JsonReader, default: InputValue): InputValue = decodeInputValue(in, 1024)
-    override def encodeValue(x: InputValue, out: JsonWriter): Unit            = encodeInputValue(out, 1024)(x)
+    override def decodeValue(in: JsonReader, default: InputValue): InputValue = decodeInputValue(in, maxDepth)
+    override def encodeValue(x: InputValue, out: JsonWriter): Unit            = encodeInputValue(out, maxDepth)(x)
     override def nullValue: InputValue                                        = NullValue
   }
 
   val responseValueCodec: JsonValueCodec[ResponseValue] = new JsonValueCodec[ResponseValue] {
-    override def decodeValue(in: JsonReader, default: ResponseValue): ResponseValue = decodeResponseValue(in, 1024)
-    override def encodeValue(x: ResponseValue, out: JsonWriter): Unit               = encodeResponseValue(out, 1024)(x)
+    override def decodeValue(in: JsonReader, default: ResponseValue): ResponseValue = decodeResponseValue(in, maxDepth)
+    override def encodeValue(x: ResponseValue, out: JsonWriter): Unit               = encodeResponseValue(out, maxDepth)(x)
     override def nullValue: ResponseValue                                           = NullValue
   }
+}
+
+private[caliban] object ErrorJsoniter {
+  import com.github.plokhotnyuk.jsoniter_scala.macros._
 
   private case class DeserializedError(
     message: String,
@@ -226,16 +242,24 @@ object json {
         extensions = err.extensions
       )
     }
-    override def encodeValue(x: CalibanError, out: JsonWriter): Unit              =
-      responseValueCodec.encodeValue(x.toResponseValue, out)
-    override def nullValue: CalibanError                                          = null.asInstanceOf[CalibanError]
+
+    override def encodeValue(x: CalibanError, out: JsonWriter): Unit =
+      ValueJsoniter.responseValueCodec.encodeValue(x.toResponseValue, out)
+
+    override def nullValue: CalibanError =
+      null.asInstanceOf[CalibanError]
   }
+}
+
+private[caliban] object GraphQLResponseJsoniter {
+  import com.github.plokhotnyuk.jsoniter_scala.macros._
 
   private case class GraphQLResponseProxy(data: ResponseValue, errors: Option[List[CalibanError]])
 
   implicit val graphQLResponseCodec: JsonValueCodec[GraphQLResponse[CalibanError]] =
     new JsonValueCodec[GraphQLResponse[CalibanError]] {
-      private val proxyCodec: JsonValueCodec[GraphQLResponseProxy]                      = JsonCodecMaker.make
+      private val proxyCodec: JsonValueCodec[GraphQLResponseProxy] = JsonCodecMaker.make
+
       override def decodeValue(
         in: JsonReader,
         default: GraphQLResponse[CalibanError]
@@ -247,14 +271,29 @@ object json {
           extensions = None
         )
       }
+
       override def encodeValue(x: GraphQLResponse[CalibanError], out: JsonWriter): Unit =
-        responseValueCodec.encodeValue(x.toResponseValue, out)
-      override def nullValue: GraphQLResponse[CalibanError]                             =
+        ValueJsoniter.responseValueCodec.encodeValue(x.toResponseValue, out)
+
+      override def nullValue: GraphQLResponse[CalibanError] =
         null.asInstanceOf[GraphQLResponse[CalibanError]]
     }
+}
 
-  implicit val graphQLRequestCodec: JsonValueCodec[GraphQLRequest]      = JsonCodecMaker.make
-  implicit val graphQLWSInputCodec: JsonValueCodec[GraphQLWSInput]      = JsonCodecMaker.make
-  implicit val graphQLWSOuputCodec: JsonValueCodec[GraphQLWSOutput]     = JsonCodecMaker.make
-  implicit val stringMapCodec: JsonValueCodec[Map[String, Seq[String]]] = JsonCodecMaker.make
+private[caliban] object GraphQLRequestJsoniter {
+  import com.github.plokhotnyuk.jsoniter_scala.macros._
+
+  implicit val graphQLRequestCodec: JsonValueCodec[GraphQLRequest] = JsonCodecMaker.make
+}
+
+private[caliban] object GraphQLWSInputJsoniter {
+  import com.github.plokhotnyuk.jsoniter_scala.macros._
+
+  implicit val graphQLWSInputCodec: JsonValueCodec[GraphQLWSInput] = JsonCodecMaker.make
+}
+
+private[caliban] object GraphQLWSOutputJsoniter {
+  import com.github.plokhotnyuk.jsoniter_scala.macros._
+
+  implicit val graphQLWSOuputCodec: JsonValueCodec[GraphQLWSOutput] = JsonCodecMaker.make
 }

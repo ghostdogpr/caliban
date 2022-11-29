@@ -102,5 +102,5 @@ object CalibanError extends CalibanErrorJsonCompat {
     caliban.interop.zio.ErrorZioJson.errorValueDecoder.asInstanceOf[F[CalibanError]]
 
   implicit def jsoniterCodec[F[_]](implicit ev: IsJsoniterCodec[F]): F[CalibanError] =
-    caliban.interop.jsoniter.json.errorValueCodec.asInstanceOf[F[CalibanError]]
+    caliban.interop.jsoniter.ErrorJsoniter.errorValueCodec.asInstanceOf[F[CalibanError]]
 }

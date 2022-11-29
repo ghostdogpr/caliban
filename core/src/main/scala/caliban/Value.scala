@@ -34,7 +34,7 @@ object InputValue extends ValueJsonCompat {
   implicit def inputValueZioJsonDecoder[F[_]: IsZIOJsonDecoder]: F[InputValue] =
     caliban.interop.zio.ValueZIOJson.inputValueDecoder.asInstanceOf[F[InputValue]]
   implicit def jsoniterCodec[F[_]: IsJsoniterCodec]: F[InputValue]             =
-    caliban.interop.jsoniter.json.inputValueCodec.asInstanceOf[F[InputValue]]
+    caliban.interop.jsoniter.ValueJsoniter.inputValueCodec.asInstanceOf[F[InputValue]]
 }
 
 sealed trait ResponseValue { self =>
@@ -85,7 +85,7 @@ object ResponseValue extends ValueJsonCompat {
   implicit def responseValueZioJsonDecoder[F[_]: IsZIOJsonDecoder]: F[ResponseValue] =
     caliban.interop.zio.ValueZIOJson.responseValueDecoder.asInstanceOf[F[ResponseValue]]
   implicit def jsoniterCodec[F[_]: IsJsoniterCodec]: F[ResponseValue]                =
-    caliban.interop.jsoniter.json.responseValueCodec.asInstanceOf[F[ResponseValue]]
+    caliban.interop.jsoniter.ValueJsoniter.responseValueCodec.asInstanceOf[F[ResponseValue]]
 }
 
 sealed trait Value extends InputValue with ResponseValue
