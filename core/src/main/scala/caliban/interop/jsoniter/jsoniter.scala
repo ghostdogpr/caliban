@@ -89,7 +89,6 @@ private[caliban] object ValueJsoniter {
     val b = in.nextToken()
     (b: @switch) match {
       case 'n'                                                             =>
-        in.rollbackToken()
         in.readNullOrError(NullValue, "unexpected JSON value")
       case 'f' | 't'                                                       =>
         in.rollbackToken()
@@ -137,7 +136,6 @@ private[caliban] object ValueJsoniter {
     val b = in.nextToken()
     (b: @switch) match {
       case 'n'                                                             =>
-        in.rollbackToken()
         in.readNullOrError(NullValue, "unexpected JSON value")
       case 'f' | 't'                                                       =>
         in.rollbackToken()
@@ -206,13 +204,13 @@ private[caliban] object ValueJsoniter {
     } else Value.FloatValue.BigDecimalNumber(in.readBigDecimal(null).bigDecimal)
   }
 
-  val inputValueCodec: JsonValueCodec[InputValue] = new JsonValueCodec[InputValue] {
+  implicit val inputValueCodec: JsonValueCodec[InputValue] = new JsonValueCodec[InputValue] {
     override def decodeValue(in: JsonReader, default: InputValue): InputValue = decodeInputValue(in, maxDepth)
     override def encodeValue(x: InputValue, out: JsonWriter): Unit            = encodeInputValue(out, maxDepth)(x)
     override def nullValue: InputValue                                        = NullValue
   }
 
-  val responseValueCodec: JsonValueCodec[ResponseValue] = new JsonValueCodec[ResponseValue] {
+  implicit val responseValueCodec: JsonValueCodec[ResponseValue] = new JsonValueCodec[ResponseValue] {
     override def decodeValue(in: JsonReader, default: ResponseValue): ResponseValue = decodeResponseValue(in, maxDepth)
     override def encodeValue(x: ResponseValue, out: JsonWriter): Unit               = encodeResponseValue(out, maxDepth)(x)
     override def nullValue: ResponseValue                                           = NullValue
@@ -222,18 +220,47 @@ private[caliban] object ValueJsoniter {
 private[caliban] object ErrorJsoniter {
   import com.github.plokhotnyuk.jsoniter_scala.macros._
 
-  private case class DeserializedError(
+  private case class ErrorDTO(
     message: String,
     path: Option[List[Either[String, Int]]],
     locations: Option[List[LocationInfo]],
     extensions: Option[ResponseValue.ObjectValue]
   )
 
+  private implicit val eitherCodec: JsonValueCodec[Either[String, Int]] = new JsonValueCodec[Either[String, Int]] {
+    override def decodeValue(in: JsonReader, default: Either[String, Int]): Either[String, Int] = {
+      val b = in.nextToken()
+      in.rollbackToken()
+      (b: @switch) match {
+        case '"'                                                             => Left(in.readString(null))
+        case '-' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' => Right(in.readInt())
+        case _                                                               => in.decodeError("expected int or string")
+      }
+    }
+    override def encodeValue(x: Either[String, Int], out: JsonWriter): Unit                     =
+      x.fold(out.writeVal, out.writeVal)
+    override def nullValue: Either[String, Int]                                                 =
+      null.asInstanceOf[Either[String, Int]]
+  }
+
+  private implicit val objectValueCodec: JsonValueCodec[ResponseValue.ObjectValue] =
+    new JsonValueCodec[ResponseValue.ObjectValue] {
+      override def decodeValue(in: JsonReader, default: ResponseValue.ObjectValue): ResponseValue.ObjectValue =
+        ValueJsoniter.responseValueCodec.decodeValue(in, default) match {
+          case o: ResponseValue.ObjectValue => o
+          case _                            => in.decodeError("expected json object")
+        }
+      override def encodeValue(x: ResponseValue.ObjectValue, out: JsonWriter): Unit                           =
+        ValueJsoniter.responseValueCodec.encodeValue(x, out)
+      override def nullValue: ResponseValue.ObjectValue                                                       =
+        null.asInstanceOf[ResponseValue.ObjectValue]
+    }
+
   implicit val errorValueCodec: JsonValueCodec[CalibanError] = new JsonValueCodec[CalibanError] {
-    private val errorProxyCodec: JsonValueCodec[DeserializedError] = JsonCodecMaker.make
+    private val dtoCodec: JsonValueCodec[ErrorDTO] = JsonCodecMaker.make
 
     override def decodeValue(in: JsonReader, default: CalibanError): CalibanError = {
-      val err = errorProxyCodec.decodeValue(in, null)
+      val err = dtoCodec.decodeValue(in, null)
       CalibanError.ExecutionError(
         msg = err.message,
         path = err.path.getOrElse(Nil),
@@ -242,11 +269,9 @@ private[caliban] object ErrorJsoniter {
         extensions = err.extensions
       )
     }
-
-    override def encodeValue(x: CalibanError, out: JsonWriter): Unit =
+    override def encodeValue(x: CalibanError, out: JsonWriter): Unit              =
       ValueJsoniter.responseValueCodec.encodeValue(x.toResponseValue, out)
-
-    override def nullValue: CalibanError =
+    override def nullValue: CalibanError                                          =
       null.asInstanceOf[CalibanError]
   }
 }
@@ -254,28 +279,26 @@ private[caliban] object ErrorJsoniter {
 private[caliban] object GraphQLResponseJsoniter {
   import com.github.plokhotnyuk.jsoniter_scala.macros._
 
-  private case class GraphQLResponseProxy(data: ResponseValue, errors: Option[List[CalibanError]])
+  private case class GraphQLResponseDTO(data: ResponseValue, errors: Option[List[CalibanError]])
 
   implicit val graphQLResponseCodec: JsonValueCodec[GraphQLResponse[CalibanError]] =
     new JsonValueCodec[GraphQLResponse[CalibanError]] {
-      private val proxyCodec: JsonValueCodec[GraphQLResponseProxy] = JsonCodecMaker.make
+      private val dtoCodec: JsonValueCodec[GraphQLResponseDTO] = JsonCodecMaker.make
 
       override def decodeValue(
         in: JsonReader,
         default: GraphQLResponse[CalibanError]
       ): GraphQLResponse[CalibanError] = {
-        val resp = proxyCodec.decodeValue(in, null)
+        val resp = dtoCodec.decodeValue(in, null)
         GraphQLResponse[CalibanError](
           data = resp.data,
           errors = resp.errors.getOrElse(Nil),
           extensions = None
         )
       }
-
       override def encodeValue(x: GraphQLResponse[CalibanError], out: JsonWriter): Unit =
         ValueJsoniter.responseValueCodec.encodeValue(x.toResponseValue, out)
-
-      override def nullValue: GraphQLResponse[CalibanError] =
+      override def nullValue: GraphQLResponse[CalibanError]                             =
         null.asInstanceOf[GraphQLResponse[CalibanError]]
     }
 }

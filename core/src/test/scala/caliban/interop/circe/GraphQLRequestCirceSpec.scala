@@ -35,7 +35,7 @@ object GraphQLRequestCirceSpec extends ZIOSpecDefault {
         )
 
         assertTrue(
-          res.asJson.noSpaces == """{"query":"{}","operationName":"op","variables":{"hello":"world","answer":42,"isAwesome":true,"name":null},"extensions":null}"""
+          res.asJson.noSpaces == """{"query":"{}","operationName":"op","variables":{"hello":"world","answer":42,"isAwesome":true,"name":null}}"""
         )
       }
     )
