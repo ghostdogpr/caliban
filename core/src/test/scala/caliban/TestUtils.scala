@@ -13,6 +13,7 @@ import caliban.schema.Schema.scalarSchema
 import caliban.schema.{ Schema, Types }
 import zio.{ UIO, ZIO }
 import zio.stream.ZStream
+import zio.test.{ TestAspect, TestAspectPoly }
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
 
 object TestUtils {
@@ -562,5 +563,12 @@ object TestUtils {
     )
 
     val resolverEmpty = new RootResolver(Option.empty[Unit], Option.empty[Unit], Option.empty[Unit])
+  }
+
+  val skipJdk8: TestAspectPoly = {
+    val jdkVersionArr = System.getProperty("java.version").split('.')
+    val maybeMajor    = jdkVersionArr.head.toInt
+    val major         = if (maybeMajor == 1) jdkVersionArr(1).toInt else maybeMajor
+    if (major < 11) TestAspect.ignore else TestAspect.identity
   }
 }

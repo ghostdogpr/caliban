@@ -4,7 +4,7 @@ import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ IntValue, StringValue }
 import caliban.parsing.adt.LocationInfo
-import caliban.{ CalibanError, GraphQLResponse }
+import caliban.{ CalibanError, GraphQLResponse, TestUtils }
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import zio.test.Assertion.equalTo
 import zio.test.{ assert, assertTrue, ZIOSpecDefault }
@@ -95,5 +95,5 @@ object GraphQLResponseJsoniterSpec extends ZIOSpecDefault {
           )
         )
       }
-    )
+    ) @@ TestUtils.skipJdk8
 }

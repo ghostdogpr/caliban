@@ -1,6 +1,6 @@
 package caliban.interop.jsoniter
 
-import caliban.{ GraphQLRequest, Value }
+import caliban.{ GraphQLRequest, TestUtils, Value }
 import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromString, writeToString }
 import zio.test.Assertion.equalTo
 import zio.test.{ assert, assertTrue, ZIOSpecDefault }
@@ -48,5 +48,5 @@ object GraphQLRequestJsoniterSpec extends ZIOSpecDefault {
             """{"query":"{}","operationName":"op","variables":{"hello":"world","answer":42,"isAwesome":true,"name":null}}"""
         )
       }
-    )
+    ) @@ TestUtils.skipJdk8
 }

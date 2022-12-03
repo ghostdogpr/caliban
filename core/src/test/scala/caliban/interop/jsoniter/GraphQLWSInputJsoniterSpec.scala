@@ -1,6 +1,6 @@
 package caliban.interop.jsoniter
 
-import caliban.{ GraphQLWSInput, InputValue, Value }
+import caliban.{ GraphQLWSInput, InputValue, TestUtils, Value }
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import zio.test.Assertion.equalTo
 import zio.test.{ assert, assertTrue, ZIOSpecDefault }
@@ -32,5 +32,5 @@ object GraphQLWSInputJsoniterSpec extends ZIOSpecDefault {
 
         assertTrue(writeToString(res) == """{"type":"some type","id":"id","payload":{"field":"yo"}}""")
       }
-    )
+    ) @@ TestUtils.skipJdk8
 }
