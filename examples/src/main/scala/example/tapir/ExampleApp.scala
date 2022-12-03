@@ -4,10 +4,11 @@ import example.tapir.Endpoints._
 import caliban.interop.tapir._
 import caliban.{ GraphQL, Http4sAdapter }
 import cats.data.Kleisli
+import com.comcast.ip4s._
 import org.http4s.StaticFile
 import org.http4s.implicits._
 import org.http4s.server.Router
-import org.http4s.blaze.server.BlazeServerBuilder
+import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.server.middleware.CORS
 import sttp.tapir.server.ServerEndpoint
 import zio._
@@ -39,15 +40,17 @@ object ExampleApp extends CatsApp {
   override def run =
     (for {
       interpreter <- graphql.interpreter
-      _           <- BlazeServerBuilder[MyTask]
-                       .bindHttp(8088, "localhost")
+      _           <- EmberServerBuilder
+                       .default[MyTask]
+                       .withHost(host"localhost")
+                       .withPort(port"8088")
                        .withHttpApp(
                          Router[MyTask](
                            "/api/graphql" -> CORS.policy(Http4sAdapter.makeHttpService(interpreter)),
                            "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
                          ).orNotFound
                        )
-                       .resource
+                       .build
                        .toScopedZIO
                        .forever
     } yield ()).exitCode

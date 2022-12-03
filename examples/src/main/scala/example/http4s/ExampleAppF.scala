@@ -5,11 +5,12 @@ import caliban.{ CalibanError, Http4sAdapter }
 import cats.data.Kleisli
 import cats.effect.std.Dispatcher
 import cats.effect.{ ExitCode, IO, IOApp }
+import com.comcast.ip4s._
 import example.ExampleData.sampleCharacters
 import example.ExampleService.ExampleService
 import example.{ ExampleApi, ExampleService }
 import org.http4s.StaticFile
-import org.http4s.blaze.server.BlazeServerBuilder
+import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.implicits._
 import org.http4s.server.Router
 import org.http4s.server.middleware.CORS
@@ -26,8 +27,10 @@ object ExampleAppF extends IOApp {
     Dispatcher.parallel[IO].use { implicit dispatcher =>
       for {
         interpreter <- ExampleApi.api.interpreterAsync[IO]
-        _           <- BlazeServerBuilder[IO]
-                         .bindHttp(8088, "localhost")
+        _           <- EmberServerBuilder
+                         .default[IO]
+                         .withHost(host"localhost")
+                         .withPort(port"8088")
                          .withHttpWebSocketApp(wsBuilder =>
                            Router[IO](
                              "/api/graphql" ->
@@ -38,9 +41,8 @@ object ExampleAppF extends IOApp {
                                Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
                            ).orNotFound
                          )
-                         .serve
-                         .compile
-                         .drain
+                         .build
+                         .useForever
       } yield ExitCode.Success
     }
 }
