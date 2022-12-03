@@ -3,7 +3,8 @@ package caliban
 import caliban.interop.tapir.TestData.sampleCharacters
 import caliban.interop.tapir.{ FakeAuthorizationInterceptor, TapirAdapterSpec, TestApi, TestService }
 import caliban.uploads.Uploads
-import org.http4s.blaze.server.BlazeServerBuilder
+import com.comcast.ip4s._
+import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.server.Router
 import org.http4s.server.middleware.CORS
 import sttp.client3.UriContext
@@ -23,8 +24,10 @@ object Http4sAdapterSpec extends ZIOSpecDefault {
   private val apiLayer = envLayer >>> ZLayer.scoped {
     for {
       interpreter <- TestApi.api.interpreter
-      _           <- BlazeServerBuilder[TestTask]
-                       .bindHttp(8087, "localhost")
+      _           <- EmberServerBuilder
+                       .default[TestTask]
+                       .withHost(host"localhost")
+                       .withPort(port"8087")
                        .withHttpWebSocketApp(wsBuilder =>
                          Router[TestTask](
                            "/api/graphql"    -> CORS.policy(
@@ -39,7 +42,7 @@ object Http4sAdapterSpec extends ZIOSpecDefault {
                            )
                          ).orNotFound
                        )
-                       .resource
+                       .build
                        .toScopedZIO
                        .forkScoped
       _           <- Live.live(Clock.sleep(3 seconds))
