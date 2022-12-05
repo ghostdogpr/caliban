@@ -566,9 +566,10 @@ object TestUtils {
   }
 
   val skipJdk8: TestAspectPoly = {
-    val jdkVersionArr = System.getProperty("java.version").split('.')
-    val maybeMajor    = jdkVersionArr.head.toInt
-    val major         = if (maybeMajor == 1) jdkVersionArr(1).toInt else maybeMajor
-    if (major < 11) TestAspect.ignore else TestAspect.identity
+    System.getProperty("java.version").split('.').toList match {
+      case "1" :: "8" :: _ => TestAspect.ignore
+      case "8" :: _        => TestAspect.ignore
+      case _               => TestAspect.identity
+    }
   }
 }
