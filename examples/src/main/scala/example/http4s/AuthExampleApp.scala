@@ -3,10 +3,11 @@ package example.http4s
 import caliban.GraphQL._
 import caliban.schema.GenericSchema
 import caliban.{ Http4sAdapter, RootResolver }
-import org.http4s.HttpRoutes
+import com.comcast.ip4s._
+import org.http4s.{ HttpRoutes, Response }
 import org.http4s.dsl.Http4sDsl
-import org.http4s.blaze.server.BlazeServerBuilder
-import org.http4s.server.{ Router, ServiceErrorHandler }
+import org.http4s.ember.server.EmberServerBuilder
+import org.http4s.server.Router
 import org.typelevel.ci.CIString
 import zio._
 import zio.interop.catz._
@@ -38,7 +39,7 @@ object AuthExampleApp extends CatsApp {
   // http4s error handler to customize the response for our throwable
   object dsl extends Http4sDsl[MyTask]
   import dsl._
-  val errorHandler: ServiceErrorHandler[MyTask] = _ => { case MissingToken() => Forbidden() }
+  val errorHandler: PartialFunction[Throwable, MyTask[Response[MyTask]]] = { case MissingToken() => Forbidden() }
 
   // our GraphQL API
   val schema: GenericSchema[Auth] = new GenericSchema[Auth] {}
@@ -50,16 +51,18 @@ object AuthExampleApp extends CatsApp {
   override def run =
     for {
       interpreter <- api.interpreter
-      _           <- BlazeServerBuilder[MyTask]
-                       .withServiceErrorHandler(errorHandler)
-                       .bindHttp(8088, "localhost")
+      _           <- EmberServerBuilder
+                       .default[MyTask]
+                       .withErrorHandler(errorHandler)
+                       .withHost(host"localhost")
+                       .withPort(port"8088")
                        .withHttpWebSocketApp(wsBuilder =>
                          Router[MyTask](
                            "/api/graphql" -> AuthMiddleware(Http4sAdapter.makeHttpService(interpreter)),
                            "/ws/graphql"  -> AuthMiddleware(Http4sAdapter.makeWebSocketService(wsBuilder, interpreter))
                          ).orNotFound
                        )
-                       .resource
+                       .build
                        .toScopedZIO *> ZIO.never
     } yield ()
 }
