@@ -10,7 +10,7 @@ val akkaVersion               = "2.6.20"
 val catsEffect3Version        = "3.4.1"
 val catsMtlVersion            = "1.2.1"
 val circeVersion              = "0.14.3"
-val http4sVersion             = "0.23.12"
+val http4sVersion             = "0.23.16"
 val jsoniterVersion           = "2.18.1"
 val laminextVersion           = "0.14.3"
 val magnoliaVersion           = "0.17.0"
@@ -281,7 +281,7 @@ lazy val http4s = project
         "org.typelevel"                 %% "cats-effect"                   % catsEffect3Version,
         "com.softwaremill.sttp.tapir"   %% "tapir-http4s-server-zio"       % tapirVersion,
         "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % tapirVersion,
-        "org.http4s"                    %% "http4s-blaze-server"           % http4sVersion % Test,
+        "org.http4s"                    %% "http4s-ember-server"           % http4sVersion % Test,
         "dev.zio"                       %% "zio-test"                      % zioVersion    % Test,
         "dev.zio"                       %% "zio-test-sbt"                  % zioVersion    % Test,
         "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion   % Test,
@@ -411,7 +411,7 @@ lazy val examples = project
     libraryDependencySchemes += "org.scala-lang.modules" %% "scala-java8-compat" % "always",
     libraryDependencies ++= Seq(
       "org.typelevel"                         %% "cats-mtl"                      % catsMtlVersion,
-      "org.http4s"                            %% "http4s-blaze-server"           % http4sVersion,
+      "org.http4s"                            %% "http4s-ember-server"           % http4sVersion,
       "org.http4s"                            %% "http4s-dsl"                    % http4sVersion,
       "com.softwaremill.sttp.client3"         %% "async-http-client-backend-zio" % sttpVersion,
       "io.circe"                              %% "circe-generic"                 % circeVersion,

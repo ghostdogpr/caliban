@@ -5,10 +5,11 @@ import example.federation.FederationData.episodes.sampleEpisodes
 
 import caliban.Http4sAdapter
 import cats.data.Kleisli
+import com.comcast.ip4s._
 import org.http4s.StaticFile
 import org.http4s.implicits._
 import org.http4s.server.Router
-import org.http4s.blaze.server.BlazeServerBuilder
+import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.server.middleware.CORS
 import zio._
 import zio.interop.catz._
@@ -23,15 +24,17 @@ object FederatedApp extends CatsApp {
       .flatMap(layer =>
         for {
           interpreter <- FederatedApi.Characters.api.interpreter.map(_.provideLayer(layer))
-          _           <- BlazeServerBuilder[ExampleTask]
-                           .bindHttp(8089, "localhost")
+          _           <- EmberServerBuilder
+                           .default[ExampleTask]
+                           .withHost(host"localhost")
+                           .withPort(port"8089")
                            .withHttpApp(
                              Router[ExampleTask](
                                "/api/graphql" -> CORS.policy(Http4sAdapter.makeHttpService(interpreter)),
                                "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
                              ).orNotFound
                            )
-                           .resource
+                           .build
                            .toScopedZIO
                            .forever
         } yield ()
@@ -44,15 +47,17 @@ object FederatedApp extends CatsApp {
       .flatMap(layer =>
         for {
           interpreter <- FederatedApi.Episodes.api.interpreter.map(_.provideLayer(layer))
-          _           <- BlazeServerBuilder[ExampleTask]
-                           .bindHttp(8088, "localhost")
+          _           <- EmberServerBuilder
+                           .default[ExampleTask]
+                           .withHost(host"localhost")
+                           .withPort(port"8088")
                            .withHttpApp(
                              Router[ExampleTask](
                                "/api/graphql" -> CORS.policy(Http4sAdapter.makeHttpService(interpreter)),
                                "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
                              ).orNotFound
                            )
-                           .resource
+                           .build
                            .toScopedZIO
                            .forever
         } yield ()

@@ -2,11 +2,12 @@ package example.http4s
 
 import caliban.Http4sAdapter
 import cats.data.Kleisli
+import com.comcast.ip4s._
 import example.ExampleData._
 import example.ExampleService.ExampleService
 import example.{ ExampleApi, ExampleService }
 import org.http4s.StaticFile
-import org.http4s.blaze.server.BlazeServerBuilder
+import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.implicits._
 import org.http4s.server.Router
 import org.http4s.server.middleware.CORS
@@ -23,8 +24,10 @@ object ExampleApp extends ZIOAppDefault {
       .flatMap(implicit runtime =>
         for {
           interpreter <- ExampleApi.api.interpreter
-          _           <- BlazeServerBuilder[ExampleTask]
-                           .bindHttp(8088, "localhost")
+          _           <- EmberServerBuilder
+                           .default[ExampleTask]
+                           .withHost(host"localhost")
+                           .withPort(port"8088")
                            .withHttpWebSocketApp(wsBuilder =>
                              Router[ExampleTask](
                                "/api/graphql" -> CORS.policy(Http4sAdapter.makeHttpService(interpreter)),
@@ -32,7 +35,7 @@ object ExampleApp extends ZIOAppDefault {
                                "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
                              ).orNotFound
                            )
-                           .resource
+                           .build
                            .toScopedZIO *> ZIO.never
         } yield ()
       )
