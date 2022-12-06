@@ -4,8 +4,10 @@ import com.raquo.laminar.api.L._
 import io.laminext.syntax.core._
 import io.laminext.websocket.WebSocket
 
+import scala.concurrent.ExecutionContext
+
 object Page {
-  import concurrent.ExecutionContext.Implicits.global
+  implicit val ec: ExecutionContext = scala.scalajs.concurrent.JSExecutionContext.queue
 
   private val characters: Var[List[String]] = Var(Nil)
 
