@@ -5,6 +5,8 @@ import io.laminext.syntax.core._
 import io.laminext.websocket.WebSocket
 
 object Page {
+  import concurrent.ExecutionContext.Implicits.global
+
   private val characters: Var[List[String]] = Var(Nil)
 
   private val uri = "http://localhost:8088/api/graphql"
