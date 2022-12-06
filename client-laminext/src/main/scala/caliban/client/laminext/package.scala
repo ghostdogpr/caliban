@@ -10,6 +10,7 @@ import io.laminext.websocket.circe._
 import io.laminext.websocket.{ WebSocket, WebSocketBuilder, WebSocketReceiveBuilder }
 
 import java.util.UUID
+import scala.concurrent.ExecutionContext
 
 package object laminext {
 
@@ -31,7 +32,7 @@ package object laminext {
       queryName: Option[String] = None,
       dropNullInputValues: Boolean = false,
       middleware: FetchEventStreamBuilder => FetchEventStreamBuilder = identity
-    )(implicit ev: IsOperation[Origin]): EventStream[Either[CalibanClientError, A]] =
+    )(implicit ev: IsOperation[Origin], ec: ExecutionContext): EventStream[Either[CalibanClientError, A]] =
       toEventStreamWith(uri, useVariables, queryName, dropNullInputValues, middleware)((res, _, _) => res)
 
     def toEventStreamWith[B](
@@ -42,7 +43,7 @@ package object laminext {
       middleware: FetchEventStreamBuilder => FetchEventStreamBuilder = identity
     )(
       mapResponse: (A, List[GraphQLResponseError], Option[Json]) => B
-    )(implicit ev: IsOperation[Origin]): EventStream[Either[CalibanClientError, B]] =
+    )(implicit ev: IsOperation[Origin], ec: ExecutionContext): EventStream[Either[CalibanClientError, B]] =
       middleware(Fetch.post(uri))
         .body(self.toGraphQL(useVariables, queryName, dropNullInputValues))
         .text
