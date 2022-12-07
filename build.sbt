@@ -7,7 +7,7 @@ val scala3   = "3.2.1"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion               = "2.6.20"
-val catsEffect3Version        = "3.4.1"
+val catsEffect3Version        = "3.4.2"
 val catsMtlVersion            = "1.2.1"
 val circeVersion              = "0.14.3"
 val http4sVersion             = "0.23.16"
@@ -24,7 +24,7 @@ val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "3.3.0"
 val zioInteropReactiveVersion = "2.0.0"
 val zioConfigVersion          = "3.0.2"
-val zqueryVersion             = "0.3.2"
+val zqueryVersion             = "0.3.3"
 val zioJsonVersion            = "0.4.2"
 val zioHttpVersion            = "2.0.0-RC10"
 
