@@ -25,7 +25,7 @@ val zioInteropCats3Version    = "3.3.0"
 val zioInteropReactiveVersion = "2.0.0"
 val zioConfigVersion          = "3.0.2"
 val zqueryVersion             = "0.3.2"
-val zioJsonVersion            = "0.3.0"
+val zioJsonVersion            = "0.4.2"
 val zioHttpVersion            = "2.0.0-RC10"
 
 inThisBuild(
