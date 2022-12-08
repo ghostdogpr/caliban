@@ -270,7 +270,7 @@ object TapirAdapterSpec {
     )
 
     ZIO.succeed(tests.flatten)
-  }.provideLayerShared(AsyncHttpClientZioBackend.layer()) @@
+  }.provideLayerShared(ZLayer.scoped(AsyncHttpClientZioBackend.scoped())) @@
     before(TestService.reset) @@
     TestAspect.sequential
 }

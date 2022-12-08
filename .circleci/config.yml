@@ -8,7 +8,7 @@ jobs:
       - restore_cache:
           key: sbtcache
       - run: sbt ++2.13.10 check
-      - run: sbt ++3.2.0 check
+      - run: sbt ++3.2.1 check
       - save_cache:
           key: sbtcache
           paths:
@@ -92,7 +92,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++3.2.0 core/test catsInterop/compile benchmarks/compile monixInterop/compile clientJVM/test clientJS/compile zioHttp/test tapirInterop/test http4s/test federation/test reporting/test
+      - run: sbt ++3.2.1 core/test catsInterop/compile benchmarks/compile monixInterop/compile clientJVM/test clientJS/compile zioHttp/test tapirInterop/test http4s/test federation/test reporting/test
       - save_cache:
           key: sbtcache
           paths:
@@ -120,7 +120,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++3.2.0 clientJS/test clientLaminextJS/Test/fastLinkJS
+      - run: sbt ++3.2.1 clientJS/test clientLaminextJS/Test/fastLinkJS
       - save_cache:
           key: sbtcache
           paths:
