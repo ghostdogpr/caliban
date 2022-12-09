@@ -67,11 +67,6 @@ object ClientWriter {
       name
     }
 
-    def safeName(name: String): String =
-      if (reservedKeywords.contains(name) || name.endsWith("_")) s"`$name`"
-      else if (caseClassReservedFields.contains(name)) s"$name$$"
-      else name
-
     def safeTypeName(typeName: String): String =
       mappingClashedTypeNames.getOrElse(typeName, scalarMappingsWithDefaults.getOrElse(typeName, safeName(typeName)))
 
