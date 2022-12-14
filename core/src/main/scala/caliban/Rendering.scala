@@ -171,14 +171,15 @@ object Rendering {
       }
     }
 
-    def nl =
-      if (newline) "\n" else " "
+    def enl = if (newline) "\n" else " "
+
+    def bnl = if(newline) "\n" else ""
 
     description match {
       case None                                   => ""
       case Some(value) if value.exists(_ == '\n') =>
-        s"${renderTripleQuotedString(s"$nl$value")}$nl"
-      case Some(value)                            => s"${renderString(value)}$nl"
+        s"${renderTripleQuotedString(s"$bnl$value")}$enl"
+      case Some(value)                            => s"${renderString(value)}$enl"
     }
   }
 

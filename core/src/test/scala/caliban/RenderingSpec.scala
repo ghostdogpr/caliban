@@ -194,7 +194,7 @@ object RenderingSpec extends ZIOSpecDefault {
              |  ${tripleQuote}
              |query.
              |Multi line${tripleQuote}
-             |  getUser2(${tripleQuote} argument
+             |  getUser2(${tripleQuote}argument
              |Multi line${tripleQuote} id: Int!): TheResult!
              |  "query. Single line ending in \\\"quote\\\""
              |  getUser3("argument single line ending in \\\"quote\\\"" id: Int!): TheResult!
@@ -202,7 +202,7 @@ object RenderingSpec extends ZIOSpecDefault {
              |query.
              |Multi line ending in "quote"
              |${tripleQuote}
-             |  getUser4(${tripleQuote} argument
+             |  getUser4(${tripleQuote}argument
              |Multi line ending in "quote" ${tripleQuote} id: Int!): TheResult!
              |}
              |
