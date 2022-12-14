@@ -179,6 +179,72 @@ object RenderingSpec extends ZIOSpecDefault {
         assert(renderedType)(
           equalTo("\"\"\"\nA multiline \"TestType\" description\ngiven inside \\\"\"\"-quotes\n\"\"\"\ntype TestType")
         )
+      },
+      test("it should handle descriptions ending in '\"' properly") {
+        import RenderingSpecSchemaDescriptions._
+        val tripleQuote = "\"\"\""
+        val expected    =
+          s"""schema {
+             |  query: Query
+             |}
+             |
+             |type Query {
+             |  "query. Single line"
+             |  getUser1("argument single line" id: Int!): TheResult!
+             |  ${tripleQuote}
+             |query.
+             |Multi line${tripleQuote}
+             |  getUser2(${tripleQuote} argument
+             |Multi line${tripleQuote} id: Int!): TheResult!
+             |  "query. Single line ending in \\\"quote\\\""
+             |  getUser3("argument single line ending in \\\"quote\\\"" id: Int!): TheResult!
+             |  ${tripleQuote}
+             |query.
+             |Multi line ending in "quote"
+             |${tripleQuote}
+             |  getUser4(${tripleQuote} argument
+             |Multi line ending in "quote" ${tripleQuote} id: Int!): TheResult!
+             |}
+             |
+             |type R1 {
+             |  name: String!
+             |  "field. Single line"
+             |  age: Int!
+             |}
+             |
+             |type R2 {
+             |  name: String!
+             |  ${tripleQuote}
+             |field.
+             |Multi line${tripleQuote}
+             |  age: Int!
+             |}
+             |
+             |type R3 {
+             |  name: String!
+             |  "field. Single line ending in \\\"quote\\\""
+             |  age: Int!
+             |}
+             |
+             |type R4 {
+             |  name: String!
+             |  ${tripleQuote}
+             |field.
+             |Multi line ending in "quote"
+             |${tripleQuote}
+             |  age: Int!
+             |}
+             |
+             |type TheResult {
+             |  u1: R1!
+             |  u2: R2!
+             |  u3: R3!
+             |  u4: R4!
+             |}
+             |""".stripMargin
+        assert {
+          graphQL(resolverForDescriptionTest).render.trim
+        }(equalTo(expected.trim))
       }
     )
 }
