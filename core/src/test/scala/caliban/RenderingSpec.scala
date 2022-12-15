@@ -7,8 +7,6 @@ import caliban.parsing.adt.Directive
 import zio.test.Assertion._
 import zio.test._
 
-import scala.annotation.tailrec
-
 object RenderingSpec extends ZIOSpecDefault {
 
   val tripleQuote = "\"\"\""
@@ -285,41 +283,4 @@ object RenderingSpec extends ZIOSpecDefault {
         assert(graphQL(resolver).render.trim)(equalTo(expected.trim))
       }
     )
-
-  sealed trait DiffResult {
-    def areEqual: Boolean
-    def commonPrefix: String
-    def diffPrefix: (String, String)
-  }
-
-  case class EqualResult(s: String) extends DiffResult {
-    override def areEqual: Boolean = true
-
-    override def commonPrefix: String = s
-
-    override def diffPrefix: (String, String) = ("", "")
-  }
-
-  case class DifferentResult(prefix: String, left1: String, left2: String) extends DiffResult {
-    override def areEqual: Boolean = false
-
-    override def commonPrefix: String = prefix
-
-    override def diffPrefix: (String, String) = (left1, left2)
-  }
-
-  def displayFirstDifference(s1: String, s2: String) = {
-    @tailrec
-    def loop(currS1: List[Char], currS2: List[Char], soFar: List[Char]): DiffResult =
-      (currS1, currS2) match {
-        case (Nil, Nil)                                 => EqualResult(s1)
-        case (Nil, _)                                   => DifferentResult(soFar.reverse.mkString, currS1.mkString, currS2.mkString)
-        case (_, Nil)                                   => DifferentResult(soFar.reverse.mkString, currS1.mkString, currS2.mkString)
-        case ((s1h :: s1t), (s2h :: s2t)) if s1h == s2h =>
-          loop(s1t, s2t, s1h :: soFar)
-        case (_, _)                                     => DifferentResult(soFar.reverse.mkString, currS1.mkString, currS2.mkString)
-      }
-    loop(s1.toList, s2.toList, List.empty)
-
-  }
 }
