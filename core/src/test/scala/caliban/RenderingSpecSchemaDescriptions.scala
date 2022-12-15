@@ -2,40 +2,74 @@ package caliban
 
 import caliban.schema.Annotations.GQLDescription
 
-object RenderingSpecSchemaDescriptions {
-  case class R1(name: String, @GQLDescription("field. Single line") age: Int)
+object RenderingSpecSchemaSingleLineDescription {
 
-  case class R2(name: String, @GQLDescription("field.\nMulti line") age: Int)
+  @GQLDescription("type description in a single line")
+  case class OutputValue(@GQLDescription("field description in a single line") r: Int)
 
-  case class R3(name: String, @GQLDescription("field. Single line ending in \"quote\"") age: Int)
+  case class InputValue(@GQLDescription("argument description in a single line") in: Int)
 
-  case class R4(name: String, @GQLDescription("field.\nMulti line ending in \"quote\"") age: Int)
-
-  case class MyUser1(@GQLDescription("argument single line") id: Int)
-
-  case class MyUser2(@GQLDescription("argument\nMulti line") id: Int)
-
-  case class MyUser3(@GQLDescription("argument single line ending in \"quote\"") id: Int)
-
-  case class MyUser4(@GQLDescription("argument\nMulti line ending in \"quote\"") id: Int)
-
-  case class TheResult(u1: R1, u2: R2, u3: R3, u4: R4)
+  def getResult: OutputValue = ???
 
   case class Query(
-    @GQLDescription("query. Single line") getUser1: MyUser1 => TheResult,
-    @GQLDescription("query.\nMulti line") getUser2: MyUser2 => TheResult,
-    @GQLDescription("query. Single line ending in \"quote\"") getUser3: MyUser3 => TheResult,
-    @GQLDescription("query.\nMulti line ending in \"quote\"") getUser4: MyUser4 => TheResult
+    @GQLDescription("query description in a single line") q: InputValue => OutputValue
   )
 
-  def getResult: TheResult = ???
+  val resolver = RootResolver(
+    Query(_ => getResult)
+  )
+}
 
-  val resolverForDescriptionTest = RootResolver(
-    Query(
-      _ => getResult,
-      _ => getResult,
-      _ => getResult,
-      _ => getResult
-    )
+object RenderingSpecSchemaMultiLineDescription {
+
+  @GQLDescription("type description in\nMultiple lines")
+  case class OutputValue(@GQLDescription("field description in\nMultiple lines") r: Int)
+
+  case class InputValue(@GQLDescription("argument description in\nMultiple lines") in: Int)
+
+  def getResult: OutputValue = ???
+
+  case class Query(
+    @GQLDescription("query description in\nMultiple lines") q: InputValue => OutputValue
+  )
+
+  val resolver = RootResolver(
+    Query(_ => getResult)
+  )
+}
+
+object RenderingSpecSchemaSingleLineEndingInQuoteDescription {
+
+  @GQLDescription("type description in a single line \"ending in quote\"")
+  case class OutputValue(@GQLDescription("field description in a single line \"ending in quote\"") r: Int)
+
+  case class InputValue(@GQLDescription("argument description in a single line \"ending in quote\"") in: Int)
+
+  def getResult: OutputValue = ???
+
+  case class Query(
+    @GQLDescription("query description in a single line \"ending in quote\"") q: InputValue => OutputValue
+  )
+
+  val resolver = RootResolver(
+    Query(_ => getResult)
+  )
+}
+
+object RenderingSpecSchemaMultiLineEndingInQuoteDescription {
+
+  @GQLDescription("type description in multiple lines\n\"ending in quote\"")
+  case class OutputValue(@GQLDescription("field description in multiple lines\n\"ending in quote\"") r: Int)
+
+  case class InputValue(@GQLDescription("argument description in multiple lines\n\"ending in quote\"") in: Int)
+
+  def getResult: OutputValue = ???
+
+  case class Query(
+    @GQLDescription("query description in multiple lines\n\"ending in quote\"") q: InputValue => OutputValue
+  )
+
+  val resolver = RootResolver(
+    Query(_ => getResult)
   )
 }

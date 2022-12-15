@@ -7,7 +7,11 @@ import caliban.parsing.adt.Directive
 import zio.test.Assertion._
 import zio.test._
 
+import scala.annotation.tailrec
+
 object RenderingSpec extends ZIOSpecDefault {
+
+  val tripleQuote = "\"\"\""
 
   override def spec =
     suite("rendering")(
@@ -177,74 +181,145 @@ object RenderingSpec extends ZIOSpecDefault {
         )
         val renderedType = Rendering.renderTypes(List(testType))
         assert(renderedType)(
-          equalTo("\"\"\"\nA multiline \"TestType\" description\ngiven inside \\\"\"\"-quotes\n\"\"\"\ntype TestType")
+          equalTo("\"\"\"\nA multiline \"TestType\" description\ngiven inside \\\"\"\"-quotes\n\n\"\"\"\ntype TestType")
         )
       },
-      test("it should handle descriptions ending in '\"' properly") {
-        import RenderingSpecSchemaDescriptions._
-        val tripleQuote = "\"\"\""
-        val expected    =
+      test("it should render single line descriptions") {
+        import RenderingSpecSchemaSingleLineDescription.resolver
+        val expected =
+          """schema {
+            |  query: Query
+            |}
+            |
+            |"type description in a single line"
+            |type OutputValue {
+            |  "field description in a single line"
+            |  r: Int!
+            |}
+            |
+            |type Query {
+            |  "query description in a single line"
+            |  q("argument description in a single line" in: Int!): OutputValue!
+            |}
+            |""".stripMargin
+        assert(graphQL(resolver).render.trim)(equalTo(expected.trim))
+      },
+      test("it should render multiple line descriptions") {
+        import RenderingSpecSchemaMultiLineDescription.resolver
+        val expected =
           s"""schema {
              |  query: Query
              |}
              |
+             |$tripleQuote
+             |type description in
+             |Multiple lines
+             |$tripleQuote
+             |type OutputValue {
+             |  $tripleQuote
+             |field description in
+             |Multiple lines
+             |$tripleQuote
+             |  r: Int!
+             |}
+             |
              |type Query {
-             |  "query. Single line"
-             |  getUser1("argument single line" id: Int!): TheResult!
-             |  ${tripleQuote}
-             |query.
-             |Multi line${tripleQuote}
-             |  getUser2(${tripleQuote}argument
-             |Multi line${tripleQuote} id: Int!): TheResult!
-             |  "query. Single line ending in \\\"quote\\\""
-             |  getUser3("argument single line ending in \\\"quote\\\"" id: Int!): TheResult!
-             |  ${tripleQuote}
-             |query.
-             |Multi line ending in "quote"
-             |${tripleQuote}
-             |  getUser4(${tripleQuote}argument
-             |Multi line ending in "quote" ${tripleQuote} id: Int!): TheResult!
-             |}
-             |
-             |type R1 {
-             |  name: String!
-             |  "field. Single line"
-             |  age: Int!
-             |}
-             |
-             |type R2 {
-             |  name: String!
-             |  ${tripleQuote}
-             |field.
-             |Multi line${tripleQuote}
-             |  age: Int!
-             |}
-             |
-             |type R3 {
-             |  name: String!
-             |  "field. Single line ending in \\\"quote\\\""
-             |  age: Int!
-             |}
-             |
-             |type R4 {
-             |  name: String!
-             |  ${tripleQuote}
-             |field.
-             |Multi line ending in "quote"
-             |${tripleQuote}
-             |  age: Int!
-             |}
-             |
-             |type TheResult {
-             |  u1: R1!
-             |  u2: R2!
-             |  u3: R3!
-             |  u4: R4!
+             |  $tripleQuote
+             |query description in
+             |Multiple lines
+             |$tripleQuote
+             |  q(${tripleQuote}argument description in
+             |Multiple lines${tripleQuote} in: Int!): OutputValue!
              |}
              |""".stripMargin
-        assert {
-          graphQL(resolverForDescriptionTest).render.trim
-        }(equalTo(expected.trim))
+        assert(graphQL(resolver).render.trim)(equalTo(expected.trim))
+      },
+      test("it should render single line descriptions ending in quote") {
+        import RenderingSpecSchemaSingleLineEndingInQuoteDescription.resolver
+        val expected =
+          """schema {
+            |  query: Query
+            |}
+            |
+            |"type description in a single line \"ending in quote\""
+            |type OutputValue {
+            |  "field description in a single line \"ending in quote\""
+            |  r: Int!
+            |}
+            |
+            |type Query {
+            |  "query description in a single line \"ending in quote\""
+            |  q("argument description in a single line \"ending in quote\"" in: Int!): OutputValue!
+            |}
+            |""".stripMargin
+        assert(graphQL(resolver).render.trim)(equalTo(expected.trim))
+      },
+      test("it should render multi line descriptions ending in quote") {
+        import RenderingSpecSchemaMultiLineEndingInQuoteDescription.resolver
+        val expected =
+          s"""schema {
+             |  query: Query
+             |}
+             |
+             |$tripleQuote
+             |type description in multiple lines
+             |\"ending in quote\"
+             |$tripleQuote
+             |type OutputValue {
+             |  $tripleQuote
+             |field description in multiple lines
+             |\"ending in quote\"
+             |$tripleQuote
+             |  r: Int!
+             |}
+             |
+             |type Query {
+             |  $tripleQuote
+             |query description in multiple lines
+             |\"ending in quote\"
+             |$tripleQuote
+             |  q(${tripleQuote}argument description in multiple lines
+             |\"ending in quote\" ${tripleQuote} in: Int!): OutputValue!
+             |}
+             |""".stripMargin
+        assert(graphQL(resolver).render.trim)(equalTo(expected.trim))
       }
     )
+
+  sealed trait DiffResult {
+    def areEqual: Boolean
+    def commonPrefix: String
+    def diffPrefix: (String, String)
+  }
+
+  case class EqualResult(s: String) extends DiffResult {
+    override def areEqual: Boolean = true
+
+    override def commonPrefix: String = s
+
+    override def diffPrefix: (String, String) = ("", "")
+  }
+
+  case class DifferentResult(prefix: String, left1: String, left2: String) extends DiffResult {
+    override def areEqual: Boolean = false
+
+    override def commonPrefix: String = prefix
+
+    override def diffPrefix: (String, String) = (left1, left2)
+  }
+
+  def displayFirstDifference(s1: String, s2: String) = {
+    @tailrec
+    def loop(currS1: List[Char], currS2: List[Char], soFar: List[Char]): DiffResult =
+      (currS1, currS2) match {
+        case (Nil, Nil)                                 => EqualResult(s1)
+        case (Nil, _)                                   => DifferentResult(soFar.reverse.mkString, currS1.mkString, currS2.mkString)
+        case (_, Nil)                                   => DifferentResult(soFar.reverse.mkString, currS1.mkString, currS2.mkString)
+        case ((s1h :: s1t), (s2h :: s2t)) if s1h == s2h =>
+          loop(s1t, s2t, s1h :: soFar)
+        case (_, _)                                     => DifferentResult(soFar.reverse.mkString, currS1.mkString, currS2.mkString)
+      }
+    loop(s1.toList, s2.toList, List.empty)
+
+  }
 }

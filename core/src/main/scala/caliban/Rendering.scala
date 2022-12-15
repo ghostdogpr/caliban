@@ -1,9 +1,9 @@
 package caliban
 
-import caliban.Value.{ BooleanValue, EnumValue, FloatValue, IntValue, NullValue, StringValue }
+import caliban.Value._
 import caliban.introspection.adt._
+import caliban.introspection.adt.__TypeKind._
 import caliban.parsing.adt.Directive
-import __TypeKind._
 
 object Rendering {
 
@@ -154,32 +154,28 @@ object Rendering {
     // need to break 4 or more '"' at the end of the description either with a newline or a space
     val tripleQuote = "\"\"\""
 
+    def nlOrSp = if (newline) "\n" else " "
+
+    def nlOrNot = if (newline) "\n" else ""
+
     def renderTripleQuotedString(value: String) = {
       val valueEscaped = value.replace(tripleQuote, s"\\$tripleQuote")
       // check if it ends in quote but it is already escaped
       if (value.endsWith("\\\""))
-        s"$tripleQuote$valueEscaped$tripleQuote"
+        s"$tripleQuote$nlOrNot$valueEscaped$nlOrNot$tripleQuote"
       // check if it ends in quote. We need to break the sequence of 4 or more '"'
-      else if (value.last == '"')
-        if (newline)
-          s"$tripleQuote$valueEscaped\n$tripleQuote"
-        else
-          s"$tripleQuote$valueEscaped $tripleQuote"
-      else {
+      else if (value.last == '"') {
+        s"$tripleQuote$nlOrNot$valueEscaped$nlOrSp$tripleQuote"
+      } else {
         // ok. No quotes at the end of value
-        s"$tripleQuote$valueEscaped$tripleQuote"
+        s"$tripleQuote$nlOrNot$valueEscaped$nlOrNot$tripleQuote"
       }
     }
-
-    def enl = if (newline) "\n" else " "
-
-    def bnl = if(newline) "\n" else ""
-
     description match {
       case None                                   => ""
       case Some(value) if value.exists(_ == '\n') =>
-        s"${renderTripleQuotedString(s"$bnl$value")}$enl"
-      case Some(value)                            => s"${renderString(value)}$enl"
+        s"${renderTripleQuotedString(s"$value")}$nlOrSp"
+      case Some(value)                            => s"${renderString(value)}$nlOrSp"
     }
   }
 
