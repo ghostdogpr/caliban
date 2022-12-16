@@ -150,7 +150,7 @@ object Rendering {
     }
 
   private def renderDescription(description: Option[String], newline: Boolean = true): String = {
-    // Most of the graphql tools (including ours) are greedy on triple quotes. To be compatible we
+    // Most of the graphql tools are greedy on triple quotes. To be compatible we
     // need to break 4 or more '"' at the end of the description either with a newline or a space
     val tripleQuote = "\"\"\""
 
