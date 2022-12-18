@@ -37,34 +37,24 @@ private[caliban] object ValueJsoniter {
   private val emptyResponseList   = ResponseValue.ListValue(Nil)
   private val emptyResponseObject = ResponseValue.ObjectValue(Nil)
 
-  private def encodeValue(out: JsonWriter): Value => Unit = {
-    case NullValue           => out.writeNull()
-    case v: IntValue         =>
-      v match {
-        case IntValue.IntNumber(value)    => out.writeVal(value)
-        case IntValue.LongNumber(value)   => out.writeVal(value)
-        case IntValue.BigIntNumber(value) => out.writeVal(value)
-      }
-    case v: FloatValue       =>
-      v match {
-        case FloatValue.FloatNumber(value)      => out.writeVal(value)
-        case FloatValue.DoubleNumber(value)     => out.writeVal(value)
-        case FloatValue.BigDecimalNumber(value) => out.writeVal(value)
-      }
-    case StringValue(value)  => out.writeVal(value)
-    case BooleanValue(value) => out.writeVal(value)
-    case EnumValue(value)    => out.writeVal(value)
-  }
-
   private def encodeInputValue(out: JsonWriter, depth: Int): InputValue => Unit = {
-    case v: Value                    => encodeValue(out)(v)
-    case InputValue.ListValue(l)     =>
+    case NullValue                          => out.writeNull()
+    case IntValue.IntNumber(value)          => out.writeVal(value)
+    case IntValue.LongNumber(value)         => out.writeVal(value)
+    case IntValue.BigIntNumber(value)       => out.writeVal(value)
+    case FloatValue.FloatNumber(value)      => out.writeVal(value)
+    case FloatValue.DoubleNumber(value)     => out.writeVal(value)
+    case FloatValue.BigDecimalNumber(value) => out.writeVal(value)
+    case StringValue(value)                 => out.writeVal(value)
+    case BooleanValue(value)                => out.writeVal(value)
+    case EnumValue(value)                   => out.writeVal(value)
+    case InputValue.ListValue(l)            =>
       val depthM1 = depth - 1
       if (depthM1 < 0) out.encodeError("depth limit exceeded")
       out.writeArrayStart()
       l.foreach(v => encodeInputValue(out, depthM1)(v))
       out.writeArrayEnd()
-    case InputValue.ObjectValue(o)   =>
+    case InputValue.ObjectValue(o)          =>
       val depthM1 = depth - 1
       if (depthM1 < 0) out.encodeError("depth limit exceeded")
       out.writeObjectStart()
@@ -73,18 +63,27 @@ private[caliban] object ValueJsoniter {
         encodeInputValue(out, depthM1)(v)
       }
       out.writeObjectEnd()
-    case InputValue.VariableValue(v) => out.writeVal(v)
+    case InputValue.VariableValue(v)        => out.writeVal(v)
   }
 
   private def encodeResponseValue(out: JsonWriter, depth: Int): ResponseValue => Unit = {
-    case v: Value                     => encodeValue(out)(v)
-    case ResponseValue.ListValue(l)   =>
+    case NullValue                          => out.writeNull()
+    case IntValue.IntNumber(value)          => out.writeVal(value)
+    case IntValue.LongNumber(value)         => out.writeVal(value)
+    case IntValue.BigIntNumber(value)       => out.writeVal(value)
+    case FloatValue.FloatNumber(value)      => out.writeVal(value)
+    case FloatValue.DoubleNumber(value)     => out.writeVal(value)
+    case FloatValue.BigDecimalNumber(value) => out.writeVal(value)
+    case StringValue(value)                 => out.writeVal(value)
+    case BooleanValue(value)                => out.writeVal(value)
+    case EnumValue(value)                   => out.writeVal(value)
+    case ResponseValue.ListValue(l)         =>
       val depthM1 = depth - 1
       if (depthM1 < 0) out.encodeError("depth limit exceeded")
       out.writeArrayStart()
       l.foreach(v => encodeResponseValue(out, depthM1)(v))
       out.writeArrayEnd()
-    case ResponseValue.ObjectValue(o) =>
+    case ResponseValue.ObjectValue(o)       =>
       val depthM1 = depth - 1
       if (depthM1 < 0) out.encodeError("depth limit exceeded")
       out.writeObjectStart()
@@ -93,7 +92,7 @@ private[caliban] object ValueJsoniter {
         encodeResponseValue(out, depthM1)(v)
       }
       out.writeObjectEnd()
-    case s: ResponseValue.StreamValue => out.writeVal(s.toString)
+    case s: ResponseValue.StreamValue       => out.writeVal(s.toString)
   }
 
   private def decodeInputValue(in: JsonReader, depth: Int): InputValue = {

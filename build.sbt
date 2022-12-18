@@ -458,8 +458,11 @@ lazy val benchmarks = project
   .enablePlugins(JmhPlugin)
   .settings(
     libraryDependencies ++= Seq(
-      "org.sangria-graphql" %% "sangria"       % "3.4.1",
-      "org.sangria-graphql" %% "sangria-circe" % "1.3.2"
+      "org.sangria-graphql"                   %% "sangria"             % "3.4.1",
+      "org.sangria-graphql"                   %% "sangria-circe"       % "1.3.2",
+      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core" % jsoniterVersion,
+      "io.circe"                              %% "circe-parser"        % circeVersion,
+      "dev.zio"                               %% "zio-json"            % zioJsonVersion
     )
   )
 
