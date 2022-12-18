@@ -1,9 +1,9 @@
 package caliban
 
-import caliban.Value.{ BooleanValue, EnumValue, FloatValue, IntValue, NullValue, StringValue }
+import caliban.Value._
 import caliban.introspection.adt._
+import caliban.introspection.adt.__TypeKind._
 import caliban.parsing.adt.Directive
-import __TypeKind._
 
 object Rendering {
 
@@ -149,11 +149,34 @@ object Rendering {
       case _                       => ""
     }
 
-  private def renderDescription(description: Option[String], newline: Boolean = true): String = description match {
-    case None                   => ""
-    case Some(value) if newline =>
-      if (value.contains("\n")) renderTripleQuotedString("\n" + value) + "\n" else renderString(value) + "\n"
-    case Some(value)            => if (value.contains("\n")) renderTripleQuotedString(value) else renderString(value) + " "
+  private def renderDescription(description: Option[String], newline: Boolean = true): String = {
+    // Most of the graphql tools are greedy on triple quotes. To be compatible we
+    // need to break 4 or more '"' at the end of the description either with a newline or a space
+    val tripleQuote = "\"\"\""
+
+    def nlOrSp = if (newline) "\n" else " "
+
+    def nlOrNot = if (newline) "\n" else ""
+
+    def renderTripleQuotedString(value: String) = {
+      val valueEscaped = value.replace(tripleQuote, s"\\$tripleQuote")
+      // check if it ends in quote but it is already escaped
+      if (value.endsWith("\\\""))
+        s"$tripleQuote$nlOrNot$valueEscaped$nlOrNot$tripleQuote"
+      // check if it ends in quote. We need to break the sequence of 4 or more '"'
+      else if (value.last == '"') {
+        s"$tripleQuote$nlOrNot$valueEscaped$nlOrSp$tripleQuote"
+      } else {
+        // ok. No quotes at the end of value
+        s"$tripleQuote$nlOrNot$valueEscaped$nlOrNot$tripleQuote"
+      }
+    }
+    description match {
+      case None                                   => ""
+      case Some(value) if value.exists(_ == '\n') =>
+        s"${renderTripleQuotedString(s"$value")}$nlOrSp"
+      case Some(value)                            => s"${renderString(value)}$nlOrSp"
+    }
   }
 
   private def renderSpecifiedBy(specifiedBy: Option[String]): String =
@@ -221,9 +244,6 @@ object Rendering {
       case _                   => s"${fieldType.name.getOrElse("null")}"
     }
   }
-
-  private def renderTripleQuotedString(value: String) =
-    "\"\"\"" + value.replace("\"\"\"", "\\\"\"\"") + "\"\"\""
 
   private def renderString(value: String) =
     "\"" + value

@@ -747,12 +747,14 @@ object Client {
           )
         }
       },
-      test("safe names with leading and tailing _") {
+      test("safe names with underscores") {
         val schema =
           """
              type Character {
+               _: Boolean # Fake field because GraphQL does not support empty objects
                _name_: String
                _nickname: String
+               age_: Int
              }
             """.stripMargin
 
@@ -766,10 +768,14 @@ object Client {
 
   type Character
   object Character {
+    def _$ : SelectionBuilder[Character, scala.Option[Boolean]]      =
+      _root_.caliban.client.SelectionBuilder.Field("_", OptionOf(Scalar()))
     def `_name_` : SelectionBuilder[Character, scala.Option[String]] =
       _root_.caliban.client.SelectionBuilder.Field("_name_", OptionOf(Scalar()))
     def _nickname: SelectionBuilder[Character, scala.Option[String]] =
       _root_.caliban.client.SelectionBuilder.Field("_nickname", OptionOf(Scalar()))
+    def `age_` : SelectionBuilder[Character, scala.Option[Int]]      =
+      _root_.caliban.client.SelectionBuilder.Field("age_", OptionOf(Scalar()))
   }
 
 }
