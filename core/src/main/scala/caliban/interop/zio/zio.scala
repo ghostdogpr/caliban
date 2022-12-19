@@ -231,26 +231,6 @@ private[caliban] object ValueZIOJson {
   import zio.json._
   import zio.json.internal.{ Lexer, RetractReader, Write }
 
-  val valueEncoder: JsonEncoder[Value] = (a: Value, indent: Option[Int], out: Write) =>
-    a match {
-      case Value.NullValue     => Null.encoder.unsafeEncode(NullValue, indent, out)
-      case v: IntValue         =>
-        v match {
-          case IntValue.IntNumber(value)    => JsonEncoder.int.unsafeEncode(value, indent, out)
-          case IntValue.LongNumber(value)   => JsonEncoder.long.unsafeEncode(value, indent, out)
-          case IntValue.BigIntNumber(value) => JsonEncoder.bigInteger.unsafeEncode(value.bigInteger, indent, out)
-        }
-      case v: FloatValue       =>
-        v match {
-          case FloatValue.FloatNumber(value)      => JsonEncoder.float.unsafeEncode(value, indent, out)
-          case FloatValue.DoubleNumber(value)     => JsonEncoder.double.unsafeEncode(value, indent, out)
-          case FloatValue.BigDecimalNumber(value) => JsonEncoder.bigDecimal.unsafeEncode(value.bigDecimal, indent, out)
-        }
-      case StringValue(value)  => JsonEncoder.string.unsafeEncode(value, indent, out)
-      case BooleanValue(value) => JsonEncoder.boolean.unsafeEncode(value, indent, out)
-      case EnumValue(value)    => JsonEncoder.string.unsafeEncode(value, indent, out)
-    }
-
   object Null {
     private[this] val nullChars: Array[Char]          = "null".toCharArray
     val encoder: JsonEncoder[NullValue.type]          = (a: NullValue.type, indent: Option[Int], out: Write) => out.write("null")
@@ -333,11 +313,20 @@ private[caliban] object ValueZIOJson {
 
   val inputValueEncoder: JsonEncoder[InputValue] = (a: InputValue, indent: Option[Int], out: Write) =>
     a match {
-      case value: Value                   => valueEncoder.unsafeEncode(value, indent, out)
-      case InputValue.ListValue(values)   => JsonEncoder.list(inputValueEncoder).unsafeEncode(values, indent, out)
-      case InputValue.ObjectValue(fields) =>
+      case Value.NullValue                    => Null.encoder.unsafeEncode(NullValue, indent, out)
+      case IntValue.IntNumber(value)          => JsonEncoder.int.unsafeEncode(value, indent, out)
+      case IntValue.LongNumber(value)         => JsonEncoder.long.unsafeEncode(value, indent, out)
+      case IntValue.BigIntNumber(value)       => JsonEncoder.bigInteger.unsafeEncode(value.bigInteger, indent, out)
+      case FloatValue.FloatNumber(value)      => JsonEncoder.float.unsafeEncode(value, indent, out)
+      case FloatValue.DoubleNumber(value)     => JsonEncoder.double.unsafeEncode(value, indent, out)
+      case FloatValue.BigDecimalNumber(value) => JsonEncoder.bigDecimal.unsafeEncode(value.bigDecimal, indent, out)
+      case StringValue(value)                 => JsonEncoder.string.unsafeEncode(value, indent, out)
+      case BooleanValue(value)                => JsonEncoder.boolean.unsafeEncode(value, indent, out)
+      case EnumValue(value)                   => JsonEncoder.string.unsafeEncode(value, indent, out)
+      case InputValue.ListValue(values)       => JsonEncoder.list(inputValueEncoder).unsafeEncode(values, indent, out)
+      case InputValue.ObjectValue(fields)     =>
         JsonEncoder.map(JsonFieldEncoder.string, inputValueEncoder).unsafeEncode(fields, indent, out)
-      case InputValue.VariableValue(name) => JsonEncoder.string.unsafeEncode(name, indent, out)
+      case InputValue.VariableValue(name)     => JsonEncoder.string.unsafeEncode(name, indent, out)
     }
 
   val responseValueDecoder: JsonDecoder[ResponseValue] = (trace: List[JsonDecoder.JsonError], in: RetractReader) => {
@@ -360,10 +349,19 @@ private[caliban] object ValueZIOJson {
   implicit val responseValueEncoder: JsonEncoder[ResponseValue] =
     (a: ResponseValue, indent: Option[Int], out: Write) =>
       a match {
-        case value: Value                      => valueEncoder.unsafeEncode(value, indent, out)
-        case ResponseValue.ListValue(values)   => Arr.responseEncoder.unsafeEncode(values, indent, out)
-        case ResponseValue.ObjectValue(fields) => Obj.responseEncoder.unsafeEncode(fields, indent, out)
-        case s: ResponseValue.StreamValue      => JsonEncoder.string.unsafeEncode(s.toString, indent, out)
+        case Value.NullValue                    => Null.encoder.unsafeEncode(NullValue, indent, out)
+        case IntValue.IntNumber(value)          => JsonEncoder.int.unsafeEncode(value, indent, out)
+        case IntValue.LongNumber(value)         => JsonEncoder.long.unsafeEncode(value, indent, out)
+        case IntValue.BigIntNumber(value)       => JsonEncoder.bigInteger.unsafeEncode(value.bigInteger, indent, out)
+        case FloatValue.FloatNumber(value)      => JsonEncoder.float.unsafeEncode(value, indent, out)
+        case FloatValue.DoubleNumber(value)     => JsonEncoder.double.unsafeEncode(value, indent, out)
+        case FloatValue.BigDecimalNumber(value) => JsonEncoder.bigDecimal.unsafeEncode(value.bigDecimal, indent, out)
+        case StringValue(value)                 => JsonEncoder.string.unsafeEncode(value, indent, out)
+        case BooleanValue(value)                => JsonEncoder.boolean.unsafeEncode(value, indent, out)
+        case EnumValue(value)                   => JsonEncoder.string.unsafeEncode(value, indent, out)
+        case ResponseValue.ListValue(values)    => Arr.responseEncoder.unsafeEncode(values, indent, out)
+        case ResponseValue.ObjectValue(fields)  => Obj.responseEncoder.unsafeEncode(fields, indent, out)
+        case s: ResponseValue.StreamValue       => JsonEncoder.string.unsafeEncode(s.toString, indent, out)
       }
 
 }
