@@ -11,6 +11,7 @@ val catsEffect3Version        = "3.4.2"
 val catsMtlVersion            = "1.2.1"
 val circeVersion              = "0.14.3"
 val http4sVersion             = "0.23.16"
+val jsoniterVersion           = "2.19.0"
 val laminextVersion           = "0.14.4"
 val magnoliaVersion           = "0.17.0"
 val mercatorVersion           = "0.2.1"
@@ -129,15 +130,17 @@ lazy val core = project
       }
     } ++
       Seq(
-        "dev.zio"                     %% "zio"          % zioVersion,
-        "dev.zio"                     %% "zio-streams"  % zioVersion,
-        "dev.zio"                     %% "zio-query"    % zqueryVersion,
-        "dev.zio"                     %% "zio-test"     % zioVersion     % Test,
-        "dev.zio"                     %% "zio-test-sbt" % zioVersion     % Test,
-        "dev.zio"                     %% "zio-json"     % zioJsonVersion % Optional,
-        "com.softwaremill.sttp.tapir" %% "tapir-core"   % tapirVersion   % Optional,
-        "io.circe"                    %% "circe-core"   % circeVersion   % Optional,
-        "io.circe"                    %% "circe-parser" % circeVersion   % Test
+        "dev.zio"                               %% "zio"                   % zioVersion,
+        "dev.zio"                               %% "zio-streams"           % zioVersion,
+        "dev.zio"                               %% "zio-query"             % zqueryVersion,
+        "dev.zio"                               %% "zio-test"              % zioVersion      % Test,
+        "dev.zio"                               %% "zio-test-sbt"          % zioVersion      % Test,
+        "dev.zio"                               %% "zio-json"              % zioJsonVersion  % Optional,
+        "com.softwaremill.sttp.tapir"           %% "tapir-core"            % tapirVersion    % Optional,
+        "io.circe"                              %% "circe-core"            % circeVersion    % Optional,
+        "io.circe"                              %% "circe-parser"          % circeVersion    % Test,
+        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"   % jsoniterVersion % Optional,
+        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % Provided
       )
   )
   .dependsOn(macros)
@@ -407,14 +410,16 @@ lazy val examples = project
     crossScalaVersions -= scala3,
     libraryDependencySchemes += "org.scala-lang.modules" %% "scala-java8-compat" % "always",
     libraryDependencies ++= Seq(
-      "org.typelevel"                 %% "cats-mtl"                      % catsMtlVersion,
-      "org.http4s"                    %% "http4s-ember-server"           % http4sVersion,
-      "org.http4s"                    %% "http4s-dsl"                    % http4sVersion,
-      "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
-      "io.circe"                      %% "circe-generic"                 % circeVersion,
-      "io.d11"                        %% "zhttp"                         % zioHttpVersion,
-      "com.typesafe.play"             %% "play-akka-http-server"         % playVersion,
-      "com.typesafe.akka"             %% "akka-actor-typed"              % akkaVersion
+      "org.typelevel"                         %% "cats-mtl"                      % catsMtlVersion,
+      "org.http4s"                            %% "http4s-ember-server"           % http4sVersion,
+      "org.http4s"                            %% "http4s-dsl"                    % http4sVersion,
+      "com.softwaremill.sttp.client3"         %% "async-http-client-backend-zio" % sttpVersion,
+      "io.circe"                              %% "circe-generic"                 % circeVersion,
+      "io.d11"                                %% "zhttp"                         % zioHttpVersion,
+      "com.typesafe.play"                     %% "play-akka-http-server"         % playVersion,
+      "com.typesafe.akka"                     %% "akka-actor-typed"              % akkaVersion,
+      "com.softwaremill.sttp.tapir"           %% "tapir-jsoniter-scala"          % tapirVersion,
+      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"         % jsoniterVersion % Provided
     )
   )
   .dependsOn(
@@ -453,8 +458,11 @@ lazy val benchmarks = project
   .enablePlugins(JmhPlugin)
   .settings(
     libraryDependencies ++= Seq(
-      "org.sangria-graphql" %% "sangria"       % "3.4.1",
-      "org.sangria-graphql" %% "sangria-circe" % "1.3.2"
+      "org.sangria-graphql"                   %% "sangria"             % "3.4.1",
+      "org.sangria-graphql"                   %% "sangria-circe"       % "1.3.2",
+      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core" % jsoniterVersion,
+      "io.circe"                              %% "circe-parser"        % circeVersion,
+      "dev.zio"                               %% "zio-json"            % zioJsonVersion
     )
   )
 

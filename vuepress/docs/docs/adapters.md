@@ -55,6 +55,12 @@ That's it! `http4sRoute` is a valid http4s route ready to serve our API.
 ::: tip Limitations
 The zio-http interpreter in tapir does not include multipart and websocket support.
 
-Caliban comes with json encoders and decoders for circe, zio-json and play-json.
+Caliban comes with json encoders and decoders for circe, zio-json, jsoniter and play-json.
 If you use another json library, you will need to create encoders and decoders for it (which is very simple, you can simply look at the existing ones).
+
+::: warning
+The jsoniter codec implementation has a maximum recursion depth limit of 512.
+
+If your schema contains recursive types and want to use the jsoniter parser, make sure to also limit the maximum query depth using 
+the [maxDepth wrapper](middleware.md#pre-defined-wrappers).
 :::

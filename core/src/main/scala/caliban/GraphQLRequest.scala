@@ -3,6 +3,7 @@ package caliban
 import caliban.GraphQLRequest.{ `apollo-federation-include-trace`, ftv1 }
 import caliban.Value.StringValue
 import caliban.interop.circe.{ IsCirceDecoder, IsCirceEncoder }
+import caliban.interop.jsoniter.IsJsoniterCodec
 import caliban.interop.tapir.IsTapirSchema
 import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
 
@@ -35,6 +36,8 @@ object GraphQLRequest extends GraphQLRequestJsonCompat {
     caliban.interop.zio.GraphQLRequestZioJson.graphQLRequestEncoder.asInstanceOf[F[GraphQLRequest]]
   implicit def tapirSchema[F[_]: IsTapirSchema]: F[GraphQLRequest]       =
     caliban.interop.tapir.schema.requestSchema.asInstanceOf[F[GraphQLRequest]]
+  implicit def jsoniterCodec[F[_]: IsJsoniterCodec]: F[GraphQLRequest]   =
+    caliban.interop.jsoniter.GraphQLRequestJsoniter.graphQLRequestCodec.asInstanceOf[F[GraphQLRequest]]
 
   private[caliban] val ftv1                              = "ftv1"
   private[caliban] val `apollo-federation-include-trace` = "apollo-federation-include-trace"

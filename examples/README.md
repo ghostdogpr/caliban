@@ -21,7 +21,8 @@ libraryDependencies ++= Seq(
   "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % "3.3.18",
   "io.circe"                      %% "circe-generic"                 % "0.14.1",
   "com.typesafe.play"             %% "play-akka-http-server"         % "2.8.14",
-  "com.typesafe.akka"             %% "akka-actor-typed"              % "2.6.18"
+  "com.typesafe.akka"             %% "akka-actor-typed"              % "2.6.18",
+  "com.softwaremill.sttp.tapir"   %% "tapir-jsoniter-scala"          % "1.2.2"
 )
 ```
 
