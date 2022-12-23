@@ -76,7 +76,7 @@ object ZHttpAdapter {
                          inputCodec.decode(text) match {
                            case DecodeResult.Value(v)    => Right(v)
                            case DecodeResult.Error(_, e) => Left(e)
-                           case _                        => Left(new Throwable("failed to decode input"))
+                           case f: DecodeResult.Failure  => Left(new Throwable(s"failed to decode input: ${f.toString}"))
                          }
                        }.flatMap(queue.offer)
                    }

@@ -37,7 +37,7 @@ dependency in their project and import the implicits in scope when calling the `
 - circe
   - `"com.softwaremill.sttp.tapir" %% "tapir-json-circe" % <version>`
   - `import sttp.tapir.json.circe._`
-- jsoniter-scala
+- jsoniter-scala (Requires JDK 11+)
   - `"com.softwaremill.sttp.tapir" %% "tapir-jsoniter-scala" % <version>`
   - `import sttp.tapir.json.jsoniter._`
 - play-json

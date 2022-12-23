@@ -4,10 +4,13 @@ import caliban.interop.tapir.TestData.sampleCharacters
 import caliban.interop.tapir.{ FakeAuthorizationInterceptor, TapirAdapterSpec, TestApi, TestService }
 import caliban.uploads.Uploads
 import com.comcast.ip4s._
+import com.github.plokhotnyuk.jsoniter_scala.core._
+import com.github.plokhotnyuk.jsoniter_scala.macros._
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.server.Router
 import org.http4s.server.middleware.CORS
 import sttp.client3.UriContext
+import sttp.tapir.Codec.JsonCodec
 import zio._
 import zio.interop.catz._
 import zio.test.{ Live, ZIOSpecDefault }
@@ -15,14 +18,19 @@ import zio.test.{ Live, ZIOSpecDefault }
 import scala.language.postfixOps
 
 object Http4sAdapterSpec extends ZIOSpecDefault {
-  import sttp.tapir.json.circe._
 
   type Env         = TestService with Uploads
   type TestTask[A] = RIO[Env, A]
 
   private val envLayer = TestService.make(sampleCharacters) ++ Uploads.empty
 
-  private val apiLayer = envLayer >>> ZLayer.scoped {
+  private def apiLayer(implicit
+    requestCodec: JsonCodec[GraphQLRequest],
+    mapCodec: JsonCodec[Map[String, Seq[String]]],
+    responseCodec: JsonCodec[GraphQLResponse[CalibanError]],
+    wsInputCodec: JsonCodec[GraphQLWSInput],
+    wsOutputCodec: JsonCodec[GraphQLWSOutput]
+  ) = envLayer >>> ZLayer.scoped {
     for {
       interpreter <- TestApi.api.interpreter
       _           <- EmberServerBuilder
@@ -51,13 +59,34 @@ object Http4sAdapterSpec extends ZIOSpecDefault {
     } yield service
   }
 
-  override def spec = {
-    val suite = TapirAdapterSpec.makeSuite(
-      "Http4sAdapterSpec",
-      uri"http://localhost:8087/api/graphql",
-      uploadUri = Some(uri"http://localhost:8087/upload/graphql"),
-      wsUri = Some(uri"ws://localhost:8087/ws/graphql")
-    )
-    suite.provideLayerShared(apiLayer)
+  override def spec = suite("Http4sAdapterSpec") {
+    val suites =
+      List(
+        Some({
+          import sttp.tapir.json.circe._
+          TapirAdapterSpec
+            .makeSuite(
+              "circe codec",
+              uri"http://localhost:8087/api/graphql",
+              uploadUri = Some(uri"http://localhost:8087/upload/graphql"),
+              wsUri = Some(uri"ws://localhost:8087/ws/graphql")
+            )
+            .provideLayerShared(apiLayer)
+        }),
+        Some({
+          import sttp.tapir.json.jsoniter._
+          implicit val mapCodec: JsonValueCodec[Map[String, Seq[String]]] = JsonCodecMaker.make
+
+          TapirAdapterSpec
+            .makeSuite(
+              "jsoniter codec",
+              uri"http://localhost:8087/api/graphql",
+              uploadUri = Some(uri"http://localhost:8087/upload/graphql"),
+              wsUri = Some(uri"ws://localhost:8087/ws/graphql")
+            )
+            .provideLayerShared(apiLayer) @@ TestUtils.skipJdk8
+        })
+      )
+    ZIO.succeed(suites.flatten)
   }
 }

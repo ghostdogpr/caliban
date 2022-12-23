@@ -7,17 +7,14 @@ import akka.stream.Materializer
 import caliban.interop.tapir.TestData.sampleCharacters
 import caliban.interop.tapir.{ FakeAuthorizationInterceptor, TapirAdapterSpec, TestApi, TestService }
 import caliban.uploads.Uploads
-import com.github.plokhotnyuk.jsoniter_scala.core._
-import com.github.plokhotnyuk.jsoniter_scala.macros._
 import sttp.client3.UriContext
-import sttp.tapir.json.jsoniter._
+import sttp.tapir.json.play._
 import zio._
 import zio.test._
 
 import scala.language.postfixOps
 
 object AkkaHttpAdapterSpec extends ZIOSpecDefault {
-  implicit val mapCodec: JsonValueCodec[Map[String, Seq[String]]] = JsonCodecMaker.make
 
   private val envLayer = TestService.make(sampleCharacters) ++ Uploads.empty
 
