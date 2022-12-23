@@ -258,7 +258,6 @@ lazy val tapirInterop = project
         "com.softwaremill.sttp.tapir"   %% "tapir-core"                    % tapirVersion,
         "com.softwaremill.sttp.tapir"   %% "tapir-zio"                     % tapirVersion,
         "com.softwaremill.sttp.tapir"   %% "tapir-sttp-client"             % tapirVersion % Test,
-        "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % tapirVersion % Test,
         "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion  % Test,
         "dev.zio"                       %% "zio-test"                      % zioVersion   % Test,
         "dev.zio"                       %% "zio-test-sbt"                  % zioVersion   % Test
@@ -300,7 +299,8 @@ lazy val zioHttp = project
     libraryDependencies ++= Seq(
       "io.d11"                      %% "zhttp"                 % zioHttpVersion,
       "com.softwaremill.sttp.tapir" %% "tapir-zio-http-server" % tapirVersion,
-      "com.softwaremill.sttp.tapir" %% "tapir-json-circe"      % tapirVersion % Test
+      "dev.zio"                     %% "zio-json"              % zioJsonVersion % Test,
+      "com.softwaremill.sttp.tapir" %% "tapir-json-zio"        % tapirVersion   % Test
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
@@ -313,10 +313,12 @@ lazy val akkaHttp = project
     crossScalaVersions -= scala3,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "com.typesafe.akka"             %% "akka-http"                  % "10.2.10",
-      "com.typesafe.akka"             %% "akka-serialization-jackson" % akkaVersion,
-      "com.softwaremill.sttp.tapir"   %% "tapir-akka-http-server"     % tapirVersion,
-      compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.2").cross(CrossVersion.full))
+      "com.typesafe.akka"                     %% "akka-http"                  % "10.2.10",
+      "com.typesafe.akka"                     %% "akka-serialization-jackson" % akkaVersion,
+      "com.softwaremill.sttp.tapir"           %% "tapir-akka-http-server"     % tapirVersion,
+      "com.softwaremill.sttp.tapir"           %% "tapir-jsoniter-scala"       % tapirVersion    % Test,
+      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"      % jsoniterVersion % Test,
+      compilerPlugin(("org.typelevel"         %% "kind-projector"             % "0.13.2").cross(CrossVersion.full))
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
@@ -503,6 +505,7 @@ lazy val docs = project
     libraryDependencies ++= Seq(
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
       "io.circe"                      %% "circe-generic"                 % circeVersion,
+      "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % tapirVersion,
       "org.typelevel"                 %% "cats-mtl"                      % catsMtlVersion
     )
   )

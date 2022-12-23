@@ -99,7 +99,7 @@ object json {
 
     private def jsonToResponseValue(json: JsValue): ResponseValue =
       json match {
-        case JsObject(fields)  => responseObjectValueFromFields(fields)
+        case obj: JsObject     => responseObjectValueFromFields(obj.fields.toList)
         case JsArray(elements) => ResponseValue.ListValue(elements.toList.map(jsonToResponseValue))
         case JsString(value)   => StringValue(value)
         case JsNumber(value)   =>
@@ -111,15 +111,15 @@ object json {
         case JsNull       => NullValue
       }
 
-    def responseObjectValueFromFields(fields: scala.collection.Map[String, JsValue]): ResponseValue.ObjectValue =
+    def responseObjectValueFromFields(fields: List[(String, JsValue)]): ResponseValue.ObjectValue =
       ResponseValue.ObjectValue(fields.map { case (k, v) =>
         k -> jsonToResponseValue(v)
-      }.toList)
+      })
 
     val responseObjectValueReads: Reads[ResponseValue.ObjectValue] =
       Reads {
-        case JsObject(fields) => JsSuccess(responseObjectValueFromFields(fields))
-        case _                => JsError("not a json object")
+        case obj: JsObject => JsSuccess(responseObjectValueFromFields(obj.fields.toList))
+        case _             => JsError("not a json object")
       }
 
     val responseValueReads: Reads[ResponseValue] =
@@ -189,7 +189,7 @@ object json {
         .read[ResponseValue]
         .and(
           (JsPath \ "errors")
-            .read[List[CalibanError]]
+            .readWithDefault[List[CalibanError]](Nil)
         )
         .tupled
         .map { case (data, errors) =>

@@ -406,16 +406,22 @@ private[caliban] object GraphQLResponseZioJson {
     (a: GraphQLResponse[Any], indent: Option[Int], out: Write) =>
       ValueZIOJson.responseValueEncoder.unsafeEncode(a.toResponseValue, indent, out)
 
-  case class GQLResponse(data: ResponseValue, errors: List[CalibanError])
+  case class GQLResponse(data: ResponseValue, errors: Option[List[CalibanError]])
   object GQLResponse {
     implicit val errorValueDecoder: JsonDecoder[CalibanError] = ErrorZioJson.errorValueDecoder
     implicit val decoder: JsonDecoder[GQLResponse]            = DeriveJsonDecoder.gen[GQLResponse]
   }
 
-  implicit val errorValueDecoder: JsonDecoder[CalibanError]                 = ErrorZioJson.errorValueDecoder
-  implicit val responseValueDecoder: JsonDecoder[ResponseValue.ObjectValue] = ValueZIOJson.Obj.responseDecoder
-  val graphQLResponseDecoder: JsonDecoder[GraphQLResponse[CalibanError]]    =
-    DeriveJsonDecoder.gen[GraphQLResponse[CalibanError]]
+  implicit val errorValueDecoder: JsonDecoder[CalibanError]                       = ErrorZioJson.errorValueDecoder
+  implicit val responseValueDecoder: JsonDecoder[ResponseValue.ObjectValue]       = ValueZIOJson.Obj.responseDecoder
+  implicit val graphQLResponseDecoder: JsonDecoder[GraphQLResponse[CalibanError]] =
+    GQLResponse.decoder.map { resp =>
+      GraphQLResponse[CalibanError](
+        data = resp.data,
+        errors = resp.errors.getOrElse(Nil),
+        extensions = None
+      )
+    }
 }
 
 private[caliban] object GraphQLRequestZioJson {
