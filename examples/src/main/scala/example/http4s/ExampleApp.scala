@@ -15,6 +15,7 @@ import zio._
 import zio.interop.catz._
 
 object ExampleApp extends ZIOAppDefault {
+  import sttp.tapir.json.circe._
 
   type ExampleTask[A] = RIO[ExampleService, A]
 

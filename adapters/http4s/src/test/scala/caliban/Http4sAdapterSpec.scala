@@ -15,6 +15,7 @@ import zio.test.{ Live, ZIOSpecDefault }
 import scala.language.postfixOps
 
 object Http4sAdapterSpec extends ZIOSpecDefault {
+  import sttp.tapir.json.circe._
 
   type Env         = TestService with Uploads
   type TestTask[A] = RIO[Env, A]

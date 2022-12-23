@@ -88,6 +88,7 @@ object AuthExampleAppF extends IOApp.Simple {
   }
 
   class Api[F[_]: Async: AuthLocal](implicit interop: CatsInterop[F, AuthInfo]) extends Http4sDsl[F] {
+    import sttp.tapir.json.circe._
 
     def httpApp(graphQL: GraphQL[AuthInfo]): F[HttpApp[F]] =
       for {

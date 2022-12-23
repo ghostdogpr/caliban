@@ -19,48 +19,77 @@ Each of these functions also support a few parameters:
 - `webSocketHooks` (default: empty) gives you some hooks around the WebSocket lifecycle (useful for authentication)
 
 The following adapters are provided:
-- `Http4sAdapter` exposes a route for http4s, using circe for the Json handling.
-- `ZHttpAdapter` exposes a route for zio-http, using circe for the Json handling. This one doesn't support upload yet.
-- `PlayHttpAdapter` exposes a route for play, using play-json for the Json handling.
-- `AkkaHttpAdapter` exposes a route for akka. For historical reasons, this adapter is not fixed to any Json library, which means that you need depend on one of the tapir Json libraries and import it.
+- `Http4sAdapter` exposes a route for http4s.
+- `ZHttpAdapter` exposes a route for zio-http. This one doesn't support uploads yet.
+- `PlayHttpAdapter` exposes a route for play.
+- `AkkaHttpAdapter` exposes a route for akka.
 
-Want to use something else? Want to use one of them with a different Json library? Check the next section!
+Want to use something else? Check [make your own adapter section](#make-your-own-adapter)!
 
 Make sure to check the [examples](examples.md) to see the adapters in action.
+
+## Json handling
+
+Caliban comes with json encoders and decoders for circe, zio-json, jsoniter-scala and play-json.
+Since v2.1.0, the adapters are not bound to a specific JSON handler and require the user to add the corresponding
+dependency in their project and import the implicits in scope when calling the `makeHttpService` / `makeHttpUploadService` / `makeWebSocketService` methods.
+
+- circe
+  - `"com.softwaremill.sttp.tapir" %% "tapir-json-circe" % <version>`
+  - `import sttp.tapir.json.circe._`
+- jsoniter-scala
+  - `"com.softwaremill.sttp.tapir" %% "tapir-jsoniter-scala" % <version>`
+  - `import sttp.tapir.json.jsoniter._`
+- play-json
+  - `"com.softwaremill.sttp.tapir" %% "tapir-json-play" % <version>`
+  - `import sttp.tapir.json.play._`
+- zio-json
+    - `"com.softwaremill.sttp.tapir" %% "tapir-json-zio" % <version>`
+    - `import sttp.tapir.json.zio._`
+
+Let's say we want to use `http4s` as the server implementation with `zio-json` as the json handler. Defining the http4s route is as simple as:
+
+```scala
+val http4sRoute = {
+  import sttp.tapir.json.zio._
+  Http4sAdapter.makeHttpService(interpreter)
+}
+```
+
+That's it! `http4sRoute` is a valid http4s route ready to serve our API.
+
+If you use another json library, you will need to create encoders and decoders for it (which is very simple, you can simply look at the existing ones).
+The full list of JSON libraries supported by Tapir can be found [here](https://tapir.softwaremill.com/en/latest/endpoint/json.html)
+
+:::tip Known issues (jsoniter-scala)
+The `makeHttpUploadService` methods require an implicit of `JsonCodec[Map[String,Seq[String]]]` in scope. Jsoniter does not provide
+codecs for common types by default, which means the user needs to create one. To do so, add the `jsoniter-scala-macros` dependency to your project and create one as:
+
+```scala
+import sttp.tapir.json.jsoniter._
+import com.github.plokhotnyuk.jsoniter_scala.core._
+import com.github.plokhotnyuk.jsoniter_scala.macros._
+
+val http4sRoute = {
+  import sttp.tapir.json.jsoniter._
+  implicit val codec: JsonValueCodec[Map[String, Seq[String]]] = JsonCodecMaker.make
+
+  Http4sAdapter.makeHttpUploadService(interpreter)
+}
+```
+
+::: warning
+To maximize performance, the **jsoniter** codec implementation is stack-recursive. To prevent stack overflow errors, it has a maximum depth limit of 512.
+
+If your schema contains recursive types and want to use the jsoniter codecs, make sure to also limit the maximum query depth using
+the [maxDepth wrapper](middleware.md#pre-defined-wrappers).
+:::
 
 ## Make your own adapter
 
 All existing adapters are actually using a common adapter under the hood, called `TapirAdapter`.
 
-This adapter, available in the `caliban-tapir` dependency, also have the same 3 methods `makeHttpService`, `makeHttpUploadService` and `makeWebSocketService`.
-There are 2 main differences between these and the methods from the built-in adapters:
-- they return one or several tapir `ServerEndpoint`, which you can then pass to a tapir interpreter. The returned `ServerEndpoint` use `RIO[R, *]` as an effect type, but you can easily transform it to another effect type. A helper `convertHttpEndpointToFuture` allows converting the effect type to a scala `Future` (this is used in the Akka and Play interpreters).
-- they require some implicit `JsonCodec`, which you can get by importing the proper tapir json object
+This adapter, available in the `caliban-tapir` dependency which has the same 3 methods `makeHttpService`, `makeHttpUploadService` and `makeWebSocketService`.
 
-Let's say we want to use http4s but with play-json instead of circe. The built-in `Http4sAdapter` uses circe so instead, we will directly use `TapirAdapter`.
-First, we need to import 2 tapir dependencies in our project (in addition to `caliban-tapir`):
-- a tapir interpreter for http4s: `tapir-zio-http4s-server`
-- a tapir json codec for play-json: `tapir-json-play`
-
-```scala
-import sttp.tapir.json.play._
-import sttp.tapir.server.http4s.ztapir.ZHttp4sServerInterpreter
-
-val endpoints   = TapirAdapter.makeHttpService(interpreter)
-val http4sRoute = ZHttp4sServerInterpreter().from(endpoints).toRoutes
-```
-
-That's it! `http4sRoute` is a valid http4s route ready to serve our API.
-
-::: tip Limitations
-The zio-http interpreter in tapir does not include multipart and websocket support.
-
-Caliban comes with json encoders and decoders for circe, zio-json, jsoniter and play-json.
-If you use another json library, you will need to create encoders and decoders for it (which is very simple, you can simply look at the existing ones).
-
-::: warning
-The jsoniter codec implementation has a maximum recursion depth limit of 512.
-
-If your schema contains recursive types and want to use the jsoniter parser, make sure to also limit the maximum query depth using 
-the [maxDepth wrapper](middleware.md#pre-defined-wrappers).
-:::
+The main differences between these and the methods from the built-in adapters is that they return one or several tapir `ServerEndpoint`,
+which you can then pass to a tapir interpreter. The returned `ServerEndpoint` use `RIO[R, *]` as an effect type, but you can easily transform it to another effect type. A helper `convertHttpEndpointToFuture` allows converting the effect type to a scala `Future` (this is used in the Akka and Play interpreters).

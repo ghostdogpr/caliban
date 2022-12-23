@@ -17,6 +17,7 @@ import org.http4s.server.middleware.CORS
 import zio.{ Runtime, Unsafe }
 
 object ExampleAppF extends IOApp {
+  import sttp.tapir.json.circe._
 
   type MyEnv = ExampleService
 

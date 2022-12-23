@@ -102,6 +102,8 @@ import zhttp.service.Server
 import caliban.ZHttpAdapter
 
 object ExampleApp extends ZIOAppDefault {
+  import sttp.tapir.json.circe._
+
   private val graphiql = Http.fromStream(ZStream.fromResource("graphiql.html"))
 
   override def run =
