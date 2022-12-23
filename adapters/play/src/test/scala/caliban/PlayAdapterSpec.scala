@@ -32,7 +32,12 @@ object PlayAdapterSpec extends ZIOSpecDefault {
       router       = Router.from {
                        case req @ POST(p"/api/graphql")    =>
                          PlayAdapter
-                           .makeHttpService(interpreter, requestInterceptor = interceptor)(runtime, mat, implicitly, implicitly)
+                           .makeHttpService(interpreter, requestInterceptor = interceptor)(
+                             runtime,
+                             mat,
+                             implicitly,
+                             implicitly
+                           )
                            .apply(req)
                        case req @ POST(p"/upload/graphql") =>
                          PlayAdapter
