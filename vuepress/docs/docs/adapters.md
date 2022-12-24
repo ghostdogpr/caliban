@@ -30,22 +30,14 @@ Make sure to check the [examples](examples.md) to see the adapters in action.
 
 ## Json handling
 
-Caliban comes with json encoders and decoders for circe, zio-json, jsoniter-scala and play-json.
-Since v2.1.0, the adapters are not bound to a specific JSON handler and require the user to add the corresponding
-dependency in their project and import the implicits in scope when calling the `makeHttpService` / `makeHttpUploadService` / `makeWebSocketService` methods.
+Caliban comes with JSON encoders and decoders for the following libraries:
 
 - circe
-  - `"com.softwaremill.sttp.tapir" %% "tapir-json-circe" % <version>`
-  - `import sttp.tapir.json.circe._`
-- jsoniter-scala (Requires JDK 11+)
-  - `"com.softwaremill.sttp.tapir" %% "tapir-jsoniter-scala" % <version>`
-  - `import sttp.tapir.json.jsoniter._`
+- jsoniter-scala (JDK 11+ only)
 - play-json
-  - `"com.softwaremill.sttp.tapir" %% "tapir-json-play" % <version>`
-  - `import sttp.tapir.json.play._`
 - zio-json
-    - `"com.softwaremill.sttp.tapir" %% "tapir-json-zio" % <version>`
-    - `import sttp.tapir.json.zio._`
+
+Since v2.1.0, the adapters are not bound to a specific JSON handler and require the user to add the [corresponding dependency](README.md#dependencies) in their project and import the implicits in scope when calling the `makeHttpService` / `makeHttpUploadService` / `makeWebSocketService` methods.
 
 Let's say we want to use `http4s` as the server implementation with `zio-json` as the json handler. Defining the http4s route is as simple as:
 
@@ -61,7 +53,7 @@ That's it! `http4sRoute` is a valid http4s route ready to serve our API.
 If you use another json library, you will need to create encoders and decoders for it (which is very simple, you can simply look at the existing ones).
 The full list of JSON libraries supported by Tapir can be found [here](https://tapir.softwaremill.com/en/latest/endpoint/json.html)
 
-:::tip Known issues (jsoniter-scala)
+:::tip Known issues: jsoniter-scala
 The `makeHttpUploadService` methods require an implicit of `JsonCodec[Map[String,Seq[String]]]` in scope. Jsoniter does not provide
 codecs for common types by default, which means the user needs to create one. To do so, add the `jsoniter-scala-macros` dependency to your project and create one as:
 
@@ -79,7 +71,7 @@ val http4sRoute = {
 ```
 
 ::: warning
-To maximize performance, the **jsoniter** codec implementation is stack-recursive. To prevent stack overflow errors, it has a maximum depth limit of 512.
+To maximize performance, the **jsoniter** codec implementation is stack-recursive. To prevent stack overflow errors, it has a **maximum depth limit of 512**.
 
 If your schema contains recursive types and want to use the jsoniter codecs, make sure to also limit the maximum query depth using
 the [maxDepth wrapper](middleware.md#pre-defined-wrappers).
