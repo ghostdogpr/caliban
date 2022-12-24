@@ -34,10 +34,10 @@ libraryDependencies += "com.github.ghostdogpr" %% "caliban-federation" % "2.0.1"
 Support for JSON encoding / decoding of the inputs and responses is enabled by adding **one** of the following dependencies to your `build.sbt` file:
 
 ```
-libraryDependencies += "com.softwaremill.sttp.tapir" %% "tapir-json-circe"     % "<tapir-version>" // Circe
-libraryDependencies += "com.softwaremill.sttp.tapir" %% "tapir-jsoniter-scala" % "<tapir-version>" // Jsoniter
-libraryDependencies += "com.softwaremill.sttp.tapir" %% "tapir-json-play"      % "<tapir-version>" // Play JSON
-libraryDependencies += "com.softwaremill.sttp.tapir" %% "tapir-json-zio"       % "<tapir-version>" // ZIO JSON
+libraryDependencies += "com.softwaremill.sttp.tapir" %% "tapir-json-circe"     % "1.2.2" // Circe
+libraryDependencies += "com.softwaremill.sttp.tapir" %% "tapir-jsoniter-scala" % "1.2.2" // Jsoniter
+libraryDependencies += "com.softwaremill.sttp.tapir" %% "tapir-json-play"      % "1.2.2" // Play JSON
+libraryDependencies += "com.softwaremill.sttp.tapir" %% "tapir-json-zio"       % "1.2.2" // ZIO JSON
 ```
 
 And then later in your code (you only need one!):
