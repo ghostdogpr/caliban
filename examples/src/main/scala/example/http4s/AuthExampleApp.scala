@@ -13,6 +13,7 @@ import zio._
 import zio.interop.catz._
 
 object AuthExampleApp extends CatsApp {
+  import sttp.tapir.json.circe._
 
   // Simple service that returns the token coming from the request
   trait Auth {

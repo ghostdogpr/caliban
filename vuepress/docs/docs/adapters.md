@@ -61,6 +61,6 @@ If you use another json library, you will need to create encoders and decoders f
 ::: warning
 The jsoniter codec implementation has a maximum recursion depth limit of 512.
 
-If your schema contains recursive types and want to use the jsoniter parser, make sure to also limit the maximum query depth using 
+If your schema contains recursive types and want to use the jsoniter parser, make sure to also limit the maximum query depth using
 the [maxDepth wrapper](middleware.md#pre-defined-wrappers).
 :::

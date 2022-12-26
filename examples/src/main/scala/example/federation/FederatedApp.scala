@@ -15,6 +15,8 @@ import zio._
 import zio.interop.catz._
 
 object FederatedApp extends CatsApp {
+  import sttp.tapir.json.circe._
+
   type ExampleTask[A] = RIO[Any, A]
 
   val service1 =

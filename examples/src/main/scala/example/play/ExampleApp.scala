@@ -10,11 +10,11 @@ import play.api.Mode
 import play.api.routing._
 import play.api.routing.sird._
 import play.core.server.{ AkkaHttpServer, ServerConfig }
-import sttp.tapir.json.play._
 import zio.{ Runtime, Scope, ZIO, ZIOAppDefault }
 import scala.concurrent.ExecutionContextExecutor
 
 object ExampleApp extends ZIOAppDefault {
+  import sttp.tapir.json.play._
 
   override def run =
     (for {

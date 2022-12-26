@@ -8,7 +8,7 @@ import caliban.interop.tapir.TestData.sampleCharacters
 import caliban.interop.tapir.{ FakeAuthorizationInterceptor, TapirAdapterSpec, TestApi, TestService }
 import caliban.uploads.Uploads
 import sttp.client3.UriContext
-import sttp.tapir.json.circe._
+import sttp.tapir.json.play._
 import zio._
 import zio.test._
 

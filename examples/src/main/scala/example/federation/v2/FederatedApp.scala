@@ -8,6 +8,7 @@ import zhttp.service.Server
 import zio._
 
 object FederatedApp extends ZIOAppDefault {
+  import sttp.tapir.json.circe._
 
   val characterServer = for {
     interpreter <- FederatedApi.Characters.api.interpreter

@@ -258,7 +258,6 @@ lazy val tapirInterop = project
         "com.softwaremill.sttp.tapir"   %% "tapir-core"                    % tapirVersion,
         "com.softwaremill.sttp.tapir"   %% "tapir-zio"                     % tapirVersion,
         "com.softwaremill.sttp.tapir"   %% "tapir-sttp-client"             % tapirVersion % Test,
-        "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % tapirVersion % Test,
         "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion  % Test,
         "dev.zio"                       %% "zio-test"                      % zioVersion   % Test,
         "dev.zio"                       %% "zio-test-sbt"                  % zioVersion   % Test
@@ -277,19 +276,21 @@ lazy val http4s = project
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
     } ++
       Seq(
-        "dev.zio"                       %% "zio-interop-cats"              % zioInteropCats3Version,
-        "org.typelevel"                 %% "cats-effect"                   % catsEffect3Version,
-        "com.softwaremill.sttp.tapir"   %% "tapir-http4s-server-zio"       % tapirVersion,
-        "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % tapirVersion,
-        "org.http4s"                    %% "http4s-ember-server"           % http4sVersion % Test,
-        "dev.zio"                       %% "zio-test"                      % zioVersion    % Test,
-        "dev.zio"                       %% "zio-test-sbt"                  % zioVersion    % Test,
-        "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion   % Test,
-        "com.softwaremill.sttp.client3" %% "circe"                         % sttpVersion   % Test,
-        "io.circe"                      %% "circe-generic"                 % circeVersion  % Test
+        "dev.zio"                               %% "zio-interop-cats"              % zioInteropCats3Version,
+        "org.typelevel"                         %% "cats-effect"                   % catsEffect3Version,
+        "com.softwaremill.sttp.tapir"           %% "tapir-http4s-server-zio"       % tapirVersion,
+        "com.softwaremill.sttp.tapir"           %% "tapir-json-circe"              % tapirVersion    % Test,
+        "com.softwaremill.sttp.tapir"           %% "tapir-jsoniter-scala"          % tapirVersion    % Test,
+        "org.http4s"                            %% "http4s-ember-server"           % http4sVersion   % Test,
+        "dev.zio"                               %% "zio-test"                      % zioVersion      % Test,
+        "dev.zio"                               %% "zio-test-sbt"                  % zioVersion      % Test,
+        "com.softwaremill.sttp.client3"         %% "async-http-client-backend-zio" % sttpVersion     % Test,
+        "com.softwaremill.sttp.client3"         %% "circe"                         % sttpVersion     % Test,
+        "io.circe"                              %% "circe-generic"                 % circeVersion    % Test,
+        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"         % jsoniterVersion % Test
       )
   )
-  .dependsOn(core, tapirInterop % "compile->compile;test->test", catsInterop)
+  .dependsOn(core % "compile->compile;test->test", tapirInterop % "compile->compile;test->test", catsInterop)
 
 lazy val zioHttp = project
   .in(file("adapters/zio-http"))
@@ -300,7 +301,8 @@ lazy val zioHttp = project
     libraryDependencies ++= Seq(
       "io.d11"                      %% "zhttp"                 % zioHttpVersion,
       "com.softwaremill.sttp.tapir" %% "tapir-zio-http-server" % tapirVersion,
-      "com.softwaremill.sttp.tapir" %% "tapir-json-circe"      % tapirVersion
+      "dev.zio"                     %% "zio-json"              % zioJsonVersion % Test,
+      "com.softwaremill.sttp.tapir" %% "tapir-json-zio"        % tapirVersion   % Test
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
@@ -316,6 +318,7 @@ lazy val akkaHttp = project
       "com.typesafe.akka"             %% "akka-http"                  % "10.2.10",
       "com.typesafe.akka"             %% "akka-serialization-jackson" % akkaVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-akka-http-server"     % tapirVersion,
+      "com.softwaremill.sttp.tapir"   %% "tapir-json-play"            % tapirVersion % Test,
       compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.2").cross(CrossVersion.full))
     )
   )
@@ -331,7 +334,7 @@ lazy val play = project
     libraryDependencies ++= Seq(
       "com.typesafe.play"             %% "play"                          % playVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-play-server"             % tapirVersion,
-      "com.softwaremill.sttp.tapir"   %% "tapir-json-play"               % tapirVersion,
+      "com.softwaremill.sttp.tapir"   %% "tapir-json-play"               % tapirVersion % Test,
       "dev.zio"                       %% "zio-test"                      % zioVersion   % Test,
       "dev.zio"                       %% "zio-test-sbt"                  % zioVersion   % Test,
       "com.typesafe.play"             %% "play-akka-http-server"         % playVersion  % Test,
@@ -419,6 +422,9 @@ lazy val examples = project
       "com.typesafe.play"                     %% "play-akka-http-server"         % playVersion,
       "com.typesafe.akka"                     %% "akka-actor-typed"              % akkaVersion,
       "com.softwaremill.sttp.tapir"           %% "tapir-jsoniter-scala"          % tapirVersion,
+      "com.softwaremill.sttp.tapir"           %% "tapir-json-circe"              % tapirVersion,
+      "com.softwaremill.sttp.tapir"           %% "tapir-json-play"               % tapirVersion,
+      "com.softwaremill.sttp.tapir"           %% "tapir-jsoniter-scala"          % tapirVersion,
       "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"         % jsoniterVersion % Provided
     )
   )
@@ -500,6 +506,7 @@ lazy val docs = project
     libraryDependencies ++= Seq(
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
       "io.circe"                      %% "circe-generic"                 % circeVersion,
+      "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % tapirVersion,
       "org.typelevel"                 %% "cats-mtl"                      % catsMtlVersion
     )
   )
