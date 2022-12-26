@@ -8,7 +8,7 @@ The design principles of Caliban are the following:
 
 - **pure interface**: errors and effects are returned explicitly (no exceptions thrown), all returned types are referentially transparent (no usage of `Future`).
 - **minimal amount of boilerplate**: no need to manually define a schema for every type in your API. Let the compiler do the boring work.
-- **excellent interoperability**: out-of-the-box support for major HTTP server libraries ([http4s](https://http4s.org/), [Akka HTTP](https://doc.akka.io/docs/akka-http/current/index.html), [Play](https://www.playframework.com/), [ZIO HTTP](https://github.com/dream11/zio-http)), effect types (Future, [ZIO](https://zio.dev/), [Cats Effect](https://typelevel.org/cats-effect/), [Monix](https://monix.io/)), Json libraries ([Circe](https://circe.github.io/circe/), [Play Json](https://github.com/playframework/play-json), [ZIO Json](https://github.com/zio/zio-json)), various integrations ([Apollo Tracing](https://github.com/apollographql/apollo-tracing), [Apollo Federation](https://www.apollographql.com/docs/federation/), [Tapir](https://tapir.softwaremill.com/en/latest/), etc.) and more.
+- **excellent interoperability**: out-of-the-box support for major HTTP server libraries ([http4s](https://http4s.org/), [Akka HTTP](https://doc.akka.io/docs/akka-http/current/index.html), [Play](https://www.playframework.com/), [ZIO HTTP](https://github.com/dream11/zio-http)), effect types (Future, [ZIO](https://zio.dev/), [Cats Effect](https://typelevel.org/cats-effect/), [Monix](https://monix.io/)), Json libraries ([Circe](https://circe.github.io/circe/), [Jsoniter](https://github.com/plokhotnyuk/jsoniter-scala), [Play Json](https://github.com/playframework/play-json), [ZIO Json](https://github.com/zio/zio-json)), various integrations ([Apollo Tracing](https://github.com/apollographql/apollo-tracing), [Apollo Federation](https://www.apollographql.com/docs/federation/), [Tapir](https://tapir.softwaremill.com/en/latest/), etc.) and more.
 
 ## Dependencies
 
@@ -30,6 +30,26 @@ libraryDependencies += "com.github.ghostdogpr" %% "caliban-monix"      % "2.0.1"
 libraryDependencies += "com.github.ghostdogpr" %% "caliban-tapir"      % "2.0.1" // interop with tapir
 libraryDependencies += "com.github.ghostdogpr" %% "caliban-federation" % "2.0.1" // interop with apollo federation
 ```
+
+Support for JSON encoding / decoding of the inputs and responses is enabled by adding **one** of the following dependencies to your `build.sbt` file:
+
+```
+libraryDependencies += "com.softwaremill.sttp.tapir" %% "tapir-json-circe"     % "1.2.2" // Circe
+libraryDependencies += "com.softwaremill.sttp.tapir" %% "tapir-jsoniter-scala" % "1.2.2" // Jsoniter
+libraryDependencies += "com.softwaremill.sttp.tapir" %% "tapir-json-play"      % "1.2.2" // Play JSON
+libraryDependencies += "com.softwaremill.sttp.tapir" %% "tapir-json-zio"       % "1.2.2" // ZIO JSON
+```
+
+And then later in your code (you only need one!):
+
+```scala
+import sttp.tapir.json.circe._
+import sttp.tapir.json.jsoniter._
+import sttp.tapir.json.play._
+import sttp.tapir.json.zio._
+```
+
+For more info on the adapters and the JSON implementations, see [here](adapters.md#json-handling).
 
 ## A simple example
 
