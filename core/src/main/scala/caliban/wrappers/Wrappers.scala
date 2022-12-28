@@ -3,8 +3,7 @@ package caliban.wrappers
 import caliban.CalibanError.{ ExecutionError, ValidationError }
 import caliban.Value.NullValue
 import caliban.execution.{ ExecutionRequest, Field }
-import caliban.parsing.adt.Document
-import caliban.wrappers.Wrapper.{ OverallWrapper, ValidationWrapper }
+import caliban.wrappers.Wrapper.{ OverallWrapper, ValidationWrapper, ValidationWrapperInput }
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse }
 import zio._
 import zio.Console.{ printLine, printLineError }
@@ -91,11 +90,11 @@ object Wrappers {
   def maxDepth(maxDepth: Int): ValidationWrapper[Any] =
     new ValidationWrapper[Any] {
       def wrap[R1 <: Any](
-        process: Document => ZIO[R1, ValidationError, ExecutionRequest]
-      ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
-        (doc: Document) =>
+        process: ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest]
+      ): ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest] =
+        (input: ValidationWrapperInput) =>
           for {
-            req   <- process(doc)
+            req   <- process(input)
             depth <- calculateDepth(req.field)
             _     <- ZIO.when(depth > maxDepth)(
                        ZIO.fail(ValidationError(s"Query is too deep: $depth. Max depth: $maxDepth.", ""))
@@ -121,11 +120,11 @@ object Wrappers {
   def maxFields(maxFields: Int): ValidationWrapper[Any] =
     new ValidationWrapper[Any] {
       def wrap[R1 <: Any](
-        process: Document => ZIO[R1, ValidationError, ExecutionRequest]
-      ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
-        (doc: Document) =>
+        process: ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest]
+      ): ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest] =
+        (input: ValidationWrapperInput) =>
           for {
-            req    <- process(doc)
+            req    <- process(input)
             fields <- countFields(req.field)
             _      <- ZIO.when(fields > maxFields)(
                         ZIO.fail(ValidationError(s"Query has too many fields: $fields. Max fields: $maxFields.", ""))

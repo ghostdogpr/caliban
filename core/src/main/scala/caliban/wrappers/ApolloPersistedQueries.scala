@@ -1,58 +1,124 @@
 package caliban.wrappers
 
 import caliban.CalibanError.ValidationError
-import caliban.Value.{ NullValue, StringValue }
+import caliban.Value._
+import caliban.execution.ExecutionRequest
 import caliban.parsing.adt.Document
-import caliban.wrappers.Wrapper.{ EffectfulWrapper, OverallWrapper, ParsingWrapper }
+import caliban.wrappers.Wrapper._
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue }
 import zio._
 
 import java.nio.charset.StandardCharsets
-import scala.collection.mutable
+import scala.collection.immutable.TreeMap
+import scala.collection.{ immutable, mutable }
 
 object ApolloPersistedQueries {
 
   trait ApolloPersistence {
     def get(hash: String): UIO[Option[Document]]
     def add(hash: String, query: Document): UIO[Unit]
+    def isValidated(hash: String, variablesHashCode: Int): UIO[Boolean]
+    def registerValidation(hash: String, variablesHashCode: Int): UIO[Unit]
   }
 
   object ApolloPersistence {
 
-    def get(hash: String): ZIO[ApolloPersistence, Nothing, Option[Document]]      =
+    def get(hash: String): ZIO[ApolloPersistence, Nothing, Option[Document]]                            =
       ZIO.serviceWithZIO[ApolloPersistence](_.get(hash))
-    def add(hash: String, query: Document): ZIO[ApolloPersistence, Nothing, Unit] =
+    def add(hash: String, query: Document): ZIO[ApolloPersistence, Nothing, Unit]                       =
       ZIO.serviceWithZIO[ApolloPersistence](_.add(hash, query))
+    def isValidated(hash: String, variablesHashCode: Int): ZIO[ApolloPersistence, Nothing, Boolean]     =
+      ZIO.serviceWithZIO[ApolloPersistence](_.isValidated(hash, variablesHashCode))
+    def registerValidation(hash: String, variablesHashCode: Int): ZIO[ApolloPersistence, Nothing, Unit] =
+      ZIO.serviceWithZIO[ApolloPersistence](_.registerValidation(hash, variablesHashCode))
 
-    val live: UIO[ApolloPersistence] = Ref.make[Map[String, Document]](Map()).map { cache =>
-      new ApolloPersistence {
-        override def get(hash: String): UIO[Option[Document]]      = cache.get.map(_.get(hash))
-        override def add(hash: String, query: Document): UIO[Unit] = cache.update(_.updated(hash, query))
+    val live: UIO[ApolloPersistence] =
+      (Ref.make[Map[String, Document]](Map()) <*> Ref.make[Map[String, immutable.Set[Int]]](Map())).map {
+        case (docCache, validationCache) =>
+          new ApolloPersistence {
+            override def get(hash: String): UIO[Option[Document]]                            = docCache.get.map(_.get(hash))
+            override def add(hash: String, query: Document): UIO[Unit]                       = docCache.update(_.updated(hash, query))
+            override def isValidated(hash: String, variablesHashCode: Int): UIO[Boolean]     =
+              validationCache.get.map(_.get(hash).exists(_.contains(variablesHashCode)))
+            override def registerValidation(hash: String, variablesHashCode: Int): UIO[Unit] =
+              validationCache.getAndUpdate { cache =>
+                cache.updated(hash, cache.getOrElse(hash, Set.empty) + variablesHashCode)
+              }.unit
+          }
       }
-    }
   }
 
   val live: Layer[Nothing, ApolloPersistence] = ZLayer(ApolloPersistence.live)
 
-  private def parsingWrapper(docVar: Ref[Option[Either[String, Document]]]): ParsingWrapper[ApolloPersistence] =
+  private def parsingWrapper(
+    docVar: Promise[Nothing, Option[(String, GraphQLRequest, Option[Document])]]
+  ): ParsingWrapper[ApolloPersistence] =
     new ParsingWrapper[ApolloPersistence] {
       override def wrap[R1 <: ApolloPersistence](
         f: String => ZIO[R1, CalibanError.ParsingError, Document]
       ): String => ZIO[R1, CalibanError.ParsingError, Document] =
         (query: String) =>
-          docVar.getAndSet(None).flatMap {
-            case Some(Right(doc)) => ZIO.succeed(doc)
-            case Some(Left(hash)) => f(query).tap(doc => ApolloPersistence.add(hash, doc))
-            case None             => f(query)
+          docVar.await.flatMap {
+            case Some((_, _, Some(doc))) => ZIO.succeed(doc)
+            case Some((hash, _, None))   => f(query).tap(doc => ApolloPersistence.add(hash, doc))
+            case None                    => f(query)
           }
     }
 
+  private def validationWrapper(
+    docVar: Promise[Nothing, Option[(String, GraphQLRequest, Option[Document])]]
+  ): ValidationWrapper[ApolloPersistence] =
+    new ValidationWrapper[ApolloPersistence] {
+      override def wrap[R1 <: ApolloPersistence](
+        f: Wrapper.ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest]
+      ): Wrapper.ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest] =
+        (input: ValidationWrapperInput) =>
+          docVar.await.flatMap {
+            case Some((hash, req, _)) =>
+              hashVariables(req.variables).flatMap { variablesHash =>
+                ApolloPersistence.isValidated(hash, variablesHash).flatMap { isCached =>
+                  if (isCached) f(input.copy(skipValidation = true))
+                  else f(input) <* ApolloPersistence.registerValidation(hash, variablesHash)
+                }
+              }
+            case None                 => f(input)
+          }
+
+      /**
+       * In order to cache the validation step against different input variables, we need to strip the value while
+       * retaining the type, with the exception of enums since the validation is performed against the enum value
+       */
+      private def hashVariables(variables: Option[Map[String, InputValue]]): UIO[Int] = {
+        def stripVariableValues: InputValue => UIO[InputValue] = {
+          case NullValue                      => ZIO.succeed(NullValue)
+          case IntValue.IntNumber(_)          => ZIO.succeed(IntValue.IntNumber(0))
+          case IntValue.LongNumber(_)         => ZIO.succeed(IntValue.LongNumber(0L))
+          case IntValue.BigIntNumber(_)       => ZIO.succeed(IntValue.BigIntNumber(0))
+          case FloatValue.FloatNumber(_)      => ZIO.succeed(FloatValue.FloatNumber(0f))
+          case FloatValue.DoubleNumber(_)     => ZIO.succeed(FloatValue.DoubleNumber(0d))
+          case FloatValue.BigDecimalNumber(_) => ZIO.succeed(FloatValue.BigDecimalNumber(0))
+          case StringValue(_)                 => ZIO.succeed(StringValue("?"))
+          case BooleanValue(_)                => ZIO.succeed(BooleanValue(true))
+          case EnumValue(v)                   => ZIO.succeed(EnumValue(v))
+          case InputValue.ListValue(l)        => ZIO.foreach(l)(stripVariableValues).map(InputValue.ListValue(_))
+          case InputValue.ObjectValue(o)      =>
+            val sortedMap = TreeMap.empty[String, InputValue] ++ o
+            ZIO.foreach(sortedMap) { case (k, v) => stripVariableValues(v).map(k -> _) }.map(InputValue.ObjectValue(_))
+          case InputValue.VariableValue(_)    => ZIO.succeed(InputValue.VariableValue("?"))
+        }
+        stripVariableValues(InputValue.ObjectValue(variables.getOrElse(Map.empty))).map(_.hashCode())
+      }
+
+    }
+
   /**
-   * If the query is using the persisted query protocol then this wrapper will set the inner `Either` of the `Ref` to
-   * be a `Right(document)` where the document is the persisted query document. If the query isn't yet cached this will set the
-   * `Left(hash)` which will then get passed to the parsing wrapper where it will populate the cache with the validated query document
+   * If the query is using the persisted query protocol then this wrapper will set the inner `Option[Document]` of the `Promise` to
+   * be a `(_, _, Some(Document))` where the document is the persisted query document. If the query isn't yet cached this will set the
+   * value to `(_, _, None)` which will then get passed to the parsing wrapper where it will populate the cache with the validated query document
    */
-  private def overrallWrapper(docVar: Ref[Option[Either[String, Document]]]): OverallWrapper[ApolloPersistence] =
+  private def overrallWrapper(
+    docVar: Promise[Nothing, Option[(String, GraphQLRequest, Option[Document])]]
+  ): OverallWrapper[ApolloPersistence] =
     new OverallWrapper[ApolloPersistence] {
       def wrap[R1 <: ApolloPersistence](
         process: GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]]
@@ -63,10 +129,11 @@ object ApolloPersistedQueries {
               ApolloPersistence
                 .get(hash)
                 .flatMap {
-                  case Some(doc) => docVar.set(Some(Right(doc))) as request
+                  case Some(doc) => docVar.succeed(Some((hash, request, Some(doc)))) as request
                   case None      =>
                     request.query match {
-                      case Some(value) if checkHash(hash, value) => docVar.set(Some(Left(hash))).as(request)
+                      case Some(value) if checkHash(hash, value) =>
+                        docVar.succeed(Some((hash, request, None))).as(request)
                       case Some(_)                               => ZIO.fail(ValidationError("Provided sha does not match any query", ""))
                       case None                                  => ZIO.fail(ValidationError("PersistedQueryNotFound", ""))
                     }
@@ -83,8 +150,8 @@ object ApolloPersistedQueries {
    * following Apollo Persisted Queries spec: https://github.com/apollographql/apollo-link-persisted-queries.
    */
   val apolloPersistedQueries: EffectfulWrapper[ApolloPersistence] =
-    EffectfulWrapper(Ref.make[Option[Either[String, Document]]](None).map { docVar =>
-      overrallWrapper(docVar) |+| parsingWrapper(docVar)
+    EffectfulWrapper(Promise.make[Nothing, Option[(String, GraphQLRequest, Option[Document])]].map { docVar =>
+      overrallWrapper(docVar) |+| parsingWrapper(docVar) |+| validationWrapper(docVar)
     })
 
   private def readHash(request: GraphQLRequest): Option[String] =

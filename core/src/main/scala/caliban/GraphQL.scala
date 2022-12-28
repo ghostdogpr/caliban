@@ -117,19 +117,20 @@ trait GraphQL[-R] { self =>
                                       }
                   typeToValidate    = if (intro) introspectionRootType else rootType
                   schemaToExecute   = if (intro) introspectionRootSchema else schema
-                  validatedRequest <- VariablesCoercer.coerceVariables(request, doc, typeToValidate, skipValidation)
-
-                  validate          = (doc: Document) =>
-                                        Validator
-                                          .prepare(
-                                            doc,
-                                            typeToValidate,
-                                            schemaToExecute,
-                                            validatedRequest.operationName,
-                                            validatedRequest.variables.getOrElse(Map.empty),
-                                            skipValidation
-                                          )
-                  executionRequest <- wrap(validate)(validationWrappers, doc)
+                  validate          = (input: ValidationWrapperInput) =>
+                                        VariablesCoercer
+                                          .coerceVariables(request, input.document, typeToValidate, input.skipValidation)
+                                          .flatMap { validatedRequest =>
+                                            Validator.prepare(
+                                              input.document,
+                                              typeToValidate,
+                                              schemaToExecute,
+                                              validatedRequest.operationName,
+                                              validatedRequest.variables.getOrElse(Map.empty),
+                                              input.skipValidation
+                                            )
+                                          }
+                  executionRequest <- wrap(validate)(validationWrappers, ValidationWrapperInput(doc, skipValidation))
                   op                = executionRequest.operationType match {
                                         case OperationType.Query        => schemaToExecute.query
                                         case OperationType.Mutation     => schemaToExecute.mutation.getOrElse(schemaToExecute.query)

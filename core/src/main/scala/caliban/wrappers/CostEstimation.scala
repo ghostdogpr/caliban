@@ -5,12 +5,12 @@ import caliban.InputValue.ListValue
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.{ FloatValue, IntValue, StringValue }
 import caliban.execution.{ ExecutionRequest, Field }
-import caliban.parsing.adt.{ Directive, Document }
+import caliban.parsing.adt.Directive
 import caliban.schema.Annotations.GQLDirective
 import caliban.schema.Types
-import caliban.wrappers.Wrapper.{ EffectfulWrapper, OverallWrapper, ValidationWrapper }
+import caliban.wrappers.Wrapper.{ EffectfulWrapper, OverallWrapper, ValidationWrapper, ValidationWrapperInput }
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
-import zio.{ IO, Ref, UIO, URIO, ZIO }
+import zio.{ Ref, UIO, URIO, ZIO }
 
 import scala.annotation.tailrec
 
@@ -179,11 +179,11 @@ object CostEstimation {
   def maxCostOrError(maxCost: Double)(f: Field => Double)(error: Double => ValidationError): ValidationWrapper[Any] =
     new ValidationWrapper[Any] {
       override def wrap[R1 <: Any](
-        process: Document => ZIO[R1, ValidationError, ExecutionRequest]
-      ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
-        (doc: Document) =>
+        process: ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest]
+      ): ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest] =
+        (input: ValidationWrapperInput) =>
           for {
-            req <- process(doc)
+            req <- process(input)
             cost = computeCost(req.field)(f)
             _   <- ZIO.when(cost > maxCost)(ZIO.fail(error(cost)))
           } yield req
@@ -198,11 +198,11 @@ object CostEstimation {
   def maxCostZIO[R](maxCost: Double)(f: Field => URIO[R, Double]): ValidationWrapper[R] =
     new ValidationWrapper[R] {
       override def wrap[R1 <: R](
-        process: Document => ZIO[R1, ValidationError, ExecutionRequest]
-      ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
-        (doc: Document) =>
+        process: ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest]
+      ): ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest] =
+        (input: ValidationWrapperInput) =>
           for {
-            req  <- process(doc)
+            req  <- process(input)
             cost <- computeCostZIO(req.field)(f)
             _    <- ZIO.when(cost > maxCost)(
                       ZIO.fail(ValidationError(s"Query costs too much: $cost. Max cost: $maxCost.", ""))
@@ -213,11 +213,11 @@ object CostEstimation {
   private def costWrapper(total: Ref[Double])(f: Field => Double): ValidationWrapper[Any] =
     new ValidationWrapper[Any] {
       override def wrap[R1 <: Any](
-        process: Document => ZIO[R1, ValidationError, ExecutionRequest]
-      ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
-        (doc: Document) =>
+        process: ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest]
+      ): ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest] =
+        (input: ValidationWrapperInput) =>
           for {
-            req <- process(doc)
+            req <- process(input)
             _   <- total.set(computeCost(req.field)(f))
           } yield req
     }
@@ -225,11 +225,11 @@ object CostEstimation {
   private def costWrapperZIO[R](total: Ref[Double])(f: Field => URIO[R, Double]): ValidationWrapper[R] =
     new ValidationWrapper[R] {
       override def wrap[R1 <: R](
-        process: Document => ZIO[R1, ValidationError, ExecutionRequest]
-      ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
-        (doc: Document) =>
+        process: ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest]
+      ): ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest] =
+        (input: ValidationWrapperInput) =>
           for {
-            req  <- process(doc)
+            req  <- process(input)
             cost <- computeCostZIO(req.field)(f)
             _    <- total.set(cost)
           } yield req
