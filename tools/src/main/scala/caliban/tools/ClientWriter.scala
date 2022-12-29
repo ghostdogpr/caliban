@@ -473,7 +473,7 @@ object ClientWriter {
       val allFields = fields ++ optionalUnionTypeFields ++ optionalInterfaceTypeFields
 
       s"""object $objectName {$view
-         |  ${allFields.map(writeFieldInfo).mkString("\n  ")}
+         |  ${allFields.distinct.map(writeFieldInfo).mkString("\n  ")}
          |}
          |""".stripMargin
     }
