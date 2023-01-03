@@ -123,19 +123,19 @@ object Value {
         Try(LongNumber(s.toLong)) getOrElse
         BigIntNumber(BigInt(s))
 
-    case class IntNumber(value: Int)       extends IntValue {
+    final case class IntNumber(value: Int)       extends IntValue {
       override def toInt: Int       = value
       override def toLong: Long     = value.toLong
       override def toBigInt: BigInt = BigInt(value)
       override def toString: String = value.toString
     }
-    case class LongNumber(value: Long)     extends IntValue {
+    final case class LongNumber(value: Long)     extends IntValue {
       override def toInt: Int       = value.toInt
       override def toLong: Long     = value
       override def toBigInt: BigInt = BigInt(value)
       override def toString: String = value.toString
     }
-    case class BigIntNumber(value: BigInt) extends IntValue {
+    final case class BigIntNumber(value: BigInt) extends IntValue {
       override def toInt: Int       = value.toInt
       override def toLong: Long     = value.toLong
       override def toBigInt: BigInt = value
@@ -149,19 +149,19 @@ object Value {
     def apply(v: BigDecimal): FloatValue = BigDecimalNumber(v)
     def apply(s: String): FloatValue     = BigDecimalNumber(BigDecimal(s))
 
-    case class FloatNumber(value: Float)           extends FloatValue {
+    final case class FloatNumber(value: Float)           extends FloatValue {
       override def toFloat: Float           = value
       override def toDouble: Double         = value.toDouble
       override def toBigDecimal: BigDecimal = BigDecimal.decimal(value)
       override def toString: String         = value.toString
     }
-    case class DoubleNumber(value: Double)         extends FloatValue {
+    final case class DoubleNumber(value: Double)         extends FloatValue {
       override def toFloat: Float           = value.toFloat
       override def toDouble: Double         = value
       override def toBigDecimal: BigDecimal = BigDecimal(value)
       override def toString: String         = value.toString
     }
-    case class BigDecimalNumber(value: BigDecimal) extends FloatValue {
+    final case class BigDecimalNumber(value: BigDecimal) extends FloatValue {
       override def toFloat: Float           = value.toFloat
       override def toDouble: Double         = value.toDouble
       override def toBigDecimal: BigDecimal = value
