@@ -7,10 +7,11 @@ import caliban.parsing.adt.Document
 import caliban.wrappers.Wrapper._
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue }
 import zio._
+import zio.concurrent.{ ConcurrentMap, ConcurrentSet }
 
 import java.nio.charset.StandardCharsets
 import scala.collection.immutable.TreeMap
-import scala.collection.{ immutable, mutable }
+import scala.collection.mutable
 
 object ApolloPersistedQueries {
 
@@ -33,17 +34,15 @@ object ApolloPersistedQueries {
       ZIO.serviceWithZIO[ApolloPersistence](_.registerValidation(hash, variablesHashCode))
 
     val live: UIO[ApolloPersistence] =
-      (Ref.make[Map[String, Document]](Map()) <*> Ref.make[Map[String, immutable.Set[Int]]](Map())).map {
+      (ConcurrentMap.empty[String, Document] <*> ConcurrentSet.empty[(String, Int)]).map {
         case (docCache, validationCache) =>
           new ApolloPersistence {
-            override def get(hash: String): UIO[Option[Document]]                            = docCache.get.map(_.get(hash))
-            override def add(hash: String, query: Document): UIO[Unit]                       = docCache.update(_.updated(hash, query))
+            override def get(hash: String): UIO[Option[Document]]                            = docCache.get(hash)
+            override def add(hash: String, query: Document): UIO[Unit]                       = docCache.put(hash, query).unit
             override def isValidated(hash: String, variablesHashCode: Int): UIO[Boolean]     =
-              validationCache.get.map(_.get(hash).exists(_.contains(variablesHashCode)))
+              validationCache.contains(hash -> variablesHashCode)
             override def registerValidation(hash: String, variablesHashCode: Int): UIO[Unit] =
-              validationCache.getAndUpdate { cache =>
-                cache.updated(hash, cache.getOrElse(hash, Set.empty) + variablesHashCode)
-              }.unit
+              validationCache.add(hash -> variablesHashCode).unit
           }
       }
   }

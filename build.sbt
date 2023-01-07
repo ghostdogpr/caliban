@@ -132,6 +132,7 @@ lazy val core = project
       Seq(
         "dev.zio"                               %% "zio"                   % zioVersion,
         "dev.zio"                               %% "zio-streams"           % zioVersion,
+        "dev.zio"                               %% "zio-concurrent"        % zioVersion,
         "dev.zio"                               %% "zio-query"             % zqueryVersion,
         "dev.zio"                               %% "zio-test"              % zioVersion      % Test,
         "dev.zio"                               %% "zio-test-sbt"          % zioVersion      % Test,
