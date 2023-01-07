@@ -7,11 +7,11 @@ val scala3   = "3.2.1"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion               = "2.6.20"
-val catsEffect3Version        = "3.4.3"
+val catsEffect3Version        = "3.4.4"
 val catsMtlVersion            = "1.2.1"
 val circeVersion              = "0.14.3"
-val http4sVersion             = "0.23.16"
-val jsoniterVersion           = "2.20.0"
+val http4sVersion             = "0.23.17"
+val jsoniterVersion           = "2.20.1"
 val laminextVersion           = "0.14.4"
 val magnoliaVersion           = "0.17.0"
 val mercatorVersion           = "0.2.1"
@@ -24,7 +24,7 @@ val zioVersion                = "2.0.5"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.0.0.0"
 val zioInteropReactiveVersion = "2.0.0"
-val zioConfigVersion          = "3.0.6"
+val zioConfigVersion          = "3.0.7"
 val zqueryVersion             = "0.3.4"
 val zioJsonVersion            = "0.4.2"
 val zioHttpVersion            = "2.0.0-RC10"
@@ -118,7 +118,7 @@ lazy val core = project
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) {
         Seq(
-          "org.typelevel" %% "cats-parse" % "0.3.8"
+          "org.typelevel" %% "cats-parse" % "0.3.9"
         )
       } else {
         Seq(

@@ -9,5 +9,5 @@ Caliban comes with a module called `caliban-tools` that exposes some useful feat
 ## Dependency
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-tools" % "2.0.1"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-tools" % "2.0.2"
 ```
