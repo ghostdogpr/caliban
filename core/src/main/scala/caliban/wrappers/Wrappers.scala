@@ -93,13 +93,15 @@ object Wrappers {
         process: ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest]
       ): ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest] =
         (input: ValidationWrapperInput) =>
-          for {
-            req   <- process(input)
-            depth <- calculateDepth(req.field)
-            _     <- ZIO.when(depth > maxDepth)(
-                       ZIO.fail(ValidationError(s"Query is too deep: $depth. Max depth: $maxDepth.", ""))
-                     )
-          } yield req
+          process(input).tap { req =>
+            ZIO.when(!input.skipValidation) {
+              calculateDepth(req.field).flatMap { depth =>
+                ZIO.when(depth > maxDepth)(
+                  ZIO.fail(ValidationError(s"Query is too deep: $depth. Max depth: $maxDepth.", ""))
+                )
+              }
+            }
+          }
     }
 
   private def calculateDepth(field: Field): UIO[Int] = {
@@ -123,13 +125,15 @@ object Wrappers {
         process: ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest]
       ): ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest] =
         (input: ValidationWrapperInput) =>
-          for {
-            req    <- process(input)
-            fields <- countFields(req.field)
-            _      <- ZIO.when(fields > maxFields)(
-                        ZIO.fail(ValidationError(s"Query has too many fields: $fields. Max fields: $maxFields.", ""))
-                      )
-          } yield req
+          process(input).tap { req =>
+            ZIO.when(!input.skipValidation) {
+              countFields(req.field).flatMap { fields =>
+                ZIO.when(fields > maxFields)(
+                  ZIO.fail(ValidationError(s"Query has too many fields: $fields. Max fields: $maxFields.", ""))
+                )
+              }
+            }
+          }
     }
 
   private def countFields(field: Field): UIO[Int] =

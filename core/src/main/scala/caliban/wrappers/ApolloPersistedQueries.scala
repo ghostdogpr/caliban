@@ -68,19 +68,21 @@ object ApolloPersistedQueries {
     docVar: Promise[Nothing, Option[(String, GraphQLRequest, Option[Document])]]
   ): ValidationWrapper[ApolloPersistence] =
     new ValidationWrapper[ApolloPersistence] {
+      override val priority: Int = Int.MaxValue // Run this wrapper at the outmost boundary
+
       override def wrap[R1 <: ApolloPersistence](
         f: Wrapper.ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest]
       ): Wrapper.ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest] =
         (input: ValidationWrapperInput) =>
           docVar.await.flatMap {
-            case Some((hash, req, _)) =>
+            case Some((hash, req, _)) if !input.skipValidation =>
               hashVariables(req.variables).flatMap { variablesHash =>
-                ApolloPersistence.isValidated(hash, variablesHash).flatMap { isCached =>
-                  if (isCached) f(input.copy(skipValidation = true))
+                ApolloPersistence.isValidated(hash, variablesHash).flatMap { isValidated =>
+                  if (isValidated) f(input.copy(skipValidation = true))
                   else f(input) <* ApolloPersistence.registerValidation(hash, variablesHash)
                 }
               }
-            case None                 => f(input)
+            case _                                             => f(input)
           }
 
       /**

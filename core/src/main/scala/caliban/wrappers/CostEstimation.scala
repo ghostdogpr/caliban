@@ -182,11 +182,12 @@ object CostEstimation {
         process: ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest]
       ): ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest] =
         (input: ValidationWrapperInput) =>
-          for {
-            req <- process(input)
-            cost = computeCost(req.field)(f)
-            _   <- ZIO.when(cost > maxCost)(ZIO.fail(error(cost)))
-          } yield req
+          process(input).tap { req =>
+            ZIO.when(!input.skipValidation) {
+              val cost = computeCost(req.field)(f)
+              ZIO.when(cost > maxCost)(ZIO.fail(error(cost)))
+            }
+          }
     }
 
   /**
@@ -201,13 +202,15 @@ object CostEstimation {
         process: ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest]
       ): ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest] =
         (input: ValidationWrapperInput) =>
-          for {
-            req  <- process(input)
-            cost <- computeCostZIO(req.field)(f)
-            _    <- ZIO.when(cost > maxCost)(
-                      ZIO.fail(ValidationError(s"Query costs too much: $cost. Max cost: $maxCost.", ""))
-                    )
-          } yield req
+          process(input).tap { req =>
+            ZIO.when(!input.skipValidation) {
+              computeCostZIO(req.field)(f).flatMap { cost =>
+                ZIO.when(cost > maxCost)(
+                  ZIO.fail(ValidationError(s"Query costs too much: $cost. Max cost: $maxCost.", ""))
+                )
+              }
+            }
+          }
     }
 
   private def costWrapper(total: Ref[Double])(f: Field => Double): ValidationWrapper[Any] =
