@@ -3,7 +3,7 @@ package poc.caliban.posts
 import caliban.GraphQL.graphQL
 import caliban.schema.GenericSchema
 import caliban.wrappers.Wrappers._
-import caliban.{GraphQL, RootResolver}
+import caliban.{ GraphQL, RootResolver }
 import zio._
 import zio.stream.ZStream
 
