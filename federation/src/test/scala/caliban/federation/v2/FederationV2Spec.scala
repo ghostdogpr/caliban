@@ -38,7 +38,7 @@ object FederationV2Spec extends ZIOSpecDefault {
             document.definitions.flatMap {
               case Definition.TypeSystemDefinition.SchemaDefinition(d, _, _, _) =>
                 d.map(_.copy(index = 0)) // Unset the index to make the test deterministic
-              case _ => Nil
+              case _                                                            => Nil
             }
 
           assertTrue(
