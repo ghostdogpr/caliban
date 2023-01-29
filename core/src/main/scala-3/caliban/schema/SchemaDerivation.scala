@@ -257,7 +257,7 @@ trait SchemaDerivation[R] extends CommonSchemaDerivation {
 
   // for cross-compililing with scala 2
   inline def genAll[R, A]: Schema[R, A] = derived[R, A]
-  object auto
+  object auto extends AutoSchemaDerivation[R]
 }
 
 trait AutoSchemaDerivation[R] extends GenericSchema[R] with LowPriorityDerivedSchema

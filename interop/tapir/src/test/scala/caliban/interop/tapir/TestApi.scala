@@ -14,7 +14,6 @@ import zio.stream.ZStream
 import scala.language.postfixOps
 
 object TestApi extends GenericSchema[TestService with Uploads] {
-
   import auto._
 
   case class File(hash: String, filename: String, mimetype: String)
@@ -66,5 +65,4 @@ object TestApi extends GenericSchema[TestService with Uploads] {
       printSlowQueries(500 millis) @@ // wrapper that logs slow queries
       printErrors @@                  // wrapper that logs errors
       apolloTracing                   // wrapper for https://github.com/apollographql/apollo-tracing
-
 }
