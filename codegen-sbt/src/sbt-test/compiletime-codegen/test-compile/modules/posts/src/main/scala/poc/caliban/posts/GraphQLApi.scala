@@ -52,10 +52,8 @@ object Resolvers {
   val resolver: RootResolver[Query, Mutation, Subscription] = RootResolver(queries, mutations, subscriptions)
 }
 
-object Schemas extends GenericSchema[PostService]
-
-object GraphQLApi {
-  import Schemas.auto._
+object GraphQLApi extends GenericSchema[PostService] {
+  import auto._
 
   val api: GraphQL[PostService] =
     graphQL[PostService, Operations.Query, Operations.Mutation, Operations.Subscription](
