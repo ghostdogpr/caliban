@@ -15,6 +15,8 @@ import scala.language.postfixOps
 
 object TestApi extends GenericSchema[TestService with Uploads] {
 
+  import auto._
+
   case class File(hash: String, filename: String, mimetype: String)
   case class UploadFileArgs(file: Upload)
   case class UploadFilesArgs(files: List[Upload])
@@ -37,6 +39,7 @@ object TestApi extends GenericSchema[TestService with Uploads] {
   case class Subscriptions(characterDeleted: ZStream[TestService, Nothing, String])
 
   implicit val roleSchema: Schema[Any, Role]                     = Schema.gen
+  implicit val originSchema: Schema[Any, Origin]                 = Schema.gen
   implicit val characterSchema: Schema[Any, Character]           = Schema.gen
   implicit val characterArgsSchema: Schema[Any, CharacterArgs]   = Schema.gen
   implicit val charactersArgsSchema: Schema[Any, CharactersArgs] = Schema.gen

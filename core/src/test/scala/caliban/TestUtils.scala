@@ -9,6 +9,7 @@ import caliban.Value.StringValue
 import caliban.introspection.adt.{ __Field, __InputValue, __Type, __TypeKind }
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
+import caliban.schema.auto._
 import caliban.schema.Schema.scalarSchema
 import caliban.schema.{ Schema, Types }
 import zio.{ UIO, ZIO }
@@ -41,14 +42,13 @@ object TestUtils {
   sealed trait Role
 
   case class CaptainShipName(value: String)
-  object CaptainShipName {
-    implicit val captainShipNameSchema: Schema[Any, CaptainShipName] = scalarSchema(
-      "CaptainShipName",
-      Some("Description of custom scalar emphasizing proper captain ship names"),
-      Some("http://someUrl"),
-      name => StringValue(name.value)
-    )
-  }
+
+  implicit val captainShipNameSchema: Schema[Any, CaptainShipName] = scalarSchema(
+    "CaptainShipName",
+    Some("Description of custom scalar emphasizing proper captain ship names"),
+    Some("http://someUrl"),
+    name => StringValue(name.value)
+  )
 
   object Role {
     case class Captain(shipName: CaptainShipName) extends Role
@@ -86,10 +86,6 @@ object TestUtils {
     origin: Origin
   )
 
-  object Character {
-    implicit val schema: Schema[Any, Character] = Schema.gen
-  }
-
   val characters = List(
     Character("James Holden", List("Jim", "Hoss"), EARTH, Some(Captain(CaptainShipName("Rocinante")))),
     Character("Naomi Nagata", Nil, BELT, Some(Engineer("Rocinante"))),
@@ -125,10 +121,11 @@ object TestUtils {
 
   case class SubscriptionIO(deleteCharacters: ZStream[Any, Nothing, String])
 
-  implicit val querySchema: Schema[Any, Query]                   = Schema.gen
-  implicit val queryIOSchema: Schema[Any, QueryIO]               = Schema.gen
-  implicit val mutationIOSchema: Schema[Any, MutationIO]         = Schema.gen
-  implicit val subscriptionIOSchema: Schema[Any, SubscriptionIO] = Schema.gen
+  implicit val characterSchema: Schema[Any, Character]           = Schema.genAll
+  implicit val querySchema: Schema[Any, Query]                   = Schema.genAll
+  implicit val queryIOSchema: Schema[Any, QueryIO]               = Schema.genAll
+  implicit val mutationIOSchema: Schema[Any, MutationIO]         = Schema.genAll
+  implicit val subscriptionIOSchema: Schema[Any, SubscriptionIO] = Schema.genAll
 
   val resolver                 = RootResolver(
     Query(

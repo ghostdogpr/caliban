@@ -2,9 +2,11 @@ package caliban.validation
 
 import caliban.CalibanError.ValidationError
 import caliban.GraphQL.graphQL
+import caliban.TestUtils._
 import caliban.TestUtils.InvalidSchemas._
 import caliban.introspection.adt._
 import caliban.schema.Types
+import caliban.schema.auto._
 import caliban.{ GraphQL, RootResolver }
 import zio.{ IO, ZIO }
 import zio.test.Assertion._
@@ -139,7 +141,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
           )
         }
       ), {
-        import Interface._
+        import InvalidSchemas.Interface._
         suite("Interface")(
           test("must define one or more fields") {
             check(

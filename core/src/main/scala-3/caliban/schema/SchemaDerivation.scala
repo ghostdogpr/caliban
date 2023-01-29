@@ -21,7 +21,7 @@ object PrintDerived {
   }
 }
 
-trait SchemaDerivation[A] {
+trait CommonSchemaDerivation {
 
   /**
    * Default naming logic for input types.
@@ -248,8 +248,20 @@ trait SchemaDerivation[A] {
 
   private def getDefaultValue(annotations: Seq[Any]): Option[String] =
     annotations.collectFirst { case GQLDefault(v) => v }
+}
 
-  inline given gen[R, A]: Schema[R, A] = derived[R, A]
+trait SchemaDerivation[R] extends CommonSchemaDerivation {
+  inline def gen[R, A]: Schema[R, A] = derived[R, A]
 
   inline def genDebug[R, A]: Schema[R, A] = PrintDerived(derived[R, A])
+
+  // for cross-compililing with scala 2
+  inline def genAll[R, A]: Schema[R, A] = derived[R, A]
+  object auto
+}
+
+trait AutoSchemaDerivation[R] extends GenericSchema[R] with LowPriorityDerivedSchema
+
+private[schema] trait LowPriorityDerivedSchema extends CommonSchemaDerivation {
+  inline implicit def genAuto[R, A]: Schema[R, A] = derived[R, A]
 }

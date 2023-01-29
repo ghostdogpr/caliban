@@ -89,7 +89,7 @@ object ContextualCatsInterop extends IOApp {
 
     val api: GraphQL[LogContext] = {
       object ContextSchema extends GenericSchema[LogContext]
-      import ContextSchema._ // required for a derivation of the schema
+      import ContextSchema.auto._ // required for a derivation of the schema
 
       graphQL(RootResolver(queries))
     }

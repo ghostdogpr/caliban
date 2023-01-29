@@ -6,6 +6,7 @@ import caliban.Value._
 import caliban.execution.Field
 import caliban.introspection.adt._
 import caliban.parsing.adt.{ Directive, Directives }
+import caliban.relay.{ Base64Cursor, Cursor }
 import caliban.schema.Step.{ PureStep => _, _ }
 import caliban.schema.Types._
 import caliban.uploads.Upload
@@ -116,6 +117,8 @@ trait Schema[-R, T] { self =>
 }
 
 object Schema extends GenericSchema[Any]
+
+object auto extends AutoSchemaDerivation[Any]
 
 trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
 
@@ -258,6 +261,9 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   implicit val floatSchema: Schema[Any, Float]           = scalarSchema("Float", None, None, FloatValue(_))
   implicit val bigDecimalSchema: Schema[Any, BigDecimal] = scalarSchema("BigDecimal", None, None, FloatValue(_))
   implicit val uploadSchema: Schema[Any, Upload]         = scalarSchema("Upload", None, None, _ => StringValue("<upload>"))
+
+  implicit val base64CursorSchema: Schema[Any, Base64Cursor] =
+    Schema.stringSchema.contramap(Cursor[Base64Cursor].encode)
 
   implicit def optionSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Option[A]]                                  = new Schema[R0, Option[A]] {
     override def optional: Boolean                                         = true

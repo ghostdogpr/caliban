@@ -6,6 +6,7 @@ import caliban.RootResolver
 import caliban.parsing.Parser
 import caliban.schema.Annotations.GQLInterface
 import caliban.schema._
+import caliban.schema.auto._
 import caliban.validation.Validator
 import zio._
 import zio.test._

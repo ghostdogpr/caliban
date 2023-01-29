@@ -5,6 +5,7 @@ import caliban.Value.StringValue
 import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
 import caliban.schema.Schema
+import caliban.schema.auto._
 
 trait IntrospectionDerivation {
   import Schema._

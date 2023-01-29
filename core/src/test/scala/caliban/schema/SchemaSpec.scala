@@ -5,6 +5,7 @@ import caliban.GraphQL.graphQL
 import caliban.RootResolver
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
 import caliban.schema.Annotations.{ GQLExcluded, GQLInterface, GQLUnion, GQLValueType }
+import caliban.schema.auto._
 import zio.query.ZQuery
 import zio.stream.ZStream
 import zio.test.Assertion._
@@ -31,7 +32,8 @@ object SchemaSpec extends ZIOSpecDefault {
         case class Field(value: ZQuery[Console, Nothing, String])
         case class Queries(field: ZQuery[Clock, Nothing, Field])
         object MySchema extends GenericSchema[Console with Clock] {
-          implicit lazy val queriesSchema: Schema[Console with Clock, Queries] = gen
+          import auto._
+          implicit lazy val queriesSchema: Schema[Console with Clock, Queries] = genAll
         }
         assert(MySchema.queriesSchema.toType_().fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
           isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.NON_NULL)))
@@ -131,7 +133,7 @@ object SchemaSpec extends ZIOSpecDefault {
       test("union redirect") {
         case class Queries(union: RedirectingUnion)
 
-        implicit val queriesSchema: Schema[Any, Queries] = Schema.gen
+        implicit val queriesSchema: Schema[Any, Queries] = Schema.genAll
 
         val types      = Types.collectTypes(introspect[Queries])
         val subTypes   = types.find(_.name.contains("RedirectingUnion")).flatMap(_.possibleTypes)

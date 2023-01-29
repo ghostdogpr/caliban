@@ -35,7 +35,7 @@ object AuthExampleApp extends App {
   }
 
   val schema: GenericSchema[Auth] = new GenericSchema[Auth] {}
-  import schema._
+  import schema.auto._
   case class Query(token: RIO[Auth, Option[String]])
   private val resolver            = RootResolver(Query(ZIO.serviceWithZIO[Auth](_.get).map(_.map(_.value))))
   private val api                 = graphQL(resolver)

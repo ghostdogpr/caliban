@@ -2,6 +2,7 @@ package caliban.validation
 
 import caliban.{ CalibanError, GraphQLRequest, InputValue, RootResolver, TestUtils, Value }
 import caliban.GraphQL._
+import caliban.schema.auto._
 import zio.test.Assertion._
 import zio.test._
 

@@ -16,6 +16,8 @@ import scala.language.postfixOps
 
 object ExampleApi extends GenericSchema[ExampleService] {
 
+  import auto._
+
   case class Queries(
     @GQLDescription("Return all characters from a given origin")
     characters: CharactersArgs => URIO[ExampleService, List[Character]],
@@ -25,6 +27,7 @@ object ExampleApi extends GenericSchema[ExampleService] {
   case class Mutations(deleteCharacter: CharacterArgs => URIO[ExampleService, Boolean])
   case class Subscriptions(characterDeleted: ZStream[ExampleService, Nothing, String])
 
+  implicit val originSchema: Schema[Any, Origin]                 = Schema.gen
   implicit val roleSchema: Schema[Any, Role]                     = Schema.gen
   implicit val characterSchema: Schema[Any, Character]           = Schema.gen
   implicit val characterArgsSchema: Schema[Any, CharacterArgs]   = Schema.gen

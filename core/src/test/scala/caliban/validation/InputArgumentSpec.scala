@@ -3,6 +3,7 @@ package caliban.validation
 import caliban.{ CalibanError, GraphQLRequest, InputValue, ResponseValue, RootResolver, TriState, Value }
 import caliban.GraphQL._
 import caliban.schema.ArgBuilder
+import caliban.schema.auto._
 import caliban.schema.Schema
 import caliban.schema.Step
 import zio.test._
@@ -25,15 +26,15 @@ object InputArgumentSpec extends ZIOSpecDefault {
   case class InputArg(input: Option[InputObject])
 
   case class ExampleObject(a: TriState[String], b: Int)
-  object ExampleObject {
-    implicit val schemaTriState: Schema[Any, TriState[String]]    =
-      TriState.schemaCustom(Step.PureStep(Value.StringValue("__undefined__")))
-    implicit val argBuilderTriState: ArgBuilder[TriState[String]] =
-      TriState.argBuilder
 
-    implicit val schema: Schema[Any, ExampleObject]    = Schema.gen
-    implicit val argBuilder: ArgBuilder[ExampleObject] = ArgBuilder.gen
-  }
+  implicit val schemaTriState: Schema[Any, TriState[String]]    =
+    TriState.schemaCustom(Step.PureStep(Value.StringValue("__undefined__")))
+  implicit val argBuilderTriState: ArgBuilder[TriState[String]] =
+    TriState.argBuilder
+
+  implicit val schema: Schema[Any, ExampleObject]    = Schema.gen
+  implicit val argBuilder: ArgBuilder[ExampleObject] = ArgBuilder.gen
+
   case class ExampleObjectArg(input: Option[ExampleObject])
 
   val gql = {
