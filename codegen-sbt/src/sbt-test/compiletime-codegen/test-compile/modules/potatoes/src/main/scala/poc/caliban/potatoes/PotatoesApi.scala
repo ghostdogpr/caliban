@@ -54,7 +54,7 @@ object Resolvers {
 object Schemas extends GenericSchema[PotatoesService]
 
 object PotatoesApi {
-  import Schemas._
+  import Schemas.auto._
 
   val api: GraphQL[PotatoesService] =
     graphQL[PotatoesService, Operations.Query, Operations.Mutation, Operations.Subscription](

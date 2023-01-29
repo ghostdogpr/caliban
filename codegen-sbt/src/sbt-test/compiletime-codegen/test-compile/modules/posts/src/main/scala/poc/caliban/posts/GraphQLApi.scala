@@ -55,7 +55,7 @@ object Resolvers {
 object Schemas extends GenericSchema[PostService]
 
 object GraphQLApi {
-  import Schemas._
+  import Schemas.auto._
 
   val api: GraphQL[PostService] =
     graphQL[PostService, Operations.Query, Operations.Mutation, Operations.Subscription](
