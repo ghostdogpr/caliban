@@ -10,6 +10,7 @@ import sangria.macros.derive._
 import sangria.marshalling.circe._
 import sangria.parser.QueryParser
 import caliban.schema.{ Schema => CSchema }
+import caliban.schema.auto._
 import sangria.schema._
 import zio.{ Runtime, Task, UIO, Unsafe, ZIO }
 
@@ -236,11 +237,8 @@ class GraphQLBenchmarks {
     character: CharacterArgs => UIO[Option[Character]]
   )
 
-  implicit val characterArgsSchema: CSchema[Any, CharacterArgs] = CSchema.gen
-  implicit val originSchema: CSchema[Any, Origin]               = CSchema.gen
-  implicit val characterSchema: CSchema[Any, Character]         = CSchema.gen
-
-  implicit val querySchema: CSchema[Any, Query] = CSchema.gen
+  implicit val originSchema: CSchema[Any, Origin]       = CSchema.gen
+  implicit val characterSchema: CSchema[Any, Character] = CSchema.gen
 
   val resolver: RootResolver[Query, Unit, Unit] = RootResolver(
     Query(
@@ -251,7 +249,7 @@ class GraphQLBenchmarks {
 
   def run[A](zio: Task[A]): A = Unsafe.unsafe(implicit u => runtime.unsafe.run(zio).getOrThrow())
 
-  val interpreter: GraphQLInterpreter[Any, CalibanError] = run(graphQL[Any, Query, Unit, Unit](resolver).interpreter)
+  val interpreter: GraphQLInterpreter[Any, CalibanError] = run(graphQL(resolver).interpreter)
 
   @Benchmark
   def simpleCaliban(): Unit = {
