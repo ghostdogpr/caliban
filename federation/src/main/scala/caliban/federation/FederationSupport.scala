@@ -20,8 +20,7 @@ abstract class FederationSupport(
    * @return A new schema which has been augmented with federation types
    */
   def federate[R](original: GraphQL[R]): GraphQL[R] = {
-    import Schema._
-    import Schema.auto._
+    import caliban.schema.auto._
 
     case class Query(
       _service: _Service,
