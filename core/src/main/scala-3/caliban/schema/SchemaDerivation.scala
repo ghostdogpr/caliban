@@ -255,7 +255,7 @@ trait SchemaDerivation[R] extends CommonSchemaDerivation {
 
   inline def genDebug[R, A]: Schema[R, A] = PrintDerived(derived[R, A])
 
-  lazy val auto                         = caliban.schema.auto
+  lazy val auto = caliban.schema.auto
 }
 
 trait AutoSchemaDerivation[R] extends GenericSchema[R] with LowPriorityDerivedSchema {
