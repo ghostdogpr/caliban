@@ -255,12 +255,13 @@ trait SchemaDerivation[R] extends CommonSchemaDerivation {
 
   inline def genDebug[R, A]: Schema[R, A] = PrintDerived(derived[R, A])
 
-  // for cross-compililing with scala 2
-  inline def genAll[R, A]: Schema[R, A] = derived[R, A]
   lazy val auto                         = caliban.schema.auto
 }
 
-trait AutoSchemaDerivation[R] extends GenericSchema[R] with LowPriorityDerivedSchema
+trait AutoSchemaDerivation[R] extends GenericSchema[R] with LowPriorityDerivedSchema {
+  // for cross-compililing with scala 2
+  inline def genAll[R, A]: Schema[R, A] = derived[R, A]
+}
 
 private[schema] trait LowPriorityDerivedSchema extends CommonSchemaDerivation {
   inline implicit def genAuto[R, A]: Schema[R, A] = derived[R, A]

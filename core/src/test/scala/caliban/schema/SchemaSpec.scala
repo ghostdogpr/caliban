@@ -133,7 +133,7 @@ object SchemaSpec extends ZIOSpecDefault {
       test("union redirect") {
         case class Queries(union: RedirectingUnion)
 
-        implicit val queriesSchema: Schema[Any, Queries] = Schema.genAll
+        implicit val queriesSchema: Schema[Any, Queries] = genAll
 
         val types      = Types.collectTypes(introspect[Queries])
         val subTypes   = types.find(_.name.contains("RedirectingUnion")).flatMap(_.possibleTypes)

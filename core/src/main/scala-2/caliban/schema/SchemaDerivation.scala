@@ -242,17 +242,17 @@ trait SchemaDerivation[R] extends CommonSchemaDerivation[R] {
    */
   def gen[R0, T]: Typeclass[T] = macro Magnolia.gen[T]
 
-  /**
-   * Returns an instance of `Schema` for the given type T.
-   * This method will automatically generate missing `Schema` for all types nested inside T that are case classes or sealed traits.
-   */
-  def genAll[R0, T](implicit derived: Derived[Schema[R0, T]]): Schema[R0, T] = derived.schema
-
   object auto extends AutoSchemaDerivation[R]
 }
 
 trait AutoSchemaDerivation[R] extends GenericSchema[R] with LowPriorityDerivedSchema {
   implicit def genMacro[T]: Derived[Typeclass[T]] = macro DerivedMagnolia.derivedMagnolia[Typeclass, T]
+
+  /**
+   * Returns an instance of `Schema` for the given type T.
+   * This method will automatically generate missing `Schema` for all types nested inside T that are case classes or sealed traits.
+   */
+  def genAll[R0, T](implicit derived: Derived[Schema[R0, T]]): Schema[R0, T] = derived.schema
 }
 
 private[schema] trait LowPriorityDerivedSchema {

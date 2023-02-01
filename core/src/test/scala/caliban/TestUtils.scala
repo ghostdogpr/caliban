@@ -121,11 +121,11 @@ object TestUtils {
 
   case class SubscriptionIO(deleteCharacters: ZStream[Any, Nothing, String])
 
-  implicit val characterSchema: Schema[Any, Character]           = Schema.genAll
-  implicit val querySchema: Schema[Any, Query]                   = Schema.genAll
-  implicit val queryIOSchema: Schema[Any, QueryIO]               = Schema.genAll
-  implicit val mutationIOSchema: Schema[Any, MutationIO]         = Schema.genAll
-  implicit val subscriptionIOSchema: Schema[Any, SubscriptionIO] = Schema.genAll
+  implicit val characterSchema: Schema[Any, Character]           = genAll
+  implicit val querySchema: Schema[Any, Query]                   = genAll
+  implicit val queryIOSchema: Schema[Any, QueryIO]               = genAll
+  implicit val mutationIOSchema: Schema[Any, MutationIO]         = genAll
+  implicit val subscriptionIOSchema: Schema[Any, SubscriptionIO] = genAll
 
   val resolver                 = RootResolver(
     Query(

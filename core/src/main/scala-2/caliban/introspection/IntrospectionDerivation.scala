@@ -5,7 +5,7 @@ import caliban.schema.Schema
 import caliban.schema.auto._
 
 trait IntrospectionDerivation {
-  implicit lazy val typeSchema: Schema[Any, __Type] = Schema.genAll
+  implicit lazy val typeSchema: Schema[Any, __Type] = genAll
 
-  val introspectionSchema: Schema[Any, __Introspection] = Schema.genAll
+  val introspectionSchema: Schema[Any, __Introspection] = genAll
 }

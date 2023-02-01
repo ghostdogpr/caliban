@@ -618,9 +618,9 @@ object ExecutionSpec extends ZIOSpecDefault {
 
         object Schemas {
           implicit val schemaUnionChild: Schema[Any, Union.Child] =
-            Schema.genAll[Any, Union.Child].rename("UnionChild")
-          implicit val schemaTestUnion: Schema[Any, Union]        = Schema.genAll
-          implicit val schemaQuery: Schema[Any, Query]            = Schema.genAll
+            genAll[Any, Union.Child].rename("UnionChild")
+          implicit val schemaTestUnion: Schema[Any, Union]        = genAll
+          implicit val schemaQuery: Schema[Any, Query]            = genAll
         }
         import Schemas._
 
@@ -651,9 +651,9 @@ object ExecutionSpec extends ZIOSpecDefault {
 
         object Schemas {
           implicit val schemaUnionChild: Schema[Any, Union.Child] =
-            Schema.genAll[Any, Union.Child].rename("UnionChild")
-          implicit val schemaTestUnion: Schema[Any, Union]        = Schema.genAll[Any, Union].rename("UnionRenamed")
-          implicit val schemaQuery: Schema[Any, Query]            = Schema.genAll
+            genAll[Any, Union.Child].rename("UnionChild")
+          implicit val schemaTestUnion: Schema[Any, Union]        = genAll[Any, Union].rename("UnionRenamed")
+          implicit val schemaQuery: Schema[Any, Query]            = genAll
         }
         import Schemas._
 
@@ -685,11 +685,11 @@ object ExecutionSpec extends ZIOSpecDefault {
 
         object Schemas {
           implicit val schemaUnionChild: Schema[Any, Union.Child]        =
-            Schema.genAll[Any, Union.Child].rename("UnionChild")
+            genAll[Any, Union.Child].rename("UnionChild")
           implicit val schemaUnionChildO: Schema[Any, Union.ChildO.type] =
             Schema.gen[Any, Union.ChildO.type].rename("UnionChildO")
-          implicit val schemaTestUnion: Schema[Any, Union]               = Schema.genAll[Any, Union].rename("UnionRenamed")
-          implicit val schemaQuery: Schema[Any, Query]                   = Schema.genAll
+          implicit val schemaTestUnion: Schema[Any, Union]               = genAll[Any, Union].rename("UnionRenamed")
+          implicit val schemaQuery: Schema[Any, Query]                   = genAll
         }
         import Schemas._
 
@@ -840,8 +840,8 @@ object ExecutionSpec extends ZIOSpecDefault {
         }
         case class Query(test: A)
         implicit val schemaB: Schema[Any, A.B] = Schema.gen
-        implicit val schemaC: Schema[Any, A.C.type]          = Schema.genAll
-        implicit val schemaCharacter: Schema[Any, Character] = Schema.genAll
+        implicit val schemaC: Schema[Any, A.C.type]          = genAll
+        implicit val schemaCharacter: Schema[Any, Character] = genAll
         val interpreter                                      = graphQL(RootResolver(Query(A.C))).interpreter
         val query                                            = gqldoc("""
             {
