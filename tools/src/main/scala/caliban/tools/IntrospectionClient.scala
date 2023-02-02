@@ -14,9 +14,16 @@ import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt.{ Directive, Document, Type }
 import sttp.client3._
 import sttp.model.Uri
-import zio.{ RIO, ZIO }
+import zio.{ RIO, UIO, ZIO }
+import zio.URIO
 
 object IntrospectionClient {
+
+  def introspect(introspectionJson: String): UIO[Document] = {
+    val result: Either[CalibanClientError, Document] =
+      introspection.decode(introspectionJson).map { case (result, errors, extensions) => result }
+    ZIO.succeed(result).absolve.orDie
+  }
 
   def introspect(uri: String, headers: Option[List[Options.Header]]): RIO[SttpClient, Document] =
     for {
