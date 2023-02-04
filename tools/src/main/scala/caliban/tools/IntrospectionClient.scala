@@ -14,8 +14,7 @@ import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt.{ Directive, Document, Type }
 import sttp.client3._
 import sttp.model.Uri
-import zio.{ RIO, UIO, ZIO }
-import zio.URIO
+import zio.{ RIO, ZIO }
 
 object IntrospectionClient {
 
