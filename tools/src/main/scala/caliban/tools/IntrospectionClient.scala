@@ -19,12 +19,6 @@ import zio.URIO
 
 object IntrospectionClient {
 
-  def introspect(introspectionJson: String): UIO[Document] = {
-    val result: Either[CalibanClientError, Document] =
-      introspection.decode(introspectionJson).map { case (result, errors, extensions) => result }
-    ZIO.succeed(result).absolve.orDie
-  }
-
   def introspect(uri: String, headers: Option[List[Options.Header]]): RIO[SttpClient, Document] =
     for {
       parsedUri <- ZIO.fromEither(Uri.parse(uri)).mapError(cause => new Exception(s"Invalid URL: $cause"))
@@ -222,7 +216,7 @@ object IntrospectionClient {
       } ~
       __Type.possibleTypes(typeRef)).mapN(mapType _)
 
-  private val introspection: SelectionBuilder[RootQuery, Document] =
+  val introspection: SelectionBuilder[RootQuery, Document] =
     Query.__schema {
       (__Schema.queryType(__Type.name) ~
         __Schema.mutationType(__Type.name) ~
