@@ -7,8 +7,8 @@ import caliban.Macros.gqldoc
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, StringValue }
-import caliban.schema.Schema
 import caliban.schema.auto._
+import caliban.schema.ArgBuilder.auto._
 import zio.test.Assertion._
 import zio.test._
 import zio.query.ZQuery

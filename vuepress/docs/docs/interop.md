@@ -25,6 +25,7 @@ The following example shows how to create an interpreter and run a query while o
 import caliban.GraphQL.graphQL
 import caliban.RootResolver
 import caliban.interop.cats.implicits._
+import caliban.schema.auto._
 import cats.effect.{ ExitCode, IO, IOApp }
 import cats.effect.std.Dispatcher
 import zio.Runtime
@@ -136,7 +137,7 @@ object Simple extends IOApp {
 
       val api: GraphQL[TraceId] = {
         val schema: GenericSchema[TraceId] = new GenericSchema[TraceId] {}
-        import schema._
+        import schema.auto._
 
         graphQL(RootResolver(queries))
       }
@@ -265,6 +266,8 @@ Just like you can create an http4s route by calling `toRoute` and passing an imp
 ```scala mdoc:silent
 import caliban.GraphQL
 import caliban.interop.tapir._ // summons 'toGraphQL' extension
+import caliban.schema.ArgBuilder.auto._
+import caliban.schema.auto._
 
 val api: GraphQL[Any] = addBook.toGraphQL((bookAddLogic _).tupled)
 ```
@@ -283,6 +286,9 @@ val addBookEndpoint: ServerEndpoint.Full[Unit, Unit, (Book, String), Nothing, Un
 This can then be used to generate both an HTTP route (e.g. `toRoutes` with http4s) and a GraphQL API (`.toGraphQL`).
 
 ```scala mdoc:silent:nest
+import caliban.schema.auto._
+import caliban.schema.ArgBuilder.auto._
+
 val api: GraphQL[Any] = addBookEndpoint.toGraphQL
 ```
 

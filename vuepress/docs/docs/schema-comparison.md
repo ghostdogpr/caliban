@@ -13,6 +13,8 @@ The following example will compare the schema obtained by Caliban with a schema 
 ```scala mdoc:silent
 import caliban.GraphQL.graphQL
 import caliban.RootResolver
+import caliban.schema.auto._
+import caliban.schema.ArgBuilder.auto._
 import caliban.tools._
 import zio.ZIO
 

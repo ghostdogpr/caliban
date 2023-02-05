@@ -98,6 +98,7 @@ import caliban.GraphQL._
 import caliban._
 import caliban.schema.Schema
 import caliban.schema.Annotations._
+import caliban.schema.auto._
 
 @GQLInterface
 sealed trait Interface

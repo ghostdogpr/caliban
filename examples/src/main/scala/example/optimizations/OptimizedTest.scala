@@ -1,6 +1,7 @@
 package example.optimizations
 
 import caliban.schema.{ GenericSchema, Schema }
+import caliban.schema.ArgBuilder.auto._
 import caliban.{ GraphQL, RootResolver }
 import example.optimizations.CommonData._
 import zio.Console.printLine

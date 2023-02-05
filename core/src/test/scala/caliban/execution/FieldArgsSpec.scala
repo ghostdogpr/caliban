@@ -3,6 +3,7 @@ package caliban.execution
 import caliban.GraphQL._
 import caliban.{ GraphQLRequest, InputValue, RootResolver, Value }
 import caliban.schema.auto._
+import caliban.schema.ArgBuilder.auto._
 import caliban.Value.EnumValue
 import zio._
 import zio.test._

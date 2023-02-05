@@ -7,6 +7,7 @@ import caliban.GraphQL.graphQL
 import caliban.RootResolver
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.{ GenericSchema, Schema }
+import caliban.schema.ArgBuilder.auto._
 import caliban.wrappers.ApolloTracing.apolloTracing
 import caliban.wrappers.Wrappers._
 import zio._

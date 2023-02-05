@@ -6,6 +6,7 @@ import caliban.RootResolver
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
 import caliban.schema.Annotations.{ GQLExcluded, GQLInterface, GQLUnion, GQLValueType }
 import caliban.schema.auto._
+import caliban.schema.ArgBuilder.auto._
 import zio.query.ZQuery
 import zio.stream.ZStream
 import zio.test.Assertion._

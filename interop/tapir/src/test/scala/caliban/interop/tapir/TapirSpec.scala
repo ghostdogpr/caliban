@@ -1,6 +1,7 @@
 package caliban.interop.tapir
 
 import caliban.Macros.gqldoc
+import caliban.schema.ArgBuilder.auto._
 import sttp.tapir._
 import zio.ZIO
 import zio.test._

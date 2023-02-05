@@ -5,6 +5,7 @@ import caliban.federation.tracing.ApolloFederatedTracing
 import caliban.federation.{ federated, EntityResolver, GQLKey }
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
+import caliban.schema.ArgBuilder.auto._
 import caliban.wrappers.Wrapper
 import caliban.wrappers.Wrappers.{ maxDepth, maxFields, printSlowQueries, timeout }
 import caliban.{ GraphQL, GraphQLAspect, RootResolver }

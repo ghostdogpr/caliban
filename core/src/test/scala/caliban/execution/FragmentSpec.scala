@@ -7,6 +7,7 @@ import caliban.TestUtils._
 import caliban.Value.StringValue
 import caliban.schema.Annotations.GQLDefault
 import caliban.schema.auto._
+import caliban.schema.ArgBuilder.auto._
 import zio.test.Assertion._
 import zio.test._
 

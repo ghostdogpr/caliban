@@ -6,6 +6,7 @@ import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
 import caliban.schema.Schema
 import caliban.schema.auto._
+import caliban.schema.ArgBuilder.auto._
 
 trait IntrospectionDerivation {
   import Schema._

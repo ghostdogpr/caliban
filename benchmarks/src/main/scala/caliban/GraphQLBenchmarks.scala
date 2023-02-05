@@ -11,6 +11,7 @@ import sangria.marshalling.circe._
 import sangria.parser.QueryParser
 import caliban.schema.{ Schema => CSchema }
 import caliban.schema.auto._
+import caliban.schema.ArgBuilder.auto._
 import sangria.schema._
 import zio.{ Runtime, Task, UIO, Unsafe, ZIO }
 

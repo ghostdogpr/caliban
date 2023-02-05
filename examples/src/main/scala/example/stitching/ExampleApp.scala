@@ -4,6 +4,7 @@ import caliban._
 import caliban.GraphQL.graphQL
 import caliban.schema._
 import caliban.schema.auto._
+import caliban.schema.ArgBuilder.auto._
 import caliban.tools.{ Options, RemoteSchema, SchemaLoader }
 import caliban.tools.stitching.{ HttpRequest, RemoteResolver, RemoteSchemaResolver, ResolveRequest }
 import sttp.capabilities.WebSockets

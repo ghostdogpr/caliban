@@ -12,6 +12,7 @@ import caliban.parsing.adt.LocationInfo
 import caliban.schema.Annotations.{ GQLInterface, GQLName, GQLValueType }
 import caliban.schema._
 import caliban.schema.auto._
+import caliban.schema.ArgBuilder.auto._
 import caliban._
 import zio.{ FiberRef, IO, Task, UIO, ZIO, ZLayer }
 import zio.stream.ZStream
@@ -212,15 +213,16 @@ object ExecutionSpec extends ZIOSpecDefault {
           case object Value     extends ThreeState
 
           def fromOption[T](o: Option[T]) = o.fold[ThreeState](Null)(_ => Value)
+        }
 
-          implicit val argBuilder: ArgBuilder[ThreeState] = new ArgBuilder[ThreeState] {
-            private val base = ArgBuilder.option(ArgBuilder.boolean)
+        implicit val argBuilder: ArgBuilder[ThreeState] = new ArgBuilder[ThreeState] {
+          private val base = ArgBuilder.option(ArgBuilder.boolean)
 
-            override def build(input: InputValue)              = base.build(input).map(fromOption(_))
-            override def buildMissing(default: Option[String]) = default match {
-              case None    => Right(Undefined)
-              case Some(v) => base.buildMissing(Some(v)).map(fromOption(_))
-            }
+          override def build(input: InputValue) = base.build(input).map(ThreeState.fromOption(_))
+
+          override def buildMissing(default: Option[String]) = default match {
+            case None    => Right(ThreeState.Undefined)
+            case Some(v) => base.buildMissing(Some(v)).map(ThreeState.fromOption(_))
           }
         }
 
@@ -771,11 +773,12 @@ object ExecutionSpec extends ZIOSpecDefault {
           )
       },
       test("failure in ArgBuilder, optional field") {
-        case class UserArgs(id: Int)
+        case class A()
+        case class UserArgs(id: A)
         case class User(test: UserArgs => String)
         case class Mutations(user: Task[User])
         case class Queries(a: Int)
-        implicit val intArgBuilder: ArgBuilder[Int] = (_: InputValue) => Left(ExecutionError("nope"))
+        implicit val aArgBuilder: ArgBuilder[A] = (_: InputValue) => Left(ExecutionError("nope"))
 
         val api = graphQL(RootResolver(Queries(1), Mutations(ZIO.succeed(User(_.toString)))))
 
