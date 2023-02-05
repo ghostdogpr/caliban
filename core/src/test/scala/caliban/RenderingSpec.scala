@@ -232,7 +232,9 @@ object RenderingSpec extends ZIOSpecDefault {
              |Multiple lines${tripleQuote} in: Int!): OutputValue!
              |}
              |""".stripMargin
-        assert(graphQL(resolver).render.trim)(equalTo(expected.trim))
+
+        val api = graphQL(resolver)
+        assert(api.render.trim)(equalTo(expected.trim))
       },
       test("it should render single line descriptions ending in quote") {
         import RenderingSpecSchemaSingleLineEndingInQuoteDescription.resolver
