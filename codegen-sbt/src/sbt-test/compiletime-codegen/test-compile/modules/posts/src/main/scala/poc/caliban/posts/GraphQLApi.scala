@@ -54,6 +54,7 @@ object Resolvers {
 
 object GraphQLApi extends GenericSchema[PostService] {
   import auto._
+  import caliban.schema.ArgBuilder.auto._
 
   val api: GraphQL[PostService] =
     graphQL[PostService, Operations.Query, Operations.Mutation, Operations.Subscription](

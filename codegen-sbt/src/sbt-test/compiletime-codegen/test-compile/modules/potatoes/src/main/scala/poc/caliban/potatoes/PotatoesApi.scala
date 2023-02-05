@@ -53,6 +53,7 @@ object Resolvers {
 
 object PotatoesApi extends GenericSchema[PotatoesService] {
   import auto._
+  import caliban.schema.ArgBuilder.auto._
 
   val api: GraphQL[PotatoesService] =
     graphQL[PotatoesService, Operations.Query, Operations.Mutation, Operations.Subscription](
