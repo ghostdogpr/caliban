@@ -4,7 +4,7 @@ import caliban.Macros.gqldoc
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ IntValue, StringValue }
 import caliban.{ GraphQL, GraphQLRequest, RootResolver }
-import caliban.schema.auto._
+import caliban.schema.Schema.auto._
 import mdg.engine.proto.reports.Trace
 import zio._
 import zio.query.ZQuery

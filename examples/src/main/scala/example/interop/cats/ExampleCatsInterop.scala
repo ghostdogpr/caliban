@@ -2,7 +2,7 @@ package example.interop.cats
 
 import caliban.GraphQL.graphQL
 import caliban.RootResolver
-import caliban.schema.auto._
+import caliban.schema.Schema.auto._
 
 import cats.effect.{ ExitCode, IO, IOApp }
 import cats.effect.std.Dispatcher

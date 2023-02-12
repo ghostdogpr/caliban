@@ -3,7 +3,7 @@ package caliban.interop.play
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
 import caliban.RootResolver
-import caliban.schema.auto._
+import caliban.schema.Schema.auto._
 import zio.test._
 
 object ExecutionSpec extends ZIOSpecDefault {

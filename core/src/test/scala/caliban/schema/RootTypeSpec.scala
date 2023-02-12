@@ -1,7 +1,7 @@
 package caliban.schema
 
 import caliban.schema.Annotations.GQLInterface
-import caliban.schema.auto._
+import caliban.schema.Schema.auto._
 import caliban.{ GraphQL, RootResolver }
 import zio.test._
 

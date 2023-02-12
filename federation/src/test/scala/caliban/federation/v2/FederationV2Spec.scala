@@ -6,7 +6,7 @@ import caliban.Value.StringValue
 import caliban.{ GraphQL, RootResolver }
 import caliban.parsing.Parser
 import caliban.parsing.adt.{ Definition, Directive }
-import caliban.schema.auto._
+import caliban.schema.Schema.auto._
 import io.circe.Json
 import zio.test.{ assertTrue, ZIOSpecDefault }
 import io.circe.syntax._

@@ -6,7 +6,7 @@ import caliban.TestUtils._
 import caliban.TestUtils.InvalidSchemas._
 import caliban.introspection.adt._
 import caliban.schema.Types
-import caliban.schema.auto._
+import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import caliban.{ GraphQL, RootResolver }
 import zio.{ IO, ZIO }

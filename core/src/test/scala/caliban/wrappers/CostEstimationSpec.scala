@@ -5,7 +5,7 @@ import caliban.GraphQL.graphQL
 import caliban.Macros.gqldoc
 import caliban.ResponseValue.ObjectValue
 import caliban.RootResolver
-import caliban.schema.auto._
+import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import caliban.Value.{ FloatValue, IntValue }
 import caliban.wrappers.CostEstimation.GQLCost

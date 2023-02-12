@@ -4,7 +4,7 @@ import caliban.GraphQL._
 import caliban.TestUtils._
 import caliban.introspection.adt.__DeprecatedArgs
 import caliban.schema.SchemaSpec.introspect
-import caliban.schema.auto._
+import caliban.schema.Schema.auto._
 import zio.test._
 
 object Scala2SpecificSpec extends ZIOSpecDefault {

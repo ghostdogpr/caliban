@@ -62,7 +62,7 @@ The whole schema will be derived at compile time, meaning that if it compiles, i
 ```scala mdoc:silent
 import caliban.GraphQL.graphQL
 import caliban.RootResolver
-import caliban.schema.auto._
+import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 
 val api = graphQL(RootResolver(queries))
@@ -144,7 +144,7 @@ Creating mutations is the same as queries, except you pass them as the second ar
 
 ```scala mdoc:nest:silent
 import zio.Task
-import caliban.schema.auto._
+import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 
 case class CharacterArgs(name: String)
@@ -159,7 +159,7 @@ Similarly, subscriptions are passed as the third argument to `RootResolver`:
 
 ```scala mdoc:compile-only
 import zio.stream.ZStream
-import caliban.schema.auto._
+import caliban.schema.Schema.auto._
 
 case class Subscriptions(deletedCharacter: ZStream[Any, Nothing, Character])
 val subscriptions = Subscriptions(???)

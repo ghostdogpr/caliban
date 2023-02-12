@@ -4,7 +4,7 @@ import caliban.GraphQL._
 import caliban._
 import caliban.introspection.adt._
 import caliban.schema._
-import caliban.schema.auto._
+import caliban.schema.Schema.auto._
 import zio._
 import zio.test.Assertion._
 import zio.test._

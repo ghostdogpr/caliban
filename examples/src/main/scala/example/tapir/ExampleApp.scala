@@ -3,7 +3,7 @@ package example.tapir
 import example.tapir.Endpoints._
 import caliban.interop.tapir._
 import caliban.{ GraphQL, Http4sAdapter }
-import caliban.schema.auto._
+import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import cats.data.Kleisli
 import com.comcast.ip4s._

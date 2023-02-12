@@ -118,8 +118,6 @@ trait Schema[-R, T] { self =>
 
 object Schema extends GenericSchema[Any]
 
-object auto extends AutoSchemaDerivation[Any]
-
 trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
 
   /**

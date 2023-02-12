@@ -37,7 +37,7 @@ Caliban ships with a set of abstract classes to make it easier to use Relay conn
 
 ```scala mdoc:silent
 import caliban._
-import caliban.schema.auto._
+import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import caliban.relay._
 import zio._

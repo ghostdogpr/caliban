@@ -9,7 +9,7 @@ import caliban.Value.StringValue
 import caliban.introspection.adt.{ __Field, __InputValue, __Type, __TypeKind }
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
-import caliban.schema.auto._
+import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.scalarSchema
 import caliban.schema.{ Schema, Types }

@@ -6,7 +6,7 @@ import caliban.Macros.gqldoc
 import caliban.{ CalibanError, GraphQLInterpreter, RootResolver }
 import caliban.execution.Field
 import caliban.schema.Annotations.GQLInterface
-import caliban.schema.auto._
+import caliban.schema.Schema.auto._
 import zio._
 import zio.test._
 

@@ -10,7 +10,7 @@ import caliban._
 import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
 import caliban.schema.{ GenericSchema, Schema }
-import caliban.schema.auto._
+import caliban.schema.Schema.auto._
 import caliban.wrappers.ApolloCaching.GQLCacheControl
 import caliban.wrappers.ApolloPersistedQueries.apolloPersistedQueries
 import caliban.wrappers.Wrapper.{ ExecutionWrapper, FieldWrapper }

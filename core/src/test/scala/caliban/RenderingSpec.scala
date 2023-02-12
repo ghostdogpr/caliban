@@ -4,7 +4,7 @@ import caliban.GraphQL._
 import caliban.TestUtils._
 import caliban.introspection.adt.{ __Type, __TypeKind }
 import caliban.parsing.adt.Directive
-import caliban.schema.auto._
+import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import zio.test.Assertion._
 import zio.test._

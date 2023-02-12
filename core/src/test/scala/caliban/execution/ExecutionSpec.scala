@@ -11,7 +11,7 @@ import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
 import caliban.schema.Annotations.{ GQLInterface, GQLName, GQLValueType }
 import caliban.schema._
-import caliban.schema.auto._
+import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import caliban._
 import zio.{ FiberRef, IO, Task, UIO, ZIO, ZLayer }

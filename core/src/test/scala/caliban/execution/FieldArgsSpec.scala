@@ -2,7 +2,7 @@ package caliban.execution
 
 import caliban.GraphQL._
 import caliban.{ GraphQLRequest, InputValue, RootResolver, Value }
-import caliban.schema.auto._
+import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import caliban.Value.EnumValue
 import zio._
