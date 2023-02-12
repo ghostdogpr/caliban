@@ -215,7 +215,7 @@ object IntrospectionClient {
       } ~
       __Type.possibleTypes(typeRef)).mapN(mapType _)
 
-  private val introspection: SelectionBuilder[RootQuery, Document] =
+  val introspection: SelectionBuilder[RootQuery, Document] =
     Query.__schema {
       (__Schema.queryType(__Type.name) ~
         __Schema.mutationType(__Type.name) ~
