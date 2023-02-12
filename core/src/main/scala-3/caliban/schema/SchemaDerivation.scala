@@ -255,7 +255,7 @@ trait SchemaDerivation[R] extends CommonSchemaDerivation {
 
   inline def genDebug[R, A]: Schema[R, A] = PrintDerived(derived[R, A])
 
-  object auto extends AutoSchemaDerivation[R]
+  final lazy val auto = new AutoSchemaDerivation[Any] {}
 }
 
 trait AutoSchemaDerivation[R] extends GenericSchema[R] with LowPriorityDerivedSchema {
