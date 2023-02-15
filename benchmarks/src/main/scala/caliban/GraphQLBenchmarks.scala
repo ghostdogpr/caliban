@@ -2,12 +2,14 @@ package caliban
 
 import caliban.Data._
 import caliban.GraphQL._
+import caliban.parsing.Parser
 import io.circe.Json
 import org.openjdk.jmh.annotations._
 import sangria.execution._
 import sangria.macros.derive._
 import sangria.marshalling.circe._
 import sangria.parser.QueryParser
+import caliban.schema.{ Schema => CSchema }
 import sangria.schema._
 import zio.{ Runtime, Task, UIO, Unsafe, ZIO }
 
@@ -23,6 +25,7 @@ import scala.language.postfixOps
 @Measurement(iterations = 5, time = 3, timeUnit = TimeUnit.SECONDS)
 @Fork(1)
 class GraphQLBenchmarks {
+  import CSchema._
 
   val simpleQuery: String =
     """{
@@ -233,6 +236,12 @@ class GraphQLBenchmarks {
     character: CharacterArgs => UIO[Option[Character]]
   )
 
+  implicit val characterArgsSchema: CSchema[Any, CharacterArgs] = CSchema.gen
+  implicit val originSchema: CSchema[Any, Origin]               = CSchema.gen
+  implicit val characterSchema: CSchema[Any, Character]         = CSchema.gen
+
+  implicit val querySchema: CSchema[Any, Query] = CSchema.gen
+
   val resolver: RootResolver[Query, Unit, Unit] = RootResolver(
     Query(
       args => ZIO.succeed(Data.characters.filter(c => args.origin.forall(c.origin == _))),
@@ -242,7 +251,7 @@ class GraphQLBenchmarks {
 
   def run[A](zio: Task[A]): A = Unsafe.unsafe(implicit u => runtime.unsafe.run(zio).getOrThrow())
 
-  val interpreter: GraphQLInterpreter[Any, CalibanError] = run(graphQL(resolver).interpreter)
+  val interpreter: GraphQLInterpreter[Any, CalibanError] = run(graphQL[Any, Query, Unit, Unit](resolver).interpreter)
 
   @Benchmark
   def simpleCaliban(): Unit = {
@@ -265,16 +274,23 @@ class GraphQLBenchmarks {
     ()
   }
 
-  implicit val OriginEnum: EnumType[Origin]               = deriveEnumType[Origin]()
-  implicit val CaptainType: ObjectType[Unit, Captain]     = deriveObjectType[Unit, Captain]()
-  implicit val PilotType: ObjectType[Unit, Pilot]         = deriveObjectType[Unit, Pilot]()
-  implicit val EngineerType: ObjectType[Unit, Engineer]   = deriveObjectType[Unit, Engineer]()
-  implicit val MechanicType: ObjectType[Unit, Mechanic]   = deriveObjectType[Unit, Mechanic]()
-  implicit val RoleType: UnionType[Unit]                  = UnionType(
+  @Benchmark
+  def parserCaliban(): Unit = {
+    val io = Parser.parseQuery(fullIntrospectionQuery)
+    run(io)
+    ()
+  }
+
+  implicit val OriginEnum: EnumType[Origin]                  = deriveEnumType[Origin](IncludeValues("EARTH", "MARS", "BELT"))
+  implicit val CaptainType: ObjectType[Unit, Role.Captain]   = deriveObjectType[Unit, Role.Captain]()
+  implicit val PilotType: ObjectType[Unit, Role.Pilot]       = deriveObjectType[Unit, Role.Pilot]()
+  implicit val EngineerType: ObjectType[Unit, Role.Engineer] = deriveObjectType[Unit, Role.Engineer]()
+  implicit val MechanicType: ObjectType[Unit, Role.Mechanic] = deriveObjectType[Unit, Role.Mechanic]()
+  implicit val RoleType: UnionType[Unit]                     = UnionType(
     "Role",
     types = List(PilotType, EngineerType, MechanicType, CaptainType)
   )
-  implicit val CharacterType: ObjectType[Unit, Character] = ObjectType(
+  implicit val CharacterType: ObjectType[Unit, Character]    = ObjectType(
     "Character",
     fields[Unit, Character](
       Field(
@@ -341,47 +357,8 @@ class GraphQLBenchmarks {
     ()
   }
 
-  object SangriaNewValidator {
-    import sangria.validation.RuleBasedQueryValidator
-    import sangria.validation.rules._
-
-    val allRules =
-      new RuleBasedQueryValidator(
-        List(
-          new ValuesOfCorrectType,
-          new ExecutableDefinitions,
-          new FieldsOnCorrectType,
-          new FragmentsOnCompositeTypes,
-          new KnownArgumentNames,
-          new KnownDirectives,
-          new KnownFragmentNames,
-          new KnownTypeNames,
-          new LoneAnonymousOperation,
-          new NoFragmentCycles,
-          new NoUndefinedVariables,
-          new NoUnusedFragments,
-          new NoUnusedVariables,
-          // new OverlappingFieldsCanBeMerged,
-          new experimental.OverlappingFieldsCanBeMerged,
-          new PossibleFragmentSpreads,
-          new ProvidedRequiredArguments,
-          new ScalarLeafs,
-          new UniqueArgumentNames,
-          new UniqueDirectivesPerLocation,
-          new UniqueFragmentNames,
-          new UniqueInputFieldNames,
-          new UniqueOperationNames,
-          new UniqueVariableNames,
-          new VariablesAreInputTypes,
-          new VariablesInAllowedPosition,
-          new InputDocumentNonConflictingVariableInference,
-          new SingleFieldSubscriptions
-        )
-      )
-  }
-
   @Benchmark
-  def fragmentsSangriaOld(): Unit = {
+  def fragmentsSangria(): Unit = {
     val future: Future[Json] =
       Future
         .fromTry(QueryParser.parse(fragmentsQuery))
@@ -391,13 +368,9 @@ class GraphQLBenchmarks {
   }
 
   @Benchmark
-  def fragmentsSangriaNew(): Unit = {
-    val future: Future[Json] =
-      Future
-        .fromTry(QueryParser.parse(fragmentsQuery))
-        .flatMap(queryAst => Executor.execute(schema, queryAst, queryValidator = SangriaNewValidator.allRules))
+  def parserSangria(): Unit = {
+    val future = Future.fromTry(QueryParser.parse(fullIntrospectionQuery))
     Await.result(future, 1 minute)
     ()
   }
-
 }

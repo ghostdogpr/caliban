@@ -2,16 +2,16 @@ package caliban.interop.tapir
 
 import caliban.InputValue.ObjectValue
 import caliban.Value.StringValue
-import caliban.{ CalibanError, GraphQLRequest, GraphQLWSInput }
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, GraphQLWSInput, GraphQLWSOutput }
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.client3.SttpBackend
 import sttp.client3.asynchttpclient.zio._
 import sttp.model.{ Header, MediaType, Method, Part, QueryParams, StatusCode, Uri }
 import sttp.tapir.AttributeKey
+import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.client.sttp.SttpClientInterpreter
 import sttp.tapir.client.sttp.ws.zio._
-import sttp.tapir.json.circe._
 import sttp.tapir.model.{ ConnectionInfo, ServerRequest }
 import zio.stream.ZStream
 import zio.test.TestAspect.before
@@ -44,6 +44,12 @@ object TapirAdapterSpec {
     httpUri: Uri,
     uploadUri: Option[Uri] = None,
     wsUri: Option[Uri] = None
+  )(implicit
+    requestCodec: JsonCodec[GraphQLRequest],
+    mapCodec: JsonCodec[Map[String, Seq[String]]],
+    responseCodec: JsonCodec[GraphQLResponse[CalibanError]],
+    wsInputCodec: JsonCodec[GraphQLWSInput],
+    wsOutputCodec: JsonCodec[GraphQLWSOutput]
   ): Spec[TestService, Throwable] = suite(label) {
     val run       =
       SttpClientInterpreter()
@@ -270,7 +276,7 @@ object TapirAdapterSpec {
     )
 
     ZIO.succeed(tests.flatten)
-  }.provideLayerShared(AsyncHttpClientZioBackend.layer()) @@
+  }.provideLayerShared(ZLayer.scoped(AsyncHttpClientZioBackend.scoped())) @@
     before(TestService.reset) @@
     TestAspect.sequential
 }

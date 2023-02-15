@@ -24,6 +24,9 @@ object ClientWriter {
   ): List[(String, String)] = {
     require(packageName.isDefined || !splitFiles, "splitFiles option requires a package name")
 
+    val defaultScalarMappings      = Map("Float" -> "Double", "ID" -> "String")
+    val scalarMappingsWithDefaults = scalarMappings.fold(defaultScalarMappings)(defaultScalarMappings ++ _)
+
     def getMappingsClashedNames(typeNames: List[String], reservedNames: List[String] = Nil): Map[String, String] =
       (reservedNames ::: typeNames)
         .map(name => name.toLowerCase -> name)
@@ -64,18 +67,8 @@ object ClientWriter {
       name
     }
 
-    def safeName(name: String): String =
-      if (reservedKeywords.contains(name) || name.endsWith("_")) s"`$name`"
-      else if (caseClassReservedFields.contains(name)) s"$name$$"
-      else name
-
-    def safeTypeName(
-      typeName: String
-    ): String =
-      mappingClashedTypeNames.getOrElse(
-        typeName,
-        scalarMappings.flatMap(m => m.get(typeName)).getOrElse(safeName(typeName))
-      )
+    def safeTypeName(typeName: String): String =
+      mappingClashedTypeNames.getOrElse(typeName, scalarMappingsWithDefaults.getOrElse(typeName, safeName(typeName)))
 
     val typesMap: Map[String, TypeDefinition] = schema.definitions.collect {
       case op @ ObjectTypeDefinition(_, name, _, _, _)   => name -> op
@@ -291,14 +284,6 @@ object ClientWriter {
       )
     }
 
-    def mapTypeName(
-      s: String
-    ): String = s match {
-      case "Float" => "Double"
-      case "ID"    => "String"
-      case other   => safeTypeName(other)
-    }
-
     def writeField(
       field: FieldDefinition,
       typeName: String,
@@ -488,7 +473,7 @@ object ClientWriter {
       val allFields = fields ++ optionalUnionTypeFields ++ optionalInterfaceTypeFields
 
       s"""object $objectName {$view
-         |  ${allFields.map(writeFieldInfo).mkString("\n  ")}
+         |  ${allFields.distinct.map(writeFieldInfo).mkString("\n  ")}
          |}
          |""".stripMargin
     }
@@ -664,7 +649,7 @@ object ClientWriter {
     ): String = t match {
       case NamedType(name, true)   =>
         if (name == typeName) s"encode($fieldName)"
-        else s"implicitly[ArgEncoder[${mapTypeName(name)}]].encode($fieldName)"
+        else s"implicitly[ArgEncoder[${safeTypeName(name)}]].encode($fieldName)"
       case NamedType(name, false)  =>
         s"$fieldName.fold(__NullValue: __Value)(value => ${writeInputValue(NamedType(name, nonNull = true), "value", typeName)})"
       case ListType(ofType, true)  =>
@@ -742,11 +727,9 @@ object ClientWriter {
         case _               => ""
       }
 
-    def writeType(
-      t: Type
-    ): String = t match {
-      case NamedType(name, true)   => mapTypeName(name)
-      case NamedType(name, false)  => s"scala.Option[${mapTypeName(name)}]"
+    def writeType(t: Type): String = t match {
+      case NamedType(name, true)   => safeTypeName(name)
+      case NamedType(name, false)  => s"scala.Option[${safeTypeName(name)}]"
       case ListType(ofType, true)  => s"List[${writeType(ofType)}]"
       case ListType(ofType, false) => s"scala.Option[List[${writeType(ofType)}]]"
     }
@@ -772,7 +755,7 @@ object ClientWriter {
     }
 
     def isScalarSupported(scalar: String): Boolean =
-      supportedScalars.contains(scalar) || scalarMappings.exists(_.contains(scalar))
+      supportedScalars.contains(scalar) || scalarMappingsWithDefaults.contains(scalar)
 
     val schemaDef = schema.schemaDefinition
 
@@ -863,7 +846,7 @@ object ClientWriter {
     }
 
     val enums = schema.enumTypeDefinitions
-      .filter(e => !scalarMappings.exists(_.contains(e.name)))
+      .filter(e => !scalarMappingsWithDefaults.contains(e.name))
       .map { typedef =>
         val content     = writeEnum(typedef, extensibleEnums = extensibleEnums)
         val fullContent =

@@ -24,11 +24,6 @@ object SchemaWriter {
       definition -> tuples.map(_._2)
     }
 
-    def safeName(name: String): String =
-      if (reservedKeywords.contains(name) || name.endsWith("_")) s"`$name`"
-      else if (caseClassReservedFields.contains(name)) s"$name$$"
-      else name
-
     def reservedType(typeDefinition: ObjectTypeDefinition): Boolean =
       typeDefinition.name == "Query" || typeDefinition.name == "Mutation" || typeDefinition.name == "Subscription"
 
@@ -121,10 +116,10 @@ object SchemaWriter {
           }
 
         s"""${unions.keys.map(writeUnionSealedTrait).mkString("\n")}
-        
+
         ${unionsWithoutReusedMembers.map { case (union, objects) => writeNotReusedMembers(union, objects) }
           .mkString("\n")}
-        
+
         ${reusedUnionMembers.map { case (objectType, unions) => writeReusedUnionMember(objectType, unions) }
           .mkString("\n")}
          """

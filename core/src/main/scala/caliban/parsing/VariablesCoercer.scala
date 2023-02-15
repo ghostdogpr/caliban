@@ -24,15 +24,14 @@ object VariablesCoercer {
     rootType: RootType,
     skipValidation: Boolean
   )(implicit trace: Trace): IO[ValidationError, GraphQLRequest] = {
-    val variableDefinitions    = doc.operationDefinitions.flatMap(_.variableDefinitions)
-    val variables              = req.variables.getOrElse(Map.empty)
-    val rootTypeWithPrimitives = rootType.copy(additionalTypes = rootType.additionalTypes ++ primitiveTypes)
+    val variableDefinitions = doc.operationDefinitions.flatMap(_.variableDefinitions)
+    val variables           = req.variables.getOrElse(Map.empty)
 
     ZIO
       .foldLeft(variableDefinitions)(Map.empty[String, InputValue]) { case (coercedValues, definition) =>
         val variableName = definition.name
         ZIO
-          .fromEither(isInputType(definition.variableType, rootTypeWithPrimitives))
+          .fromEither(isInputType(definition.variableType, rootType))
           .mapError(e =>
             ValidationError(
               s"Type of variable '$variableName' $e",
@@ -47,7 +46,7 @@ object VariablesCoercer {
                 rewriteValues(
                   inputValue,
                   definition.variableType,
-                  rootTypeWithPrimitives,
+                  rootType,
                   s"Variable '$variableName'"
                 ).catchSome { case _ if skipValidation => ZIO.succeed(inputValue) }
               )

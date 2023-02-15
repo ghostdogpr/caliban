@@ -6,7 +6,6 @@ import caliban.interop.tapir.RequestInterceptor
 import caliban.interop.tapir.TapirAdapter.TapirResponse
 import caliban.schema.GenericSchema
 import caliban.{ PlayAdapter, RootResolver }
-import example.akkahttp.AuthExampleApp.{ api, runtime }
 import play.api.Mode
 import play.api.routing._
 import play.api.routing.sird._

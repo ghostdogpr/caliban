@@ -10,6 +10,8 @@ import zhttp.http._
 import zhttp.service.Server
 
 object ExampleApp extends ZIOAppDefault {
+  import sttp.tapir.json.circe._
+
   private val graphiql = Http.fromStream(ZStream.fromResource("graphiql.html"))
 
   override def run =

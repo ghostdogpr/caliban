@@ -12,13 +12,13 @@ import cats.effect.{ Async, IO, IOApp, Resource }
 import cats.effect.std.Dispatcher
 import cats.mtl.Local
 import cats.mtl.syntax.local._
-import org.http4s.HttpApp
+import com.comcast.ip4s._
+import org.http4s.{ HttpApp, HttpRoutes, Request, Response }
 import org.http4s.server.Server
-import org.http4s.{ HttpRoutes, Request }
 import org.http4s.dsl.Http4sDsl
 import org.http4s.implicits._
-import org.http4s.blaze.server.BlazeServerBuilder
-import org.http4s.server.{ Router, ServiceErrorHandler }
+import org.http4s.ember.server.EmberServerBuilder
+import org.http4s.server.Router
 import org.typelevel.ci._
 import zio.{ Runtime, ZEnvironment }
 
@@ -88,6 +88,7 @@ object AuthExampleAppF extends IOApp.Simple {
   }
 
   class Api[F[_]: Async: AuthLocal](implicit interop: CatsInterop[F, AuthInfo]) extends Http4sDsl[F] {
+    import sttp.tapir.json.circe._
 
     def httpApp(graphQL: GraphQL[AuthInfo]): F[HttpApp[F]] =
       for {
@@ -100,7 +101,7 @@ object AuthExampleAppF extends IOApp.Simple {
       } yield Http4sAdapter.makeHttpServiceF[F, AuthInfo, CalibanError](interpreter)
 
     // http4s error handler to customize the response for our throwable
-    def errorHandler: ServiceErrorHandler[F] = _ => { case MissingToken() => Forbidden() }
+    def errorHandler: PartialFunction[Throwable, F[Response[F]]] = { case MissingToken() => Forbidden() }
   }
 
   def program[F[_]: Async: AuthLocal](implicit
@@ -108,14 +109,19 @@ object AuthExampleAppF extends IOApp.Simple {
     injector: InjectEnv[F, AuthInfo]
   ): Resource[F, Server] = {
 
-    def makeHttpServer(httpApp: HttpApp[F], errorHandler: ServiceErrorHandler[F]): Resource[F, Server] =
-      BlazeServerBuilder[F]
-        .withServiceErrorHandler(errorHandler)
-        .bindHttp(8088, "localhost")
+    def makeHttpServer(
+      httpApp: HttpApp[F],
+      errorHandler: PartialFunction[Throwable, F[Response[F]]]
+    ): Resource[F, Server] =
+      EmberServerBuilder
+        .default[F]
+        .withErrorHandler(errorHandler)
+        .withHost(host"localhost")
+        .withPort(port"8088")
         .withHttpApp(httpApp)
-        .resource
+        .build
 
-    Dispatcher[F].flatMap { dispatcher =>
+    Dispatcher.parallel[F].flatMap { dispatcher =>
       implicit val interop: CatsInterop.Contextual[F, AuthInfo] = CatsInterop.contextual(dispatcher)
 
       val gql = new GQL[F]

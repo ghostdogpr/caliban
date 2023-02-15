@@ -10,13 +10,13 @@ import play.api.routing._
 import play.api.routing.sird._
 import play.core.server.{ AkkaHttpServer, ServerConfig }
 import sttp.client3.UriContext
-import sttp.tapir.json.play._
 import zio._
 import zio.test.{ Live, ZIOSpecDefault }
 
 import scala.language.postfixOps
 
 object PlayAdapterSpec extends ZIOSpecDefault {
+  import sttp.tapir.json.play._
 
   private val interceptor = FakeAuthorizationInterceptor.bearer
 
@@ -32,10 +32,17 @@ object PlayAdapterSpec extends ZIOSpecDefault {
       router       = Router.from {
                        case req @ POST(p"/api/graphql")    =>
                          PlayAdapter
-                           .makeHttpService(interpreter, requestInterceptor = interceptor)(runtime, mat)
+                           .makeHttpService(interpreter, requestInterceptor = interceptor)(
+                             runtime,
+                             mat,
+                             implicitly,
+                             implicitly
+                           )
                            .apply(req)
                        case req @ POST(p"/upload/graphql") =>
-                         PlayAdapter.makeHttpUploadService(interpreter)(runtime, mat).apply(req)
+                         PlayAdapter
+                           .makeHttpUploadService(interpreter)(runtime, mat, implicitly, implicitly, implicitly)
+                           .apply(req)
                        case req @ GET(p"/ws/graphql")      =>
                          PlayAdapter.makeWebSocketService(interpreter)(ec, runtime, mat, implicitly, implicitly).apply(req)
                      }

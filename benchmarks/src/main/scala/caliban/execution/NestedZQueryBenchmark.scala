@@ -22,25 +22,49 @@ class NestedZQueryBenchmark {
   import NestedZQueryBenchmarkSchema._
 
   val simple100: GraphQLInterpreter[Any, CalibanError]   =
-    run(graphQL(RootResolver(NestedZQueryBenchmarkSchema.simple100Elements)).interpreter)
+    run(graphQL[Any, SimpleRoot, Unit, Unit](RootResolver(NestedZQueryBenchmarkSchema.simple100Elements)).interpreter)
   val simple1000: GraphQLInterpreter[Any, CalibanError]  =
-    run(graphQL(RootResolver(NestedZQueryBenchmarkSchema.simple1000Elements)).interpreter)
+    run(graphQL[Any, SimpleRoot, Unit, Unit](RootResolver(NestedZQueryBenchmarkSchema.simple1000Elements)).interpreter)
   val simple10000: GraphQLInterpreter[Any, CalibanError] =
-    run(graphQL(RootResolver(NestedZQueryBenchmarkSchema.simple10000Elements)).interpreter)
+    run(graphQL[Any, SimpleRoot, Unit, Unit](RootResolver(NestedZQueryBenchmarkSchema.simple10000Elements)).interpreter)
 
   val multifield100: GraphQLInterpreter[Any, CalibanError]   =
-    run(graphQL(RootResolver(NestedZQueryBenchmarkSchema.multifield100Elements)).interpreter)
+    run(
+      graphQL[Any, MultifieldRoot, Unit, Unit](
+        RootResolver(NestedZQueryBenchmarkSchema.multifield100Elements)
+      ).interpreter
+    )
   val multifield1000: GraphQLInterpreter[Any, CalibanError]  =
-    run(graphQL(RootResolver(NestedZQueryBenchmarkSchema.multifield1000Elements)).interpreter)
+    run(
+      graphQL[Any, MultifieldRoot, Unit, Unit](
+        RootResolver(NestedZQueryBenchmarkSchema.multifield1000Elements)
+      ).interpreter
+    )
   val multifield10000: GraphQLInterpreter[Any, CalibanError] =
-    run(graphQL(RootResolver(NestedZQueryBenchmarkSchema.multifield10000Elements)).interpreter)
+    run(
+      graphQL[Any, MultifieldRoot, Unit, Unit](
+        RootResolver(NestedZQueryBenchmarkSchema.multifield10000Elements)
+      ).interpreter
+    )
 
   val deep100: GraphQLInterpreter[Any, CalibanError]   =
-    run(graphQL(RootResolver(NestedZQueryBenchmarkSchema.deep100Elements)).interpreter)
+    run(
+      graphQL[Any, DeepRoot, Unit, Unit](
+        RootResolver[DeepRoot](NestedZQueryBenchmarkSchema.deep100Elements)
+      ).interpreter
+    )
   val deep1000: GraphQLInterpreter[Any, CalibanError]  =
-    run(graphQL(RootResolver(NestedZQueryBenchmarkSchema.deep1000Elements)).interpreter)
+    run(
+      graphQL[Any, DeepRoot, Unit, Unit](
+        RootResolver[DeepRoot](NestedZQueryBenchmarkSchema.deep1000Elements)
+      ).interpreter
+    )
   val deep10000: GraphQLInterpreter[Any, CalibanError] =
-    run(graphQL(RootResolver(NestedZQueryBenchmarkSchema.deep10000Elements)).interpreter)
+    run(
+      graphQL[Any, DeepRoot, Unit, Unit](
+        RootResolver[DeepRoot](NestedZQueryBenchmarkSchema.deep10000Elements)
+      ).interpreter
+    )
 
   @Benchmark
   def simpleParallelQuery100(): Any = {

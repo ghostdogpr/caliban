@@ -747,12 +747,14 @@ object Client {
           )
         }
       },
-      test("safe names with leading and tailing _") {
+      test("safe names with underscores") {
         val schema =
           """
              type Character {
+               _: Boolean # Fake field because GraphQL does not support empty objects
                _name_: String
                _nickname: String
+               age_: Int
              }
             """.stripMargin
 
@@ -766,10 +768,14 @@ object Client {
 
   type Character
   object Character {
+    def _$ : SelectionBuilder[Character, scala.Option[Boolean]]      =
+      _root_.caliban.client.SelectionBuilder.Field("_", OptionOf(Scalar()))
     def `_name_` : SelectionBuilder[Character, scala.Option[String]] =
       _root_.caliban.client.SelectionBuilder.Field("_name_", OptionOf(Scalar()))
     def _nickname: SelectionBuilder[Character, scala.Option[String]] =
       _root_.caliban.client.SelectionBuilder.Field("_nickname", OptionOf(Scalar()))
+    def `age_` : SelectionBuilder[Character, scala.Option[Int]]      =
+      _root_.caliban.client.SelectionBuilder.Field("age_", OptionOf(Scalar()))
   }
 
 }
@@ -992,6 +998,61 @@ object Client {
 }
 """
         )
+      },
+      test("interface without implements") {
+        val schema =
+          """
+             interface Entity {
+               statusInfo: StatusInfo!
+             }
+             enum Status {
+               Status1
+             }
+             interface StatusInfo {
+               status: Status!
+             }
+            """.stripMargin
+
+        gen(schema).map { str =>
+          assertTrue(
+            str ==
+              """import caliban.client.CalibanClientError.DecodingError
+import caliban.client.FieldBuilder._
+import caliban.client._
+import caliban.client.__Value._
+
+object Client {
+
+  sealed trait Status extends scala.Product with scala.Serializable { def value: String }
+  object Status {
+    case object Status1 extends Status { val value: String = "Status1" }
+
+    implicit val decoder: ScalarDecoder[Status] = {
+      case __StringValue("Status1") => Right(Status.Status1)
+      case other                    => Left(DecodingError(s"Can't build Status from input $other"))
+    }
+    implicit val encoder: ArgEncoder[Status]    = { case Status.Status1 =>
+      __EnumValue("Status1")
+    }
+
+    val values: scala.collection.immutable.Vector[Status] = scala.collection.immutable.Vector(Status1)
+  }
+
+  type Entity
+  object Entity {
+    def statusInfo[A](innerSelection: SelectionBuilder[StatusInfo, A]): SelectionBuilder[Entity, A] =
+      _root_.caliban.client.SelectionBuilder.Field("statusInfo", Obj(innerSelection))
+  }
+
+  type StatusInfo
+  object StatusInfo {
+    def status: SelectionBuilder[StatusInfo, Status] = _root_.caliban.client.SelectionBuilder.Field("status", Scalar())
+  }
+
+}
+"""
+          )
+        }
       },
       test("Option types don't conflict with scala.Option") {
         val schema =

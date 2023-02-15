@@ -25,7 +25,7 @@ object CatsInteropSpec extends ZIOSpecDefault {
       val inner   = RootContext(SecurityContext(true), LogContext("internal-trace-id"))
 
       def main(inner: RootContext)(implicit runtime: Runtime[RootContext]) =
-        Dispatcher[Effect].use { dispatcher =>
+        Dispatcher.parallel[Effect].use { dispatcher =>
           program[Effect, RootContext](CatsInterop.contextual(dispatcher), inner)
         }
 
@@ -43,7 +43,7 @@ object CatsInteropSpec extends ZIOSpecDefault {
       val inner   = Context("internal-trace-id")
 
       def main(inner: Context)(implicit runtime: Runtime[Context]) =
-        Dispatcher[Effect].use { dispatcher =>
+        Dispatcher.parallel[Effect].use { dispatcher =>
           program[Effect, Context](CatsInterop.default(dispatcher), inner)
         }
 

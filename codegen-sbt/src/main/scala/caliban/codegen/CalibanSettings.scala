@@ -10,19 +10,19 @@ sealed trait CalibanSettings {
   type Self <: CalibanSettings
   def withSettings(f: CalibanCommonSettings => CalibanCommonSettings): Self
 
-  def clientName(value: String): Self                       = withSettings(_.clientName(value))
-  def scalafmtPath(path: String): Self                      = withSettings(_.scalafmtPath(path))
-  def packageName(name: String): Self                       = withSettings(_.packageName(name))
-  def genView(value: Boolean): Self                         = withSettings(_.genView(value))
-  def scalarMapping(mapping: (String, String)*): Self       =
+  final def clientName(value: String): Self                       = withSettings(_.clientName(value))
+  final def scalafmtPath(path: String): Self                      = withSettings(_.scalafmtPath(path))
+  final def packageName(name: String): Self                       = withSettings(_.packageName(name))
+  final def genView(value: Boolean): Self                         = withSettings(_.genView(value))
+  final def scalarMapping(mapping: (String, String)*): Self       =
     withSettings(_.scalarMappings(mapping: _*))
-  def imports(values: String*): Self                        = withSettings(_.imports(values: _*))
-  def splitFiles(value: Boolean): Self                      = withSettings(_.splitFiles(value))
-  def enableFmt(value: Boolean): Self                       = withSettings(_.enableFmt(value))
-  def extensibleEnums(value: Boolean): Self                 = withSettings(_.extensibleEnums(value))
-  def genType(genType: GenType): Self                       = withSettings(_.genType(genType))
-  def effect(effect: String): Self                          = withSettings(_.effect(effect))
-  def abstractEffectType(abstractEffectType: Boolean): Self =
+  final def imports(values: String*): Self                        = withSettings(_.imports(values: _*))
+  final def splitFiles(value: Boolean): Self                      = withSettings(_.splitFiles(value))
+  final def enableFmt(value: Boolean): Self                       = withSettings(_.enableFmt(value))
+  final def extensibleEnums(value: Boolean): Self                 = withSettings(_.extensibleEnums(value))
+  final def genType(genType: GenType): Self                       = withSettings(_.genType(genType))
+  final def effect(effect: String): Self                          = withSettings(_.effect(effect))
+  final def abstractEffectType(abstractEffectType: Boolean): Self =
     withSettings(_.abstractEffectType(abstractEffectType))
 }
 

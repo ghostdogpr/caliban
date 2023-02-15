@@ -2,6 +2,7 @@ package caliban
 
 import scala.util.Try
 import caliban.interop.circe._
+import caliban.interop.jsoniter.IsJsoniterCodec
 import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
 import zio.stream.Stream
 
@@ -32,6 +33,8 @@ object InputValue extends ValueJsonCompat {
     caliban.interop.zio.ValueZIOJson.inputValueEncoder.asInstanceOf[F[InputValue]]
   implicit def inputValueZioJsonDecoder[F[_]: IsZIOJsonDecoder]: F[InputValue] =
     caliban.interop.zio.ValueZIOJson.inputValueDecoder.asInstanceOf[F[InputValue]]
+  implicit def jsoniterCodec[F[_]: IsJsoniterCodec]: F[InputValue]             =
+    caliban.interop.jsoniter.ValueJsoniter.inputValueCodec.asInstanceOf[F[InputValue]]
 }
 
 sealed trait ResponseValue { self =>
@@ -81,6 +84,8 @@ object ResponseValue extends ValueJsonCompat {
     caliban.interop.zio.ValueZIOJson.responseValueEncoder.asInstanceOf[F[ResponseValue]]
   implicit def responseValueZioJsonDecoder[F[_]: IsZIOJsonDecoder]: F[ResponseValue] =
     caliban.interop.zio.ValueZIOJson.responseValueDecoder.asInstanceOf[F[ResponseValue]]
+  implicit def jsoniterCodec[F[_]: IsJsoniterCodec]: F[ResponseValue]                =
+    caliban.interop.jsoniter.ValueJsoniter.responseValueCodec.asInstanceOf[F[ResponseValue]]
 }
 
 sealed trait Value extends InputValue with ResponseValue
@@ -118,19 +123,19 @@ object Value {
         Try(LongNumber(s.toLong)) getOrElse
         BigIntNumber(BigInt(s))
 
-    case class IntNumber(value: Int)       extends IntValue {
+    final case class IntNumber(value: Int)       extends IntValue {
       override def toInt: Int       = value
       override def toLong: Long     = value.toLong
       override def toBigInt: BigInt = BigInt(value)
       override def toString: String = value.toString
     }
-    case class LongNumber(value: Long)     extends IntValue {
+    final case class LongNumber(value: Long)     extends IntValue {
       override def toInt: Int       = value.toInt
       override def toLong: Long     = value
       override def toBigInt: BigInt = BigInt(value)
       override def toString: String = value.toString
     }
-    case class BigIntNumber(value: BigInt) extends IntValue {
+    final case class BigIntNumber(value: BigInt) extends IntValue {
       override def toInt: Int       = value.toInt
       override def toLong: Long     = value.toLong
       override def toBigInt: BigInt = value
@@ -144,19 +149,19 @@ object Value {
     def apply(v: BigDecimal): FloatValue = BigDecimalNumber(v)
     def apply(s: String): FloatValue     = BigDecimalNumber(BigDecimal(s))
 
-    case class FloatNumber(value: Float)           extends FloatValue {
+    final case class FloatNumber(value: Float)           extends FloatValue {
       override def toFloat: Float           = value
       override def toDouble: Double         = value.toDouble
       override def toBigDecimal: BigDecimal = BigDecimal.decimal(value)
       override def toString: String         = value.toString
     }
-    case class DoubleNumber(value: Double)         extends FloatValue {
+    final case class DoubleNumber(value: Double)         extends FloatValue {
       override def toFloat: Float           = value.toFloat
       override def toDouble: Double         = value
       override def toBigDecimal: BigDecimal = BigDecimal(value)
       override def toString: String         = value.toString
     }
-    case class BigDecimalNumber(value: BigDecimal) extends FloatValue {
+    final case class BigDecimalNumber(value: BigDecimal) extends FloatValue {
       override def toFloat: Float           = value.toFloat
       override def toDouble: Double         = value.toDouble
       override def toBigDecimal: BigDecimal = value

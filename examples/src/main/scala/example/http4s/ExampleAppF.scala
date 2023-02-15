@@ -5,17 +5,19 @@ import caliban.{ CalibanError, Http4sAdapter }
 import cats.data.Kleisli
 import cats.effect.std.Dispatcher
 import cats.effect.{ ExitCode, IO, IOApp }
+import com.comcast.ip4s._
 import example.ExampleData.sampleCharacters
 import example.ExampleService.ExampleService
 import example.{ ExampleApi, ExampleService }
 import org.http4s.StaticFile
-import org.http4s.blaze.server.BlazeServerBuilder
+import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.implicits._
 import org.http4s.server.Router
 import org.http4s.server.middleware.CORS
 import zio.{ Runtime, Unsafe }
 
 object ExampleAppF extends IOApp {
+  import sttp.tapir.json.circe._
 
   type MyEnv = ExampleService
 
@@ -23,11 +25,13 @@ object ExampleAppF extends IOApp {
     Unsafe.unsafe(implicit u => Runtime.unsafe.fromLayer(ExampleService.make(sampleCharacters)))
 
   override def run(args: List[String]): IO[ExitCode] =
-    Dispatcher[IO].use { implicit dispatcher =>
+    Dispatcher.parallel[IO].use { implicit dispatcher =>
       for {
         interpreter <- ExampleApi.api.interpreterAsync[IO]
-        _           <- BlazeServerBuilder[IO]
-                         .bindHttp(8088, "localhost")
+        _           <- EmberServerBuilder
+                         .default[IO]
+                         .withHost(host"localhost")
+                         .withPort(port"8088")
                          .withHttpWebSocketApp(wsBuilder =>
                            Router[IO](
                              "/api/graphql" ->
@@ -38,9 +42,8 @@ object ExampleAppF extends IOApp {
                                Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
                            ).orNotFound
                          )
-                         .serve
-                         .compile
-                         .drain
+                         .build
+                         .useForever
       } yield ExitCode.Success
     }
 }

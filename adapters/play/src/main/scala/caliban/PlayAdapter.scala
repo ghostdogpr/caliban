@@ -12,7 +12,6 @@ import sttp.capabilities.akka.AkkaStreams.Pipe
 import sttp.model.StatusCode
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.PublicEndpoint
-import sttp.tapir.json.play._
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.server.play.{ PlayServerInterpreter, PlayServerOptions }
@@ -31,7 +30,12 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
-  )(implicit runtime: Runtime[R], materializer: Materializer): Routes = {
+  )(implicit
+    runtime: Runtime[R],
+    materializer: Materializer,
+    requestCodec: JsonCodec[GraphQLRequest],
+    responseCodec: JsonCodec[GraphQLResponse[E]]
+  ): Routes = {
     val endpoints = TapirAdapter.makeHttpService[R, E](
       interpreter,
       skipValidation,
@@ -48,7 +52,13 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
-  )(implicit runtime: Runtime[R], materializer: Materializer): Routes = {
+  )(implicit
+    runtime: Runtime[R],
+    materializer: Materializer,
+    requestCodec: JsonCodec[GraphQLRequest],
+    mapCodec: JsonCodec[Map[String, Seq[String]]],
+    responseCodec: JsonCodec[GraphQLResponse[E]]
+  ): Routes = {
     val endpoint = TapirAdapter.makeHttpUploadService[R, E](
       interpreter,
       skipValidation,

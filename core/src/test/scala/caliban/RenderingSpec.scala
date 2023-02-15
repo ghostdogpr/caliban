@@ -9,6 +9,8 @@ import zio.test._
 
 object RenderingSpec extends ZIOSpecDefault {
 
+  val tripleQuote = "\"\"\""
+
   override def spec =
     suite("rendering")(
       test("it should render directives") {
@@ -177,8 +179,108 @@ object RenderingSpec extends ZIOSpecDefault {
         )
         val renderedType = Rendering.renderTypes(List(testType))
         assert(renderedType)(
-          equalTo("\"\"\"\nA multiline \"TestType\" description\ngiven inside \\\"\"\"-quotes\n\"\"\"\ntype TestType")
+          equalTo("\"\"\"\nA multiline \"TestType\" description\ngiven inside \\\"\"\"-quotes\n\n\"\"\"\ntype TestType")
         )
+      },
+      test("it should render single line descriptions") {
+        import RenderingSpecSchemaSingleLineDescription.resolver
+        val expected =
+          """schema {
+            |  query: Query
+            |}
+            |
+            |"type description in a single line"
+            |type OutputValue {
+            |  "field description in a single line"
+            |  r: Int!
+            |}
+            |
+            |type Query {
+            |  "query description in a single line"
+            |  q("argument description in a single line" in: Int!): OutputValue!
+            |}
+            |""".stripMargin
+        assert(graphQL(resolver).render.trim)(equalTo(expected.trim))
+      },
+      test("it should render multiple line descriptions") {
+        import RenderingSpecSchemaMultiLineDescription.resolver
+        val expected =
+          s"""schema {
+             |  query: Query
+             |}
+             |
+             |$tripleQuote
+             |type description in
+             |Multiple lines
+             |$tripleQuote
+             |type OutputValue {
+             |  $tripleQuote
+             |field description in
+             |Multiple lines
+             |$tripleQuote
+             |  r: Int!
+             |}
+             |
+             |type Query {
+             |  $tripleQuote
+             |query description in
+             |Multiple lines
+             |$tripleQuote
+             |  q(${tripleQuote}argument description in
+             |Multiple lines${tripleQuote} in: Int!): OutputValue!
+             |}
+             |""".stripMargin
+        assert(graphQL(resolver).render.trim)(equalTo(expected.trim))
+      },
+      test("it should render single line descriptions ending in quote") {
+        import RenderingSpecSchemaSingleLineEndingInQuoteDescription.resolver
+        val expected =
+          """schema {
+            |  query: Query
+            |}
+            |
+            |"type description in a single line \"ending in quote\""
+            |type OutputValue {
+            |  "field description in a single line \"ending in quote\""
+            |  r: Int!
+            |}
+            |
+            |type Query {
+            |  "query description in a single line \"ending in quote\""
+            |  q("argument description in a single line \"ending in quote\"" in: Int!): OutputValue!
+            |}
+            |""".stripMargin
+        assert(graphQL(resolver).render.trim)(equalTo(expected.trim))
+      },
+      test("it should render multi line descriptions ending in quote") {
+        import RenderingSpecSchemaMultiLineEndingInQuoteDescription.resolver
+        val expected =
+          s"""schema {
+             |  query: Query
+             |}
+             |
+             |$tripleQuote
+             |type description in multiple lines
+             |\"ending in quote\"
+             |$tripleQuote
+             |type OutputValue {
+             |  $tripleQuote
+             |field description in multiple lines
+             |\"ending in quote\"
+             |$tripleQuote
+             |  r: Int!
+             |}
+             |
+             |type Query {
+             |  $tripleQuote
+             |query description in multiple lines
+             |\"ending in quote\"
+             |$tripleQuote
+             |  q(${tripleQuote}argument description in multiple lines
+             |\"ending in quote\" ${tripleQuote} in: Int!): OutputValue!
+             |}
+             |""".stripMargin
+        assert(graphQL(resolver).render.trim)(equalTo(expected.trim))
       }
     )
 }

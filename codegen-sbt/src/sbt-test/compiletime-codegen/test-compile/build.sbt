@@ -1,9 +1,9 @@
 import sbt.Def.spaceDelimited
 import sbt.librarymanagement.Resolver
 
-val scala212 = "2.12.16"
-val scala213 = "2.13.8"
-val scala3   = "3.2.0"
+val scala212 = "2.12.17"
+val scala213 = "2.13.10"
+val scala3   = "3.2.2"
 val allScala = Seq(scala212, scala213, scala3)
 
 def scalaDefaultVersion: String =
