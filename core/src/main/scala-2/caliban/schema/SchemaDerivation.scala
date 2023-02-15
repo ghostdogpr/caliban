@@ -16,7 +16,7 @@ trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
    * Default naming logic for input types.
    * This is needed to avoid a name clash between a type used as an input and the same type used as an output.
    * GraphQL needs 2 different types, and they can't have the same name.
-   * By default, the "Input" suffix is added after the type name, given that it is not already present
+   * By default, the "Input" suffix is added after the type name, given that it is not already present.
    */
   def customizeInputTypeName(name: String): String =
     if (name.endsWith("Input")) name else s"${name}Input"
