@@ -1,21 +1,22 @@
 package caliban.schema
 
 import caliban.Value.EnumValue
-import caliban.introspection.adt._
+import caliban.introspection.adt.*
 import caliban.parsing.adt.Directive
-import caliban.schema.Annotations._
+import caliban.schema.Annotations.*
 import caliban.schema.Step.ObjectStep
-import caliban.schema.Types._
-import caliban.schema.macros.{ Macros, TypeInfo }
+import caliban.schema.Types.*
+import caliban.schema.macros.{Macros, TypeInfo}
 
+import scala.compiletime.*
 import scala.deriving.Mirror
-import scala.compiletime._
+import scala.quoted.*
 
 object PrintDerived {
   import scala.quoted.*
   inline def apply[T](inline any: T): T                                = ${ printDerived('any) }
   def printDerived[T: Type](any: Expr[T])(using qctx: Quotes): Expr[T] = {
-    import qctx.reflect._
+    import qctx.reflect.*
     println(Printer.TreeShortCode.show(any.asTerm))
     any
   }
@@ -51,25 +52,23 @@ trait SchemaDerivation[A] {
           members.map { case (label, subTypeAnnotations, schema, _) =>
             (label, schema.toType_(), subTypeAnnotations)
           }.sortBy { case (label, _, _) => label }
-        lazy val isEnum      = subTypes.forall {
+
+        lazy val isEnum = subTypes.forall {
           case (_, t, _)
               if t.fields(__DeprecatedArgs(Some(true))).forall(_.isEmpty)
                 && t.inputFields.forall(_.isEmpty) =>
             true
           case _ => false
         }
-        lazy val isInterface = annotations.exists {
-          case GQLInterface() => true
-          case _              => false
-        }
-        lazy val isUnion     = annotations.exists {
-          case GQLUnion() => true
-          case _          => false
-        }
 
         new Schema[R, A] {
           def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-            if (isEnum && subTypes.nonEmpty && !isInterface && !isUnion) {
+            if (
+              Macros.hasFields[m.MirroredElemLabels]
+              && !Macros.isInterface[A]
+              && !Macros.isUnion[A]
+              && isEnum
+            ) {
               makeEnum(
                 Some(getName(annotations, info)),
                 getDescription(annotations),
@@ -77,14 +76,14 @@ trait SchemaDerivation[A] {
                   __EnumValue(
                     name,
                     description,
-                    annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
-                    annotations.collectFirst { case GQLDeprecated(reason) => reason }
+                    getDeprecatedReason(annotations).isDefined,
+                    getDeprecatedReason(annotations)
                   )
                 },
                 Some(info.full),
                 Some(getDirectives(annotations))
               )
-            } else if (!isInterface)
+            } else if (!Macros.isInterface[A]) {
               makeUnion(
                 Some(getName(annotations, info)),
                 getDescription(annotations),
@@ -92,7 +91,7 @@ trait SchemaDerivation[A] {
                 Some(info.full),
                 Some(getDirectives(annotations))
               )
-            else {
+            } else {
               val impl         = subTypes.map(_._2.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
               val commonFields = () =>
                 impl
@@ -128,58 +127,22 @@ trait SchemaDerivation[A] {
         lazy val fields           = recurse[R, m.MirroredElemLabels, m.MirroredElemTypes]()
         lazy val info             = Macros.typeInfo[A]
         lazy val paramAnnotations = Macros.paramAnnotations[A].toMap
+
         new Schema[R, A] {
           def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-            if (isValueType(annotations) && fields.nonEmpty)
-              if (isScalarValueType(annotations)) makeScalar(getName(annotations, info), getDescription(annotations))
+            inline if (Macros.isValueType[A] && Macros.hasFields[m.MirroredElemLabels])
+              inline if (Macros.isScalarValueType[A])
+                makeScalar(getName(annotations, info), getDescription(annotations))
               else fields.head._3.toType_(isInput, isSubscription)
-            else if (isInput)
-              makeInputObject(
-                Some(annotations.collectFirst { case GQLInputName(suffix) => suffix }
-                  .getOrElse(customizeInputTypeName(getName(annotations, info)))),
-                getDescription(annotations),
-                fields.map { case (label, _, schema, _) =>
-                  val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
-                  __InputValue(
-                    getName(fieldAnnotations, label),
-                    getDescription(fieldAnnotations),
-                    () =>
-                      if (schema.optional) schema.toType_(isInput, isSubscription)
-                      else schema.toType_(isInput, isSubscription).nonNull,
-                    getDefaultValue(fieldAnnotations),
-                    Some(fieldAnnotations.collect { case GQLDirective(dir) => dir }).filter(_.nonEmpty)
-                  )
-                },
-                Some(info.full),
-                Some(getDirectives(annotations))
-              )
-            else
-              makeObject(
-                Some(getName(annotations, info)),
-                getDescription(annotations),
-                fields.filterNot { case (label, _, _, _) =>
-                  paramAnnotations.getOrElse(label, Nil).exists(_ == GQLExcluded())
-                }.map { case (label, _, schema, _) =>
-                  val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
-                  __Field(
-                    getName(fieldAnnotations, label),
-                    getDescription(fieldAnnotations),
-                    schema.arguments,
-                    () =>
-                      if (schema.optional) schema.toType_(isInput, isSubscription)
-                      else schema.toType_(isInput, isSubscription).nonNull,
-                    fieldAnnotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
-                    fieldAnnotations.collectFirst { case GQLDeprecated(reason) => reason },
-                    Option(fieldAnnotations.collect { case GQLDirective(dir) => dir }).filter(_.nonEmpty)
-                  )
-                },
-                getDirectives(annotations),
-                Some(info.full)
-              )
+            else if (isInput) {
+              mkInputObject[R](annotations, fields, info, paramAnnotations)(isInput, isSubscription)
+            } else {
+              mkObject[R](annotations, fields, info, paramAnnotations)(isInput, isSubscription)
+            }
 
           def resolve(value: A): Step[R] =
-            if (fields.isEmpty) PureStep(EnumValue(getName(annotations, info)))
-            else if (isValueType(annotations) && fields.nonEmpty) {
+            inline if (!Macros.hasFields[m.MirroredElemLabels]) PureStep(EnumValue(getName(annotations, info)))
+            else inline if (Macros.isValueType[A]) {
               val head = fields.head
               head._3.resolve(value.asInstanceOf[Product].productElement(head._4))
             } else {
@@ -225,20 +188,11 @@ trait SchemaDerivation[A] {
       }
     }
 
-  private def isValueType(annotations: Seq[Any]): Boolean =
-    annotations.exists {
-      case GQLValueType(_) => true
-      case _               => false
-    }
-
-  private def isScalarValueType(annotations: Seq[Any]): Boolean =
-    annotations.exists {
-      case GQLValueType(true) => true
-      case _                  => false
-    }
-
   private def getName(annotations: Seq[Any], label: String): String =
     annotations.collectFirst { case GQLName(name) => name }.getOrElse(label)
+
+  private def getInputName(annotations: Seq[Any]): Option[String] =
+    annotations.collectFirst { case GQLInputName(suffix) => suffix }
 
   private def getDescription(annotations: Seq[Any]): Option[String] =
     annotations.collectFirst { case GQLDescription(desc) => desc }
@@ -248,6 +202,63 @@ trait SchemaDerivation[A] {
 
   private def getDefaultValue(annotations: Seq[Any]): Option[String] =
     annotations.collectFirst { case GQLDefault(v) => v }
+
+  private def getDeprecatedReason(annotations: Seq[Any]): Option[String] =
+    annotations.collectFirst { case GQLDeprecated(reason) => reason }
+
+  private def mkInputObject[R](
+    annotations: List[Any],
+    fields: List[(String, List[Any], Schema[R, Any], Int)],
+    info: TypeInfo,
+    paramAnnotations: Map[String, List[Any]]
+  )(isInput: Boolean, isSubscription: Boolean) = makeInputObject(
+    Some(getInputName(annotations).getOrElse(customizeInputTypeName(getName(annotations, info)))),
+    getDescription(annotations),
+    fields.map { (label, _, schema, _) =>
+      val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
+      __InputValue(
+        getName(fieldAnnotations, label),
+        getDescription(fieldAnnotations),
+        () =>
+          if (schema.optional) schema.toType_(isInput, isSubscription)
+          else schema.toType_(isInput, isSubscription).nonNull,
+        getDefaultValue(fieldAnnotations),
+        Some(getDirectives(fieldAnnotations)).filter(_.nonEmpty)
+      )
+    },
+    Some(info.full),
+    Some(getDirectives(annotations))
+  )
+
+  private def mkObject[R](
+    annotations: List[Any],
+    fields: List[(String, List[Any], Schema[R, Any], Int)],
+    info: TypeInfo,
+    paramAnnotations: Map[String, List[Any]]
+  )(isInput: Boolean, isSubscription: Boolean) = makeObject(
+    Some(getName(annotations, info)),
+    getDescription(annotations),
+    fields.filterNot { case (label, _, _, _) =>
+      paramAnnotations.getOrElse(label, Nil).contains(GQLExcluded())
+    }.map { case (label, _, schema, _) =>
+      val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
+      val deprecatedReason = getDeprecatedReason(fieldAnnotations)
+
+      __Field(
+        getName(fieldAnnotations, label),
+        getDescription(fieldAnnotations),
+        schema.arguments,
+        () =>
+          if (schema.optional) schema.toType_(isInput, isSubscription)
+          else schema.toType_(isInput, isSubscription).nonNull,
+        deprecatedReason.isDefined,
+        deprecatedReason,
+        Option(getDirectives(fieldAnnotations)).filter(_.nonEmpty)
+      )
+    },
+    getDirectives(annotations),
+    Some(info.full)
+  )
 
   inline given gen[R, A]: Schema[R, A] = derived[R, A]
 

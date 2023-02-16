@@ -1,5 +1,7 @@
 package caliban.schema.macros
 
+import caliban.schema.Annotations.{GQLInterface, GQLUnion, GQLValueType}
+
 import scala.quoted.*
 
 private[caliban] object Macros {
@@ -9,6 +11,11 @@ private[caliban] object Macros {
   inline def annotations[T]: List[Any]                      = ${ annotationsImpl[T] }
   inline def paramAnnotations[T]: List[(String, List[Any])] = ${ paramAnnotationsImpl[T] }
   inline def typeInfo[T]: TypeInfo                          = ${ typeInfoImpl[T] }
+  inline def isValueType[T]: Boolean                        = ${ isValueTypeImpl[T] }
+  inline def isScalarValueType[T]: Boolean                  = ${ isScalarValueTypeImpl[T] }
+  inline def isUnion[T]: Boolean                            = ${ isUnionImpl[T] }
+  inline def isInterface[T]: Boolean                        = ${ isInterfaceImpl[T] }
+  inline def hasFields[Label]: Boolean                      = ${ hasFieldsImpl[Label] }
 
   def annotationsImpl[T: Type](using qctx: Quotes): Expr[List[Any]] = {
     import qctx.reflect.*
@@ -34,7 +41,7 @@ private[caliban] object Macros {
   }
 
   def typeInfoImpl[T: Type](using qctx: Quotes): Expr[TypeInfo] = {
-    import qctx.reflect._
+    import qctx.reflect.*
 
     def normalizedName(s: Symbol): String = if s.flags.is(Flags.Module) then s.name.stripSuffix("$") else s.name
     def name(tpe: TypeRepr): Expr[String] = Expr(normalizedName(tpe.typeSymbol))
@@ -56,4 +63,47 @@ private[caliban] object Macros {
 
     typeInfo(TypeRepr.of[T])
   }
+
+  def isValueTypeImpl[T: Type](using qctx: Quotes): Expr[Boolean] = {
+    import qctx.reflect.*
+    val tpe = TypeRepr.of[T]
+    Expr(tpe.typeSymbol.annotations.exists { v =>
+      v.tpe =:= TypeRepr.of[GQLValueType]
+    })
+  }
+
+  def isScalarValueTypeImpl[T: Type](using qctx: Quotes): Expr[Boolean] = {
+    import qctx.reflect.*
+    val tpe = TypeRepr.of[T]
+    Expr(tpe.typeSymbol.annotations.exists { v =>
+      v.asExpr match
+        case '{ new GQLValueType($isScalar) } =>
+          isScalar.value match
+            case Some(v: Boolean) => v
+            case None => GQLValueType().isScalar // Default value
+        case _                                => false
+    })
+  }
+
+  def isUnionImpl[T: Type](using qctx: Quotes): Expr[Boolean] = {
+    import qctx.reflect.*
+    val tpe = TypeRepr.of[T]
+    Expr(tpe.typeSymbol.annotations.exists { v =>
+      v.tpe =:= TypeRepr.of[GQLUnion]
+    })
+  }
+
+  def isInterfaceImpl[T: Type](using qctx: Quotes): Expr[Boolean] = {
+    import qctx.reflect.*
+    val tpe = TypeRepr.of[T]
+    Expr(tpe.typeSymbol.annotations.exists { v =>
+      v.tpe =:= TypeRepr.of[GQLInterface]
+    })
+  }
+
+  def hasFieldsImpl[T: Type](using qctx: Quotes): Expr[Boolean] = {
+    import qctx.reflect.*
+    Expr(!(TypeRepr.of[T] =:= TypeRepr.of[EmptyTuple]))
+  }
+
 }
