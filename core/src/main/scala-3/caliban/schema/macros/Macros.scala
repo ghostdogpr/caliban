@@ -1,6 +1,6 @@
 package caliban.schema.macros
 
-import caliban.schema.Annotations.{GQLInterface, GQLUnion, GQLValueType}
+import caliban.schema.Annotations.{ GQLInterface, GQLUnion, GQLValueType }
 
 import scala.quoted.*
 

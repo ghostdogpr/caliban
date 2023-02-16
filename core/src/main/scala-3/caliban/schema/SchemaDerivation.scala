@@ -6,7 +6,7 @@ import caliban.parsing.adt.Directive
 import caliban.schema.Annotations.*
 import caliban.schema.Step.ObjectStep
 import caliban.schema.Types.*
-import caliban.schema.macros.{Macros, TypeInfo}
+import caliban.schema.macros.{ Macros, TypeInfo }
 
 import scala.compiletime.*
 import scala.deriving.Mirror
