@@ -32,84 +32,126 @@ trait SchemaDerivation[A] {
    */
   def customizeInputTypeName(name: String): String = s"${name}Input"
 
-  inline def recurse[R, Label, A <: Tuple](index: Int = 0): List[(String, List[Any], Schema[R, Any], Int)] =
+  inline def recurse[R, Label, A <: Tuple](
+    inline values: List[(String, List[Any], Schema[R, Any], Int)] = Nil
+  )(inline index: Int = 0): List[(String, List[Any], Schema[R, Any], Int)] =
     inline erasedValue[(Label, A)] match {
+      case (_: EmptyTuple, _)                 => values.reverse
       case (_: (name *: names), _: (t *: ts)) =>
-        (
-          constValue[name].toString,
-          Macros.annotations[t],
-          summonInline[Schema[R, t]].asInstanceOf[Schema[R, Any]],
-          index
-        ) :: recurse[R, names, ts](index + 1)
-      case (_: EmptyTuple, _)                 => Nil
+        recurse[R, names, ts](
+          (
+            constValue[name].toString,
+            Macros.annotations[t],
+            summonInline[Schema[R, t]].asInstanceOf[Schema[R, Any]],
+            index
+          ) :: values
+        )(index + 1)
     }
 
   inline def derived[R, A]: Schema[R, A] =
     inline summonInline[Mirror.Of[A]] match {
-      case m: Mirror.SumOf[A]     =>
-        lazy val members     = recurse[R, m.MirroredElemLabels, m.MirroredElemTypes]()
-        lazy val info        = Macros.typeInfo[A]
-        lazy val annotations = Macros.annotations[A]
-        lazy val subTypes    = extractSubtypes[R](members)
-        lazy val isEnum      = isEnum_(subTypes)
+      case m: Mirror.SumOf[A] =>
+        def members     = recurse[R, m.MirroredElemLabels, m.MirroredElemTypes]()()
+        def info        = Macros.typeInfo[A]
+        def annotations = Macros.annotations[A]
+        makeSumSchema[R, A](members, info, annotations)(m)
 
-        new Schema[R, A] {
-          def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-            if (
-              Macros.hasFields[m.MirroredElemLabels]
-              && !Macros.isInterface[A]
-              && !Macros.isUnion[A]
-              && isEnum
-            ) {
-              mkEnum(annotations, info, subTypes)
-            } else if (!Macros.isInterface[A] || Macros.isUnion[A]) {
-              makeUnion(
-                Some(getName(annotations, info)),
-                getDescription(annotations),
-                subTypes.map((_, t, _) => fixEmptyUnionObject(t)),
-                Some(info.full),
-                Some(getDirectives(annotations))
-              )
-            } else {
-              val impl = subTypes.map(_._2.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
-              mkInterface(annotations, info, impl)
-            }
-
-          def resolve(value: A): Step[R] = {
-            val (label, _, schema, _) = members(m.ordinal(value))
-            if (isEnum) PureStep(EnumValue(label)) else schema.resolve(value)
-          }
-        }
       case m: Mirror.ProductOf[A] =>
-        lazy val annotations      = Macros.annotations[A]
-        lazy val fields           = recurse[R, m.MirroredElemLabels, m.MirroredElemTypes]()
-        lazy val info             = Macros.typeInfo[A]
-        lazy val paramAnnotations = Macros.paramAnnotations[A].toMap
-
-        new Schema[R, A] {
-          def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-            inline if (Macros.isValueType[A] && Macros.hasFields[m.MirroredElemLabels])
-              inline if (Macros.isScalarValueType[A])
-                makeScalar(getName(annotations, info), getDescription(annotations))
-              else
-                fields.head._3.toType_(isInput, isSubscription)
-            else if (isInput) {
-              mkInputObject[R](annotations, fields, info, paramAnnotations)(isInput, isSubscription)
-            } else {
-              mkObject[R](annotations, fields, info, paramAnnotations)(isInput, isSubscription)
-            }
-
-          def resolve(value: A): Step[R] =
-            inline if (!Macros.hasFields[m.MirroredElemLabels]) {
-              PureStep(EnumValue(getName(annotations, info)))
-            } else inline if (Macros.isValueType[A]) {
-              val head = fields.head
-              head._3.resolve(value.asInstanceOf[Product].productElement(head._4))
-            } else {
-              resolveObjectStep(annotations, fields, info, paramAnnotations)(value)
-            }
-        }
+        lazy val fields      = recurse[R, m.MirroredElemLabels, m.MirroredElemTypes]()()
+        def annotations      = Macros.annotations[A]
+        def info             = Macros.typeInfo[A]
+        def paramAnnotations = Macros.paramAnnotations[A].toMap
+        makeProductSchema[R, A](fields, info, annotations, paramAnnotations)
     }
+
+  private def makeSumSchema[R, A](
+    members: List[(String, List[Any], Schema[R, Any], Int)],
+    info: TypeInfo,
+    annotations: List[Any]
+  )(m: Mirror.SumOf[A]): Schema[R, A] = new Schema[R, A] {
+
+    private lazy val subTypes = members.map { case (label, subTypeAnnotations, schema, _) =>
+      (label, schema.toType_(), subTypeAnnotations)
+    }.sortBy { case (label, _, _) => label }
+
+    private lazy val isEnum = subTypes.forall { (_, t, _) =>
+      t.fields(__DeprecatedArgs(Some(true))).forall(_.isEmpty)
+      && t.inputFields.forall(_.isEmpty)
+    }
+
+    private lazy val isInterface = annotations.exists {
+      case GQLInterface() => true
+      case _              => false
+    }
+
+    private lazy val isUnion = annotations.exists {
+      case GQLUnion() => true
+      case _          => false
+    }
+
+    def toType(isInput: Boolean, isSubscription: Boolean): __Type =
+      if !isInterface && !isUnion && subTypes.nonEmpty && isEnum then mkEnum(annotations, info, subTypes)
+      else if !isInterface then
+        makeUnion(
+          Some(getName(annotations, info)),
+          getDescription(annotations),
+          subTypes.map((_, t, _) => fixEmptyUnionObject(t)),
+          Some(info.full),
+          Some(getDirectives(annotations))
+        )
+      else
+        val impl = subTypes.map(_._2.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
+        mkInterface(annotations, info, impl)
+
+    def resolve(value: A): Step[R] = {
+      val (label, _, schema, _) = members(m.ordinal(value))
+      if (isEnum) PureStep(EnumValue(label)) else schema.resolve(value)
+    }
+  }
+
+  private def makeProductSchema[R, A](
+    fields: => List[(String, List[Any], Schema[R, Any], Int)],
+    info: TypeInfo,
+    annotations: List[Any],
+    paramAnnotations: Map[String, List[Any]]
+  ): Schema[R, A] = new Schema[R, A] {
+
+    private lazy val isValueType: Boolean =
+      annotations.exists {
+        case GQLValueType(_) => true
+        case _               => false
+      }
+
+    private lazy val isScalarValueType: Boolean =
+      annotations.exists {
+        case GQLValueType(true) => true
+        case _                  => false
+      }
+
+    private lazy val name = getName(annotations, info)
+
+    def toType(isInput: Boolean, isSubscription: Boolean): __Type =
+      if isValueType && fields.nonEmpty then
+        if isScalarValueType then makeScalar(name, getDescription(annotations))
+        else fields.head._3.toType_(isInput, isSubscription)
+      else if isInput then mkInputObject[R](annotations, fields, info, paramAnnotations)(isInput, isSubscription)
+      else mkObject[R](annotations, fields, info, paramAnnotations)(isInput, isSubscription)
+
+    def resolve(value: A): Step[R] =
+      if fields.isEmpty then PureStep(EnumValue(name))
+      else if isValueType then
+        val head = fields.head
+        head._3.resolve(value.asInstanceOf[Product].productElement(head._4))
+      else
+        val fieldsBuilder = Map.newBuilder[String, Step[R]]
+        fields.foreach { case (label, _, schema, index) =>
+          val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
+          fieldsBuilder += getName(fieldAnnotations, label) -> schema.resolve(
+            value.asInstanceOf[Product].productElement(index)
+          )
+        }
+        ObjectStep(name, fieldsBuilder.result())
+  }
 
   // see https://github.com/graphql/graphql-spec/issues/568
   private def fixEmptyUnionObject(t: __Type): __Type =
@@ -158,18 +200,6 @@ trait SchemaDerivation[A] {
 
   private def getDeprecatedReason(annotations: Seq[Any]): Option[String] =
     annotations.collectFirst { case GQLDeprecated(reason) => reason }
-
-  private def extractSubtypes[R](
-    fields: List[(String, List[Any], Schema[R, Any], Int)]
-  ): List[(String, __Type, List[Any])] =
-    fields.map { case (label, subTypeAnnotations, schema, _) =>
-      (label, schema.toType_(), subTypeAnnotations)
-    }.sortBy { case (label, _, _) => label }
-
-  private def isEnum_(subTypes: List[(String, __Type, List[Any])]) = subTypes.forall { (_, t, _) =>
-    t.fields(__DeprecatedArgs(Some(true))).forall(_.isEmpty)
-    && t.inputFields.forall(_.isEmpty)
-  }
 
   private def mkEnum(annotations: List[Any], info: TypeInfo, subTypes: List[(String, __Type, List[Any])]) =
     makeEnum(
@@ -269,22 +299,6 @@ trait SchemaDerivation[A] {
     getDirectives(annotations),
     Some(info.full)
   )
-
-  private def resolveObjectStep[R, A](
-    annotations: List[Any],
-    fields: List[(String, List[Any], Schema[R, Any], Int)],
-    info: TypeInfo,
-    paramAnnotations: Map[String, List[Any]]
-  )(value: A): ObjectStep[R] = {
-    val fieldsBuilder = Map.newBuilder[String, Step[R]]
-    fields.foreach { case (label, _, schema, index) =>
-      val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
-      fieldsBuilder += getName(fieldAnnotations, label) -> schema.resolve(
-        value.asInstanceOf[Product].productElement(index)
-      )
-    }
-    ObjectStep(getName(annotations, info), fieldsBuilder.result())
-  }
 
   inline given gen[R, A]: Schema[R, A] = derived[R, A]
 

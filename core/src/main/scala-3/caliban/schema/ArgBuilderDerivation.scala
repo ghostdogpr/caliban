@@ -11,21 +11,25 @@ import scala.deriving.Mirror
 import scala.compiletime._
 
 trait ArgBuilderDerivation {
-  inline def recurse[Label, A <: Tuple]: List[(String, List[Any], ArgBuilder[Any])] =
+  inline def recurse[Label, A <: Tuple](
+    inline values: List[(String, List[Any], ArgBuilder[Any])] = Nil
+  ): List[(String, List[Any], ArgBuilder[Any])] =
     inline erasedValue[(Label, A)] match {
+      case (_: EmptyTuple, _)                 => values.reverse
       case (_: (name *: names), _: (t *: ts)) =>
-        (
-          constValue[name].toString,
-          Macros.annotations[t],
-          summonInline[ArgBuilder[t]].asInstanceOf[ArgBuilder[Any]]
-        ) :: recurse[names, ts]
-      case (_: EmptyTuple, _)                 => Nil
+        recurse[names, ts](
+          (
+            constValue[name].toString,
+            Macros.annotations[t],
+            summonInline[ArgBuilder[t]].asInstanceOf[ArgBuilder[Any]]
+          ) :: values
+        )
     }
 
   inline def derived[A]: ArgBuilder[A] =
     inline summonInline[Mirror.Of[A]] match {
       case m: Mirror.SumOf[A] =>
-        lazy val subTypes   = recurse[m.MirroredElemLabels, m.MirroredElemTypes]
+        lazy val subTypes   = recurse[m.MirroredElemLabels, m.MirroredElemTypes]()
         lazy val traitLabel = constValue[m.MirroredLabel]
         new ArgBuilder[A] {
           def build(input: InputValue): Either[ExecutionError, A] =
@@ -33,7 +37,7 @@ trait ArgBuilderDerivation {
         }
 
       case m: Mirror.ProductOf[A] =>
-        lazy val fields      = recurse[m.MirroredElemLabels, m.MirroredElemTypes]
+        lazy val fields      = recurse[m.MirroredElemLabels, m.MirroredElemTypes]()
         lazy val annotations = Macros.paramAnnotations[A].to(Map)
         new ArgBuilder[A] {
           def build(input: InputValue): Either[ExecutionError, A] =
