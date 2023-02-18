@@ -51,9 +51,9 @@ trait SchemaDerivation[A] {
   inline def derived[R, A]: Schema[R, A] =
     inline summonInline[Mirror.Of[A]] match {
       case m: Mirror.SumOf[A] =>
-        def members     = recurse[R, m.MirroredElemLabels, m.MirroredElemTypes]()()
-        def info        = Macros.typeInfo[A]
-        def annotations = Macros.annotations[A]
+        lazy val members = recurse[R, m.MirroredElemLabels, m.MirroredElemTypes]()()
+        def info         = Macros.typeInfo[A]
+        def annotations  = Macros.annotations[A]
         makeSumSchema[R, A](members, info, annotations)(m)
 
       case m: Mirror.ProductOf[A] =>
@@ -65,7 +65,7 @@ trait SchemaDerivation[A] {
     }
 
   private def makeSumSchema[R, A](
-    members: List[(String, List[Any], Schema[R, Any], Int)],
+    members: => List[(String, List[Any], Schema[R, Any], Int)],
     info: TypeInfo,
     annotations: List[Any]
   )(m: Mirror.SumOf[A]): Schema[R, A] = new Schema[R, A] {

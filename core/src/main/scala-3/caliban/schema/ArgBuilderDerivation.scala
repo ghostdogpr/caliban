@@ -44,11 +44,10 @@ trait ArgBuilderDerivation {
             buildProduct(fields, annotations)(input).map(m.fromProduct)
         }
     }
-  end derived
 
   private def buildSum[A](
-    subTypes: List[(String, List[Any], ArgBuilder[Any])],
-    traitLabel: String
+    subTypes: => List[(String, List[Any], ArgBuilder[Any])],
+    traitLabel: => String
   )(input: InputValue) =
     (input match {
       case EnumValue(value)   => Some(value)
@@ -66,8 +65,8 @@ trait ArgBuilderDerivation {
     }
 
   private def buildProduct(
-    fields: List[(String, List[Any], ArgBuilder[Any])],
-    annotations: Map[String, List[Any]]
+    fields: => List[(String, List[Any], ArgBuilder[Any])],
+    annotations: => Map[String, List[Any]]
   )(input: InputValue) =
     fields.map { (label, _, builder) =>
       input match {
