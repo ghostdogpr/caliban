@@ -316,10 +316,9 @@ trait SchemaDerivation[R] extends CommonSchemaDerivation {
     }
   }
 
-  sealed trait Auto[A] extends Schema[R, A]
+  sealed trait Auto[A] extends Schema[R, A], LowPriorityDerivedSchema
   object Auto {
     inline def derived[A]: Auto[A] = new {
-      import Schema.auto.*
       private val impl = Schema.derived[R, A]
       export impl.*
     }

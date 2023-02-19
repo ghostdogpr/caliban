@@ -57,7 +57,7 @@ trait Schema[-R, T] { self =>
    * @param isSubscription indicates if the type is used in a subscription operation.
    *                       For example, ZStream gives a different GraphQL type depending whether it is used in a subscription or elsewhere.
    */
-  protected[schema] def toType(isInput: Boolean = false, isSubscription: Boolean = false): __Type
+  def toType(isInput: Boolean = false, isSubscription: Boolean = false): __Type
 
   /**
    * Resolves `T` by turning a value of type `T` into an execution step that describes how to resolve the value.
