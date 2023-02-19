@@ -548,7 +548,8 @@ lazy val commonSettings = Def.settings(
     case Some((3, _)) =>
       Seq(
         "-explain-types",
-        "-Ykind-projector"
+        "-Ykind-projector",
+        "-no-indent"
       )
     case _            => Nil
   })

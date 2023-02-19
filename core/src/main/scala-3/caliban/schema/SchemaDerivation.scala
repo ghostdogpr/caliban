@@ -90,8 +90,8 @@ trait CommonSchemaDerivation {
     }
 
     def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-      if !isInterface && !isUnion && subTypes.nonEmpty && isEnum then mkEnum(annotations, info, subTypes)
-      else if !isInterface then
+      if (!isInterface && !isUnion && subTypes.nonEmpty && isEnum) mkEnum(annotations, info, subTypes)
+      else if (!isInterface)
         makeUnion(
           Some(getName(annotations, info)),
           getDescription(annotations),
@@ -99,9 +99,10 @@ trait CommonSchemaDerivation {
           Some(info.full),
           Some(getDirectives(annotations))
         )
-      else
+      else {
         val impl = subTypes.map(_._2.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
         mkInterface(annotations, info, impl)
+      }
 
     def resolve(value: A): Step[R] = {
       val (label, _, schema, _) = members(m.ordinal(value))
@@ -131,18 +132,18 @@ trait CommonSchemaDerivation {
     private lazy val name = getName(annotations, info)
 
     def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-      if isValueType && fields.nonEmpty then
-        if isScalarValueType then makeScalar(name, getDescription(annotations))
+      if (isValueType && fields.nonEmpty)
+        if (isScalarValueType) makeScalar(name, getDescription(annotations))
         else fields.head._3.toType_(isInput, isSubscription)
-      else if isInput then mkInputObject[R](annotations, fields, info, paramAnnotations)(isInput, isSubscription)
+      else if (isInput) mkInputObject[R](annotations, fields, info, paramAnnotations)(isInput, isSubscription)
       else mkObject[R](annotations, fields, info, paramAnnotations)(isInput, isSubscription)
 
     def resolve(value: A): Step[R] =
-      if fields.isEmpty then PureStep(EnumValue(name))
-      else if isValueType then
+      if (fields.isEmpty) PureStep(EnumValue(name))
+      else if (isValueType) {
         val head = fields.head
         head._3.resolve(value.asInstanceOf[Product].productElement(head._4))
-      else
+      } else {
         val fieldsBuilder = Map.newBuilder[String, Step[R]]
         fields.foreach { case (label, _, schema, index) =>
           val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
@@ -151,6 +152,7 @@ trait CommonSchemaDerivation {
           )
         }
         ObjectStep(name, fieldsBuilder.result())
+      }
   }
 
   // see https://github.com/graphql/graphql-spec/issues/568
