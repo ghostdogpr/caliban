@@ -63,7 +63,7 @@ trait CommonSchemaDerivation {
         makeSumSchema[R, A](members, info, annotations)(m)
 
       case m: Mirror.ProductOf[A] =>
-        lazy val fields      = recurse[R, m.MirroredElemLabels, m.MirroredElemTypes]()()
+        lazy val fields      = recurse[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()()
         def annotations      = Macros.annotations[A]
         def info             = Macros.typeInfo[A]
         def paramAnnotations = Macros.paramAnnotations[A].toMap
