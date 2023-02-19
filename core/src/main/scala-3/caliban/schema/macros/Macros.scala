@@ -38,25 +38,26 @@ private[caliban] object Macros {
   }
 
   def typeInfoImpl[T: Type](using qctx: Quotes): Expr[TypeInfo] = {
-    import qctx.reflect._
+    import qctx.reflect.*
 
-    def normalizedName(s: Symbol): String = if s.flags.is(Flags.Module) then s.name.stripSuffix("$") else s.name
+    def normalizedName(s: Symbol): String = if (s.flags.is(Flags.Module)) s.name.stripSuffix("$") else s.name
     def name(tpe: TypeRepr): Expr[String] = Expr(normalizedName(tpe.typeSymbol))
 
     def ownerNameChain(sym: Symbol): List[String] =
-      if sym.isNoSymbol then List.empty
-      else if sym == defn.EmptyPackageClass then List.empty
-      else if sym == defn.RootPackage then List.empty
-      else if sym == defn.RootClass then List.empty
+      if (sym.isNoSymbol) List.empty
+      else if (sym == defn.EmptyPackageClass) List.empty
+      else if (sym == defn.RootPackage) List.empty
+      else if (sym == defn.RootClass) List.empty
       else ownerNameChain(sym.owner) :+ normalizedName(sym)
 
     def owner(tpe: TypeRepr): Expr[String] = Expr(ownerNameChain(tpe.typeSymbol.maybeOwner).mkString("."))
 
-    def typeInfo(tpe: TypeRepr): Expr[TypeInfo] = tpe match
+    def typeInfo(tpe: TypeRepr): Expr[TypeInfo] = tpe match {
       case AppliedType(tpe, args) =>
         '{ TypeInfo(${ owner(tpe) }, ${ name(tpe) }, ${ Expr.ofList(args.map(typeInfo)) }) }
       case _                      =>
         '{ TypeInfo(${ owner(tpe) }, ${ name(tpe) }, Nil) }
+    }
 
     typeInfo(TypeRepr.of[T])
   }
