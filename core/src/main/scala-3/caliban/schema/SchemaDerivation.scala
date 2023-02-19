@@ -333,5 +333,4 @@ trait AutoSchemaDerivation[R] extends GenericSchema[R] with LowPriorityDerivedSc
 
 private[schema] trait LowPriorityDerivedSchema extends CommonSchemaDerivation {
   inline implicit def genAuto[R, A]: Schema[R, A] = derived[R, A]
-
 }
