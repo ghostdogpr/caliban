@@ -1,25 +1,25 @@
 package caliban.schema
 
 import caliban.CalibanError.ExecutionError
-import caliban.ResponseValue._
-import caliban.Value._
+import caliban.ResponseValue.*
+import caliban.Value.*
 import caliban.execution.Field
-import caliban.introspection.adt._
-import caliban.parsing.adt.{ Directive, Directives }
-import caliban.relay.{ Base64Cursor, Cursor }
-import caliban.schema.Step.{ PureStep => _, _ }
-import caliban.schema.Types._
+import caliban.introspection.adt.*
+import caliban.parsing.adt.{Directive, Directives}
+import caliban.relay.{Base64Cursor, Cursor}
+import caliban.schema.Step.{PureStep as _, *}
+import caliban.schema.Types.*
 import caliban.uploads.Upload
-import caliban.{ InputValue, ResponseValue }
+import caliban.{InputValue, ResponseValue}
 import zio.query.ZQuery
 import zio.stream.ZStream
-import zio.{ Chunk, URIO, ZIO }
+import zio.{Chunk, URIO, ZIO}
 
-import java.time._
+import java.time.*
 import java.time.format.DateTimeFormatter
 import java.time.temporal.Temporal
 import java.util.UUID
-import scala.annotation.implicitNotFound
+import scala.annotation.{implicitNotFound, nowarn}
 import scala.concurrent.Future
 
 /**
@@ -37,9 +37,9 @@ See https://ghostdogpr.github.io/caliban/docs/schema.html for more information.
 )
 trait Schema[-R, T] { self =>
 
-  private lazy val asType: __Type             = toType()
-  private lazy val asInputType: __Type        = toType(isInput = true)
-  private lazy val asSubscriptionType: __Type = toType(isSubscription = true)
+  private lazy val asType: __Type             = toType(): @nowarn("msg=deprecated")
+  private lazy val asInputType: __Type        = toType(isInput = true): @nowarn("msg=deprecated")
+  private lazy val asSubscriptionType: __Type = toType(isSubscription = true): @nowarn("msg=deprecated")
 
   /**
    * Generates a GraphQL type object from `T`.
@@ -53,10 +53,16 @@ trait Schema[-R, T] { self =>
 
   /**
    * Generates a GraphQL type object from `T`.
+   *
+   * Note that this method is public to allow derivation via the `derives` keyword in Scala 3.
+   * To avoid accidental usage (which would be bad for performance), we mark as @deprecated, which will lead to compiler warnings
+   * when used
+   *
    * @param isInput indicates if the type is passed as an argument. This is needed because GraphQL differentiates `InputType` from `ObjectType`.
    * @param isSubscription indicates if the type is used in a subscription operation.
    *                       For example, ZStream gives a different GraphQL type depending whether it is used in a subscription or elsewhere.
    */
+  @deprecated("use toType_ instead")
   def toType(isInput: Boolean = false, isSubscription: Boolean = false): __Type
 
   /**
