@@ -168,11 +168,17 @@ object SchemaSpec extends ZIOSpecDefault {
         )
       },
       test("GQLExcluded") {
-        case class QueryType(a: String, @GQLExcluded b: String)
+        case class Bar(value: String)
+        case class Foo(foo: String, @GQLExcluded bar: Bar)
+        case class QueryType(a: String, @GQLExcluded b: String, foo: Foo)
         case class Query(query: QueryType)
-        val gql      = graphQL(RootResolver(Query(QueryType("a", "b"))))
+        val gql      = graphQL(RootResolver(Query(QueryType("a", "b", Foo("foo", Bar("bar"))))))
         val expected = """schema {
                          |  query: Query
+                         |}
+
+                         |type Foo {
+                         |  foo: String!
                          |}
 
                          |type Query {
@@ -181,6 +187,7 @@ object SchemaSpec extends ZIOSpecDefault {
 
                          |type QueryType {
                          |  a: String!
+                         |  foo: Foo!
                          |}""".stripMargin
         assertTrue(gql.render == expected)
       },

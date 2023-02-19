@@ -31,20 +31,28 @@ trait CommonSchemaDerivation {
    */
   def customizeInputTypeName(name: String): String = s"${name}Input"
 
-  inline def recurse[R, Label, A <: Tuple](index: Int = 0): List[(String, List[Any], Schema[R, Any], Int)] =
+  inline def recurse[R, P, Label, A <: Tuple](
+    inline values: List[(String, List[Any], Schema[R, Any], Int)] = Nil
+  )(inline index: Int = 0): List[(String, List[Any], Schema[R, Any], Int)] =
     inline erasedValue[(Label, A)] match {
+      case (_: EmptyTuple, _)                 => values.reverse
       case (_: (name *: names), _: (t *: ts)) =>
-        val label       = constValue[name].toString
-        val annotations = Macros.annotations[t]
-        val builder     = summonInline[Schema[R, t]].asInstanceOf[Schema[R, Any]]
-        (label, annotations, builder, index) :: recurse[R, names, ts](index + 1)
-      case (_: EmptyTuple, _)                 => Nil
+        recurse[R, P, names, ts] {
+          inline if Macros.isFieldExcluded[P, name] then values
+          else
+            (
+              constValue[name].toString,
+              Macros.annotations[t],
+              summonInline[Schema[R, t]].asInstanceOf[Schema[R, Any]],
+              index
+            ) :: values
+        }(index + 1)
     }
 
   inline def derived[R, A]: Schema[R, A] =
     inline summonInline[Mirror.Of[A]] match {
       case m: Mirror.SumOf[A]     =>
-        lazy val members     = recurse[R, m.MirroredElemLabels, m.MirroredElemTypes]()
+        lazy val members     = recurse[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()()
         lazy val info        = Macros.typeInfo[A]
         lazy val annotations = Macros.annotations[A]
         lazy val subTypes    =
@@ -125,7 +133,7 @@ trait CommonSchemaDerivation {
         }
       case m: Mirror.ProductOf[A] =>
         lazy val annotations      = Macros.annotations[A]
-        lazy val fields           = recurse[R, m.MirroredElemLabels, m.MirroredElemTypes]()
+        lazy val fields           = recurse[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()()
         lazy val info             = Macros.typeInfo[A]
         lazy val paramAnnotations = Macros.paramAnnotations[A].toMap
         new Schema[R, A] {
