@@ -1,25 +1,25 @@
 package caliban.schema
 
 import caliban.CalibanError.ExecutionError
-import caliban.ResponseValue.*
-import caliban.Value.*
+import caliban.ResponseValue._
+import caliban.Value._
 import caliban.execution.Field
-import caliban.introspection.adt.*
-import caliban.parsing.adt.{Directive, Directives}
-import caliban.relay.{Base64Cursor, Cursor}
-import caliban.schema.Step.{PureStep as _, *}
-import caliban.schema.Types.*
+import caliban.introspection.adt._
+import caliban.parsing.adt.{ Directive, Directives }
+import caliban.relay.{ Base64Cursor, Cursor }
+import caliban.schema.Step.{ PureStep => _, _ }
+import caliban.schema.Types._
 import caliban.uploads.Upload
-import caliban.{InputValue, ResponseValue}
+import caliban.{ InputValue, ResponseValue }
 import zio.query.ZQuery
 import zio.stream.ZStream
-import zio.{Chunk, URIO, ZIO}
+import zio.{ Chunk, URIO, ZIO }
 
-import java.time.*
+import java.time._
 import java.time.format.DateTimeFormatter
 import java.time.temporal.Temporal
 import java.util.UUID
-import scala.annotation.{implicitNotFound, nowarn}
+import scala.annotation.{ implicitNotFound, nowarn }
 import scala.concurrent.Future
 
 /**
