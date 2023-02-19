@@ -34,7 +34,7 @@ private[caliban] object Macros {
   }
 
   def typeInfoImpl[T: Type](using qctx: Quotes): Expr[TypeInfo] = {
-    import qctx.reflect._
+    import qctx.reflect.*
 
     def normalizedName(s: Symbol): String = if s.flags.is(Flags.Module) then s.name.stripSuffix("$") else s.name
     def name(tpe: TypeRepr): Expr[String] = Expr(normalizedName(tpe.typeSymbol))
@@ -56,4 +56,5 @@ private[caliban] object Macros {
 
     typeInfo(TypeRepr.of[T])
   }
+
 }
