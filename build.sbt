@@ -184,19 +184,13 @@ lazy val tracing = project
   .settings(name := "caliban-tracing")
   .settings(commonSettings)
   .settings(
-    scalaVersion := scala213,
-    crossScalaVersions -= scala212, // zio-telemetry is only published for 2.13 and 3.x
-    buildInfoKeys    := Seq[BuildInfoKey](
-      "scalaPartialVersion" -> CrossVersion.partialVersion(scalaVersion.value),
-      "scalafmtVersion"     -> scalafmtVersion
-    ),
     buildInfoPackage := "caliban.tracing",
     buildInfoObject  := "BuildInfo"
   )
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "dev.zio"         %% "zio-opentelemetry"         % "3.0.0-RC2",
+      "dev.zio"         %% "zio-opentelemetry"         % "3.0.0-RC3",
       "dev.zio"         %% "zio-test"                  % zioVersion % Test,
       "dev.zio"         %% "zio-test-sbt"              % zioVersion % Test,
       "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.23.0"   % Test
