@@ -45,6 +45,17 @@ object Wrappers {
     onSlowQueries(duration) { case (time, query) => printLine(s"Slow query took ${time.render}:\n$query").orDie }
 
   /**
+   * Returns a wrapper that logs slow queries
+   * @param duration threshold above which queries are considered slow
+   */
+  def logSlowQueries(duration: Duration): OverallWrapper[Any] =
+    onSlowQueries(duration) { case (time, query) =>
+      ZIO.logAnnotate("query", query) {
+        ZIO.logWarning(s"Slow query took ${time.render}:\n$query")
+      }
+    }
+
+  /**
    * Returns a wrapper that runs a given function in case of slow queries
    * @param duration threshold above which queries are considered slow
    */
