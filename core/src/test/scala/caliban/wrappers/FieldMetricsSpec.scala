@@ -18,7 +18,7 @@ object FieldMetricsSpec extends ZIOSpecDefault {
   case class Person(
     name: NameArgs => ZIO[Any, Nothing, String],
     age: ZIO[Any, Nothing, Int],
-    friends: ZIO[Any, Nothing, List[Friend]] = ZIO.succeed(List(Friend("Bob"), Friend("Alice"), Friend("Joe")))
+    friends: ZIO[Any, Nothing, List[Friend]]
   )
   object Person {
     def apply(name: String): Person = new Person(

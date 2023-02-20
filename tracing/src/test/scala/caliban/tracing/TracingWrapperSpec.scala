@@ -26,7 +26,7 @@ object TracingWrapperSpec extends ZIOSpecDefault {
   case class Person(
     name: ZQuery[Any, Throwable, String],
     age: ZIO[Any, Nothing, Int],
-    friends: ZIO[Any, Nothing, List[Person]] = ZIO.succeed(List(Person("Bob"), Person("Alice"), Person("Joe")))
+    friends: ZIO[Any, Nothing, List[Friend]]
   )
   object Person {
     def apply(name: String): Person = new Person(
@@ -34,7 +34,20 @@ object TracingWrapperSpec extends ZIOSpecDefault {
       age = (Random.nextIntBetween(0, 100) zip Random.nextIntBetween(0, 500)).flatMap { case (i, d) =>
         ZIO.succeed(i).delay(d.milliseconds)
       },
-      friends = randomSleep.as(List(Person("Joe"), Person("Bob"), Person("Alice")))
+      friends = randomSleep.as(List(Friend("Joe"), Friend("Bob"), Friend("Alice")))
+    )
+  }
+
+  case class Friend(
+    name: ZQuery[Any, Throwable, String],
+    age: ZIO[Any, Nothing, Int]
+  )
+  object Friend {
+    def apply(name: String): Friend = new Friend(
+      name = ZQuery.fromZIO(randomSleep) *> ZQuery.fromRequest(GetName(name))(NamesDatasource),
+      age = (Random.nextIntBetween(0, 100) zip Random.nextIntBetween(0, 500)).flatMap { case (i, d) =>
+        ZIO.succeed(i).delay(d.milliseconds)
+      }
     )
   }
 

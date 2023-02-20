@@ -50,17 +50,16 @@ object SchemaTracer {
     RemoteQuery.apply(maskField(field)).toGraphQLRequest.query.getOrElse("")
 
   private def maskArguments(args: Map[String, InputValue]): Map[String, InputValue] =
-    args.view
-      .mapValues(v =>
-        v match {
-          case _: ObjectValue      => ObjectValue(Map.empty)
-          case _: StringValue      => StringValue("")
-          case _: Value.IntValue   => IntNumber(0)
-          case _: Value.FloatValue => FloatNumber(0f)
-          case x                   => x
-        }
-      )
-      .toMap
+    args.map { case (k, v) =>
+      val v1 = v match {
+        case _: ObjectValue      => ObjectValue(Map.empty)
+        case _: StringValue      => StringValue("")
+        case _: Value.IntValue   => IntNumber(0)
+        case _: Value.FloatValue => FloatNumber(0f)
+        case x                   => x
+      }
+      (k, v1)
+    }.toMap
 
   private def maskField(f: Field): Field =
     f.copy(
