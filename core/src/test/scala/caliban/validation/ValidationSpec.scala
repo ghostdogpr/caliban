@@ -296,7 +296,7 @@ object ValidationSpec extends ZIOSpecDefault {
                  name @skip(if: true) @skip(if: true)
                }
              }""")
-        check(query, "Directive 'skip' is defined twice.")
+        check(query, "Directive 'skip' is defined more than once.")
       },
       test("variable types don't match") {
         val query = gqldoc("""

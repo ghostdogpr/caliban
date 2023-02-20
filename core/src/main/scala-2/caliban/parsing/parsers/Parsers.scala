@@ -305,9 +305,15 @@ private[caliban] object Parsers extends SelectionParsers {
 
   def directiveDefinition(implicit ev: P[Any]): P[DirectiveDefinition] =
     P(
-      stringValue.? ~ "directive @" ~/ name ~ argumentDefinitions.? ~ "on" ~ ("|".? ~ directiveLocation) ~ ("|" ~ directiveLocation).rep
-    ).map { case (description, name, args, firstLoc, otherLoc) =>
-      DirectiveDefinition(description.map(_.value), name, args.getOrElse(Nil), otherLoc.toSet + firstLoc)
+      stringValue.? ~ "directive @" ~/ name ~ argumentDefinitions.? ~ "repeatable".!.? ~ "on" ~ ("|".? ~ directiveLocation) ~ ("|" ~ directiveLocation).rep
+    ).map { case (description, name, args, repeatable, firstLoc, otherLoc) =>
+      DirectiveDefinition(
+        description.map(_.value),
+        name,
+        args.getOrElse(Nil),
+        repeatable.isDefined,
+        otherLoc.toSet + firstLoc
+      )
     }
 
   def typeDefinition(implicit ev: P[Any]): P[TypeDefinition] =

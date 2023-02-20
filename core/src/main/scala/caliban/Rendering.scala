@@ -124,7 +124,10 @@ object Rendering {
     }
     val directiveLocations = locationStrings.mkString(" | ")
 
-    val body = s"""directive @${directive.name}${inputs} on ${directiveLocations}""".stripMargin
+    val on = if (directive.repeatable) { "repeatable on" }
+    else { "on" }
+
+    val body = s"""directive @${directive.name}${inputs} ${on} ${directiveLocations}""".stripMargin
 
     renderDescription(directive.description) match {
       case ""        => body

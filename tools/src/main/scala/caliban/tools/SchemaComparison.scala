@@ -278,12 +278,18 @@ object SchemaComparison {
     val argChanges         =
       compareArguments(left.args.map(a => a.name -> a).toMap, right.args.map(a => a.name -> a).toMap, target)
 
+    val repeatableChanges = if (left.repeatable == right.repeatable) {
+      Nil
+    } else {
+      List(DirectiveDefinitionRepeatableChanged(left.name, left.repeatable, right.repeatable))
+    }
+
     val locationAdded   =
       (right.locations -- left.locations).map(l => DirectiveLocationAdded(l, left.name)).toList
     val locationDeleted =
       (left.locations -- right.locations).map(l => DirectiveLocationDeleted(l, left.name)).toList
 
-    descriptionChanges ++ argChanges ++ locationAdded ++ locationDeleted
+    descriptionChanges ++ argChanges ++ repeatableChanges ++ locationAdded ++ locationDeleted
   }
 
   private def compareAllDirectiveDefinitions(

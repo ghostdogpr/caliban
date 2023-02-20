@@ -69,13 +69,23 @@ object SchemaComparisonChange {
     override def breaking: Boolean = true
   }
 
-  case class DirectiveDefinitionAdded(directiveName: String)                            extends SchemaComparisonChange {
+  case class DirectiveDefinitionAdded(directiveName: String)   extends SchemaComparisonChange {
     override def toString: String = s"Directive '$directiveName' was added."
   }
-  case class DirectiveDefinitionDeleted(directiveName: String)                          extends SchemaComparisonChange {
+  case class DirectiveDefinitionDeleted(directiveName: String) extends SchemaComparisonChange {
     override def toString: String  = s"Directive '$directiveName' was deleted."
     override def breaking: Boolean = true
   }
+
+  case class DirectiveDefinitionRepeatableChanged(directiveName: String, from: Boolean, to: Boolean)
+      extends SchemaComparisonChange {
+    override def toString: String  = s"Directive '$directiveName' repeatability changed from '$from' to '$to'."
+    // it is compatible to go from allowing something once to allowing it multiple times
+    // but incompatible to go from allowing it multiple times to allowing it once
+    // therefore from=true to=false is breaking, from=false to=true is not
+    override def breaking: Boolean = from
+  }
+
   case class DirectiveLocationAdded(location: DirectiveLocation, directiveName: String) extends SchemaComparisonChange {
     override def toString: String = s"Location '$location' was added on directive '$directiveName'."
   }

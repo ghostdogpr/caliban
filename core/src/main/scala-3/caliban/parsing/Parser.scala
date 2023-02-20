@@ -531,11 +531,18 @@ object Parser {
   private val directiveDefinition: P[DirectiveDefinition] =
     ((stringValue <* whitespaceWithComment).?.with1 ~
       (P.string("directive @") *> name <* whitespaceWithComment) ~
-      ((argumentDefinitions <* whitespaceWithComment).? <* P.string("on") <* whitespaceWithComment1) ~
+      (argumentDefinitions <* whitespaceWithComment).? ~
+      ((P.string("repeatable") <* whitespaceWithComment).? <* P.string("on") <* whitespaceWithComment1) ~
       ((P.char('|') <* whitespaceWithComment).? *> directiveLocation <* whitespaceWithComment) ~
       (P.char('|') *> whitespaceWithComment *> directiveLocation).repSep0(whitespaceWithComment)).map {
-      case ((((description, name), args), firstLoc), otherLoc) =>
-        DirectiveDefinition(description.map(_.value), name, args.getOrElse(Nil), otherLoc.toList.toSet + firstLoc)
+      case (((((description, name), args), repeatable), firstLoc), otherLoc) =>
+        DirectiveDefinition(
+          description.map(_.value),
+          name,
+          args.getOrElse(Nil),
+          repeatable.isDefined,
+          otherLoc.toList.toSet + firstLoc
+        )
     }
 
   private val typeDefinition: P[TypeDefinition] =

@@ -1125,6 +1125,28 @@ object ParserSpec extends ZIOSpecDefault {
                   None,
                   "test",
                   List.empty,
+                  repeatable = false,
+                  Set(
+                    TypeSystemDefinition.DirectiveLocation.TypeSystemDirectiveLocation.FIELD_DEFINITION
+                  )
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlInputExtension)
+            )
+          )
+        }
+      },
+      test("parse repeatable directives") {
+        val gqlInputExtension = "directive @test repeatable on FIELD_DEFINITION"
+        Parser.parseQuery(gqlInputExtension).map { doc =>
+          assertTrue(
+            doc == Document(
+              List(
+                DirectiveDefinition(
+                  None,
+                  "test",
+                  List.empty,
+                  repeatable = true,
                   Set(
                     TypeSystemDefinition.DirectiveLocation.TypeSystemDirectiveLocation.FIELD_DEFINITION
                   )

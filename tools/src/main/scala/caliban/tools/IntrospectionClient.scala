@@ -137,12 +137,14 @@ object IntrospectionClient {
     name: String,
     description: Option[String],
     locations: List[__DirectiveLocation],
-    args: List[InputValueDefinition]
+    args: List[InputValueDefinition],
+    repeatable: Boolean
   ): DirectiveDefinition =
     DirectiveDefinition(
       description,
       name,
       args,
+      repeatable,
       locations.map {
         case __DirectiveLocation.QUERY                  => ExecutableDirectiveLocation.QUERY
         case __DirectiveLocation.MUTATION               => ExecutableDirectiveLocation.MUTATION
@@ -225,7 +227,8 @@ object IntrospectionClient {
           (__Directive.name ~
             __Directive.description ~
             __Directive.locations ~
-            __Directive.args(inputValue)).mapN(mapDirective _)
+            __Directive.args(inputValue) ~
+            __Directive.isRepeatable).mapN(mapDirective _)
         }
     }.map { case (schema, types, directives) => Document(schema :: types ++ directives, SourceMapper.empty) }
 }
