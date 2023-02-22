@@ -119,19 +119,19 @@ object TapirAdapter {
     postEndpoint :: getEndpoint :: Nil
   }
 
-  def makeHttpService[R, E](
-    interpreter: GraphQLInterpreter[R, E],
+  def makeHttpService[R, IR, E](
+    interpreter: GraphQLInterpreter[R & IR, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel,
-    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
+    requestInterceptor: RequestInterceptor[IR] = RequestInterceptor.empty
   )(implicit
     requestCodec: JsonCodec[GraphQLRequest],
     responseCodec: JsonCodec[GraphQLResponse[E]]
   ): List[ServerEndpoint[Any, RIO[R, *]]] = {
     def logic(
       request: (GraphQLRequest, ServerRequest)
-    ): RIO[R, Either[TapirResponse, GraphQLResponse[E]]] = {
+    ): RIO[R & IR, Either[TapirResponse, GraphQLResponse[E]]] = {
       val (graphQLRequest, serverRequest) = request
 
       requestInterceptor(serverRequest)(

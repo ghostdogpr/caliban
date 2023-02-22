@@ -24,18 +24,18 @@ import scala.concurrent.{ ExecutionContext, Future }
 class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(implicit ec: ExecutionContext) {
   private val akkaInterpreter = AkkaHttpServerInterpreter(options)(ec)
 
-  def makeHttpService[R, E](
-    interpreter: GraphQLInterpreter[R, E],
+  def makeHttpService[R, IR, E](
+    interpreter: GraphQLInterpreter[R & IR, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel,
-    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
+    requestInterceptor: RequestInterceptor[IR] = RequestInterceptor.empty
   )(implicit
     runtime: Runtime[R],
     requestCodec: JsonCodec[GraphQLRequest],
     responseCodec: JsonCodec[GraphQLResponse[E]]
   ): Route = {
-    val endpoints = TapirAdapter.makeHttpService[R, E](
+    val endpoints = TapirAdapter.makeHttpService[R, IR, E](
       interpreter,
       skipValidation,
       enableIntrospection,

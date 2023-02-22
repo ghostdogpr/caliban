@@ -9,7 +9,7 @@ import zio.ZIO
  * query execution or injecting context into ZIO environment.
  */
 trait RequestInterceptor[-R] { self =>
-  def apply[R1 <: R, A](request: ServerRequest)(e: ZIO[R1, TapirResponse, A]): ZIO[R1, TapirResponse, A]
+  def apply[R1 <: R, A](request: ServerRequest)(e: ZIO[R, TapirResponse, A]): ZIO[R1, TapirResponse, A]
 
   def |+|[R1 <: R](that: RequestInterceptor[R1]): RequestInterceptor[R1] = new RequestInterceptor[R1] {
     override def apply[R2 <: R1, A](request: ServerRequest)(e: ZIO[R2, TapirResponse, A]): ZIO[R2, TapirResponse, A] =
