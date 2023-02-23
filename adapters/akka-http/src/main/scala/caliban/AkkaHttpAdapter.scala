@@ -29,7 +29,7 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel,
-    requestInterceptor: RequestInterceptor[IR] = RequestInterceptor.empty
+    requestInterceptor: RequestInterceptor[R, IR] = RequestInterceptor.empty
   )(implicit
     runtime: Runtime[R],
     requestCodec: JsonCodec[GraphQLRequest],
@@ -45,19 +45,19 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
     akkaInterpreter.toRoute(endpoints.map(TapirAdapter.convertHttpEndpointToFuture(_)))
   }
 
-  def makeHttpUploadService[R, E](
-    interpreter: GraphQLInterpreter[R, E],
+  def makeHttpUploadService[R, IR, E](
+    interpreter: GraphQLInterpreter[R with IR, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel,
-    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
+    requestInterceptor: RequestInterceptor[R, IR] = RequestInterceptor.empty
   )(implicit
     runtime: Runtime[R],
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
     responseCodec: JsonCodec[GraphQLResponse[E]]
   ): Route = {
-    val endpoint = TapirAdapter.makeHttpUploadService[R, E](
+    val endpoint = TapirAdapter.makeHttpUploadService[R, IR, E](
       interpreter,
       skipValidation,
       enableIntrospection,
@@ -67,13 +67,13 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
     akkaInterpreter.toRoute(TapirAdapter.convertHttpEndpointToFuture(endpoint))
   }
 
-  def makeWebSocketService[R, E](
-    interpreter: GraphQLInterpreter[R, E],
+  def makeWebSocketService[R, IR, E](
+    interpreter: GraphQLInterpreter[R with IR, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     keepAliveTime: Option[Duration] = None,
     queryExecution: QueryExecution = QueryExecution.Parallel,
-    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty,
+    requestInterceptor: RequestInterceptor[R, IR] = RequestInterceptor.empty,
     webSocketHooks: WebSocketHooks[R, E] = WebSocketHooks.empty
   )(implicit
     ec: ExecutionContext,
@@ -82,7 +82,7 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
     inputCodec: JsonCodec[GraphQLWSInput],
     outputCodec: JsonCodec[GraphQLWSOutput]
   ): Route = {
-    val endpoint = TapirAdapter.makeWebSocketService[R, E](
+    val endpoint = TapirAdapter.makeWebSocketService[R, IR, E](
       interpreter,
       skipValidation,
       enableIntrospection,

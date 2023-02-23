@@ -15,6 +15,8 @@ import zio.{ FiberRef, RIO, Runtime, Unsafe, ZIO, ZLayer }
 
 import scala.concurrent.ExecutionContextExecutor
 import scala.io.StdIn
+import zio.Scope
+import _root_.cats.effect.Fiber
 
 object AuthExampleApp extends App {
 
@@ -22,14 +24,15 @@ object AuthExampleApp extends App {
 
   type Auth = FiberRef[Option[AuthToken]]
 
-  object AuthInterceptor extends RequestInterceptor[Auth] {
-    override def apply[R <: Auth, A](
+  object AuthInterceptor extends RequestInterceptor[Any, Auth] {
+    override def apply[R, A](
       request: ServerRequest
-    )(effect: ZIO[R, TapirResponse, A]): ZIO[R, TapirResponse, A] =
+    )(effect: ZIO[R with Auth, TapirResponse, A]): ZIO[R, TapirResponse, A] =
       request.headers.collectFirst {
         case header if header.is("token") => header.value
       } match {
-        case Some(token) => ZIO.serviceWithZIO[Auth](_.set(Some(AuthToken(token)))) *> effect
+        case Some(token) =>
+          effect.provideSomeLayer[R](ZLayer.scoped[Any](FiberRef.make(Option.apply(AuthToken(token)))))
         case _           => ZIO.fail(TapirResponse(StatusCode.Forbidden))
       }
   }
@@ -47,17 +50,18 @@ object AuthExampleApp extends App {
   // pass on so that they are present in the environment for our ContextWrapper(s)
   // For the auth we wrap in an option, but you could just as well use something
   // like AuthToken("__INVALID") or a sealed trait hierarchy with an invalid member
-  val initLayer: ZLayer[Any, Nothing, FiberRef[Option[AuthToken]]] =
-    ZLayer.scoped(FiberRef.make(Option.empty[AuthToken]))
+  // val initLayer: ZLayer[Any, Nothing, FiberRef[Option[AuthToken]]] =
+  //   ZLayer.scoped(FiberRef.make(Option.empty[AuthToken]))
 
-  implicit val runtime: Runtime[Auth] = Unsafe.unsafe(implicit u => Runtime.unsafe.fromLayer(initLayer))
+  // implicit val runtime: Runtime[Auth] = Unsafe.unsafe(implicit u => Runtime.unsafe.fromLayer(initLayer))
+  implicit val runtime: Runtime[Any] = zio.Runtime.default
 
   val interpreter = Unsafe.unsafe(implicit u => runtime.unsafe.run(api.interpreter).getOrThrow())
   val adapter     = AkkaHttpAdapter.default
 
   val route =
     path("api" / "graphql") {
-      adapter.makeHttpService(interpreter, requestInterceptor = AuthInterceptor)
+      adapter.makeHttpService[Any, Auth, Throwable](interpreter, requestInterceptor = AuthInterceptor)
     } ~ path("graphiql") {
       getFromResource("graphiql.html")
     }

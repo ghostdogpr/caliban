@@ -1,4 +1,4 @@
-package example.interop.monix
+// package example.interop.monix
 /*
 
 import caliban.GraphQL.graphQL
