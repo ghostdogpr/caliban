@@ -51,9 +51,7 @@ object AuthExampleApp extends App {
                         .header("X-Forwarded-For")
                         .orElse(request.header("X-Real-IP"))
                         .orElse(request.header("Remote-Address"))
-                        .orElse(
-                          request.connectionInfo.remote.map(_.getAddress.getHostAddress)
-                        )
+                        .orElse(request.connectionInfo.remote.map(_.getAddress.getHostAddress))
                         .map(IP)
                     }.orDie
         clientIP <- effect.provideSomeLayer[R](ZLayer.scoped[Any](FiberRef.make(ip)))
@@ -66,7 +64,7 @@ object AuthExampleApp extends App {
   private val resolver                          = RootResolver(
     Query(
       token = ZIO.serviceWithZIO[Auth](_.get).map(_.map(_.value)),
-      ip = ZIO.serviceWithZIO[ClientIP](_.get).map(_.map(_.value).getOrElse("0.0.0.0"))
+      ip = ZIO.serviceWithZIO[ClientIP](_.get).map(_.map(_.value).getOrElse("no ip"))
     )
   )
   private val api                               = graphQL(resolver)
@@ -74,20 +72,15 @@ object AuthExampleApp extends App {
   implicit val system: ActorSystem                        = ActorSystem()
   implicit val executionContext: ExecutionContextExecutor = system.dispatcher
 
-  // Note that we must initialize the runtime with any FiberRefs we intend to
-  // pass on so that they are present in the environment for our ContextWrapper(s)
-  // For the auth we wrap in an option, but you could just as well use something
-  // like AuthToken("__INVALID") or a sealed trait hierarchy with an invalid member
-  // val initLayer: ZLayer[Any, Nothing, FiberRef[Option[AuthToken]]] =
-  //   ZLayer.scoped(FiberRef.make(Option.empty[AuthToken]))
-
-  // implicit val runtime: Runtime[Auth] = Unsafe.unsafe(implicit u => Runtime.unsafe.fromLayer(initLayer))
+  // This is the runtime needed in order to instantiate the route
   implicit val runtime: Runtime[Any] = zio.Runtime.default
 
   val interpreter = Unsafe.unsafe(implicit u => runtime.unsafe.run(api.interpreter).getOrThrow())
   val adapter     = AkkaHttpAdapter.default
 
-  val interceptors: RequestInterceptor[Any, Auth with ClientIP] = ??? // AuthInterceptor |+| ClientIPInterceptor
+  // The interceptors will eliminate the part of the environment
+  // which is needed at runtime in order to evaluate the API routes
+  val interceptors: RequestInterceptor[Any, Auth with ClientIP] = AuthInterceptor |+| ClientIPInterceptor
 
   val route =
     path("api" / "graphql") {

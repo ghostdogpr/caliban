@@ -16,7 +16,7 @@ trait RequestInterceptor[-R, +DynR] { self =>
       override def apply[R2 <: R1, A](request: ServerRequest)(
         e: ZIO[R2 with DynR with DynR2, TapirResponse, A]
       ): ZIO[R2, TapirResponse, A] =
-        that.apply[R2, A](request)(self.apply[R2, A](request)(e))
+        that.apply[R2, A](request)(self.apply[R2 with DynR2, A](request)(e))
     }
 }
 
