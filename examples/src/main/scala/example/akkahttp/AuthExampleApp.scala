@@ -22,7 +22,7 @@ object AuthExampleApp extends App {
 
   case class AuthToken(value: String)
 
-  type Auth = FiberRef[Option[AuthToken]]
+  type Auth = FiberRef[AuthToken]
 
   object AuthInterceptor extends RequestInterceptor[Any, Auth] {
     override def apply[R, A](
@@ -32,7 +32,7 @@ object AuthExampleApp extends App {
         case header if header.is("token") => header.value
       } match {
         case Some(token) =>
-          effect.provideSomeLayer[R](ZLayer.scoped[Any](FiberRef.make(Option.apply(AuthToken(token)))))
+          effect.provideSomeLayer[R](ZLayer.scoped[Any](FiberRef.make(AuthToken(token))))
         case _           => ZIO.fail(TapirResponse(StatusCode.Forbidden))
       }
   }
@@ -60,10 +60,10 @@ object AuthExampleApp extends App {
 
   val schema: GenericSchema[Auth with ClientIP] = new GenericSchema[Auth with ClientIP] {}
   import schema._
-  case class Query(token: RIO[Auth, Option[String]], ip: RIO[ClientIP, String])
+  case class Query(token: RIO[Auth, String], ip: RIO[ClientIP, String])
   private val resolver                          = RootResolver(
     Query(
-      token = ZIO.serviceWithZIO[Auth](_.get).map(_.map(_.value)),
+      token = ZIO.serviceWithZIO[Auth](_.get).map(_.value),
       ip = ZIO.serviceWithZIO[ClientIP](_.get).map(_.map(_.value).getOrElse("no ip"))
     )
   )
