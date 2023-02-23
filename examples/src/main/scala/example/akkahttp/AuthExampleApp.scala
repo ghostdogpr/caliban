@@ -37,11 +37,39 @@ object AuthExampleApp extends App {
       }
   }
 
-  val schema: GenericSchema[Auth] = new GenericSchema[Auth] {}
+  case class IP(value: String)
+
+  type ClientIP = FiberRef[Option[IP]]
+
+  object ClientIPInterceptor extends RequestInterceptor[Any, ClientIP] {
+    override def apply[R, A](request: ServerRequest)(
+      effect: ZIO[R with ClientIP, TapirResponse, A]
+    ): ZIO[R, TapirResponse, A] =
+      for {
+        ip       <- ZIO.attempt {
+                      request
+                        .header("X-Forwarded-For")
+                        .orElse(request.header("X-Real-IP"))
+                        .orElse(request.header("Remote-Address"))
+                        .orElse(
+                          request.connectionInfo.remote.map(_.getAddress.getHostAddress)
+                        )
+                        .map(IP)
+                    }.orDie
+        clientIP <- effect.provideSomeLayer[R](ZLayer.scoped[Any](FiberRef.make(ip)))
+      } yield clientIP
+  }
+
+  val schema: GenericSchema[Auth with ClientIP] = new GenericSchema[Auth with ClientIP] {}
   import schema._
-  case class Query(token: RIO[Auth, Option[String]])
-  private val resolver            = RootResolver(Query(ZIO.serviceWithZIO[Auth](_.get).map(_.map(_.value))))
-  private val api                 = graphQL(resolver)
+  case class Query(token: RIO[Auth, Option[String]], ip: RIO[ClientIP, String])
+  private val resolver                          = RootResolver(
+    Query(
+      token = ZIO.serviceWithZIO[Auth](_.get).map(_.map(_.value)),
+      ip = ZIO.serviceWithZIO[ClientIP](_.get).map(_.map(_.value).getOrElse("0.0.0.0"))
+    )
+  )
+  private val api                               = graphQL(resolver)
 
   implicit val system: ActorSystem                        = ActorSystem()
   implicit val executionContext: ExecutionContextExecutor = system.dispatcher
@@ -59,9 +87,14 @@ object AuthExampleApp extends App {
   val interpreter = Unsafe.unsafe(implicit u => runtime.unsafe.run(api.interpreter).getOrThrow())
   val adapter     = AkkaHttpAdapter.default
 
+  val interceptors: RequestInterceptor[Any, Auth with ClientIP] = ??? // AuthInterceptor |+| ClientIPInterceptor
+
   val route =
     path("api" / "graphql") {
-      adapter.makeHttpService[Any, Auth, Throwable](interpreter, requestInterceptor = AuthInterceptor)
+      adapter.makeHttpService[Any, Auth with ClientIP, Throwable](
+        interpreter,
+        requestInterceptor = interceptors
+      )
     } ~ path("graphiql") {
       getFromResource("graphiql.html")
     }
