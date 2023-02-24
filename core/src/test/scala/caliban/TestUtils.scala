@@ -34,7 +34,7 @@ object TestUtils {
     case object MARS  extends Origin
     case object BELT  extends Origin
     @GQLDeprecated("Use: EARTH | MARS | BELT")
-    case object MOON extends Origin
+    case object MOON  extends Origin
   }
 
   @GQLDirective(Directive("uniondirective"))
@@ -393,7 +393,7 @@ object TestUtils {
       sealed trait FieldInterface {
         val a: String
       }
-      object FieldInterface {
+      object FieldInterface       {
         case class FieldObject(a: String, b: Int) extends FieldInterface
       }
       case class TestFieldObject(fieldInterface: FieldObject)
@@ -565,11 +565,10 @@ object TestUtils {
     val resolverEmpty = new RootResolver(Option.empty[Unit], Option.empty[Unit], Option.empty[Unit])
   }
 
-  val skipJdk8: TestAspectPoly = {
+  val skipJdk8: TestAspectPoly =
     System.getProperty("java.version").split('.').toList match {
       case "1" :: "8" :: _ => TestAspect.ignore
       case "8" :: _        => TestAspect.ignore
       case _               => TestAspect.identity
     }
-  }
 }
