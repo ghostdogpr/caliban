@@ -11,7 +11,7 @@ import caliban.{ AkkaHttpAdapter, RootResolver }
 import sttp.model.StatusCode
 import sttp.tapir.json.circe._
 import sttp.tapir.model.ServerRequest
-import zio.{ FiberRef, RIO, Runtime, Unsafe, ZIO, ZLayer }
+import zio.{ RIO, Runtime, Unsafe, ZIO, ZLayer }
 
 import scala.concurrent.ExecutionContextExecutor
 import scala.io.StdIn
@@ -22,7 +22,7 @@ object AuthExampleApp extends App {
 
   case class AuthToken(value: String)
 
-  type Auth = FiberRef[AuthToken]
+  type Auth = AuthToken
 
   object AuthInterceptor extends RequestInterceptor[Any, Auth] {
     override def apply[R, A](
@@ -32,14 +32,14 @@ object AuthExampleApp extends App {
         case header if header.is("token") => header.value
       } match {
         case Some(token) =>
-          effect.provideSomeLayer[R](ZLayer.scoped[Any](FiberRef.make(AuthToken(token))))
+          effect.provideSomeLayer[R](ZLayer.succeed[Any](AuthToken(token)))
         case _           => ZIO.fail(TapirResponse(StatusCode.Forbidden))
       }
   }
 
   case class IP(value: String)
 
-  type ClientIP = FiberRef[Option[IP]]
+  type ClientIP = Option[IP]
 
   object ClientIPInterceptor extends RequestInterceptor[Any, ClientIP] {
     override def apply[R, A](request: ServerRequest)(
@@ -54,7 +54,7 @@ object AuthExampleApp extends App {
                         .orElse(request.connectionInfo.remote.map(_.getAddress.getHostAddress))
                         .map(IP)
                     }.orDie
-        clientIP <- effect.provideSomeLayer[R](ZLayer.scoped[Any](FiberRef.make(ip)))
+        clientIP <- effect.provideSomeLayer[R](ZLayer.succeed[Any](ip))
       } yield clientIP
   }
 
