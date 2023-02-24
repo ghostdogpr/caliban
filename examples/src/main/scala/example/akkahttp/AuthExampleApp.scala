@@ -32,7 +32,7 @@ object AuthExampleApp extends App {
         case header if header.is("token") => header.value
       } match {
         case Some(token) =>
-          effect.provideSomeLayer[R](ZLayer.succeed[Any](AuthToken(token)))
+          effect.provideSomeLayer[R](ZLayer.succeed[Auth](AuthToken(token)))
         case _           => ZIO.fail(TapirResponse(StatusCode.Forbidden))
       }
   }
@@ -54,7 +54,7 @@ object AuthExampleApp extends App {
                         .orElse(request.connectionInfo.remote.map(_.getAddress.getHostAddress))
                         .map(IP)
                     }.orDie
-        clientIP <- effect.provideSomeLayer[R](ZLayer.succeed[Any](ip))
+        clientIP <- effect.provideSomeLayer[R](ZLayer.succeed[ClientIP](ip))
       } yield clientIP
   }
 
@@ -63,8 +63,8 @@ object AuthExampleApp extends App {
   case class Query(token: RIO[Auth, String], ip: RIO[ClientIP, String])
   private val resolver                          = RootResolver(
     Query(
-      token = ZIO.serviceWithZIO[Auth](_.get).map(_.value),
-      ip = ZIO.serviceWithZIO[ClientIP](_.get).map(_.map(_.value).getOrElse("no ip"))
+      token = ZIO.serviceWith[Auth](_.value),
+      ip = ZIO.serviceWith[ClientIP](_.map(_.value).getOrElse("no ip"))
     )
   )
   private val api                               = graphQL(resolver)
