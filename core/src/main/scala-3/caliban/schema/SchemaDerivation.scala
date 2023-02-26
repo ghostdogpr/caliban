@@ -43,7 +43,7 @@ trait CommonSchemaDerivation {
       case (_: EmptyTuple, _)                 => values.reverse
       case (_: (name *: names), _: (t *: ts)) =>
         recurse[R, P, names, ts] {
-          inline if Macros.isFieldExcluded[P, name] then values
+          inline if (Macros.isFieldExcluded[P, name]) values
           else
             (
               constValue[name].toString,
