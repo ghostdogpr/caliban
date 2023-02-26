@@ -73,10 +73,14 @@ object ValueValidator {
             argValue match {
               case ObjectValue(fields) =>
                 ZIO.foreachDiscard(inputType.inputFields.getOrElse(List.empty)) { f =>
-                  val value =
-                    fields.collectFirst { case (name, fieldValue) if name == f.name => fieldValue }
-                      .getOrElse(NullValue)
-                  validateType(f.`type`(), value, context, s"Field ${f.name} in $errorContext")
+                  fields.collectFirst { case (name, fieldValue) if name == f.name => fieldValue } match {
+                    case Some(value) =>
+                      validateType(f.`type`(), value, context, s"Field ${f.name} in $errorContext")
+                    case None        =>
+                      ZIO.when(f.defaultValue.isEmpty) {
+                        validateType(f.`type`(), NullValue, context, s"Field ${f.name} in $errorContext")
+                      }
+                  }
                 }
               case NullValue           =>
                 ZIO.unit
