@@ -18,7 +18,7 @@ trait PartialRemoteSchema[R0, R, A] { self =>
         Step.QueryStep(ZQuery.fromZIO(self.resolve(value, args).map(Step.PureStep.apply).provideEnvironment(env)))
       }
 
-    protected def toType(isInput: Boolean, isSubscription: Boolean): __Type =
+    def toType(isInput: Boolean, isSubscription: Boolean): __Type =
       self.toType(isInput, isSubscription)
   }
 }

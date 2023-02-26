@@ -75,7 +75,7 @@ object AuthExampleAppF extends IOApp.Simple {
 
     def createGraphQL: GraphQL[AuthInfo] = {
       val schema: GenericSchema[AuthInfo] = new GenericSchema[AuthInfo] {}
-      import schema._
+      import schema.auto._
       import caliban.interop.cats.implicits._ // summons `Schema[Auth, F[String]]` instance
 
       graphQL(RootResolver(query))

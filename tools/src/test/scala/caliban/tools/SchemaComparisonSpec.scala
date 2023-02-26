@@ -3,6 +3,8 @@ package caliban.tools
 import caliban.GraphQL.graphQL
 import caliban.parsing.Parser
 import caliban.schema.Annotations.GQLDeprecated
+import caliban.schema.Schema.auto._
+import caliban.schema.ArgBuilder.auto._
 import caliban.tools.SchemaComparison.compareDocuments
 import caliban.{ CalibanError, RootResolver }
 import zio.ZIO

@@ -5,6 +5,8 @@ import caliban.GraphQL.graphQL
 import caliban.RootResolver
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
 import caliban.schema.Annotations.{ GQLExcluded, GQLInterface, GQLUnion, GQLValueType }
+import caliban.schema.Schema.auto._
+import caliban.schema.ArgBuilder.auto._
 import zio.query.ZQuery
 import zio.stream.ZStream
 import zio.test.Assertion._
@@ -31,7 +33,8 @@ object SchemaSpec extends ZIOSpecDefault {
         case class Field(value: ZQuery[Console, Nothing, String])
         case class Queries(field: ZQuery[Clock, Nothing, Field])
         object MySchema extends GenericSchema[Console with Clock] {
-          implicit lazy val queriesSchema: Schema[Console with Clock, Queries] = gen
+          import auto._
+          implicit lazy val queriesSchema: Schema[Console with Clock, Queries] = genAll
         }
         assert(MySchema.queriesSchema.toType_().fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
           isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.NON_NULL)))
@@ -131,7 +134,7 @@ object SchemaSpec extends ZIOSpecDefault {
       test("union redirect") {
         case class Queries(union: RedirectingUnion)
 
-        implicit val queriesSchema: Schema[Any, Queries] = Schema.gen
+        implicit val queriesSchema: Schema[Any, Queries] = genAll
 
         val types      = Types.collectTypes(introspect[Queries])
         val subTypes   = types.find(_.name.contains("RedirectingUnion")).flatMap(_.possibleTypes)
@@ -165,11 +168,17 @@ object SchemaSpec extends ZIOSpecDefault {
         )
       },
       test("GQLExcluded") {
-        case class QueryType(a: String, @GQLExcluded b: String)
+        case class Bar(value: String)
+        case class Foo(foo: String, @GQLExcluded bar: Bar)
+        case class QueryType(a: String, @GQLExcluded b: String, foo: Foo)
         case class Query(query: QueryType)
-        val gql      = graphQL(RootResolver(Query(QueryType("a", "b"))))
+        val gql      = graphQL(RootResolver(Query(QueryType("a", "b", Foo("foo", Bar("bar"))))))
         val expected = """schema {
                          |  query: Query
+                         |}
+
+                         |type Foo {
+                         |  foo: String!
                          |}
 
                          |type Query {
@@ -178,6 +187,7 @@ object SchemaSpec extends ZIOSpecDefault {
 
                          |type QueryType {
                          |  a: String!
+                         |  foo: Foo!
                          |}""".stripMargin
         assertTrue(gql.render == expected)
       },

@@ -3,29 +3,29 @@ import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
 val scala212 = "2.12.17"
 val scala213 = "2.13.10"
-val scala3   = "3.2.1"
+val scala3   = "3.2.2"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion               = "2.6.20"
-val catsEffect3Version        = "3.4.4"
+val catsEffect3Version        = "3.4.8"
 val catsMtlVersion            = "1.2.1"
-val circeVersion              = "0.14.3"
-val http4sVersion             = "0.23.17"
-val jsoniterVersion           = "2.20.1"
+val circeVersion              = "0.14.4"
+val http4sVersion             = "0.23.18"
+val jsoniterVersion           = "2.21.2"
 val laminextVersion           = "0.14.4"
 val magnoliaVersion           = "0.17.0"
 val mercatorVersion           = "0.2.1"
-val playVersion               = "2.8.18"
-val playJsonVersion           = "2.9.3"
-val scalafmtVersion           = "3.5.9"
+val playVersion               = "2.8.19"
+val playJsonVersion           = "2.9.4"
+val scalafmtVersion           = "3.7.2"
 val sttpVersion               = "3.8.0"
 val tapirVersion              = "1.2.2"
-val zioVersion                = "2.0.5"
+val zioVersion                = "2.0.9"
 val zioInteropCats2Version    = "22.0.0.0"
-val zioInteropCats3Version    = "23.0.0.0"
-val zioInteropReactiveVersion = "2.0.0"
+val zioInteropCats3Version    = "23.0.0.1"
+val zioInteropReactiveVersion = "2.0.1"
 val zioConfigVersion          = "3.0.7"
-val zqueryVersion             = "0.3.4"
+val zqueryVersion             = "0.3.6"
 val zioJsonVersion            = "0.4.2"
 val zioHttpVersion            = "2.0.0-RC10"
 
@@ -52,6 +52,7 @@ inThisBuild(
         url("https://github.com/ghostdogpr")
       )
     ),
+    versionScheme            := Some("pvp"),
     ConsoleHelper.welcomeMessage,
     // See https://github.com/playframework/playframework/issues/11461#issuecomment-1276028512
     // Can be removed when the entire Scala ecosystem has migrated to Scala 2.12.17+, sbt 1.8.x, and moved away from scala-xml v1 in general.
@@ -549,7 +550,8 @@ lazy val commonSettings = Def.settings(
     case Some((3, _)) =>
       Seq(
         "-explain-types",
-        "-Ykind-projector"
+        "-Ykind-projector",
+        "-no-indent"
       )
     case _            => Nil
   })

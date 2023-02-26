@@ -2,6 +2,7 @@ package caliban.reporting
 
 import caliban.client.CalibanClientError.CommunicationError
 import caliban.reporting.ReportingError.{ ClientError, RetryableError }
+import caliban.schema.Schema.auto._
 import caliban.{ GraphQL, RootResolver }
 import zio.test.{ assertTrue, TestClock, ZIOSpecDefault }
 import zio._

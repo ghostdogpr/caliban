@@ -7,7 +7,8 @@ import caliban.Macros.gqldoc
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, StringValue }
-import caliban.schema.Schema
+import caliban.schema.Schema.auto._
+import caliban.schema.ArgBuilder.auto._
 import zio.test.Assertion._
 import zio.test._
 import zio.query.ZQuery
@@ -15,17 +16,9 @@ import zio.query.ZQuery
 object FederationV1Spec extends ZIOSpecDefault {
   case class OrphanChild(id: String)
 
-  object OrphanChild {
-    implicit val schema: Schema[Any, Orphan] = Schema.gen
-  }
-
   @GQLKey("name")
   @GQLExtend
   case class Orphan(@GQLExternal name: String, nicknames: List[String], child: OrphanChild)
-
-  object Orphan {
-    implicit val schema: Schema[Any, Orphan] = Schema.gen
-  }
 
   case class OrphanArgs(name: String)
 

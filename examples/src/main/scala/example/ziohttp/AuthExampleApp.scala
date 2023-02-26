@@ -94,6 +94,8 @@ object Auth {
 }
 
 object Authed extends GenericSchema[Auth] {
+  import auto._
+
   case class Queries(
     whoAmI: ZIO[Auth, Unauthorized.type, String] = ZIO.serviceWithZIO[Auth](_.currentUser)
   )

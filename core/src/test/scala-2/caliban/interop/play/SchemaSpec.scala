@@ -2,6 +2,7 @@ package caliban.interop.play
 
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type }
 import caliban.schema.Schema
+import caliban.schema.Schema.auto._
 import play.api.libs.json.JsValue
 import zio.test.Assertion._
 import zio.test._

@@ -1,12 +1,13 @@
 package caliban.validation
 
-import caliban.{ CalibanError, InputValue }
+import caliban.{ CalibanError, InputValue, RootResolver }
 import caliban.CalibanError.ValidationError
 import caliban.GraphQL._
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, IntValue, StringValue }
-import zio.IO
+import caliban.schema.Annotations.GQLDefault
+import zio.{ IO, UIO, ZIO }
 import zio.test.Assertion._
 import zio.test._
 
@@ -363,6 +364,24 @@ object ValidationSpec extends ZIOSpecDefault {
                }
              }""")
         interpreter.flatMap(_.execute(query, None, Map("x" -> BooleanValue(true)))).map { response =>
+          assertTrue(response.errors.isEmpty)
+        }
+      },
+      test("validation works when a non-nullable field is missing but we have a default value") {
+        import caliban.schema.ArgBuilder.auto._
+        import caliban.schema.Schema.auto._
+
+        case class Foo(inner: Boolean)
+        case class Outer(bar: String, @GQLDefault("""{inner: true}""") foo: Foo)
+        case class GetFooArgs(outer: Outer)
+        case class Queries(example: GetFooArgs => UIO[String])
+
+        val queries = Queries(example = _ => ZIO.succeed("Done"))
+
+        val api = graphQL(RootResolver(queries))
+
+        val query = gqldoc("""{ example(outer: { bar: "bar" }) }""")
+        api.interpreter.flatMap(_.execute(query)).map { response =>
           assertTrue(response.errors.isEmpty)
         }
       }

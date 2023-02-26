@@ -4,6 +4,8 @@ import caliban.GraphQL._
 import caliban.TestUtils._
 import caliban.introspection.adt.{ __Type, __TypeKind }
 import caliban.parsing.adt.Directive
+import caliban.schema.Schema.auto._
+import caliban.schema.ArgBuilder.auto._
 import zio.test.Assertion._
 import zio.test._
 
@@ -230,7 +232,9 @@ object RenderingSpec extends ZIOSpecDefault {
              |Multiple lines${tripleQuote} in: Int!): OutputValue!
              |}
              |""".stripMargin
-        assert(graphQL(resolver).render.trim)(equalTo(expected.trim))
+
+        val api = graphQL(resolver)
+        assert(api.render.trim)(equalTo(expected.trim))
       },
       test("it should render single line descriptions ending in quote") {
         import RenderingSpecSchemaSingleLineEndingInQuoteDescription.resolver

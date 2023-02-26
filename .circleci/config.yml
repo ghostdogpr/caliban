@@ -8,7 +8,7 @@ jobs:
       - restore_cache:
           key: sbtcache
       - run: sbt ++2.13.10 check
-      - run: sbt ++3.2.1 check
+      - run: sbt ++3.2.2 check
       - save_cache:
           key: sbtcache
           paths:
@@ -46,6 +46,7 @@ jobs:
   scripted212_jdk:
     docker:
       - image: cimg/openjdk:11.0-node
+    resource_class: large
     steps:
       - checkout
       - restore_cache:
@@ -60,6 +61,7 @@ jobs:
   scripted3_jdk:
     docker:
       - image: cimg/openjdk:11.0-node
+    resource_class: large
     steps:
       - checkout
       - restore_cache:
@@ -92,7 +94,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++3.2.1 core/test catsInterop/compile benchmarks/compile monixInterop/compile clientJVM/test clientJS/compile zioHttp/test tapirInterop/test http4s/test federation/test reporting/test
+      - run: sbt ++3.2.2 core/test catsInterop/compile benchmarks/compile monixInterop/compile clientJVM/test clientJS/compile zioHttp/test tapirInterop/test http4s/test federation/test reporting/test
       - save_cache:
           key: sbtcache
           paths:
@@ -120,7 +122,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++3.2.1 clientJS/test clientLaminextJS/Test/fastLinkJS
+      - run: sbt ++3.2.2 clientJS/test clientLaminextJS/Test/fastLinkJS
       - save_cache:
           key: sbtcache
           paths:
@@ -161,25 +163,25 @@ jobs:
           echo $PGP_SECRET | base64 --decode | gpg --import --no-tty --batch --yes
       - run: sbt clean ci-release
 
-  microsite:
-    docker:
-      - image: cimg/node:16.13
-    steps:
-      - checkout
-      - run: |
-          if [ "$(git diff --numstat HEAD^ -- vuepress)" ]; then
-            cd vuepress
-            npm install
-            npm run docs:build
-            cd ..
-            rm -rf docs
-            cp -r vuepress/docs/.vuepress/dist docs
-            git add docs
-            git config user.name "Pierre Ricadat"
-            git config user.email "ghostdogpr@gmail.com"
-            git commit -m "[ci skip] update docs"
-            git push
-          fi
+#  microsite:
+#    docker:
+#      - image: cimg/node:16.13
+#    steps:
+#      - checkout
+#      - run: |
+#          if [ "$(git diff --numstat HEAD^ -- vuepress)" ]; then
+#            cd vuepress
+#            npm install
+#            npm run docs:build
+#            cd ..
+#            rm -rf docs
+#            cp -r vuepress/docs/.vuepress/dist docs
+#            git add docs
+#            git config user.name "Pierre Ricadat"
+#            git config user.email "ghostdogpr@gmail.com"
+#            git commit -m "[ci skip] update docs"
+#            git push
+#          fi
 
 workflows:
   version: 2
@@ -262,8 +264,8 @@ workflows:
                 - series/2.x
             tags:
               only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
-      - microsite:
-          filters:
-            branches:
-              only:
-                - series/2.x
+#      - microsite:
+#          filters:
+#            branches:
+#              only:
+#                - series/2.x

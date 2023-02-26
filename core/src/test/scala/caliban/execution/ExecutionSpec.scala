@@ -11,6 +11,8 @@ import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
 import caliban.schema.Annotations.{ GQLInterface, GQLName, GQLValueType }
 import caliban.schema._
+import caliban.schema.Schema.auto._
+import caliban.schema.ArgBuilder.auto._
 import caliban._
 import zio.{ FiberRef, IO, Task, UIO, ZIO, ZLayer }
 import zio.stream.ZStream
@@ -211,21 +213,23 @@ object ExecutionSpec extends ZIOSpecDefault {
           case object Value     extends ThreeState
 
           def fromOption[T](o: Option[T]) = o.fold[ThreeState](Null)(_ => Value)
+        }
 
-          implicit val schema: Schema[Any, ThreeState]    = Schema.optionSchema(Schema.booleanSchema).contramap {
-            case Undefined => None
-            case Null      => Some(false)
-            case Value     => Some(true)
-          }
-          implicit val argBuilder: ArgBuilder[ThreeState] = new ArgBuilder[ThreeState] {
-            private val base = ArgBuilder.option(ArgBuilder.boolean)
+        implicit val argBuilder: ArgBuilder[ThreeState] = new ArgBuilder[ThreeState] {
+          private val base = ArgBuilder.option(ArgBuilder.boolean)
 
-            override def build(input: InputValue)              = base.build(input).map(fromOption(_))
-            override def buildMissing(default: Option[String]) = default match {
-              case None    => Right(Undefined)
-              case Some(v) => base.buildMissing(Some(v)).map(fromOption(_))
-            }
+          override def build(input: InputValue) = base.build(input).map(ThreeState.fromOption(_))
+
+          override def buildMissing(default: Option[String]) = default match {
+            case None    => Right(ThreeState.Undefined)
+            case Some(v) => base.buildMissing(Some(v)).map(ThreeState.fromOption(_))
           }
+        }
+
+        implicit val schema: Schema[Any, ThreeState] = Schema.optionSchema(Schema.booleanSchema).contramap {
+          case ThreeState.Undefined => None
+          case ThreeState.Null      => Some(false)
+          case ThreeState.Value     => Some(true)
         }
 
         case class Args(term: String, state: ThreeState)
@@ -287,15 +291,14 @@ object ExecutionSpec extends ZIOSpecDefault {
       test("""input can contain field named "value"""") {
         import io.circe.syntax._
         case class NonNegInt(value: Int)
-        object NonNegInt {
-          implicit val nonNegIntArgBuilder: ArgBuilder[NonNegInt] = ArgBuilder.int.flatMap {
-            case i if i > 0 => Right(NonNegInt(i))
-            case neg        => Left(CalibanError.ExecutionError(s"$neg is negative"))
-          }
-          implicit val nonNegIntSchema: Schema[Any, NonNegInt]    = Schema.intSchema.contramap(_.value)
-        }
         case class Args(int: NonNegInt, value: String)
         case class Test(q: Args => Unit)
+
+        implicit val nonNegIntArgBuilder: ArgBuilder[NonNegInt] = ArgBuilder.int.flatMap {
+          case i if i > 0 => Right(NonNegInt(i))
+          case neg        => Left(CalibanError.ExecutionError(s"$neg is negative"))
+        }
+        implicit val nonNegIntSchema: Schema[Any, NonNegInt]    = Schema.intSchema.contramap(_.value)
 
         val api   = graphQL(RootResolver(Test(_ => ())))
         val query = """query {q(int: -1, value: "value")}"""
@@ -530,7 +533,7 @@ object ExecutionSpec extends ZIOSpecDefault {
 
         // create a custom schema for the Auth Env
         object schema extends GenericSchema[Auth]
-        import schema._
+        import schema.auto._
 
         // effectfully produce a stream using the environment
         def getStream(req: Req) = ZStream.fromZIO(for {
@@ -616,9 +619,10 @@ object ExecutionSpec extends ZIOSpecDefault {
         case class Query(test: Obj)
 
         object Schemas {
-          implicit val schemaUnionChild: Schema[Any, Union.Child] = Schema.gen[Any, Union.Child].rename("UnionChild")
-          implicit val schemaTestUnion: Schema[Any, Union]        = Schema.gen
-          implicit val schemaQuery: Schema[Any, Query]            = Schema.gen
+          implicit val schemaUnionChild: Schema[Any, Union.Child] =
+            genAll[Any, Union.Child].rename("UnionChild")
+          implicit val schemaTestUnion: Schema[Any, Union]        = genAll
+          implicit val schemaQuery: Schema[Any, Query]            = genAll
         }
         import Schemas._
 
@@ -648,9 +652,10 @@ object ExecutionSpec extends ZIOSpecDefault {
         case class Query(test: Obj)
 
         object Schemas {
-          implicit val schemaUnionChild: Schema[Any, Union.Child] = Schema.gen[Any, Union.Child].rename("UnionChild")
-          implicit val schemaTestUnion: Schema[Any, Union]        = Schema.gen[Any, Union].rename("UnionRenamed")
-          implicit val schemaQuery: Schema[Any, Query]            = Schema.gen
+          implicit val schemaUnionChild: Schema[Any, Union.Child] =
+            genAll[Any, Union.Child].rename("UnionChild")
+          implicit val schemaTestUnion: Schema[Any, Union]        = genAll[Any, Union].rename("UnionRenamed")
+          implicit val schemaQuery: Schema[Any, Query]            = genAll
         }
         import Schemas._
 
@@ -681,11 +686,12 @@ object ExecutionSpec extends ZIOSpecDefault {
         case class Query(test: Obj)
 
         object Schemas {
-          implicit val schemaUnionChild: Schema[Any, Union.Child]        = Schema.gen[Any, Union.Child].rename("UnionChild")
+          implicit val schemaUnionChild: Schema[Any, Union.Child]        =
+            genAll[Any, Union.Child].rename("UnionChild")
           implicit val schemaUnionChildO: Schema[Any, Union.ChildO.type] =
             Schema.gen[Any, Union.ChildO.type].rename("UnionChildO")
-          implicit val schemaTestUnion: Schema[Any, Union]               = Schema.gen[Any, Union].rename("UnionRenamed")
-          implicit val schemaQuery: Schema[Any, Query]                   = Schema.gen
+          implicit val schemaTestUnion: Schema[Any, Union]               = genAll[Any, Union].rename("UnionRenamed")
+          implicit val schemaQuery: Schema[Any, Query]                   = genAll
         }
         import Schemas._
 
@@ -767,11 +773,13 @@ object ExecutionSpec extends ZIOSpecDefault {
           )
       },
       test("failure in ArgBuilder, optional field") {
-        case class UserArgs(id: Int)
+        trait A
+        case class UserArgs(id: A)
         case class User(test: UserArgs => String)
         case class Mutations(user: Task[User])
         case class Queries(a: Int)
-        implicit val intArgBuilder: ArgBuilder[Int] = (_: InputValue) => Left(ExecutionError("nope"))
+        implicit val aArgBuilder: ArgBuilder[A] = (_: InputValue) => Left(ExecutionError("nope"))
+        implicit val aSchema: Schema[Any, A]    = Schema.scalarSchema("a", None, None, _ => IntValue(1))
 
         val api = graphQL(RootResolver(Queries(1), Mutations(ZIO.succeed(User(_.toString)))))
 
@@ -836,8 +844,8 @@ object ExecutionSpec extends ZIOSpecDefault {
         }
         case class Query(test: A)
         implicit val schemaB: Schema[Any, A.B] = Schema.gen
-        implicit val schemaC: Schema[Any, A.C.type]          = Schema.gen
-        implicit val schemaCharacter: Schema[Any, Character] = Schema.gen
+        implicit val schemaC: Schema[Any, A.C.type]          = genAll
+        implicit val schemaCharacter: Schema[Any, Character] = genAll
         val interpreter                                      = graphQL(RootResolver(Query(A.C))).interpreter
         val query                                            = gqldoc("""
             {

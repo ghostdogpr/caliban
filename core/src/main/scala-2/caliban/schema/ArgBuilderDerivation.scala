@@ -3,7 +3,6 @@ package caliban.schema
 import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.Value._
-import caliban.parsing.Parser
 import caliban.schema.Annotations.GQLDefault
 import caliban.schema.Annotations.GQLName
 import magnolia._
@@ -11,7 +10,7 @@ import mercator.Monadic
 
 import scala.language.experimental.macros
 
-trait ArgBuilderDerivation {
+trait CommonArgBuilderDerivation {
 
   type Typeclass[T] = ArgBuilder[T]
 
@@ -55,6 +54,14 @@ trait ArgBuilderDerivation {
         }
       case None        => Left(ExecutionError(s"Can't build a trait from input $input"))
     }
+}
 
-  implicit def gen[T]: Typeclass[T] = macro Magnolia.gen[T]
+trait ArgBuilderDerivation extends CommonArgBuilderDerivation {
+  def gen[T]: Typeclass[T] = macro Magnolia.gen[T]
+}
+
+trait AutoArgBuilderDerivation extends ArgBuilderInstances with LowPriorityDerivedArgBuilder
+
+private[schema] trait LowPriorityDerivedArgBuilder extends CommonArgBuilderDerivation {
+  implicit def genAuto[T]: Typeclass[T] = macro Magnolia.gen[T]
 }

@@ -5,6 +5,7 @@ import caliban.interop.tapir.TestData._
 import caliban.{ GraphQL, RootResolver }
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.{ GenericSchema, Schema }
+import caliban.schema.ArgBuilder.auto._
 import caliban.uploads.{ Upload, Uploads }
 import caliban.wrappers.ApolloTracing.apolloTracing
 import caliban.wrappers.Wrappers._
@@ -14,6 +15,7 @@ import zio.stream.ZStream
 import scala.language.postfixOps
 
 object TestApi extends GenericSchema[TestService with Uploads] {
+  import auto._
 
   case class File(hash: String, filename: String, mimetype: String)
   case class UploadFileArgs(file: Upload)
@@ -37,6 +39,7 @@ object TestApi extends GenericSchema[TestService with Uploads] {
   case class Subscriptions(characterDeleted: ZStream[TestService, Nothing, String])
 
   implicit val roleSchema: Schema[Any, Role]                     = Schema.gen
+  implicit val originSchema: Schema[Any, Origin]                 = Schema.gen
   implicit val characterSchema: Schema[Any, Character]           = Schema.gen
   implicit val characterArgsSchema: Schema[Any, CharacterArgs]   = Schema.gen
   implicit val charactersArgsSchema: Schema[Any, CharactersArgs] = Schema.gen
@@ -63,5 +66,4 @@ object TestApi extends GenericSchema[TestService with Uploads] {
       printSlowQueries(500 millis) @@ // wrapper that logs slow queries
       printErrors @@                  // wrapper that logs errors
       apolloTracing                   // wrapper for https://github.com/apollographql/apollo-tracing
-
 }

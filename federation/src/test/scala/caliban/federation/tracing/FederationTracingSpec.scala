@@ -4,7 +4,7 @@ import caliban.Macros.gqldoc
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ IntValue, StringValue }
 import caliban.{ GraphQL, GraphQLRequest, RootResolver }
-import caliban.schema.GenericSchema
+import caliban.schema.Schema.auto._
 import mdg.engine.proto.reports.Trace
 import zio._
 import zio.query.ZQuery
@@ -19,7 +19,7 @@ import mdg.engine.proto.reports.Trace.Node.Id.{ Index, ResponseName }
 import java.util.Base64
 import java.time.Instant
 
-object FederationTracingSpec extends ZIOSpecDefault with GenericSchema[Any] {
+object FederationTracingSpec extends ZIOSpecDefault {
 
   case class Parent(name: String)
   case class Name(first: String, last: Option[String])

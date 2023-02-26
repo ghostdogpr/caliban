@@ -7,6 +7,7 @@ import caliban.GraphQL.graphQL
 import caliban.RootResolver
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.{ GenericSchema, Schema }
+import caliban.schema.ArgBuilder.auto._
 import caliban.wrappers.ApolloTracing.apolloTracing
 import caliban.wrappers.Wrappers._
 import zio._
@@ -15,6 +16,8 @@ import zio.stream.ZStream
 import scala.language.postfixOps
 
 object ExampleApi extends GenericSchema[ExampleService] {
+
+  import auto._
 
   case class Queries(
     @GQLDescription("Return all characters from a given origin")
@@ -25,6 +28,7 @@ object ExampleApi extends GenericSchema[ExampleService] {
   case class Mutations(deleteCharacter: CharacterArgs => URIO[ExampleService, Boolean])
   case class Subscriptions(characterDeleted: ZStream[ExampleService, Nothing, String])
 
+  implicit val originSchema: Schema[Any, Origin]                 = Schema.gen
   implicit val roleSchema: Schema[Any, Role]                     = Schema.gen
   implicit val characterSchema: Schema[Any, Character]           = Schema.gen
   implicit val characterArgsSchema: Schema[Any, CharacterArgs]   = Schema.gen
