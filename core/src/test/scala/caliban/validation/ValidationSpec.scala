@@ -368,6 +368,9 @@ object ValidationSpec extends ZIOSpecDefault {
         }
       },
       test("validation works when a non-nullable field is missing but we have a default value") {
+        import caliban.schema.ArgBuilder.auto._
+        import caliban.schema.Schema.auto._
+
         case class Foo(inner: Boolean)
         case class Outer(bar: String, @GQLDefault("""{inner: true}""") foo: Foo)
         case class GetFooArgs(outer: Outer)
