@@ -1,8 +1,9 @@
 package example.federation.v2
 
 import caliban.GraphQL.graphQL
+import caliban.federation.EntityResolver
 import caliban.federation.tracing.ApolloFederatedTracing
-import caliban.federation.{ federated, EntityResolver, GQLKey }
+import caliban.federation.v2_0.{ federated, GQLKey }
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
 import caliban.schema.ArgBuilder.auto._

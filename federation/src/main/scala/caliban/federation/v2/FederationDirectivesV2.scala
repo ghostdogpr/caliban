@@ -26,4 +26,5 @@ trait FederationDirectivesV2 {
     def apply(name: String): Directive =
       Directive("tag", Map("name" -> StringValue(name)))
   }
+
 }

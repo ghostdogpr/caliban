@@ -25,7 +25,7 @@ interaction with the gateway.
 If you already have a graph you can add federation simply by adding the `federated` annotation:
 
 ```scala
-import caliban.federation._
+import caliban.federation.v1._
 
 val schema: GraphQL[R] = graphQL(RootResolver(Queries(
   characters = List(Character("Amos"))
@@ -113,19 +113,47 @@ that it should include tracing data as part of the response extensions.
 
 ## Federation V2
 
-If your gateway supports the [Federation V2 specification](https://www.apollographql.com/docs/federation/federation-spec), then you can use just need to use the `caliban.federation.v2` package
-instead of `caliban.federation`. This package includes the newer directives available in v2:
+Caliban can support the v2 federation specification as well. If your gateway supports the [Federation V2 specification](https://www.apollographql.com/docs/federation/federation-spec), you can specify the supported feature set
+by using `caliban.federation.v2_x` where `x` is the minor version of the specification you wish to use.
 
-| Directive    | Caliban Type
---------------| ---
-| `@shareable` | `@GQLShareable`
-| `@inaccessable` | `@GQLInaccessible`
-| `@override`  | `@GQLOverride`
-| `@tag`       | `@GQLTag`
+| Directive    | Caliban Type | Version | Caliban package
+--------------| --------------|---------| ---------------
+| `@shareable` | `@GQLShareable` | v2.0    | `caliban.federation.v2_0`
+| `@inaccessable` | `@GQLInaccessible` | v2.0    | `caliban.federation.v2_0`
+| `@override`  | `@GQLOverride` | v2.0    | `caliban.federation.v2_0`
+| `@tag`       | `@GQLTag` | v2.0    | `caliban.federation.v2_0`
+| `@composeDirective` | `ComposeDirective` | v2.1    | `caliban.federation.v2_1`
+| `@interfaceObject` | `@GQLInterfaceObject` | v2.3    | `caliban.federation.v2_3`
 
 The `GQLKey` field now also supports the `resolvable` argument. 
 
-Using the new `federated` aspect from the v2 package will automatically make your graph available as a v2 schema,
+Using the new `federated` aspect from any v2_x package will automatically make your graph available as a v2 schema,
 even if you aren't using the new directives.
 
-For more information see the [Federation V2 specification](https://www.apollographql.com/docs/federation/federation-2/new-in-federation-2/). 
+For more information see the [Federation V2 specification](https://www.apollographql.com/docs/federation/federation-2/new-in-federation-2/).
+
+### Customizing Federation
+
+Federation 2.1 introduced a new schema level directive called `@composeDirective` which allows you to specify custom directives that should
+be visible to clients of the gateway (by default all directives are hidden to clients of the gateway)
+
+GraphQL federation is an evolving specification and not all routers support all features.
+Caliban provides support for `v2.0`, `v2.1` and `v2.3` of the specification. If you need to use
+an earlier version or you need to customize some aspect of the federation directives (for instance by providing your own `@composeDirective`s) you can do so by simply extending the `FederationV2` class.
+
+```scala
+// With a package object but you can also create a normal object
+package object myFederation extends FederationV2(
+  Versions.v2_3 :: 
+    Link("https://myspecs.dev/myDirective/v1.0", List(
+      Import("@myDirective"),
+      Import("@anotherDirective", as = Some("@hello"))
+    )) :: 
+      ComposeDirective("@myDirective") :: 
+      ComposeDirective("@hello") :: Nil
+    )
+ with FederationDirectivesV2_3
+
+// Then import your new federation object instead of `caliban.federation.v2_3`
+import myFederation._
+```
