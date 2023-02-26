@@ -36,32 +36,34 @@ trait CommonSchemaDerivation {
       case _                 => s"${name}Input"
     }
 
-  inline def recurse[R, Label, A <: Tuple](
+  inline def recurse[R, P, Label, A <: Tuple](
     inline values: List[(String, List[Any], Schema[R, Any], Int)] = Nil
   )(inline index: Int = 0): List[(String, List[Any], Schema[R, Any], Int)] =
     inline erasedValue[(Label, A)] match {
       case (_: EmptyTuple, _)                 => values.reverse
       case (_: (name *: names), _: (t *: ts)) =>
-        recurse[R, names, ts](
-          (
-            constValue[name].toString,
-            Macros.annotations[t],
-            summonInline[Schema[R, t]].asInstanceOf[Schema[R, Any]],
-            index
-          ) :: values
-        )(index + 1)
+        recurse[R, P, names, ts] {
+          inline if (Macros.isFieldExcluded[P, name]) values
+          else
+            (
+              constValue[name].toString,
+              Macros.annotations[t],
+              summonInline[Schema[R, t]].asInstanceOf[Schema[R, Any]],
+              index
+            ) :: values
+        }(index + 1)
     }
 
   inline def derived[R, A]: Schema[R, A] =
     inline summonInline[Mirror.Of[A]] match {
       case m: Mirror.SumOf[A] =>
-        lazy val members = recurse[R, m.MirroredElemLabels, m.MirroredElemTypes]()()
+        lazy val members = recurse[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()()
         def info         = Macros.typeInfo[A]
         def annotations  = Macros.annotations[A]
         makeSumSchema[R, A](members, info, annotations)(m)
 
       case m: Mirror.ProductOf[A] =>
-        lazy val fields      = recurse[R, m.MirroredElemLabels, m.MirroredElemTypes]()()
+        lazy val fields      = recurse[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()()
         def annotations      = Macros.annotations[A]
         def info             = Macros.typeInfo[A]
         def paramAnnotations = Macros.paramAnnotations[A].toMap
