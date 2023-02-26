@@ -78,7 +78,11 @@ trait ArgBuilder[T] { self =>
     orElse(fallback)
 }
 
-object ArgBuilder extends ArgBuilderDerivation {
+object ArgBuilder extends ArgBuilderInstances {
+  object auto extends AutoArgBuilderDerivation
+}
+
+trait ArgBuilderInstances extends ArgBuilderDerivation {
   implicit lazy val unit: ArgBuilder[Unit]             = _ => Right(())
   implicit lazy val int: ArgBuilder[Int]               = {
     case value: IntValue => Right(value.toInt)

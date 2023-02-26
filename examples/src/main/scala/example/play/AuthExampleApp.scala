@@ -38,7 +38,7 @@ object AuthExampleApp extends App {
   }
 
   val schema: GenericSchema[Auth] = new GenericSchema[Auth] {}
-  import schema._
+  import schema.auto._
   case class Query(token: RIO[Auth, Option[String]])
   case class Mutation(x: RIO[Auth, Option[String]])
   case class Subscription(x: ZStream[Auth, Throwable, Option[String]])

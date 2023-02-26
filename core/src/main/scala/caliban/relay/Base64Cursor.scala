@@ -1,7 +1,5 @@
 package caliban.relay
 
-import caliban.schema.Schema
-import caliban.Value
 import scala.util.Try
 
 /**
@@ -35,7 +33,4 @@ object Base64Cursor {
 
     def value(cursor: Base64Cursor): Int = cursor.value
   }
-
-  implicit val schema: Schema[Any, Base64Cursor] =
-    Schema.stringSchema.contramap(Cursor[Base64Cursor].encode)
 }

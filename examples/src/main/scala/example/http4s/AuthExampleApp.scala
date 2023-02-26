@@ -44,7 +44,7 @@ object AuthExampleApp extends CatsApp {
 
   // our GraphQL API
   val schema: GenericSchema[Auth] = new GenericSchema[Auth] {}
-  import schema._
+  import schema.auto._
   case class Query(token: RIO[Auth, String])
   private val resolver            = RootResolver(Query(ZIO.serviceWith[Auth](_.token)))
   private val api                 = graphQL(resolver)

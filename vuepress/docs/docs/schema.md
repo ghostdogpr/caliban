@@ -209,9 +209,9 @@ import caliban.schema._
 type MyEnv = Console 
 
 object schema extends GenericSchema[MyEnv]
-import schema._
+import schema.auto._
 
-implicit val queriesSchema: Schema[MyEnv, Queries] = Schema.gen
+implicit val queriesSchema: Schema[MyEnv, Queries] = genAll
 // or
 // implicit val queriesSchema = Schema.gen[MyEnv, Queries]
 ```

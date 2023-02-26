@@ -10,7 +10,7 @@ import caliban.schema.Annotations.GQLName
 import scala.deriving.Mirror
 import scala.compiletime._
 
-trait ArgBuilderDerivation {
+trait CommonArgBuilderDerivation {
   inline def recurse[Label, A <: Tuple](
     inline values: List[(String, List[Any], ArgBuilder[Any])] = Nil
   ): List[(String, List[Any], ArgBuilder[Any])] =
@@ -83,6 +83,14 @@ trait ArgBuilderDerivation {
         case Right(value)                     => acc.map(value *: _)
       }
     }
+}
 
-  inline given gen[A]: ArgBuilder[A] = derived
+trait ArgBuilderDerivation extends CommonArgBuilderDerivation {
+  inline def gen[A]: ArgBuilder[A] = derived
+}
+
+trait AutoArgBuilderDerivation extends ArgBuilderInstances with LowPriorityDerivedArgBuilder
+
+private[schema] trait LowPriorityDerivedArgBuilder extends CommonArgBuilderDerivation {
+  inline implicit def genAuto[A]: ArgBuilder[A] = derived
 }

@@ -6,6 +6,7 @@ import caliban.Value._
 import caliban.execution.Field
 import caliban.introspection.adt._
 import caliban.parsing.adt.{ Directive, Directives }
+import caliban.relay.{ Base64Cursor, Cursor }
 import caliban.schema.Step.{ PureStep => _, _ }
 import caliban.schema.Types._
 import caliban.uploads.Upload
@@ -18,7 +19,7 @@ import java.time._
 import java.time.format.DateTimeFormatter
 import java.time.temporal.Temporal
 import java.util.UUID
-import scala.annotation.implicitNotFound
+import scala.annotation.{ implicitNotFound, nowarn }
 import scala.concurrent.Future
 
 /**
@@ -36,9 +37,9 @@ See https://ghostdogpr.github.io/caliban/docs/schema.html for more information.
 )
 trait Schema[-R, T] { self =>
 
-  private lazy val asType: __Type             = toType()
-  private lazy val asInputType: __Type        = toType(isInput = true)
-  private lazy val asSubscriptionType: __Type = toType(isSubscription = true)
+  private lazy val asType: __Type             = toType(): @nowarn("msg=deprecated")
+  private lazy val asInputType: __Type        = toType(isInput = true): @nowarn("msg=deprecated")
+  private lazy val asSubscriptionType: __Type = toType(isSubscription = true): @nowarn("msg=deprecated")
 
   /**
    * Generates a GraphQL type object from `T`.
@@ -52,11 +53,17 @@ trait Schema[-R, T] { self =>
 
   /**
    * Generates a GraphQL type object from `T`.
+   *
+   * Note that this method is public to allow derivation via the `derives` keyword in Scala 3.
+   * To avoid accidental usage (which would be bad for performance), we mark as @deprecated, which will lead to compiler warnings
+   * when used
+   *
    * @param isInput indicates if the type is passed as an argument. This is needed because GraphQL differentiates `InputType` from `ObjectType`.
    * @param isSubscription indicates if the type is used in a subscription operation.
    *                       For example, ZStream gives a different GraphQL type depending whether it is used in a subscription or elsewhere.
    */
-  protected[this] def toType(isInput: Boolean = false, isSubscription: Boolean = false): __Type
+  @deprecated("use toType_ instead")
+  def toType(isInput: Boolean = false, isSubscription: Boolean = false): __Type
 
   /**
    * Resolves `T` by turning a value of type `T` into an execution step that describes how to resolve the value.
@@ -98,7 +105,7 @@ trait Schema[-R, T] { self =>
       self.toType_(isInput, isSubscription).copy(name = Some(newName))
     }
 
-    lazy val renameTypename: Boolean = self.toType().kind match {
+    lazy val renameTypename: Boolean = self.toType_().kind match {
       case __TypeKind.UNION | __TypeKind.ENUM | __TypeKind.INTERFACE => false
       case _                                                         => true
     }
@@ -258,6 +265,9 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   implicit val floatSchema: Schema[Any, Float]           = scalarSchema("Float", None, None, FloatValue(_))
   implicit val bigDecimalSchema: Schema[Any, BigDecimal] = scalarSchema("BigDecimal", None, None, FloatValue(_))
   implicit val uploadSchema: Schema[Any, Upload]         = scalarSchema("Upload", None, None, _ => StringValue("<upload>"))
+
+  implicit val base64CursorSchema: Schema[Any, Base64Cursor] =
+    Schema.stringSchema.contramap(Cursor[Base64Cursor].encode)
 
   implicit def optionSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Option[A]]                                  = new Schema[R0, Option[A]] {
     override def optional: Boolean                                         = true

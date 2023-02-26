@@ -3,6 +3,7 @@ package caliban.schema
 import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.InputValue.ObjectValue
+import caliban.schema.ArgBuilder.auto._
 import caliban.Value.{ IntValue, NullValue, StringValue }
 import zio.test.Assertion._
 import zio.test._

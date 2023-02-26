@@ -20,7 +20,7 @@ abstract class FederationSupport(
    * @return A new schema which has been augmented with federation types
    */
   def federate[R](original: GraphQL[R]): GraphQL[R] = {
-    import Schema._
+    import caliban.schema.Schema.auto._
 
     case class Query(
       _service: _Service,
@@ -57,7 +57,7 @@ abstract class FederationSupport(
     val resolvers = resolver +: otherResolvers.toList
 
     val genericSchema = new GenericSchema[R] {}
-    import genericSchema._
+    import genericSchema.auto._
 
     implicit val entitySchema: Schema[R, _Entity] = new Schema[R, _Entity] {
       override def optional: Boolean                                         = true

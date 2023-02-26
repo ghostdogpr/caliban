@@ -4,12 +4,13 @@ import caliban.CalibanError.{ ExecutionError, ValidationError }
 import caliban.GraphQL._
 import caliban.InputValue.ObjectValue
 import caliban.Macros.gqldoc
-import caliban.TestUtils.resolver
+import caliban.TestUtils._
 import caliban.Value.StringValue
 import caliban._
 import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
 import caliban.schema.{ GenericSchema, Schema }
+import caliban.schema.Schema.auto._
 import caliban.wrappers.ApolloCaching.GQLCacheControl
 import caliban.wrappers.ApolloPersistedQueries.apolloPersistedQueries
 import caliban.wrappers.Wrapper.{ ExecutionWrapper, FieldWrapper }

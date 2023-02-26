@@ -178,6 +178,8 @@ Given a schema in which different fields have different costs to execute, either
 have some other dependency that makes them expensive to compute. You can add the `CostDirective` to your resolver like so:
 
 ```scala mdoc:silent
+import caliban.schema.Schema.auto._
+import caliban.schema.ArgBuilder.auto._
 import caliban.wrappers.CostEstimation
 import caliban.wrappers.CostEstimation._
 

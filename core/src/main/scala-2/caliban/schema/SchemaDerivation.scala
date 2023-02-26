@@ -10,7 +10,7 @@ import magnolia._
 
 import scala.language.experimental.macros
 
-trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
+trait CommonSchemaDerivation[R] {
 
   /**
    * Default naming logic for input types.
@@ -232,20 +232,28 @@ trait SchemaDerivation[R] extends LowPriorityDerivedSchema {
 
   private def getDescription[Typeclass[_], Type](ctx: ReadOnlyParam[Typeclass, Type]): Option[String] =
     getDescription(ctx.annotations)
+}
+
+trait SchemaDerivation[R] extends CommonSchemaDerivation[R] {
 
   /**
-   * Generates an instance of `Schema` for the given type T.
-   * This should be used only if T is a case class or a sealed trait.
+   * Returns an instance of `Schema` for the given type T.
+   * This method requires a `Schema` for all types nested inside T.
+   * It should be used only if T is a case class or a sealed trait.
    */
+  def gen[R0, T]: Typeclass[T] = macro Magnolia.gen[T]
+
+  object auto extends AutoSchemaDerivation[R]
+}
+
+trait AutoSchemaDerivation[R] extends GenericSchema[R] with LowPriorityDerivedSchema {
   implicit def genMacro[T]: Derived[Typeclass[T]] = macro DerivedMagnolia.derivedMagnolia[Typeclass, T]
 
   /**
    * Returns an instance of `Schema` for the given type T.
-   * For a case class or sealed trait, you can call `genMacro[T].schema` instead to get more details if the
-   * schema can't be derived.
+   * This method will automatically generate missing `Schema` for all types nested inside T that are case classes or sealed traits.
    */
-  def gen[R0, T](implicit derived: Derived[Schema[R0, T]]): Schema[R0, T] = derived.schema
-
+  def genAll[R0, T](implicit derived: Derived[Schema[R0, T]]): Schema[R0, T] = derived.schema
 }
 
 private[schema] trait LowPriorityDerivedSchema {

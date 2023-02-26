@@ -21,6 +21,8 @@ Let's start out by defining our API. We'll have `AppUser` profiles, that has a l
 ```scala mdoc:silent
 import caliban._
 import caliban.schema._
+import caliban.schema.Schema.auto._
+import caliban.schema.ArgBuilder.auto._
 import zio._
 
 object StitchingExample extends GenericSchema[Any] {

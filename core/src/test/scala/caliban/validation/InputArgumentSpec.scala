@@ -3,6 +3,7 @@ package caliban.validation
 import caliban.{ CalibanError, GraphQLRequest, InputValue, ResponseValue, RootResolver, TriState, Value }
 import caliban.GraphQL._
 import caliban.schema.ArgBuilder
+import caliban.schema.Schema.auto._
 import caliban.schema.Schema
 import caliban.schema.Step
 import zio.test._
@@ -25,30 +26,40 @@ object InputArgumentSpec extends ZIOSpecDefault {
   case class InputArg(input: Option[InputObject])
 
   case class ExampleObject(a: TriState[String], b: Int)
-  object ExampleObject {
-    implicit val schemaTriState: Schema[Any, TriState[String]]    =
-      TriState.schemaCustom(Step.PureStep(Value.StringValue("__undefined__")))
-    implicit val argBuilderTriState: ArgBuilder[TriState[String]] =
-      TriState.argBuilder
-
-    implicit val schema: Schema[Any, ExampleObject]    = Schema.gen
-    implicit val argBuilder: ArgBuilder[ExampleObject] = ArgBuilder.gen
-  }
   case class ExampleObjectArg(input: Option[ExampleObject])
+
+  implicit val schemaTriState: Schema[Any, TriState[String]]    =
+    TriState.schemaCustom(Step.PureStep(Value.StringValue("__undefined__")))
+  implicit val argBuilderTriState: ArgBuilder[TriState[String]] =
+    TriState.argBuilder
+
+  implicit val schema: Schema[Any, ExampleObject]    = Schema.gen
+  implicit val argBuilder: ArgBuilder[ExampleObject] = ArgBuilder.gen
+
+  implicit val inputObjectArgBuilder: ArgBuilder[InputObject]        = ArgBuilder.gen
+  implicit val boolArgBuilder: ArgBuilder[BoolArg]                   = ArgBuilder.gen
+  implicit val boolArgNonNullBuilder: ArgBuilder[BoolArgNonNull]     = ArgBuilder.gen
+  implicit val floatArgBuilder: ArgBuilder[FloatArg]                 = ArgBuilder.gen
+  implicit val intArgBuilder: ArgBuilder[IntArg]                     = ArgBuilder.gen
+  implicit val listArgBuilder: ArgBuilder[ListArg]                   = ArgBuilder.gen
+  implicit val listIntArgBuilder: ArgBuilder[ListIntArg]             = ArgBuilder.gen
+  implicit val listListIntArgBuilder: ArgBuilder[ListListIntArg]     = ArgBuilder.gen
+  implicit val stringArgBuilder: ArgBuilder[StringArg]               = ArgBuilder.gen
+  implicit val validBuilder: ArgBuilder[Valid.type]                  = ArgBuilder.gen
+  implicit val enumBuilder: ArgBuilder[Enum]                         = ArgBuilder.gen
+  implicit val enumArgBuilder: ArgBuilder[EnumArg]                   = ArgBuilder.gen
+  implicit val inputArgBuilder: ArgBuilder[InputArg]                 = ArgBuilder.gen
+  implicit val exampleObjectArgBuilder: ArgBuilder[ExampleObjectArg] = ArgBuilder.gen
 
   val gql = {
     // explicit instances to avoid "given instance gen is declared as erased, but is in fact used" on Scala 3
-    implicit val schemaListInt: Schema[Any, Option[List[Option[Int]]]]    =
+    implicit val schemaListInt: Schema[Any, Option[List[Option[Int]]]] =
       Schema.optionSchema(Schema.listSchema(Schema.optionSchema(Schema.intSchema)))
-    implicit val argBuilderListInt: ArgBuilder[Option[List[Option[Int]]]] =
-      ArgBuilder.option(ArgBuilder.list(ArgBuilder.option(ArgBuilder.int)))
 
-    implicit val schemaListListInt: Schema[Any, Option[List[Option[List[Option[Int]]]]]]    =
+    implicit val schemaListListInt: Schema[Any, Option[List[Option[List[Option[Int]]]]]] =
       Schema.optionSchema(
         Schema.listSchema(Schema.optionSchema(Schema.listSchema(Schema.optionSchema(Schema.intSchema))))
       )
-    implicit val argBuilderListListInt: ArgBuilder[Option[List[Option[List[Option[Int]]]]]] =
-      ArgBuilder.option(ArgBuilder.list(ArgBuilder.option(ArgBuilder.list(ArgBuilder.option(ArgBuilder.int)))))
 
     graphQL(RootResolver(InputArgumentSpecInterop.Query()))
   }
