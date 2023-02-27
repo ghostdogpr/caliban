@@ -3,7 +3,9 @@ package caliban.wrappers
 import caliban.CalibanError.{ ExecutionError, ValidationError }
 import caliban.Value.NullValue
 import caliban.execution.{ ExecutionRequest, Field }
-import caliban.wrappers.Wrapper.{ OverallWrapper, ValidationWrapper, ValidationWrapperInput }
+import caliban.parsing.adt.Document
+import caliban.validation.Validator
+import caliban.wrappers.Wrapper.{ OverallWrapper, ValidationWrapper }
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse }
 import zio._
 import zio.Console.{ printLine, printLineError }
@@ -90,11 +92,11 @@ object Wrappers {
   def maxDepth(maxDepth: Int): ValidationWrapper[Any] =
     new ValidationWrapper[Any] {
       def wrap[R1 <: Any](
-        process: ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest]
-      ): ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest] =
-        (input: ValidationWrapperInput) =>
-          process(input).tap { req =>
-            ZIO.when(!input.skipValidation) {
+        process: Document => ZIO[R1, ValidationError, ExecutionRequest]
+      ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
+        (doc: Document) =>
+          process(doc).tap { req =>
+            ZIO.whenZIO(Validator.skipValidationRef.get.map(!_)) {
               calculateDepth(req.field).flatMap { depth =>
                 ZIO.when(depth > maxDepth)(
                   ZIO.fail(ValidationError(s"Query is too deep: $depth. Max depth: $maxDepth.", ""))
@@ -122,11 +124,11 @@ object Wrappers {
   def maxFields(maxFields: Int): ValidationWrapper[Any] =
     new ValidationWrapper[Any] {
       def wrap[R1 <: Any](
-        process: ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest]
-      ): ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest] =
-        (input: ValidationWrapperInput) =>
-          process(input).tap { req =>
-            ZIO.when(!input.skipValidation) {
+        process: Document => ZIO[R1, ValidationError, ExecutionRequest]
+      ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
+        (doc: Document) =>
+          process(doc).tap { req =>
+            ZIO.whenZIO(Validator.skipValidationRef.get.map(!_)) {
               countFields(req.field).flatMap { fields =>
                 ZIO.when(fields > maxFields)(
                   ZIO.fail(ValidationError(s"Query has too many fields: $fields. Max fields: $maxFields.", ""))

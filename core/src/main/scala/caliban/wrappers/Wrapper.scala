@@ -56,7 +56,7 @@ object Wrapper {
    * Wrapper for the query validation stage.
    * Wraps a function from a `ValidationInput` to a `ZIO[R, ValidationError, ExecutionRequest]`.
    */
-  trait ValidationWrapper[-R] extends SimpleWrapper[R, ValidationError, ExecutionRequest, ValidationWrapperInput]
+  trait ValidationWrapper[-R] extends SimpleWrapper[R, ValidationError, ExecutionRequest, Document]
 
   /**
    * Wrapper for the query execution stage.
@@ -160,6 +160,4 @@ object Wrapper {
 
         (sort(o), sort(p), sort(v), sort(e), sort(f), sort(i))
       }
-
-  case class ValidationWrapperInput(document: Document, skipValidation: Boolean)
 }

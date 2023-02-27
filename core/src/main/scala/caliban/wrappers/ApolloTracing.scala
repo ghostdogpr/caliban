@@ -7,14 +7,7 @@ import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ IntValue, StringValue }
 import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.parsing.adt.Document
-import caliban.wrappers.Wrapper.{
-  EffectfulWrapper,
-  FieldWrapper,
-  OverallWrapper,
-  ParsingWrapper,
-  ValidationWrapper,
-  ValidationWrapperInput
-}
+import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper, ParsingWrapper, ValidationWrapper }
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, Rendering, ResponseValue }
 import zio._
 import zio.query.ZQuery
@@ -156,12 +149,12 @@ object ApolloTracing {
   private def apolloTracingValidation(ref: Ref[Tracing]): ValidationWrapper[Any] =
     new ValidationWrapper[Any] {
       def wrap[R1](
-        process: ValidationWrapperInput => ZIO[R1, CalibanError.ValidationError, ExecutionRequest]
-      ): ValidationWrapperInput => ZIO[R1, CalibanError.ValidationError, ExecutionRequest] =
-        (input: ValidationWrapperInput) =>
+        process: Document => ZIO[R1, CalibanError.ValidationError, ExecutionRequest]
+      ): Document => ZIO[R1, CalibanError.ValidationError, ExecutionRequest] =
+        (doc: Document) =>
           for {
             start              <- Clock.nanoTime
-            resultWithDuration <- process(input).timed
+            resultWithDuration <- process(doc).timed
             (duration, result)  = resultWithDuration
             _                  <- ref.update(state =>
                                     state.copy(

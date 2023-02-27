@@ -9,11 +9,13 @@ import caliban.Value.StringValue
 import caliban._
 import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
+import caliban.parsing.adt.Document
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.schema.Schema.auto._
+import caliban.validation.Validator
 import caliban.wrappers.ApolloCaching.GQLCacheControl
 import caliban.wrappers.ApolloPersistedQueries.apolloPersistedQueries
-import caliban.wrappers.Wrapper.{ ExecutionWrapper, FieldWrapper, ValidationWrapper, ValidationWrapperInput }
+import caliban.wrappers.Wrapper.{ ExecutionWrapper, FieldWrapper, ValidationWrapper }
 import caliban.wrappers.Wrappers._
 import io.circe.syntax._
 import zio._
@@ -236,11 +238,11 @@ object WrappersSpec extends ZIOSpecDefault {
       suite("Apollo Persisted Queries")({
         def mockWrapper[R](fail: Ref[Boolean]): ValidationWrapper[R] = new ValidationWrapper[R] {
           override def wrap[R1 <: R](
-            f: Wrapper.ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest]
-          ): Wrapper.ValidationWrapperInput => ZIO[R1, ValidationError, ExecutionRequest] =
-            (input: ValidationWrapperInput) =>
-              f(input) <* {
-                ZIO.when(!input.skipValidation) {
+            f: Document => ZIO[R1, ValidationError, ExecutionRequest]
+          ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
+            (doc: Document) =>
+              f(doc) <* {
+                ZIO.whenZIO(Validator.skipValidationRef.get.map(!_)) {
                   ZIO.whenZIO(fail.get)(ZIO.fail(ValidationError("boom", "boom")))
                 }
               }
@@ -321,7 +323,9 @@ object WrappersSpec extends ZIOSpecDefault {
               second      <- interpreter.executeRequest(GraphQLRequest(extensions = extensions))
             } yield {
               val expected = """{"data":null,"errors":[{"message":"boom"}]}"""
-              assertTrue(first.asJson.noSpaces == expected) && assertTrue(second.asJson.noSpaces == expected)
+              assertTrue(first.asJson.noSpaces == expected) && assertTrue(
+                second.asJson.noSpaces == """{"data":null,"errors":[{"message":"PersistedQueryNotFound"}]}"""
+              )
             })
               .provide(ApolloPersistedQueries.live)
           }
