@@ -5,6 +5,8 @@ import caliban.introspection.adt._
 import caliban.parsing.adt.Selection
 import caliban.validation.Utils._
 import caliban.validation.Utils.syntax._
+import zio.prelude.EReader
+import zio.prelude.fx.ZPure
 import zio.{ Chunk, IO, ZIO }
 
 import scala.collection.mutable
@@ -14,7 +16,7 @@ object FragmentValidator {
     context: Context,
     parentType: __Type,
     selectionSet: List[Selection]
-  ): IO[ValidationError, Unit] = {
+  ): EReader[Any, ValidationError, Unit] = {
     val shapeCache   = scala.collection.mutable.Map.empty[Iterable[Selection], Chunk[String]]
     val parentsCache = scala.collection.mutable.Map.empty[Iterable[Selection], Chunk[String]]
     val groupsCache  = scala.collection.mutable.Map.empty[Set[SelectedField], Chunk[Set[SelectedField]]]
@@ -114,8 +116,8 @@ object FragmentValidator {
 
     val conflicts = sameResponseShapeByName(selectionSet) ++ sameForCommonParentsByName(selectionSet)
     conflicts match {
-      case Chunk(head, _*) => ZIO.fail(ValidationError(head, ""))
-      case _               => ZIO.unit
+      case Chunk(head, _*) => ZPure.fail(ValidationError(head, ""))
+      case _               => ZPure.unit
     }
   }
 }

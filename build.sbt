@@ -29,6 +29,7 @@ val zqueryVersion             = "0.4.0"
 val zioJsonVersion            = "0.4.2"
 val zioHttpVersion            = "0.0.4"
 val zioOpenTelemetryVersion   = "3.0.0-RC5"
+val zioPreludeVersion         = "1.0.0-RC16"
 
 inThisBuild(
   List(
@@ -133,6 +134,7 @@ lazy val core = project
         "dev.zio"                               %% "zio"                   % zioVersion,
         "dev.zio"                               %% "zio-streams"           % zioVersion,
         "dev.zio"                               %% "zio-query"             % zqueryVersion,
+        "dev.zio"                               %% "zio-prelude"           % zioPreludeVersion,
         "dev.zio"                               %% "zio-test"              % zioVersion      % Test,
         "dev.zio"                               %% "zio-test-sbt"          % zioVersion      % Test,
         "dev.zio"                               %% "zio-json"              % zioJsonVersion  % Optional,
