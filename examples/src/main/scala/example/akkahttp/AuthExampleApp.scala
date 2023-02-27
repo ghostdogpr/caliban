@@ -2,12 +2,12 @@ package example.akkahttp
 
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
-import akka.http.scaladsl.server.Directives.{ getFromResource, path, _ }
+import akka.http.scaladsl.server.Directives._
 import caliban.GraphQL._
+import caliban.{ AkkaHttpAdapter, RootResolver }
 import caliban.interop.tapir.RequestInterceptor
 import caliban.interop.tapir.TapirAdapter.TapirResponse
 import caliban.schema.GenericSchema
-import caliban.{ AkkaHttpAdapter, RootResolver }
 import sttp.model.StatusCode
 import sttp.tapir.json.circe._
 import sttp.tapir.model.ServerRequest
@@ -15,8 +15,6 @@ import zio.{ RIO, Runtime, Unsafe, ZIO, ZLayer }
 
 import scala.concurrent.ExecutionContextExecutor
 import scala.io.StdIn
-import zio.Scope
-import _root_.cats.effect.Fiber
 
 object AuthExampleApp extends App {
 
