@@ -232,7 +232,7 @@ of execution of `1000`
 
 ## OpenTelemetry Tracing
 
-Caliban ships with support for OpenTelemtry tracing via integration with [zio-telemetry](https://github.com/zio/zio-telemetry) via the `caliban-tracing` package.
+Caliban ships with support for OpenTelemetry tracing via integration with [zio-telemetry](https://github.com/zio/zio-telemetry) in the `caliban-tracing` package.
 
 In order to use tracing, first add `caliban-tracing` to your `built.sbt`.
 
