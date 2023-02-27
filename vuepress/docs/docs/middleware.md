@@ -249,3 +249,18 @@ import zio.telemetry.opentelemetry.Tracing
 val api: GraphQL[Any] = ???
 val tracedApi = api @@ TracingWrapper.traced
 ```
+
+This will now make sure that any effect (ZIO or ZQuery) is measured as its own span, which makes it easy to spot potential optimizations (such as sequential loading) in your schema.
+
+More or less like this:
+
+```
+query         |----------------------------------------------|
+field a         |-------|
+field b                  |-------|
+nested field                      |-----------------------|
+nested field a                      |-------------------|
+nested field b                      |-------------------|
+```
+
+which makes it easy to spot that e.g field a and field b could be resolved in parallel.
