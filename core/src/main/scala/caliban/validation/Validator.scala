@@ -28,6 +28,16 @@ import scala.annotation.tailrec
 
 object Validator {
 
+  private lazy val defaultValidations = List(
+    validateFragmentSpreads,
+    validateOperationNameUniqueness,
+    validateLoneAnonymousOperation,
+    validateDirectives,
+    validateVariables,
+    validateSubscriptionOperation,
+    validateDocumentFields
+  )
+
   /**
    * Verifies that the given document is valid for this type. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
@@ -131,20 +141,13 @@ object Validator {
     document: Document,
     rootType: RootType,
     variables: Map[String, InputValue]
-  ): EReader[Any, ValidationError, Map[String, FragmentDefinition]] = {
+  ): EReader[Any, ValidationError, Map[String, FragmentDefinition]] = ZPure.suspend {
     val (operations, fragments, _, _) = collectDefinitions(document)
-    for {
-      fragmentMap  <- validateFragments(fragments)
-      selectionSets = collectSelectionSets(operations.flatMap(_.selectionSet) ++ fragments.flatMap(_.selectionSet))
-      context       = Context(document, rootType, operations, fragmentMap, selectionSets, variables)
-      _            <- validateFragmentSpreads(context)
-      _            <- validateOperationNameUniqueness(operations)
-      _            <- validateLoneAnonymousOperation(operations)
-      _            <- validateDirectives(context)
-      _            <- validateVariables(context)
-      _            <- validateSubscriptionOperation(context)
-      _            <- validateDocumentFields(context)
-    } yield fragmentMap
+    validateFragments(fragments).flatMap { fragmentMap =>
+      val selectionSets = collectSelectionSets(operations.flatMap(_.selectionSet) ++ fragments.flatMap(_.selectionSet))
+      val context       = Context(document, rootType, operations, fragmentMap, selectionSets, variables)
+      ZPure.forEachDiscard(defaultValidations)(identity).provideService(context) as fragmentMap
+    }
   }
 
   private def collectDefinitions(
@@ -286,7 +289,7 @@ object Validator {
         )
     }
 
-  private def validateDirectives(context: Context): EReader[Any, ValidationError, Unit] =
+  private def validateDirectives: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
     for {
       directives <- collectAllDirectives(context)
       _          <- ZPure.forEachDiscard(directives) { case (d, location) =>
@@ -322,66 +325,70 @@ object Validator {
                       }
                     }
     } yield ()
+  }
 
-  private def validateVariables(context: Context): EReader[Any, ValidationError, Unit] =
-    ZPure.forEachDiscard(context.operations)(op =>
-      ZPure.forEachDiscard(op.variableDefinitions.groupBy(_.name)) { case (name, variables) =>
-        ZPure.when(variables.length > 1)(
-          failValidation(
-            s"Variable '$name' is defined more than once.",
-            "If any operation defines more than one variable with the same name, it is ambiguous and invalid. It is invalid even if the type of the duplicate variable is the same."
-          )
-        )
-      } *> ZPure.forEachDiscard(op.variableDefinitions) { v =>
-        val t = Type.innerType(v.variableType)
-        ZPure.whenCase(context.rootType.types.get(t).map(_.kind)) {
-          case Some(__TypeKind.OBJECT) | Some(__TypeKind.UNION) | Some(__TypeKind.INTERFACE) =>
+  private def validateVariables: EReader[Context, ValidationError, Unit] =
+    ZPure.serviceWithPure { context =>
+      ZPure.forEachDiscard(context.operations)(op =>
+        ZPure.forEachDiscard(op.variableDefinitions.groupBy(_.name)) { case (name, variables) =>
+          ZPure.when(variables.length > 1)(
             failValidation(
-              s"Type of variable '${v.name}' is not a valid input type.",
-              "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
+              s"Variable '$name' is defined more than once.",
+              "If any operation defines more than one variable with the same name, it is ambiguous and invalid. It is invalid even if the type of the duplicate variable is the same."
             )
+          )
+        } *> ZPure.forEachDiscard(op.variableDefinitions) { v =>
+          val t = Type.innerType(v.variableType)
+          ZPure.whenCase(context.rootType.types.get(t).map(_.kind)) {
+            case Some(__TypeKind.OBJECT) | Some(__TypeKind.UNION) | Some(__TypeKind.INTERFACE) =>
+              failValidation(
+                s"Type of variable '${v.name}' is not a valid input type.",
+                "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
+              )
+          }
+        } *> {
+          val variableUsages = collectVariablesUsed(context, op.selectionSet)
+          ZPure.forEachDiscard(variableUsages)(v =>
+            ZPure.when(!op.variableDefinitions.exists(_.name == v))(
+              failValidation(
+                s"Variable '$v' is not defined.",
+                "Variables are scoped on a per‐operation basis. That means that any variable used within the context of an operation must be defined at the top level of that operation"
+              )
+            )
+          ) *> ZPure.forEachDiscard(op.variableDefinitions)(v =>
+            ZPure.when(!variableUsages.contains(v.name))(
+              failValidation(
+                s"Variable '${v.name}' is not used.",
+                "All variables defined by an operation must be used in that operation or a fragment transitively included by that operation. Unused variables cause a validation error."
+              )
+            )
+          )
         }
-      } *> {
-        val variableUsages = collectVariablesUsed(context, op.selectionSet)
-        ZPure.forEachDiscard(variableUsages)(v =>
-          ZPure.when(!op.variableDefinitions.exists(_.name == v))(
-            failValidation(
-              s"Variable '$v' is not defined.",
-              "Variables are scoped on a per‐operation basis. That means that any variable used within the context of an operation must be defined at the top level of that operation"
-            )
-          )
-        ) *> ZPure.forEachDiscard(op.variableDefinitions)(v =>
-          ZPure.when(!variableUsages.contains(v.name))(
-            failValidation(
-              s"Variable '${v.name}' is not used.",
-              "All variables defined by an operation must be used in that operation or a fragment transitively included by that operation. Unused variables cause a validation error."
-            )
-          )
-        )
-      }
-    )
+      )
+    }
 
   private def collectFragmentSpreads(selectionSet: List[Selection]): List[FragmentSpread] =
     selectionSet.collect { case f: FragmentSpread => f }
 
-  private def validateFragmentSpreads(context: Context): EReader[Any, ValidationError, Unit] = {
-    val spreads     = collectFragmentSpreads(context.selectionSets)
-    val spreadNames = spreads.map(_.name).toSet
-    ZPure.forEachDiscard(context.fragments.values)(f =>
-      if (!spreadNames.contains(f.name))
-        failValidation(
-          s"Fragment '${f.name}' is not used in any spread.",
-          "Defined fragments must be used within a document."
-        )
-      else
-        ZPure.when(detectCycles(context, f))(
+  private def validateFragmentSpreads: EReader[Context, ValidationError, Unit] =
+    ZPure.serviceWithPure { context =>
+      val spreads     = collectFragmentSpreads(context.selectionSets)
+      val spreadNames = spreads.map(_.name).toSet
+      ZPure.forEachDiscard(context.fragments.values)(f =>
+        if (!spreadNames.contains(f.name))
           failValidation(
-            s"Fragment '${f.name}' forms a cycle.",
-            "The graph of fragment spreads must not form any cycles including spreading itself. Otherwise an operation could infinitely spread or infinitely execute on cycles in the underlying data."
+            s"Fragment '${f.name}' is not used in any spread.",
+            "Defined fragments must be used within a document."
           )
-        )
-    )
-  }
+        else
+          ZPure.when(detectCycles(context, f))(
+            failValidation(
+              s"Fragment '${f.name}' forms a cycle.",
+              "The graph of fragment spreads must not form any cycles including spreading itself. Otherwise an operation could infinitely spread or infinitely execute on cycles in the underlying data."
+            )
+          )
+      )
+    }
 
   private def detectCycles(context: Context, fragment: FragmentDefinition, visited: Set[String] = Set()): Boolean = {
     val selectionSets     = collectSelectionSets(fragment.selectionSet)
@@ -392,7 +399,7 @@ object Validator {
     )
   }
 
-  private def validateDocumentFields(context: Context): EReader[Any, ValidationError, Unit] =
+  private def validateDocumentFields: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
     ZPure.forEachDiscard(context.document.definitions) {
       case OperationDefinition(opType, _, _, _, selectionSet) =>
         opType match {
@@ -416,6 +423,7 @@ object Validator {
       case _: TypeSystemDefinition                            => ZPure.unit
       case _: TypeSystemExtension                             => ZPure.unit
     }
+  }
 
   private def validateSelectionSet(
     context: Context,
@@ -692,33 +700,33 @@ object Validator {
       case _                                                                                 => ZPure.unit
     }
 
-  private def validateOperationNameUniqueness(
-    operations: List[OperationDefinition]
-  ): EReader[Any, ValidationError, Unit] = {
-    val names         = operations.flatMap(_.name).groupBy(identity)
-    val repeatedNames = names.collect { case (name, items) if items.length > 1 => name }
-    ZPure
-      .when(repeatedNames.nonEmpty)(
-        failValidation(
-          s"Multiple operations have the same name: ${repeatedNames.mkString(", ")}.",
-          "Each named operation definition must be unique within a document ZPure.when referred to by its name."
+  private def validateOperationNameUniqueness: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure {
+    context =>
+      val operations    = context.operations
+      val names         = operations.flatMap(_.name).groupBy(identity)
+      val repeatedNames = names.collect { case (name, items) if items.length > 1 => name }
+      ZPure
+        .when(repeatedNames.nonEmpty)(
+          failValidation(
+            s"Multiple operations have the same name: ${repeatedNames.mkString(", ")}.",
+            "Each named operation definition must be unique within a document ZPure.when referred to by its name."
+          )
         )
-      )
-      .unit
+        .unit
   }
 
-  private def validateLoneAnonymousOperation(
-    operations: List[OperationDefinition]
-  ): EReader[Any, ValidationError, Unit] = {
-    val anonymous = operations.filter(_.name.isEmpty)
-    ZPure
-      .when(operations.length > 1 && anonymous.nonEmpty)(
-        failValidation(
-          "Found both anonymous and named operations.",
-          "GraphQL allows a short‐hand form for defining query operations ZPure.when only that one operation exists in the document."
+  private def validateLoneAnonymousOperation: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure {
+    context =>
+      val operations = context.operations
+      val anonymous  = operations.filter(_.name.isEmpty)
+      ZPure
+        .when(operations.length > 1 && anonymous.nonEmpty)(
+          failValidation(
+            "Found both anonymous and named operations.",
+            "GraphQL allows a short‐hand form for defining query operations ZPure.when only that one operation exists in the document."
+          )
         )
-      )
-      .unit
+        .unit
   }
 
   private def validateFragments(
@@ -733,44 +741,45 @@ object Validator {
       } else ZPure.succeed(fragmentMap.updated(fragment.name, fragment))
     }
 
-  private def validateSubscriptionOperation(context: Context): EReader[Any, ValidationError, Unit] = {
-    val error = {
-      for {
-        t           <- context.rootType.subscriptionType
-        op          <- context.operations.find(_.operationType == OperationType.Subscription)
-        field        = F(
-                         op.selectionSet,
-                         context.fragments,
-                         Map.empty[String, InputValue],
-                         List.empty[VariableDefinition],
-                         t,
-                         SourceMapper.empty,
-                         Nil,
-                         context.rootType
-                       )
-        subscription = op.name.fold("")(n => s"'$n'")
-        error       <- field.fields match {
-                         case Nil         => None
-                         case head :: Nil =>
-                           if (head.name == "__typename")
+  private def validateSubscriptionOperation: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure {
+    context =>
+      val error = {
+        for {
+          t           <- context.rootType.subscriptionType
+          op          <- context.operations.find(_.operationType == OperationType.Subscription)
+          field        = F(
+                           op.selectionSet,
+                           context.fragments,
+                           Map.empty[String, InputValue],
+                           List.empty[VariableDefinition],
+                           t,
+                           SourceMapper.empty,
+                           Nil,
+                           context.rootType
+                         )
+          subscription = op.name.fold("")(n => s"'$n'")
+          error       <- field.fields match {
+                           case Nil         => None
+                           case head :: Nil =>
+                             if (head.name == "__typename")
+                               Some(
+                                 ValidationError(
+                                   s"Subscription $subscription has a field named '__typename'.",
+                                   "The root field of a subscription operation must not be an introspection field."
+                                 )
+                               )
+                             else None
+                           case _           =>
                              Some(
                                ValidationError(
-                                 s"Subscription $subscription has a field named '__typename'.",
-                                 "The root field of a subscription operation must not be an introspection field."
+                                 s"Subscription $subscription has more than one root field.",
+                                 "Subscription operations must have exactly one root field."
                                )
                              )
-                           else None
-                         case _           =>
-                           Some(
-                             ValidationError(
-                               s"Subscription $subscription has more than one root field.",
-                               "Subscription operations must have exactly one root field."
-                             )
-                           )
-                       }
-      } yield error
-    }
-    ZPure.fromOption(error).flip.unit
+                         }
+        } yield error
+      }
+      ZPure.fromOption(error).flip.unit
   }
 
   private def validateFragmentType(name: Option[String], targetType: __Type): EReader[Any, ValidationError, Unit] =
