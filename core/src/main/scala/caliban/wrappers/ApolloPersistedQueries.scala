@@ -8,9 +8,9 @@ import caliban.validation.Validator
 import caliban.wrappers.Wrapper._
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue }
 import zio._
-import zio.concurrent.{ ConcurrentMap, ConcurrentSet }
 
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.ConcurrentHashMap
 import scala.collection.mutable
 
 object ApolloPersistedQueries {
@@ -28,10 +28,10 @@ object ApolloPersistedQueries {
       ZIO.serviceWithZIO[ApolloPersistence](_.add(hash, query))
 
     val live: UIO[ApolloPersistence] =
-      ConcurrentMap.empty[String, Document].map { docCache =>
+      ZIO.succeed(new ConcurrentHashMap[String, Document]()).map { docCache =>
         new ApolloPersistence {
-          override def get(hash: String): UIO[Option[Document]]      = docCache.get(hash)
-          override def add(hash: String, query: Document): UIO[Unit] = docCache.put(hash, query).unit
+          override def get(hash: String): UIO[Option[Document]]      = ZIO.succeed(Option(docCache.get(hash)))
+          override def add(hash: String, query: Document): UIO[Unit] = ZIO.succeed(docCache.put(hash, query)).unit
         }
       }
   }
