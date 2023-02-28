@@ -53,7 +53,7 @@ object Validator {
   def failValidation(msg: String, explanatoryText: String): IO[ValidationError, Nothing] =
     ZIO.fail(ValidationError(msg, explanatoryText))
 
-  private[caliban] val skipValidationRef: FiberRef[Boolean] =
+  private[caliban] val skipQueryValidationRef: FiberRef[Boolean] =
     FiberRef.unsafe.make(false)(Unsafe.unsafe(identity))
 
   /**

@@ -5,12 +5,12 @@ import caliban.GraphQL._
 import caliban.InputValue.ObjectValue
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
-import caliban.Value.StringValue
+import caliban.Value.{ IntValue, StringValue }
 import caliban._
 import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
 import caliban.parsing.adt.Document
-import caliban.schema.{ GenericSchema, Schema }
+import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
 import caliban.schema.Schema.auto._
 import caliban.validation.Validator
 import caliban.wrappers.ApolloCaching.GQLCacheControl
@@ -242,7 +242,7 @@ object WrappersSpec extends ZIOSpecDefault {
           ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
             (doc: Document) =>
               f(doc) <* {
-                ZIO.whenZIO(Validator.skipValidationRef.get.map(!_)) {
+                ZIO.whenZIO(Validator.skipQueryValidationRef.get.map(!_)) {
                   ZIO.whenZIO(fail.get)(ZIO.fail(ValidationError("boom", "boom")))
                 }
               }
@@ -327,6 +327,45 @@ object WrappersSpec extends ZIOSpecDefault {
                 second.asJson.noSpaces == """{"data":null,"errors":[{"message":"PersistedQueryNotFound"}]}"""
               )
             })
+              .provide(ApolloPersistedQueries.live)
+          },
+          test("invalid / missing variables in cached query") {
+            case class TestInput(testField: String)
+            case class Test(test: TestInput => String)
+            implicit val testInputArg: ArgBuilder[TestInput] = ArgBuilder.gen
+            implicit val testSchema: Schema[Any, Test]       = Schema.gen
+
+            val extensions = Some(
+              Map(
+                "persistedQuery" -> ObjectValue(
+                  Map("sha256Hash" -> StringValue("c85ff5936156aafeafa5641b2ce05492316127cfcb0a18b5164e02cc7edb0316"))
+                )
+              )
+            )
+
+            val query          = gqldoc("""query TestQuery($testField: String!) { test(testField: $testField) }""")
+            val validVariables = Map("testField" -> StringValue("foo"))
+            val invalidTypeVar = Map("testField" -> IntValue(42))
+            val missingVar     = Map("testField2" -> StringValue("foo"))
+
+            (for {
+              interpreter         <-
+                (graphQL(RootResolver(Test(_.testField))) @@ apolloPersistedQueries).interpreter
+              validTest           <-
+                interpreter.executeRequest(
+                  GraphQLRequest(query = Some(query), variables = Some(validVariables), extensions = extensions)
+                )
+              invalidTypeTest     <-
+                interpreter.executeRequest(GraphQLRequest(variables = Some(invalidTypeVar), extensions = extensions))
+              missingVariableTest <-
+                interpreter.executeRequest(GraphQLRequest(variables = Some(missingVar), extensions = extensions))
+            } yield assertTrue(validTest.asJson.noSpaces == """{"data":{"test":"foo"}}""") &&
+              assertTrue(
+                invalidTypeTest.asJson.noSpaces == """{"data":null,"errors":[{"message":"Variable 'testField' with value 42 cannot be coerced into String."}]}"""
+              ) &&
+              assertTrue(
+                missingVariableTest.asJson.noSpaces == """{"data":null,"errors":[{"message":"Variable 'testField' is null but is specified to be non-null."}]}"""
+              ))
               .provide(ApolloPersistedQueries.live)
           }
         )

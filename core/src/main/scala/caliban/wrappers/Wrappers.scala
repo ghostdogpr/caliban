@@ -96,7 +96,7 @@ object Wrappers {
       ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
         (doc: Document) =>
           process(doc).tap { req =>
-            ZIO.whenZIO(Validator.skipValidationRef.get.map(!_)) {
+            ZIO.whenZIO(Validator.skipQueryValidationRef.get.map(!_)) {
               calculateDepth(req.field).flatMap { depth =>
                 ZIO.when(depth > maxDepth)(
                   ZIO.fail(ValidationError(s"Query is too deep: $depth. Max depth: $maxDepth.", ""))
@@ -128,7 +128,7 @@ object Wrappers {
       ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
         (doc: Document) =>
           process(doc).tap { req =>
-            ZIO.whenZIO(Validator.skipValidationRef.get.map(!_)) {
+            ZIO.whenZIO(Validator.skipQueryValidationRef.get.map(!_)) {
               countFields(req.field).flatMap { fields =>
                 ZIO.when(fields > maxFields)(
                   ZIO.fail(ValidationError(s"Query has too many fields: $fields. Max fields: $maxFields.", ""))
