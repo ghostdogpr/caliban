@@ -50,7 +50,7 @@ object FieldMetrics {
         for {
           summarized            <-
             query
-              .ensuring(ZQuery.fromZIO(fieldTotal(totalLabel, fieldName(info)).tagged(extraLabels).increment))
+              .ensuring(fieldTotal(totalLabel, fieldName(info)).tagged(extraLabels).increment)
               .summarized(Clock.nanoTime)((_, _))
           ((start, end), result) = summarized
           measure               <- ZQuery.fromZIO(for {

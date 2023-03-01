@@ -80,8 +80,7 @@ object TracingWrapperSpec extends ZIOSpecDefault {
         res         <- fiber.join
         spans       <- TracingMock.getFinishedSpans.map(_.map(_.getName()))
       } yield assertTrue(res.errors.isEmpty) &&
-        // only two names since we're only measuring the batched calls
-        assert(spans)(hasSameElements(List("name", "name", "person", "friends", "person", "query")))
+        assertTrue(spans == List("age", "age", "age", "age", "name", "friends", "person", "query"))
     }.provide(
       TracingMock.layer
     )
