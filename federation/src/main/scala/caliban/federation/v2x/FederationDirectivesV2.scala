@@ -1,4 +1,4 @@
-package caliban.federation.v2
+package caliban.federation.v2x
 
 import caliban.Value.StringValue
 import caliban.parsing.adt.Directive

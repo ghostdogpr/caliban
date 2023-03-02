@@ -1,4 +1,4 @@
-package caliban.federation.v2
+package caliban.federation.v2x
 
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations.GQLDirective

@@ -1,4 +1,4 @@
-package caliban.federation.v2
+package caliban.federation.v2x
 
 import caliban.InputValue.{ ListValue, ObjectValue }
 import caliban.Macros.gqldoc

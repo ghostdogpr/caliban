@@ -1,4 +1,4 @@
-package caliban.federation.v2
+package caliban.federation.v2x
 
 import caliban.federation.{ FederationDirectives, FederationSupport }
 
@@ -23,17 +23,17 @@ object FederationV2 {
     Import("@extends")
   )
 
-  private[v2] val v2_0 = Link(
+  private[v2x] val v2_0 = Link(
     url = s"$federationV2Url/v2.0",
     `import` = DefaultDirectives
   )
 
-  private[v2] val v2_1 = Link(
+  private[v2x] val v2_1 = Link(
     url = s"$federationV2Url/v2.1",
     `import` = v2_0.`import` :+ Import("@composeDirective")
   )
 
-  private[v2] val v2_3 = Link(
+  private[v2x] val v2_3 = Link(
     url = s"$federationV2Url/v2.3",
     `import` = v2_1.`import` :+ Import("@interfaceObject")
   )
