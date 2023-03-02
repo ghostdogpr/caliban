@@ -173,7 +173,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
 
       override def resolve(value: A): Step[R1] = {
         val fieldsBuilder = Map.newBuilder[String, Step[R1]]
-        fieldsForResolve.foreach { case (f, plan) => fieldsBuilder += f.name -> plan(value)}
+        fieldsForResolve.foreach { case (f, plan) => fieldsBuilder += f.name -> plan(value) }
         ObjectStep(name, fieldsBuilder.result())
       }
     }
