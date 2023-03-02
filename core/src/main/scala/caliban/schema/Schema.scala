@@ -169,8 +169,13 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
           )
         } else makeObject(Some(name), description, fields(isInput, isSubscription).map(_._1), directives)
 
-      override def resolve(value: A): Step[R1] =
-        ObjectStep(name, fields(false, false).map { case (f, plan) => f.name -> plan(value) }.toMap)
+      private lazy val fieldsForResolve = fields(false, false)
+
+      override def resolve(value: A): Step[R1] = {
+        val fieldsBuilder = Map.newBuilder[String, Step[R1]]
+        fieldsForResolve.foreach { case (f, plan) => fieldsBuilder += f.name -> plan(value) }
+        ObjectStep(name, fieldsBuilder.result())
+      }
     }
 
   /**
