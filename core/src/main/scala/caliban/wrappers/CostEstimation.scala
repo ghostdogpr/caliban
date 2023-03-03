@@ -166,25 +166,31 @@ object CostEstimation {
    * the `maxCost` parameter which determines the maximum allowable cost for a query.
    *
    * @param maxCost The maximum allowable cost for executing a query
+   * @param skipForPersistedQueries Allows skipping the check for cached persisted queries. This value has an effect only when used with the [[ApolloPersistedQueries]] wrapper.
    * @param f The field cost estimate function
    */
-  def maxCost(maxCost: Double)(f: Field => Double): ValidationWrapper[Any] =
-    maxCostOrError(maxCost)(f)(cost => ValidationError(s"Query costs too much: $cost. Max cost: $maxCost.", ""))
+  def maxCost(maxCost: Double, skipForPersistedQueries: Boolean = false)(f: Field => Double): ValidationWrapper[Any] =
+    maxCostOrError(maxCost, skipForPersistedQueries)(f)(cost =>
+      ValidationError(s"Query costs too much: $cost. Max cost: $maxCost.", "")
+    )
 
   /**
    * More powerful version of [[maxCost]] which allow you to also specify the error that is returned when the cost exceeds the maximum cost.
    * @param maxCost The total cost allowed for any one query
+   * @param skipForPersistedQueries Allows skipping the check for cached persisted queries. This value has an effect only when used with the [[ApolloPersistedQueries]] wrapper.
    * @param f The function used to evaluate the cost of a single field
    * @param error A function that will be provided the total estimated cost and must return the error that will be returned
    */
-  def maxCostOrError(maxCost: Double)(f: Field => Double)(error: Double => ValidationError): ValidationWrapper[Any] =
+  def maxCostOrError(maxCost: Double, skipForPersistedQueries: Boolean = false)(
+    f: Field => Double
+  )(error: Double => ValidationError): ValidationWrapper[Any] =
     new ValidationWrapper[Any] {
       override def wrap[R1 <: Any](
         process: Document => ZIO[R1, ValidationError, ExecutionRequest]
       ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
         (doc: Document) =>
           process(doc).tap { req =>
-            ZIO.unlessZIO(Validator.skipQueryValidationRef.get) {
+            ZIO.unlessZIO(ZIO.succeed(skipForPersistedQueries) && Validator.skipQueryValidationRef.get) {
               val cost = computeCost(req.field)(f)
               ZIO.when(cost > maxCost)(ZIO.fail(error(cost)))
             }
@@ -195,16 +201,19 @@ object CostEstimation {
    * More powerful version of [[maxCost]] which allows the field computation function to specify a function which returns an effectful computation
    * for the cost of a field.
    * @param maxCost The total cost allowed for any one query
+   * @param skipForPersistedQueries Allows skipping the check for cached persisted queries. This value has an effect only when used with the [[ApolloPersistedQueries]] wrapper.
    * @param f The function used to evaluate the cost of a single field returning an effect which will result in the field cost as a double
    */
-  def maxCostZIO[R](maxCost: Double)(f: Field => URIO[R, Double]): ValidationWrapper[R] =
+  def maxCostZIO[R](maxCost: Double, skipForPersistedQueries: Boolean = false)(
+    f: Field => URIO[R, Double]
+  ): ValidationWrapper[R] =
     new ValidationWrapper[R] {
       override def wrap[R1 <: R](
         process: Document => ZIO[R1, ValidationError, ExecutionRequest]
       ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
         (doc: Document) =>
           process(doc).tap { req =>
-            ZIO.unlessZIO(Validator.skipQueryValidationRef.get) {
+            ZIO.unlessZIO(ZIO.succeed(skipForPersistedQueries) && Validator.skipQueryValidationRef.get) {
               computeCostZIO(req.field)(f).flatMap { cost =>
                 ZIO.when(cost > maxCost)(
                   ZIO.fail(ValidationError(s"Query costs too much: $cost. Max cost: $maxCost.", ""))
