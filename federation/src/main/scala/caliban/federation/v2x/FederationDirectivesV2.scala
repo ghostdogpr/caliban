@@ -1,4 +1,4 @@
-package caliban.federation.v2
+package caliban.federation.v2x
 
 import caliban.Value.StringValue
 import caliban.parsing.adt.Directive
@@ -26,4 +26,5 @@ trait FederationDirectivesV2 {
     def apply(name: String): Directive =
       Directive("tag", Map("name" -> StringValue(name)))
   }
+
 }

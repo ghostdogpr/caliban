@@ -1,6 +1,6 @@
 package example.federation
 
-import caliban.federation._
+import caliban.federation.v1._
 
 import zio.query.ZQuery
 
