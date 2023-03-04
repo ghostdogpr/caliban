@@ -28,6 +28,7 @@ val zioConfigVersion          = "3.0.7"
 val zqueryVersion             = "0.4.0"
 val zioJsonVersion            = "0.4.2"
 val zioHttpVersion            = "0.0.4"
+val zioOpenTelemetryVersion   = "3.0.0-RC4"
 
 inThisBuild(
   List(
@@ -190,7 +191,7 @@ lazy val tracing = project
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "dev.zio"         %% "zio-opentelemetry"         % "3.0.0-RC3",
+      "dev.zio"         %% "zio-opentelemetry"         % zioOpenTelemetryVersion,
       "dev.zio"         %% "zio-test"                  % zioVersion % Test,
       "dev.zio"         %% "zio-test-sbt"              % zioVersion % Test,
       "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.23.0"   % Test
