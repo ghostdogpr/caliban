@@ -24,6 +24,17 @@ object SchemaComparisonSpec extends ZIOSpecDefault {
       diff = compareDocuments(s1, s2)
     } yield assertTrue(diff.map(_.toString) == expected)
 
+  def compareChanges(
+    schema1: String,
+    schema2: String,
+    expected: List[SchemaComparisonChange]
+  ): ZIO[Any, CalibanError.ParsingError, TestResult] =
+    for {
+      s1  <- Parser.parseQuery(schema1)
+      s2  <- Parser.parseQuery(schema2)
+      diff = compareDocuments(s1, s2)
+    } yield assertTrue(diff == expected)
+
   override def spec =
     suite("SchemaComparisonSpec")(
       test("field changed") {
@@ -235,6 +246,27 @@ object SchemaComparisonSpec extends ZIOSpecDefault {
         for {
           diff <- SchemaComparison.compare(SchemaLoader.fromString(schema), SchemaLoader.fromCaliban(api))
         } yield assertTrue(diff == Nil)
-      }
+      },
+      suite("repeatable directive")(
+        test("becomes repeatable") {
+          val nonRepeatable = "directive @test on FIELD_DEFINITION"
+          val repeatable    = "directive @test repeatable on FIELD_DEFINITION"
+
+          val expected = SchemaComparisonChange.DirectiveDefinitionRepeatableChanged("test", from = false, to = true)
+
+          compareChanges(nonRepeatable, repeatable, List(expected)) &&
+          assertTrue(!expected.breaking)
+        },
+        test("becomes non-repeatable") {
+          val repeatable    = "directive @test repeatable on FIELD_DEFINITION"
+          val nonRepeatable = "directive @test on FIELD_DEFINITION"
+
+          val expected = SchemaComparisonChange.DirectiveDefinitionRepeatableChanged("test", from = true, to = false)
+
+          compareChanges(repeatable, nonRepeatable, List(expected)) &&
+          assertTrue(expected.breaking)
+
+        }
+      )
     )
 }

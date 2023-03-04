@@ -43,6 +43,7 @@ object Definition {
       description: Option[String],
       name: String,
       args: List[InputValueDefinition],
+      repeatable: Boolean,
       locations: Set[DirectiveLocation]
     ) extends TypeSystemDefinition
 

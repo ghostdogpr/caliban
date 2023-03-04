@@ -166,7 +166,24 @@ object TestUtils {
           None,
           None
         )
-      )
+      ),
+      repeatable = false
+    )
+
+    val Repeatable = __Directive(
+      name = "repeatable",
+      description = Some("Repeatable test directive"),
+      locations = Set(__DirectiveLocation.FIELD_DEFINITION),
+      args = List(
+        __InputValue(
+          "bar",
+          None,
+          () => Types.int,
+          None,
+          None
+        )
+      ),
+      repeatable = true
     )
   }
 

@@ -9,6 +9,7 @@ import caliban.introspection.adt._
 import caliban.introspection.adt.__TypeKind._
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
+import caliban.parsing.adt.Definition.TypeSystemDefinition.DirectiveDefinition
 import caliban.parsing.adt.Definition.{ TypeSystemDefinition, TypeSystemExtension }
 import caliban.parsing.adt.OperationType._
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
@@ -212,23 +213,25 @@ object Validator {
 
   private def collectAllDirectives(context: Context): IO[ValidationError, List[(Directive, __DirectiveLocation)]] =
     for {
-      opDirectives        <- ZIO.foreach(context.operations)(op =>
-                               checkDirectivesUniqueness(op.directives).as(op.operationType match {
-                                 case OperationType.Query        => op.directives.map((_, __DirectiveLocation.QUERY))
-                                 case OperationType.Mutation     => op.directives.map((_, __DirectiveLocation.MUTATION))
-                                 case OperationType.Subscription =>
-                                   op.directives.map((_, __DirectiveLocation.SUBSCRIPTION))
-                               })
-                             )
-      fragmentDirectives  <- ZIO.foreach(context.fragments.values)(fragment =>
-                               checkDirectivesUniqueness(fragment.directives)
-                                 .as(fragment.directives.map((_, __DirectiveLocation.FRAGMENT_DEFINITION)))
-                             )
-      selectionDirectives <- collectDirectives(context.selectionSets)
+      directiveDefinitions <- ZIO.succeed(context.document.directiveDefinitions.groupBy(_.name))
+      opDirectives         <- ZIO.foreach(context.operations)(op =>
+                                checkDirectivesUniqueness(op.directives, directiveDefinitions).as(op.operationType match {
+                                  case OperationType.Query        => op.directives.map((_, __DirectiveLocation.QUERY))
+                                  case OperationType.Mutation     => op.directives.map((_, __DirectiveLocation.MUTATION))
+                                  case OperationType.Subscription =>
+                                    op.directives.map((_, __DirectiveLocation.SUBSCRIPTION))
+                                })
+                              )
+      fragmentDirectives   <- ZIO.foreach(context.fragments.values)(fragment =>
+                                checkDirectivesUniqueness(fragment.directives, directiveDefinitions)
+                                  .as(fragment.directives.map((_, __DirectiveLocation.FRAGMENT_DEFINITION)))
+                              )
+      selectionDirectives  <- collectDirectives(context.selectionSets, directiveDefinitions)
     } yield opDirectives.flatten ++ fragmentDirectives.flatten ++ selectionDirectives
 
   private def collectDirectives(
-    selectionSet: List[Selection]
+    selectionSet: List[Selection],
+    directiveDefinitions: Map[String, List[DirectiveDefinition]]
   ): IO[ValidationError, List[(Directive, __DirectiveLocation)]] = {
     val builder = List.newBuilder[List[(Directive, __DirectiveLocation)]]
 
@@ -248,16 +251,28 @@ object Validator {
       }
     loop(selectionSet)
     val directiveLists                            = builder.result()
-    ZIO.foreachDiscard(directiveLists)(list => checkDirectivesUniqueness(list.map(_._1))).as(directiveLists.flatten)
+    ZIO
+      .foreachDiscard(directiveLists)(list => checkDirectivesUniqueness(list.map(_._1), directiveDefinitions))
+      .as(directiveLists.flatten)
   }
 
-  private def checkDirectivesUniqueness(directives: List[Directive]): IO[ValidationError, Unit] =
-    directives.groupBy(_.name).find { case (_, v) => v.length > 1 } match {
+  private def checkDirectivesUniqueness(
+    directives: List[Directive],
+    directiveDefinitions: Map[String, List[DirectiveDefinition]]
+  ): IO[ValidationError, Unit] =
+    directives
+      .groupBy(_.name)
+      .find { case (n, v) =>
+        // only non-repeatable directives count against uniqueness
+        // this .lengthCompare is a 2.12 compatible version of .lengthIs and can be replaced after 2.12 support is dropped
+        // it's a minor optimization to short-circuit the length check on a List for the off-chance that list is long
+        (v.lengthCompare(1) > 0) && !directiveDefinitions.get(n).exists(_.exists(_.repeatable))
+      } match {
       case None            => ZIO.unit
       case Some((name, _)) =>
         failValidation(
-          s"Directive '$name' is defined twice.",
-          "Directives are used to describe some metadata or behavioral change on the definition they apply to. When more than one directive of the same name is used, the expected metadata or behavior becomes ambiguous, therefore only one of each directive is allowed per location."
+          s"Directive '$name' is defined more than once.",
+          "Directives are used to describe some metadata or behavioral change on the definition they apply to. When more than one directive of the same name is used, the expected metadata or behavior becomes ambiguous, therefore only one of each non-repeatable directive is allowed per location."
         )
     }
 
