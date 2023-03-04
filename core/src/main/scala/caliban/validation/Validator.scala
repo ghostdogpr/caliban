@@ -265,7 +265,8 @@ object Validator {
       }
     loop(selectionSet)
     val directiveLists                            = builder.result()
-    ZPure.forEachDiscard(directiveLists)(list => checkDirectivesUniqueness(list.map(_._1), directiveDefinitions))
+    ZPure
+      .forEachDiscard(directiveLists)(list => checkDirectivesUniqueness(list.map(_._1), directiveDefinitions))
       .as(directiveLists.flatten)
   }
 
