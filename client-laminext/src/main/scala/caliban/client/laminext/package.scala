@@ -2,11 +2,13 @@ package caliban.client
 
 import caliban.client.CalibanClientError.CommunicationError
 import caliban.client.Operations.{ IsOperation, RootSubscription }
+import caliban.client.__Value.__ObjectValue
 import caliban.client.ws.{ GraphQLWSRequest, GraphQLWSResponse }
+import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import com.raquo.airstream.core.EventStream
 import io.circe.Json
-import io.laminext.fetch.circe._
-import io.laminext.websocket.circe._
+import io.laminext.fetch.jsoniter._
+import io.laminext.websocket.jsoniter._
 import io.laminext.websocket.{ WebSocket, WebSocketBuilder, WebSocketReceiveBuilder }
 
 import java.util.UUID
@@ -42,7 +44,7 @@ package object laminext {
       dropNullInputValues: Boolean = false,
       middleware: FetchEventStreamBuilder => FetchEventStreamBuilder = identity
     )(
-      mapResponse: (A, List[GraphQLResponseError], Option[Json]) => B
+      mapResponse: (A, List[GraphQLResponseError], Option[__ObjectValue]) => B
     )(implicit ev: IsOperation[Origin], ec: ExecutionContext): EventStream[Either[CalibanClientError, B]] =
       middleware(Fetch.post(uri))
         .body(self.toGraphQL(useVariables, queryName, dropNullInputValues))
@@ -76,14 +78,14 @@ package object laminext {
       useVariables: Boolean = false,
       queryName: Option[String] = None
     )(
-      mapResponse: (A, List[GraphQLResponseError], Option[Json]) => B
+      mapResponse: (A, List[GraphQLResponseError], Option[__ObjectValue]) => B
     )(implicit ev1: IsOperation[Origin], ev2: Origin <:< RootSubscription): Subscription[B] = {
       val id = UUID.randomUUID().toString
       ws.sendOne(GraphQLWSRequest("start", Some(id), Some(self.toGraphQL(useVariables, queryName))))
       new Subscription[B] {
         def received: EventStream[Either[CalibanClientError, B]] =
           ws.received.collect { case GraphQLWSResponse("data", Some(`id`), Some(payload)) =>
-            self.decode(payload.noSpaces).map { case (result, errors, extensions) =>
+            self.decode(writeToString(payload)).map { case (result, errors, extensions) =>
               mapResponse(result, errors, extensions)
             }
           }

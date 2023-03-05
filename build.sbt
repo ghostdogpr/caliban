@@ -417,13 +417,14 @@ lazy val clientLaminext = crossProject(JSPlatform)
     Test / scalaJSUseMainModuleInitializer := true,
     Test / scalaJSUseTestModuleInitializer := false,
     libraryDependencies ++= Seq(
-      "io.laminext" %%% "core"            % laminextVersion,
-      "io.laminext" %%% "fetch"           % laminextVersion,
-      "io.laminext" %%% "fetch-circe"     % laminextVersion,
-      "io.laminext" %%% "websocket"       % laminextVersion,
-      "io.laminext" %%% "websocket-circe" % laminextVersion,
-      "dev.zio"     %%% "zio-test"        % zioVersion % Test,
-      "dev.zio"     %%% "zio-test-sbt"    % zioVersion % Test
+      "io.laminext"                           %%% "core"                % laminextVersion,
+      "io.laminext"                           %%% "fetch"               % laminextVersion,
+      "io.laminext"                           %%% "fetch-circe"         % laminextVersion,
+      "io.laminext"                           %%% "websocket"           % laminextVersion,
+      "io.laminext"                           %%% "websocket-circe"     % laminextVersion,
+      "com.github.plokhotnyuk.jsoniter-scala" %%% "jsoniter-scala-core" % jsoniterVersion,
+      "dev.zio"                               %%% "zio-test"            % zioVersion % Test,
+      "dev.zio"                               %%% "zio-test-sbt"        % zioVersion % Test
     )
   )
 
