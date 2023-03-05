@@ -21,8 +21,13 @@ import scala.annotation.tailrec
  * - `FieldWrapper` to wrap each field execution
  *
  * It is also possible to combine wrappers using `|+|` and to build a wrapper effectfully with `EffectfulWrapper`.
+ *
+ * Implementations can control the order at which this wrapper is executed by overriding the `priority` value.
+ * Setting a higher `priority` value will be executed first.
  */
 sealed trait Wrapper[-R] extends GraphQLAspect[Nothing, R] { self =>
+  val priority: Int = 0
+
   def |+|[R1 <: R](that: Wrapper[R1]): Wrapper[R1] = CombinedWrapper(List(self, that))
 
   def apply[R1 <: R](that: GraphQL[R1]): GraphQL[R1] =
@@ -122,32 +127,37 @@ object Wrapper {
       List[IntrospectionWrapper[R]]
     )
   ] =
-    ZIO.foldLeft(wrappers)(
-      (
-        List.empty[OverallWrapper[R]],
-        List.empty[ParsingWrapper[R]],
-        List.empty[ValidationWrapper[R]],
-        List.empty[ExecutionWrapper[R]],
-        List.empty[FieldWrapper[R]],
-        List.empty[IntrospectionWrapper[R]]
-      )
-    ) {
-      case ((o, p, v, e, f, i), wrapper: OverallWrapper[R])       => ZIO.succeed((wrapper :: o, p, v, e, f, i))
-      case ((o, p, v, e, f, i), wrapper: ParsingWrapper[R])       => ZIO.succeed((o, wrapper :: p, v, e, f, i))
-      case ((o, p, v, e, f, i), wrapper: ValidationWrapper[R])    => ZIO.succeed((o, p, wrapper :: v, e, f, i))
-      case ((o, p, v, e, f, i), wrapper: ExecutionWrapper[R])     => ZIO.succeed((o, p, v, wrapper :: e, f, i))
-      case ((o, p, v, e, f, i), wrapper: FieldWrapper[R])         => ZIO.succeed((o, p, v, e, wrapper :: f, i))
-      case ((o, p, v, e, f, i), wrapper: IntrospectionWrapper[R]) => ZIO.succeed((o, p, v, e, f, wrapper :: i))
-      case ((o, p, v, e, f, i), CombinedWrapper(wrappers))        =>
-        decompose(wrappers).map { case (o2, p2, v2, e2, f2, i2) =>
-          (o2 ++ o, p2 ++ p, v2 ++ v, e2 ++ e, f2 ++ f, i2 ++ i)
-        }
-      case ((o, p, v, e, f, i), EffectfulWrapper(wrapper))        =>
-        wrapper.flatMap(w =>
-          decompose(List(w)).map { case (o2, p2, v2, e2, f2, i2) =>
+    ZIO
+      .foldLeft(wrappers)(
+        (
+          List.empty[OverallWrapper[R]],
+          List.empty[ParsingWrapper[R]],
+          List.empty[ValidationWrapper[R]],
+          List.empty[ExecutionWrapper[R]],
+          List.empty[FieldWrapper[R]],
+          List.empty[IntrospectionWrapper[R]]
+        )
+      ) {
+        case ((o, p, v, e, f, i), wrapper: OverallWrapper[R])       => ZIO.succeed((wrapper :: o, p, v, e, f, i))
+        case ((o, p, v, e, f, i), wrapper: ParsingWrapper[R])       => ZIO.succeed((o, wrapper :: p, v, e, f, i))
+        case ((o, p, v, e, f, i), wrapper: ValidationWrapper[R])    => ZIO.succeed((o, p, wrapper :: v, e, f, i))
+        case ((o, p, v, e, f, i), wrapper: ExecutionWrapper[R])     => ZIO.succeed((o, p, v, wrapper :: e, f, i))
+        case ((o, p, v, e, f, i), wrapper: FieldWrapper[R])         => ZIO.succeed((o, p, v, e, wrapper :: f, i))
+        case ((o, p, v, e, f, i), wrapper: IntrospectionWrapper[R]) => ZIO.succeed((o, p, v, e, f, wrapper :: i))
+        case ((o, p, v, e, f, i), CombinedWrapper(wrappers))        =>
+          decompose(wrappers).map { case (o2, p2, v2, e2, f2, i2) =>
             (o2 ++ o, p2 ++ p, v2 ++ v, e2 ++ e, f2 ++ f, i2 ++ i)
           }
-        )
-    }
+        case ((o, p, v, e, f, i), EffectfulWrapper(wrapper))        =>
+          wrapper.flatMap(w =>
+            decompose(List(w)).map { case (o2, p2, v2, e2, f2, i2) =>
+              (o2 ++ o, p2 ++ p, v2 ++ v, e2 ++ e, f2 ++ f, i2 ++ i)
+            }
+          )
+      }
+      .map { case (o, p, v, e, f, i) =>
+        def sort[W <: Wrapper[R]]: List[W] => List[W] = _.sortBy(_.priority)
 
+        (sort(o), sort(p), sort(v), sort(e), sort(f), sort(i))
+      }
 }

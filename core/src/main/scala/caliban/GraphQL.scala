@@ -117,18 +117,20 @@ trait GraphQL[-R] { self =>
                                       }
                   typeToValidate    = if (intro) introspectionRootType else rootType
                   schemaToExecute   = if (intro) introspectionRootSchema else schema
-                  validatedRequest <- VariablesCoercer.coerceVariables(request, doc, typeToValidate, skipValidation)
-
+                  validatedReq     <- VariablesCoercer.coerceVariables(request, doc, typeToValidate, skipValidation)
+                  _                <- Validator.skipQueryValidationRef.set(skipValidation)
                   validate          = (doc: Document) =>
-                                        Validator
-                                          .prepare(
-                                            doc,
-                                            typeToValidate,
-                                            schemaToExecute,
-                                            validatedRequest.operationName,
-                                            validatedRequest.variables.getOrElse(Map.empty),
-                                            skipValidation
-                                          )
+                                        for {
+                                          skipQueryValidation <- Validator.skipQueryValidationRef.get
+                                          executionReq        <- Validator.prepare(
+                                                                   doc,
+                                                                   typeToValidate,
+                                                                   schemaToExecute,
+                                                                   validatedReq.operationName,
+                                                                   validatedReq.variables.getOrElse(Map.empty),
+                                                                   skipQueryValidation
+                                                                 )
+                                        } yield executionReq
                   executionRequest <- wrap(validate)(validationWrappers, doc)
                   op                = executionRequest.operationType match {
                                         case OperationType.Query        => schemaToExecute.query

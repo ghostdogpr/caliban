@@ -18,7 +18,7 @@ import caliban.parsing.adt._
 import caliban.schema.{ RootSchema, RootSchemaBuilder, RootType, Types }
 import caliban.validation.Utils.isObjectType
 import caliban.{ InputValue, Rendering, Value }
-import zio.{ IO, ZIO }
+import zio.{ FiberRef, IO, Unsafe, ZIO }
 
 import scala.annotation.tailrec
 
@@ -53,6 +53,9 @@ object Validator {
 
   def failValidation(msg: String, explanatoryText: String): IO[ValidationError, Nothing] =
     ZIO.fail(ValidationError(msg, explanatoryText))
+
+  private[caliban] val skipQueryValidationRef: FiberRef[Boolean] =
+    FiberRef.unsafe.make(false)(Unsafe.unsafe(identity))
 
   /**
    * Prepare the request for execution.

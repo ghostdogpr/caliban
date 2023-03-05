@@ -5,15 +5,17 @@ import caliban.GraphQL._
 import caliban.InputValue.ObjectValue
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
-import caliban.Value.StringValue
+import caliban.Value.{ IntValue, StringValue }
 import caliban._
 import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
-import caliban.schema.{ GenericSchema, Schema }
+import caliban.parsing.adt.Document
+import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
 import caliban.schema.Schema.auto._
+import caliban.validation.Validator
 import caliban.wrappers.ApolloCaching.GQLCacheControl
 import caliban.wrappers.ApolloPersistedQueries.apolloPersistedQueries
-import caliban.wrappers.Wrapper.{ ExecutionWrapper, FieldWrapper }
+import caliban.wrappers.Wrapper.{ ExecutionWrapper, FieldWrapper, ValidationWrapper }
 import caliban.wrappers.Wrappers._
 import io.circe.syntax._
 import zio._
@@ -24,6 +26,7 @@ import zio.test._
 import scala.language.postfixOps
 
 object WrappersSpec extends ZIOSpecDefault {
+
   override def spec =
     suite("WrappersSpec")(
       test("wrapPureValues false") {
@@ -232,65 +235,141 @@ object WrappersSpec extends ZIOSpecDefault {
           )
         )
       },
-      suite("Apollo Persisted Queries")(
-        test("hash not found") {
-          case class Test(test: String)
-          val interpreter = (graphQL(RootResolver(Test("ok"))) @@ apolloPersistedQueries).interpreter
-          interpreter
-            .flatMap(
-              _.executeRequest(
-                GraphQLRequest(extensions =
-                  Some(Map("persistedQuery" -> ObjectValue(Map("sha256Hash" -> StringValue("my-hash")))))
+      suite("Apollo Persisted Queries")({
+        def mockWrapper[R](fail: Ref[Boolean]): ValidationWrapper[R] = new ValidationWrapper[R] {
+          override def wrap[R1 <: R](
+            f: Document => ZIO[R1, ValidationError, ExecutionRequest]
+          ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
+            (doc: Document) =>
+              f(doc) <* {
+                ZIO.unlessZIO(Validator.skipQueryValidationRef.get) {
+                  ZIO.whenZIO(fail.get)(ZIO.fail(ValidationError("boom", "boom")))
+                }
+              }
+        }
+
+        val extensions = Some(
+          Map(
+            "persistedQuery" -> ObjectValue(
+              Map("sha256Hash" -> StringValue("e005c1d727f7776a57a661d61a182816d8953c0432780beeae35e337830b1746"))
+            )
+          )
+        )
+        List(
+          test("hash not found") {
+            case class Test(test: String)
+            val interpreter = (graphQL(RootResolver(Test("ok"))) @@ apolloPersistedQueries).interpreter
+            interpreter
+              .flatMap(
+                _.executeRequest(
+                  GraphQLRequest(extensions =
+                    Some(Map("persistedQuery" -> ObjectValue(Map("sha256Hash" -> StringValue("my-hash")))))
+                  )
+                )
+              )
+              .map { response =>
+                assertTrue(
+                  response.asJson.noSpaces == """{"data":null,"errors":[{"message":"PersistedQueryNotFound"}]}"""
+                )
+              }
+              .provide(ApolloPersistedQueries.live)
+          },
+          test("cache poisoning") {
+            case class Test(test: String, malicious: String)
+
+            (for {
+              interpreter <- (graphQL(RootResolver(Test("ok", "malicious"))) @@ apolloPersistedQueries).interpreter
+              // The hash for the query "{test}"  attempting to poison the cache by passing in a different query
+              r1          <- interpreter.executeRequest(GraphQLRequest(query = Some("{malicious}"), extensions = extensions))
+              r2          <- interpreter.executeRequest(GraphQLRequest(extensions = extensions))
+            } yield assertTrue(
+              r1.asJson.noSpaces == """{"data":null,"errors":[{"message":"Provided sha does not match any query"}]}"""
+            ) && assertTrue(r2.asJson.noSpaces == """{"data":null,"errors":[{"message":"PersistedQueryNotFound"}]}"""))
+              .provideLayer(ApolloPersistedQueries.live)
+          },
+          test("hash found") {
+            case class Test(test: String)
+
+            (for {
+              interpreter <- (graphQL(RootResolver(Test("ok"))) @@ apolloPersistedQueries).interpreter
+              _           <- interpreter.executeRequest(GraphQLRequest(query = Some("{test}"), extensions = extensions))
+              result      <- interpreter.executeRequest(GraphQLRequest(extensions = extensions))
+            } yield assertTrue(result.asJson.noSpaces == """{"data":{"test":"ok"}}"""))
+              .provide(ApolloPersistedQueries.live)
+          },
+          test("executes first") {
+            case class Test(test: String)
+
+            (for {
+              shouldFail  <- Ref.make(false)
+              interpreter <-
+                (graphQL(RootResolver(Test("ok"))) @@
+                  mockWrapper(shouldFail) @@ apolloPersistedQueries @@ mockWrapper(shouldFail)).interpreter
+              _           <- interpreter.executeRequest(GraphQLRequest(query = Some("{test}"), extensions = extensions))
+              _           <- shouldFail.set(true)
+              result      <- interpreter.executeRequest(GraphQLRequest(extensions = extensions))
+            } yield assertTrue(result.asJson.noSpaces == """{"data":{"test":"ok"}}"""))
+              .provide(ApolloPersistedQueries.live)
+          },
+          test("does not register successful validation if another validation wrapper fails") {
+            case class Test(test: String)
+
+            (for {
+              shouldFail  <- Ref.make(true)
+              interpreter <-
+                (graphQL(RootResolver(Test("ok"))) @@
+                  mockWrapper(shouldFail) @@ apolloPersistedQueries @@ mockWrapper(shouldFail)).interpreter
+              first       <- interpreter.executeRequest(GraphQLRequest(query = Some("{test}"), extensions = extensions))
+              second      <- interpreter.executeRequest(GraphQLRequest(extensions = extensions))
+            } yield {
+              val expected = """{"data":null,"errors":[{"message":"boom"}]}"""
+              assertTrue(first.asJson.noSpaces == expected) && assertTrue(
+                second.asJson.noSpaces == """{"data":null,"errors":[{"message":"PersistedQueryNotFound"}]}"""
+              )
+            })
+              .provide(ApolloPersistedQueries.live)
+          },
+          test("invalid / missing variables in cached query") {
+            case class TestInput(testField: String)
+            case class Test(test: TestInput => String)
+            implicit val testInputArg: ArgBuilder[TestInput] = ArgBuilder.gen
+            implicit val testSchema: Schema[Any, Test]       = Schema.gen
+
+            val extensions = Some(
+              Map(
+                "persistedQuery" -> ObjectValue(
+                  Map("sha256Hash" -> StringValue("c85ff5936156aafeafa5641b2ce05492316127cfcb0a18b5164e02cc7edb0316"))
                 )
               )
             )
-            .map { response =>
+
+            val query          = gqldoc("""query TestQuery($testField: String!) { test(testField: $testField) }""")
+            val validVariables = Map("testField" -> StringValue("foo"))
+            val invalidTypeVar = Map("testField" -> IntValue(42))
+            val missingVar     = Map("testField2" -> StringValue("foo"))
+
+            (for {
+              interpreter         <-
+                (graphQL(RootResolver(Test(_.testField))) @@ apolloPersistedQueries).interpreter
+              validTest           <-
+                interpreter.executeRequest(
+                  GraphQLRequest(query = Some(query), variables = Some(validVariables), extensions = extensions)
+                )
+              invalidTypeTest     <-
+                interpreter.executeRequest(GraphQLRequest(variables = Some(invalidTypeVar), extensions = extensions))
+              missingVariableTest <-
+                interpreter.executeRequest(GraphQLRequest(variables = Some(missingVar), extensions = extensions))
+            } yield assertTrue(validTest.asJson.noSpaces == """{"data":{"test":"foo"}}""") &&
               assertTrue(
-                response.asJson.noSpaces == """{"data":null,"errors":[{"message":"PersistedQueryNotFound"}]}"""
-              )
-            }
-            .provide(ApolloPersistedQueries.live)
-        },
-        test("cache poisoning") {
-          case class Test(test: String, malicious: String)
-
-          (for {
-            interpreter <- (graphQL(RootResolver(Test("ok", "malicious"))) @@ apolloPersistedQueries).interpreter
-            // The hash for the query "{test}"  attempting to poison the cache by passing in a different query
-            extensions   =
-              Some(
-                Map(
-                  "persistedQuery" -> ObjectValue(
-                    Map("sha256Hash" -> StringValue("e005c1d727f7776a57a661d61a182816d8953c0432780beeae35e337830b1746"))
-                  )
-                )
-              )
-            r1          <- interpreter.executeRequest(GraphQLRequest(query = Some("{malicious}"), extensions = extensions))
-            r2          <- interpreter.executeRequest(GraphQLRequest(extensions = extensions))
-          } yield assertTrue(
-            r1.asJson.noSpaces == """{"data":null,"errors":[{"message":"Provided sha does not match any query"}]}"""
-          ) && assertTrue(r2.asJson.noSpaces == """{"data":null,"errors":[{"message":"PersistedQueryNotFound"}]}"""))
-            .provideLayer(ApolloPersistedQueries.live)
-        },
-        test("hash found") {
-          case class Test(test: String)
-
-          (for {
-            interpreter <- (graphQL(RootResolver(Test("ok"))) @@ apolloPersistedQueries).interpreter
-            extensions   =
-              Some(
-                Map(
-                  "persistedQuery" -> ObjectValue(
-                    Map("sha256Hash" -> StringValue("e005c1d727f7776a57a661d61a182816d8953c0432780beeae35e337830b1746"))
-                  )
-                )
-              )
-            _           <- interpreter.executeRequest(GraphQLRequest(query = Some("{test}"), extensions = extensions))
-            result      <- interpreter.executeRequest(GraphQLRequest(extensions = extensions))
-          } yield assertTrue(result.asJson.noSpaces == """{"data":{"test":"ok"}}"""))
-            .provide(ApolloPersistedQueries.live)
-        }
-      ),
+                invalidTypeTest.asJson.noSpaces == """{"data":null,"errors":[{"message":"Variable 'testField' with value 42 cannot be coerced into String."}]}"""
+              ) &&
+              assertTrue(
+                missingVariableTest.asJson.noSpaces == """{"data":null,"errors":[{"message":"Variable 'testField' is null but is specified to be non-null."}]}"""
+              ))
+              .provide(ApolloPersistedQueries.live)
+          }
+        )
+      }),
       test("custom query directive") {
         val customWrapper        = new ExecutionWrapper[Any] {
           def wrap[R1 <: Any](

@@ -4,6 +4,7 @@ import caliban.CalibanError.{ ExecutionError, ValidationError }
 import caliban.Value.NullValue
 import caliban.execution.{ ExecutionRequest, Field }
 import caliban.parsing.adt.Document
+import caliban.validation.Validator
 import caliban.wrappers.Wrapper.{ OverallWrapper, ValidationWrapper }
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse }
 import zio._
@@ -94,13 +95,15 @@ object Wrappers {
         process: Document => ZIO[R1, ValidationError, ExecutionRequest]
       ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
         (doc: Document) =>
-          for {
-            req   <- process(doc)
-            depth <- calculateDepth(req.field)
-            _     <- ZIO.when(depth > maxDepth)(
-                       ZIO.fail(ValidationError(s"Query is too deep: $depth. Max depth: $maxDepth.", ""))
-                     )
-          } yield req
+          process(doc).tap { req =>
+            ZIO.unlessZIO(Validator.skipQueryValidationRef.get) {
+              calculateDepth(req.field).flatMap { depth =>
+                ZIO.when(depth > maxDepth)(
+                  ZIO.fail(ValidationError(s"Query is too deep: $depth. Max depth: $maxDepth.", ""))
+                )
+              }
+            }
+          }
     }
 
   private def calculateDepth(field: Field): UIO[Int] = {
@@ -124,13 +127,15 @@ object Wrappers {
         process: Document => ZIO[R1, ValidationError, ExecutionRequest]
       ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
         (doc: Document) =>
-          for {
-            req    <- process(doc)
-            fields <- countFields(req.field)
-            _      <- ZIO.when(fields > maxFields)(
-                        ZIO.fail(ValidationError(s"Query has too many fields: $fields. Max fields: $maxFields.", ""))
-                      )
-          } yield req
+          process(doc).tap { req =>
+            ZIO.unlessZIO(Validator.skipQueryValidationRef.get) {
+              countFields(req.field).flatMap { fields =>
+                ZIO.when(fields > maxFields)(
+                  ZIO.fail(ValidationError(s"Query has too many fields: $fields. Max fields: $maxFields.", ""))
+                )
+              }
+            }
+          }
     }
 
   private def countFields(field: Field): UIO[Int] =
