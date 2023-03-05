@@ -1,14 +1,12 @@
 package caliban.client.ws
 
-import io.circe.{ Decoder, HCursor, Json }
+import caliban.client.__Value.__ObjectValue
+import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
+import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
 
-case class GraphQLWSResponse(`type`: String, id: Option[String], payload: Option[Json])
+case class GraphQLWSResponse(`type`: String, id: Option[String], payload: Option[__ObjectValue])
 
 object GraphQLWSResponse {
-  implicit val graphQLWSResponseEncoder: Decoder[GraphQLWSResponse] = (c: HCursor) =>
-    for {
-      t       <- c.downField("type").as[String]
-      id      <- c.downField("id").as[Option[String]]
-      payload <- c.downField("payload").as[Option[Json]]
-    } yield GraphQLWSResponse(t, id, payload)
+  implicit val graphQLWSResponseEncoder: JsonValueCodec[GraphQLWSResponse] =
+    JsonCodecMaker.makeCirceLike[GraphQLWSResponse]
 }

@@ -1,13 +1,15 @@
 package caliban.client
 
 import caliban.client.GraphQLResponseError.Location
+import caliban.client.__Value.__ObjectValue
+import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import zio.test.Assertion._
 import zio.test._
-
 import zio.ZIO
-
 import io.circe.parser.decode
 import io.circe.Json
+
+import scala.util.Try
 
 object GraphQLResponseSpec extends ZIOSpecDefault {
 
@@ -16,8 +18,8 @@ object GraphQLResponseSpec extends ZIOSpecDefault {
       test("can be parsed from JSON") {
         val response =
           """{"errors":[{"message":"Parse error on \"direction\" (STRING) at [1, 107]","locations":[{"line":1,"column":107}]}]}"""
-        assert(decode[GraphQLResponse](response))(
-          isRight(
+        assert(Try(readFromString[GraphQLResponse](response)))(
+          isSuccess(
             equalTo(
               GraphQLResponse(
                 None,
@@ -71,9 +73,9 @@ object GraphQLResponseSpec extends ZIOSpecDefault {
               |}""".stripMargin
 
         for {
-          response   <- ZIO.fromEither(decode[GraphQLResponse](responseRawJson))
-          data       <- ZIO.fromEither(decode[__Value](dataRawJson))
-          extensions <- ZIO.fromEither(decode[Json](extensionsRawJson))
+          response   <- ZIO.attempt(readFromString[GraphQLResponse](responseRawJson))
+          data       <- ZIO.attempt(readFromString[__Value](dataRawJson))
+          extensions <- ZIO.attempt(readFromString[__ObjectValue](extensionsRawJson))
         } yield assertTrue(
           response == GraphQLResponse(
             Some(data),

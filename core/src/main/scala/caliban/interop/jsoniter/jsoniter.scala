@@ -1,7 +1,7 @@
 package caliban.interop.jsoniter
 
 import caliban.Value._
-import caliban._
+import caliban.{ GraphQLResponse, _ }
 import caliban.parsing.adt.LocationInfo
 import com.github.plokhotnyuk.jsoniter_scala.core._
 
