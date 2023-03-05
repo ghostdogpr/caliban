@@ -15,14 +15,12 @@ import caliban.parsing.adt.OperationType._
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt._
-import caliban.schema.{ Operation, RootSchema, RootSchemaBuilder, RootType, Types }
+import caliban.schema._
 import caliban.validation.Utils.isObjectType
 import caliban.{ InputValue, Rendering, Value }
-import zio.IO
 import zio.prelude._
-import zio.prelude.ops._
 import zio.prelude.fx.ZPure
-import zio.{ FiberRef, IO, Unsafe, ZIO }
+import zio.{ FiberRef, IO, Unsafe }
 
 import scala.annotation.tailrec
 
@@ -141,12 +139,12 @@ object Validator {
     document: Document,
     rootType: RootType,
     variables: Map[String, InputValue]
-  ): EReader[Any, ValidationError, Map[String, FragmentDefinition]] = ZPure.suspend {
+  ): EReader[Any, ValidationError, Map[String, FragmentDefinition]] = {
     val (operations, fragments, _, _) = collectDefinitions(document)
     validateFragments(fragments).flatMap { fragmentMap =>
       val selectionSets = collectSelectionSets(operations.flatMap(_.selectionSet) ++ fragments.flatMap(_.selectionSet))
       val context       = Context(document, rootType, operations, fragmentMap, selectionSets, variables)
-      ZPure.forEachDiscard(defaultValidations)(identity).provideService(context) as fragmentMap
+      ZPure.foreachDiscard(defaultValidations)(identity).provideService(context) as fragmentMap
     }
   }
 
@@ -266,7 +264,7 @@ object Validator {
     loop(selectionSet)
     val directiveLists                            = builder.result()
     ZPure
-      .forEachDiscard(directiveLists)(list => checkDirectivesUniqueness(list.map(_._1), directiveDefinitions))
+      .foreachDiscard(directiveLists)(list => checkDirectivesUniqueness(list.map(_._1), directiveDefinitions))
       .as(directiveLists.flatten)
   }
 
@@ -293,7 +291,7 @@ object Validator {
   private def validateDirectives: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
     for {
       directives <- collectAllDirectives(context)
-      _          <- ZPure.forEachDiscard(directives) { case (d, location) =>
+      _          <- ZPure.foreachDiscard(directives) { case (d, location) =>
                       (Introspector.directives ++ context.rootType.additionalDirectives).find(_.name == d.name) match {
                         case None            =>
                           failValidation(
@@ -301,7 +299,7 @@ object Validator {
                             "GraphQL servers define what directives they support. For each usage of a directive, the directive must be available on that server."
                           )
                         case Some(directive) =>
-                          ZPure.forEachDiscard(d.arguments) { case (arg, argValue) =>
+                          ZPure.foreachDiscard(d.arguments) { case (arg, argValue) =>
                             directive.args.find(_.name == arg) match {
                               case None             =>
                                 failValidation(
@@ -330,15 +328,15 @@ object Validator {
 
   private def validateVariables: EReader[Context, ValidationError, Unit] =
     ZPure.serviceWithPure { context =>
-      ZPure.forEachDiscard(context.operations)(op =>
-        ZPure.forEachDiscard(op.variableDefinitions.groupBy(_.name)) { case (name, variables) =>
+      ZPure.foreachDiscard(context.operations)(op =>
+        ZPure.foreachDiscard(op.variableDefinitions.groupBy(_.name)) { case (name, variables) =>
           ZPure.when(variables.length > 1)(
             failValidation(
               s"Variable '$name' is defined more than once.",
               "If any operation defines more than one variable with the same name, it is ambiguous and invalid. It is invalid even if the type of the duplicate variable is the same."
             )
           )
-        } *> ZPure.forEachDiscard(op.variableDefinitions) { v =>
+        } *> ZPure.foreachDiscard(op.variableDefinitions) { v =>
           val t = Type.innerType(v.variableType)
           ZPure.whenCase(context.rootType.types.get(t).map(_.kind)) {
             case Some(__TypeKind.OBJECT) | Some(__TypeKind.UNION) | Some(__TypeKind.INTERFACE) =>
@@ -349,14 +347,14 @@ object Validator {
           }
         } *> {
           val variableUsages = collectVariablesUsed(context, op.selectionSet)
-          ZPure.forEachDiscard(variableUsages)(v =>
+          ZPure.foreachDiscard(variableUsages)(v =>
             ZPure.when(!op.variableDefinitions.exists(_.name == v))(
               failValidation(
                 s"Variable '$v' is not defined.",
                 "Variables are scoped on a per‐operation basis. That means that any variable used within the context of an operation must be defined at the top level of that operation"
               )
             )
-          ) *> ZPure.forEachDiscard(op.variableDefinitions)(v =>
+          ) *> ZPure.foreachDiscard(op.variableDefinitions)(v =>
             ZPure.when(!variableUsages.contains(v.name))(
               failValidation(
                 s"Variable '${v.name}' is not used.",
@@ -375,7 +373,7 @@ object Validator {
     ZPure.serviceWithPure { context =>
       val spreads     = collectFragmentSpreads(context.selectionSets)
       val spreadNames = spreads.map(_.name).toSet
-      ZPure.forEachDiscard(context.fragments.values)(f =>
+      ZPure.foreachDiscard(context.fragments.values)(f =>
         if (!spreadNames.contains(f.name))
           failValidation(
             s"Fragment '${f.name}' is not used in any spread.",
@@ -401,7 +399,7 @@ object Validator {
   }
 
   private def validateDocumentFields: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
-    ZPure.forEachDiscard(context.document.definitions) {
+    ZPure.foreachDiscard(context.document.definitions) {
       case OperationDefinition(opType, _, _, _, selectionSet) =>
         opType match {
           case OperationType.Query =>
@@ -443,7 +441,7 @@ object Validator {
     selectionSet: List[Selection],
     currentType: __Type
   ): EReader[Any, ValidationError, Unit] =
-    ZPure.forEachDiscard(selectionSet) {
+    ZPure.foreachDiscard(selectionSet) {
       case f: Field                                       => validateField(context, f, currentType)
       case FragmentSpread(name, _)                        =>
         context.fragments.get(name) match {
@@ -519,7 +517,7 @@ object Validator {
     currentType: __Type,
     context: Context
   ): EReader[Any, ValidationError, Unit] =
-    ZPure.forEachDiscard(
+    ZPure.foreachDiscard(
       f.args
         .filter(a => a.`type`().kind == __TypeKind.NON_NULL)
     )(arg =>
@@ -540,7 +538,7 @@ object Validator {
         case _                          => ZPure.unit[Unit]
       }
     ) *>
-      ZPure.forEachDiscard(field.arguments) { case (arg, argValue) =>
+      ZPure.foreachDiscard(field.arguments) { case (arg, argValue) =>
         f.args.find(_.name == arg) match {
           case None             =>
             failValidation(
@@ -569,7 +567,7 @@ object Validator {
 
     argValue match {
       case InputValue.ObjectValue(fields) if inputType.kind == __TypeKind.INPUT_OBJECT =>
-        ZPure.forEachDiscard(fields) { case (k, v) =>
+        ZPure.foreachDiscard(fields) { case (k, v) =>
           inputFields.find(_.name == k) match {
             case None        =>
               failValidation(
@@ -584,7 +582,7 @@ object Validator {
                 s"InputValue '${inputValue.name}' of Field '$k' of InputObject '${t.name.getOrElse("")}'"
               )
           }
-        } *> ZPure.forEachDiscard(inputFields)(inputField =>
+        } *> ZPure.foreachDiscard(inputFields)(inputField =>
           ZPure.when(
             inputField.defaultValue.isEmpty &&
               inputField.`type`().kind == __TypeKind.NON_NULL &&
@@ -834,7 +832,7 @@ object Validator {
     }
 
     def validateFields(fields: List[__InputValue]): EReader[Any, ValidationError, Unit] =
-      ZPure.forEachDiscard(fields)(validateInputValue(_, inputObjectContext)) *>
+      ZPure.foreachDiscard(fields)(validateInputValue(_, inputObjectContext)) *>
         noDuplicateInputValueName(fields, inputObjectContext)
 
     t.inputFields match {
@@ -920,7 +918,7 @@ object Validator {
           isNonNullableSubtype(supertypeFieldType, objectFieldType)
         }
 
-        ZPure.forEachDiscard(objectFields) { objField =>
+        ZPure.foreachDiscard(objectFields) { objField =>
           val fieldContext = s"Field '${objField.name}'"
 
           supertypeFields.find(_.name == objField.name) match {
@@ -1007,12 +1005,12 @@ object Validator {
 
   private[caliban] def validateFields(fields: List[__Field], context: String): EReader[Any, ValidationError, Unit] =
     noDuplicateFieldName(fields, context) <*
-      ZPure.forEachDiscard(fields) { field =>
+      ZPure.foreachDiscard(fields) { field =>
         val fieldContext = s"Field '${field.name}' of $context"
         for {
           _ <- doesNotStartWithUnderscore(field, fieldContext)
           _ <- onlyOutputType(field.`type`(), fieldContext)
-          _ <- ZPure.forEachDiscard(field.args)(validateInputValue(_, fieldContext))
+          _ <- ZPure.foreachDiscard(field.args)(validateInputValue(_, fieldContext))
         } yield ()
       }
 
@@ -1128,7 +1126,7 @@ object Validator {
       val explanatoryText             =
         s"""The directive argument must not have a name which begins with the characters "__" (two underscores)"""
       val argumentErrorContextBuilder = (name: String) => s"Argument '$name' of $errorContext"
-      ZPure.forEachDiscard(args.keys)(argName =>
+      ZPure.foreachDiscard(args.keys)(argName =>
         doesNotStartWithUnderscore[String](argName, identity, argumentErrorContextBuilder(argName), explanatoryText)
       )
     }
@@ -1144,14 +1142,14 @@ object Validator {
       directives: Option[List[Directive]],
       errorContext: String
     ): EReader[Any, ValidationError, Unit] =
-      ZPure.forEachDiscard(directives.getOrElse(List.empty))(validateDirective(_, errorContext))
+      ZPure.foreachDiscard(directives.getOrElse(List.empty))(validateDirective(_, errorContext))
 
     def validateInputValueDirectives(
       inputValues: List[__InputValue],
       errorContext: String
     ): EReader[Any, ValidationError, Unit] = {
       val inputValueErrorContextBuilder = (name: String) => s"InputValue '$name' of $errorContext"
-      ZPure.forEachDiscard(inputValues)(iv => validateDirectives(iv.directives, inputValueErrorContextBuilder(iv.name)))
+      ZPure.foreachDiscard(inputValues)(iv => validateDirectives(iv.directives, inputValueErrorContextBuilder(iv.name)))
     }
 
     def validateFieldDirectives(
@@ -1163,12 +1161,12 @@ object Validator {
         validateInputValueDirectives(field.args, fieldErrorContext)
     }
 
-    ZPure.forEachDiscard(types) { t =>
+    ZPure.foreachDiscard(types) { t =>
       val typeErrorContext = s"Type '${t.name.getOrElse("")}'"
       for {
         _ <- validateDirectives(t.directives, typeErrorContext)
         _ <- validateInputValueDirectives(t.inputFields.getOrElse(List.empty[__InputValue]), typeErrorContext)
-        _ <- ZPure.forEachDiscard(
+        _ <- ZPure.foreachDiscard(
                t.fields(__DeprecatedArgs(Some(true)))
                  .getOrElse(List.empty[__Field])
              )(

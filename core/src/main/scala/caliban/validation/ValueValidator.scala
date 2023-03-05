@@ -9,13 +9,11 @@ import caliban.parsing.Parser
 import caliban.{ InputValue, Value }
 import zio.prelude.EReader
 import zio.prelude.fx.ZPure
-import zio.{ IO, ZIO }
 import zio.prelude._
-import zio.prelude.ops._
 
 object ValueValidator {
   def validateDefaultValue(field: __InputValue, errorContext: String): EReader[Any, ValidationError, Unit] =
-    ZPure.suspend(field.defaultValue match {
+    field.defaultValue match {
       case Some(v) =>
         for {
           value <- ZPure
@@ -30,7 +28,7 @@ object ValueValidator {
         } yield ()
       case None    =>
         ZPure.unit
-    })
+    }
 
   def validateInputTypes(
     inputValue: __InputValue,
