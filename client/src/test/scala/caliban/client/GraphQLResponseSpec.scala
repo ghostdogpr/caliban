@@ -6,8 +6,6 @@ import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import zio.test.Assertion._
 import zio.test._
 import zio.ZIO
-import io.circe.parser.decode
-import io.circe.Json
 
 import scala.util.Try
 

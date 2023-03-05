@@ -7,6 +7,6 @@ trait FetchJsoniterSyntax {
   implicit def jsonRequestBody[A](value: A)(implicit encoder: JsonValueCodec[A]): ToRequestBody =
     new JsonToRequestBody(writeToString(value))
 
-  implicit def fetchEventStreamBuilderSyntaxCirce(b: FetchEventStreamBuilder): FetchEventStreamBuilderJsoniterOps =
+  implicit def fetchEventStreamBuilderSyntaxJsoniter(b: FetchEventStreamBuilder): FetchEventStreamBuilderJsoniterOps =
     new FetchEventStreamBuilderJsoniterOps(b)
 }

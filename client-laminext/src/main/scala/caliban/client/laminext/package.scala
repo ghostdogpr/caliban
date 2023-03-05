@@ -6,7 +6,6 @@ import caliban.client.__Value.__ObjectValue
 import caliban.client.ws.{ GraphQLWSRequest, GraphQLWSResponse }
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import com.raquo.airstream.core.EventStream
-import io.circe.Json
 import io.laminext.fetch.jsoniter._
 import io.laminext.websocket.jsoniter._
 import io.laminext.websocket.{ WebSocket, WebSocketBuilder, WebSocketReceiveBuilder }

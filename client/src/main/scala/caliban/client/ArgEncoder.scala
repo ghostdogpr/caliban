@@ -1,7 +1,6 @@
 package caliban.client
 
 import caliban.client.__Value.{ __BooleanValue, __ListValue, __NullValue, __NumberValue, __ObjectValue, __StringValue }
-import io.circe.Json
 
 import scala.annotation.implicitNotFound
 import java.util.UUID

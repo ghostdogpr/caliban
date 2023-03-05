@@ -1,7 +1,6 @@
 package caliban.client
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{ JsonReader, JsonValueCodec, JsonWriter }
-import io.circe.Json
 
 import scala.annotation.switch
 import scala.collection.immutable.TreeMap
@@ -36,7 +35,7 @@ object __Value {
     override def toString: String = value
   }
   case class __StringValue(value: String)                   extends __Value {
-    override def toString: String = Json.fromString(value).toString
+    override def toString: String = s""""$value""""
   }
   case class __BooleanValue(value: Boolean)                 extends __Value {
     override def toString: String = value.toString

@@ -378,7 +378,6 @@ lazy val client    = crossProject(JSPlatform, JVMPlatform)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "io.circe"                             %%% "circe-parser"          % circeVersion,
       "com.softwaremill.sttp.client3"        %%% "core"                  % sttpVersion,
       "com.softwaremill.sttp.client3"        %%% "jsoniter"              % sttpVersion,
       "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"   % jsoniterVersion,
@@ -419,9 +418,7 @@ lazy val clientLaminext = crossProject(JSPlatform)
     libraryDependencies ++= Seq(
       "io.laminext"                           %%% "core"                % laminextVersion,
       "io.laminext"                           %%% "fetch"               % laminextVersion,
-      "io.laminext"                           %%% "fetch-circe"         % laminextVersion,
       "io.laminext"                           %%% "websocket"           % laminextVersion,
-      "io.laminext"                           %%% "websocket-circe"     % laminextVersion,
       "com.github.plokhotnyuk.jsoniter-scala" %%% "jsoniter-scala-core" % jsoniterVersion,
       "dev.zio"                               %%% "zio-test"            % zioVersion % Test,
       "dev.zio"                               %%% "zio-test-sbt"        % zioVersion % Test
