@@ -256,6 +256,15 @@ object WrappersSpec extends ZIOSpecDefault {
           )
         )
         List(
+          test("non-APQ queries are processed normally") {
+            case class Test(test: String)
+
+            (for {
+              interpreter <- (graphQL(RootResolver(Test("ok"))) @@ apolloPersistedQueries).interpreter
+              result      <- interpreter.executeRequest(GraphQLRequest(query = Some("{test}")))
+            } yield assertTrue(result.asJson.noSpaces == """{"data":{"test":"ok"}}"""))
+              .provide(ApolloPersistedQueries.live)
+          },
           test("hash not found") {
             case class Test(test: String)
             val interpreter = (graphQL(RootResolver(Test("ok"))) @@ apolloPersistedQueries).interpreter
