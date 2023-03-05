@@ -47,7 +47,7 @@ object Validator {
    */
   def validateSchema[R](schema: RootSchemaBuilder[R]): IO[ValidationError, RootSchema[R]] = {
     val types = schema.types
-    types.sorted.forEach_(validateType) *>
+    ZPure.foreachDiscard(types.sorted)(validateType) *>
       validateClashingTypes(types) *>
       validateDirectives(types) *>
       validateRootQuery(schema)
@@ -226,7 +226,7 @@ object Validator {
   ): EReader[Any, ValidationError, List[(Directive, __DirectiveLocation)]] =
     for {
       directiveDefinitions <- ZPure.succeed(context.document.directiveDefinitions.groupBy(_.name))
-      opDirectives         <- ZPure.forEach(context.operations)(op =>
+      opDirectives         <- ZPure.foreach(context.operations)(op =>
                                 checkDirectivesUniqueness(op.directives, directiveDefinitions).as(op.operationType match {
                                   case OperationType.Query        => op.directives.map((_, __DirectiveLocation.QUERY))
                                   case OperationType.Mutation     => op.directives.map((_, __DirectiveLocation.MUTATION))
@@ -234,7 +234,7 @@ object Validator {
                                     op.directives.map((_, __DirectiveLocation.SUBSCRIPTION))
                                 })
                               )
-      fragmentDirectives   <- ZPure.forEach(context.fragments.values)(fragment =>
+      fragmentDirectives   <- ZPure.foreach(context.fragments.values)(fragment =>
                                 checkDirectivesUniqueness(fragment.directives, directiveDefinitions)
                                   .as(fragment.directives.map((_, __DirectiveLocation.FRAGMENT_DEFINITION)))
                               )
