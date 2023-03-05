@@ -15,6 +15,7 @@ object RenderingSpec extends ZIOSpecDefault {
   private val expectedDirectiveRenderingResult =
     """"Test directive"
       |directive @test(foo: Int) on FIELD_DEFINITION
+      |
       |"Repeatable test directive"
       |directive @repeatable(bar: Int) repeatable on FIELD_DEFINITION
       |
@@ -79,7 +80,10 @@ object RenderingSpec extends ZIOSpecDefault {
       |  charactersIn(names: [String!]!): [Character!]!
       |  exists(character: CharacterInput!): Boolean!
       |  human: Human!
-      |}"""
+      |}""".replace(
+      "\n\"Repeatable test directive\"",
+      "\"Repeatable test directive\""
+    ) // dirty trick to fix a scala bug
 
   override def spec =
     suite("rendering")(
