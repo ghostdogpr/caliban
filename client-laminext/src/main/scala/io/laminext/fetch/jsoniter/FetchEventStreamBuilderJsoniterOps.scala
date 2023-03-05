@@ -1,13 +1,14 @@
-package io.laminext.fetch.jsoniter
+package io.laminext.fetch
+package jsoniter
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromString, JsonValueCodec }
 import com.raquo.laminar.api.L._
-import io.laminext.fetch.{ NonOkayResponse, ResponseError }
 import org.scalajs.dom.Response
 
 import scala.concurrent.{ ExecutionContext, Future }
 import scala.scalajs.js.Thenable.Implicits._
 import scala.util.control.NonFatal
+
 class FetchEventStreamBuilderJsoniterOps(underlying: FetchEventStreamBuilder) {
 
   private def decodeResponse[A](
