@@ -15,7 +15,8 @@ class FetchEventStreamBuilderJsoniterOps(underlying: FetchEventStreamBuilder) {
     response: Response
   )(implicit codec: JsonValueCodec[A], ec: ExecutionContext): Future[A] =
     response.text().flatMap { text =>
-      try Future.successful(readFromString[A](text)) match {
+      try Future.successful(readFromString[A](text))
+      catch {
         case NonFatal(e) => Future.failed(ResponseError(e, response))
       }
     }
