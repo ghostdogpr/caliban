@@ -1,6 +1,7 @@
 package caliban.client
 
-import com.github.plokhotnyuk.jsoniter_scala.core.{ JsonReader, JsonValueCodec, JsonWriter }
+import com.github.plokhotnyuk.jsoniter_scala.core.{ writeToString, JsonReader, JsonValueCodec, JsonWriter }
+import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
 
 import scala.annotation.switch
 import scala.collection.immutable.TreeMap
@@ -23,7 +24,8 @@ sealed trait __Value { self =>
 }
 
 object __Value {
-  private final val MaxDepth = 512
+  private final val MaxDepth                                    = 512
+  private implicit val stringCodecMaker: JsonValueCodec[String] = JsonCodecMaker.make[String]
 
   case object __NullValue                                   extends __Value {
     override def toString: String = "null"
@@ -35,7 +37,7 @@ object __Value {
     override def toString: String = value
   }
   case class __StringValue(value: String)                   extends __Value {
-    override def toString: String = s""""$value""""
+    override def toString: String = writeToString(value)
   }
   case class __BooleanValue(value: Boolean)                 extends __Value {
     override def toString: String = value.toString
