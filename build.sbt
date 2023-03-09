@@ -27,13 +27,8 @@ val zioInteropReactiveVersion = "2.0.1"
 val zioConfigVersion          = "3.0.7"
 val zqueryVersion             = "0.4.0"
 val zioJsonVersion            = "0.4.2"
-<<<<<<< HEAD
 val zioHttpVersion            = "0.0.4"
-val zioOpenTelemetryVersion   = "3.0.0-RC4"
-=======
-val zioHttpVersion            = "2.0.0-RC10"
 val zioOpenTelemetryVersion   = "3.0.0-RC5"
->>>>>>> 9d1ee721 (bump deps)
 
 inThisBuild(
   List(
