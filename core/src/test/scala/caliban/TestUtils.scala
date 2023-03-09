@@ -579,12 +579,4 @@ object TestUtils {
 
     val resolverEmpty = new RootResolver(Option.empty[Unit], Option.empty[Unit], Option.empty[Unit])
   }
-
-  val skipJdk8: TestAspectPoly = {
-    System.getProperty("java.version").split('.').toList match {
-      case "1" :: "8" :: _ => TestAspect.ignore
-      case "8" :: _        => TestAspect.ignore
-      case _               => TestAspect.identity
-    }
-  }
 }
