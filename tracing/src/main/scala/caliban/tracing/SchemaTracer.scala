@@ -31,8 +31,7 @@ object SchemaTracer {
           ZIO.serviceWithZIO[Tracing](tracer =>
             tracer.span[R, Nothing, GraphQLResponse[CalibanError]](
               "query",
-              SpanKind.INTERNAL,
-              ErrorMapper.default
+              SpanKind.INTERNAL
             ) {
               ZIO.foreach(attributes(request.field)) { case (k, v) =>
                 tracer.setAttribute(k, v)
