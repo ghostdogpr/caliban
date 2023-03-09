@@ -4,8 +4,9 @@ import caliban.interop.tapir.TestData.sampleCharacters
 import caliban.interop.tapir.{ FakeAuthorizationInterceptor, TapirAdapterSpec, TestApi, TestService }
 import caliban.uploads.Uploads
 import sttp.client3.UriContext
-import zhttp.http._
-import zhttp.service.Server
+import zio.http._
+import zio.http.netty.server.NettyDriver
+import zio.http.netty.{ ChannelFactories, NettyRuntime }
 import zio._
 import zio.test.{ Live, ZIOSpecDefault }
 
@@ -16,18 +17,19 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
 
   private val envLayer = TestService.make(sampleCharacters) ++ Uploads.empty
 
-  private val apiLayer = envLayer >>> ZLayer.scoped {
+  private val apiLayer = envLayer >>> ZLayer.fromZIO {
     for {
       interpreter <- TestApi.api.interpreter
       _           <- Server
-                       .start(
-                         8089,
-                         Http.collectHttp[Request] {
-                           case _ -> !! / "api" / "graphql" =>
-                             ZHttpAdapter.makeHttpService(interpreter, requestInterceptor = FakeAuthorizationInterceptor.bearer)
-                           case _ -> !! / "ws" / "graphql"  =>
-                             ZHttpAdapter.makeWebSocketService(interpreter)
-                         }
+                       .serve(
+                         Http
+                           .collectRoute[Request] {
+                             case _ -> !! / "api" / "graphql" =>
+                               ZHttpAdapter.makeHttpService(interpreter, requestInterceptor = FakeAuthorizationInterceptor.bearer)
+                             case _ -> !! / "ws" / "graphql"  =>
+                               ZHttpAdapter.makeWebSocketService(interpreter)
+                           }
+                           .withDefaultErrorResponse
                        )
                        .forkScoped
       _           <- Live.live(Clock.sleep(3 seconds))
@@ -41,6 +43,11 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
       uri"http://localhost:8089/api/graphql",
       wsUri = Some(uri"ws://localhost:8089/ws/graphql")
     )
-    suite.provideLayerShared(apiLayer)
+    suite.provideShared(
+      apiLayer,
+      Scope.default,
+      Server.live,
+      ServerConfig.live(ServerConfig.default.port(8089))
+    )
   }
 }

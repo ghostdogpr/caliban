@@ -19,7 +19,7 @@ val playVersion               = "2.8.19"
 val playJsonVersion           = "2.9.4"
 val scalafmtVersion           = "3.7.2"
 val sttpVersion               = "3.8.0"
-val tapirVersion              = "1.2.2"
+val tapirVersion              = "1.2.10"
 val zioVersion                = "2.0.10"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.0.0.1"
@@ -27,7 +27,7 @@ val zioInteropReactiveVersion = "2.0.1"
 val zioConfigVersion          = "3.0.7"
 val zqueryVersion             = "0.4.0"
 val zioJsonVersion            = "0.4.2"
-val zioHttpVersion            = "2.0.0-RC10"
+val zioHttpVersion            = "0.0.4"
 
 inThisBuild(
   List(
@@ -36,7 +36,7 @@ inThisBuild(
     organization             := "com.github.ghostdogpr",
     homepage                 := Some(url("https://github.com/ghostdogpr/caliban")),
     licenses                 := List(License.Apache2),
-    resolvers += "Sonatype OSS Snapshots" at "https://s01.oss.sonatype.org/content/repositories/snapshots",
+    resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
     Test / parallelExecution := false,
     scmInfo                  := Some(
       ScmInfo(
@@ -298,9 +298,10 @@ lazy val zioHttp = project
   .settings(name := "caliban-zio-http")
   .settings(commonSettings)
   .settings(
+    resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "io.d11"                      %% "zhttp"                 % zioHttpVersion,
+      "dev.zio"                     %% "zio-http"              % zioHttpVersion,
       "com.softwaremill.sttp.tapir" %% "tapir-zio-http-server" % tapirVersion,
       "dev.zio"                     %% "zio-json"              % zioJsonVersion % Test,
       "com.softwaremill.sttp.tapir" %% "tapir-json-zio"        % tapirVersion   % Test
@@ -419,7 +420,7 @@ lazy val examples = project
       "org.http4s"                            %% "http4s-dsl"                    % http4sVersion,
       "com.softwaremill.sttp.client3"         %% "async-http-client-backend-zio" % sttpVersion,
       "io.circe"                              %% "circe-generic"                 % circeVersion,
-      "io.d11"                                %% "zhttp"                         % zioHttpVersion,
+      "dev.zio"                               %% "zio-http"                      % zioHttpVersion,
       "com.typesafe.play"                     %% "play-akka-http-server"         % playVersion,
       "com.typesafe.akka"                     %% "akka-actor-typed"              % akkaVersion,
       "com.softwaremill.sttp.tapir"           %% "tapir-jsoniter-scala"          % tapirVersion,

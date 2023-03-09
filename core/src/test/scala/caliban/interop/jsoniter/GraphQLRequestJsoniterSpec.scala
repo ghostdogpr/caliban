@@ -48,5 +48,5 @@ object GraphQLRequestJsoniterSpec extends ZIOSpecDefault {
             """{"query":"{}","operationName":"op","variables":{"hello":"world","answer":42,"isAwesome":true,"name":null}}"""
         )
       }
-    ) @@ TestUtils.skipJdk8
+    )
 }

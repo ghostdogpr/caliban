@@ -32,5 +32,5 @@ object GraphQLWSOutputJsoniterSpec extends ZIOSpecDefault {
 
         assertTrue(writeToString(res) == """{"type":"some type","id":"id","payload":{"field":"yo"}}""")
       }
-    ) @@ TestUtils.skipJdk8
+    )
 }

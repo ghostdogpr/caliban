@@ -95,5 +95,5 @@ object GraphQLResponseJsoniterSpec extends ZIOSpecDefault {
           )
         )
       }
-    ) @@ TestUtils.skipJdk8
+    )
 }

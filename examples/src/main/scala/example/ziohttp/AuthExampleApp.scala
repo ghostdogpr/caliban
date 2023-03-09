@@ -8,8 +8,8 @@ import caliban.schema.GenericSchema
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
 import sttp.tapir.json.circe._
-import zhttp.http._
-import zhttp.service.Server
+import zio.http._
+import zio.http.model._
 import zio._
 import zio.stream._
 
@@ -40,57 +40,32 @@ object Auth {
   }
 
   object WebSockets {
-    private val wsSession = Http.fromZIO(Ref.make[Option[String]](None))
-
     def live[R <: Auth](
       interpreter: GraphQLInterpreter[R, CalibanError]
-    ): HttpApp[R, CalibanError] =
-      wsSession.flatMap { session =>
-        val auth =
-          new Auth {
-            def currentUser: IO[Unauthorized, String]    =
-              session.get.flatMap {
-                case Some(v) => ZIO.succeed(v)
-                case None    => ZIO.fail(Unauthorized)
+    ): App[R] = {
+      val webSocketHooks = WebSocketHooks.init[R, CalibanError](payload =>
+        ZIO
+          .fromOption(payload match {
+            case InputValue.ObjectValue(fields) =>
+              fields.get("Authorization").flatMap {
+                case StringValue(s) => Some(s)
+                case _              => None
               }
-            def setUser(name: Option[String]): UIO[Unit] = session.set(name)
-          }
+            case x                              => None
+          })
+          .orElseFail(CalibanError.ExecutionError("Unable to decode payload"))
+          .flatMap(user => ZIO.serviceWithZIO[Auth](_.setUser(Some(user))))
+          .debug("connect")
+      ) ++ WebSocketHooks.afterInit(ZIO.failCause(Cause.empty).delay(10.seconds))
 
-        val webSocketHooks = WebSocketHooks.init[R, CalibanError](payload =>
-          ZIO
-            .fromOption(payload match {
-              case InputValue.ObjectValue(fields) =>
-                fields.get("Authorization").flatMap {
-                  case StringValue(s) => Some(s)
-                  case _              => None
-                }
-              case _                              => None
-            })
-            .orElseFail(CalibanError.ExecutionError("Unable to decode payload"))
-            .flatMap(user => auth.setUser(Some(user)))
-        ) ++
-          WebSocketHooks.afterInit(ZIO.failCause(Cause.empty).delay(10.seconds)) ++
-          WebSocketHooks
-            .message(new StreamTransformer[Auth, Nothing] {
-              def transform[R1 <: Auth, E1 >: Nothing](
-                stream: ZStream[R1, E1, GraphQLWSOutput]
-              ): ZStream[R1, E1, GraphQLWSOutput] = stream.updateService[Auth](_ => auth)
-            })
-
-        ZHttpAdapter.makeWebSocketService(interpreter, webSocketHooks = webSocketHooks)
-      }
+      ZHttpAdapter.makeWebSocketService(interpreter, webSocketHooks = webSocketHooks)
+    }
   }
 
-  def middleware[R](
-    app: Http[R, Throwable, Request, Response]
-  ): HttpApp[R with Auth, Throwable] =
-    Http
-      .fromFunctionZIO[Request] { (request: Request) =>
-        val user = request.headers.authorization.map(_.toString())
-
-        ZIO.serviceWithZIO[Auth](_.setUser(user)).as(app)
-      }
-      .flatten
+  def middleware[R] = Middleware.customAuthZIO { headers =>
+    val user = headers.authorization.map(_.toString())
+    ZIO.serviceWithZIO[Auth](_.setUser(user)).as(true)
+  }
 }
 
 object Authed extends GenericSchema[Auth] {
@@ -101,33 +76,32 @@ object Authed extends GenericSchema[Auth] {
   )
   case class Subscriptions(
     whoAmI: ZStream[Auth, Unauthorized.type, String] =
-      ZStream.fromZIO(ZIO.serviceWithZIO[Auth](_.currentUser)).repeat(Schedule.spaced(10.seconds))
+      ZStream.fromZIO(ZIO.serviceWithZIO[Auth](_.currentUser)).repeat(Schedule.spaced(2.seconds))
   )
 
   val api = graphQL(RootResolver(Queries(), None, Subscriptions()))
 }
 
 object AuthExampleApp extends ZIOAppDefault {
-
-  private val graphiql = Http.fromStream(ZStream.fromResource("graphiql.html"))
+  private val graphiql = Handler.fromStream(ZStream.fromResource("graphiql.html")).toHttp
 
   override def run =
     (for {
       interpreter <- (ExampleApi.api |+| Authed.api).interpreter
-      _           <- Server
-                       .start(
-                         8088,
-                         Http.collectHttp[Request] {
-                           case _ -> !! / "api" / "graphql" =>
-                             Auth.middleware(
-                               ZHttpAdapter.makeHttpService(interpreter)
-                             )
-                           case _ -> !! / "ws" / "graphql"  => Auth.WebSockets.live(interpreter)
-                           case _ -> !! / "graphiql"        => graphiql
-                         }
+      port        <- Server
+                       .install(
+                         Http
+                           .collectRoute[Request] {
+                             case _ -> !! / "api" / "graphql" =>
+                               ZHttpAdapter.makeHttpService(interpreter) @@ Auth.middleware
+                             case _ -> !! / "ws" / "graphql"  => Auth.WebSockets.live(interpreter)
+                             case _ -> !! / "graphiql"        => graphiql
+                           }
+                           .withDefaultErrorResponse
                        )
-                       .forever
+      _           <- ZIO.logInfo(s"Server started on port $port")
+      _           <- ZIO.never
     } yield ())
-      .provideSomeLayer[Scope](ExampleService.make(sampleCharacters) ++ Auth.http)
+      .provide(ExampleService.make(sampleCharacters), Auth.http, Server.default)
       .exitCode
 }
