@@ -6,7 +6,7 @@ import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, GraphQLWSInput, 
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.client3.SttpBackend
-import sttp.client3.asynchttpclient.zio._
+import sttp.client3.httpclient.zio.HttpClientZioBackend
 import sttp.model.{ Header, MediaType, Method, Part, QueryParams, StatusCode, Uri }
 import sttp.tapir.AttributeKey
 import sttp.tapir.Codec.JsonCodec
@@ -276,7 +276,7 @@ object TapirAdapterSpec {
     )
 
     ZIO.succeed(tests.flatten)
-  }.provideLayerShared(ZLayer.scoped(AsyncHttpClientZioBackend.scoped())) @@
+  }.provideLayerShared(ZLayer.scoped(HttpClientZioBackend.scoped())) @@
     before(TestService.reset) @@
     TestAspect.sequential
 }

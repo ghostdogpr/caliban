@@ -3,7 +3,7 @@ package caliban.tools
 import caliban.GraphQL
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document
-import sttp.client3.asynchttpclient.zio.AsyncHttpClientZioBackend
+import sttp.client3.httpclient.zio.HttpClientZioBackend
 import zio.{ Task, ZIO }
 
 trait SchemaLoader {
@@ -30,7 +30,7 @@ object SchemaLoader {
   case class FromIntrospection private[SchemaLoader] (url: String, headers: Option[List[Options.Header]])
       extends SchemaLoader {
     override def load: Task[Document] =
-      IntrospectionClient.introspect(url, headers).provideLayer(AsyncHttpClientZioBackend.layer())
+      IntrospectionClient.introspect(url, headers).provideLayer(HttpClientZioBackend.layer())
   }
 
   def fromCaliban[R](api: GraphQL[R]): SchemaLoader                                       = FromCaliban(api)
