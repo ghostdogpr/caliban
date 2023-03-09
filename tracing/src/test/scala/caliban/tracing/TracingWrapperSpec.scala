@@ -3,6 +3,8 @@ package caliban.tracing
 import caliban.GraphQL.graphQL
 import caliban.Macros.gqldoc
 import caliban.RootResolver
+import caliban.schema.ArgBuilder.auto._
+import caliban.schema.Schema.auto._
 import zio._
 import zio.query._
 import zio.test._

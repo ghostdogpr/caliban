@@ -4,6 +4,8 @@ import caliban.GraphQL.graphQL
 import caliban.Macros.gqldoc
 import caliban.RootResolver
 import caliban.schema.Annotations.GQLDefault
+import caliban.schema.ArgBuilder.auto._
+import caliban.schema.Schema.auto._
 import zio._
 import zio.metrics.Metric
 import zio.metrics.{ Metric, MetricLabel, MetricState }
