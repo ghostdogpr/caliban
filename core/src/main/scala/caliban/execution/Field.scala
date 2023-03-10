@@ -88,12 +88,12 @@ object Field {
         }
       }
 
-      val innerType = Types.innerType(fieldType)
+      val innerType            = Types.innerType(fieldType)
+      lazy val innerTypeFields = innerType.fields(__DeprecatedArgs(Some(true)))
+
       selectionSet.foreach {
         case F(alias, name, arguments, directives, selectionSet, index) =>
-          val selected = innerType
-            .fields(__DeprecatedArgs(Some(true)))
-            .flatMap(_.find(_.name == name))
+          val selected = innerTypeFields.flatMap(_.find(_.name == name))
 
           val schemaDirectives   = selected.flatMap(_.directives).getOrElse(Nil)
           val resolvedDirectives = (directives ++ schemaDirectives).map(directive =>
@@ -103,7 +103,7 @@ object Field {
           if (checkDirectives(resolvedDirectives)) {
             val t = selected.fold(Types.string)(_.`type`()) // default only case where it's not found is __typename
 
-            val field = loop(selectionSet, t)
+            val fields = if (selectionSet.nonEmpty) loop(selectionSet, t).fields else Nil
 
             addField(
               Field(
@@ -111,7 +111,7 @@ object Field {
                 t,
                 Some(innerType),
                 alias,
-                field.fields,
+                fields,
                 None,
                 resolveVariables(arguments, variableDefinitions, variableValues),
                 resolvedDirectives,
@@ -134,16 +134,18 @@ object Field {
                   .flatMap(_.find(_.name.contains(f.typeCondition.name)))
                   .orElse(rootType.types.get(f.typeCondition.name))
                   .getOrElse(fieldType)
-                loop(f.selectionSet, t).fields
-                  .map(field =>
-                    if (field._condition.isDefined) field
-                    else
-                      field.copy(
-                        targets = Some(Set(f.typeCondition.name)),
-                        _condition = subtypeNames(f.typeCondition.name, rootType)
-                      )
-                  )
-                  .foreach(addField(_, Some(f.typeCondition.name)))
+                if (f.selectionSet.nonEmpty) {
+                  loop(f.selectionSet, t).fields.foreach { field =>
+                    val _field =
+                      if (field._condition.isDefined) field
+                      else
+                        field.copy(
+                          targets = Some(Set(f.typeCondition.name)),
+                          _condition = subtypeNames(f.typeCondition.name, rootType)
+                        )
+                    addField(_field, Some(f.typeCondition.name))
+                  }
+                }
               }
           }
         case InlineFragment(typeCondition, directives, selectionSet)    =>
@@ -152,25 +154,26 @@ object Field {
           )
 
           if (checkDirectives(resolvedDirectives)) {
-            val t     = innerType.possibleTypes
+            val t = innerType.possibleTypes
               .flatMap(_.find(_.name.exists(typeCondition.map(_.name).contains)))
               .orElse(typeCondition.flatMap(typeName => rootType.types.get(typeName.name)))
               .getOrElse(fieldType)
-            val field = loop(selectionSet, t)
-            typeCondition match {
-              case None           => if (field.fields.nonEmpty) fieldList ++= field.fields
-              case Some(typeName) =>
-                field.fields
-                  .map(field =>
-                    if (field._condition.isDefined) field
-                    else
-                      field
-                        .copy(
-                          targets = typeCondition.map(t => Some(Set(t.name))).getOrElse(None),
+            if (selectionSet.nonEmpty) {
+              val fields = loop(selectionSet, t).fields
+              typeCondition match {
+                case None           => fieldList ++= fields
+                case Some(typeName) =>
+                  fields.foreach { field =>
+                    val _field =
+                      if (field._condition.isDefined) field
+                      else
+                        field.copy(
+                          targets = typeCondition.flatMap(t => Some(Set(t.name))),
                           _condition = subtypeNames(typeName.name, rootType)
                         )
-                  )
-                  .foreach(addField(_, Some(typeName.name)))
+                    addField(_field, Some(typeName.name))
+                  }
+              }
             }
           }
       }
