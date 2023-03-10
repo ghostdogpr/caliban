@@ -168,7 +168,7 @@ object Field {
                       if (field._condition.isDefined) field
                       else
                         field.copy(
-                          targets = typeCondition.flatMap(t => Some(Set(t.name))),
+                          targets = typeCondition.map(t => Set(t.name)),
                           _condition = subtypeNames(typeName.name, rootType)
                         )
                     addField(_field, Some(typeName.name))
