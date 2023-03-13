@@ -9,6 +9,8 @@ import caliban.wrappers.Wrapper.{ OverallWrapper, ValidationWrapper }
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse }
 import zio._
 import zio.Console.{ printLine, printLineError }
+import zio.metrics.MetricKeyType.Histogram
+import zio.metrics.MetricLabel
 
 import scala.annotation.tailrec
 
@@ -43,6 +45,17 @@ object Wrappers {
    */
   def printSlowQueries(duration: Duration): OverallWrapper[Any] =
     onSlowQueries(duration) { case (time, query) => printLine(s"Slow query took ${time.render}:\n$query").orDie }
+
+  /**
+   * Returns a wrapper that logs slow queries
+   * @param duration threshold above which queries are considered slow
+   */
+  def logSlowQueries(duration: Duration): OverallWrapper[Any] =
+    onSlowQueries(duration) { case (time, query) =>
+      ZIO.logAnnotate("query", query) {
+        ZIO.logWarning(s"Slow query took ${time.render}")
+      }
+    }
 
   /**
    * Returns a wrapper that runs a given function in case of slow queries
@@ -137,6 +150,22 @@ object Wrappers {
             }
           }
     }
+
+  /**
+   * Returns a wrapper that adds field metrics to the query
+   *
+   * @param totalLabel the name of the total fields metric
+   * @param durationLabel the name of the duration metric
+   * @param buckets the buckets to use for the duration metric
+   * @param extraLabels extra labels to add to the metrics
+   */
+  def metrics(
+    totalLabel: String = "graphql_fields_total",
+    durationLabel: String = "graphql_fields_duration_seconds",
+    buckets: Histogram.Boundaries = FieldMetrics.defaultBuckets,
+    extraLabels: Set[MetricLabel] = Set.empty
+  ): Wrapper.EffectfulWrapper[Any] =
+    FieldMetrics.wrapper(totalLabel, durationLabel, buckets, extraLabels)
 
   private def countFields(field: Field): UIO[Int] =
     innerFields(field.fields)

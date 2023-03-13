@@ -201,7 +201,7 @@ object Executor {
   }
 
   private def fieldInfo(field: Field, path: List[Either[String, Int]], fieldDirectives: List[Directive]): FieldInfo =
-    FieldInfo(field.alias.getOrElse(field.name), field, path, fieldDirectives)
+    FieldInfo(field.alias.getOrElse(field.name), field, path, fieldDirectives, field.parentType)
 
   private def reduceList[R](list: List[ReducedStep[R]], areItemsNullable: Boolean): ReducedStep[R] =
     if (list.forall(_.isInstanceOf[PureStep]))

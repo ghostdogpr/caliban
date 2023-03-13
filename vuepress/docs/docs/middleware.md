@@ -67,7 +67,9 @@ Caliban comes with a few pre-made wrappers in `caliban.wrappers.Wrappers`:
 - `timeout` returns a wrapper that fails queries taking more than a specified time
 - `printErrors` returns a wrapper that prints errors
 - `printSlowQueries` returns a wrapper that prints slow queries
+- `logSlowQueries` returns a wrapper that logs slow queries via ZIO's built-in logging
 - `onSlowQueries` returns a wrapper that can run a given function on slow queries
+- `metrics` returns a wrapper that adds field-level metrics (count & duration) to the schema
 
 In addition to those, Caliban also ships with some non-spec but standard wrappers
 - `caliban.wrappers.ApolloTracing.apolloTracing` returns a wrapper that adds tracing data into the `extensions` field of each response following [Apollo Tracing](https://github.com/apollographql/apollo-tracing) format.
@@ -227,3 +229,38 @@ to fields. In this case the field resolver will override the type cost, however 
 We may also specify a "multipliers" argument when using arguments. This will match the argument names and use numeric argument values to multiply the base value.
 In the above case this means that a query that specifies a `limit` of `10` for the `spokenLines` field will have the base field cost multipled by 10 resulting in a total cost
 of execution of `1000`
+
+## OpenTelemetry Tracing
+
+Caliban ships with support for OpenTelemetry tracing via integration with [zio-telemetry](https://github.com/zio/zio-telemetry) in the `caliban-tracing` package.
+
+In order to use tracing, first add `caliban-tracing` to your `built.sbt`.
+
+```scala
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-tracing" % "2.0.2"
+```
+
+Then add it to your schema as any other wrapper:
+
+```scala
+import caliban.tracing.TracingWrapper
+import zio.telemetry.opentelemetry.Tracing
+
+val api: GraphQL[Any] = ???
+val tracedApi = api @@ TracingWrapper.traced
+```
+
+This will now make sure that any effect (ZIO or ZQuery) is measured as its own span, which makes it easy to spot potential optimizations (such as sequential loading) in your schema.
+
+More or less like this:
+
+```
+query         |----------------------------------------------|
+field a         |-------|
+field b                  |-------|
+nested field                      |-----------------------|
+nested field a                      |-------------------|
+nested field b                      |-------------------|
+```
+
+which makes it easy to spot that e.g field a and field b could be resolved in parallel.
