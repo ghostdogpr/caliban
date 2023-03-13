@@ -118,19 +118,17 @@ lazy val core = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) {
-        Seq(
-          "org.typelevel" %% "cats-parse" % "0.3.9"
-        )
+        Seq()
       } else {
         Seq(
           "com.propensive"    %% "magnolia"  % magnoliaVersion,
           "com.propensive"    %% "mercator"  % mercatorVersion,
-          "com.lihaoyi"       %% "fastparse" % "2.3.3",
           "com.typesafe.play" %% "play-json" % playJsonVersion % Optional
         )
       }
     } ++
       Seq(
+        "com.lihaoyi"                           %% "fastparse"             % "3.0.0",
         "dev.zio"                               %% "zio"                   % zioVersion,
         "dev.zio"                               %% "zio-streams"           % zioVersion,
         "dev.zio"                               %% "zio-query"             % zqueryVersion,

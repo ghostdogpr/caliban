@@ -6,6 +6,9 @@ import caliban.parsing.adt.Type._
 import caliban.parsing.adt._
 import fastparse._
 
+import scala.annotation.nowarn
+
+@nowarn("msg=NoWhitespace") // False positive warning in Scala 2.x
 private[caliban] trait SelectionParsers extends ValueParsers {
   def alias(implicit ev: P[Any]): P[String] = P(name ~ ":")
 

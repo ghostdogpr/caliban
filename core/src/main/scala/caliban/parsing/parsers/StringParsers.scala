@@ -6,7 +6,7 @@ import fastparse._
 import scala.annotation.{ switch, tailrec }
 
 private[caliban] trait StringParsers {
-  implicit val whitespace: P[_] => P[Unit] = new (P[_] => P[Unit]) {
+  implicit object whitespace extends Whitespace {
 
     type State = Int
 
@@ -32,9 +32,9 @@ private[caliban] trait StringParsers {
         (state: @switch) match {
           case Normal                  =>
             (currentChar: @switch) match {
+              case CR                                    => loop(index + 1, state = DetermineLineBreakStart)
               case Space | LF | Comma | Tab | UnicodeBOM => loop(index + 1, state = Normal)
               case CommentStart                          => loop(index + 1, state = InsideLineComment)
-              case CR                                    => loop(index + 1, state = DetermineLineBreakStart)
               case _                                     => ctx.freshSuccessUnit(index)
             }
           case InsideLineComment       =>
