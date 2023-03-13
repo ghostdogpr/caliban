@@ -53,7 +53,7 @@ object Wrappers {
   def logSlowQueries(duration: Duration): OverallWrapper[Any] =
     onSlowQueries(duration) { case (time, query) =>
       ZIO.logAnnotate("query", query) {
-        ZIO.logWarning(s"Slow query took ${time.render}:\n$query")
+        ZIO.logWarning(s"Slow query took ${time.render}")
       }
     }
 
