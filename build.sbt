@@ -27,7 +27,7 @@ val zioInteropReactiveVersion = "2.0.1"
 val zioConfigVersion          = "3.0.7"
 val zqueryVersion             = "0.4.0"
 val zioJsonVersion            = "0.4.2"
-val zioHttpVersion            = "0.0.4"
+val zioHttpVersion            = "0.0.5"
 val zioOpenTelemetryVersion   = "3.0.0-RC5"
 
 inThisBuild(
