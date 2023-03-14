@@ -190,7 +190,7 @@ object CostEstimation {
       ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
         (doc: Document) =>
           process(doc).tap { req =>
-            ZIO.unlessZIO(ZIO.succeed(skipForPersistedQueries) && Validator.skipQueryValidationRef.get) {
+            ZIO.unlessZIO(ZIO.succeed(skipForPersistedQueries) && Validator.skipValidation) {
               val cost = computeCost(req.field)(f)
               ZIO.when(cost > maxCost)(ZIO.fail(error(cost)))
             }
@@ -213,7 +213,7 @@ object CostEstimation {
       ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
         (doc: Document) =>
           process(doc).tap { req =>
-            ZIO.unlessZIO(ZIO.succeed(skipForPersistedQueries) && Validator.skipQueryValidationRef.get) {
+            ZIO.unlessZIO(ZIO.succeed(skipForPersistedQueries) && Validator.skipValidation) {
               computeCostZIO(req.field)(f).flatMap { cost =>
                 ZIO.when(cost > maxCost)(
                   ZIO.fail(ValidationError(s"Query costs too much: $cost. Max cost: $maxCost.", ""))

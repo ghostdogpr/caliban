@@ -118,7 +118,7 @@ trait GraphQL[-R] { self =>
                   typeToValidate    = if (intro) introspectionRootType else rootType
                   schemaToExecute   = if (intro) introspectionRootSchema else schema
                   validatedReq     <- VariablesCoercer.coerceVariables(request, doc, typeToValidate, skipValidation)
-                  _                <- Validator.skipQueryValidationRef.set(skipValidation)
+                  _                <- Validator.setSkipValidation(skipValidation)
                   validate          = (doc: Document) =>
                                         for {
                                           skipQueryValidation <- Validator.skipQueryValidationRef.get

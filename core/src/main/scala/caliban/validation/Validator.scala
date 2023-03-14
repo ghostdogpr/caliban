@@ -20,13 +20,13 @@ import caliban.validation.Utils.isObjectType
 import caliban.{ InputValue, Rendering, Value }
 import zio.prelude._
 import zio.prelude.fx.ZPure
-import zio.{ FiberRef, IO, Unsafe }
+import zio.{ FiberRef, IO, UIO, Unsafe }
 
 import scala.annotation.tailrec
 
 object Validator {
 
-  private lazy val defaultValidations = List(
+  lazy val DefaultValidations = List(
     validateFragmentSpreads,
     validateOperationNameUniqueness,
     validateLoneAnonymousOperation,
@@ -35,6 +35,12 @@ object Validator {
     validateSubscriptionOperation,
     validateDocumentFields
   )
+
+  private[caliban] val validationFiberRef: FiberRef[List[EReader[Context, ValidationError, Unit]]] =
+    Unsafe.unsafe(implicit u => FiberRef.unsafe.make(DefaultValidations))
+
+  private[caliban] val skipQueryValidationRef: FiberRef[Boolean] =
+    FiberRef.unsafe.make(false)(Unsafe.unsafe(identity))
 
   /**
    * Verifies that the given document is valid for this type. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
@@ -53,6 +59,15 @@ object Validator {
       validateRootQuery(schema)
   }.toZIO
 
+  def setSkipValidation(skip: Boolean): IO[Nothing, Unit] =
+    skipQueryValidationRef.set(skip).unit
+
+  def skipValidation: UIO[Boolean] =
+    skipQueryValidationRef.get
+
+  def setValidations(validations: List[EReader[Context, ValidationError, Unit]]): IO[Nothing, Unit] =
+    validationFiberRef.set(validations).unit
+
   private[caliban] def validateType(t: __Type): EReader[Any, ValidationError, Unit] =
     t.kind match {
       case __TypeKind.ENUM         => validateEnum(t)
@@ -65,9 +80,6 @@ object Validator {
 
   def failValidation(msg: String, explanatoryText: String): EReader[Any, ValidationError, Nothing] =
     ZPure.fail(ValidationError(msg, explanatoryText))
-
-  private[caliban] val skipQueryValidationRef: FiberRef[Boolean] =
-    FiberRef.unsafe.make(false)(Unsafe.unsafe(identity))
 
   /**
    * Prepare the request for execution.
@@ -144,7 +156,7 @@ object Validator {
     validateFragments(fragments).flatMap { fragmentMap =>
       val selectionSets = collectSelectionSets(operations.flatMap(_.selectionSet) ++ fragments.flatMap(_.selectionSet))
       val context       = Context(document, rootType, operations, fragmentMap, selectionSets, variables)
-      ZPure.foreachDiscard(defaultValidations)(identity).provideService(context) as fragmentMap
+      ZPure.foreachDiscard(DefaultValidations)(identity).provideService(context) as fragmentMap
     }
   }
 
@@ -288,7 +300,7 @@ object Validator {
         )
     }
 
-  private def validateDirectives: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
+  def validateDirectives: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
     for {
       directives <- collectAllDirectives(context)
       _          <- ZPure.foreachDiscard(directives) { case (d, location) =>
@@ -326,7 +338,7 @@ object Validator {
     } yield ()
   }
 
-  private def validateVariables: EReader[Context, ValidationError, Unit] =
+  def validateVariables: EReader[Context, ValidationError, Unit] =
     ZPure.serviceWithPure { context =>
       ZPure.foreachDiscard(context.operations)(op =>
         ZPure.foreachDiscard(op.variableDefinitions.groupBy(_.name)) { case (name, variables) =>
@@ -369,7 +381,7 @@ object Validator {
   private def collectFragmentSpreads(selectionSet: List[Selection]): List[FragmentSpread] =
     selectionSet.collect { case f: FragmentSpread => f }
 
-  private def validateFragmentSpreads: EReader[Context, ValidationError, Unit] =
+  def validateFragmentSpreads: EReader[Context, ValidationError, Unit] =
     ZPure.serviceWithPure { context =>
       val spreads     = collectFragmentSpreads(context.selectionSets)
       val spreadNames = spreads.map(_.name).toSet
@@ -398,7 +410,7 @@ object Validator {
     )
   }
 
-  private def validateDocumentFields: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
+  def validateDocumentFields: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
     ZPure.foreachDiscard(context.document.definitions) {
       case OperationDefinition(opType, _, _, _, selectionSet) =>
         opType match {
@@ -699,33 +711,31 @@ object Validator {
       case _                                                                                 => ZPure.unit
     }
 
-  private def validateOperationNameUniqueness: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure {
-    context =>
-      val operations    = context.operations
-      val names         = operations.flatMap(_.name).groupBy(identity)
-      val repeatedNames = names.collect { case (name, items) if items.length > 1 => name }
-      ZPure
-        .when(repeatedNames.nonEmpty)(
-          failValidation(
-            s"Multiple operations have the same name: ${repeatedNames.mkString(", ")}.",
-            "Each named operation definition must be unique within a document ZPure.when referred to by its name."
-          )
+  def validateOperationNameUniqueness: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
+    val operations    = context.operations
+    val names         = operations.flatMap(_.name).groupBy(identity)
+    val repeatedNames = names.collect { case (name, items) if items.length > 1 => name }
+    ZPure
+      .when(repeatedNames.nonEmpty)(
+        failValidation(
+          s"Multiple operations have the same name: ${repeatedNames.mkString(", ")}.",
+          "Each named operation definition must be unique within a document ZPure.when referred to by its name."
         )
-        .unit
+      )
+      .unit
   }
 
-  private def validateLoneAnonymousOperation: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure {
-    context =>
-      val operations = context.operations
-      val anonymous  = operations.filter(_.name.isEmpty)
-      ZPure
-        .when(operations.length > 1 && anonymous.nonEmpty)(
-          failValidation(
-            "Found both anonymous and named operations.",
-            "GraphQL allows a short‐hand form for defining query operations ZPure.when only that one operation exists in the document."
-          )
+  def validateLoneAnonymousOperation: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
+    val operations = context.operations
+    val anonymous  = operations.filter(_.name.isEmpty)
+    ZPure
+      .when(operations.length > 1 && anonymous.nonEmpty)(
+        failValidation(
+          "Found both anonymous and named operations.",
+          "GraphQL allows a short‐hand form for defining query operations ZPure.when only that one operation exists in the document."
         )
-        .unit
+      )
+      .unit
   }
 
   private def validateFragments(
@@ -740,45 +750,44 @@ object Validator {
       } else ZPure.succeed(fragmentMap.updated(fragment.name, fragment))
     }
 
-  private def validateSubscriptionOperation: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure {
-    context =>
-      val error = {
-        for {
-          t           <- context.rootType.subscriptionType
-          op          <- context.operations.find(_.operationType == OperationType.Subscription)
-          field        = F(
-                           op.selectionSet,
-                           context.fragments,
-                           Map.empty[String, InputValue],
-                           List.empty[VariableDefinition],
-                           t,
-                           SourceMapper.empty,
-                           Nil,
-                           context.rootType
-                         )
-          subscription = op.name.fold("")(n => s"'$n'")
-          error       <- field.fields match {
-                           case Nil         => None
-                           case head :: Nil =>
-                             if (head.name == "__typename")
-                               Some(
-                                 ValidationError(
-                                   s"Subscription $subscription has a field named '__typename'.",
-                                   "The root field of a subscription operation must not be an introspection field."
-                                 )
-                               )
-                             else None
-                           case _           =>
+  def validateSubscriptionOperation: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
+    val error = {
+      for {
+        t           <- context.rootType.subscriptionType
+        op          <- context.operations.find(_.operationType == OperationType.Subscription)
+        field        = F(
+                         op.selectionSet,
+                         context.fragments,
+                         Map.empty[String, InputValue],
+                         List.empty[VariableDefinition],
+                         t,
+                         SourceMapper.empty,
+                         Nil,
+                         context.rootType
+                       )
+        subscription = op.name.fold("")(n => s"'$n'")
+        error       <- field.fields match {
+                         case Nil         => None
+                         case head :: Nil =>
+                           if (head.name == "__typename")
                              Some(
                                ValidationError(
-                                 s"Subscription $subscription has more than one root field.",
-                                 "Subscription operations must have exactly one root field."
+                                 s"Subscription $subscription has a field named '__typename'.",
+                                 "The root field of a subscription operation must not be an introspection field."
                                )
                              )
-                         }
-        } yield error
-      }
-      ZPure.fromOption(error).flip.unit
+                           else None
+                         case _           =>
+                           Some(
+                             ValidationError(
+                               s"Subscription $subscription has more than one root field.",
+                               "Subscription operations must have exactly one root field."
+                             )
+                           )
+                       }
+      } yield error
+    }
+    ZPure.fromOption(error).flip.unit
   }
 
   private def validateFragmentType(name: Option[String], targetType: __Type): EReader[Any, ValidationError, Unit] =
