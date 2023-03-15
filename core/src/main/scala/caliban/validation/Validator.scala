@@ -26,21 +26,22 @@ import scala.annotation.tailrec
 
 object Validator {
 
-  lazy val DefaultValidations = List(
-    validateFragmentSpreads,
-    validateOperationNameUniqueness,
-    validateLoneAnonymousOperation,
-    validateDirectives,
-    validateVariables,
-    validateSubscriptionOperation,
-    validateDocumentFields
-  )
+  lazy val DefaultValidations: List[EReader[Context, ValidationError, Unit]] =
+    List(
+      validateFragmentSpreads,
+      validateOperationNameUniqueness,
+      validateLoneAnonymousOperation,
+      validateDirectives,
+      validateVariables,
+      validateSubscriptionOperation,
+      validateDocumentFields
+    )
 
   private[caliban] val validationFiberRef: FiberRef[List[EReader[Context, ValidationError, Unit]]] =
     Unsafe.unsafe(implicit u => FiberRef.unsafe.make(DefaultValidations))
 
   private[caliban] val skipQueryValidationRef: FiberRef[Boolean] =
-    FiberRef.unsafe.make(false)(Unsafe.unsafe(identity))
+    Unsafe.unsafe(implicit u => FiberRef.unsafe.make(false))
 
   /**
    * Verifies that the given document is valid for this type. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
@@ -214,8 +215,9 @@ object Validator {
         case v: VariableValue               => List(v)
         case _: Value                       => List()
       }
-    val allValues                                                            = collectValues(selectionSet)
-    val varValues                                                            = collectVariableValues(allValues)
+
+    val allValues = collectValues(selectionSet)
+    val varValues = collectVariableValues(allValues)
     varValues.map(_.name).toSet
   }
 
@@ -300,7 +302,7 @@ object Validator {
         )
     }
 
-  def validateDirectives: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
+  val validateDirectives: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
     for {
       directives <- collectAllDirectives(context)
       _          <- ZPure.foreachDiscard(directives) { case (d, location) =>
@@ -338,7 +340,7 @@ object Validator {
     } yield ()
   }
 
-  def validateVariables: EReader[Context, ValidationError, Unit] =
+  val validateVariables: EReader[Context, ValidationError, Unit] =
     ZPure.serviceWithPure { context =>
       ZPure.foreachDiscard(context.operations)(op =>
         ZPure.foreachDiscard(op.variableDefinitions.groupBy(_.name)) { case (name, variables) =>
@@ -381,7 +383,7 @@ object Validator {
   private def collectFragmentSpreads(selectionSet: List[Selection]): List[FragmentSpread] =
     selectionSet.collect { case f: FragmentSpread => f }
 
-  def validateFragmentSpreads: EReader[Context, ValidationError, Unit] =
+  val validateFragmentSpreads: EReader[Context, ValidationError, Unit] =
     ZPure.serviceWithPure { context =>
       val spreads     = collectFragmentSpreads(context.selectionSets)
       val spreadNames = spreads.map(_.name).toSet
@@ -410,7 +412,7 @@ object Validator {
     )
   }
 
-  def validateDocumentFields: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
+  val validateDocumentFields: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
     ZPure.foreachDiscard(context.document.definitions) {
       case OperationDefinition(opType, _, _, _, selectionSet) =>
         opType match {
@@ -420,15 +422,11 @@ object Validator {
           case OperationType.Mutation     =>
             context.rootType.mutationType.fold[EReader[Any, ValidationError, Unit]](
               failValidation("Mutation operations are not supported on this schema.", "")
-            )(
-              validateSelectionSet(context, selectionSet, _)
-            )
+            )(validateSelectionSet(context, selectionSet, _))
           case OperationType.Subscription =>
             context.rootType.subscriptionType.fold[EReader[Any, ValidationError, Unit]](
               failValidation("Subscription operations are not supported on this schema.", "")
-            )(
-              validateSelectionSet(context, selectionSet, _)
-            )
+            )(validateSelectionSet(context, selectionSet, _))
         }
       case _: FragmentDefinition                              => ZPure.unit
       case _: TypeSystemDefinition                            => ZPure.unit
@@ -442,11 +440,7 @@ object Validator {
     currentType: __Type
   ): EReader[Any, ValidationError, Unit] =
     validateFields(context, selectionSet, currentType) *>
-      FragmentValidator.findConflictsWithinSelectionSet(
-        context,
-        context.rootType.queryType,
-        selectionSet
-      )
+      FragmentValidator.findConflictsWithinSelectionSet(context, context.rootType.queryType, selectionSet)
 
   private def validateFields(
     context: Context,
@@ -486,7 +480,7 @@ object Validator {
             failValidation(
               s"${name.fold("Inline fragment spread")(n => s"Fragment spread '$n'")} is not possible: possible types are '${possibleTypes
                 .mkString(", ")}' and possible fragment types are '${possibleFragmentTypes.mkString(", ")}'.",
-              "Fragments are declared on a type and will only apply ZPure.when the runtime object type matches the type condition. They also are spread within the context of a parent type. A fragment spread is only valid if its type condition could ever apply within the parent type."
+              "Fragments are declared on a type and will only apply when the runtime object type matches the type condition. They also are spread within the context of a parent type. A fragment spread is only valid if its type condition could ever apply within the parent type."
             )
           ) *> validateFields(context, selectionSet, fragmentType)
         }
@@ -529,10 +523,7 @@ object Validator {
     currentType: __Type,
     context: Context
   ): EReader[Any, ValidationError, Unit] =
-    ZPure.foreachDiscard(
-      f.args
-        .filter(a => a.`type`().kind == __TypeKind.NON_NULL)
-    )(arg =>
+    ZPure.foreachDiscard(f.args.filter(_.`type`().kind == __TypeKind.NON_NULL))(arg =>
       (arg.defaultValue, field.arguments.get(arg.name)) match {
         case (None, None) | (None, Some(NullValue)) =>
           failValidation(
@@ -711,7 +702,7 @@ object Validator {
       case _                                                                                 => ZPure.unit
     }
 
-  def validateOperationNameUniqueness: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
+  val validateOperationNameUniqueness: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
     val operations    = context.operations
     val names         = operations.flatMap(_.name).groupBy(identity)
     val repeatedNames = names.collect { case (name, items) if items.length > 1 => name }
@@ -719,20 +710,20 @@ object Validator {
       .when(repeatedNames.nonEmpty)(
         failValidation(
           s"Multiple operations have the same name: ${repeatedNames.mkString(", ")}.",
-          "Each named operation definition must be unique within a document ZPure.when referred to by its name."
+          "Each named operation definition must be unique within a document when referred to by its name."
         )
       )
       .unit
   }
 
-  def validateLoneAnonymousOperation: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
+  val validateLoneAnonymousOperation: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
     val operations = context.operations
     val anonymous  = operations.filter(_.name.isEmpty)
     ZPure
       .when(operations.length > 1 && anonymous.nonEmpty)(
         failValidation(
           "Found both anonymous and named operations.",
-          "GraphQL allows a short‐hand form for defining query operations ZPure.when only that one operation exists in the document."
+          "GraphQL allows a short‐hand form for defining query operations when only that one operation exists in the document."
         )
       )
       .unit
@@ -750,7 +741,7 @@ object Validator {
       } else ZPure.succeed(fragmentMap.updated(fragment.name, fragment))
     }
 
-  def validateSubscriptionOperation: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
+  val validateSubscriptionOperation: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
     val error = {
       for {
         t           <- context.rootType.subscriptionType
