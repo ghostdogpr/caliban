@@ -302,7 +302,7 @@ object Validator {
         )
     }
 
-  val validateDirectives: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
+  lazy val validateDirectives: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
     for {
       directives <- collectAllDirectives(context)
       _          <- ZPure.foreachDiscard(directives) { case (d, location) =>
@@ -340,7 +340,7 @@ object Validator {
     } yield ()
   }
 
-  val validateVariables: EReader[Context, ValidationError, Unit] =
+  lazy val validateVariables: EReader[Context, ValidationError, Unit] =
     ZPure.serviceWithPure { context =>
       ZPure.foreachDiscard(context.operations)(op =>
         ZPure.foreachDiscard(op.variableDefinitions.groupBy(_.name)) { case (name, variables) =>
@@ -383,7 +383,7 @@ object Validator {
   private def collectFragmentSpreads(selectionSet: List[Selection]): List[FragmentSpread] =
     selectionSet.collect { case f: FragmentSpread => f }
 
-  val validateFragmentSpreads: EReader[Context, ValidationError, Unit] =
+  lazy val validateFragmentSpreads: EReader[Context, ValidationError, Unit] =
     ZPure.serviceWithPure { context =>
       val spreads     = collectFragmentSpreads(context.selectionSets)
       val spreadNames = spreads.map(_.name).toSet
@@ -412,7 +412,7 @@ object Validator {
     )
   }
 
-  val validateDocumentFields: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
+  lazy val validateDocumentFields: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
     ZPure.foreachDiscard(context.document.definitions) {
       case OperationDefinition(opType, _, _, _, selectionSet) =>
         opType match {
@@ -702,7 +702,7 @@ object Validator {
       case _                                                                                 => ZPure.unit
     }
 
-  val validateOperationNameUniqueness: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
+  lazy val validateOperationNameUniqueness: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
     val operations    = context.operations
     val names         = operations.flatMap(_.name).groupBy(identity)
     val repeatedNames = names.collect { case (name, items) if items.length > 1 => name }
@@ -716,7 +716,7 @@ object Validator {
       .unit
   }
 
-  val validateLoneAnonymousOperation: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
+  lazy val validateLoneAnonymousOperation: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
     val operations = context.operations
     val anonymous  = operations.filter(_.name.isEmpty)
     ZPure
@@ -741,7 +741,7 @@ object Validator {
       } else ZPure.succeed(fragmentMap.updated(fragment.name, fragment))
     }
 
-  val validateSubscriptionOperation: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
+  lazy val validateSubscriptionOperation: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
     val error = {
       for {
         t           <- context.rootType.subscriptionType
