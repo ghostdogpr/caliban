@@ -52,6 +52,8 @@ implicit val roleSchema      = Schema.gen[Any, Role]
 implicit val characterSchema = Schema.gen[Any, Character]
 ```
 
+Note that `Schema.gen`s are intended for case classes and sealed traits. Once you have schemas for your case classes declared, normally you don't have to further declare schemas for container types, such as `Option[Role]` or `List[Character]`. If you do have to declare such schemas by hand, use `Schema.optionSchema` or `Schema.listSchema` instead, respectively.
+
 Make sure those implicits are in scope when you call `graphQL(...)`. This will make derivation's job easier by pre-generating schemas for those classes and re-using them when needed.
 This will also improve compilation times and generate less bytecode.
 
@@ -250,7 +252,7 @@ For some time formats you can also specify a specific `DateTimeFormatter` to han
 
 ## Custom types
 
-Caliban provides auto-derivation for common types such as `Int`, `String`, `List`, `Option`, etc. but you can also support your own types by providing an implicit instance of `caliban.schema.Schema`.
+Caliban provides auto-derivation for common types such as `Int`, `String`, `List`, `Option`, etc. but you can also support your own types by providing an implicit instance of `caliban.schema.Schema`. Note that you don't have to do this if your types are just case classes composed of common types.
 
 An easy way to do this is to reuse existing instances and use `contramap` to map from your type to the original type. Here's an example of creating an instance for [refined](https://github.com/fthomas/refined)'s `NonEmptyString` reusing existing instance for `String` (if you use `refined`, you might want to look at [caliban-refined](https://github.com/niqdev/caliban-extras#caliban-refined)):
 
