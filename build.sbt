@@ -92,7 +92,8 @@ lazy val root = project
     tools,
     codegenSbt,
     federation,
-    reporting
+    reporting,
+    tracing
   )
 
 lazy val macros = project
