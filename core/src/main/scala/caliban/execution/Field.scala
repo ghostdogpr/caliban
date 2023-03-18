@@ -11,7 +11,7 @@ import caliban.schema.{ RootType, Types }
 import caliban.{ InputValue, Value }
 
 /**
- * Represents a field used during the exeuction of a query
+ * Represents a field used during the execution of a query
  *
  * @param name The name
  * @param fieldType The GraphQL type
