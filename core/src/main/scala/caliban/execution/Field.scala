@@ -68,7 +68,7 @@ object Field {
     directives: List[Directive],
     rootType: RootType
   ): Field = {
-    val memoizedFragments = collection.mutable.Map.empty[FragmentSpread, Option[List[(Field, String)]]]
+    val memoizedFragments = collection.mutable.Map.empty[FragmentSpread, (List[Field], Option[String])]
 
     def loop(selectionSet: List[Selection], fieldType: __Type): List[Field] = {
       val map = new java.util.LinkedHashMap[(String, String), Field](selectionSet.length)
@@ -112,32 +112,30 @@ object Field {
             )
           }
         case fr @ FragmentSpread(name, directives)                      =>
-          val fields = memoizedFragments.getOrElseUpdate(
+          val (fields, condition) = memoizedFragments.getOrElseUpdate(
             fr, {
               val resolvedDirectives = directives.map(resolveDirectiveVariables(variableValues, variableDefinitions))
 
-              if (checkDirectives(resolvedDirectives)) {
-                fragments
-                  .get(name)
-                  .map { f =>
-                    val t = innerType.possibleTypes
-                      .flatMap(_.find(_.name.contains(f.typeCondition.name)))
-                      .orElse(rootType.types.get(f.typeCondition.name))
-                      .getOrElse(fieldType)
-                    loop(f.selectionSet, t).map { field =>
-                      if (field._condition.isDefined) field -> f.typeCondition.name
-                      else
-                        field.copy(
-                          targets = Some(Set(f.typeCondition.name)),
-                          _condition = subtypeNames(f.typeCondition.name, rootType)
-                        )                                   -> f.typeCondition.name
-
-                    }
-                  }
+              val _fields = if (checkDirectives(resolvedDirectives)) {
+                fragments.get(name).map { f =>
+                  val t = innerType.possibleTypes
+                    .flatMap(_.find(_.name.contains(f.typeCondition.name)))
+                    .orElse(rootType.types.get(f.typeCondition.name))
+                    .getOrElse(fieldType)
+                  loop(f.selectionSet, t).map { field =>
+                    if (field._condition.isDefined) field
+                    else
+                      field.copy(
+                        targets = Some(Set(f.typeCondition.name)),
+                        _condition = subtypeNames(f.typeCondition.name, rootType)
+                      )
+                  } -> Some(f.typeCondition.name)
+                }
               } else None
+              _fields.getOrElse(Nil -> None)
             }
           )
-          fields.foreach(_.foreach { case (field, name) => addField(field, Some(name)) })
+          fields.foreach(addField(_, condition))
         case InlineFragment(typeCondition, directives, selectionSet)    =>
           val resolvedDirectives = directives.map(resolveDirectiveVariables(variableValues, variableDefinitions))
 
