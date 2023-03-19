@@ -118,10 +118,7 @@ object Field {
 
               val _fields = if (checkDirectives(resolvedDirectives)) {
                 fragments.get(name).map { f =>
-                  val t = innerType.possibleTypes
-                    .flatMap(_.find(_.name.contains(f.typeCondition.name)))
-                    .orElse(rootType.types.get(f.typeCondition.name))
-                    .getOrElse(fieldType)
+                  val t = rootType.types.getOrElse(f.typeCondition.name, fieldType)
                   loop(f.selectionSet, t).map { field =>
                     if (field._condition.isDefined) field
                     else
