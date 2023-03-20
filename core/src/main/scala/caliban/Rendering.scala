@@ -194,7 +194,7 @@ object Rendering {
           .mkString("{", ",", "}")
       )
     case NullValue                      => Some("null")
-    case StringValue(value)             => Some("\"" + value + "\"")
+    case StringValue(value)             => Some(renderString(value))
     case i: IntValue                    => Some(i.toInt.toString)
     case f: FloatValue                  => Some(f.toFloat.toString)
     case BooleanValue(value)            => Some(value.toString)
