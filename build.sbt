@@ -277,12 +277,12 @@ lazy val tapirInterop = project
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
     } ++
       Seq(
-        "com.softwaremill.sttp.tapir"   %% "tapir-core"        % tapirVersion,
-        "com.softwaremill.sttp.tapir"   %% "tapir-zio"         % tapirVersion,
-        "com.softwaremill.sttp.tapir"   %% "tapir-sttp-client" % tapirVersion % Test,
-        "com.softwaremill.sttp.client3" %% "zio"               % sttpVersion  % Test,
-        "dev.zio"                       %% "zio-test"          % zioVersion   % Test,
-        "dev.zio"                       %% "zio-test-sbt"      % zioVersion   % Test
+        "com.softwaremill.sttp.tapir"   %% "tapir-core"                    % tapirVersion,
+        "com.softwaremill.sttp.tapir"   %% "tapir-zio"                     % tapirVersion,
+        "com.softwaremill.sttp.tapir"   %% "tapir-sttp-client"             % tapirVersion % Test,
+        "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion  % Test,
+        "dev.zio"                       %% "zio-test"                      % zioVersion   % Test,
+        "dev.zio"                       %% "zio-test-sbt"                  % zioVersion   % Test
       )
   )
   .dependsOn(core)
@@ -306,7 +306,6 @@ lazy val http4s = project
         "org.http4s"                            %% "http4s-ember-server"     % http4sVersion   % Test,
         "dev.zio"                               %% "zio-test"                % zioVersion      % Test,
         "dev.zio"                               %% "zio-test-sbt"            % zioVersion      % Test,
-        "com.softwaremill.sttp.client3"         %% "zio"                     % sttpVersion     % Test,
         "com.softwaremill.sttp.client3"         %% "circe"                   % sttpVersion     % Test,
         "io.circe"                              %% "circe-generic"           % circeVersion    % Test,
         "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"   % jsoniterVersion % Test
@@ -362,7 +361,6 @@ lazy val play = project
       "dev.zio"                       %% "zio-test-sbt"          % zioVersion   % Test,
       "com.typesafe.play"             %% "play-akka-http-server" % playVersion  % Test,
       "io.circe"                      %% "circe-generic"         % circeVersion % Test,
-      "com.softwaremill.sttp.client3" %% "zio"                   % sttpVersion  % Test,
       "com.softwaremill.sttp.client3" %% "circe"                 % sttpVersion  % Test,
       compilerPlugin(("org.typelevel" %% "kind-projector"        % "0.13.2").cross(CrossVersion.full))
     )
