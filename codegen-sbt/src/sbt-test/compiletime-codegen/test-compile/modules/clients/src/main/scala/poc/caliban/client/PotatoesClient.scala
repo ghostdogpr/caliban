@@ -4,7 +4,7 @@ import poc.caliban.client.generated.potatoes._
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.client3.SttpBackend
-import zio.Task
+import zio.{Task, ZIO}
 
 trait PotatoesClient {
   def eradicate(name: String): Task[Unit]
@@ -20,6 +20,6 @@ final class PotatoesClientLive(backend: SttpBackend[Task, ZioStreams with WebSoc
       .eradicate(name)
       .toRequest(serverUrl)
       .send(backend)
-      .foldZIO(Task.fail(_), r => Task.fromEither(r.body).unit)
+      .foldZIO(ZIO.fail(_), r => ZIO.fromEither(r.body).unit)
 
 }
