@@ -146,7 +146,7 @@ object FieldSpec extends ZIOSpecDefault {
                 FieldTree.Node("inner", "Inner!", List(FieldTree.Leaf("num", "Int!"))),
                 FieldTree.Leaf("id", "String!"),
                 FieldTree.Leaf("count", "Int!"),
-                FieldTree.Node("inner", "Inner!", List(FieldTree.Leaf("num", "Int!"), FieldTree.Leaf("num", "Int!"))),
+                FieldTree.Node("inner", "Inner!", List(FieldTree.Leaf("num", "Int!"), FieldTree.Leaf("num", "Int!")))
               )
             )
           )
