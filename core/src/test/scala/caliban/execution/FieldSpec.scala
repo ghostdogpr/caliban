@@ -122,8 +122,11 @@ object FieldSpec extends ZIOSpecDefault {
             ... on Interface {
               id
             }
+            ... @include(if: true) {
+              count
+            }
             inner { num }
-            count
+            inner { num }
           }
         }
       }""")
@@ -142,8 +145,8 @@ object FieldSpec extends ZIOSpecDefault {
                 FieldTree.Leaf("id", "String!"),
                 FieldTree.Node("inner", "Inner!", List(FieldTree.Leaf("num", "Int!"))),
                 FieldTree.Leaf("id", "String!"),
-                FieldTree.Node("inner", "Inner!", List(FieldTree.Leaf("num", "Int!"))),
-                FieldTree.Leaf("count", "Int!")
+                FieldTree.Leaf("count", "Int!"),
+                FieldTree.Node("inner", "Inner!", List(FieldTree.Leaf("num", "Int!"), FieldTree.Leaf("num", "Int!")))
               )
             )
           )
