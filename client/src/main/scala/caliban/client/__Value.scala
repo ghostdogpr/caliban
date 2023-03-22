@@ -24,7 +24,7 @@ sealed trait __Value { self =>
 }
 
 object __Value {
-  private final val MaxDepth                                    = 512
+  private final val MaxDepth                                    = 1023
   private implicit val stringCodecMaker: JsonValueCodec[String] = JsonCodecMaker.make[String]
 
   case object __NullValue                                   extends __Value {
