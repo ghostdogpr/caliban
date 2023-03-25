@@ -8,7 +8,7 @@ import caliban.ResponseValue.ObjectValue
 import caliban.tools.SttpClient
 
 import sttp.client3._
-import sttp.client3.circe._
+import sttp.client3.jsoniter._
 
 case class RemoteResolver[-R, +E, -A, +B](
   run: A => ZIO[R, E, B]

@@ -1,7 +1,6 @@
 package caliban.client
 
 import caliban.client.__Value.{ __BooleanValue, __ListValue, __NullValue, __NumberValue, __ObjectValue, __StringValue }
-import io.circe.Json
 
 import scala.annotation.implicitNotFound
 import java.util.UUID
@@ -51,5 +50,5 @@ object ArgEncoder {
   implicit def list[A](implicit ev: ArgEncoder[A]): ArgEncoder[List[A]] = (value: List[A]) =>
     __ListValue(value.map(ev.encode))
 
-  implicit val json: ArgEncoder[Json] = (value: Json) => __Value.valueDecoder.decodeJson(value).getOrElse(__NullValue)
+  implicit val json: ArgEncoder[__ObjectValue] = (value: __ObjectValue) => value
 }

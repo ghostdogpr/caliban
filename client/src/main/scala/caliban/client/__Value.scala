@@ -1,6 +1,10 @@
 package caliban.client
 
-import io.circe.{ Decoder, Encoder, Json }
+import com.github.plokhotnyuk.jsoniter_scala.core.{ writeToString, JsonReader, JsonValueCodec, JsonWriter }
+import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
+
+import scala.annotation.switch
+import scala.collection.immutable.TreeMap
 
 /**
  * Value that can be returned by the server or sent as an argument.
@@ -20,6 +24,9 @@ sealed trait __Value { self =>
 }
 
 object __Value {
+  private final val MaxDepth                                    = 1023
+  private implicit val stringCodecMaker: JsonValueCodec[String] = JsonCodecMaker.make[String]
+
   case object __NullValue                                   extends __Value {
     override def toString: String = "null"
   }
@@ -30,7 +37,7 @@ object __Value {
     override def toString: String = value
   }
   case class __StringValue(value: String)                   extends __Value {
-    override def toString: String = Json.fromString(value).toString
+    override def toString: String = writeToString(value)
   }
   case class __BooleanValue(value: Boolean)                 extends __Value {
     override def toString: String = value.toString
@@ -43,27 +50,108 @@ object __Value {
       fields.map { case (name, value) => s"""$name:${value.toString}""" }.mkString("{", ",", "}")
   }
 
-  private def jsonToValue(json: Json): __Value =
-    json.fold(
-      __NullValue,
-      __BooleanValue.apply,
-      number => __NumberValue(number.toBigDecimal getOrElse BigDecimal(number.toDouble)),
-      __StringValue.apply,
-      array => __Value.__ListValue(array.toList.map(jsonToValue)),
-      obj => __Value.__ObjectValue(obj.toList.map { case (k, v) => k -> jsonToValue(v) })
-    )
+  object __ObjectValue {
+    implicit val codec: JsonValueCodec[__ObjectValue] = new JsonValueCodec[__ObjectValue] {
+      def decodeValue(in: JsonReader, default: __ObjectValue): __ObjectValue = {
+        val b = in.nextToken()
+        if (b == '{') {
+          in.rollbackToken()
+          decodeJsonValue(in, MaxDepth) match {
+            case v: __ObjectValue => v
+            case v                => in.decodeError(s"expected object but received $v")
+          }
+        } else in.decodeError(s"expected object but received $b")
+      }
 
-  private def valueToJson(a: __Value): Json = a match {
-    case `__NullValue`         => Json.Null
-    case __NumberValue(value)  => Json.fromBigDecimal(value)
-    case __StringValue(value)  => Json.fromString(value)
-    case __EnumValue(value)    => Json.fromString(value)
-    case __BooleanValue(value) => Json.fromBoolean(value)
-    case __ListValue(values)   => Json.fromValues(values.map(valueToJson))
-    case __ObjectValue(fields) => Json.obj(fields.map { case (k, v) => k -> valueToJson(v) }: _*)
+      def encodeValue(x: __ObjectValue, out: JsonWriter): Unit =
+        encodeJsonValue(x, out, MaxDepth)
+
+      def nullValue: __ObjectValue =
+        null.asInstanceOf[__ObjectValue]
+    }
   }
 
-  implicit val valueDecoder: Decoder[__Value] = Decoder.instance(hcursor => Right(jsonToValue(hcursor.value)))
+  implicit val jsonCodec: JsonValueCodec[__Value] = new JsonValueCodec[__Value] {
+    def decodeValue(in: JsonReader, default: __Value): __Value =
+      decodeJsonValue(in, MaxDepth)
 
-  implicit val valueEncoder: Encoder[__Value] = (a: __Value) => valueToJson(a)
+    def encodeValue(x: __Value, out: JsonWriter): Unit =
+      encodeJsonValue(x, out, MaxDepth)
+
+    def nullValue: __Value = __NullValue
+  }
+
+  private val emptyValueObject = __ObjectValue(Nil)
+  private val emptyValueList   = __ListValue(Nil)
+
+  private def encodeJsonValue(x: __Value, out: JsonWriter, depth: Int): Unit = x match {
+    case __NumberValue(value)  => out.writeVal(value)
+    case __EnumValue(value)    => out.writeVal(value)
+    case __StringValue(value)  => out.writeVal(value)
+    case __BooleanValue(value) => out.writeVal(value)
+    case __ListValue(values)   =>
+      val newDepth = depth - 1
+      if (newDepth < 0) out.encodeError("Max depth reached")
+      out.writeArrayStart()
+      values.foreach(encodeJsonValue(_, out, depth - 1))
+      out.writeArrayEnd()
+    case __ObjectValue(fields) =>
+      val newDepth = depth - 1
+      if (newDepth < 0) out.encodeError("Max depth reached")
+      out.writeObjectStart()
+      fields.foreach { case (name, value) =>
+        out.writeKey(name)
+        encodeJsonValue(value, out, depth - 1)
+      }
+      out.writeObjectEnd()
+    case `__NullValue`         => out.writeNull()
+  }
+
+  private def decodeJsonValue(in: JsonReader, depth: Int): __Value = {
+    val b = in.nextToken()
+    (b: @switch) match {
+      case 'n'                                                             =>
+        in.readNullOrError(__NullValue, "unexpected JSON value")
+      case 't' | 'f'                                                       =>
+        in.rollbackToken()
+        __BooleanValue(in.readBoolean())
+      case '{'                                                             =>
+        val newDepth = depth - 1
+        if (newDepth < 0) in.decodeError("Max depth reached")
+        else if (in.isNextToken('}')) emptyValueObject
+        else {
+          in.rollbackToken()
+          val fields = TreeMap.newBuilder[String, __Value]
+          while ({
+            fields += in.readKeyAsString() -> decodeJsonValue(in, newDepth)
+            in.isNextToken(',')
+          }) ()
+          if (in.isCurrentToken('}')) __ObjectValue(fields.result().toList)
+          else in.objectEndOrCommaError()
+        }
+      case '['                                                             =>
+        val newDepth = depth - 1
+        if (newDepth < 0) in.decodeError("Max depth reached")
+        else if (in.isNextToken(']')) emptyValueList
+        else {
+          in.rollbackToken()
+          val values = Array.newBuilder[__Value]
+          while ({
+            values += decodeJsonValue(in, newDepth)
+            in.isNextToken(',')
+          }) ()
+          if (in.isCurrentToken(']')) __ListValue(values.result().toList)
+          else in.arrayEndOrCommaError()
+        }
+      case '"'                                                             =>
+        in.rollbackToken()
+        __StringValue(in.readString(null))
+      case '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '-' =>
+        in.rollbackToken()
+        __NumberValue(in.readBigDecimal(null))
+      case c                                                               =>
+        in.decodeError(s"unexpected token: $c")
+    }
+  }
+
 }

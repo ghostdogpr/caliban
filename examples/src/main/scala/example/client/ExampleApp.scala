@@ -5,7 +5,7 @@ import caliban.client.CalibanClientError
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.client3._
-import sttp.client3.asynchttpclient.zio._
+import sttp.client3.httpclient.zio.HttpClientZioBackend
 import zio.Console.printLine
 import zio._
 
@@ -63,7 +63,7 @@ object ExampleApp extends ZIOAppDefault {
     val call2 = sendRequest(query.toRequest(uri, useVariables = true))
 
     (call1 *> call2)
-      .provideLayer(AsyncHttpClientZioBackend.layer())
+      .provideLayer(HttpClientZioBackend.layer())
       .exitCode
   }
 }

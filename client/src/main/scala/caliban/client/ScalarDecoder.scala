@@ -5,7 +5,6 @@ import java.util.UUID
 
 import caliban.client.CalibanClientError.DecodingError
 import caliban.client.__Value._
-import io.circe.Json
 
 import scala.annotation.implicitNotFound
 
@@ -83,5 +82,5 @@ object ScalarDecoder {
     case __ObjectValue(Nil) => Right(())
     case other              => Left(DecodingError(s"Can't build Unit from input $other"))
   }
-  implicit val json: ScalarDecoder[Json]             = value => Right(__Value.valueEncoder(value))
+  implicit val json: ScalarDecoder[__Value]          = value => Right(value)
 }

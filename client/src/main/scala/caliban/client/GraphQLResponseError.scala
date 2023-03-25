@@ -1,7 +1,10 @@
 package caliban.client
 
 import caliban.client.GraphQLResponseError.Location
-import io.circe.{ Decoder, DecodingFailure, HCursor, Json }
+import com.github.plokhotnyuk.jsoniter_scala.core.{ JsonReader, JsonValueCodec, JsonWriter }
+import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
+
+import scala.annotation.switch
 
 /**
  * An GraphQL error as returned by the server.
@@ -13,29 +16,33 @@ case class GraphQLResponseError(
   message: String,
   locations: Option[List[Location]],
   path: Option[List[Either[String, Int]]],
-  extensions: Option[Json]
+  extensions: Option[__Value]
 )
 
 object GraphQLResponseError {
 
   case class Location(line: Int, column: Int)
 
-  implicit val decoderEither: Decoder[Either[String, Int]] = (c: HCursor) =>
-    c.value.asNumber.flatMap(_.toInt).map(v => Right(Right(v))) orElse c.value.asString
-      .map(v => Right(Left(v))) getOrElse Left(DecodingFailure("Value is not an Either[String, Int]", c.history))
+  private implicit val eitherCodec: JsonValueCodec[Either[String, Int]] = new JsonValueCodec[Either[String, Int]] {
+    override def decodeValue(in: JsonReader, default: Either[String, Int]): Either[String, Int] = {
+      val b = in.nextToken()
+      in.rollbackToken()
+      (b: @switch) match {
+        case '"'                                                             => Left(in.readString(null))
+        case '-' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' => Right(in.readInt())
+        case _                                                               => in.decodeError("expected int or string")
+      }
+    }
 
-  implicit val locationDecoder: Decoder[Location] = (c: HCursor) =>
-    for {
-      line   <- c.downField("line").as[Int]
-      column <- c.downField("column").as[Int]
-    } yield Location(line, column)
+    override def encodeValue(x: Either[String, Int], out: JsonWriter): Unit =
+      x.fold(out.writeVal, out.writeVal)
 
-  implicit val decoder: Decoder[GraphQLResponseError] = (c: HCursor) =>
-    for {
-      message    <- c.downField("message").as[String]
-      locations  <- c.downField("locations").as[Option[List[Location]]]
-      path       <- c.downField("path").as[Option[List[Either[String, Int]]]]
-      extensions <- c.downField("extensions").as[Option[Json]]
-    } yield GraphQLResponseError(message, locations, path, extensions)
+    override def nullValue: Either[String, Int] =
+      null.asInstanceOf[Either[String, Int]]
+  }
+
+  implicit val locationCodec: JsonValueCodec[Location] = JsonCodecMaker.makeCirceLike[Location]
+
+  implicit val jsonCodec: JsonValueCodec[GraphQLResponseError] = JsonCodecMaker.makeCirceLike[GraphQLResponseError]
 
 }

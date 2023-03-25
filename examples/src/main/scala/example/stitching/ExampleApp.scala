@@ -10,7 +10,7 @@ import caliban.tools.stitching.{ HttpRequest, RemoteResolver, RemoteSchemaResolv
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.client3.SttpBackend
-import sttp.client3.asynchttpclient.zio._
+import sttp.client3.httpclient.zio._
 import zio._
 
 object StitchingExample extends GenericSchema[Any] {
@@ -123,7 +123,7 @@ object ExampleApp extends ZIOAppDefault {
                        )
     } yield ())
       .provide(
-        AsyncHttpClientZioBackend.layer(),
+        HttpClientZioBackend.layer(),
         Configuration.fromEnvironment,
         Server.default
       )

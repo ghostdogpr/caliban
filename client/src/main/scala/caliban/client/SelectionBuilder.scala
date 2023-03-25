@@ -5,12 +5,13 @@ import caliban.client.FieldBuilder.Scalar
 import caliban.client.Operations.IsOperation
 import caliban.client.Selection.Directive
 import caliban.client.__Value.__ObjectValue
-import io.circe.{ parser, Json }
+import com.github.plokhotnyuk.jsoniter_scala.core._
 import sttp.client3._
-import sttp.client3.circe._
+import sttp.client3.jsoniter._
 import sttp.model.Uri
 
 import scala.collection.immutable.{ Map => SMap }
+import scala.util.control.NonFatal
 
 /**
  * Represents a selection from parent type `Origin` that returns a result of type `A`.
@@ -66,12 +67,12 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    * Parse the given response payload into the expected return type,
    * with an potential list of partial errors and an optional extensions object
    */
-  def decode(payload: String): Either[CalibanClientError, (A, List[GraphQLResponseError], Option[Json])] =
+  def decode(payload: String): Either[CalibanClientError, (A, List[GraphQLResponseError], Option[__ObjectValue])] =
     for {
-      parsed      <- parser
-                       .decode[GraphQLResponse](payload)
-                       .left
-                       .map(ex => DecodingError("Json deserialization error", Some(ex)))
+      parsed      <- try Right(readFromString[GraphQLResponse](payload))
+                     catch {
+                       case NonFatal(ex) => Left(DecodingError("Json deserialization error", Some(ex)))
+                     }
       data        <- if (parsed.errors.nonEmpty && parsed.data.forall(_ == __Value.__NullValue))
                        Left(ServerError(parsed.errors))
                      else Right(parsed.data)
@@ -136,7 +137,7 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
     queryName: Option[String] = None,
     dropNullInputValues: Boolean = false
   )(
-    mapResponse: (A, List[GraphQLResponseError], Option[Json]) => B
+    mapResponse: (A, List[GraphQLResponseError], Option[__ObjectValue]) => B
   )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, B], Any] =
     basicRequest
       .post(uri)
