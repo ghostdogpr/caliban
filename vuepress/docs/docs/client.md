@@ -11,13 +11,13 @@ Just like the server module, Caliban Client offers a purely functional interface
 
 To use `caliban-client`, add the following dependency to your `build.sbt` file:
 
-```
+```scala
 "com.github.ghostdogpr" %% "caliban-client" % "2.1.0"
 ```
 
 Caliban-client is available for ScalaJS. To use it in a ScalaJS project, instead add this dependency to your `build.sbt` file:
 
-```
+```scala
 "com.github.ghostdogpr" %%% "caliban-client" % "2.1.0"
 ```
 

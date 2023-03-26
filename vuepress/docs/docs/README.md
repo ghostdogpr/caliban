@@ -14,13 +14,13 @@ The design principles of Caliban are the following:
 
 To use `caliban`, add the following dependency to your `build.sbt` file:
 
-```
+```scala
 "com.github.ghostdogpr" %% "caliban" % "2.1.0"
 ```
 
 The following modules are optional:
 
-```
+```scala
 "com.github.ghostdogpr" %% "caliban-http4s"     % "2.1.0" // routes for http4s
 "com.github.ghostdogpr" %% "caliban-akka-http"  % "2.1.0" // routes for akka-http
 "com.github.ghostdogpr" %% "caliban-play"       % "2.1.0" // routes for play
@@ -33,7 +33,7 @@ The following modules are optional:
 
 Support for JSON encoding / decoding of the inputs and responses is enabled by adding **one** of the following dependencies to your `build.sbt` file:
 
-```
+```scala
 "com.softwaremill.sttp.tapir" %% "tapir-json-circe"     % "1.2.11" // Circe
 "com.softwaremill.sttp.tapir" %% "tapir-jsoniter-scala" % "1.2.11" // Jsoniter
 "com.softwaremill.sttp.tapir" %% "tapir-json-play"      % "1.2.11" // Play JSON
