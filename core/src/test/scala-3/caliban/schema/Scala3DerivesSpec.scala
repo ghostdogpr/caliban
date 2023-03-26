@@ -81,6 +81,6 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
           |}""".stripMargin
 
       assertTrue(gql.render == expected2)
-    },
+    }
   )
 }
