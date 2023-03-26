@@ -163,8 +163,6 @@ Creating mutations is the same as queries, except you pass them as the second ar
 
 ```scala mdoc:nest:silent
 import zio.Task
-import caliban.schema.Schema.auto._
-import caliban.schema.ArgBuilder.auto._
 
 case class CharacterArgs(name: String)
 case class Mutations(deleteCharacter: CharacterArgs => Task[Boolean])
@@ -178,7 +176,6 @@ Similarly, subscriptions are passed as the third argument to `RootResolver`:
 
 ```scala mdoc:compile-only
 import zio.stream.ZStream
-import caliban.schema.Schema.auto._
 
 case class Subscriptions(deletedCharacter: ZStream[Any, Nothing, Character])
 val subscriptions = Subscriptions(???)
