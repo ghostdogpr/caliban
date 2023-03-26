@@ -111,7 +111,7 @@ trait GraphQL[-R] { self =>
               wrap((request: GraphQLRequest) =>
                 (for {
                   doc              <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
-                  intro             = Introspector.isIntrospection(doc)
+                  intro             = doc.isIntrospection
                   _                <- ZIO.when(intro && !enableIntrospection) {
                                         ZIO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
                                       }

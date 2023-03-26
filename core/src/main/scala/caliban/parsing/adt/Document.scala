@@ -1,5 +1,6 @@
 package caliban.parsing.adt
 
+import caliban.introspection.Introspector
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
@@ -7,6 +8,7 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.{ DirectiveDefinition
 import caliban.parsing.adt.OperationType.{ Mutation, Query, Subscription }
 
 case class Document(definitions: List[Definition], sourceMapper: SourceMapper) {
+  lazy val isIntrospection: Boolean                                    = Introspector.isIntrospection(this)
   lazy val directiveDefinitions: List[DirectiveDefinition]             = definitions.collect { case dd: DirectiveDefinition =>
     dd
   }
