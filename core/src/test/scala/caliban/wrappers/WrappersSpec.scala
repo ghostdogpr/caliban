@@ -1,7 +1,6 @@
 package caliban.wrappers
 
-import caliban.CalibanError.{ ExecutionError, ValidationError }
-import caliban.GraphQL._
+import caliban._
 import caliban.InputValue.ObjectValue
 import caliban.Macros.gqldoc
 import caliban.TestUtils._

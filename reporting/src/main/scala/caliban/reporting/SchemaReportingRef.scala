@@ -1,6 +1,6 @@
 package caliban.reporting
 
-import caliban.GraphQL
+import caliban._
 import zio._
 
 import java.util.UUID

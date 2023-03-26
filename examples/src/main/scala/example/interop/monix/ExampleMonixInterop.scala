@@ -1,9 +1,8 @@
 package example.interop.monix
 /*
 
-import caliban.GraphQL.graphQL
+import caliban._
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
-import caliban.RootResolver
 
 import cats.effect.ExitCode
 import monix.eval.{ Task, TaskApp }

@@ -94,7 +94,6 @@ Caliban will automatically fill the error path and the error location inside `Ex
 
 If you have an interface that is not directly returned by any field, it will be missing from the schema. This is a constraint from the way the typeclass derivation works. A workaround is to use `withAdditionalTypes` on your `GraphQL` object to explicitly add the interface. See the following example:
 ```scala mdoc:silent
-import caliban.GraphQL._
 import caliban._
 import caliban.schema.Schema
 import caliban.schema.Annotations._

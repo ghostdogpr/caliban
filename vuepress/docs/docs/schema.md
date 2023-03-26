@@ -222,7 +222,7 @@ If you require a ZIO environment and use Scala 3, things are simpler since you d
 To make sure Caliban uses the proper environment, you need to specify it explicitly to `graphQL(...)`, unless you already have `Schema` instances for your root operations in scope.
 ```scala mdoc:silent
 val queries = Queries(ZIO.attempt(???), _ => ZIO.succeed(???))
-val api = GraphQL.graphQL[MyEnv, Queries, Unit, Unit](RootResolver(queries))
+val api = graphQL[MyEnv, Queries, Unit, Unit](RootResolver(queries))
 // or
 // implicit val queriesSchema: Schema[MyEnv, Queries] = Schema.gen
 // val api = graphQL(RootResolver(queries)) // it will infer MyEnv thanks to the instance above

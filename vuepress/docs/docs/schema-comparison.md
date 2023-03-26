@@ -11,8 +11,7 @@ The output of `compare` is a `Task[List[SchemaComparisonChange]]`, with `SchemaC
 The following example will compare the schema obtained by Caliban with a schema defined in a string and print the differences.
 
 ```scala mdoc:silent
-import caliban.GraphQL.graphQL
-import caliban.RootResolver
+import caliban._
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import caliban.tools._

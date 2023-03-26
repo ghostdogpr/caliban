@@ -1,7 +1,6 @@
 package caliban.execution
 
-import caliban.GraphQL.graphQL
-import caliban.{ CalibanError, GraphQL, RootResolver }
+import caliban._
 import caliban.parsing.Parser
 import caliban.schema.RootType
 import caliban.validation.Validator

@@ -1,6 +1,6 @@
 package caliban.schema
 
-import caliban.GraphQL.graphQL
+import caliban._
 import caliban.RootResolver
 import zio.test.{ assertTrue, ZIOSpecDefault }
 

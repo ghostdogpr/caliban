@@ -1,6 +1,5 @@
 package caliban
 
-import caliban.GraphQL._
 import caliban.TestUtils._
 import caliban.introspection.adt.__DeprecatedArgs
 import caliban.schema.SchemaSpec.introspect

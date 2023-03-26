@@ -52,7 +52,7 @@ object ConnectionSpec extends ZIOSpecDefault {
   )
 
   case class Query(connection: Args => ZIO[Any, CalibanError, ItemConnection])
-  val api = GraphQL.graphQL(
+  val api = graphQL(
     RootResolver(
       Query(args =>
         for {

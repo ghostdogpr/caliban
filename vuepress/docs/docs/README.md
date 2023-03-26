@@ -80,8 +80,7 @@ Then we can call the `graphQL` function which will turn our simple resolver valu
 The whole schema will be derived at compile time, meaning that if it compiles, it will be able to serve it.
 
 ```scala mdoc:silent
-import caliban.GraphQL.graphQL
-import caliban.RootResolver
+import caliban._
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 

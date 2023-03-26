@@ -3,7 +3,7 @@ package caliban.reporting
 import caliban.client.CalibanClientError.CommunicationError
 import caliban.reporting.ReportingError.{ ClientError, RetryableError }
 import caliban.schema.Schema.auto._
-import caliban.{ GraphQL, RootResolver }
+import caliban._
 import zio.test.{ assertTrue, TestClock, ZIOSpecDefault }
 import zio._
 
@@ -14,7 +14,7 @@ object ReportingDaemonSpec extends ZIOSpecDefault {
     user: UIO[User]
   )
 
-  val api = GraphQL.graphQL(
+  val api = graphQL(
     RootResolver(
       Query(
         "hello",

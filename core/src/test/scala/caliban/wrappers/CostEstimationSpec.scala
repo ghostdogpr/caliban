@@ -1,10 +1,9 @@
 package caliban.wrappers
 
 import caliban.CalibanError.ValidationError
-import caliban.GraphQL.graphQL
+import caliban._
 import caliban.Macros.gqldoc
 import caliban.ResponseValue.ObjectValue
-import caliban.RootResolver
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import caliban.Value.{ FloatValue, IntValue }

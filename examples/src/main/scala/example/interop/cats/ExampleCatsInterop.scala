@@ -1,7 +1,6 @@
 package example.interop.cats
 
-import caliban.GraphQL.graphQL
-import caliban.RootResolver
+import caliban._
 import caliban.schema.Schema.auto._
 
 import cats.effect.{ ExitCode, IO, IOApp }

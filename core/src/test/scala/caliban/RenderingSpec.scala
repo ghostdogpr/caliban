@@ -1,6 +1,5 @@
 //package caliban
 //
-//import caliban.GraphQL._
 //import caliban.TestUtils._
 //import caliban.introspection.adt.{ __Type, __TypeKind }
 //import caliban.parsing.adt.Directive

@@ -1,8 +1,7 @@
 package caliban.introspection
 
 import caliban.CalibanError.{ ExecutionError, ValidationError }
-import caliban.GraphQL._
-import caliban.GraphQLResponse
+import caliban._
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
 import caliban.Value._

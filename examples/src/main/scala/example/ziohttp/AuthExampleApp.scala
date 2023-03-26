@@ -1,16 +1,14 @@
 package example.ziohttp
 
-import caliban.GraphQL.graphQL
 import caliban.Value.StringValue
 import caliban._
-import caliban.interop.tapir.{ StreamTransformer, WebSocketHooks }
+import caliban.interop.tapir.WebSocketHooks
 import caliban.schema.GenericSchema
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
 import sttp.tapir.json.circe._
-import zio.http._
-import zio.http.model._
 import zio._
+import zio.http._
 import zio.stream._
 
 case object Unauthorized extends RuntimeException("Unauthorized")

@@ -135,8 +135,7 @@ Let's say you have an object `CalibanServer` object in your `api` sbt module:
 ```scala
 package com.example.my.awesome.project.api
 
-import caliban.GraphQL.graphQL
-import caliban.GraphQL
+import caliban._
 
 object CalibanServer {
   

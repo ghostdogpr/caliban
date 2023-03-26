@@ -1,9 +1,8 @@
 package poc.caliban.posts
 
-import caliban.GraphQL.graphQL
+import caliban._
 import caliban.schema.GenericSchema
 import caliban.wrappers.Wrappers._
-import caliban.{GraphQL, RootResolver}
 import zio._
 import zio.stream.ZStream
 

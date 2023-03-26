@@ -3,7 +3,6 @@ package caliban.execution
 import java.util.UUID
 
 import caliban.CalibanError.ExecutionError
-import caliban.GraphQL._
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, IntValue, NullValue, StringValue }
@@ -1067,7 +1066,7 @@ object ExecutionSpec extends ZIOSpecDefault {
 
         val queries: Queries = Queries(Seq(Foo(123)))
 
-        val calibanApi: GraphQL[Any] = GraphQL.graphQL(RootResolver(queries))
+        val calibanApi: GraphQL[Any] = graphQL(RootResolver(queries))
 
         val interpreter = calibanApi.interpreter
         val query       = gqldoc("""{
@@ -1122,7 +1121,7 @@ object ExecutionSpec extends ZIOSpecDefault {
 
         val queries: Queries = Queries(Foo())
 
-        val api: GraphQL[Any] = GraphQL.graphQL(RootResolver(queries))
+        val api: GraphQL[Any] = graphQL(RootResolver(queries))
         val interpreter       = api.interpreter
 
         val query = gqldoc("""{
@@ -1162,7 +1161,7 @@ object ExecutionSpec extends ZIOSpecDefault {
           )
         )
 
-        val api: GraphQL[Any] = GraphQL.graphQL(RootResolver(queries))
+        val api: GraphQL[Any] = graphQL(RootResolver(queries))
         val interpreter       = api.interpreter
         val query             = gqldoc("""{
             foos {
@@ -1184,7 +1183,7 @@ object ExecutionSpec extends ZIOSpecDefault {
 
         val queries = Queries(Wrapper(2))
 
-        val api: GraphQL[Any] = GraphQL.graphQL(RootResolver(queries))
+        val api: GraphQL[Any] = graphQL(RootResolver(queries))
         val interpreter       = api.interpreter
         val query             = gqldoc("""{test}""")
 
@@ -1199,7 +1198,7 @@ object ExecutionSpec extends ZIOSpecDefault {
 
         val queries = Queries(Wrapper(2))
 
-        val api: GraphQL[Any] = GraphQL.graphQL(RootResolver(queries))
+        val api: GraphQL[Any] = graphQL(RootResolver(queries))
         val interpreter       = api.interpreter
         val query             = gqldoc("""{test}""")
 

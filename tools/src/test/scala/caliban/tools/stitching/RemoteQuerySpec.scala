@@ -1,9 +1,8 @@
 package caliban.tools.stitching
 
 import caliban.CalibanError.ValidationError
-import caliban.GraphQL.graphQL
+import caliban._
 import caliban.Macros.gqldoc
-import caliban.{ CalibanError, GraphQLInterpreter, RootResolver }
 import caliban.execution.Field
 import caliban.schema.Annotations.GQLInterface
 import caliban.schema.Schema.auto._

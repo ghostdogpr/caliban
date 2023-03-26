@@ -1,8 +1,7 @@
 package caliban.schema
 
 import java.util.UUID
-import caliban.GraphQL.graphQL
-import caliban.RootResolver
+import caliban._
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
 import caliban.schema.Annotations.{ GQLExcluded, GQLInterface, GQLUnion, GQLValueType }
 import caliban.schema.Schema.auto._

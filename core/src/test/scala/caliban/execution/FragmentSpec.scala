@@ -1,6 +1,6 @@
 package caliban.execution
 
-import caliban.GraphQL._
+import caliban._
 import caliban.Macros.gqldoc
 import caliban.RootResolver
 import caliban.TestUtils._

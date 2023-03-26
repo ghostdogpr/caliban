@@ -1,6 +1,5 @@
 package caliban.tools
 
-import caliban.GraphQL._
 import caliban._
 import caliban.introspection.adt._
 import caliban.schema._

@@ -158,7 +158,7 @@ a federated graph:
       _fieldSet: FieldSet = FieldSet("")
     )
 
-    GraphQL.graphQL(RootResolver(Query(_service = _Service(original.render))), federationDirectives) |+| original
+    graphQL(RootResolver(Query(_service = _Service(original.render))), federationDirectives) |+| original
   }
 
   lazy val federated: GraphQLAspect[Nothing, Any] = 
@@ -202,7 +202,7 @@ case class Query(
 def allCharacterNames: UIO[List[String]] = ZIO.succeed(???)
 def getLines(name: String, offset: Int, limit: Int): UIO[List[String]] = ???
 
-val api = GraphQL.graphQL(RootResolver(Query(
+val api = graphQL(RootResolver(Query(
   characters = allCharacterNames.flatMap { 
     names => ZIO.foreach(names) { name =>
       val character = Character(

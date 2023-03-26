@@ -35,7 +35,7 @@ object StitchingExample extends GenericSchema[Any] {
     GetUser: GetUserQuery => UIO[AppUser]
   )
 
-  val graphQL: GraphQL[Any] = GraphQL.graphQL(
+  val api: GraphQL[Any] = graphQL(
     RootResolver(
       Queries(
         GetUser = query =>

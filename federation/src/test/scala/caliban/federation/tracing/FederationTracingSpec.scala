@@ -3,7 +3,7 @@ package caliban.federation.tracing
 import caliban.Macros.gqldoc
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ IntValue, StringValue }
-import caliban.{ GraphQL, GraphQLRequest, RootResolver }
+import caliban._
 import caliban.schema.Schema.auto._
 import mdg.engine.proto.reports.Trace
 import zio._
@@ -33,7 +33,7 @@ object FederationTracingSpec extends ZIOSpecDefault {
 
   case class Queries(me: ZQuery[Any, Nothing, User])
 
-  val api = GraphQL.graphQL(
+  val api = graphQL(
     RootResolver(
       Queries(
         me = ZQuery.succeed(

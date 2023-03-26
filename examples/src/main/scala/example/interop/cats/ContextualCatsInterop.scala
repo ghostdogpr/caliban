@@ -1,9 +1,8 @@
 package example.interop.cats
 
-import caliban.GraphQL.graphQL
+import caliban._
 import caliban.interop.cats.CatsInterop
 import caliban.schema.GenericSchema
-import caliban.{ GraphQL, RootResolver }
 import cats.data.Kleisli
 import cats.effect.std.{ Console, Dispatcher }
 import cats.effect.{ Async, ExitCode, IO, IOApp }
