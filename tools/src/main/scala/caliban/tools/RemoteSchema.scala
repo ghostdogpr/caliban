@@ -201,7 +201,8 @@ object RemoteSchema {
       name = definition.enumValue,
       description = definition.description,
       isDeprecated = isDeprecated(definition.directives),
-      deprecationReason = deprecationReason(definition.directives)
+      deprecationReason = deprecationReason(definition.directives),
+      directives = toDirectives(definition.directives)
     )
 
   private def toInputObjectType(

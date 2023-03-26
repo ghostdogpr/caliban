@@ -225,7 +225,7 @@ object Rendering {
   private def renderEnumValue(v: __EnumValue): String =
     s"${renderDescription(v.description)}${v.name}${if (v.isDeprecated)
       s" @deprecated${v.deprecationReason.fold("")(reason => s"""(reason: "$reason")""")}"
-    else ""}"
+    else ""}${renderDirectives(v.directives)}"
 
   private def renderDefaultValue(a: __InputValue): String = a.defaultValue.fold("")(d => s" = $d")
 
