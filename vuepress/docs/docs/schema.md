@@ -299,23 +299,25 @@ case class Queries(characters: Task[List[Character]],
 
 If you don't use ZIO environment (`R` = `Any`), there is nothing special to do to get it working.
 
-If you require a ZIO environment and use Scala 2, you will need to have the content of `caliban.schema.GenericSchema[R]` for your custom `R` in scope when you call `graphQL(...)`.
-When you call `Schema.gen`, make sure to use your environment as the first type parameter.
+If you require a ZIO environment and use Scala 2, you can't use `Schema.gen` or the import we saw previously because they expect `R` to be `Any`. Instead, you need to make a new object that extends `caliban.schema.GenericSchema[R]` for your custom `R`. Then you can use `gen` or `auto` from that object to generate your schema.
 ```scala mdoc:silent
 import caliban._
 import caliban.schema._
 
 type MyEnv = Console 
 
-object schema extends GenericSchema[MyEnv]
-import schema.auto._
+object customSchema extends GenericSchema[MyEnv]
+import customSchema.auto._
 
-implicit val queriesSchema: Schema[MyEnv, Queries] = genAll
-// or
-// implicit val queriesSchema = Schema.gen[MyEnv, Queries]
+// if you use semi-auto generation, use this instead:
+// implicit val characterSchema: Schema[MyEnv, Character] = customSchema.gen
+// implicit val queriesSchema: Schema[MyEnv, Queries] = customSchema.gen
+
+val queries = Queries(ZIO.attempt(???), _ => ZIO.succeed(???))
+val api = graphQL(RootResolver(queries))
 ```
 
-If you require a ZIO environment and use Scala 3, things are simpler since you don't need `GenericSchema`. Make sure to use `Schema.gen` with the proper R type parameter.
+If you require a ZIO environment and use Scala 3, things are simpler since you don't need `GenericSchema`. Just make sure to use `Schema.gen` with the proper R type parameter.
 To make sure Caliban uses the proper environment, you need to specify it explicitly to `graphQL(...)`, unless you already have `Schema` instances for your root operations in scope.
 ```scala
 val queries = Queries(ZIO.attempt(???), _ => ZIO.succeed(???))
