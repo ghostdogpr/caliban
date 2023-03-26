@@ -43,31 +43,6 @@ See the [Custom Types](#custom-types) section to find out how to support your ow
 
 If you want Caliban to support other standard types, feel free to [file an issue](https://github.com/ghostdogpr/caliban/issues) or even a PR.
 
-::: warning Schema derivation issues
-The schema derivation sometimes has some trouble generating schemas with a lot of nested types, or types reused in multiple places.
-To deal with this, you can declare schemas for your case classes and sealed traits explicitly:
-
-```scala
-implicit val roleSchema      = Schema.gen[Any, Role]
-implicit val characterSchema = Schema.gen[Any, Character]
-```
-
-Note that `Schema.gen`s are intended for case classes and sealed traits. Once you have schemas for your case classes declared, normally you don't have to further declare schemas for container types, such as `Option[Role]` or `List[Character]`. If you do have to declare such schemas by hand, use `Schema.optionSchema` or `Schema.listSchema` instead, respectively.
-
-Make sure those implicits are in scope when you call `graphQL(...)`. This will make derivation's job easier by pre-generating schemas for those classes and re-using them when needed.
-This will also improve compilation times and generate less bytecode.
-
-In Scala 2, if the derivation fails and you're not sure why, you can also call Magnolia's macro directly by using `genMacro`.
-The compilation will return better error messages in case something is missing:
-
-```scala
-implicit val characterSchema = Schema.genMacro[Character].schema
-```
-
-In Scala 3, derivation doesn't support value classes and opaque types. You can use `Schema.genDebug` to print the generated code in the console.
-
-:::
-
 ## Enums, unions, interfaces
 
 A sealed trait will be converted to a different GraphQL type depending on its content:
@@ -164,6 +139,55 @@ An interface will be created with all the fields that are common to the case cla
 
 If you prefer to have a `Union` type instead of an `Enum`, even when the sealed trait contains only objects, add the `@GQLUnion` annotation.
 
+## Case classes and sealed traits
+
+The transformation between Scala types and GraphQL types is handled by a typeclass named `Schema`. As mentioned earlier, caliban provides instances of `Schema` for all basic Scala types, but inevitably you will need to support your own types, in particular case classes and sealed traits.
+
+Caliban is able to generate instances of `Schema` for case classes and sealed traits. You have 2 choices for doing that: auto derivation and semi-auto derivation.
+
+### Auto derivation
+Auto derivation is achieved easily by adding the following import:
+```scala mdoc:silent
+import caliban.schema.Schema.auto._
+```
+Using this import, caliban will generate a `Schema` instance for all the case classes and sealed traits that are found inside your resolver.
+
+::: warning Auto derivation limitations
+Auto derivation is the easiest way to get started, but it has some drawbacks:
+- If a type is referenced in several places inside your resolver, a `Schema` will be generated for each occurrence, which can lead to longer compilation times and a high amount of generated code (a sign of this is that the compiler will suggest increasing `-Xmax-inlines` in Scala 3).
+- When a `Schema` is missing for a nested type inside your resolver, it can sometimes be difficult to find out which type is missing when using auto derivation, because the error message will mention the root type and not the nested one.
+- The macro that generates the `Schema` instances sometimes gets confused when there are a lot of nested or recursive types, and can mistakenly generate a `Schema` for types that already have a `Schema` in scope. For this reason, semi-auto derivation is recommended for non-trivial schemas.
+:::
+
+### Semi-auto derivation
+Semi-auto derivation is achieved as follows for each type that needs a `Schema` instance (`MyClass` in the example):
+
+<code-group>
+  <code-block title="Scala 2" active>
+
+```scala mdoc:silent
+import caliban.schema.Schema
+
+case class MyClass(field: String)
+
+implicit val schemaForMyClass: Schema[Any, MyClass] = Schema.gen
+```
+  </code-block>
+  <code-block title="Scala 3">
+
+```scala
+import caliban.schema.Schema
+
+case class MyClass(field: String) derives Schema.SemiAuto
+
+// if you don't want to use the `derives` syntax, you can also use the following:
+given Schema[Any, MyClass] = Schema.gen
+```
+  </code-block>
+</code-group>
+
+In Scala 3, derivation doesn't support value classes and opaque types. You can use `Schema.genDebug` to print the generated code in the console.
+
 ## Arguments
 
 To declare a field that take arguments, create a dedicated case class representing the arguments and make the field a _function_ from this class to the result type.
@@ -184,71 +208,41 @@ type Queries {
 
 Caliban provides auto-derivation for common types such as `Int`, `String`, `List`, `Option`, etc. but you can also support your own types by providing an implicit instance of `caliban.schema.ArgBuilder`.
 
+Derivation for case classes works similarly to `Schema` derivation. You can use auto derivation by adding the following import:
+
+```scala mdoc:silent:reset
+import caliban.schema.ArgBuilder.auto._
+```
+
+Or you can use semi-auto derivation as follows:
+
+<code-group>
+  <code-block title="Scala 2" active>
+
+```scala mdoc:silent
+import caliban.schema.ArgBuilder
+
+case class MyClass(field: String)
+
+implicit val argBuilderForMyClass: ArgBuilder[MyClass] = ArgBuilder.gen
+```
+  </code-block>
+  <code-block title="Scala 3">
+
+```scala
+import caliban.schema.ArgBuilder
+
+case class MyClass(field: String) derives ArgBuilder
+
+// if you don't want to use the `derives` syntax, you can also use the following:
+given ArgBuilder[MyClass] = ArgBuilder.gen
+```
+  </code-block>
+</code-group>
+
 ::: tip
 There is no `ArgBuilder` for tuples. If you have multiple arguments, use a case class containing all of them instead of a tuple.
 :::
-
-## Effects
-
-Fields can return ZIO effects. This allows you to leverage all the features provided by ZIO: timeouts, retries, access to ZIO environment, memoizing, etc. An effect will be run every time a query requiring the corresponding field is executed.
-
-```scala mdoc:silent:nest
-import zio._
-
-type CharacterName = String
-case class Queries(characters: Task[List[Character]],
-                   character: CharacterName => RIO[Console, Character])
-```
-
-If you don't use ZIO environment (`R` = `Any`), there is nothing special to do to get it working.
-
-If you require a ZIO environment and use Scala 2, you will need to have the content of `caliban.schema.GenericSchema[R]` for your custom `R` in scope when you call `graphQL(...)`.
-When you call `Schema.gen`, make sure to use your environment as the first type parameter.
-```scala mdoc:silent
-import caliban._
-import caliban.schema._
-
-type MyEnv = Console 
-
-object schema extends GenericSchema[MyEnv]
-import schema.auto._
-
-implicit val queriesSchema: Schema[MyEnv, Queries] = genAll
-// or
-// implicit val queriesSchema = Schema.gen[MyEnv, Queries]
-```
-
-If you require a ZIO environment and use Scala 3, things are simpler since you don't need `GenericSchema`. Make sure to use `Schema.gen` with the proper R type parameter.
-To make sure Caliban uses the proper environment, you need to specify it explicitly to `graphQL(...)`, unless you already have `Schema` instances for your root operations in scope.
-```scala mdoc:silent
-val queries = Queries(ZIO.attempt(???), _ => ZIO.succeed(???))
-val api = graphQL[MyEnv, Queries, Unit, Unit](RootResolver(queries))
-// or
-// implicit val queriesSchema: Schema[MyEnv, Queries] = Schema.gen
-// val api = graphQL(RootResolver(queries)) // it will infer MyEnv thanks to the instance above
-```
-
-## Annotations
-
-Caliban supports a few annotations to enrich data types:
-
-- `@GQLName("name")` allows you to specify a different name for a data type or a field.
-- `@GQLInputName("name")` allows you to specify a different name for a data type used as an input (by default, the suffix `Input` is appended to the type name).
-- `@GQLDescription("description")` lets you provide a description for a data type or field. This description will be visible when your schema is introspected.
-- `@GQLDeprecated("reason")` allows deprecating a field or an enum value.
-- `@GQLExcluded` allows you to hide a field from the generated schema.
-- `@GQLInterface` to force a sealed trait generating an interface instead of a union.
-- `@GQLDirective(directive: Directive)` to add a directive to a field or type.
-- `@GQLValueType(isScalar)` forces a type to behave as a value type for derivation. Meaning that caliban will ignore the outer type and take the first case class parameter as the real type. If `isScalar` is true, it will generate a scalar named after the case class (default: false).
-- `@GQLDefault("defaultValue")` allows you to specify a default value for an input field using GraphQL syntax. The default value will be visible in your schema's SDL and during introspection.
-
-## Java 8 Time types
-
-Caliban provides implicit `Schema` types for the standard `java.time` types, by default these will use the
-ISO standard strings for serialization and deserialization. However, you can customize this behavior by using
-explicit constructor available under the `ArgBuilder` companion object. For instance, you can specify an `instantEpoch` 
-to handle instants which are encoded using a `Long` from the standard java epoch time (January 1st 1970 00:00:00).
-For some time formats you can also specify a specific `DateTimeFormatter` to handle your particular date time needs. 
 
 ## Custom types
 
@@ -289,6 +283,69 @@ implicit val localDateArgBuilder: ArgBuilder[LocalDate] = {
 ```
 
 Value classes (`case class SomeWrapper(self: SomeType) extends AnyVal`) will be unwrapped by default in Scala 2 (this is not supported by Scala 3 derivation).
+
+## Effects
+
+Fields can return ZIO effects. This allows you to leverage all the features provided by ZIO: timeouts, retries, access to ZIO environment, memoizing, etc. An effect will be run every time a query requiring the corresponding field is executed.
+
+```scala mdoc:silent:reset
+import zio._
+
+type CharacterName = String
+case class Character(name: CharacterName)
+case class Queries(characters: Task[List[Character]],
+                   character: CharacterName => RIO[Console, Character])
+```
+
+If you don't use ZIO environment (`R` = `Any`), there is nothing special to do to get it working.
+
+If you require a ZIO environment and use Scala 2, you will need to have the content of `caliban.schema.GenericSchema[R]` for your custom `R` in scope when you call `graphQL(...)`.
+When you call `Schema.gen`, make sure to use your environment as the first type parameter.
+```scala mdoc:silent
+import caliban._
+import caliban.schema._
+
+type MyEnv = Console 
+
+object schema extends GenericSchema[MyEnv]
+import schema.auto._
+
+implicit val queriesSchema: Schema[MyEnv, Queries] = genAll
+// or
+// implicit val queriesSchema = Schema.gen[MyEnv, Queries]
+```
+
+If you require a ZIO environment and use Scala 3, things are simpler since you don't need `GenericSchema`. Make sure to use `Schema.gen` with the proper R type parameter.
+To make sure Caliban uses the proper environment, you need to specify it explicitly to `graphQL(...)`, unless you already have `Schema` instances for your root operations in scope.
+```scala
+val queries = Queries(ZIO.attempt(???), _ => ZIO.succeed(???))
+val api = graphQL[MyEnv, Queries, Unit, Unit](RootResolver(queries))
+// or
+// implicit val queriesSchema: Schema[MyEnv, Queries] = Schema.gen
+// val api = graphQL(RootResolver(queries)) // it will infer MyEnv thanks to the instance above
+```
+
+## Annotations
+
+Caliban supports a few annotations to enrich data types:
+
+- `@GQLName("name")` allows you to specify a different name for a data type or a field.
+- `@GQLInputName("name")` allows you to specify a different name for a data type used as an input (by default, the suffix `Input` is appended to the type name).
+- `@GQLDescription("description")` lets you provide a description for a data type or field. This description will be visible when your schema is introspected.
+- `@GQLDeprecated("reason")` allows deprecating a field or an enum value.
+- `@GQLExcluded` allows you to hide a field from the generated schema.
+- `@GQLInterface` to force a sealed trait generating an interface instead of a union.
+- `@GQLDirective(directive: Directive)` to add a directive to a field or type.
+- `@GQLValueType(isScalar)` forces a type to behave as a value type for derivation. Meaning that caliban will ignore the outer type and take the first case class parameter as the real type. If `isScalar` is true, it will generate a scalar named after the case class (default: false).
+- `@GQLDefault("defaultValue")` allows you to specify a default value for an input field using GraphQL syntax. The default value will be visible in your schema's SDL and during introspection.
+
+## Java 8 Time types
+
+Caliban provides implicit `Schema` types for the standard `java.time` types, by default these will use the
+ISO standard strings for serialization and deserialization. However, you can customize this behavior by using
+explicit constructor available under the `ArgBuilder` companion object. For instance, you can specify an `instantEpoch` 
+to handle instants which are encoded using a `Long` from the standard java epoch time (January 1st 1970 00:00:00).
+For some time formats you can also specify a specific `DateTimeFormatter` to handle your particular date time needs.
 
 ## Code generation
 
