@@ -237,7 +237,7 @@ Caliban ships with support for OpenTelemetry tracing via integration with [zio-t
 In order to use tracing, first add `caliban-tracing` to your `built.sbt`.
 
 ```scala
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-tracing" % "2.1.0"
+"com.github.ghostdogpr" %% "caliban-tracing" % "2.1.0"
 ```
 
 Then add it to your schema as any other wrapper:

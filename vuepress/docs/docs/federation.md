@@ -6,10 +6,10 @@
 
 `caliban-federation` only depends on `caliban-core` and is very unobtrusive.
 
-To use, add the following line to your `build.sbt` file:
+To use, add the following dependency to your `build.sbt` file:
 
 ```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-federation" % "2.1.0"
+"com.github.ghostdogpr" %% "caliban-federation" % "2.1.0"
 ```
 
 ## Federating
