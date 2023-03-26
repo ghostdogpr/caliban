@@ -45,7 +45,7 @@ object ExampleCatsInterop extends IOApp {
   }"""
 
   override def run(args: List[String]): IO[ExitCode] =
-    Dispatcher[IO].use { implicit dispatcher => // required for a derivation of the schema
+    Dispatcher.parallel[IO].use { implicit dispatcher => // required for a derivation of the schema
       val api = graphQL(RootResolver(queries))
 
       for {
@@ -125,7 +125,7 @@ object Simple extends IOApp {
     inject: InjectEnv[F, TraceId],
     runtime: Runtime[TraceId]
   ): F[ExitCode] =
-    Dispatcher[F].use { implicit dispatcher =>
+    Dispatcher.parallel[F].use { implicit dispatcher =>
       implicit val interop: CatsInterop.Contextual[F, TraceId] = CatsInterop.contextual(dispatcher) // required for a derivation of the schema
 
       val genRandomNumber = logger.info("Generating number") >> Async[F].delay(scala.util.Random.nextInt())

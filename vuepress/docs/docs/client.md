@@ -24,7 +24,7 @@ libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client" % "2.0.2"
 ## Code generation
 
 Caliban provides several ways to generate the boilerplate code. To get started, we are going to generate it by running a
-simple sbt command, but you can look at the [Code generation](client-codegen) page for more options.
+simple sbt command, but you can look at the [Code generation](client-codegen.md) page for more options.
 
 You'll first need to add following dependency to your `project/plugins.sbt` file:
 ```scala

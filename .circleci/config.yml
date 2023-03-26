@@ -149,25 +149,25 @@ jobs:
           echo $PGP_SECRET | base64 --decode | gpg --import --no-tty --batch --yes
       - run: sbt clean ci-release
 
-#  microsite:
-#    docker:
-#      - image: cimg/node:16.13
-#    steps:
-#      - checkout
-#      - run: |
-#          if [ "$(git diff --numstat HEAD^ -- vuepress)" ]; then
-#            cd vuepress
-#            npm install
-#            npm run docs:build
-#            cd ..
-#            rm -rf docs
-#            cp -r vuepress/docs/.vuepress/dist docs
-#            git add docs
-#            git config user.name "Pierre Ricadat"
-#            git config user.email "ghostdogpr@gmail.com"
-#            git commit -m "[ci skip] update docs"
-#            git push
-#          fi
+  microsite:
+    docker:
+      - image: cimg/node:16.13
+    steps:
+      - checkout
+      - run: |
+          if [ "$(git diff --numstat HEAD^ -- vuepress)" ]; then
+            cd vuepress
+            npm install
+            npm run docs:build
+            cd ..
+            rm -rf docs
+            cp -r vuepress/docs/.vuepress/dist docs
+            git add docs
+            git config user.name "Pierre Ricadat"
+            git config user.email "ghostdogpr@gmail.com"
+            git commit -m "[ci skip] update docs"
+            git push
+          fi
 
 workflows:
   version: 2
@@ -243,8 +243,8 @@ workflows:
                 - series/2.x
             tags:
               only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
-#      - microsite:
-#          filters:
-#            branches:
-#              only:
-#                - series/2.x
+      - microsite:
+          filters:
+            branches:
+              only:
+                - series/2.x
