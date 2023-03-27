@@ -29,6 +29,7 @@ The following modules are optional:
 "com.github.ghostdogpr" %% "caliban-monix"      % "2.1.0" // interop with monix
 "com.github.ghostdogpr" %% "caliban-tapir"      % "2.1.0" // interop with tapir
 "com.github.ghostdogpr" %% "caliban-federation" % "2.1.0" // interop with apollo federation
+"com.github.ghostdogpr" %% "caliban-tracing"    % "2.1.0" // interop with zio-telemetry
 ```
 
 Support for JSON encoding / decoding of the inputs and responses is enabled by adding **one** of the following dependencies to your `build.sbt` file:

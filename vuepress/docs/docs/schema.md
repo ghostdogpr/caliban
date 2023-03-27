@@ -141,16 +141,16 @@ If you prefer to have a `Union` type instead of an `Enum`, even when the sealed 
 
 ## Case classes and sealed traits
 
-The transformation between Scala types and GraphQL types is handled by a typeclass named `Schema`. As mentioned earlier, caliban provides instances of `Schema` for all basic Scala types, but inevitably you will need to support your own types, in particular case classes and sealed traits.
+The transformation between Scala types and GraphQL types is handled by a typeclass named `Schema`. As mentioned earlier, Caliban provides instances of `Schema` for all basic Scala types, but inevitably you will need to support your own types, in particular case classes and sealed traits.
 
-Caliban is able to generate instances of `Schema` for case classes and sealed traits. You have 2 choices for doing that: auto derivation and semi-auto derivation.
+Caliban is able to generate instances of `Schema` for case classes and sealed traits. You have two choices for doing that: auto derivation and semi-auto derivation.
 
 ### Auto derivation
 Auto derivation is achieved easily by adding the following import:
 ```scala mdoc:silent
 import caliban.schema.Schema.auto._
 ```
-Using this import, caliban will generate a `Schema` instance for all the case classes and sealed traits that are found inside your resolver.
+Using this import, Caliban will generate `Schema` instances for all the case classes and sealed traits that are found inside your resolver.
 
 ::: warning Auto derivation limitations
 Auto derivation is the easiest way to get started, but it has some drawbacks:
