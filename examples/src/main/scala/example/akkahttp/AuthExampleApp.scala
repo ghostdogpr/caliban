@@ -3,11 +3,10 @@ package example.akkahttp
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives.{ getFromResource, path, _ }
-import caliban.GraphQL._
+import caliban._
 import caliban.interop.tapir.RequestInterceptor
 import caliban.interop.tapir.TapirAdapter.TapirResponse
 import caliban.schema.GenericSchema
-import caliban.{ AkkaHttpAdapter, RootResolver }
 import sttp.model.StatusCode
 import sttp.tapir.json.circe._
 import sttp.tapir.model.ServerRequest

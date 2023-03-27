@@ -1,8 +1,7 @@
 package caliban.validation
 
-import caliban.{ CalibanError, InputValue, RootResolver }
+import caliban._
 import caliban.CalibanError.ValidationError
-import caliban.GraphQL._
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, IntValue, StringValue }

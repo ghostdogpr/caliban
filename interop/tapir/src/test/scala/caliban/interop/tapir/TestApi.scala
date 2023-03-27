@@ -1,8 +1,7 @@
 package caliban.interop.tapir
 
-import caliban.GraphQL.graphQL
+import caliban._
 import caliban.interop.tapir.TestData._
-import caliban.{ GraphQL, RootResolver }
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.schema.ArgBuilder.auto._

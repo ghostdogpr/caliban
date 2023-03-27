@@ -1,8 +1,7 @@
 package caliban.interop.play
 
-import caliban.GraphQL._
+import caliban._
 import caliban.Macros.gqldoc
-import caliban.RootResolver
 import caliban.schema.Schema.auto._
 import zio.test._
 

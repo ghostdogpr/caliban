@@ -1,8 +1,7 @@
 package caliban.execution
 
-import caliban.GraphQL.graphQL
+import caliban._
 import caliban.Macros.gqldoc
-import caliban.RootResolver
 import caliban.parsing.Parser
 import caliban.schema.Annotations.GQLInterface
 import caliban.schema._

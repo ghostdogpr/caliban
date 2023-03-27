@@ -1,6 +1,5 @@
 package caliban
 
-import caliban.GraphQL._
 import caliban.schema.Annotations.GQLInterface
 import caliban.schema.Schema.auto._
 import zio._

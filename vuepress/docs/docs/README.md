@@ -12,32 +12,33 @@ The design principles of Caliban are the following:
 
 ## Dependencies
 
-To use `caliban`, add the following line in your `build.sbt` file:
+To use `caliban`, add the following dependency to your `build.sbt` file:
 
-```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban" % "2.0.2"
+```scala
+"com.github.ghostdogpr" %% "caliban" % "2.1.0"
 ```
 
 The following modules are optional:
 
-```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-http4s"     % "2.0.2" // routes for http4s
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-akka-http"  % "2.0.2" // routes for akka-http
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-play"       % "2.0.2" // routes for play
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-zio-http"   % "2.0.2" // routes for zio-http
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-cats"       % "2.0.2" // interop with cats effect
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-monix"      % "2.0.2" // interop with monix
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-tapir"      % "2.0.2" // interop with tapir
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-federation" % "2.0.2" // interop with apollo federation
+```scala
+"com.github.ghostdogpr" %% "caliban-http4s"     % "2.1.0" // routes for http4s
+"com.github.ghostdogpr" %% "caliban-akka-http"  % "2.1.0" // routes for akka-http
+"com.github.ghostdogpr" %% "caliban-play"       % "2.1.0" // routes for play
+"com.github.ghostdogpr" %% "caliban-zio-http"   % "2.1.0" // routes for zio-http
+"com.github.ghostdogpr" %% "caliban-cats"       % "2.1.0" // interop with cats effect
+"com.github.ghostdogpr" %% "caliban-monix"      % "2.1.0" // interop with monix
+"com.github.ghostdogpr" %% "caliban-tapir"      % "2.1.0" // interop with tapir
+"com.github.ghostdogpr" %% "caliban-federation" % "2.1.0" // interop with apollo federation
+"com.github.ghostdogpr" %% "caliban-tracing"    % "2.1.0" // interop with zio-telemetry
 ```
 
 Support for JSON encoding / decoding of the inputs and responses is enabled by adding **one** of the following dependencies to your `build.sbt` file:
 
-```
-libraryDependencies += "com.softwaremill.sttp.tapir" %% "tapir-json-circe"     % "1.2.2" // Circe
-libraryDependencies += "com.softwaremill.sttp.tapir" %% "tapir-jsoniter-scala" % "1.2.2" // Jsoniter
-libraryDependencies += "com.softwaremill.sttp.tapir" %% "tapir-json-play"      % "1.2.2" // Play JSON
-libraryDependencies += "com.softwaremill.sttp.tapir" %% "tapir-json-zio"       % "1.2.2" // ZIO JSON
+```scala
+"com.softwaremill.sttp.tapir" %% "tapir-json-circe"     % "1.2.11" // Circe
+"com.softwaremill.sttp.tapir" %% "tapir-jsoniter-scala" % "1.2.11" // Jsoniter
+"com.softwaremill.sttp.tapir" %% "tapir-json-play"      % "1.2.11" // Play JSON
+"com.softwaremill.sttp.tapir" %% "tapir-json-zio"       % "1.2.11" // ZIO JSON
 ```
 
 And then later in your code (you only need one!):
@@ -80,8 +81,7 @@ Then we can call the `graphQL` function which will turn our simple resolver valu
 The whole schema will be derived at compile time, meaning that if it compiles, it will be able to serve it.
 
 ```scala mdoc:silent
-import caliban.GraphQL.graphQL
-import caliban.RootResolver
+import caliban._
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 
@@ -164,8 +164,6 @@ Creating mutations is the same as queries, except you pass them as the second ar
 
 ```scala mdoc:nest:silent
 import zio.Task
-import caliban.schema.Schema.auto._
-import caliban.schema.ArgBuilder.auto._
 
 case class CharacterArgs(name: String)
 case class Mutations(deleteCharacter: CharacterArgs => Task[Boolean])
@@ -179,7 +177,6 @@ Similarly, subscriptions are passed as the third argument to `RootResolver`:
 
 ```scala mdoc:compile-only
 import zio.stream.ZStream
-import caliban.schema.Schema.auto._
 
 case class Subscriptions(deletedCharacter: ZStream[Any, Nothing, Character])
 val subscriptions = Subscriptions(???)

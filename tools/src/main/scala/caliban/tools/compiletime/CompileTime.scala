@@ -1,6 +1,6 @@
 package caliban.tools.compiletime
 
-import caliban.GraphQL
+import caliban._
 import caliban.tools.Codegen.GenType
 import caliban.tools.compiletime.Config.ClientGenerationSettings
 import caliban.tools.{ Codegen, SchemaLoader }

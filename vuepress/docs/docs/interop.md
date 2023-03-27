@@ -22,8 +22,7 @@ The instances are derived implicitly when `Async[F]`, `Dispatcher[F]`, and `Runt
 The following example shows how to create an interpreter and run a query while only using Cats IO.
 
 ```scala mdoc:silent
-import caliban.GraphQL.graphQL
-import caliban.RootResolver
+import caliban._
 import caliban.interop.cats.implicits._
 import caliban.schema.Schema.auto._
 import cats.effect.{ ExitCode, IO, IOApp }
@@ -45,7 +44,7 @@ object ExampleCatsInterop extends IOApp {
   }"""
 
   override def run(args: List[String]): IO[ExitCode] =
-    Dispatcher[IO].use { implicit dispatcher => // required for a derivation of the schema
+    Dispatcher.parallel[IO].use { implicit dispatcher => // required for a derivation of the schema
       val api = graphQL(RootResolver(queries))
 
       for {
@@ -86,8 +85,7 @@ val fromCE: RIO[Context, Int] = interop.fromEffect(ce)
 ```
 
 ```scala mdoc:silent
-import caliban.GraphQL.graphQL
-import caliban.{ GraphQL, RootResolver }
+import caliban._
 import caliban.interop.cats._
 import caliban.interop.cats.implicits._
 import caliban.schema.GenericSchema
@@ -125,7 +123,7 @@ object Simple extends IOApp {
     inject: InjectEnv[F, TraceId],
     runtime: Runtime[TraceId]
   ): F[ExitCode] =
-    Dispatcher[F].use { implicit dispatcher =>
+    Dispatcher.parallel[F].use { implicit dispatcher =>
       implicit val interop: CatsInterop.Contextual[F, TraceId] = CatsInterop.contextual(dispatcher) // required for a derivation of the schema
 
       val genRandomNumber = logger.info("Generating number") >> Async[F].delay(scala.util.Random.nextInt())
@@ -182,8 +180,7 @@ In addition to that, a `Schema` for any Monix `Task` as well as `Observable` is 
 The following example shows how to create an interpreter and run a query while only using Monix Task.
 
 ```scala
-import caliban.GraphQL.graphQL
-import caliban.RootResolver
+import caliban._
 import caliban.interop.monix.implicits._
 import cats.effect.ExitCode
 import monix.eval.{ Task, TaskApp }
@@ -264,7 +261,7 @@ def bookAddLogic(book: Book, token: String): UIO[Unit] = ???
 Just like you can create an http4s route by calling `toRoute` and passing an implementation, call `toGraphQL` to create a GraphQL API:
 
 ```scala mdoc:silent
-import caliban.GraphQL
+import caliban._
 import caliban.interop.tapir._ // summons 'toGraphQL' extension
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._

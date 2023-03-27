@@ -1,8 +1,7 @@
 package example.http4s
 
-import caliban.GraphQL._
+import caliban._
 import caliban.schema.GenericSchema
-import caliban.{ Http4sAdapter, RootResolver }
 import com.comcast.ip4s._
 import org.http4s.{ HttpRoutes, Response }
 import org.http4s.dsl.Http4sDsl

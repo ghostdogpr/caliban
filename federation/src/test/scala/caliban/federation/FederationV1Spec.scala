@@ -1,8 +1,7 @@
 package caliban.federation
 
-import caliban.CalibanError
+import caliban._
 import caliban.CalibanError.ValidationError
-import caliban.GraphQL._
 import caliban.Macros.gqldoc
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.TestUtils._

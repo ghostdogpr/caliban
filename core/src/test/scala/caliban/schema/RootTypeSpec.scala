@@ -2,7 +2,7 @@ package caliban.schema
 
 import caliban.schema.Annotations.GQLInterface
 import caliban.schema.Schema.auto._
-import caliban.{ GraphQL, RootResolver }
+import caliban._
 import zio.test._
 
 object RootTypeSpec extends ZIOSpecDefault {
@@ -21,9 +21,9 @@ object RootTypeSpec extends ZIOSpecDefault {
         val mutations = Mutations(_ => interfaceA, _ => interfaceB)
         val resolver  = RootResolver(query, mutations)
 
-        val graphQL: GraphQL[Any] = GraphQL.graphQL(resolver)
+        val api: GraphQL[Any] = graphQL(resolver)
 
-        graphQL.validateRootSchema.map { schema =>
+        api.validateRootSchema.map { schema =>
           val rootType =
             RootType(
               schema.query.opType,
@@ -35,9 +35,11 @@ object RootTypeSpec extends ZIOSpecDefault {
           def interfaceName(tpe: String): Option[List[String]] =
             rootType.types.get(tpe).flatMap(_.interfaces()).map(_.flatMap(_.name))
 
-          assertTrue(interfaceName("A").contains(List("CommonInterface", "MyInterface"))) &&
-          assertTrue(interfaceName("B").contains(List("MyInterface"))) &&
-          assertTrue(interfaceName("MyField").contains(List("CommonInterface")))
+          assertTrue(
+            interfaceName("A").contains(List("CommonInterface", "MyInterface")),
+            interfaceName("B").contains(List("MyInterface")),
+            interfaceName("MyField").contains(List("CommonInterface"))
+          )
         }
       }
     )

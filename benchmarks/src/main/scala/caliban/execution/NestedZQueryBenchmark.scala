@@ -1,7 +1,6 @@
 package caliban.execution
 
-import caliban.GraphQL.graphQL
-import caliban.{ CalibanError, GraphQLInterpreter, RootResolver }
+import caliban._
 import org.openjdk.jmh.annotations._
 import zio.{ Runtime, Task, Unsafe }
 

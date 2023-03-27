@@ -6,7 +6,7 @@ import caliban.Value.StringValue
 import caliban.parsing.Parser
 import caliban.parsing.adt.{ Definition, Directive }
 import caliban.schema.Schema.auto._
-import caliban.{ GraphQL, RootResolver }
+import caliban._
 import io.circe.Json
 import io.circe.parser.decode
 import zio.ZIO
@@ -187,7 +187,7 @@ object FederationV2Spec extends ZIOSpecDefault {
       hello: String
     )
 
-    val api = GraphQL.graphQL(
+    val api = graphQL(
       RootResolver(
         Query(hello = "Hello World!")
       )

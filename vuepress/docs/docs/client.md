@@ -9,26 +9,26 @@ Just like the server module, Caliban Client offers a purely functional interface
 
 ## Dependencies
 
-To use `caliban-client`, add the following line in your `build.sbt` file:
+To use `caliban-client`, add the following dependency to your `build.sbt` file:
 
-```
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-client" % "2.0.2"
+```scala
+"com.github.ghostdogpr" %% "caliban-client" % "2.1.0"
 ```
 
-Caliban-client is available for ScalaJS. To use it in a ScalaJS project, instead add this line to your `build.sbt` file:
+Caliban-client is available for ScalaJS. To use it in a ScalaJS project, instead add this dependency to your `build.sbt` file:
 
-```
-libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client" % "2.0.2"
+```scala
+"com.github.ghostdogpr" %%% "caliban-client" % "2.1.0"
 ```
 
 ## Code generation
 
 Caliban provides several ways to generate the boilerplate code. To get started, we are going to generate it by running a
-simple sbt command, but you can look at the [Code generation](client-codegen) page for more options.
+simple sbt command, but you can look at the [Code generation](client-codegen.md) page for more options.
 
 You'll first need to add following dependency to your `project/plugins.sbt` file:
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "2.0.2")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "2.1.0")
 ```
 
 And to enable the plugin in your `build.sbt` file:

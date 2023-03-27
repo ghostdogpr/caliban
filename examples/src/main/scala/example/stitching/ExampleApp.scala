@@ -1,7 +1,6 @@
 package example.stitching
 
 import caliban._
-import caliban.GraphQL.graphQL
 import caliban.schema._
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._

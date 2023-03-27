@@ -2,7 +2,7 @@ package example.optimizations
 
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.schema.ArgBuilder.auto._
-import caliban.{ GraphQL, RootResolver }
+import caliban._
 import example.optimizations.CommonData._
 import zio.Console.printLine
 import zio.{ ExitCode, ZIO, ZIOAppDefault }
@@ -85,7 +85,7 @@ object NaiveTest extends ZIOAppDefault with GenericSchema[Any] {
   implicit val queriesSchema: Schema[Any, Queries]               = Schema.gen
 
   val resolver = Queries(args => getUser(args.id))
-  val api      = GraphQL.graphQL(RootResolver(resolver))
+  val api      = graphQL(RootResolver(resolver))
 
   override def run =
     api.interpreter

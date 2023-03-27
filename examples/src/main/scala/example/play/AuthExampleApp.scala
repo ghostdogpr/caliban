@@ -1,11 +1,10 @@
 package example.play
 
 import akka.actor.ActorSystem
-import caliban.GraphQL.graphQL
+import caliban._
 import caliban.interop.tapir.RequestInterceptor
 import caliban.interop.tapir.TapirAdapter.TapirResponse
 import caliban.schema.GenericSchema
-import caliban.{ PlayAdapter, RootResolver }
 import play.api.Mode
 import play.api.routing._
 import play.api.routing.sird._

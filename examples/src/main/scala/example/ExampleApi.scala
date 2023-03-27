@@ -2,9 +2,7 @@ package example
 
 import example.ExampleData._
 import example.ExampleService.ExampleService
-import caliban.GraphQL
-import caliban.GraphQL.graphQL
-import caliban.RootResolver
+import caliban._
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.schema.ArgBuilder.auto._

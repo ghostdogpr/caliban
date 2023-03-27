@@ -1,6 +1,7 @@
 # Resources
 
 ## Talks
+- [Cost-effective and easy to maintain GraphQL integration tests](https://www.youtube.com/watch?v=pYfWq4GmObY) by Jules Ivanic at [Functional Scala](https://www.functionalscala.com/) in December 2022
 - [Zymposium episode on Caliban](https://youtu.be/mzqsXklbmfM) with Pierre Ricadat, Kit Langton and Adam Fraser in June 2021
 - [A Tour of Caliban](https://www.youtube.com/watch?v=lgxUKsOH65k) by Pierre Ricadat at [SF Scala](https://www.meetup.com/SF-Scala/) in April 2020
 - [Caliban: Designing a Functional GraphQL Library](https://www.youtube.com/watch?v=OC8PbviYUlQ) by Pierre Ricadat at [Functional Scala](https://www.functionalscala.com/) in December 2019 (slides available [here](https://www.slideshare.net/PierreRicadat/designing-a-functional-graphql-library-204680947))

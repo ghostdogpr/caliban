@@ -1,6 +1,6 @@
 package caliban.tools
 
-import caliban.GraphQL
+import caliban._
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document
 import sttp.client3.httpclient.zio.HttpClientZioBackend

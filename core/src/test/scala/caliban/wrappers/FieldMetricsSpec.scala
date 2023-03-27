@@ -1,8 +1,7 @@
 package caliban.wrappers
 
-import caliban.GraphQL.graphQL
+import caliban._
 import caliban.Macros.gqldoc
-import caliban.RootResolver
 import caliban.schema.Annotations.GQLDefault
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._

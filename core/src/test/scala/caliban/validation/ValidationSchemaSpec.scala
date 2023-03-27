@@ -1,7 +1,7 @@
 package caliban.validation
 
 import caliban.CalibanError.ValidationError
-import caliban.GraphQL.graphQL
+import caliban._
 import caliban.TestUtils._
 import caliban.TestUtils.InvalidSchemas._
 import caliban.introspection.adt._

@@ -1,9 +1,8 @@
 package example.http4s
 
-import caliban.GraphQL._
+import caliban._
 import caliban.interop.cats.{ CatsInterop, InjectEnv }
 import caliban.schema.GenericSchema
-import caliban.{ CalibanError, GraphQL, Http4sAdapter, RootResolver }
 import cats.data.{ Kleisli, OptionT }
 import cats.MonadThrow
 import cats.syntax.flatMap._

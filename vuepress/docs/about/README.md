@@ -1,6 +1,12 @@
 # About
 
-Caliban is a project developed by Pierre Ricadat aka [@ghostdogpr](https://github.com/ghostdogpr).
+Caliban is a project created by Pierre Ricadat aka [@ghostdogpr](https://github.com/ghostdogpr).
+
+Current maintainers:
+- [@ghostdogpr](https://github.com/ghostdogpr)
+- [@paulpdaniels](https://github.com/paulpdaniels)
+- [@frekw](https://github.com/frekw)
+- [@kyri-petrou](https://github.com/kyri-petrou)
 
 The name is inspired by the SF novel and tv series [The Expanse](https://en.wikipedia.org/wiki/Caliban%27s_War).
 

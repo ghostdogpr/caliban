@@ -1,7 +1,6 @@
 package caliban
 
 import caliban.Data._
-import caliban.GraphQL._
 import caliban.parsing.Parser
 import io.circe.Json
 import org.openjdk.jmh.annotations._

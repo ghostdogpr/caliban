@@ -1,12 +1,11 @@
 package caliban.wrappers
 
+import caliban._
 import caliban.CalibanError.{ ExecutionError, ValidationError }
-import caliban.GraphQL._
 import caliban.InputValue.ObjectValue
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
 import caliban.Value.{ IntValue, StringValue }
-import caliban._
 import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
 import caliban.parsing.adt.Document

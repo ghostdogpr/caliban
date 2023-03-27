@@ -1,15 +1,12 @@
 package caliban.tracing
 
-import caliban.GraphQL.graphQL
+import caliban._
 import caliban.Macros.gqldoc
-import caliban.RootResolver
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import zio._
 import zio.query._
 import zio.test._
-
-import Assertion._
 
 object TracingWrapperSpec extends ZIOSpecDefault {
   val randomSleep: ZIO[Any, Nothing, Unit] = Random.nextIntBetween(0, 500).flatMap(t => ZIO.sleep(t.millis))

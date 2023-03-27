@@ -1,10 +1,10 @@
 package caliban.federation
 
+import caliban._
 import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
 import caliban.schema.Step.QueryStep
 import caliban.schema._
-import caliban.{ CalibanError, GraphQL, GraphQLAspect, RootResolver }
 import zio.query.ZQuery
 
 abstract class FederationSupport(
@@ -27,7 +27,7 @@ abstract class FederationSupport(
       _fieldSet: FieldSet = FieldSet("")
     )
 
-    GraphQL.graphQL(
+    graphQL(
       RootResolver(Query(_service = _Service(original.withSchemaDirectives(schemaDirectives).render))),
       supportedDirectives
     ) |+| original
@@ -93,7 +93,7 @@ abstract class FederationSupport(
       .withAdditionalTypes(resolvers.map(_.toType).flatMap(Types.collectTypes(_)))
       .withSchemaDirectives(schemaDirectives)
 
-    GraphQL.graphQL[R, Query, Unit, Unit](
+    graphQL[R, Query, Unit, Unit](
       RootResolver(
         Query(
           _entities = args => args.representations.map(rep => _Entity(rep.__typename, rep.fields)),

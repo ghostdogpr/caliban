@@ -1,6 +1,6 @@
 package example.federation
 
-import caliban.GraphQL.graphQL
+import caliban._
 import caliban.federation.EntityResolver
 import caliban.federation.tracing.ApolloFederatedTracing
 import caliban.federation.v1.{ federated, GQLKey }
@@ -9,7 +9,6 @@ import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
 import caliban.schema.ArgBuilder.auto._
 import caliban.wrappers.Wrapper
 import caliban.wrappers.Wrappers.{ maxDepth, maxFields, printSlowQueries, timeout }
-import caliban.{ GraphQL, GraphQLAspect, RootResolver }
 import zio._
 import zio.query.ZQuery
 import zio.stream.ZStream

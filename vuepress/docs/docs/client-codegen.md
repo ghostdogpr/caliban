@@ -10,7 +10,7 @@ both need to configure in your project to be able to generate you Caliban client
 
 To use any of these two plugins, you'll first need to add following dependency to your `project/plugins.sbt` file:
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "2.0.2")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "2.1.0")
 ```
 
 ## CalibanPlugin
@@ -135,8 +135,7 @@ Let's say you have an object `CalibanServer` object in your `api` sbt module:
 ```scala
 package com.example.my.awesome.project.api
 
-import caliban.GraphQL.graphQL
-import caliban.GraphQL
+import caliban._
 
 object CalibanServer {
   

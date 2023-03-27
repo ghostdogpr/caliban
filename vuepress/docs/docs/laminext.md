@@ -4,8 +4,8 @@ If you are using the Scala.js framework [Laminar](https://laminar.dev), there is
 It is depending on [Laminext](https://laminext.dev), a library that provides nice little helpers for Laminar, in particular for using `Fetch` and `WebSocket`.
 
 To use it, import the `caliban-client-laminext` module:
-```
-libraryDependencies += "com.github.ghostdogpr" %%% "caliban-client-laminext" % "2.0.2"
+```scala
+"com.github.ghostdogpr" %%% "caliban-client-laminext" % "2.1.0"
 ```
 
 Add the following import to your code:
