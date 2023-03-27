@@ -178,7 +178,7 @@ implicit val schemaForMyClass: Schema[Any, MyClass] = Schema.gen
 ```scala
 import caliban.schema.Schema
 
-case class MyClass(field: String) derives Schema.SemiAuto
+case class MyClass(field: String) derives Schema.SemiAuto // you can also derive Schema.Auto to generate a Schema for nested types automatically
 
 // if you don't want to use the `derives` syntax, you can also use the following:
 given Schema[Any, MyClass] = Schema.gen
