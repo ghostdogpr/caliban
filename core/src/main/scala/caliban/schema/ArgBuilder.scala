@@ -21,9 +21,9 @@ import scala.util.control.NonFatal
  */
 @implicitNotFound(
   """Cannot find an ArgBuilder for type ${T}.
-     
-Caliban derives an ArgBuilder automatically for basic Scala types, case classes and sealed traits, but
-you need to manually provide an implicit ArgBuilder for other types that could be nested in ${T}.
+
+Caliban provides instances of ArgBuilder for the most common Scala types, and can derive it for your case classes and sealed traits.
+Derivation requires that you have a Schema for any other type nested inside ${T}.
 See https://ghostdogpr.github.io/caliban/docs/schema.html for more information.
 """
 )

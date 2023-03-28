@@ -9,6 +9,7 @@ If you're still lost, just come to the [Discord channel](https://discord.gg/EYpu
 ### I'm getting a compilation error saying a `Schema` is missing, but I don't know which one.
 
 Call directly `Schema.gen[YourType]` or just `gen[YourType]` if you extend `GenericSchema`. The error should be more detailed.
+It is also recommended to use semi-auto derivation instead of auto derivation, as it will tell you more clearly which type is missing a schema.
 
 ### I want to use Caliban, but I use Cats Effect / Monix instead of ZIO.
 
@@ -54,11 +55,11 @@ Recursive types can be a little tricky. This is not a silver bullet but usually 
 
 ### I'm getting a "Method too large" compiler error.
 
-When you create a GraphQL API, Caliban (using a macro powered by [Magnolia](https://github.com/propensive/magnolia)) generates a schema for every type, everywhere it's used. If you use a lot of types, the generated code might be too large. The workaround is to define schemas for your intermediate types:
+When you create a GraphQL API and use auto schema derivation, Caliban generates a schema for every type, everywhere it's used. If you have a lot of types, the generated code might be too large. The workaround is to use semi-auto derivation instead and define a `Schema` for each of your case classes and sealed traits:
 ```scala
 implicit val schemaMyType: Schema[Any, MyType] = Schema.gen
 ```
-That way, the schema for this type will be extracted to a single method and defined only once. Do it in priority with types that are re-used in a lot of places: this will reduce the amount of generated code and will speed up compilation time.
+That way, the schema for this type will be extracted to a single method and defined only once.
 
 ### How can I define a `Schema` for a Java enum?
 
