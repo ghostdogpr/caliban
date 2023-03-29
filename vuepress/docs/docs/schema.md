@@ -206,9 +206,9 @@ type Queries {
 }
 ```
 
-Caliban provides auto-derivation for common types such as `Int`, `String`, `List`, `Option`, etc. but you can also support your own types by providing an implicit instance of `caliban.schema.ArgBuilder`.
+Caliban provides auto-derivation for common types such as `Int`, `String`, `List`, `Option`, etc. but you can also support your own types by providing an implicit instance of `caliban.schema.ArgBuilder` that defines how incoming arguments from that types should be extracted. You also need a `Schema` for those types.
 
-Derivation for case classes works similarly to `Schema` derivation. You can use auto derivation by adding the following import:
+Derivation of `ArgBuilder` for case classes works similarly to `Schema` derivation. You can use auto derivation by adding the following import:
 
 ```scala mdoc:silent:reset
 import caliban.schema.ArgBuilder.auto._
