@@ -79,6 +79,32 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
         val gql = graphQL(RootResolver(Bar(Foo("foo"))))
 
         assertTrue(gql.render == expected)
+      },
+      test("ArgBuilder derivation - default") {
+        final case class Foo(s: String) derives Schema.SemiAuto, ArgBuilder
+        final case class Bar(foo: Foo) derives Schema.SemiAuto
+        final case class Query(f: Foo => Bar) derives Schema.SemiAuto
+
+        val gql = graphQL(RootResolver(Query(Bar(_))))
+
+        val expected2 =
+          """schema {
+            |  query: Query
+            |}
+
+            |type Bar {
+            |  foo: Foo!
+            |}
+
+            |type Foo {
+            |  s: String!
+            |}
+
+            |type Query {
+            |  f(s: String!): Bar!
+            |}""".stripMargin
+
+        assertTrue(gql.render == expected2)
       }
     )
   }
