@@ -225,6 +225,7 @@ import caliban.schema.ArgBuilder
 case class MyClass(field: String)
 
 implicit val argBuilderForMyClass: ArgBuilder[MyClass] = ArgBuilder.gen
+implicit val schemaForMyClass: Schema[Any, MyClass]    = Schema.gen
 ```
   </code-block>
   <code-block title="Scala 3">
@@ -232,10 +233,11 @@ implicit val argBuilderForMyClass: ArgBuilder[MyClass] = ArgBuilder.gen
 ```scala
 import caliban.schema.ArgBuilder
 
-case class MyClass(field: String) derives ArgBuilder
+case class MyClass(field: String) derives Schema.SemiAuto, ArgBuilder
 
 // if you don't want to use the `derives` syntax, you can also use the following:
-given ArgBuilder[MyClass] = ArgBuilder.gen
+given ArgBuilder[MyClass]  = ArgBuilder.gen
+given Schema[Any, MyClass] = Schema.gen
 ```
   </code-block>
 </code-group>
