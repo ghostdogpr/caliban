@@ -88,7 +88,7 @@ an `A` which has an implicit `ArgBuilder` and an `Option[Out]` where `Out` has a
 schema @@ federated(aResolver, additionalResolvers:_*)
 ```
 
-You can now use the resulting `GraphQL[R]` to start querying. You can also see the full code example [here](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/example/federation)
+You can now use the resulting `GraphQL[R]` to start querying. You can also see the full code example [here](https://github.com/ghostdogpr/caliban/tree/series/2.x/examples/src/main/scala/example/federation)
 
 ## Tracing
 

@@ -162,7 +162,7 @@ AsyncHttpClientZioBackend().flatMap { implicit backend =>
 
 As a result, we get a ZIO `Task` whose return type is the same as our `SelectionBuilder`. The sttp request does not only contain the request to send, but also takes care of parsing the response into the expected type.
 
-The [examples](https://github.com/ghostdogpr/caliban/tree/master/examples/) project contains a runnable sample code that queries the example GraphQL backend.
+The [examples](https://github.com/ghostdogpr/caliban/tree/series/2.x/examples/) project contains a runnable sample code that queries the example GraphQL backend.
 
 ::: warning Limitations
 Only Queries and Mutations are supported as sttp requests.

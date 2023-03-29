@@ -199,7 +199,7 @@ query {
 }
 ```
 
-See the [examples directory](https://github.com/ghostdogpr/caliban/tree/master/examples/src/main/scala/example/stitching) for a full example.
+See the [examples directory](https://github.com/ghostdogpr/caliban/tree/series/2.x/examples/src/main/scala/example/stitching) for a full example.
 
 ## Things not yet supported
 - Type renaming.
