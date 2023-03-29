@@ -231,7 +231,7 @@ implicit val schemaForMyClass: Schema[Any, MyClass]    = Schema.gen
   <code-block title="Scala 3">
 
 ```scala
-import caliban.schema.ArgBuilder
+import caliban.schema.{ArgBuilder, Schema}
 
 case class MyClass(field: String) derives Schema.SemiAuto, ArgBuilder
 
