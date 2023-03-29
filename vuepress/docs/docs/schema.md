@@ -220,7 +220,7 @@ Or you can use semi-auto derivation as follows:
   <code-block title="Scala 2" active>
 
 ```scala mdoc:silent
-import caliban.schema.ArgBuilder
+import caliban.schema.{ArgBuilder, Schema}
 
 case class MyClass(field: String)
 
@@ -397,7 +397,6 @@ to generate a schema for them. In cases like these you may need to instead creat
 Consider the case where you have three types which create cyclical dependencies on one another
 
 ```scala mdoc:silent
-import java.util.UUID
 import zio.UIO
 
 case class Group(id: String, users: UIO[List[User]], parent: UIO[Option[Group]], organization: UIO[Organization])
