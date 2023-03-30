@@ -31,7 +31,7 @@ object FragmentValidator {
               if (doTypesConflict(f1.fieldDef.`type`(), f2.fieldDef.`type`())) {
                 Chunk(
                   s"$name has conflicting types: ${f1.parentType.name.getOrElse("")}.${f1.fieldDef.name} and ${f2.parentType.name
-                    .getOrElse("")}.${f2.fieldDef.name}. Try using an alias."
+                      .getOrElse("")}.${f2.fieldDef.name}. Try using an alias."
                 )
               } else
                 sameResponseShapeByName(f1.selection.selectionSet ++ f2.selection.selectionSet)

@@ -62,10 +62,10 @@ object TapirAdapter {
     def queryFromQueryParams(queryParams: QueryParams): DecodeResult[GraphQLRequest] =
       for {
         req <- requestCodec.decode(s"""{"query":"","variables":${queryParams
-                 .get("variables")
-                 .getOrElse("null")},"extensions":${queryParams
-                 .get("extensions")
-                 .getOrElse("null")}}""")
+                   .get("variables")
+                   .getOrElse("null")},"extensions":${queryParams
+                   .get("extensions")
+                   .getOrElse("null")}}""")
 
       } yield req.copy(query = queryParams.get("query"), operationName = queryParams.get("operationName"))
 

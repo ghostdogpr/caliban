@@ -4,7 +4,7 @@ import poc.caliban.client.generated.potatoes._
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.client3.SttpBackend
-import zio.{Task, ZIO}
+import zio.{ Task, ZIO }
 
 trait PotatoesClient {
   def eradicate(name: String): Task[Unit]
