@@ -172,7 +172,7 @@ lazy val tools = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "org.scalameta"                  % "scalafmt-interfaces" % scalafmtVersion,
-      "io.get-coursier"                % "interface"           % "1.0.12",
+      "io.get-coursier"                % "interface"           % "1.0.14",
       "com.softwaremill.sttp.client3" %% "zio"                 % sttpVersion,
       "dev.zio"                       %% "zio-config"          % zioConfigVersion,
       "dev.zio"                       %% "zio-config-magnolia" % zioConfigVersion,
