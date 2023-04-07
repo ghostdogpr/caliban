@@ -22,3 +22,4 @@
 - [zio-akka-quickstart](https://github.com/ScalaConsultants/zio-akka-quickstart.g8): a Giter8 template for a basic Scala application built using ZIO, Akka HTTP, Slick and Caliban!
 - [caliban-talk](https://github.com/fokot/caliban-talk): example project using ZIO, http4s, doobie/quill, caliban-client, testcontainers and Caliban
 - [caliban-test](https://github.com/swachter/caliban-test): example project using ZIO, Caliban, and jOOQ for accessing a relation database
+- [caliban-zio-http-cats](https://github.com/CarlosLaraFP/Cases): real technical interview project using ZIO, Caliban, Doobie, Cats core, and domain error modeling (passed + job offer)
