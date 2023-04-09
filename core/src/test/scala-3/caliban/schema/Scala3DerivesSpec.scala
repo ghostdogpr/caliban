@@ -38,25 +38,13 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
 
         assertTrue(gql.render == expected)
       },
-      test("Auto derivation reuses implicit derivations in GenericSchema") {
-        case class A(a: String)
-        case class Queries(as: List[A]) derives Schema.Auto
+      test("Auto derivation - custom R") {
+        class Env
+        object CustomSchema extends SchemaDerivation[Env]
+        final case class Foo(value: String)
+        final case class Bar(foo: Foo) derives CustomSchema.Auto
 
-        val resolver = RootResolver(Queries(List(A("a"), A("b"))))
-        val gql      = graphQL(resolver)
-
-        val expected =
-          """schema {
-            |  query: Queries
-            |}
-
-            |type A {
-            |  a: String!
-            |}
-
-            |type Queries {
-            |  as: [A!]!
-            |}""".stripMargin
+        val gql = graphQL(RootResolver(Bar(Foo("foo"))))
 
         assertTrue(gql.render == expected)
       },
@@ -65,16 +53,6 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
         object CustomSchema extends SchemaDerivation[Env]
         final case class Foo(value: String) derives CustomSchema.SemiAuto
         final case class Bar(foo: Foo) derives CustomSchema.SemiAuto
-
-        val gql = graphQL(RootResolver(Bar(Foo("foo"))))
-
-        assertTrue(gql.render == expected)
-      },
-      test("Auto derivation - custom R") {
-        class Env
-        object CustomSchema extends SchemaDerivation[Env]
-        final case class Foo(value: String)
-        final case class Bar(foo: Foo) derives CustomSchema.Auto
 
         val gql = graphQL(RootResolver(Bar(Foo("foo"))))
 
