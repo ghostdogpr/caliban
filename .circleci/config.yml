@@ -87,28 +87,30 @@ jobs:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
-  test213_js:
+  test213_js_native:
     docker:
       - image: cimg/openjdk:11.0-node
     steps:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.10 clientJS/test clientLaminextJS/Test/fastLinkJS
+      - run: ./.circleci/install-native-deps.sh
+      - run: sbt ++2.13.10 clientJS/test clientLaminextJS/Test/fastLinkJS clientNative/Test/nativeLink
       - save_cache:
           key: sbtcache
           paths:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
-  test3_js:
+  test3_js_native:
     docker:
       - image: cimg/openjdk:11.0-node
     steps:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++3.2.2 clientJS/test clientLaminextJS/Test/fastLinkJS
+      - run: ./.circleci/install-native-deps.sh
+      - run: sbt ++2.13.10 clientJS/test clientLaminextJS/Test/fastLinkJS clientNative/Test/nativeLink
       - save_cache:
           key: sbtcache
           paths:
@@ -195,13 +197,13 @@ workflows:
           filters:
             tags:
               only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
-      - test213_js:
+      - test213_js_native:
           requires:
             - lint
           filters:
             tags:
               only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
-      - test3_js:
+      - test3_js_native:
           requires:
             - lint
           filters:
@@ -232,10 +234,10 @@ workflows:
             - scripted212_jdk
             - scripted3_jdk
             - test213_jdk
-            - test213_js
+            - test213_js_native
             - test213_docs
             - test3_jdk
-            - test3_js
+            - test3_js_native
           filters:
             branches:
               only:
