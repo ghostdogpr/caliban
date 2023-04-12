@@ -18,7 +18,7 @@ val mercatorVersion           = "0.2.1"
 val playVersion               = "2.8.19"
 val playJsonVersion           = "2.9.4"
 val scalafmtVersion           = "3.7.3"
-val sttpVersion               = "3.8.14"
+val sttpVersion               = "3.8.15"
 val tapirVersion              = "1.2.12"
 val zioVersion                = "2.0.12"
 val zioInteropCats2Version    = "22.0.0.0"
@@ -172,7 +172,7 @@ lazy val tools = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "org.scalameta"                  % "scalafmt-interfaces" % scalafmtVersion,
-      "io.get-coursier"                % "interface"           % "1.0.14",
+      "io.get-coursier"                % "interface"           % "1.0.15",
       "com.softwaremill.sttp.client3" %% "zio"                 % sttpVersion,
       "dev.zio"                       %% "zio-config"          % zioConfigVersion,
       "dev.zio"                       %% "zio-config-magnolia" % zioConfigVersion,
