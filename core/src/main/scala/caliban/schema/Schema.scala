@@ -137,11 +137,12 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     name: String,
     description: Option[String],
     specifiedBy: Option[String],
+    directives: Option[List[Directive]],
     makeResponse: A => ResponseValue
   ): Schema[Any, A] =
     new Schema[Any, A] {
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-        makeScalar(name, description, specifiedBy)
+        makeScalar(name, description, specifiedBy, directives)
       override def resolve(value: A): Step[Any]                              = PureStep(makeResponse(value))
     }
 
