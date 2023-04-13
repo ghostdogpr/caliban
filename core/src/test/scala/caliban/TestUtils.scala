@@ -48,6 +48,7 @@ object TestUtils {
     "CaptainShipName",
     Some("Description of custom scalar emphasizing proper captain ship names"),
     Some("http://someUrl"),
+    Some(List(Directive("@tag"))),
     name => StringValue(name.value)
   )
 

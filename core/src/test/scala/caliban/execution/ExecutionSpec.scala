@@ -778,7 +778,7 @@ object ExecutionSpec extends ZIOSpecDefault {
         case class Mutations(user: Task[User])
         case class Queries(a: Int)
         implicit val aArgBuilder: ArgBuilder[A] = (_: InputValue) => Left(ExecutionError("nope"))
-        implicit val aSchema: Schema[Any, A]    = Schema.scalarSchema("a", None, None, _ => IntValue(1))
+        implicit val aSchema: Schema[Any, A]    = Schema.scalarSchema("a", None, None, None, _ => IntValue(1))
 
         val api = graphQL(RootResolver(Queries(1), Mutations(ZIO.succeed(User(_.toString)))))
 
