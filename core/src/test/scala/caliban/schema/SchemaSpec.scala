@@ -232,7 +232,7 @@ object SchemaSpec extends ZIOSpecDefault {
           @GQLDirective(Directive("join__Graph", Map("name" -> StringValue("A")))) case object A extends MyEnum
           @GQLDirective(Directive("join__Graph", Map("name" -> StringValue("B")))) case object B extends MyEnum
         }
-        case class Queries(enum: MyEnum)
+        case class Queries(myEnum: MyEnum)
         implicit val queriesSchema: Schema[Any, Queries] = genAll
 
         assertTrue(
