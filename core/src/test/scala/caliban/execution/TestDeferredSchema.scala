@@ -62,7 +62,7 @@ object TestDeferredSchema extends GenericSchema[CharacterService] {
       }
     )
 
-  implicit lazy val characterSchema: Schema[CharacterService, CharacterZIO] = gen[CharacterService, CharacterZIO]
+  implicit lazy val characterSchema: Schema[CharacterService, CharacterZIO] = genAll[CharacterService, CharacterZIO]
   implicit val querySchema: Schema[CharacterService, Query]                 = gen[CharacterService, Query]
 
   val resolver =

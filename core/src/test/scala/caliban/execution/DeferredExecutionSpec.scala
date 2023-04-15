@@ -3,7 +3,7 @@ package caliban.execution
 import caliban.GraphQL.graphQL
 import caliban.Macros.gqldoc
 import caliban.ResponseValue.StreamValue
-import caliban.{ CalibanError, GraphQLResponse, RootResolver }
+import caliban.{ CalibanError, GraphQLResponse, ResponseValue, RootResolver, Value }
 import caliban.TestUtils.Role.{ Captain, Engineer, Mechanic, Pilot }
 import caliban.TestUtils.{ characters, CaptainShipName, Character, CharacterArgs, Origin, Role }
 import caliban.schema.Annotations.GQLName
@@ -44,8 +44,36 @@ object DeferredExecutionSpec extends ZIOSpecDefault {
       for {
         response <- interpreter.flatMap(_.execute(query))
         data     <- runIncrementalResponses(response)
-      } yield assertTrue(data.size == 1) && assertTrue(
-        data.head.toString == """{"character":{"name":"Roberta Draper"}}"""
+      } yield assertTrue(data.size == 1, data.head.toString == """{"character":{"name":"Roberta Draper"}}""")
+    },
+    test("don't stream if no defer present") {
+      val query = gqldoc("""
+        {
+           character(name: "Roberta Draper") {
+             name
+             nicknames
+           }
+        }
+          """)
+
+      for {
+        response <- interpreter.flatMap(_.execute(query))
+      } yield assertTrue(
+        response.data == ResponseValue.ObjectValue(
+          List(
+            "character" -> ResponseValue.ObjectValue(
+              List(
+                "name"      -> Value.StringValue("Roberta Draper"),
+                "nicknames" -> ResponseValue.ListValue(
+                  List(
+                    Value.StringValue("Bobbie"),
+                    Value.StringValue("Gunny")
+                  )
+                )
+              )
+            )
+          )
+        )
       )
     },
     test("inline fragments") {
@@ -64,8 +92,7 @@ object DeferredExecutionSpec extends ZIOSpecDefault {
         resp <- interpreter.flatMap(_.execute(query))
         rest <- runIncrementalResponses(resp)
       } yield assertTrue(
-        rest.head.toString == """{"character":{"name":"Roberta Draper"}}"""
-      ) && assertTrue(
+        rest.head.toString == """{"character":{"name":"Roberta Draper"}}""",
         rest.tail.toList.map(_.toString) == List(
           """{"incremental":[{"data":{"nicknames":["Bobbie","Gunny"]},"path":["character"]}],"hasNext":true}""",
           """{"hasNext":false}"""
@@ -90,8 +117,7 @@ object DeferredExecutionSpec extends ZIOSpecDefault {
         resp <- interpreter.flatMap(_.execute(query))
         rest <- runIncrementalResponses(resp)
       } yield assertTrue(
-        rest.head.toString == """{"character":{"name":"Roberta Draper"}}"""
-      ) && assertTrue(
+        rest.head.toString == """{"character":{"name":"Roberta Draper"}}""",
         rest.tail.toList.map(_.toString) == List(
           """{"incremental":[{"data":{"nicknames":["Bobbie","Gunny"]},"path":["character"]}],"hasNext":true}""",
           """{"hasNext":false}"""
@@ -110,9 +136,7 @@ object DeferredExecutionSpec extends ZIOSpecDefault {
       for {
         resp <- interpreter.flatMap(_.execute(query))
         rest <- runIncrementalResponses(resp)
-      } yield assertTrue(
-        rest.head.toString == """{"character":{"nicknames":["Bobbie","Gunny"]}}"""
-      ) && assertTrue(rest.tail.isEmpty)
+      } yield assertTrue(rest.head.toString == """{"character":{"nicknames":["Bobbie","Gunny"]}}""", rest.tail.isEmpty)
     },
     test("different labels") {
       val query = gqldoc("""
@@ -161,7 +185,8 @@ object DeferredExecutionSpec extends ZIOSpecDefault {
       for {
         first <- interpreter.flatMap(_.execute(query))
         rest  <- runIncrementalResponses(first)
-      } yield assertTrue(rest.head.toString == """{"character":{"name":"Roberta Draper"}}""") && assertTrue(
+      } yield assertTrue(
+        rest.head.toString == """{"character":{"name":"Roberta Draper"}}""",
         rest.tail.toList.map(_.toString) == List(
           """{"incremental":[{"data":{"connections":[{"name":"Alex Kamal"}]},"path":["character"],"label":"outer"}],"hasNext":true}""",
           """{"incremental":[{"data":{"nicknames":[]},"path":["character","connections",0],"label":"inner"}],"hasNext":true}""",
@@ -183,8 +208,7 @@ object DeferredExecutionSpec extends ZIOSpecDefault {
         response <- interpreter.flatMap(_.execute(query))
         rest     <- runIncrementalResponses(response)
       } yield assertTrue(
-        rest.head.toString == """{"character":{"name":"Roberta Draper","nicknames":["Bobbie","Gunny"]}}"""
-      ) && assertTrue(
+        rest.head.toString == """{"character":{"name":"Roberta Draper","nicknames":["Bobbie","Gunny"]}}""",
         rest.tail.toList.map(_.toString) == List(
           """{"incremental":[{"data":"Gunny","path":["character","nicknames",1]}],"label":"nicknames","hasNext":true}""",
           """{"hasNext":false}"""
