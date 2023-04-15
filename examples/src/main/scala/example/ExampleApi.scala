@@ -99,6 +99,6 @@ object ExampleApi extends GenericSchema[ExampleService] {
       printSlowQueries(500 millis) @@ // wrapper that logs slow queries
       printErrors @@                  // wrapper that logs errors
       apolloTracing @@                // wrapper for https://github.com/apollographql/apollo-tracing
-      DeferSupport.deferSupport @@    // wrapper that enables @defer directive support
-      DeferSupport.streamSupport      // wrapper that enables @stream directive support
+      DeferSupport.defer @@    // wrapper that enables @defer directive support
+      DeferSupport.stream      // wrapper that enables @stream directive support
 }

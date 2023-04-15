@@ -28,6 +28,7 @@ object Http4sAdapterSpec extends ZIOSpecDefault {
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
     responseCodec: JsonCodec[GraphQLResponse[CalibanError]],
+    responseValueCodec: JsonCodec[ResponseValue],
     wsInputCodec: JsonCodec[GraphQLWSInput],
     wsOutputCodec: JsonCodec[GraphQLWSOutput]
   ) = envLayer >>> ZLayer.scoped {

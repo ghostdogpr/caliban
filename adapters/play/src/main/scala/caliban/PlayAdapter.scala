@@ -38,7 +38,8 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
     runtime: Runtime[R],
     materializer: Materializer,
     requestCodec: JsonCodec[GraphQLRequest],
-    responseCodec: JsonCodec[GraphQLResponse[E]]
+    responseCodec: JsonCodec[GraphQLResponse[E]],
+    responseValueCodec: JsonCodec[ResponseValue]
   ): Routes = {
     val endpoints = TapirAdapter.makeHttpService[R, E](
       interpreter,
@@ -80,7 +81,8 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
     materializer: Materializer,
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
-    responseCodec: JsonCodec[GraphQLResponse[E]]
+    responseCodec: JsonCodec[GraphQLResponse[E]],
+    responseValueCodec: JsonCodec[ResponseValue]
   ): Routes = {
     val endpoint = TapirAdapter.makeHttpUploadService[R, E](
       interpreter,

@@ -66,5 +66,5 @@ object TestApi extends GenericSchema[TestService with Uploads] {
       printSlowQueries(500 millis) @@ // wrapper that logs slow queries
       printErrors @@                  // wrapper that logs errors
       apolloTracing @@                // wrapper for https://github.com/apollographql/apollo-tracing
-      DeferSupport.deferSupport
+      DeferSupport.defer
 }

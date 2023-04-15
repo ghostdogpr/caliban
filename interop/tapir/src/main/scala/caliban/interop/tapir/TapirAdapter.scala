@@ -185,7 +185,7 @@ object TapirAdapter {
   )(implicit
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
-    responseCodec: JsonCodec[ResponseValue]
+    responseValueCodec: JsonCodec[ResponseValue],
   ): ServerEndpoint[ZioStreams, RIO[R, *]] = {
     def logic(
       request: UploadRequest

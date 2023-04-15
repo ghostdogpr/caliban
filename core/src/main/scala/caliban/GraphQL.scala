@@ -10,7 +10,8 @@ import caliban.parsing.adt.{ Directive, Document, OperationType }
 import caliban.parsing.{ Parser, SourceMapper, VariablesCoercer }
 import caliban.schema._
 import caliban.validation.Validator
-import caliban.wrappers.Wrapper
+import caliban.wrappers.Wrapper.{ decompose, IntrospectionWrapper }
+import caliban.wrappers.{ Wrapper, Wrappers }
 import caliban.wrappers.Wrapper._
 import zio.{ IO, Trace, URIO, ZIO }
 

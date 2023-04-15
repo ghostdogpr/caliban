@@ -2,8 +2,7 @@ package caliban.interop.tapir
 
 import caliban.InputValue.ObjectValue
 import caliban.Value.StringValue
-import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, GraphQLWSInput, GraphQLWSOutput }
-import io.circe.{ parser, Json }
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, GraphQLWSInput, GraphQLWSOutput, ResponseValue }
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.client3.SttpBackend
@@ -14,6 +13,7 @@ import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.client.sttp.SttpClientInterpreter
 import sttp.tapir.client.sttp.ws.zio._
 import sttp.tapir.model.{ ConnectionInfo, ServerRequest }
+import zio.json._
 import zio.stream.{ ZPipeline, ZSink, ZStream }
 import zio.test.TestAspect.before
 import zio.test._
@@ -49,6 +49,7 @@ object TapirAdapterSpec {
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
     responseCodec: JsonCodec[GraphQLResponse[CalibanError]],
+    responseValueCodec: JsonCodec[ResponseValue],
     wsInputCodec: JsonCodec[GraphQLWSInput],
     wsOutputCodec: JsonCodec[GraphQLWSOutput]
   ): Spec[TestService, Throwable] = suite(label) {
@@ -65,9 +66,17 @@ object TapirAdapterSpec {
     )
 
     def readAsResponse(stream: ZStream[Any, Throwable, Byte]): ZIO[Any, Throwable, GraphQLResponse[CalibanError]] =
-      stream.runCollect.flatMap(bytes =>
-        ZIO.fromEither(parser.parse(new String(bytes.toArray, "UTF-8")).flatMap(_.as[GraphQLResponse[CalibanError]]))
-      )
+      stream
+        .via(ZPipeline.utfDecode)
+        .mkString
+        .flatMap(json =>
+          json
+            .fromJson[GraphQLResponse[CalibanError]]
+            .fold(
+              err => ZIO.fail(new Throwable(s"Failed to parse response: $err")),
+              ZIO.succeed(_)
+            )
+        )
 
     def readMultipartResponse(
       stream: ZStream[Any, Throwable, Byte]
@@ -78,7 +87,7 @@ object TapirAdapterSpec {
         ZPipeline.map[String, String](_.trim) >>>
         ZPipeline.collect[String, Option[GraphQLResponse[CalibanError]]] {
           case line if line.startsWith("{") =>
-            parser.parse(line).flatMap(_.as[GraphQLResponse[CalibanError]]).toOption
+            line.fromJson[GraphQLResponse[CalibanError]].toOption
         }).collectSome >>> ZSink.collectAll[GraphQLResponse[CalibanError]]
 
     val tests: List[Option[Spec[SttpBackend[Task, ZioStreams with WebSockets], Throwable]]] = List(

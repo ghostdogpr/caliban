@@ -30,6 +30,7 @@ object Http4sAdapter {
     requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
   )(implicit
     requestCodec: JsonCodec[GraphQLRequest],
+    responseValueCodec: JsonCodec[ResponseValue],
     responseCodec: JsonCodec[GraphQLResponse[E]]
   ): HttpRoutes[RIO[R, *]] = {
     val endpoints = TapirAdapter.makeHttpService[R, E](
@@ -51,6 +52,7 @@ object Http4sAdapter {
   )(implicit
     interop: ToEffect[F, R],
     requestCodec: JsonCodec[GraphQLRequest],
+    responseValueCodec: JsonCodec[ResponseValue],
     responseCodec: JsonCodec[GraphQLResponse[E]]
   ): HttpRoutes[F] = {
     val endpoints                                          = TapirAdapter.makeHttpService[R, E](
@@ -73,6 +75,7 @@ object Http4sAdapter {
   )(implicit
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
+    responseValueCodec: JsonCodec[ResponseValue],
     responseCodec: JsonCodec[GraphQLResponse[E]]
   ): HttpRoutes[RIO[R, *]] = {
     val endpoint = TapirAdapter.makeHttpUploadService[R, E](
@@ -95,6 +98,7 @@ object Http4sAdapter {
     interop: ToEffect[F, R],
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
+    responseValueCodec: JsonCodec[ResponseValue],
     responseCodec: JsonCodec[GraphQLResponse[E]]
   ): HttpRoutes[F] = {
     val endpoint  = TapirAdapter.makeHttpUploadService[R, E](

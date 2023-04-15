@@ -1,15 +1,16 @@
 package caliban.execution
 
-import caliban.GraphQL.graphQL
-import caliban.RootResolver
 import caliban.TestUtils.Role.{ Captain, Engineer, Mechanic, Pilot }
 import caliban.TestUtils.{ CaptainShipName, Character, CharacterArgs, Origin, Role }
+import caliban.{ graphQL, RootResolver }
 import caliban.schema.Annotations.GQLName
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.wrappers.DeferSupport
 import zio.{ UIO, URIO, ZIO }
 
 object TestDeferredSchema extends GenericSchema[CharacterService] {
+  import auto._
+  import caliban.schema.ArgBuilder.auto._
 
   sealed trait By
 
@@ -74,5 +75,5 @@ object TestDeferredSchema extends GenericSchema[CharacterService] {
       )
     )
 
-  val interpreter = (graphQL(resolver) @@ DeferSupport.deferSupport @@ DeferSupport.streamSupport).interpreter
+  val interpreter = (graphQL(resolver) @@ DeferSupport.defer @@ DeferSupport.stream).interpreter
 }
