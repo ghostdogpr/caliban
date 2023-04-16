@@ -245,15 +245,16 @@ object Executor {
         result       <- query.runCache(cache)
         resultErrors <- errors.get
         defers       <- deferred.get
-      } yield (Incremental(
+      } yield (Incremental.Defer(
         result,
-        resultErrors.reverse,
-        label = label,
+        errors = resultErrors.reverse,
         path = ListValue(path.map {
           case Left(s)  => StringValue(s)
           case Right(i) => IntValue(i)
-        }.reverse)
-      ) -> defers)
+        }.reverse),
+        label = label
+      )
+        -> defers)
 
     for {
       cache    <- Cache.empty

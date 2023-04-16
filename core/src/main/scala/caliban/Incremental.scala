@@ -3,29 +3,67 @@ package caliban
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ BooleanValue, StringValue }
 
-case class Incremental[+E](
-  data: ResponseValue,
-  errors: List[E],
-  path: ListValue,
-  label: Option[String],
-  extensions: Option[ObjectValue] = None
-) {
+sealed trait Incremental[+E] extends Product with Serializable {
+  def path: ListValue
+  def errors: List[E]
+  def label: Option[String]
+  def extensions: Option[ObjectValue]
 
-  def toResponseValue: ResponseValue =
-    ObjectValue(
-      List(
-        "data"       -> Some(data),
-        "errors"     -> (if (errors.nonEmpty)
-                       Some(ListValue(errors.map {
-                         case e: CalibanError => e.toResponseValue
-                         case e               => ObjectValue(List("message" -> StringValue(e.toString)))
-                       }))
-                     else None),
-        "extensions" -> extensions,
-        "path"       -> Some(path),
-        "label"      -> label.map(StringValue.apply)
-      ).collect { case (name, Some(v)) => name -> v }
-    )
+  def toResponseValue: ResponseValue
+}
+
+object Incremental {
+
+  case class Stream[+E](
+    items: List[ResponseValue],
+    path: ListValue,
+    errors: List[E],
+    label: Option[String],
+    extensions: Option[ObjectValue] = None
+  ) extends Incremental[E] {
+
+    def toResponseValue: ResponseValue =
+      ObjectValue(
+        List(
+          "items"      -> Some(ListValue(items)),
+          "errors"     -> (if (errors.nonEmpty)
+                         Some(ListValue(errors.map {
+                           case e: CalibanError => e.toResponseValue
+                           case e               => ObjectValue(List("message" -> StringValue(e.toString)))
+                         }))
+                       else None),
+          "extensions" -> extensions,
+          "path"       -> Some(path),
+          "label"      -> label.map(StringValue.apply)
+        ).collect { case (name, Some(v)) => name -> v }
+      )
+
+  }
+
+  case class Defer[+E](
+    data: ResponseValue,
+    path: ListValue,
+    errors: List[E],
+    label: Option[String],
+    extensions: Option[ObjectValue] = None
+  ) extends Incremental[E] {
+
+    def toResponseValue: ResponseValue =
+      ObjectValue(
+        List(
+          "data"       -> Some(data),
+          "errors"     -> (if (errors.nonEmpty)
+                         Some(ListValue(errors.map {
+                           case e: CalibanError => e.toResponseValue
+                           case e               => ObjectValue(List("message" -> StringValue(e.toString)))
+                         }))
+                       else None),
+          "extensions" -> extensions,
+          "path"       -> Some(path),
+          "label"      -> label.map(StringValue.apply)
+        ).collect { case (name, Some(v)) => name -> v }
+      )
+  }
 
 }
 
