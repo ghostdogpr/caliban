@@ -6,7 +6,14 @@ import akka.stream.{ Materializer, OverflowStrategy }
 import akka.util.ByteString
 import caliban.AkkaHttpAdapter.{ convertHttpStreamingEndpoint, convertWebSocketEndpoint }
 import caliban.execution.QueryExecution
-import caliban.interop.tapir.TapirAdapter.{ zioMonadError, CalibanPipe, TapirResponse, ZioWebSockets }
+import caliban.interop.tapir.TapirAdapter.{
+  zioMonadError,
+  CalibanBody,
+  CalibanPipe,
+  CalibanResponse,
+  TapirResponse,
+  ZioWebSockets
+}
 import caliban.interop.tapir.{ RequestInterceptor, TapirAdapter, WebSocketHooks }
 import sttp.capabilities.WebSockets
 import sttp.capabilities.akka.AkkaStreams
@@ -54,12 +61,9 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
               Unit,
               (GraphQLRequest, ServerRequest),
               TapirResponse,
-              (MediaType, ZioStreams.BinaryStream),
+              CalibanResponse,
               ZioStreams,
-              RIO[
-                R,
-                *
-              ]
+              RIO[R, *]
             ]
           ]
         )
@@ -95,7 +99,7 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
             Unit,
             (GraphQLRequest, ServerRequest),
             TapirResponse,
-            (MediaType, ZioStreams.BinaryStream),
+            CalibanResponse,
             ZioStreams,
             RIO[R, *]
           ]
@@ -161,7 +165,7 @@ object AkkaHttpAdapter {
       Unit,
       (GraphQLRequest, ServerRequest),
       TapirResponse,
-      (MediaType, ZioStreams.BinaryStream),
+      CalibanResponse,
       ZioStreams,
       RIO[
         R,
@@ -174,7 +178,7 @@ object AkkaHttpAdapter {
       Unit,
       (GraphQLRequest, ServerRequest),
       TapirResponse,
-      (MediaType, AkkaStreams.BinaryStream),
+      (MediaType, Either[ResponseValue, AkkaStreams.BinaryStream]),
       AkkaStreams,
       Future
     ](
@@ -183,7 +187,7 @@ object AkkaHttpAdapter {
           PublicEndpoint[
             (GraphQLRequest, ServerRequest),
             TapirResponse,
-            (MediaType, AkkaStreams.BinaryStream),
+            (MediaType, Either[ResponseValue, AkkaStreams.BinaryStream]),
             AkkaStreams
           ]
         ],
@@ -197,31 +201,44 @@ object AkkaHttpAdapter {
                   endpoint
                     .logic(zioMonadError)(())(req)
                     .right
-                    .flatMap { case (mediaType, stream) =>
-                      ZIO
-                        .succeed(Source.queue[ByteString](0, OverflowStrategy.fail).preMaterialize())
-                        .flatMap { case (queue, source) =>
-                          stream
-                            .runForeachChunk(chunk => ZIO.fromFuture(_ => queue.offer(ByteString(chunk.toArray))))
-                            .ensuring(ZIO.succeed(queue.complete()))
-                            .forkDaemon
-                            .flatMap(fiber =>
-                              ZIO.executorWith(executor =>
-                                ZIO.succeed(
-                                  (
-                                    mediaType,
-                                    source
-                                      .watchTermination()((_, f) =>
-                                        f.onComplete(_ => runtime.unsafe.run(fiber.interrupt))(
-                                          executor.asExecutionContext
-                                        )
+                    .flatMap {
+                      case (mediaType, Right(stream)) =>
+                        ZIO
+                          .succeed(Source.queue[ByteString](0, OverflowStrategy.fail).preMaterialize())
+                          .flatMap { case (queue, source) =>
+                            stream
+                              .asInstanceOf[ZStream[Any, Throwable, Byte]]
+                              .runForeachChunk(chunk => ZIO.fromFuture(_ => queue.offer(ByteString(chunk.toArray))))
+                              .ensuring(ZIO.succeed(queue.complete()))
+                              .forkDaemon
+                              .flatMap(fiber =>
+                                ZIO.executorWith(executor =>
+                                  ZIO.succeed(
+                                    (
+                                      mediaType,
+                                      Right(
+                                        source
+                                          .watchTermination()((_, f) =>
+                                            f.onComplete(_ => runtime.unsafe.run(fiber.interrupt))(
+                                              executor.asExecutionContext
+                                            )
+                                          )
                                       )
+                                    )
                                   )
                                 )
                               )
+                          }
+                          .asRightError
+                      case (mediaType, Left(value))   =>
+                        ZIO
+                          .succeed(
+                            (
+                              mediaType,
+                              Left(value)
                             )
-                        }
-                        .asRightError
+                          )
+                          .asRightError
                     }
                     .unright
                 )
