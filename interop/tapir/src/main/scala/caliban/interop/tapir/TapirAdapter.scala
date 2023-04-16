@@ -34,7 +34,7 @@ object TapirAdapter {
     type Stream = Right[Nothing, ZStream[Any, Throwable, Byte]]
 
   }
-  type CalibanBody = Either[ResponseValue, ZStream[Any, Throwable, Byte]]
+  type CalibanBody     = Either[ResponseValue, ZStream[Any, Throwable, Byte]]
   type CalibanResponse = (MediaType, CalibanBody)
 
   case class TapirResponse(

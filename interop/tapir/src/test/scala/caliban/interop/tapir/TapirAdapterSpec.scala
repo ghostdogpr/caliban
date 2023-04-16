@@ -3,13 +3,12 @@ package caliban.interop.tapir
 import caliban.InputValue.ObjectValue
 import caliban.Value.StringValue
 import caliban._
-import caliban.interop.tapir.TapirAdapter.CalibanBody
 import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.{ Effect, WebSockets }
-import sttp.client3.{ BasicRequestBody, DeserializationException, HttpError, ResponseException, SttpBackend }
 import sttp.client3.asynchttpclient.zio.AsyncHttpClientZioBackend
+import sttp.client3.{ BasicRequestBody, DeserializationException, HttpError, ResponseException, SttpBackend }
 import sttp.model._
-import sttp.tapir.Codec.{ multipart, JsonCodec }
+import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.client.sttp.SttpClientInterpreter
 import sttp.tapir.client.sttp.ws.zio._
 import sttp.tapir.model.{ ConnectionInfo, ServerRequest }
@@ -20,7 +19,6 @@ import zio.test.TestAspect.before
 import zio.test._
 import zio.{ test => _, ZIO, _ }
 
-import scala.collection.immutable
 import scala.language.postfixOps
 
 object TapirAdapterSpec {
@@ -43,8 +41,8 @@ object TapirAdapterSpec {
   }
 
   private def customError: CustomAssertion[ResponseException[String, String], String] = CustomAssertion.make {
-    case HttpError(body, statusCode)           => Right(body)
-    case DeserializationException(body, error) => Right(error)
+    case HttpError(body, _)                 => Right(body)
+    case DeserializationException(_, error) => Right(error)
   }
 
   def makeSuite(
@@ -69,39 +67,10 @@ object TapirAdapterSpec {
         .toRequestThrowDecodeFailures(TapirAdapter.makeWebSocketEndpoint, Some(wsUri))
     )
 
-    def readAsResponse(
-      body: CalibanBody
-    ): ZIO[Any, Throwable, Either[GraphQLResponse[CalibanError], Chunk[GraphQLResponse[CalibanError]]]] = body match {
-      case Right(stream) =>
-        readMultipartResponse(stream).map(Right(_))
-      case Left(value)   =>
-        responseCodec.decode(responseValueCodec.encode(value)) match {
-          case DecodeResult.Value(v)                   => ZIO.left(v)
-          case DecodeResult.Error(_, throwable)        => ZIO.fail(throwable)
-          case DecodeResult.Missing                    => ZIO.fail(new Throwable("Missing value"))
-          case DecodeResult.Multiple(values)           => ZIO.fail(new Throwable(s"Multiple values: $values"))
-          case DecodeResult.Mismatch(expected, actual) => ZIO.fail(new Throwable(s"Expected $expected, got $actual"))
-          case DecodeResult.InvalidValue(errors)       => ZIO.fail(new Throwable(s"Invalid value: $errors"))
-        }
-    }
-
-    def readMultipartResponse(
-      stream: ZStream[Any, Throwable, Byte]
-    ): ZIO[Any, Throwable, Chunk[GraphQLResponse[CalibanError]]] =
-      (stream >>>
-        ZPipeline.utfDecode >>>
-        ZPipeline.splitLines >>>
-        ZPipeline.map[String, String](_.trim) >>>
-        ZPipeline.collect[String, Option[GraphQLResponse[CalibanError]]] {
-          case line if line.startsWith("{") =>
-            line.fromJson[GraphQLResponse[CalibanError]].toOption
-        }).collectSome >>> ZSink.collectAll[GraphQLResponse[CalibanError]]
-
     val tests: List[Option[Spec[SttpBackend[Task, ZioStreams with WebSockets], Throwable]]] = List(
       Some(
         suite("http")(
-          test("test http endpoint") {
-
+          test("test POST http endpoint") {
             for {
               res      <- ZIO.serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](
                             run(GraphQLRequest(Some("{ characters { name }  }"))).send(_)
@@ -112,7 +81,6 @@ object TapirAdapterSpec {
               response.is(_.left).data.toString ==
                 """{"characters":[{"name":"James Holden"},{"name":"Naomi Nagata"},{"name":"Amos Burton"},{"name":"Alex Kamal"},{"name":"Chrisjen Avasarala"},{"name":"Josephus Miller"},{"name":"Roberta Draper"}]}"""
             )
-
           },
           test("test interceptor failure") {
             for {
@@ -153,54 +121,53 @@ object TapirAdapterSpec {
               res  <- ZIO.serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](r.send(_))
               body <- ZIO.fromEither(res.body).orElseFail(new Throwable(s"Failed to parse result: $res"))
             } yield assertTrue(body.isLeft)
-
           }
         )
       ),
       runUpload.map(runUpload =>
-        test("test http upload endpoint") {
-          val query =
-            """{ "query": "mutation ($files: [Upload!]!) { uploadFiles(files: $files) { hash, filename, mimetype } }", "variables": { "files": [null, null] }}"""
+        suite("uploads")(
+          test("test http upload endpoint") {
+            val query =
+              """{ "query": "mutation ($files: [Upload!]!) { uploadFiles(files: $files) { hash, filename, mimetype } }", "variables": { "files": [null, null] }}"""
 
-          val parts: List[Part[BasicRequestBody]] = List(
-            sttp.client3.multipart("operations", query.getBytes).contentType(MediaType.ApplicationJson),
-            sttp.client3.multipart("map", """{ "0": ["variables.files.0"], "1":  ["variables.files.1"]}""".getBytes),
-            sttp.client3.multipart("0", """image""".getBytes).contentType(MediaType.ImagePng).fileName("a.png"),
-            sttp.client3.multipart("1", """text""".getBytes).contentType(MediaType.TextPlain).fileName("a.txt")
-          )
+            val parts: List[Part[BasicRequestBody]] = List(
+              sttp.client3.multipart("operations", query.getBytes).contentType(MediaType.ApplicationJson),
+              sttp.client3.multipart("map", """{ "0": ["variables.files.0"], "1":  ["variables.files.1"]}""".getBytes),
+              sttp.client3.multipart("0", """image""".getBytes).contentType(MediaType.ImagePng).fileName("a.png"),
+              sttp.client3.multipart("1", """text""".getBytes).contentType(MediaType.TextPlain).fileName("a.txt")
+            )
 
-          for {
-            res  <- ZIO.serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](runUpload(parts).send(_))
-            body <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
-          } yield assertTrue(
-            body.is(_.left).data.toString ==
-              """{"uploadFiles":[{"hash":"6105d6cc76af400325e94d588ce511be5bfdbb73b437dc51eca43917d7a43e3d","filename":"a.png","mimetype":"image/png"},{"hash":"982d9e3eb996f559e633f4d194def3761d909f5a3b647d1a851fead67c32c9d1","filename":"a.txt","mimetype":"text/plain"}]}"""
-          )
-        }
-      ),
-      runUpload.map(runUpload =>
-        test("test http upload endpoint for extra fields") {
-          val query =
-            """{ "query": "mutation ($uploadedDocuments: [UploadedDocumentInput!]!) { uploadFilesWithExtraFields(uploadedDocuments: $uploadedDocuments) { someField1, someField2} }", "variables": { "uploadedDocuments": [{"file": null, "someField1": 1, "someField2": 2}, {"file": null, "someField1": 3}] }}"""
+            for {
+              res  <- ZIO.serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](runUpload(parts).send(_))
+              body <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
+            } yield assertTrue(
+              body.is(_.left).data.toString ==
+                """{"uploadFiles":[{"hash":"6105d6cc76af400325e94d588ce511be5bfdbb73b437dc51eca43917d7a43e3d","filename":"a.png","mimetype":"image/png"},{"hash":"982d9e3eb996f559e633f4d194def3761d909f5a3b647d1a851fead67c32c9d1","filename":"a.txt","mimetype":"text/plain"}]}"""
+            )
+          },
+          test("test http upload endpoint for extra fields") {
+            val query =
+              """{ "query": "mutation ($uploadedDocuments: [UploadedDocumentInput!]!) { uploadFilesWithExtraFields(uploadedDocuments: $uploadedDocuments) { someField1, someField2} }", "variables": { "uploadedDocuments": [{"file": null, "someField1": 1, "someField2": 2}, {"file": null, "someField1": 3}] }}"""
 
-          val parts = List(
-            sttp.client3.multipart("operations", query.getBytes).contentType(MediaType.ApplicationJson),
-            sttp.client3.multipart(
-              "map",
-              """{ "0": ["variables.uploadedDocuments.0.file"], "1":  ["variables.uploadedDocuments.1.file"]}""".getBytes
-            ),
-            sttp.client3.multipart("0", """image""".getBytes).contentType(MediaType.ImagePng).fileName("a.png"),
-            sttp.client3.multipart("1", """text""".getBytes).contentType(MediaType.TextPlain).fileName("a.txt")
-          )
+            val parts = List(
+              sttp.client3.multipart("operations", query.getBytes).contentType(MediaType.ApplicationJson),
+              sttp.client3.multipart(
+                "map",
+                """{ "0": ["variables.uploadedDocuments.0.file"], "1":  ["variables.uploadedDocuments.1.file"]}""".getBytes
+              ),
+              sttp.client3.multipart("0", """image""".getBytes).contentType(MediaType.ImagePng).fileName("a.png"),
+              sttp.client3.multipart("1", """text""".getBytes).contentType(MediaType.TextPlain).fileName("a.txt")
+            )
 
-          for {
-            res  <- ZIO.serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](runUpload(parts).send(_))
-            body <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
-          } yield assertTrue(
-            body.is(_.left).data.toString ==
-              """{"uploadFilesWithExtraFields":[{"someField1":1,"someField2":2},{"someField1":3,"someField2":null}]}"""
-          )
-        }
+            for {
+              res  <- ZIO.serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](runUpload(parts).send(_))
+              body <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
+            } yield assertTrue(
+              body.is(_.left).data.toString ==
+                """{"uploadFilesWithExtraFields":[{"someField1":1,"someField2":2},{"someField1":3,"someField2":null}]}"""
+            )
+          }
+        )
       ),
       runWS.map(runWS =>
         suite("test ws endpoint")(
@@ -217,7 +184,7 @@ object TapirAdapterSpec {
                                    ) -> "graphql-ws"
                                  ).send(_)
                                )
-                res         <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
+                res         <- ZIO.fromEither(res.body).mapError(cause => new Throwable(s"Failed to parse result $cause"))
                 (_, pipe)    = res
                 inputQueue  <- Queue.unbounded[GraphQLWSInput]
                 inputStream  = ZStream.fromQueueWithShutdown(inputQueue)
@@ -341,16 +308,53 @@ object TapirAdapterSpec {
 
     implicit val stringShows: ShowError[String] = identity
 
-    def asJsonBody[B: JsonCodec]
-      : ResponseAs[Either[ResponseException[String, String], B], Effect[Task] with ZioStreams] =
-      asString.mapWithMetadata(
-        ResponseAs.deserializeRightWithError(
-          implicitly[JsonCodec[B]].decode(_) match {
-            case failure: DecodeResult.Failure => Left("Failed to decode")
-            case DecodeResult.Value(v)         => Right(v)
-          }
+    def runPost(request: GraphQLRequest): Request[Either[ResponseException[String, String], Either[GraphQLResponse[
+      CalibanError
+    ], Chunk[GraphQLResponse[CalibanError]]]], Effect[Task] with ZioStreams] =
+      basicRequest
+        .post(httpUri)
+        .body(request)
+        .response(asStreamOrSingle)
+
+    def runGet(request: GraphQLRequest): Request[Either[ResponseException[String, String], Either[GraphQLResponse[
+      CalibanError
+    ], Chunk[GraphQLResponse[CalibanError]]]], Effect[Task] with ZioStreams] =
+      basicRequest
+        .get(
+          httpUri.addParams(
+            QueryParams.fromSeq(
+              List(
+                request.query.map("query"                 -> _),
+                request.operationName.map("operationName" -> _),
+                request.variables.map("variables"         -> _.toJson),
+                request.extensions.map("extensions"       -> _.toJson)
+              ).flatten
+            )
+          )
         )
-      )
+        .response(asStreamOrSingle)
+
+    def runUpload(
+      request: List[Part[BasicRequestBody]]
+    ): Request[Either[ResponseException[String, String], Either[GraphQLResponse[CalibanError], Chunk[
+      GraphQLResponse[CalibanError]
+    ]]], Effect[Task] with ZioStreams] =
+      basicRequest
+        .post(httpUri)
+        .response(asStreamOrSingle)
+        .multipartBody(request)
+
+    private def readMultipartResponse(
+      stream: ZStream[Any, Throwable, Byte]
+    ): ZIO[Any, Throwable, Chunk[GraphQLResponse[CalibanError]]] =
+      (stream >>>
+        ZPipeline.utfDecode >>>
+        ZPipeline.splitLines >>>
+        ZPipeline.map[String, String](_.trim) >>>
+        ZPipeline.collect[String, Option[GraphQLResponse[CalibanError]]] {
+          case line if line.startsWith("{") =>
+            line.fromJson[GraphQLResponse[CalibanError]].toOption
+        }).collectSome >>> ZSink.collectAll[GraphQLResponse[CalibanError]]
 
     private def asStreamOrSingle(implicit
       codec: JsonCodec[GraphQLResponse[CalibanError]]
@@ -371,35 +375,15 @@ object TapirAdapterSpec {
         )
       )
 
-    def runPost(request: GraphQLRequest): Request[Either[ResponseException[String, String], Either[GraphQLResponse[
-      CalibanError
-    ], Chunk[GraphQLResponse[CalibanError]]]], Any with Effect[Task] with ZioStreams] =
-      basicRequest
-        .post(httpUri)
-        .body(request)
-        .response(asStreamOrSingle)
-
-    def runUpload(
-      request: List[Part[BasicRequestBody]]
-    ): Request[Either[ResponseException[String, String], Either[GraphQLResponse[CalibanError], Chunk[
-      GraphQLResponse[CalibanError]
-    ]]], Any with Effect[Task] with ZioStreams] =
-      basicRequest
-        .post(httpUri)
-        .multipartBody(request)
-        .response(asStreamOrSingle)
-
-    private def readMultipartResponse(
-      stream: ZStream[Any, Throwable, Byte]
-    ): ZIO[Any, Throwable, Chunk[GraphQLResponse[CalibanError]]] =
-      (stream >>>
-        ZPipeline.utfDecode >>>
-        ZPipeline.splitLines >>>
-        ZPipeline.map[String, String](_.trim) >>>
-        ZPipeline.collect[String, Option[GraphQLResponse[CalibanError]]] {
-          case line if line.startsWith("{") =>
-            line.fromJson[GraphQLResponse[CalibanError]].toOption
-        }).collectSome >>> ZSink.collectAll[GraphQLResponse[CalibanError]]
-
+    private def asJsonBody[B: JsonCodec]
+      : ResponseAs[Either[ResponseException[String, String], B], Effect[Task] with ZioStreams] =
+      asString.mapWithMetadata(
+        ResponseAs.deserializeRightWithError(
+          implicitly[JsonCodec[B]].decode(_) match {
+            case failure: DecodeResult.Failure => Left("Failed to decode")
+            case DecodeResult.Value(v)         => Right(v)
+          }
+        )
+      )
   }
 }

@@ -95,7 +95,9 @@ object Field {
           if (checkDirectives(resolvedDirectives)) {
             val t = selected.fold(Types.string)(_.`type`()) // default only case where it's not found is __typename
 
-            val fields = if (selectionSet.nonEmpty) loop(selectionSet, t, None) else Nil // Fragments apply on to the direct children of the fragment spread
+            val fields =
+              if (selectionSet.nonEmpty) loop(selectionSet, t, None)
+              else Nil // Fragments apply on to the direct children of the fragment spread
 
             addField(
               Field(

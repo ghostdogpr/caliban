@@ -41,7 +41,7 @@ object PlayAdapterSpec extends ZIOSpecDefault {
                            .apply(req)
                        case req @ POST(p"/upload/graphql") =>
                          PlayAdapter
-                           .makeHttpUploadService(interpreter)(runtime, mat, implicitly, implicitly, implicitly, implicitly)
+                           .makeHttpUploadService(interpreter)(runtime, mat, implicitly, implicitly, implicitly)
                            .apply(req)
                        case req @ GET(p"/ws/graphql")      =>
                          PlayAdapter.makeWebSocketService(interpreter)(runtime, mat, implicitly, implicitly).apply(req)
