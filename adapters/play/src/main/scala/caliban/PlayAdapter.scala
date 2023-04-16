@@ -55,23 +55,7 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
       queryExecution,
       requestInterceptor
     )
-    playInterpreter.toRoutes(
-      endpoints.map(endpoint =>
-        convertHttpStreamingEndpoint(
-          endpoint.asInstanceOf[
-            ServerEndpoint.Full[
-              Unit,
-              Unit,
-              (GraphQLRequest, ServerRequest),
-              TapirResponse,
-              CalibanResponse,
-              ZioStreams,
-              RIO[R, *]
-            ]
-          ]
-        )
-      )
-    )
+    playInterpreter.toRoutes(endpoints.map(endpoint => convertHttpStreamingEndpoint(endpoint)))
   }
 
   def makeHttpUploadService[R, E](
@@ -94,21 +78,7 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
       queryExecution,
       requestInterceptor
     )
-    playInterpreter.toRoutes(
-      convertHttpStreamingEndpoint(
-        endpoint.asInstanceOf[
-          ServerEndpoint.Full[
-            Unit,
-            Unit,
-            (GraphQLRequest, ServerRequest),
-            TapirResponse,
-            CalibanResponse,
-            ZioStreams,
-            RIO[R, *]
-          ]
-        ]
-      )
-    )
+    playInterpreter.toRoutes(convertHttpStreamingEndpoint(endpoint))
   }
 
   def makeWebSocketService[R, E](
@@ -159,11 +129,11 @@ object PlayAdapter extends PlayAdapter(None) {
 
   type AkkaPipe = Flow[GraphQLWSInput, Either[GraphQLWSClose, GraphQLWSOutput], Any]
 
-  def convertHttpStreamingEndpoint[R](
+  def convertHttpStreamingEndpoint[R, Input](
     endpoint: ServerEndpoint.Full[
       Unit,
       Unit,
-      (GraphQLRequest, ServerRequest),
+      Input,
       TapirResponse,
       CalibanResponse,
       ZioStreams,
@@ -173,7 +143,7 @@ object PlayAdapter extends PlayAdapter(None) {
     ServerEndpoint[
       Unit,
       Unit,
-      (GraphQLRequest, ServerRequest),
+      Input,
       TapirResponse,
       (MediaType, Either[ResponseValue, AkkaStreams.BinaryStream]),
       AkkaStreams,
@@ -182,7 +152,7 @@ object PlayAdapter extends PlayAdapter(None) {
       endpoint.endpoint
         .asInstanceOf[
           PublicEndpoint[
-            (GraphQLRequest, ServerRequest),
+            Input,
             TapirResponse,
             (MediaType, Either[ResponseValue, AkkaStreams.BinaryStream]),
             AkkaStreams

@@ -34,8 +34,19 @@ object TapirAdapter {
     type Stream = Right[Nothing, ZStream[Any, Throwable, Byte]]
 
   }
-  type CalibanBody     = Either[ResponseValue, ZStream[Any, Throwable, Byte]]
-  type CalibanResponse = (MediaType, CalibanBody)
+  type CalibanBody        = Either[ResponseValue, ZStream[Any, Throwable, Byte]]
+  type CalibanResponse    = (MediaType, CalibanBody)
+  type CalibanEndpoint[R] =
+    ServerEndpoint.Full[Unit, Unit, (GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse, ZioStreams, RIO[
+      R,
+      *
+    ]]
+
+  type CalibanUploadsEndpoint[R] =
+    ServerEndpoint.Full[Unit, Unit, UploadRequest, TapirResponse, CalibanResponse, ZioStreams, RIO[
+      R,
+      *
+    ]]
 
   case class TapirResponse(
     code: StatusCode,
@@ -161,7 +172,7 @@ object TapirAdapter {
   )(implicit
     requestCodec: JsonCodec[GraphQLRequest],
     responseCodec: JsonCodec[ResponseValue]
-  ): List[ServerEndpoint[ZioStreams, RIO[R, *]]] = {
+  ): List[CalibanEndpoint[R]] = {
     def logic(
       request: (GraphQLRequest, ServerRequest)
     ): RIO[R, Either[TapirResponse, CalibanResponse]] = {
@@ -204,7 +215,7 @@ object TapirAdapter {
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
     responseValueCodec: JsonCodec[ResponseValue]
-  ): ServerEndpoint[ZioStreams, RIO[R, *]] = {
+  ): CalibanUploadsEndpoint[R] = {
     def logic(
       request: UploadRequest
     ): RIO[R, Either[TapirResponse, CalibanResponse]] = {

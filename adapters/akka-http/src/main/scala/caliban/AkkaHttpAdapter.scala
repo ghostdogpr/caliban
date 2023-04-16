@@ -9,6 +9,7 @@ import caliban.execution.QueryExecution
 import caliban.interop.tapir.TapirAdapter.{
   zioMonadError,
   CalibanBody,
+  CalibanEndpoint,
   CalibanPipe,
   CalibanResponse,
   TapirResponse,
@@ -45,30 +46,14 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
     requestCodec: JsonCodec[GraphQLRequest],
     responseCodec: JsonCodec[ResponseValue]
   ): Route = {
-    val endpoints: List[ServerEndpoint[ZioStreams, RIO[R, *]]] = TapirAdapter.makeHttpService[R, E](
+    val endpoints: List[CalibanEndpoint[R]] = TapirAdapter.makeHttpService[R, E](
       interpreter,
       skipValidation,
       enableIntrospection,
       queryExecution,
       requestInterceptor
     )
-    akkaInterpreter.toRoute(
-      endpoints.map(endpoint =>
-        convertHttpStreamingEndpoint(
-          endpoint.asInstanceOf[
-            ServerEndpoint.Full[
-              Unit,
-              Unit,
-              (GraphQLRequest, ServerRequest),
-              TapirResponse,
-              CalibanResponse,
-              ZioStreams,
-              RIO[R, *]
-            ]
-          ]
-        )
-      )
-    )
+    akkaInterpreter.toRoute(endpoints.map(convertHttpStreamingEndpoint[R, (GraphQLRequest, ServerRequest)]))
   }
 
   def makeHttpUploadService[R, E](
@@ -91,21 +76,7 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
       queryExecution,
       requestInterceptor
     )
-    akkaInterpreter.toRoute(
-      convertHttpStreamingEndpoint(
-        endpoint.asInstanceOf[
-          ServerEndpoint.Full[
-            Unit,
-            Unit,
-            (GraphQLRequest, ServerRequest),
-            TapirResponse,
-            CalibanResponse,
-            ZioStreams,
-            RIO[R, *]
-          ]
-        ]
-      )
-    )
+    akkaInterpreter.toRoute(convertHttpStreamingEndpoint(endpoint))
   }
 
   def makeWebSocketService[R, E](
@@ -159,24 +130,21 @@ object AkkaHttpAdapter {
 
   type AkkaPipe = Flow[GraphQLWSInput, Either[GraphQLWSClose, GraphQLWSOutput], Any]
 
-  def convertHttpStreamingEndpoint[R](
+  def convertHttpStreamingEndpoint[R, I](
     endpoint: ServerEndpoint.Full[
       Unit,
       Unit,
-      (GraphQLRequest, ServerRequest),
+      I,
       TapirResponse,
       CalibanResponse,
       ZioStreams,
-      RIO[
-        R,
-        *
-      ]
+      RIO[R, *]
     ]
   )(implicit runtime: Runtime[R], mat: Materializer): ServerEndpoint[AkkaStreams, Future] =
     ServerEndpoint[
       Unit,
       Unit,
-      (GraphQLRequest, ServerRequest),
+      I,
       TapirResponse,
       (MediaType, Either[ResponseValue, AkkaStreams.BinaryStream]),
       AkkaStreams,
@@ -185,7 +153,7 @@ object AkkaHttpAdapter {
       endpoint.endpoint
         .asInstanceOf[
           PublicEndpoint[
-            (GraphQLRequest, ServerRequest),
+            I,
             TapirResponse,
             (MediaType, Either[ResponseValue, AkkaStreams.BinaryStream]),
             AkkaStreams
@@ -207,7 +175,6 @@ object AkkaHttpAdapter {
                           .succeed(Source.queue[ByteString](0, OverflowStrategy.fail).preMaterialize())
                           .flatMap { case (queue, source) =>
                             stream
-                              .asInstanceOf[ZStream[Any, Throwable, Byte]]
                               .runForeachChunk(chunk => ZIO.fromFuture(_ => queue.offer(ByteString(chunk.toArray))))
                               .ensuring(ZIO.succeed(queue.complete()))
                               .forkDaemon

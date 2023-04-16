@@ -306,7 +306,9 @@ object TapirAdapterSpec {
     implicit def jsonBodySerializer[B](implicit encoder: JsonCodec[B]): BodySerializer[B] =
       b => StringBody(encoder.encode(b), "UTF-8", MediaType.ApplicationJson)
 
-    implicit val stringShows: ShowError[String] = identity
+    implicit val stringShows: ShowError[String] = new ShowError[String] {
+      override def show(error: String): String = error
+    }
 
     def runPost(request: GraphQLRequest): Request[Either[ResponseException[String, String], Either[GraphQLResponse[
       CalibanError
