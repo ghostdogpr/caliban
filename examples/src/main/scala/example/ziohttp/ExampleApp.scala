@@ -3,7 +3,6 @@ package example.ziohttp
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
 import caliban.ZHttpAdapter
-import zhttp.http.Middleware.cors
 import zio._
 import zio.stream._
 import zio.http._

@@ -1,17 +1,12 @@
 package caliban.execution
 
-import caliban.GraphQL.graphQL
 import caliban.Macros.gqldoc
 import caliban.ResponseValue.StreamValue
-import caliban.{ CalibanError, GraphQLResponse, ResponseValue, RootResolver, Value }
-import caliban.TestUtils.Role.{ Captain, Engineer, Mechanic, Pilot }
-import caliban.TestUtils.{ characters, CaptainShipName, Character, CharacterArgs, Origin, Role }
-import caliban.schema.Annotations.GQLName
-import caliban.schema.{ GenericSchema, Schema }
-import caliban.wrappers.DeferSupport
+import caliban.TestUtils.{ characters, Character }
+import caliban.{ CalibanError, GraphQLResponse, ResponseValue, Value }
 import zio.test.Assertion.hasSameElements
 import zio.test.{ assert, assertTrue, TestAspect, ZIOSpecDefault }
-import zio.{ Chunk, UIO, URIO, ZIO, ZLayer }
+import zio.{ Chunk, UIO, ZIO, ZLayer }
 
 trait CharacterService {
   def characterBy(pred: Character => Boolean): UIO[List[Character]]
