@@ -233,7 +233,7 @@ object Rendering {
     arguments match {
       case Nil  => ""
       case list =>
-        s"(${list.map(a => s"${renderDescription(a.description, newline = false)}${a.name}: ${renderTypeName(a.`type`())}${renderDefaultValue(a)}").mkString(", ")})"
+        s"(${list.map(a => s"${renderDescription(a.description, newline = false)}${a.name}: ${renderTypeName(a.`type`())}${renderDefaultValue(a)}${renderDirectives(a.directives)}").mkString(", ")})"
     }
 
   private def isBuiltinScalar(name: String): Boolean =
