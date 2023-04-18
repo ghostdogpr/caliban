@@ -20,7 +20,7 @@ object Rendering {
               if (isBuiltinScalar(name)) None
               else
                 Some(
-                  s"""${renderDescription(t.description)}scalar $name ${renderDirectives(
+                  s"""${renderDescription(t.description)}scalar $name${renderDirectives(
                     t.directives
                   )}${renderSpecifiedBy(t.specifiedBy)}""".stripMargin
                 )
