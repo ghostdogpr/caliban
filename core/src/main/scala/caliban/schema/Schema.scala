@@ -271,7 +271,8 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   implicit val doubleSchema: Schema[Any, Double]         = scalarSchema("Float", None, None, None, FloatValue(_))
   implicit val floatSchema: Schema[Any, Float]           = scalarSchema("Float", None, None, None, FloatValue(_))
   implicit val bigDecimalSchema: Schema[Any, BigDecimal] = scalarSchema("BigDecimal", None, None, None, FloatValue(_))
-  implicit val uploadSchema: Schema[Any, Upload]         = scalarSchema("Upload", None, None, None, _ => StringValue("<upload>"))
+  implicit val uploadSchema: Schema[Any, Upload]         =
+    scalarSchema("Upload", None, None, None, _ => StringValue("<upload>"))
 
   implicit val base64CursorSchema: Schema[Any, Base64Cursor] =
     Schema.stringSchema.contramap(Cursor[Base64Cursor].encode)
