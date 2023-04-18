@@ -263,7 +263,7 @@ You can also use the `scalarSchema` helper to create your own scalar types, prov
 import caliban.schema._
 import caliban.ResponseValue.ObjectValue
 
-implicit val unitSchema: Schema[Any, Unit] = Schema.scalarSchema("Unit", None, None, _ => ObjectValue(Nil))
+implicit val unitSchema: Schema[Any, Unit] = Schema.scalarSchema("Unit", None, None, None, _ => ObjectValue(Nil))
 ```
 
 If you are using a custom type as part of the input you also have to provide an implicit instance of `caliban.schema.ArgBuilder`. For example here's how to do that for `java.time.LocalDate`:
