@@ -131,7 +131,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
    * @param name name of the scalar type
    * @param description description of the scalar type
    * @param specifiedBy URL of the scalar specification
-   * @param directives The directives to add to the type
+   * @param directives the directives to add to the type
    * @param makeResponse function from `A` to [[ResponseValue]] that defines how to resolve `A`
    */
   def scalarSchema[A](
