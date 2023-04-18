@@ -10,8 +10,13 @@ object Types {
   /**
    * Creates a new scalar type with the given name.
    */
-  def makeScalar(name: String, description: Option[String] = None, specifiedBy: Option[String] = None): __Type =
-    __Type(__TypeKind.SCALAR, Some(name), description, specifiedBy = specifiedBy)
+  def makeScalar(
+    name: String,
+    description: Option[String] = None,
+    specifiedBy: Option[String] = None,
+    directives: Option[List[Directive]] = None
+  ): __Type =
+    __Type(__TypeKind.SCALAR, Some(name), description, specifiedBy = specifiedBy, directives = directives)
 
   val boolean: __Type = makeScalar("Boolean")
   val string: __Type  = makeScalar("String")

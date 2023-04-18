@@ -36,7 +36,7 @@ private[federation] object FederationHelpers {
   case class _Any(__typename: String, fields: InputValue)
 
   implicit val anySchema: Schema[Any, _Any] =
-    Schema.scalarSchema("_Any", None, None, _ => NullValue)
+    Schema.scalarSchema("_Any", None, None, None, _ => NullValue)
 
   val anyArgBuilder: ArgBuilder[_Any] = {
     case v @ InputValue.ObjectValue(fields) =>
@@ -69,6 +69,7 @@ private[federation] object FederationHelpers {
 
   implicit val fieldSetSchema: Schema[Any, FieldSet] = Schema.scalarSchema[FieldSet](
     "_FieldSet",
+    None,
     None,
     None,
     fs => StringValue(fs.fields)
