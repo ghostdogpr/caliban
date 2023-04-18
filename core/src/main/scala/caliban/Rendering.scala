@@ -20,9 +20,9 @@ object Rendering {
               if (isBuiltinScalar(name)) None
               else
                 Some(
-                  s"""${renderDescription(t.description)}\n${renderDirectives(
+                  s"""${renderDescription(t.description)}scalar $name ${renderDirectives(
                     t.directives
-                  )} scalar $name${renderSpecifiedBy(t.specifiedBy)}""".stripMargin
+                  )}${renderSpecifiedBy(t.specifiedBy)}""".stripMargin
                 )
             )
           case __TypeKind.NON_NULL => None
