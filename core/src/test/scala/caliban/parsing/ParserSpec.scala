@@ -1125,7 +1125,7 @@ object ParserSpec extends ZIOSpecDefault {
                   None,
                   "test",
                   List.empty,
-                  repeatable = false,
+                  isRepeatable = false,
                   Set(
                     TypeSystemDefinition.DirectiveLocation.TypeSystemDirectiveLocation.FIELD_DEFINITION
                   )
@@ -1146,7 +1146,7 @@ object ParserSpec extends ZIOSpecDefault {
                   None,
                   "test",
                   List.empty,
-                  repeatable = true,
+                  isRepeatable = true,
                   Set(
                     TypeSystemDefinition.DirectiveLocation.TypeSystemDirectiveLocation.FIELD_DEFINITION
                   )

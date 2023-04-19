@@ -272,7 +272,7 @@ object RemoteSchema {
       name = definition.name,
       description = definition.description,
       args = definition.args.map(toInputValue(_, definitions)),
-      repeatable = definition.repeatable,
+      isRepeatable = definition.isRepeatable,
       locations = definition.locations.map(toDirectiveLocation)
     )
 

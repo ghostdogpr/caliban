@@ -168,7 +168,7 @@ object TestUtils {
           None
         )
       ),
-      repeatable = false
+      isRepeatable = false
     )
 
     val Repeatable = __Directive(
@@ -184,7 +184,7 @@ object TestUtils {
           None
         )
       ),
-      repeatable = true
+      isRepeatable = true
     )
   }
 

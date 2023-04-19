@@ -11,35 +11,35 @@ class FederationV1
           Some("The @external directive is used to mark a field as owned by another service"),
           locations = Set(__DirectiveLocation.FIELD_DEFINITION),
           args = Nil,
-          repeatable = false
+          isRepeatable = false
         ),
         __Directive(
           "requires",
           None,
           locations = Set(__DirectiveLocation.FIELD_DEFINITION),
           args = _FieldSet :: Nil,
-          repeatable = false
+          isRepeatable = false
         ),
         __Directive(
           "provides",
           None,
           locations = Set(__DirectiveLocation.FIELD_DEFINITION),
           args = _FieldSet :: Nil,
-          repeatable = false
+          isRepeatable = false
         ),
         __Directive(
           "key",
           None,
           locations = Set(__DirectiveLocation.OBJECT, __DirectiveLocation.INTERFACE),
           args = _FieldSet :: Nil,
-          repeatable = true
+          isRepeatable = true
         ),
         __Directive(
           "extends",
           None,
           locations = Set(__DirectiveLocation.OBJECT, __DirectiveLocation.INTERFACE),
           Nil,
-          repeatable = false
+          isRepeatable = false
         )
       ),
       Nil
