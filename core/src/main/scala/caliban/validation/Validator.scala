@@ -292,7 +292,7 @@ object Validator {
         // only non-repeatable directives count against uniqueness
         // this .lengthCompare is a 2.12 compatible version of .lengthIs and can be replaced after 2.12 support is dropped
         // it's a minor optimization to short-circuit the length check on a List for the off-chance that list is long
-        (v.lengthCompare(1) > 0) && !directiveDefinitions.get(n).exists(_.exists(_.repeatable))
+        (v.lengthCompare(1) > 0) && !directiveDefinitions.get(n).exists(_.exists(_.isRepeatable))
       } match {
       case None            => ZPure.unit
       case Some((name, _)) =>
