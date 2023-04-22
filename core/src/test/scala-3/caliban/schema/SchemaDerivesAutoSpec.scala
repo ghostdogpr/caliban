@@ -280,9 +280,21 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
             |  as: [A!]!
             |}""".stripMargin
         List(
-          test("from GenericSchema") {
+          test("from GenericSchema[Any]") {
             case class A(a: String)
             case class Queries(as: List[A]) derives Schema.Auto
+
+            val resolver = RootResolver(Queries(List(A("a"), A("b"))))
+            val gql      = graphQL(resolver)
+
+            assertTrue(gql.render == expected)
+          },
+          test("from GenericSchema[T]") {
+            trait Foo
+            object FooSchema extends SchemaDerivation[Foo]
+
+            case class A(a: String)
+            case class Queries(as: List[A]) derives FooSchema.Auto
 
             val resolver = RootResolver(Queries(List(A("a"), A("b"))))
             val gql      = graphQL(resolver)
