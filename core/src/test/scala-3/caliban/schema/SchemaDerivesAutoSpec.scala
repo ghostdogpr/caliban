@@ -314,6 +314,22 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
             val gql      = graphQL(resolver)
 
             assertTrue(gql.render == expected)
+          },
+          test("from local scope when using a custom schema") {
+            trait Foo
+            object FooSchema extends SchemaDerivation[Foo]
+            case class A(a: Int)
+
+            given Schema[Any, A] = Schema.obj[Any, A]("A") { case given FieldAttributes =>
+              List(field("a")(_.a.toString))
+            }
+
+            case class Queries(as: List[A]) derives FooSchema.Auto
+
+            val resolver = RootResolver(Queries(List(A(1), A(2))))
+            val gql      = graphQL[Foo, Queries, Unit, Unit](resolver)
+
+            assertTrue(gql.render == expected)
           }
         )
       }
