@@ -160,7 +160,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
         case class Something(b: Int)
         case class Query(something: Something) derives Schema.Auto
 
-        implicit val somethingSchema: Schema[Any, Something] = Schema.gen[Any, Something].rename("SomethingElse")
+        given Schema[Any, Something] = Schema.gen[Any, Something].rename("SomethingElse")
 
         assertTrue(Types.innerType(introspectSubscription[Something]).name.get == "SomethingElse")
       },
@@ -266,13 +266,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
                          |}""".stripMargin
         assertTrue(gql.render == expected)
       },
-      test("Auto derivation reuses implicit derivations in GenericSchema") {
-        case class A(a: String)
-        case class Queries(as: List[A]) derives Schema.Auto
-
-        val resolver = RootResolver(Queries(List(A("a"), A("b"))))
-        val gql      = graphQL(resolver)
-
+      suite("Auto derivation reuses implicits") {
         val expected =
           """schema {
             |  query: Queries
@@ -285,8 +279,59 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
             |type Queries {
             |  as: [A!]!
             |}""".stripMargin
+        List(
+          test("from GenericSchema[Any]") {
+            case class A(a: String)
+            case class Queries(as: List[A]) derives Schema.Auto
 
-        assertTrue(gql.render == expected)
+            val resolver = RootResolver(Queries(List(A("a"), A("b"))))
+            val gql      = graphQL(resolver)
+
+            assertTrue(gql.render == expected)
+          },
+          test("from GenericSchema[T]") {
+            trait Foo
+            object FooSchema extends SchemaDerivation[Foo]
+
+            case class A(a: String)
+            case class Queries(as: List[A]) derives FooSchema.Auto
+
+            val resolver = RootResolver(Queries(List(A("a"), A("b"))))
+            val gql      = graphQL(resolver)
+
+            assertTrue(gql.render == expected)
+          },
+          test("from local scope") {
+            case class A(a: Int)
+
+            given Schema[Any, A] = Schema.obj[Any, A]("A") { case given FieldAttributes =>
+              List(field("a")(_.a.toString))
+            }
+
+            case class Queries(as: List[A]) derives Schema.Auto
+
+            val resolver = RootResolver(Queries(List(A(1), A(2))))
+            val gql      = graphQL(resolver)
+
+            assertTrue(gql.render == expected)
+          },
+          test("from local scope when using a custom schema") {
+            trait Foo
+            object FooSchema extends SchemaDerivation[Foo]
+            case class A(a: Int)
+
+            given Schema[Any, A] = Schema.obj[Any, A]("A") { case given FieldAttributes =>
+              List(field("a")(_.a.toString))
+            }
+
+            case class Queries(as: List[A]) derives FooSchema.Auto
+
+            val resolver = RootResolver(Queries(List(A(1), A(2))))
+            val gql      = graphQL[Foo, Queries, Unit, Unit](resolver)
+
+            assertTrue(gql.render == expected)
+          }
+        )
       }
     )
 
