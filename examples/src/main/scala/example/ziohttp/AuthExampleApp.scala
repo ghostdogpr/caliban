@@ -61,7 +61,7 @@ object Auth {
   }
 
   def middleware[R] = HttpAppMiddleware.customAuthZIO { headers =>
-    val user = headers.authorization.map(_.toString())
+    val user = headers.get(Header.Authorization).map(_.renderedValue)
     ZIO.serviceWithZIO[Auth](_.setUser(user)).as(true)
   }
 }
@@ -89,7 +89,7 @@ object AuthExampleApp extends ZIOAppDefault {
       port        <- Server
                        .install(
                          Http
-                           .collectRoute[Request] {
+                           .collectHttp[Request] {
                              case _ -> !! / "api" / "graphql" =>
                                ZHttpAdapter.makeHttpService(interpreter) @@ Auth.middleware
                              case _ -> !! / "ws" / "graphql"  => Auth.WebSockets.live(interpreter)

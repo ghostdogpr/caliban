@@ -11,12 +11,12 @@ object FederatedApp extends ZIOAppDefault {
 
   val characterServer = for {
     interpreter <- FederatedApi.Characters.api.interpreter
-    config       = ServerConfig.live(ServerConfig.default.port(8088))
+    config       = ZLayer.succeed(Server.Config.default.port(8088))
     _           <-
       Server
         .serve(
           Http
-            .collectRoute[Request] { case _ -> !! / "api" / "graphql" =>
+            .collectHttp[Request] { case _ -> !! / "api" / "graphql" =>
               ZHttpAdapter.makeHttpService(interpreter)
             }
             .withDefaultErrorResponse
@@ -26,12 +26,12 @@ object FederatedApp extends ZIOAppDefault {
 
   val episodeServer = for {
     interpreter <- FederatedApi.Episodes.api.interpreter
-    config       = ServerConfig.live(ServerConfig.default.port(8089))
+    config       = ZLayer.succeed(Server.Config.default.port(8089))
     _           <-
       Server
         .serve(
           Http
-            .collectRoute[Request] { case _ -> !! / "api" / "graphql" =>
+            .collectHttp[Request] { case _ -> !! / "api" / "graphql" =>
               ZHttpAdapter.makeHttpService(interpreter)
             }
             .withDefaultErrorResponse
