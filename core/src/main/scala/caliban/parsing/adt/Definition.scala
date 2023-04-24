@@ -45,7 +45,9 @@ object Definition {
       args: List[InputValueDefinition],
       isRepeatable: Boolean,
       locations: Set[DirectiveLocation]
-    ) extends TypeSystemDefinition
+    ) extends TypeSystemDefinition {
+      @deprecated("use isRepeatable") def repeatable: Boolean = isRepeatable
+    }
 
     sealed trait DirectiveLocation
     object DirectiveLocation {

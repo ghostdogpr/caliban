@@ -7,14 +7,19 @@ import scala.annotation.tailrec
 
 object Types {
 
-  /**
-   * Creates a new scalar type with the given name.
-   */
+  /** For bincompat */
   def makeScalar(
     name: String,
     description: Option[String] = None,
-    specifiedBy: Option[String] = None,
-    directives: Option[List[Directive]] = None
+    specifiedBy: Option[String] = None
+  ): __Type =
+    makeScalar(name, description, specifiedBy, None)
+
+  def makeScalar(
+    name: String,
+    description: Option[String],
+    specifiedBy: Option[String],
+    directives: Option[List[Directive]]
   ): __Type =
     __Type(__TypeKind.SCALAR, Some(name), description, specifiedBy = specifiedBy, directives = directives)
 
