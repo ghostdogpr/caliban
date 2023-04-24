@@ -3,7 +3,7 @@ package caliban
 import akka.stream.{ Materializer, OverflowStrategy }
 import akka.stream.scaladsl.{ Flow, Sink, Source }
 import caliban.execution.QueryExecution
-import caliban.interop.tapir.TapirAdapter.{ zioMonadError, CalibanPipe, ZioWebSockets }
+import caliban.interop.tapir.TapirAdapter.{ zioMonadError, CalibanPipe, TapirResponse, ZioWebSockets }
 import caliban.interop.tapir.{ RequestInterceptor, TapirAdapter, WebSocketHooks }
 import play.api.routing.Router.Routes
 import sttp.capabilities.WebSockets
@@ -24,19 +24,19 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
   private def playInterpreter(implicit mat: Materializer) =
     options.fold(PlayServerInterpreter())(PlayServerInterpreter(_))
 
-  def makeHttpService[R, E](
+  def makeHttpService[R1, R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel,
-    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
+    requestInterceptor: ZLayer[R1 & ServerRequest, TapirResponse, R] = ZLayer.empty
   )(implicit
-    runtime: Runtime[R],
+    runtime: Runtime[R1],
     materializer: Materializer,
     requestCodec: JsonCodec[GraphQLRequest],
     responseCodec: JsonCodec[GraphQLResponse[E]]
   ): Routes = {
-    val endpoints = TapirAdapter.makeHttpService[R, E](
+    val endpoints = TapirAdapter.makeHttpService[R1, R, E](
       interpreter,
       skipValidation,
       enableIntrospection,
@@ -46,20 +46,20 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
     playInterpreter.toRoutes(endpoints.map(TapirAdapter.convertHttpEndpointToFuture(_)))
   }
 
-  def makeHttpUploadService[R, E](
+  def makeHttpUploadService[R1, R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel,
-    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
+    requestInterceptor: ZLayer[R1 & ServerRequest, TapirResponse, R] = ZLayer.empty
   )(implicit
-    runtime: Runtime[R],
+    runtime: Runtime[R1],
     materializer: Materializer,
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
     responseCodec: JsonCodec[GraphQLResponse[E]]
   ): Routes = {
-    val endpoint = TapirAdapter.makeHttpUploadService[R, E](
+    val endpoint = TapirAdapter.makeHttpUploadService[R1, R, E](
       interpreter,
       skipValidation,
       enableIntrospection,
@@ -69,22 +69,22 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
     playInterpreter.toRoutes(TapirAdapter.convertHttpEndpointToFuture(endpoint))
   }
 
-  def makeWebSocketService[R, E](
+  def makeWebSocketService[R1, R, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     keepAliveTime: Option[Duration] = None,
     queryExecution: QueryExecution = QueryExecution.Parallel,
-    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty,
+    requestInterceptor: ZLayer[R1 & ServerRequest, TapirResponse, R] = ZLayer.empty,
     webSocketHooks: WebSocketHooks[R, E] = WebSocketHooks.empty
   )(implicit
     ec: ExecutionContext,
-    runtime: Runtime[R],
+    runtime: Runtime[R1],
     materializer: Materializer,
     inputCodec: JsonCodec[GraphQLWSInput],
     outputCodec: JsonCodec[GraphQLWSOutput]
   ): Routes = {
-    val endpoint = TapirAdapter.makeWebSocketService[R, E](
+    val endpoint = TapirAdapter.makeWebSocketService[R1, R, E](
       interpreter,
       skipValidation,
       enableIntrospection,
@@ -103,7 +103,7 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
             StatusCode,
             (String, CalibanPipe),
             ZioWebSockets,
-            RIO[R, *]
+            RIO[R1, *]
           ]
         ]
       )
