@@ -9,7 +9,7 @@ import scala.io.StdIn
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives._
-import caliban.AkkaHttpAdapter
+import caliban.{ AkkaHttpAdapter, CalibanError }
 import sttp.tapir.json.circe._
 import zio.{ Runtime, Unsafe }
 
@@ -34,9 +34,9 @@ object ExampleApp extends App {
    */
   val route =
     path("api" / "graphql") {
-      adapter.makeHttpService(interpreter)
+      adapter.makeHttpService[ExampleService, ExampleService, CalibanError](interpreter)
     } ~ path("ws" / "graphql") {
-      adapter.makeWebSocketService(interpreter)
+      adapter.makeWebSocketService[ExampleService, ExampleService, CalibanError](interpreter)
     } ~ path("graphiql") {
       getFromResource("graphiql.html")
     }
