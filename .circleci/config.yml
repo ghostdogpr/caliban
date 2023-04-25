@@ -63,6 +63,7 @@ jobs:
   test213_jdk:
     docker:
       - image: cimg/openjdk:11.0-node
+    resource_class: large
     steps:
       - checkout
       - restore_cache:
@@ -77,6 +78,7 @@ jobs:
   test3_jdk:
     docker:
       - image: cimg/openjdk:11.0-node
+    resource_class: large
     steps:
       - checkout
       - restore_cache:
