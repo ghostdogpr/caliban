@@ -7,6 +7,9 @@ import scala.annotation.tailrec
 
 object Types {
 
+  /**
+   * Creates a new scalar type with the given name.
+   */
   def makeScalar(
     name: String,
     description: Option[String] = None,

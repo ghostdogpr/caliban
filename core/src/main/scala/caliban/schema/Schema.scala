@@ -147,15 +147,6 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
       override def resolve(value: A): Step[Any]                              = PureStep(makeResponse(value))
     }
 
-  @deprecated("use the overloaded method with directives instead")
-  def scalarSchema[A](
-    name: String,
-    description: Option[String],
-    specifiedBy: Option[String],
-    makeResponse: A => ResponseValue
-  ): Schema[Any, A] =
-    scalarSchema(name, description, specifiedBy, None, makeResponse)
-
   /**
    * Creates an object schema for a type `A`
    * @param name name of the type

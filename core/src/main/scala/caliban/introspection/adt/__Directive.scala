@@ -17,7 +17,4 @@ case class __Directive(
       isRepeatable,
       locations.map(_.toDirectiveLocation)
     )
-
-  @deprecated("Use isRepeatable")
-  def repeatable: Boolean = isRepeatable
 }
