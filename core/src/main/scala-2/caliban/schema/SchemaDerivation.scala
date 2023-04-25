@@ -131,7 +131,8 @@ trait CommonSchemaDerivation[R] {
               name,
               description,
               annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
-              annotations.collectFirst { case GQLDeprecated(reason) => reason }
+              annotations.collectFirst { case GQLDeprecated(reason) => reason },
+              Some(annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
             )
           },
           Some(ctx.typeName.full),

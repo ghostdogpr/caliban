@@ -219,7 +219,8 @@ trait CommonSchemaDerivation {
           name,
           description,
           getDeprecatedReason(annotations).isDefined,
-          getDeprecatedReason(annotations)
+          getDeprecatedReason(annotations),
+          Some(annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
         )
       },
       Some(info.full),
