@@ -91,6 +91,7 @@ jobs:
   test213_js_native:
     docker:
       - image: cimg/openjdk:11.0-node
+    resource_class: large
     steps:
       - checkout
       - restore_cache:
@@ -106,12 +107,13 @@ jobs:
   test3_js_native:
     docker:
       - image: cimg/openjdk:11.0-node
+    resource_class: large
     steps:
       - checkout
       - restore_cache:
           key: sbtcache
       - run: ./.circleci/install-native-deps.sh
-      - run: sbt ++2.13.10 clientJS/test clientLaminextJS/Test/fastLinkJS clientNative/Test/nativeLink
+      - run: sbt ++3.2.2 clientJS/test clientLaminextJS/Test/fastLinkJS clientNative/Test/nativeLink
       - save_cache:
           key: sbtcache
           paths:
