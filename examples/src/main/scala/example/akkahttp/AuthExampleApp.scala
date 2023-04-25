@@ -4,6 +4,7 @@ import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives.{ getFromResource, path, _ }
 import caliban._
+import caliban.interop.tapir.HttpAdapter
 import caliban.interop.tapir.TapirAdapter.TapirResponse
 import caliban.schema.GenericSchema
 import sttp.model.StatusCode
@@ -41,12 +42,13 @@ object AuthExampleApp extends App {
   implicit val executionContext: ExecutionContextExecutor = system.dispatcher
   implicit val runtime: Runtime[Any]                      = Runtime.default
 
-  val interpreter = Unsafe.unsafe(implicit u => runtime.unsafe.run(api.interpreter).getOrThrow())
-  val adapter     = AkkaHttpAdapter.default
+  val interpreter                             = Unsafe.unsafe(implicit u => runtime.unsafe.run(api.interpreter).getOrThrow())
+  val akkaHttpAdapter                         = AkkaHttpAdapter.default
+  val adapter: HttpAdapter[Any, CalibanError] = HttpAdapter(interpreter).intercept(authInterceptor)
 
   val route =
     path("api" / "graphql") {
-      adapter.makeHttpService(interpreter, requestInterceptor = authInterceptor)
+      akkaHttpAdapter.makeHttpService(adapter)
     } ~ path("graphiql") {
       getFromResource("graphiql.html")
     }

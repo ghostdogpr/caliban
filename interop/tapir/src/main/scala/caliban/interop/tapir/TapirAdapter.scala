@@ -1,9 +1,9 @@
 package caliban.interop.tapir
 
 import java.nio.charset.StandardCharsets
-
 import caliban._
 import caliban.execution.QueryExecution
+import caliban.interop.tapir.TapirAdapter._
 import caliban.interop.tapir.ws.Protocol
 import caliban.uploads.{ FileMeta, GraphQLUploadRequest, Uploads }
 import sttp.capabilities.WebSockets
@@ -17,8 +17,68 @@ import sttp.tapir.model.{ ServerRequest, UnsupportedWebSocketFrameException }
 import sttp.tapir.server.ServerEndpoint
 import sttp.ws.WebSocketFrame
 import zio._
+
 import scala.concurrent.Future
 import scala.util.Try
+
+trait HttpAdapter[R, E] {
+  self =>
+  protected val endpoints: List[
+    PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, GraphQLResponse[E], Any]
+  ]
+
+  private def logic(request: (GraphQLRequest, ServerRequest)): RIO[R, Either[TapirResponse, GraphQLResponse[E]]] = {
+    val (graphQLRequest, serverRequest) = request
+    executeRequest(graphQLRequest, serverRequest).either
+  }
+
+  def serverEndpoints: List[ServerEndpoint[Any, RIO[R, *]]] = endpoints.map(_.serverLogic(logic))
+
+  protected def executeRequest(
+    graphQLRequest: GraphQLRequest,
+    serverRequest: ServerRequest
+  ): ZIO[R, TapirResponse, GraphQLResponse[E]]
+
+  def intercept[R1](requestInterceptor: ZLayer[R1 & ServerRequest, TapirResponse, R]): HttpAdapter[R1, E] =
+    new HttpAdapter[R1, E] {
+      protected val endpoints
+        : List[PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, GraphQLResponse[E], Any]] =
+        self.endpoints
+
+      protected def executeRequest(
+        graphQLRequest: GraphQLRequest,
+        serverRequest: ServerRequest
+      ): ZIO[R1, TapirResponse, GraphQLResponse[E]] =
+        self
+          .executeRequest(graphQLRequest, serverRequest)
+          .provideSome[R1](ZLayer.succeed(serverRequest), requestInterceptor)
+    }
+}
+
+object HttpAdapter {
+  def apply[R, E](
+    interpreter: GraphQLInterpreter[R, E],
+    skipValidation: Boolean = false,
+    enableIntrospection: Boolean = true,
+    queryExecution: QueryExecution = QueryExecution.Parallel
+  )(implicit requestCodec: JsonCodec[GraphQLRequest], responseCodec: JsonCodec[GraphQLResponse[E]]): HttpAdapter[R, E] =
+    new HttpAdapter[R, E] {
+      val endpoints: List[PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, GraphQLResponse[E], Any]] =
+        makeHttpEndpoints
+
+      def executeRequest(
+        graphQLRequest: GraphQLRequest,
+        serverRequest: ServerRequest
+      ): ZIO[R, TapirResponse, GraphQLResponse[E]] =
+        interpreter
+          .executeRequest(
+            graphQLRequest,
+            skipValidation = skipValidation,
+            enableIntrospection = enableIntrospection,
+            queryExecution
+          )
+    }
+}
 
 object TapirAdapter {
 

@@ -5,8 +5,8 @@ import akka.stream.scaladsl.{ Flow, Sink, Source }
 import akka.stream.{ Materializer, OverflowStrategy }
 import caliban.AkkaHttpAdapter.convertWebSocketEndpoint
 import caliban.execution.QueryExecution
+import caliban.interop.tapir.{ HttpAdapter, TapirAdapter, WebSocketHooks }
 import caliban.interop.tapir.TapirAdapter.{ zioMonadError, CalibanPipe, TapirResponse, ZioWebSockets }
-import caliban.interop.tapir.{ RequestInterceptor, TapirAdapter, WebSocketHooks }
 import sttp.capabilities.WebSockets
 import sttp.capabilities.akka.AkkaStreams
 import sttp.capabilities.akka.AkkaStreams.Pipe
@@ -24,26 +24,8 @@ import scala.concurrent.{ ExecutionContext, Future }
 class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(implicit ec: ExecutionContext) {
   private val akkaInterpreter = AkkaHttpServerInterpreter(options)(ec)
 
-  def makeHttpService[R1, R, E](
-    interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    queryExecution: QueryExecution = QueryExecution.Parallel,
-    requestInterceptor: ZLayer[R1 & ServerRequest, TapirResponse, R] = ZLayer.empty
-  )(implicit
-    runtime: Runtime[R1],
-    requestCodec: JsonCodec[GraphQLRequest],
-    responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): Route = {
-    val endpoints = TapirAdapter.makeHttpService[R1, R, E](
-      interpreter,
-      skipValidation,
-      enableIntrospection,
-      queryExecution,
-      requestInterceptor
-    )
-    akkaInterpreter.toRoute(endpoints.map(TapirAdapter.convertHttpEndpointToFuture(_)))
-  }
+  def makeHttpService[R, E](adapter: HttpAdapter[R, E])(implicit runtime: Runtime[R]): Route =
+    akkaInterpreter.toRoute(adapter.serverEndpoints.map(TapirAdapter.convertHttpEndpointToFuture(_)))
 
   def makeHttpUploadService[R1, R, E](
     interpreter: GraphQLInterpreter[R, E],

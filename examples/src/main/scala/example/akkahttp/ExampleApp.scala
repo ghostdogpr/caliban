@@ -1,17 +1,18 @@
 package example.akkahttp
 
-import example.ExampleData.sampleCharacters
-import example.ExampleService.ExampleService
-import example.{ ExampleApi, ExampleService }
-
-import scala.concurrent.ExecutionContextExecutor
-import scala.io.StdIn
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives._
-import caliban.{ AkkaHttpAdapter, CalibanError }
+import caliban.AkkaHttpAdapter
+import caliban.interop.tapir.HttpAdapter
+import example.ExampleData.sampleCharacters
+import example.ExampleService.ExampleService
+import example.{ ExampleApi, ExampleService }
 import sttp.tapir.json.circe._
 import zio.{ Runtime, Unsafe }
+
+import scala.concurrent.ExecutionContextExecutor
+import scala.io.StdIn
 
 object ExampleApp extends App {
 
@@ -34,9 +35,9 @@ object ExampleApp extends App {
    */
   val route =
     path("api" / "graphql") {
-      adapter.makeHttpService[ExampleService, ExampleService, CalibanError](interpreter)
+      adapter.makeHttpService(HttpAdapter(interpreter))
     } ~ path("ws" / "graphql") {
-      adapter.makeWebSocketService[ExampleService, ExampleService, CalibanError](interpreter)
+      adapter.makeWebSocketService(interpreter)
     } ~ path("graphiql") {
       getFromResource("graphiql.html")
     }
