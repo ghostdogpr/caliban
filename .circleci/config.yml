@@ -139,6 +139,7 @@ jobs:
   release:
     docker:
       - image: cimg/openjdk:11.0-node
+    resource_class: large
     steps:
       - checkout
       - run: git fetch --tags
