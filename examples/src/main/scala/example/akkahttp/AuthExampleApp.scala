@@ -42,13 +42,12 @@ object AuthExampleApp extends App {
   implicit val executionContext: ExecutionContextExecutor = system.dispatcher
   implicit val runtime: Runtime[Any]                      = Runtime.default
 
-  val interpreter                             = Unsafe.unsafe(implicit u => runtime.unsafe.run(api.interpreter).getOrThrow())
-  val akkaHttpAdapter                         = AkkaHttpAdapter.default
-  val adapter: HttpAdapter[Any, CalibanError] = HttpAdapter(interpreter).intercept(authInterceptor)
+  val interpreter = Unsafe.unsafe(implicit u => runtime.unsafe.run(api.interpreter).getOrThrow())
+  val adapter     = AkkaHttpAdapter.default
 
   val route =
     path("api" / "graphql") {
-      akkaHttpAdapter.makeHttpService(adapter)
+      adapter.makeHttpService(HttpAdapter(interpreter).intercept(authInterceptor))
     } ~ path("graphiql") {
       getFromResource("graphiql.html")
     }

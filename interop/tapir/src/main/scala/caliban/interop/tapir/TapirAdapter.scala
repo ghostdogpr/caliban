@@ -21,18 +21,17 @@ import zio._
 import scala.concurrent.Future
 import scala.util.Try
 
-trait HttpAdapter[R, E] {
-  self =>
-  protected val endpoints: List[
-    PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, GraphQLResponse[E], Any]
-  ]
+trait HttpAdapter[-R, E] { self =>
 
-  private def logic(request: (GraphQLRequest, ServerRequest)): RIO[R, Either[TapirResponse, GraphQLResponse[E]]] = {
-    val (graphQLRequest, serverRequest) = request
-    executeRequest(graphQLRequest, serverRequest).either
+  protected val endpoints: List[PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, GraphQLResponse[E], Any]]
+
+  def serverEndpoints[R1 <: R]: List[ServerEndpoint[Any, RIO[R1, *]]] = {
+    def logic(request: (GraphQLRequest, ServerRequest)): RIO[R1, Either[TapirResponse, GraphQLResponse[E]]] = {
+      val (graphQLRequest, serverRequest) = request
+      executeRequest(graphQLRequest, serverRequest).either
+    }
+    endpoints.map(_.serverLogic(logic))
   }
-
-  def serverEndpoints: List[ServerEndpoint[Any, RIO[R, *]]] = endpoints.map(_.serverLogic(logic))
 
   protected def executeRequest(
     graphQLRequest: GraphQLRequest,

@@ -25,7 +25,7 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
   private val akkaInterpreter = AkkaHttpServerInterpreter(options)(ec)
 
   def makeHttpService[R, E](adapter: HttpAdapter[R, E])(implicit runtime: Runtime[R]): Route =
-    akkaInterpreter.toRoute(adapter.serverEndpoints.map(TapirAdapter.convertHttpEndpointToFuture(_)))
+    akkaInterpreter.toRoute(adapter.serverEndpoints[R].map(TapirAdapter.convertHttpEndpointToFuture(_)))
 
   def makeHttpUploadService[R1, R, E](
     interpreter: GraphQLInterpreter[R, E],
