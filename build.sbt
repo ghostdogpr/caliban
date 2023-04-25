@@ -12,6 +12,7 @@ val catsEffect3Version        = "3.4.9"
 val catsMtlVersion            = "1.2.1"
 val circeVersion              = "0.14.5"
 val http4sVersion             = "0.23.18"
+val javaTimeVersion           = "2.5.0"
 val jsoniterVersion           = "2.22.2"
 val laminextVersion           = "0.15.0"
 val magnoliaVersion           = "0.17.0"
@@ -89,6 +90,7 @@ lazy val root = project
     tapirInterop,
     clientJVM,
     clientJS,
+    clientNative,
     clientLaminext,
     tools,
     codegenSbt,
@@ -382,7 +384,7 @@ lazy val play = project
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
 
-lazy val client    = crossProject(JSPlatform, JVMPlatform)
+lazy val client    = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .crossType(CrossType.Pure)
   .in(file("client"))
   .settings(name := "caliban-client")
@@ -411,6 +413,15 @@ lazy val clientJS  = client.js
   )
   .settings(scalaVersion := scala213)
   .settings(crossScalaVersions := allScala)
+
+lazy val clientNative = client.native
+  .settings(
+    libraryDependencies ++= Seq(
+      "com.github.lolgab" %%% "scala-native-crypto" % "0.0.4",
+      "io.github.cquiroz" %%% "scala-java-time"     % javaTimeVersion % Test
+    ),
+    Test / fork := false
+  )
 
 lazy val clientLaminext = crossProject(JSPlatform)
   .crossType(CrossType.Pure)

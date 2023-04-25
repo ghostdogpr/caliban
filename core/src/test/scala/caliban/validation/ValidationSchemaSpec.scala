@@ -30,7 +30,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
               Types.makeEnum(
                 name = Some("nonEmptyEnum"),
                 description = None,
-                values = List(__EnumValue("A", None, true, None)),
+                values = List(__EnumValue("A", None, true, None, None)),
                 origin = None
               )
             )
@@ -44,7 +44,8 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
               name = Some("EmptyEnum"),
               description = None,
               values = Nil,
-              origin = None
+              origin = None,
+              directives = None
             ),
             "Enum EmptyEnum doesn't contain any values"
           )

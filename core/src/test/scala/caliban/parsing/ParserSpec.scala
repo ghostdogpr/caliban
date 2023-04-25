@@ -575,6 +575,58 @@ object ParserSpec extends ZIOSpecDefault {
           )
         }
       },
+      test("enum with directives") {
+        val enumWithDirectives =
+          """enum join__Graph {
+            | CHARACTERS @join__graph(name: "characters", url: "http://localhost:4000")
+            | EPISODES @join__graph(name: "episodes", url: "http://localhost:4001")
+            |}""".stripMargin
+
+        Parser.parseQuery(enumWithDirectives).map { doc =>
+          assertTrue(
+            doc == Document(
+              List(
+                EnumTypeDefinition(
+                  description = None,
+                  name = "join__Graph",
+                  directives = Nil,
+                  enumValuesDefinition = List(
+                    EnumValueDefinition(
+                      description = None,
+                      enumValue = "CHARACTERS",
+                      directives = List(
+                        Directive(
+                          name = "join__graph",
+                          arguments = Map(
+                            "name" -> StringValue("characters"),
+                            "url"  -> StringValue("http://localhost:4000")
+                          ),
+                          index = 31
+                        )
+                      )
+                    ),
+                    EnumValueDefinition(
+                      description = None,
+                      enumValue = "EPISODES",
+                      directives = List(
+                        Directive(
+                          name = "join__graph",
+                          arguments = Map(
+                            "name" -> StringValue("episodes"),
+                            "url"  -> StringValue("http://localhost:4001")
+                          ),
+                          index = 104
+                        )
+                      )
+                    )
+                  )
+                )
+              ),
+              sourceMapper = SourceMapper.apply(enumWithDirectives)
+            )
+          )
+        }
+      },
       test("extend schema with directives") {
         val gqlSchemaExtension = "extend schema @addedDirective"
         Parser.parseQuery(gqlSchemaExtension).map { doc =>
