@@ -48,6 +48,7 @@ object TestUtils {
     "CaptainShipName",
     Some("Description of custom scalar emphasizing proper captain ship names"),
     Some("http://someUrl"),
+    Some(List(Directive("@tag"))),
     name => StringValue(name.value)
   )
 
@@ -167,7 +168,7 @@ object TestUtils {
           None
         )
       ),
-      repeatable = false
+      isRepeatable = false
     )
 
     val Repeatable = __Directive(
@@ -183,7 +184,7 @@ object TestUtils {
           None
         )
       ),
-      repeatable = true
+      isRepeatable = true
     )
   }
 

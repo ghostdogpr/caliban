@@ -20,7 +20,9 @@ object Rendering {
               if (isBuiltinScalar(name)) None
               else
                 Some(
-                  s"""${renderDescription(t.description)}scalar $name${renderSpecifiedBy(t.specifiedBy)}""".stripMargin
+                  s"""${renderDescription(t.description)}scalar $name${renderDirectives(
+                    t.directives
+                  )}${renderSpecifiedBy(t.specifiedBy)}""".stripMargin
                 )
             )
           case __TypeKind.NON_NULL => None
@@ -124,7 +126,7 @@ object Rendering {
     }
     val directiveLocations = locationStrings.mkString(" | ")
 
-    val on = if (directive.repeatable) { "repeatable on" }
+    val on = if (directive.isRepeatable) { "repeatable on" }
     else { "on" }
 
     val body = s"""directive @${directive.name}${inputs} ${on} ${directiveLocations}""".stripMargin
@@ -233,7 +235,7 @@ object Rendering {
     arguments match {
       case Nil  => ""
       case list =>
-        s"(${list.map(a => s"${renderDescription(a.description, newline = false)}${a.name}: ${renderTypeName(a.`type`())}${renderDefaultValue(a)}").mkString(", ")})"
+        s"(${list.map(a => s"${renderDescription(a.description, newline = false)}${a.name}: ${renderTypeName(a.`type`())}${renderDefaultValue(a)}${renderDirectives(a.directives)}").mkString(", ")})"
     }
 
   private def isBuiltinScalar(name: String): Boolean =

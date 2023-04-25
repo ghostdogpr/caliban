@@ -7,14 +7,14 @@ case class __Directive(
   description: Option[String],
   locations: Set[__DirectiveLocation],
   args: List[__InputValue],
-  repeatable: Boolean
+  isRepeatable: Boolean
 ) {
   def toDirectiveDefinition: DirectiveDefinition =
     DirectiveDefinition(
       description,
       name,
       args.map(_.toInputValueDefinition),
-      repeatable,
+      isRepeatable,
       locations.map(_.toDirectiveLocation)
     )
 }

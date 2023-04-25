@@ -10,6 +10,7 @@ import caliban.schema.macros.{ Macros, TypeInfo }
 
 import scala.compiletime.*
 import scala.deriving.Mirror
+import scala.util.NotGiven
 import scala.quoted.*
 
 object PrintDerived {
@@ -324,7 +325,10 @@ trait SchemaDerivation[R] extends CommonSchemaDerivation {
     }
   }
 
-  sealed trait Auto[A] extends Schema[R, A], LowPriorityDerivedSchema
+  sealed trait Auto[A] extends Schema[R, A], GenericSchema[R] {
+    inline given genAuto[T](using NotGiven[Schema[R, T]]): Schema[R, T] = derived[R, T]
+  }
+
   object Auto {
     inline def derived[A]: Auto[A] = new {
       private val impl = Schema.derived[R, A]

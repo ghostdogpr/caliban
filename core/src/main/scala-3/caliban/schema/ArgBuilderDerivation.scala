@@ -2,13 +2,14 @@ package caliban.schema
 
 import caliban.CalibanError.ExecutionError
 import caliban.InputValue
-import caliban.Value._
+import caliban.Value.*
 import caliban.schema.macros.Macros
 import caliban.schema.Annotations.GQLDefault
 import caliban.schema.Annotations.GQLName
 
 import scala.deriving.Mirror
-import scala.compiletime._
+import scala.compiletime.*
+import scala.util.NotGiven
 
 trait CommonArgBuilderDerivation {
   inline def recurse[Label, A <: Tuple](
@@ -87,6 +88,17 @@ trait CommonArgBuilderDerivation {
 
 trait ArgBuilderDerivation extends CommonArgBuilderDerivation {
   inline def gen[A]: ArgBuilder[A] = derived
+
+  sealed trait Auto[A] extends ArgBuilder[A] {
+    inline given genAuto[T](using NotGiven[ArgBuilder[T]]): ArgBuilder[T] = derived
+  }
+
+  object Auto {
+    inline def derived[A]: Auto[A] = new {
+      private val impl = ArgBuilder.gen[A]
+      export impl.*
+    }
+  }
 }
 
 trait AutoArgBuilderDerivation extends ArgBuilderInstances with LowPriorityDerivedArgBuilder

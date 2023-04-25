@@ -22,7 +22,7 @@ object Introspector extends IntrospectionDerivation {
       ),
       Set(__DirectiveLocation.FIELD, __DirectiveLocation.FRAGMENT_SPREAD, __DirectiveLocation.INLINE_FRAGMENT),
       List(__InputValue("if", None, () => Types.boolean.nonNull, None)),
-      repeatable = false
+      isRepeatable = false
     ),
     __Directive(
       "include",
@@ -31,7 +31,7 @@ object Introspector extends IntrospectionDerivation {
       ),
       Set(__DirectiveLocation.FIELD, __DirectiveLocation.FRAGMENT_SPREAD, __DirectiveLocation.INLINE_FRAGMENT),
       List(__InputValue("if", None, () => Types.boolean.nonNull, None)),
-      repeatable = false
+      isRepeatable = false
     ),
     __Directive(
       "specifiedBy",
@@ -40,7 +40,7 @@ object Introspector extends IntrospectionDerivation {
       ),
       Set(__DirectiveLocation.SCALAR),
       List(__InputValue("url", None, () => Types.string.nonNull, None)),
-      repeatable = false
+      isRepeatable = false
     )
   )
 

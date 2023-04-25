@@ -7,7 +7,7 @@ val scala3   = "3.2.2"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion               = "2.6.20"
-val catsEffect3Version        = "3.4.8"
+val catsEffect3Version        = "3.4.9"
 val catsMtlVersion            = "1.2.1"
 val circeVersion              = "0.14.5"
 val http4sVersion             = "0.23.18"
@@ -21,15 +21,15 @@ val playJsonVersion           = "2.9.4"
 val scalafmtVersion           = "3.7.3"
 val sttpVersion               = "3.8.15"
 val tapirVersion              = "1.2.12"
-val zioVersion                = "2.0.10"
+val zioVersion                = "2.0.13"
 val zioInteropCats2Version    = "22.0.0.0"
-val zioInteropCats3Version    = "23.0.0.3"
+val zioInteropCats3Version    = "23.0.0.4"
 val zioInteropReactiveVersion = "2.0.1"
 val zioConfigVersion          = "3.0.7"
 val zqueryVersion             = "0.4.0"
 val zioJsonVersion            = "0.5.0"
 val zioHttpVersion            = "0.0.5"
-val zioOpenTelemetryVersion   = "3.0.0-RC5"
+val zioOpenTelemetryVersion   = "3.0.0-RC8"
 val zioPreludeVersion         = "1.0.0-RC18"
 
 inThisBuild(
@@ -174,7 +174,7 @@ lazy val tools = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "org.scalameta"                  % "scalafmt-interfaces" % scalafmtVersion,
-      "io.get-coursier"                % "interface"           % "1.0.14",
+      "io.get-coursier"                % "interface"           % "1.0.15",
       "com.softwaremill.sttp.client3" %% "zio"                 % sttpVersion,
       "dev.zio"                       %% "zio-config"          % zioConfigVersion,
       "dev.zio"                       %% "zio-config-magnolia" % zioConfigVersion,
