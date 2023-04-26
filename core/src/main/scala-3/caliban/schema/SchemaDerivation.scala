@@ -326,7 +326,7 @@ trait SchemaDerivation[R] extends CommonSchemaDerivation {
     }
   }
 
-  sealed trait Auto[A] extends Schema[R, A], GenericSchema[R] {
+  sealed trait Auto[A] extends Schema[R, A] {
     inline given genAuto[T](using NotGiven[Schema[R, T]]): Schema[R, T] = derived[R, T]
   }
 
