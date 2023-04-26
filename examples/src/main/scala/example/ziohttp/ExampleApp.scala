@@ -19,7 +19,7 @@ object ExampleApp extends ZIOAppDefault {
       _           <- Server
                        .serve(
                          Http
-                           .collectRoute[Request] {
+                           .collectHttp[Request] {
                              case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
                              case _ -> !! / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
                              case _ -> !! / "graphiql"        => graphiql

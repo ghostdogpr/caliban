@@ -46,8 +46,8 @@ object ZHttpAdapter {
   )(implicit inputCodec: JsonCodec[GraphQLWSInput], outputCodec: JsonCodec[GraphQLWSOutput]): App[R] =
     Handler
       .fromFunctionZIO[Request] { req =>
-        val protocol = req.headers.secWebSocketProtocol match {
-          case Some(value) => Protocol.fromName(value.toString)
+        val protocol = req.headers.get(Header.SecWebSocketProtocol) match {
+          case Some(value) => Protocol.fromName(value.renderedValue)
           case None        => Protocol.Legacy
         }
 

@@ -23,7 +23,7 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
       _           <- Server
                        .serve(
                          Http
-                           .collectRoute[Request] {
+                           .collectHttp[Request] {
                              case _ -> !! / "api" / "graphql" =>
                                ZHttpAdapter.makeHttpService(interpreter, requestInterceptor = FakeAuthorizationInterceptor.bearer)
                              case _ -> !! / "ws" / "graphql"  =>
@@ -46,8 +46,7 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
     suite.provideShared(
       apiLayer,
       Scope.default,
-      Server.live,
-      ServerConfig.live(ServerConfig.default.port(8089))
+      Server.defaultWithPort(8089)
     )
   }
 }
