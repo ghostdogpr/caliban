@@ -1,3 +1,4 @@
+import com.typesafe.tools.mima.core._
 import org.scalajs.linker.interface.ModuleSplitStyle
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
@@ -102,6 +103,7 @@ lazy val macros = project
   .in(file("macros"))
   .settings(name := "caliban-macros")
   .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
   .settings(
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) {
@@ -119,6 +121,7 @@ lazy val core = project
   .in(file("core"))
   .settings(name := "caliban")
   .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
@@ -162,6 +165,7 @@ lazy val tools = project
   .enablePlugins(BuildInfoPlugin)
   .settings(name := "caliban-tools")
   .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
   .settings(
     buildInfoKeys    := Seq[BuildInfoKey](
       "scalaPartialVersion" -> CrossVersion.partialVersion(scalaVersion.value),
@@ -189,6 +193,7 @@ lazy val tracing = project
   .enablePlugins(BuildInfoPlugin)
   .settings(name := "caliban-tracing")
   .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
   .settings(
     buildInfoPackage := "caliban.tracing",
     buildInfoObject  := "BuildInfo"
@@ -243,6 +248,7 @@ lazy val catsInterop = project
   .in(file("interop/cats"))
   .settings(name := "caliban-cats")
   .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
   .settings(apiMappingSettings)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
@@ -262,6 +268,7 @@ lazy val monixInterop = project
   .in(file("interop/monix"))
   .settings(name := "caliban-monix")
   .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
   .settings(
     libraryDependencies ++= Seq(
       "dev.zio"  %% "zio-interop-reactivestreams" % zioInteropReactiveVersion,
@@ -275,6 +282,7 @@ lazy val tapirInterop = project
   .in(file("interop/tapir"))
   .settings(name := "caliban-tapir")
   .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
@@ -296,6 +304,7 @@ lazy val http4s = project
   .in(file("adapters/http4s"))
   .settings(name := "caliban-http4s")
   .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
@@ -322,6 +331,7 @@ lazy val zioHttp = project
   .in(file("adapters/zio-http"))
   .settings(name := "caliban-zio-http")
   .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
   .settings(
     resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
@@ -338,6 +348,7 @@ lazy val akkaHttp = project
   .in(file("adapters/akka-http"))
   .settings(name := "caliban-akka-http")
   .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
   .settings(
     crossScalaVersions -= scala3,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
@@ -355,6 +366,7 @@ lazy val play = project
   .in(file("adapters/play"))
   .settings(name := "caliban-play")
   .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
   .settings(
     crossScalaVersions -= scala3,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
@@ -388,8 +400,9 @@ lazy val client    = crossProject(JSPlatform, JVMPlatform, NativePlatform)
       "dev.zio"                              %%% "zio-test-sbt"          % zioVersion      % Test
     )
   )
-lazy val clientJVM = client.jvm
+lazy val clientJVM = client.jvm.settings(enableMimaSettingsJVM)
 lazy val clientJS  = client.js
+  .settings(enableMimaSettingsJS)
   .settings(
     libraryDependencies ++= {
       Seq(
@@ -418,6 +431,7 @@ lazy val clientLaminext = crossProject(JSPlatform)
   .settings(crossScalaVersions := Seq(scala213, scala3))
   .settings(name := "caliban-client-laminext")
   .settings(commonSettings)
+  .settings(enableMimaSettingsJS)
   .dependsOn(clientJS)
   .settings(
     testFrameworks                         := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
@@ -480,6 +494,7 @@ lazy val reporting = project
   .in(file("reporting"))
   .settings(name := "caliban-reporting")
   .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
   .dependsOn(clientJVM, core)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
@@ -511,6 +526,7 @@ lazy val federation = project
   .in(file("federation"))
   .settings(name := "caliban-federation")
   .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
   .dependsOn(core % "compile->compile;test->test")
   .settings(
     testFrameworks       := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
@@ -589,6 +605,22 @@ lazy val commonSettings = Def.settings(
     case _            => Nil
   })
 )
+
+lazy val enforceMimaCompatibility = false // Enable / disable failing CI on binary incompatibilities
+
+lazy val enableMimaSettingsJVM =
+  Def.settings(
+    mimaFailOnProblem     := enforceMimaCompatibility,
+    mimaPreviousArtifacts := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
+    mimaBinaryIssueFilters ++= Seq()
+  )
+
+lazy val enableMimaSettingsJS =
+  Def.settings(
+    mimaFailOnProblem     := enforceMimaCompatibility,
+    mimaPreviousArtifacts := previousStableVersion.value.map(organization.value %%% moduleName.value % _).toSet,
+    mimaBinaryIssueFilters ++= Seq()
+  )
 
 lazy val apiMappingSettings = Def.settings(
   autoAPIMappings := true,
