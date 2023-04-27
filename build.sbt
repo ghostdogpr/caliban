@@ -129,7 +129,7 @@ lazy val core = project
         Seq()
       } else {
         val scala212Deps = if (scalaVersion.value == scala212) {
-          Seq("org.scala-lang.modules" %% "scala-collection-compat" % "2.9.0")
+          Seq("org.scala-lang.modules" %% "scala-collection-compat" % "2.10.0")
         } else Seq()
         scala212Deps ++ Seq(
           "com.propensive"    %% "magnolia"  % magnoliaVersion,
