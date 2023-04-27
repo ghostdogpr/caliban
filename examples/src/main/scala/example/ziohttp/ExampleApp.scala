@@ -2,6 +2,7 @@ package example.ziohttp
 
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
+
 import caliban.ZHttpAdapter
 import zio._
 import zio.stream._
@@ -30,5 +31,4 @@ object ExampleApp extends ZIOAppDefault {
       _           <- Console.printLine("Press RETURN to stop...") *> Console.readLine
     } yield ())
       .provide(ExampleService.make(sampleCharacters), Server.default)
-      .exitCode
 }

@@ -5,17 +5,9 @@ import akka.stream.scaladsl.{ Flow, Sink, Source }
 import akka.util.ByteString
 import caliban.PlayAdapter.convertHttpStreamingEndpoint
 import caliban.execution.QueryExecution
-import caliban.interop.tapir.TapirAdapter.{
-  zioMonadError,
-  CalibanBody,
-  CalibanPipe,
-  CalibanResponse,
-  TapirResponse,
-  ZioWebSockets
-}
-import caliban.interop.tapir.{ RequestInterceptor, TapirAdapter, WebSocketHooks }
+import caliban.interop.tapir.TapirAdapter.{ zioMonadError, CalibanPipe, CalibanResponse, TapirResponse, ZioWebSockets }
+import caliban.interop.tapir._
 import play.api.routing.Router.Routes
-import sttp.{ capabilities, model }
 import sttp.capabilities.WebSockets
 import sttp.capabilities.akka.AkkaStreams
 import sttp.capabilities.akka.AkkaStreams.Pipe
@@ -29,7 +21,7 @@ import sttp.tapir.server.play.{ PlayServerInterpreter, PlayServerOptions }
 import zio._
 import zio.stream.ZStream
 
-import scala.concurrent.{ ExecutionContext, Future }
+import scala.concurrent.Future
 
 class PlayAdapter private (private val options: Option[PlayServerOptions]) {
   private def playInterpreter(implicit mat: Materializer) =

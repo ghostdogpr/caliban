@@ -17,7 +17,7 @@ import zio.json._
 import zio.stream.{ ZPipeline, ZSink, ZStream }
 import zio.test.TestAspect.before
 import zio.test._
-import zio.{ test => _, ZIO, _ }
+import zio.{ test => _, _ }
 
 import scala.language.postfixOps
 

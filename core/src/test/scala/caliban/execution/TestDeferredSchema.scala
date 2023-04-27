@@ -75,5 +75,5 @@ object TestDeferredSchema extends GenericSchema[CharacterService] {
       )
     )
 
-  val interpreter = (graphQL(resolver) @@ DeferSupport.defer @@ DeferSupport.stream).interpreter
+  val interpreter = (graphQL(resolver) @@ DeferSupport.defer).interpreter
 }

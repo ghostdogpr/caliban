@@ -202,20 +202,20 @@ object Executor {
         result       <- query.runCache(cache)
         resultErrors <- errors.get
         defers       <- deferred.get
-        stream        =
-          (makeDeferStream(defers, cache)
+      } yield
+        if (defers.nonEmpty) {
+          val stream = (makeDeferStream(defers, cache)
             .mapChunks(chunk => Chunk.single(GraphQLIncrementalResponse(chunk.toList, hasNext = true))) ++ ZStream
             .succeed(GraphQLIncrementalResponse.empty))
             .map(_.toResponseValue)
             .provideEnvironment(env)
-      } yield
-        if (defers.nonEmpty)
+
           GraphQLResponse(
             StreamValue(ZStream.succeed(result) ++ stream),
             resultErrors.reverse,
             hasNext = Some(true)
           )
-        else GraphQLResponse(result, resultErrors.reverse, hasNext = None)
+        } else GraphQLResponse(result, resultErrors.reverse, hasNext = None)
 
     def makeDeferStream(
       defers: List[Deferred[R]],

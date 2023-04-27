@@ -14,32 +14,6 @@ sealed trait Incremental[+E] extends Product with Serializable {
 
 object Incremental {
 
-  case class Stream[+E](
-    items: List[ResponseValue],
-    path: ListValue,
-    errors: List[E],
-    label: Option[String],
-    extensions: Option[ObjectValue] = None
-  ) extends Incremental[E] {
-
-    def toResponseValue: ResponseValue =
-      ObjectValue(
-        List(
-          "items"      -> Some(ListValue(items)),
-          "errors"     -> (if (errors.nonEmpty)
-                         Some(ListValue(errors.map {
-                           case e: CalibanError => e.toResponseValue
-                           case e               => ObjectValue(List("message" -> StringValue(e.toString)))
-                         }))
-                       else None),
-          "extensions" -> extensions,
-          "path"       -> Some(path),
-          "label"      -> label.map(StringValue.apply)
-        ).collect { case (name, Some(v)) => name -> v }
-      )
-
-  }
-
   case class Defer[+E](
     data: ResponseValue,
     path: ListValue,

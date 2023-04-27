@@ -188,28 +188,7 @@ object DeferredExecutionSpec extends ZIOSpecDefault {
           """{"hasNext":false}"""
         )
       )
-    },
-    test("streaming values") {
-      val query = gqldoc("""
-           query test {
-            character(name: "Roberta Draper") {
-               name
-               nicknames @stream(label: "nicknames", initialCount: 1)
-            }
-           }
-          """)
-
-      for {
-        response <- interpreter.flatMap(_.execute(query))
-        rest     <- runIncrementalResponses(response)
-      } yield assertTrue(
-        rest.head.toString == """{"character":{"name":"Roberta Draper","nicknames":["Bobbie","Gunny"]}}""",
-        rest.tail.toList.map(_.toString) == List(
-          """{"incremental":[{"data":"Gunny","path":["character","nicknames",1]}],"label":"nicknames","hasNext":true}""",
-          """{"hasNext":false}"""
-        )
-      )
-    } @@ TestAspect.ignore
+    }
   ).provide(CharacterService.test)
 
   def runIncrementalResponses(response: GraphQLResponse[CalibanError]) =

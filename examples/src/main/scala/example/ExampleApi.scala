@@ -74,7 +74,7 @@ object ExampleApi extends GenericSchema[ExampleService] {
   case class Mutations(deleteCharacter: CharacterArgs => URIO[ExampleService, Boolean])
   case class Subscriptions(characterDeleted: ZStream[ExampleService, Nothing, String])
 
-  implicit val originSchema: Schema[Any, Origin]                 = Schema.gen
+  implicit val originSchema: Schema[Any, Origin]                             = Schema.gen
   implicit val connectedBySchema: Schema[Any, ConnectedBy]                   = Schema.gen
   implicit val roleSchema: Schema[Any, Role]                                 = Schema.gen
   implicit val characterArgsSchema: Schema[Any, CharacterArgs]               = Schema.gen
@@ -99,6 +99,5 @@ object ExampleApi extends GenericSchema[ExampleService] {
       printSlowQueries(500 millis) @@ // wrapper that logs slow queries
       printErrors @@                  // wrapper that logs errors
       apolloTracing @@                // wrapper for https://github.com/apollographql/apollo-tracing
-      DeferSupport.defer @@    // wrapper that enables @defer directive support
-      DeferSupport.stream      // wrapper that enables @stream directive support
+      DeferSupport.defer              // wrapper that enables @defer directive support
 }

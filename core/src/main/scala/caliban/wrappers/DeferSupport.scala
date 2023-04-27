@@ -14,26 +14,8 @@ object DeferSupport {
     repeatable = false
   )
 
-  private[caliban] val streamDirective = __Directive(
-    "stream",
-    Some(""),
-    Set(__DirectiveLocation.FIELD),
-    List(
-      __InputValue("if", None, () => Types.boolean, None),
-      __InputValue("label", None, () => Types.string, None),
-      __InputValue("initialCount", None, () => Types.int, None)
-    ),
-    repeatable = false
-  )
-
   val defer = new GraphQLAspect[Nothing, Any] {
     override def apply[R](gql: GraphQL[R]): GraphQL[R] =
       gql.withAdditionalDirectives(List(deferDirective)).enable(Feature.Defer)
   }
-
-  val stream = new GraphQLAspect[Nothing, Any] {
-    override def apply[R](gql: GraphQL[R]): GraphQL[R] =
-      gql.withAdditionalDirectives(List(streamDirective)).enable(Feature.Stream)
-  }
-
 }

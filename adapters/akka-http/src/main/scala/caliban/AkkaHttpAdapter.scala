@@ -6,15 +6,7 @@ import akka.stream.{ Materializer, OverflowStrategy }
 import akka.util.ByteString
 import caliban.AkkaHttpAdapter.{ convertHttpStreamingEndpoint, convertWebSocketEndpoint }
 import caliban.execution.QueryExecution
-import caliban.interop.tapir.TapirAdapter.{
-  zioMonadError,
-  CalibanBody,
-  CalibanEndpoint,
-  CalibanPipe,
-  CalibanResponse,
-  TapirResponse,
-  ZioWebSockets
-}
+import caliban.interop.tapir.TapirAdapter._
 import caliban.interop.tapir.{ RequestInterceptor, TapirAdapter, WebSocketHooks }
 import sttp.capabilities.WebSockets
 import sttp.capabilities.akka.AkkaStreams
