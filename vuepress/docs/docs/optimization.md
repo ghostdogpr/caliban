@@ -173,3 +173,102 @@ Queries( (field) => {
   }
 })
 ```
+
+## @defer support (experimental)
+
+Caliban provides experimental support for the `@defer` directive.
+This directive allows you to delay the execution of a fragment until after the main query has been resolved.
+This allows the client to load faster by prioritizing the loading of the more important data first.
+
+The client is able to submit a query that looks like this:
+
+```graphql
+query {
+  characters {
+      name
+      nicknames
+      ... @defer(label: "characterDetails") {
+        role
+        origin
+      }
+  }
+}
+```
+
+The server can now split the query returning the non-deferred components first
+
+```json
+{
+  "data": {
+    "characters": [
+      {
+        "name": "James Holden",
+        "nicknames": [
+          "Hoss",
+          "Holden"
+        ]
+      },
+      {
+        "name": "Naomi Nagata",
+        "nicknames": [
+          "Naomi"
+        ]
+      }
+    ]
+  },
+  "hasNext": true
+}
+```
+
+The deferred fragment will be delivered in a separate response
+
+```json
+{
+  "incremental": [{
+    "label": "characterDetails",
+    "path": ["characters", 0],
+    "data": {
+      "role": "Captain",
+      "origin": "Earth"
+    }
+  }, {
+    "label": "characterDetails",
+    "path": ["characters", 1],
+    "data": {
+      "role": "Executive Officer",
+      "origin": "Belter"
+    }
+  }],
+  "hasNext": true
+}
+```
+
+The final response may simply be an empty body with `hasNext: false` as the only key.
+
+```json
+{
+  "hasNext": false
+}
+```
+
+### Usage
+
+By default, Caliban will not allow clients to send requests containing the `@defer` directive. This is because it can substantially 
+increase the runtime cost of a query. To enable this feature you must explicitly opt-in to it.
+You do this by adding the `@@ DeferSupport.defer` aspect to your graph definition. This will inform the executor
+that it may process queries that contain defer and will add the `@defer` directive as a supported directive in the schema.
+
+Additionally, you must make sure that your client is able to handle deferred responses. This requires special support from the client
+because the response will be streamed to the client in multiple parts instead of as a single json body.
+
+
+::: tip
+This optimization is completely optional from the server-side, the client shouldn't rely on any particular query splitting strategy as the server
+will try to optimize the query to reduce performance penalties. For instance, if you defer a pure field (i.e. a field that doesn't require any effect) the server
+may decide it is cheaper to simply return that as part of the main response instead of splitting it.
+:::
+
+Note: We highly recommend that you use one of the provided adapters when using this feature. These come with built-in support
+for defer and will automatically unwrap the result of the query correctly. If you are writing your own adapter you will need to 
+manually handle the streaming result returned from the executor.
+
