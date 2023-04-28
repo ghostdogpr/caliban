@@ -38,6 +38,6 @@ object Configurator {
   def setEnableIntrospection(enable: Boolean): IO[Nothing, Unit] =
     enableIntrospectionRef.set(enable).unit
 
-  def setQueryExecutionRef(queryExecution: QueryExecution): IO[Nothing, Unit] =
+  def setQueryExecution(queryExecution: QueryExecution): IO[Nothing, Unit] =
     queryExecutionRef.set(queryExecution).unit
 }

@@ -71,7 +71,7 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
         ZLayer.makeSome[R, R](
           ZLayer(Configurator.setSkipValidation(skipValidation)),
           ZLayer(Configurator.setEnableIntrospection(enableIntrospection)),
-          ZLayer(Configurator.setQueryExecutionRef(queryExecution))
+          ZLayer(Configurator.setQueryExecution(queryExecution))
         )
       )
     makeHttpService(adapter)
@@ -94,7 +94,7 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
         ZLayer.makeSome[R, R](
           ZLayer(Configurator.setSkipValidation(skipValidation)),
           ZLayer(Configurator.setEnableIntrospection(enableIntrospection)),
-          ZLayer(Configurator.setQueryExecutionRef(queryExecution))
+          ZLayer(Configurator.setQueryExecution(queryExecution))
         )
       )
     makeHttpUploadService(adapter)
@@ -120,7 +120,7 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
         ZLayer.makeSome[R, R](
           ZLayer(Configurator.setSkipValidation(skipValidation)),
           ZLayer(Configurator.setEnableIntrospection(enableIntrospection)),
-          ZLayer(Configurator.setQueryExecutionRef(queryExecution))
+          ZLayer(Configurator.setQueryExecution(queryExecution))
         )
       )
     makeWebSocketService(adapter)
