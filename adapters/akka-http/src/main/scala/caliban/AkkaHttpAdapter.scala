@@ -67,13 +67,12 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
     responseCodec: JsonCodec[GraphQLResponse[E]]
   ): Route = {
     val adapter =
-      HttpAdapter(interpreter).configure[R](
-        ZLayer.makeSome[R, R](
-          Configurator.setSkipValidation(skipValidation),
-          Configurator.setEnableIntrospection(enableIntrospection),
-          Configurator.setQueryExecution(queryExecution)
+      HttpAdapter(interpreter)
+        .configure(
+          Configurator.setSkipValidationScoped(skipValidation) *>
+            Configurator.setEnableIntrospectionScoped(enableIntrospection) *>
+            Configurator.setQueryExecutionScoped(queryExecution)
         )
-      )
     makeHttpService(adapter)
   }
 
