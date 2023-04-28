@@ -8,36 +8,40 @@ import zio._
 import zio.prelude.EReader
 
 object Configurator {
-  private val validationFiberRef: FiberRef[List[EReader[Context, ValidationError, Unit]]] =
-    Unsafe.unsafe(implicit u => FiberRef.unsafe.make(DefaultValidations))
+  case class ExecutionConfiguration(
+    skipValidation: Boolean = false,
+    enableIntrospection: Boolean = true,
+    queryExecution: QueryExecution = QueryExecution.Parallel,
+    validations: List[EReader[Context, ValidationError, Unit]] = DefaultValidations
+  )
 
-  private val skipQueryValidationRef: FiberRef[Boolean] =
-    Unsafe.unsafe(implicit u => FiberRef.unsafe.make(false))
+  private val configRef: FiberRef[ExecutionConfiguration] =
+    Unsafe.unsafe(implicit u => FiberRef.unsafe.make(ExecutionConfiguration()))
 
-  private val enableIntrospectionRef: FiberRef[Boolean] =
-    Unsafe.unsafe(implicit u => FiberRef.unsafe.make(true))
+  private[caliban] def configuration: UIO[ExecutionConfiguration] =
+    configRef.get
 
-  private val queryExecutionRef: FiberRef[QueryExecution] =
-    Unsafe.unsafe(implicit u => FiberRef.unsafe.make(QueryExecution.Parallel))
+  def setSkipValidation(skip: Boolean): ULayer[Unit] =
+    ZLayer.scoped(setSkipValidationScoped(skip))
 
-  private[caliban] def skipValidation: UIO[Boolean] =
-    skipQueryValidationRef.get
+  def setSkipValidationScoped(skip: Boolean): URIO[Scope, Unit] =
+    configRef.locallyScopedWith(_.copy(skipValidation = skip))
 
-  private[caliban] def enableIntrospection: UIO[Boolean] =
-    enableIntrospectionRef.get
+  def setValidations(validations: List[EReader[Context, ValidationError, Unit]]): ULayer[Unit] =
+    ZLayer.scoped(setValidationsScoped(validations))
 
-  private[caliban] def queryExecution: UIO[QueryExecution] =
-    queryExecutionRef.get
+  def setValidationsScoped(validations: List[EReader[Context, ValidationError, Unit]]): URIO[Scope, Unit] =
+    configRef.locallyScopedWith(_.copy(validations = validations))
 
-  def setSkipValidation(skip: Boolean): UIO[Unit] =
-    skipQueryValidationRef.set(skip).unit
+  def setEnableIntrospection(enable: Boolean): ULayer[Unit] =
+    ZLayer.scoped(setEnableIntrospectionScoped(enable))
 
-  def setValidations(validations: List[EReader[Context, ValidationError, Unit]]): IO[Nothing, Unit] =
-    validationFiberRef.set(validations).unit
+  def setEnableIntrospectionScoped(enable: Boolean): URIO[Scope, Unit] =
+    configRef.locallyScopedWith(_.copy(enableIntrospection = enable))
 
-  def setEnableIntrospection(enable: Boolean): IO[Nothing, Unit] =
-    enableIntrospectionRef.set(enable).unit
+  def setQueryExecution(queryExecution: QueryExecution): ULayer[Unit] =
+    ZLayer.scoped(setQueryExecutionScoped(queryExecution))
 
-  def setQueryExecution(queryExecution: QueryExecution): IO[Nothing, Unit] =
-    queryExecutionRef.set(queryExecution).unit
+  def setQueryExecutionScoped(queryExecution: QueryExecution): URIO[Scope, Unit] =
+    configRef.locallyScopedWith(_.copy(queryExecution = queryExecution))
 }

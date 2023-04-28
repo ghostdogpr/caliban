@@ -32,7 +32,7 @@ object AuthExampleApp extends App {
       } yield authToken
     }
 
-  val conf = ZLayer.makeSome[ServerRequest, AuthToken](auth, ZLayer(Configurator.setSkipValidation(true)))
+  val conf = ZLayer.makeSome[ServerRequest, AuthToken](auth, Configurator.setSkipValidation(true))
 
   val schema: GenericSchema[AuthToken] = new GenericSchema[AuthToken] {}
   import schema.auto._
