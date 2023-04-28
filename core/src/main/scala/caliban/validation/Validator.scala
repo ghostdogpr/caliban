@@ -17,7 +17,7 @@ import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt._
 import caliban.schema._
 import caliban.validation.Utils.isObjectType
-import caliban.{ InputValue, Rendering, Value }
+import caliban.{ Configurator, InputValue, Rendering, Value }
 import zio.IO
 import zio.prelude._
 import zio.prelude.fx.ZPure
@@ -41,7 +41,7 @@ object Validator {
    * Verifies that the given document is valid for this type. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
   def validate(document: Document, rootType: RootType): IO[ValidationError, Unit] =
-    check(document, rootType, Map.empty).unit.toZIO
+    Configurator.configuration.map(_.validations).flatMap(check(document, rootType, Map.empty, _).unit.toZIO)
 
   /**
    * Verifies that the given schema is valid. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
@@ -77,7 +77,8 @@ object Validator {
     rootSchema: RootSchema[R],
     operationName: Option[String],
     variables: Map[String, InputValue],
-    skipValidation: Boolean
+    skipValidation: Boolean,
+    validations: List[EReader[Context, ValidationError, Unit]]
   ): IO[ValidationError, ExecutionRequest] = {
     val fragments: EReader[Any, ValidationError, Map[String, FragmentDefinition]] = if (skipValidation) {
       ZPure.succeed[Unit, Map[String, FragmentDefinition]](
@@ -85,7 +86,7 @@ object Validator {
           m.updated(f.name, f)
         }
       )
-    } else check(document, rootType, variables)
+    } else check(document, rootType, variables, validations)
 
     fragments.flatMap { fragments =>
       val operation = operationName match {
@@ -136,13 +137,14 @@ object Validator {
   private def check(
     document: Document,
     rootType: RootType,
-    variables: Map[String, InputValue]
+    variables: Map[String, InputValue],
+    validations: List[EReader[Context, ValidationError, Unit]]
   ): EReader[Any, ValidationError, Map[String, FragmentDefinition]] = {
     val (operations, fragments, _, _) = collectDefinitions(document)
     validateFragments(fragments).flatMap { fragmentMap =>
       val selectionSets = collectSelectionSets(operations.flatMap(_.selectionSet) ++ fragments.flatMap(_.selectionSet))
       val context       = Context(document, rootType, operations, fragmentMap, selectionSets, variables)
-      ZPure.foreachDiscard(DefaultValidations)(identity).provideService(context) as fragmentMap
+      ZPure.foreachDiscard(validations)(identity).provideService(context) as fragmentMap
     }
   }
 

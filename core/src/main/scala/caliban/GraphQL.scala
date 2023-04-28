@@ -118,15 +118,16 @@ trait GraphQL[-R] { self =>
                   validatedReq     <- VariablesCoercer.coerceVariables(request, doc, typeToValidate, config.skipValidation)
                   validate          = (doc: Document) =>
                                         for {
-                                          skipQueryValidation <- Configurator.configuration.map(_.skipValidation)
-                                          executionReq        <- Validator.prepare(
-                                                                   doc,
-                                                                   typeToValidate,
-                                                                   schemaToExecute,
-                                                                   validatedReq.operationName,
-                                                                   validatedReq.variables.getOrElse(Map.empty),
-                                                                   skipQueryValidation
-                                                                 )
+                                          config       <- Configurator.configuration
+                                          executionReq <- Validator.prepare(
+                                                            doc,
+                                                            typeToValidate,
+                                                            schemaToExecute,
+                                                            validatedReq.operationName,
+                                                            validatedReq.variables.getOrElse(Map.empty),
+                                                            config.skipValidation,
+                                                            config.validations
+                                                          )
                                         } yield executionReq
                   executionRequest <- wrap(validate)(validationWrappers, doc)
                   op                = executionRequest.operationType match {
