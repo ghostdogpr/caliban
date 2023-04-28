@@ -4,7 +4,7 @@ import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives._
 import caliban.AkkaHttpAdapter
-import caliban.interop.tapir.HttpAdapter
+import caliban.interop.tapir.{ HttpAdapter, WebSocketAdapter }
 import example.ExampleData.sampleCharacters
 import example.ExampleService.ExampleService
 import example.{ ExampleApi, ExampleService }
@@ -37,7 +37,7 @@ object ExampleApp extends App {
     path("api" / "graphql") {
       adapter.makeHttpService(HttpAdapter(interpreter))
     } ~ path("ws" / "graphql") {
-      adapter.makeWebSocketService(interpreter)
+      adapter.makeWebSocketService(WebSocketAdapter(interpreter))
     } ~ path("graphiql") {
       getFromResource("graphiql.html")
     }

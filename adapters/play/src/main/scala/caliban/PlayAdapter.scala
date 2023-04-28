@@ -26,31 +26,22 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
 
   def makeHttpService[R1, R, E](
     interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: ZLayer[R1 & ServerRequest, TapirResponse, R] = ZLayer.empty
   )(implicit
     runtime: Runtime[R1],
     materializer: Materializer,
     requestCodec: JsonCodec[GraphQLRequest],
     responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): Routes = {
-    val endpoints = TapirAdapter.makeHttpService[R1, R, E](
-      interpreter,
-      skipValidation,
-      enableIntrospection,
-      queryExecution,
-      requestInterceptor
-    )
-    playInterpreter.toRoutes(endpoints.map(TapirAdapter.convertHttpEndpointToFuture(_)))
-  }
+  ): Routes =
+    ???
+//    val endpoints = TapirAdapter.makeHttpService[R1, R, E](
+//      interpreter,
+//      requestInterceptor
+//    )
+//    playInterpreter.toRoutes(endpoints.map(TapirAdapter.convertHttpEndpointToFuture(_)))
 
   def makeHttpUploadService[R1, R, E](
     interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: ZLayer[R1 & ServerRequest, TapirResponse, R] = ZLayer.empty
   )(implicit
     runtime: Runtime[R1],
@@ -58,23 +49,14 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
     responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): Routes = {
-    val endpoint = TapirAdapter.makeHttpUploadService[R1, R, E](
-      interpreter,
-      skipValidation,
-      enableIntrospection,
-      queryExecution,
-      requestInterceptor
-    )
-    playInterpreter.toRoutes(TapirAdapter.convertHttpEndpointToFuture(endpoint))
-  }
+  ): Routes =
+    ???
+//    val endpoint = TapirAdapter.makeHttpUploadService[R1, R, E](interpreter, requestInterceptor)
+//    playInterpreter.toRoutes(TapirAdapter.convertHttpEndpointToFuture(endpoint))
 
   def makeWebSocketService[R1, R, E](
     interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
     keepAliveTime: Option[Duration] = None,
-    queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: ZLayer[R1 & ServerRequest, TapirResponse, R] = ZLayer.empty,
     webSocketHooks: WebSocketHooks[R, E] = WebSocketHooks.empty
   )(implicit
@@ -83,32 +65,25 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
     materializer: Materializer,
     inputCodec: JsonCodec[GraphQLWSInput],
     outputCodec: JsonCodec[GraphQLWSOutput]
-  ): Routes = {
-    val endpoint = TapirAdapter.makeWebSocketService[R1, R, E](
-      interpreter,
-      skipValidation,
-      enableIntrospection,
-      keepAliveTime,
-      queryExecution,
-      requestInterceptor,
-      webSocketHooks
-    )
-    playInterpreter.toRoutes(
-      PlayAdapter.convertWebSocketEndpoint(
-        endpoint.asInstanceOf[
-          ServerEndpoint.Full[
-            Unit,
-            Unit,
-            (ServerRequest, String),
-            StatusCode,
-            (String, CalibanPipe),
-            ZioWebSockets,
-            RIO[R1, *]
-          ]
-        ]
-      )
-    )
-  }
+  ): Routes =
+    ???
+//    val endpoint =
+//      TapirAdapter.makeWebSocketService[R1, R, E](interpreter, keepAliveTime, requestInterceptor, webSocketHooks)
+//    playInterpreter.toRoutes(
+//      PlayAdapter.convertWebSocketEndpoint(
+//        endpoint.asInstanceOf[
+//          ServerEndpoint.Full[
+//            Unit,
+//            Unit,
+//            (ServerRequest, String),
+//            StatusCode,
+//            (String, CalibanPipe),
+//            ZioWebSockets,
+//            RIO[R1, *]
+//          ]
+//        ]
+//      )
+//    )
 }
 
 object PlayAdapter extends PlayAdapter(None) {

@@ -24,124 +24,75 @@ object Http4sAdapter {
 
   def makeHttpService[R1, R, E](
     interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: ZLayer[R1 & ServerRequest, TapirResponse, R] = ZLayer.empty
   )(implicit
     requestCodec: JsonCodec[GraphQLRequest],
     responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): HttpRoutes[RIO[R1, *]] = {
-    val endpoints = TapirAdapter.makeHttpService[R1, R, E](
-      interpreter,
-      skipValidation,
-      enableIntrospection,
-      queryExecution,
-      requestInterceptor
-    )
-    ZHttp4sServerInterpreter().from(endpoints).toRoutes
-  }
+  ): HttpRoutes[RIO[R1, *]] =
+    ???
+//    val endpoints = TapirAdapter.makeHttpService[R1, R, E](interpreter, requestInterceptor)
+//    ZHttp4sServerInterpreter().from(endpoints).toRoutes
 
   def makeHttpServiceF[F[_]: Async, R1, R, E](
     interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: ZLayer[R1 & ServerRequest, TapirResponse, R] = ZLayer.empty
   )(implicit
     interop: ToEffect[F, R1],
     requestCodec: JsonCodec[GraphQLRequest],
     responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): HttpRoutes[F] = {
-    val endpoints  = TapirAdapter.makeHttpService[R1, R, E](
-      interpreter,
-      skipValidation,
-      enableIntrospection,
-      queryExecution,
-      requestInterceptor
-    )
-    val endpointsF = endpoints.map(convertHttpEndpointToF[F, R1])
-    Http4sServerInterpreter().toRoutes(endpointsF)
-  }
+  ): HttpRoutes[F] =
+    ???
+//    val endpoints  = TapirAdapter.makeHttpService[R1, R, E](interpreter, requestInterceptor)
+//    val endpointsF = endpoints.map(convertHttpEndpointToF[F, R1])
+//    Http4sServerInterpreter().toRoutes(endpointsF)
 
   def makeHttpUploadService[R1, R, E](
     interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: ZLayer[R1 & ServerRequest, TapirResponse, R] = ZLayer.empty
   )(implicit
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
     responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): HttpRoutes[RIO[R1, *]] = {
-    val endpoint = TapirAdapter.makeHttpUploadService[R1, R, E](
-      interpreter,
-      skipValidation,
-      enableIntrospection,
-      queryExecution,
-      requestInterceptor
-    )
-    ZHttp4sServerInterpreter().from(endpoint).toRoutes
-  }
+  ): HttpRoutes[RIO[R1, *]] =
+    ???
+//    val endpoint = TapirAdapter.makeHttpUploadService[R1, R, E](interpreter, requestInterceptor)
+//    ZHttp4sServerInterpreter().from(endpoint).toRoutes
 
   def makeHttpUploadServiceF[F[_]: Async, R1, R, E](
     interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: ZLayer[R1 & ServerRequest, TapirResponse, R] = ZLayer.empty
   )(implicit
     interop: ToEffect[F, R1],
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
     responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): HttpRoutes[F] = {
-    val endpoint  = TapirAdapter.makeHttpUploadService[R1, R, E](
-      interpreter,
-      skipValidation,
-      enableIntrospection,
-      queryExecution,
-      requestInterceptor
-    )
-    val endpointF = convertHttpEndpointToF[F, R1](endpoint)
-    Http4sServerInterpreter().toRoutes(endpointF)
-  }
+  ): HttpRoutes[F] =
+    ???
+//    val endpoint  = TapirAdapter.makeHttpUploadService[R1, R, E](interpreter, requestInterceptor)
+//    val endpointF = convertHttpEndpointToF[F, R1](endpoint)
+//    Http4sServerInterpreter().toRoutes(endpointF)
 
   def makeWebSocketService[R2, R, R1 <: R, E](
     builder: WebSocketBuilder2[RIO[R, *]],
     interpreter: GraphQLInterpreter[R1, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
     keepAliveTime: Option[Duration] = None,
-    queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: ZLayer[R2 & ServerRequest, TapirResponse, R1] = ZLayer.empty,
     webSocketHooks: WebSocketHooks[R1, E] = WebSocketHooks.empty
   )(implicit
     inputCodec: JsonCodec[GraphQLWSInput],
     outputCodec: JsonCodec[GraphQLWSOutput]
-  ): HttpRoutes[RIO[R2, *]] = {
-    val endpoint = TapirAdapter.makeWebSocketService[R2, R1, E](
-      interpreter,
-      skipValidation,
-      enableIntrospection,
-      keepAliveTime,
-      queryExecution,
-      requestInterceptor,
-      webSocketHooks
-    )
-    ZHttp4sServerInterpreter[R2]()
-      .fromWebSocket(endpoint)
-      .toRoutes(builder.asInstanceOf[WebSocketBuilder2[RIO[R2, *]]])
-  }
+  ): HttpRoutes[RIO[R2, *]] =
+    ???
+//    val endpoint =
+//      TapirAdapter.makeWebSocketService[R2, R1, E](interpreter, keepAliveTime, requestInterceptor, webSocketHooks)
+//    ZHttp4sServerInterpreter[R2]()
+//      .fromWebSocket(endpoint)
+//      .toRoutes(builder.asInstanceOf[WebSocketBuilder2[RIO[R2, *]]])
 
   def makeWebSocketServiceF[F[_]: Async, R1, R, E](
     builder: WebSocketBuilder2[F],
     interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
     keepAliveTime: Option[Duration] = None,
-    queryExecution: QueryExecution = QueryExecution.Parallel,
     requestInterceptor: ZLayer[R1 & ServerRequest, TapirResponse, R] = ZLayer.empty,
     webSocketHooks: WebSocketHooks[R, E] = WebSocketHooks.empty
   )(implicit
@@ -149,19 +100,16 @@ object Http4sAdapter {
     runtime: Runtime[R1],
     inputCodec: JsonCodec[GraphQLWSInput],
     outputCodec: JsonCodec[GraphQLWSOutput]
-  ): HttpRoutes[F] = {
-    val endpoint  = TapirAdapter.makeWebSocketService[R1, R, E](
-      interpreter,
-      skipValidation,
-      enableIntrospection,
-      keepAliveTime,
-      queryExecution,
-      requestInterceptor,
-      webSocketHooks
-    )
-    val endpointF = convertWebSocketEndpointToF[F, R1](endpoint)
-    Http4sServerInterpreter().toWebSocketRoutes(endpointF)(builder)
-  }
+  ): HttpRoutes[F] =
+    ???
+//    val endpoint  = TapirAdapter.makeWebSocketService[R1, R, E](
+//      interpreter,
+//      keepAliveTime,
+//      requestInterceptor,
+//      webSocketHooks
+//    )
+//    val endpointF = convertWebSocketEndpointToF[F, R1](endpoint)
+//    Http4sServerInterpreter().toWebSocketRoutes(endpointF)(builder)
 
   /**
    * Utility function to create an http4s middleware that can extracts something from each request

@@ -18,9 +18,9 @@ import caliban.parsing.adt._
 import caliban.schema._
 import caliban.validation.Utils.isObjectType
 import caliban.{ InputValue, Rendering, Value }
+import zio.IO
 import zio.prelude._
 import zio.prelude.fx.ZPure
-import zio.{ FiberRef, IO, UIO, Unsafe }
 
 import scala.annotation.tailrec
 
@@ -36,12 +36,6 @@ object Validator {
       validateSubscriptionOperation,
       validateDocumentFields
     )
-
-  private[caliban] val validationFiberRef: FiberRef[List[EReader[Context, ValidationError, Unit]]] =
-    Unsafe.unsafe(implicit u => FiberRef.unsafe.make(DefaultValidations))
-
-  private[caliban] val skipQueryValidationRef: FiberRef[Boolean] =
-    Unsafe.unsafe(implicit u => FiberRef.unsafe.make(false))
 
   /**
    * Verifies that the given document is valid for this type. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
@@ -59,15 +53,6 @@ object Validator {
       validateDirectives(types) *>
       validateRootQuery(schema)
   }.toZIO
-
-  def setSkipValidation(skip: Boolean): IO[Nothing, Unit] =
-    skipQueryValidationRef.set(skip).unit
-
-  def skipValidation: UIO[Boolean] =
-    skipQueryValidationRef.get
-
-  def setValidations(validations: List[EReader[Context, ValidationError, Unit]]): IO[Nothing, Unit] =
-    validationFiberRef.set(validations).unit
 
   private[caliban] def validateType(t: __Type): EReader[Any, ValidationError, Unit] =
     t.kind match {

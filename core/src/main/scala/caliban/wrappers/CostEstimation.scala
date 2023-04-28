@@ -10,7 +10,7 @@ import caliban.schema.Annotations.GQLDirective
 import caliban.schema.Types
 import caliban.validation.Validator
 import caliban.wrappers.Wrapper.{ EffectfulWrapper, OverallWrapper, ValidationWrapper }
-import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
+import caliban.{ CalibanError, Configurator, GraphQLRequest, GraphQLResponse, ResponseValue }
 import zio.{ Ref, UIO, URIO, ZIO }
 
 import scala.annotation.tailrec
@@ -190,7 +190,7 @@ object CostEstimation {
       ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
         (doc: Document) =>
           process(doc).tap { req =>
-            ZIO.unlessZIO(ZIO.succeed(skipForPersistedQueries) && Validator.skipValidation) {
+            ZIO.unlessZIO(ZIO.succeed(skipForPersistedQueries) && Configurator.skipValidation) {
               val cost = computeCost(req.field)(f)
               ZIO.when(cost > maxCost)(ZIO.fail(error(cost)))
             }
@@ -213,7 +213,7 @@ object CostEstimation {
       ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
         (doc: Document) =>
           process(doc).tap { req =>
-            ZIO.unlessZIO(ZIO.succeed(skipForPersistedQueries) && Validator.skipValidation) {
+            ZIO.unlessZIO(ZIO.succeed(skipForPersistedQueries) && Configurator.skipValidation) {
               computeCostZIO(req.field)(f).flatMap { cost =>
                 ZIO.when(cost > maxCost)(
                   ZIO.fail(ValidationError(s"Query costs too much: $cost. Max cost: $maxCost.", ""))

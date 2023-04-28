@@ -19,7 +19,7 @@ object AuthExampleApp extends App {
 
   case class AuthToken(value: String)
 
-  val authInterceptor: ZLayer[ServerRequest, TapirResponse, AuthToken] =
+  val auth =
     ZLayer {
       for {
         request   <- ZIO.service[ServerRequest]
@@ -31,6 +31,8 @@ object AuthExampleApp extends App {
                      }
       } yield authToken
     }
+
+  val conf = ZLayer.makeSome[ServerRequest, AuthToken](auth, ZLayer(Configurator.setSkipValidation(true)))
 
   val schema: GenericSchema[AuthToken] = new GenericSchema[AuthToken] {}
   import schema.auto._
@@ -47,7 +49,7 @@ object AuthExampleApp extends App {
 
   val route =
     path("api" / "graphql") {
-      adapter.makeHttpService(HttpAdapter(interpreter).intercept(authInterceptor))
+      adapter.makeHttpService(HttpAdapter(interpreter).configure(conf))
     } ~ path("graphiql") {
       getFromResource("graphiql.html")
     }

@@ -5,8 +5,8 @@ import akka.stream.scaladsl.{ Flow, Sink, Source }
 import akka.stream.{ Materializer, OverflowStrategy }
 import caliban.AkkaHttpAdapter.convertWebSocketEndpoint
 import caliban.execution.QueryExecution
-import caliban.interop.tapir.{ HttpAdapter, TapirAdapter, WebSocketHooks }
-import caliban.interop.tapir.TapirAdapter.{ zioMonadError, CalibanPipe, TapirResponse, ZioWebSockets }
+import caliban.interop.tapir.TapirAdapter.{ zioMonadError, CalibanPipe, ZioWebSockets }
+import caliban.interop.tapir.{ HttpAdapter, HttpUploadAdapter, TapirAdapter, WebSocketAdapter, WebSocketHooks }
 import sttp.capabilities.WebSockets
 import sttp.capabilities.akka.AkkaStreams
 import sttp.capabilities.akka.AkkaStreams.Pipe
@@ -27,67 +27,103 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
   def makeHttpService[R, E](adapter: HttpAdapter[R, E])(implicit runtime: Runtime[R]): Route =
     akkaInterpreter.toRoute(adapter.serverEndpoints[R].map(TapirAdapter.convertHttpEndpointToFuture(_)))
 
-  def makeHttpUploadService[R1, R, E](
+  def makeHttpUploadService[R, E](adapter: HttpUploadAdapter[R, E])(implicit
+    runtime: Runtime[R],
+    requestCodec: JsonCodec[GraphQLRequest],
+    mapCodec: JsonCodec[Map[String, Seq[String]]]
+  ): Route =
+    akkaInterpreter.toRoute(TapirAdapter.convertHttpEndpointToFuture(adapter.serverEndpoint[R]))
+
+  def makeWebSocketService[R, E](
+    adapter: WebSocketAdapter[R, E]
+  )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): Route =
+    akkaInterpreter.toRoute(
+      convertWebSocketEndpoint(
+        adapter
+          .serverEndpoint[R]
+          .asInstanceOf[
+            ServerEndpoint.Full[
+              Unit,
+              Unit,
+              (ServerRequest, String),
+              StatusCode,
+              (String, CalibanPipe),
+              ZioWebSockets,
+              RIO[R, *]
+            ]
+          ]
+      )
+    )
+
+  @deprecated
+  def makeHttpService[R: Tag, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
-    queryExecution: QueryExecution = QueryExecution.Parallel,
-    requestInterceptor: ZLayer[R1 & ServerRequest, TapirResponse, R] = ZLayer.empty
+    queryExecution: QueryExecution = QueryExecution.Parallel
   )(implicit
-    runtime: Runtime[R1],
+    runtime: Runtime[R],
+    requestCodec: JsonCodec[GraphQLRequest],
+    responseCodec: JsonCodec[GraphQLResponse[E]]
+  ): Route = {
+    val adapter =
+      HttpAdapter(interpreter).configure[R](
+        ZLayer.makeSome[R, R](
+          ZLayer(Configurator.setSkipValidation(skipValidation)),
+          ZLayer(Configurator.setEnableIntrospection(enableIntrospection)),
+          ZLayer(Configurator.setQueryExecutionRef(queryExecution))
+        )
+      )
+    makeHttpService(adapter)
+  }
+
+  @deprecated
+  def makeHttpUploadService[R: Tag, E](
+    interpreter: GraphQLInterpreter[R, E],
+    skipValidation: Boolean = false,
+    enableIntrospection: Boolean = true,
+    queryExecution: QueryExecution = QueryExecution.Parallel
+  )(implicit
+    runtime: Runtime[R],
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
     responseCodec: JsonCodec[GraphQLResponse[E]]
   ): Route = {
-    val endpoint = TapirAdapter.makeHttpUploadService[R1, R, E](
-      interpreter,
-      skipValidation,
-      enableIntrospection,
-      queryExecution,
-      requestInterceptor
-    )
-    akkaInterpreter.toRoute(TapirAdapter.convertHttpEndpointToFuture(endpoint))
+    val adapter =
+      HttpUploadAdapter(interpreter).configure[R](
+        ZLayer.makeSome[R, R](
+          ZLayer(Configurator.setSkipValidation(skipValidation)),
+          ZLayer(Configurator.setEnableIntrospection(enableIntrospection)),
+          ZLayer(Configurator.setQueryExecutionRef(queryExecution))
+        )
+      )
+    makeHttpUploadService(adapter)
   }
 
-  def makeWebSocketService[R1, R, E](
+  @deprecated
+  def makeWebSocketService[R: Tag, E](
     interpreter: GraphQLInterpreter[R, E],
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     keepAliveTime: Option[Duration] = None,
     queryExecution: QueryExecution = QueryExecution.Parallel,
-    requestInterceptor: ZLayer[R1 & ServerRequest, TapirResponse, R] = ZLayer.empty,
     webSocketHooks: WebSocketHooks[R, E] = WebSocketHooks.empty
   )(implicit
     ec: ExecutionContext,
-    runtime: Runtime[R1],
+    runtime: Runtime[R],
     materializer: Materializer,
     inputCodec: JsonCodec[GraphQLWSInput],
     outputCodec: JsonCodec[GraphQLWSOutput]
   ): Route = {
-    val endpoint = TapirAdapter.makeWebSocketService[R1, R, E](
-      interpreter,
-      skipValidation,
-      enableIntrospection,
-      keepAliveTime,
-      queryExecution,
-      requestInterceptor,
-      webSocketHooks
-    )
-    akkaInterpreter.toRoute(
-      convertWebSocketEndpoint(
-        endpoint.asInstanceOf[
-          ServerEndpoint.Full[
-            Unit,
-            Unit,
-            (ServerRequest, String),
-            StatusCode,
-            (String, CalibanPipe),
-            ZioWebSockets,
-            RIO[R1, *]
-          ]
-        ]
+    val adapter =
+      WebSocketAdapter(interpreter, keepAliveTime, webSocketHooks).configure[R](
+        ZLayer.makeSome[R, R](
+          ZLayer(Configurator.setSkipValidation(skipValidation)),
+          ZLayer(Configurator.setEnableIntrospection(enableIntrospection)),
+          ZLayer(Configurator.setQueryExecutionRef(queryExecution))
+        )
       )
-    )
+    makeWebSocketService(adapter)
   }
 }
 

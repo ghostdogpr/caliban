@@ -1,7 +1,6 @@
 package caliban
 
 import caliban.Value.NullValue
-import caliban.execution.QueryExecution
 import zio._
 
 /**
@@ -23,17 +22,9 @@ trait GraphQLInterpreter[-R, +E] { self =>
   /**
    * Parses, validates and finally runs the provided request against this interpreter.
    * @param request a GraphQL request
-   * @param skipValidation skips the validation step if true
-   * @param enableIntrospection returns an error for introspection queries when false
-   * @param queryExecution a strategy for executing queries in parallel or not
    * @return an effect that either fails with an `E` or succeeds with a [[ResponseValue]]
    */
-  def executeRequest(
-    request: GraphQLRequest,
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    queryExecution: QueryExecution = QueryExecution.Parallel
-  )(implicit trace: Trace): URIO[R, GraphQLResponse[E]]
+  def executeRequest(request: GraphQLRequest)(implicit trace: Trace): URIO[R, GraphQLResponse[E]]
 
   /**
    * Parses, validates and finally runs the provided query against this interpreter.
@@ -41,26 +32,15 @@ trait GraphQLInterpreter[-R, +E] { self =>
    * @param operationName the operation to run in case the query contains multiple operations
    * @param variables a map of variables
    * @param extensions a map of extensions
-   * @param skipValidation skips the validation step if true
-   * @param enableIntrospection returns an error for introspection queries when false
-   * @param queryExecution a strategy for executing queries in parallel or not
    * @return an effect that either fails with an `E` or succeeds with a [[ResponseValue]]
    */
   def execute(
     query: String,
     operationName: Option[String] = None,
     variables: Map[String, InputValue] = Map(),
-    extensions: Map[String, InputValue] = Map(),
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    queryExecution: QueryExecution = QueryExecution.Parallel
+    extensions: Map[String, InputValue] = Map()
   )(implicit trace: Trace): URIO[R, GraphQLResponse[E]] =
-    executeRequest(
-      GraphQLRequest(Some(query), operationName, Some(variables), Some(extensions)),
-      skipValidation = skipValidation,
-      enableIntrospection = enableIntrospection,
-      queryExecution = queryExecution
-    )
+    executeRequest(GraphQLRequest(Some(query), operationName, Some(variables), Some(extensions)))
 
   /**
    * Changes the error channel of the `execute` method.
@@ -102,14 +82,9 @@ trait GraphQLInterpreter[-R, +E] { self =>
   final def wrapExecutionWith[R2, E2](
     f: URIO[R, GraphQLResponse[E]] => URIO[R2, GraphQLResponse[E2]]
   ): GraphQLInterpreter[R2, E2] = new GraphQLInterpreter[R2, E2] {
-    override def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] = self.check(query)
-    override def executeRequest(
-      request: GraphQLRequest,
-      skipValidation: Boolean,
-      enableIntrospection: Boolean,
-      queryExecution: QueryExecution
-    )(implicit trace: Trace): URIO[R2, GraphQLResponse[E2]] =
-      f(self.executeRequest(request, skipValidation = skipValidation, enableIntrospection, queryExecution))
+    override def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit]                           = self.check(query)
+    override def executeRequest(request: GraphQLRequest)(implicit trace: Trace): URIO[R2, GraphQLResponse[E2]] =
+      f(self.executeRequest(request))
   }
 
 }
