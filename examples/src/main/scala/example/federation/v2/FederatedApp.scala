@@ -33,7 +33,7 @@ object FederatedApp extends ZIOAppDefault {
         .serve(
           Http
             .collectHttp[Request] { case _ -> !! / "api" / "graphql" =>
-              ZHttpAdapter.makeHttpService(interpreter)
+              ZHttpAdapter.makeHttpService(HttpAdapter(interpreter))
             }
             .withDefaultErrorResponse
         )
