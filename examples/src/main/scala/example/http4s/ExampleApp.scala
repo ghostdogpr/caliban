@@ -1,6 +1,7 @@
 package example.http4s
 
 import caliban.Http4sAdapter
+import caliban.interop.tapir.{ HttpAdapter, WebSocketAdapter }
 import cats.data.Kleisli
 import com.comcast.ip4s._
 import example.ExampleData._
@@ -31,8 +32,10 @@ object ExampleApp extends ZIOAppDefault {
                            .withPort(port"8088")
                            .withHttpWebSocketApp(wsBuilder =>
                              Router[ExampleTask](
-                               "/api/graphql" -> CORS.policy(Http4sAdapter.makeHttpService(interpreter)),
-                               "/ws/graphql"  -> CORS.policy(Http4sAdapter.makeWebSocketService(wsBuilder, interpreter)),
+                               "/api/graphql" -> CORS.policy(Http4sAdapter.makeHttpService(HttpAdapter(interpreter))),
+                               "/ws/graphql"  -> CORS.policy(
+                                 Http4sAdapter.makeWebSocketService(wsBuilder, WebSocketAdapter(interpreter))
+                               ),
                                "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
                              ).orNotFound
                            )

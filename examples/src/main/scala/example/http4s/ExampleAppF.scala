@@ -1,6 +1,7 @@
 package example.http4s
 
 import caliban.interop.cats.implicits._
+import caliban.interop.tapir.{ HttpAdapter, WebSocketAdapter }
 import caliban.{ CalibanError, Http4sAdapter }
 import cats.data.Kleisli
 import cats.effect.std.Dispatcher
@@ -35,9 +36,12 @@ object ExampleAppF extends IOApp {
                          .withHttpWebSocketApp(wsBuilder =>
                            Router[IO](
                              "/api/graphql" ->
-                               CORS.policy(Http4sAdapter.makeHttpServiceF[IO, MyEnv, CalibanError](interpreter)),
+                               CORS.policy(Http4sAdapter.makeHttpServiceF[IO, MyEnv, CalibanError](HttpAdapter(interpreter))),
                              "/ws/graphql"  ->
-                               CORS.policy(Http4sAdapter.makeWebSocketServiceF[IO, MyEnv, CalibanError](wsBuilder, interpreter)),
+                               CORS.policy(
+                                 Http4sAdapter
+                                   .makeWebSocketServiceF[IO, MyEnv, CalibanError](wsBuilder, WebSocketAdapter(interpreter))
+                               ),
                              "/graphiql"    ->
                                Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
                            ).orNotFound
