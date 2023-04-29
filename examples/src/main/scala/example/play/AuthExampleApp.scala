@@ -2,7 +2,7 @@ package example.play
 
 import akka.actor.ActorSystem
 import caliban._
-import caliban.interop.tapir.RequestInterceptor
+import caliban.interop.tapir.{ HttpAdapter, WebSocketAdapter }
 import caliban.interop.tapir.TapirAdapter.TapirResponse
 import caliban.schema.GenericSchema
 import play.api.Mode
@@ -21,39 +21,35 @@ import scala.io.StdIn.readLine
 object AuthExampleApp extends App {
   case class AuthToken(value: String)
 
-  type Auth = FiberRef[Option[AuthToken]]
-
   implicit val system: ActorSystem                        = ActorSystem()
   implicit val executionContext: ExecutionContextExecutor = system.dispatcher
 
-  object AuthWrapper extends RequestInterceptor[Auth] {
-    override def apply[R <: Auth, A](
-      request: ServerRequest
-    )(effect: ZIO[R, TapirResponse, A]): ZIO[R, TapirResponse, A] =
-      request.header("token") match {
-        case Some(token) => ZIO.serviceWithZIO[Auth](_.set(Some(AuthToken(token)))) *> effect
-        case None        => ZIO.fail(TapirResponse(StatusCode.Forbidden))
-      }
-  }
+  val auth =
+    ZLayer {
+      for {
+        request   <- ZIO.service[ServerRequest]
+        authToken <- request.headers.collectFirst {
+                       case header if header.is("token") => header.value
+                     } match {
+                       case Some(token) => ZIO.succeed(AuthToken(token))
+                       case _           => ZIO.fail(TapirResponse(StatusCode.Forbidden))
+                     }
+      } yield authToken
+    }
 
-  val schema: GenericSchema[Auth] = new GenericSchema[Auth] {}
+  val schema: GenericSchema[AuthToken] = new GenericSchema[AuthToken] {}
   import schema.auto._
-  case class Query(token: RIO[Auth, Option[String]])
-  case class Mutation(x: RIO[Auth, Option[String]])
-  case class Subscription(x: ZStream[Auth, Throwable, Option[String]])
-  private val resolver            = RootResolver(
-    Query(ZIO.serviceWithZIO[Auth](_.get).map(_.map(_.value))),
-    Mutation(ZIO.some("foo")),
+  case class Query(token: RIO[AuthToken, String])
+  case class Mutation(x: RIO[AuthToken, String])
+  case class Subscription(x: ZStream[AuthToken, Throwable, String])
+  private val resolver                 = RootResolver(
+    Query(ZIO.serviceWith[AuthToken](_.value)),
+    Mutation(ZIO.succeed("foo")),
     Subscription(ZStream.empty)
   )
-  private val api                 = graphQL(resolver)
+  private val api                      = graphQL(resolver)
 
-  // Note that we must initialize the runtime with any FiberRefs we intend to
-  // pass on so that they are present in the environment for our ResultWrapper(s)
-  // For the auth we wrap in an option, but you could just as well use something
-  // like AuthToken("__INVALID") or a sealed trait hierarchy with an invalid member
-  val initLayer: ULayer[Auth]         = ZLayer.scoped(FiberRef.make(Option.empty[AuthToken]))
-  implicit val runtime: Runtime[Auth] = Unsafe.unsafe(implicit u => Runtime.unsafe.fromLayer(initLayer))
+  implicit val runtime: Runtime[Any] = Runtime.default
 
   val interpreter = Unsafe.unsafe(implicit u => runtime.unsafe.run(api.interpreter).getOrThrow())
 
@@ -66,8 +62,9 @@ object AuthExampleApp extends App {
   ) { _ =>
     Router.from {
       case req @ POST(p"/api/graphql") =>
-        PlayAdapter.makeHttpService(interpreter, requestInterceptor = AuthWrapper).apply(req)
-      case req @ GET(p"/ws/graphql")   => PlayAdapter.makeWebSocketService(interpreter).apply(req)
+        PlayAdapter.makeHttpService(HttpAdapter(interpreter).configure(auth)).apply(req)
+      case req @ GET(p"/ws/graphql")   =>
+        PlayAdapter.makeWebSocketService(WebSocketAdapter(interpreter).configure(auth)).apply(req)
     }.routes
   }
 

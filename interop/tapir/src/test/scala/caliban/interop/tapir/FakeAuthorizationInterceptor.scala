@@ -5,17 +5,6 @@ import sttp.model.StatusCode
 import sttp.tapir.model.ServerRequest
 import zio.{ ZIO, ZLayer }
 
-class FakeAuthorizationInterceptor[R](authenticate: ServerRequest => ZIO[R, (Int, String), Unit])
-    extends RequestInterceptor[R] {
-  override def apply[R1 <: R, A](request: ServerRequest)(
-    e: ZIO[R1, TapirAdapter.TapirResponse, A]
-  ): ZIO[R1, TapirAdapter.TapirResponse, A] =
-    authenticate(request).mapError { case (status, str) =>
-      TapirResponse(StatusCode(status), body = str)
-    } *> e
-
-}
-
 object FakeAuthorizationInterceptor {
 
   def make[R](

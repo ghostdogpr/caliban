@@ -1,11 +1,12 @@
 package example.stitching
 
 import caliban._
+import caliban.interop.tapir.HttpAdapter
 import caliban.schema._
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
-import caliban.tools.{ Options, RemoteSchema, SchemaLoader }
-import caliban.tools.stitching.{ HttpRequest, RemoteResolver, RemoteSchemaResolver, ResolveRequest }
+import caliban.tools.{Options, RemoteSchema, SchemaLoader}
+import caliban.tools.stitching.{HttpRequest, RemoteResolver, RemoteSchemaResolver, ResolveRequest}
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.client3.SttpBackend
@@ -114,7 +115,7 @@ object ExampleApp extends ZIOAppDefault {
                        .serve(
                          Http
                            .collectRoute[Request] {
-                             case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
+                             case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(HttpAdapter(interpreter))
                              case _ -> !! / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
                              case _ -> !! / "graphiql"        => graphiql
                            }

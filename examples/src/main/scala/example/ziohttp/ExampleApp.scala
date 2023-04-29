@@ -2,8 +2,8 @@ package example.ziohttp
 
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
-
 import caliban.ZHttpAdapter
+import caliban.interop.tapir.HttpAdapter
 import zio._
 import zio.stream._
 import zio.http._
@@ -20,7 +20,7 @@ object ExampleApp extends ZIOAppDefault {
                        .serve(
                          Http
                            .collectRoute[Request] {
-                             case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
+                             case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(HttpAdapter(interpreter))
                              case _ -> !! / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
                              case _ -> !! / "graphiql"        => graphiql
                            }

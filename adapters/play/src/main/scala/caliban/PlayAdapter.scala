@@ -1,10 +1,9 @@
 package caliban
 
-import akka.stream.{ Materializer, OverflowStrategy }
 import akka.stream.scaladsl.{ Flow, Sink, Source }
-import caliban.execution.QueryExecution
-import caliban.interop.tapir.TapirAdapter.{ zioMonadError, CalibanPipe, TapirResponse, ZioWebSockets }
-import caliban.interop.tapir.{ RequestInterceptor, TapirAdapter, WebSocketHooks }
+import akka.stream.{ Materializer, OverflowStrategy }
+import caliban.interop.tapir.TapirAdapter.{ zioMonadError, CalibanPipe, ZioWebSockets }
+import caliban.interop.tapir.{ HttpAdapter, HttpUploadAdapter, TapirAdapter, WebSocketAdapter }
 import play.api.routing.Router.Routes
 import sttp.capabilities.WebSockets
 import sttp.capabilities.akka.AkkaStreams
@@ -24,66 +23,39 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
   private def playInterpreter(implicit mat: Materializer) =
     options.fold(PlayServerInterpreter())(PlayServerInterpreter(_))
 
-  def makeHttpService[R1, R, E](
-    interpreter: GraphQLInterpreter[R, E],
-    requestInterceptor: ZLayer[R1 & ServerRequest, TapirResponse, R] = ZLayer.empty
-  )(implicit
-    runtime: Runtime[R1],
+  def makeHttpService[R, E](
+    adapter: HttpAdapter[R, E]
+  )(implicit runtime: Runtime[R], materializer: Materializer): Routes =
+    playInterpreter.toRoutes(adapter.serverEndpoints[R].map(TapirAdapter.convertHttpEndpointToFuture(_)))
+
+  def makeHttpUploadService[R, E](adapter: HttpUploadAdapter[R, E])(implicit
+    runtime: Runtime[R],
     materializer: Materializer,
     requestCodec: JsonCodec[GraphQLRequest],
-    responseCodec: JsonCodec[GraphQLResponse[E]]
+    mapCodec: JsonCodec[Map[String, Seq[String]]]
   ): Routes =
-    ???
-//    val endpoints = TapirAdapter.makeHttpService[R1, R, E](
-//      interpreter,
-//      requestInterceptor
-//    )
-//    playInterpreter.toRoutes(endpoints.map(TapirAdapter.convertHttpEndpointToFuture(_)))
+    playInterpreter.toRoutes(TapirAdapter.convertHttpEndpointToFuture(adapter.serverEndpoint[R]))
 
-  def makeHttpUploadService[R1, R, E](
-    interpreter: GraphQLInterpreter[R, E],
-    requestInterceptor: ZLayer[R1 & ServerRequest, TapirResponse, R] = ZLayer.empty
-  )(implicit
-    runtime: Runtime[R1],
-    materializer: Materializer,
-    requestCodec: JsonCodec[GraphQLRequest],
-    mapCodec: JsonCodec[Map[String, Seq[String]]],
-    responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): Routes =
-    ???
-//    val endpoint = TapirAdapter.makeHttpUploadService[R1, R, E](interpreter, requestInterceptor)
-//    playInterpreter.toRoutes(TapirAdapter.convertHttpEndpointToFuture(endpoint))
-
-  def makeWebSocketService[R1, R, E](
-    interpreter: GraphQLInterpreter[R, E],
-    keepAliveTime: Option[Duration] = None,
-    requestInterceptor: ZLayer[R1 & ServerRequest, TapirResponse, R] = ZLayer.empty,
-    webSocketHooks: WebSocketHooks[R, E] = WebSocketHooks.empty
-  )(implicit
-    ec: ExecutionContext,
-    runtime: Runtime[R1],
-    materializer: Materializer,
-    inputCodec: JsonCodec[GraphQLWSInput],
-    outputCodec: JsonCodec[GraphQLWSOutput]
-  ): Routes =
-    ???
-//    val endpoint =
-//      TapirAdapter.makeWebSocketService[R1, R, E](interpreter, keepAliveTime, requestInterceptor, webSocketHooks)
-//    playInterpreter.toRoutes(
-//      PlayAdapter.convertWebSocketEndpoint(
-//        endpoint.asInstanceOf[
-//          ServerEndpoint.Full[
-//            Unit,
-//            Unit,
-//            (ServerRequest, String),
-//            StatusCode,
-//            (String, CalibanPipe),
-//            ZioWebSockets,
-//            RIO[R1, *]
-//          ]
-//        ]
-//      )
-//    )
+  def makeWebSocketService[R, E](
+    adapter: WebSocketAdapter[R, E]
+  )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): Routes = {
+    val endpoint = adapter.serverEndpoint[R]
+    playInterpreter.toRoutes(
+      PlayAdapter.convertWebSocketEndpoint(
+        endpoint.asInstanceOf[
+          ServerEndpoint.Full[
+            Unit,
+            Unit,
+            (ServerRequest, String),
+            StatusCode,
+            (String, CalibanPipe),
+            ZioWebSockets,
+            RIO[R, *]
+          ]
+        ]
+      )
+    )
+  }
 }
 
 object PlayAdapter extends PlayAdapter(None) {

@@ -1,11 +1,9 @@
 package caliban
 
-import caliban.interop.tapir.TapirAdapter.TapirResponse
 import caliban.interop.tapir.ws.Protocol
-import caliban.interop.tapir.{ TapirAdapter, WebSocketHooks }
+import caliban.interop.tapir.{ HttpAdapter, WebSocketHooks }
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.DecodeResult
-import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ziohttp.{ ZioHttpInterpreter, ZioHttpServerOptions }
 import zio._
 import zio.http.ChannelEvent.UserEvent.HandshakeComplete
@@ -16,17 +14,10 @@ import zio.stream._
 
 object ZHttpAdapter {
 
-  def makeHttpService[R1, R, E](
-    interpreter: GraphQLInterpreter[R, E],
-    requestInterceptor: ZLayer[R1 & ServerRequest, TapirResponse, R] = ZLayer.empty
-  )(implicit
-    requestCodec: JsonCodec[GraphQLRequest],
-    responseCodec: JsonCodec[GraphQLResponse[E]],
-    serverOptions: ZioHttpServerOptions[R1] = ZioHttpServerOptions.default[R1]
-  ): HttpApp[R1, Throwable] =
-    ???
-//    val endpoints = TapirAdapter.makeHttpService[R1, R, E](interpreter, requestInterceptor)
-//    ZioHttpInterpreter(serverOptions).toHttp(endpoints)
+  def makeHttpService[R, E](adapter: HttpAdapter[R, E])(implicit
+    serverOptions: ZioHttpServerOptions[R] = ZioHttpServerOptions.default[R]
+  ): HttpApp[R, Throwable] =
+    ZioHttpInterpreter(serverOptions).toHttp(adapter.serverEndpoints[R])
 
   def makeWebSocketService[R, E](
     interpreter: GraphQLInterpreter[R, E],

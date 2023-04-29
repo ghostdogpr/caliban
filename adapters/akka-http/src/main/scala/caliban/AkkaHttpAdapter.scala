@@ -4,9 +4,8 @@ import akka.http.scaladsl.server.Route
 import akka.stream.scaladsl.{ Flow, Sink, Source }
 import akka.stream.{ Materializer, OverflowStrategy }
 import caliban.AkkaHttpAdapter.convertWebSocketEndpoint
-import caliban.execution.QueryExecution
 import caliban.interop.tapir.TapirAdapter.{ zioMonadError, CalibanPipe, ZioWebSockets }
-import caliban.interop.tapir.{ HttpAdapter, HttpUploadAdapter, TapirAdapter, WebSocketAdapter, WebSocketHooks }
+import caliban.interop.tapir.{ HttpAdapter, HttpUploadAdapter, TapirAdapter, WebSocketAdapter }
 import sttp.capabilities.WebSockets
 import sttp.capabilities.akka.AkkaStreams
 import sttp.capabilities.akka.AkkaStreams.Pipe
@@ -54,76 +53,6 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
           ]
       )
     )
-
-  @deprecated
-  def makeHttpService[R: Tag, E](
-    interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    queryExecution: QueryExecution = QueryExecution.Parallel
-  )(implicit
-    runtime: Runtime[R],
-    requestCodec: JsonCodec[GraphQLRequest],
-    responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): Route = {
-    val adapter =
-      HttpAdapter(interpreter)
-        .configure(
-          Configurator.setSkipValidationScoped(skipValidation) *>
-            Configurator.setEnableIntrospectionScoped(enableIntrospection) *>
-            Configurator.setQueryExecutionScoped(queryExecution)
-        )
-    makeHttpService(adapter)
-  }
-
-  @deprecated
-  def makeHttpUploadService[R: Tag, E](
-    interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    queryExecution: QueryExecution = QueryExecution.Parallel
-  )(implicit
-    runtime: Runtime[R],
-    requestCodec: JsonCodec[GraphQLRequest],
-    mapCodec: JsonCodec[Map[String, Seq[String]]],
-    responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): Route = {
-    val adapter =
-      HttpUploadAdapter(interpreter).configure[R](
-        ZLayer.makeSome[R, R](
-          Configurator.setSkipValidation(skipValidation),
-          Configurator.setEnableIntrospection(enableIntrospection),
-          Configurator.setQueryExecution(queryExecution)
-        )
-      )
-    makeHttpUploadService(adapter)
-  }
-
-  @deprecated
-  def makeWebSocketService[R: Tag, E](
-    interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    keepAliveTime: Option[Duration] = None,
-    queryExecution: QueryExecution = QueryExecution.Parallel,
-    webSocketHooks: WebSocketHooks[R, E] = WebSocketHooks.empty
-  )(implicit
-    ec: ExecutionContext,
-    runtime: Runtime[R],
-    materializer: Materializer,
-    inputCodec: JsonCodec[GraphQLWSInput],
-    outputCodec: JsonCodec[GraphQLWSOutput]
-  ): Route = {
-    val adapter =
-      WebSocketAdapter(interpreter, keepAliveTime, webSocketHooks).configure[R](
-        ZLayer.makeSome[R, R](
-          Configurator.setSkipValidation(skipValidation),
-          Configurator.setEnableIntrospection(enableIntrospection),
-          Configurator.setQueryExecution(queryExecution)
-        )
-      )
-    makeWebSocketService(adapter)
-  }
 }
 
 object AkkaHttpAdapter {
