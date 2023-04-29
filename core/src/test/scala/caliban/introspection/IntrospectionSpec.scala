@@ -111,11 +111,12 @@ object IntrospectionSpec extends ZIOSpecDefault {
       test("fail when introspection is disabled") {
         val interpreter = graphQL(resolverIO).interpreter
 
-        interpreter
-          .flatMap(_.execute(fullIntrospectionQuery, enableIntrospection = false))
-          .map { response =>
-            assertTrue(response == GraphQLResponse(NullValue, List(ValidationError("Introspection is disabled", ""))))
-          }
+        Configurator.setEnableIntrospectionScoped(false) *>
+          interpreter
+            .flatMap(_.execute(fullIntrospectionQuery))
+            .map { response =>
+              assertTrue(response == GraphQLResponse(NullValue, List(ValidationError("Introspection is disabled", ""))))
+            }
 
       },
       test("introspect schema") {

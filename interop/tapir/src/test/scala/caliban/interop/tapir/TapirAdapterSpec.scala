@@ -46,21 +46,20 @@ object TapirAdapterSpec {
     wsUri: Option[Uri] = None
   )(implicit
     requestCodec: JsonCodec[GraphQLRequest],
-    mapCodec: JsonCodec[Map[String, Seq[String]]],
     responseCodec: JsonCodec[GraphQLResponse[CalibanError]],
     wsInputCodec: JsonCodec[GraphQLWSInput],
     wsOutputCodec: JsonCodec[GraphQLWSOutput]
   ): Spec[TestService, Throwable] = suite(label) {
     val run       =
       SttpClientInterpreter()
-        .toRequestThrowDecodeFailures(TapirAdapter.makeHttpEndpoints[CalibanError].head, Some(httpUri))
+        .toRequestThrowDecodeFailures(HttpAdapter.makeHttpEndpoints[CalibanError].head, Some(httpUri))
     val runUpload = uploadUri.map(uploadUri =>
       SttpClientInterpreter()
-        .toRequestThrowDecodeFailures(TapirAdapter.makeHttpUploadEndpoint[CalibanError], Some(uploadUri))
+        .toRequestThrowDecodeFailures(HttpUploadAdapter.makeHttpUploadEndpoint[CalibanError], Some(uploadUri))
     )
     val runWS     = wsUri.map(wsUri =>
       SttpClientInterpreter()
-        .toRequestThrowDecodeFailures(TapirAdapter.makeWebSocketEndpoint, Some(wsUri))
+        .toRequestThrowDecodeFailures(WebSocketAdapter.makeWebSocketEndpoint, Some(wsUri))
     )
 
     val tests: List[Option[Spec[SttpBackend[Task, ZioStreams with WebSockets], Throwable]]] = List(
@@ -84,8 +83,7 @@ object TapirAdapterSpec {
                             run((GraphQLRequest(Some("{ characters { name }  }")), null)).header("X-Invalid", "1").send(_)
                           )
               response <- ZIO.fromEither(res.body).flip.orElseFail(new Throwable("Failed to parse result"))
-            } yield assertTrue(response.code == StatusCode.Unauthorized) &&
-              assertTrue(response.body == "You are unauthorized!")
+            } yield assertTrue(response.code == StatusCode.Unauthorized, response.body == "You are unauthorized!")
           },
           test("lower-case content-type header") {
             val q = "{ characters { name }  }"
@@ -205,9 +203,11 @@ object TapirAdapterSpec {
               } yield messages
 
             io.map(_.collect { case Right(value) => value }).map { messages =>
-              assertTrue(messages.head.`type` == Ops.ConnectionAck) &&
-              assertTrue(messages(1).payload.get.toString == """{"data":{"characterDeleted":"Amos Burton"}}""") &&
-              assertTrue(messages(2).`type` == Ops.Complete)
+              assertTrue(
+                messages.head.`type` == Ops.ConnectionAck,
+                messages(1).payload.get.toString == """{"data":{"characterDeleted":"Amos Burton"}}""",
+                messages(2).`type` == Ops.Complete
+              )
             }
           } @@ TestAspect.timeout(60.seconds),
           test("graphql-ws") {
@@ -263,12 +263,12 @@ object TapirAdapterSpec {
               } yield messages
 
             io.map { messages =>
-              assertTrue(messages.head.map(_.`type`) == Right(Ops.ConnectionAck)) &&
               assertTrue(
-                messages(1).map(_.payload.get.toString) == Right("""{"data":{"characterDeleted":"Amos Burton"}}""")
-              ) &&
-              assertTrue(messages(2).map(_.`type`) == Right(Ops.Pong)) &&
-              assertTrue(messages(3).map(_.`type`) == Right(Ops.Complete))
+                messages.head.map(_.`type`) == Right(Ops.ConnectionAck),
+                messages(1).map(_.payload.get.toString) == Right("""{"data":{"characterDeleted":"Amos Burton"}}"""),
+                messages(2).map(_.`type`) == Right(Ops.Pong),
+                messages(3).map(_.`type`) == Right(Ops.Complete)
+              )
             }
           } @@ TestAspect.timeout(60.seconds)
         )

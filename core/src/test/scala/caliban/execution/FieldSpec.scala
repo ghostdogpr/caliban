@@ -7,6 +7,7 @@ import caliban.schema.Annotations.GQLInterface
 import caliban.schema._
 import caliban.schema.Schema.auto._
 import caliban.validation.Validator
+import caliban.validation.Validator.DefaultValidations
 import zio._
 import zio.test._
 
@@ -57,7 +58,15 @@ object FieldSpec extends ZIOSpecDefault {
     schema  <- api(ref).validateRootSchema
     doc     <- Parser.parseQuery(query)
     rootType = RootType(schema.query.opType, mutationType = None, subscriptionType = None)
-    req     <- Validator.prepare(doc, rootType, schema, operationName = None, Map.empty, skipValidation = false)
+    req     <- Validator.prepare(
+                 doc,
+                 rootType,
+                 schema,
+                 operationName = None,
+                 Map.empty,
+                 skipValidation = false,
+                 validations = DefaultValidations
+               )
   } yield req
 
   private val targetsSpec = suite("targets")(
