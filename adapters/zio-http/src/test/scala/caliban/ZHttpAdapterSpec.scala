@@ -18,21 +18,20 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
   private val apiLayer = envLayer >>> ZLayer.fromZIO {
     for {
       interpreter <- TestApi.api.interpreter
-      _           <-
-        Server
-          .serve(
-            Http
-              .collectRoute[Request] {
-                case _ -> !! / "api" / "graphql" =>
-                  ZHttpAdapter.makeHttpService(
-                    HttpAdapter(interpreter).configure(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
-                  )
-                case _ -> !! / "ws" / "graphql"  =>
-                  ZHttpAdapter.makeWebSocketService(interpreter)
-              }
-              .withDefaultErrorResponse
-          )
-          .forkScoped
+      _           <- Server
+                       .serve(
+                         Http
+                           .collectHttp[Request] {
+                             case _ -> !! / "api" / "graphql" =>
+                               ZHttpAdapter.makeHttpService(
+                                 HttpAdapter(interpreter).configure(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
+                               )
+                             case _ -> !! / "ws" / "graphql"  =>
+                               ZHttpAdapter.makeWebSocketService(interpreter)
+                           }
+                           .withDefaultErrorResponse
+                       )
+                       .forkScoped
       _           <- Live.live(Clock.sleep(3 seconds))
       service     <- ZIO.service[TestService]
     } yield service
@@ -47,8 +46,7 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
     suite.provideShared(
       apiLayer,
       Scope.default,
-      Server.live,
-      ServerConfig.live(ServerConfig.default.port(8089))
+      Server.defaultWithPort(8089)
     )
   }
 }

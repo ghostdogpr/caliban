@@ -18,6 +18,7 @@ jobs:
   test212_jdk:
     docker:
       - image: cimg/openjdk:11.0-node
+    resource_class: large
     steps:
       - checkout
       - restore_cache:
@@ -62,11 +63,12 @@ jobs:
   test213_jdk:
     docker:
       - image: cimg/openjdk:11.0-node
+    resource_class: large
     steps:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.10 core/test http4s/test akkaHttp/test play/test zioHttp/test examples/compile catsInterop/compile benchmarks/compile monixInterop/compile tapirInterop/test clientJVM/test federation/test reporting/test tracing/test
+      - run: sbt ++2.13.10 core/test http4s/test akkaHttp/test play/test zioHttp/test examples/compile catsInterop/compile benchmarks/compile monixInterop/compile tapirInterop/test clientJVM/test tools/test federation/test reporting/test tracing/test
       - save_cache:
           key: sbtcache
           paths:
@@ -76,39 +78,44 @@ jobs:
   test3_jdk:
     docker:
       - image: cimg/openjdk:11.0-node
+    resource_class: large
     steps:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++3.2.2 core/test catsInterop/compile benchmarks/compile monixInterop/compile clientJVM/test clientJS/compile zioHttp/test tapirInterop/test http4s/test federation/test reporting/test tracing/test
+      - run: sbt ++3.2.2 core/test catsInterop/compile benchmarks/compile monixInterop/compile clientJVM/test clientJS/compile zioHttp/test tapirInterop/test http4s/test federation/test tools/test reporting/test tracing/test
       - save_cache:
           key: sbtcache
           paths:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
-  test213_js:
+  test213_js_native:
     docker:
       - image: cimg/openjdk:11.0-node
+    resource_class: large
     steps:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.10 clientJS/test clientLaminextJS/Test/fastLinkJS
+      - run: ./.circleci/install-native-deps.sh
+      - run: sbt ++2.13.10 clientJS/test clientLaminextJS/Test/fastLinkJS clientNative/Test/nativeLink
       - save_cache:
           key: sbtcache
           paths:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
-  test3_js:
+  test3_js_native:
     docker:
       - image: cimg/openjdk:11.0-node
+    resource_class: large
     steps:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++3.2.2 clientJS/test clientLaminextJS/Test/fastLinkJS
+      - run: ./.circleci/install-native-deps.sh
+      - run: sbt ++3.2.2 clientJS/test clientLaminextJS/Test/fastLinkJS clientNative/Test/nativeLink
       - save_cache:
           key: sbtcache
           paths:
@@ -131,9 +138,25 @@ jobs:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
+  test_mima:
+    docker:
+      - image: cimg/openjdk:11.0-node
+    steps:
+      - checkout
+      - restore_cache:
+          key: sbtcache
+      - run: sbt ++2.13.10 core/mimaReportBinaryIssues http4s/mimaReportBinaryIssues akkaHttp/mimaReportBinaryIssues play/mimaReportBinaryIssues zioHttp/mimaReportBinaryIssues catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tools/mimaReportBinaryIssues tracing/mimaReportBinaryIssues
+      - run: sbt ++3.2.2 core/mimaReportBinaryIssues catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues zioHttp/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues http4s/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tools/mimaReportBinaryIssues tracing/mimaReportBinaryIssues
+      - save_cache:
+          key: sbtcache
+          paths:
+            - "~/.ivy2/cache"
+            - "~/.sbt"
+            - "~/.m2"
   release:
     docker:
       - image: cimg/openjdk:11.0-node
+    resource_class: large
     steps:
       - checkout
       - run: git fetch --tags
@@ -195,13 +218,13 @@ workflows:
           filters:
             tags:
               only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
-      - test213_js:
+      - test213_js_native:
           requires:
             - lint
           filters:
             tags:
               only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
-      - test3_js:
+      - test3_js_native:
           requires:
             - lint
           filters:
@@ -225,6 +248,12 @@ workflows:
           filters:
             tags:
               only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
+      - test_mima:
+          requires:
+            - lint
+          filters:
+            tags:
+              only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
       - release:
           context: Sonatype
           requires:
@@ -232,10 +261,10 @@ workflows:
             - scripted212_jdk
             - scripted3_jdk
             - test213_jdk
-            - test213_js
+            - test213_js_native
             - test213_docs
             - test3_jdk
-            - test3_js
+            - test3_js_native
           filters:
             branches:
               only:

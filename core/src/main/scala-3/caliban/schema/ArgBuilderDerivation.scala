@@ -95,10 +95,20 @@ trait ArgBuilderDerivation extends CommonArgBuilderDerivation {
 
   object Auto {
     inline def derived[A]: Auto[A] = new {
-      private val impl = ArgBuilder.gen[A]
+      private val impl = ArgBuilder.derived[A]
       export impl.*
     }
   }
+
+  /**
+   * Due to a Scala 3 compiler bug, it's not possible to derive two type classes of the same name. For example, the following fails to compile:
+   *
+   * `case class Foo(value: String) derives Schema.Auto, ArgBuilder.Auto`
+   *
+   * Until the issue is resolved, we can use this type alias as a workaround by replacing `ArgBuilder.Auto` with `ArgBuilder.GenAuto`
+   */
+  final type GenAuto[A] = Auto[A]
+
 }
 
 trait AutoArgBuilderDerivation extends ArgBuilderInstances with LowPriorityDerivedArgBuilder
