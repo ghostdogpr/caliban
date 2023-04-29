@@ -13,9 +13,13 @@ import zio._
 import java.nio.charset.StandardCharsets
 import scala.util.Try
 
-trait HttpUploadAdapter[-R, E] { self =>
-
+sealed trait HttpUploadAdapter[-R, E] { self =>
   protected val endpoint: PublicEndpoint[UploadRequest, TapirResponse, GraphQLResponse[E], Any]
+
+  protected def executeRequest(
+    graphQLRequest: GraphQLRequest,
+    serverRequest: ServerRequest
+  ): ZIO[R, TapirResponse, GraphQLResponse[E]]
 
   private def parsePath(path: String): List[Either[String, Int]] =
     path.split('.').map(c => Try(c.toInt).toEither.left.map(_ => c)).toList
@@ -74,40 +78,48 @@ trait HttpUploadAdapter[-R, E] { self =>
     endpoint.serverLogic(logic)
   }
 
-  protected def executeRequest(
-    graphQLRequest: GraphQLRequest,
-    serverRequest: ServerRequest
-  ): ZIO[R, TapirResponse, GraphQLResponse[E]]
-
   def configure[R1](configurator: ZLayer[R1 & ServerRequest, TapirResponse, R]): HttpUploadAdapter[R1, E] =
-    new HttpUploadAdapter[R1, E] {
-      val endpoint: PublicEndpoint[UploadRequest, TapirResponse, GraphQLResponse[E], Any] =
-        self.endpoint
+    HttpUploadAdapter.Configured(self, configurator)
 
-      def executeRequest(
-        graphQLRequest: GraphQLRequest,
-        serverRequest: ServerRequest
-      ): ZIO[R1, TapirResponse, GraphQLResponse[E]] =
-        self
-          .executeRequest(graphQLRequest, serverRequest)
-          .provideSome[R1](ZLayer.succeed(serverRequest), configurator)
-    }
+  def configure(configurator: URIO[Scope, Unit]): HttpUploadAdapter[R, E] =
+    configure[R](ZLayer.scopedEnvironment[R](configurator *> ZIO.environment[R]))
 }
 
 object HttpUploadAdapter {
+  private case class Base[R, E](interpreter: GraphQLInterpreter[R, E])(implicit
+    responseCodec: JsonCodec[GraphQLResponse[E]]
+  ) extends HttpUploadAdapter[R, E] {
+    val endpoint: PublicEndpoint[UploadRequest, TapirResponse, GraphQLResponse[E], Any] =
+      makeHttpUploadEndpoint
+
+    def executeRequest(
+      graphQLRequest: GraphQLRequest,
+      serverRequest: ServerRequest
+    ): ZIO[R, TapirResponse, GraphQLResponse[E]] =
+      interpreter.executeRequest(graphQLRequest)
+  }
+
+  private case class Configured[R1, R, E](
+    adapter: HttpUploadAdapter[R, E],
+    layer: ZLayer[R1 & ServerRequest, TapirResponse, R]
+  ) extends HttpUploadAdapter[R1, E] {
+    override def configure[R2](configurator: ZLayer[R2 & ServerRequest, TapirResponse, R1]): HttpUploadAdapter[R2, E] =
+      Configured[R2, R, E](adapter, ZLayer.makeSome[R2 & ServerRequest, R](configurator, layer))
+
+    val endpoint: PublicEndpoint[UploadRequest, TapirResponse, GraphQLResponse[E], Any] =
+      adapter.endpoint
+
+    def executeRequest(
+      graphQLRequest: GraphQLRequest,
+      serverRequest: ServerRequest
+    ): ZIO[R1, TapirResponse, GraphQLResponse[E]] =
+      adapter.executeRequest(graphQLRequest, serverRequest).provideSome[R1](ZLayer.succeed(serverRequest), layer)
+  }
+
   def apply[R, E](
     interpreter: GraphQLInterpreter[R, E]
   )(implicit responseCodec: JsonCodec[GraphQLResponse[E]]): HttpUploadAdapter[R, E] =
-    new HttpUploadAdapter[R, E] {
-      val endpoint: PublicEndpoint[UploadRequest, TapirResponse, GraphQLResponse[E], Any] =
-        makeHttpUploadEndpoint
-
-      def executeRequest(
-        graphQLRequest: GraphQLRequest,
-        serverRequest: ServerRequest
-      ): ZIO[R, TapirResponse, GraphQLResponse[E]] =
-        interpreter.executeRequest(graphQLRequest)
-    }
+    Base(interpreter)
 
   def makeHttpUploadEndpoint[E](implicit
     responseCodec: JsonCodec[GraphQLResponse[E]]

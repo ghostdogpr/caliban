@@ -13,54 +13,73 @@ import sttp.ws.WebSocketFrame
 import zio._
 
 trait WebSocketAdapter[-R, E] { self =>
-
   protected val endpoint: PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioWebSockets]
-
-  def serverEndpoint[R1 <: R]: ServerEndpoint[ZioWebSockets, RIO[R1, *]] =
-    endpoint.serverLogic[RIO[R1, *]] { case (serverRequest, protocol) =>
-      makeProtocol(serverRequest, protocol)
-    }
 
   protected def makeProtocol(
     serverRequest: ServerRequest,
     protocol: String
   ): URIO[R, Either[TapirResponse, (String, CalibanPipe)]]
 
-  def configure[R1](configurator: ZLayer[R1 & ServerRequest, TapirResponse, R]): WebSocketAdapter[R1, E] =
-    new WebSocketAdapter[R1, E] {
-      val endpoint: PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioWebSockets] =
-        self.endpoint
-
-      def makeProtocol(
-        serverRequest: ServerRequest,
-        protocol: String
-      ): URIO[R1, Either[TapirResponse, (String, CalibanPipe)]] =
-        self
-          .makeProtocol(serverRequest, protocol)
-          .provideSome[R1](ZLayer.succeed(serverRequest), configurator)
-          .catchAll(ZIO.left(_))
+  def serverEndpoint[R1 <: R]: ServerEndpoint[ZioWebSockets, RIO[R1, *]] =
+    endpoint.serverLogic[RIO[R1, *]] { case (serverRequest, protocol) =>
+      makeProtocol(serverRequest, protocol)
     }
+
+  def configure[R1](configurator: ZLayer[R1 & ServerRequest, TapirResponse, R]): WebSocketAdapter[R1, E] =
+    WebSocketAdapter.Configured(self, configurator)
+
+  def configure(configurator: URIO[Scope, Unit]): WebSocketAdapter[R, E] =
+    configure[R](ZLayer.scopedEnvironment[R](configurator *> ZIO.environment[R]))
 }
 
 object WebSocketAdapter {
+  private case class Base[R, E](
+    interpreter: GraphQLInterpreter[R, E],
+    keepAliveTime: Option[Duration],
+    webSocketHooks: WebSocketHooks[R, E]
+  )(implicit
+    inputCodec: JsonCodec[GraphQLWSInput],
+    outputCodec: JsonCodec[GraphQLWSOutput]
+  ) extends WebSocketAdapter[R, E] {
+    val endpoint: PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioWebSockets] =
+      makeWebSocketEndpoint
+
+    def makeProtocol(
+      serverRequest: ServerRequest,
+      protocol: String
+    ): URIO[R, Either[TapirResponse, (String, CalibanPipe)]] =
+      Protocol
+        .fromName(protocol)
+        .make(interpreter, keepAliveTime, webSocketHooks)
+        .map(res => Right((protocol, res)))
+  }
+
+  private case class Configured[R1, R, E](
+    adapter: WebSocketAdapter[R, E],
+    layer: ZLayer[R1 & ServerRequest, TapirResponse, R]
+  ) extends WebSocketAdapter[R1, E] {
+    override def configure[R2](configurator: ZLayer[R2 & ServerRequest, TapirResponse, R1]): WebSocketAdapter[R2, E] =
+      Configured[R2, R, E](adapter, ZLayer.makeSome[R2 & ServerRequest, R](configurator, layer))
+
+    val endpoint: PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioWebSockets] =
+      adapter.endpoint
+
+    def makeProtocol(
+      serverRequest: ServerRequest,
+      protocol: String
+    ): URIO[R1, Either[TapirResponse, (String, CalibanPipe)]] =
+      adapter
+        .makeProtocol(serverRequest, protocol)
+        .provideSome[R1](ZLayer.succeed(serverRequest), layer)
+        .catchAll(ZIO.left(_))
+  }
+
   def apply[R, E](
     interpreter: GraphQLInterpreter[R, E],
     keepAliveTime: Option[Duration] = None,
     webSocketHooks: WebSocketHooks[R, E] = WebSocketHooks.empty[R, E]
   )(implicit inputCodec: JsonCodec[GraphQLWSInput], outputCodec: JsonCodec[GraphQLWSOutput]): WebSocketAdapter[R, E] =
-    new WebSocketAdapter[R, E] {
-      val endpoint: PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioWebSockets] =
-        makeWebSocketEndpoint
-
-      def makeProtocol(
-        serverRequest: ServerRequest,
-        protocol: String
-      ): URIO[R, Either[TapirResponse, (String, CalibanPipe)]] =
-        Protocol
-          .fromName(protocol)
-          .make(interpreter, keepAliveTime, webSocketHooks)
-          .map(res => Right((protocol, res)))
-    }
+    Base(interpreter, keepAliveTime, webSocketHooks)
 
   /**
    * A codec which expects only text and close frames (all other frames cause a decoding error). Close frames correspond to a `Left`,
