@@ -67,163 +67,163 @@ class NestedZQueryBenchmark {
 
   @Benchmark
   def simpleParallelQuery100(): Any = {
-    val io = simple100.execute(simpleQuery, queryExecution = QueryExecution.Parallel)
+    val io = simple100.execute(simpleQuery).provide(Configurator.setQueryExecution(QueryExecution.Parallel))
     run(io)
   }
 
   @Benchmark
   def simpleParallelQuery1000(): Any = {
-    val io = simple1000.execute(simpleQuery, queryExecution = QueryExecution.Parallel)
+    val io = simple1000.execute(simpleQuery).provide(Configurator.setQueryExecution(QueryExecution.Parallel))
     run(io)
   }
 
   @Benchmark
   def simpleParallelQuery10000(): Any = {
-    val io = simple10000.execute(simpleQuery, queryExecution = QueryExecution.Parallel)
+    val io = simple10000.execute(simpleQuery).provide(Configurator.setQueryExecution(QueryExecution.Parallel))
     run(io)
   }
 
   @Benchmark
   def simpleSequentialQuery100(): Any = {
-    val io = simple100.execute(simpleQuery, queryExecution = QueryExecution.Sequential)
+    val io = simple100.execute(simpleQuery).provide(Configurator.setQueryExecution(QueryExecution.Sequential))
     run(io)
   }
 
   @Benchmark
   def simpleSequentialQuery1000(): Any = {
-    val io = simple1000.execute(simpleQuery, queryExecution = QueryExecution.Sequential)
+    val io = simple1000.execute(simpleQuery).provide(Configurator.setQueryExecution(QueryExecution.Sequential))
     run(io)
   }
 
   @Benchmark
   def simpleSequentialQuery10000(): Any = {
-    val io = simple10000.execute(simpleQuery, queryExecution = QueryExecution.Sequential)
+    val io = simple10000.execute(simpleQuery).provide(Configurator.setQueryExecution(QueryExecution.Sequential))
     run(io)
   }
 
   @Benchmark
   def simpleBatchedQuery100(): Any = {
-    val io = simple100.execute(simpleQuery, queryExecution = QueryExecution.Batched)
+    val io = simple100.execute(simpleQuery).provide(Configurator.setQueryExecution(QueryExecution.Batched))
     run(io)
   }
 
   @Benchmark
   def simpleBatchedQuery1000(): Any = {
-    val io = simple1000.execute(simpleQuery, queryExecution = QueryExecution.Batched)
+    val io = simple1000.execute(simpleQuery).provide(Configurator.setQueryExecution(QueryExecution.Batched))
     run(io)
   }
 
   @Benchmark
   def simpleBatchedQuery10000(): Any = {
-    val io = simple10000.execute(simpleQuery, queryExecution = QueryExecution.Batched)
+    val io = simple10000.execute(simpleQuery).provide(Configurator.setQueryExecution(QueryExecution.Batched))
     run(io)
   }
 
   @Benchmark
   def multifieldParallelQuery100(): Any = {
-    val io = multifield100.execute(multifieldQuery, queryExecution = QueryExecution.Parallel)
+    val io = multifield100.execute(multifieldQuery).provide(Configurator.setQueryExecution(QueryExecution.Parallel))
     run(io)
   }
 
   @Benchmark
   def multifieldParallelQuery1000(): Any = {
-    val io = multifield1000.execute(multifieldQuery, queryExecution = QueryExecution.Parallel)
+    val io = multifield1000.execute(multifieldQuery).provide(Configurator.setQueryExecution(QueryExecution.Parallel))
     run(io)
   }
 
   @Benchmark
   def multifieldParallelQuery10000(): Any = {
-    val io = multifield10000.execute(multifieldQuery, queryExecution = QueryExecution.Parallel)
+    val io = multifield10000.execute(multifieldQuery).provide(Configurator.setQueryExecution(QueryExecution.Parallel))
     run(io)
   }
 
   @Benchmark
   def multifieldSequentialQuery100(): Any = {
-    val io = multifield100.execute(multifieldQuery, queryExecution = QueryExecution.Sequential)
+    val io = multifield100.execute(multifieldQuery).provide(Configurator.setQueryExecution(QueryExecution.Sequential))
     run(io)
   }
 
   @Benchmark
   def multifieldSequentialQuery1000(): Any = {
-    val io = multifield1000.execute(multifieldQuery, queryExecution = QueryExecution.Sequential)
+    val io = multifield1000.execute(multifieldQuery).provide(Configurator.setQueryExecution(QueryExecution.Sequential))
     run(io)
   }
 
   @Benchmark
   def multifieldSequentialQuery10000(): Any = {
-    val io = multifield10000.execute(multifieldQuery, queryExecution = QueryExecution.Sequential)
+    val io = multifield10000.execute(multifieldQuery).provide(Configurator.setQueryExecution(QueryExecution.Sequential))
     run(io)
   }
 
   @Benchmark
   def multifieldBatchedQuery100(): Any = {
-    val io = multifield100.execute(multifieldQuery, queryExecution = QueryExecution.Batched)
+    val io = multifield100.execute(multifieldQuery).provide(Configurator.setQueryExecution(QueryExecution.Batched))
     run(io)
   }
 
   @Benchmark
   def multifieldBatchedQuery1000(): Any = {
-    val io = multifield1000.execute(multifieldQuery, queryExecution = QueryExecution.Batched)
+    val io = multifield1000.execute(multifieldQuery).provide(Configurator.setQueryExecution(QueryExecution.Batched))
     run(io)
   }
 
   @Benchmark
   def multifieldBatchedQuery10000(): Any = {
-    val io = multifield10000.execute(multifieldQuery, queryExecution = QueryExecution.Batched)
+    val io = multifield10000.execute(multifieldQuery).provide(Configurator.setQueryExecution(QueryExecution.Batched))
     run(io)
   }
 
   @Benchmark
   def deepParallelQuery100(): Any = {
-    val io = deep100.execute(deepQuery, queryExecution = QueryExecution.Parallel)
+    val io = deep100.execute(deepQuery).provide(Configurator.setQueryExecution(QueryExecution.Parallel))
     run(io)
   }
 
   @Benchmark
   def deepParallelQuery1000(): Any = {
-    val io = deep1000.execute(deepQuery, queryExecution = QueryExecution.Parallel)
+    val io = deep1000.execute(deepQuery).provide(Configurator.setQueryExecution(QueryExecution.Parallel))
     run(io)
   }
 
   @Benchmark
   def deepParallelQuery10000(): Any = {
-    val io = deep10000.execute(deepQuery, queryExecution = QueryExecution.Parallel)
+    val io = deep10000.execute(deepQuery).provide(Configurator.setQueryExecution(QueryExecution.Parallel))
     run(io)
   }
 
   @Benchmark
   def deepSequentialQuery100(): Any = {
-    val io = deep100.execute(deepQuery, queryExecution = QueryExecution.Sequential)
+    val io = deep100.execute(deepQuery).provide(Configurator.setQueryExecution(QueryExecution.Sequential))
     run(io)
   }
 
   @Benchmark
   def deepSequentialQuery1000(): Any = {
-    val io = deep1000.execute(deepQuery, queryExecution = QueryExecution.Sequential)
+    val io = deep1000.execute(deepQuery).provide(Configurator.setQueryExecution(QueryExecution.Sequential))
     run(io)
   }
 
   @Benchmark
   def deepSequentialQuery10000(): Any = {
-    val io = deep10000.execute(deepQuery, queryExecution = QueryExecution.Sequential)
+    val io = deep10000.execute(deepQuery).provide(Configurator.setQueryExecution(QueryExecution.Sequential))
     run(io)
   }
 
   @Benchmark
   def deepBatchedQuery100(): Any = {
-    val io = deep100.execute(deepQuery, queryExecution = QueryExecution.Batched)
+    val io = deep100.execute(deepQuery).provide(Configurator.setQueryExecution(QueryExecution.Batched))
     run(io)
   }
 
   @Benchmark
   def deepBatchedQuery1000(): Any = {
-    val io = deep1000.execute(deepQuery, queryExecution = QueryExecution.Batched)
+    val io = deep1000.execute(deepQuery).provide(Configurator.setQueryExecution(QueryExecution.Batched))
     run(io)
   }
 
   @Benchmark
   def deepBatchedQuery10000(): Any = {
-    val io = deep10000.execute(deepQuery, queryExecution = QueryExecution.Batched)
+    val io = deep10000.execute(deepQuery).provide(Configurator.setQueryExecution(QueryExecution.Batched))
     run(io)
   }
 }
