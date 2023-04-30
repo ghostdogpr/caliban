@@ -151,7 +151,7 @@ object Validator {
       val context       = Context(document, rootType, operations, fragmentMap, selectionSets, variables)
       ZPure.foreachDiscard(validations)(identity).provideService(context) as fragmentMap
     }
-  }d
+  }
 
   private def collectDefinitions(
     document: Document

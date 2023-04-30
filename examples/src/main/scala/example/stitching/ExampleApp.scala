@@ -5,8 +5,8 @@ import caliban.interop.tapir.HttpAdapter
 import caliban.schema._
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
-import caliban.tools.{Options, RemoteSchema, SchemaLoader}
-import caliban.tools.stitching.{HttpRequest, RemoteResolver, RemoteSchemaResolver, ResolveRequest}
+import caliban.tools.{ Options, RemoteSchema, SchemaLoader }
+import caliban.tools.stitching.{ HttpRequest, RemoteResolver, RemoteSchemaResolver, ResolveRequest }
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.client3.SttpBackend
