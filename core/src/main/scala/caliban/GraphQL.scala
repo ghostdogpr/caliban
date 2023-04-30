@@ -107,41 +107,44 @@ trait GraphQL[-R] { self =>
             case (overallWrappers, parsingWrappers, validationWrappers, executionWrappers, fieldWrappers, _) =>
               wrap((request: GraphQLRequest) =>
                 (for {
-                  doc              <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
-                  intro             = doc.isIntrospection
-                  config           <- Configurator.configuration
-                  _                <- ZIO.when(intro && !config.enableIntrospection) {
-                                        ZIO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
-                                      }
-                  typeToValidate    = if (intro) introspectionRootType else rootType
-                  schemaToExecute   = if (intro) introspectionRootSchema else schema
-                  validatedReq     <- VariablesCoercer.coerceVariables(request, doc, typeToValidate, config.skipValidation)
-                  validate          = (doc: Document) =>
-                                        for {
-                                          config       <- Configurator.configuration
-                                          executionReq <- Validator.prepare(
-                                                            doc,
-                                                            typeToValidate,
-                                                            schemaToExecute,
-                                                            validatedReq.operationName,
-                                                            validatedReq.variables.getOrElse(Map.empty),
-                                                            config.skipValidation,
-                                                            config.validations
-                                                          )
-                                        } yield executionReq
-                  executionRequest <- wrap(validate)(validationWrappers, doc)
-                  op                = executionRequest.operationType match {
-                                        case OperationType.Query        => schemaToExecute.query
-                                        case OperationType.Mutation     => schemaToExecute.mutation.getOrElse(schemaToExecute.query)
-                                        case OperationType.Subscription =>
-                                          schemaToExecute.subscription.getOrElse(schemaToExecute.query)
-                                      }
-                  execute           = (req: ExecutionRequest) =>
-                                        for {
-                                          queryExecution <- Configurator.configuration.map(_.queryExecution)
-                                          res            <- Executor.executeRequest(req, op.plan, fieldWrappers, queryExecution)
-                                        } yield res
-                  result           <- wrap(execute)(executionWrappers, executionRequest)
+                  doc                                  <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
+                  intro                                 = doc.isIntrospection
+                  config                               <- Configurator.configuration.map { config =>
+                                                            (config.skipValidation, config.enableIntrospection)
+                                                          }
+                  (skipValidation, enableIntrospection) = config
+                  _                                    <- ZIO.when(intro && !enableIntrospection) {
+                                                            ZIO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
+                                                          }
+                  typeToValidate                        = if (intro) introspectionRootType else rootType
+                  schemaToExecute                       = if (intro) introspectionRootSchema else schema
+                  validatedReq                         <- VariablesCoercer.coerceVariables(request, doc, typeToValidate, skipValidation)
+                  validate                              = (doc: Document) =>
+                                                            for {
+                                                              config       <- Configurator.configuration
+                                                              executionReq <- Validator.prepare(
+                                                                                doc,
+                                                                                typeToValidate,
+                                                                                schemaToExecute,
+                                                                                validatedReq.operationName,
+                                                                                validatedReq.variables.getOrElse(Map.empty),
+                                                                                config.skipValidation,
+                                                                                config.validations
+                                                                              )
+                                                            } yield executionReq
+                  executionRequest                     <- wrap(validate)(validationWrappers, doc)
+                  op                                    = executionRequest.operationType match {
+                                                            case OperationType.Query        => schemaToExecute.query
+                                                            case OperationType.Mutation     => schemaToExecute.mutation.getOrElse(schemaToExecute.query)
+                                                            case OperationType.Subscription =>
+                                                              schemaToExecute.subscription.getOrElse(schemaToExecute.query)
+                                                          }
+                  execute                               = (req: ExecutionRequest) =>
+                                                            for {
+                                                              queryExecution <- Configurator.configuration.map(_.queryExecution)
+                                                              res            <- Executor.executeRequest(req, op.plan, fieldWrappers, queryExecution)
+                                                            } yield res
+                  result                               <- wrap(execute)(executionWrappers, executionRequest)
                 } yield result).catchAll(Executor.fail)
               )(overallWrappers, request)
           }
