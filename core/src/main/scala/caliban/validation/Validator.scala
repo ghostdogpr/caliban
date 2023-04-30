@@ -26,7 +26,12 @@ import scala.annotation.tailrec
 
 object Validator {
 
-  lazy val DefaultValidations: List[EReader[Context, ValidationError, Unit]] =
+  /**
+   * A QueryValidation is a pure program that can access a Context, fail with a ValidationError or succeed with Unit.
+   */
+  type QueryValidation = EReader[Context, ValidationError, Unit]
+
+  lazy val AllValidations: List[QueryValidation] =
     List(
       validateFragmentSpreads,
       validateOperationNameUniqueness,
@@ -78,7 +83,7 @@ object Validator {
     operationName: Option[String],
     variables: Map[String, InputValue],
     skipValidation: Boolean,
-    validations: List[EReader[Context, ValidationError, Unit]]
+    validations: List[QueryValidation]
   ): IO[ValidationError, ExecutionRequest] = {
     val fragments: EReader[Any, ValidationError, Map[String, FragmentDefinition]] = if (skipValidation) {
       ZPure.succeed[Unit, Map[String, FragmentDefinition]](
@@ -138,7 +143,7 @@ object Validator {
     document: Document,
     rootType: RootType,
     variables: Map[String, InputValue],
-    validations: List[EReader[Context, ValidationError, Unit]]
+    validations: List[QueryValidation]
   ): EReader[Any, ValidationError, Map[String, FragmentDefinition]] = {
     val (operations, fragments, _, _) = collectDefinitions(document)
     validateFragments(fragments).flatMap { fragmentMap =>
@@ -146,7 +151,7 @@ object Validator {
       val context       = Context(document, rootType, operations, fragmentMap, selectionSets, variables)
       ZPure.foreachDiscard(validations)(identity).provideService(context) as fragmentMap
     }
-  }
+  }d
 
   private def collectDefinitions(
     document: Document
@@ -289,7 +294,7 @@ object Validator {
         )
     }
 
-  lazy val validateDirectives: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
+  lazy val validateDirectives: QueryValidation = ZPure.serviceWithPure { context =>
     for {
       directives <- collectAllDirectives(context)
       _          <- ZPure.foreachDiscard(directives) { case (d, location) =>
@@ -327,7 +332,7 @@ object Validator {
     } yield ()
   }
 
-  lazy val validateVariables: EReader[Context, ValidationError, Unit] =
+  lazy val validateVariables: QueryValidation =
     ZPure.serviceWithPure { context =>
       ZPure.foreachDiscard(context.operations)(op =>
         ZPure.foreachDiscard(op.variableDefinitions.groupBy(_.name)) { case (name, variables) =>
@@ -370,7 +375,7 @@ object Validator {
   private def collectFragmentSpreads(selectionSet: List[Selection]): List[FragmentSpread] =
     selectionSet.collect { case f: FragmentSpread => f }
 
-  lazy val validateFragmentSpreads: EReader[Context, ValidationError, Unit] =
+  lazy val validateFragmentSpreads: QueryValidation =
     ZPure.serviceWithPure { context =>
       val spreads     = collectFragmentSpreads(context.selectionSets)
       val spreadNames = spreads.map(_.name).toSet
@@ -399,7 +404,7 @@ object Validator {
     )
   }
 
-  lazy val validateDocumentFields: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
+  lazy val validateDocumentFields: QueryValidation = ZPure.serviceWithPure { context =>
     ZPure.foreachDiscard(context.document.definitions) {
       case OperationDefinition(opType, _, _, _, selectionSet) =>
         opType match {
@@ -689,7 +694,7 @@ object Validator {
       case _                                                                                 => ZPure.unit
     }
 
-  lazy val validateOperationNameUniqueness: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
+  lazy val validateOperationNameUniqueness: QueryValidation = ZPure.serviceWithPure { context =>
     val operations    = context.operations
     val names         = operations.flatMap(_.name).groupBy(identity)
     val repeatedNames = names.collect { case (name, items) if items.length > 1 => name }
@@ -703,7 +708,7 @@ object Validator {
       .unit
   }
 
-  lazy val validateLoneAnonymousOperation: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
+  lazy val validateLoneAnonymousOperation: QueryValidation = ZPure.serviceWithPure { context =>
     val operations = context.operations
     val anonymous  = operations.filter(_.name.isEmpty)
     ZPure
@@ -728,7 +733,7 @@ object Validator {
       } else ZPure.succeed(fragmentMap.updated(fragment.name, fragment))
     }
 
-  lazy val validateSubscriptionOperation: EReader[Context, ValidationError, Unit] = ZPure.serviceWithPure { context =>
+  lazy val validateSubscriptionOperation: QueryValidation = ZPure.serviceWithPure { context =>
     val error = {
       for {
         t           <- context.rootType.subscriptionType

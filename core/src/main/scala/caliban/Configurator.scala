@@ -3,7 +3,7 @@ package caliban
 import caliban.CalibanError.ValidationError
 import caliban.execution.QueryExecution
 import caliban.validation.Context
-import caliban.validation.Validator.DefaultValidations
+import caliban.validation.Validator.{ AllValidations, QueryValidation }
 import zio._
 import zio.prelude.EReader
 
@@ -12,7 +12,7 @@ object Configurator {
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     queryExecution: QueryExecution = QueryExecution.Parallel,
-    validations: List[EReader[Context, ValidationError, Unit]] = DefaultValidations
+    validations: List[QueryValidation] = AllValidations
   )
 
   private val configRef: FiberRef[ExecutionConfiguration] =
@@ -27,10 +27,10 @@ object Configurator {
   def setSkipValidationScoped(skip: Boolean): URIO[Scope, Unit] =
     configRef.locallyScopedWith(_.copy(skipValidation = skip))
 
-  def setValidations(validations: List[EReader[Context, ValidationError, Unit]]): ULayer[Unit] =
+  def setValidations(validations: List[QueryValidation]): ULayer[Unit] =
     ZLayer.scoped(setValidationsScoped(validations))
 
-  def setValidationsScoped(validations: List[EReader[Context, ValidationError, Unit]]): URIO[Scope, Unit] =
+  def setValidationsScoped(validations: List[QueryValidation]): URIO[Scope, Unit] =
     configRef.locallyScopedWith(_.copy(validations = validations))
 
   def setEnableIntrospection(enable: Boolean): ULayer[Unit] =

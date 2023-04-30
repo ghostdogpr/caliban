@@ -7,7 +7,7 @@ import caliban.schema.Annotations.GQLInterface
 import caliban.schema._
 import caliban.schema.Schema.auto._
 import caliban.validation.Validator
-import caliban.validation.Validator.DefaultValidations
+import caliban.validation.Validator.AllValidations
 import zio._
 import zio.test._
 
@@ -65,7 +65,7 @@ object FieldSpec extends ZIOSpecDefault {
                  operationName = None,
                  Map.empty,
                  skipValidation = false,
-                 validations = DefaultValidations
+                 validations = AllValidations
                )
   } yield req
 
