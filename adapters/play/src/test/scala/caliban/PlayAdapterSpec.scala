@@ -35,7 +35,6 @@ object PlayAdapterSpec extends ZIOSpecDefault {
                              runtime,
                              mat,
                              implicitly,
-                             implicitly,
                              implicitly
                            )
                            .apply(req)

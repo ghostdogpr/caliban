@@ -23,7 +23,6 @@ object ZHttpAdapter {
     requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
   )(implicit
     requestCodec: JsonCodec[GraphQLRequest],
-    responseCodec: JsonCodec[GraphQLResponse[E]],
     responseValueCodec: JsonCodec[ResponseValue],
     serverOptions: ZioHttpServerOptions[R] = ZioHttpServerOptions.default[R]
   ): HttpApp[R, Throwable] = {
