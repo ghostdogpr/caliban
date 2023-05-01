@@ -12,7 +12,7 @@ import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.{ headers, _ }
 import zio._
-import zio.stream.{ ZSink, ZStream }
+import zio.stream.{ ZChannel, ZPipeline, ZSink, ZStream }
 
 import java.nio.charset.StandardCharsets
 import scala.concurrent.Future
@@ -125,22 +125,30 @@ object TapirAdapter {
   )(implicit responseCodec: JsonCodec[ResponseValue]): CalibanBody = {
     import DeferMultipart._
 
-    Right(
-      ZStream
-        .unwrapScoped(
-          for {
-            initialAndSubsequent <- stream.peel(ZSink.head[ResponseValue])
-            (initial, subsequent) = initialAndSubsequent
-            payload               = ZStream.fromIterable(
-                                      initial.map(value => resp.copy(data = value).toResponseValue)
-                                    ) ++ subsequent
-          } yield payload
-            .map(responseCodec.encode)
-            .intersperse(InnerBoundary, InnerBoundary, EndBoundary)
+    val pipeline = ZPipeline.fromChannel {
+      lazy val reader: ZChannel[Any, Throwable, Chunk[ResponseValue], Any, Throwable, Chunk[ResponseValue], Any] =
+        ZChannel.readWithCause(
+          (in: Chunk[ResponseValue]) =>
+            in.headOption match {
+              case Some(value) =>
+                ZChannel.write(in.updated(0, resp.copy(data = value).toResponseValue)) *>
+                  ZChannel.identity[Throwable, Chunk[ResponseValue], Any]
+              case None        => reader
+            },
+          (cause: Cause[Throwable]) => ZChannel.failCause(cause),
+          (_: Any) => ZChannel.unit
         )
+
+      reader
+    }
+
+    Right(
+      stream
+        .via(pipeline)
+        .map(responseCodec.encode)
+        .intersperse(InnerBoundary, InnerBoundary, EndBoundary)
         .mapConcat(_.getBytes(StandardCharsets.UTF_8))
     )
-
   }
 
   private def encodeSingleResponse[E](response: GraphQLResponse[E]) =
