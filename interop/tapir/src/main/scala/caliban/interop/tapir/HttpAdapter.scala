@@ -28,8 +28,8 @@ sealed trait HttpAdapter[-R, E] { self =>
   def configure[R1](configurator: ZLayer[R1 & ServerRequest, TapirResponse, R]): HttpAdapter[R1, E] =
     HttpAdapter.Configured(self, configurator)
 
-  def configure(configurator: URIO[Scope, Unit]): HttpAdapter[R, E] =
-    configure[R](ZLayer.scopedEnvironment[R](configurator *> ZIO.environment[R]))
+  def configure[R1](configurator: URIO[R1 & Scope, Unit]): HttpAdapter[R & R1, E] =
+    configure[R & R1](ZLayer.scopedEnvironment[R & R1](configurator *> ZIO.environment[R]))
 }
 
 object HttpAdapter {
