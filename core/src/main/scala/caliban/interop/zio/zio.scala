@@ -413,7 +413,8 @@ private[caliban] object GraphQLResponseZioJson {
   }
 
   implicit val errorValueDecoder: JsonDecoder[CalibanError]                       = ErrorZioJson.errorValueDecoder
-  implicit val responseValueDecoder: JsonDecoder[ResponseValue.ObjectValue]       = ValueZIOJson.Obj.responseDecoder
+  implicit val objectValueDecoder: JsonDecoder[ResponseValue.ObjectValue]         = ValueZIOJson.Obj.responseDecoder
+  implicit val listValueDecoder: JsonDecoder[ResponseValue.ListValue]             = ValueZIOJson.Arr.responseDecoder
   implicit val graphQLResponseDecoder: JsonDecoder[GraphQLResponse[CalibanError]] =
     GQLResponse.decoder.map { resp =>
       GraphQLResponse[CalibanError](

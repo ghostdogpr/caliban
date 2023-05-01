@@ -1,17 +1,20 @@
 package caliban.execution
 
-import scala.annotation.tailrec
 import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue._
 import caliban.Value._
 import caliban._
+import caliban.execution.Fragment.IsDeferred
 import caliban.parsing.adt._
+import caliban.schema.ReducedStep.DeferStep
 import caliban.schema.Step._
 import caliban.schema.{ ReducedStep, Step, Types }
 import caliban.wrappers.Wrapper.FieldWrapper
 import zio._
-import zio.query.ZQuery
+import zio.query.{ Cache, ZQuery }
+import zio.stream.ZStream
 
+import scala.annotation.tailrec
 import scala.collection.mutable.ArrayBuffer
 
 object Executor {
@@ -27,7 +30,8 @@ object Executor {
     request: ExecutionRequest,
     plan: Step[R],
     fieldWrappers: List[FieldWrapper[R]] = Nil,
-    queryExecution: QueryExecution = QueryExecution.Parallel
+    queryExecution: QueryExecution = QueryExecution.Parallel,
+    featureSet: Set[Feature] = Set.empty
   )(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] = {
 
     val execution                                                          = request.operationType match {
@@ -72,20 +76,38 @@ object Executor {
             Types.listOf(currentField.fieldType).fold(false)(_.isNullable)
           )
         case ObjectStep(objectName, fields) =>
-          val filteredFields = mergeFields(currentField, objectName)
-          val items          = filteredFields.map {
-            case f @ Field(name @ "__typename", _, _, alias, _, _, _, directives, _, _) =>
-              (alias.getOrElse(name), PureStep(StringValue(objectName)), fieldInfo(f, path, directives))
-            case f @ Field(name, _, _, alias, _, _, args, directives, _, _)             =>
-              (
-                alias.getOrElse(name),
-                fields
-                  .get(name)
-                  .fold(NullStep: ReducedStep[R])(reduceStep(_, f, args, Left(alias.getOrElse(name)) :: path)),
-                fieldInfo(f, path, directives)
+          val filteredFields    = mergeFields(currentField, objectName)
+          val (deferred, eager) = filteredFields.partitionMap {
+            case f @ Field(name @ "__typename", _, _, alias, _, _, _, directives, _, _, _) =>
+              Right((alias.getOrElse(name), PureStep(StringValue(objectName)), fieldInfo(f, path, directives)))
+            case f @ Field(name, _, _, alias, _, _, args, directives, _, _, fragment)      =>
+              val aliasedName = alias.getOrElse(name)
+              val field       = fields
+                .get(name)
+                .fold(NullStep: ReducedStep[R])(reduceStep(_, f, args, Left(alias.getOrElse(name)) :: path))
+
+              val info = fieldInfo(f, path, directives)
+
+              fragment.collectFirst {
+                // The defer spec provides some latitude on how we handle responses. Since it is more performant to return
+                // pure fields rather than spin up the defer machinery we return pure fields immediately to the caller.
+                case IsDeferred(label) if featureSet(Feature.Defer) && !field.isPure =>
+                  (label, (aliasedName, field, info))
+              }.toLeft((aliasedName, field, info))
+          }
+
+          deferred match {
+            case Nil => reduceObject(eager, fieldWrappers)
+            case d   =>
+              DeferStep(
+                reduceObject(eager, fieldWrappers),
+                d.groupBy(_._1).toList.map { case (label, labelAndFields) =>
+                  val (_, fields) = labelAndFields.unzip
+                  reduceObject(fields, fieldWrappers) -> label
+                },
+                path
               )
           }
-          reduceObject(items, fieldWrappers)
         case QueryStep(inner)               =>
           ReducedStep.QueryStep(
             inner.foldCauseQuery(
@@ -110,7 +132,11 @@ object Executor {
           }
       }
 
-    def makeQuery(step: ReducedStep[R], errors: Ref[List[CalibanError]]): ZQuery[R, Nothing, ResponseValue] = {
+    def makeQuery(
+      step: ReducedStep[R],
+      errors: Ref[List[CalibanError]],
+      deferred: Ref[List[Deferred[R]]]
+    ): ZQuery[R, Nothing, ResponseValue] = {
 
       def handleError(error: ExecutionError, isNullable: Boolean): ZQuery[Any, ExecutionError, ResponseValue] =
         if (isNullable) ZQuery.fromZIO(errors.update(error :: _)).as(NullValue)
@@ -158,17 +184,83 @@ object Executor {
                   )
                 )
               )
+          case ReducedStep.DeferStep(obj, nextSteps, path)   =>
+            val deferredSteps = nextSteps.map { case (step, label) =>
+              Deferred(path, step, label)
+            }
+            ZQuery.fromZIO(deferred.update(deferredSteps ::: _)) *> loop(obj)
         }
       loop(step).flatMap(_.fold(error => ZQuery.fromZIO(errors.update(error :: _)).as(NullValue), ZQuery.succeed(_)))
     }
 
+    def runQuery(step: ReducedStep[R], cache: Cache) =
+      for {
+        env          <- ZIO.environment[R]
+        deferred     <- Ref.make(List.empty[Deferred[R]])
+        errors       <- Ref.make(List.empty[CalibanError])
+        query         = makeQuery(step, errors, deferred)
+        result       <- query.runCache(cache)
+        resultErrors <- errors.get
+        defers       <- deferred.get
+      } yield
+        if (defers.nonEmpty) {
+          val stream = (makeDeferStream(defers, cache)
+            .mapChunks(chunk => Chunk.single(GraphQLIncrementalResponse(chunk.toList, hasNext = true))) ++ ZStream
+            .succeed(GraphQLIncrementalResponse.empty))
+            .map(_.toResponseValue)
+            .provideEnvironment(env)
+
+          GraphQLResponse(
+            StreamValue(ZStream.succeed(result) ++ stream),
+            resultErrors.reverse,
+            hasNext = Some(true)
+          )
+        } else GraphQLResponse(result, resultErrors.reverse, hasNext = None)
+
+    def makeDeferStream(
+      defers: List[Deferred[R]],
+      cache: Cache
+    ): ZStream[R, Nothing, Incremental[CalibanError]] = {
+      def run(d: Deferred[R]) =
+        ZStream.unwrap(runIncrementalQuery(d.step, cache, d.path, d.label).map {
+          case (resp, Nil)  =>
+            ZStream.succeed(resp)
+          case (resp, more) =>
+            ZStream.succeed(resp) ++ makeDeferStream(more, cache)
+        })
+
+      ZStream.mergeAllUnbounded()(defers.map(run): _*)
+    }
+
+    def runIncrementalQuery(
+      step: ReducedStep[R],
+      cache: Cache,
+      path: List[Either[String, Int]],
+      label: Option[String]
+    ) =
+      for {
+        deferred     <- Ref.make(List.empty[Deferred[R]])
+        errors       <- Ref.make(List.empty[CalibanError])
+        query         = makeQuery(step, errors, deferred)
+        result       <- query.runCache(cache)
+        resultErrors <- errors.get
+        defers       <- deferred.get
+      } yield (Incremental.Defer(
+        result,
+        errors = resultErrors.reverse,
+        path = ListValue(path.map {
+          case Left(s)  => StringValue(s)
+          case Right(i) => IntValue(i)
+        }.reverse),
+        label = label
+      )
+        -> defers)
+
     for {
-      errors       <- Ref.make(List.empty[CalibanError])
-      reduced       = reduceStep(plan, request.field, Map(), Nil)
-      query         = makeQuery(reduced, errors)
-      result       <- query.run
-      resultErrors <- errors.get
-    } yield GraphQLResponse(result, resultErrors.reverse)
+      cache    <- Cache.empty
+      reduced   = reduceStep(plan, request.field, Map(), Nil)
+      response <- runQuery(reduced, cache)
+    } yield response
   }
 
   private[caliban] def fail(error: CalibanError): UIO[GraphQLResponse[CalibanError]] =
@@ -227,4 +319,18 @@ object Executor {
       case Some(e: ExecutionError) => Cause.fail(e.copy(path = path.reverse, locationInfo = locationInfo))
       case other                   => Cause.fail(ExecutionError("Effect failure", path.reverse, locationInfo, other))
     }
+
+  private implicit class EnrichedListOps[+A](val list: List[A]) extends AnyVal {
+    def partitionMap[A1, A2](f: A => Either[A1, A2]): (List[A1], List[A2]) = {
+      val l = List.newBuilder[A1]
+      val r = List.newBuilder[A2]
+      list.foreach { x =>
+        f(x) match {
+          case Left(x1)  => l += x1
+          case Right(x2) => r += x2
+        }
+      }
+      (l.result(), r.result())
+    }
+  }
 }

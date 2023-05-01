@@ -1,22 +1,25 @@
 package caliban.interop.tapir
 
-import java.nio.charset.StandardCharsets
+import caliban.ResponseValue.StreamValue
 
+import java.nio.charset.StandardCharsets
 import caliban._
 import caliban.execution.QueryExecution
 import caliban.interop.tapir.ws.Protocol
 import caliban.uploads.{ FileMeta, GraphQLUploadRequest, Uploads }
-import sttp.capabilities.WebSockets
+import sttp.capabilities.{ Streams, WebSockets }
 import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.zio.ZioStreams.Pipe
 import sttp.model.{ headers => _, _ }
 import sttp.monad.MonadError
-import sttp.tapir.Codec.JsonCodec
+import sttp.tapir.Codec.{ mediaType, JsonCodec }
 import sttp.tapir._
 import sttp.tapir.model.{ ServerRequest, UnsupportedWebSocketFrameException }
 import sttp.tapir.server.ServerEndpoint
 import sttp.ws.WebSocketFrame
 import zio._
+import zio.stream.{ ZSink, ZStream }
+
 import scala.concurrent.Future
 import scala.util.Try
 
@@ -25,6 +28,25 @@ object TapirAdapter {
   type CalibanPipe   = Pipe[GraphQLWSInput, Either[GraphQLWSClose, GraphQLWSOutput]]
   type UploadRequest = (Seq[Part[Array[Byte]]], ServerRequest)
   type ZioWebSockets = ZioStreams with WebSockets
+
+  object CalibanBody {
+    type Single = Left[ResponseValue, Nothing]
+    type Stream = Right[Nothing, ZStream[Any, Throwable, Byte]]
+
+  }
+  type CalibanBody        = Either[ResponseValue, ZStream[Any, Throwable, Byte]]
+  type CalibanResponse    = (MediaType, CalibanBody)
+  type CalibanEndpoint[R] =
+    ServerEndpoint.Full[Unit, Unit, (GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse, ZioStreams, RIO[
+      R,
+      *
+    ]]
+
+  type CalibanUploadsEndpoint[R] =
+    ServerEndpoint.Full[Unit, Unit, UploadRequest, TapirResponse, CalibanResponse, ZioStreams, RIO[
+      R,
+      *
+    ]]
 
   case class TapirResponse(
     code: StatusCode,
@@ -53,11 +75,21 @@ object TapirAdapter {
 
   private val errorBody = statusCode.and(stringBody).and(headers).map(responseMapping)
 
+  private def outputBody(implicit codec: JsonCodec[ResponseValue]) = oneOf[CalibanBody](
+    oneOfVariantValueMatcher[CalibanBody.Single](customCodecJsonBody[ResponseValue].map(Left(_)) { case Left(value) =>
+      value
+    }) { case Left(_) => true },
+    oneOfVariantValueMatcher[CalibanBody.Stream](
+      streamTextBody(ZioStreams)(CodecFormat.Json(), Some(StandardCharsets.UTF_8)).toEndpointIO
+        .map(Right(_)) { case Right(value) => value }
+    ) { case Right(_) => true }
+  )
+
   def makeHttpEndpoints[E](implicit
     requestCodec: JsonCodec[GraphQLRequest],
-    responseCodec: JsonCodec[GraphQLResponse[E]]
+    responseCodec: JsonCodec[ResponseValue]
   ): List[
-    PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, GraphQLResponse[E], Any]
+    PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse, ZioStreams]
   ] = {
     def queryFromQueryParams(queryParams: QueryParams): DecodeResult[GraphQLRequest] =
       for {
@@ -69,7 +101,12 @@ object TapirAdapter {
 
       } yield req.copy(query = queryParams.get("query"), operationName = queryParams.get("operationName"))
 
-    val postEndpoint: PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, GraphQLResponse[E], Any] =
+    val postEndpoint: PublicEndpoint[
+      (GraphQLRequest, ServerRequest),
+      TapirResponse,
+      CalibanResponse,
+      ZioStreams
+    ] =
       endpoint.post
         .in(
           (headers and stringBody and queryParams).mapDecode { case (headers, body, params) =>
@@ -91,10 +128,16 @@ object TapirAdapter {
           }(request => (Nil, requestCodec.encode(request), QueryParams()))
         )
         .in(extractFromRequest(identity))
-        .out(customCodecJsonBody[GraphQLResponse[E]])
+        .out(header[MediaType](HeaderNames.ContentType))
+        .out(outputBody)
         .errorOut(errorBody)
 
-    val getEndpoint: PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, GraphQLResponse[E], Any] =
+    val getEndpoint: PublicEndpoint[
+      (GraphQLRequest, ServerRequest),
+      TapirResponse,
+      CalibanResponse,
+      ZioStreams
+    ] =
       endpoint.get
         .in(
           queryParams.mapDecode(queryFromQueryParams)(request =>
@@ -113,7 +156,8 @@ object TapirAdapter {
           )
         )
         .in(extractFromRequest(identity))
-        .out(customCodecJsonBody[GraphQLResponse[E]])
+        .out(header[MediaType](HeaderNames.ContentType))
+        .out(outputBody)
         .errorOut(errorBody)
 
     postEndpoint :: getEndpoint :: Nil
@@ -127,11 +171,11 @@ object TapirAdapter {
     requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
   )(implicit
     requestCodec: JsonCodec[GraphQLRequest],
-    responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): List[ServerEndpoint[Any, RIO[R, *]]] = {
+    responseCodec: JsonCodec[ResponseValue]
+  ): List[CalibanEndpoint[R]] = {
     def logic(
       request: (GraphQLRequest, ServerRequest)
-    ): RIO[R, Either[TapirResponse, GraphQLResponse[E]]] = {
+    ): RIO[R, Either[TapirResponse, CalibanResponse]] = {
       val (graphQLRequest, serverRequest) = request
 
       requestInterceptor(serverRequest)(
@@ -142,21 +186,23 @@ object TapirAdapter {
             enableIntrospection = enableIntrospection,
             queryExecution
           )
-      ).either
+      ).map(buildHttpResponse).either
     }
 
     makeHttpEndpoints.map(_.serverLogic(logic))
   }
 
-  def makeHttpUploadEndpoint[E](implicit
-    requestCodec: JsonCodec[GraphQLRequest],
-    mapCodec: JsonCodec[Map[String, Seq[String]]],
-    responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): PublicEndpoint[UploadRequest, TapirResponse, GraphQLResponse[E], Any] =
+  def makeHttpUploadEndpoint(implicit responseCodec: JsonCodec[ResponseValue]): PublicEndpoint[
+    UploadRequest,
+    TapirResponse,
+    CalibanResponse,
+    ZioStreams
+  ] =
     endpoint.post
       .in(multipartBody)
       .in(extractFromRequest(identity))
-      .out(customCodecJsonBody[GraphQLResponse[E]])
+      .out(header[MediaType](HeaderNames.ContentType))
+      .out(outputBody)
       .errorOut(errorBody)
 
   def makeHttpUploadService[R, E](
@@ -168,11 +214,11 @@ object TapirAdapter {
   )(implicit
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]],
-    responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): ServerEndpoint[Any, RIO[R, *]] = {
+    responseValueCodec: JsonCodec[ResponseValue]
+  ): CalibanUploadsEndpoint[R] = {
     def logic(
       request: UploadRequest
-    ): RIO[R, Either[TapirResponse, GraphQLResponse[E]]] = {
+    ): RIO[R, Either[TapirResponse, CalibanResponse]] = {
       val (parts, serverRequest) = request
       val partsMap               = parts.map(part => part.name -> part).toMap
 
@@ -222,11 +268,67 @@ object TapirAdapter {
                              .provideSomeLayer[R](ZLayer(uploadQuery.fileHandle))
         } yield response
 
-      requestInterceptor(serverRequest)(io).either
+      requestInterceptor(serverRequest)(io)
+        .map(buildHttpResponse)
+        .either
     }
 
     makeHttpUploadEndpoint.serverLogic(logic)
   }
+
+  private def buildHttpResponse[E](response: GraphQLResponse[E])(implicit
+    responseCodec: JsonCodec[ResponseValue]
+  ) =
+    response match {
+      case resp @ GraphQLResponse(StreamValue(stream), _, _, _) =>
+        (
+          MediaType.MultipartMixed.copy(otherParameters = DeferMultipart.DeferHeaderParams),
+          encodeMultipartMixedResponse(resp, stream)
+        )
+      case response                                             =>
+        (MediaType.ApplicationJson, encodeSingleResponse(response))
+    }
+
+  private object DeferMultipart {
+    private val Newline        = "\r\n"
+    private val ContentType    = "Content-Type: application/json; charset=utf-8"
+    private val SubHeader      = s"$Newline$ContentType$Newline$Newline"
+    private val Boundary       = "---"
+    private val BoundaryHeader = "-"
+    private val DeferSpec      = "20220824"
+
+    val InnerBoundary = s"$Newline$Boundary$SubHeader"
+    val EndBoundary   = s"$Newline-----$Newline"
+
+    val DeferHeaderParams = Map("boundary" -> BoundaryHeader, "deferSpec" -> DeferSpec)
+  }
+
+  private def encodeMultipartMixedResponse[E](
+    resp: GraphQLResponse[E],
+    stream: ZStream[Any, Throwable, ResponseValue]
+  )(implicit responseCodec: JsonCodec[ResponseValue]): CalibanBody = {
+    import DeferMultipart._
+
+    Right(
+      ZStream
+        .unwrapScoped(
+          for {
+            initialAndSubsequent <- stream.peel(ZSink.head[ResponseValue])
+            (initial, subsequent) = initialAndSubsequent
+            payload               = ZStream.fromIterable(
+                                      initial.map(value => resp.copy(data = value).toResponseValue)
+                                    ) ++ subsequent
+          } yield payload
+            .map(responseCodec.encode)
+            .intersperse(InnerBoundary, InnerBoundary, EndBoundary)
+        )
+        .mapConcat(_.getBytes(StandardCharsets.UTF_8))
+    )
+
+  }
+
+  private def encodeSingleResponse[E](response: GraphQLResponse[E]) =
+    Left(response.toResponseValue)
 
   /**
    * A codec which expects only text and close frames (all other frames cause a decoding error). Close frames correspond to a `Left`,
@@ -293,15 +395,15 @@ object TapirAdapter {
     }
 
   def convertHttpEndpointToFuture[R](
-    endpoint: ServerEndpoint[Any, RIO[R, *]]
-  )(implicit runtime: Runtime[R]): ServerEndpoint[Any, Future] =
+    endpoint: ServerEndpoint[ZioStreams, RIO[R, *]]
+  )(implicit runtime: Runtime[R]): ServerEndpoint[ZioStreams, Future] =
     ServerEndpoint[
       endpoint.SECURITY_INPUT,
       endpoint.PRINCIPAL,
       endpoint.INPUT,
       endpoint.ERROR_OUTPUT,
       endpoint.OUTPUT,
-      Any,
+      ZioStreams,
       Future
     ](
       endpoint.endpoint,

@@ -292,10 +292,11 @@ lazy val tapirInterop = project
       Seq(
         "com.softwaremill.sttp.tapir"   %% "tapir-core"                    % tapirVersion,
         "com.softwaremill.sttp.tapir"   %% "tapir-zio"                     % tapirVersion,
-        "com.softwaremill.sttp.tapir"   %% "tapir-sttp-client"             % tapirVersion % Test,
-        "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion  % Test,
-        "dev.zio"                       %% "zio-test"                      % zioVersion   % Test,
-        "dev.zio"                       %% "zio-test-sbt"                  % zioVersion   % Test
+        "com.softwaremill.sttp.tapir"   %% "tapir-sttp-client"             % tapirVersion   % Test,
+        "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion    % Test,
+        "dev.zio"                       %% "zio-json"                      % zioJsonVersion % Test,
+        "dev.zio"                       %% "zio-test"                      % zioVersion     % Test,
+        "dev.zio"                       %% "zio-test-sbt"                  % zioVersion     % Test
       )
   )
   .dependsOn(core)
