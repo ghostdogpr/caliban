@@ -15,7 +15,7 @@ import zio._
 trait WebSocketInterpreter[-R, E] { self =>
   protected val endpoint: PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioWebSockets]
 
-  protected def makeProtocol(
+  def makeProtocol(
     serverRequest: ServerRequest,
     protocol: String
   ): URIO[R, Either[TapirResponse, (String, CalibanPipe)]]
@@ -55,22 +55,22 @@ object WebSocketInterpreter {
   }
 
   private case class Configured[R1, R, E](
-    interpreter: WebSocketInterpreter[R, E],
+    adapter: WebSocketInterpreter[R, E],
     layer: ZLayer[R1 & ServerRequest, TapirResponse, R]
   ) extends WebSocketInterpreter[R1, E] {
     override def configure[R2](
       configurator: ZLayer[R2 & ServerRequest, TapirResponse, R1]
     ): WebSocketInterpreter[R2, E] =
-      Configured[R2, R, E](interpreter, ZLayer.makeSome[R2 & ServerRequest, R](configurator, layer))
+      Configured[R2, R, E](adapter, ZLayer.makeSome[R2 & ServerRequest, R](configurator, layer))
 
     val endpoint: PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioWebSockets] =
-      interpreter.endpoint
+      adapter.endpoint
 
     def makeProtocol(
       serverRequest: ServerRequest,
       protocol: String
     ): URIO[R1, Either[TapirResponse, (String, CalibanPipe)]] =
-      interpreter
+      adapter
         .makeProtocol(serverRequest, protocol)
         .provideSome[R1](ZLayer.succeed(serverRequest), layer)
         .catchAll(ZIO.left(_))

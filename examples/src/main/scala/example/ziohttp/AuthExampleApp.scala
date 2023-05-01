@@ -2,7 +2,7 @@ package example.ziohttp
 
 import caliban.Value.StringValue
 import caliban._
-import caliban.interop.tapir.{ HttpInterpreter, WebSocketHooks }
+import caliban.interop.tapir.{ HttpInterpreter, WebSocketHooks, WebSocketInterpreter }
 import caliban.schema.GenericSchema
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
@@ -56,7 +56,7 @@ object Auth {
           .debug("connect")
       ) ++ WebSocketHooks.afterInit(ZIO.failCause(Cause.empty).delay(10.seconds))
 
-      ZHttpAdapter.makeWebSocketService(interpreter, webSocketHooks = webSocketHooks)
+      ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter, webSocketHooks = webSocketHooks))
     }
   }
 

@@ -1,7 +1,14 @@
 package caliban
 
 import caliban.interop.tapir.TestData.sampleCharacters
-import caliban.interop.tapir.{ FakeAuthorizationInterceptor, HttpInterpreter, TapirAdapterSpec, TestApi, TestService }
+import caliban.interop.tapir.{
+  FakeAuthorizationInterceptor,
+  HttpInterpreter,
+  TapirAdapterSpec,
+  TestApi,
+  TestService,
+  WebSocketInterpreter
+}
 import caliban.uploads.Uploads
 import sttp.client3.UriContext
 import zio._
@@ -28,7 +35,7 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
                     HttpInterpreter(interpreter).configure(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
                   )
                 case _ -> !! / "ws" / "graphql"  =>
-                  ZHttpAdapter.makeWebSocketService(interpreter)
+                  ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))
               }
               .withDefaultErrorResponse
           )
