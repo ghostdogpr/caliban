@@ -2,7 +2,7 @@ package caliban
 
 import caliban.interop.cats.{ CatsInterop, ToEffect }
 import caliban.interop.tapir.TapirAdapter.{ zioMonadError, CalibanPipe, ZioWebSockets }
-import caliban.interop.tapir.{ HttpAdapter, HttpUploadAdapter, WebSocketAdapter }
+import caliban.interop.tapir.{ HttpInterpreter, HttpUploadInterpreter, WebSocketInterpreter }
 import cats.data.Kleisli
 import cats.effect.Async
 import cats.~>
@@ -20,46 +20,47 @@ import zio.interop.catz.concurrentInstance
 
 object Http4sAdapter {
 
-  def makeHttpService[R, E](adapter: HttpAdapter[R, E]): HttpRoutes[RIO[R, *]] =
-    ZHttp4sServerInterpreter().from(adapter.serverEndpoints[R]).toRoutes
+  def makeHttpService[R, E](interpreter: HttpInterpreter[R, E]): HttpRoutes[RIO[R, *]] =
+    ZHttp4sServerInterpreter().from(interpreter.serverEndpoints[R]).toRoutes
 
   def makeHttpServiceF[F[_]: Async, R, E](
-    adapter: HttpAdapter[R, E]
+    interpreter: HttpInterpreter[R, E]
   )(implicit interop: ToEffect[F, R]): HttpRoutes[F] = {
-    val endpoints  = adapter.serverEndpoints[R]
+    val endpoints  = interpreter.serverEndpoints[R]
     val endpointsF = endpoints.map(convertHttpEndpointToF[F, R])
     Http4sServerInterpreter().toRoutes(endpointsF)
   }
 
-  def makeHttpUploadService[R, E](adapter: HttpUploadAdapter[R, E])(implicit
+  def makeHttpUploadService[R, E](interpreter: HttpUploadInterpreter[R, E])(implicit
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]]
   ): HttpRoutes[RIO[R, *]] =
-    ZHttp4sServerInterpreter().from(adapter.serverEndpoint[R]).toRoutes
+    ZHttp4sServerInterpreter().from(interpreter.serverEndpoint[R]).toRoutes
 
-  def makeHttpUploadServiceF[F[_]: Async, R, E](adapter: HttpUploadAdapter[R, E])(implicit
+  def makeHttpUploadServiceF[F[_]: Async, R, E](interpreter: HttpUploadInterpreter[R, E])(implicit
     interop: ToEffect[F, R],
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]]
   ): HttpRoutes[F] = {
-    val endpoint  = adapter.serverEndpoint[R]
+    val endpoint  = interpreter.serverEndpoint[R]
     val endpointF = convertHttpEndpointToF[F, R](endpoint)
     Http4sServerInterpreter().toRoutes(endpointF)
   }
 
   def makeWebSocketService[R, R1 <: R, E](
     builder: WebSocketBuilder2[RIO[R, *]],
-    adapter: WebSocketAdapter[R1, E]
+    interpreter: WebSocketInterpreter[R1, E]
   ): HttpRoutes[RIO[R1, *]] =
     ZHttp4sServerInterpreter[R1]()
-      .fromWebSocket(adapter.serverEndpoint[R1])
+      .fromWebSocket(interpreter.serverEndpoint[R1])
       .toRoutes(builder.asInstanceOf[WebSocketBuilder2[RIO[R1, *]]])
 
-  def makeWebSocketServiceF[F[_]: Async, R, E](builder: WebSocketBuilder2[F], adapter: WebSocketAdapter[R, E])(implicit
+  def makeWebSocketServiceF[F[_]: Async, R, E](builder: WebSocketBuilder2[F], interpreter: WebSocketInterpreter[R, E])(
+    implicit
     interop: CatsInterop[F, R],
     runtime: Runtime[R]
   ): HttpRoutes[F] = {
-    val endpointF = convertWebSocketEndpointToF[F, R](adapter.serverEndpoint[R])
+    val endpointF = convertWebSocketEndpointToF[F, R](interpreter.serverEndpoint[R])
     Http4sServerInterpreter().toWebSocketRoutes(endpointF)(builder)
   }
 

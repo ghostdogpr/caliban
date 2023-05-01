@@ -3,7 +3,7 @@ package example.federation
 import example.federation.FederationData.characters.sampleCharacters
 import example.federation.FederationData.episodes.sampleEpisodes
 import caliban.Http4sAdapter
-import caliban.interop.tapir.HttpAdapter
+import caliban.interop.tapir.HttpInterpreter
 import cats.data.Kleisli
 import com.comcast.ip4s._
 import org.http4s.StaticFile
@@ -32,7 +32,7 @@ object FederatedApp extends CatsApp {
                            .withPort(port"8089")
                            .withHttpApp(
                              Router[ExampleTask](
-                               "/api/graphql" -> CORS.policy(Http4sAdapter.makeHttpService(HttpAdapter(interpreter))),
+                               "/api/graphql" -> CORS.policy(Http4sAdapter.makeHttpService(HttpInterpreter(interpreter))),
                                "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
                              ).orNotFound
                            )
@@ -55,7 +55,7 @@ object FederatedApp extends CatsApp {
                            .withPort(port"8088")
                            .withHttpApp(
                              Router[ExampleTask](
-                               "/api/graphql" -> CORS.policy(Http4sAdapter.makeHttpService(HttpAdapter(interpreter))),
+                               "/api/graphql" -> CORS.policy(Http4sAdapter.makeHttpService(HttpInterpreter(interpreter))),
                                "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
                              ).orNotFound
                            )

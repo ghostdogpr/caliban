@@ -9,7 +9,7 @@ import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.{ headers, _ }
 import zio._
 
-sealed trait HttpAdapter[-R, E] { self =>
+sealed trait HttpInterpreter[-R, E] { self =>
   protected val endpoints: List[PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, GraphQLResponse[E], Any]]
 
   protected def executeRequest(
@@ -25,18 +25,18 @@ sealed trait HttpAdapter[-R, E] { self =>
     endpoints.map(_.serverLogic(logic))
   }
 
-  def configure[R1](configurator: ZLayer[R1 & ServerRequest, TapirResponse, R]): HttpAdapter[R1, E] =
-    HttpAdapter.Configured(self, configurator)
+  def configure[R1](configurator: ZLayer[R1 & ServerRequest, TapirResponse, R]): HttpInterpreter[R1, E] =
+    HttpInterpreter.Configured(self, configurator)
 
-  def configure[R1](configurator: URIO[R1 & Scope, Unit]): HttpAdapter[R & R1, E] =
+  def configure[R1](configurator: URIO[R1 & Scope, Unit]): HttpInterpreter[R & R1, E] =
     configure[R & R1](ZLayer.scopedEnvironment[R & R1](configurator *> ZIO.environment[R]))
 }
 
-object HttpAdapter {
+object HttpInterpreter {
   private case class Base[R, E](interpreter: GraphQLInterpreter[R, E])(implicit
     requestCodec: JsonCodec[GraphQLRequest],
     responseCodec: JsonCodec[GraphQLResponse[E]]
-  ) extends HttpAdapter[R, E] {
+  ) extends HttpInterpreter[R, E] {
     val endpoints: List[PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, GraphQLResponse[E], Any]] =
       makeHttpEndpoints
 
@@ -48,25 +48,26 @@ object HttpAdapter {
   }
 
   private case class Configured[R1, R, E](
-    adapter: HttpAdapter[R, E],
+    interpreter: HttpInterpreter[R, E],
     layer: ZLayer[R1 & ServerRequest, TapirResponse, R]
-  ) extends HttpAdapter[R1, E] {
-    override def configure[R2](configurator: ZLayer[R2 & ServerRequest, TapirResponse, R1]): HttpAdapter[R2, E] =
-      Configured[R2, R, E](adapter, ZLayer.makeSome[R2 & ServerRequest, R](configurator, layer))
+  ) extends HttpInterpreter[R1, E] {
+    override def configure[R2](configurator: ZLayer[R2 & ServerRequest, TapirResponse, R1]): HttpInterpreter[R2, E] =
+      Configured[R2, R, E](interpreter, ZLayer.makeSome[R2 & ServerRequest, R](configurator, layer))
 
     val endpoints: List[PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, GraphQLResponse[E], Any]] =
-      adapter.endpoints
+      interpreter.endpoints
 
     def executeRequest(
       graphQLRequest: GraphQLRequest,
       serverRequest: ServerRequest
     ): ZIO[R1, TapirResponse, GraphQLResponse[E]] =
-      adapter.executeRequest(graphQLRequest, serverRequest).provideSome[R1](ZLayer.succeed(serverRequest), layer)
+      interpreter.executeRequest(graphQLRequest, serverRequest).provideSome[R1](ZLayer.succeed(serverRequest), layer)
   }
 
-  def apply[R, E](
-    interpreter: GraphQLInterpreter[R, E]
-  )(implicit requestCodec: JsonCodec[GraphQLRequest], responseCodec: JsonCodec[GraphQLResponse[E]]): HttpAdapter[R, E] =
+  def apply[R, E](interpreter: GraphQLInterpreter[R, E])(implicit
+    requestCodec: JsonCodec[GraphQLRequest],
+    responseCodec: JsonCodec[GraphQLResponse[E]]
+  ): HttpInterpreter[R, E] =
     Base(interpreter)
 
   def makeHttpEndpoints[E](implicit

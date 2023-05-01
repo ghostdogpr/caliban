@@ -1,7 +1,7 @@
 package example.http4s
 
 import caliban._
-import caliban.interop.tapir.{ HttpAdapter, WebSocketAdapter }
+import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
 import caliban.schema.GenericSchema
 import com.comcast.ip4s._
 import org.http4s.{ HttpRoutes, Response }
@@ -59,9 +59,9 @@ object AuthExampleApp extends CatsApp {
                        .withPort(port"8088")
                        .withHttpWebSocketApp(wsBuilder =>
                          Router[MyTask](
-                           "/api/graphql" -> AuthMiddleware(Http4sAdapter.makeHttpService(HttpAdapter(interpreter))),
+                           "/api/graphql" -> AuthMiddleware(Http4sAdapter.makeHttpService(HttpInterpreter(interpreter))),
                            "/ws/graphql"  -> AuthMiddleware(
-                             Http4sAdapter.makeWebSocketService(wsBuilder, WebSocketAdapter(interpreter))
+                             Http4sAdapter.makeWebSocketService(wsBuilder, WebSocketInterpreter(interpreter))
                            )
                          ).orNotFound
                        )

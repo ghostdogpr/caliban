@@ -5,7 +5,7 @@ import akka.stream.scaladsl.{ Flow, Sink, Source }
 import akka.stream.{ Materializer, OverflowStrategy }
 import caliban.AkkaHttpAdapter.convertWebSocketEndpoint
 import caliban.interop.tapir.TapirAdapter.{ zioMonadError, CalibanPipe, ZioWebSockets }
-import caliban.interop.tapir.{ HttpAdapter, HttpUploadAdapter, TapirAdapter, WebSocketAdapter }
+import caliban.interop.tapir.{ HttpInterpreter, HttpUploadInterpreter, TapirAdapter, WebSocketInterpreter }
 import sttp.capabilities.WebSockets
 import sttp.capabilities.akka.AkkaStreams
 import sttp.capabilities.akka.AkkaStreams.Pipe
@@ -23,22 +23,22 @@ import scala.concurrent.{ ExecutionContext, Future }
 class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(implicit ec: ExecutionContext) {
   private val akkaInterpreter = AkkaHttpServerInterpreter(options)(ec)
 
-  def makeHttpService[R, E](adapter: HttpAdapter[R, E])(implicit runtime: Runtime[R]): Route =
-    akkaInterpreter.toRoute(adapter.serverEndpoints[R].map(TapirAdapter.convertHttpEndpointToFuture(_)))
+  def makeHttpService[R, E](interpreter: HttpInterpreter[R, E])(implicit runtime: Runtime[R]): Route =
+    akkaInterpreter.toRoute(interpreter.serverEndpoints[R].map(TapirAdapter.convertHttpEndpointToFuture(_)))
 
-  def makeHttpUploadService[R, E](adapter: HttpUploadAdapter[R, E])(implicit
+  def makeHttpUploadService[R, E](interpreter: HttpUploadInterpreter[R, E])(implicit
     runtime: Runtime[R],
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]]
   ): Route =
-    akkaInterpreter.toRoute(TapirAdapter.convertHttpEndpointToFuture(adapter.serverEndpoint[R]))
+    akkaInterpreter.toRoute(TapirAdapter.convertHttpEndpointToFuture(interpreter.serverEndpoint[R]))
 
   def makeWebSocketService[R, E](
-    adapter: WebSocketAdapter[R, E]
+    interpreter: WebSocketInterpreter[R, E]
   )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): Route =
     akkaInterpreter.toRoute(
       convertWebSocketEndpoint(
-        adapter
+        interpreter
           .serverEndpoint[R]
           .asInstanceOf[
             ServerEndpoint.Full[

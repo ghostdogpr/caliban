@@ -6,7 +6,7 @@ import example.{ ExampleApi, ExampleService }
 import example.ExampleData.sampleCharacters
 import example.ExampleService.ExampleService
 import caliban.PlayAdapter
-import caliban.interop.tapir.{ HttpAdapter, WebSocketAdapter }
+import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
 import play.api.Mode
 import play.api.routing._
 import play.api.routing.sird._
@@ -36,9 +36,10 @@ object ExampleApp extends ZIOAppDefault {
                            implicit val mat: Materializer            = Materializer(system)
                            implicit val rts: Runtime[ExampleService] = runtime
                            Router.from {
-                             case req @ POST(p"/api/graphql") => PlayAdapter.makeHttpService(HttpAdapter(interpreter)).apply(req)
+                             case req @ POST(p"/api/graphql") =>
+                               PlayAdapter.makeHttpService(HttpInterpreter(interpreter)).apply(req)
                              case req @ GET(p"/ws/graphql")   =>
-                               PlayAdapter.makeWebSocketService(WebSocketAdapter(interpreter)).apply(req)
+                               PlayAdapter.makeWebSocketService(WebSocketInterpreter(interpreter)).apply(req)
                            }.routes
                          }
                        )

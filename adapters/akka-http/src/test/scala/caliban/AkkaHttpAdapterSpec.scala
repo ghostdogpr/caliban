@@ -7,12 +7,12 @@ import akka.stream.Materializer
 import caliban.interop.tapir.TestData.sampleCharacters
 import caliban.interop.tapir.{
   FakeAuthorizationInterceptor,
-  HttpAdapter,
-  HttpUploadAdapter,
+  HttpInterpreter,
+  HttpUploadInterpreter,
   TapirAdapterSpec,
   TestApi,
   TestService,
-  WebSocketAdapter
+  WebSocketInterpreter
 }
 import caliban.uploads.Uploads
 import sttp.client3.UriContext
@@ -36,12 +36,12 @@ object AkkaHttpAdapterSpec extends ZIOSpecDefault {
       adapter      = AkkaHttpAdapter.default(ec)
       route        = path("api" / "graphql") {
                        adapter.makeHttpService(
-                         HttpAdapter(interpreter).configure(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
+                         HttpInterpreter(interpreter).configure(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
                        )(runtime)
                      } ~ path("upload" / "graphql") {
-                       adapter.makeHttpUploadService(HttpUploadAdapter(interpreter))(runtime, implicitly, implicitly)
+                       adapter.makeHttpUploadService(HttpUploadInterpreter(interpreter))(runtime, implicitly, implicitly)
                      } ~ path("ws" / "graphql") {
-                       adapter.makeWebSocketService(WebSocketAdapter(interpreter))(ec, runtime, mat)
+                       adapter.makeWebSocketService(WebSocketInterpreter(interpreter))(ec, runtime, mat)
                      }
       _           <- ZIO.fromFuture { _ =>
                        implicit val s: ActorSystem = system

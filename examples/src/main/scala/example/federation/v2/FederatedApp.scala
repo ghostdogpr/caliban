@@ -1,7 +1,7 @@
 package example.federation.v2
 
 import caliban.ZHttpAdapter
-import caliban.interop.tapir.HttpAdapter
+import caliban.interop.tapir.HttpInterpreter
 import example.federation.v2.FederationData.characters.sampleCharacters
 import example.federation.v2.FederationData.episodes.sampleEpisodes
 import zio.http._
@@ -18,7 +18,7 @@ object FederatedApp extends ZIOAppDefault {
         .serve(
           Http
             .collectHttp[Request] { case _ -> !! / "api" / "graphql" =>
-              ZHttpAdapter.makeHttpService(HttpAdapter(interpreter))
+              ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
             }
             .withDefaultErrorResponse
         )
@@ -33,7 +33,7 @@ object FederatedApp extends ZIOAppDefault {
         .serve(
           Http
             .collectHttp[Request] { case _ -> !! / "api" / "graphql" =>
-              ZHttpAdapter.makeHttpService(HttpAdapter(interpreter))
+              ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
             }
             .withDefaultErrorResponse
         )

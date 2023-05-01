@@ -2,7 +2,7 @@ package example.http4s
 
 import caliban._
 import caliban.interop.cats.{ CatsInterop, InjectEnv }
-import caliban.interop.tapir.HttpAdapter
+import caliban.interop.tapir.HttpInterpreter
 import caliban.schema.GenericSchema
 import cats.data.{ Kleisli, OptionT }
 import cats.MonadThrow
@@ -98,7 +98,7 @@ object AuthExampleAppF extends IOApp.Simple {
     def createRoutes(graphQL: GraphQL[AuthInfo]): F[HttpRoutes[F]] =
       for {
         interpreter <- interop.toEffect(graphQL.interpreter)
-      } yield Http4sAdapter.makeHttpServiceF[F, AuthInfo, CalibanError](HttpAdapter(interpreter))
+      } yield Http4sAdapter.makeHttpServiceF[F, AuthInfo, CalibanError](HttpInterpreter(interpreter))
 
     // http4s error handler to customize the response for our throwable
     def errorHandler: PartialFunction[Throwable, F[Response[F]]] = { case MissingToken() => Forbidden() }

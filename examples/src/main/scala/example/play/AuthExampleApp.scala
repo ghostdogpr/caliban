@@ -2,7 +2,7 @@ package example.play
 
 import akka.actor.ActorSystem
 import caliban._
-import caliban.interop.tapir.{ HttpAdapter, WebSocketAdapter }
+import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
 import caliban.interop.tapir.TapirAdapter.TapirResponse
 import caliban.schema.GenericSchema
 import play.api.Mode
@@ -62,9 +62,9 @@ object AuthExampleApp extends App {
   ) { _ =>
     Router.from {
       case req @ POST(p"/api/graphql") =>
-        PlayAdapter.makeHttpService(HttpAdapter(interpreter).configure(auth)).apply(req)
+        PlayAdapter.makeHttpService(HttpInterpreter(interpreter).configure(auth)).apply(req)
       case req @ GET(p"/ws/graphql")   =>
-        PlayAdapter.makeWebSocketService(WebSocketAdapter(interpreter).configure(auth)).apply(req)
+        PlayAdapter.makeWebSocketService(WebSocketInterpreter(interpreter).configure(auth)).apply(req)
     }.routes
   }
 

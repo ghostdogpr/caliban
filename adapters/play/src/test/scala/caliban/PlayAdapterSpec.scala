@@ -5,12 +5,12 @@ import akka.stream.Materializer
 import caliban.interop.tapir.TestData.sampleCharacters
 import caliban.interop.tapir.{
   FakeAuthorizationInterceptor,
-  HttpAdapter,
-  HttpUploadAdapter,
+  HttpInterpreter,
+  HttpUploadInterpreter,
   TapirAdapterSpec,
   TestApi,
   TestService,
-  WebSocketAdapter
+  WebSocketInterpreter
 }
 import caliban.uploads.Uploads
 import play.api.Mode
@@ -39,15 +39,16 @@ object PlayAdapterSpec extends ZIOSpecDefault {
                        case req @ POST(p"/api/graphql")    =>
                          PlayAdapter
                            .makeHttpService(
-                             HttpAdapter(interpreter).configure(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
+                             HttpInterpreter(interpreter)
+                               .configure(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
                            )(runtime, mat)
                            .apply(req)
                        case req @ POST(p"/upload/graphql") =>
                          PlayAdapter
-                           .makeHttpUploadService(HttpUploadAdapter(interpreter))(runtime, mat, implicitly, implicitly)
+                           .makeHttpUploadService(HttpUploadInterpreter(interpreter))(runtime, mat, implicitly, implicitly)
                            .apply(req)
                        case req @ GET(p"/ws/graphql")      =>
-                         PlayAdapter.makeWebSocketService(WebSocketAdapter(interpreter))(ec, runtime, mat).apply(req)
+                         PlayAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))(ec, runtime, mat).apply(req)
                      }
       _           <- ZIO
                        .attempt(

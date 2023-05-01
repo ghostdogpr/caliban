@@ -2,9 +2,9 @@ package example.akkahttp
 
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
-import akka.http.scaladsl.server.Directives.{ getFromResource, path, _ }
+import akka.http.scaladsl.server.Directives._
 import caliban._
-import caliban.interop.tapir.HttpAdapter
+import caliban.interop.tapir.HttpInterpreter
 import caliban.interop.tapir.TapirAdapter.TapirResponse
 import caliban.schema.GenericSchema
 import sttp.model.StatusCode
@@ -47,7 +47,9 @@ object AuthExampleApp extends App {
 
   val route =
     path("api" / "graphql") {
-      adapter.makeHttpService(HttpAdapter(interpreter).configure(auth).configure(Configurator.setSkipValidation(true)))
+      adapter.makeHttpService(
+        HttpInterpreter(interpreter).configure(auth).configure(Configurator.setSkipValidation(true))
+      )
     } ~ path("graphiql") {
       getFromResource("graphiql.html")
     }

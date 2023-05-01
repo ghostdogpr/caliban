@@ -12,7 +12,7 @@ import sttp.tapir.server.ServerEndpoint
 import sttp.ws.WebSocketFrame
 import zio._
 
-trait WebSocketAdapter[-R, E] { self =>
+trait WebSocketInterpreter[-R, E] { self =>
   protected val endpoint: PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioWebSockets]
 
   protected def makeProtocol(
@@ -25,14 +25,14 @@ trait WebSocketAdapter[-R, E] { self =>
       makeProtocol(serverRequest, protocol)
     }
 
-  def configure[R1](configurator: ZLayer[R1 & ServerRequest, TapirResponse, R]): WebSocketAdapter[R1, E] =
-    WebSocketAdapter.Configured(self, configurator)
+  def configure[R1](configurator: ZLayer[R1 & ServerRequest, TapirResponse, R]): WebSocketInterpreter[R1, E] =
+    WebSocketInterpreter.Configured(self, configurator)
 
-  def configure(configurator: URIO[Scope, Unit]): WebSocketAdapter[R, E] =
+  def configure(configurator: URIO[Scope, Unit]): WebSocketInterpreter[R, E] =
     configure[R](ZLayer.scopedEnvironment[R](configurator *> ZIO.environment[R]))
 }
 
-object WebSocketAdapter {
+object WebSocketInterpreter {
   private case class Base[R, E](
     interpreter: GraphQLInterpreter[R, E],
     keepAliveTime: Option[Duration],
@@ -40,7 +40,7 @@ object WebSocketAdapter {
   )(implicit
     inputCodec: JsonCodec[GraphQLWSInput],
     outputCodec: JsonCodec[GraphQLWSOutput]
-  ) extends WebSocketAdapter[R, E] {
+  ) extends WebSocketInterpreter[R, E] {
     val endpoint: PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioWebSockets] =
       makeWebSocketEndpoint
 
@@ -55,20 +55,22 @@ object WebSocketAdapter {
   }
 
   private case class Configured[R1, R, E](
-    adapter: WebSocketAdapter[R, E],
+    interpreter: WebSocketInterpreter[R, E],
     layer: ZLayer[R1 & ServerRequest, TapirResponse, R]
-  ) extends WebSocketAdapter[R1, E] {
-    override def configure[R2](configurator: ZLayer[R2 & ServerRequest, TapirResponse, R1]): WebSocketAdapter[R2, E] =
-      Configured[R2, R, E](adapter, ZLayer.makeSome[R2 & ServerRequest, R](configurator, layer))
+  ) extends WebSocketInterpreter[R1, E] {
+    override def configure[R2](
+      configurator: ZLayer[R2 & ServerRequest, TapirResponse, R1]
+    ): WebSocketInterpreter[R2, E] =
+      Configured[R2, R, E](interpreter, ZLayer.makeSome[R2 & ServerRequest, R](configurator, layer))
 
     val endpoint: PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioWebSockets] =
-      adapter.endpoint
+      interpreter.endpoint
 
     def makeProtocol(
       serverRequest: ServerRequest,
       protocol: String
     ): URIO[R1, Either[TapirResponse, (String, CalibanPipe)]] =
-      adapter
+      interpreter
         .makeProtocol(serverRequest, protocol)
         .provideSome[R1](ZLayer.succeed(serverRequest), layer)
         .catchAll(ZIO.left(_))
@@ -78,7 +80,10 @@ object WebSocketAdapter {
     interpreter: GraphQLInterpreter[R, E],
     keepAliveTime: Option[Duration] = None,
     webSocketHooks: WebSocketHooks[R, E] = WebSocketHooks.empty[R, E]
-  )(implicit inputCodec: JsonCodec[GraphQLWSInput], outputCodec: JsonCodec[GraphQLWSOutput]): WebSocketAdapter[R, E] =
+  )(implicit
+    inputCodec: JsonCodec[GraphQLWSInput],
+    outputCodec: JsonCodec[GraphQLWSOutput]
+  ): WebSocketInterpreter[R, E] =
     Base(interpreter, keepAliveTime, webSocketHooks)
 
   /**

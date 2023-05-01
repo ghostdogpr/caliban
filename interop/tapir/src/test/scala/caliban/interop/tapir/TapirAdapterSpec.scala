@@ -52,14 +52,14 @@ object TapirAdapterSpec {
   ): Spec[TestService, Throwable] = suite(label) {
     val run       =
       SttpClientInterpreter()
-        .toRequestThrowDecodeFailures(HttpAdapter.makeHttpEndpoints[CalibanError].head, Some(httpUri))
+        .toRequestThrowDecodeFailures(HttpInterpreter.makeHttpEndpoints[CalibanError].head, Some(httpUri))
     val runUpload = uploadUri.map(uploadUri =>
       SttpClientInterpreter()
-        .toRequestThrowDecodeFailures(HttpUploadAdapter.makeHttpUploadEndpoint[CalibanError], Some(uploadUri))
+        .toRequestThrowDecodeFailures(HttpUploadInterpreter.makeHttpUploadEndpoint[CalibanError], Some(uploadUri))
     )
     val runWS     = wsUri.map(wsUri =>
       SttpClientInterpreter()
-        .toRequestThrowDecodeFailures(WebSocketAdapter.makeWebSocketEndpoint, Some(wsUri))
+        .toRequestThrowDecodeFailures(WebSocketInterpreter.makeWebSocketEndpoint, Some(wsUri))
     )
 
     val tests: List[Option[Spec[SttpBackend[Task, ZioStreams with WebSockets], Throwable]]] = List(

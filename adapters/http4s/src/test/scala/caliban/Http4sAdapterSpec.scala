@@ -3,12 +3,12 @@ package caliban
 import caliban.interop.tapir.TestData.sampleCharacters
 import caliban.interop.tapir.{
   FakeAuthorizationInterceptor,
-  HttpAdapter,
-  HttpUploadAdapter,
+  HttpInterpreter,
+  HttpUploadInterpreter,
   TapirAdapterSpec,
   TestApi,
   TestService,
-  WebSocketAdapter
+  WebSocketInterpreter
 }
 import caliban.uploads.Uploads
 import com.comcast.ip4s._
@@ -49,14 +49,15 @@ object Http4sAdapterSpec extends ZIOSpecDefault {
                          Router[TestTask](
                            "/api/graphql"    -> CORS.policy(
                              Http4sAdapter.makeHttpService[Env, CalibanError](
-                               HttpAdapter(interpreter).configure(FakeAuthorizationInterceptor.bearer[Env])
+                               HttpInterpreter(interpreter).configure(FakeAuthorizationInterceptor.bearer[Env])
                              )
                            ),
                            "/upload/graphql" -> CORS.policy(
-                             Http4sAdapter.makeHttpUploadService[Env, CalibanError](HttpUploadAdapter(interpreter))
+                             Http4sAdapter.makeHttpUploadService[Env, CalibanError](HttpUploadInterpreter(interpreter))
                            ),
                            "/ws/graphql"     -> CORS.policy(
-                             Http4sAdapter.makeWebSocketService[Env, Env, CalibanError](wsBuilder, WebSocketAdapter(interpreter))
+                             Http4sAdapter
+                               .makeWebSocketService[Env, Env, CalibanError](wsBuilder, WebSocketInterpreter(interpreter))
                            )
                          ).orNotFound
                        )

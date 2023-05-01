@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.interop.tapir.TestData.sampleCharacters
-import caliban.interop.tapir.{ FakeAuthorizationInterceptor, HttpAdapter, TapirAdapterSpec, TestApi, TestService }
+import caliban.interop.tapir.{ FakeAuthorizationInterceptor, HttpInterpreter, TapirAdapterSpec, TestApi, TestService }
 import caliban.uploads.Uploads
 import sttp.client3.UriContext
 import zio._
@@ -18,20 +18,21 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
   private val apiLayer = envLayer >>> ZLayer.fromZIO {
     for {
       interpreter <- TestApi.api.interpreter
-      _           <- Server
-                       .serve(
-                         Http
-                           .collectHttp[Request] {
-                             case _ -> !! / "api" / "graphql" =>
-                               ZHttpAdapter.makeHttpService(
-                                 HttpAdapter(interpreter).configure(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
-                               )
-                             case _ -> !! / "ws" / "graphql"  =>
-                               ZHttpAdapter.makeWebSocketService(interpreter)
-                           }
-                           .withDefaultErrorResponse
-                       )
-                       .forkScoped
+      _           <-
+        Server
+          .serve(
+            Http
+              .collectHttp[Request] {
+                case _ -> !! / "api" / "graphql" =>
+                  ZHttpAdapter.makeHttpService(
+                    HttpInterpreter(interpreter).configure(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
+                  )
+                case _ -> !! / "ws" / "graphql"  =>
+                  ZHttpAdapter.makeWebSocketService(interpreter)
+              }
+              .withDefaultErrorResponse
+          )
+          .forkScoped
       _           <- Live.live(Clock.sleep(3 seconds))
       service     <- ZIO.service[TestService]
     } yield service

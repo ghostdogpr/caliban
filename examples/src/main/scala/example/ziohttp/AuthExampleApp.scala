@@ -2,7 +2,7 @@ package example.ziohttp
 
 import caliban.Value.StringValue
 import caliban._
-import caliban.interop.tapir.{ HttpAdapter, WebSocketHooks }
+import caliban.interop.tapir.{ HttpInterpreter, WebSocketHooks }
 import caliban.schema.GenericSchema
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
@@ -91,7 +91,7 @@ object AuthExampleApp extends ZIOAppDefault {
                          Http
                            .collectHttp[Request] {
                              case _ -> !! / "api" / "graphql" =>
-                               ZHttpAdapter.makeHttpService(HttpAdapter(interpreter)) @@ Auth.middleware
+                               ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter)) @@ Auth.middleware
                              case _ -> !! / "ws" / "graphql"  => Auth.WebSockets.live(interpreter)
                              case _ -> !! / "graphiql"        => graphiql
                            }

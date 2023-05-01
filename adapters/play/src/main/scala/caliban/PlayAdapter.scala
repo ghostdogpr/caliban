@@ -3,7 +3,7 @@ package caliban
 import akka.stream.scaladsl.{ Flow, Sink, Source }
 import akka.stream.{ Materializer, OverflowStrategy }
 import caliban.interop.tapir.TapirAdapter.{ zioMonadError, CalibanPipe, ZioWebSockets }
-import caliban.interop.tapir.{ HttpAdapter, HttpUploadAdapter, TapirAdapter, WebSocketAdapter }
+import caliban.interop.tapir.{ HttpInterpreter, HttpUploadInterpreter, TapirAdapter, WebSocketInterpreter }
 import play.api.routing.Router.Routes
 import sttp.capabilities.WebSockets
 import sttp.capabilities.akka.AkkaStreams
@@ -24,22 +24,22 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
     options.fold(PlayServerInterpreter())(PlayServerInterpreter(_))
 
   def makeHttpService[R, E](
-    adapter: HttpAdapter[R, E]
+    interpreter: HttpInterpreter[R, E]
   )(implicit runtime: Runtime[R], materializer: Materializer): Routes =
-    playInterpreter.toRoutes(adapter.serverEndpoints[R].map(TapirAdapter.convertHttpEndpointToFuture(_)))
+    playInterpreter.toRoutes(interpreter.serverEndpoints[R].map(TapirAdapter.convertHttpEndpointToFuture(_)))
 
-  def makeHttpUploadService[R, E](adapter: HttpUploadAdapter[R, E])(implicit
+  def makeHttpUploadService[R, E](interpreter: HttpUploadInterpreter[R, E])(implicit
     runtime: Runtime[R],
     materializer: Materializer,
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]]
   ): Routes =
-    playInterpreter.toRoutes(TapirAdapter.convertHttpEndpointToFuture(adapter.serverEndpoint[R]))
+    playInterpreter.toRoutes(TapirAdapter.convertHttpEndpointToFuture(interpreter.serverEndpoint[R]))
 
   def makeWebSocketService[R, E](
-    adapter: WebSocketAdapter[R, E]
+    interpreter: WebSocketInterpreter[R, E]
   )(implicit ec: ExecutionContext, runtime: Runtime[R], materializer: Materializer): Routes = {
-    val endpoint = adapter.serverEndpoint[R]
+    val endpoint = interpreter.serverEndpoint[R]
     playInterpreter.toRoutes(
       PlayAdapter.convertWebSocketEndpoint(
         endpoint.asInstanceOf[
