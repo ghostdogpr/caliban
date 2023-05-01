@@ -1,16 +1,20 @@
 package caliban.interop.tapir
 
 import caliban._
+import caliban.ResponseValue.StreamValue
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.zio.ZioStreams.Pipe
 import sttp.model.{ headers => _, _ }
 import sttp.monad.MonadError
+import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.{ headers, _ }
 import zio._
+import zio.stream.{ ZSink, ZStream }
 
+import java.nio.charset.StandardCharsets
 import scala.concurrent.Future
 
 object TapirAdapter {
@@ -18,6 +22,25 @@ object TapirAdapter {
   type CalibanPipe   = Pipe[GraphQLWSInput, Either[GraphQLWSClose, GraphQLWSOutput]]
   type UploadRequest = (Seq[Part[Array[Byte]]], ServerRequest)
   type ZioWebSockets = ZioStreams with WebSockets
+
+  object CalibanBody {
+    type Single = Left[ResponseValue, Nothing]
+    type Stream = Right[Nothing, ZStream[Any, Throwable, Byte]]
+  }
+
+  private type CalibanBody = Either[ResponseValue, ZStream[Any, Throwable, Byte]]
+  type CalibanResponse     = (MediaType, CalibanBody)
+  type CalibanEndpoint[R]  =
+    ServerEndpoint.Full[Unit, Unit, (GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse, ZioStreams, RIO[
+      R,
+      *
+    ]]
+
+  type CalibanUploadsEndpoint[R] =
+    ServerEndpoint.Full[Unit, Unit, UploadRequest, TapirResponse, CalibanResponse, ZioStreams, RIO[
+      R,
+      *
+    ]]
 
   case class TapirResponse(
     code: StatusCode,
@@ -46,16 +69,81 @@ object TapirAdapter {
 
   val errorBody = statusCode.and(stringBody).and(headers).map(responseMapping)
 
+  def outputBody(implicit codec: JsonCodec[ResponseValue]): EndpointOutput[CalibanBody] =
+    oneOf[CalibanBody](
+      oneOfVariantValueMatcher[CalibanBody.Single](customCodecJsonBody[ResponseValue].map(Left(_)) { case Left(value) =>
+        value
+      }) { case Left(_) => true },
+      oneOfVariantValueMatcher[CalibanBody.Stream](
+        streamTextBody(ZioStreams)(CodecFormat.Json(), Some(StandardCharsets.UTF_8)).toEndpointIO
+          .map(Right(_)) { case Right(value) => value }
+      ) { case Right(_) => true }
+    )
+
+  def buildHttpResponse[E](
+    response: GraphQLResponse[E]
+  )(implicit responseCodec: JsonCodec[ResponseValue]): (MediaType, CalibanBody) =
+    response match {
+      case resp @ GraphQLResponse(StreamValue(stream), _, _, _) =>
+        (
+          MediaType.MultipartMixed.copy(otherParameters = DeferMultipart.DeferHeaderParams),
+          encodeMultipartMixedResponse(resp, stream)
+        )
+      case response                                             =>
+        (MediaType.ApplicationJson, encodeSingleResponse(response))
+    }
+
+  private object DeferMultipart {
+    private val Newline        = "\r\n"
+    private val ContentType    = "Content-Type: application/json; charset=utf-8"
+    private val SubHeader      = s"$Newline$ContentType$Newline$Newline"
+    private val Boundary       = "---"
+    private val BoundaryHeader = "-"
+    private val DeferSpec      = "20220824"
+
+    val InnerBoundary = s"$Newline$Boundary$SubHeader"
+    val EndBoundary   = s"$Newline-----$Newline"
+
+    val DeferHeaderParams: Map[String, String] = Map("boundary" -> BoundaryHeader, "deferSpec" -> DeferSpec)
+  }
+
+  private def encodeMultipartMixedResponse[E](
+    resp: GraphQLResponse[E],
+    stream: ZStream[Any, Throwable, ResponseValue]
+  )(implicit responseCodec: JsonCodec[ResponseValue]): CalibanBody = {
+    import DeferMultipart._
+
+    Right(
+      ZStream
+        .unwrapScoped(
+          for {
+            initialAndSubsequent <- stream.peel(ZSink.head[ResponseValue])
+            (initial, subsequent) = initialAndSubsequent
+            payload               = ZStream.fromIterable(
+                                      initial.map(value => resp.copy(data = value).toResponseValue)
+                                    ) ++ subsequent
+          } yield payload
+            .map(responseCodec.encode)
+            .intersperse(InnerBoundary, InnerBoundary, EndBoundary)
+        )
+        .mapConcat(_.getBytes(StandardCharsets.UTF_8))
+    )
+
+  }
+
+  private def encodeSingleResponse[E](response: GraphQLResponse[E]) =
+    Left(response.toResponseValue)
+
   def convertHttpEndpointToFuture[R](
-    endpoint: ServerEndpoint[Any, RIO[R, *]]
-  )(implicit runtime: Runtime[R]): ServerEndpoint[Any, Future] =
+    endpoint: ServerEndpoint[ZioStreams, RIO[R, *]]
+  )(implicit runtime: Runtime[R]): ServerEndpoint[ZioStreams, Future] =
     ServerEndpoint[
       endpoint.SECURITY_INPUT,
       endpoint.PRINCIPAL,
       endpoint.INPUT,
       endpoint.ERROR_OUTPUT,
       endpoint.OUTPUT,
-      Any,
+      ZioStreams,
       Future
     ](
       endpoint.endpoint,

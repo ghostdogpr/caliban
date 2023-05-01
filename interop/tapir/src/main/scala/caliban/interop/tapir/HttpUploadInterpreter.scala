@@ -3,23 +3,23 @@ package caliban.interop.tapir
 import caliban._
 import caliban.interop.tapir.TapirAdapter._
 import caliban.uploads.{ FileMeta, GraphQLUploadRequest, Uploads }
-import sttp.model.{ headers => _, _ }
+import sttp.capabilities.zio.ZioStreams
+import sttp.model._
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir._
 import sttp.tapir.model.ServerRequest
-import sttp.tapir.server.ServerEndpoint
 import zio._
 
 import java.nio.charset.StandardCharsets
 import scala.util.Try
 
 sealed trait HttpUploadInterpreter[-R, E] { self =>
-  protected val endpoint: PublicEndpoint[UploadRequest, TapirResponse, GraphQLResponse[E], Any]
+  protected val endpoint: PublicEndpoint[UploadRequest, TapirResponse, CalibanResponse, ZioStreams]
 
   protected def executeRequest(
     graphQLRequest: GraphQLRequest,
     serverRequest: ServerRequest
-  ): ZIO[R, TapirResponse, GraphQLResponse[E]]
+  ): ZIO[R, TapirResponse, CalibanResponse]
 
   private def parsePath(path: String): List[Either[String, Int]] =
     path.split('.').map(c => Try(c.toInt).toEither.left.map(_ => c)).toList
@@ -27,8 +27,8 @@ sealed trait HttpUploadInterpreter[-R, E] { self =>
   def serverEndpoint[R1 <: R](implicit
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]]
-  ): ServerEndpoint[Any, RIO[R1, *]] = {
-    def logic(request: UploadRequest): RIO[R1, Either[TapirResponse, GraphQLResponse[E]]] = {
+  ): CalibanUploadsEndpoint[R1] = {
+    def logic(request: UploadRequest): RIO[R1, Either[TapirResponse, CalibanResponse]] = {
       val (parts, serverRequest) = request
       val partsMap               = parts.map(part => part.name -> part).toMap
 
@@ -87,16 +87,16 @@ sealed trait HttpUploadInterpreter[-R, E] { self =>
 
 object HttpUploadInterpreter {
   private case class Base[R, E](interpreter: GraphQLInterpreter[R, E])(implicit
-    responseCodec: JsonCodec[GraphQLResponse[E]]
+    responseValueCodec: JsonCodec[ResponseValue]
   ) extends HttpUploadInterpreter[R, E] {
-    val endpoint: PublicEndpoint[UploadRequest, TapirResponse, GraphQLResponse[E], Any] =
+    val endpoint: PublicEndpoint[UploadRequest, TapirResponse, CalibanResponse, ZioStreams] =
       makeHttpUploadEndpoint
 
     def executeRequest(
       graphQLRequest: GraphQLRequest,
       serverRequest: ServerRequest
-    ): ZIO[R, TapirResponse, GraphQLResponse[E]] =
-      interpreter.executeRequest(graphQLRequest)
+    ): ZIO[R, TapirResponse, CalibanResponse] =
+      interpreter.executeRequest(graphQLRequest).map(buildHttpResponse)
   }
 
   private case class Configured[R1, R, E](
@@ -108,27 +108,28 @@ object HttpUploadInterpreter {
     ): HttpUploadInterpreter[R2, E] =
       Configured[R2, R, E](interpreter, ZLayer.makeSome[R2 & ServerRequest, R](configurator, layer))
 
-    val endpoint: PublicEndpoint[UploadRequest, TapirResponse, GraphQLResponse[E], Any] =
+    val endpoint: PublicEndpoint[UploadRequest, TapirResponse, CalibanResponse, ZioStreams] =
       interpreter.endpoint
 
     def executeRequest(
       graphQLRequest: GraphQLRequest,
       serverRequest: ServerRequest
-    ): ZIO[R1, TapirResponse, GraphQLResponse[E]] =
+    ): ZIO[R1, TapirResponse, CalibanResponse] =
       interpreter.executeRequest(graphQLRequest, serverRequest).provideSome[R1](ZLayer.succeed(serverRequest), layer)
   }
 
   def apply[R, E](
     interpreter: GraphQLInterpreter[R, E]
-  )(implicit responseCodec: JsonCodec[GraphQLResponse[E]]): HttpUploadInterpreter[R, E] =
+  )(implicit responseValueCodec: JsonCodec[ResponseValue]): HttpUploadInterpreter[R, E] =
     Base(interpreter)
 
-  def makeHttpUploadEndpoint[E](implicit
-    responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): PublicEndpoint[UploadRequest, TapirResponse, GraphQLResponse[E], Any] =
+  def makeHttpUploadEndpoint(implicit
+    responseValueCodec: JsonCodec[ResponseValue]
+  ): PublicEndpoint[UploadRequest, TapirResponse, CalibanResponse, ZioStreams] =
     endpoint.post
       .in(multipartBody)
       .in(extractFromRequest(identity))
-      .out(customCodecJsonBody[GraphQLResponse[E]])
+      .out(header[MediaType](HeaderNames.ContentType))
+      .out(outputBody)
       .errorOut(errorBody)
 }

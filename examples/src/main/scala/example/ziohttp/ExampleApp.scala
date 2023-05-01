@@ -27,7 +27,8 @@ object ExampleApp extends ZIOAppDefault {
               }
               .withDefaultErrorResponse
           )
+      _           <- Console.printLine("Server online at http://localhost:8088/")
+      _           <- Console.printLine("Press RETURN to stop...") *> Console.readLine
     } yield ())
       .provide(ExampleService.make(sampleCharacters), Server.default)
-      .exitCode
 }

@@ -2,23 +2,25 @@ package caliban.interop.tapir
 
 import caliban._
 import caliban.interop.tapir.TapirAdapter._
+import sttp.capabilities.zio.ZioStreams
 import sttp.model.{ headers => _, _ }
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.model.ServerRequest
-import sttp.tapir.server.ServerEndpoint
-import sttp.tapir.{ headers, _ }
+import sttp.tapir._
 import zio._
 
 sealed trait HttpInterpreter[-R, E] { self =>
-  protected val endpoints: List[PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, GraphQLResponse[E], Any]]
+  protected val endpoints: List[
+    PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse, ZioStreams]
+  ]
 
   protected def executeRequest(
     graphQLRequest: GraphQLRequest,
     serverRequest: ServerRequest
-  ): ZIO[R, TapirResponse, GraphQLResponse[E]]
+  ): ZIO[R, TapirResponse, CalibanResponse]
 
-  def serverEndpoints[R1 <: R]: List[ServerEndpoint[Any, RIO[R1, *]]] = {
-    def logic(request: (GraphQLRequest, ServerRequest)): RIO[R1, Either[TapirResponse, GraphQLResponse[E]]] = {
+  def serverEndpoints[R1 <: R]: List[CalibanEndpoint[R1]] = {
+    def logic(request: (GraphQLRequest, ServerRequest)): RIO[R1, Either[TapirResponse, CalibanResponse]] = {
       val (graphQLRequest, serverRequest) = request
       executeRequest(graphQLRequest, serverRequest).either
     }
@@ -35,16 +37,16 @@ sealed trait HttpInterpreter[-R, E] { self =>
 object HttpInterpreter {
   private case class Base[R, E](interpreter: GraphQLInterpreter[R, E])(implicit
     requestCodec: JsonCodec[GraphQLRequest],
-    responseCodec: JsonCodec[GraphQLResponse[E]]
+    responseValueCodec: JsonCodec[ResponseValue]
   ) extends HttpInterpreter[R, E] {
-    val endpoints: List[PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, GraphQLResponse[E], Any]] =
+    val endpoints: List[PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse, ZioStreams]] =
       makeHttpEndpoints
 
     def executeRequest(
       graphQLRequest: GraphQLRequest,
       serverRequest: ServerRequest
-    ): ZIO[R, TapirResponse, GraphQLResponse[E]] =
-      interpreter.executeRequest(graphQLRequest)
+    ): ZIO[R, TapirResponse, CalibanResponse] =
+      interpreter.executeRequest(graphQLRequest).map(buildHttpResponse)
   }
 
   private case class Configured[R1, R, E](
@@ -54,26 +56,26 @@ object HttpInterpreter {
     override def configure[R2](configurator: ZLayer[R2 & ServerRequest, TapirResponse, R1]): HttpInterpreter[R2, E] =
       Configured[R2, R, E](interpreter, ZLayer.makeSome[R2 & ServerRequest, R](configurator, layer))
 
-    val endpoints: List[PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, GraphQLResponse[E], Any]] =
+    val endpoints: List[PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse, ZioStreams]] =
       interpreter.endpoints
 
     def executeRequest(
       graphQLRequest: GraphQLRequest,
       serverRequest: ServerRequest
-    ): ZIO[R1, TapirResponse, GraphQLResponse[E]] =
+    ): ZIO[R1, TapirResponse, CalibanResponse] =
       interpreter.executeRequest(graphQLRequest, serverRequest).provideSome[R1](ZLayer.succeed(serverRequest), layer)
   }
 
   def apply[R, E](interpreter: GraphQLInterpreter[R, E])(implicit
     requestCodec: JsonCodec[GraphQLRequest],
-    responseCodec: JsonCodec[GraphQLResponse[E]]
+    responseValueCodec: JsonCodec[ResponseValue]
   ): HttpInterpreter[R, E] =
     Base(interpreter)
 
-  def makeHttpEndpoints[E](implicit
+  def makeHttpEndpoints(implicit
     requestCodec: JsonCodec[GraphQLRequest],
-    responseCodec: JsonCodec[GraphQLResponse[E]]
-  ): List[PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, GraphQLResponse[E], Any]] = {
+    responseValueCodec: JsonCodec[ResponseValue]
+  ): List[PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse, ZioStreams]] = {
     def queryFromQueryParams(queryParams: QueryParams): DecodeResult[GraphQLRequest] =
       for {
         req <- requestCodec.decode(s"""{"query":"","variables":${queryParams
@@ -84,7 +86,7 @@ object HttpInterpreter {
 
       } yield req.copy(query = queryParams.get("query"), operationName = queryParams.get("operationName"))
 
-    val postEndpoint: PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, GraphQLResponse[E], Any] =
+    val postEndpoint: PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse, ZioStreams] =
       endpoint.post
         .in(
           (headers and stringBody and queryParams).mapDecode { case (headers, body, params) =>
@@ -106,10 +108,11 @@ object HttpInterpreter {
           }(request => (Nil, requestCodec.encode(request), QueryParams()))
         )
         .in(extractFromRequest(identity))
-        .out(customCodecJsonBody[GraphQLResponse[E]])
+        .out(header[MediaType](HeaderNames.ContentType))
+        .out(outputBody)
         .errorOut(errorBody)
 
-    val getEndpoint: PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, GraphQLResponse[E], Any] =
+    val getEndpoint: PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse, ZioStreams] =
       endpoint.get
         .in(
           queryParams.mapDecode(queryFromQueryParams)(request =>
@@ -128,7 +131,8 @@ object HttpInterpreter {
           )
         )
         .in(extractFromRequest(identity))
-        .out(customCodecJsonBody[GraphQLResponse[E]])
+        .out(header[MediaType](HeaderNames.ContentType))
+        .out(outputBody)
         .errorOut(errorBody)
 
     postEndpoint :: getEndpoint :: Nil

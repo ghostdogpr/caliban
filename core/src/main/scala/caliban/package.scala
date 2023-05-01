@@ -30,5 +30,6 @@ package object caliban {
     )
     val wrappers: List[Wrapper[R]]              = Nil
     val additionalDirectives: List[__Directive] = directives
+    val features                                = Set.empty
   }
 }

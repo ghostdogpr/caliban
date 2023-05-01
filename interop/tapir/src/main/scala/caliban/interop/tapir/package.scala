@@ -147,6 +147,7 @@ package object tapir {
 
     override protected val wrappers: List[Wrapper[R]]              = Nil
     override protected val additionalDirectives: List[__Directive] = Nil
+    override protected val features                                = Set.empty
   }
 
   private def extractPath[I](endpointName: Option[String], input: EndpointInput[I]): String =

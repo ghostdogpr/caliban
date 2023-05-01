@@ -31,7 +31,6 @@ object PlayAdapterSpec extends ZIOSpecDefault {
   private val apiLayer = envLayer >>> ZLayer.scoped {
     for {
       system      <- ZIO.succeed(ActorSystem()).withFinalizer(sys => ZIO.fromFuture(_ => sys.terminate()).ignore)
-      ec           = system.dispatcher
       mat          = Materializer(system)
       runtime     <- ZIO.runtime[TestService with Uploads]
       interpreter <- TestApi.api.interpreter
@@ -48,7 +47,7 @@ object PlayAdapterSpec extends ZIOSpecDefault {
                            .makeHttpUploadService(HttpUploadInterpreter(interpreter))(runtime, mat, implicitly, implicitly)
                            .apply(req)
                        case req @ GET(p"/ws/graphql")      =>
-                         PlayAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))(ec, runtime, mat).apply(req)
+                         PlayAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))(runtime, mat).apply(req)
                      }
       _           <- ZIO
                        .attempt(
