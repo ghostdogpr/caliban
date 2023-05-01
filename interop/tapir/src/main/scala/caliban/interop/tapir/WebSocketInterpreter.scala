@@ -12,7 +12,7 @@ import sttp.tapir.server.ServerEndpoint
 import sttp.ws.WebSocketFrame
 import zio._
 
-trait WebSocketInterpreter[-R, E] { self =>
+sealed trait WebSocketInterpreter[-R, E] { self =>
   protected val endpoint: PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioWebSockets]
 
   def makeProtocol(
