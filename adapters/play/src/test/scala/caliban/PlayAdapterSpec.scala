@@ -39,7 +39,7 @@ object PlayAdapterSpec extends ZIOSpecDefault {
                          PlayAdapter
                            .makeHttpService(
                              HttpInterpreter(interpreter)
-                               .configure(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
+                               .intercept(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
                            )(runtime, mat)
                            .apply(req)
                        case req @ POST(p"/upload/graphql") =>

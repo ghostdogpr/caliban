@@ -49,7 +49,7 @@ object Http4sAdapterSpec extends ZIOSpecDefault {
                          Router[TestTask](
                            "/api/graphql"    -> CORS.policy(
                              Http4sAdapter.makeHttpService[Env, CalibanError](
-                               HttpInterpreter(interpreter).configure(FakeAuthorizationInterceptor.bearer[Env])
+                               HttpInterpreter(interpreter).intercept(FakeAuthorizationInterceptor.bearer[Env])
                              )
                            ),
                            "/upload/graphql" -> CORS.policy(

@@ -23,6 +23,18 @@ object TapirAdapter {
   type UploadRequest = (Seq[Part[Array[Byte]]], ServerRequest)
   type ZioWebSockets = ZioStreams with WebSockets
 
+  /**
+   * An interceptor is a layer that takes an environment R1 and a server request,
+   * and that either fails with a TapirResponse or returns a new environment R
+   */
+  type Interceptor[-R1, +R] = ZLayer[R1 & ServerRequest, TapirResponse, R]
+
+  /**
+   * A configurator is an effect that can be run in the scope of a request and returns Unit.
+   * It is usually used to change the value of a configuration fiber ref (see the Configurator object).
+   */
+  type Configurator[-R] = URIO[R & Scope, Unit]
+
   object CalibanBody {
     type Single = Left[ResponseValue, Nothing]
     type Stream = Right[Nothing, ZStream[Any, Throwable, Byte]]

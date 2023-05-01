@@ -32,7 +32,7 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
               .collectHttp[Request] {
                 case _ -> !! / "api" / "graphql" =>
                   ZHttpAdapter.makeHttpService(
-                    HttpInterpreter(interpreter).configure(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
+                    HttpInterpreter(interpreter).intercept(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
                   )
                 case _ -> !! / "ws" / "graphql"  =>
                   ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))

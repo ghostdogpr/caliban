@@ -78,11 +78,11 @@ sealed trait HttpUploadInterpreter[-R, E] { self =>
     endpoint.serverLogic(logic)
   }
 
-  def configure[R1](configurator: ZLayer[R1 & ServerRequest, TapirResponse, R]): HttpUploadInterpreter[R1, E] =
-    HttpUploadInterpreter.Configured(self, configurator)
+  def intercept[R1](interceptor: Interceptor[R1, R]): HttpUploadInterpreter[R1, E] =
+    HttpUploadInterpreter.Configured(self, interceptor)
 
-  def configure(configurator: URIO[Scope, Unit]): HttpUploadInterpreter[R, E] =
-    configure[R](ZLayer.scopedEnvironment[R](configurator *> ZIO.environment[R]))
+  def configure[R1](configurator: Configurator[R1]): HttpUploadInterpreter[R & R1, E] =
+    intercept[R & R1](ZLayer.scopedEnvironment[R & R1](configurator *> ZIO.environment[R]))
 }
 
 object HttpUploadInterpreter {
@@ -103,10 +103,8 @@ object HttpUploadInterpreter {
     interpreter: HttpUploadInterpreter[R, E],
     layer: ZLayer[R1 & ServerRequest, TapirResponse, R]
   ) extends HttpUploadInterpreter[R1, E] {
-    override def configure[R2](
-      configurator: ZLayer[R2 & ServerRequest, TapirResponse, R1]
-    ): HttpUploadInterpreter[R2, E] =
-      Configured[R2, R, E](interpreter, ZLayer.makeSome[R2 & ServerRequest, R](configurator, layer))
+    override def intercept[R2](interceptor: Interceptor[R2, R1]): HttpUploadInterpreter[R2, E] =
+      Configured[R2, R, E](interpreter, ZLayer.makeSome[R2 & ServerRequest, R](interceptor, layer))
 
     val endpoint: PublicEndpoint[UploadRequest, TapirResponse, CalibanResponse, ZioStreams] =
       interpreter.endpoint

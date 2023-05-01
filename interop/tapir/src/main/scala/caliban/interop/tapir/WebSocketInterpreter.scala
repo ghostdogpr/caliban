@@ -14,7 +14,7 @@ import zio._
 
 trait WebSocketInterpreter[-R, E] { self =>
   protected val endpoint: PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioWebSockets]
-a
+
   def makeProtocol(
     serverRequest: ServerRequest,
     protocol: String
@@ -25,11 +25,11 @@ a
       makeProtocol(serverRequest, protocol)
     }
 
-  def configure[R1](configurator: ZLayer[R1 & ServerRequest, TapirResponse, R]): WebSocketInterpreter[R1, E] =
-    WebSocketInterpreter.Configured(self, configurator)
+  def intercept[R1](interceptor: Interceptor[R1, R]): WebSocketInterpreter[R1, E] =
+    WebSocketInterpreter.Configured(self, interceptor)
 
-  def configure(configurator: URIO[Scope, Unit]): WebSocketInterpreter[R, E] =
-    configure[R](ZLayer.scopedEnvironment[R](configurator *> ZIO.environment[R]))
+  def configure[R1](configurator: Configurator[R1]): WebSocketInterpreter[R & R1, E] =
+    intercept[R & R1](ZLayer.scopedEnvironment[R & R1](configurator *> ZIO.environment[R]))
 }
 
 object WebSocketInterpreter {
@@ -58,10 +58,8 @@ object WebSocketInterpreter {
     interpreter: WebSocketInterpreter[R, E],
     layer: ZLayer[R1 & ServerRequest, TapirResponse, R]
   ) extends WebSocketInterpreter[R1, E] {
-    override def configure[R2](
-      configurator: ZLayer[R2 & ServerRequest, TapirResponse, R1]
-    ): WebSocketInterpreter[R2, E] =
-      Configured[R2, R, E](interpreter, ZLayer.makeSome[R2 & ServerRequest, R](configurator, layer))
+    override def intercept[R2](interceptor: Interceptor[R2, R1]): WebSocketInterpreter[R2, E] =
+      Configured[R2, R, E](interpreter, ZLayer.makeSome[R2 & ServerRequest, R](interceptor, layer))
 
     val endpoint: PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioWebSockets] =
       interpreter.endpoint

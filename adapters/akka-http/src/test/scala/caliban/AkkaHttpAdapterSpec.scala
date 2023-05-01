@@ -36,7 +36,7 @@ object AkkaHttpAdapterSpec extends ZIOSpecDefault {
       adapter      = AkkaHttpAdapter.default(ec)
       route        = path("api" / "graphql") {
                        adapter.makeHttpService(
-                         HttpInterpreter(interpreter).configure(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
+                         HttpInterpreter(interpreter).intercept(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
                        )(runtime, mat)
                      } ~ path("upload" / "graphql") {
                        adapter.makeHttpUploadService(HttpUploadInterpreter(interpreter))(runtime, mat, implicitly, implicitly)

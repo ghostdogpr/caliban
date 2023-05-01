@@ -62,9 +62,9 @@ object AuthExampleApp extends App {
   ) { _ =>
     Router.from {
       case req @ POST(p"/api/graphql") =>
-        PlayAdapter.makeHttpService(HttpInterpreter(interpreter).configure(auth)).apply(req)
+        PlayAdapter.makeHttpService(HttpInterpreter(interpreter).intercept(auth)).apply(req)
       case req @ GET(p"/ws/graphql")   =>
-        PlayAdapter.makeWebSocketService(WebSocketInterpreter(interpreter).configure(auth)).apply(req)
+        PlayAdapter.makeWebSocketService(WebSocketInterpreter(interpreter).intercept(auth)).apply(req)
     }.routes
   }
 

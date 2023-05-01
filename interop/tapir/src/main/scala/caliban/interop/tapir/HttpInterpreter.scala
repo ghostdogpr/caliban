@@ -27,11 +27,11 @@ sealed trait HttpInterpreter[-R, E] { self =>
     endpoints.map(_.serverLogic(logic))
   }
 
-  def configure[R1](configurator: ZLayer[R1 & ServerRequest, TapirResponse, R]): HttpInterpreter[R1, E] =
-    HttpInterpreter.Configured(self, configurator)
+  def intercept[R1](interceptor: Interceptor[R1, R]): HttpInterpreter[R1, E] =
+    HttpInterpreter.Configured(self, interceptor)
 
-  def configure[R1](configurator: URIO[R1 & Scope, Unit]): HttpInterpreter[R & R1, E] =
-    configure[R & R1](ZLayer.scopedEnvironment[R & R1](configurator *> ZIO.environment[R]))
+  def configure[R1](configurator: Configurator[R1]): HttpInterpreter[R & R1, E] =
+    intercept[R & R1](ZLayer.scopedEnvironment[R & R1](configurator *> ZIO.environment[R]))
 }
 
 object HttpInterpreter {
@@ -53,8 +53,8 @@ object HttpInterpreter {
     interpreter: HttpInterpreter[R, E],
     layer: ZLayer[R1 & ServerRequest, TapirResponse, R]
   ) extends HttpInterpreter[R1, E] {
-    override def configure[R2](configurator: ZLayer[R2 & ServerRequest, TapirResponse, R1]): HttpInterpreter[R2, E] =
-      Configured[R2, R, E](interpreter, ZLayer.makeSome[R2 & ServerRequest, R](configurator, layer))
+    override def intercept[R2](interceptor: Interceptor[R2, R1]): HttpInterpreter[R2, E] =
+      Configured[R2, R, E](interpreter, ZLayer.makeSome[R2 & ServerRequest, R](interceptor, layer))
 
     val endpoints: List[PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse, ZioStreams]] =
       interpreter.endpoints
