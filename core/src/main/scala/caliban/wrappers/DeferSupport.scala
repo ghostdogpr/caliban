@@ -11,7 +11,7 @@ object DeferSupport {
     Some(""),
     Set(__DirectiveLocation.FRAGMENT_SPREAD, __DirectiveLocation.INLINE_FRAGMENT),
     List(__InputValue("if", None, () => Types.boolean, None), __InputValue("label", None, () => Types.string, None)),
-    repeatable = false
+    isRepeatable = false
   )
 
   val defer = new GraphQLAspect[Nothing, Any] {
