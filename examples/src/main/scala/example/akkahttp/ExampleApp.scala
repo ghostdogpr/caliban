@@ -3,13 +3,12 @@ package example.akkahttp
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives._
-import caliban.AkkaHttpAdapter
 import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
+import caliban.{ AkkaHttpAdapter, CalibanError, GraphQL, GraphQLInterpreter }
 import example.ExampleData.sampleCharacters
-import example.ExampleService.ExampleService
 import example.{ ExampleApi, ExampleService }
 import sttp.tapir.json.circe._
-import zio.{ Runtime, Unsafe }
+import zio.{ Runtime, Unsafe, ZIO, ZLayer }
 
 import scala.concurrent.ExecutionContextExecutor
 import scala.io.StdIn
@@ -18,10 +17,11 @@ object ExampleApp extends App {
 
   implicit val system: ActorSystem                        = ActorSystem()
   implicit val executionContext: ExecutionContextExecutor = system.dispatcher
-  implicit val runtime: Runtime[ExampleService]           =
-    Unsafe.unsafe(implicit u => Runtime.unsafe.fromLayer(ExampleService.make(sampleCharacters)))
+  val layer                                               = ZLayer.make[GraphQL[Any]](ExampleService.make(sampleCharacters), ExampleApi.layer)
+  implicit val runtime: Runtime[GraphQL[Any]]             = Unsafe.unsafe(implicit u => Runtime.unsafe.fromLayer(layer))
 
-  val interpreter = Unsafe.unsafe(implicit u => runtime.unsafe.run(ExampleApi.api.interpreter).getOrThrow())
+  val interpreter =
+    Unsafe.unsafe(implicit u => runtime.unsafe.run(ZIO.serviceWithZIO[GraphQL[Any]](_.interpreter)).getOrThrow())
   val adapter     = AkkaHttpAdapter.default
 
   /**

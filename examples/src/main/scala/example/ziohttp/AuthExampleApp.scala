@@ -60,10 +60,11 @@ object Auth {
     }
   }
 
-  def middleware[R] = HttpAppMiddleware.customAuthZIO { headers =>
-    val user = headers.get(Header.Authorization).map(_.renderedValue)
-    ZIO.serviceWithZIO[Auth](_.setUser(user)).as(true)
-  }
+  val middleware =
+    HttpAppMiddleware.customAuthZIO { headers =>
+      val user = headers.get(Header.Authorization).map(_.renderedValue)
+      ZIO.serviceWithZIO[Auth](_.setUser(user)).as(true)
+    }
 }
 
 object Authed extends GenericSchema[Auth] {
@@ -83,9 +84,10 @@ object Authed extends GenericSchema[Auth] {
 object AuthExampleApp extends ZIOAppDefault {
   private val graphiql = Handler.fromStream(ZStream.fromResource("graphiql.html")).toHttp
 
-  override def run =
+  override def run: URIO[Any, ExitCode] =
     (for {
-      interpreter <- (ExampleApi.api |+| Authed.api).interpreter
+      exampleApi  <- ZIO.service[GraphQL[Any]]
+      interpreter <- (exampleApi |+| Authed.api).interpreter
       port        <- Server
                        .install(
                          Http
@@ -100,6 +102,6 @@ object AuthExampleApp extends ZIOAppDefault {
       _           <- ZIO.logInfo(s"Server started on port $port")
       _           <- ZIO.never
     } yield ())
-      .provide(ExampleService.make(sampleCharacters), Auth.http, Server.default)
+      .provide(ExampleService.make(sampleCharacters), ExampleApi.layer, Auth.http, Server.default)
       .exitCode
 }

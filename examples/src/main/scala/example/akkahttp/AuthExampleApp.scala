@@ -48,7 +48,7 @@ object AuthExampleApp extends App {
   val route =
     path("api" / "graphql") {
       adapter.makeHttpService(
-        HttpInterpreter(interpreter).configure(Configurator.setSkipValidation(true)).intercept(auth)
+        HttpInterpreter(interpreter).configure(Configurator.setEnableIntrospection(false)).intercept(auth)
       )
     } ~ path("graphiql") {
       getFromResource("graphiql.html")

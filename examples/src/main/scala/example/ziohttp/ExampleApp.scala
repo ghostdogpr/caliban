@@ -2,7 +2,7 @@ package example.ziohttp
 
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
-import caliban.ZHttpAdapter
+import caliban.{ GraphQL, ZHttpAdapter }
 import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
 import zio._
 import zio.stream._
@@ -13,9 +13,9 @@ object ExampleApp extends ZIOAppDefault {
 
   private val graphiql = Handler.fromStream(ZStream.fromResource("graphiql.html")).toHttp
 
-  override def run =
+  override def run: ZIO[Any, Throwable, Unit] =
     (for {
-      interpreter <- ExampleApi.api.interpreter
+      interpreter <- ZIO.serviceWithZIO[GraphQL[Any]](_.interpreter)
       _           <-
         Server
           .serve(
@@ -30,5 +30,5 @@ object ExampleApp extends ZIOAppDefault {
       _           <- Console.printLine("Server online at http://localhost:8088/")
       _           <- Console.printLine("Press RETURN to stop...") *> Console.readLine
     } yield ())
-      .provide(ExampleService.make(sampleCharacters), Server.default)
+      .provide(ExampleService.make(sampleCharacters), ExampleApi.layer, Server.default)
 }
