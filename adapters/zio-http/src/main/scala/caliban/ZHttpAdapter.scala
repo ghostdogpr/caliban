@@ -1,48 +1,26 @@
 package caliban
 
-import caliban.execution.QueryExecution
 import caliban.interop.tapir.ws.Protocol
-import caliban.interop.tapir.{ RequestInterceptor, TapirAdapter, WebSocketHooks }
+import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.DecodeResult
-import sttp.tapir.server.ziohttp.{ ZioHttpInterpreter, ZioHttpServerOptions }
-import zio.http._
+import sttp.tapir.server.ziohttp.{ ZioHttpInterpreter, ZioHttpServerOptions, ZioHttpServerRequest }
+import zio._
 import zio.http.ChannelEvent.UserEvent.HandshakeComplete
 import zio.http.ChannelEvent.{ ChannelRead, UserEventTriggered }
+import zio.http._
 import zio.http.socket._
-import zio._
 import zio.stream._
 
 object ZHttpAdapter {
 
-  def makeHttpService[R, E](
-    interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    queryExecution: QueryExecution = QueryExecution.Parallel,
-    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
-  )(implicit
-    requestCodec: JsonCodec[GraphQLRequest],
-    responseValueCodec: JsonCodec[ResponseValue],
+  def makeHttpService[R, E](interpreter: HttpInterpreter[R, E])(implicit
     serverOptions: ZioHttpServerOptions[R] = ZioHttpServerOptions.default[R]
-  ): HttpApp[R, Throwable] = {
-    val endpoints = TapirAdapter.makeHttpService[R, E](
-      interpreter,
-      skipValidation,
-      enableIntrospection,
-      queryExecution,
-      requestInterceptor
-    )
-    ZioHttpInterpreter(serverOptions).toHttp(endpoints)
-  }
+  ): HttpApp[R, Throwable] =
+    ZioHttpInterpreter(serverOptions).toHttp(interpreter.serverEndpoints[R])
 
   def makeWebSocketService[R, E](
-    interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    keepAliveTime: Option[Duration] = None,
-    queryExecution: QueryExecution = QueryExecution.Parallel,
-    webSocketHooks: WebSocketHooks[R, E] = WebSocketHooks.empty
+    interpreter: WebSocketInterpreter[R, E]
   )(implicit inputCodec: JsonCodec[GraphQLWSInput], outputCodec: JsonCodec[GraphQLWSOutput]): App[R] =
     Handler
       .fromFunctionZIO[Request] { req =>
@@ -53,15 +31,17 @@ object ZHttpAdapter {
 
         for {
           queue <- Queue.unbounded[GraphQLWSInput]
-          pipe  <- protocol
-                     .make(
-                       interpreter,
-                       skipValidation,
-                       enableIntrospection,
-                       keepAliveTime,
-                       queryExecution,
-                       webSocketHooks
-                     )
+          pipe  <- interpreter.makeProtocol(ZioHttpServerRequest(req), protocol.name).flatMap {
+                     case Left(response)   =>
+                       ZIO.fail(
+                         Response(
+                           Status.fromInt(response.code.code).getOrElse(Status.InternalServerError),
+                           Headers(response.headers.map(header => Header.Custom(header.name, header.value))),
+                           Body.fromString(response.body)
+                         )
+                       )
+                     case Right((_, pipe)) => ZIO.succeed(pipe)
+                   }
           in     = ZStream.fromQueueWithShutdown(queue)
           out    = pipe(in).map {
                      case Right(output) => WebSocketFrame.Text(outputCodec.encode(output))

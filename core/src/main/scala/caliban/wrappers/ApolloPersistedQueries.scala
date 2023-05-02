@@ -4,9 +4,8 @@ import caliban.CalibanError.ValidationError
 import caliban.Value._
 import caliban.execution.ExecutionRequest
 import caliban.parsing.adt.Document
-import caliban.validation.Validator
 import caliban.wrappers.Wrapper._
-import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue }
+import caliban._
 import zio._
 
 import java.nio.charset.StandardCharsets
@@ -63,7 +62,7 @@ object ApolloPersistedQueries {
       ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
         (doc: Document) =>
           docVar.await.flatMap {
-            case Some((_, Some(_))) => Validator.setSkipValidation(true) *> f(doc)
+            case Some((_, Some(_))) => ZIO.scoped[R1](Configurator.setSkipValidation(true) *> f(doc))
             case Some((hash, None)) => f(doc) <* ApolloPersistence.add(hash, doc)
             case None               => f(doc)
           }

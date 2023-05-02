@@ -52,9 +52,7 @@ object TapirAdapterSpec {
     wsUri: Option[Uri] = None
   )(implicit
     requestCodec: JsonCodec[GraphQLRequest],
-    mapCodec: JsonCodec[Map[String, Seq[String]]],
     responseCodec: JsonCodec[GraphQLResponse[CalibanError]],
-    responseValueCodec: JsonCodec[ResponseValue],
     wsInputCodec: JsonCodec[GraphQLWSInput],
     wsOutputCodec: JsonCodec[GraphQLWSOutput]
   ): Spec[TestService, Throwable] = suite(label) {
@@ -64,7 +62,7 @@ object TapirAdapterSpec {
     val runUpload    = uploadClient.map(client => (request: List[Part[BasicRequestBody]]) => client.runUpload(request))
     val runWS        = wsUri.map(wsUri =>
       SttpClientInterpreter()
-        .toRequestThrowDecodeFailures(TapirAdapter.makeWebSocketEndpoint, Some(wsUri))
+        .toRequestThrowDecodeFailures(WebSocketInterpreter.makeWebSocketEndpoint, Some(wsUri))
     )
 
     val tests: List[Option[Spec[SttpBackend[Task, ZioStreams with WebSockets], Throwable]]] = List(
@@ -295,20 +293,14 @@ object TapirAdapterSpec {
 
   private class TapirClient(httpUri: Uri)(implicit
     requestCodec: JsonCodec[GraphQLRequest],
-    mapCodec: JsonCodec[Map[String, Seq[String]]],
-    responseCodec: JsonCodec[GraphQLResponse[CalibanError]],
-    responseValueCodec: JsonCodec[ResponseValue],
-    wsInputCodec: JsonCodec[GraphQLWSInput],
-    wsOutputCodec: JsonCodec[GraphQLWSOutput]
+    responseCodec: JsonCodec[GraphQLResponse[CalibanError]]
   ) {
     import sttp.client3._
 
     implicit def jsonBodySerializer[B](implicit encoder: JsonCodec[B]): BodySerializer[B] =
       b => StringBody(encoder.encode(b), "UTF-8", MediaType.ApplicationJson)
 
-    implicit val stringShows: ShowError[String] = new ShowError[String] {
-      override def show(error: String): String = error
-    }
+    implicit val stringShows: ShowError[String] = (error: String) => error
 
     def runPost(request: GraphQLRequest): Request[Either[ResponseException[String, String], Either[GraphQLResponse[
       CalibanError
@@ -382,8 +374,8 @@ object TapirAdapterSpec {
       asString.mapWithMetadata(
         ResponseAs.deserializeRightWithError(
           implicitly[JsonCodec[B]].decode(_) match {
-            case failure: DecodeResult.Failure => Left("Failed to decode")
-            case DecodeResult.Value(v)         => Right(v)
+            case _: DecodeResult.Failure => Left("Failed to decode")
+            case DecodeResult.Value(v)   => Right(v)
           }
         )
       )

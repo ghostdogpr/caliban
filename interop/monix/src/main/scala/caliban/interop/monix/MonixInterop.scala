@@ -1,10 +1,9 @@
 package caliban.interop.monix
 
-import caliban.execution.QueryExecution
+import caliban._
 import caliban.introspection.adt.__Type
 import caliban.schema.Step.{ QueryStep, StreamStep }
 import caliban.schema.{ Schema, Step }
-import caliban._
 import cats.effect.ConcurrentEffect
 import monix.eval.{ Task => MonixTask }
 import monix.reactive.Observable
@@ -20,21 +19,10 @@ object MonixInterop {
     query: String,
     operationName: Option[String] = None,
     variables: Map[String, InputValue] = Map(),
-    extensions: Map[String, InputValue] = Map(),
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    queryExecution: QueryExecution = QueryExecution.Parallel
+    extensions: Map[String, InputValue] = Map()
   )(implicit runtime: Runtime[R]): MonixTask[GraphQLResponse[E]] =
     graphQL
-      .execute(
-        query,
-        operationName,
-        variables,
-        extensions,
-        skipValidation = skipValidation,
-        enableIntrospection = enableIntrospection,
-        queryExecution
-      )
+      .execute(query, operationName, variables, extensions)
       .toMonixTask
 
   def checkAsync[R](

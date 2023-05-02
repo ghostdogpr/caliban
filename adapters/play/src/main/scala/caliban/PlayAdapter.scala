@@ -1,12 +1,11 @@
 package caliban
 
-import akka.stream.{ Materializer, OverflowStrategy }
 import akka.stream.scaladsl.{ Flow, Sink, Source }
+import akka.stream.{ Materializer, OverflowStrategy }
 import akka.util.ByteString
 import caliban.PlayAdapter.convertHttpStreamingEndpoint
-import caliban.execution.QueryExecution
-import caliban.interop.tapir.TapirAdapter.{ zioMonadError, CalibanPipe, CalibanResponse, TapirResponse, ZioWebSockets }
-import caliban.interop.tapir._
+import caliban.interop.tapir.TapirAdapter._
+import caliban.interop.tapir.{ HttpInterpreter, HttpUploadInterpreter, WebSocketInterpreter }
 import play.api.routing.Router.Routes
 import sttp.capabilities.WebSockets
 import sttp.capabilities.akka.AkkaStreams
@@ -28,73 +27,24 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
     options.fold(PlayServerInterpreter())(PlayServerInterpreter(_))
 
   def makeHttpService[R, E](
-    interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    queryExecution: QueryExecution = QueryExecution.Parallel,
-    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
-  )(implicit
-    runtime: Runtime[R],
-    materializer: Materializer,
-    requestCodec: JsonCodec[GraphQLRequest],
-    responseValueCodec: JsonCodec[ResponseValue]
-  ): Routes = {
-    val endpoints = TapirAdapter.makeHttpService[R, E](
-      interpreter,
-      skipValidation,
-      enableIntrospection,
-      queryExecution,
-      requestInterceptor
+    interpreter: HttpInterpreter[R, E]
+  )(implicit runtime: Runtime[R], materializer: Materializer): Routes =
+    playInterpreter.toRoutes(
+      interpreter.serverEndpoints[R].map(convertHttpStreamingEndpoint[R, (GraphQLRequest, ServerRequest)])
     )
-    playInterpreter.toRoutes(endpoints.map(endpoint => convertHttpStreamingEndpoint(endpoint)))
-  }
 
-  def makeHttpUploadService[R, E](
-    interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    queryExecution: QueryExecution = QueryExecution.Parallel,
-    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty
-  )(implicit
+  def makeHttpUploadService[R, E](interpreter: HttpUploadInterpreter[R, E])(implicit
     runtime: Runtime[R],
     materializer: Materializer,
     requestCodec: JsonCodec[GraphQLRequest],
-    mapCodec: JsonCodec[Map[String, Seq[String]]],
-    responseValueCodec: JsonCodec[ResponseValue]
-  ): Routes = {
-    val endpoint = TapirAdapter.makeHttpUploadService[R, E](
-      interpreter,
-      skipValidation,
-      enableIntrospection,
-      queryExecution,
-      requestInterceptor
-    )
-    playInterpreter.toRoutes(convertHttpStreamingEndpoint(endpoint))
-  }
+    mapCodec: JsonCodec[Map[String, Seq[String]]]
+  ): Routes =
+    playInterpreter.toRoutes(convertHttpStreamingEndpoint(interpreter.serverEndpoint[R]))
 
   def makeWebSocketService[R, E](
-    interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    keepAliveTime: Option[Duration] = None,
-    queryExecution: QueryExecution = QueryExecution.Parallel,
-    requestInterceptor: RequestInterceptor[R] = RequestInterceptor.empty,
-    webSocketHooks: WebSocketHooks[R, E] = WebSocketHooks.empty
-  )(implicit
-    runtime: Runtime[R],
-    materializer: Materializer,
-    inputCodec: JsonCodec[GraphQLWSInput],
-    outputCodec: JsonCodec[GraphQLWSOutput]
-  ): Routes = {
-    val endpoint = TapirAdapter.makeWebSocketService[R, E](
-      interpreter,
-      skipValidation,
-      enableIntrospection,
-      keepAliveTime,
-      queryExecution,
-      requestInterceptor,
-      webSocketHooks
-    )
+    interpreter: WebSocketInterpreter[R, E]
+  )(implicit runtime: Runtime[R], materializer: Materializer): Routes = {
+    val endpoint = interpreter.serverEndpoint[R]
     playInterpreter.toRoutes(
       PlayAdapter.convertWebSocketEndpoint(
         endpoint.asInstanceOf[

@@ -166,21 +166,9 @@ object CatsInterop {
     query: String,
     operationName: Option[String] = None,
     variables: Map[String, InputValue] = Map.empty,
-    extensions: Map[String, InputValue] = Map.empty,
-    skipValidation: Boolean = false,
-    enableIntrospection: Boolean = true,
-    queryExecution: QueryExecution = QueryExecution.Parallel
+    extensions: Map[String, InputValue] = Map.empty
   )(implicit interop: ToEffect[F, R]): F[GraphQLResponse[E]] = {
-    val execution = graphQL.execute(
-      query,
-      operationName,
-      variables,
-      extensions,
-      skipValidation = skipValidation,
-      enableIntrospection = enableIntrospection,
-      queryExecution
-    )
-
+    val execution = graphQL.execute(query, operationName, variables, extensions)
     interop.toEffect(execution)
   }
 
