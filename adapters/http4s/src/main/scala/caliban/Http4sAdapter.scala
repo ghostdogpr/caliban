@@ -2,7 +2,7 @@ package caliban
 
 import caliban.interop.cats.{ CatsInterop, ToEffect }
 import caliban.interop.tapir.TapirAdapter.{ zioMonadError, CalibanPipe, ZioWebSockets }
-import caliban.interop.tapir.{ HttpInterpreter, HttpUploadInterpreter, WebSocketInterpreter }
+import caliban.interop.tapir.{ HttpInterpreter, HttpUploadInterpreter, StreamConstructor, WebSocketInterpreter }
 import cats.data.Kleisli
 import cats.effect.Async
 import cats.~>
@@ -18,16 +18,20 @@ import sttp.tapir.server.http4s.Http4sServerInterpreter
 import sttp.tapir.server.http4s.ztapir.ZHttp4sServerInterpreter
 import zio._
 import zio.interop.catz.concurrentInstance
+import zio.stream.interop.fs2z._
+import zio.stream.ZStream
 
 object Http4sAdapter {
 
   def makeHttpService[R, E](interpreter: HttpInterpreter[R, E]): HttpRoutes[RIO[R, *]] =
-    ZHttp4sServerInterpreter().from(interpreter.serverEndpoints[R]).toRoutes
+    ZHttp4sServerInterpreter()
+      .from(interpreter.serverEndpoints[R, ZioStreams](ZioStreams))
+      .toRoutes
 
   def makeHttpServiceF[F[_]: Async, R, E](
     interpreter: HttpInterpreter[R, E]
   )(implicit interop: ToEffect[F, R]): HttpRoutes[F] = {
-    val endpoints  = interpreter.serverEndpoints[R]
+    val endpoints  = interpreter.serverEndpoints[R, Fs2Streams[F]](Fs2Streams[F])
     val endpointsF = endpoints.map(convertHttpEndpointToF[F, R])
     Http4sServerInterpreter().toRoutes(endpointsF)
   }
@@ -36,14 +40,14 @@ object Http4sAdapter {
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]]
   ): HttpRoutes[RIO[R, *]] =
-    ZHttp4sServerInterpreter().from(interpreter.serverEndpoint[R]).toRoutes
+    ZHttp4sServerInterpreter().from(interpreter.serverEndpoint[R, ZioStreams](ZioStreams)).toRoutes
 
   def makeHttpUploadServiceF[F[_]: Async, R, E](interpreter: HttpUploadInterpreter[R, E])(implicit
     interop: ToEffect[F, R],
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]]
   ): HttpRoutes[F] = {
-    val endpoint  = interpreter.serverEndpoint[R]
+    val endpoint  = interpreter.serverEndpoint[R, Fs2Streams[F]](Fs2Streams[F])
     val endpointF = convertHttpEndpointToF[F, R](endpoint)
     Http4sServerInterpreter().toRoutes(endpointF)
   }
@@ -116,7 +120,7 @@ object Http4sAdapter {
    * you can use this function to convert the tapir endpoints to their cats-effect counterpart.
    */
   def convertHttpEndpointToF[F[_], R](
-    endpoint: ServerEndpoint[ZioStreams, RIO[R, *]]
+    endpoint: ServerEndpoint[Fs2Streams[F], RIO[R, *]]
   )(implicit interop: ToEffect[F, R]): ServerEndpoint[Fs2Streams[F], F] =
     ServerEndpoint[
       endpoint.SECURITY_INPUT,
@@ -127,8 +131,7 @@ object Http4sAdapter {
       Fs2Streams[F],
       F
     ](
-      endpoint.endpoint
-        .asInstanceOf[Endpoint[endpoint.SECURITY_INPUT, endpoint.INPUT, endpoint.ERROR_OUTPUT, endpoint.OUTPUT, Any]],
+      endpoint.endpoint,
       _ => a => interop.toEffect(endpoint.securityLogic(zioMonadError)(a)),
       _ => u => req => interop.toEffect(endpoint.logic(zioMonadError)(u)(req))
     )
@@ -189,5 +192,14 @@ object Http4sAdapter {
             )
     )
   }
+
+  private implicit def streamConstructor[F[_], R](implicit
+    toEffect: ToEffect[F, R]
+  ): StreamConstructor[Fs2Streams[F]#BinaryStream] =
+    new StreamConstructor[Fs2Streams[F]#BinaryStream] {
+      override def apply(stream: ZStream[Any, Throwable, Byte]): Fs2Streams[F]#BinaryStream =
+        stream.toFs2Stream
+          .translate(toEffect.toEffectK)
+    }
 
 }

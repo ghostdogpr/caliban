@@ -5,12 +5,11 @@ import akka.stream.{ Materializer, OverflowStrategy }
 import akka.util.ByteString
 import caliban.PlayAdapter.convertHttpStreamingEndpoint
 import caliban.interop.tapir.TapirAdapter._
-import caliban.interop.tapir.{ HttpInterpreter, HttpUploadInterpreter, WebSocketInterpreter }
+import caliban.interop.tapir.{ HttpInterpreter, HttpUploadInterpreter, StreamConstructor, WebSocketInterpreter }
 import play.api.routing.Router.Routes
 import sttp.capabilities.WebSockets
 import sttp.capabilities.akka.AkkaStreams
 import sttp.capabilities.akka.AkkaStreams.Pipe
-import sttp.capabilities.zio.ZioStreams
 import sttp.model.{ MediaType, StatusCode }
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.PublicEndpoint
@@ -30,7 +29,9 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
     interpreter: HttpInterpreter[R, E]
   )(implicit runtime: Runtime[R], materializer: Materializer): Routes =
     playInterpreter.toRoutes(
-      interpreter.serverEndpoints[R].map(convertHttpStreamingEndpoint[R, (GraphQLRequest, ServerRequest)])
+      interpreter
+        .serverEndpoints[R, AkkaStreams](AkkaStreams)
+        .map(convertHttpStreamingEndpoint[R, (GraphQLRequest, ServerRequest)])
     )
 
   def makeHttpUploadService[R, E](interpreter: HttpUploadInterpreter[R, E])(implicit
@@ -39,7 +40,7 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]]
   ): Routes =
-    playInterpreter.toRoutes(convertHttpStreamingEndpoint(interpreter.serverEndpoint[R]))
+    playInterpreter.toRoutes(convertHttpStreamingEndpoint(interpreter.serverEndpoint[R, AkkaStreams](AkkaStreams)))
 
   def makeWebSocketService[R, E](
     interpreter: WebSocketInterpreter[R, E]
@@ -61,6 +62,40 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
       )
     )
   }
+
+  private implicit def streamConstructor(implicit
+    runtime: Runtime[Any],
+    mat: Materializer
+  ): StreamConstructor[AkkaStreams.BinaryStream] =
+    new StreamConstructor[Source[ByteString, Any]] {
+      override def apply(stream: ZStream[Any, Throwable, Byte]): Source[ByteString, Any] =
+        Unsafe.unsafe(implicit u =>
+          Source.futureSource(
+            runtime.unsafe.runToFuture(
+              ZIO
+                .succeed(Source.queue[ByteString](0, OverflowStrategy.fail).preMaterialize())
+                .flatMap { case (queue, source) =>
+                  stream
+                    .runForeachChunk(chunk => ZIO.fromFuture(_ => queue.offer(ByteString(chunk.toArray))))
+                    .ensuring(ZIO.succeed(queue.complete()))
+                    .forkDaemon
+                    .flatMap(fiber =>
+                      ZIO.executorWith(executor =>
+                        ZIO.succeed(
+                          source
+                            .watchTermination()((_, f) =>
+                              f.onComplete(_ => runtime.unsafe.run(fiber.interrupt))(
+                                executor.asExecutionContext
+                              )
+                            )
+                        )
+                      )
+                    )
+                }
+            )
+          )
+        )
+    }
 }
 
 object PlayAdapter extends PlayAdapter(None) {
@@ -76,8 +111,8 @@ object PlayAdapter extends PlayAdapter(None) {
       Unit,
       Input,
       TapirResponse,
-      CalibanResponse,
-      ZioStreams,
+      CalibanResponse[AkkaStreams.BinaryStream],
+      AkkaStreams,
       RIO[R, *]
     ]
   )(implicit runtime: Runtime[R], mat: Materializer): ServerEndpoint[AkkaStreams, Future] =
@@ -90,58 +125,13 @@ object PlayAdapter extends PlayAdapter(None) {
       AkkaStreams,
       Future
     ](
-      endpoint.endpoint
-        .asInstanceOf[
-          PublicEndpoint[
-            Input,
-            TapirResponse,
-            (MediaType, Either[ResponseValue, AkkaStreams.BinaryStream]),
-            AkkaStreams
-          ]
-        ],
+      endpoint.endpoint,
       _ => _ => Future.successful(Right(())),
       _ =>
         _ =>
           req =>
             Unsafe.unsafe { implicit u =>
-              runtime.unsafe
-                .runToFuture(
-                  endpoint
-                    .logic(zioMonadError)(())(req)
-                    .right
-                    .flatMap {
-                      case (mediaType, Right(stream))  =>
-                        ZIO
-                          .succeed(Source.queue[ByteString](0, OverflowStrategy.fail).preMaterialize())
-                          .flatMap { case (queue, source) =>
-                            stream
-                              .runForeachChunk(chunk => ZIO.fromFuture(_ => queue.offer(ByteString(chunk.toArray))))
-                              .ensuring(ZIO.succeed(queue.complete()))
-                              .forkDaemon
-                              .flatMap(fiber =>
-                                ZIO.executorWith(executor =>
-                                  ZIO.succeed(
-                                    (
-                                      mediaType,
-                                      Right(
-                                        source
-                                          .watchTermination()((_, f) =>
-                                            f.onComplete(_ => runtime.unsafe.run(fiber.interrupt))(
-                                              executor.asExecutionContext
-                                            )
-                                          )
-                                      )
-                                    )
-                                  )
-                                )
-                              )
-                          }
-                          .asRightError
-                      case (mediaType, Left(response)) =>
-                        ZIO.succeed((mediaType, Left(response))).asRightError
-                    }
-                    .unright
-                )
+              runtime.unsafe.runToFuture(endpoint.logic(zioMonadError)(())(req))
             }
     )
 

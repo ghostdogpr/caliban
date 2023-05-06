@@ -2,6 +2,7 @@ package caliban
 
 import caliban.interop.tapir.ws.Protocol
 import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
+import sttp.capabilities.zio.ZioStreams
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.DecodeResult
 import sttp.tapir.server.ziohttp.{ ZioHttpInterpreter, ZioHttpServerOptions, ZioHttpServerRequest }
@@ -17,7 +18,7 @@ object ZHttpAdapter {
   def makeHttpService[R, E](interpreter: HttpInterpreter[R, E])(implicit
     serverOptions: ZioHttpServerOptions[R] = ZioHttpServerOptions.default[R]
   ): HttpApp[R, Throwable] =
-    ZioHttpInterpreter(serverOptions).toHttp(interpreter.serverEndpoints[R])
+    ZioHttpInterpreter(serverOptions).toHttp(interpreter.serverEndpoints[R, ZioStreams](ZioStreams))
 
   def makeWebSocketService[R, E](
     interpreter: WebSocketInterpreter[R, E]

@@ -2,7 +2,7 @@ package caliban.interop.tapir
 
 import caliban._
 import caliban.ResponseValue.StreamValue
-import sttp.capabilities.WebSockets
+import sttp.capabilities.{ Streams, WebSockets }
 import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.zio.ZioStreams.Pipe
 import sttp.model.{ headers => _, _ }
@@ -36,23 +36,17 @@ object TapirAdapter {
   type Configurator[-R] = URIO[R & Scope, Unit]
 
   object CalibanBody {
-    type Single = Left[ResponseValue, Nothing]
-    type Stream = Right[Nothing, ZStream[Any, Throwable, Byte]]
+    type Single     = Left[ResponseValue, Nothing]
+    type Stream[BS] = Right[Nothing, BS]
   }
 
-  private type CalibanBody = Either[ResponseValue, ZStream[Any, Throwable, Byte]]
-  type CalibanResponse     = (MediaType, CalibanBody)
-  type CalibanEndpoint[R]  =
-    ServerEndpoint.Full[Unit, Unit, (GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse, ZioStreams, RIO[
-      R,
-      *
-    ]]
+  private type CalibanBody[BS]   = Either[ResponseValue, BS]
+  type CalibanResponse[BS]       = (MediaType, CalibanBody[BS])
+  type CalibanEndpoint[R, BS, S] =
+    ServerEndpoint.Full[Unit, Unit, (GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse[BS], S, RIO[R, *]]
 
-  type CalibanUploadsEndpoint[R] =
-    ServerEndpoint.Full[Unit, Unit, UploadRequest, TapirResponse, CalibanResponse, ZioStreams, RIO[
-      R,
-      *
-    ]]
+  type CalibanUploadsEndpoint[R, BS, S] =
+    ServerEndpoint.Full[Unit, Unit, UploadRequest, TapirResponse, CalibanResponse[BS], S, RIO[R, *]]
 
   case class TapirResponse(
     code: StatusCode,
@@ -81,20 +75,25 @@ object TapirAdapter {
 
   val errorBody = statusCode.and(stringBody).and(headers).map(responseMapping)
 
-  def outputBody(implicit codec: JsonCodec[ResponseValue]): EndpointOutput[CalibanBody] =
-    oneOf[CalibanBody](
+  def outputBody[S](stream: Streams[S])(implicit
+    codec: JsonCodec[ResponseValue]
+  ): EndpointOutput[CalibanBody[stream.BinaryStream]] =
+    oneOf[CalibanBody[stream.BinaryStream]](
       oneOfVariantValueMatcher[CalibanBody.Single](customCodecJsonBody[ResponseValue].map(Left(_)) { case Left(value) =>
         value
       }) { case Left(_) => true },
-      oneOfVariantValueMatcher[CalibanBody.Stream](
-        streamTextBody(ZioStreams)(CodecFormat.Json(), Some(StandardCharsets.UTF_8)).toEndpointIO
+      oneOfVariantValueMatcher[CalibanBody.Stream[stream.BinaryStream]](
+        streamTextBody(stream)(CodecFormat.Json(), Some(StandardCharsets.UTF_8)).toEndpointIO
           .map(Right(_)) { case Right(value) => value }
       ) { case Right(_) => true }
     )
 
-  def buildHttpResponse[E](
+  def buildHttpResponse[E, BS](
     response: GraphQLResponse[E]
-  )(implicit responseCodec: JsonCodec[ResponseValue]): (MediaType, CalibanBody) =
+  )(implicit
+    streamConstructor: StreamConstructor[BS],
+    responseCodec: JsonCodec[ResponseValue]
+  ): (MediaType, CalibanBody[BS]) =
     response match {
       case resp @ GraphQLResponse(StreamValue(stream), _, _, _) =>
         (
@@ -119,10 +118,10 @@ object TapirAdapter {
     val DeferHeaderParams: Map[String, String] = Map("boundary" -> BoundaryHeader, "deferSpec" -> DeferSpec)
   }
 
-  private def encodeMultipartMixedResponse[E](
+  private def encodeMultipartMixedResponse[E, BS](
     resp: GraphQLResponse[E],
     stream: ZStream[Any, Throwable, ResponseValue]
-  )(implicit responseCodec: JsonCodec[ResponseValue]): CalibanBody = {
+  )(implicit streamConstructor: StreamConstructor[BS], responseCodec: JsonCodec[ResponseValue]): CalibanBody[BS] = {
     import DeferMultipart._
 
     val pipeline = ZPipeline.fromChannel {
@@ -143,11 +142,13 @@ object TapirAdapter {
     }
 
     Right(
-      stream
-        .via(pipeline)
-        .map(responseCodec.encode)
-        .intersperse(InnerBoundary, InnerBoundary, EndBoundary)
-        .mapConcat(_.getBytes(StandardCharsets.UTF_8))
+      streamConstructor(
+        stream
+          .via(pipeline)
+          .map(responseCodec.encode)
+          .intersperse(InnerBoundary, InnerBoundary, EndBoundary)
+          .mapConcat(_.getBytes(StandardCharsets.UTF_8))
+      )
     )
   }
 
