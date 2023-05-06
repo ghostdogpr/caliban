@@ -20,7 +20,9 @@ import sttp.tapir.json.play._
 import zio._
 import zio.test._
 
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.language.postfixOps
+import scala.util.Success
 
 object AkkaHttpAdapterSpec extends ZIOSpecDefault {
 
@@ -35,9 +37,11 @@ object AkkaHttpAdapterSpec extends ZIOSpecDefault {
       interpreter <- TestApi.api.interpreter
       adapter      = AkkaHttpAdapter.default(ec)
       route        = path("api" / "graphql") {
-                       adapter.makeHttpService(
-                         HttpInterpreter(interpreter).intercept(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
-                       )(runtime, mat)
+                       adapter
+                         .makeHttpService(HttpInterpreter(interpreter).intercept(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
+                           )(runtime,
+                           mat
+                         )
                      } ~ path("upload" / "graphql") {
                        adapter.makeHttpUploadService(HttpUploadInterpreter(interpreter))(runtime, mat, implicitly, implicitly)
                      } ~ path("ws" / "graphql") {
