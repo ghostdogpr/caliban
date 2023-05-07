@@ -2,6 +2,7 @@ package caliban
 
 import scala.util.Try
 import caliban.interop.circe._
+import caliban.interop.tapir.IsTapirSchema
 import caliban.interop.jsoniter.IsJsoniterCodec
 import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
 import zio.stream.Stream
@@ -80,6 +81,8 @@ object ResponseValue extends ValueJsonCompat {
     caliban.interop.circe.json.ValueCirce.responseValueEncoder.asInstanceOf[F[ResponseValue]]
   implicit def circeDecoder[F[_]: IsCirceDecoder]: F[ResponseValue]                  =
     caliban.interop.circe.json.ValueCirce.responseValueDecoder.asInstanceOf[F[ResponseValue]]
+  implicit def tapirSchema[F[_]: IsTapirSchema]: F[ResponseValue]                    =
+    caliban.interop.tapir.schema.responseValueSchema.asInstanceOf[F[ResponseValue]]
   implicit def responseValueZioJsonEncoder[F[_]: IsZIOJsonEncoder]: F[ResponseValue] =
     caliban.interop.zio.ValueZIOJson.responseValueEncoder.asInstanceOf[F[ResponseValue]]
   implicit def responseValueZioJsonDecoder[F[_]: IsZIOJsonDecoder]: F[ResponseValue] =

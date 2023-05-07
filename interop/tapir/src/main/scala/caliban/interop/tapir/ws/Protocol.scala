@@ -15,10 +15,7 @@ sealed trait Protocol {
 
   def make[R, E](
     interpreter: GraphQLInterpreter[R, E],
-    skipValidation: Boolean,
-    enableIntrospection: Boolean,
     keepAliveTime: Option[Duration],
-    queryExecution: QueryExecution,
     webSocketHooks: WebSocketHooks[R, E]
   ): URIO[R, CalibanPipe]
 
@@ -65,10 +62,7 @@ object Protocol {
 
     override def make[R, E](
       interpreter: GraphQLInterpreter[R, E],
-      skipValidation: Boolean,
-      enableIntrospection: Boolean,
       keepAliveTime: Option[Duration],
-      queryExecution: QueryExecution,
       webSocketHooks: WebSocketHooks[R, E]
     ): URIO[R, CalibanPipe] =
       for {
@@ -122,15 +116,7 @@ object Protocol {
 
                                  val continue = request match {
                                    case Some(req) =>
-                                     val stream = handler.generateGraphQLResponse(
-                                       req,
-                                       id,
-                                       interpreter,
-                                       skipValidation,
-                                       enableIntrospection,
-                                       queryExecution,
-                                       subscriptions
-                                     )
+                                     val stream = handler.generateGraphQLResponse(req, id, interpreter, subscriptions)
 
                                      ZIO.ifZIO(subscriptions.isTracking(id))(
                                        output.offer(Left(GraphQLWSClose(4409, s"Subscriber for $id already exists"))).unit,
@@ -212,10 +198,7 @@ object Protocol {
 
     override def make[R, E](
       interpreter: GraphQLInterpreter[R, E],
-      skipValidation: Boolean,
-      enableIntrospection: Boolean,
       keepAliveTime: Option[Duration],
-      queryExecution: QueryExecution,
       webSocketHooks: WebSocketHooks[R, E]
     ): URIO[R, CalibanPipe] =
       for {
@@ -258,15 +241,8 @@ object Protocol {
                                    }
                                    val continue = request match {
                                      case Some(req) =>
-                                       val stream = handler.generateGraphQLResponse(
-                                         req,
-                                         id.getOrElse(""),
-                                         interpreter,
-                                         skipValidation,
-                                         enableIntrospection,
-                                         queryExecution,
-                                         subscriptions
-                                       )
+                                       val stream =
+                                         handler.generateGraphQLResponse(req, id.getOrElse(""), interpreter, subscriptions)
                                        webSocketHooks.onMessage
                                          .map(_.transform(stream))
                                          .getOrElse(stream)
@@ -327,14 +303,11 @@ object Protocol {
       payload: GraphQLRequest,
       id: String,
       interpreter: GraphQLInterpreter[R, E],
-      skipValidation: Boolean,
-      enableIntrospection: Boolean,
-      queryExecution: QueryExecution,
       subscriptions: SubscriptionManager
     ): ZStream[R, E, GraphQLWSOutput] = {
       val resp =
         ZStream
-          .fromZIO(interpreter.executeRequest(payload, skipValidation, enableIntrospection, queryExecution))
+          .fromZIO(interpreter.executeRequest(payload))
           .flatMap(res =>
             res.data match {
               case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>

@@ -2,7 +2,7 @@ package example.ziohttp
 
 import caliban.Value.StringValue
 import caliban._
-import caliban.interop.tapir.WebSocketHooks
+import caliban.interop.tapir.{ HttpInterpreter, WebSocketHooks, WebSocketInterpreter }
 import caliban.schema.GenericSchema
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
@@ -56,14 +56,15 @@ object Auth {
           .debug("connect")
       ) ++ WebSocketHooks.afterInit(ZIO.failCause(Cause.empty).delay(10.seconds))
 
-      ZHttpAdapter.makeWebSocketService(interpreter, webSocketHooks = webSocketHooks)
+      ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter, webSocketHooks = webSocketHooks))
     }
   }
 
-  def middleware[R] = HttpAppMiddleware.customAuthZIO { headers =>
-    val user = headers.authorization.map(_.toString())
-    ZIO.serviceWithZIO[Auth](_.setUser(user)).as(true)
-  }
+  val middleware =
+    HttpAppMiddleware.customAuthZIO { headers =>
+      val user = headers.get(Header.Authorization).map(_.renderedValue)
+      ZIO.serviceWithZIO[Auth](_.setUser(user)).as(true)
+    }
 }
 
 object Authed extends GenericSchema[Auth] {
@@ -83,15 +84,16 @@ object Authed extends GenericSchema[Auth] {
 object AuthExampleApp extends ZIOAppDefault {
   private val graphiql = Handler.fromStream(ZStream.fromResource("graphiql.html")).toHttp
 
-  override def run =
+  override def run: URIO[Any, ExitCode] =
     (for {
-      interpreter <- (ExampleApi.api |+| Authed.api).interpreter
+      exampleApi  <- ZIO.service[GraphQL[Any]]
+      interpreter <- (exampleApi |+| Authed.api).interpreter
       port        <- Server
                        .install(
                          Http
-                           .collectRoute[Request] {
+                           .collectHttp[Request] {
                              case _ -> !! / "api" / "graphql" =>
-                               ZHttpAdapter.makeHttpService(interpreter) @@ Auth.middleware
+                               ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter)) @@ Auth.middleware
                              case _ -> !! / "ws" / "graphql"  => Auth.WebSockets.live(interpreter)
                              case _ -> !! / "graphiql"        => graphiql
                            }
@@ -100,6 +102,6 @@ object AuthExampleApp extends ZIOAppDefault {
       _           <- ZIO.logInfo(s"Server started on port $port")
       _           <- ZIO.never
     } yield ())
-      .provide(ExampleService.make(sampleCharacters), Auth.http, Server.default)
+      .provide(ExampleService.make(sampleCharacters), ExampleApi.layer, Auth.http, Server.default)
       .exitCode
 }

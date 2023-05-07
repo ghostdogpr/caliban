@@ -2,8 +2,8 @@ package example.ziohttp
 
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
-
-import caliban.ZHttpAdapter
+import caliban.{ GraphQL, ZHttpAdapter }
+import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
 import zio._
 import zio.stream._
 import zio.http._
@@ -13,20 +13,22 @@ object ExampleApp extends ZIOAppDefault {
 
   private val graphiql = Handler.fromStream(ZStream.fromResource("graphiql.html")).toHttp
 
-  override def run =
+  override def run: ZIO[Any, Throwable, Unit] =
     (for {
-      interpreter <- ExampleApi.api.interpreter
-      _           <- Server
-                       .serve(
-                         Http
-                           .collectRoute[Request] {
-                             case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
-                             case _ -> !! / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
-                             case _ -> !! / "graphiql"        => graphiql
-                           }
-                           .withDefaultErrorResponse
-                       )
+      interpreter <- ZIO.serviceWithZIO[GraphQL[Any]](_.interpreter)
+      _           <-
+        Server
+          .serve(
+            Http
+              .collectHttp[Request] {
+                case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
+                case _ -> !! / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))
+                case _ -> !! / "graphiql"        => graphiql
+              }
+              .withDefaultErrorResponse
+          )
+      _           <- Console.printLine("Server online at http://localhost:8088/")
+      _           <- Console.printLine("Press RETURN to stop...") *> Console.readLine
     } yield ())
-      .provide(ExampleService.make(sampleCharacters), Server.default)
-      .exitCode
+      .provide(ExampleService.make(sampleCharacters), ExampleApi.layer, Server.default)
 }

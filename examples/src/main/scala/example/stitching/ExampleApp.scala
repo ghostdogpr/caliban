@@ -1,6 +1,7 @@
 package example.stitching
 
 import caliban._
+import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
 import caliban.schema._
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
@@ -110,16 +111,17 @@ object ExampleApp extends ZIOAppDefault {
     (for {
       api         <- StitchingExample.api
       interpreter <- api.interpreter
-      _           <- Server
-                       .serve(
-                         Http
-                           .collectRoute[Request] {
-                             case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(interpreter)
-                             case _ -> !! / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(interpreter)
-                             case _ -> !! / "graphiql"        => graphiql
-                           }
-                           .withDefaultErrorResponse
-                       )
+      _           <-
+        Server
+          .serve(
+            Http
+              .collectHttp[Request] {
+                case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
+                case _ -> !! / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))
+                case _ -> !! / "graphiql"        => graphiql
+              }
+              .withDefaultErrorResponse
+          )
     } yield ())
       .provide(
         HttpClientZioBackend.layer(),

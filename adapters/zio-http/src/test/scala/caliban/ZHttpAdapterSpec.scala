@@ -1,13 +1,18 @@
 package caliban
 
 import caliban.interop.tapir.TestData.sampleCharacters
-import caliban.interop.tapir.{ FakeAuthorizationInterceptor, TapirAdapterSpec, TestApi, TestService }
+import caliban.interop.tapir.{
+  FakeAuthorizationInterceptor,
+  HttpInterpreter,
+  TapirAdapterSpec,
+  TestApi,
+  TestService,
+  WebSocketInterpreter
+}
 import caliban.uploads.Uploads
 import sttp.client3.UriContext
-import zio.http._
-import zio.http.netty.server.NettyDriver
-import zio.http.netty.{ ChannelFactories, NettyRuntime }
 import zio._
+import zio.http._
 import zio.test.{ Live, ZIOSpecDefault }
 
 import scala.language.postfixOps
@@ -20,18 +25,21 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
   private val apiLayer = envLayer >>> ZLayer.fromZIO {
     for {
       interpreter <- TestApi.api.interpreter
-      _           <- Server
-                       .serve(
-                         Http
-                           .collectRoute[Request] {
-                             case _ -> !! / "api" / "graphql" =>
-                               ZHttpAdapter.makeHttpService(interpreter, requestInterceptor = FakeAuthorizationInterceptor.bearer)
-                             case _ -> !! / "ws" / "graphql"  =>
-                               ZHttpAdapter.makeWebSocketService(interpreter)
-                           }
-                           .withDefaultErrorResponse
-                       )
-                       .forkScoped
+      _           <-
+        Server
+          .serve(
+            Http
+              .collectHttp[Request] {
+                case _ -> !! / "api" / "graphql" =>
+                  ZHttpAdapter.makeHttpService(
+                    HttpInterpreter(interpreter).intercept(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
+                  )
+                case _ -> !! / "ws" / "graphql"  =>
+                  ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))
+              }
+              .withDefaultErrorResponse
+          )
+          .forkScoped
       _           <- Live.live(Clock.sleep(3 seconds))
       service     <- ZIO.service[TestService]
     } yield service
@@ -46,8 +54,7 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
     suite.provideShared(
       apiLayer,
       Scope.default,
-      Server.live,
-      ServerConfig.live(ServerConfig.default.port(8089))
+      Server.defaultWith(_.port(8089).responseCompression())
     )
   }
 }

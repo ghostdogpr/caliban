@@ -1,9 +1,11 @@
 package caliban.schema
 
 import java.util.UUID
+import caliban.Value.StringValue
 import caliban._
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
-import caliban.schema.Annotations.{ GQLExcluded, GQLInterface, GQLUnion, GQLValueType }
+import caliban.parsing.adt.Directive
+import caliban.schema.Annotations.{ GQLDirective, GQLExcluded, GQLInterface, GQLUnion, GQLValueType }
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import zio.query.ZQuery
@@ -223,6 +225,27 @@ object SchemaSpec extends ZIOSpecDefault {
                          |  b: B!
                          |}""".stripMargin
         assertTrue(gql.render == expected)
+      },
+      test("enum supported directives") {
+        sealed trait MyEnum
+        object MyEnum {
+          @GQLDirective(Directive("join__Graph", Map("name" -> StringValue("A")))) case object A extends MyEnum
+          @GQLDirective(Directive("join__Graph", Map("name" -> StringValue("B")))) case object B extends MyEnum
+        }
+        case class Queries(myEnum: MyEnum)
+        implicit val queriesSchema: Schema[Any, Queries] = genAll
+
+        assertTrue(
+          Types
+            .collectTypes(introspect[Queries])
+            .find(_.name contains "MyEnum")
+            .flatMap(_.enumValues(__DeprecatedArgs()))
+            .map(_.flatMap(_.directives.toList.flatten))
+            .get == List(
+            Directive("join__Graph", Map("name" -> StringValue("A"))),
+            Directive("join__Graph", Map("name" -> StringValue("B")))
+          )
+        )
       }
     )
 

@@ -9,6 +9,7 @@ import zio.test.Assertion._
 import zio.test._
 import schema.Annotations._
 import caliban.Macros.gqldoc
+import caliban.execution.Feature
 
 object RemoteSchemaSpec extends ZIOSpecDefault {
   sealed trait EnumType  extends Product with Serializable
@@ -110,6 +111,7 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         )
       protected val additionalDirectives: List[__Directive]       = List()
       protected val wrappers: List[caliban.wrappers.Wrapper[Any]] = List()
+      override protected val features: Set[Feature]               = Set.empty
     }
 
 }

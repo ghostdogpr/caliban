@@ -3,7 +3,15 @@ package caliban
 import akka.actor.ActorSystem
 import akka.stream.Materializer
 import caliban.interop.tapir.TestData.sampleCharacters
-import caliban.interop.tapir.{ FakeAuthorizationInterceptor, TapirAdapterSpec, TestApi, TestService }
+import caliban.interop.tapir.{
+  FakeAuthorizationInterceptor,
+  HttpInterpreter,
+  HttpUploadInterpreter,
+  TapirAdapterSpec,
+  TestApi,
+  TestService,
+  WebSocketInterpreter
+}
 import caliban.uploads.Uploads
 import play.api.Mode
 import play.api.routing._
@@ -18,33 +26,28 @@ import scala.language.postfixOps
 object PlayAdapterSpec extends ZIOSpecDefault {
   import sttp.tapir.json.play._
 
-  private val interceptor = FakeAuthorizationInterceptor.bearer
-
   private val envLayer = TestService.make(sampleCharacters) ++ Uploads.empty
 
   private val apiLayer = envLayer >>> ZLayer.scoped {
     for {
       system      <- ZIO.succeed(ActorSystem()).withFinalizer(sys => ZIO.fromFuture(_ => sys.terminate()).ignore)
-      ec           = system.dispatcher
       mat          = Materializer(system)
       runtime     <- ZIO.runtime[TestService with Uploads]
       interpreter <- TestApi.api.interpreter
       router       = Router.from {
                        case req @ POST(p"/api/graphql")    =>
                          PlayAdapter
-                           .makeHttpService(interpreter, requestInterceptor = interceptor)(
-                             runtime,
-                             mat,
-                             implicitly,
-                             implicitly
-                           )
+                           .makeHttpService(
+                             HttpInterpreter(interpreter)
+                               .intercept(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
+                           )(runtime, mat)
                            .apply(req)
                        case req @ POST(p"/upload/graphql") =>
                          PlayAdapter
-                           .makeHttpUploadService(interpreter)(runtime, mat, implicitly, implicitly, implicitly)
+                           .makeHttpUploadService(HttpUploadInterpreter(interpreter))(runtime, mat, implicitly, implicitly)
                            .apply(req)
                        case req @ GET(p"/ws/graphql")      =>
-                         PlayAdapter.makeWebSocketService(interpreter)(ec, runtime, mat, implicitly, implicitly).apply(req)
+                         PlayAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))(runtime, mat).apply(req)
                      }
       _           <- ZIO
                        .attempt(

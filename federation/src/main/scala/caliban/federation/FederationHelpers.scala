@@ -72,6 +72,6 @@ private[federation] object FederationHelpers {
     None,
     None,
     None,
-    fs => StringValue(fs.fields)
+    (fs: FieldSet) => StringValue(fs.fields)
   )
 }

@@ -1,6 +1,5 @@
 package caliban.interop.monix
 
-import caliban.execution.QueryExecution
 import caliban.schema.{ Schema, SubscriptionSchema }
 import caliban.{ CalibanError, GraphQL, GraphQLInterpreter, GraphQLResponse, InputValue }
 import cats.effect.ConcurrentEffect
@@ -15,20 +14,9 @@ package object implicits {
       query: String,
       operationName: Option[String] = None,
       variables: Map[String, InputValue] = Map(),
-      extensions: Map[String, InputValue] = Map(),
-      skipValidation: Boolean = false,
-      enableIntrospection: Boolean = true,
-      queryExecution: QueryExecution = QueryExecution.Parallel
+      extensions: Map[String, InputValue] = Map()
     )(implicit runtime: Runtime[R]): Task[GraphQLResponse[E]] =
-      MonixInterop.executeAsync(underlying)(
-        query,
-        operationName,
-        variables,
-        extensions,
-        skipValidation = skipValidation,
-        enableIntrospection = enableIntrospection,
-        queryExecution
-      )
+      MonixInterop.executeAsync(underlying)(query, operationName, variables, extensions)
 
     def checkAsync(query: String)(implicit runtime: Runtime[Any]): Task[Unit] =
       MonixInterop.checkAsync(underlying)(query)

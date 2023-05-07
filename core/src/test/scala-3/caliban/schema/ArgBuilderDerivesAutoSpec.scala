@@ -43,22 +43,30 @@ object ArgBuilderDerivesAutoSpec extends ZIOSpecDefault {
         )
       }
     ),
-    test("reuses implicits defined in ArgBuilder") {
+    suite("reuses implicits defined in ArgBuilder") {
       case class InputArgs[A](value: A, list: List[A])
-
-      case class Wrapper(ints: InputArgs[Int], strings: InputArgs[String]) derives ArgBuilder.Auto
-
-      val derivedAB = summon[ArgBuilder[Wrapper]]
 
       val ints    = ObjectValue(Map("value" -> IntValue(1), "list" -> ListValue(List(IntValue(1), IntValue(2)))))
       val strings =
         ObjectValue(Map("value" -> StringValue("x"), "list" -> ListValue(List(StringValue("x"), StringValue("y")))))
+      val obj     = ObjectValue(Map("ints" -> ints, "strings" -> strings))
 
-      val expected = Wrapper(
-        InputArgs(1, List(1, 2)),
-        InputArgs("x", List("x", "y"))
+      val intArgs = InputArgs(1, List(1, 2))
+      val strArgs = InputArgs("x", List("x", "y"))
+
+      List(
+        test("ArgBuilder.Auto") {
+          case class Wrapper(ints: InputArgs[Int], strings: InputArgs[String]) derives ArgBuilder.Auto
+          val derived = summon[ArgBuilder[Wrapper]]
+          assertTrue(derived.build(obj) == Right(Wrapper(intArgs, strArgs)))
+        },
+        test("ArgBuilder.GenAuto") {
+          case class Wrapper(ints: InputArgs[Int], strings: InputArgs[String]) derives ArgBuilder.GenAuto
+          val derived = summon[ArgBuilder[Wrapper]]
+          assertTrue(derived.build(obj) == Right(Wrapper(intArgs, strArgs)))
+        }
       )
-      assertTrue(derivedAB.build(ObjectValue(Map("ints" -> ints, "strings" -> strings))) == Right(expected))
+
     }
   )
 }

@@ -1,16 +1,15 @@
 package caliban.schema
 
 import java.util.UUID
-import caliban._
+import caliban.*
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
 import caliban.schema.Annotations.{ GQLExcluded, GQLInterface, GQLUnion, GQLValueType }
-import caliban.schema.Schema._
-import caliban.schema.ArgBuilder.auto._
+import caliban.schema.ArgBuilder.auto.*
 import zio.query.ZQuery
 import zio.stream.ZStream
-import zio.test.Assertion._
-import zio.test._
-import zio._
+import zio.test.Assertion.*
+import zio.test.*
+import zio.*
 
 import scala.concurrent.Future
 
@@ -35,7 +34,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
       },
       test("tricky case with R") {
         case class Field(value: ZQuery[Console, Nothing, String])
-        object MySchema extends GenericSchema[Console with Clock]
+        object MySchema extends SchemaDerivation[Console with Clock]
         case class Queries(field: ZQuery[Clock, Nothing, Field]) derives MySchema.Auto
 
         assert(
@@ -76,7 +75,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
         )
       },
       test("nested types with explicit schema in companion object") {
-        object consoleSchema extends GenericSchema[Console] {
+        object consoleSchema extends SchemaDerivation[Console] {
           case class A(s: String)
           object A {
             implicit val aSchema: Schema[Console, A] = gen
@@ -305,7 +304,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
             case class A(a: Int)
 
             given Schema[Any, A] = Schema.obj[Any, A]("A") { case given FieldAttributes =>
-              List(field("a")(_.a.toString))
+              List(Schema.field("a")(_.a.toString))
             }
 
             case class Queries(as: List[A]) derives Schema.Auto
@@ -321,7 +320,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
             case class A(a: Int)
 
             given Schema[Any, A] = Schema.obj[Any, A]("A") { case given FieldAttributes =>
-              List(field("a")(_.a.toString))
+              List(Schema.field("a")(_.a.toString))
             }
 
             case class Queries(as: List[A]) derives FooSchema.Auto
