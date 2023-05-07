@@ -119,6 +119,20 @@ object TapirAdapterSpec {
               res  <- ZIO.serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](r.send(_))
               body <- ZIO.fromEither(res.body).orElseFail(new Throwable(s"Failed to parse result: $res"))
             } yield assertTrue(body.isLeft)
+          },
+          test("allow deferred effects") {
+            val q =
+              """{ characters { ... on Character @defer(label: "character") { name  ... @defer(label: "nicknames") { labels }  } } }"""
+            val r = run(GraphQLRequest())
+              .header(Header("content-type", "application/graphql; charset=utf-8"), replaceExisting = true)
+              .body(q)
+              .contentLength(q.length)
+
+            for {
+              res  <- ZIO.serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](r.send(_))
+              body <-
+                ZIO.fromEither(res.body).mapError(e => new Throwable(s"Failed to parse result: $res, ${e.getMessage}"))
+            } yield assertTrue(body.isRight, body.toOption.exists(_.size == 9))
           }
         )
       ),
@@ -304,7 +318,7 @@ object TapirAdapterSpec {
 
     def runPost(request: GraphQLRequest): Request[Either[ResponseException[String, String], Either[GraphQLResponse[
       CalibanError
-    ], Chunk[GraphQLResponse[CalibanError]]]], Effect[Task] with ZioStreams] =
+    ], Chunk[ResponseValue]]], Effect[Task] with ZioStreams] =
       basicRequest
         .post(httpUri)
         .body(request)
@@ -312,7 +326,7 @@ object TapirAdapterSpec {
 
     def runGet(request: GraphQLRequest): Request[Either[ResponseException[String, String], Either[GraphQLResponse[
       CalibanError
-    ], Chunk[GraphQLResponse[CalibanError]]]], Effect[Task] with ZioStreams] =
+    ], Chunk[ResponseValue]]], Effect[Task] with ZioStreams] =
       basicRequest
         .get(
           httpUri.addParams(
@@ -331,7 +345,7 @@ object TapirAdapterSpec {
     def runUpload(
       request: List[Part[BasicRequestBody]]
     ): Request[Either[ResponseException[String, String], Either[GraphQLResponse[CalibanError], Chunk[
-      GraphQLResponse[CalibanError]
+      ResponseValue
     ]]], Effect[Task] with ZioStreams] =
       basicRequest
         .post(httpUri)
@@ -340,32 +354,34 @@ object TapirAdapterSpec {
 
     private def readMultipartResponse(
       stream: ZStream[Any, Throwable, Byte]
-    ): ZIO[Any, Throwable, Chunk[GraphQLResponse[CalibanError]]] =
+    ): ZIO[Any, Throwable, Chunk[ResponseValue]] =
       (stream >>>
         ZPipeline.utfDecode >>>
         ZPipeline.splitLines >>>
         ZPipeline.map[String, String](_.trim) >>>
-        ZPipeline.collect[String, Option[GraphQLResponse[CalibanError]]] {
+        ZPipeline.collect[String, Either[Throwable, ResponseValue]] {
           case line if line.startsWith("{") =>
-            line.fromJson[GraphQLResponse[CalibanError]].toOption
-        }).collectSome >>> ZSink.collectAll[GraphQLResponse[CalibanError]]
+            line.fromJson[ResponseValue].left.map(new Throwable(_))
+        }).absolve >>> ZSink.collectAll[ResponseValue]
 
     private def asStreamOrSingle(implicit
       codec: JsonCodec[GraphQLResponse[CalibanError]]
     ): ResponseAs[Either[ResponseException[String, String], Either[GraphQLResponse[CalibanError], Chunk[
-      GraphQLResponse[CalibanError]
+      ResponseValue
     ]]], Effect[Task] with ZioStreams] =
       fromMetadata(
         asStringAlways.map(error => Left(HttpError(error, StatusCode.UnprocessableEntity))),
         ConditionalResponseAs(
-          _.contentType.exists(MediaType.unsafeParse(_) == MediaType.ApplicationJson),
-          asJsonBody[GraphQLResponse[CalibanError]](codec).mapRight(Left(_))
-        ),
-        ConditionalResponseAs(
-          _.contentType.exists(MediaType.unsafeParse(_) == MediaType.MultipartFormData),
+          _.contentType.exists(
+            MediaType.unsafeParse(_).matches(ContentTypeRange("multipart", "mixed", ContentTypeRange.Wildcard))
+          ),
           asStream(ZioStreams)(readMultipartResponse)
             .mapRight(Right(_))
             .mapLeft(s => HttpError(s, StatusCode.UnprocessableEntity))
+        ),
+        ConditionalResponseAs(
+          _.contentType.exists(MediaType.unsafeParse(_) == MediaType.ApplicationJson),
+          asJsonBody[GraphQLResponse[CalibanError]](codec).mapRight(Left(_))
         )
       )
 

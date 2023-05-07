@@ -3,6 +3,7 @@ package caliban.interop.tapir
 import caliban._
 import caliban.interop.tapir.TapirAdapter._
 import caliban.uploads.{ FileMeta, GraphQLUploadRequest, Uploads }
+import sttp.capabilities.Streams
 import sttp.capabilities.zio.ZioStreams
 import sttp.model._
 import sttp.tapir.Codec.JsonCodec
@@ -14,21 +15,24 @@ import java.nio.charset.StandardCharsets
 import scala.util.Try
 
 sealed trait HttpUploadInterpreter[-R, E] { self =>
-  protected val endpoint: PublicEndpoint[UploadRequest, TapirResponse, CalibanResponse, ZioStreams]
+  protected def endpoint[S](
+    streams: Streams[S]
+  ): PublicEndpoint[UploadRequest, TapirResponse, CalibanResponse[streams.BinaryStream], S]
 
-  protected def executeRequest(
+  protected def executeRequest[BS](
     graphQLRequest: GraphQLRequest,
     serverRequest: ServerRequest
-  ): ZIO[R, TapirResponse, CalibanResponse]
+  )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]]
 
   private def parsePath(path: String): List[Either[String, Int]] =
     path.split('.').map(c => Try(c.toInt).toEither.left.map(_ => c)).toList
 
-  def serverEndpoint[R1 <: R](implicit
+  def serverEndpoint[R1 <: R, S](streams: Streams[S])(implicit
+    streamConstructor: StreamConstructor[streams.BinaryStream],
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]]
-  ): CalibanUploadsEndpoint[R1] = {
-    def logic(request: UploadRequest): RIO[R1, Either[TapirResponse, CalibanResponse]] = {
+  ): CalibanUploadsEndpoint[R1, streams.BinaryStream, S] = {
+    def logic(request: UploadRequest): RIO[R1, Either[TapirResponse, CalibanResponse[streams.BinaryStream]]] = {
       val (parts, serverRequest) = request
       val partsMap               = parts.map(part => part.name -> part).toMap
 
@@ -75,7 +79,7 @@ sealed trait HttpUploadInterpreter[-R, E] { self =>
       io.either
     }
 
-    endpoint.serverLogic(logic)
+    endpoint(streams).serverLogic(logic(_))
   }
 
   def intercept[R1](interceptor: Interceptor[R1, R]): HttpUploadInterpreter[R1, E] =
@@ -89,14 +93,16 @@ object HttpUploadInterpreter {
   private case class Base[R, E](interpreter: GraphQLInterpreter[R, E])(implicit
     responseValueCodec: JsonCodec[ResponseValue]
   ) extends HttpUploadInterpreter[R, E] {
-    val endpoint: PublicEndpoint[UploadRequest, TapirResponse, CalibanResponse, ZioStreams] =
-      makeHttpUploadEndpoint
+    def endpoint[S](
+      streams: Streams[S]
+    ): PublicEndpoint[UploadRequest, TapirResponse, CalibanResponse[streams.BinaryStream], S] =
+      makeHttpUploadEndpoint(streams)
 
-    def executeRequest(
+    def executeRequest[BS](
       graphQLRequest: GraphQLRequest,
       serverRequest: ServerRequest
-    ): ZIO[R, TapirResponse, CalibanResponse] =
-      interpreter.executeRequest(graphQLRequest).map(buildHttpResponse)
+    )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]] =
+      interpreter.executeRequest(graphQLRequest).map(buildHttpResponse[E, BS])
   }
 
   private case class Configured[R1, R, E](
@@ -106,13 +112,15 @@ object HttpUploadInterpreter {
     override def intercept[R2](interceptor: Interceptor[R2, R1]): HttpUploadInterpreter[R2, E] =
       Configured[R2, R, E](interpreter, ZLayer.makeSome[R2 & ServerRequest, R](interceptor, layer))
 
-    val endpoint: PublicEndpoint[UploadRequest, TapirResponse, CalibanResponse, ZioStreams] =
-      interpreter.endpoint
+    def endpoint[S](
+      streams: Streams[S]
+    ): PublicEndpoint[UploadRequest, TapirResponse, CalibanResponse[streams.BinaryStream], S] =
+      interpreter.endpoint(streams)
 
-    def executeRequest(
+    def executeRequest[BS](
       graphQLRequest: GraphQLRequest,
       serverRequest: ServerRequest
-    ): ZIO[R1, TapirResponse, CalibanResponse] =
+    )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R1, TapirResponse, CalibanResponse[BS]] =
       interpreter.executeRequest(graphQLRequest, serverRequest).provideSome[R1](ZLayer.succeed(serverRequest), layer)
   }
 
@@ -121,13 +129,13 @@ object HttpUploadInterpreter {
   )(implicit responseValueCodec: JsonCodec[ResponseValue]): HttpUploadInterpreter[R, E] =
     Base(interpreter)
 
-  def makeHttpUploadEndpoint(implicit
+  def makeHttpUploadEndpoint[S](streams: Streams[S])(implicit
     responseValueCodec: JsonCodec[ResponseValue]
-  ): PublicEndpoint[UploadRequest, TapirResponse, CalibanResponse, ZioStreams] =
+  ): PublicEndpoint[UploadRequest, TapirResponse, CalibanResponse[streams.BinaryStream], S] =
     endpoint.post
       .in(multipartBody)
       .in(extractFromRequest(identity))
       .out(header[MediaType](HeaderNames.ContentType))
-      .out(outputBody)
+      .out(outputBody(streams))
       .errorOut(errorBody)
 }

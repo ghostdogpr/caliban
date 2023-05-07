@@ -54,7 +54,7 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
     suite.provideShared(
       apiLayer,
       Scope.default,
-      Server.defaultWithPort(8089)
+      Server.defaultWith(_.port(8089).responseCompression())
     )
   }
 }
