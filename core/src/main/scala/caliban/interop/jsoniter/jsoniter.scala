@@ -38,15 +38,15 @@ private[caliban] object ValueJsoniter {
   private val emptyResponseObject = ResponseValue.ObjectValue(Nil)
 
   private def encodeInputValue(x: InputValue, out: JsonWriter, depth: Int): Unit = x match {
-    case NullValue                          => out.writeNull()
+    case StringValue(value)                 => out.writeVal(value)
+    case BooleanValue(value)                => out.writeVal(value)
     case IntValue.IntNumber(value)          => out.writeVal(value)
     case IntValue.LongNumber(value)         => out.writeVal(value)
     case IntValue.BigIntNumber(value)       => out.writeVal(value)
     case FloatValue.FloatNumber(value)      => out.writeVal(value)
     case FloatValue.DoubleNumber(value)     => out.writeVal(value)
     case FloatValue.BigDecimalNumber(value) => out.writeVal(value)
-    case StringValue(value)                 => out.writeVal(value)
-    case BooleanValue(value)                => out.writeVal(value)
+    case NullValue                          => out.writeNull()
     case EnumValue(value)                   => out.writeVal(value)
     case InputValue.ListValue(l)            =>
       val depthM1 = depth - 1
@@ -67,15 +67,15 @@ private[caliban] object ValueJsoniter {
   }
 
   private def encodeResponseValue(x: ResponseValue, out: JsonWriter, depth: Int): Unit = x match {
-    case NullValue                          => out.writeNull()
+    case StringValue(value)                 => out.writeVal(value)
+    case BooleanValue(value)                => out.writeVal(value)
     case IntValue.IntNumber(value)          => out.writeVal(value)
     case IntValue.LongNumber(value)         => out.writeVal(value)
     case IntValue.BigIntNumber(value)       => out.writeVal(value)
     case FloatValue.FloatNumber(value)      => out.writeVal(value)
     case FloatValue.DoubleNumber(value)     => out.writeVal(value)
     case FloatValue.BigDecimalNumber(value) => out.writeVal(value)
-    case StringValue(value)                 => out.writeVal(value)
-    case BooleanValue(value)                => out.writeVal(value)
+    case NullValue                          => out.writeNull()
     case EnumValue(value)                   => out.writeVal(value)
     case ResponseValue.ListValue(l)         =>
       val depthM1 = depth - 1
@@ -95,15 +95,20 @@ private[caliban] object ValueJsoniter {
     case s: ResponseValue.StreamValue       => out.writeVal(s.toString)
   }
 
-  private def decodeInputValue(in: JsonReader, depth: Int): InputValue = {
-    val b = in.nextToken()
-    (b: @switch) match {
-      case 'n'                                                             =>
+  private def decodeInputValue(in: JsonReader, depth: Int): InputValue =
+    in.nextToken() match {
+      case '"'                                     =>
+        in.rollbackToken()
+        StringValue(in.readString(null))
+      case x if x == '-' || (x >= '0' && x <= '9') =>
+        in.rollbackToken()
+        numberParser(in)
+      case 'n'                                     =>
         in.readNullOrError(NullValue, "unexpected JSON value")
-      case 'f' | 't'                                                       =>
+      case 'f' | 't'                               =>
         in.rollbackToken()
         BooleanValue(in.readBoolean())
-      case '{'                                                             =>
+      case '{'                                     =>
         val depthM1 = depth - 1
         if (depthM1 < 0) in.decodeError("depth limit exceeded")
         else if (in.isNextToken('}')) emptyInputObject
@@ -122,7 +127,7 @@ private[caliban] object ValueJsoniter {
           if (in.isCurrentToken('}')) InputValue.ObjectValue(x.result())
           else in.objectEndOrCommaError()
         }
-      case '['                                                             =>
+      case '['                                     =>
         val depthM1 = depth - 1
         if (depthM1 < 0) in.decodeError("depth limit exceeded")
         else if (in.isNextToken(']')) emptyInputList
@@ -136,26 +141,24 @@ private[caliban] object ValueJsoniter {
           if (in.isCurrentToken(']')) InputValue.ListValue(x.result())
           else in.arrayEndOrCommaError()
         }
-      case '"'                                                             =>
-        in.rollbackToken()
-        StringValue(in.readString(null))
-      case '-' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' =>
-        in.rollbackToken()
-        numberParser(in)
-      case c                                                               =>
+      case c                                       =>
         in.decodeError(s"unexpected token $c")
     }
-  }
 
-  private def decodeResponseValue(in: JsonReader, depth: Int): ResponseValue = {
-    val b = in.nextToken()
-    (b: @switch) match {
-      case 'n'                                                             =>
+  private def decodeResponseValue(in: JsonReader, depth: Int): ResponseValue =
+    in.nextToken() match {
+      case '"'                                     =>
+        in.rollbackToken()
+        StringValue(in.readString(null))
+      case x if x == '-' || (x >= '0' && x <= '9') =>
+        in.rollbackToken()
+        numberParser(in)
+      case 'n'                                     =>
         in.readNullOrError(NullValue, "unexpected JSON value")
-      case 'f' | 't'                                                       =>
+      case 'f' | 't'                               =>
         in.rollbackToken()
         BooleanValue(in.readBoolean())
-      case '{'                                                             =>
+      case '{'                                     =>
         val depthM1 = depth - 1
         if (depthM1 < 0) in.decodeError("depth limit exceeded")
         else if (in.isNextToken('}')) emptyResponseObject
@@ -169,7 +172,7 @@ private[caliban] object ValueJsoniter {
           if (in.isCurrentToken('}')) ResponseValue.ObjectValue(x.result())
           else in.objectEndOrCommaError()
         }
-      case '['                                                             =>
+      case '['                                     =>
         val depthM1 = depth - 1
         if (depthM1 < 0) in.decodeError("depth limit exceeded")
         else if (in.isNextToken(']')) emptyResponseList
@@ -183,16 +186,9 @@ private[caliban] object ValueJsoniter {
           if (in.isCurrentToken(']')) ResponseValue.ListValue(x.result())
           else in.arrayEndOrCommaError()
         }
-      case '"'                                                             =>
-        in.rollbackToken()
-        StringValue(in.readString(null))
-      case '-' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' =>
-        in.rollbackToken()
-        numberParser(in)
-      case c                                                               =>
+      case c                                       =>
         in.decodeError(s"unexpected token $c")
     }
-  }
 
   private val numberParser: JsonReader => Value = in => {
     in.setMark()
