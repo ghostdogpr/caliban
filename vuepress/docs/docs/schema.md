@@ -195,7 +195,7 @@ For some types such as enums, it might be desirable to use auto derivation to re
 <code-group>
   <code-block title="Scala 2" active>
 
-```scala mdoc:silent
+```scala mdoc:silent:reset
 import caliban.schema.Schema
 
 sealed trait Origin
@@ -292,7 +292,7 @@ Or you can use semi-auto derivation as follows:
 <code-group>
   <code-block title="Scala 2" active>
 
-```scala mdoc:silent
+```scala mdoc:silent:reset
 import caliban.schema.{ArgBuilder, Schema}
 
 case class MyClass(field: String)
