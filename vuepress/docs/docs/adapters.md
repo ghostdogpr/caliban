@@ -35,6 +35,18 @@ Once your interpreter is correctly configured, you can use one of these 3 functi
 - `makeHttpUploadService` turns an `HttpUploadInterpreter` into a route for the corresponding library
 - `makeWebSocketService` turns a `WebSocketInterpreter` into a route for the corresponding library
 
+```scala
+val graphQLInterpreter: GraphQLInterpreter[AuthToken, CalibanError] = ???
+// turn our GraphQL interpreter into an HttpInterpreter
+val noAuthInterpreter: HttpInterpreter[AuthToken, CalibanError] = HttpInterpreter(graphQLInterpreter)
+// define authentication logic (from a ServerRequest, fail or build an Auth)
+val auth: ZLayer[ServerRequest, TapirResponse, AuthToken] = ???
+// pass our interceptor to eliminate the AuthToken requirement from the environment
+val authInterpreter: HttpUploadInterpreter[Any, CalibanError] = httpInterpreter.intercept(auth)
+// get our route for Akka Http
+val route = AkkaHttpAdapter.makeHttpService(authInterpreter)
+```
+
 Want to use something else? Check [make your own adapter section](#make-your-own-adapter)!
 
 Make sure to check the [examples](examples.md) to see the adapters in action.
