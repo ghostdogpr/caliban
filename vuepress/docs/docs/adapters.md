@@ -20,11 +20,9 @@ There are 3 of them:
 
 These interpreters expose 2 powerful methods:
 - `configure` takes a `Configurator[R]` which is an alias for `URIO[R & Scope, Unit]`.
-It allows you configuring the interpreter by running an effect that will run for each request and that can modify the configuration of the running fiber. 
-Built-in configurators such as `Configurator.setSkipValidation`, `Configurator.setEnableIntrospection` and `Configurator.setQueryExecution` let you dynamically change the configuration of the interpreter.
+It allows configuring the interpreter by running an effect that will run for each request and that can modify the configuration of the running fiber. Built-in configurators such as `Configurator.setSkipValidation`, `Configurator.setEnableIntrospection` and `Configurator.setQueryExecution` let you dynamically change the configuration of the interpreter.
 - `intercept` takes an `Interceptor[-R1, +R]` which is an alias for `ZLayer[R1 & ServerRequest, TapirResponse, R]`.
-It is basically a more powerful version of `configure` that gives you access to the incoming request (`ServerRequest`) and lets you modify the environment of the interpreter.
-A typical use case would be to extract an authentication token from the request and eliminate the authentication requirement from the environment if the token is valid. See an example [here](https://github.com/ghostdogpr/caliban/blob/series/2.x/examples/src/main/scala/example/akkahttp/AuthExampleApp.scala#L51).
+It is basically a more powerful version of `configure` that gives you access to the incoming request (`ServerRequest`) and lets you modify the environment of the interpreter (from `R` to `R1`). A typical use case would be to extract an authentication token from the request and eliminate the authentication requirement from the environment if the token is valid. See an example [here](https://github.com/ghostdogpr/caliban/blob/series/2.x/examples/src/main/scala/example/akkahttp/AuthExampleApp.scala#L51).
 
 In addition to that, the `WebSocketInterpreter` constructor comes with 2 optional parameters:
 - `keepAliveInterval` (default: empty) defines the interval for the server to send keep alive messages to the client
