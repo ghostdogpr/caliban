@@ -39,7 +39,7 @@ Once your interpreter is correctly configured, you can use one of these 3 functi
 val graphQLInterpreter: GraphQLInterpreter[AuthToken, CalibanError] = ???
 // turn our GraphQL interpreter into an HttpInterpreter
 val noAuthInterpreter: HttpInterpreter[AuthToken, CalibanError] = HttpInterpreter(graphQLInterpreter)
-// define authentication logic (from a ServerRequest, fail or build an Auth)
+// define authentication logic (from a ServerRequest, fail or build an AuthToken)
 val auth: ZLayer[ServerRequest, TapirResponse, AuthToken] = ???
 // pass our interceptor to eliminate the AuthToken requirement from the environment
 val authInterpreter: HttpUploadInterpreter[Any, CalibanError] = httpInterpreter.intercept(auth)
