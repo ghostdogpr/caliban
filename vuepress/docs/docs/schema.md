@@ -188,6 +188,60 @@ given Schema[Any, MyClass] = Schema.gen
 
 In Scala 3, derivation doesn't support value classes and opaque types. You can use `Schema.genDebug` to print the generated code in the console.
 
+### Combining auto and semi-auto derivation
+
+For some types such as enums, it might be desirable to use auto derivation to reduce boilerplate schema definitions:
+
+<code-group>
+  <code-block title="Scala 2" active>
+
+```scala mdoc:silent:reset
+import caliban.schema.Schema
+
+sealed trait Origin
+object Origin {
+  case object EARTH extends Origin
+  case object MARS  extends Origin
+  case object BELT  extends Origin
+}
+
+implicit val schemaForMyClass: Schema[Any, Origin] = {
+  import Schema.auto._
+  Schema.gen
+}
+```
+  </code-block>
+  <code-block title="Scala 3 (Any schema)">
+
+```scala
+import caliban.schema.Schema
+
+enum Origin derives Schema.Auto {
+  case EARTH, MARS, BELT
+}
+
+// if you don't want to use the `derives` syntax, you can also use the following:
+given Schema[Any, Origin] = Schema.Auto.derived
+```
+  </code-block>
+  <code-block title="Scala 3 (Custom schema)">
+
+```scala
+import caliban.schema.Schema
+
+trait MyEnv
+object EnvSchema extends Schema.SchemaDerivation[MyEnv]
+
+enum Origin derives EnvSchema.Auto {
+  case EARTH, MARS, BELT
+}
+
+// if you don't want to use the `derives` syntax:
+given Schema[MyEnv, Origin] = EnvSchema.Auto.derived
+```
+  </code-block>
+</code-group>
+
 ## Arguments
 
 To declare a field that take arguments, create a dedicated case class representing the arguments and make the field a _function_ from this class to the result type.
@@ -208,18 +262,37 @@ type Queries {
 
 Caliban provides auto-derivation for common types such as `Int`, `String`, `List`, `Option`, etc. but you can also support your own types by providing an implicit instance of `caliban.schema.ArgBuilder` that defines how incoming arguments from that types should be extracted. You also need a `Schema` for those types.
 
-Derivation of `ArgBuilder` for case classes works similarly to `Schema` derivation. You can use auto derivation by adding the following import:
+Derivation of `ArgBuilder` for case classes works similarly to `Schema` derivation. You can use auto derivation by adding the following import, or via the `derives` keyword (Scala 3 only):
 
-```scala mdoc:silent:reset
+
+<code-group>
+  <code-block title="Scala 2" active>
+
+```scala mdoc:silent
 import caliban.schema.ArgBuilder.auto._
 ```
+  </code-block>
+  <code-block title="Scala 3">
+
+```scala
+import caliban.schema.{ArgBuilder, Schema}
+
+case class FieldArg(value: String)
+case class MyClass(field: FieldArg) derives Schema.Auto, ArgBuilder.GenAuto
+
+// if you don't want to use the `derives` syntax, you can also use the following:
+given ArgBuilder[MyClass]  = ArgBuilder.GenAuto.derived
+given Schema[Any, MyClass] = Schema.Auto.derived
+```
+  </code-block>
+</code-group>
 
 Or you can use semi-auto derivation as follows:
 
 <code-group>
   <code-block title="Scala 2" active>
 
-```scala mdoc:silent
+```scala mdoc:silent:reset
 import caliban.schema.{ArgBuilder, Schema}
 
 case class MyClass(field: String)
