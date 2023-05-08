@@ -44,7 +44,7 @@ val auth: ZLayer[ServerRequest, TapirResponse, AuthToken] = ???
 // pass our interceptor to eliminate the AuthToken requirement from the environment
 val authInterpreter: HttpUploadInterpreter[Any, CalibanError] = httpInterpreter.intercept(auth)
 // get our route for Akka Http
-val route = AkkaHttpAdapter.makeHttpService(authInterpreter)
+val route = AkkaHttpAdapter.default().makeHttpService(authInterpreter)
 ```
 
 Want to use something else? Check [make your own adapter section](#make-your-own-adapter)!
