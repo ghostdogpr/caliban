@@ -17,8 +17,10 @@ object ZHttpAdapter {
 
   def makeHttpService[R, E](interpreter: HttpInterpreter[R, E])(implicit
     serverOptions: ZioHttpServerOptions[R] = ZioHttpServerOptions.default[R]
-  ): HttpApp[R, Throwable] =
-    ZioHttpInterpreter(serverOptions).toHttp(interpreter.serverEndpoints[R, ZioStreams](ZioStreams))
+  ): App[R] =
+    ZioHttpInterpreter(serverOptions)
+      .toHttp(interpreter.serverEndpoints[R, ZioStreams](ZioStreams))
+      .withDefaultErrorResponse
 
   def makeWebSocketService[R, E](
     interpreter: WebSocketInterpreter[R, E]
