@@ -15,21 +15,21 @@ The design principles of Caliban are the following:
 To use `caliban`, add the following dependency to your `build.sbt` file:
 
 ```scala
-"com.github.ghostdogpr" %% "caliban" % "2.2.0"
+"com.github.ghostdogpr" %% "caliban" % "2.2.1"
 ```
 
 The following modules are optional:
 
 ```scala
-"com.github.ghostdogpr" %% "caliban-http4s"     % "2.2.0" // routes for http4s
-"com.github.ghostdogpr" %% "caliban-akka-http"  % "2.2.0" // routes for akka-http
-"com.github.ghostdogpr" %% "caliban-play"       % "2.2.0" // routes for play
-"com.github.ghostdogpr" %% "caliban-zio-http"   % "2.2.0" // routes for zio-http
-"com.github.ghostdogpr" %% "caliban-cats"       % "2.2.0" // interop with cats effect
-"com.github.ghostdogpr" %% "caliban-monix"      % "2.2.0" // interop with monix
-"com.github.ghostdogpr" %% "caliban-tapir"      % "2.2.0" // interop with tapir
-"com.github.ghostdogpr" %% "caliban-federation" % "2.2.0" // interop with apollo federation
-"com.github.ghostdogpr" %% "caliban-tracing"    % "2.2.0" // interop with zio-telemetry
+"com.github.ghostdogpr" %% "caliban-http4s"     % "2.2.1" // routes for http4s
+"com.github.ghostdogpr" %% "caliban-akka-http"  % "2.2.1" // routes for akka-http
+"com.github.ghostdogpr" %% "caliban-play"       % "2.2.1" // routes for play
+"com.github.ghostdogpr" %% "caliban-zio-http"   % "2.2.1" // routes for zio-http
+"com.github.ghostdogpr" %% "caliban-cats"       % "2.2.1" // interop with cats effect
+"com.github.ghostdogpr" %% "caliban-monix"      % "2.2.1" // interop with monix
+"com.github.ghostdogpr" %% "caliban-tapir"      % "2.2.1" // interop with tapir
+"com.github.ghostdogpr" %% "caliban-federation" % "2.2.1" // interop with apollo federation
+"com.github.ghostdogpr" %% "caliban-tracing"    % "2.2.1" // interop with zio-telemetry
 ```
 
 Support for JSON encoding / decoding of the inputs and responses is enabled by adding **one** of the following dependencies to your `build.sbt` file:
