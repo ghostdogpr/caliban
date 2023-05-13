@@ -82,7 +82,7 @@ object Authed extends GenericSchema[Auth] {
 }
 
 object AuthExampleApp extends ZIOAppDefault {
-  private val graphiql = Handler.fromStream(ZStream.fromResource("graphiql.html")).toHttp
+  private val graphiql = Handler.fromStream(ZStream.fromResource("graphiql.html")).toHttp.withDefaultErrorResponse
 
   override def run: URIO[Any, ExitCode] =
     (for {
@@ -97,7 +97,6 @@ object AuthExampleApp extends ZIOAppDefault {
                              case _ -> !! / "ws" / "graphql"  => Auth.WebSockets.live(interpreter)
                              case _ -> !! / "graphiql"        => graphiql
                            }
-                           .withDefaultErrorResponse
                        )
       _           <- ZIO.logInfo(s"Server started on port $port")
       _           <- ZIO.never

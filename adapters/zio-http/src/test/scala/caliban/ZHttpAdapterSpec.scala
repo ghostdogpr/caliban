@@ -37,7 +37,6 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
                 case _ -> !! / "ws" / "graphql"  =>
                   ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))
               }
-              .withDefaultErrorResponse
           )
           .forkScoped
       _           <- Live.live(Clock.sleep(3 seconds))

@@ -20,7 +20,6 @@ object FederatedApp extends ZIOAppDefault {
             .collectHttp[Request] { case _ -> !! / "api" / "graphql" =>
               ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
             }
-            .withDefaultErrorResponse
         )
         .provideSome[CharacterService](Server.live, config)
   } yield ()
@@ -35,7 +34,6 @@ object FederatedApp extends ZIOAppDefault {
             .collectHttp[Request] { case _ -> !! / "api" / "graphql" =>
               ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
             }
-            .withDefaultErrorResponse
         )
         .provideSome[EpisodeService](Server.live, config)
   } yield ()

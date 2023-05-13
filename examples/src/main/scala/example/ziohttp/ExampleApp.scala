@@ -11,7 +11,7 @@ import zio.http._
 object ExampleApp extends ZIOAppDefault {
   import sttp.tapir.json.circe._
 
-  private val graphiql = Handler.fromStream(ZStream.fromResource("graphiql.html")).toHttp
+  private val graphiql = Handler.fromStream(ZStream.fromResource("graphiql.html")).toHttp.withDefaultErrorResponse
 
   override def run: ZIO[Any, Throwable, Unit] =
     (for {
@@ -25,7 +25,6 @@ object ExampleApp extends ZIOAppDefault {
                 case _ -> !! / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))
                 case _ -> !! / "graphiql"        => graphiql
               }
-              .withDefaultErrorResponse
           )
       _           <- Console.printLine("Server online at http://localhost:8088/")
       _           <- Console.printLine("Press RETURN to stop...") *> Console.readLine
