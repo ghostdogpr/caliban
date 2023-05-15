@@ -101,6 +101,12 @@ object AuthExampleApp extends ZIOAppDefault {
       _           <- ZIO.logInfo(s"Server started on port $port")
       _           <- ZIO.never
     } yield ())
-      .provide(ExampleService.make(sampleCharacters), ExampleApi.layer, Auth.http, Server.default)
+      .provide(
+        ExampleService.make(sampleCharacters),
+        ExampleApi.layer,
+        Auth.http,
+        ZLayer.succeed(Server.Config.default.port(8088)),
+        Server.live
+      )
       .exitCode
 }

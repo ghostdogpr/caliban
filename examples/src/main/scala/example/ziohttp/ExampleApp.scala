@@ -29,5 +29,10 @@ object ExampleApp extends ZIOAppDefault {
       _           <- Console.printLine("Server online at http://localhost:8088/")
       _           <- Console.printLine("Press RETURN to stop...") *> Console.readLine
     } yield ())
-      .provide(ExampleService.make(sampleCharacters), ExampleApi.layer, Server.default)
+      .provide(
+        ExampleService.make(sampleCharacters),
+        ExampleApi.layer,
+        ZLayer.succeed(Server.Config.default.port(8088)),
+        Server.live
+      )
 }
