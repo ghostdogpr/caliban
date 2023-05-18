@@ -20,8 +20,11 @@ object FieldMetrics {
   private def fieldDuration(name: String, field: String, buckets: Histogram.Boundaries) =
     Metric.histogram(name, buckets).tagged("field", field)
 
-  private def fieldTotal(name: String, field: String) =
-    Metric.counter(name).tagged("field", field)
+  private def fieldTotal(
+    name: String,
+    field: String,
+    status: String
+  ) = Metric.counter(name).tagged("field", field).tagged("status", status)
 
   def wrapper(
     totalLabel: String = "graphql_fields_total",
@@ -50,7 +53,15 @@ object FieldMetrics {
         for {
           summarized            <-
             query
-              .ensuring(fieldTotal(totalLabel, fieldName(info)).tagged(extraLabels).increment)
+              .foldQuery(
+                error =>
+                  ZQuery.fromZIO(
+                    fieldTotal(totalLabel, fieldName(info), "error").tagged(extraLabels).increment
+                  ) *> ZQuery.fail(error),
+                success =>
+                  ZQuery.fromZIO(fieldTotal(totalLabel, fieldName(info), "ok").tagged(extraLabels).increment) *> ZQuery
+                    .succeed(success)
+              )
               .summarized(Clock.nanoTime)((_, _))
           ((start, end), result) = summarized
           measure               <- ZQuery.fromZIO(for {
