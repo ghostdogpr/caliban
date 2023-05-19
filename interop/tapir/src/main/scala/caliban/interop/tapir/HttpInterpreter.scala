@@ -3,7 +3,6 @@ package caliban.interop.tapir
 import caliban._
 import caliban.interop.tapir.TapirAdapter._
 import sttp.capabilities.Streams
-import sttp.capabilities.zio.ZioStreams
 import sttp.model.{ headers => _, _ }
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.model.ServerRequest

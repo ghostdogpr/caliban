@@ -4,7 +4,6 @@ import caliban._
 import caliban.interop.tapir.TapirAdapter._
 import caliban.uploads.{ FileMeta, GraphQLUploadRequest, Uploads }
 import sttp.capabilities.Streams
-import sttp.capabilities.zio.ZioStreams
 import sttp.model._
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir._
