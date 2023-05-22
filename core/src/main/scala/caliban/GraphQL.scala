@@ -28,10 +28,7 @@ trait GraphQL[-R] { self =>
   protected val features: Set[Feature]
 
   private[caliban] def validateRootSchema(implicit trace: Trace): IO[ValidationError, RootSchema[R]] =
-    ZIO.fromEither(validatedRootSchemaCached)
-
-  private lazy val validatedRootSchemaCached: Either[ValidationError, RootSchema[R]] =
-    Validator.validateSchemaEither(schemaBuilder)
+    ZIO.fromEither(Validator.validateSchemaEither(schemaBuilder))
 
   /**
    * Returns a string that renders the API types into the GraphQL format.
@@ -80,8 +77,11 @@ trait GraphQL[-R] { self =>
    * adding some middleware around the query execution.
    * Fails with a [[caliban.CalibanError.ValidationError]] if the schema is invalid.
    */
-  final def interpreter(implicit trace: Trace): IO[ValidationError, GraphQLInterpreter[R, CalibanError]] = {
-    val validated = validatedRootSchemaCached.map { schema =>
+  final def interpreter(implicit trace: Trace): IO[ValidationError, GraphQLInterpreter[R, CalibanError]] =
+    ZIO.fromEither(cachedInterpreter)
+
+  private lazy val cachedInterpreter =
+    Validator.validateSchemaEither(schemaBuilder).map { schema =>
       lazy val rootType =
         RootType(
           schema.query.opType,
@@ -154,8 +154,6 @@ trait GraphQL[-R] { self =>
           }
       }
     }
-    ZIO.fromEither(validated)
-  }
 
   /**
    * Attaches a function that will wrap one of the stages of query processing
