@@ -80,7 +80,7 @@ trait GraphQL[-R] { self =>
    * adding some middleware around the query execution.
    * Fails with a [[caliban.CalibanError.ValidationError]] if the schema is invalid.
    */
-  final def interpreter(implicit trace: Trace): IO[ValidationError, GraphQLInterpreter[R, CalibanError]] = {
+  final def interpreter(implicit trace: Trace): IO[ValidationError, GraphQLInterpreter[R, CalibanError]] =
     ZIO.fromEither(validatedRootSchemaCached).map { schema =>
       lazy val rootType =
         RootType(
@@ -154,7 +154,6 @@ trait GraphQL[-R] { self =>
           }
       }
     }
-  }
 
   /**
    * Attaches a function that will wrap one of the stages of query processing
