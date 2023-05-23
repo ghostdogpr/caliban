@@ -11,7 +11,6 @@ import caliban.interop.tapir.{
   WebSocketInterpreter
 }
 import caliban.uploads.Uploads
-import cats.effect.Async
 import com.comcast.ip4s._
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import com.github.plokhotnyuk.jsoniter_scala.macros._
