@@ -18,7 +18,7 @@ import caliban.parsing.adt._
 import caliban.schema._
 import caliban.validation.Utils.isObjectType
 import caliban.{ Configurator, InputValue, Rendering, Value }
-import zio.IO
+import zio.{ IO, ZIO }
 import zio.prelude._
 import zio.prelude.fx.ZPure
 
@@ -52,12 +52,17 @@ object Validator {
    * Verifies that the given schema is valid. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
   def validateSchema[R](schema: RootSchemaBuilder[R]): IO[ValidationError, RootSchema[R]] = {
+    val schemaValidation = validateSchemaEither(schema)
+    ZIO.fromEither(schemaValidation)
+  }
+
+  def validateSchemaEither[R](schema: RootSchemaBuilder[R]): Either[ValidationError, RootSchema[R]] = {
     val types = schema.types
     ZPure.foreachDiscard(types.sorted)(validateType) *>
       validateClashingTypes(types) *>
       validateDirectives(types) *>
       validateRootQuery(schema)
-  }.toZIO
+  }.runEither
 
   private[caliban] def validateType(t: __Type): EReader[Any, ValidationError, Unit] =
     t.kind match {
