@@ -4,6 +4,7 @@ import caliban._
 import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
 import caliban.schema.GenericSchema
 import com.comcast.ip4s._
+import fs2.io.net.Network
 import org.http4s.{ HttpRoutes, Response }
 import org.http4s.dsl.Http4sDsl
 import org.http4s.ember.server.EmberServerBuilder
@@ -48,6 +49,8 @@ object AuthExampleApp extends CatsApp {
   case class Query(token: RIO[Auth, String])
   private val resolver            = RootResolver(Query(ZIO.serviceWith[Auth](_.token)))
   private val api                 = graphQL(resolver)
+
+  private implicit val network: Network[MyTask] = Network.forAsync
 
   override def run =
     for {

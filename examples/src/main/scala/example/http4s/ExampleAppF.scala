@@ -9,6 +9,7 @@ import cats.effect.{ ExitCode, IO, IOApp }
 import com.comcast.ip4s._
 import example.ExampleData.sampleCharacters
 import example.{ ExampleApi, ExampleService }
+import fs2.io.net.Network
 import org.http4s.StaticFile
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.implicits._
@@ -24,6 +25,8 @@ object ExampleAppF extends IOApp {
 
   val exampleService: ExampleService =
     Unsafe.unsafe(implicit u => zioRuntime.unsafe.run(zioRuntime.run(ZIO.service[ExampleService])).getOrThrow())
+
+  private implicit val network: Network[IO] = Network.forAsync
 
   override def run(args: List[String]): IO[ExitCode] =
     Dispatcher.parallel[IO].use { implicit dispatcher =>

@@ -6,6 +6,7 @@ import caliban.Http4sAdapter
 import caliban.interop.tapir.HttpInterpreter
 import cats.data.Kleisli
 import com.comcast.ip4s._
+import fs2.io.net.Network
 import org.http4s.StaticFile
 import org.http4s.implicits._
 import org.http4s.server.Router
@@ -18,6 +19,8 @@ object FederatedApp extends CatsApp {
   import sttp.tapir.json.circe._
 
   type ExampleTask[A] = RIO[Any, A]
+
+  private implicit val network: Network[ExampleTask] = Network.forAsync
 
   val service1 =
     CharacterService
