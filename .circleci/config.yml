@@ -8,7 +8,7 @@ jobs:
       - restore_cache:
           key: sbtcache
       - run: sbt ++2.13.10 check
-      - run: sbt ++3.2.2 check
+      - run: sbt ++3.3.0 check
       - save_cache:
           key: sbtcache
           paths:
@@ -83,7 +83,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++3.2.2 core/test catsInterop/compile benchmarks/compile monixInterop/compile clientJVM/test clientJS/compile zioHttp/test tapirInterop/test http4s/test federation/test tools/test reporting/test tracing/test
+      - run: sbt ++3.3.0 core/test catsInterop/compile benchmarks/compile monixInterop/compile clientJVM/test clientJS/compile zioHttp/test tapirInterop/test http4s/test federation/test tools/test reporting/test tracing/test
       - save_cache:
           key: sbtcache
           paths:
@@ -115,7 +115,7 @@ jobs:
       - restore_cache:
           key: sbtcache
       - run: ./.circleci/install-native-deps.sh
-      - run: sbt ++3.2.2 clientJS/test clientLaminextJS/Test/fastLinkJS clientNative/Test/nativeLink
+      - run: sbt ++3.3.0 clientJS/test clientLaminextJS/Test/fastLinkJS clientNative/Test/nativeLink
       - save_cache:
           key: sbtcache
           paths:
@@ -146,7 +146,7 @@ jobs:
       - restore_cache:
           key: sbtcache
       - run: sbt ++2.13.10 core/mimaReportBinaryIssues http4s/mimaReportBinaryIssues akkaHttp/mimaReportBinaryIssues play/mimaReportBinaryIssues zioHttp/mimaReportBinaryIssues catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tools/mimaReportBinaryIssues tracing/mimaReportBinaryIssues
-      - run: sbt ++3.2.2 core/mimaReportBinaryIssues catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues zioHttp/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues http4s/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tools/mimaReportBinaryIssues tracing/mimaReportBinaryIssues
+      - run: sbt ++3.3.0 core/mimaReportBinaryIssues catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues zioHttp/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues http4s/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tools/mimaReportBinaryIssues tracing/mimaReportBinaryIssues
       - save_cache:
           key: sbtcache
           paths:
