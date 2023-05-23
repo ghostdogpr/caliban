@@ -77,8 +77,10 @@ trait GraphQL[-R] { self =>
    * adding some middleware around the query execution.
    * Fails with a [[caliban.CalibanError.ValidationError]] if the schema is invalid.
    */
-  final def interpreter(implicit trace: Trace): IO[ValidationError, GraphQLInterpreter[R, CalibanError]] =
-    ZIO.fromEither(cachedInterpreter)
+  final def interpreter(implicit trace: Trace): IO[ValidationError, GraphQLInterpreter[R, CalibanError]] = {
+    val i = cachedInterpreter
+    ZIO.fromEither(i)
+  }
 
   private lazy val cachedInterpreter =
     Validator.validateSchemaEither(schemaBuilder).map { schema =>
