@@ -27,16 +27,23 @@ object SchemaLoader {
   case class FromString private[SchemaLoader] (schema: String)   extends SchemaLoader {
     override def load: Task[Document] = Parser.parseQuery(schema)
   }
-  case class FromIntrospection private[SchemaLoader] (url: String, headers: Option[List[Options.Header]])
-      extends SchemaLoader {
+  case class FromIntrospection private[SchemaLoader] (
+    url: String,
+    headers: Option[List[Options.Header]],
+    supportIsRepeatable: Boolean
+  ) extends SchemaLoader {
     override def load: Task[Document] =
-      IntrospectionClient.introspect(url, headers).provideLayer(HttpClientZioBackend.layer())
+      IntrospectionClient.introspect(url, headers, supportIsRepeatable).provideLayer(HttpClientZioBackend.layer())
   }
 
-  def fromCaliban[R](api: GraphQL[R]): SchemaLoader                                       = FromCaliban(api)
-  def fromDocument(doc: Document): SchemaLoader                                           = FromDocument(doc)
-  def fromFile(path: String): SchemaLoader                                                = FromFile(path)
-  def fromString(schema: String): SchemaLoader                                            = FromString(schema)
-  def fromIntrospection(url: String, headers: Option[List[Options.Header]]): SchemaLoader =
-    FromIntrospection(url, headers)
+  def fromCaliban[R](api: GraphQL[R]): SchemaLoader = FromCaliban(api)
+  def fromDocument(doc: Document): SchemaLoader     = FromDocument(doc)
+  def fromFile(path: String): SchemaLoader          = FromFile(path)
+  def fromString(schema: String): SchemaLoader      = FromString(schema)
+  def fromIntrospection(
+    url: String,
+    headers: Option[List[Options.Header]],
+    supportIsRepeatable: Boolean = true
+  ): SchemaLoader =
+    FromIntrospection(url, headers, supportIsRepeatable)
 }

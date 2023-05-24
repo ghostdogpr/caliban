@@ -24,6 +24,7 @@ sealed trait CalibanSettings {
   final def effect(effect: String): Self                          = withSettings(_.effect(effect))
   final def abstractEffectType(abstractEffectType: Boolean): Self =
     withSettings(_.abstractEffectType(abstractEffectType))
+  final def supportIsRepeatable(value: Boolean): Self             = withSettings(_.supportIsRepeatable(value))
 }
 
 final case class CalibanFileSettings(file: File, settings: CalibanCommonSettings) extends CalibanSettings {

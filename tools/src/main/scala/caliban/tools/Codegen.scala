@@ -1,6 +1,6 @@
 package caliban.tools
 
-import zio.{ Task, UIO, ZIO }
+import zio.{ Task, ZIO }
 
 import java.io.{ File, PrintWriter }
 
@@ -74,13 +74,17 @@ object Codegen {
 
   def generate(arguments: Options, genType: GenType): Task[List[File]] =
     generate(
-      getSchemaLoader(arguments.schemaPath, arguments.headers),
+      getSchemaLoader(arguments.schemaPath, arguments.headers, arguments.supportIsRepeatable.getOrElse(true)),
       arguments,
       genType
     )
 
-  private def getSchemaLoader(path: String, schemaPathHeaders: Option[List[Options.Header]]): SchemaLoader =
-    if (path.startsWith("http")) SchemaLoader.fromIntrospection(path, schemaPathHeaders)
+  private def getSchemaLoader(
+    path: String,
+    schemaPathHeaders: Option[List[Options.Header]],
+    supportIsRepeatable: Boolean
+  ): SchemaLoader =
+    if (path.startsWith("http")) SchemaLoader.fromIntrospection(path, schemaPathHeaders, supportIsRepeatable)
     else SchemaLoader.fromFile(path)
 
   def getPackageAndObjectName(arguments: Options): (Option[String], String) = {

@@ -18,10 +18,14 @@ import zio.{ RIO, ZIO }
 
 object IntrospectionClient {
 
-  def introspect(uri: String, headers: Option[List[Options.Header]]): RIO[SttpClient, Document] =
+  def introspect(
+    uri: String,
+    headers: Option[List[Options.Header]],
+    supportIsRepeatable: Boolean = true
+  ): RIO[SttpClient, Document] =
     for {
       parsedUri <- ZIO.fromEither(Uri.parse(uri)).mapError(cause => new Exception(s"Invalid URL: $cause"))
-      baseReq    = introspection.toRequest(parsedUri)
+      baseReq    = introspection(supportIsRepeatable).toRequest(parsedUri)
       req        = headers.map(_.map(h => h.name -> h.value).toMap).fold(baseReq)(baseReq.headers)
       result    <- sendRequest(req)
     } yield result
@@ -138,13 +142,13 @@ object IntrospectionClient {
     description: Option[String],
     locations: List[__DirectiveLocation],
     args: List[InputValueDefinition],
-    repeatable: Boolean
+    isRepeatable: Boolean
   ): DirectiveDefinition =
     DirectiveDefinition(
       description,
       name,
       args,
-      repeatable,
+      isRepeatable,
       locations.map {
         case __DirectiveLocation.QUERY                  => ExecutableDirectiveLocation.QUERY
         case __DirectiveLocation.MUTATION               => ExecutableDirectiveLocation.MUTATION
@@ -217,18 +221,24 @@ object IntrospectionClient {
       } ~
       __Type.possibleTypes(typeRef)).mapN(mapType _)
 
-  val introspection: SelectionBuilder[RootQuery, Document] =
+  def introspection(supportIsRepeatable: Boolean): SelectionBuilder[RootQuery, Document] =
     Query.__schema {
       (__Schema.queryType(__Type.name) ~
         __Schema.mutationType(__Type.name) ~
         __Schema.subscriptionType(__Type.name)).mapN(mapSchema _) ~
         __Schema.types(fullType).map(_.flatten.filterNot(_.name.startsWith("__"))) ~
         __Schema.directives {
-          (__Directive.name ~
-            __Directive.description ~
-            __Directive.locations ~
-            __Directive.args(inputValue) ~
-            __Directive.isRepeatable).mapN(mapDirective _)
+          if (supportIsRepeatable)
+            (__Directive.name ~
+              __Directive.description ~
+              __Directive.locations ~
+              __Directive.args(inputValue) ~
+              __Directive.isRepeatable).mapN(mapDirective _)
+          else
+            (__Directive.name ~
+              __Directive.description ~
+              __Directive.locations ~
+              __Directive.args(inputValue)).mapN(mapDirective(_, _, _, _, isRepeatable = false))
         }
     }.map { case (schema, types, directives) => Document(schema :: types ++ directives, SourceMapper.empty) }
 }
