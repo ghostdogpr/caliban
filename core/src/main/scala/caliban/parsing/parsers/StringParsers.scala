@@ -58,6 +58,7 @@ private[caliban] trait StringParsers {
   def sourceCharacter(implicit ev: P[Any]): P[Unit]                      = P(CharIn("\u0009\u000A\u000D\u0020-\uFFFF"))
   def sourceCharacterWithoutLineTerminator(implicit ev: P[Any]): P[Unit] = P(CharIn("\u0009\u0020-\uFFFF"))
   def name(implicit ev: P[Any]): P[String]                               = P(CharIn("_A-Za-z") ~~ CharIn("_0-9A-Za-z").repX).!
+  def nameOnly(implicit ev: P[Any]): P[String]                           = P(Start ~ name ~ End)
 
   def hexDigit(implicit ev: P[Any]): P[Unit]         = P(CharIn("0-9a-fA-F"))
   def escapedUnicode(implicit ev: P[Any]): P[String] =
