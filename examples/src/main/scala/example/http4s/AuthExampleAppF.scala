@@ -13,6 +13,7 @@ import cats.effect.std.Dispatcher
 import cats.mtl.Local
 import cats.mtl.syntax.local._
 import com.comcast.ip4s._
+import fs2.io.net.Network
 import org.http4s.{ HttpApp, HttpRoutes, Request, Response }
 import org.http4s.server.Server
 import org.http4s.dsl.Http4sDsl
@@ -108,6 +109,8 @@ object AuthExampleAppF extends IOApp.Simple {
     runtime: Runtime[AuthInfo],
     injector: InjectEnv[F, AuthInfo]
   ): Resource[F, Server] = {
+
+    implicit val network: Network[F] = Network.forAsync
 
     def makeHttpServer(
       httpApp: HttpApp[F],

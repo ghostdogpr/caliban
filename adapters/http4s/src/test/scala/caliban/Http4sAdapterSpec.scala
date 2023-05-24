@@ -22,6 +22,7 @@ import sttp.tapir.Codec.JsonCodec
 import zio._
 import zio.interop.catz._
 import zio.test.{ Live, ZIOSpecDefault }
+import fs2.io.net.Network
 
 import scala.language.postfixOps
 
@@ -29,6 +30,8 @@ object Http4sAdapterSpec extends ZIOSpecDefault {
 
   type Env         = TestService with Uploads
   type TestTask[A] = RIO[Env, A]
+
+  private implicit val network: Network[TestTask] = Network.forAsync[TestTask]
 
   private val envLayer = TestService.make(sampleCharacters) ++ Uploads.empty
 

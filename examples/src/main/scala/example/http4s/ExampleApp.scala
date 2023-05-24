@@ -6,6 +6,7 @@ import cats.data.Kleisli
 import com.comcast.ip4s._
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
+import fs2.io.net.Network
 import org.http4s.StaticFile
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.implicits._
@@ -16,6 +17,8 @@ import zio.interop.catz._
 
 object ExampleApp extends ZIOAppDefault {
   import sttp.tapir.json.circe._
+
+  private implicit val network: Network[Task] = Network.forAsync
 
   override def run: ZIO[Scope, Throwable, Unit] =
     (for {

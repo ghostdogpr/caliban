@@ -7,6 +7,7 @@ import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import cats.data.Kleisli
 import com.comcast.ip4s._
+import fs2.io.net.Network
 import org.http4s.StaticFile
 import org.http4s.implicits._
 import org.http4s.server.Router
@@ -39,6 +40,8 @@ object ExampleApp extends CatsApp {
     addBookEndpoint.toGraphQL |+| deleteBookEndpoint.toGraphQL |+| booksListingEndpoint.toGraphQL
 
   type MyTask[A] = Task[A]
+
+  private implicit val network: Network[MyTask] = Network.forAsync
 
   override def run =
     (for {
