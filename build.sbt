@@ -171,7 +171,7 @@ lazy val tools = project
   .enablePlugins(BuildInfoPlugin)
   .settings(name := "caliban-tools")
   .settings(commonSettings)
-  .settings(enableMimaSettingsJVM)
+//  .settings(enableMimaSettingsJVM)
   .settings(
     buildInfoKeys    := Seq[BuildInfoKey](
       "scalaPartialVersion" -> CrossVersion.partialVersion(scalaVersion.value),

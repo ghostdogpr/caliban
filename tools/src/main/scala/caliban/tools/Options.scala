@@ -19,7 +19,8 @@ final case class Options(
   splitFiles: Option[Boolean],
   enableFmt: Option[Boolean],
   extensibleEnums: Option[Boolean],
-  preserveInputNames: Option[Boolean]
+  preserveInputNames: Option[Boolean],
+  supportIsRepeatable: Option[Boolean]
 )
 
 object Options {
@@ -37,7 +38,8 @@ object Options {
     splitFiles: Option[Boolean],
     enableFmt: Option[Boolean],
     extensibleEnums: Option[Boolean],
-    preserveInputNames: Option[Boolean]
+    preserveInputNames: Option[Boolean],
+    supportIsRepeatable: Option[Boolean]
   )
 
   def fromArgs(args: List[String]): UIO[Option[Options]] =
@@ -81,7 +83,8 @@ object Options {
             rawOpts.splitFiles,
             rawOpts.enableFmt,
             rawOpts.extensibleEnums,
-            rawOpts.preserveInputNames
+            rawOpts.preserveInputNames,
+            rawOpts.supportIsRepeatable
           )
         }.option
       case _                             => ZIO.none

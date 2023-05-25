@@ -17,7 +17,8 @@ object ConfigSpec extends ZIOSpecDefault {
       imports = List("zio.test._", "caliban.tools.compiletime._"),
       splitFiles = true,
       enableFmt = false,
-      extensibleEnums = true
+      extensibleEnums = true,
+      supportIsRepeatable = true
     )
 
   private val toCalibanCommonSettingsSpec =
@@ -39,7 +40,8 @@ object ConfigSpec extends ZIOSpecDefault {
               extensibleEnums = Some(true),
               effect = None,
               abstractEffectType = None,
-              preserveInputNames = None
+              preserveInputNames = None,
+              supportIsRepeatable = Some(true)
             )
         )
       )
@@ -60,7 +62,8 @@ object ConfigSpec extends ZIOSpecDefault {
                |  imports = List.empty,
                |  splitFiles = false,
                |  enableFmt = true,
-               |  extensibleEnums = false
+               |  extensibleEnums = false,
+               |  supportIsRepeatable = true
                |)
             """.stripMargin.trim
         )
@@ -78,7 +81,8 @@ object ConfigSpec extends ZIOSpecDefault {
                |  imports = List("zio.test._","caliban.tools.compiletime._"),
                |  splitFiles = true,
                |  enableFmt = false,
-               |  extensibleEnums = true
+               |  extensibleEnums = true,
+               |  supportIsRepeatable = true
                |)
             """.stripMargin.trim
         )

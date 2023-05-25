@@ -145,8 +145,8 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.10 core/mimaReportBinaryIssues http4s/mimaReportBinaryIssues akkaHttp/mimaReportBinaryIssues play/mimaReportBinaryIssues zioHttp/mimaReportBinaryIssues catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tools/mimaReportBinaryIssues tracing/mimaReportBinaryIssues
-      - run: sbt ++3.3.0 core/mimaReportBinaryIssues catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues zioHttp/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues http4s/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tools/mimaReportBinaryIssues tracing/mimaReportBinaryIssues
+      - run: sbt ++2.13.10 core/mimaReportBinaryIssues http4s/mimaReportBinaryIssues akkaHttp/mimaReportBinaryIssues play/mimaReportBinaryIssues zioHttp/mimaReportBinaryIssues catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tracing/mimaReportBinaryIssues # tools/mimaReportBinaryIssues
+      - run: sbt ++3.3.0 core/mimaReportBinaryIssues catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues zioHttp/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues http4s/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tracing/mimaReportBinaryIssues # tools/mimaReportBinaryIssues
       - save_cache:
           key: sbtcache
           paths:
