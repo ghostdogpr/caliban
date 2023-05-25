@@ -308,6 +308,18 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
               "Field 'fieldWithArg' with extra non-nullable arg(s) 'extraArg'" +
                 " in Object 'NonNullableExtraArgsObject' is invalid"
             )
+          },
+          test("wrong type name is invalid") {
+            check(
+              graphQL(resolverBadTypeName),
+              "Type 'Foo { str: String }\ntype Bar' is not a valid name."
+            )
+          },
+          test("wrong field name is invalid") {
+            check(
+              graphQL(resolverBadFieldName),
+              "Field 'bool: Boolean\n  num' of Object 'WrongFieldName' is not a valid name."
+            )
           }
         )
       }

@@ -48,7 +48,7 @@ object TestUtils {
     "CaptainShipName",
     Some("Description of custom scalar emphasizing proper captain ship names"),
     Some("http://someUrl"),
-    Some(List(Directive("@tag"))),
+    Some(List(Directive("tag"))),
     name => StringValue(name.value)
   )
 
@@ -579,5 +579,12 @@ object TestUtils {
     )
 
     val resolverEmpty = new RootResolver(Option.empty[Unit], Option.empty[Unit], Option.empty[Unit])
+
+    @GQLName("Foo { str: String }\ntype Bar")
+    case class WrongTypeName(num: Int)
+    val resolverBadTypeName = RootResolver(WrongTypeName(1))
+
+    case class WrongFieldName(@GQLName("bool: Boolean\n  num") num: Int)
+    val resolverBadFieldName = RootResolver(WrongFieldName(1))
   }
 }

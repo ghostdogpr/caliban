@@ -35,6 +35,16 @@ object Parser {
       }
   }
 
+  def parseName(rawValue: String): Either[ParsingError, String] = {
+    val sm = SourceMapper(rawValue)
+    Try(parse(rawValue, nameOnly(_))).toEither.left
+      .map(ex => ParsingError(s"Internal parsing error", innerThrowable = Some(ex)))
+      .flatMap {
+        case Parsed.Success(value, _) => Right(value)
+        case f: Parsed.Failure        => Left(ParsingError(f.msg, Some(sm.getLocation(f.index))))
+      }
+  }
+
   /**
    * Checks if the query is valid, if not returns an error string.
    */

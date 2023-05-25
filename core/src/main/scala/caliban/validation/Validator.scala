@@ -15,6 +15,7 @@ import caliban.parsing.adt.OperationType._
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt._
+import caliban.parsing.Parser
 import caliban.schema._
 import caliban.validation.Utils.isObjectType
 import caliban.{ Configurator, InputValue, Rendering, Value }
@@ -65,14 +66,15 @@ object Validator {
   }.runEither
 
   private[caliban] def validateType(t: __Type): EReader[Any, ValidationError, Unit] =
-    t.kind match {
-      case __TypeKind.ENUM         => validateEnum(t)
-      case __TypeKind.UNION        => validateUnion(t)
-      case __TypeKind.INTERFACE    => validateInterface(t)
-      case __TypeKind.INPUT_OBJECT => validateInputObject(t)
-      case __TypeKind.OBJECT       => validateObject(t)
-      case _                       => ZPure.unit
-    }
+    ZPure.forEach(t.name)(name => checkName(name, s"Type '$name'")) *>
+      (t.kind match {
+        case __TypeKind.ENUM         => validateEnum(t)
+        case __TypeKind.UNION        => validateUnion(t)
+        case __TypeKind.INTERFACE    => validateInterface(t)
+        case __TypeKind.INPUT_OBJECT => validateInputObject(t)
+        case __TypeKind.OBJECT       => validateObject(t)
+        case _                       => ZPure.unit
+      })
 
   def failValidation(msg: String, explanatoryText: String): EReader[Any, ValidationError, Nothing] =
     ZPure.fail(ValidationError(msg, explanatoryText))
@@ -849,7 +851,7 @@ object Validator {
     val fieldContext = s"InputValue '${inputValue.name}' of $errorContext"
     for {
       _ <- ValueValidator.validateDefaultValue(inputValue, fieldContext)
-      _ <- doesNotStartWithUnderscore(inputValue, fieldContext)
+      _ <- checkName(inputValue.name, fieldContext)
       _ <- onlyInputType(inputValue.`type`(), fieldContext)
     } yield ()
   }
@@ -1005,7 +1007,7 @@ object Validator {
       ZPure.foreachDiscard(fields) { field =>
         val fieldContext = s"Field '${field.name}' of $context"
         for {
-          _ <- doesNotStartWithUnderscore(field, fieldContext)
+          _ <- checkName(field.name, fieldContext)
           _ <- onlyOutputType(field.`type`(), fieldContext)
           _ <- ZPure.foreachDiscard(field.args)(validateInputValue(_, fieldContext))
         } yield ()
@@ -1052,41 +1054,26 @@ object Validator {
         failValidation(messageBuilder(duplicate), explanatoryText)
       )
 
-  private[caliban] def doesNotStartWithUnderscore(
-    field: __Field,
-    errorContext: String
-  ): EReader[Any, ValidationError, Unit] = {
-    val explanatory = s"""The field must not have a name which begins with the characters {"__"} (two underscores)"""
-    doesNotStartWithUnderscore[__Field](field, _.name, errorContext, explanatory)
-  }
+  private[caliban] def checkName(name: String, fieldContext: String): EReader[Any, ValidationError, Unit] =
+    ZPure
+      .fromEither(Parser.parseName(name).unit)
+      .mapError(e =>
+        ValidationError(
+          s"$fieldContext is not a valid name.",
+          s"Name does not conform to the GraphQL spec for names: ${e.msg}"
+        )
+      ) *> doesNotStartWithUnderscore(name, fieldContext)
 
   private[caliban] def doesNotStartWithUnderscore(
-    inputValue: __InputValue,
+    name: String,
     errorContext: String
-  ): EReader[Any, ValidationError, Unit] = {
-    val explanatory =
-      s"""The input field must not have a name which begins with the characters "__" (two underscores)"""
-    doesNotStartWithUnderscore[__InputValue](inputValue, _.name, errorContext, explanatory)
-  }
-
-  private def doesNotStartWithUnderscore(
-    directive: Directive,
-    errorContext: String
-  ): EReader[Any, ValidationError, Unit] = {
-    val explanatory =
-      s"""The directive must not have a name which begins with the characters "__" (two underscores)"""
-    doesNotStartWithUnderscore[Directive](directive, _.name, errorContext, explanatory)
-  }
-
-  private[caliban] def doesNotStartWithUnderscore[T](
-    t: T,
-    nameExtractor: T => String,
-    errorContext: String,
-    explanatoryText: String
   ): EReader[Any, ValidationError, Unit] =
     ZPure
-      .when(nameExtractor(t).startsWith("__"))(
-        failValidation(s"$errorContext can't start with '__'", explanatoryText)
+      .when(name.startsWith("__"))(
+        failValidation(
+          s"$errorContext can't start with '__'",
+          """Names can not begin with the characters "__" (two underscores)"""
+        )
       )
       .unit
 
@@ -1120,18 +1107,14 @@ object Validator {
   private def validateDirectives(types: List[__Type]): EReader[Any, ValidationError, Unit] = {
 
     def validateArguments(args: Map[String, InputValue], errorContext: String): EReader[Any, ValidationError, Unit] = {
-      val explanatoryText             =
-        s"""The directive argument must not have a name which begins with the characters "__" (two underscores)"""
       val argumentErrorContextBuilder = (name: String) => s"Argument '$name' of $errorContext"
-      ZPure.foreachDiscard(args.keys)(argName =>
-        doesNotStartWithUnderscore[String](argName, identity, argumentErrorContextBuilder(argName), explanatoryText)
-      )
+      ZPure.foreachDiscard(args.keys)(argName => checkName(argName, argumentErrorContextBuilder(argName)))
     }
 
     def validateDirective(directive: Directive, errorContext: String) = {
       val directiveErrorContext = s"Directive '${directive.name}' of $errorContext"
 
-      doesNotStartWithUnderscore(directive, directiveErrorContext) *>
+      checkName(directive.name, directiveErrorContext) *>
         validateArguments(directive.arguments, directiveErrorContext)
     }
 
