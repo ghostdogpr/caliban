@@ -123,6 +123,12 @@ lazy val core = project
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
   .settings(
+    mimaBinaryIssueFilters ++= Seq(
+      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.validation.Validator.doesNotStartWithUnderscore"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.validation.Validator.doesNotStartWithUnderscore")
+    )
+  )
+  .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) {
