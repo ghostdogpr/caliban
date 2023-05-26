@@ -238,7 +238,7 @@ object Rendering {
         s"(${list.map(a => s"${renderDescription(a.description, newline = false)}${a.name}: ${renderTypeName(a.`type`())}${renderDefaultValue(a)}${renderDirectives(a.directives)}").mkString(", ")})"
     }
 
-  private def isBuiltinScalar(name: String): Boolean =
+  private[caliban] def isBuiltinScalar(name: String): Boolean =
     name == "Int" || name == "Float" || name == "String" || name == "Boolean" || name == "ID"
 
   private[caliban] def renderTypeName(fieldType: __Type): String = {
