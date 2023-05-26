@@ -62,6 +62,8 @@ object Validator {
     ZPure.foreachDiscard(types.sorted)(validateType) *>
       validateClashingTypes(types) *>
       validateDirectives(types) *>
+      validateRootMutation(schema) *>
+      validateRootSubscription(schema) *>
       validateRootQuery(schema)
   }.runEither
 
@@ -1086,7 +1088,34 @@ object Validator {
           "The query root operation is missing.",
           "The query root operation type must be provided and must be an Object type."
         )
-      case Some(query) => ZPure.succeed(RootSchema(query, schema.mutation, schema.subscription))
+      case Some(query) =>
+        if (query.opType.kind == __TypeKind.OBJECT)
+          ZPure.succeed(RootSchema(query, schema.mutation, schema.subscription))
+        else
+          failValidation(
+            "The query root operation is not an object type.",
+            "The query root operation type must be provided and must be an Object type."
+          )
+    }
+
+  private[caliban] def validateRootMutation[R](schema: RootSchemaBuilder[R]): EReader[Any, ValidationError, Unit] =
+    schema.mutation match {
+      case Some(mutation) if mutation.opType.kind != __TypeKind.OBJECT =>
+        failValidation(
+          "The mutation root operation is not an object type.",
+          "The mutation root operation type is optional; if it is not provided, the service does not support mutations. If it is provided, it must be an Object type."
+        )
+      case _                                                           => ZPure.unit
+    }
+
+  private[caliban] def validateRootSubscription[R](schema: RootSchemaBuilder[R]): EReader[Any, ValidationError, Unit] =
+    schema.subscription match {
+      case Some(subscription) if subscription.opType.kind != __TypeKind.OBJECT =>
+        failValidation(
+          "The mutation root subscription is not an object type.",
+          "The mutation root subscription type is optional; if it is not provided, the service does not support subscriptions. If it is provided, it must be an Object type."
+        )
+      case _                                                                   => ZPure.unit
     }
 
   private[caliban] def validateClashingTypes(types: List[__Type]): EReader[Any, ValidationError, Unit] = {

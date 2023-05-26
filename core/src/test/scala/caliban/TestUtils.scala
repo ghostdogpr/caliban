@@ -586,5 +586,7 @@ object TestUtils {
 
     case class WrongFieldName(@GQLName("bool: Boolean\n  num") num: Int)
     val resolverBadFieldName = RootResolver(WrongFieldName(1))
+
+    val resolverQueryNoObject = RootResolver(Map("a" -> "b"))
   }
 }
