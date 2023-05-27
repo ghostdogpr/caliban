@@ -492,7 +492,7 @@ object ExecutionSpec extends ZIOSpecDefault {
         case class Queries(test: Int)
         case class Subscriptions(test: ZStream[Any, Throwable, Int])
         val interpreter =
-          graphQL(RootResolver(Queries(1), Option.empty[Unit], Subscriptions(ZStream(1, 2, 3)))).interpreter
+          graphQL(RootResolver(Some(Queries(1)), Option.empty[Unit], Some(Subscriptions(ZStream(1, 2, 3))))).interpreter
         val query       = gqldoc("""
              subscription {
                test
@@ -506,7 +506,9 @@ object ExecutionSpec extends ZIOSpecDefault {
         case class Queries(test: Int)
         case class Subscriptions(test: Int => ZStream[Any, Throwable, Int])
         val interpreter =
-          graphQL(RootResolver(Queries(1), Option.empty[Unit], Subscriptions(_ => ZStream(1, 2, 3)))).interpreter
+          graphQL(
+            RootResolver(Some(Queries(1)), Option.empty[Unit], Some(Subscriptions(_ => ZStream(1, 2, 3))))
+          ).interpreter
         val query       = gqldoc("""
              subscription {
                test(value: 1)

@@ -320,6 +320,12 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
               graphQL(resolverBadFieldName),
               "Field 'bool: Boolean\n  num' of Object 'WrongFieldName' is not a valid name."
             )
+          },
+          test("query root type not an object") {
+            check(
+              graphQL(resolverQueryNoObject),
+              "The query root operation is not an object type."
+            )
           }
         )
       }
