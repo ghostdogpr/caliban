@@ -31,7 +31,33 @@ import zio.test._
 import scala.collection.immutable.Seq
 
 object Fs2InteropSchemaSpec extends ZIOSpecDefault {
-  case class Foo[F[_]](bar: Stream[F, Int])
+  override def spec = suite("Fs2InteropSchemaSpec")(
+    suite("Stream of Task")(
+      makeTests(ZIO.succeed(generateSchemaForTask))
+    ),
+    suite("Stream of IO")(
+      makeTests(
+        Dispatcher
+          .sequential[IO]
+          .map(generateSchemaForIO(_))
+          .mapK(LiftIO.liftK[Task])
+          .toScopedZIO
+      )
+    ),
+    suite("Stream of F")(
+      makeTests(
+        Dispatcher
+          .sequential[Task]
+          .map(generateSchemaForF(_))
+          .toScopedZIO
+      )
+    )
+  )
+
+  private case class Foo[F[_]](bar: Stream[F, Int])
+
+  // Generates the Schema when the `Task` type is visible at compile time to the deriver.
+  private def generateSchemaForTask: Schema[Any, Foo[Task]] = Schema.gen
 
   // Generates the Schema when the `IO` type is visible at compile time to the deriver.
   private def generateSchemaForIO(implicit dispatcher: Dispatcher[IO]): Schema[Any, Foo[IO]] =
@@ -41,45 +67,19 @@ object Fs2InteropSchemaSpec extends ZIOSpecDefault {
   private def generateSchemaForF[F[_]](implicit dispatcher: Dispatcher[F]): Schema[Any, Foo[F]] =
     Schema.gen
 
-  override def spec = suite("Fs2InteropSchemaSpec")(
-    suiteAll("Stream of zio.Task") {
-      val testee: Schema[Any, Foo[Task]] = Schema.gen
-
+  private def makeTests[F[_], R](testeeZIO: ZIO[R, Throwable, Schema[Any, Foo[F]]]) =
+    Seq(
       test("should derive a correct schema type") {
-        assert(testee.toType_().toTypeDefinition) {
-          streamDerivedAsListOfInts
-        }
-      }
-      test("should resolve to a correct stream step") {
-        check(Gen.listOf(Gen.int)) { expectedValues =>
-          val foo = Foo(Stream.emits(expectedValues).covary[Task])
-
-          assert(testee.resolve(foo)) {
-            streamResolvesToCorrectValues(expectedValues)
-          }
-        }
-      }
-    },
-    suiteAll("Stream of IO") {
-
-      val testeeScoped =
-        Dispatcher
-          .sequential[IO]
-          .map(generateSchemaForIO(_))
-          .mapK(LiftIO.liftK[Task])
-          .toScopedZIO
-
-      test("should derive a correct schema type") {
-        testeeScoped.map { testee =>
+        testeeZIO.map { testee =>
           assert(testee.toType_().toTypeDefinition) {
             streamDerivedAsListOfInts
           }
         }
-      }
+      },
       test("should resolve to a correct stream step") {
-        testeeScoped.flatMap { testee =>
+        testeeZIO.flatMap { testee =>
           check(Gen.listOf(Gen.int)) { expectedValues =>
-            val foo = Foo(Stream.emits(expectedValues).covary[IO])
+            val foo = Foo(Stream.emits(expectedValues).covary[F])
 
             assert(testee.resolve(foo)) {
               streamResolvesToCorrectValues(expectedValues)
@@ -87,34 +87,7 @@ object Fs2InteropSchemaSpec extends ZIOSpecDefault {
           }
         }
       }
-    },
-    suiteAll("Stream of F") {
-      val testeeScoped =
-        Dispatcher
-          .sequential[Task]
-          .map(generateSchemaForF(_))
-          .toScopedZIO
-
-      test("should derive a correct schema type") {
-        testeeScoped.map { testee =>
-          assert(testee.toType_().toTypeDefinition) {
-            streamDerivedAsListOfInts
-          }
-        }
-      }
-      test("should resolve to a correct stream step") {
-        testeeScoped.flatMap { testee =>
-          check(Gen.listOf(Gen.int)) { expectedValues =>
-            val foo = Foo(Stream.emits(expectedValues).covary[Task])
-
-            assert(testee.resolve(foo)) {
-              streamResolvesToCorrectValues(expectedValues)
-            }
-          }
-        }
-      }
-    }
-  )
+    )
 
   private val streamDerivedAsListOfInts: Assertion[Option[TypeDefinition]] =
     isSome(
