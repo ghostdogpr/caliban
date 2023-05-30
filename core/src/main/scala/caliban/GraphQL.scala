@@ -42,7 +42,7 @@ trait GraphQL[-R] { self =>
     val schemaDirectives = renderSchemaDirectives(schemaBuilder.schemaDirectives)
 
     val schema = parts.flatten.mkString("\n") match {
-      case ""        => ""
+      case ""        => s"extend schema $schemaDirectives\n"
       case something => s"""schema $schemaDirectives{
                            |$something
                            |}""".stripMargin
