@@ -21,8 +21,8 @@ object Rendering {
               else
                 Some(
                   s"""${renderDescription(t.description)}scalar $name${renderDirectives(
-                    t.directives
-                  )}${renderSpecifiedBy(t.specifiedBy)}""".stripMargin
+                      t.directives
+                    )}${renderSpecifiedBy(t.specifiedBy)}""".stripMargin
                 )
             )
           case __TypeKind.NON_NULL => None
@@ -34,8 +34,8 @@ object Rendering {
                 .mkString(" | ")
             Some(
               s"""${renderDescription(t.description)}${renderKind(t.kind)} ${renderTypeName(t)}${renderDirectives(
-                t.directives
-              )} = $renderedTypes"""
+                  t.directives
+                )} = $renderedTypes"""
             )
           case _                   =>
             val renderedDirectives: String  = renderDirectives(t.directives)
@@ -206,9 +206,9 @@ object Rendering {
 
   private def renderDirective(directive: Directive) =
     s"@${directive.name}${if (directive.arguments.nonEmpty) s"""(${directive.arguments.flatMap { case (key, value) =>
-      renderDirectiveArgument(value).map(v => s"$key: $v")
-    }.mkString(",")})"""
-    else ""}"
+          renderDirectiveArgument(value).map(v => s"$key: $v")
+        }.mkString(",")})"""
+      else ""}"
 
   private def renderDirectives(directives: Option[List[Directive]]) =
     directives.fold("") {
@@ -218,16 +218,16 @@ object Rendering {
 
   private def renderField(field: __Field): String =
     s"${field.name}${renderArguments(field.args)}: ${renderTypeName(field.`type`())}${if (field.isDeprecated)
-      s" @deprecated${field.deprecationReason.fold("")(reason => s"""(reason: "$reason")""")}"
-    else ""}${renderDirectives(field.directives)}"
+        s" @deprecated${field.deprecationReason.fold("")(reason => s"""(reason: "$reason")""")}"
+      else ""}${renderDirectives(field.directives)}"
 
   private def renderInputValue(inputValue: __InputValue): String =
     s"${inputValue.name}: ${renderTypeName(inputValue.`type`())}${renderDefaultValue(inputValue)}${renderDirectives(inputValue.directives)}"
 
   private def renderEnumValue(v: __EnumValue): String =
     s"${renderDescription(v.description)}${v.name}${if (v.isDeprecated)
-      s" @deprecated${v.deprecationReason.fold("")(reason => s"""(reason: "$reason")""")}"
-    else ""}${renderDirectives(v.directives)}"
+        s" @deprecated${v.deprecationReason.fold("")(reason => s"""(reason: "$reason")""")}"
+      else ""}${renderDirectives(v.directives)}"
 
   private def renderDefaultValue(a: __InputValue): String = a.defaultValue.fold("")(d => s" = $d")
 

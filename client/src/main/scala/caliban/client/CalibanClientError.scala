@@ -30,18 +30,18 @@ object CalibanClientError {
 
     override def toString: String =
       s"Server Error: ${errors
-        .map(e =>
-          s"${e.message} ${e.locations
-            .getOrElse(Nil)
-            .map(loc => s"at line ${loc.line} and column ${loc.column}")
-            .mkString(" ")}${e.path.fold("")(p =>
-            s" at path ${p.map {
-              case Left(value)  => s"/$value"
-              case Right(value) => s"[$value]"
-            }.mkString("")}"
-          )}"
-        )
-        .mkString("\n")}"
+          .map(e =>
+            s"${e.message} ${e.locations
+                .getOrElse(Nil)
+                .map(loc => s"at line ${loc.line} and column ${loc.column}")
+                .mkString(" ")}${e.path.fold("")(p =>
+                s" at path ${p.map {
+                    case Left(value)  => s"/$value"
+                    case Right(value) => s"[$value]"
+                  }.mkString("")}"
+              )}"
+          )
+          .mkString("\n")}"
   }
 
 }
