@@ -7,10 +7,8 @@ import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.DecodeResult
 import sttp.tapir.server.ziohttp.{ ZioHttpInterpreter, ZioHttpServerOptions, ZioHttpServerRequest }
 import zio._
-import zio.http.ChannelEvent.UserEvent.HandshakeComplete
-import zio.http.ChannelEvent.{ ChannelRead, UserEventTriggered }
+import zio.http.ChannelEvent._
 import zio.http._
-import zio.http.socket._
 import zio.stream._
 
 object ZHttpAdapter {
@@ -50,11 +48,14 @@ object ZHttpAdapter {
                      case Right(output) => WebSocketFrame.Text(outputCodec.encode(output))
                      case Left(close)   => WebSocketFrame.Close(close.code, Some(close.reason))
                    }
-          socket = Http
-                     .collectZIO[WebSocketChannelEvent] {
-                       case ChannelEvent(ch, UserEventTriggered(HandshakeComplete)) =>
-                         out.runForeach(ch.writeAndFlush(_)).race(ch.awaitClose)
-                       case ChannelEvent(_, ChannelRead(WebSocketFrame.Text(text))) =>
+          socket = Handler.webSocket { ch =>
+                     ch.receiveAll {
+                       case ChannelEvent.UserEventTriggered(UserEvent.HandshakeComplete) =>
+                         out
+                           .interruptWhen(ch.awaitShutdown)
+                           .runForeach(msg => ch.send(ChannelEvent.read(msg)))
+                           .forkDaemon
+                       case ChannelEvent.Read(WebSocketFrame.Text(text))                 =>
                          ZIO.fromEither {
                            inputCodec.decode(text) match {
                              case DecodeResult.Value(v)    => Right(v)
@@ -63,10 +64,11 @@ object ZHttpAdapter {
                                Left(new Throwable(s"failed to decode input: ${f.toString}"))
                            }
                          }.flatMap(queue.offer)
+                       case _                                                            =>
+                         ZIO.unit
                      }
-          app   <- Response.fromSocketApp(
-                     socket.toSocketApp.withProtocol(SocketProtocol(subprotocols = Some(protocol.name)))
-                   )
+                   }
+          app   <- Response.fromSocketApp(socket)
         } yield app
       }
       .toHttp

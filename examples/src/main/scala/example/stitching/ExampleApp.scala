@@ -1,12 +1,13 @@
 package example.stitching
 
 import caliban._
-import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
+import caliban.interop.tapir.ws.Protocol
+import caliban.interop.tapir.{HttpInterpreter, WebSocketInterpreter}
 import caliban.schema._
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
-import caliban.tools.{ Options, RemoteSchema, SchemaLoader }
-import caliban.tools.stitching.{ HttpRequest, RemoteResolver, RemoteSchemaResolver, ResolveRequest }
+import caliban.tools.{Options, RemoteSchema, SchemaLoader}
+import caliban.tools.stitching.{HttpRequest, RemoteResolver, RemoteSchemaResolver, ResolveRequest}
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.client3.SttpBackend
@@ -116,16 +117,20 @@ object ExampleApp extends ZIOAppDefault {
           .serve(
             Http
               .collectHttp[Request] {
-                case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
-                case _ -> !! / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))
-                case _ -> !! / "graphiql"        => graphiql
+                case _ -> Root / "api" / "graphql" => ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
+                case _ -> Root / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))
+                case _ -> Root / "graphiql"        => graphiql
               }
           )
     } yield ())
       .provide(
         HttpClientZioBackend.layer(),
         Configuration.fromEnvironment,
-        Server.default
+        Server.live,
+        Server.Config.default.withWebSocketConfig(
+          WebSocketConfig.default
+            .withSubProtocol(Some(List(Protocol.Legacy.name, Protocol.GraphQLWS.name).mkString(",")))
+        )
       )
       .exitCode
 }

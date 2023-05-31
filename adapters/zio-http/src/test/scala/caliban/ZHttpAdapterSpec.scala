@@ -1,19 +1,13 @@
 package caliban
 
 import caliban.interop.tapir.TestData.sampleCharacters
-import caliban.interop.tapir.{
-  FakeAuthorizationInterceptor,
-  HttpInterpreter,
-  TapirAdapterSpec,
-  TestApi,
-  TestService,
-  WebSocketInterpreter
-}
+import caliban.interop.tapir.ws.Protocol
+import caliban.interop.tapir.{FakeAuthorizationInterceptor, HttpInterpreter, TapirAdapterSpec, TestApi, TestService, WebSocketInterpreter}
 import caliban.uploads.Uploads
 import sttp.client3.UriContext
 import zio._
 import zio.http._
-import zio.test.{ Live, ZIOSpecDefault }
+import zio.test.{Live, ZIOSpecDefault}
 
 import scala.language.postfixOps
 
@@ -30,11 +24,11 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
           .serve(
             Http
               .collectHttp[Request] {
-                case _ -> !! / "api" / "graphql" =>
+                case _ -> Root / "api" / "graphql" =>
                   ZHttpAdapter.makeHttpService(
                     HttpInterpreter(interpreter).intercept(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
                   )
-                case _ -> !! / "ws" / "graphql"  =>
+                case _ -> Root / "ws" / "graphql"  =>
                   ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))
               }
           )
@@ -53,7 +47,14 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
     suite.provideShared(
       apiLayer,
       Scope.default,
-      Server.defaultWith(_.port(8089).responseCompression())
+      Server.defaultWith(
+        _.port(8089)
+          .withWebSocketConfig(
+            WebSocketConfig.default
+              .withSubProtocol(Some(List(Protocol.Legacy.name, Protocol.GraphQLWS.name).mkString(",")))
+          )
+          .responseCompression()
+      )
     )
   }
 }

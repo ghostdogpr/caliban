@@ -2,10 +2,11 @@ package example.ziohttp
 
 import caliban.Value.StringValue
 import caliban._
-import caliban.interop.tapir.{ HttpInterpreter, WebSocketHooks, WebSocketInterpreter }
+import caliban.interop.tapir.ws.Protocol
+import caliban.interop.tapir.{HttpInterpreter, WebSocketHooks, WebSocketInterpreter}
 import caliban.schema.GenericSchema
 import example.ExampleData._
-import example.{ ExampleApi, ExampleService }
+import example.{ExampleApi, ExampleService}
 import sttp.tapir.json.circe._
 import zio._
 import zio.http._
@@ -92,10 +93,10 @@ object AuthExampleApp extends ZIOAppDefault {
                        .install(
                          Http
                            .collectHttp[Request] {
-                             case _ -> !! / "api" / "graphql" =>
+                             case _ -> Root / "api" / "graphql" =>
                                ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter)) @@ Auth.middleware
-                             case _ -> !! / "ws" / "graphql"  => Auth.WebSockets.live(interpreter)
-                             case _ -> !! / "graphiql"        => graphiql
+                             case _ -> Root / "ws" / "graphql"  => Auth.WebSockets.live(interpreter)
+                             case _ -> Root / "graphiql"        => graphiql
                            }
                        )
       _           <- ZIO.logInfo(s"Server started on port $port")
@@ -105,7 +106,14 @@ object AuthExampleApp extends ZIOAppDefault {
         ExampleService.make(sampleCharacters),
         ExampleApi.layer,
         Auth.http,
-        ZLayer.succeed(Server.Config.default.port(8088)),
+        ZLayer.succeed(
+          Server.Config.default
+            .port(8088)
+            .withWebSocketConfig(
+              WebSocketConfig.default
+                .withSubProtocol(Some(List(Protocol.Legacy.name, Protocol.GraphQLWS.name).mkString(",")))
+            )
+        ),
         Server.live
       )
       .exitCode
