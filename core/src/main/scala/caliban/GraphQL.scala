@@ -40,12 +40,13 @@ trait GraphQL[-R] { self =>
       schemaBuilder.subscription.flatMap(_.opType.name).map(n => s"  subscription: $n")
     )
     val schemaDirectives = renderSchemaDirectives(schemaBuilder.schemaDirectives)
-
-    val schema = parts.flatten.mkString("\n") match {
-      case ""        => s"extend schema $schemaDirectives\n"
-      case something => s"""schema $schemaDirectives{
-                           |$something
-                           |}""".stripMargin
+    val flattenedParts   = parts.flatten.mkString("\n")
+    val schema           = (flattenedParts, schemaDirectives) match {
+      case ("", "")                      => ""
+      case ("", schemaDirectives)        => s"extend schema $schemaDirectives\n"
+      case (something, schemaDirectives) => s"""schema $schemaDirectives{
+                                               |$something
+                                               |}""".stripMargin
     }
 
     val directivesPrefix = renderDirectives(additionalDirectives) match {
