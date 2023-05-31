@@ -53,7 +53,7 @@ object ZHttpAdapter {
                        case ChannelEvent.UserEventTriggered(UserEvent.HandshakeComplete) =>
                          out
                            .interruptWhen(ch.awaitShutdown)
-                           .runForeach(msg => ch.send(ChannelEvent.read(msg)))
+                           .runForeach(msg => ch.send(ChannelEvent.Read(msg)))
                            .forkDaemon
                        case ChannelEvent.Read(WebSocketFrame.Text(text))                 =>
                          ZIO.fromEither {
