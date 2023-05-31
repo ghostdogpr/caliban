@@ -166,9 +166,9 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
             Some(customizeInputTypeName(name)),
             description,
             fields(isInput, isSubscription).map { case (f, _) =>
-              __InputValue(f.name, f.description, f.`type`, None, f.directives)
+              __InputValue(f.name, f.description, f.`type`, None, f.directives.map(_.filter(_.includeWithInputTypes)))
             },
-            directives = Some(directives)
+            directives = Some(directives.filter(_.includeWithInputTypes))
           )
         } else makeObject(Some(name), description, fields(isInput, isSubscription).map(_._1), directives)
 

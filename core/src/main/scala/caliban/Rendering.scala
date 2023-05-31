@@ -219,7 +219,9 @@ object Rendering {
     else ""}${renderDirectives(field.directives)}"
 
   private def renderInputValue(inputValue: __InputValue): String =
-    s"${inputValue.name}: ${renderTypeName(inputValue._type)}${renderDefaultValue(inputValue)}${renderDirectives(inputValue.directives)}"
+    s"${inputValue.name}: ${renderTypeName(inputValue._type)}${renderDefaultValue(inputValue)}${renderDirectives(
+      inputValue.directives.map(_.filter(_.includeWithInputTypes))
+    )}"
 
   private def renderEnumValue(v: __EnumValue): String =
     s"${renderDescription(v.description)}${v.name}${if (v.isDeprecated)

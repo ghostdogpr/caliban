@@ -2,7 +2,12 @@ package caliban.parsing.adt
 
 import caliban.{ InputValue, Value }
 
-case class Directive(name: String, arguments: Map[String, InputValue] = Map.empty, index: Int = 0)
+case class Directive(
+  name: String,
+  arguments: Map[String, InputValue] = Map.empty,
+  index: Int = 0,
+  includeWithInputTypes: Boolean = false
+)
 
 object Directives {
   def isDeprecated(directives: List[Directive]): Boolean =

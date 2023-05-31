@@ -11,7 +11,7 @@ trait FederationDirectivesV2 {
 
   case class GQLInaccessible() extends GQLDirective(Inaccessible)
 
-  val Inaccessible = Directive("inaccessible")
+  val Inaccessible = Directive("inaccessible", includeWithInputTypes = true)
 
   case class GQLOverride(from: String) extends GQLDirective(Override(from))
 
@@ -24,7 +24,7 @@ trait FederationDirectivesV2 {
 
   object Tag {
     def apply(name: String): Directive =
-      Directive("tag", Map("name" -> StringValue(name)))
+      Directive("tag", Map("name" -> StringValue(name)), includeWithInputTypes = true)
   }
 
 }
