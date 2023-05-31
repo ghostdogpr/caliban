@@ -4,7 +4,7 @@ import caliban.CalibanError.ParsingError
 import caliban.TestUtils._
 import caliban.introspection.adt.{ __Type, __TypeKind }
 import caliban.parsing.Parser
-import caliban.parsing.adt.Definition.TypeSystemDefinition
+import caliban.parsing.adt.Definition.{TypeSystemDefinition, TypeSystemExtension}
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{
   EnumValueDefinition,
@@ -47,6 +47,8 @@ object RenderingSpec extends ZIOSpecDefault {
         t.copy(directives = fixDirectives(t.directives))
       case t: TypeSystemDefinition.TypeDefinition.ScalarTypeDefinition      =>
         t.copy(directives = fixDirectives(t.directives))
+      case t: TypeSystemExtension.SchemaExtension                           =>
+        t.copy(directives = fixDirectives(t.directives))
       case other                                                            => other
     }
 
@@ -88,9 +90,15 @@ object RenderingSpec extends ZIOSpecDefault {
                                                                                  |  o: EmptyObject!
                                                                                  |}""".stripMargin.trim)
       },
-      test("it should not render a schema in no queries, mutations, or subscription") {
+      test("it should not render a schema definition without schema directives if no queries, mutations, or subscription") {
         assert(graphQL(InvalidSchemas.resolverEmpty).render.trim)(
           equalTo("")
+        )
+      },
+      test("it should render a schema extension with schema directives even if no queries, mutations, or subscription") {
+        val renderedType = graphQL(InvalidSchemas.resolverEmpty, schemaDirectives = List(SchemaDirectives.Link)).render.trim
+        assert(renderedType)(
+          equalTo("""extend schema @link(url: "https://example.com", import: ["@key", {name: "@provides", as: "@self"}])""")
         )
       },
       test("it should render object arguments in type directives") {
