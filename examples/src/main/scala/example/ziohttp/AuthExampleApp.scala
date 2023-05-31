@@ -62,8 +62,8 @@ object Auth {
   }
 
   val middleware =
-    HttpAppMiddleware.customAuthZIO { headers =>
-      val user = headers.get(Header.Authorization).map(_.renderedValue)
+    HttpAppMiddleware.customAuthZIO { req =>
+      val user = req.headers.get(Header.Authorization).map(_.renderedValue)
       ZIO.serviceWithZIO[Auth](_.setUser(user)).as(true)
     }
 }
