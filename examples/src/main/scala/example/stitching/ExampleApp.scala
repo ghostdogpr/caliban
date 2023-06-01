@@ -127,10 +127,7 @@ object ExampleApp extends ZIOAppDefault {
         HttpClientZioBackend.layer(),
         Configuration.fromEnvironment,
         Server.live,
-        ZLayer.succeed(Server.Config.default.withWebSocketConfig(
-          WebSocketConfig.default
-            .withSubProtocol(Some(List(Protocol.Legacy.name, Protocol.GraphQLWS.name).mkString(",")))
-        ))
+        ZLayer.succeed(Server.Config.default.withWebSocketConfig(ZHttpAdapter.defaultWebSocketConfig))
       )
       .exitCode
 }

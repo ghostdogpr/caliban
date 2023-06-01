@@ -56,10 +56,7 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
       Scope.default,
       Server.defaultWith(
         _.port(8089)
-          .withWebSocketConfig(
-            WebSocketConfig.default
-              .withSubProtocol(Some(List(Protocol.Legacy.name, Protocol.GraphQLWS.name).mkString(",")))
-          )
+          .withWebSocketConfig(ZHttpAdapter.defaultWebSocketConfig)
           .responseCompression()
       )
     )

@@ -37,10 +37,7 @@ object ExampleApp extends ZIOAppDefault {
         ZLayer.succeed(
           Server.Config.default
             .port(8088)
-            .withWebSocketConfig(
-              WebSocketConfig.default
-                .withSubProtocol(Some(List(Protocol.Legacy.name, Protocol.GraphQLWS.name).mkString(",")))
-            )
+            .withWebSocketConfig(ZHttpAdapter.defaultWebSocketConfig)
         ),
         Server.live
       )

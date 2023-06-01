@@ -3,10 +3,10 @@ package example.ziohttp
 import caliban.Value.StringValue
 import caliban._
 import caliban.interop.tapir.ws.Protocol
-import caliban.interop.tapir.{HttpInterpreter, WebSocketHooks, WebSocketInterpreter}
+import caliban.interop.tapir.{ HttpInterpreter, WebSocketHooks, WebSocketInterpreter }
 import caliban.schema.GenericSchema
 import example.ExampleData._
-import example.{ExampleApi, ExampleService}
+import example.{ ExampleApi, ExampleService }
 import sttp.tapir.json.circe._
 import zio._
 import zio.http._
@@ -109,10 +109,7 @@ object AuthExampleApp extends ZIOAppDefault {
         ZLayer.succeed(
           Server.Config.default
             .port(8088)
-            .withWebSocketConfig(
-              WebSocketConfig.default
-                .withSubProtocol(Some(List(Protocol.Legacy.name, Protocol.GraphQLWS.name).mkString(",")))
-            )
+            .withWebSocketConfig(ZHttpAdapter.defaultWebSocketConfig)
         ),
         Server.live
       )

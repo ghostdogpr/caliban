@@ -13,6 +13,11 @@ import zio.stream._
 
 object ZHttpAdapter {
 
+  lazy val defaultWebSocketConfig: WebSocketConfig = {
+    val subProtocols = List(Protocol.Legacy.name, Protocol.GraphQLWS.name).mkString(",")
+    WebSocketConfig.default.withSubProtocol(Some(subProtocols))
+  }
+
   def makeHttpService[R, E](interpreter: HttpInterpreter[R, E])(implicit
     serverOptions: ZioHttpServerOptions[R] = ZioHttpServerOptions.default[R]
   ): App[R] =
