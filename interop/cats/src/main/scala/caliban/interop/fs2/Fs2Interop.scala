@@ -2,13 +2,11 @@ package caliban.interop.fs2
 
 import caliban.interop.cats.FromEffect
 import caliban.introspection.adt.__Type
-import caliban.schema.Schema
-import caliban.schema.Step
+import caliban.schema.{ Schema, Step }
 import fs2.Stream
-import zio.RIO
-import zio.Task
 import zio.stream.ZStream
 import zio.stream.interop.fs2z._
+import zio.{ RIO, Task }
 
 object Fs2Interop {
   def schemaStreamRIO[R, A](implicit ev: Schema[R, ZStream[R, Throwable, A]]): Schema[R, Stream[RIO[R, *], A]] =

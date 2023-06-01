@@ -3,30 +3,20 @@ package caliban.interop.fs2
 import caliban.Value.IntValue
 import caliban.interop.fs2.implicits._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
-import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.FieldDefinition
-import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.ObjectTypeDefinition
+import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{ FieldDefinition, ObjectTypeDefinition }
 import caliban.parsing.adt.Type._
-import caliban.schema.PureStep
-import caliban.schema.Schema
 import caliban.schema.Schema.auto._
-import caliban.schema.Step
-import caliban.schema.Step.ObjectStep
-import caliban.schema.Step.StreamStep
-import cats.effect.IO
-import cats.effect.LiftIO
-import cats.effect.Resource
+import caliban.schema.Step.{ ObjectStep, StreamStep }
+import caliban.schema.{ PureStep, Schema, Step }
 import cats.effect.std.Dispatcher
 import cats.effect.unsafe.implicits._
+import cats.effect.{ IO, LiftIO, Resource }
 import fs2.Stream
-import zio.Chunk
-import zio.Exit
-import zio.Task
-import zio.Unsafe
-import zio.ZIO
 import zio.interop.catz._
 import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
+import zio.{ Chunk, Exit, Task, Unsafe, ZIO }
 
 import scala.collection.immutable.Seq
 
