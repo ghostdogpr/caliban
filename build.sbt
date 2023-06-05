@@ -11,6 +11,7 @@ val akkaVersion               = "2.6.20"
 val catsEffect3Version        = "3.5.0"
 val catsMtlVersion            = "1.3.0"
 val circeVersion              = "0.14.5"
+val fs2Version                = "3.7.0"
 val http4sVersion             = "0.23.19"
 val javaTimeVersion           = "2.5.0"
 val jsoniterVersion           = "2.23.1"
@@ -263,6 +264,7 @@ lazy val catsInterop = project
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
     } ++ Seq(
       "org.typelevel" %% "cats-effect"      % catsEffect3Version,
+      "co.fs2"        %% "fs2-core"         % fs2Version,
       "dev.zio"       %% "zio-interop-cats" % zioInteropCats3Version,
       "dev.zio"       %% "zio-test"         % zioVersion % Test,
       "dev.zio"       %% "zio-test-sbt"     % zioVersion % Test
