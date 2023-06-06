@@ -1,6 +1,6 @@
 package example.optimizations
 
-import caliban.schema.{ GenericSchema, Schema }
+import caliban.schema.Schema
 import caliban.schema.ArgBuilder.auto._
 import caliban._
 import example.optimizations.CommonData._
@@ -13,7 +13,7 @@ import zio.{ ExitCode, ZIOAppDefault }
  * Optimized implementation of https://blog.apollographql.com/optimizing-your-graphql-request-waterfalls-7c3f3360b051
  * Will result in 8 requests.
  */
-object OptimizedTest extends ZIOAppDefault with GenericSchema[Any] {
+object OptimizedTest extends ZIOAppDefault {
 
   type ConsoleQuery[A] = ZQuery[Any, Nothing, A]
 
@@ -119,7 +119,7 @@ object OptimizedTest extends ZIOAppDefault with GenericSchema[Any] {
   implicit val sizeArgsSchema: Schema[Any, SizeArgs]             = Schema.gen
   implicit val firstArgsSchema: Schema[Any, FirstArgs]           = Schema.gen
   implicit val eventSchema: Schema[Any, Event]                   = Schema.gen
-  implicit lazy val user: Schema[Any, User]                      = Schema.gen
+  implicit def user: Schema[Any, User]                           = Schema.gen
   implicit val queriesSchema: Schema[Any, Queries]               = Schema.gen
 
   val resolver = Queries(args => getUser(args.id))

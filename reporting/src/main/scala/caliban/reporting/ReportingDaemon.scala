@@ -23,7 +23,7 @@ object ReportingDaemon {
   def live: ZLayer[SchemaReporter, Nothing, ReportingDaemon] = ZLayer(make)
 
   def make: ZIO[SchemaReporter, Nothing, ReportingDaemon] =
-    ZIO.service[SchemaReporter].map { reporter =>
+    ZIO.serviceWith[SchemaReporter] { reporter =>
       new ReportingDaemon {
 
         override def register(ref: SchemaReportingRef[_])(implicit trace: Trace): ZIO[Scope, Nothing, Unit] = {
@@ -47,6 +47,7 @@ object ReportingDaemon {
                 },
                 resp => loop(resp.withCoreSchema).delay(resp.in)
               )
+
           loop(false).forkScoped
         }.unit
       }
