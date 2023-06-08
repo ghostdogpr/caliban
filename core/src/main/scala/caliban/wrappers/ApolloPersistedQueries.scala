@@ -73,7 +73,7 @@ object ApolloPersistedQueries {
    * be a `(_, Some(Document))` where the document is the persisted query document. If the query isn't yet cached this will set the
    * value to `(_, None)` which will then get passed to the parsing wrapper where it will populate the cache with the validated query document
    */
-  private def overrallWrapper(
+  private def overallWrapper(
     docVar: Promise[Nothing, Option[(String, Option[Document])]]
   ): OverallWrapper[ApolloPersistence] =
     new OverallWrapper[ApolloPersistence] {
@@ -106,7 +106,7 @@ object ApolloPersistedQueries {
    */
   val apolloPersistedQueries: EffectfulWrapper[ApolloPersistence] =
     EffectfulWrapper(Promise.make[Nothing, Option[(String, Option[Document])]].map { docVar =>
-      overrallWrapper(docVar) |+| parsingWrapper(docVar) |+| validationWrapper(docVar)
+      overallWrapper(docVar) |+| parsingWrapper(docVar) |+| validationWrapper(docVar)
     })
 
   private def readHash(request: GraphQLRequest): Option[String] =
