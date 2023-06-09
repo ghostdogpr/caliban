@@ -456,6 +456,8 @@ You can also indicate that the effect type is abstract via `--abstractEffectType
 
 By default the suffix `Input` is appended to the type name of input types in the derived schema.  Use the `--preserveInputNames` flag to disable this. 
 
+If you use scala3, you can enable `--addDerives` flag to automatically add `derives` clauses to the generated code. It will add type class instance derivation that create schema.
+
 If you want to force a mapping between a GraphQL type and a Scala class (such as scalars), you can use the
 `--scalarMappings` option. Also you can add additional imports by providing `--imports` option.
 
