@@ -16,6 +16,7 @@ lazy val root = project
         _.genType(Codegen.GenType.Schema)
           .scalarMapping("Json" -> "String")
           .effect("scala.util.Try")
+          .addDerives(false)
       ),
       calibanSetting(file("src/main/graphql/genview/schema.graphql"))(
         _.clientName("Client").packageName("genview").genView(true)

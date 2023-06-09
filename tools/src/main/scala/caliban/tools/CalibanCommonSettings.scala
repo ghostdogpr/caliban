@@ -81,6 +81,7 @@ final case class CalibanCommonSettings(
     this.copy(preserveInputNames = Some(preserveInputNames))
   def supportIsRepeatable(supportIsRepeatable: Boolean): CalibanCommonSettings =
     this.copy(supportIsRepeatable = Some(supportIsRepeatable))
+  def addDerives(addDerives: Boolean): CalibanCommonSettings                   = this.copy(addDerives = Some(addDerives))
 }
 
 object CalibanCommonSettings {
