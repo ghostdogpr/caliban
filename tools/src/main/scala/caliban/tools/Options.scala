@@ -20,7 +20,8 @@ final case class Options(
   enableFmt: Option[Boolean],
   extensibleEnums: Option[Boolean],
   preserveInputNames: Option[Boolean],
-  supportIsRepeatable: Option[Boolean]
+  supportIsRepeatable: Option[Boolean],
+  addDerives: Option[Boolean]
 )
 
 object Options {
@@ -39,7 +40,8 @@ object Options {
     enableFmt: Option[Boolean],
     extensibleEnums: Option[Boolean],
     preserveInputNames: Option[Boolean],
-    supportIsRepeatable: Option[Boolean]
+    supportIsRepeatable: Option[Boolean],
+    addDerives: Option[Boolean]
   )
 
   def fromArgs(args: List[String]): UIO[Option[Options]] =
@@ -84,7 +86,8 @@ object Options {
             rawOpts.enableFmt,
             rawOpts.extensibleEnums,
             rawOpts.preserveInputNames,
-            rawOpts.supportIsRepeatable
+            rawOpts.supportIsRepeatable,
+            rawOpts.addDerives
           )
         }.option
       case _                             => ZIO.none

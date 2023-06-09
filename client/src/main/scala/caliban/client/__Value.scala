@@ -122,9 +122,10 @@ object __Value {
         else {
           in.rollbackToken()
           val fields = TreeMap.newBuilder[String, __Value]
-          while ({
-            fields += in.readKeyAsString() -> decodeJsonValue(in, newDepth)
-            in.isNextToken(',')
+          while
+            ({
+              fields += in.readKeyAsString() -> decodeJsonValue(in, newDepth)
+              in.isNextToken(',')
           }) ()
           if (in.isCurrentToken('}')) __ObjectValue(fields.result().toList)
           else in.objectEndOrCommaError()
@@ -136,9 +137,10 @@ object __Value {
         else {
           in.rollbackToken()
           val values = Array.newBuilder[__Value]
-          while ({
-            values += decodeJsonValue(in, newDepth)
-            in.isNextToken(',')
+          while
+            ({
+              values += decodeJsonValue(in, newDepth)
+              in.isNextToken(',')
           }) ()
           if (in.isCurrentToken(']')) __ListValue(values.result().toList)
           else in.arrayEndOrCommaError()

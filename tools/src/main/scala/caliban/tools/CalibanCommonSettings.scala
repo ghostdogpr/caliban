@@ -17,7 +17,8 @@ final case class CalibanCommonSettings(
   effect: Option[String],
   abstractEffectType: Option[Boolean],
   preserveInputNames: Option[Boolean],
-  supportIsRepeatable: Option[Boolean]
+  supportIsRepeatable: Option[Boolean],
+  addDerives: Option[Boolean]
 ) {
 
   private[caliban] def toOptions(schemaPath: String, toPath: String): Options =
@@ -37,7 +38,8 @@ final case class CalibanCommonSettings(
       enableFmt = enableFmt,
       extensibleEnums = extensibleEnums,
       preserveInputNames = preserveInputNames,
-      supportIsRepeatable = supportIsRepeatable
+      supportIsRepeatable = supportIsRepeatable,
+      addDerives = addDerives
     )
 
   private[caliban] def combine(r: => CalibanCommonSettings): CalibanCommonSettings =
@@ -56,7 +58,8 @@ final case class CalibanCommonSettings(
       effect = r.effect.orElse(this.effect),
       abstractEffectType = r.abstractEffectType.orElse(this.abstractEffectType),
       preserveInputNames = r.preserveInputNames.orElse(this.preserveInputNames),
-      supportIsRepeatable = r.supportIsRepeatable.orElse(this.supportIsRepeatable)
+      supportIsRepeatable = r.supportIsRepeatable.orElse(this.supportIsRepeatable),
+      addDerives = r.addDerives.orElse(this.addDerives)
     )
 
   def clientName(value: String): CalibanCommonSettings                         = this.copy(clientName = Some(value))
@@ -97,6 +100,7 @@ object CalibanCommonSettings {
       effect = None,
       abstractEffectType = None,
       preserveInputNames = None,
-      supportIsRepeatable = None
+      supportIsRepeatable = None,
+      addDerives = None
     )
 }
