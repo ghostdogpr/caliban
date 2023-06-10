@@ -31,7 +31,7 @@ trait GraphQL[-R] { self =>
     ZIO.fromEither(Validator.validateSchemaEither(schemaBuilder))
 
   /**
-   * Returns a string that renders the API types into the GraphQL format.
+   * Returns a string that renders the API types into the GraphQL SDL.
    */
   final def render: String = {
     val parts            = Seq(

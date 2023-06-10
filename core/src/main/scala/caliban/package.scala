@@ -35,6 +35,16 @@ package object caliban {
     val features                                = Set.empty
   }
 
-  def render[T](implicit schema: Schema[Nothing, T]): String =
+  /**
+   * Returns a string that renders the given type into the GraphQL SDL.
+   */
+  def render[T](implicit schema: Schema[Any, T]): String =
+    renderEnv[Any, T]
+
+  /**
+   * Returns a string that renders the given type into the GraphQL SDL.
+   * This variant of the method allows specifying the environment type when it's not `Any`.
+   */
+  def renderEnv[R, T](implicit schema: Schema[R, T]): String =
     renderTypes(collectTypes(schema.toType_(), Nil))
 }
