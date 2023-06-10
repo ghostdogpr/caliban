@@ -45,6 +45,6 @@ package object caliban {
    * Returns a string that renders the given type into the GraphQL SDL.
    * This variant of the method allows specifying the environment type when it's not `Any`.
    */
-  def renderEnv[R, T](implicit schema: Schema[R, T]): String =
+  def renderWith[R, T](implicit schema: Schema[R, T]): String =
     renderTypes(collectTypes(schema.toType_(), Nil))
 }

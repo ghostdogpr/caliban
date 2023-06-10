@@ -253,7 +253,7 @@ object SchemaSpec extends ZIOSpecDefault {
       test("render can be called with a Schema where R is not any") {
         object schema extends GenericSchema[Env]
         import schema.auto._
-        assertTrue(caliban.renderEnv[Env, EnvironmentSchema].nonEmpty)
+        assertTrue(caliban.renderWith[Env, EnvironmentSchema].nonEmpty)
       }
     )
 
