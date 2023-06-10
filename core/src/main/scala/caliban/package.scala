@@ -1,5 +1,7 @@
+import caliban.Rendering.renderTypes
 import caliban.introspection.adt.__Directive
 import caliban.parsing.adt.Directive
+import caliban.schema.Types.collectTypes
 import caliban.schema._
 import caliban.wrappers.Wrapper
 
@@ -32,4 +34,7 @@ package object caliban {
     val additionalDirectives: List[__Directive] = directives
     val features                                = Set.empty
   }
+
+  def render[T](implicit schema: Schema[Nothing, T]): String =
+    renderTypes(collectTypes(schema.toType_(), Nil))
 }

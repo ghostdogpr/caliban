@@ -246,6 +246,11 @@ object SchemaSpec extends ZIOSpecDefault {
             Directive("join__Graph", Map("name" -> StringValue("B")))
           )
         )
+      },
+      test("render can be called with a Schema where R is not any") {
+        object schema extends GenericSchema[Env]
+        import schema.auto._
+        assertTrue(caliban.render[EnvironmentSchema].nonEmpty)
       }
     )
 
@@ -253,6 +258,8 @@ object SchemaSpec extends ZIOSpecDefault {
   case class InfallibleFieldSchema(q: UIO[Int])
   case class FutureFieldSchema(q: Future[Int])
   case class IDSchema(id: UUID)
+  trait Env
+  case class EnvironmentSchema(test: RIO[Env, Int])
 
   @GQLInterface
   sealed trait MyInterface
