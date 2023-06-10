@@ -39,7 +39,7 @@ package object caliban {
    * Returns a string that renders the given type into the GraphQL SDL.
    */
   def render[T](implicit schema: Schema[Any, T]): String =
-    renderEnv[Any, T]
+    renderWith[Any, T]
 
   /**
    * Returns a string that renders the given type into the GraphQL SDL.
