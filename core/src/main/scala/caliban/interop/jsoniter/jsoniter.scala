@@ -120,10 +120,9 @@ private[caliban] object ValueJsoniter {
             small (extensions and variables). More info see: https://github.com/scala/bug/issues/11203
            */
           val x = TreeMap.newBuilder[String, InputValue]
-          while
-            ({
-              x += (in.readKeyAsString() -> decodeInputValue(in, depthM1))
-              in.isNextToken(',')
+          while ({
+            x += (in.readKeyAsString() -> decodeInputValue(in, depthM1))
+            in.isNextToken(',')
           }) ()
           if (in.isCurrentToken('}')) InputValue.ObjectValue(x.result())
           else in.objectEndOrCommaError()
@@ -135,10 +134,9 @@ private[caliban] object ValueJsoniter {
         else {
           in.rollbackToken()
           val x = List.newBuilder[InputValue]
-          while
-            ({
-              x += decodeInputValue(in, depthM1)
-              in.isNextToken(',')
+          while ({
+            x += decodeInputValue(in, depthM1)
+            in.isNextToken(',')
           }) ()
           if (in.isCurrentToken(']')) InputValue.ListValue(x.result())
           else in.arrayEndOrCommaError()
@@ -167,10 +165,9 @@ private[caliban] object ValueJsoniter {
         else {
           in.rollbackToken()
           val x = List.newBuilder[(String, ResponseValue)]
-          while
-            ({
-              x += (in.readKeyAsString() -> decodeResponseValue(in, depthM1))
-              in.isNextToken(',')
+          while ({
+            x += (in.readKeyAsString() -> decodeResponseValue(in, depthM1))
+            in.isNextToken(',')
           }) ()
           if (in.isCurrentToken('}')) ResponseValue.ObjectValue(x.result())
           else in.objectEndOrCommaError()
@@ -182,10 +179,9 @@ private[caliban] object ValueJsoniter {
         else {
           in.rollbackToken()
           val x = List.newBuilder[ResponseValue]
-          while
-            ({
-              x += decodeResponseValue(in, depthM1)
-              in.isNextToken(',')
+          while ({
+            x += decodeResponseValue(in, depthM1)
+            in.isNextToken(',')
           }) ()
           if (in.isCurrentToken(']')) ResponseValue.ListValue(x.result())
           else in.arrayEndOrCommaError()
