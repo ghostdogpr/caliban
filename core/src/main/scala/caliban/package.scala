@@ -1,5 +1,7 @@
+import caliban.Rendering.renderTypes
 import caliban.introspection.adt.__Directive
 import caliban.parsing.adt.Directive
+import caliban.schema.Types.collectTypes
 import caliban.schema._
 import caliban.wrappers.Wrapper
 
@@ -32,4 +34,17 @@ package object caliban {
     val additionalDirectives: List[__Directive] = directives
     val features                                = Set.empty
   }
+
+  /**
+   * Returns a string that renders the given type into the GraphQL SDL.
+   */
+  def render[T](implicit schema: Schema[Any, T]): String =
+    renderWith[Any, T]
+
+  /**
+   * Returns a string that renders the given type into the GraphQL SDL.
+   * This variant of the method allows specifying the environment type when it's not `Any`.
+   */
+  def renderWith[R, T](implicit schema: Schema[R, T]): String =
+    renderTypes(collectTypes(schema.toType_(), Nil))
 }
