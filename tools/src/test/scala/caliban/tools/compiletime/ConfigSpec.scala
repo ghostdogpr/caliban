@@ -41,7 +41,8 @@ object ConfigSpec extends ZIOSpecDefault {
               effect = None,
               abstractEffectType = None,
               preserveInputNames = None,
-              supportIsRepeatable = Some(true)
+              supportIsRepeatable = Some(true),
+              addDerives = None
             )
         )
       )

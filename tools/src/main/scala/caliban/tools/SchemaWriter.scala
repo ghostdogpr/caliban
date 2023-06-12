@@ -13,8 +13,14 @@ object SchemaWriter {
     imports: Option[List[String]] = None,
     scalarMappings: Option[Map[String, String]],
     isEffectTypeAbstract: Boolean = false,
-    preserveInputNames: Boolean = false
+    preserveInputNames: Boolean = false,
+    addDerives: Boolean = false
   ): String = {
+    val derivesSchema: String =
+      if (addDerives) " derives caliban.schema.Schema.SemiAuto" else ""
+
+    val derivesSchemaAndArgBuilder: String =
+      if (addDerives) " derives caliban.schema.Schema.SemiAuto, caliban.schema.ArgBuilder" else ""
 
     val interfaceImplementationsMap = (for {
       objectDef    <- schema.objectTypeDefinitions
@@ -37,7 +43,7 @@ object SchemaWriter {
       s"""
          |${writeDescription(op.description)}final case class ${op.name}$typeParamOrEmpty(
          |${op.fields.map(c => writeRootField(c, op)).mkString(",\n")}
-         |)""".stripMargin
+         |)$derivesSchema""".stripMargin
 
     }
     def writeSubscriptionField(field: FieldDefinition, od: ObjectTypeDefinition): String =
@@ -51,27 +57,29 @@ object SchemaWriter {
       s"""
          |${writeDescription(op.description)}final case class ${op.name}(
          |${op.fields.map(c => writeSubscriptionField(c, op)).mkString(",\n")}
-         |)""".stripMargin
+         |)$derivesSchema""".stripMargin
 
-    def writeObject(typedef: ObjectTypeDefinition): String =
+    def writeObject(typedef: ObjectTypeDefinition, extend: String): String =
       s"""${writeDescription(typedef.description)}final case class ${typedef.name}(${typedef.fields
         .map(writeField(_, typedef))
-        .mkString(", ")})"""
+        .mkString(", ")})$extend$derivesSchema"""
 
     def writeInputObject(typedef: InputObjectTypeDefinition): String = {
       val name            = typedef.name
       val maybeAnnotation = if (preserveInputNames) s"""@GQLInputName("$name")\n""" else ""
       s"""$maybeAnnotation${writeDescription(typedef.description)}final case class $name(${typedef.fields
         .map(writeInputValue)
-        .mkString(", ")})"""
+        .mkString(", ")})$derivesSchemaAndArgBuilder"""
     }
 
     def writeEnum(typedef: EnumTypeDefinition): String =
-      s"""${writeDescription(typedef.description)}sealed trait ${typedef.name} extends scala.Product with scala.Serializable
+      s"""${writeDescription(typedef.description)}sealed trait ${typedef.name} extends scala.Product with scala.Serializable$derivesSchemaAndArgBuilder
 
           object ${typedef.name} {
             ${typedef.enumValuesDefinition
-        .map(v => s"${writeDescription(v.description)}case object ${safeName(v.enumValue)} extends ${typedef.name}")
+        .map(v =>
+          s"${writeDescription(v.description)}case object ${safeName(v.enumValue)} extends ${typedef.name}$derivesSchemaAndArgBuilder"
+        )
         .mkString("\n")}
           }
        """
@@ -128,15 +136,15 @@ object SchemaWriter {
     def writeUnionSealedTrait(union: UnionTypeDefinition): String =
       s"""${writeDescription(
         union.description
-      )}sealed trait ${union.name} extends scala.Product with scala.Serializable"""
+      )}sealed trait ${union.name} extends scala.Product with scala.Serializable$derivesSchema"""
 
     def writeReusedUnionMember(typedef: ObjectTypeDefinition, unions: List[UnionTypeDefinition]): String =
-      s"${writeObject(typedef)} extends ${unions.map(_.name).mkString(" with ")}"
+      s"${writeObject(typedef, s" extends ${unions.map(_.name).mkString(" with ")}")}"
 
     def writeNotReusedMembers(typedef: UnionTypeDefinition, objects: List[ObjectTypeDefinition]): String =
       s"""object ${typedef.name} {
             ${objects
-        .map(o => s"${writeObject(o)} extends ${typedef.name}")
+        .map(o => s"${writeObject(o, s" extends ${typedef.name}")}")
         .mkString("\n")}
           }
        """
@@ -149,7 +157,7 @@ object SchemaWriter {
 
           object ${interface.name} {
             ${impls
-        .map(o => s"${writeObject(o)} extends ${interface.name}")
+        .map(o => s"${writeObject(o, s" extends ${interface.name}")}")
         .mkString("\n")}
           }
        """
@@ -169,7 +177,7 @@ object SchemaWriter {
         s"${args.map(arg => s"${safeName(arg.name)} : ${writeType(arg.ofType)}").mkString(", ")}"
 
       if (field.args.nonEmpty) {
-        s"final case class ${argsName(field, of)}(${fields(field.args)})"
+        s"final case class ${argsName(field, of)}(${fields(field.args)})$derivesSchemaAndArgBuilder"
       } else {
         ""
       }
@@ -237,7 +245,7 @@ object SchemaWriter {
           unionTypes.values.flatten.exists(_.name == obj.name) ||
           interfaceImplementations.exists(_.name == obj.name)
       )
-      .map(writeObject)
+      .map(writeObject(_, ""))
       .mkString("\n")
 
     val inputs = schema.inputObjectTypeDefinitions.map(writeInputObject).mkString("\n")

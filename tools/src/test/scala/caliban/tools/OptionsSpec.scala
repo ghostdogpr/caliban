@@ -27,6 +27,7 @@ object OptionsSpec extends ZIOSpecDefault {
                 None,
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -54,6 +55,7 @@ object OptionsSpec extends ZIOSpecDefault {
                 None,
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -69,6 +71,7 @@ object OptionsSpec extends ZIOSpecDefault {
                 Options(
                   "schema",
                   "output",
+                  None,
                   None,
                   None,
                   None,
@@ -128,6 +131,7 @@ object OptionsSpec extends ZIOSpecDefault {
                   None,
                   None,
                   None,
+                  None,
                   None
                 )
               )
@@ -147,6 +151,7 @@ object OptionsSpec extends ZIOSpecDefault {
                   None,
                   None,
                   Some("GraphqlClient.scala"),
+                  None,
                   None,
                   None,
                   None,
@@ -184,6 +189,7 @@ object OptionsSpec extends ZIOSpecDefault {
                   None,
                   None,
                   None,
+                  None,
                   None
                 )
               )
@@ -204,6 +210,7 @@ object OptionsSpec extends ZIOSpecDefault {
                   None,
                   None,
                   Some(true),
+                  None,
                   None,
                   None,
                   None,
@@ -240,6 +247,7 @@ object OptionsSpec extends ZIOSpecDefault {
                   None,
                   Some(true),
                   None,
+                  None,
                   None
                 )
               )
@@ -262,6 +270,7 @@ object OptionsSpec extends ZIOSpecDefault {
                   None,
                   None,
                   Some(Map("Long" -> "scala.Long")),
+                  None,
                   None,
                   None,
                   None,
@@ -296,6 +305,7 @@ object OptionsSpec extends ZIOSpecDefault {
                   None,
                   None,
                   None,
+                  None,
                   None
                 )
               )
@@ -320,6 +330,7 @@ object OptionsSpec extends ZIOSpecDefault {
                   None,
                   None,
                   Some(true),
+                  None,
                   None,
                   None,
                   None,
@@ -352,6 +363,7 @@ object OptionsSpec extends ZIOSpecDefault {
                   None,
                   None,
                   Some(true),
+                  None,
                   None
                 )
               )
@@ -369,6 +381,7 @@ object OptionsSpec extends ZIOSpecDefault {
                   "output",
                   Some("fmtPath"),
                   Some(List(Header("aaa", "bbb:ccc"))),
+                  None,
                   None,
                   None,
                   None,

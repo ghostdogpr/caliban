@@ -27,6 +27,7 @@ object Codegen {
                                     if (abstractEffectType) "F" else "zio.UIO"
                                   }
       preserveInputNames        = arguments.preserveInputNames.getOrElse(false)
+      addDerives                = arguments.addDerives.getOrElse(false)
       genView                   = arguments.genView.getOrElse(false)
       scalarMappings            = arguments.scalarMappings
       splitFiles                = arguments.splitFiles.getOrElse(false)
@@ -42,7 +43,8 @@ object Codegen {
                                           arguments.imports,
                                           scalarMappings,
                                           abstractEffectType,
-                                          preserveInputNames
+                                          preserveInputNames,
+                                          addDerives
                                         )
                                       )
                                     case GenType.Client =>
