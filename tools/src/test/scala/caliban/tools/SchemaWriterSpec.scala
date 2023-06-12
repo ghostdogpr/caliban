@@ -31,7 +31,7 @@ object SchemaWriterSpec extends ZIOSpecDefault {
             preserveInputNames,
             addDerives
           ),
-          None
+          Some(".scalafmt-for-test.conf")
         )
     )
 
