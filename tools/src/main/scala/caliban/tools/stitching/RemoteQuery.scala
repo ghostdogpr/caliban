@@ -1,14 +1,7 @@
 package caliban.tools.stitching
 
-import caliban.{ GraphQLRequest, InputValue }
 import caliban.execution.Field
-import caliban.Value._
-import caliban.InputValue._
-import caliban.Value.FloatValue._
-import caliban.Value.IntValue._
-import caliban.parsing.adt.Selection
-import caliban.parsing.adt.Selection.FragmentSpread
-import caliban.parsing.adt.Selection.InlineFragment
+import caliban.{ GraphQLRequest, InputValue }
 
 case class RemoteQuery(field: Field) { self =>
   def toGraphQLRequest: GraphQLRequest =
@@ -30,12 +23,18 @@ case class RemoteMutation(field: Field) { self =>
 
 object RemoteQuery {
   object QueryRenderer {
-    def render(r: RemoteMutation): String = s"mutation { ${renderField(r.field)} }"
-    def render(r: RemoteQuery): String    = s"query { ${renderField(r.field)} }"
+    def render(r: RemoteMutation): String = {
+      val s = renderField(r.field)
+      if (r.field.name.isEmpty) s"mutation $s" else s"mutation { $s }"
+    }
+    def render(r: RemoteQuery): String    = {
+      val s = renderField(r.field)
+      if (r.field.name.isEmpty) s"query $s" else s"query { $s }"
+    }
 
-    private def renderField(field: Field): String = {
+    def renderField(field: Field, ignoreArguments: Boolean = false): String = {
       val children = renderFields(field)
-      val args     = renderArguments(field.arguments)
+      val args     = if (ignoreArguments) "" else renderArguments(field.arguments)
       val alias    = field.alias.map(a => s"$a: ").getOrElse("")
       val str      = s"$alias${field.name}$args$children"
 
@@ -46,10 +45,20 @@ object RemoteQuery {
 
     private def renderFields(f: Field): String =
       if (f.fields.isEmpty) ""
-      else
-        f.fields.map(renderField).mkString(" { ", " ", " }")
+      else {
+        val isRoot = f.parentType.isEmpty
+        val fields = if (isRoot) f.fields.map(renderField(_)) else "__typename" :: f.fields.map(renderField(_))
+        fields.mkString(" { ", " ", " }")
+      }
 
     private def renderArguments(args: Map[String, InputValue]): String =
-      if (args.isEmpty) "" else args.map { case (k, v) => s"$k: ${v.toInputString}" }.mkString("(", ", ", ")")
+      if (args.isEmpty) ""
+      else
+        args.map { case (k, v) =>
+          k.split('.').toList.reverse match {
+            case Nil          => ""
+            case head :: tail => tail.foldLeft(s"$head: ${v.toInputString}")((acc, elem) => s"$elem: { $acc }")
+          }
+        }.mkString("(", ", ", ")")
   }
 }

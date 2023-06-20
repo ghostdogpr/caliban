@@ -12,6 +12,8 @@ import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.{ EndpointIO, EndpointInput, EndpointOutput, PublicEndpoint }
 import _root_.zio.query.{ URQuery, ZQuery }
 import _root_.zio.{ URIO, ZIO }
+import caliban.execution.Feature
+import caliban.transformers.Transformer
 
 package object tapir {
 
@@ -147,7 +149,8 @@ package object tapir {
 
     override protected val wrappers: List[Wrapper[R]]              = Nil
     override protected val additionalDirectives: List[__Directive] = Nil
-    override protected val features                                = Set.empty
+    override protected val features: Set[Feature]                  = Set.empty
+    override protected val transformers: List[Transformer[R]]      = Nil
   }
 
   private def extractPath[I](endpointName: Option[String], input: EndpointInput[I]): String =

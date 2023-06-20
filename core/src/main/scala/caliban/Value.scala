@@ -1,5 +1,7 @@
 package caliban
 
+import caliban.Value.NullValue
+
 import scala.util.Try
 import caliban.interop.circe._
 import caliban.interop.tapir.IsTapirSchema
@@ -57,6 +59,21 @@ sealed trait ResponseValue { self =>
       ResponseValue.ListValue(l1 ++ l2)
     case _                                                              => other
   }
+
+  def toInputValue: InputValue =
+    self match {
+      case ResponseValue.ListValue(values)   => InputValue.ListValue(values.map(_.toInputValue))
+      case ResponseValue.ObjectValue(fields) =>
+        InputValue.ObjectValue(fields.map { case (k, v) => (k, v.toInputValue) }.toMap)
+      case ResponseValue.StreamValue(_)      => NullValue
+      case value: Value                      => value
+    }
+
+  lazy val asListValue: Option[ResponseValue.ListValue] =
+    self match {
+      case v: ResponseValue.ListValue => Some(v)
+      case _                          => None
+    }
 }
 object ResponseValue extends ValueJsonCompat {
   case class ListValue(values: List[ResponseValue])                extends ResponseValue {

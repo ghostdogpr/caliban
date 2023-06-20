@@ -9,6 +9,7 @@ import caliban.parsing.adt._
 import caliban.schema.ReducedStep.DeferStep
 import caliban.schema.Step._
 import caliban.schema.{ ReducedStep, Step, Types }
+import caliban.transformers.Transformer
 import caliban.wrappers.Wrapper.FieldWrapper
 import zio._
 import zio.query.{ Cache, ZQuery }
@@ -31,7 +32,8 @@ object Executor {
     plan: Step[R],
     fieldWrappers: List[FieldWrapper[R]] = Nil,
     queryExecution: QueryExecution = QueryExecution.Parallel,
-    featureSet: Set[Feature] = Set.empty
+    featureSet: Set[Feature] = Set.empty,
+    transformers: List[Transformer[R]] = Nil
   )(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] = {
 
     val execution                                                          = request.operationType match {
@@ -52,8 +54,8 @@ object Executor {
       arguments: Map[String, InputValue],
       path: List[Either[String, Int]]
     ): ReducedStep[R] =
-      step match {
-        case s @ PureStep(value)            =>
+      transformers.foldLeft(step)(Transformer.transformStep) match {
+        case s @ PureStep(value)                =>
           value match {
             case EnumValue(v) =>
               // special case of an hybrid union containing case objects, those should return an object instead of a string
@@ -66,16 +68,16 @@ object Executor {
               obj.fold(s)(PureStep(_))
             case _            => s
           }
-        case FunctionStep(step)             => reduceStep(step(arguments), currentField, Map(), path)
-        case MetadataFunctionStep(step)     => reduceStep(step(currentField), currentField, arguments, path)
-        case ListStep(steps)                =>
+        case FunctionStep(step)                 => reduceStep(step(arguments), currentField, Map(), path)
+        case MetadataFunctionStep(step)         => reduceStep(step(currentField), currentField, arguments, path)
+        case ListStep(steps)                    =>
           reduceList(
             steps.zipWithIndex.map { case (step, i) =>
               reduceStep(step, currentField, arguments, Right(i) :: path)
             },
             Types.listOf(currentField.fieldType).fold(false)(_.isNullable)
           )
-        case ObjectStep(objectName, fields) =>
+        case ObjectStep(objectName, fields)     =>
           val filteredFields    = mergeFields(currentField, objectName)
           val (deferred, eager) = filteredFields.partitionMap {
             case f @ Field(name @ "__typename", _, _, alias, _, _, _, directives, _, _, _) =>
@@ -108,14 +110,14 @@ object Executor {
                 path
               )
           }
-        case QueryStep(inner)               =>
+        case QueryStep(inner)                   =>
           ReducedStep.QueryStep(
             inner.foldCauseQuery(
               e => ZQuery.failCause(effectfulExecutionError(path, Some(currentField.locationInfo), e)),
               a => ZQuery.succeed(reduceStep(a, currentField, arguments, path))
             )
           )
-        case StreamStep(stream)             =>
+        case StreamStep(stream)                 =>
           if (request.operationType == OperationType.Subscription) {
             ReducedStep.StreamStep(
               stream
@@ -130,6 +132,27 @@ object Executor {
               path
             )
           }
+        case ProxyStep(makeRequest, dataSource) =>
+          reduceStep(
+            QueryStep(
+              ZQuery
+                .fromRequest(makeRequest(transformers.foldLeft(currentField)(Transformer.patchField)))(dataSource)
+                .map(responseValueToStep)
+            ),
+            currentField,
+            arguments,
+            path
+          )
+      }
+
+    def responseValueToStep(responseValue: ResponseValue): Step[Any] =
+      responseValue match {
+        case ResponseValue.ListValue(values)   => Step.ListStep(values.map(responseValueToStep))
+        case ResponseValue.ObjectValue(fields) =>
+          val typeName = fields.toMap.get("__typename").collect { case StringValue(value) => value }.getOrElse("")
+          Step.ObjectStep(typeName, fields.map { case (k, v) => k -> responseValueToStep(v) }.toMap)
+        case ResponseValue.StreamValue(stream) => Step.StreamStep(stream.map(responseValueToStep))
+        case value: Value                      => PureStep(value)
       }
 
     def makeQuery(

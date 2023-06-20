@@ -34,6 +34,9 @@ object RemoteResolver {
   def fromUrl(apiUrl: String): RemoteResolver[SttpClient, CalibanError.ExecutionError, Field, ResponseValue] =
     toQuery >>> request(apiUrl) >>> execute >>> unwrap
 
+  def fromUrl2(apiUrl: String): RemoteResolver[SttpClient, CalibanError.ExecutionError, Field, ResponseValue] =
+    toQuery >>> request(apiUrl) >>> execute
+
   def request(apiUrl: String): RemoteResolver[Any, CalibanError.ExecutionError, GraphQLRequest, HttpRequest] =
     RemoteResolver.fromFunctionM((q: GraphQLRequest) =>
       ZIO.succeed(

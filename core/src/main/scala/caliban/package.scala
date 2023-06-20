@@ -1,8 +1,10 @@
 import caliban.Rendering.renderTypes
+import caliban.execution.Feature
 import caliban.introspection.adt.__Directive
 import caliban.parsing.adt.Directive
 import caliban.schema.Types.collectTypes
 import caliban.schema._
+import caliban.transformers.Transformer
 import caliban.wrappers.Wrapper
 
 package object caliban {
@@ -32,7 +34,8 @@ package object caliban {
     )
     val wrappers: List[Wrapper[R]]              = Nil
     val additionalDirectives: List[__Directive] = directives
-    val features                                = Set.empty
+    val features: Set[Feature]                  = Set.empty
+    val transformers: List[Transformer[R]]      = Nil
   }
 
   /**
