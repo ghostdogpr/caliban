@@ -17,13 +17,13 @@ trait Source[-R] {
 
   def |+|[R1](anotherSource: Source[R1]): Source[R with R1] =
     new Source[R with R1] {
-      override def toGraphQL: Task[GraphQL[R with R1]] =
+      def toGraphQL: Task[GraphQL[R with R1]] =
         self.toGraphQL.zipWithPar(anotherSource.toGraphQL)(_ |+| _)
     }
 
   def transform[R1 <: R](transformer: Transformer[R1]): Source[R1] =
     new Source[R1] {
-      override def toGraphQL: Task[GraphQL[R1]] = self.toGraphQL.map(_.transform(transformer))
+      def toGraphQL: Task[GraphQL[R1]] = self.toGraphQL.map(_.transform(transformer))
     }
 
   def extend[R1](
@@ -34,9 +34,9 @@ trait Source[-R] {
     argumentMapping: Map[String, InputValue => (String, InputValue)],
     filterBatchedValues: (ResponseValue, Field) => ResponseValue = (v, _) => v
   ): Source[R with R1] = new Source[R with R1] {
-    override def toGraphQL: Task[GraphQL[R with R1]] =
+    def toGraphQL: Task[GraphQL[R with R1]] =
       (self.toGraphQL <&> source.toGraphQL).flatMap { case (original, source) =>
-        source.getSchemaBuilder.query.flatMap(
+        source.getSchemaBuilder.query.flatMap( // TODO mutations/subscriptions
           _.opType.fields(__DeprecatedArgs(Some(true))).flatMap(_.find(_.name == sourceFieldName))
         ) match {
           case Some(field) =>
@@ -96,8 +96,7 @@ trait Source[-R] {
                                   .map(map =>
                                     requests
                                       .flatMap(requestsMap.get)
-                                      .map { case (req, field) => map.lookup(req).map(_ -> field) }
-                                      .flatten
+                                      .flatMap { case (req, field) => map.lookup(req).map(_ -> field) }
                                       .collect { case (Right(value), field) => filterBatchedValues(value, field) }
                                   )
                             }
