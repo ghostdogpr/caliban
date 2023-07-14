@@ -35,6 +35,17 @@ case class __Type(
     (origin ++ that.origin).reduceOption((_, b) => b)
   )
 
+  def transform(f: __Type => __Type): __Type =
+    f(
+      copy(
+        fields = args => fields(args).map(_.map(field => field.copy(`type` = () => field.`type`().transform(f)))),
+        inputFields = inputFields.map(_.map(field => field.copy(`type` = () => field.`type`().transform(f)))),
+        interfaces = () => interfaces().map(_.map(_.transform(f))),
+        possibleTypes = possibleTypes.map(_.map(_.transform(f))),
+        ofType = ofType.map(_.transform(f))
+      )
+    )
+
   def toType(nonNull: Boolean = false): Type =
     ofType match {
       case Some(of) =>

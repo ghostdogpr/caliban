@@ -285,18 +285,8 @@ trait GraphQL[-R] { self =>
   }
 
   final def transform[R1 <: R](transformer: Transformer[R1]): GraphQL[R1] = new GraphQL[R1] {
-    override protected val schemaBuilder: RootSchemaBuilder[R1]    = self.schemaBuilder.copy(
-      query = self.schemaBuilder.query.map(query =>
-        query.copy(opType = Transformer.transformType(query.opType, transformer))
-      ),
-      mutation = self.schemaBuilder.mutation.map(mutation =>
-        mutation.copy(opType = Transformer.transformType(mutation.opType, transformer))
-      ),
-      subscription = self.schemaBuilder.subscription.map(subscription =>
-        subscription.copy(opType = Transformer.transformType(subscription.opType, transformer))
-      ),
-      additionalTypes = self.schemaBuilder.additionalTypes.map(Transformer.transformType(_, transformer))
-    )
+    override protected val schemaBuilder: RootSchemaBuilder[R1]    =
+      self.schemaBuilder.transformTypes(transformer.transformType)
     override protected val wrappers: List[Wrapper[R1]]             = self.wrappers
     override protected val additionalDirectives: List[__Directive] = self.additionalDirectives
     override protected val features: Set[Feature]                  = self.features

@@ -16,7 +16,7 @@ case class RootSchemaBuilder[-R](
       (query ++ that.query).reduceOption(_ |+| _),
       (mutation ++ that.mutation).reduceOption(_ |+| _),
       (subscription ++ that.subscription).reduceOption(_ |+| _),
-      (additionalTypes ++ that.additionalTypes),
+      additionalTypes ++ that.additionalTypes,
       schemaDirectives ++ that.schemaDirectives
     )
 
@@ -30,4 +30,12 @@ case class RootSchemaBuilder[-R](
       .flatMap(_._2.headOption)
       .toList
   }
+
+  def transformTypes(f: __Type => __Type): RootSchemaBuilder[R] =
+    copy(
+      query = query.map(query => query.copy(opType = query.opType.transform(f))),
+      mutation = mutation.map(mutation => mutation.copy(opType = mutation.opType.transform(f))),
+      subscription = subscription.map(subscription => subscription.copy(opType = subscription.opType.transform(f))),
+      additionalTypes = additionalTypes.map(_.transform(f))
+    )
 }

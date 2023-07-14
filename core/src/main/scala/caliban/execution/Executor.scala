@@ -54,7 +54,9 @@ object Executor {
       arguments: Map[String, InputValue],
       path: List[Either[String, Int]]
     ): ReducedStep[R] =
-      transformers.foldLeft(step)(Transformer.transformStep) match {
+      transformers.foldLeft(step) { case (step, transformer) =>
+        transformer.transformStep.lift(step).getOrElse(step)
+      } match {
         case s @ PureStep(value)                =>
           value match {
             case EnumValue(v) =>
