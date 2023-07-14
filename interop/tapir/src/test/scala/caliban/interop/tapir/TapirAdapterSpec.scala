@@ -332,10 +332,10 @@ object TapirAdapterSpec {
           httpUri.addParams(
             QueryParams.fromSeq(
               List(
-                request.query.map("query"                 -> _),
+                request.query.map("query" -> _),
                 request.operationName.map("operationName" -> _),
-                request.variables.map("variables"         -> _.toJson),
-                request.extensions.map("extensions"       -> _.toJson)
+                request.variables.map("variables" -> _.toJson),
+                request.extensions.map("extensions" -> _.toJson)
               ).flatten
             )
           )
