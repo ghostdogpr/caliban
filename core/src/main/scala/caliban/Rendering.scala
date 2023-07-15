@@ -39,18 +39,15 @@ object Rendering {
             )
           case _                   =>
             val renderedDirectives: String  = renderDirectives(t.directives)
-            val renderedFields: String      = t
-              .fields(__DeprecatedArgs(Some(true)))
-              .fold(List.empty[String])(
-                _.map(field =>
+            val renderedFields: String      =
+              t.allFields
+                .map(field =>
                   List(
                     field.description.map(_ => renderDescription(field.description)),
                     Some(renderField(field))
-                  ).flatten
-                    .mkString("  ")
+                  ).flatten.mkString("  ")
                 )
-              )
-              .mkString("\n  ")
+                .mkString("\n  ")
             val renderedInputFields: String = t.inputFields
               .fold(List.empty[String])(
                 _.map(field =>

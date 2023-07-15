@@ -78,7 +78,7 @@ case class __Type(
             name.getOrElse(""),
             interfaces().getOrElse(Nil).map(t => NamedType(t.name.getOrElse(""), nonNull = false)),
             directives.getOrElse(Nil),
-            fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).map(_.toFieldDefinition)
+            allFields.map(_.toFieldDefinition)
           )
         )
       case __TypeKind.INTERFACE    =>
@@ -87,7 +87,7 @@ case class __Type(
             description,
             name.getOrElse(""),
             directives.getOrElse(Nil),
-            fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).map(_.toFieldDefinition)
+            allFields.map(_.toFieldDefinition)
           )
         )
       case __TypeKind.UNION        =>
@@ -128,4 +128,7 @@ case class __Type(
 
   def list: __Type    = __Type(__TypeKind.LIST, ofType = Some(self))
   def nonNull: __Type = __Type(__TypeKind.NON_NULL, ofType = Some(self))
+
+  lazy val allFields: List[__Field] =
+    fields(__DeprecatedArgs(Some(true))).getOrElse(Nil)
 }

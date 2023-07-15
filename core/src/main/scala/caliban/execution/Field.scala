@@ -1,7 +1,7 @@
 package caliban.execution
 
 import caliban.Value.BooleanValue
-import caliban.introspection.adt.{ __DeprecatedArgs, __Type }
+import caliban.introspection.adt.__Type
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.FragmentDefinition
 import caliban.parsing.adt.Selection.{ Field => F, FragmentSpread, InlineFragment }
@@ -81,12 +81,11 @@ object Field {
         map.compute(key, (_, existing) => if (existing == null) f else existing.combine(f))
       }
 
-      val innerType            = Types.innerType(fieldType)
-      lazy val innerTypeFields = innerType.fields(__DeprecatedArgs(Some(true)))
+      val innerType = Types.innerType(fieldType)
 
       selectionSet.foreach {
         case F(alias, name, arguments, directives, selectionSet, index) =>
-          val selected = innerTypeFields.flatMap(_.find(_.name == name))
+          val selected = innerType.allFields.find(_.name == name)
 
           val schemaDirectives   = selected.flatMap(_.directives).getOrElse(Nil)
           val resolvedDirectives =

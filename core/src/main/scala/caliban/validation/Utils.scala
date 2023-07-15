@@ -50,7 +50,8 @@ object Utils {
 
   def isListType(t: __Type): Boolean = t.kind == __TypeKind.LIST
 
-  def getFields(t: __Type): Option[List[__Field]]                                 = t.fields(__DeprecatedArgs(Some(true)))
+  def getFields(t: __Type): Option[List[__Field]] = t.fields(__DeprecatedArgs(Some(true)))
+
   def getType(t: Option[NamedType], parentType: __Type, context: Context): __Type =
     t.fold(Option(parentType))(t => context.rootType.types.get(t.name)).getOrElse(parentType)
 

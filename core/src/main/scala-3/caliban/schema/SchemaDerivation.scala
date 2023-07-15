@@ -234,8 +234,7 @@ trait CommonSchemaDerivation {
   ) = {
     val commonFields = () =>
       impl
-        .flatMap(_.fields(__DeprecatedArgs(Some(true))))
-        .flatten
+        .flatMap(_.allFields)
         .groupBy(_.name)
         .collect {
           case (_, list) if list.lengthCompare(impl.size) == 0 =>
@@ -320,8 +319,8 @@ trait SchemaDerivation[R] extends CommonSchemaDerivation {
 
   sealed trait SemiAuto[A] extends Schema[R, A]
   object SemiAuto {
-    inline def derived[A]: SemiAuto[A] = new {
-      private val impl = Schema.derived[R, A]
+    inline def derived[A]: SemiAuto[A]                       = exported(Schema.derived[R, A])
+    private def exported[A](impl: Schema[R, A]): SemiAuto[A] = new {
       export impl.*
     }
   }

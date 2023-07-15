@@ -150,8 +150,7 @@ trait CommonSchemaDerivation[R] {
         val impl         = subtypes.map(_._1.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
         val commonFields = () =>
           impl
-            .flatMap(_.fields(__DeprecatedArgs(Some(true))))
-            .flatten
+            .flatMap(_.allFields)
             .groupBy(_.name)
             .filter { case (_, list) => list.lengthCompare(impl.size) == 0 }
             .collect { case (_, list) =>

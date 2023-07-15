@@ -8,30 +8,30 @@ val scala3   = "3.3.0"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion               = "2.6.20"
-val catsEffect3Version        = "3.5.0"
+val catsEffect3Version        = "3.5.1"
 val catsMtlVersion            = "1.3.0"
 val circeVersion              = "0.14.5"
 val fs2Version                = "3.7.0"
-val http4sVersion             = "0.23.19"
+val http4sVersion             = "0.23.22"
 val javaTimeVersion           = "2.5.0"
-val jsoniterVersion           = "2.23.1"
-val laminextVersion           = "0.15.0"
+val jsoniterVersion           = "2.23.2"
+val laminextVersion           = "0.16.0"
 val magnoliaVersion           = "0.17.0"
 val mercatorVersion           = "0.2.1"
 val playVersion               = "2.8.19"
 val playJsonVersion           = "2.9.4"
-val scalafmtVersion           = "3.7.4"
-val sttpVersion               = "3.8.15"
+val scalafmtVersion           = "3.7.7"
+val sttpVersion               = "3.8.16"
 val tapirVersion              = "1.4.0"
 val zioVersion                = "2.0.15"
 val zioInteropCats2Version    = "22.0.0.0"
-val zioInteropCats3Version    = "23.0.0.6"
+val zioInteropCats3Version    = "23.0.0.8"
 val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "3.0.7"
 val zqueryVersion             = "0.4.0"
-val zioJsonVersion            = "0.5.0"
+val zioJsonVersion            = "0.6.0"
 val zioHttpVersion            = "3.0.0-RC1"
-val zioOpenTelemetryVersion   = "3.0.0-RC14"
+val zioOpenTelemetryVersion   = "3.0.0-RC15"
 val zioPreludeVersion         = "1.0.0-RC19"
 
 inThisBuild(
@@ -136,7 +136,7 @@ lazy val core = project
         Seq()
       } else {
         val scala212Deps = if (scalaVersion.value == scala212) {
-          Seq("org.scala-lang.modules" %% "scala-collection-compat" % "2.10.0")
+          Seq("org.scala-lang.modules" %% "scala-collection-compat" % "2.11.0")
         } else Seq()
         scala212Deps ++ Seq(
           "com.propensive"    %% "magnolia"  % magnoliaVersion,
@@ -185,7 +185,7 @@ lazy val tools = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "org.scalameta"                  % "scalafmt-interfaces" % scalafmtVersion,
-      "io.get-coursier"                % "interface"           % "1.0.17",
+      "io.get-coursier"                % "interface"           % "1.0.18",
       "com.softwaremill.sttp.client3" %% "zio"                 % sttpVersion,
       "dev.zio"                       %% "zio-config"          % zioConfigVersion,
       "dev.zio"                       %% "zio-config-magnolia" % zioConfigVersion,
@@ -211,7 +211,7 @@ lazy val tracing = project
       "dev.zio"         %% "zio-opentelemetry"         % zioOpenTelemetryVersion,
       "dev.zio"         %% "zio-test"                  % zioVersion % Test,
       "dev.zio"         %% "zio-test-sbt"              % zioVersion % Test,
-      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.27.0"   % Test
+      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.28.0"   % Test
     )
   )
   .dependsOn(core, tools)
