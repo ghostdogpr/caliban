@@ -36,9 +36,8 @@ trait Source[-R] {
   ): Source[R with R1] = new Source[R with R1] {
     def toGraphQL: Task[GraphQL[R with R1]] =
       (self.toGraphQL <&> source.toGraphQL).flatMap { case (original, source) =>
-        source.getSchemaBuilder.query.flatMap( // TODO mutations/subscriptions
-          _.opType.fields(__DeprecatedArgs(Some(true))).flatMap(_.find(_.name == sourceFieldName))
-        ) match {
+        // TODO mutations/subscriptions
+        source.getSchemaBuilder.query.flatMap(_.opType.allFields.find(_.name == sourceFieldName)) match {
           case Some(field) =>
             ZIO.succeed(
               original.transform(
