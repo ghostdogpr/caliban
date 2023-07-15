@@ -504,7 +504,7 @@ object Validator {
     ZPure
       .when(field.name != "__typename") {
         ZPure
-          .fromOption(currentType.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil).find(_.name == field.name))
+          .fromOption(currentType.allFields.find(_.name == field.name))
           .orElseFail(
             ValidationError(
               s"Field '${field.name}' does not exist on type '${Rendering.renderTypeName(currentType)}'.",
@@ -861,13 +861,13 @@ object Validator {
   private[caliban] def validateInterface(t: __Type): EReader[Any, ValidationError, Unit] = {
     val interfaceContext = s"Interface '${t.name.getOrElse("")}'"
 
-    t.fields(__DeprecatedArgs(Some(true))) match {
-      case None | Some(Nil) =>
+    t.allFields match {
+      case Nil    =>
         failValidation(
           s"$interfaceContext does not have fields",
           "An Interface type must define one or more fields"
         )
-      case Some(fields)     => validateFields(fields, interfaceContext)
+      case fields => validateFields(fields, interfaceContext)
     }
   }
 
@@ -875,11 +875,8 @@ object Validator {
     val objectContext = s"Object '${obj.name.getOrElse("")}'"
 
     def validateInterfaceFields(obj: __Type) = {
-      def fields(t: __Type) =
-        t.fields(__DeprecatedArgs(Some(true))).toList.flatten
-
       def fieldNames(t: __Type) =
-        fields(t).map(_.name).toSet
+        t.allFields.map(_.name).toSet
 
       val supertype = obj.interfaces().toList.flatten
 
@@ -900,8 +897,8 @@ object Validator {
       }
 
       def checkForInvalidSubtypeFields(): EReader[Any, ValidationError, Unit] = {
-        val objectFields    = fields(obj)
-        val supertypeFields = supertype.flatMap(fields)
+        val objectFields    = obj.allFields
+        val supertypeFields = supertype.flatMap(_.allFields)
 
         def isNonNullableSubtype(supertypeFieldType: __Type, objectFieldType: __Type) = {
           import __TypeKind._
@@ -970,13 +967,13 @@ object Validator {
       } yield ()
     }
 
-    obj.fields(__DeprecatedArgs(Some(true))) match {
-      case None | Some(Nil) =>
+    obj.allFields match {
+      case Nil    =>
         failValidation(
           s"$objectContext does not have fields",
           "An Object type must define one or more fields"
         )
-      case Some(fields)     => validateFields(fields, objectContext) *> validateInterfaceFields(obj)
+      case fields => validateFields(fields, objectContext) *> validateInterfaceFields(obj)
     }
   }
 
@@ -1175,12 +1172,7 @@ object Validator {
       for {
         _ <- validateDirectives(t.directives, typeErrorContext)
         _ <- validateInputValueDirectives(t.inputFields.getOrElse(List.empty[__InputValue]), typeErrorContext)
-        _ <- ZPure.foreachDiscard(
-               t.fields(__DeprecatedArgs(Some(true)))
-                 .getOrElse(List.empty[__Field])
-             )(
-               validateFieldDirectives(_, typeErrorContext)
-             )
+        _ <- ZPure.foreachDiscard(t.allFields)(validateFieldDirectives(_, typeErrorContext))
       } yield ()
     }
   }

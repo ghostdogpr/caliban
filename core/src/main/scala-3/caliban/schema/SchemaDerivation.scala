@@ -234,8 +234,7 @@ trait CommonSchemaDerivation {
   ) = {
     val commonFields = () =>
       impl
-        .flatMap(_.fields(__DeprecatedArgs(Some(true))))
-        .flatten
+        .flatMap(_.allFields)
         .groupBy(_.name)
         .collect {
           case (_, list) if list.lengthCompare(impl.size) == 0 =>

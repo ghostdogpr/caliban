@@ -1,6 +1,6 @@
 package caliban.schema
 
-import caliban.introspection.adt.{ __Directive, __Type, __TypeKind }
+import caliban.introspection.adt.{ __Directive, __Type }
 import caliban.schema.Types.collectTypes
 
 case class RootType(
@@ -10,12 +10,7 @@ case class RootType(
   additionalTypes: List[__Type] = List.empty,
   additionalDirectives: List[__Directive] = List.empty
 ) {
-  private val primitiveTypes: List[__Type] = List(
-    __Type(kind = __TypeKind.SCALAR, name = Some("Boolean")),
-    __Type(kind = __TypeKind.SCALAR, name = Some("Int")),
-    __Type(kind = __TypeKind.SCALAR, name = Some("Float")),
-    __Type(kind = __TypeKind.SCALAR, name = Some("String"))
-  )
+  private val primitiveTypes: List[__Type] = List(Types.boolean, Types.int, Types.float, Types.string)
 
   val types: Map[String, __Type] = {
     val init = additionalTypes.foldLeft(List.empty[__Type]) { case (acc, t) => collectTypes(t, acc) }
