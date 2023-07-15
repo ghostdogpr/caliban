@@ -26,8 +26,8 @@ object FieldMap {
     ): FieldMap = {
       val responseName = f.alias.getOrElse(f.name)
 
-      getFields(parentType)
-        .flatMap(fields => fields.find(_.name == f.name))
+      parentType.allFields
+        .find(_.name == f.name)
         .map { f =>
           val sf    = SelectedField(parentType, selection, f)
           val entry = self.get(responseName).map(_ + sf).getOrElse(Set(sf))

@@ -31,18 +31,14 @@ case class RemoteSchemaResolver(schema: __Schema, typeMap: Map[String, __Type]) 
           rootType,
           Step.ObjectStep(
             rootType.name.getOrElse(""),
-            rootType
-              .fields(__DeprecatedArgs(Some(true)))
-              .getOrElse(List())
-              .map { field =>
-                field.name ->
-                  Step.MetadataFunctionStep((args: caliban.execution.Field) =>
-                    Step.QueryStep(
-                      ZQuery.fromZIO(resolver.run(args)).map(Step.PureStep.apply)
-                    )
+            rootType.allFields.map { field =>
+              field.name ->
+                Step.MetadataFunctionStep((args: caliban.execution.Field) =>
+                  Step.QueryStep(
+                    ZQuery.fromZIO(resolver.run(args)).map(Step.PureStep.apply)
                   )
-              }
-              .toMap
+                )
+            }.toMap
           )
         )
       }
