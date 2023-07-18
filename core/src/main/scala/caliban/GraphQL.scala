@@ -286,7 +286,7 @@ trait GraphQL[-R] { self =>
 
   final def transform[R1 <: R](transformer: Transformer[R1]): GraphQL[R1] = new GraphQL[R1] {
     override protected val schemaBuilder: RootSchemaBuilder[R1]    =
-      self.schemaBuilder.transformTypes(transformer.transformType)
+      self.schemaBuilder.visit(transformer.typeVisitor)
     override protected val wrappers: List[Wrapper[R1]]             = self.wrappers
     override protected val additionalDirectives: List[__Directive] = self.additionalDirectives
     override protected val features: Set[Feature]                  = self.features
