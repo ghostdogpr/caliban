@@ -146,7 +146,7 @@ lazy val core = project
       }
     } ++
       Seq(
-        "com.lihaoyi"                           %% "fastparse"             % "3.0.1",
+        "com.lihaoyi"                           %% "fastparse"             % "3.0.2",
         "dev.zio"                               %% "zio"                   % zioVersion,
         "dev.zio"                               %% "zio-streams"           % zioVersion,
         "dev.zio"                               %% "zio-query"             % zqueryVersion,
