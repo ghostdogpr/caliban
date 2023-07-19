@@ -17,8 +17,8 @@ object Transformer {
     private def rename(name: String): String = f.lift(name).getOrElse(name)
 
     val typeVisitor: TypeVisitor =
-      TypeVisitor.modify(NameVisitor.modify(rename)) |+|
-        TypeVisitor.modify(EnumValueVisitor.modify(v => v.copy(name = rename(v.name))))
+      TypeVisitor.modify(t => t.copy(name = t.name.map(rename))) |+|
+        TypeVisitor.enumValues.modify(v => v.copy(name = rename(v.name)))
 
     def transformStep[R]: PartialFunction[Step[R], Step[R]] = { case step @ ObjectStep(name, fields) =>
       f.lift(name).map(ObjectStep(_, fields)).getOrElse(step)
@@ -26,10 +26,8 @@ object Transformer {
   }
   case class RenameField(f: PartialFunction[String, String]) extends Transformer[Any] {
     val typeVisitor: TypeVisitor =
-      TypeVisitor.modify(FieldVisitor.modify(field => field.copy(name = f.lift(field.name).getOrElse(field.name)))) |+|
-        TypeVisitor.modify(
-          InputFieldVisitor.modify(field => field.copy(name = f.lift(field.name).getOrElse(field.name)))
-        )
+      TypeVisitor.fields.modify(field => field.copy(name = f.lift(field.name).getOrElse(field.name))) |+|
+        TypeVisitor.inputFields.modify(field => field.copy(name = f.lift(field.name).getOrElse(field.name)))
 
     def transformStep[R]: PartialFunction[Step[R], Step[R]] = { case ObjectStep(name, fields) =>
       ObjectStep(name, fields.map { case (name, step) => f.lift(name).getOrElse(name) -> step })
@@ -37,8 +35,8 @@ object Transformer {
   }
   case class FilterField(f: String => Boolean)               extends Transformer[Any] {
     val typeVisitor: TypeVisitor =
-      TypeVisitor.modify(FieldVisitor.filter(field => f(field.name))) |+|
-        TypeVisitor.modify(InputFieldVisitor.filter(field => f(field.name)))
+      TypeVisitor.fields.filter(field => f(field.name)) |+|
+        TypeVisitor.inputFields.filter(field => f(field.name))
 
     def transformStep[R]: PartialFunction[Step[R], Step[R]] = { case ObjectStep(name, fields) =>
       ObjectStep(name, fields.filter { case (name, _) => f(name) })
@@ -52,10 +50,8 @@ object Transformer {
     resolver: Map[String, InputValue] => Step[R]
   ) extends Transformer[R] {
     val typeVisitor: TypeVisitor =
-      TypeVisitor.modify(
-        FieldVisitor.addWith(t =>
-          if (t.name.contains(typeName)) List(fieldDefinition.copy(name = fieldName, args = Nil)) else Nil
-        )
+      TypeVisitor.fields.addWith(t =>
+        if (t.name.contains(typeName)) List(fieldDefinition.copy(name = fieldName, args = Nil)) else Nil
       )
 
     def transformStep[R1 <: R]: PartialFunction[Step[R1], Step[R1]] = { case ObjectStep(`typeName`, fields) =>
