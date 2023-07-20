@@ -126,7 +126,19 @@ lazy val core = project
   .settings(
     mimaBinaryIssueFilters ++= Seq(
       ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.validation.Validator.doesNotStartWithUnderscore"),
-      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.validation.Validator.doesNotStartWithUnderscore")
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.validation.Validator.doesNotStartWithUnderscore"),
+      ProblemFilters.exclude[DirectMissingMethodProblem](
+        "caliban.parsing.adt.Definition#TypeSystemDefinition#TypeDefinition#InterfaceTypeDefinition.copy"
+      ),
+      ProblemFilters.exclude[DirectMissingMethodProblem](
+        "caliban.parsing.adt.Definition#TypeSystemDefinition#TypeDefinition#InterfaceTypeDefinition.this"
+      ),
+      ProblemFilters.exclude[DirectMissingMethodProblem](
+        "caliban.parsing.adt.Definition#TypeSystemDefinition#TypeDefinition#InterfaceTypeDefinition.apply"
+      ),
+      ProblemFilters.exclude[MissingTypesProblem](
+        "caliban.parsing.adt.Definition$TypeSystemDefinition$TypeDefinition$InterfaceTypeDefinition$"
+      )
     )
   )
   .settings(
