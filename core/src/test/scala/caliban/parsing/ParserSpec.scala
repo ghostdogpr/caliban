@@ -513,6 +513,36 @@ object ParserSpec extends ZIOSpecDefault {
           )
         }
       },
+      test("interface with interfaces") {
+        val interface =
+          """interface SomeInterface implements OtherInterface {
+            |"field desc" field: String!
+            |}""".stripMargin
+        Parser.parseQuery(interface).map { doc =>
+          assertTrue(
+            doc == Document(
+              List(
+                InterfaceTypeDefinition(
+                  None,
+                  "SomeInterface",
+                  List(NamedType("OtherInterface", false)),
+                  Nil,
+                  List(
+                    FieldDefinition(
+                      Some("field desc"),
+                      "field",
+                      Nil,
+                      NamedType("String", true),
+                      Nil
+                    )
+                  )
+                )
+              ),
+              sourceMapper = SourceMapper.apply(interface)
+            )
+          )
+        }
+      },
       test("input with no body") {
         val inputWithNoBody = "input BarBaz"
         Parser.parseQuery(inputWithNoBody).map { doc =>
