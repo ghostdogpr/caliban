@@ -74,9 +74,15 @@ object Parsers extends SelectionParsers {
     }
 
   def interfaceTypeDefinition(implicit ev: P[Any]): P[InterfaceTypeDefinition] =
-    P(stringValue.? ~ "interface" ~/ name ~ directives.? ~ "{" ~ fieldDefinition.rep ~ "}").map {
-      case (description, name, directives, fields) =>
-        InterfaceTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), fields.toList)
+    P(stringValue.? ~ "interface" ~/ name ~ implements.? ~ directives.? ~ "{" ~ fieldDefinition.rep ~ "}").map {
+      case (description, name, implements, directives, fields) =>
+        InterfaceTypeDefinition(
+          description.map(_.value),
+          name,
+          implements.getOrElse(Nil),
+          directives.getOrElse(Nil),
+          fields.toList
+        )
     }
 
   def inputObjectTypeDefinition(implicit ev: P[Any]): P[InputObjectTypeDefinition] =
