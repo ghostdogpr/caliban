@@ -6,5 +6,5 @@ case class __Schema(
   mutationType: Option[__Type],
   subscriptionType: Option[__Type],
   types: List[__Type],
-  directives: List[__Directive],
+  directives: List[__Directive]
 )
