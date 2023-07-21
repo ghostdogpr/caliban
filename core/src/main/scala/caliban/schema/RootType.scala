@@ -8,7 +8,8 @@ case class RootType(
   mutationType: Option[__Type],
   subscriptionType: Option[__Type],
   additionalTypes: List[__Type] = List.empty,
-  additionalDirectives: List[__Directive] = List.empty
+  additionalDirectives: List[__Directive] = List.empty,
+  description: Option[String] = None
 ) {
   private val primitiveTypes: List[__Type] = List(Types.boolean, Types.int, Types.float, Types.string)
 

@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.CalibanError.ValidationError
-import caliban.Rendering.{ renderDirectives, renderSchemaDirectives, renderTypes }
+import caliban.Rendering.{ renderDescription, renderDirectives, renderSchemaDirectives, renderTypes }
 import caliban.execution.{ ExecutionRequest, Executor, Feature }
 import caliban.introspection.Introspector
 import caliban.introspection.adt._
@@ -34,17 +34,18 @@ trait GraphQL[-R] { self =>
    * Returns a string that renders the API types into the GraphQL SDL.
    */
   final def render: String = {
-    val parts            = Seq(
+    val parts             = Seq(
       schemaBuilder.query.flatMap(_.opType.name).map(n => s"  query: $n"),
       schemaBuilder.mutation.flatMap(_.opType.name).map(n => s"  mutation: $n"),
       schemaBuilder.subscription.flatMap(_.opType.name).map(n => s"  subscription: $n")
     )
-    val schemaDirectives = renderSchemaDirectives(schemaBuilder.schemaDirectives)
-    val flattenedParts   = parts.flatten.mkString("\n")
-    val schema           = (flattenedParts, schemaDirectives) match {
+    val schemaDirectives  = renderSchemaDirectives(schemaBuilder.schemaDirectives)
+    val schemaDescription = renderDescription(schemaBuilder.schemaDescription, newline = true)
+    val flattenedParts    = parts.flatten.mkString("\n")
+    val schema            = (flattenedParts, schemaDirectives) match {
       case ("", "")                      => ""
       case ("", schemaDirectives)        => s"extend schema $schemaDirectives"
-      case (something, schemaDirectives) => s"""schema $schemaDirectives{
+      case (something, schemaDirectives) => s"""${schemaDescription}schema $schemaDirectives{
                                                |$something
                                                |}""".stripMargin
     }
@@ -68,7 +69,8 @@ trait GraphQL[-R] { self =>
         schemaBuilder.schemaDirectives,
         schemaBuilder.query.flatMap(_.opType.name),
         schemaBuilder.mutation.flatMap(_.opType.name),
-        schemaBuilder.subscription.flatMap(_.opType.name)
+        schemaBuilder.subscription.flatMap(_.opType.name),
+        schemaBuilder.schemaDescription
       ) :: schemaBuilder.types.flatMap(_.toTypeDefinition) ++ additionalDirectives.map(_.toDirectiveDefinition),
       SourceMapper.empty
     )
@@ -91,7 +93,8 @@ trait GraphQL[-R] { self =>
           schema.mutation.map(_.opType),
           schema.subscription.map(_.opType),
           schemaBuilder.additionalTypes,
-          additionalDirectives
+          additionalDirectives,
+          schemaBuilder.schemaDescription
         )
 
       val introWrappers                               = wrappers.collect { case w: IntrospectionWrapper[R] => w }

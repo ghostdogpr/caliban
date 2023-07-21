@@ -201,7 +201,7 @@ object FederationV2Spec extends ZIOSpecDefault {
       sdl         <- ZIO.fromEither(data.hcursor.downField("_service").downField("sdl").as[String])
       document    <- Parser.parseQuery(sdl)
     } yield document.definitions.flatMap {
-      case Definition.TypeSystemDefinition.SchemaDefinition(d, _, _, _) =>
+      case Definition.TypeSystemDefinition.SchemaDefinition(d, _, _, _, _) =>
         d.map(_.copy(index = 0)) // Unset the index to make the test deterministic
       case _ => Nil
     }

@@ -143,7 +143,7 @@ object IntrospectionClient {
     mutation: Option[Option[String]],
     subscription: Option[Option[String]]
   ): SchemaDefinition =
-    SchemaDefinition(Nil, query, mutation.flatten, subscription.flatten)
+    SchemaDefinition(Nil, query, mutation.flatten, subscription.flatten, None)
 
   private def mapDirective(
     name: String,
