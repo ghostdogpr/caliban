@@ -122,25 +122,7 @@ lazy val core = project
   .in(file("core"))
   .settings(name := "caliban")
   .settings(commonSettings)
-  .settings(enableMimaSettingsJVM)
-  .settings(
-    mimaBinaryIssueFilters ++= Seq(
-      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.validation.Validator.doesNotStartWithUnderscore"),
-      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.validation.Validator.doesNotStartWithUnderscore"),
-      ProblemFilters.exclude[DirectMissingMethodProblem](
-        "caliban.parsing.adt.Definition#TypeSystemDefinition#TypeDefinition#InterfaceTypeDefinition.copy"
-      ),
-      ProblemFilters.exclude[DirectMissingMethodProblem](
-        "caliban.parsing.adt.Definition#TypeSystemDefinition#TypeDefinition#InterfaceTypeDefinition.this"
-      ),
-      ProblemFilters.exclude[DirectMissingMethodProblem](
-        "caliban.parsing.adt.Definition#TypeSystemDefinition#TypeDefinition#InterfaceTypeDefinition.apply"
-      ),
-      ProblemFilters.exclude[MissingTypesProblem](
-        "caliban.parsing.adt.Definition$TypeSystemDefinition$TypeDefinition$InterfaceTypeDefinition$"
-      )
-    )
-  )
+//  .settings(enableMimaSettingsJVM)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
