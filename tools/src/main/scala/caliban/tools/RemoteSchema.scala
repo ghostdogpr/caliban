@@ -25,6 +25,7 @@ object RemoteSchema {
     queries
       .map(queries =>
         __Schema(
+          description = doc.schemaDefinition.flatMap(_.description),
           queryType = toObjectType(queries, doc.typeDefinitions),
           mutationType = mutations.map(toObjectType(_, doc.typeDefinitions)),
           subscriptionType = None,

@@ -130,14 +130,16 @@ object Parsers extends SelectionParsers {
   )
 
   def schemaDefinition(implicit ev: P[Any]): P[SchemaDefinition] =
-    P("schema" ~/ directives.? ~ "{" ~ rootOperationTypeDefinition.rep ~ "}").map { case (directives, ops) =>
-      val opsMap = ops.toMap
-      SchemaDefinition(
-        directives.getOrElse(Nil),
-        opsMap.get(OperationType.Query).map(_.name),
-        opsMap.get(OperationType.Mutation).map(_.name),
-        opsMap.get(OperationType.Subscription).map(_.name)
-      )
+    P(stringValue.? ~ "schema" ~/ directives.? ~ "{" ~ rootOperationTypeDefinition.rep ~ "}").map {
+      case (description, directives, ops) =>
+        val opsMap = ops.toMap
+        SchemaDefinition(
+          directives.getOrElse(Nil),
+          opsMap.get(OperationType.Query).map(_.name),
+          opsMap.get(OperationType.Mutation).map(_.name),
+          opsMap.get(OperationType.Subscription).map(_.name),
+          description.map(_.value)
+        )
     }
 
   def schemaExtensionWithOptionalDirectivesAndOperations(implicit ev: P[Any]): P[SchemaExtension] =

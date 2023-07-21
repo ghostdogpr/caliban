@@ -36,7 +36,8 @@ object Definition {
       directives: List[Directive],
       query: Option[String],
       mutation: Option[String],
-      subscription: Option[String]
+      subscription: Option[String],
+      description: Option[String]
     ) extends TypeSystemDefinition
 
     final case class DirectiveDefinition(

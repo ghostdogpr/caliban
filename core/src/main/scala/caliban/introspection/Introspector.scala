@@ -69,6 +69,7 @@ object Introspector extends IntrospectionDerivation {
       .sortBy(_.name.getOrElse(""))
     val resolver = __Introspection(
       __Schema(
+        rootType.description,
         rootType.queryType,
         rootType.mutationType,
         rootType.subscriptionType,
