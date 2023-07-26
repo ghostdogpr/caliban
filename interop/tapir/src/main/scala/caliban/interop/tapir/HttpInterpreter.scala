@@ -10,6 +10,7 @@ import sttp.tapir._
 import zio._
 
 sealed trait HttpInterpreter[-R, E] { self =>
+
   protected def endpoints[S](streams: Streams[S]): List[
     PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse[streams.BinaryStream], S]
   ]
@@ -18,6 +19,19 @@ sealed trait HttpInterpreter[-R, E] { self =>
     graphQLRequest: GraphQLRequest,
     serverRequest: ServerRequest
   )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]]
+
+  /**
+   * Intercepts the request via a [[zio.ZLayer]], eliminating part of the environment and potentially failing the request with a [[TapirResponse]].
+   *
+   * Note that for cases where the eliminating part of the environment is not required, consider using [[interceptWithZIO]] instead.
+   */
+  def intercept[R1](interceptor: Interceptor[R1, R]): HttpInterpreter[R1, E]
+
+  def interceptWithZIO[R1](
+    interceptor: ServerRequest => ZIO[R1, TapirResponse, Unit]
+  )(implicit tag: Tag[R1]): HttpInterpreter[R & R1, E]
+
+  def configure[R1](configurator: Configurator[R1])(implicit tag: Tag[R1]): HttpInterpreter[R & R1, E]
 
   def serverEndpoints[R1 <: R, S](stream: Streams[S])(implicit
     streamConstructor: StreamConstructor[stream.BinaryStream]
@@ -31,15 +45,13 @@ sealed trait HttpInterpreter[-R, E] { self =>
     endpoints[S](stream).map(_.serverLogic(logic(_)))
   }
 
-  def intercept[R1](interceptor: Interceptor[R1, R]): HttpInterpreter[R1, E] =
-    HttpInterpreter.Configured(self, interceptor)
-
-  def configure[R1](configurator: Configurator[R1]): HttpInterpreter[R & R1, E] =
-    intercept[R & R1](ZLayer.scopedEnvironment[R & R1](configurator *> ZIO.environment[R]))
 }
 
 object HttpInterpreter {
-  private case class Base[R, E](interpreter: GraphQLInterpreter[R, E])(implicit
+  private case class Base[R, E](
+    interpreter: GraphQLInterpreter[R, E],
+    config: Configurator[R]
+  )(implicit
     requestCodec: JsonCodec[GraphQLRequest],
     responseValueCodec: JsonCodec[ResponseValue]
   ) extends HttpInterpreter[R, E] {
@@ -52,15 +64,43 @@ object HttpInterpreter {
       graphQLRequest: GraphQLRequest,
       serverRequest: ServerRequest
     )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]] =
-      interpreter.executeRequest(graphQLRequest).map(buildHttpResponse[E, BS])
+      ZIO.scoped[R](config *> interpreter.executeRequest(graphQLRequest).map(buildHttpResponse[E, BS]))
+
+    def intercept[R1](interceptor: Interceptor[R1, R]): HttpInterpreter[R1, E] =
+      HttpInterpreter.Intercepted(this, interceptor)
+
+    def interceptWithZIO[R1](
+      interceptor: ServerRequest => ZIO[R1, TapirResponse, Unit]
+    )(implicit tag: Tag[R1]): HttpInterpreter[R & R1, E] =
+      HttpInterpreter.Intercepted[R & R1, R, E](
+        this,
+        ZLayer.environment[R] ++ ZLayer(ZIO.serviceWithZIO[ServerRequest](interceptor))
+      )
+
+    def configure[R1](configurator: Configurator[R1])(implicit tag: Tag[R1]): HttpInterpreter[R & R1, E] =
+      copy[R & R1, E](config = config *> configurator)
   }
 
-  private case class Configured[R1, R, E](
+  private case class Intercepted[R1, R, E](
     interpreter: HttpInterpreter[R, E],
     layer: ZLayer[R1 & ServerRequest, TapirResponse, R]
   ) extends HttpInterpreter[R1, E] {
-    override def intercept[R2](interceptor: Interceptor[R2, R1]): HttpInterpreter[R2, E] =
-      Configured[R2, R, E](interpreter, ZLayer.makeSome[R2 & ServerRequest, R](interceptor, layer))
+
+    def intercept[R2](interceptor: Interceptor[R2, R1]): HttpInterpreter[R2, E] =
+      copy[R2, R, E](layer = ZLayer.makeSome[R2 & ServerRequest, R](interceptor, layer))
+
+    def interceptWithZIO[R2](
+      interceptor: ServerRequest => ZIO[R2, TapirResponse, Unit]
+    )(implicit tag: Tag[R2]): HttpInterpreter[R1 & R2, E] =
+      copy[R1 & R2, R & R2, E](layer =
+        layer ++ ZLayer.environment[R2] ++ ZLayer(ZIO.serviceWithZIO[ServerRequest](interceptor))
+      )
+
+    def configure[R2](configurator: Configurator[R2])(implicit tag: Tag[R2]): HttpInterpreter[R1 & R2, E] =
+      Intercepted[R1 & R2, R & R2, E](
+        interpreter.configure[R2](configurator),
+        layer ++ ZLayer.environment[R2]
+      )
 
     def endpoints[S](
       streams: Streams[S]
@@ -78,7 +118,7 @@ object HttpInterpreter {
     requestCodec: JsonCodec[GraphQLRequest],
     responseValueCodec: JsonCodec[ResponseValue]
   ): HttpInterpreter[R, E] =
-    Base(interpreter)
+    Base(interpreter, ZIO.unit)
 
   def makeHttpEndpoints[S](streams: Streams[S])(implicit
     requestCodec: JsonCodec[GraphQLRequest],
