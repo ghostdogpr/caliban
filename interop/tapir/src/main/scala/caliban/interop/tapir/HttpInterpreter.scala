@@ -50,7 +50,7 @@ sealed trait HttpInterpreter[-R, E] { self =>
 object HttpInterpreter {
   private case class Base[R, E](
     interpreter: GraphQLInterpreter[R, E],
-    config: Configurator[R]
+    config: Option[Configurator[R]]
   )(implicit
     requestCodec: JsonCodec[GraphQLRequest],
     responseValueCodec: JsonCodec[ResponseValue]
@@ -63,8 +63,13 @@ object HttpInterpreter {
     def executeRequest[BS](
       graphQLRequest: GraphQLRequest,
       serverRequest: ServerRequest
-    )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]] =
-      ZIO.scoped[R](config *> interpreter.executeRequest(graphQLRequest).map(buildHttpResponse[E, BS]))
+    )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]] = {
+      def exec = interpreter.executeRequest(graphQLRequest).map(buildHttpResponse[E, BS])
+      config match {
+        case Some(cfg) => ZIO.scoped[R](cfg *> exec)
+        case None      => exec
+      }
+    }
 
     def intercept[R1](interceptor: Interceptor[R1, R]): HttpInterpreter[R1, E] =
       HttpInterpreter.Intercepted(this, interceptor)
@@ -78,7 +83,10 @@ object HttpInterpreter {
       )
 
     def configure[R1](configurator: Configurator[R1])(implicit tag: Tag[R1]): HttpInterpreter[R & R1, E] =
-      copy[R & R1, E](config = config *> configurator)
+      copy[R & R1, E](config = config match {
+        case Some(cfg) => Some(cfg *> configurator)
+        case None      => Some(configurator)
+      })
   }
 
   private case class Intercepted[R1, R, E](
@@ -118,7 +126,7 @@ object HttpInterpreter {
     requestCodec: JsonCodec[GraphQLRequest],
     responseValueCodec: JsonCodec[ResponseValue]
   ): HttpInterpreter[R, E] =
-    Base(interpreter, ZIO.unit)
+    Base(interpreter, None)
 
   def makeHttpEndpoints[S](streams: Streams[S])(implicit
     requestCodec: JsonCodec[GraphQLRequest],
