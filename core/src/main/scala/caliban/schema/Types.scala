@@ -163,7 +163,7 @@ object Types {
     l.headOption.flatMap(first => l.drop(1).foldLeft(Option(first))((acc, t) => acc.flatMap(unify(_, t))))
 
   /**
-   * Similar to [[unify]] with the difference that it takes into account field arguments
+   * Similar to `unify` with the difference that it takes into account field arguments
    */
   def unifyFieldTypes(l: List[__Field]): Option[__Type] =
     l.headOption.flatMap { first =>
