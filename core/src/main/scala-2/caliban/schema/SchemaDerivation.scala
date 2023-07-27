@@ -156,9 +156,7 @@ trait CommonSchemaDerivation[R] {
             .collect { case (_, list) =>
               Types
                 .unifyFieldTypes(list)
-                .flatMap { t =>
-                  list.headOption.map(_.copy(`type` = () => t))
-                }
+                .flatMap(t => list.headOption.map(_.copy(`type` = () => t)))
             }
             .flatten
             .toList
