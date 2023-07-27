@@ -86,7 +86,7 @@ object SchemaSpec extends ZIOSpecDefault {
         )
       },
       test("interface only take fields that return the same type") {
-        assertTrue(introspect[MyInterface].fields(__DeprecatedArgs()).toList.flatten.map(_.name) == List("common"))
+        assertTrue(introspect[MyInterface].fields(__DeprecatedArgs()).toList.flatten.map(_.name) == List("c2", "c1"))
       },
       test("enum-like sealed traits annotated with GQLUnion") {
         assert(introspect[EnumLikeUnion])(
@@ -267,8 +267,8 @@ object SchemaSpec extends ZIOSpecDefault {
   @GQLInterface
   sealed trait MyInterface
   object MyInterface   {
-    case class A(common: Int, different: String)  extends MyInterface
-    case class B(common: Int, different: Boolean) extends MyInterface
+    case class A(c1: Int, c2: Int => Int, d1: Int, d2: Int => Int, d3: Int => Int)      extends MyInterface
+    case class B(c1: Int, c2: Int => Int, d1: Boolean, d2: Int, d3: Option[Int] => Int) extends MyInterface
   }
 
   @GQLUnion

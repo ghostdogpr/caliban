@@ -155,8 +155,10 @@ trait CommonSchemaDerivation[R] {
             .filter { case (_, list) => list.lengthCompare(impl.size) == 0 }
             .collect { case (_, list) =>
               Types
-                .unify(list.map(_.`type`()))
-                .flatMap(t => list.headOption.map(_.copy(`type` = () => t)))
+                .unifyFieldTypes(list)
+                .flatMap { t =>
+                  list.headOption.map(_.copy(`type` = () => t))
+                }
             }
             .flatten
             .toList

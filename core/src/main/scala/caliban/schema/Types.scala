@@ -163,6 +163,23 @@ object Types {
     l.headOption.flatMap(first => l.drop(1).foldLeft(Option(first))((acc, t) => acc.flatMap(unify(_, t))))
 
   /**
+   * Similar to [[unify]] with the difference that it takes into account field arguments
+   */
+  def unifyFieldTypes(l: List[__Field]): Option[__Type] =
+    l.headOption.flatMap { first =>
+      val args                            = first.args.map(_.`type`())
+      def _unify(f2: __Field)(t1: __Type) =
+        if (
+          args.length == f2.args.length &&
+          args.zip(f2.args.map(_.`type`())).forall(v => same(v._1, v._2))
+        )
+          unify(t1, f2.`type`())
+        else None
+
+      l.drop(1).foldLeft(Option(first.`type`()))((acc, t) => acc.flatMap(_unify(t)))
+    }
+
+  /**
    * Tries to unify two types by widening them to a common supertype.
    *
    * @example {{{unify(string, makeNonNull(string)) // => Some(__Type(SCALAR, Some("String")))}}}
