@@ -155,7 +155,6 @@ object Types {
   /**
    * Tries to find a common widened type among a list of fields.
    *
-   * @example {{{unify(List(string, makeNonNull(string))) // => Some(__Type(SCALAR, Some("String")))}}}
    * @param l a list of fields to unify
    * @return the unified type if one could be found
    */
