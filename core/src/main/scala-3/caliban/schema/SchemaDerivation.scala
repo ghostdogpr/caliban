@@ -239,7 +239,7 @@ trait CommonSchemaDerivation {
         .collect {
           case (_, list) if list.lengthCompare(impl.size) == 0 =>
             Types
-              .unifyFieldTypes(list)
+              .unify(list)
               .flatMap(t => list.headOption.map(_.copy(`type` = () => t)))
         }
         .flatten

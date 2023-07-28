@@ -153,19 +153,13 @@ object Types {
     }
 
   /**
-   * Tries to find a common widened type among a list of types.
+   * Tries to find a common widened type among a list of fields.
    *
    * @example {{{unify(List(string, makeNonNull(string))) // => Some(__Type(SCALAR, Some("String")))}}}
-   * @param l a list of types to unify
+   * @param l a list of fields to unify
    * @return the unified type if one could be found
    */
-  def unify(l: List[__Type]): Option[__Type] =
-    l.headOption.flatMap(first => l.drop(1).foldLeft(Option(first))((acc, t) => acc.flatMap(unify(_, t))))
-
-  /**
-   * Similar to `unify` with the difference that it takes into account field arguments
-   */
-  def unifyFieldTypes(l: List[__Field]): Option[__Type] =
+  def unify(l: List[__Field]): Option[__Type] =
     l.headOption.flatMap { first =>
       val args                            = first.args.map(_.`type`())
       def _unify(f2: __Field)(t1: __Type) =
