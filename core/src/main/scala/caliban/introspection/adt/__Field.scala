@@ -27,4 +27,6 @@ case class __Field(
 
   def toInputValueDefinition: InputValueDefinition =
     InputValueDefinition(description, name, `type`().toType(), None, directives.getOrElse(Nil))
+
+  private[caliban] lazy val _type: __Type = `type`()
 }

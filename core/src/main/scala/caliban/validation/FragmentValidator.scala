@@ -28,13 +28,13 @@ object FragmentValidator {
           val fields = FieldMap(context, parentType, set)
           val res    = Chunk.fromIterable(fields.flatMap { case (name, values) =>
             cross(values).flatMap { case (f1, f2) =>
-              if (doTypesConflict(f1.fieldDef.`type`(), f2.fieldDef.`type`())) {
+              if (doTypesConflict(f1.fieldDef._type, f2.fieldDef._type)) {
                 Chunk(
                   s"$name has conflicting types: ${f1.parentType.name.getOrElse("")}.${f1.fieldDef.name} and ${f2.parentType.name
                     .getOrElse("")}.${f2.fieldDef.name}. Try using an alias."
                 )
               } else
-                sameResponseShapeByName(f1.selection.selectionSet ++ f2.selection.selectionSet)
+                sameResponseShapeByName(f1.selection.selectionSet ::: f2.selection.selectionSet)
             }
           })
           shapeCache.update(set, res)
@@ -93,7 +93,7 @@ object FragmentValidator {
             case field if !isConcrete(field.parentType) => field
           }
 
-          val concreteGroups = mutable.Map.empty[String, Set[SelectedField]]
+          val concreteGroups = mutable.Map.empty[String, mutable.Builder[SelectedField, Set[SelectedField]]]
 
           fields.foreach {
             case field @ SelectedField(
@@ -101,14 +101,21 @@ object FragmentValidator {
                   _,
                   _
                 ) if isConcrete(field.parentType) =>
-              val value = concreteGroups.get(name).map(_ + field).getOrElse(Set(field))
-              concreteGroups.update(name, value)
+              concreteGroups.get(name) match {
+                case Some(v) => v += field
+                case None    => concreteGroups.update(name, Set.newBuilder += field)
+              }
             case _ => ()
           }
 
           val res =
-            if (concreteGroups.size < 1) Chunk(fields)
-            else Chunk.fromIterable(concreteGroups.values.map(_ ++ abstractGroup))
+            if (concreteGroups.isEmpty) Chunk(fields)
+            else {
+              Chunk.fromIterable(concreteGroups.values.map { v =>
+                v ++= abstractGroup
+                v.result()
+              })
+            }
 
           groupsCache.update(fields, res)
           res

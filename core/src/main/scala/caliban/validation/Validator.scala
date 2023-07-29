@@ -474,8 +474,8 @@ object Validator {
     typeCondition.fold[Option[__Type]](Some(currentType))(t => context.rootType.types.get(t.name)) match {
       case Some(fragmentType) =>
         validateFragmentType(name, fragmentType) *> {
-          val possibleTypes         = getPossibleTypes(currentType).flatMap(_.name)
-          val possibleFragmentTypes = getPossibleTypes(fragmentType).flatMap(_.name)
+          val possibleTypes         = getPossibleTypeNames(currentType)
+          val possibleFragmentTypes = getPossibleTypeNames(fragmentType)
           val applicableTypes       = possibleTypes intersect possibleFragmentTypes
           ZPure.when(applicableTypes.isEmpty)(
             failValidation(
@@ -493,11 +493,11 @@ object Validator {
         )
     }
 
-  private def getPossibleTypes(t: __Type): List[__Type] =
+  private def getPossibleTypeNames(t: __Type): Set[String] =
     t.kind match {
-      case __TypeKind.OBJECT                       => List(t)
-      case __TypeKind.INTERFACE | __TypeKind.UNION => t.possibleTypes.getOrElse(Nil)
-      case _                                       => Nil
+      case __TypeKind.OBJECT                       => t.name.fold(Set.empty[String])(Set(_))
+      case __TypeKind.INTERFACE | __TypeKind.UNION => t.possibleTypes.fold(Set.empty[String])(_.flatMap(_.name).toSet)
+      case _                                       => Set.empty
     }
 
   private def validateField(context: Context, field: Field, currentType: __Type): EReader[Any, ValidationError, Unit] =
@@ -512,7 +512,7 @@ object Validator {
             )
           )
           .flatMap { f =>
-            validateFields(context, field.selectionSet, Types.innerType(f.`type`())) *>
+            validateFields(context, field.selectionSet, f._type.innerType) *>
               validateArguments(field, f, currentType, context)
           }
       }

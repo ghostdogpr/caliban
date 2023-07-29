@@ -5,6 +5,7 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt.{ Directive, Type }
+import caliban.schema.Types
 
 case class __Type(
   kind: __TypeKind,
@@ -121,4 +122,6 @@ case class __Type(
 
   lazy val allFields: List[__Field] =
     fields(__DeprecatedArgs(Some(true))).getOrElse(Nil)
+
+  lazy val innerType: __Type = Types.innerType(this)
 }

@@ -161,7 +161,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
 
         given Schema[Any, Something] = Schema.gen[Any, Something].rename("SomethingElse")
 
-        assertTrue(Types.innerType(introspectSubscription[Something]).name.get == "SomethingElse")
+        assertTrue(introspectSubscription[Something].innerType.name.get == "SomethingElse")
       },
       test("union redirect") {
         @GQLUnion

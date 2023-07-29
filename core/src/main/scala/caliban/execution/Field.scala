@@ -81,7 +81,7 @@ object Field {
         map.compute(key, (_, existing) => if (existing == null) f else existing.combine(f))
       }
 
-      val innerType = Types.innerType(fieldType)
+      val innerType = fieldType.innerType
 
       selectionSet.foreach {
         case F(alias, name, arguments, directives, selectionSet, index) =>
@@ -92,7 +92,7 @@ object Field {
             (directives ::: schemaDirectives).map(resolveDirectiveVariables(variableValues, variableDefinitions))
 
           if (checkDirectives(resolvedDirectives)) {
-            val t = selected.fold(Types.string)(_.`type`()) // default only case where it's not found is __typename
+            val t = selected.fold(Types.string)(_._type) // default only case where it's not found is __typename
 
             val fields =
               if (selectionSet.nonEmpty) loop(selectionSet, t, None)

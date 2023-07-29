@@ -9,10 +9,20 @@ object FieldMap {
   val empty: FieldMap = Map.empty
 
   implicit class FieldMapOps(val self: FieldMap) extends AnyVal {
-    def |+|(that: FieldMap): FieldMap =
-      (self.keySet ++ that.keySet).map { k =>
-        k -> (self.getOrElse(k, Set.empty) ++ that.getOrElse(k, Set.empty))
-      }.toMap
+    def |+|(that: FieldMap): FieldMap = {
+      val mb = Map.newBuilder[String, Set[SelectedField]]
+      (self.keySet ++ that.keySet).foreach { k =>
+        mb += k -> {
+          (self.get(k), that.get(k)) match {
+            case (Some(s1), Some(s2)) => s1 ++ s2
+            case (Some(s1), None)     => s1
+            case (None, Some(s2))     => s2
+            case _                    => Set.empty[SelectedField]
+          }
+        }
+      }
+      mb.result()
+    }
 
     def show: String =
       self.map { case (k, fields) =>
@@ -26,13 +36,12 @@ object FieldMap {
     ): FieldMap = {
       val responseName = f.alias.getOrElse(f.name)
 
-      parentType.allFields
-        .find(_.name == f.name)
-        .map { f =>
-          val sf    = SelectedField(parentType, selection, f)
+      parentType.allFields.collectFirst {
+        case f1 if f1.name == f.name =>
+          val sf    = SelectedField(parentType, selection, f1)
           val entry = self.get(responseName).map(_ + sf).getOrElse(Set(sf))
           self + (responseName -> entry)
-        }
+      }
         .getOrElse(self)
     }
   }
