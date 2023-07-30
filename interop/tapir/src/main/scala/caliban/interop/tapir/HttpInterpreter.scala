@@ -32,10 +32,10 @@ sealed trait HttpInterpreter[-R, E] { self =>
   }
 
   def intercept[R1](interceptor: Interceptor[R1, R]): HttpInterpreter[R1, E] =
-    HttpInterpreter.Configured(self, interceptor)
+    HttpInterpreter.Intercepted(self, interceptor)
 
   def configure[R1](configurator: Configurator[R1]): HttpInterpreter[R & R1, E] =
-    intercept[R & R1](ZLayer.scopedEnvironment[R & R1](configurator *> ZIO.environment[R]))
+    intercept[R & R1](ZLayer.scopedEnvironment[R & R1 & ServerRequest](configurator *> ZIO.environment[R]))
 }
 
 object HttpInterpreter {
@@ -55,12 +55,12 @@ object HttpInterpreter {
       interpreter.executeRequest(graphQLRequest).map(buildHttpResponse[E, BS])
   }
 
-  private case class Configured[R1, R, E](
+  private case class Intercepted[R1, R, E](
     interpreter: HttpInterpreter[R, E],
     layer: ZLayer[R1 & ServerRequest, TapirResponse, R]
   ) extends HttpInterpreter[R1, E] {
     override def intercept[R2](interceptor: Interceptor[R2, R1]): HttpInterpreter[R2, E] =
-      Configured[R2, R, E](interpreter, ZLayer.makeSome[R2 & ServerRequest, R](interceptor, layer))
+      Intercepted[R2, R, E](interpreter, ZLayer.makeSome[R2 & ServerRequest, R](interceptor, layer))
 
     def endpoints[S](
       streams: Streams[S]
