@@ -21,12 +21,12 @@ object SchemaSpec extends ZIOSpecDefault {
   override def spec =
     suite("SchemaSpec")(
       test("effectful field") {
-        assert(introspect[EffectfulFieldSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
+        assert(introspect[EffectfulFieldSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_._type))(
           isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.SCALAR)))
         )
       },
       test("infallible effectful field") {
-        assert(introspect[InfallibleFieldSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
+        assert(introspect[InfallibleFieldSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_._type))(
           isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.NON_NULL)))
         )
       },
@@ -37,12 +37,12 @@ object SchemaSpec extends ZIOSpecDefault {
           import auto._
           implicit lazy val queriesSchema: Schema[Console with Clock, Queries] = genAll
         }
-        assert(MySchema.queriesSchema.toType_().fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
+        assert(MySchema.queriesSchema.toType_().fields(__DeprecatedArgs()).toList.flatten.headOption.map(_._type))(
           isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.NON_NULL)))
         )
       },
       test("field with Future") {
-        assert(introspect[FutureFieldSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
+        assert(introspect[FutureFieldSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_._type))(
           isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.SCALAR)))
         )
       },
@@ -81,7 +81,7 @@ object SchemaSpec extends ZIOSpecDefault {
         )
       },
       test("UUID field should be converted to ID") {
-        assert(introspect[IDSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
+        assert(introspect[IDSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_._type))(
           isSome(hasField[__Type, String]("id", _.ofType.flatMap(_.name).get, equalTo("ID")))
         )
       },
@@ -102,7 +102,7 @@ object SchemaSpec extends ZIOSpecDefault {
         import caliban.interop.circe.json._
         case class Queries(to: io.circe.Json, from: io.circe.Json => Unit)
 
-        assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
+        assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_._type))(
           isSome(hasField[__Type, String]("to", _.ofType.flatMap(_.name).get, equalTo("Json")))
         )
       },
@@ -110,7 +110,7 @@ object SchemaSpec extends ZIOSpecDefault {
         case class Query(a: ZStream[Any, Throwable, Int])
 
         assertTrue(
-          introspect[Query].fields(__DeprecatedArgs()).flatMap(_.headOption).map(_.`type`().kind).get == __TypeKind.LIST
+          introspect[Query].fields(__DeprecatedArgs()).flatMap(_.headOption).map(_._type.kind).get == __TypeKind.LIST
         )
       },
       test("ZStream in a Subscription doesn't return a list type") {
@@ -120,7 +120,7 @@ object SchemaSpec extends ZIOSpecDefault {
           introspectSubscription[Query]
             .fields(__DeprecatedArgs())
             .flatMap(_.headOption)
-            .map(_.`type`().kind)
+            .map(_._type.kind)
             .get == __TypeKind.SCALAR
         )
       },
@@ -155,7 +155,7 @@ object SchemaSpec extends ZIOSpecDefault {
         case class Wrapper(value: Int)
         case class Queries(test: Option[Wrapper])
 
-        assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
+        assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_._type))(
           isSome(hasField[__Type, Option[String]]("name", _.name, equalTo(Some("Int"))))
         )
       },
@@ -164,7 +164,7 @@ object SchemaSpec extends ZIOSpecDefault {
         case class Wrapper(value: Int)
         case class Queries(test: Option[Wrapper])
 
-        assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
+        assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_._type))(
           isSome(hasField[__Type, Option[String]]("name", _.name, equalTo(Some("Wrapper"))))
         )
       },

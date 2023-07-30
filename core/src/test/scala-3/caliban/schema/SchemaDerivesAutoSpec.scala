@@ -21,14 +21,14 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
       test("effectful field") {
         case class EffectfulFieldSchema(q: Task[Int]) derives Schema.Auto
 
-        assert(introspect[EffectfulFieldSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
+        assert(introspect[EffectfulFieldSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_._type))(
           isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.SCALAR)))
         )
       },
       test("infallible effectful field") {
         case class InfallibleFieldSchema(q: UIO[Int]) derives Schema.Auto
 
-        assert(introspect[InfallibleFieldSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
+        assert(introspect[InfallibleFieldSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_._type))(
           isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.NON_NULL)))
         )
       },
@@ -44,7 +44,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
             .toList
             .flatten
             .headOption
-            .map(_.`type`())
+            .map(_._type)
         )(
           isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.NON_NULL)))
         )
@@ -52,7 +52,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
       test("field with Future") {
         case class FutureFieldSchema(q: Future[Int]) derives Schema.Auto
 
-        assert(introspect[FutureFieldSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
+        assert(introspect[FutureFieldSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_._type))(
           isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.SCALAR)))
         )
       },
@@ -91,7 +91,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
       test("UUID field should be converted to ID") {
         case class IDSchema(id: UUID) derives Schema.Auto
 
-        assert(introspect[IDSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
+        assert(introspect[IDSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_._type))(
           isSome(hasField[__Type, String]("id", _.ofType.flatMap(_.name).get, equalTo("ID")))
         )
       },
@@ -133,7 +133,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
         import caliban.interop.circe.json._
         case class Queries(to: io.circe.Json, from: io.circe.Json => Unit) derives Schema.Auto
 
-        assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
+        assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_._type))(
           isSome(hasField[__Type, String]("to", _.ofType.flatMap(_.name).get, equalTo("Json")))
         )
       },
@@ -141,7 +141,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
         case class Query(a: ZStream[Any, Throwable, Int]) derives Schema.Auto
 
         assertTrue(
-          introspect[Query].fields(__DeprecatedArgs()).flatMap(_.headOption).map(_.`type`().kind).get == __TypeKind.LIST
+          introspect[Query].fields(__DeprecatedArgs()).flatMap(_.headOption).map(_._type.kind).get == __TypeKind.LIST
         )
       },
       test("ZStream in a Subscription doesn't return a list type") {
@@ -151,7 +151,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
           introspectSubscription[Query]
             .fields(__DeprecatedArgs())
             .flatMap(_.headOption)
-            .map(_.`type`().kind)
+            .map(_._type.kind)
             .get == __TypeKind.SCALAR
         )
       },
@@ -194,7 +194,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
         case class Wrapper(value: Int)
         case class Queries(test: Option[Wrapper]) derives Schema.Auto
 
-        assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
+        assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_._type))(
           isSome(hasField[__Type, Option[String]]("name", _.name, equalTo(Some("Int"))))
         )
       },
@@ -203,7 +203,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
         case class Wrapper(value: Int)
         case class Queries(test: Option[Wrapper]) derives Schema.Auto
 
-        assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
+        assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_._type))(
           isSome(hasField[__Type, Option[String]]("name", _.name, equalTo(Some("Wrapper"))))
         )
       },

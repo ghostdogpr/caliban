@@ -214,12 +214,12 @@ object Rendering {
     }
 
   private def renderField(field: __Field): String =
-    s"${field.name}${renderArguments(field.args)}: ${renderTypeName(field.`type`())}${if (field.isDeprecated)
+    s"${field.name}${renderArguments(field.args)}: ${renderTypeName(field._type)}${if (field.isDeprecated)
       s" @deprecated${field.deprecationReason.fold("")(reason => s"""(reason: "$reason")""")}"
     else ""}${renderDirectives(field.directives)}"
 
   private def renderInputValue(inputValue: __InputValue): String =
-    s"${inputValue.name}: ${renderTypeName(inputValue.`type`())}${renderDefaultValue(inputValue)}${renderDirectives(inputValue.directives)}"
+    s"${inputValue.name}: ${renderTypeName(inputValue._type)}${renderDefaultValue(inputValue)}${renderDirectives(inputValue.directives)}"
 
   private def renderEnumValue(v: __EnumValue): String =
     s"${renderDescription(v.description)}${v.name}${if (v.isDeprecated)
@@ -232,7 +232,7 @@ object Rendering {
     arguments match {
       case Nil  => ""
       case list =>
-        s"(${list.map(a => s"${renderDescription(a.description, newline = false)}${a.name}: ${renderTypeName(a.`type`())}${renderDefaultValue(a)}${renderDirectives(a.directives)}").mkString(", ")})"
+        s"(${list.map(a => s"${renderDescription(a.description, newline = false)}${a.name}: ${renderTypeName(a._type)}${renderDefaultValue(a)}${renderDirectives(a.directives)}").mkString(", ")})"
     }
 
   private[caliban] def isBuiltinScalar(name: String): Boolean =
