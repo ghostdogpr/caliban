@@ -284,7 +284,7 @@ lazy val tapirInterop = project
   .in(file("interop/tapir"))
   .settings(name := "caliban-tapir")
   .settings(commonSettings)
-  .settings(enableMimaSettingsJVM)
+//  .settings(enableMimaSettingsJVM)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {

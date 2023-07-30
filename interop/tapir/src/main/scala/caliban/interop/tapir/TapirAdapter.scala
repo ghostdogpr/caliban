@@ -33,7 +33,7 @@ object TapirAdapter {
    * A configurator is an effect that can be run in the scope of a request and returns Unit.
    * It is usually used to change the value of a configuration fiber ref (see the Configurator object).
    */
-  type Configurator[-R] = URIO[R & Scope, Unit]
+  type Configurator[-R] = URIO[R & ServerRequest & Scope, Unit]
 
   object CalibanBody {
     type Single     = Left[ResponseValue, Nothing]
