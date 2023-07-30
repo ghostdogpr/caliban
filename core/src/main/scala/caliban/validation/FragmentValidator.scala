@@ -5,9 +5,9 @@ import caliban.introspection.adt._
 import caliban.parsing.adt.Selection
 import caliban.validation.Utils._
 import caliban.validation.Utils.syntax._
+import zio.Chunk
 import zio.prelude.EReader
 import zio.prelude.fx.ZPure
-import zio.{ Chunk, IO, ZIO }
 
 import scala.collection.mutable
 
@@ -17,12 +17,15 @@ object FragmentValidator {
     parentType: __Type,
     selectionSet: List[Selection]
   ): EReader[Any, ValidationError, Unit] = {
-    val shapeCache   = scala.collection.mutable.Map.empty[Iterable[Selection], Chunk[String]]
-    val parentsCache = scala.collection.mutable.Map.empty[Iterable[Selection], Chunk[String]]
-    val groupsCache  = scala.collection.mutable.Map.empty[Set[SelectedField], Chunk[Set[SelectedField]]]
 
-    def sameResponseShapeByName(set: Iterable[Selection]): Chunk[String] =
-      shapeCache.get(set) match {
+    // NOTE: We use the `hashCode()` as the key since it's much more performant
+    val shapeCache   = mutable.Map.empty[Int, Chunk[String]]
+    val parentsCache = mutable.Map.empty[Int, Chunk[String]]
+    val groupsCache  = mutable.Map.empty[Int, Chunk[Set[SelectedField]]]
+
+    def sameResponseShapeByName(set: Iterable[Selection]): Chunk[String] = {
+      val keyHash = set.hashCode()
+      shapeCache.get(keyHash) match {
         case Some(value) => value
         case None        =>
           val fields = FieldMap(context, parentType, set)
@@ -37,12 +40,14 @@ object FragmentValidator {
                 sameResponseShapeByName(f1.selection.selectionSet ::: f2.selection.selectionSet)
             }
           })
-          shapeCache.update(set, res)
+          shapeCache.update(keyHash, res)
           res
       }
+    }
 
-    def sameForCommonParentsByName(set: Iterable[Selection]): Chunk[String] =
-      parentsCache.get(set) match {
+    def sameForCommonParentsByName(set: Iterable[Selection]): Chunk[String] = {
+      val keyHash = set.hashCode()
+      parentsCache.get(keyHash) match {
         case Some(value) => value
         case None        =>
           val fields = FieldMap(context, parentType, set)
@@ -52,9 +57,10 @@ object FragmentValidator {
               requireSameNameAndArguments(group) ++ sameForCommonParentsByName(merged)
             }
           })
-          parentsCache.update(set, res)
+          parentsCache.update(keyHash, res)
           res
       }
+    }
 
     def doTypesConflict(t1: __Type, t2: __Type): Boolean =
       if (isNonNull(t1))
@@ -85,15 +91,17 @@ object FragmentValidator {
         else List()
       }
 
-    def groupByCommonParents(fields: Set[SelectedField]): Chunk[Set[SelectedField]] =
-      groupsCache.get(fields) match {
+    def groupByCommonParents(fields: Set[SelectedField]): Chunk[Set[SelectedField]] = {
+      val keyHash = fields.hashCode()
+      groupsCache.get(keyHash) match {
         case Some(value) => value
         case None        =>
           val abstractGroup = fields.collect {
             case field if !isConcrete(field.parentType) => field
           }
 
-          val concreteGroups = mutable.Map.empty[String, mutable.Builder[SelectedField, Set[SelectedField]]]
+          val concreteGroups =
+            mutable.Map.empty[String, mutable.Builder[SelectedField, Set[SelectedField]]]
 
           fields.foreach {
             case field @ SelectedField(
@@ -103,23 +111,22 @@ object FragmentValidator {
                 ) if isConcrete(field.parentType) =>
               concreteGroups.get(name) match {
                 case Some(v) => v += field
-                case None    => concreteGroups.update(name, Set.newBuilder += field)
+                case None    =>
+                  val sb = Set.newBuilder ++= abstractGroup
+                  sb += field
+                  concreteGroups.update(name, sb)
               }
             case _ => ()
           }
 
           val res =
             if (concreteGroups.isEmpty) Chunk(fields)
-            else {
-              Chunk.fromIterable(concreteGroups.values.map { v =>
-                v ++= abstractGroup
-                v.result()
-              })
-            }
+            else Chunk.fromIterable(concreteGroups.values.map(_.result()))
 
-          groupsCache.update(fields, res)
+          groupsCache.update(keyHash, res)
           res
       }
+    }
 
     val conflicts = sameResponseShapeByName(selectionSet) ++ sameForCommonParentsByName(selectionSet)
     conflicts match {
