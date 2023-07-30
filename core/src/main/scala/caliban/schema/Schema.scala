@@ -666,7 +666,9 @@ case class PartiallyAppliedFieldWithArgs[V, A](name: String, description: Option
         name,
         description,
         ev1.arguments,
-        () => ev1.toType_(fa.isInput, fa.isSubscription),
+        () =>
+          if (ev1.optional) ev1.toType_(fa.isInput, fa.isSubscription)
+          else ev1.toType_(fa.isInput, fa.isSubscription).nonNull,
         isDeprecated = Directives.isDeprecated(directives),
         deprecationReason = Directives.deprecationReason(directives),
         directives = Some(directives.filter(_.name != "deprecated")).filter(_.nonEmpty)

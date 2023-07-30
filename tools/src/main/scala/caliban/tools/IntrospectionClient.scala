@@ -111,7 +111,15 @@ object IntrospectionClient {
         )
       )
     case __TypeKind.INTERFACE                  =>
-      Some(InterfaceTypeDefinition(description, name.getOrElse(""), Nil, fields.getOrElse(Nil)))
+      Some(
+        InterfaceTypeDefinition(
+          description,
+          name.getOrElse(""),
+          interfaces.map(_.collect { case t: NamedType => t }).getOrElse(Nil),
+          Nil,
+          fields.getOrElse(Nil)
+        )
+      )
     case __TypeKind.UNION                      =>
       Some(
         UnionTypeDefinition(
@@ -135,7 +143,7 @@ object IntrospectionClient {
     mutation: Option[Option[String]],
     subscription: Option[Option[String]]
   ): SchemaDefinition =
-    SchemaDefinition(Nil, query, mutation.flatten, subscription.flatten)
+    SchemaDefinition(Nil, query, mutation.flatten, subscription.flatten, None)
 
   private def mapDirective(
     name: String,

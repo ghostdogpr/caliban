@@ -75,6 +75,7 @@ case class __Type(
           InterfaceTypeDefinition(
             description,
             name.getOrElse(""),
+            interfaces().getOrElse(Nil).map(t => NamedType(t.name.getOrElse(""), nonNull = false)),
             directives.getOrElse(Nil),
             allFields.map(_.toFieldDefinition)
           )

@@ -18,7 +18,8 @@ package object caliban {
   def graphQL[R, Q, M, S: SubscriptionSchema](
     resolver: RootResolver[Q, M, S],
     directives: List[__Directive] = Nil,
-    schemaDirectives: List[Directive] = Nil
+    schemaDirectives: List[Directive] = Nil,
+    schemaDescription: Option[String] = None
   )(implicit
     querySchema: Schema[R, Q],
     mutationSchema: Schema[R, M],
@@ -30,7 +31,8 @@ package object caliban {
       resolver.subscriptionResolver.map(r =>
         Operation(subscriptionSchema.toType_(isSubscription = true), subscriptionSchema.resolve(r))
       ),
-      schemaDirectives = schemaDirectives
+      schemaDirectives = schemaDirectives,
+      schemaDescription = schemaDescription
     )
     val wrappers: List[Wrapper[R]]              = Nil
     val additionalDirectives: List[__Directive] = directives

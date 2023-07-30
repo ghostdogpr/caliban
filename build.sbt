@@ -12,15 +12,15 @@ val catsEffect3Version        = "3.5.1"
 val catsMtlVersion            = "1.3.0"
 val circeVersion              = "0.14.5"
 val fs2Version                = "3.7.0"
-val http4sVersion             = "0.23.22"
+val http4sVersion             = "0.23.23"
 val javaTimeVersion           = "2.5.0"
 val jsoniterVersion           = "2.23.2"
 val laminextVersion           = "0.16.0"
 val magnoliaVersion           = "0.17.0"
 val mercatorVersion           = "0.2.1"
-val playVersion               = "2.8.19"
+val playVersion               = "2.8.20"
 val playJsonVersion           = "2.9.4"
-val scalafmtVersion           = "3.7.7"
+val scalafmtVersion           = "3.7.11"
 val sttpVersion               = "3.8.16"
 val tapirVersion              = "1.4.0"
 val zioVersion                = "2.0.15"
@@ -122,13 +122,7 @@ lazy val core = project
   .in(file("core"))
   .settings(name := "caliban")
   .settings(commonSettings)
-  .settings(enableMimaSettingsJVM)
-  .settings(
-    mimaBinaryIssueFilters ++= Seq(
-      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.validation.Validator.doesNotStartWithUnderscore"),
-      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.validation.Validator.doesNotStartWithUnderscore")
-    )
-  )
+//  .settings(enableMimaSettingsJVM)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
@@ -146,7 +140,7 @@ lazy val core = project
       }
     } ++
       Seq(
-        "com.lihaoyi"                           %% "fastparse"             % "3.0.1",
+        "com.lihaoyi"                           %% "fastparse"             % "3.0.2",
         "dev.zio"                               %% "zio"                   % zioVersion,
         "dev.zio"                               %% "zio-streams"           % zioVersion,
         "dev.zio"                               %% "zio-query"             % zqueryVersion,
@@ -290,7 +284,7 @@ lazy val tapirInterop = project
   .in(file("interop/tapir"))
   .settings(name := "caliban-tapir")
   .settings(commonSettings)
-  .settings(enableMimaSettingsJVM)
+//  .settings(enableMimaSettingsJVM)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {

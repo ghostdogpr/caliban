@@ -9,7 +9,8 @@ case class RootSchemaBuilder[-R](
   mutation: Option[Operation[R]],
   subscription: Option[Operation[R]],
   additionalTypes: List[__Type] = Nil,
-  schemaDirectives: List[Directive] = Nil
+  schemaDirectives: List[Directive] = Nil,
+  schemaDescription: Option[String] = None
 ) {
   def |+|[R1 <: R](that: RootSchemaBuilder[R1]): RootSchemaBuilder[R1] =
     RootSchemaBuilder(
@@ -17,7 +18,8 @@ case class RootSchemaBuilder[-R](
       (mutation ++ that.mutation).reduceOption(_ |+| _),
       (subscription ++ that.subscription).reduceOption(_ |+| _),
       additionalTypes ++ that.additionalTypes,
-      schemaDirectives ++ that.schemaDirectives
+      schemaDirectives ++ that.schemaDirectives,
+      schemaDescription orElse that.schemaDescription
     )
 
   def types: List[__Type] = {

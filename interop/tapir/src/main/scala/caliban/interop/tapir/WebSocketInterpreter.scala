@@ -26,10 +26,10 @@ sealed trait WebSocketInterpreter[-R, E] { self =>
     }
 
   def intercept[R1](interceptor: Interceptor[R1, R]): WebSocketInterpreter[R1, E] =
-    WebSocketInterpreter.Configured(self, interceptor)
+    WebSocketInterpreter.Intercepted(self, interceptor)
 
   def configure[R1](configurator: Configurator[R1]): WebSocketInterpreter[R & R1, E] =
-    intercept[R & R1](ZLayer.scopedEnvironment[R & R1](configurator *> ZIO.environment[R]))
+    intercept[R & R1](ZLayer.scopedEnvironment[R & R1 & ServerRequest](configurator *> ZIO.environment[R]))
 }
 
 object WebSocketInterpreter {
@@ -54,12 +54,12 @@ object WebSocketInterpreter {
         .map(res => Right((protocol, res)))
   }
 
-  private case class Configured[R1, R, E](
+  private case class Intercepted[R1, R, E](
     interpreter: WebSocketInterpreter[R, E],
     layer: ZLayer[R1 & ServerRequest, TapirResponse, R]
   ) extends WebSocketInterpreter[R1, E] {
     override def intercept[R2](interceptor: Interceptor[R2, R1]): WebSocketInterpreter[R2, E] =
-      Configured[R2, R, E](interpreter, ZLayer.makeSome[R2 & ServerRequest, R](interceptor, layer))
+      Intercepted[R2, R, E](interpreter, ZLayer.makeSome[R2 & ServerRequest, R](interceptor, layer))
 
     val endpoint: PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioWebSockets] =
       interpreter.endpoint
