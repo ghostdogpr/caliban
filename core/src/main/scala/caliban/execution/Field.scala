@@ -205,7 +205,7 @@ object Field {
         case Some(tpes) =>
           tpes.foreach(_.name.foreach(name => loop(sb += name, rootType.types.get(name))))
           sb
-        case _                => sb
+        case _          => sb
       }
 
     val tpe = rootType.types.get(typeName)
