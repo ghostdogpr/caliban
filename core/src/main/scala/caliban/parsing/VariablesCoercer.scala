@@ -137,7 +137,7 @@ object VariablesCoercer {
               .foreach(fields) { case (k, v) =>
                 defs
                   .find(_.name == k)
-                  .map(field => coerceValues(v, field.`type`(), s"$context at field '${field.name}'").map(k -> _))
+                  .map(field => coerceValues(v, field._type, s"$context at field '${field.name}'").map(k -> _))
                   .getOrElse {
                     ZIO.fail(ValidationError(s"$context field '$k' does not exist", coercionDescription))
                   }

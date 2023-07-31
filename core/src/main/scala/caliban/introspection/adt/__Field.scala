@@ -22,9 +22,11 @@ case class __Field(
                              )
                            )
                          else Nil) ++ directives.getOrElse(Nil)
-    FieldDefinition(description, name, args.map(_.toInputValueDefinition), `type`().toType(), allDirectives)
+    FieldDefinition(description, name, args.map(_.toInputValueDefinition), _type.toType(), allDirectives)
   }
 
   def toInputValueDefinition: InputValueDefinition =
-    InputValueDefinition(description, name, `type`().toType(), None, directives.getOrElse(Nil))
+    InputValueDefinition(description, name, _type.toType(), None, directives.getOrElse(Nil))
+
+  private[caliban] lazy val _type: __Type = `type`()
 }

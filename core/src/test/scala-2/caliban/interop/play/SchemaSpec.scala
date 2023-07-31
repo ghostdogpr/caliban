@@ -15,7 +15,7 @@ object SchemaSpec extends ZIOSpecDefault {
         import caliban.interop.play.json._
         case class Queries(to: JsValue, from: JsValue => Unit)
 
-        assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_.`type`()))(
+        assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_._type))(
           isSome(hasField[__Type, String]("to", _.ofType.flatMap(_.name).get, equalTo("Json")))
         )
       }

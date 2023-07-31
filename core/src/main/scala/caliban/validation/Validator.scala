@@ -474,8 +474,8 @@ object Validator {
     typeCondition.fold[Option[__Type]](Some(currentType))(t => context.rootType.types.get(t.name)) match {
       case Some(fragmentType) =>
         validateFragmentType(name, fragmentType) *> {
-          val possibleTypes         = getPossibleTypes(currentType).flatMap(_.name)
-          val possibleFragmentTypes = getPossibleTypes(fragmentType).flatMap(_.name)
+          val possibleTypes         = getPossibleTypeNames(currentType)
+          val possibleFragmentTypes = getPossibleTypeNames(fragmentType)
           val applicableTypes       = possibleTypes intersect possibleFragmentTypes
           ZPure.when(applicableTypes.isEmpty)(
             failValidation(
@@ -493,11 +493,11 @@ object Validator {
         )
     }
 
-  private def getPossibleTypes(t: __Type): List[__Type] =
+  private def getPossibleTypeNames(t: __Type): Set[String] =
     t.kind match {
-      case __TypeKind.OBJECT                       => List(t)
-      case __TypeKind.INTERFACE | __TypeKind.UNION => t.possibleTypes.getOrElse(Nil)
-      case _                                       => Nil
+      case __TypeKind.OBJECT                       => t.name.fold(Set.empty[String])(Set(_))
+      case __TypeKind.INTERFACE | __TypeKind.UNION => t.possibleTypes.fold(Set.empty[String])(_.flatMap(_.name).toSet)
+      case _                                       => Set.empty
     }
 
   private def validateField(context: Context, field: Field, currentType: __Type): EReader[Any, ValidationError, Unit] =
@@ -512,7 +512,7 @@ object Validator {
             )
           )
           .flatMap { f =>
-            validateFields(context, field.selectionSet, Types.innerType(f.`type`())) *>
+            validateFields(context, field.selectionSet, f._type.innerType) *>
               validateArguments(field, f, currentType, context)
           }
       }
@@ -524,7 +524,7 @@ object Validator {
     currentType: __Type,
     context: Context
   ): EReader[Any, ValidationError, Unit] =
-    ZPure.foreachDiscard(f.args.filter(_.`type`().kind == __TypeKind.NON_NULL))(arg =>
+    ZPure.foreachDiscard(f.args.filter(_._type.kind == __TypeKind.NON_NULL))(arg =>
       (arg.defaultValue, field.arguments.get(arg.name)) match {
         case (None, None) | (None, Some(NullValue)) =>
           failValidation(
@@ -565,7 +565,7 @@ object Validator {
     context: Context,
     errorContext: String
   ): EReader[Any, ValidationError, Unit] = {
-    val t           = inputValue.`type`()
+    val t           = inputValue._type
     val inputType   = if (t.kind == __TypeKind.NON_NULL) t.ofType.getOrElse(t) else t
     val inputFields = inputType.inputFields.getOrElse(Nil)
 
@@ -589,7 +589,7 @@ object Validator {
         } *> ZPure.foreachDiscard(inputFields)(inputField =>
           ZPure.when(
             inputField.defaultValue.isEmpty &&
-              inputField.`type`().kind == __TypeKind.NON_NULL &&
+              inputField._type.kind == __TypeKind.NON_NULL &&
               fields.getOrElse(inputField.name, NullValue) == NullValue
           )(
             failValidation(
@@ -615,7 +615,7 @@ object Validator {
     variableDefinition: VariableDefinition,
     inputValue: __InputValue
   ): EReader[Any, ValidationError, Unit] = {
-    val locationType = inputValue.`type`()
+    val locationType = inputValue._type
     val variableType = variableDefinition.variableType
     if (!locationType.isNullable && !variableType.nonNull) {
       val hasNonNullVariableDefaultValue = variableDefinition.defaultValue.exists(_ != NullValue)
@@ -854,7 +854,7 @@ object Validator {
     for {
       _ <- ValueValidator.validateDefaultValue(inputValue, fieldContext)
       _ <- checkName(inputValue.name, fieldContext)
-      _ <- onlyInputType(inputValue.`type`(), fieldContext)
+      _ <- onlyInputType(inputValue._type, fieldContext)
     } yield ()
   }
 
@@ -924,18 +924,18 @@ object Validator {
             case Some(superField) =>
               val superArgs = superField.args.map(arg => (arg.name, arg)).toMap
               val extraArgs = objField.args.filter { arg =>
-                superArgs.get(arg.name).fold(true)(superArg => !Types.same(arg.`type`(), superArg.`type`()))
+                superArgs.get(arg.name).fold(true)(superArg => !Types.same(arg._type, superArg._type))
               }
 
-              def fieldTypeIsValid = isValidSubtype(superField.`type`(), objField.`type`())
+              def fieldTypeIsValid = isValidSubtype(superField._type, objField._type)
 
               def listItemTypeIsValid =
                 isListField(superField) && isListField(objField) && (for {
-                  superListItemType <- superField.`type`().ofType
-                  objListItemType   <- objField.`type`().ofType
+                  superListItemType <- superField._type.ofType
+                  objListItemType   <- objField._type.ofType
                 } yield isValidSubtype(superListItemType, objListItemType)).getOrElse(false)
 
-              def extraArgsAreValid = !extraArgs.exists(_.`type`().kind == __TypeKind.NON_NULL)
+              def extraArgsAreValid = !extraArgs.exists(_._type.kind == __TypeKind.NON_NULL)
 
               (fieldTypeIsValid, isListField(superField)) match {
                 case (_, true) if !listItemTypeIsValid =>
@@ -950,7 +950,7 @@ object Validator {
                     "An object field type must be equal to or a possible type of the interface field type."
                   )
                 case _ if !extraArgsAreValid           =>
-                  val argNames = extraArgs.filter(_.`type`().kind == __TypeKind.NON_NULL).map(_.name).mkString(", ")
+                  val argNames = extraArgs.filter(_._type.kind == __TypeKind.NON_NULL).map(_.name).mkString(", ")
                   failValidation(
                     s"$fieldContext with extra non-nullable arg(s) '$argNames' in $objectContext is invalid",
                     "Any additional field arguments must not be of a non-nullable type."
@@ -978,7 +978,7 @@ object Validator {
   }
 
   private def isListField(field: __Field) =
-    field.`type`().kind == __TypeKind.LIST
+    field._type.kind == __TypeKind.LIST
 
   private[caliban] def onlyInputType(`type`: __Type, errorContext: String): EReader[Any, ValidationError, Unit] = {
     // https://spec.graphql.org/June2018/#IsInputType()
@@ -1007,7 +1007,7 @@ object Validator {
         val fieldContext = s"Field '${field.name}' of $context"
         for {
           _ <- checkName(field.name, fieldContext)
-          _ <- onlyOutputType(field.`type`(), fieldContext)
+          _ <- onlyOutputType(field._type, fieldContext)
           _ <- ZPure.foreachDiscard(field.args)(validateInputValue(_, fieldContext))
         } yield ()
       }

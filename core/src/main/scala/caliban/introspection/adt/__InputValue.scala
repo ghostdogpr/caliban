@@ -13,6 +13,8 @@ case class __InputValue(
 ) {
   def toInputValueDefinition: InputValueDefinition = {
     val default = defaultValue.flatMap(v => Parser.parseInputValue(v).toOption)
-    InputValueDefinition(description, name, `type`().toType(), default, directives.getOrElse(Nil))
+    InputValueDefinition(description, name, _type.toType(), default, directives.getOrElse(Nil))
   }
+
+  private[caliban] lazy val _type: __Type = `type`()
 }

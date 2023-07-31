@@ -35,7 +35,7 @@ object ValueValidator {
     argValue: InputValue,
     context: Context,
     errorContext: String
-  ): EReader[Any, ValidationError, Unit] = validateType(inputValue.`type`(), argValue, context, errorContext)
+  ): EReader[Any, ValidationError, Unit] = validateType(inputValue._type, argValue, context, errorContext)
 
   def validateType(
     inputType: __Type,
@@ -77,10 +77,10 @@ object ValueValidator {
                 inputType.inputFields.getOrElse(List.empty).forEach_ { f =>
                   fields.collectFirst { case (name, fieldValue) if name == f.name => fieldValue } match {
                     case Some(value) =>
-                      validateType(f.`type`(), value, context, s"Field ${f.name} in $errorContext")
+                      validateType(f._type, value, context, s"Field ${f.name} in $errorContext")
                     case None        =>
                       ZPure.when(f.defaultValue.isEmpty) {
-                        validateType(f.`type`(), NullValue, context, s"Field ${f.name} in $errorContext")
+                        validateType(f._type, NullValue, context, s"Field ${f.name} in $errorContext")
                       }
                   }
                 }
