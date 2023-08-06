@@ -227,6 +227,7 @@ class GraphQLBenchmarks {
 
   object Caliban {
     import caliban.schema.Schema
+    import caliban.schema.Schema._
     import caliban.schema.ArgBuilder.auto._
     import caliban.schema.Schema.auto._
 
