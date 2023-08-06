@@ -36,7 +36,7 @@ val zioPreludeVersion         = "1.0.0-RC19"
 
 inThisBuild(
   List(
-    scalaVersion             := scala212,
+    scalaVersion             := scala212, // Change to control IntelliJ's highlighting
     crossScalaVersions       := allScala,
     organization             := "com.github.ghostdogpr",
     homepage                 := Some(url("https://github.com/ghostdogpr/caliban")),
@@ -216,6 +216,8 @@ lazy val codegenSbt = project
   .settings(commonSettings)
   .enablePlugins(BuildInfoPlugin)
   .settings(
+    skip             := (scalaVersion.value != scala212),
+    ideSkipProject   := (scalaVersion.value != scala212),
     buildInfoKeys    := Seq[BuildInfoKey](version),
     buildInfoPackage := "caliban.codegen",
     buildInfoObject  := "BuildInfo"
@@ -353,6 +355,8 @@ lazy val akkaHttp = project
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
   .settings(
+    skip           := (scalaVersion.value == scala3),
+    ideSkipProject := (scalaVersion.value == scala3),
     crossScalaVersions -= scala3,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
@@ -371,6 +375,8 @@ lazy val play = project
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
   .settings(
+    skip           := (scalaVersion.value == scala3),
+    ideSkipProject := (scalaVersion.value == scala3),
     crossScalaVersions -= scala3,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
@@ -462,6 +468,8 @@ lazy val examples = project
     run / connectInput := true
   )
   .settings(
+    skip                                                 := (scalaVersion.value == scala3),
+    ideSkipProject                                       := (scalaVersion.value == scala3),
     crossScalaVersions -= scala3,
     libraryDependencySchemes += "org.scala-lang.modules" %% "scala-java8-compat" % "always",
     libraryDependencies ++= Seq(
@@ -512,13 +520,20 @@ lazy val reporting = project
 lazy val benchmarks = project
   .in(file("benchmarks"))
   .settings(commonSettings)
-  .settings(publish / skip := true)
-  .dependsOn(core)
+  .settings(
+    skip               := (scalaVersion.value == scala212),
+    ideSkipProject     := (scalaVersion.value == scala212),
+    publish / skip     := true,
+    crossScalaVersions := Seq(scala213, scala3)
+  )
+  .dependsOn(core % "compile->compile")
   .enablePlugins(JmhPlugin)
   .settings(
     libraryDependencies ++= Seq(
-      "org.sangria-graphql"                   %% "sangria"             % "3.4.1",
+      "org.sangria-graphql"                   %% "sangria"             % "4.0.1",
       "org.sangria-graphql"                   %% "sangria-circe"       % "1.3.2",
+      "edu.gemini"                            %% "gsp-graphql-core"    % "0.13.0",
+      "edu.gemini"                            %% "gsp-graphql-generic" % "0.13.0",
       "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core" % jsoniterVersion,
       "io.circe"                              %% "circe-parser"        % circeVersion,
       "dev.zio"                               %% "zio-json"            % zioJsonVersion
@@ -551,6 +566,8 @@ lazy val docs = project
   .enablePlugins(MdocPlugin)
   .settings(commonSettings)
   .settings(
+    skip               := (scalaVersion.value == scala3),
+    ideSkipProject     := (scalaVersion.value == scala3),
     crossScalaVersions := Seq(scala212, scala213),
     name               := "caliban-docs",
     mdocIn             := (ThisBuild / baseDirectory).value / "vuepress" / "docs",

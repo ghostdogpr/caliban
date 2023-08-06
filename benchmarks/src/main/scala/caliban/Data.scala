@@ -7,6 +7,13 @@ object Data {
     case object EARTH extends Origin
     case object MARS  extends Origin
     case object BELT  extends Origin
+
+    def fromString(s: String): Option[Origin] = s match {
+      case "EARTH" => Some(EARTH)
+      case "MARS"  => Some(MARS)
+      case "BELT"  => Some(BELT)
+      case _       => None
+    }
   }
 
   sealed trait Role
