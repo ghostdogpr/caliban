@@ -251,7 +251,7 @@ class GraphQLBenchmarks {
       )
     )
 
-    val interpreter: GraphQLInterpreter[Any, CalibanError] = run(graphQL(resolver).interpreter)
+    val interpreter: GraphQLInterpreter[Any, CalibanError] = run(graphQL[Any, Query, Unit, Unit](resolver).interpreter)
 
     def run[A](zio: Task[A]): A = Unsafe.unsafe(implicit u => runtime.unsafe.run(zio).getOrThrow())
   }
