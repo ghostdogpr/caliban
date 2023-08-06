@@ -663,3 +663,5 @@ lazy val apiMappingSettings = Def.settings(
     ).flatten.toMap
   }
 )
+
+Global / excludeLintKeys += ideSkipProject

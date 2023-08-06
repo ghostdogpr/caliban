@@ -2,19 +2,20 @@ package caliban
 
 import caliban.Data._
 import caliban.parsing.Parser
+import caliban.schema.Schema.auto._
+import caliban.schema.ArgBuilder.auto._
+import cats.effect.IO
+import edu.gemini.grackle.generic.GenericMapping
 import io.circe.{ Encoder, Json }
 import org.openjdk.jmh.annotations._
 import sangria.execution._
 import sangria.marshalling.circe._
-import cats.effect.IO
-import edu.gemini.grackle.generic.GenericMapping
 import sangria.parser.QueryParser
 import zio.{ Runtime, Task, UIO, Unsafe, ZIO }
 
 import java.util.concurrent.TimeUnit
 import scala.concurrent.duration._
 import scala.concurrent.{ Await, ExecutionContextExecutor, Future }
-import scala.language.postfixOps
 
 @State(Scope.Thread)
 @BenchmarkMode(Array(Mode.Throughput))
@@ -227,9 +228,6 @@ class GraphQLBenchmarks {
 
   object Caliban {
     import caliban.schema.Schema
-    import caliban.schema.Schema._
-    import caliban.schema.ArgBuilder.auto._
-    import caliban.schema.Schema.auto._
 
     private val runtime = Runtime.default
 
@@ -251,7 +249,7 @@ class GraphQLBenchmarks {
       )
     )
 
-    val interpreter: GraphQLInterpreter[Any, CalibanError] = run(graphQL[Any, Query, Unit, Unit](resolver).interpreter)
+    val interpreter: GraphQLInterpreter[Any, CalibanError] = run(graphQL(resolver).interpreter)
 
     def run[A](zio: Task[A]): A = Unsafe.unsafe(implicit u => runtime.unsafe.run(zio).getOrThrow())
   }
@@ -321,11 +319,11 @@ class GraphQLBenchmarks {
   }
 
   object Grackle extends GenericMapping[IO] {
+    import edu.gemini.grackle.Cursor.{ Context, Env }
     import edu.gemini.grackle.Predicate._
     import edu.gemini.grackle.Query._
     import edu.gemini.grackle.QueryCompiler._
     import edu.gemini.grackle.Value._
-    import edu.gemini.grackle.Cursor.{ Context, Env }
     import edu.gemini.grackle._
     import edu.gemini.grackle.generic._
     import edu.gemini.grackle.syntax._
@@ -420,12 +418,18 @@ class GraphQLBenchmarks {
           case Select(f @ "character", List(Binding("id", IDValue(id))), child)        =>
             Select(f, Nil, Unique(Filter(Eql(CharacterType / "id", Const(id)), child))).success
           case Select("characters", List(Binding("origin", TypedEnumValue(e))), child) =>
-            Origin
-              .fromString(e.name)
-              .map { origin =>
+            val originOpt = e.name match {
+              case "EARTH" => Some(Origin.EARTH)
+              case "MARS"  => Some(Origin.MARS)
+              case "BELT"  => Some(Origin.BELT)
+              case _       => None
+            }
+            originOpt
+              .map((origin: Origin) =>
                 Select("characters", Nil, Unique(Filter(Eql(CharacterType / "origin", Const(origin)), child))).success
-              }
+              )
               .getOrElse(Result.failure(s"Unknown origin '${e.name}'"))
+
         }
       )
     )
@@ -465,7 +469,7 @@ class GraphQLBenchmarks {
   def simpleSangria(): Unit = {
     val future: Future[Json] =
       Future.fromTry(QueryParser.parse(simpleQuery)).flatMap(queryAst => Executor.execute(Sangria.schema, queryAst))
-    Await.result(future, 1 minute)
+    Await.result(future, 1.minute)
     ()
   }
 
@@ -475,7 +479,7 @@ class GraphQLBenchmarks {
       Future
         .fromTry(QueryParser.parse(fullIntrospectionQuery))
         .flatMap(queryAst => Executor.execute(Sangria.schema, queryAst))
-    Await.result(future, 1 minute)
+    Await.result(future, 1.minute)
     ()
   }
 
@@ -485,14 +489,14 @@ class GraphQLBenchmarks {
       Future
         .fromTry(QueryParser.parse(fragmentsQuery))
         .flatMap(queryAst => Executor.execute(Sangria.schema, queryAst))
-    Await.result(future, 1 minute)
+    Await.result(future, 1.minute)
     ()
   }
 
   @Benchmark
   def parserSangria(): Unit = {
     val future = Future.fromTry(QueryParser.parse(fullIntrospectionQuery))
-    Await.result(future, 1 minute)
+    Await.result(future, 1.minute)
     ()
   }
 
