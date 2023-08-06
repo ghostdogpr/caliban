@@ -122,7 +122,7 @@ lazy val core = project
   .in(file("core"))
   .settings(name := "caliban")
   .settings(commonSettings)
-//  .settings(enableMimaSettingsJVM)
+  .settings(enableMimaSettingsJVM)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
@@ -166,7 +166,7 @@ lazy val tools = project
   .enablePlugins(BuildInfoPlugin)
   .settings(name := "caliban-tools")
   .settings(commonSettings)
-//  .settings(enableMimaSettingsJVM)
+  .settings(enableMimaSettingsJVM)
   .settings(
     buildInfoKeys    := Seq[BuildInfoKey](
       "scalaPartialVersion" -> CrossVersion.partialVersion(scalaVersion.value),
@@ -284,7 +284,7 @@ lazy val tapirInterop = project
   .in(file("interop/tapir"))
   .settings(name := "caliban-tapir")
   .settings(commonSettings)
-//  .settings(enableMimaSettingsJVM)
+  .settings(enableMimaSettingsJVM)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
