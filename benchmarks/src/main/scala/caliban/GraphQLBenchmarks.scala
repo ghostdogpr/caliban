@@ -258,40 +258,40 @@ class GraphQLBenchmarks {
     import sangria.macros.derive._
     import sangria.schema._
 
-    implicit val OriginEnum: EnumType[Origin]                  = deriveEnumType[Origin](IncludeValues("EARTH", "MARS", "BELT"))
-    implicit val CaptainType: ObjectType[Unit, Role.Captain]   = deriveObjectType[Unit, Role.Captain]()
-    implicit val PilotType: ObjectType[Unit, Role.Pilot]       = deriveObjectType[Unit, Role.Pilot]()
-    implicit val EngineerType: ObjectType[Unit, Role.Engineer] = deriveObjectType[Unit, Role.Engineer]()
-    implicit val MechanicType: ObjectType[Unit, Role.Mechanic] = deriveObjectType[Unit, Role.Mechanic]()
-    implicit val RoleType: UnionType[Unit]                     = UnionType(
-      "Role",
-      types = List(PilotType, EngineerType, MechanicType, CaptainType)
-    )
-    implicit val CharacterType: ObjectType[Unit, Character]    = ObjectType(
-      "Character",
-      fields[Unit, Character](
-        Field(
-          "name",
-          StringType,
-          resolve = _.value.name
-        ),
-        Field(
-          "nicknames",
-          ListType(StringType),
-          resolve = _.value.nicknames
-        ),
-        Field(
-          "origin",
-          OriginEnum,
-          resolve = _.value.origin
-        ),
-        Field(
-          "role",
-          OptionType(RoleType),
-          resolve = _.value.role
-        )
+  implicit val OriginEnum: EnumType[Origin]                  = deriveEnumType[Origin](IncludeValues("EARTH", "MARS", "BELT"))
+  implicit val CaptainType: ObjectType[Unit, Role.Captain]   = deriveObjectType[Unit, Role.Captain]()
+  implicit val PilotType: ObjectType[Unit, Role.Pilot]       = deriveObjectType[Unit, Role.Pilot]()
+  implicit val EngineerType: ObjectType[Unit, Role.Engineer] = deriveObjectType[Unit, Role.Engineer]()
+  implicit val MechanicType: ObjectType[Unit, Role.Mechanic] = deriveObjectType[Unit, Role.Mechanic]()
+  implicit val RoleType: UnionType[Unit]                     = UnionType(
+    "Role",
+    types = List(PilotType, EngineerType, MechanicType, CaptainType)
+  )
+  implicit val CharacterType: ObjectType[Unit, Character]    = ObjectType(
+    "Character",
+    fields[Unit, Character](
+      Field(
+        "name",
+        StringType,
+        resolve = _.value.name
+      ),
+      Field(
+        "nicknames",
+        ListType(StringType),
+        resolve = _.value.nicknames
+      ),
+      Field(
+        "origin",
+        OriginEnum,
+        resolve = _.value.origin
+      ),
+      Field(
+        "role",
+        OptionType(RoleType),
+        resolve = _.value.role
       )
     )
+  )
 
     val OriginArg: Argument[Option[Origin]] = Argument("origin", OptionInputType(OriginEnum))
     val NameArg: Argument[String]           = Argument("name", StringType)
@@ -499,6 +499,18 @@ class GraphQLBenchmarks {
     Await.result(future, 1.minute)
     ()
   }
+
+  val calibanSchema = graphQL(Caliban.resolver)
+  val calibanSchemaDoc = graphQL(Caliban.resolver).toDocument
+
+  @Benchmark
+  def renderCaliban(): Unit = {
+    calibanSchema.render
+  }
+
+  @Benchmark
+  def renderCalibanFast(): Unit =
+    _root_.caliban.rendering.DocumentRenderer.render(calibanSchemaDoc)
 
   @Benchmark
   def simpleGrackle(): Unit = {
