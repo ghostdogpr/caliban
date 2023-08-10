@@ -58,24 +58,28 @@ trait CommonSchemaDerivation {
   inline def derived[R, A]: Schema[R, A] =
     inline summonInline[Mirror.Of[A]] match {
       case m: Mirror.SumOf[A] =>
-        lazy val members = recurse[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()()
-        def info         = Macros.typeInfo[A]
-        def annotations  = Macros.annotations[A]
-        makeSumSchema[R, A](members, info, annotations)(m)
+        makeSumSchema[R, A](
+          recurse[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()(),
+          Macros.typeInfo[A],
+          Macros.annotations[A]
+        )(m.ordinal)
 
       case m: Mirror.ProductOf[A] =>
-        lazy val fields      = recurse[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()()
-        def annotations      = Macros.annotations[A]
-        def info             = Macros.typeInfo[A]
-        def paramAnnotations = Macros.paramAnnotations[A].toMap
-        makeProductSchema[R, A](fields, info, annotations, paramAnnotations)
+        makeProductSchema[R, A](
+          recurse[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()(),
+          Macros.typeInfo[A],
+          Macros.annotations[A],
+          Macros.paramAnnotations[A].toMap
+        )
     }
 
   private def makeSumSchema[R, A](
-    members: => List[(String, List[Any], Schema[R, Any], Int)],
+    _members: => List[(String, List[Any], Schema[R, Any], Int)],
     info: TypeInfo,
     annotations: List[Any]
-  )(m: Mirror.SumOf[A]): Schema[R, A] = new Schema[R, A] {
+  )(ordinal: A => Int): Schema[R, A] = new Schema[R, A] {
+
+    private lazy val members = _members
 
     private lazy val subTypes = members.map { case (label, subTypeAnnotations, schema, _) =>
       (label, schema.toType_(), subTypeAnnotations)
@@ -112,17 +116,19 @@ trait CommonSchemaDerivation {
       }
 
     def resolve(value: A): Step[R] = {
-      val (label, _, schema, _) = members(m.ordinal(value))
+      val (label, _, schema, _) = members(ordinal(value))
       if (isEnum) PureStep(EnumValue(label)) else schema.resolve(value)
     }
   }
 
   private def makeProductSchema[R, A](
-    fields: => List[(String, List[Any], Schema[R, Any], Int)],
+    _fields: => List[(String, List[Any], Schema[R, Any], Int)],
     info: TypeInfo,
     annotations: List[Any],
     paramAnnotations: Map[String, List[Any]]
   ): Schema[R, A] = new Schema[R, A] {
+
+    private lazy val fields = _fields
 
     private lazy val isValueType: Boolean =
       annotations.exists {
