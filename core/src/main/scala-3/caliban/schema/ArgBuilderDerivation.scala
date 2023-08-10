@@ -1,7 +1,7 @@
 package caliban.schema
 
 import caliban.CalibanError.ExecutionError
-import caliban.InputValue
+import caliban.{ CalibanError, InputValue }
 import caliban.Value.*
 import caliban.schema.macros.Macros
 import caliban.schema.Annotations.GQLDefault
@@ -48,21 +48,24 @@ trait CommonArgBuilderDerivation {
   ) = new ArgBuilder[A] {
     private lazy val subTypes   = _subTypes
     private lazy val traitLabel = _traitLabel
+    private val emptyInput      = InputValue.ObjectValue(Map())
 
     def build(input: InputValue): Either[ExecutionError, A] =
-      (input match {
-        case EnumValue(value)   => Some(value)
-        case StringValue(value) => Some(value)
-        case _                  => None
-      }) match {
-        case Some(value) =>
-          subTypes.find { (label, annotations, _) =>
-            label == value || annotations.exists { case GQLName(name) => name == value }
-          } match {
-            case Some((_, _, builder)) => builder.asInstanceOf[ArgBuilder[A]].build(InputValue.ObjectValue(Map()))
-            case None                  => Left(ExecutionError(s"Invalid value $value for trait $traitLabel"))
-          }
-        case None        => Left(ExecutionError(s"Can't build a trait from input $input"))
+      input.match {
+        case EnumValue(value)   => Right(value)
+        case StringValue(value) => Right(value)
+        case _                  => Left(ExecutionError(s"Can't build a trait from input $input"))
+      }.flatMap { value =>
+        subTypes.collectFirst {
+          case (
+                label,
+                annotations,
+                builder: ArgBuilder[A @unchecked]
+              ) if label == value || annotations.exists { case GQLName(name) => name == value } =>
+            builder
+        }
+          .toRight(ExecutionError(s"Invalid value $value for trait $traitLabel"))
+          .flatMap(_.build(emptyInput))
       }
   }
 
@@ -74,19 +77,19 @@ trait CommonArgBuilderDerivation {
     private lazy val annotations = _annotations
 
     def build(input: InputValue): Either[ExecutionError, A] =
-      fields.map { (label, _, builder) =>
+      fields.view.map { (label, _, builder) =>
         input match {
           case InputValue.ObjectValue(fields) =>
-            val finalLabel =
-              annotations.getOrElse(label, Nil).collectFirst { case GQLName(name) => name }.getOrElse(label)
-            val default    = annotations.getOrElse(label, Nil).collectFirst { case GQLDefault(v) => v }
+            val labelList  = annotations.get(label)
+            def default    = labelList.flatMap(_.collectFirst { case GQLDefault(v) => v })
+            val finalLabel = labelList.flatMap(_.collectFirst { case GQLName(name) => name }).getOrElse(label)
             fields.get(finalLabel).fold(builder.buildMissing(default))(builder.build)
           case value                          => builder.build(value)
         }
-      }.foldRight[Either[ExecutionError, Tuple]](Right(EmptyTuple)) { case (item, acc) =>
+      }.foldLeft[Either[ExecutionError, Tuple]](Right(EmptyTuple)) { case (acc, item) =>
         item match {
-          case error: Left[ExecutionError, Any] => error.asInstanceOf[Left[ExecutionError, Tuple]]
-          case Right(value)                     => acc.map(value *: _)
+          case Right(value) => acc.map(_ :* value)
+          case Left(e)      => Left(e)
         }
       }.map(fromProduct)
   }

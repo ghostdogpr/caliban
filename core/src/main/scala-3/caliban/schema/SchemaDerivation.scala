@@ -11,7 +11,6 @@ import caliban.schema.macros.{ Macros, TypeInfo }
 import scala.compiletime.*
 import scala.deriving.Mirror
 import scala.util.NotGiven
-import scala.quoted.*
 
 object PrintDerived {
   import scala.quoted.*
