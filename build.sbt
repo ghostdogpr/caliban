@@ -32,7 +32,7 @@ val zqueryVersion             = "0.4.0"
 val zioJsonVersion            = "0.6.0"
 val zioHttpVersion            = "3.0.0-RC1"
 val zioOpenTelemetryVersion   = "3.0.0-RC15"
-val zioPreludeVersion         = "1.0.0-RC19"
+val zioPreludeVersion         = "1.0.0-RC20"
 
 inThisBuild(
   List(
