@@ -12,7 +12,7 @@ object Scala2SpecificSpec extends ZIOSpecDefault {
     suite("Scala2SpecificSpec")(
       test("value classes should unwrap") {
         case class Queries(organizationId: OrganizationId, painter: WrappedPainter)
-        val fieldTypes = introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.map(_.`type`())
+        val fieldTypes = introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.map(_._type)
         assertTrue(fieldTypes.map(_.ofType.flatMap(_.name)) == Some("Long") :: Some("Painter") :: Nil)
       },
       test("value classes") {

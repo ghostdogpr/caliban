@@ -11,7 +11,7 @@ You should also be careful when using stitching since it's very easy to pull in 
 In order to use stitching, add `caliban-tools` to your dependencies:
 
 ```scala
-"com.github.ghostdogpr" %% "caliban-tools" % "2.2.1"
+"com.github.ghostdogpr" %% "caliban-tools" % "2.3.0"
 ```
 
 ## Stitching in Action

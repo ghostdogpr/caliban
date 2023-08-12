@@ -9,6 +9,7 @@ import caliban.parsing.adt.{ Directive, LocationInfo, Selection, VariableDefinit
 import caliban.schema.{ RootType, Types }
 import caliban.{ InputValue, Value }
 
+import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 
 /**
@@ -73,15 +74,15 @@ object Field {
     val memoizedFragments = collection.mutable.Map.empty[FragmentSpread, (List[Field], Option[String])]
 
     def loop(selectionSet: List[Selection], fieldType: __Type, fragment: Option[Fragment]): List[Field] = {
-      val map = new java.util.LinkedHashMap[(String, String), Field](selectionSet.length)
+      val map = new java.util.LinkedHashMap[(String, Option[String]), Field](selectionSet.length)
 
       def addField(f: Field, condition: Option[String]): Unit = {
         val name = f.alias.getOrElse(f.name)
-        val key  = (name, condition.getOrElse(""))
+        val key  = (name, condition)
         map.compute(key, (_, existing) => if (existing == null) f else existing.combine(f))
       }
 
-      val innerType = Types.innerType(fieldType)
+      val innerType = fieldType.innerType
 
       selectionSet.foreach {
         case F(alias, name, arguments, directives, selectionSet, index) =>
@@ -92,7 +93,7 @@ object Field {
             (directives ::: schemaDirectives).map(resolveDirectiveVariables(variableValues, variableDefinitions))
 
           if (checkDirectives(resolvedDirectives)) {
-            val t = selected.fold(Types.string)(_.`type`()) // default only case where it's not found is __typename
+            val t = selected.fold(Types.string)(_._type) // default only case where it's not found is __typename
 
             val fields =
               if (selectionSet.nonEmpty) loop(selectionSet, t, None)
@@ -198,15 +199,18 @@ object Field {
     arguments.flatMap { case (k, v) => resolveVariable(v).map(k -> _) }
   }
 
-  private def subtypeNames(typeName: String, rootType: RootType): Option[Set[String]] =
-    rootType.types
-      .get(typeName)
-      .map(t =>
-        t.possibleTypes
-          .fold(Set.empty[String])(
-            _.map(_.name.map(subtypeNames(_, rootType).getOrElse(Set.empty))).toSet.flatten.flatten
-          ) + typeName
-      )
+  private def subtypeNames(typeName: String, rootType: RootType): Option[Set[String]] = {
+    def loop(sb: mutable.Builder[String, Set[String]], `type`: Option[__Type]): mutable.Builder[String, Set[String]] =
+      `type`.flatMap(_.possibleTypes) match {
+        case Some(tpes) =>
+          tpes.foreach(_.name.foreach(name => loop(sb += name, rootType.types.get(name))))
+          sb
+        case _          => sb
+      }
+
+    val tpe = rootType.types.get(typeName)
+    tpe.map(_ => loop(Set.newBuilder[String] += typeName, tpe).result())
+  }
 
   private def checkDirectives(directives: List[Directive]): Boolean =
     directives.isEmpty ||
