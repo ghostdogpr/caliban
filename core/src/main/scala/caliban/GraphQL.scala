@@ -63,7 +63,9 @@ trait GraphQL[-R] { self =>
   /**
    * Converts the schema to a Document.
    */
-  final def toDocument: Document =
+  final def toDocument: Document = cachedDocument
+
+  private lazy val cachedDocument: Document =
     Document(
       SchemaDefinition(
         schemaBuilder.schemaDirectives,
