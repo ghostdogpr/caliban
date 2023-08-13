@@ -22,7 +22,7 @@ trait CommonArgBuilderDerivation {
           (
             constValue[name].toString,
             Macros.annotations[t], {
-            if (Macros.isEnumField[P, t])
+              if (Macros.isEnumField[P, t])
                 if (!Macros.implicitExists[ArgBuilder[t]]) derived[t]
                 else summonInline[ArgBuilder[t]]
               else summonInline[ArgBuilder[t]]
