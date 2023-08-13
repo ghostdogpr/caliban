@@ -1,8 +1,7 @@
 package caliban.schema
 
-import caliban.Macros.gqldoc
 import caliban.{ graphQL, RootResolver }
-import zio.{ Unsafe, ZIO }
+import zio.ZIO
 import zio.test.*
 
 object EnumFieldAutoDerivation extends ZIOSpecDefault {
