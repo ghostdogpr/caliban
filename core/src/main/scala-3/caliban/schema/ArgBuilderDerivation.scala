@@ -21,8 +21,12 @@ trait CommonArgBuilderDerivation {
         recurse[names, ts](
           (
             constValue[name].toString,
-            Macros.annotations[t],
-            summonInline[ArgBuilder[t]].asInstanceOf[ArgBuilder[Any]]
+            Macros.annotations[t], {
+              if (Macros.isEnumField[t])
+                if (!Macros.implicitExists[ArgBuilder[t]]) derived[t]
+                else summonInline[ArgBuilder[t]]
+              else summonInline[ArgBuilder[t]]
+            }.asInstanceOf[ArgBuilder[Any]]
           ) :: values
         )
     }
