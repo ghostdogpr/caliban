@@ -48,7 +48,7 @@ trait CommonSchemaDerivation {
             (
               constValue[name].toString,
               Macros.annotations[t], {
-                if (Macros.isEnumField[t])
+                if (Macros.isEnumField[P, t])
                   if (!Macros.implicitExists[Schema[R, t]]) derived[R, t]
                   else summonInline[Schema[R, t]]
                 else summonInline[Schema[R, t]]

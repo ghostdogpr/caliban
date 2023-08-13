@@ -13,7 +13,7 @@ private[caliban] object Macros {
   inline def paramAnnotations[T]: List[(String, List[Any])] = ${ paramAnnotationsImpl[T] }
   inline def typeInfo[T]: TypeInfo                          = ${ typeInfoImpl[T] }
   inline def isFieldExcluded[P, T]: Boolean                 = ${ isFieldExcludedImpl[P, T] }
-  inline def isEnumField[T]: Boolean                        = ${ isEnumFieldImpl[T] }
+  inline def isEnumField[P, T]: Boolean                     = ${ isEnumFieldImpl[P, T] }
   inline def implicitExists[T]: Boolean                     = ${ implicitExistsImpl[T] }
 
   def annotationsImpl[T: Type](using qctx: Quotes): Expr[List[Any]] = {
@@ -83,9 +83,9 @@ private[caliban] object Macros {
     }
   }
 
-  def isEnumFieldImpl[T: Type](using q: Quotes): Expr[Boolean] = {
+  def isEnumFieldImpl[P: Type, T: Type](using q: Quotes): Expr[Boolean] = {
     import q.reflect.*
-    Expr(TypeRepr.of[T].termSymbol.flags.is(Flags.Enum))
+    Expr(TypeRepr.of[P].typeSymbol.flags.is(Flags.Enum) && TypeRepr.of[T].typeSymbol.flags.is(Flags.Enum))
   }
 
 }
