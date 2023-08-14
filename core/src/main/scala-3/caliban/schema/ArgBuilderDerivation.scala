@@ -12,17 +12,21 @@ import scala.compiletime.*
 import scala.util.NotGiven
 
 trait CommonArgBuilderDerivation {
-  inline def recurse[Label, A <: Tuple](
+  inline def recurse[P, Label, A <: Tuple](
     inline values: List[(String, List[Any], ArgBuilder[Any])] = Nil
   ): List[(String, List[Any], ArgBuilder[Any])] =
     inline erasedValue[(Label, A)] match {
       case (_: EmptyTuple, _)                 => values.reverse
       case (_: (name *: names), _: (t *: ts)) =>
-        recurse[names, ts](
+        recurse[P, names, ts](
           (
             constValue[name].toString,
-            Macros.annotations[t],
-            summonInline[ArgBuilder[t]].asInstanceOf[ArgBuilder[Any]]
+            Macros.annotations[t], {
+              if (Macros.isEnumField[P, t])
+                if (!Macros.implicitExists[ArgBuilder[t]]) derived[t]
+                else summonInline[ArgBuilder[t]]
+              else summonInline[ArgBuilder[t]]
+            }.asInstanceOf[ArgBuilder[Any]]
           ) :: values
         )
     }
@@ -31,13 +35,13 @@ trait CommonArgBuilderDerivation {
     inline summonInline[Mirror.Of[A]] match {
       case m: Mirror.SumOf[A] =>
         makeSumArgBuilder[A](
-          recurse[m.MirroredElemLabels, m.MirroredElemTypes](),
+          recurse[A, m.MirroredElemLabels, m.MirroredElemTypes](),
           constValue[m.MirroredLabel]
         )
 
       case m: Mirror.ProductOf[A] =>
         makeProductArgBuilder(
-          recurse[m.MirroredElemLabels, m.MirroredElemTypes](),
+          recurse[A, m.MirroredElemLabels, m.MirroredElemTypes](),
           Macros.paramAnnotations[A].to(Map)
         )(m.fromProduct)
     }
