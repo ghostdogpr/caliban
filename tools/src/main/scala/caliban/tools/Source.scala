@@ -2,7 +2,7 @@ package caliban.tools
 
 import caliban._
 import caliban.execution.Field
-import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
+import caliban.introspection.adt.{ __Type, __TypeKind }
 import caliban.schema.Step.NullStep
 import caliban.schema.{ ProxyRequest, Schema, Step }
 import caliban.tools.stitching.RemoteQuery.QueryRenderer
@@ -31,7 +31,7 @@ trait Source[-R] {
     sourceFieldName: String,
     targetTypeName: String,
     targetFieldName: String,
-    argumentMapping: Map[String, InputValue => (String, InputValue)],
+    argumentMappings: ArgumentMappings,
     filterBatchedValues: (ResponseValue, Field) => ResponseValue = (v, _) => v
   ): Source[R with R1] = new Source[R with R1] {
     def toGraphQL: Task[GraphQL[R with R1]] =
@@ -45,8 +45,8 @@ trait Source[-R] {
                   targetTypeName,
                   targetFieldName,
                   field,
-                  argumentMapping.keys.map(key => Field(key, __Type(__TypeKind.NON_NULL), None)).toList,
-                  parentFields =>
+                  argumentMappings.target.keys.map(key => Field(key, __Type(__TypeKind.NON_NULL), None)).toList,
+                  (targetFields, args) =>
                     source.getSchemaBuilder.query
                       .map(_.plan match {
                         case step: Step.ProxyStep[R] =>
@@ -56,7 +56,11 @@ trait Source[-R] {
                                 if (field.name == targetFieldName)
                                   field.copy(
                                     name = sourceFieldName,
-                                    arguments = parentFields.flatMap { case (k, v) => argumentMapping.get(k).map(_(v)) }
+                                    arguments = targetFields.flatMap { case (k, v) =>
+                                      argumentMappings.target.get(k).map(_(v))
+                                    } ++ args.flatMap { case (k, v) =>
+                                      argumentMappings.args.get(k).map(_(v))
+                                    }
                                   )
                                 else field
                               },
@@ -191,3 +195,8 @@ object Source {
     override def toGraphQL: Task[GraphQL[R]] = ZIO.succeed(graphQL)
   }
 }
+
+case class ArgumentMappings(
+  target: Map[String, InputValue => (String, InputValue)] = Map.empty,
+  args: Map[String, InputValue => (String, InputValue)] = Map.empty
+)

@@ -9,37 +9,47 @@ import caliban.schema.{ Step, Types }
 sealed trait Transformer[-R] {
   val typeVisitor: TypeVisitor
 
-  def transformStep[R1 <: R]: PartialFunction[Step[R1], Step[R1]]
+  def transformStep[R1 <: R](args: Map[String, InputValue]): PartialFunction[Step[R1], Step[R1]]
 }
 
 object Transformer {
-  case class RenameType(f: PartialFunction[String, String])  extends Transformer[Any] {
+  case class RenameType(f: PartialFunction[String, String])            extends Transformer[Any] {
     private def rename(name: String): String = f.lift(name).getOrElse(name)
 
     val typeVisitor: TypeVisitor =
       TypeVisitor.modify(t => t.copy(name = t.name.map(rename))) |+|
         TypeVisitor.enumValues.modify(v => v.copy(name = rename(v.name)))
 
-    def transformStep[R]: PartialFunction[Step[R], Step[R]] = { case step @ ObjectStep(name, fields) =>
-      f.lift(name).map(ObjectStep(_, fields)).getOrElse(step)
+    def transformStep[R](args: Map[String, InputValue]): PartialFunction[Step[R], Step[R]] = {
+      case step @ ObjectStep(name, fields) =>
+        f.lift(name).map(ObjectStep(_, fields)).getOrElse(step)
     }
   }
-  case class RenameField(f: PartialFunction[String, String]) extends Transformer[Any] {
+  case class RenameField(f: PartialFunction[(String, String), String]) extends Transformer[Any] {
     val typeVisitor: TypeVisitor =
-      TypeVisitor.fields.modify(field => field.copy(name = f.lift(field.name).getOrElse(field.name))) |+|
-        TypeVisitor.inputFields.modify(field => field.copy(name = f.lift(field.name).getOrElse(field.name)))
+      TypeVisitor.fields.modifyWith((t, field) =>
+        field.copy(name = f.lift((t.name.getOrElse(""), field.name)).getOrElse(field.name))
+      ) |+|
+        TypeVisitor.inputFields.modifyWith((t, field) =>
+          field.copy(name = f.lift((t.name.getOrElse(""), field.name)).getOrElse(field.name))
+        )
 
-    def transformStep[R]: PartialFunction[Step[R], Step[R]] = { case ObjectStep(name, fields) =>
-      ObjectStep(name, fields.map { case (name, step) => f.lift(name).getOrElse(name) -> step })
+    def transformStep[R](args: Map[String, InputValue]): PartialFunction[Step[R], Step[R]] = {
+      case ObjectStep(typeName, fields) =>
+        ObjectStep(
+          typeName,
+          fields.map { case (fieldName, step) => f.lift((typeName, fieldName)).getOrElse(fieldName) -> step }
+        )
     }
   }
-  case class FilterField(f: String => Boolean)               extends Transformer[Any] {
+  case class FilterField(f: (String, String) => Boolean)               extends Transformer[Any] {
     val typeVisitor: TypeVisitor =
-      TypeVisitor.fields.filter(field => f(field.name)) |+|
-        TypeVisitor.inputFields.filter(field => f(field.name))
+      TypeVisitor.fields.filterWith((t, field) => f(t.name.getOrElse(""), field.name)) |+|
+        TypeVisitor.inputFields.filterWith((t, field) => f(t.name.getOrElse(""), field.name))
 
-    def transformStep[R]: PartialFunction[Step[R], Step[R]] = { case ObjectStep(name, fields) =>
-      ObjectStep(name, fields.filter { case (name, _) => f(name) })
+    def transformStep[R](args: Map[String, InputValue]): PartialFunction[Step[R], Step[R]] = {
+      case ObjectStep(typeName, fields) =>
+        ObjectStep(typeName, fields.filter { case (fieldName, _) => f(typeName, fieldName) })
     }
   }
   case class Extend[R](
@@ -47,16 +57,17 @@ object Transformer {
     fieldName: String,
     fieldDefinition: __Field,
     extraFields: List[Field],
-    resolver: Map[String, InputValue] => Step[R]
+    resolver: (Map[String, InputValue], Map[String, InputValue]) => Step[R]
   ) extends Transformer[R] {
     val typeVisitor: TypeVisitor =
       TypeVisitor.fields.addWith(t =>
         if (t.name.contains(typeName)) List(fieldDefinition.copy(name = fieldName, args = Nil)) else Nil
       )
 
-    def transformStep[R1 <: R]: PartialFunction[Step[R1], Step[R1]] = { case ObjectStep(`typeName`, fields) =>
-      val pureFields = fields.collect { case (name, PureStep(value)) => name -> value.toInputValue }
-      ObjectStep[R1](typeName, fields + (fieldName -> resolver(pureFields)))
+    def transformStep[R1 <: R](args: Map[String, InputValue]): PartialFunction[Step[R1], Step[R1]] = {
+      case ObjectStep(`typeName`, fields) =>
+        val pureFields = fields.collect { case (name, PureStep(value)) => name -> value.toInputValue }
+        ObjectStep[R1](typeName, fields + (fieldName -> resolver(pureFields, args)))
     }
   }
 

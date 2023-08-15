@@ -2,7 +2,8 @@ package example.mesh
 
 import caliban.InputValue.{ ListValue, ObjectValue }
 import caliban.interop.tapir.HttpInterpreter
-import caliban.tools.{ Source, SttpClient }
+import caliban.tools.{ ArgumentMappings, Source, SttpClient }
+import caliban.transformers.Transformer
 import caliban.{ ResponseValue, ZHttpAdapter }
 import sttp.client3.httpclient.zio.HttpClientZioBackend
 import sttp.tapir.json.circe._
@@ -15,30 +16,31 @@ object Gateway extends ZIOAppDefault {
   val authors: Source[SttpClient] = Source.graphQL("http://localhost:8083/api/graphql")
 
   val gateway = stores
-//    .transform(Transformer.FilterField {
-//      case "bookSells" => false
-//      case _           => true
-//    })
+    .transform(Transformer.FilterField {
+      case ("Query", "bookSells") => false
+      case _                      => true
+    })
     .extend(
       stores,
       sourceFieldName = "bookSells",
       targetTypeName = "Store",
       targetFieldName = "bookSells",
-      argumentMapping = Map("id" -> ("storeId" -> _))
+      argumentMappings = ArgumentMappings(target = Map("id" -> ("storeId" -> _)))
     )
     .extend(
       books,
       sourceFieldName = "book",
       targetTypeName = "Sells",
       targetFieldName = "book",
-      argumentMapping = Map("bookId" -> ("id" -> _))
+      argumentMappings = ArgumentMappings(target = Map("bookId" -> ("id" -> _)))
     )
     .extend(
       authors,
       sourceFieldName = "authors_v1_AuthorsService_GetAuthors",
       targetTypeName = "Book",
       targetFieldName = "author",
-      argumentMapping = Map("authorId" -> (v => "input" -> ObjectValue(Map("ids" -> ListValue(List(v)))))),
+      argumentMappings =
+        ArgumentMappings(target = Map("authorId" -> (v => "input" -> ObjectValue(Map("ids" -> ListValue(List(v))))))),
       filterBatchedValues = (result, field) =>
         result.asListValue.fold(result)(list =>
           ResponseValue.ListValue(list.values.filter {
