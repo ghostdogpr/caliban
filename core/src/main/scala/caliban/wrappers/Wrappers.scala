@@ -100,15 +100,18 @@ object Wrappers {
   /**
    * Returns a wrapper that checks that the query's depth is under a given max
    * @param maxDepth the max allowed depth
+   * @param skipForIntrospection whether to skip validation for introspection queries
    */
-  def maxDepth(maxDepth: Int): ValidationWrapper[Any] =
+  def maxDepth(maxDepth: Int, skipForIntrospection: Boolean = false): ValidationWrapper[Any] =
     new ValidationWrapper[Any] {
       def wrap[R1 <: Any](
         process: Document => ZIO[R1, ValidationError, ExecutionRequest]
       ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
         (doc: Document) =>
           process(doc).tap { req =>
-            ZIO.unlessZIO(Configurator.configuration.map(_.skipValidation)) {
+            ZIO.unlessZIO(
+              Configurator.configuration.map(_.skipValidation || (skipForIntrospection && doc.isIntrospection))
+            ) {
               calculateDepth(req.field).flatMap { depth =>
                 ZIO.when(depth > maxDepth)(
                   ZIO.fail(ValidationError(s"Query is too deep: $depth. Max depth: $maxDepth.", ""))
@@ -132,15 +135,18 @@ object Wrappers {
   /**
    * Returns a wrapper that checks that the query has a limited number of fields
    * @param maxFields the max allowed number of fields
+   * @param skipForIntrospection whether to skip validation for introspection queries
    */
-  def maxFields(maxFields: Int): ValidationWrapper[Any] =
+  def maxFields(maxFields: Int, skipForIntrospection: Boolean = false): ValidationWrapper[Any] =
     new ValidationWrapper[Any] {
       def wrap[R1 <: Any](
         process: Document => ZIO[R1, ValidationError, ExecutionRequest]
       ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
         (doc: Document) =>
           process(doc).tap { req =>
-            ZIO.unlessZIO(Configurator.configuration.map(_.skipValidation)) {
+            ZIO.unlessZIO(
+              Configurator.configuration.map(_.skipValidation || (skipForIntrospection && doc.isIntrospection))
+            ) {
               countFields(req.field).flatMap { fields =>
                 ZIO.when(fields > maxFields)(
                   ZIO.fail(ValidationError(s"Query has too many fields: $fields. Max fields: $maxFields.", ""))
