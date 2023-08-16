@@ -5,7 +5,7 @@ import caliban.Value.NullValue
 import caliban.execution.{ ExecutionRequest, Field }
 import caliban.parsing.adt.Document
 import caliban.wrappers.Wrapper.{ OverallWrapper, ValidationWrapper }
-import caliban.{ CalibanError, Configurator, GraphQL, GraphQLRequest, GraphQLResponse }
+import caliban.{ CalibanError, Configurator, GraphQLRequest, GraphQLResponse }
 import zio.Console.{ printLine, printLineError }
 import zio._
 import zio.metrics.MetricKeyType.Histogram
