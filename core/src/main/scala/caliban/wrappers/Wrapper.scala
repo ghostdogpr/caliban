@@ -56,7 +56,23 @@ object Wrapper {
    * Wrapper for the query validation stage.
    * Wraps a function from a `Document` to a `ZIO[R, ValidationError, ExecutionRequest]`.
    */
-  trait ValidationWrapper[-R] extends SimpleWrapper[R, ValidationError, ExecutionRequest, Document]
+  trait ValidationWrapper[-R] extends SimpleWrapper[R, ValidationError, ExecutionRequest, Document] { self =>
+
+    final def skipForIntrospection: ValidationWrapper[R] = new ValidationWrapper[R] {
+      override val priority: Int = self.priority
+
+      override def apply[R1 <: R](that: GraphQL[R1]): GraphQL[R1] = self.apply(that)
+
+      override def |+|[R1 <: R](that: Wrapper[R1]): Wrapper[R1] = self |+| that
+
+      override def wrap[R1 <: R](
+        f: Document => ZIO[R1, ValidationError, ExecutionRequest]
+      ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
+        (doc: Document) =>
+          if (doc.isIntrospection) f(doc)
+          else self.wrap(f)(doc)
+    }
+  }
 
   /**
    * Wrapper for the query execution stage.

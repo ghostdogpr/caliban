@@ -5,7 +5,7 @@ import caliban.Value.NullValue
 import caliban.execution.{ ExecutionRequest, Field }
 import caliban.parsing.adt.Document
 import caliban.wrappers.Wrapper.{ OverallWrapper, ValidationWrapper }
-import caliban.{ CalibanError, Configurator, GraphQLRequest, GraphQLResponse }
+import caliban.{ CalibanError, Configurator, GraphQL, GraphQLRequest, GraphQLResponse }
 import zio.Console.{ printLine, printLineError }
 import zio._
 import zio.metrics.MetricKeyType.Histogram
@@ -99,26 +99,16 @@ object Wrappers {
 
   /**
    * Returns a wrapper that checks that the query's depth is under a given max
-   * @param maxDepth             the max allowed depth
+   * @param maxDepth the max allowed depth
    */
   def maxDepth(maxDepth: Int): ValidationWrapper[Any] =
-    this.maxDepth(maxDepth, skipForIntrospection = false)
-
-  /**
-   * Returns a wrapper that checks that the query's depth is under a given max
-   * @param maxDepth the max allowed depth
-   * @param skipForIntrospection whether to skip validation for introspection queries
-   */
-  def maxDepth(maxDepth: Int, skipForIntrospection: Boolean): ValidationWrapper[Any] =
     new ValidationWrapper[Any] {
       def wrap[R1 <: Any](
         process: Document => ZIO[R1, ValidationError, ExecutionRequest]
       ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
         (doc: Document) =>
           process(doc).tap { req =>
-            ZIO.unlessZIO(
-              Configurator.configuration.map(_.skipValidation || (skipForIntrospection && doc.isIntrospection))
-            ) {
+            ZIO.unlessZIO(Configurator.configuration.map(_.skipValidation)) {
               calculateDepth(req.field).flatMap { depth =>
                 ZIO.when(depth > maxDepth)(
                   ZIO.fail(ValidationError(s"Query is too deep: $depth. Max depth: $maxDepth.", ""))
@@ -141,26 +131,16 @@ object Wrappers {
 
   /**
    * Returns a wrapper that checks that the query has a limited number of fields
-   * @param maxFields            the max allowed number of fields
+   * @param maxFields the max allowed number of fields
    */
   def maxFields(maxFields: Int): ValidationWrapper[Any] =
-    this.maxFields(maxFields, skipForIntrospection = false)
-
-  /**
-   * Returns a wrapper that checks that the query has a limited number of fields
-   * @param maxFields the max allowed number of fields
-   * @param skipForIntrospection whether to skip validation for introspection queries
-   */
-  def maxFields(maxFields: Int, skipForIntrospection: Boolean): ValidationWrapper[Any] =
     new ValidationWrapper[Any] {
       def wrap[R1 <: Any](
         process: Document => ZIO[R1, ValidationError, ExecutionRequest]
       ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
         (doc: Document) =>
           process(doc).tap { req =>
-            ZIO.unlessZIO(
-              Configurator.configuration.map(_.skipValidation || (skipForIntrospection && doc.isIntrospection))
-            ) {
+            ZIO.unlessZIO(Configurator.configuration.map(_.skipValidation)) {
               countFields(req.field).flatMap { fields =>
                 ZIO.when(fields > maxFields)(
                   ZIO.fail(ValidationError(s"Query has too many fields: $fields. Max fields: $maxFields.", ""))
