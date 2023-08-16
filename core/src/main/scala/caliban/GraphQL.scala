@@ -8,6 +8,7 @@ import caliban.introspection.adt._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.SchemaDefinition
 import caliban.parsing.adt.{ Directive, Document, OperationType }
 import caliban.parsing.{ Parser, SourceMapper, VariablesCoercer }
+import caliban.rendering.DocumentRenderer
 import caliban.schema._
 import caliban.validation.Validator
 import caliban.wrappers.Wrapper
@@ -33,32 +34,7 @@ trait GraphQL[-R] { self =>
   /**
    * Returns a string that renders the API types into the GraphQL SDL.
    */
-  final def render: String = {
-    val parts             = Seq(
-      schemaBuilder.query.flatMap(_.opType.name).map(n => s"  query: $n"),
-      schemaBuilder.mutation.flatMap(_.opType.name).map(n => s"  mutation: $n"),
-      schemaBuilder.subscription.flatMap(_.opType.name).map(n => s"  subscription: $n")
-    )
-    val schemaDirectives  = renderSchemaDirectives(schemaBuilder.schemaDirectives)
-    val schemaDescription = renderDescription(schemaBuilder.schemaDescription, newline = true)
-    val flattenedParts    = parts.flatten.mkString("\n")
-    val schema            = (flattenedParts, schemaDirectives) match {
-      case ("", "")                      => ""
-      case ("", schemaDirectives)        => s"extend schema $schemaDirectives"
-      case (something, schemaDirectives) => s"""${schemaDescription}schema $schemaDirectives{
-                                               |$something
-                                               |}""".stripMargin
-    }
-
-    val directivesPrefix = renderDirectives(additionalDirectives) match {
-      case ""           => ""
-      case directiveStr => directiveStr + "\n\n"
-    }
-
-    s"""$directivesPrefix$schema
-       |
-       |${renderTypes(schemaBuilder.types)}""".stripMargin
-  }
+  final def render: String = DocumentRenderer.render(toDocument)
 
   /**
    * Converts the schema to a Document.

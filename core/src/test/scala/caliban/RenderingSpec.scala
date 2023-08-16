@@ -12,6 +12,7 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{
   InputValueDefinition
 }
 import caliban.parsing.adt.{ Definition, Directive }
+import caliban.rendering.DocumentRenderer
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import zio.IO
@@ -55,7 +56,7 @@ object RenderingSpec extends ZIOSpecDefault {
   def checkApi[R](api: GraphQL[R]): IO[ParsingError, TestResult] = {
     val definitions = fixDefinitions(api.toDocument.definitions.filter {
       case d: Definition.TypeSystemDefinition.TypeDefinition.ScalarTypeDefinition =>
-        !Rendering.isBuiltinScalar(d.name)
+        !DocumentRenderer.isBuiltinScalar(d.name)
       case _                                                                      => true
     })
 
