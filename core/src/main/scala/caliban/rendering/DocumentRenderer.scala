@@ -249,9 +249,7 @@ object DocumentRenderer extends Renderer[Document] {
               renderOp("query", query)
               renderOp("mutation", mutation)
               renderOp("subscription", subscription)
-              write ++= "\n}\n"
-            } else {
-              write += '\n'
+              write ++= "\n}"
             }
           }
       }
@@ -423,6 +421,7 @@ object DocumentRenderer extends Renderer[Document] {
     writer: StringBuilder
   ): Unit = {
     writer += '\n'
+    writer += '\n'
     unsafeRenderDescription(description, None, writer)
     writer ++= variant
     writer += ' '
@@ -445,7 +444,6 @@ object DocumentRenderer extends Renderer[Document] {
       writer += '\n'
       writer += '}'
     }
-    writer += '\n'
   }
 
   private lazy val directiveRenderer: Renderer[Directive] = new Renderer[Directive] {
@@ -542,7 +540,10 @@ object DocumentRenderer extends Renderer[Document] {
       var first = true
       definitions.foreach { definition =>
         if (first) first = false
-        else builder += ','
+        else {
+          builder += ','
+          builder += ' '
+        }
         inlineInputValueDefinitionRenderer.unsafeRender(definition, None, builder)
       }
       builder += ')'
