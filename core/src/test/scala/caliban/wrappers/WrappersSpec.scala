@@ -414,6 +414,15 @@ object WrappersSpec extends ZIOSpecDefault {
         interpreter.flatMap(_.execute(query)).map { response =>
           assertTrue(response.data.toString == """true""")
         }
+      },
+      test("skipping validation wrappers for introspection") {
+        case class Test(test: String)
+        val gql = graphQL(RootResolver(Test("ok")))
+
+        for {
+          interpreter <- (gql @@ (maxFields(5).skipForIntrospection |+| maxDepth(1).skipForIntrospection)).interpreter
+          result      <- interpreter.executeRequest(GraphQLRequest(query = Some(TestUtils.introspectionQuery)))
+        } yield assertTrue(result.asJson.hcursor.downField("errors").failed)
       }
     )
 }
