@@ -58,12 +58,11 @@ object Wrapper {
    */
   trait ValidationWrapper[-R] extends SimpleWrapper[R, ValidationError, ExecutionRequest, Document] { self =>
 
+    /**
+     * Returns a new wrapper which skips the [[wrap]] function if the query is an introspection query.
+     */
     final def skipForIntrospection: ValidationWrapper[R] = new ValidationWrapper[R] {
       override val priority: Int = self.priority
-
-      override def apply[R1 <: R](that: GraphQL[R1]): GraphQL[R1] = self.apply(that)
-
-      override def |+|[R1 <: R](that: Wrapper[R1]): Wrapper[R1] = self |+| that
 
       override def wrap[R1 <: R](
         f: Document => ZIO[R1, ValidationError, ExecutionRequest]
