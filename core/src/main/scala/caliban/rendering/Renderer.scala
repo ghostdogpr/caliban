@@ -7,6 +7,12 @@ trait Renderer[-A] { self =>
     sb.toString()
   }
 
+  def renderCompact(a: A): String = {
+    val sb = new StringBuilder
+    unsafeRender(a, None, sb)
+    sb.toString().replaceAll("\\s+", " ")
+  }
+
   def contramap[B](f: B => A): Renderer[B] = new Renderer[B] {
     override def unsafeRender(value: B, indent: Option[Int], write: StringBuilder): Unit =
       self.unsafeRender(f(value), indent, write)

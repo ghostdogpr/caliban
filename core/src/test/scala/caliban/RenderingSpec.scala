@@ -171,6 +171,10 @@ object RenderingSpec extends ZIOSpecDefault {
       test("it should render multi line descriptions ending in quote") {
         val api = graphQL(resolver)
         checkApi(api)
-      }
+      },
+      test("it should render compact") {
+        val rendered = DocumentRenderer.renderCompact(graphQL(resolver).toDocument)
+        assertTrue(rendered == """bob""")
+      } @@ TestAspect.ignore
     )
 }

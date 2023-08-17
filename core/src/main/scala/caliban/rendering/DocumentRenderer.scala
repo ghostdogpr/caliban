@@ -22,7 +22,13 @@ import scala.annotation.switch
 object DocumentRenderer extends Renderer[Document] {
   override def render(document: Document): String = {
     val builder = new StringBuilder(64)
-    documentRenderer.unsafeRender(document, None, builder)
+    unsafeRender(document, Some(0), builder)
+    builder.toString()
+  }
+
+  override def renderCompact(document: Document): String = {
+    val builder = new StringBuilder
+    unsafeRender(document, None, builder)
     builder.toString()
   }
 
@@ -102,15 +108,15 @@ object DocumentRenderer extends Renderer[Document] {
       override def unsafeRender(definition: OperationDefinition, indent: Option[Int], writer: StringBuilder): Unit =
         definition match {
           case OperationDefinition(operationType, name, variableDefinitions, directives, selectionSet) =>
-            writer += '\n'
+            newlineOrSpace(indent, writer)
             operationTypeRenderer.unsafeRender(operationType, indent, writer)
             name.foreach { n =>
               writer += ' '
               writer ++= n
             }
-            variableDefinitionsRenderer.unsafeRender(variableDefinitions, None, writer)
-            directivesRenderer.unsafeRender(directives, None, writer)
-            selectionRenderer.unsafeRender(selectionSet, Some(0), writer)
+            variableDefinitionsRenderer.unsafeRender(variableDefinitions, indent, writer)
+            directivesRenderer.unsafeRender(directives, indent, writer)
+            selectionRenderer.unsafeRender(selectionSet, indent, writer)
         }
     }
 
@@ -127,10 +133,13 @@ object DocumentRenderer extends Renderer[Document] {
     override def unsafeRender(definition: VariableDefinition, indent: Option[Int], builder: StringBuilder): Unit = {
       builder += '$'
       builder ++= definition.name
-      builder ++= ": "
+      builder += ':'
+      space(indent, builder)
       builder ++= definition.variableType.toString
       definition.defaultValue.foreach { value =>
-        builder ++= " = "
+        space(indent, builder)
+        builder += '='
+        space(indent, builder)
         builder ++= value.toInputString
       }
     }
@@ -150,10 +159,10 @@ object DocumentRenderer extends Renderer[Document] {
 
   private[caliban] lazy val selectionRenderer: Renderer[List[Selection]] = new Renderer[List[Selection]] {
     override def unsafeRender(selections: List[Selection], indent: Option[Int], builder: StringBuilder): Unit = {
-      builder += ' '
+      space(indent, builder)
       builder += '{'
       selections.foreach(loop(_, increment(indent), builder))
-      builder += '\n'
+      newline(indent, builder)
       pad(indent, builder)
       builder += '}'
 
@@ -171,35 +180,35 @@ object DocumentRenderer extends Renderer[Document] {
           }
           builder ++= name
           inputArgumentsRenderer.unsafeRender(arguments, indent, builder)
-          directivesRenderer.unsafeRender(directives, None, builder)
+          directivesRenderer.unsafeRender(directives, indent, builder)
           if (selectionSet.nonEmpty) {
-            builder += ' '
+            space(indent, builder)
             builder += '{'
             selectionSet.foreach(loop(_, increment(indent), builder))
-            builder += '\n'
+            newline(indent, builder)
             pad(indent, builder)
             builder += '}'
           }
         case Selection.FragmentSpread(name, directives)                           =>
-          builder += '\n'
+          newlineOrSpace(indent, builder)
           pad(indent, builder)
           builder ++= "..."
           builder ++= name
-          directivesRenderer.unsafeRender(directives, None, builder)
+          directivesRenderer.unsafeRender(directives, indent, builder)
         case Selection.InlineFragment(typeCondition, dirs, selectionSet)          =>
-          builder += '\n'
+          newlineOrSpace(indent, builder)
           pad(indent, builder)
           builder ++= "..."
           typeCondition.foreach { t =>
             builder ++= " on "
             builder ++= t.name
           }
-          directivesRenderer.unsafeRender(dirs, None, builder)
+          directivesRenderer.unsafeRender(dirs, indent, builder)
           if (selectionSet.nonEmpty) {
-            builder += ' '
+            space(indent, builder)
             builder += '{'
             selectionSet.foreach(loop(_, increment(indent), builder))
-            builder += '\n'
+            newline(indent, builder)
             pad(indent, builder)
             builder += '}'
           }
@@ -213,9 +222,13 @@ object DocumentRenderer extends Renderer[Document] {
         var first = true
         arguments.foreach { case (name, value) =>
           if (first) first = false
-          else builder ++= ", "
+          else {
+            builder += ','
+            space(indent, builder)
+          }
           builder ++= name
-          builder ++= ": "
+          builder += ':'
+          space(indent, builder)
           builder ++= value.toInputString
         }
         builder += ')'
@@ -228,14 +241,18 @@ object DocumentRenderer extends Renderer[Document] {
         case SchemaDefinition(directives, query, mutation, subscription, description) =>
           val hasTypes    = query.nonEmpty || mutation.nonEmpty || subscription.nonEmpty
           val isExtension = directives.nonEmpty && !hasTypes
+          var first       = true
 
           def renderOp(name: String, op: Option[String]): Unit =
             op.foreach { o =>
-              write += '\n'
-              pad(Some(1), write)
+              if (first) {
+                newline(indent, write)
+                first = false
+              } else newlineOrComma(indent, write)
+              pad(increment(indent), write)
               write ++= name
               write += ':'
-              write += ' '
+              space(indent, write)
               write ++= o
             }
 
@@ -243,13 +260,15 @@ object DocumentRenderer extends Renderer[Document] {
           if (isExtension) write ++= "extend "
           if (isExtension || hasTypes) {
             write ++= "schema"
-            directivesRenderer.unsafeRender(directives, None, write)
+            directivesRenderer.unsafeRender(directives, indent, write)
             if (hasTypes) {
-              write ++= " {"
+              space(indent, write)
+              write += '{'
               renderOp("query", query)
               renderOp("mutation", mutation)
               renderOp("subscription", subscription)
-              write ++= "\n}"
+              newline(indent, write)
+              write += '}'
             }
           }
       }
@@ -280,13 +299,13 @@ object DocumentRenderer extends Renderer[Document] {
     override def unsafeRender(value: FragmentDefinition, indent: Option[Int], write: StringBuilder): Unit =
       value match {
         case FragmentDefinition(name, typeCondition, directives, selectionSet) =>
-          write += '\n'
+          newlineOrSpace(indent, write)
           write ++= "fragment "
           write ++= name
           write ++= " on "
           write ++= typeCondition.name
-          directivesRenderer.unsafeRender(directives, None, write)
-          selectionRenderer.unsafeRender(selectionSet, Some(0), write)
+          directivesRenderer.unsafeRender(directives, indent, write)
+          selectionRenderer.unsafeRender(selectionSet, indent, write)
       }
   }
 
@@ -294,16 +313,22 @@ object DocumentRenderer extends Renderer[Document] {
     override def unsafeRender(value: UnionTypeDefinition, indent: Option[Int], write: StringBuilder): Unit =
       value match {
         case UnionTypeDefinition(description, name, directives, members) =>
-          write += '\n'
-          unsafeRenderDescription(description, None, write)
+          newlineOrSpace(indent, write)
+          unsafeRenderDescription(description, indent, write)
           write ++= "union "
           write ++= name
-          directivesRenderer.unsafeRender(directives, None, write)
-          write ++= " = "
+          directivesRenderer.unsafeRender(directives, indent, write)
+          space(indent, write)
+          write += '='
+          space(indent, write)
           var first = true
           members.foreach { member =>
             if (first) first = false
-            else write ++= " | "
+            else {
+              space(indent, write)
+              write += '|'
+              space(indent, write)
+            }
             write ++= member
           }
       }
@@ -314,11 +339,11 @@ object DocumentRenderer extends Renderer[Document] {
       value match {
         case ScalarTypeDefinition(description, name, directives) =>
           if (!isBuiltinScalar(name)) {
-            write += '\n'
-            unsafeRenderDescription(description, None, write)
+            newlineOrSpace(indent, write)
+            unsafeRenderDescription(description, indent, write)
             write ++= "scalar "
             write ++= name
-            directivesRenderer.unsafeRender(directives, None, write)
+            directivesRenderer.unsafeRender(directives, indent, write)
           }
       }
   }
@@ -327,14 +352,14 @@ object DocumentRenderer extends Renderer[Document] {
     override def unsafeRender(value: EnumTypeDefinition, indent: Option[Int], write: StringBuilder): Unit =
       value match {
         case EnumTypeDefinition(description, name, directives, values) =>
-          write += '\n'
-          unsafeRenderDescription(description, None, write)
+          newlineOrSpace(indent, write)
+          unsafeRenderDescription(description, indent, write)
           write ++= "enum "
           write ++= name
-          directivesRenderer.unsafeRender(directives, None, write)
-          write += ' '
+          directivesRenderer.unsafeRender(directives, indent, write)
+          space(indent, write)
           write += '{'
-          values.foreach(enumValueDefinitionRenderer.unsafeRender(_, Some(1), write))
+          values.foreach(enumValueDefinitionRenderer.unsafeRender(_, increment(indent), write))
           write += '}'
       }
   }
@@ -344,10 +369,10 @@ object DocumentRenderer extends Renderer[Document] {
       override def unsafeRender(value: EnumValueDefinition, indent: Option[Int], write: StringBuilder): Unit =
         value match {
           case EnumValueDefinition(description, name, directives) =>
-            write += '\n'
+            newlineOrComma(indent, write)
             unsafeRenderDescription(description, indent, write)
             write ++= name
-            directivesRenderer.unsafeRender(directives, None, write)
+            directivesRenderer.unsafeRender(directives, indent, write)
         }
     }
 
@@ -356,17 +381,17 @@ object DocumentRenderer extends Renderer[Document] {
       override def unsafeRender(value: InputObjectTypeDefinition, indent: Option[Int], write: StringBuilder): Unit =
         value match {
           case InputObjectTypeDefinition(description, name, directives, fields) =>
-            write += '\n'
-            unsafeRenderDescription(description, None, write)
+            newlineOrSpace(indent, write)
+            unsafeRenderDescription(description, indent, write)
             write ++= "input "
             write ++= name
-            directivesRenderer.unsafeRender(directives, None, write)
-            write += ' '
+            directivesRenderer.unsafeRender(directives, indent, write)
+            space(indent, write)
             write += '{'
-            fields.foreach(inputValueDefinitionRenderer.unsafeRender(_, Some(1), write))
-            write += '\n'
+            fields.foreach(inputValueDefinitionRenderer.unsafeRender(_, increment(indent), write))
+            newline(indent, write)
             write += '}'
-            write += '\n'
+            newline(indent, write)
         }
     }
 
@@ -379,17 +404,20 @@ object DocumentRenderer extends Renderer[Document] {
       ): Unit =
         definition match {
           case InputValueDefinition(description, name, valueType, defaultValue, directives) =>
-            builder += '\n'
+            newlineOrSpace(indent, builder)
             unsafeRenderDescription(description, indent, builder)
             pad(indent, builder)
             builder ++= name
-            builder ++= ": "
+            builder += ':'
+            space(indent, builder)
             builder ++= valueType.toString
             defaultValue.foreach { value =>
-              builder ++= " = "
+              space(indent, builder)
+              builder += '='
+              space(indent, builder)
               builder ++= value.toInputString
             }
-            directivesRenderer.unsafeRender(directives, None, builder)
+            directivesRenderer.unsafeRender(directives, indent, builder)
         }
     }
 
@@ -398,7 +426,7 @@ object DocumentRenderer extends Renderer[Document] {
       override def unsafeRender(value: ObjectTypeDefinition, indent: Option[Int], write: StringBuilder): Unit =
         value match {
           case ObjectTypeDefinition(description, name, interfaces, directives, fields) =>
-            unsafeRenderObjectLike("type", description, name, interfaces, directives, fields, write)
+            unsafeRenderObjectLike("type", description, name, interfaces, directives, fields, indent, write)
         }
     }
 
@@ -407,7 +435,7 @@ object DocumentRenderer extends Renderer[Document] {
       override def unsafeRender(value: InterfaceTypeDefinition, indent: Option[Int], write: StringBuilder): Unit =
         value match {
           case InterfaceTypeDefinition(description, name, implements, directives, fields) =>
-            unsafeRenderObjectLike("interface", description, name, implements, directives, fields, write)
+            unsafeRenderObjectLike("interface", description, name, implements, directives, fields, indent, write)
         }
     }
 
@@ -418,10 +446,11 @@ object DocumentRenderer extends Renderer[Document] {
     implements: List[NamedType],
     directives: List[Directive],
     fields: List[FieldDefinition],
+    indent: Option[Int],
     writer: StringBuilder
   ): Unit = {
-    writer += '\n'
-    writer += '\n'
+    newline(indent, writer)
+    newline(indent, writer)
     unsafeRenderDescription(description, None, writer)
     writer ++= variant
     writer += ' '
@@ -436,19 +465,20 @@ object DocumentRenderer extends Renderer[Document] {
           writer ++= innerType(impl)
         }
     }
-    directivesRenderer.unsafeRender(directives, None, writer)
+    directivesRenderer.unsafeRender(directives, indent, writer)
     if (fields.nonEmpty) {
-      writer += ' '
+      space(indent, writer)
       writer += '{'
-      fields.foreach(fieldDefinitionRenderer.unsafeRender(_, Some(1), writer))
-      writer += '\n'
+      fields.foreach(fieldDefinitionRenderer.unsafeRender(_, increment(indent), writer))
+      newline(indent, writer)
       writer += '}'
     }
   }
 
   private lazy val directiveRenderer: Renderer[Directive] = new Renderer[Directive] {
     override def unsafeRender(d: Directive, indent: Option[Int], writer: StringBuilder): Unit = {
-      writer ++= " @"
+      space(indent, writer)
+      writer += '@'
       writer ++= d.name
       var first = true
       if (d.arguments.nonEmpty) {
@@ -456,13 +486,16 @@ object DocumentRenderer extends Renderer[Document] {
         d.arguments.foreach { case (name, value) =>
           if (first) {
             writer ++= name
-            writer ++= ": "
+            writer += ':'
+            space(indent, writer)
             writer ++= value.toInputString
             first = false
           } else {
-            writer ++= ", "
+            writer += ','
+            space(indent, writer)
             writer ++= name
-            writer ++= ": "
+            writer += ':'
+            space(indent, writer)
             writer ++= value.toInputString
           }
         }
@@ -478,40 +511,35 @@ object DocumentRenderer extends Renderer[Document] {
   private def unsafeRenderDescription(
     description: Option[String],
     indent: Option[Int],
-    writer: StringBuilder,
-    newline: Boolean = true
+    writer: StringBuilder
   ): Unit = {
     val tripleQuote = "\"\"\""
-
-    def nlOrSp() = if (newline) writer += '\n' else writer += ' '
-
-    def nlOrNot() = if (newline) writer += '\n' else writer
 
     description.foreach {
       case value if value.contains('\n') =>
         def valueEscaped() = unsafeFastEscapeQuote(value, writer)
-        // check if it ends in quote but it is already escaped
         writer ++= tripleQuote
+        // check if it ends in quote but it is already escaped
         if (value.endsWith("\\\"")) {
-          nlOrNot()
+          newline(indent, writer)
           valueEscaped()
-          nlOrNot()
+          newline(indent, writer)
         } else if (value.last == '"') {
-          nlOrNot()
+          newline(indent, writer)
           valueEscaped()
-          nlOrSp()
+          newlineOrSpace(indent, writer)
           // check if it ends in quote. We need to break the sequence of 4 or more '"'
         } else {
           // ok. No quotes at the end of value
-          nlOrNot()
+          newline(indent, writer)
           valueEscaped()
-          nlOrNot()
+          newline(indent, writer)
         }
         writer ++= tripleQuote
       case value                         =>
-        if (newline) pad(indent, writer)
+        pad(indent, writer)
         unsafeFastEscape(value, writer)
-        nlOrSp()
+        newlineOrSpace(indent, writer)
     }
   }
 
@@ -519,12 +547,13 @@ object DocumentRenderer extends Renderer[Document] {
     override def unsafeRender(definition: FieldDefinition, indent: Option[Int], builder: StringBuilder): Unit =
       definition match {
         case FieldDefinition(description, name, arguments, tpe, directives) =>
-          builder += '\n'
+          newlineOrSpace(indent, builder)
           unsafeRenderDescription(description, indent, builder)
           pad(indent, builder)
           builder ++= name
-          unsafeRenderArguments(arguments, builder)
-          builder ++= ": "
+          unsafeRenderArguments(arguments, indent, builder)
+          builder += ':'
+          space(indent, builder)
           builder ++= tpe.toString
 
           directivesRenderer.unsafeRender(directives, None, builder)
@@ -534,7 +563,11 @@ object DocumentRenderer extends Renderer[Document] {
   private[caliban] def isBuiltinScalar(name: String): Boolean =
     name == "Int" || name == "Float" || name == "String" || name == "Boolean" || name == "ID"
 
-  private def unsafeRenderArguments(definitions: List[InputValueDefinition], builder: StringBuilder): Unit =
+  private def unsafeRenderArguments(
+    definitions: List[InputValueDefinition],
+    indent: Option[Int],
+    builder: StringBuilder
+  ): Unit =
     if (definitions.nonEmpty) {
       builder += '('
       var first = true
@@ -542,9 +575,9 @@ object DocumentRenderer extends Renderer[Document] {
         if (first) first = false
         else {
           builder += ','
-          builder += ' '
+          space(indent, builder)
         }
-        inlineInputValueDefinitionRenderer.unsafeRender(definition, None, builder)
+        inlineInputValueDefinitionRenderer.unsafeRender(definition, indent, builder)
       }
       builder += ')'
     }
@@ -554,12 +587,15 @@ object DocumentRenderer extends Renderer[Document] {
       override def unsafeRender(definition: InputValueDefinition, indent: Option[Int], builder: StringBuilder): Unit =
         definition match {
           case InputValueDefinition(description, name, tpe, defaultValue, directives) =>
-            unsafeRenderDescription(description, None, builder, newline = false)
+            unsafeRenderDescription(description, None, builder)
             builder ++= name
-            builder ++= ": "
+            builder += ':'
+            space(indent, builder)
             builder ++= tpe.toString
             defaultValue.foreach { value =>
-              builder ++= " = "
+              space(indent, builder)
+              builder += '='
+              space(indent, builder)
               builder ++= value.toInputString
             }
             directivesRenderer.unsafeRender(directives, None, builder)
@@ -573,6 +609,18 @@ object DocumentRenderer extends Renderer[Document] {
       i -= 1
     }
   }
+
+  private def space(indentation: Option[Int], writer: StringBuilder): Unit =
+    if (indentation.isDefined) writer += ' '
+
+  private def newline(indent: Option[Int], writer: StringBuilder): Unit =
+    if (indent.isDefined) writer += '\n'
+
+  private def newlineOrSpace(indent: Option[Int], writer: StringBuilder): Unit =
+    if (indent.isDefined) writer += '\n' else writer += ' '
+
+  private def newlineOrComma(indentation: Option[Int], writer: StringBuilder): Unit =
+    if (indentation.isDefined) writer += '\n' else writer += ','
 
   private def increment(indentation: Option[Int]): Option[Int] = indentation.map(_ + 1)
 
@@ -609,20 +657,16 @@ object DocumentRenderer extends Renderer[Document] {
     while (i < value.length) {
       (value.charAt(i): @switch) match {
         case '"' =>
+          quotes += 1
           // We have encountered a triple quote sequence
-          if (quotes == 2) {
+          if (quotes == 3) {
             builder.append("\\")
-            builder.append('"').append('"').append('"')
-            builder.clear()
-            quotes = 0
-          } else {
-            quotes += 1
+            padQuotes()
           }
         case c   =>
           // We have encountered a non-quote character before reaching the end of the triple sequence
           if (quotes > 0) {
             padQuotes()
-            builder.clear()
           }
           builder.append(c)
       }
