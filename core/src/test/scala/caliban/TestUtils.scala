@@ -591,7 +591,7 @@ object TestUtils {
   }
 
   val introspectionQuery =
-      """
+    """
       query IntrospectionQuery {
         __schema {
           queryType { name }
