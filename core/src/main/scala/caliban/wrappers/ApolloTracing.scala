@@ -9,7 +9,7 @@ import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.parsing.adt.Document
 import caliban.rendering.DocumentRenderer
 import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper, ParsingWrapper, ValidationWrapper }
-import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, Rendering, ResponseValue }
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
 import zio._
 import zio.query.ZQuery
 
