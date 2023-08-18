@@ -7,6 +7,7 @@ import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ IntValue, StringValue }
 import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.parsing.adt.Document
+import caliban.rendering.DocumentRenderer
 import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper, ParsingWrapper, ValidationWrapper }
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, Rendering, ResponseValue }
 import zio._
@@ -182,9 +183,9 @@ object ApolloTracing {
                                            execution = state.execution.copy(
                                              resolvers = Resolver(
                                                path = fieldInfo.path,
-                                               parentType = fieldInfo.details.parentType.fold("")(Rendering.renderTypeName),
+                                               parentType = fieldInfo.details.parentType.fold("")(DocumentRenderer.renderTypeName),
                                                fieldName = fieldInfo.name,
-                                               returnType = Rendering.renderTypeName(fieldInfo.details.fieldType),
+                                               returnType = DocumentRenderer.renderTypeName(fieldInfo.details.fieldType),
                                                startOffset = start - state.startTimeMonotonic,
                                                duration = duration
                                              ) :: state.execution.resolvers

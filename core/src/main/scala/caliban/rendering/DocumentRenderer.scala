@@ -1,7 +1,7 @@
 package caliban.rendering
 
 import caliban.InputValue
-import caliban.introspection.adt.{ __DirectiveLocation, __Type }
+import caliban.introspection.adt.{ __Type, __TypeKind }
 import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.Definition.TypeSystemDefinition.DirectiveLocation.{
   ExecutableDirectiveLocation,
@@ -32,6 +32,12 @@ object DocumentRenderer extends Renderer[Document] {
     builder.toString()
   }
 
+  def renderTypeName(t: __Type): String = {
+    val builder = new StringBuilder(16)
+    __typeNameRenderer.unsafeRender(t, None, builder)
+    builder.toString()
+  }
+
   private implicit val typeOrdering: Ordering[TypeDefinition] = Ordering.by {
     case TypeDefinition.ScalarTypeDefinition(_, name, _)          => (0, name)
     case TypeDefinition.UnionTypeDefinition(_, name, _, _)        => (1, name)
@@ -51,6 +57,29 @@ object DocumentRenderer extends Renderer[Document] {
     typeDefinitionsRenderer.contramap(_.typeDefinitions),
     fragmentRenderer.list.contramap(_.fragmentDefinitions)
   )
+
+  private[caliban] lazy val __typeNameRenderer: Renderer[__Type] = new Renderer[__Type] {
+    override def unsafeRender(value: __Type, indent: Option[Int], write: StringBuilder): Unit = {
+      def loop(t: __Type): Unit =
+        t.ofType.fold {
+          write ++= "null"
+        } { inner =>
+          t.kind match {
+            case __TypeKind.NON_NULL =>
+              loop(inner)
+              write += '!'
+            case __TypeKind.LIST     =>
+              write += '['
+              loop(inner)
+              write += ']'
+            case _                   =>
+              write ++= t.name.getOrElse("null")
+          }
+        }
+
+      loop(value)
+    }
+  }
 
   private lazy val directiveDefinitionRenderer: Renderer[DirectiveDefinition] =
     new Renderer[DirectiveDefinition] {
@@ -140,7 +169,7 @@ object DocumentRenderer extends Renderer[Document] {
         space(indent, builder)
         builder += '='
         space(indent, builder)
-        builder ++= value.toInputString
+        ValueRenderer.inputValueRenderer.unsafeRender(value, indent, builder)
       }
     }
   }
@@ -229,7 +258,7 @@ object DocumentRenderer extends Renderer[Document] {
           builder ++= name
           builder += ':'
           space(indent, builder)
-          builder ++= value.toInputString
+          ValueRenderer.inputValueRenderer.unsafeRender(value, indent, builder)
         }
         builder += ')'
       }
@@ -274,7 +303,7 @@ object DocumentRenderer extends Renderer[Document] {
       }
   }
 
-  private[caliban] def typeDefinitionsRenderer: Renderer[List[TypeDefinition]] =
+  private[caliban] lazy val typeDefinitionsRenderer: Renderer[List[TypeDefinition]] =
     typeDefinitionRenderer.list.contramap(_.sorted)
 
   private[caliban] lazy val typeDefinitionRenderer: Renderer[TypeDefinition] = new Renderer[TypeDefinition] {
@@ -415,7 +444,7 @@ object DocumentRenderer extends Renderer[Document] {
               space(indent, builder)
               builder += '='
               space(indent, builder)
-              builder ++= value.toInputString
+              ValueRenderer.inputValueRenderer.unsafeRender(value, indent, builder)
             }
             directivesRenderer.unsafeRender(directives, indent, builder)
         }
@@ -451,7 +480,7 @@ object DocumentRenderer extends Renderer[Document] {
   ): Unit = {
     newline(indent, writer)
     newline(indent, writer)
-    unsafeRenderDescription(description, None, writer)
+    unsafeRenderDescription(description, indent, writer)
     writer ++= variant
     writer += ' '
     writer ++= name
@@ -477,7 +506,7 @@ object DocumentRenderer extends Renderer[Document] {
 
   private lazy val directiveRenderer: Renderer[Directive] = new Renderer[Directive] {
     override def unsafeRender(d: Directive, indent: Option[Int], writer: StringBuilder): Unit = {
-      space(indent, writer)
+      writer += ' '
       writer += '@'
       writer ++= d.name
       var first = true
@@ -485,19 +514,15 @@ object DocumentRenderer extends Renderer[Document] {
         writer += '('
         d.arguments.foreach { case (name, value) =>
           if (first) {
-            writer ++= name
-            writer += ':'
-            space(indent, writer)
-            writer ++= value.toInputString
             first = false
           } else {
             writer += ','
             space(indent, writer)
-            writer ++= name
-            writer += ':'
-            space(indent, writer)
-            writer ++= value.toInputString
           }
+          writer ++= name
+          writer += ':'
+          space(indent, writer)
+          ValueRenderer.inputValueRenderer.unsafeRender(value, indent, writer)
         }
         writer += ')'
       }
@@ -536,6 +561,7 @@ object DocumentRenderer extends Renderer[Document] {
           newline(indent, writer)
         }
         writer ++= tripleQuote
+        newlineOrSpace(indent, writer)
       case value                         =>
         pad(indent, writer)
         unsafeFastEscape(value, writer)
@@ -554,10 +580,26 @@ object DocumentRenderer extends Renderer[Document] {
           unsafeRenderArguments(arguments, indent, builder)
           builder += ':'
           space(indent, builder)
-          builder ++= tpe.toString
+          typeRenderer.unsafeRender(tpe, indent, builder)
 
           directivesRenderer.unsafeRender(directives, None, builder)
       }
+  }
+
+  private[caliban] lazy val typeRenderer: Renderer[Type] = new Renderer[Type] {
+    override def unsafeRender(value: Type, indent: Option[Int], write: StringBuilder): Unit = {
+      def loop(t: Type): Unit = t match {
+        case Type.NamedType(name, nonNull)  =>
+          write ++= name
+          if (nonNull) write += '!'
+        case Type.ListType(ofType, nonNull) =>
+          write += '['
+          loop(ofType)
+          write += ']'
+          if (nonNull) write += '!'
+      }
+      loop(value)
+    }
   }
 
   private[caliban] def isBuiltinScalar(name: String): Boolean =
@@ -591,12 +633,12 @@ object DocumentRenderer extends Renderer[Document] {
             builder ++= name
             builder += ':'
             space(indent, builder)
-            builder ++= tpe.toString
+            typeRenderer.unsafeRender(tpe, indent, builder)
             defaultValue.foreach { value =>
               space(indent, builder)
               builder += '='
               space(indent, builder)
-              builder ++= value.toInputString
+              ValueRenderer.inputValueRenderer.unsafeRender(value, indent, builder)
             }
             directivesRenderer.unsafeRender(directives, None, builder)
         }

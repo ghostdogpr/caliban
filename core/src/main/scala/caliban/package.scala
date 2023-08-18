@@ -1,4 +1,3 @@
-import caliban.Rendering.renderTypes
 import caliban.introspection.adt.__Directive
 import caliban.parsing.adt.Directive
 import caliban.rendering.DocumentRenderer

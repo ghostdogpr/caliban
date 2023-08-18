@@ -37,25 +37,6 @@ object RemoteQuery {
       DocumentRenderer.render(toDocument(OperationType.Mutation, r.field))
     def render(r: RemoteQuery): String    =
       DocumentRenderer.render(toDocument(OperationType.Query, r.field))
-
-    private def renderField(field: Field): String = {
-      val children = renderFields(field)
-      val args     = renderArguments(field.arguments)
-      val alias    = field.alias.map(a => s"$a: ").getOrElse("")
-      val str      = s"$alias${field.name}$args$children"
-
-      field.targets
-        .map(typeConditions => typeConditions.map(condition => s"...on $condition { $str }").mkString("\n"))
-        .getOrElse(str)
-    }
-
-    private def renderFields(f: Field): String =
-      if (f.fields.isEmpty) ""
-      else
-        f.fields.map(renderField).mkString(" { ", " ", " }")
-
-    private def renderArguments(args: Map[String, InputValue]): String =
-      if (args.isEmpty) "" else args.map { case (k, v) => s"$k: ${v.toInputString}" }.mkString("(", ", ", ")")
   }
 
   def toDocument(operationType: OperationType, field: Field): Document = {

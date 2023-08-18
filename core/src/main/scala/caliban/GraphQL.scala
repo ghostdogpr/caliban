@@ -1,7 +1,6 @@
 package caliban
 
 import caliban.CalibanError.ValidationError
-import caliban.Rendering.{ renderDescription, renderDirectives, renderSchemaDirectives, renderTypes }
 import caliban.execution.{ ExecutionRequest, Executor, Feature }
 import caliban.introspection.Introspector
 import caliban.introspection.adt._
