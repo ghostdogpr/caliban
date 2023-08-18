@@ -7,7 +7,8 @@ import caliban.{ InputValue, ResponseValue }
 import zio.stream.ZStream
 import zio.query.{ DataSource, ZQuery }
 
-case class ProxyRequest(url: String, field: Field) extends zio.query.Request[Throwable, ResponseValue]
+case class ProxyRequest(url: String, headers: Map[String, String], field: Field)
+    extends zio.query.Request[Throwable, ResponseValue]
 
 sealed trait Step[-R]
 

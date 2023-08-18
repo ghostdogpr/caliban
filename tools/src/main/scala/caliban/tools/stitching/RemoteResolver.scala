@@ -1,14 +1,12 @@
 package caliban.tools.stitching
 
-import zio._
-
-import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
-import caliban.execution.Field
 import caliban.ResponseValue.ObjectValue
+import caliban.execution.Field
 import caliban.tools.SttpClient
-
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
 import sttp.client3._
 import sttp.client3.jsoniter._
+import zio._
 
 case class RemoteResolver[-R, +E, -A, +B](
   run: A => ZIO[R, E, B]
@@ -31,18 +29,28 @@ object RemoteResolver {
 
   def fromEffect[A, R, E, B](effect: ZIO[R, E, B]): RemoteResolver[R, E, A, B] = RemoteResolver((_: Any) => effect)
 
-  def fromUrl(apiUrl: String): RemoteResolver[SttpClient, CalibanError.ExecutionError, Field, ResponseValue] =
-    toQuery >>> request(apiUrl) >>> execute >>> unwrap
+  def fromUrl(
+    apiUrl: String,
+    headers: Map[String, String]
+  ): RemoteResolver[SttpClient, CalibanError.ExecutionError, Field, ResponseValue] =
+    toQuery >>> request(apiUrl, headers) >>> execute >>> unwrap
 
-  def fromUrl2(apiUrl: String): RemoteResolver[SttpClient, CalibanError.ExecutionError, Field, ResponseValue] =
-    toQuery >>> request(apiUrl) >>> execute
+  def fromUrl2(
+    apiUrl: String,
+    headers: Map[String, String]
+  ): RemoteResolver[SttpClient, CalibanError.ExecutionError, Field, ResponseValue] =
+    toQuery >>> request(apiUrl, headers) >>> execute
 
-  def request(apiUrl: String): RemoteResolver[Any, CalibanError.ExecutionError, GraphQLRequest, HttpRequest] =
+  def request(
+    apiUrl: String,
+    headers: Map[String, String]
+  ): RemoteResolver[Any, CalibanError.ExecutionError, GraphQLRequest, HttpRequest] =
     RemoteResolver.fromFunctionM((q: GraphQLRequest) =>
       ZIO.succeed(
         basicRequest
           .post(uri"$apiUrl")
           .body(q)
+          .headers(headers)
           .response(asJson[GraphQLResponse[CalibanError]])
           .mapResponse(resp =>
             resp.fold(

@@ -2,7 +2,7 @@ package example.mesh
 
 import caliban.InputValue.{ ListValue, ObjectValue }
 import caliban.interop.tapir.HttpInterpreter
-import caliban.tools.{ ArgumentMappings, Source, SttpClient }
+import caliban.tools.{ Source, SttpClient }
 import caliban.transformers.Transformer
 import caliban.{ ResponseValue, ZHttpAdapter }
 import sttp.client3.httpclient.zio.HttpClientZioBackend
@@ -25,22 +25,21 @@ object Gateway extends ZIOAppDefault {
       sourceFieldName = "bookSells",
       targetTypeName = "Store",
       targetFieldName = "bookSells",
-      argumentMappings = ArgumentMappings(target = Map("id" -> ("storeId" -> _)))
+      argumentMappings = Map("id" -> ("storeId" -> _))
     )
     .extend(
       books,
       sourceFieldName = "book",
       targetTypeName = "Sells",
       targetFieldName = "book",
-      argumentMappings = ArgumentMappings(target = Map("bookId" -> ("id" -> _)))
+      argumentMappings = Map("bookId" -> ("id" -> _))
     )
     .extend(
       authors,
       sourceFieldName = "authors_v1_AuthorsService_GetAuthors",
       targetTypeName = "Book",
       targetFieldName = "author",
-      argumentMappings =
-        ArgumentMappings(target = Map("authorId" -> (v => "input" -> ObjectValue(Map("ids" -> ListValue(List(v))))))),
+      argumentMappings = Map("authorId" -> (v => "input" -> ObjectValue(Map("ids" -> ListValue(List(v)))))),
       filterBatchedValues = (result, field) =>
         result.asListValue.fold(result)(list =>
           ResponseValue.ListValue(list.values.filter {

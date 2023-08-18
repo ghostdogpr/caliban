@@ -2,115 +2,93 @@ package example.stitching
 
 import caliban._
 import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
-import caliban.schema._
-import caliban.schema.Schema.auto._
+import caliban.schema.Annotations.GQLExcluded
 import caliban.schema.ArgBuilder.auto._
-import caliban.tools.{ Options, RemoteSchema, SchemaLoader }
-import caliban.tools.stitching.{ HttpRequest, RemoteResolver, RemoteSchemaResolver, ResolveRequest }
-import sttp.capabilities.WebSockets
-import sttp.capabilities.zio.ZioStreams
-import sttp.client3.SttpBackend
+import caliban.schema.Schema.auto._
+import caliban.schema._
+import caliban.tools.Source
+import caliban.transformers.Transformer
+import caliban.wrappers.Wrappers
 import sttp.client3.httpclient.zio._
 import zio._
 
 object StitchingExample extends GenericSchema[Any] {
   val GITHUB_API = "https://api.github.com/graphql"
 
-  case class AppUser(id: String, name: String, featuredRepository: Repository)
-  case class Repository(owner: String, name: String)
-
+  case class AppUser(id: String, name: String, @GQLExcluded repository: String)
   case class GetUserQuery(name: String, repository: String)
-
-  case class Queries(
-    GetUser: GetUserQuery => URIO[Any, AppUser]
-  )
+  case class Queries(GetUser: GetUserQuery => URIO[Any, AppUser])
 
   val api =
-    for {
-      config     <- ZIO.environment[Configuration]
-      sttpClient <- ZIO.environment[SttpBackend[Task, ZioStreams with WebSockets]]
-
-      schemaLoader = SchemaLoader.fromIntrospection(
-                       GITHUB_API,
-                       Some(
-                         List(
-                           Options.Header(
-                             "Authorization",
-                             s"Bearer ${config.get.githubToken}"
-                           )
-                         )
-                       )
-                     )
-
-      schema               <- schemaLoader.load
-      remoteSchema         <- ZIO.fromOption(RemoteSchema.parseRemoteSchema(schema))
-      remoteSchemaResolvers = RemoteSchemaResolver.fromSchema(remoteSchema)
-    } yield {
-      val apiRequest =
-        RemoteResolver.toQuery >>> RemoteResolver.request(GITHUB_API) >>> RemoteResolver.fromFunctionM(
-          (r: HttpRequest) =>
-            for {
-              config <- ZIO.service[Configuration]
-            } yield r.header("Authorization", s"Bearer ${config.githubToken}")
-        ) >>> RemoteResolver.execute >>> RemoteResolver.unwrap
-
-      implicit val githubProfileSchema: Schema[Any, Repository] =
-        remoteSchemaResolvers
-          .remoteResolver("Repository")(
-            RemoteResolver.fromFunction((r: ResolveRequest[Repository]) =>
-              r.field.copy(
-                name = "repository",
-                arguments = Map(
-                  "owner" -> Value.StringValue(r.args.owner),
-                  "name"  -> Value.StringValue(r.args.name)
-                )
+    graphQL(
+      RootResolver(
+        Queries(
+          GetUser = query =>
+            Random.nextUUID.map(uuid =>
+              AppUser(
+                id = uuid.toString,
+                name = query.name,
+                repository = query.repository
               )
-            ) >>> apiRequest
-          )
-          .provideEnvironment(sttpClient ++ config)
-
-      graphQL(
-        RootResolver(
-          Queries(
-            GetUser = query =>
-              Random.nextUUID.map(uuid =>
-                AppUser(
-                  id = uuid.toString,
-                  name = query.name,
-                  featuredRepository = Repository(query.name, query.repository)
-                )
-              )
-          )
+            )
         )
       )
-    }
+    )
+
+  val enrichedApi =
+    for {
+      config      <- ZIO.service[Configuration]
+      headers      = Map("Authorization" -> s"Bearer ${config.githubToken}")
+      githubSource = Source
+                       .graphQL(GITHUB_API, headers)
+                       // remove interfaces that Repository extends
+                       .transform(Transformer.FilterInterface {
+                         case ("Repository", _) => false
+                         case _                 => true
+                       })
+                       // restrict exposed remote fields
+                       .transform(Transformer.FilterField {
+                         case ("Repository", "name") => true
+                         case ("Repository", _)      => false
+                         case _                      => true
+                       })
+      apiSource   <- Source
+                       .caliban(api)
+                       .extend(
+                         githubSource,
+                         sourceFieldName = "repository",
+                         targetTypeName = "AppUser",
+                         targetFieldName = "featuredRepository",
+                         argumentMappings = Map("repository" -> ("name" -> _), "name" -> ("owner" -> _))
+                       )
+                       .toGraphQL
+    } yield apiSource
 }
 
 case class Configuration(githubToken: String)
 
 object Configuration {
-  def fromEnvironment = ZLayer {
-    for {
-      githubToken <- read("GITHUB_TOKEN")
-    } yield Configuration(githubToken)
-  }
-
-  private def read(key: String): Task[String] = ZIO.attempt(sys.env(key))
+  def fromEnvironment: ZLayer[Any, Throwable, Configuration] =
+    ZLayer {
+      for {
+        githubToken <- System.env("GITHUB_TOKEN").orDie.someOrFailException
+      } yield Configuration(githubToken)
+    }
 }
 
-import zio.stream._
-import zio.http._
 import caliban.ZHttpAdapter
+import zio.http._
+import zio.stream._
 
 object ExampleApp extends ZIOAppDefault {
   import sttp.tapir.json.circe._
 
   private val graphiql = Handler.fromStream(ZStream.fromResource("graphiql.html")).toHttp.withDefaultErrorResponse
 
-  override def run =
+  def run =
     (for {
-      api         <- StitchingExample.api
-      interpreter <- api.interpreter
+      api         <- StitchingExample.enrichedApi
+      interpreter <- (api @@ Wrappers.printErrors).interpreter
       _           <-
         Server
           .serve(
@@ -127,5 +105,5 @@ object ExampleApp extends ZIOAppDefault {
         Configuration.fromEnvironment,
         Server.default
       )
-      .exitCode
+      .onExit(ZIO.debug(_))
 }
