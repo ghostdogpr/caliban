@@ -13,7 +13,7 @@ sealed trait Transformer[-R] {
 }
 
 object Transformer {
-  case class RenameType(f: PartialFunction[String, String])            extends Transformer[Any] {
+  case class RenameType(f: PartialFunction[String, String])                 extends Transformer[Any] {
     private def rename(name: String): String = f.lift(name).getOrElse(name)
 
     val typeVisitor: TypeVisitor =
@@ -24,7 +24,7 @@ object Transformer {
       f.lift(name).map(ObjectStep(_, fields)).getOrElse(step)
     }
   }
-  case class RenameField(f: PartialFunction[(String, String), String]) extends Transformer[Any] {
+  case class RenameField(f: PartialFunction[(String, String), String])      extends Transformer[Any] {
     val typeVisitor: TypeVisitor =
       TypeVisitor.fields.modifyWith((t, field) =>
         field.copy(name = f.lift((t.name.getOrElse(""), field.name)).getOrElse(field.name))
@@ -40,23 +40,25 @@ object Transformer {
       )
     }
   }
-  case class FilterInterface(f: (String, String) => Boolean)           extends Transformer[Any] {
+  case class FilterInterface(f: PartialFunction[(String, String), Boolean]) extends Transformer[Any] {
     val typeVisitor: TypeVisitor =
       TypeVisitor.modify(t =>
         t.copy(interfaces =
-          () => t.interfaces().map(_.filter(interface => f(t.name.getOrElse(""), interface.name.getOrElse(""))))
+          () =>
+            t.interfaces()
+              .map(_.filter(interface => f.lift((t.name.getOrElse(""), interface.name.getOrElse(""))).getOrElse(true)))
         )
       )
 
     def transformStep[R]: PartialFunction[Step[R], Step[R]] = { case step => step }
   }
-  case class FilterField(f: (String, String) => Boolean)               extends Transformer[Any] {
+  case class FilterField(f: PartialFunction[(String, String), Boolean])     extends Transformer[Any] {
     val typeVisitor: TypeVisitor =
-      TypeVisitor.fields.filterWith((t, field) => f(t.name.getOrElse(""), field.name)) |+|
-        TypeVisitor.inputFields.filterWith((t, field) => f(t.name.getOrElse(""), field.name))
+      TypeVisitor.fields.filterWith((t, field) => f.lift((t.name.getOrElse(""), field.name)).getOrElse(true)) |+|
+        TypeVisitor.inputFields.filterWith((t, field) => f.lift((t.name.getOrElse(""), field.name)).getOrElse(true))
 
     def transformStep[R]: PartialFunction[Step[R], Step[R]] = { case ObjectStep(typeName, fields) =>
-      ObjectStep(typeName, fields.filter { case (fieldName, _) => f(typeName, fieldName) })
+      ObjectStep(typeName, fields.filter { case (fieldName, _) => f.lift((typeName, fieldName)).getOrElse(true) })
     }
   }
   case class Extend[R](

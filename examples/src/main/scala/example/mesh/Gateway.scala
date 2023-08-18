@@ -16,10 +16,7 @@ object Gateway extends ZIOAppDefault {
   val authors: Source[SttpClient] = Source.graphQL("http://localhost:8083/api/graphql")
 
   val gateway = stores
-    .transform(Transformer.FilterField {
-      case ("Query", "bookSells") => false
-      case _                      => true
-    })
+    .transform(Transformer.FilterField { case ("Query", "bookSells") => false })
     .extend(
       stores,
       sourceFieldName = "bookSells",

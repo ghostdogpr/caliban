@@ -42,15 +42,11 @@ object StitchingExample extends GenericSchema[Any] {
       githubSource = Source
                        .graphQL(GITHUB_API, headers)
                        // remove interfaces that Repository extends
-                       .transform(Transformer.FilterInterface {
-                         case ("Repository", _) => false
-                         case _                 => true
-                       })
+                       .transform(Transformer.FilterInterface { case ("Repository", _) => false })
                        // restrict exposed remote fields
                        .transform(Transformer.FilterField {
                          case ("Repository", "name") => true
                          case ("Repository", _)      => false
-                         case _                      => true
                        })
       apiSource   <- Source
                        .caliban(api)
