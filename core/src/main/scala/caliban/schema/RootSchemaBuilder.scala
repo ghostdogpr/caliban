@@ -1,6 +1,6 @@
 package caliban.schema
 
-import caliban.introspection.adt.{ __Type, TypeVisitor }
+import caliban.introspection.adt.{ __Field, __Type, TypeVisitor }
 import caliban.parsing.adt.Directive
 import caliban.schema.Types.collectTypes
 
@@ -32,6 +32,11 @@ case class RootSchemaBuilder[-R](
       .flatMap(_._2.headOption)
       .toList
   }
+
+  def findStepWithFieldName(name: String): Option[(Step[R], __Field)] =
+    query.flatMap(_.opType.allFields.find(_.name == name)).flatMap(f => query.map(_.plan -> f)) orElse
+      mutation.flatMap(_.opType.allFields.find(_.name == name)).flatMap(f => mutation.map(_.plan -> f)) orElse
+      subscription.flatMap(_.opType.allFields.find(_.name == name)).flatMap(f => subscription.map(_.plan -> f))
 
   def visit(visitor: TypeVisitor): RootSchemaBuilder[R] =
     copy(

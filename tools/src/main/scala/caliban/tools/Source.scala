@@ -1,9 +1,9 @@
 package caliban.tools
 
+import caliban.CalibanError.ValidationError
 import caliban._
 import caliban.execution.Field
-import caliban.introspection.adt.{ __Type, __TypeKind }
-import caliban.schema.Step.NullStep
+import caliban.introspection.adt.__Type
 import caliban.schema.{ ProxyRequest, Schema, Step }
 import caliban.tools.stitching.RemoteQuery.QueryRenderer
 import caliban.tools.stitching.RemoteResolver
@@ -36,89 +36,87 @@ trait Source[-R] {
   ): Source[R with R1] = new Source[R with R1] {
     def toGraphQL: Task[GraphQL[R with R1]] =
       (self.toGraphQL <&> source.toGraphQL).flatMap { case (original, source) =>
-        // TODO mutations/subscriptions
-        source.getSchemaBuilder.query.flatMap(_.opType.allFields.find(_.name == sourceFieldName)) match {
-          case Some(field) =>
-            ZIO.succeed(
+        ZIO
+          .fromOption(source.getSchemaBuilder.findStepWithFieldName(sourceFieldName))
+          .mapBoth(
+            _ =>
+              ValidationError(
+                s"Failed to extend field $targetFieldName because field $sourceFieldName was not found in the source.",
+                s"The source schema must contain a root field named $sourceFieldName."
+              ),
+            { case (sourceStep, sourceField) =>
               original.transform(
                 Transformer.Extend(
                   targetTypeName,
                   targetFieldName,
-                  field,
-                  argumentMappings.keys.map(key => Field(key, __Type(__TypeKind.NON_NULL), None)).toList,
-                  targetFields =>
-                    source.getSchemaBuilder.query
-                      .map(_.plan match {
-                        case step: Step.ProxyStep[R] =>
-                          step.copy(
-                            makeRequest = field =>
-                              step.makeRequest {
-                                if (field.name == targetFieldName)
-                                  field.copy(
-                                    name = sourceFieldName,
-                                    arguments = targetFields.flatMap { case (k, v) =>
-                                      argumentMappings.get(k).map(_(v))
-                                    }
-                                  )
-                                else field
-                              },
-                            dataSource = DataSource.fromFunctionBatchedZIO(s"${step.dataSource.identifier}Batched") {
-                              requests =>
-                                val requestsMap     = requests.groupBy(_.url).flatMap { case (url, requests) =>
-                                  requests
-                                    .groupBy(request =>
-                                      QueryRenderer.renderField(request.field, ignoreArguments = true)
-                                    )
-                                    .toList
-                                    .flatMap { case (_, requests) =>
-                                      requests.headOption match {
-                                        case Some(head) =>
-                                          val batchedRequest = requests.map(_.field).tail.foldLeft(Option(head.field)) {
-                                            case (None, _)      => None
-                                            case (Some(f1), f2) => combineFieldArguments(f1, f2)
-                                          }
-                                          requests.map(request =>
-                                            (
-                                              request,
-                                              (
-                                                ProxyRequest(
-                                                  url,
-                                                  head.headers,
-                                                  batchedRequest.getOrElse(request.field)
-                                                ),
-                                                request.field
-                                              )
-                                            )
-                                          )
-                                        case None       => Chunk.empty
-                                      }
-                                    }
-                                }
-                                val batchedRequests = Chunk.fromIterable(requestsMap.values.map(_._1)).distinct
-
-                                step.dataSource
-                                  .runAll(Chunk.single(batchedRequests))
-                                  .map(map =>
-                                    requests
-                                      .flatMap(requestsMap.get)
-                                      .flatMap { case (req, field) => map.lookup(req).map(_ -> field) }
-                                      .collect { case (Right(value), field) => filterBatchedValues(value, field) }
-                                  )
-                            }
-                          )
-                        case other                   => other
-                      })
-                      .getOrElse(NullStep)
+                  sourceField,
+                  argumentMappings.keySet,
+                  makeResolver(sourceStep)
                 )
               )
-            )
-          case None        =>
-            ZIO.fail(
-              new Throwable(
-                s"Failed to extend field $targetFieldName because field $sourceFieldName was not found in the source."
-              )
-            )
+            }
+          )
+      }
+
+    def makeResolver(sourceStep: Step[R1])(targetFields: Map[String, InputValue]): Step[R1] =
+      sourceStep match {
+        case step: Step.ProxyStep[R1] =>
+          Step.ProxyStep[R1](
+            field =>
+              step.makeRequest {
+                // if this is the field we are extending, we need to replace its name and arguments
+                if (field.name == targetFieldName)
+                  field.copy(
+                    name = sourceFieldName,
+                    arguments = targetFields.flatMap { case (k, v) => argumentMappings.get(k).map(_(v)) }
+                  )
+                else field
+              },
+            makeDataSource(step)
+          )
+        case other                    => other
+      }
+
+    def makeDataSource(step: Step.ProxyStep[R1]): DataSource[R1, ProxyRequest] =
+      DataSource.fromFunctionBatchedZIO(s"${step.dataSource.identifier}Batched") { requests =>
+        val requestsMap     = requests.groupBy(_.url).flatMap { case (url, requests) =>
+          requests
+            .groupBy(request => QueryRenderer.renderField(request.field, ignoreArguments = true))
+            .toList
+            .flatMap { case (_, requests) =>
+              requests.headOption match {
+                case Some(head) =>
+                  val batchedRequest = requests.map(_.field).tail.foldLeft(Option(head.field)) {
+                    case (None, _)      => None
+                    case (Some(f1), f2) => combineFieldArguments(f1, f2)
+                  }
+                  requests.map(request =>
+                    (
+                      request,
+                      (
+                        ProxyRequest(
+                          url,
+                          head.headers,
+                          batchedRequest.getOrElse(request.field)
+                        ),
+                        request.field
+                      )
+                    )
+                  )
+                case None       => Chunk.empty
+              }
+            }
         }
+        val batchedRequests = Chunk.fromIterable(requestsMap.values.map(_._1)).distinct
+
+        step.dataSource
+          .runAll(Chunk.single(batchedRequests))
+          .map(map =>
+            requests
+              .flatMap(requestsMap.get)
+              .flatMap { case (req, field) => map.lookup(req).map(_ -> field) }
+              .collect { case (Right(value), field) => filterBatchedValues(value, field) }
+          )
       }
   }
 

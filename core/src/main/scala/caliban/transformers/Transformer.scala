@@ -65,7 +65,7 @@ object Transformer {
     typeName: String,
     fieldName: String,
     fieldDefinition: __Field,
-    extraFields: List[Field],
+    extraFields: Set[String],
     resolver: Map[String, InputValue] => Step[R]
   ) extends Transformer[R] {
     val typeVisitor: TypeVisitor =
@@ -85,7 +85,7 @@ object Transformer {
         if (Types.innerType(field.fieldType).name.contains(typeName) && field.fields.exists(_.name == fieldName))
           field.copy(fields =
             field.fields.filterNot(_.name == fieldName) ++
-              extraFields.filterNot(extraField => field.fields.exists(_.name == extraField.name))
+              (extraFields -- field.fields.map(_.name).toSet).map(Field(_, __Type(__TypeKind.NON_NULL), None))
           )
         else field.copy(fields = field.fields.map(patchField(_, transformer)))
       case _                                              => field
