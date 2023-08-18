@@ -31,7 +31,7 @@ trait Source[-R] {
     sourceFieldName: String,
     targetTypeName: String,
     targetFieldName: String,
-    argumentMappings: ArgumentMappings,
+    argumentMappings: Map[String, InputValue => (String, InputValue)],
     filterBatchedValues: (ResponseValue, Field) => ResponseValue = (v, _) => v
   ): Source[R with R1] = new Source[R with R1] {
     def toGraphQL: Task[GraphQL[R with R1]] =
@@ -45,8 +45,8 @@ trait Source[-R] {
                   targetTypeName,
                   targetFieldName,
                   field,
-                  argumentMappings.target.keys.map(key => Field(key, __Type(__TypeKind.NON_NULL), None)).toList,
-                  (targetFields, args) =>
+                  argumentMappings.keys.map(key => Field(key, __Type(__TypeKind.NON_NULL), None)).toList,
+                  targetFields =>
                     source.getSchemaBuilder.query
                       .map(_.plan match {
                         case step: Step.ProxyStep[R] =>
@@ -57,9 +57,7 @@ trait Source[-R] {
                                   field.copy(
                                     name = sourceFieldName,
                                     arguments = targetFields.flatMap { case (k, v) =>
-                                      argumentMappings.target.get(k).map(_(v))
-                                    } ++ args.flatMap { case (k, v) =>
-                                      argumentMappings.args.get(k).map(_(v))
+                                      argumentMappings.get(k).map(_(v))
                                     }
                                   )
                                 else field
@@ -83,7 +81,11 @@ trait Source[-R] {
                                             (
                                               request,
                                               (
-                                                ProxyRequest(url, batchedRequest.getOrElse(request.field)),
+                                                ProxyRequest(
+                                                  url,
+                                                  head.headers,
+                                                  batchedRequest.getOrElse(request.field)
+                                                ),
                                                 request.field
                                               )
                                             )
@@ -162,10 +164,17 @@ object Source {
     def schema: Task[Schema[R, self.T]]
   }
 
-  private case class GraphQLSource(url: String) extends SourceFromSchema[SttpClient] { self =>
+  private case class GraphQLSource(url: String, headers: Map[String, String]) extends SourceFromSchema[SttpClient] {
+    self =>
     def schema: Task[Schema[SttpClient, self.T]] =
       for {
-        doc          <- SchemaLoader.fromIntrospection(url, None).load
+        doc          <- SchemaLoader
+                          .fromIntrospection(
+                            url,
+                            Some(headers.map { case (k, v) => Options.Header(k, v) }.toList),
+                            supportIsRepeatable = false
+                          )
+                          .load
         remoteSchema <- ZIO
                           .succeed(RemoteSchema.parseRemoteSchema(doc))
                           .someOrFail(new Throwable("Failed to parse remote schema"))
@@ -174,7 +183,7 @@ object Source {
                             remoteSchema.queryType
 
                           override def resolve(value: self.T): Step[SttpClient] =
-                            Step.ProxyStep(ProxyRequest(url, _), dataSource)
+                            Step.ProxyStep(ProxyRequest(url, headers, _), dataSource)
                         }
       } yield schema
   }
@@ -182,21 +191,16 @@ object Source {
   val dataSource: DataSource[SttpClient, ProxyRequest] =
     DataSource.fromFunctionZIO[SttpClient, Throwable, ProxyRequest, ResponseValue]("RemoteDataSource") { request =>
       val remoteResolver =
-        if (request.field.parentType.isEmpty) RemoteResolver.fromUrl2(request.url)
-        else RemoteResolver.fromUrl(request.url)
+        if (request.field.parentType.isEmpty) RemoteResolver.fromUrl2(request.url, request.headers)
+        else RemoteResolver.fromUrl(request.url, request.headers)
 
       remoteResolver.run(request.field) // TODO: error handling
     }
 
-  def graphQL(url: String): Source[SttpClient]   = GraphQLSource(url)
-  def rest(url: String): Source[SttpClient]      = GraphQLSource(url)
-  def grpc(url: String): Source[SttpClient]      = GraphQLSource(url)
-  def caliban[R](graphQL: GraphQL[R]): Source[R] = new Source[R] {
+  def graphQL(url: String, headers: Map[String, String] = Map.empty): Source[SttpClient] = GraphQLSource(url, headers)
+  def rest(url: String): Source[SttpClient]                                              = GraphQLSource(url, Map.empty)
+  def grpc(url: String): Source[SttpClient]                                              = GraphQLSource(url, Map.empty)
+  def caliban[R](graphQL: GraphQL[R]): Source[R]                                         = new Source[R] {
     override def toGraphQL: Task[GraphQL[R]] = ZIO.succeed(graphQL)
   }
 }
-
-case class ArgumentMappings(
-  target: Map[String, InputValue => (String, InputValue)] = Map.empty,
-  args: Map[String, InputValue => (String, InputValue)] = Map.empty
-)
