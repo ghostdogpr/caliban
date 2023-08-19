@@ -7,6 +7,7 @@ import caliban.rendering.{ DocumentRenderer, Renderer }
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import cats.effect.IO
+import edu.gemini.grackle.generic.GenericMapping
 import io.circe.{ Encoder, Json }
 import org.openjdk.jmh.annotations._
 import sangria.execution._
