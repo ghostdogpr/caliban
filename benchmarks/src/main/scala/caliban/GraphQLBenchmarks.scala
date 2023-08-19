@@ -502,7 +502,6 @@ class GraphQLBenchmarks {
     ()
   }
 
-  val calibanSchema                = graphQL(Caliban.resolver)
   val calibanSchemaDoc             = graphQL(Caliban.resolver).toDocument
   val renderer: Renderer[Document] = DocumentRenderer
 

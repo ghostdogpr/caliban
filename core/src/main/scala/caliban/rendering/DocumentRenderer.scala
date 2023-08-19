@@ -364,6 +364,7 @@ object DocumentRenderer extends Renderer[Document] {
       value match {
         case EnumTypeDefinition(description, name, directives, values) =>
           newlineOrSpace(indent, write)
+          newline(indent, write)
           descriptionRenderer.unsafeRender(description, indent, write)
           write ++= "enum "
           write ++= name
@@ -372,6 +373,7 @@ object DocumentRenderer extends Renderer[Document] {
           write += '{'
           newline(indent, write)
           memberRenderer.unsafeRender(values, increment(indent), write)
+          newline(indent, write)
           write += '}'
       }
   }
@@ -382,6 +384,7 @@ object DocumentRenderer extends Renderer[Document] {
         value match {
           case EnumValueDefinition(description, name, directives) =>
             descriptionRenderer.unsafeRender(description, indent, write)
+            pad(indent, write)
             write ++= name
             directivesRenderer.unsafeRender(directives, indent, write)
         }
