@@ -10,6 +10,8 @@ trait SourceMapper {
 
   def getLocation(index: Int): LocationInfo
 
+  def size: Option[Int] = None
+
 }
 
 object SourceMapper {
@@ -32,6 +34,8 @@ object SourceMapper {
       val col = index - lineNumberLookup(line)
       LocationInfo(column = col + 1, line = line + 1)
     }
+
+    override def size: Option[Int] = Some(source.length)
   }
 
   def apply(source: String): SourceMapper = DefaultSourceMapper(source)

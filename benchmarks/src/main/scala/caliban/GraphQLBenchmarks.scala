@@ -2,10 +2,11 @@ package caliban
 
 import caliban.Data._
 import caliban.parsing.Parser
+import caliban.parsing.adt.Document
+import caliban.rendering.{ DocumentRenderer, Renderer }
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import cats.effect.IO
-import edu.gemini.grackle.generic.GenericMapping
 import io.circe.{ Encoder, Json }
 import org.openjdk.jmh.annotations._
 import sangria.execution._
@@ -258,40 +259,40 @@ class GraphQLBenchmarks {
     import sangria.macros.derive._
     import sangria.schema._
 
-  implicit val OriginEnum: EnumType[Origin]                  = deriveEnumType[Origin](IncludeValues("EARTH", "MARS", "BELT"))
-  implicit val CaptainType: ObjectType[Unit, Role.Captain]   = deriveObjectType[Unit, Role.Captain]()
-  implicit val PilotType: ObjectType[Unit, Role.Pilot]       = deriveObjectType[Unit, Role.Pilot]()
-  implicit val EngineerType: ObjectType[Unit, Role.Engineer] = deriveObjectType[Unit, Role.Engineer]()
-  implicit val MechanicType: ObjectType[Unit, Role.Mechanic] = deriveObjectType[Unit, Role.Mechanic]()
-  implicit val RoleType: UnionType[Unit]                     = UnionType(
-    "Role",
-    types = List(PilotType, EngineerType, MechanicType, CaptainType)
-  )
-  implicit val CharacterType: ObjectType[Unit, Character]    = ObjectType(
-    "Character",
-    fields[Unit, Character](
-      Field(
-        "name",
-        StringType,
-        resolve = _.value.name
-      ),
-      Field(
-        "nicknames",
-        ListType(StringType),
-        resolve = _.value.nicknames
-      ),
-      Field(
-        "origin",
-        OriginEnum,
-        resolve = _.value.origin
-      ),
-      Field(
-        "role",
-        OptionType(RoleType),
-        resolve = _.value.role
+    implicit val OriginEnum: EnumType[Origin]                  = deriveEnumType[Origin](IncludeValues("EARTH", "MARS", "BELT"))
+    implicit val CaptainType: ObjectType[Unit, Role.Captain]   = deriveObjectType[Unit, Role.Captain]()
+    implicit val PilotType: ObjectType[Unit, Role.Pilot]       = deriveObjectType[Unit, Role.Pilot]()
+    implicit val EngineerType: ObjectType[Unit, Role.Engineer] = deriveObjectType[Unit, Role.Engineer]()
+    implicit val MechanicType: ObjectType[Unit, Role.Mechanic] = deriveObjectType[Unit, Role.Mechanic]()
+    implicit val RoleType: UnionType[Unit]                     = UnionType(
+      "Role",
+      types = List(PilotType, EngineerType, MechanicType, CaptainType)
+    )
+    implicit val CharacterType: ObjectType[Unit, Character]    = ObjectType(
+      "Character",
+      fields[Unit, Character](
+        Field(
+          "name",
+          StringType,
+          resolve = _.value.name
+        ),
+        Field(
+          "nicknames",
+          ListType(StringType),
+          resolve = _.value.nicknames
+        ),
+        Field(
+          "origin",
+          OriginEnum,
+          resolve = _.value.origin
+        ),
+        Field(
+          "role",
+          OptionType(RoleType),
+          resolve = _.value.role
+        )
       )
     )
-  )
 
     val OriginArg: Argument[Option[Origin]] = Argument("origin", OptionInputType(OriginEnum))
     val NameArg: Argument[String]           = Argument("name", StringType)
@@ -500,17 +501,13 @@ class GraphQLBenchmarks {
     ()
   }
 
-  val calibanSchema = graphQL(Caliban.resolver)
-  val calibanSchemaDoc = graphQL(Caliban.resolver).toDocument
-
-  @Benchmark
-  def renderCaliban(): Unit = {
-    calibanSchema.render
-  }
+  val calibanSchema                = graphQL(Caliban.resolver)
+  val calibanSchemaDoc             = graphQL(Caliban.resolver).toDocument
+  val renderer: Renderer[Document] = DocumentRenderer
 
   @Benchmark
   def renderCalibanFast(): Unit =
-    _root_.caliban.rendering.DocumentRenderer.render(calibanSchemaDoc)
+    renderer.render(calibanSchemaDoc)
 
   @Benchmark
   def simpleGrackle(): Unit = {

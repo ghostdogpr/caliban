@@ -13,17 +13,17 @@ trait Renderer[-A] { self =>
     sb.toString()
   }
 
+  def ++[A1 <: A](that: Renderer[A1]): Renderer[A1] = new Renderer[A1] {
+    override protected[caliban] def unsafeRender(value: A1, indent: Option[Int], write: StringBuilder): Unit = {
+      self.unsafeRender(value, indent, write)
+      that.unsafeRender(value, indent, write)
+    }
+
+  }
+
   def contramap[B](f: B => A): Renderer[B] = new Renderer[B] {
     override def unsafeRender(value: B, indent: Option[Int], write: StringBuilder): Unit =
       self.unsafeRender(f(value), indent, write)
-  }
-
-  /**
-   * Returns a new Renderer which will only render if it is not running in compact mode
-   */
-  def ignoreCompact: Renderer[A] = new Renderer[A] {
-    override def unsafeRender(value: A, indent: Option[Int], write: StringBuilder): Unit =
-      if (indent.isDefined) self.unsafeRender(value, None, write)
   }
 
   def optional: Renderer[Option[A]] = new Renderer[Option[A]] {
@@ -47,11 +47,6 @@ trait Renderer[-A] { self =>
     }
   }
 
-  def when[A1 <: A](f: A1 => Boolean): Renderer[A1] = new Renderer[A1] {
-    override def unsafeRender(value: A1, indent: Option[Int], write: StringBuilder): Unit =
-      if (f(value)) self.unsafeRender(value, indent, write)
-  }
-
   protected[caliban] def unsafeRender(value: A, indent: Option[Int], write: StringBuilder): Unit
 }
 
@@ -62,9 +57,18 @@ object Renderer {
       renderers.foreach(_.unsafeRender(value, indent, write))
   }
 
+  def char(char: Char): Renderer[Any] = new Renderer[Any] {
+    override def unsafeRender(value: Any, indent: Option[Int], write: StringBuilder): Unit =
+      write.append(char)
+  }
+
   def string(str: String): Renderer[Any] = new Renderer[Any] {
     override def unsafeRender(value: Any, indent: Option[Int], write: StringBuilder): Unit =
       write.append(str)
   }
 
+  lazy val string: Renderer[String] = new Renderer[String] {
+    override def unsafeRender(value: String, indent: Option[Int], write: StringBuilder): Unit =
+      write.append(value)
+  }
 }

@@ -20,20 +20,9 @@ import caliban.parsing.adt._
 import scala.annotation.switch
 
 object DocumentRenderer extends Renderer[Document] {
-  override def render(document: Document): String = {
-    val builder = new StringBuilder(64)
-    unsafeRender(document, Some(0), builder)
-    builder.toString()
-  }
-
-  override def renderCompact(document: Document): String = {
-    val builder = new StringBuilder
-    unsafeRender(document, None, builder)
-    builder.toString()
-  }
 
   def renderTypeName(t: __Type): String = {
-    val builder = new StringBuilder(16)
+    val builder = new StringBuilder
     __typeNameRenderer.unsafeRender(t, None, builder)
     builder.toString()
   }
@@ -47,8 +36,15 @@ object DocumentRenderer extends Renderer[Document] {
     case TypeDefinition.ObjectTypeDefinition(_, name, _, _, _)    => (5, name)
   }
 
-  override protected[caliban] def unsafeRender(value: Document, indent: Option[Int], write: StringBuilder): Unit =
+  override protected[caliban] def unsafeRender(value: Document, indent: Option[Int], write: StringBuilder): Unit = {
+    // Estimate the size of the underlying definitions to prevent re-allocations
+    val sizeEstimate = value.sourceMapper.size.getOrElse {
+      val numDefs = value.definitions.length
+      numDefs * 64 // A naive estimate but a fast one, we just want to get into the ballpark of the actual size
+    }
+    write.ensureCapacity(sizeEstimate)
     documentRenderer.unsafeRender(value, indent, write)
+  }
 
   private[caliban] lazy val documentRenderer: Renderer[Document] = Renderer.combine(
     directiveDefinitionRenderer.list("\n").contramap(_.directiveDefinitions),
@@ -60,24 +56,24 @@ object DocumentRenderer extends Renderer[Document] {
 
   private[caliban] lazy val __typeNameRenderer: Renderer[__Type] = new Renderer[__Type] {
     override def unsafeRender(value: __Type, indent: Option[Int], write: StringBuilder): Unit = {
-      def loop(t: __Type): Unit =
-        t.ofType.fold {
-          write ++= "null"
-        } { inner =>
+      def loop(typ: Option[__Type]): Unit = typ match {
+        case Some(t) =>
           t.kind match {
             case __TypeKind.NON_NULL =>
-              loop(inner)
+              loop(t.ofType)
               write += '!'
             case __TypeKind.LIST     =>
               write += '['
-              loop(inner)
+              loop(t.ofType)
               write += ']'
             case _                   =>
               write ++= t.name.getOrElse("null")
           }
-        }
+        case None    =>
+          write ++= "null"
+      }
 
-      loop(value)
+      loop(Some(value))
     }
   }
 
@@ -86,7 +82,7 @@ object DocumentRenderer extends Renderer[Document] {
       override def unsafeRender(value: DirectiveDefinition, indent: Option[Int], write: StringBuilder): Unit =
         value match {
           case DirectiveDefinition(description, name, args, isRepeatable, locations) =>
-            unsafeRenderDescription(description, indent, write)
+            descriptionRenderer.unsafeRender(description, indent, write)
             write ++= "directive @"
             write ++= name
             if (args.nonEmpty) {
@@ -165,12 +161,7 @@ object DocumentRenderer extends Renderer[Document] {
       builder += ':'
       space(indent, builder)
       builder ++= definition.variableType.toString
-      definition.defaultValue.foreach { value =>
-        space(indent, builder)
-        builder += '='
-        space(indent, builder)
-        ValueRenderer.inputValueRenderer.unsafeRender(value, indent, builder)
-      }
+      defaultValueRenderer.unsafeRender(definition.defaultValue, indent, builder)
     }
   }
 
@@ -285,7 +276,7 @@ object DocumentRenderer extends Renderer[Document] {
               write ++= o
             }
 
-          unsafeRenderDescription(description, indent, write)
+          descriptionRenderer.unsafeRender(description, indent, write)
           if (isExtension) write ++= "extend "
           if (isExtension || hasTypes) {
             write ++= "schema"
@@ -343,7 +334,7 @@ object DocumentRenderer extends Renderer[Document] {
       value match {
         case UnionTypeDefinition(description, name, directives, members) =>
           newlineOrSpace(indent, write)
-          unsafeRenderDescription(description, indent, write)
+          descriptionRenderer.unsafeRender(description, indent, write)
           write ++= "union "
           write ++= name
           directivesRenderer.unsafeRender(directives, indent, write)
@@ -369,7 +360,7 @@ object DocumentRenderer extends Renderer[Document] {
         case ScalarTypeDefinition(description, name, directives) =>
           if (!isBuiltinScalar(name)) {
             newlineOrSpace(indent, write)
-            unsafeRenderDescription(description, indent, write)
+            descriptionRenderer.unsafeRender(description, indent, write)
             write ++= "scalar "
             write ++= name
             directivesRenderer.unsafeRender(directives, indent, write)
@@ -382,7 +373,7 @@ object DocumentRenderer extends Renderer[Document] {
       value match {
         case EnumTypeDefinition(description, name, directives, values) =>
           newlineOrSpace(indent, write)
-          unsafeRenderDescription(description, indent, write)
+          descriptionRenderer.unsafeRender(description, indent, write)
           write ++= "enum "
           write ++= name
           directivesRenderer.unsafeRender(directives, indent, write)
@@ -399,7 +390,7 @@ object DocumentRenderer extends Renderer[Document] {
         value match {
           case EnumValueDefinition(description, name, directives) =>
             newlineOrComma(indent, write)
-            unsafeRenderDescription(description, indent, write)
+            descriptionRenderer.unsafeRender(description, indent, write)
             write ++= name
             directivesRenderer.unsafeRender(directives, indent, write)
         }
@@ -411,7 +402,7 @@ object DocumentRenderer extends Renderer[Document] {
         value match {
           case InputObjectTypeDefinition(description, name, directives, fields) =>
             newlineOrSpace(indent, write)
-            unsafeRenderDescription(description, indent, write)
+            descriptionRenderer.unsafeRender(description, indent, write)
             write ++= "input "
             write ++= name
             directivesRenderer.unsafeRender(directives, indent, write)
@@ -434,18 +425,13 @@ object DocumentRenderer extends Renderer[Document] {
         definition match {
           case InputValueDefinition(description, name, valueType, defaultValue, directives) =>
             newlineOrSpace(indent, builder)
-            unsafeRenderDescription(description, indent, builder)
+            descriptionRenderer.unsafeRender(description, indent, builder)
             pad(indent, builder)
             builder ++= name
             builder += ':'
             space(indent, builder)
-            builder ++= valueType.toString
-            defaultValue.foreach { value =>
-              space(indent, builder)
-              builder += '='
-              space(indent, builder)
-              ValueRenderer.inputValueRenderer.unsafeRender(value, indent, builder)
-            }
+            typeRenderer.unsafeRender(valueType, indent, builder)
+            defaultValueRenderer.unsafeRender(defaultValue, indent, builder)
             directivesRenderer.unsafeRender(directives, indent, builder)
         }
     }
@@ -480,7 +466,7 @@ object DocumentRenderer extends Renderer[Document] {
   ): Unit = {
     newline(indent, writer)
     newline(indent, writer)
-    unsafeRenderDescription(description, indent, writer)
+    descriptionRenderer.unsafeRender(description, indent, writer)
     writer ++= variant
     writer += ' '
     writer ++= name
@@ -533,55 +519,53 @@ object DocumentRenderer extends Renderer[Document] {
   private[caliban] lazy val directivesRenderer: Renderer[List[Directive]] =
     directiveRenderer.list
 
-  private def unsafeRenderDescription(
-    description: Option[String],
-    indent: Option[Int],
-    writer: StringBuilder
-  ): Unit = {
-    val tripleQuote = "\"\"\""
+  private[caliban] lazy val descriptionRenderer: Renderer[Option[String]] =
+    new Renderer[Option[String]] {
+      private val tripleQuote = "\"\"\""
 
-    description.foreach {
-      case value if value.contains('\n') =>
-        def valueEscaped() = unsafeFastEscapeQuote(value, writer)
-        writer ++= tripleQuote
-        // check if it ends in quote but it is already escaped
-        if (value.endsWith("\\\"")) {
-          newline(indent, writer)
-          valueEscaped()
-          newline(indent, writer)
-        } else if (value.last == '"') {
-          newline(indent, writer)
-          valueEscaped()
-          newlineOrSpace(indent, writer)
-          // check if it ends in quote. We need to break the sequence of 4 or more '"'
-        } else {
-          // ok. No quotes at the end of value
-          newline(indent, writer)
-          valueEscaped()
-          newline(indent, writer)
+      override def unsafeRender(description: Option[String], indent: Option[Int], writer: StringBuilder): Unit =
+        description.foreach {
+          case value if value.contains('\n') =>
+            def valueEscaped() = unsafeFastEscapeQuote(value, writer)
+
+            writer ++= tripleQuote
+            // check if it ends in quote but it is already escaped
+            if (value.endsWith("\\\"")) {
+              newline(indent, writer)
+              valueEscaped()
+              newline(indent, writer)
+            } else if (value.last == '"') {
+              newline(indent, writer)
+              valueEscaped()
+              newlineOrSpace(indent, writer)
+              // check if it ends in quote. We need to break the sequence of 4 or more '"'
+            } else {
+              // ok. No quotes at the end of value
+              newline(indent, writer)
+              valueEscaped()
+              newline(indent, writer)
+            }
+            writer ++= tripleQuote
+            newlineOrSpace(indent, writer)
+          case value                         =>
+            pad(indent, writer)
+            unsafeFastEscape(value, writer)
+            newlineOrSpace(indent, writer)
         }
-        writer ++= tripleQuote
-        newlineOrSpace(indent, writer)
-      case value                         =>
-        pad(indent, writer)
-        unsafeFastEscape(value, writer)
-        newlineOrSpace(indent, writer)
     }
-  }
 
   private[caliban] lazy val fieldDefinitionRenderer: Renderer[FieldDefinition] = new Renderer[FieldDefinition] {
     override def unsafeRender(definition: FieldDefinition, indent: Option[Int], builder: StringBuilder): Unit =
       definition match {
         case FieldDefinition(description, name, arguments, tpe, directives) =>
           newlineOrSpace(indent, builder)
-          unsafeRenderDescription(description, indent, builder)
+          descriptionRenderer.unsafeRender(description, indent, builder)
           pad(indent, builder)
           builder ++= name
           unsafeRenderArguments(arguments, indent, builder)
           builder += ':'
           space(indent, builder)
           typeRenderer.unsafeRender(tpe, indent, builder)
-
           directivesRenderer.unsafeRender(directives, None, builder)
       }
   }
@@ -629,26 +613,49 @@ object DocumentRenderer extends Renderer[Document] {
       override def unsafeRender(definition: InputValueDefinition, indent: Option[Int], builder: StringBuilder): Unit =
         definition match {
           case InputValueDefinition(description, name, tpe, defaultValue, directives) =>
-            unsafeRenderDescription(description, None, builder)
+            descriptionRenderer.unsafeRender(description, None, builder)
             builder ++= name
             builder += ':'
             space(indent, builder)
             typeRenderer.unsafeRender(tpe, indent, builder)
-            defaultValue.foreach { value =>
-              space(indent, builder)
-              builder += '='
-              space(indent, builder)
-              ValueRenderer.inputValueRenderer.unsafeRender(value, indent, builder)
-            }
+            defaultValueRenderer.unsafeRender(defaultValue, indent, builder)
             directivesRenderer.unsafeRender(directives, None, builder)
         }
     }
+
+  private[caliban] lazy val defaultValueRenderer: Renderer[Option[InputValue]] = new Renderer[Option[InputValue]] {
+    override def unsafeRender(value: Option[InputValue], indent: Option[Int], writer: StringBuilder): Unit =
+      value.foreach { value =>
+        space(indent, writer)
+        writer += '='
+        space(indent, writer)
+        ValueRenderer.inputValueRenderer.unsafeRender(value, indent, writer)
+      }
+  }
 
   private def pad(indentation: Option[Int], writer: StringBuilder): Unit = {
     var i = indentation.getOrElse(0)
     while (i > 0) {
       writer ++= "  "
       i -= 1
+    }
+  }
+
+  def map[K, V](
+    keyRender: Renderer[K],
+    valueRender: Renderer[V],
+    separatorRenderer: Renderer[Any]
+  ): Renderer[Map[K, V]] = new Renderer[Map[K, V]] {
+    override def unsafeRender(value: Map[K, V], indent: Option[Int], write: StringBuilder): Unit = {
+      var first = true
+      value.foreach { case (k, v) =>
+        if (first) first = false
+        else separatorRenderer.render(())
+        keyRender.unsafeRender(k, indent, write)
+        write.append(':')
+        space(indent, write)
+        valueRender.unsafeRender(v, indent, write)
+      }
     }
   }
 

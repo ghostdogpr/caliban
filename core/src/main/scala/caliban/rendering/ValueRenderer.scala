@@ -1,6 +1,6 @@
 package caliban.rendering
 
-import caliban.Value.{ IntValue, StringValue }
+import caliban.Value.{ FloatValue, IntValue, StringValue }
 import caliban.{ InputValue, ResponseValue, Value }
 
 import scala.annotation.switch
@@ -41,7 +41,7 @@ object ValueRenderer {
         case Value.EnumValue(value)         => unsafeFastEscape(value, write)
         case Value.BooleanValue(value)      => if (value) write ++= "true" else write ++= "false"
         case Value.NullValue                => write ++= "null"
-        case v                              => write ++ v.toInputString
+        case v                              => write ++= v.toInputString
       }
 
   }
