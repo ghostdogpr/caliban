@@ -49,7 +49,7 @@ object DocumentRenderer extends Renderer[Document] {
   private[caliban] lazy val documentRenderer: Renderer[Document] = Renderer.combine(
     directiveDefinitionRenderer.list(Renderer.char('\n')).contramap(_.directiveDefinitions),
     schemaRenderer.optional.contramap(_.schemaDefinition),
-    operationDefinitionRenderer.list.contramap(_.operationDefinitions),
+    operationDefinitionRenderer.list(Renderer.newlineOrSpace).contramap(_.operationDefinitions),
     typeDefinitionsRenderer.contramap(_.typeDefinitions),
     fragmentRenderer.list.contramap(_.fragmentDefinitions)
   )
@@ -135,7 +135,6 @@ object DocumentRenderer extends Renderer[Document] {
       override def unsafeRender(definition: OperationDefinition, indent: Option[Int], writer: StringBuilder): Unit =
         definition match {
           case OperationDefinition(operationType, name, variableDefinitions, directives, selectionSet) =>
-            newlineOrSpace(indent, writer)
             operationTypeRenderer.unsafeRender(operationType, indent, writer)
             name.foreach { n =>
               writer += ' '
@@ -143,7 +142,7 @@ object DocumentRenderer extends Renderer[Document] {
             }
             variableDefinitionsRenderer.unsafeRender(variableDefinitions, indent, writer)
             directivesRenderer.unsafeRender(directives, indent, writer)
-            selectionRenderer.unsafeRender(selectionSet, indent, writer)
+            selectionsRenderer.unsafeRender(selectionSet, indent, writer)
         }
     }
 
@@ -179,19 +178,25 @@ object DocumentRenderer extends Renderer[Document] {
         }
     }
 
-  private[caliban] lazy val selectionRenderer: Renderer[List[Selection]] = new Renderer[List[Selection]] {
+  private[caliban] lazy val selectionsRenderer: Renderer[List[Selection]] = new Renderer[List[Selection]] {
+    private val inner = selectionRenderer.list(Renderer.newlineOrSpace)
+
     override def unsafeRender(selections: List[Selection], indent: Option[Int], builder: StringBuilder): Unit = {
       space(indent, builder)
       builder += '{'
-      selections.foreach(loop(_, increment(indent), builder))
+      inner.unsafeRender(selections, increment(indent), builder)
       newline(indent, builder)
       pad(indent, builder)
       builder += '}'
-
     }
+  }
 
-    private def loop(selection: Selection, indent: Option[Int], builder: StringBuilder): Unit = {
-      newlineOrSpace(indent, builder)
+  private[caliban] lazy val selectionRenderer: Renderer[Selection] = new Renderer[Selection] {
+    override protected[caliban] def unsafeRender(
+      selection: Selection,
+      indent: Option[Int],
+      builder: StringBuilder
+    ): Unit = {
       pad(indent, builder)
       selection match {
         case Selection.Field(alias, name, arguments, directives, selectionSet, _) =>
@@ -204,12 +209,7 @@ object DocumentRenderer extends Renderer[Document] {
           inputArgumentsRenderer.unsafeRender(arguments, indent, builder)
           directivesRenderer.unsafeRender(directives, indent, builder)
           if (selectionSet.nonEmpty) {
-            space(indent, builder)
-            builder += '{'
-            selectionSet.foreach(loop(_, increment(indent), builder))
-            newline(indent, builder)
-            pad(indent, builder)
-            builder += '}'
+            selectionsRenderer.unsafeRender(selectionSet, increment(indent), builder)
           }
         case Selection.FragmentSpread(name, directives)                           =>
           builder ++= "..."
@@ -218,17 +218,13 @@ object DocumentRenderer extends Renderer[Document] {
         case Selection.InlineFragment(typeCondition, dirs, selectionSet)          =>
           builder ++= "..."
           typeCondition.foreach { t =>
-            builder ++= " on "
+            space(indent, builder)
+            builder ++= "on "
             builder ++= t.name
           }
           directivesRenderer.unsafeRender(dirs, indent, builder)
           if (selectionSet.nonEmpty) {
-            space(indent, builder)
-            builder += '{'
-            selectionSet.foreach(loop(_, increment(indent), builder))
-            newline(indent, builder)
-            pad(indent, builder)
-            builder += '}'
+            selectionsRenderer.unsafeRender(selectionSet, increment(indent), builder)
           }
       }
     }
@@ -321,7 +317,7 @@ object DocumentRenderer extends Renderer[Document] {
           write ++= " on "
           write ++= typeCondition.name
           directivesRenderer.unsafeRender(directives, indent, write)
-          selectionRenderer.unsafeRender(selectionSet, indent, write)
+          selectionsRenderer.unsafeRender(selectionSet, indent, write)
       }
   }
 

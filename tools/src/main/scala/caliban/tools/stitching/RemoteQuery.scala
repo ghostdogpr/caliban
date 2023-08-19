@@ -8,13 +8,16 @@ import caliban.Value.FloatValue._
 import caliban.Value.IntValue._
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
+import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt.{ Document, OperationType, Selection }
 import caliban.rendering.DocumentRenderer
+
+import scala.collection.mutable
 
 case class RemoteQuery(field: Field) { self =>
   def toGraphQLRequest: GraphQLRequest =
     GraphQLRequest(
-      query = Some(DocumentRenderer.render(toDocument))
+      query = Some(DocumentRenderer.renderCompact(toDocument))
     )
 
   def toDocument: Document = RemoteQuery.toDocument(OperationType.Query, field)
@@ -24,7 +27,7 @@ case class RemoteMutation(field: Field) { self =>
   def toGraphQLRequest: GraphQLRequest =
     GraphQLRequest(query =
       Some(
-        DocumentRenderer.render(toDocument)
+        DocumentRenderer.renderCompact(toDocument)
       )
     )
 
@@ -34,22 +37,12 @@ case class RemoteMutation(field: Field) { self =>
 object RemoteQuery {
   object QueryRenderer {
     def render(r: RemoteMutation): String =
-      DocumentRenderer.render(toDocument(OperationType.Mutation, r.field))
+      DocumentRenderer.renderCompact(r.toDocument)
     def render(r: RemoteQuery): String    =
-      DocumentRenderer.render(toDocument(OperationType.Query, r.field))
+      DocumentRenderer.renderCompact(r.toDocument)
   }
 
-  def toDocument(operationType: OperationType, field: Field): Document = {
-    def loop(f: Field): Selection.Field =
-      Selection.Field(
-        f.alias,
-        f.name,
-        f.arguments,
-        f.directives,
-        f.fields.map(loop),
-        0
-      )
-
+  def toDocument(operationType: OperationType, field: Field): Document =
     Document(
       List(
         OperationDefinition(
@@ -57,10 +50,9 @@ object RemoteQuery {
           None,
           Nil,
           Nil,
-          List(loop(field))
+          List(field.toSelection)
         )
       ),
       SourceMapper.empty
     )
-  }
 }

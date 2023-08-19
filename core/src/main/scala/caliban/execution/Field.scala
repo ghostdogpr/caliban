@@ -5,6 +5,7 @@ import caliban.introspection.adt.__Type
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.FragmentDefinition
 import caliban.parsing.adt.Selection.{ Field => F, FragmentSpread, InlineFragment }
+import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt.{ Directive, LocationInfo, Selection, VariableDefinition }
 import caliban.schema.{ RootType, Types }
 import caliban.{ InputValue, Value }
@@ -58,6 +59,50 @@ case class Field(
         case (None, None)         => None
       }
     )
+
+  def toSelection: Selection = {
+    def loop(f: Field): Selection = {
+      // Not pretty, but it avoids computing the hashmap if it isn't needed
+      var map: mutable.Map[String, List[Selection]] =
+        null.asInstanceOf[mutable.Map[String, List[Selection]]]
+
+      val children = f.fields.flatMap { child =>
+        val childSelection = loop(child)
+        child.targets match {
+          case Some(targets) =>
+            targets.foreach { target =>
+              if (map eq null) map = mutable.LinkedHashMap.empty
+              map.update(target, childSelection :: map.getOrElse(target, Nil))
+            }
+            None
+          case None          =>
+            Some(childSelection)
+        }
+      }
+
+      val inlineFragments =
+        if (map eq null) Nil
+        else
+          map.map { case (name, selections) =>
+            Selection.InlineFragment(
+              Some(NamedType(name, nonNull = false)),
+              Nil,
+              selections
+            )
+          }
+
+      Selection.Field(
+        f.alias,
+        f.name,
+        f.arguments,
+        f.directives,
+        children ++ inlineFragments,
+        0
+      )
+    }
+
+    loop(this)
+  }
 }
 
 object Field {
