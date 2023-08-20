@@ -164,7 +164,7 @@ object DocumentRenderer extends Renderer[Document] {
       builder ++= definition.name
       builder += ':'
       space(indent, builder)
-      builder ++= definition.variableType.toString
+      typeRenderer.unsafeRender(definition.variableType, indent, builder)
       defaultValueRenderer.unsafeRender(definition.defaultValue, indent, builder)
     }
   }
