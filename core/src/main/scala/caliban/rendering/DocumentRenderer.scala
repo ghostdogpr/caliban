@@ -47,12 +47,15 @@ object DocumentRenderer extends Renderer[Document] {
   }
 
   private[caliban] lazy val documentRenderer: Renderer[Document] = Renderer.combine(
-    directiveDefinitionRenderer.list(Renderer.char('\n')).contramap(_.directiveDefinitions),
+    directiveDefinitionsRenderer.contramap(_.directiveDefinitions),
     schemaRenderer.optional.contramap(_.schemaDefinition),
     operationDefinitionRenderer.list(Renderer.newlineOrSpace).contramap(_.operationDefinitions),
     typeDefinitionsRenderer.contramap(_.typeDefinitions),
     fragmentRenderer.list.contramap(_.fragmentDefinitions)
   )
+
+  private[caliban] lazy val directiveDefinitionsRenderer: Renderer[List[DirectiveDefinition]] =
+    directiveDefinitionRenderer.list(Renderer.newline)
 
   private[caliban] lazy val __typeNameRenderer: Renderer[__Type] = new Renderer[__Type] {
     override def unsafeRender(value: __Type, indent: Option[Int], write: StringBuilder): Unit = {
@@ -77,7 +80,7 @@ object DocumentRenderer extends Renderer[Document] {
     }
   }
 
-  private lazy val directiveDefinitionRenderer: Renderer[DirectiveDefinition] =
+  private[caliban] lazy val directiveDefinitionRenderer: Renderer[DirectiveDefinition] =
     new Renderer[DirectiveDefinition] {
       private val inputRenderer                                       = inputValueDefinitionRenderer.list(Renderer.char(',') ++ Renderer.space)
       private val locationsRenderer: Renderer[Set[DirectiveLocation]] =

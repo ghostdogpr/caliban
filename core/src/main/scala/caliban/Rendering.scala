@@ -19,6 +19,14 @@ object Rendering {
   def renderSchemaDirectives(directives: List[Directive]): String =
     DocumentRenderer.directivesRenderer.render(directives)
 
+  @deprecated("Prefer DocumentRenderer.directiveDefinitionsRenderer.render instead", "2.3.1")
+  def renderDirectives(directives: List[__Directive]): String =
+    DocumentRenderer.directiveDefinitionsRenderer.render(directives.map(_.toDirectiveDefinition))
+
+  @deprecated("Prefer DocumentRenderer.isBuiltinScalar instead", "2.3.1")
+  private[caliban] def isBuiltinScalar(name: String): Boolean =
+    DocumentRenderer.isBuiltinScalar(name)
+
   @deprecated("Prefer DocumentRenderer.descriptionRenderer instead", "2.3.1")
   private[caliban] def renderDescription(description: Option[String], newline: Boolean = true): String =
     if (newline) DocumentRenderer.descriptionRenderer.render(description)

@@ -158,6 +158,9 @@ object Renderer {
       if (indent.isDefined) write.append('\n') else write.append(' ')
   }
 
+  lazy val newline: Renderer[Any] =
+    Renderer.char('\n')
+
   private final case class Combined[-A](renderers: List[Renderer[A]]) extends Renderer[A] {
     override def unsafeRender(value: A, indent: Option[Int], write: StringBuilder): Unit =
       renderers.foreach(_.unsafeRender(value, indent, write))
