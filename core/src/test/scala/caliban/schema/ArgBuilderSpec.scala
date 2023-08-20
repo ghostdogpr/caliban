@@ -5,6 +5,7 @@ import caliban.InputValue
 import caliban.InputValue.ObjectValue
 import caliban.schema.ArgBuilder.auto._
 import caliban.Value.{ IntValue, NullValue, StringValue }
+import caliban.schema.Annotations.GQLOneOfInput
 import zio.test.Assertion._
 import zio.test._
 
@@ -96,6 +97,42 @@ object ArgBuilderSpec extends ZIOSpecDefault {
         assertTrue(derivedAB.build(ObjectValue(Map("a" -> NullValue))) == Right(Wrapper(NullNullable))) &&
         assertTrue(derivedAB.build(ObjectValue(Map("a" -> StringValue("x")))) == Right(Wrapper(SomeNullable("x"))))
       }
-    )
+    ),
+    suite("oneOff") {
+      @GQLOneOfInput
+      sealed trait Foo
+
+      object Foo {
+        case class FooString(stringValue: String) extends Foo
+
+        case class FooInt(intValue: Int) extends Foo
+      }
+
+      implicit val fooStringAb: ArgBuilder[Foo.FooString] = ArgBuilder.gen
+      implicit val fooIntAb: ArgBuilder[Foo.FooInt]       = ArgBuilder.gen
+      val fooAb: ArgBuilder[Foo]                          = ArgBuilder.gen
+
+      List(
+        test("valid input") {
+          assertTrue(
+            fooAb.build(
+              ObjectValue(Map("stringValue" -> StringValue("foo")))
+            ) == Right(Foo.FooString("foo")),
+            fooAb.build(ObjectValue(Map("intValue" -> IntValue(42)))) == Right(Foo.FooInt(42))
+          )
+        },
+        test("invalid input") {
+          List(
+            Map("invalid"     -> StringValue("foo")),
+            Map("stringValue" -> StringValue("foo"), "intValue" -> IntValue(42)),
+            Map("stringValue" -> NullValue),
+            Map("stringValue" -> NullValue, "invalid"           -> NullValue)
+          )
+            .map(input => assertTrue(fooAb.build(ObjectValue(input)).isLeft))
+            .foldLeft(assertCompletes)(_ && _)
+
+        }
+      )
+    }
   )
 }

@@ -3,8 +3,7 @@ package caliban.schema
 import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.Value._
-import caliban.schema.Annotations.GQLDefault
-import caliban.schema.Annotations.GQLName
+import caliban.schema.Annotations.{ GQLDefault, GQLName, GQLOneOfInput }
 import magnolia._
 import mercator.Monadic
 
@@ -38,7 +37,11 @@ trait CommonArgBuilderDerivation {
         }
       }
 
-  def dispatch[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] = input =>
+  def dispatch[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] =
+    if (ctx.annotations.contains(GQLOneOfInput())) makeOneOffBuilder(ctx)
+    else makeSumBuilder(ctx)
+
+  private def makeSumBuilder[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] = input =>
     (input match {
       case EnumValue(value)   => Some(value)
       case StringValue(value) => Some(value)
@@ -54,6 +57,21 @@ trait CommonArgBuilderDerivation {
         }
       case None        => Left(ExecutionError(s"Can't build a trait from input $input"))
     }
+
+  private def makeOneOffBuilder[A](ctx: SealedTrait[ArgBuilder, A]): ArgBuilder[A] = new ArgBuilder.OneOff[A] {
+    private lazy val builders = ctx.subtypes.map(_.typeclass)
+
+    def build(input: InputValue): Either[ExecutionError, A] = input match {
+      case InputValue.ObjectValue(value) if value.size == 1 =>
+        builders.view
+          .map(_.build(input))
+          .find(_.isRight)
+          .getOrElse(Left(ExecutionError(s"Invalid oneOff input $value for trait ${ctx.typeName.short}")))
+      case InputValue.ObjectValue(_)                        => Left(ExecutionError("Exactly one key must be specified for oneOff inputs"))
+      case _                                                => Left(ExecutionError(s"Can't build a trait from input $input"))
+    }
+  }
+
 }
 
 trait ArgBuilderDerivation extends CommonArgBuilderDerivation {

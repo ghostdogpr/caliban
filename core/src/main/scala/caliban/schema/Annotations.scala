@@ -63,4 +63,9 @@ object Annotations {
    * Annotation to specify the default value of an input field
    */
   case class GQLDefault(value: String) extends StaticAnnotation
+
+  /**
+   * Annotation to make a sealed trait as a GraphQL @oneOff input
+   */
+  case class GQLOneOfInput() extends StaticAnnotation
 }

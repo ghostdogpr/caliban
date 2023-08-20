@@ -1,9 +1,8 @@
 package caliban.schema.macros
 
-import caliban.schema.Annotations.GQLExcluded
+import caliban.schema.Annotations.{ GQLExcluded, GQLOneOfInput }
 
 import scala.quoted.*
-import scala.compiletime.*
 
 private[caliban] object Macros {
   // this code was inspired from WIP in magnolia
@@ -15,6 +14,8 @@ private[caliban] object Macros {
   inline def isFieldExcluded[P, T]: Boolean                 = ${ isFieldExcludedImpl[P, T] }
   inline def isEnumField[P, T]: Boolean                     = ${ isEnumFieldImpl[P, T] }
   inline def implicitExists[T]: Boolean                     = ${ implicitExistsImpl[T] }
+  inline def hasOneOfInputAnnotation[P]: Boolean            = ${ hasOneOfInputAnnotationImpl[P] }
+  inline def isValidOneOffInput[P]: Boolean                 = ${ isValidOneOffInputImpl[P] }
 
   def annotationsImpl[T: Type](using qctx: Quotes): Expr[List[Any]] = {
     import qctx.reflect.*
@@ -86,6 +87,28 @@ private[caliban] object Macros {
   def isEnumFieldImpl[P: Type, T: Type](using q: Quotes): Expr[Boolean] = {
     import q.reflect.*
     Expr(TypeRepr.of[P].typeSymbol.flags.is(Flags.Enum) && TypeRepr.of[T].typeSymbol.flags.is(Flags.Enum))
+  }
+
+  def hasOneOfInputAnnotationImpl[T: Type](using q: Quotes): Expr[Boolean] = {
+    import q.reflect.*
+    Expr(TypeRepr.of[T].typeSymbol.annotations.exists(_.tpe.typeSymbol.name == "GQLOneOfInput"))
+  }
+
+  def isValidOneOffInputImpl[T: Type](using q: Quotes): Expr[Boolean] = {
+    import q.reflect.*
+    val tpe   = TypeRepr.of[T].typeSymbol
+    val flags = tpe.flags
+    if (flags.is(Flags.Sealed) && flags.is(Flags.Trait)) {
+      val constructors = tpe.children.map(_.primaryConstructor)
+      val children     = constructors.map(_.paramSymss.flatten.map(_.name))
+      val size         = children.size
+      Expr(
+        size >= 2
+          && children.forall(_.size == 1)
+          && size == children.flatten.distinct.size
+          && !constructors.exists(_.signature.paramSigs.contains("scala.Option"))
+      )
+    } else Expr(false)
   }
 
 }

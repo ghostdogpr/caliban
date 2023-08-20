@@ -1,47 +1,69 @@
 package caliban.schema
 
 import caliban.CalibanError.ExecutionError
-import caliban.{ CalibanError, InputValue }
+import caliban.{ schema, CalibanError, InputValue }
 import caliban.Value.*
 import caliban.schema.macros.Macros
-import caliban.schema.Annotations.GQLDefault
-import caliban.schema.Annotations.GQLName
+import caliban.schema.Annotations.{ GQLDefault, GQLName }
 
+import scala.collection.mutable
+import scala.collection.mutable.ListBuffer
 import scala.deriving.Mirror
 import scala.compiletime.*
 import scala.util.NotGiven
 
 trait CommonArgBuilderDerivation {
+
+  // For source compat
   inline def recurse[P, Label, A <: Tuple](
     inline values: List[(String, List[Any], ArgBuilder[Any])] = Nil
   ): List[(String, List[Any], ArgBuilder[Any])] =
+    _recurse[P, Label, A](ListBuffer.empty ++= values)
+
+  private inline def _recurse[P, Label, A <: Tuple](
+    inline values: ListBuffer[(String, List[Any], ArgBuilder[Any])] =
+      ListBuffer.empty[(String, List[Any], ArgBuilder[Any])]
+  ): List[(String, List[Any], ArgBuilder[Any])] =
     inline erasedValue[(Label, A)] match {
-      case (_: EmptyTuple, _)                 => values.reverse
+      case (_: EmptyTuple, _)                 => values.result()
       case (_: (name *: names), _: (t *: ts)) =>
-        recurse[P, names, ts](
-          (
-            constValue[name].toString,
-            Macros.annotations[t], {
-              if (Macros.isEnumField[P, t])
-                if (!Macros.implicitExists[ArgBuilder[t]]) derived[t]
+        _recurse[P, names, ts](
+          values.addOne(
+            (
+              constValue[name].toString,
+              Macros.annotations[t], {
+                inline if (Macros.isEnumField[P, t])
+                  inline if (!Macros.implicitExists[ArgBuilder[t]]) derived[t]
+                  else summonInline[ArgBuilder[t]]
                 else summonInline[ArgBuilder[t]]
-              else summonInline[ArgBuilder[t]]
-            }.asInstanceOf[ArgBuilder[Any]]
-          ) :: values
+              }.asInstanceOf[ArgBuilder[Any]]
+            )
+          )
         )
     }
 
   inline def derived[A]: ArgBuilder[A] =
     inline summonInline[Mirror.Of[A]] match {
       case m: Mirror.SumOf[A] =>
-        makeSumArgBuilder[A](
-          recurse[A, m.MirroredElemLabels, m.MirroredElemTypes](),
-          constValue[m.MirroredLabel]
-        )
+        inline if (Macros.hasOneOfInputAnnotation[A]) {
+          inline if (Macros.isValidOneOffInput[A])
+            makeOneOffBuilder[A](
+              _recurse[A, m.MirroredElemLabels, m.MirroredElemTypes](),
+              constValue[m.MirroredLabel]
+            )
+          else
+            error(
+              "Invalid oneOff input. OneOff inputs must be sealed traits with 2 or more case classes extending them that:\n\t1. Have a single non-nullable field\n\t2. Do not have duplicated field names\n\t"
+            )
+        } else
+          makeSumArgBuilder[A](
+            _recurse[A, m.MirroredElemLabels, m.MirroredElemTypes](),
+            constValue[m.MirroredLabel]
+          )
 
       case m: Mirror.ProductOf[A] =>
         makeProductArgBuilder(
-          recurse[A, m.MirroredElemLabels, m.MirroredElemTypes](),
+          _recurse[A, m.MirroredElemLabels, m.MirroredElemTypes](),
           Macros.paramAnnotations[A].to(Map)
         )(m.fromProduct)
     }
@@ -49,7 +71,7 @@ trait CommonArgBuilderDerivation {
   private def makeSumArgBuilder[A](
     _subTypes: => List[(String, List[Any], ArgBuilder[Any])],
     _traitLabel: => String
-  ) = new ArgBuilder[A] {
+  ): ArgBuilder[A] = new ArgBuilder[A] {
     private lazy val subTypes   = _subTypes
     private lazy val traitLabel = _traitLabel
     private val emptyInput      = InputValue.ObjectValue(Map())
@@ -73,10 +95,28 @@ trait CommonArgBuilderDerivation {
       }
   }
 
+  private def makeOneOffBuilder[A](
+    _subTypes: => List[(String, List[Any], ArgBuilder[Any])],
+    _traitLabel: => String
+  ): ArgBuilder[A] = new ArgBuilder.OneOff[A] {
+    private lazy val builders   = _subTypes.map(_._3).asInstanceOf[List[ArgBuilder[A]]]
+    private lazy val traitLabel = _traitLabel
+
+    def build(input: InputValue): Either[ExecutionError, A] = input match {
+      case InputValue.ObjectValue(value) if value.sizeCompare(1) == 0 =>
+        builders.view
+          .map(_.build(input))
+          .find(_.isRight)
+          .getOrElse(Left(ExecutionError(s"Invalid oneOff input $value for trait $traitLabel")))
+      case InputValue.ObjectValue(_)                                  => Left(ExecutionError("Exactly one key must be specified for oneOff inputs"))
+      case _                                                          => Left(ExecutionError(s"Can't build a trait from input $input"))
+    }
+  }
+
   private def makeProductArgBuilder[A](
     _fields: => List[(String, List[Any], ArgBuilder[Any])],
     _annotations: => Map[String, List[Any]]
-  )(fromProduct: Product => A) = new ArgBuilder[A] {
+  )(fromProduct: Product => A): ArgBuilder[A] = new ArgBuilder[A] {
     private lazy val fields      = _fields
     private lazy val annotations = _annotations
 
