@@ -66,7 +66,8 @@ object Types {
     description: Option[String],
     fields: List[__InputValue],
     origin: Option[String] = None,
-    directives: Option[List[Directive]] = None
+    directives: Option[List[Directive]] = None,
+    isOneOf: Boolean = false
   ): __Type =
     __Type(
       __TypeKind.INPUT_OBJECT,
@@ -74,7 +75,8 @@ object Types {
       description,
       inputFields = Some(fields),
       origin = origin,
-      directives = directives
+      directives = directives,
+      isOneOf = Some(isOneOf)
     )
 
   def makeUnion(

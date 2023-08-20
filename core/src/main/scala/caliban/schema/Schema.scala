@@ -168,7 +168,8 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
             fields(isInput, isSubscription).map { case (f, _) =>
               __InputValue(f.name, f.description, f.`type`, None, f.directives)
             },
-            directives = Some(directives)
+            directives = Some(directives),
+            isOneOf = directives.exists(_.name == "oneOf")
           )
         } else makeObject(Some(name), description, fields(isInput, isSubscription).map(_._1), directives)
 
@@ -387,9 +388,10 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     ev2: Schema[RB, B]
   ): Schema[RB, A => B] =
     new Schema[RB, A => B] {
-      private lazy val inputType                 = ev1.toType_(true)
-      private val unwrappedArgumentName          = "value"
-      override def arguments: List[__InputValue] =
+      private lazy val inputType        = ev1.toType_(true)
+      private val unwrappedArgumentName = "value"
+
+      override lazy val arguments: List[__InputValue] =
         inputType.inputFields.getOrElse(
           handleInput(List.empty[__InputValue])(
             List(

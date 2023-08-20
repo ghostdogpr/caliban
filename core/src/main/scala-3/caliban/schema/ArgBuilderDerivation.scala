@@ -53,7 +53,7 @@ trait CommonArgBuilderDerivation {
             )
           else
             error(
-              "Invalid oneOff input. OneOff inputs must be sealed traits with 2 or more case classes extending them that:\n\t1. Have a single non-nullable field\n\t2. Do not have duplicated field names\n\t"
+              "Invalid oneOf input. OneOff inputs must be sealed traits with 2 or more case classes extending them that:\n\t1. Have a single non-nullable field\n\t2. Do not have duplicated field names\n\t"
             )
         } else
           makeSumArgBuilder[A](
@@ -98,7 +98,7 @@ trait CommonArgBuilderDerivation {
   private def makeOneOffBuilder[A](
     _subTypes: => List[(String, List[Any], ArgBuilder[Any])],
     _traitLabel: => String
-  ): ArgBuilder[A] = new ArgBuilder.OneOff[A] {
+  ): ArgBuilder[A] = new ArgBuilder[A] {
     private lazy val builders   = _subTypes.map(_._3).asInstanceOf[List[ArgBuilder[A]]]
     private lazy val traitLabel = _traitLabel
 
@@ -107,8 +107,8 @@ trait CommonArgBuilderDerivation {
         builders.view
           .map(_.build(input))
           .find(_.isRight)
-          .getOrElse(Left(ExecutionError(s"Invalid oneOff input $value for trait $traitLabel")))
-      case InputValue.ObjectValue(_)                                  => Left(ExecutionError("Exactly one key must be specified for oneOff inputs"))
+          .getOrElse(Left(ExecutionError(s"Invalid oneOf input $value for trait $traitLabel")))
+      case InputValue.ObjectValue(_)                                  => Left(ExecutionError("Exactly one key must be specified for oneOf inputs"))
       case _                                                          => Left(ExecutionError(s"Can't build a trait from input $input"))
     }
   }

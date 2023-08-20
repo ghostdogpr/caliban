@@ -43,12 +43,12 @@ object ClientWriter {
 
     val mappingClashedTypeNames: Map[String, String] = getMappingsClashedNames(
       schema.definitions.collect {
-        case ObjectTypeDefinition(_, name, _, _, _)    => name
-        case InputObjectTypeDefinition(_, name, _, _)  => name
-        case EnumTypeDefinition(_, name, _, _)         => name
-        case UnionTypeDefinition(_, name, _, _)        => name
-        case ScalarTypeDefinition(_, name, _)          => name
-        case InterfaceTypeDefinition(_, name, _, _, _) => name
+        case ObjectTypeDefinition(_, name, _, _, _)      => name
+        case InputObjectTypeDefinition(_, name, _, _, _) => name
+        case EnumTypeDefinition(_, name, _, _)           => name
+        case UnionTypeDefinition(_, name, _, _)          => name
+        case ScalarTypeDefinition(_, name, _)            => name
+        case InterfaceTypeDefinition(_, name, _, _, _)   => name
       },
       if (splitFiles) List("package") else Nil
     )
@@ -71,12 +71,12 @@ object ClientWriter {
       mappingClashedTypeNames.getOrElse(typeName, scalarMappingsWithDefaults.getOrElse(typeName, safeName(typeName)))
 
     val typesMap: Map[String, TypeDefinition] = schema.definitions.collect {
-      case op @ ObjectTypeDefinition(_, name, _, _, _)    => name -> op
-      case op @ InputObjectTypeDefinition(_, name, _, _)  => name -> op
-      case op @ EnumTypeDefinition(_, name, _, _)         => name -> op
-      case op @ UnionTypeDefinition(_, name, _, _)        => name -> op
-      case op @ ScalarTypeDefinition(_, name, _)          => name -> op
-      case op @ InterfaceTypeDefinition(_, name, _, _, _) => name -> op
+      case op @ ObjectTypeDefinition(_, name, _, _, _)      => name -> op
+      case op @ InputObjectTypeDefinition(_, name, _, _, _) => name -> op
+      case op @ EnumTypeDefinition(_, name, _, _)           => name -> op
+      case op @ UnionTypeDefinition(_, name, _, _)          => name -> op
+      case op @ ScalarTypeDefinition(_, name, _)            => name -> op
+      case op @ InterfaceTypeDefinition(_, name, _, _, _)   => name -> op
     }.map { case (name, op) =>
       safeTypeName(name) -> op
     }.toMap

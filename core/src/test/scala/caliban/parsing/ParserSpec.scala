@@ -553,7 +553,8 @@ object ParserSpec extends ZIOSpecDefault {
                   description = None,
                   name = "BarBaz",
                   directives = Nil,
-                  fields = Nil
+                  fields = Nil,
+                  isOneOf = false
                 )
               ),
               sourceMapper = SourceMapper.apply(inputWithNoBody)
@@ -571,7 +572,8 @@ object ParserSpec extends ZIOSpecDefault {
                   description = None,
                   name = "BarBaz",
                   directives = Nil,
-                  fields = Nil
+                  fields = Nil,
+                  isOneOf = false
                 )
               ),
               sourceMapper = SourceMapper.apply(inputWithEmptyBody)

@@ -80,8 +80,6 @@ trait ArgBuilder[T] { self =>
 
 object ArgBuilder extends ArgBuilderInstances {
   object auto extends AutoArgBuilderDerivation
-
-  private[caliban] trait OneOff[T] extends ArgBuilder[T]
 }
 
 trait ArgBuilderInstances extends ArgBuilderDerivation {

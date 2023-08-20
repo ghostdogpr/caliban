@@ -40,7 +40,7 @@ trait CommonSchemaDerivation[R] {
       if ((ctx.isValueClass || isValueType(ctx)) && ctx.parameters.nonEmpty) {
         if (isScalarValueType(ctx)) makeScalar(getName(ctx), getDescription(ctx))
         else ctx.parameters.head.typeclass.toType_(isInput, isSubscription)
-      } else if (isInput)
+      } else if (isInput) {
         makeInputObject(
           Some(ctx.annotations.collectFirst { case GQLInputName(suffix) => suffix }
             .getOrElse(customizeInputTypeName(getName(ctx)))),
@@ -61,7 +61,7 @@ trait CommonSchemaDerivation[R] {
           Some(ctx.typeName.full),
           Some(getDirectives(ctx))
         )
-      else
+      } else
         makeObject(
           Some(getName(ctx)),
           getDescription(ctx),
@@ -98,6 +98,8 @@ trait CommonSchemaDerivation[R] {
   }
 
   def dispatch[T](ctx: SealedTrait[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
+    private lazy val isOneOffInputName = ctx.annotations.collectFirst { case GQLOneOfInput(name) => name }
+
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
       val subtypes    =
         ctx.subtypes
@@ -122,11 +124,11 @@ trait CommonSchemaDerivation[R] {
         case _          => false
       }
 
-      if (isEnum && subtypes.nonEmpty && !isInterface && !isUnion)
+      if (isEnum && subtypes.nonEmpty && !isInterface && !isUnion && isOneOffInputName.isEmpty) {
         makeEnum(
           Some(getName(ctx)),
           getDescription(ctx),
-          subtypes.collect { case (__Type(_, Some(name), description, _, _, _, _, _, _, _, _, _), annotations) =>
+          subtypes.collect { case (__Type(_, Some(name), description, _, _, _, _, _, _, _, _, _, _), annotations) =>
             __EnumValue(
               name,
               description,
@@ -138,7 +140,35 @@ trait CommonSchemaDerivation[R] {
           Some(ctx.typeName.full),
           Some(getDirectives(ctx.annotations))
         )
-      else if (!isInterface)
+      } else if (isOneOffInputName.isDefined) {
+        makeInputObject(
+          None,
+          None,
+          List(
+            __InputValue(
+              isOneOffInputName.getOrElse(""),
+              None,
+              () =>
+                makeInputObject(
+                  Some(ctx.annotations.collectFirst { case GQLInputName(suffix) => suffix }
+                    .getOrElse(customizeInputTypeName(getName(ctx)))),
+                  getDescription(ctx),
+                  ctx.subtypes
+                    .flatMap(_.typeclass.toType_(isInput = true).inputFields.getOrElse(Nil))
+                    .toList
+                    .map(_.nullable),
+                  Some(ctx.typeName.full),
+                  Some(List(Directive("oneOf"))),
+                  isOneOf = true
+                ).nonNull,
+              None
+            )
+          ),
+          Some(ctx.typeName.full),
+          Some(List(Directive("oneOf"))),
+          isOneOf = true
+        )
+      } else if (!isInterface) {
         makeUnion(
           Some(getName(ctx)),
           getDescription(ctx),
@@ -146,7 +176,7 @@ trait CommonSchemaDerivation[R] {
           Some(ctx.typeName.full),
           Some(getDirectives(ctx.annotations))
         )
-      else {
+      } else {
         val impl         = subtypes.map(_._1.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
         val commonFields = () =>
           impl

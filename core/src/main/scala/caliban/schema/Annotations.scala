@@ -67,5 +67,5 @@ object Annotations {
   /**
    * Annotation to make a sealed trait as a GraphQL @oneOff input
    */
-  case class GQLOneOfInput() extends StaticAnnotation
+  case class GQLOneOfInput(fieldName: String) extends StaticAnnotation
 }

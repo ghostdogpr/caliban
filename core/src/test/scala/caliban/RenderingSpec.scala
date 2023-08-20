@@ -2,7 +2,7 @@ package caliban
 
 import caliban.CalibanError.ParsingError
 import caliban.TestUtils._
-import caliban.introspection.adt.{ __Type, __TypeKind }
+import caliban.introspection.adt.{ __Directive, __DirectiveLocation, __Type, __TypeKind }
 import caliban.parsing.Parser
 import caliban.parsing.adt.Definition.{ TypeSystemDefinition, TypeSystemExtension }
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
@@ -12,6 +12,8 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{
   InputValueDefinition
 }
 import caliban.parsing.adt.{ Definition, Directive }
+import caliban.schema.Annotations.GQLOneOfInput
+import caliban.schema.{ ArgBuilder, Schema }
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import zio.IO
@@ -170,6 +172,42 @@ object RenderingSpec extends ZIOSpecDefault {
       test("it should render multi line descriptions ending in quote") {
         val api = graphQL(resolver)
         checkApi(api)
+      },
+      test("foo") {
+
+        @GQLOneOfInput("fooInput")
+        sealed trait Foo
+
+        object Foo {
+          case class FooString(stringValue: String) extends Foo
+          case class FooInt(intValue: Int)          extends Foo
+        }
+
+        case class Queries(foo: Foo => String)
+
+        implicit val fooIntAb: ArgBuilder[Foo.FooInt]       = ArgBuilder.gen
+        implicit val fooStringAb: ArgBuilder[Foo.FooString] = ArgBuilder.gen
+        implicit val fooAb: ArgBuilder[Foo]                 = ArgBuilder.gen
+        implicit val fooSchema: Schema[Any, Foo]            = Schema.gen
+        implicit val schema: Schema[Any, Queries]           = Schema.gen
+
+        val resolver = RootResolver(Queries(_.toString))
+
+        val expected =
+          """schema {
+            |  query: Queries
+            |}
+            |
+            |input FooInput @oneOf {
+            |  intValue: Int
+            |  stringValue: String
+            |}
+            |
+            |type Queries {
+            |  foo(fooInput: FooInput!): String!
+            |}""".stripMargin
+
+        assertTrue(graphQL(resolver).render == expected)
       }
     )
 }

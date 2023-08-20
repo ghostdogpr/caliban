@@ -98,14 +98,13 @@ object ArgBuilderSpec extends ZIOSpecDefault {
         assertTrue(derivedAB.build(ObjectValue(Map("a" -> StringValue("x")))) == Right(Wrapper(SomeNullable("x"))))
       }
     ),
-    suite("oneOff") {
-      @GQLOneOfInput
+    suite("oneOf") {
+      @GQLOneOfInput("foo")
       sealed trait Foo
 
       object Foo {
         case class FooString(stringValue: String) extends Foo
-
-        case class FooInt(intValue: Int) extends Foo
+        case class FooInt(intValue: Int)          extends Foo
       }
 
       implicit val fooStringAb: ArgBuilder[Foo.FooString] = ArgBuilder.gen

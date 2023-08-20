@@ -44,6 +44,17 @@ object Introspector extends IntrospectionDerivation {
     )
   )
 
+  private val oneOfDirective =
+    __Directive(
+      "oneOf",
+      Some(
+        "The `@oneOf` directive is used within the type system definition language to indicate an Input Object is a OneOf Input Object."
+      ),
+      Set(__DirectiveLocation.INPUT_OBJECT),
+      Nil,
+      isRepeatable = false
+    )
+
   /**
    * Generates a schema for introspecting the given type.
    */
@@ -67,6 +78,9 @@ object Introspector extends IntrospectionDerivation {
       .values
       .toList
       .sortBy(_.name.getOrElse(""))
+
+    val hasOneOf = types.exists(_.isOneOf.getOrElse(false))
+
     val resolver = __Introspection(
       __Schema(
         rootType.description,
@@ -74,7 +88,7 @@ object Introspector extends IntrospectionDerivation {
         rootType.mutationType,
         rootType.subscriptionType,
         types,
-        directives ++ rootType.additionalDirectives
+        directives ++ (if (hasOneOf) List(oneOfDirective) else Nil) ++ rootType.additionalDirectives
       ),
       args => types.find(_.name.contains(args.name))
     )

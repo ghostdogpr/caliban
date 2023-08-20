@@ -38,7 +38,7 @@ trait CommonArgBuilderDerivation {
       }
 
   def dispatch[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] =
-    if (ctx.annotations.contains(GQLOneOfInput())) makeOneOffBuilder(ctx)
+    if (ctx.annotations.collectFirst { case GQLOneOfInput(_) => () }.isDefined) makeOneOffBuilder(ctx)
     else makeSumBuilder(ctx)
 
   private def makeSumBuilder[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] = input =>
@@ -58,7 +58,7 @@ trait CommonArgBuilderDerivation {
       case None        => Left(ExecutionError(s"Can't build a trait from input $input"))
     }
 
-  private def makeOneOffBuilder[A](ctx: SealedTrait[ArgBuilder, A]): ArgBuilder[A] = new ArgBuilder.OneOff[A] {
+  private def makeOneOffBuilder[A](ctx: SealedTrait[ArgBuilder, A]): ArgBuilder[A] = new ArgBuilder[A] {
     private lazy val builders = ctx.subtypes.map(_.typeclass)
 
     def build(input: InputValue): Either[ExecutionError, A] = input match {
@@ -66,8 +66,8 @@ trait CommonArgBuilderDerivation {
         builders.view
           .map(_.build(input))
           .find(_.isRight)
-          .getOrElse(Left(ExecutionError(s"Invalid oneOff input $value for trait ${ctx.typeName.short}")))
-      case InputValue.ObjectValue(_)                        => Left(ExecutionError("Exactly one key must be specified for oneOff inputs"))
+          .getOrElse(Left(ExecutionError(s"Invalid oneOf input $value for trait ${ctx.typeName.short}")))
+      case InputValue.ObjectValue(_)                        => Left(ExecutionError("Exactly one key must be specified for oneOf inputs"))
       case _                                                => Left(ExecutionError(s"Can't build a trait from input $input"))
     }
   }

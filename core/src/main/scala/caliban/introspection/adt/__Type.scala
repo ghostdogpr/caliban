@@ -19,7 +19,8 @@ case class __Type(
   ofType: Option[__Type] = None,
   specifiedBy: Option[String] = None,
   directives: Option[List[Directive]] = None,
-  origin: Option[String] = None
+  origin: Option[String] = None,
+  isOneOf: Option[Boolean] = None
 ) { self =>
   def |+|(that: __Type): __Type = __Type(
     kind,
@@ -105,7 +106,8 @@ case class __Type(
             description,
             name.getOrElse(""),
             directives.getOrElse(Nil),
-            inputFields.getOrElse(Nil).map(_.toInputValueDefinition)
+            inputFields.getOrElse(Nil).map(_.toInputValueDefinition),
+            isOneOf.getOrElse(false)
           )
         )
       case _                       => None
@@ -117,8 +119,13 @@ case class __Type(
       case _                   => true
     }
 
-  def list: __Type    = __Type(__TypeKind.LIST, ofType = Some(self))
-  def nonNull: __Type = __Type(__TypeKind.NON_NULL, ofType = Some(self))
+  def list: __Type     = __Type(__TypeKind.LIST, ofType = Some(self))
+  def nonNull: __Type  = __Type(__TypeKind.NON_NULL, ofType = Some(self))
+  def nullable: __Type =
+    (kind, ofType) match {
+      case (__TypeKind.NON_NULL, Some(inner)) => inner
+      case _                                  => self
+    }
 
   lazy val allFields: List[__Field] =
     fields(__DeprecatedArgs(Some(true))).getOrElse(Nil)

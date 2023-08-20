@@ -153,6 +153,8 @@ object IntrospectionClient {
       Field("inputFields", OptionOf(ListOf(Obj(innerSelection))))
     def ofType[A](innerSelection: SelectionBuilder[__Type, A]): SelectionBuilder[__Type, Option[A]]                  =
       Field("ofType", OptionOf(Obj(innerSelection)))
+    def isOneOf: SelectionBuilder[__Type, Option[Boolean]]                                                           =
+      Field("isOneOf", OptionOf(Scalar[Boolean]()))
   }
 
   type __Field

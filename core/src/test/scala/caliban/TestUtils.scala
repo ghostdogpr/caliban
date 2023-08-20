@@ -103,6 +103,13 @@ object TestUtils {
   case class CharacterInArgs(@GQLDirective(Directive("lowercase")) names: List[String])
   case class CharacterObjectArgs(character: CharacterInput)
 
+  @GQLOneOfInput("nameOrOrigin")
+  sealed trait NameOrOrigin
+  object NameOrOrigin {
+    case class ByName(name: String)     extends NameOrOrigin
+    case class ByOrigin(origin: Origin) extends NameOrOrigin
+  }
+
   @GQLDescription("Queries")
   case class Query(
     @GQLDescription("Return all characters from a given origin") characters: CharactersArgs => List[Character],
@@ -118,6 +125,12 @@ object TestUtils {
     @GQLDeprecated("Use `characters`") character: CharacterArgs => UIO[Option[Character]]
   )
 
+  @GQLDescription("Queries")
+  case class QueryWithOneOf(
+    exists: CharacterObjectArgs => Boolean,
+    character: NameOrOrigin => List[Character]
+  )
+
   @GQLDescription("Mutations")
   case class MutationIO(deleteCharacter: CharacterArgs => UIO[Unit])
 
@@ -126,6 +139,7 @@ object TestUtils {
   implicit val characterSchema: Schema[Any, Character]           = genAll
   implicit val querySchema: Schema[Any, Query]                   = genAll
   implicit val queryIOSchema: Schema[Any, QueryIO]               = genAll
+  implicit val queryOneOffSchema: Schema[Any, QueryWithOneOf]    = genAll
   implicit val mutationIOSchema: Schema[Any, MutationIO]         = genAll
   implicit val subscriptionIOSchema: Schema[Any, SubscriptionIO] = genAll
 
@@ -142,6 +156,15 @@ object TestUtils {
     QueryIO(
       args => ZIO.succeed(characters.filter(c => args.origin.forall(c.origin == _))),
       args => ZIO.succeed(characters.find(c => c.name == args.name))
+    )
+  )
+  val resolverOneOf            = RootResolver(
+    QueryWithOneOf(
+      args => characters.exists(_.name == args.character.name),
+      {
+        case NameOrOrigin.ByName(name)     => characters.filter(c => c.name == name)
+        case NameOrOrigin.ByOrigin(origin) => characters.filter(c => c.origin == origin)
+      }
     )
   )
   val resolverWithMutation     = RootResolver(
