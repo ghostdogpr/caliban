@@ -60,7 +60,7 @@ case class Field(
       }
     )
 
-  def toSelection: Selection = {
+  lazy val toSelection: Selection = {
     def loop(f: Field): Selection = {
       // Not pretty, but it avoids computing the hashmap if it isn't needed
       var map: mutable.Map[String, List[Selection]] =

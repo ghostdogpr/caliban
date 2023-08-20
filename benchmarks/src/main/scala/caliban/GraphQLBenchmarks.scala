@@ -6,6 +6,7 @@ import caliban.parsing.adt.Document
 import caliban.rendering.{ DocumentRenderer, Renderer }
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
+
 import cats.effect.IO
 import edu.gemini.grackle.generic.GenericMapping
 import io.circe.{ Encoder, Json }
@@ -251,7 +252,10 @@ class GraphQLBenchmarks {
       )
     )
 
-    val interpreter: GraphQLInterpreter[Any, CalibanError] = run(graphQL(resolver).interpreter)
+    val gql: GraphQL[Any] = graphQL(resolver)
+    val document: Document = gql.toDocument
+
+    val interpreter: GraphQLInterpreter[Any, CalibanError] = run(gql.interpreter)
 
     def run[A](zio: Task[A]): A = Unsafe.unsafe(implicit u => runtime.unsafe.run(zio).getOrThrow())
   }
@@ -502,12 +506,11 @@ class GraphQLBenchmarks {
     ()
   }
 
-  val calibanSchemaDoc             = graphQL(Caliban.resolver).toDocument
   val renderer: Renderer[Document] = DocumentRenderer
 
   @Benchmark
   def renderCalibanFast(): Unit =
-    renderer.render(calibanSchemaDoc)
+    renderer.render(Caliban.document)
 
   @Benchmark
   def simpleGrackle(): Unit = {
