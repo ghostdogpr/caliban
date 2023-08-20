@@ -520,7 +520,7 @@ object DocumentRenderer extends Renderer[Document] {
   }
 
   private[caliban] lazy val directivesRenderer: Renderer[List[Directive]] =
-    directiveRenderer.list(Renderer.char(' '), omitFirst = false)
+    directiveRenderer.list(Renderer.char(' '), omitFirst = false).contramap(_.sortBy(_.name))
 
   private[caliban] lazy val descriptionRenderer: Renderer[Option[String]] =
     new Renderer[Option[String]] {

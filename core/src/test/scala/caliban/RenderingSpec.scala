@@ -21,7 +21,7 @@ import zio.test._
 
 object RenderingSpec extends ZIOSpecDefault {
   def fixDirectives(directives: List[Directive]): List[Directive] =
-    directives.map(_.copy(index = 0))
+    directives.map(_.copy(index = 0)).sortBy(_.name)
 
   def fixFields(fields: List[FieldDefinition]): List[FieldDefinition] =
     fields.map(field => field.copy(args = fixInputValues(field.args), directives = fixDirectives(field.directives)))
@@ -70,7 +70,7 @@ object RenderingSpec extends ZIOSpecDefault {
       test("it should render directives") {
         val api = graphQL(
           resolver,
-          directives = List(Directives.Test, Directives.Repeatable),
+          directives = List(Directives.Repeatable, Directives.Test),
           schemaDirectives = List(SchemaDirectives.Link)
         )
         checkApi(api)
@@ -169,7 +169,7 @@ object RenderingSpec extends ZIOSpecDefault {
       test("it should render compact") {
         val rendered = DocumentRenderer.renderCompact(graphQL(resolver).toDocument)
         assertTrue(
-          rendered == """schema{query:Query} "Description of custom scalar emphasizing proper captain ship names" scalar CaptainShipName @tag @specifiedBy(url:"http://someUrl") union Role @uniondirective=Captain|Engineer|Mechanic|Pilot enum Origin @enumdirective{BELT,EARTH,MARS,MOON @deprecated(reason:"Use: EARTH | MARS | BELT")} input CharacterInput @inputobjdirective{name:String! @external nicknames:[String!]! @required origin:Origin!}interface Human{ name:String! @external}type Captain{ shipName:CaptainShipName!}type Character implements Human @key(name:"name"){ name:String! @external nicknames:[String!]! @required origin:Origin! role:Role}type Engineer{ shipName:String!}type Mechanic{ shipName:String!}type Narrator implements Human{ name:String!}type Pilot{ shipName:String!}"Queries" type Query{ "Return all characters from a given origin" characters(origin:Origin):[Character!]! character(name:String!):Character @deprecated(reason:"Use `characters`") charactersIn(names:[String!]! @lowercase):[Character!]! exists(character:CharacterInput!):Boolean! human:Human!}"""
+          rendered == """schema{query:Query} "Description of custom scalar emphasizing proper captain ship names" scalar CaptainShipName @specifiedBy(url:"http://someUrl") @tag union Role @uniondirective=Captain|Engineer|Mechanic|Pilot enum Origin @enumdirective{BELT,EARTH,MARS,MOON @deprecated(reason:"Use: EARTH | MARS | BELT")} input CharacterInput @inputobjdirective{name:String! @external nicknames:[String!]! @required origin:Origin!}interface Human{ name:String! @external}type Captain{ shipName:CaptainShipName!}type Character implements Human @key(name:"name"){ name:String! @external nicknames:[String!]! @required origin:Origin! role:Role}type Engineer{ shipName:String!}type Mechanic{ shipName:String!}type Narrator implements Human{ name:String!}type Pilot{ shipName:String!}"Queries" type Query{ "Return all characters from a given origin" characters(origin:Origin):[Character!]! character(name:String!):Character @deprecated(reason:"Use `characters`") charactersIn(names:[String!]! @lowercase):[Character!]! exists(character:CharacterInput!):Boolean! human:Human!}"""
         )
       }
     )
