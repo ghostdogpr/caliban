@@ -100,9 +100,8 @@ object ArgBuilderSpec extends ZIOSpecDefault {
     ),
     suite("oneOf") {
 
-      @GQLOneOfInput("foo")
+      @GQLOneOfInput
       sealed trait Foo
-
       object Foo {
         case class FooString(stringValue: String) extends Foo
         case class FooInt(intValue: Int)          extends Foo
@@ -112,13 +111,11 @@ object ArgBuilderSpec extends ZIOSpecDefault {
       implicit val fooIntAb: ArgBuilder[Foo.FooInt]       = ArgBuilder.gen
       val fooAb: ArgBuilder[Foo]                          = ArgBuilder.gen
 
-      def mkInput(map: Map[String, InputValue]) = ObjectValue(Map("foo" -> ObjectValue(map)))
-
       List(
         test("valid input") {
           assertTrue(
-            fooAb.build(mkInput(Map("stringValue" -> StringValue("foo")))) == Right(Foo.FooString("foo")),
-            fooAb.build(mkInput(Map("intValue" -> IntValue(42)))) == Right(Foo.FooInt(42))
+            fooAb.build(ObjectValue(Map("stringValue" -> StringValue("foo")))) == Right(Foo.FooString("foo")),
+            fooAb.build(ObjectValue(Map("intValue" -> IntValue(42)))) == Right(Foo.FooInt(42))
           )
         },
         test("invalid input") {
@@ -128,7 +125,7 @@ object ArgBuilderSpec extends ZIOSpecDefault {
             Map("stringValue" -> NullValue),
             Map("stringValue" -> NullValue, "invalid"           -> NullValue)
           )
-            .map(input => assertTrue(fooAb.build(mkInput(input)).isLeft))
+            .map(input => assertTrue(fooAb.build(ObjectValue(input)).isLeft))
             .foldLeft(assertCompletes)(_ && _)
 
         }

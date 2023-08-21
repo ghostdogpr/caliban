@@ -103,11 +103,13 @@ object TestUtils {
   case class CharacterInArgs(@GQLDirective(Directive("lowercase")) names: List[String])
   case class CharacterObjectArgs(character: CharacterInput)
 
-  @GQLOneOfInput("nameOrOrigin")
+  @GQLOneOfInput
   sealed trait NameOrOrigin
   object NameOrOrigin {
     case class ByName(name: String)     extends NameOrOrigin
     case class ByOrigin(origin: Origin) extends NameOrOrigin
+
+    case class Wrapper(nameOrOrigin: NameOrOrigin)
   }
 
   @GQLDescription("Queries")
@@ -128,7 +130,7 @@ object TestUtils {
   @GQLDescription("Queries")
   case class QueryWithOneOf(
     exists: CharacterObjectArgs => Boolean,
-    character: NameOrOrigin => List[Character]
+    character: NameOrOrigin.Wrapper => List[Character]
   )
 
   @GQLDescription("Mutations")
@@ -162,8 +164,8 @@ object TestUtils {
     QueryWithOneOf(
       args => characters.exists(_.name == args.character.name),
       {
-        case NameOrOrigin.ByName(name)     => characters.filter(c => c.name == name)
-        case NameOrOrigin.ByOrigin(origin) => characters.filter(c => c.origin == origin)
+        case NameOrOrigin.Wrapper(NameOrOrigin.ByName(name))     => characters.filter(c => c.name == name)
+        case NameOrOrigin.Wrapper(NameOrOrigin.ByOrigin(origin)) => characters.filter(c => c.origin == origin)
       }
     )
   )

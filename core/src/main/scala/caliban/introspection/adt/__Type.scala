@@ -107,7 +107,7 @@ case class __Type(
             name.getOrElse(""),
             directives.getOrElse(Nil),
             inputFields.getOrElse(Nil).map(_.toInputValueDefinition),
-            isOneOf.getOrElse(false)
+            _isOneOfInput
           )
         )
       case _                       => None
@@ -131,4 +131,6 @@ case class __Type(
     fields(__DeprecatedArgs(Some(true))).getOrElse(Nil)
 
   lazy val innerType: __Type = Types.innerType(this)
+
+  def _isOneOfInput: Boolean = isOneOf.getOrElse(false)
 }

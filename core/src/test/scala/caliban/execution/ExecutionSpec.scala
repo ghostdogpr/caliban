@@ -1249,36 +1249,52 @@ object ExecutionSpec extends ZIOSpecDefault {
         }
       },
       test("oneOf inputs") {
-        @GQLOneOfInput("fooInput")
-        sealed trait Foo
 
+        @GQLOneOfInput
+        sealed trait Foo
         object Foo {
           case class FooString(stringValue: String) extends Foo
           case class FooInt(intValue: Int)          extends Foo
+
+          case class Wrapper(fooInput: Foo)
         }
 
-        case class Queries(foo: Foo => String)
+        case class Queries(foo: Foo.Wrapper => String, fooUnwrapped: Foo => String)
 
         implicit val fooStringAb: ArgBuilder[Foo.FooString] = ArgBuilder.gen
         implicit val fooIntAb: ArgBuilder[Foo.FooInt]       = ArgBuilder.gen
         implicit val fooAb: ArgBuilder[Foo]                 = ArgBuilder.gen
         implicit val schema: Schema[Any, Queries]           = Schema.gen
 
-        val api: GraphQL[Any] = graphQL(RootResolver(Queries {
-          case Foo.FooString(value) => value
-          case Foo.FooInt(value)    => value.toString
-        }))
+        val api: GraphQL[Any] = graphQL(
+          RootResolver(
+            Queries(
+              {
+                case Foo.Wrapper(Foo.FooString(value)) => value
+                case Foo.Wrapper(Foo.FooInt(value))    => value.toString
+              },
+              {
+                case Foo.FooString(value) => value
+                case Foo.FooInt(value)    => value.toString
+              }
+            )
+          )
+        )
 
         val q1 = gqldoc("""{ foo(fooInput: {stringValue: "hello"}) }""")
         val q2 = gqldoc("""{ foo(fooInput: {intValue: 42}) }""")
+        val q3 = gqldoc("""{ fooUnwrapped(value: {intValue: 42}) }""")
 
         for {
+          _  <- api.validateRootSchema
           i  <- api.interpreter
           r1 <- i.execute(q1)
           r2 <- i.execute(q2)
+          r3 <- i.execute(q3)
         } yield assertTrue(
           r1.data.toString == """{"foo":"hello"}""",
-          r2.data.toString == """{"foo":"42"}"""
+          r2.data.toString == """{"foo":"42"}""",
+          r3.data.toString == """{"fooUnwrapped":"42"}"""
         )
 
       }

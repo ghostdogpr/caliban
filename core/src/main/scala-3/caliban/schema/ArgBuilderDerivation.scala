@@ -49,8 +49,7 @@ trait CommonArgBuilderDerivation {
           inline if (Macros.isValidOneOffInput[A])
             makeOneOffBuilder[A](
               _recurse[A, m.MirroredElemLabels, m.MirroredElemTypes](),
-              constValue[m.MirroredLabel],
-              Macros.annotations[A]
+              constValue[m.MirroredLabel]
             )
           else
             error(
@@ -98,25 +97,21 @@ trait CommonArgBuilderDerivation {
 
   private def makeOneOffBuilder[A](
     _subTypes: => List[(String, List[Any], ArgBuilder[Any])],
-    _traitLabel: => String,
-    _annotations: => List[Any]
+    _traitLabel: => String
   ): ArgBuilder[A] = new ArgBuilder[A] {
-    private lazy val builders       = _subTypes.map(_._3).asInstanceOf[List[ArgBuilder[A]]]
-    private lazy val traitLabel     = _traitLabel
-    private lazy val oneOfInputName = _annotations.collectFirst { case GQLOneOfInput(name) => name }.getOrElse("")
+    private lazy val builders   = _subTypes.map(_._3).asInstanceOf[List[ArgBuilder[A]]]
+    private lazy val traitLabel = _traitLabel
 
     def build(input: InputValue): Either[ExecutionError, A] = input match {
-      case InputValue.ObjectValue(obj) =>
-        obj.get(oneOfInputName) match {
-          case Some(inner @ InputValue.ObjectValue(fields)) if fields.sizeCompare(1) == 0 =>
-            builders.view
-              .map(_.build(inner))
-              .find(_.isRight)
-              .getOrElse(Left(ExecutionError(s"Invalid oneOf input $inner for trait $traitLabel")))
-
-          case v => Left(ExecutionError(s"Exactly one key must be specified for oneOf inputs: $v"))
-        }
-      case _                           => Left(ExecutionError(s"Can't build a trait from input $input"))
+      case InputValue.ObjectValue(fields) if fields.size == 1 =>
+        builders.view
+          .map(_.build(input))
+          .find(_.isRight)
+          .getOrElse(Left(ExecutionError(s"Invalid oneOf input $fields for trait $traitLabel")))
+      case InputValue.ObjectValue(_)                          =>
+        Left(ExecutionError("Exactly one key must be specified for oneOf inputs"))
+      case _                                                  =>
+        Left(ExecutionError(s"Can't build a trait from input $input"))
     }
   }
 

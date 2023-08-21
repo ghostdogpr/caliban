@@ -173,25 +173,33 @@ object RenderingSpec extends ZIOSpecDefault {
         val api = graphQL(resolver)
         checkApi(api)
       },
-      test("@oneOf input") {
-
-        @GQLOneOfInput("fooInput")
-        sealed trait Foo
-
-        object Foo {
-          case class FooString(stringValue: String) extends Foo
-          case class FooInt(intValue: Int)          extends Foo
-        }
-
+      test("@oneOf input as value type") {
         case class Queries(foo: Foo => String)
 
-        implicit val fooIntAb: ArgBuilder[Foo.FooInt]       = ArgBuilder.gen
-        implicit val fooStringAb: ArgBuilder[Foo.FooString] = ArgBuilder.gen
-        implicit val fooAb: ArgBuilder[Foo]                 = ArgBuilder.gen
-        implicit val fooSchema: Schema[Any, Foo]            = Schema.gen
-        implicit val schema: Schema[Any, Queries]           = Schema.gen
+        implicit val schema: Schema[Any, Queries] = Schema.gen
+        val resolver                              = RootResolver(Queries(_.toString))
 
-        val resolver = RootResolver(Queries(_.toString))
+        val expected =
+          """schema {
+            |  query: Queries
+            |}
+            |
+            |input FooInput @oneOf {
+            |  intValue: Int
+            |  stringValue: String
+            |}
+            |
+            |type Queries {
+            |  foo(value: FooInput!): String!
+            |}""".stripMargin
+
+        assertTrue(graphQL(resolver).render == expected)
+      },
+      test("@oneOf input wrapped in a case class") {
+        case class Queries(foo: Foo.Wrapped => String)
+
+        implicit val schema: Schema[Any, Queries] = Schema.gen
+        val resolver                              = RootResolver(Queries(_.toString))
 
         val expected =
           """schema {
@@ -210,4 +218,17 @@ object RenderingSpec extends ZIOSpecDefault {
         assertTrue(graphQL(resolver).render == expected)
       }
     )
+
+  @GQLOneOfInput
+  sealed trait Foo
+
+  object Foo {
+    case class FooString(stringValue: String) extends Foo
+    case class FooInt(intValue: Int)          extends Foo
+
+    case class Wrapped(fooInput: Foo)
+  }
+
+  implicit val fooAb: ArgBuilder[Foo]      = ArgBuilder.gen
+  implicit val fooSchema: Schema[Any, Foo] = Schema.gen
 }

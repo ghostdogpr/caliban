@@ -98,8 +98,6 @@ trait CommonSchemaDerivation[R] {
   }
 
   def dispatch[T](ctx: SealedTrait[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
-    private lazy val isOneOffInputName = ctx.annotations.collectFirst { case GQLOneOfInput(name) => name }
-
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
       val subtypes    =
         ctx.subtypes
@@ -124,7 +122,15 @@ trait CommonSchemaDerivation[R] {
         case _          => false
       }
 
-      if (isEnum && subtypes.nonEmpty && !isInterface && !isUnion && isOneOffInputName.isEmpty) {
+      lazy val subtypeInputFields =
+        ctx.subtypes.map(_.typeclass.toType_(isInput = true).inputFields.getOrElse(Nil)).toList
+
+      lazy val isOneOfInput =
+        ctx.annotations.contains(GQLOneOfInput()) &&
+          subtypeInputFields.nonEmpty &&
+          subtypeInputFields.forall(_.size == 1)
+
+      if (isEnum && subtypes.nonEmpty && !isInterface && !isUnion && !isOneOfInput) {
         makeEnum(
           Some(getName(ctx)),
           getDescription(ctx),
@@ -140,24 +146,12 @@ trait CommonSchemaDerivation[R] {
           Some(ctx.typeName.full),
           Some(getDirectives(ctx.annotations))
         )
-      } else if (isOneOffInputName.isDefined) {
-        val inner = makeInputObject(
+      } else if (isOneOfInput) {
+        makeInputObject(
           Some(ctx.annotations.collectFirst { case GQLInputName(suffix) => suffix }
             .getOrElse(customizeInputTypeName(getName(ctx)))),
           getDescription(ctx),
-          ctx.subtypes
-            .flatMap(_.typeclass.toType_(isInput = true).inputFields.getOrElse(Nil))
-            .toList
-            .map(_.nullable),
-          Some(ctx.typeName.full),
-          Some(List(Directive("oneOf"))),
-          isOneOf = true
-        ).nonNull
-
-        makeInputObject(
-          None,
-          None,
-          List(__InputValue(isOneOffInputName.getOrElse(""), None, () => inner, None)),
+          subtypeInputFields.flatten.map(_.nullable),
           Some(ctx.typeName.full),
           Some(List(Directive("oneOf"))),
           isOneOf = true

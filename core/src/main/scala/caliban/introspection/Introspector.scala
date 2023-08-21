@@ -79,7 +79,7 @@ object Introspector extends IntrospectionDerivation {
       .toList
       .sortBy(_.name.getOrElse(""))
 
-    val hasOneOf = types.exists(_.isOneOf.getOrElse(false))
+    val hasOneOf = types.exists(_._isOneOfInput)
 
     val resolver = __Introspection(
       __Schema(
