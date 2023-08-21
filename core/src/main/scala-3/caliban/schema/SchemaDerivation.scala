@@ -112,7 +112,7 @@ trait CommonSchemaDerivation {
         makeInputObject(
           Some(getInputName(annotations).getOrElse(customizeInputTypeName(getName(annotations, info)))),
           getDescription(annotations),
-          membersOrdered.map(_._3.toType_(true)).flatMap(_.inputFields.getOrElse(Nil)),
+          membersOrdered.map(_._3.toType_(true)).flatMap(_.inputFields.getOrElse(Nil)).map(_.nullable),
           Some(info.full),
           Some(List(Directive("oneOf"))),
           isOneOf = true
