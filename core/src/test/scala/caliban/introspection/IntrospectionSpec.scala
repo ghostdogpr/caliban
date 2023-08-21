@@ -195,6 +195,28 @@ object IntrospectionSpec extends ZIOSpecDefault {
         interpreter.flatMap(_.execute(query)).map { response =>
           assertTrue(response.data.toString == """{"__type":null}""")
         }
+      },
+      test("introspect oneOff types") {
+        val interpreter = graphQL(resolverOneOf).interpreter
+
+        def query(name: String) =
+          s"""
+              query {
+                __type(name: "$name") {
+                  name
+                  isOneOf
+                }
+              }
+            """
+
+        for {
+          i  <- interpreter
+          r1 <- i.execute(query("NameOrOriginInput"))
+          r2 <- i.execute(query("CharacterInput"))
+        } yield assertTrue(
+          r1.data.toString == """{"__type":{"name":"NameOrOriginInput","isOneOf":true}}""",
+          r2.data.toString == """{"__type":{"name":"CharacterInput","isOneOf":false}}"""
+        )
       }
     )
 }

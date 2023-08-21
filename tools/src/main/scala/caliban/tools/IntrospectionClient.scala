@@ -96,8 +96,7 @@ object IntrospectionClient {
     inputFields: Option[List[InputValueDefinition]],
     interfaces: Option[List[Type]],
     enumValues: Option[List[EnumValueDefinition]],
-    possibleTypes: Option[List[Type]],
-    isOneOf: Option[Boolean]
+    possibleTypes: Option[List[Type]]
   ): Option[TypeDefinition] = kind match {
     case __TypeKind.SCALAR                     =>
       Some(ScalarTypeDefinition(description, name.getOrElse(""), Nil))
@@ -135,15 +134,7 @@ object IntrospectionClient {
     case __TypeKind.ENUM                       =>
       Some(EnumTypeDefinition(description, name.getOrElse(""), Nil, enumValues.getOrElse(Nil)))
     case __TypeKind.INPUT_OBJECT               =>
-      Some(
-        InputObjectTypeDefinition(
-          description,
-          name.getOrElse(""),
-          Nil,
-          inputFields.getOrElse(Nil),
-          isOneOf.getOrElse(false)
-        )
-      )
+      Some(InputObjectTypeDefinition(description, name.getOrElse(""), Nil, inputFields.getOrElse(Nil), isOneOf = false))
     case __TypeKind.LIST | __TypeKind.NON_NULL => None
   }
 
@@ -236,8 +227,7 @@ object IntrospectionClient {
           __EnumValue.isDeprecated ~
           __EnumValue.deprecationReason).mapN(mapEnumValue _)
       } ~
-      __Type.possibleTypes(typeRef) ~
-      __Type.isOneOf).mapN(mapType _)
+      __Type.possibleTypes(typeRef)).mapN(mapType _)
 
   def introspection(supportIsRepeatable: Boolean): SelectionBuilder[RootQuery, Document] =
     Query.__schema {
