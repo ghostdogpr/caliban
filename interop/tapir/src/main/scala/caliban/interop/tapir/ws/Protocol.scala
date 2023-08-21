@@ -9,6 +9,7 @@ import caliban.interop.tapir.WebSocketHooks
 import zio.stm.TMap
 import zio.stream.{ UStream, ZStream }
 import zio.{ Duration, Promise, Queue, Ref, Schedule, UIO, URIO, ZIO }
+import java.util.UUID
 
 sealed trait Protocol {
   def name: String
@@ -49,15 +50,20 @@ object Protocol {
       override def complete(id: String): GraphQLWSOutput =
         GraphQLWSOutput(Ops.Complete, Some(id), None)
 
-      override def error[E](id: Option[String], e: E): GraphQLWSOutput =
+      override def error[E](id: Option[String], e: E): GraphQLWSOutput = {
+        val outputId = id match {
+          case None    => Some(UUID.randomUUID().toString)
+          case Some(_) => id
+        }
         GraphQLWSOutput(
           Ops.Error,
-          id,
+          outputId,
           Some(ResponseValue.ListValue(List(e match {
             case e: CalibanError => e.toResponseValue
             case e               => StringValue(e.toString)
           })))
         )
+      }
     }
 
     override def make[R, E](
