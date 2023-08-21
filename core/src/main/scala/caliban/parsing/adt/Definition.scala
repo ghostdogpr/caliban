@@ -108,8 +108,7 @@ object Definition {
         description: Option[String],
         name: String,
         directives: List[Directive],
-        fields: List[InputValueDefinition],
-        isOneOf: Boolean
+        fields: List[InputValueDefinition]
       ) extends TypeDefinition {
         override def toString: String = "Input Object"
       }

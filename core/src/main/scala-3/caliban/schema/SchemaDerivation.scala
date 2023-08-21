@@ -8,7 +8,6 @@ import caliban.schema.Step.ObjectStep
 import caliban.schema.Types.*
 import caliban.schema.macros.{ Macros, TypeInfo }
 
-import scala.collection.mutable.ListBuffer
 import scala.compiletime.*
 import scala.deriving.Mirror
 import scala.util.NotGiven
@@ -37,34 +36,25 @@ trait CommonSchemaDerivation {
       case _                 => s"${name}Input"
     }
 
-  // For source compat
   inline def recurse[R, P, Label, A <: Tuple](
-    inline values: List[(String, List[Any], Schema[R, Any], Int)]
-  )(inline index: Int = 0): List[(String, List[Any], Schema[R, Any], Int)] =
-    _recurse(ListBuffer.empty ++= values)(index)
-
-  private inline def _recurse[R, P, Label, A <: Tuple](
-    inline values: ListBuffer[(String, List[Any], Schema[R, Any], Int)] =
-      ListBuffer.empty[(String, List[Any], Schema[R, Any], Int)]
+    inline values: List[(String, List[Any], Schema[R, Any], Int)] = Nil
   )(inline index: Int = 0): List[(String, List[Any], Schema[R, Any], Int)] =
     inline erasedValue[(Label, A)] match {
-      case (_: EmptyTuple, _)                 => values.result()
+      case (_: EmptyTuple, _)                 => values.reverse
       case (_: (name *: names), _: (t *: ts)) =>
-        _recurse[R, P, names, ts] {
+        recurse[R, P, names, ts] {
           inline if (Macros.isFieldExcluded[P, name]) values
           else
-            values.addOne(
-              (
-                constValue[name].toString,
-                Macros.annotations[t], {
-                  inline if (Macros.isEnumField[P, t])
-                    inline if (!Macros.implicitExists[Schema[R, t]]) derived[R, t]
-                    else summonInline[Schema[R, t]]
+            (
+              constValue[name].toString,
+              Macros.annotations[t], {
+                if (Macros.isEnumField[P, t])
+                  if (!Macros.implicitExists[Schema[R, t]]) derived[R, t]
                   else summonInline[Schema[R, t]]
-                }.asInstanceOf[Schema[R, Any]],
-                index
-              )
-            )
+                else summonInline[Schema[R, t]]
+              }.asInstanceOf[Schema[R, Any]],
+              index
+            ) :: values
         }(index + 1)
     }
 
@@ -72,14 +62,14 @@ trait CommonSchemaDerivation {
     inline summonInline[Mirror.Of[A]] match {
       case m: Mirror.SumOf[A] =>
         makeSumSchema[R, A](
-          _recurse[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()(),
+          recurse[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()(),
           Macros.typeInfo[A],
           Macros.annotations[A]
         )(m.ordinal)
 
       case m: Mirror.ProductOf[A] =>
         makeProductSchema[R, A](
-          _recurse[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()(),
+          recurse[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()(),
           Macros.typeInfo[A],
           Macros.annotations[A],
           Macros.paramAnnotations[A].toMap

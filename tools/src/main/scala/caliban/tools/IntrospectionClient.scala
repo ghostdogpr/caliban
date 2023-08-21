@@ -134,7 +134,7 @@ object IntrospectionClient {
     case __TypeKind.ENUM                       =>
       Some(EnumTypeDefinition(description, name.getOrElse(""), Nil, enumValues.getOrElse(Nil)))
     case __TypeKind.INPUT_OBJECT               =>
-      Some(InputObjectTypeDefinition(description, name.getOrElse(""), Nil, inputFields.getOrElse(Nil), isOneOf = false))
+      Some(InputObjectTypeDefinition(description, name.getOrElse(""), Nil, inputFields.getOrElse(Nil)))
     case __TypeKind.LIST | __TypeKind.NON_NULL => None
   }
 

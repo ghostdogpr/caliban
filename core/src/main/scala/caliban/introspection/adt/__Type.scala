@@ -106,8 +106,7 @@ case class __Type(
             description,
             name.getOrElse(""),
             directives.getOrElse(Nil),
-            inputFields.getOrElse(Nil).map(_.toInputValueDefinition),
-            _isOneOfInput
+            inputFields.getOrElse(Nil).map(_.toInputValueDefinition)
           )
         )
       case _                       => None

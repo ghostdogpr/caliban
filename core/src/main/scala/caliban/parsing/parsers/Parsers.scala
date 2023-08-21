@@ -92,8 +92,7 @@ object Parsers extends SelectionParsers {
           description.map(_.value),
           name,
           directives = directives.getOrElse(Nil),
-          fields = fields.fold(List[InputValueDefinition]())(_.toList),
-          isOneOf = directives.fold(false)(_.exists(_.name == "oneOf"))
+          fields = fields.fold(List[InputValueDefinition]())(_.toList)
         )
     }
 

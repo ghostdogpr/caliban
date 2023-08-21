@@ -66,10 +66,10 @@ object ResponseValue extends ValueJsonCompat {
     override def toString: String =
       fields.map { case (name, value) => s""""$name":${value.toString}""" }.mkString("{", ",", "}")
 
-    override lazy val hashCode: Int          = fields.toSet.hashCode()
+    override def hashCode: Int               = fields.toSet.hashCode()
     override def equals(other: Any): Boolean =
       other match {
-        case o: ObjectValue => o.hashCode == hashCode
+        case o: ObjectValue => o.hashCode() == hashCode
         case _              => false
       }
   }

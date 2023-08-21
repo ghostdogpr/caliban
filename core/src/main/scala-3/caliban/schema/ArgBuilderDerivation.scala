@@ -4,41 +4,29 @@ import caliban.CalibanError.ExecutionError
 import caliban.{ schema, CalibanError, InputValue }
 import caliban.Value.*
 import caliban.schema.macros.Macros
-import caliban.schema.Annotations.{ GQLDefault, GQLName, GQLOneOfInput }
+import caliban.schema.Annotations.{ GQLDefault, GQLName }
 
-import scala.collection.mutable
-import scala.collection.mutable.ListBuffer
 import scala.deriving.Mirror
 import scala.compiletime.*
 import scala.util.NotGiven
 
 trait CommonArgBuilderDerivation {
-
-  // For source compat
   inline def recurse[P, Label, A <: Tuple](
     inline values: List[(String, List[Any], ArgBuilder[Any])] = Nil
   ): List[(String, List[Any], ArgBuilder[Any])] =
-    _recurse[P, Label, A](ListBuffer.empty ++= values)
-
-  private inline def _recurse[P, Label, A <: Tuple](
-    inline values: ListBuffer[(String, List[Any], ArgBuilder[Any])] =
-      ListBuffer.empty[(String, List[Any], ArgBuilder[Any])]
-  ): List[(String, List[Any], ArgBuilder[Any])] =
     inline erasedValue[(Label, A)] match {
-      case (_: EmptyTuple, _)                 => values.result()
+      case (_: EmptyTuple, _)                 => values.reverse
       case (_: (name *: names), _: (t *: ts)) =>
-        _recurse[P, names, ts](
-          values.addOne(
-            (
-              constValue[name].toString,
-              Macros.annotations[t], {
-                inline if (Macros.isEnumField[P, t])
-                  inline if (!Macros.implicitExists[ArgBuilder[t]]) derived[t]
-                  else summonInline[ArgBuilder[t]]
+        recurse[P, names, ts](
+          (
+            constValue[name].toString,
+            Macros.annotations[t], {
+              if (Macros.isEnumField[P, t])
+                if (!Macros.implicitExists[ArgBuilder[t]]) derived[t]
                 else summonInline[ArgBuilder[t]]
-              }.asInstanceOf[ArgBuilder[Any]]
-            )
-          )
+              else summonInline[ArgBuilder[t]]
+            }.asInstanceOf[ArgBuilder[Any]]
+          ) :: values
         )
     }
 
@@ -48,7 +36,7 @@ trait CommonArgBuilderDerivation {
         inline if (Macros.hasOneOfInputAnnotation[A]) {
           inline if (Macros.isValidOneOffInput[A])
             makeOneOffBuilder[A](
-              _recurse[A, m.MirroredElemLabels, m.MirroredElemTypes](),
+              recurse[A, m.MirroredElemLabels, m.MirroredElemTypes](),
               constValue[m.MirroredLabel]
             )
           else
@@ -57,13 +45,13 @@ trait CommonArgBuilderDerivation {
             )
         } else
           makeSumArgBuilder[A](
-            _recurse[A, m.MirroredElemLabels, m.MirroredElemTypes](),
+            recurse[A, m.MirroredElemLabels, m.MirroredElemTypes](),
             constValue[m.MirroredLabel]
           )
 
       case m: Mirror.ProductOf[A] =>
         makeProductArgBuilder(
-          _recurse[A, m.MirroredElemLabels, m.MirroredElemTypes](),
+          recurse[A, m.MirroredElemLabels, m.MirroredElemTypes](),
           Macros.paramAnnotations[A].to(Map)
         )(m.fromProduct)
     }
