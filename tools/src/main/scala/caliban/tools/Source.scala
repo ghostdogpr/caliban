@@ -72,13 +72,13 @@ trait Source[-R] {
                   )
                 else field
               },
-            makeDataSource(step)
+            batchDataSource(step.dataSource)
           )
         case other                    => other
       }
 
-    def makeDataSource(step: Step.ProxyStep[R1]): DataSource[R1, ProxyRequest] =
-      DataSource.fromFunctionBatchedZIO(s"${step.dataSource.identifier}Batched") { requests =>
+    def batchDataSource(dataSource: DataSource[R1, ProxyRequest]): DataSource[R1, ProxyRequest] =
+      DataSource.fromFunctionBatchedZIO(s"${dataSource.identifier}Batched") { requests =>
         val requestsMap     = requests.groupBy(_.url).flatMap { case (url, requests) =>
           requests
             .groupBy(request => QueryRenderer.renderField(request.field, ignoreArguments = true))
@@ -109,12 +109,12 @@ trait Source[-R] {
         }
         val batchedRequests = Chunk.fromIterable(requestsMap.values.map(_._1)).distinct
 
-        step.dataSource
+        dataSource
           .runAll(Chunk.single(batchedRequests))
-          .map(map =>
+          .map(results =>
             requests
               .flatMap(requestsMap.get)
-              .flatMap { case (req, field) => map.lookup(req).map(_ -> field) }
+              .flatMap { case (req, field) => results.lookup(req).map(_ -> field) }
               .collect { case (Right(value), field) => filterBatchedValues(value, field) }
           )
       }
@@ -186,7 +186,7 @@ object Source {
       } yield schema
   }
 
-  val dataSource: DataSource[SttpClient, ProxyRequest] =
+  private val dataSource: DataSource[SttpClient, ProxyRequest] =
     DataSource.fromFunctionZIO[SttpClient, Throwable, ProxyRequest, ResponseValue]("RemoteDataSource") { request =>
       val remoteResolver =
         if (request.field.parentType.isEmpty) RemoteResolver.fromUrl2(request.url, request.headers)
