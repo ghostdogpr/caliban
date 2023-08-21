@@ -38,8 +38,10 @@ trait CommonArgBuilderDerivation {
       }
 
   def dispatch[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] =
-    if (ctx.annotations.collectFirst { case GQLOneOfInput(_) => () }.isDefined) makeOneOffBuilder(ctx)
-    else makeSumBuilder(ctx)
+    ctx.annotations.collectFirst { case GQLOneOfInput(name) => name } match {
+      case None       => makeSumBuilder(ctx)
+      case Some(name) => makeOneOffBuilder(ctx, name)
+    }
 
   private def makeSumBuilder[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] = input =>
     (input match {
@@ -58,19 +60,24 @@ trait CommonArgBuilderDerivation {
       case None        => Left(ExecutionError(s"Can't build a trait from input $input"))
     }
 
-  private def makeOneOffBuilder[A](ctx: SealedTrait[ArgBuilder, A]): ArgBuilder[A] = new ArgBuilder[A] {
-    private lazy val builders = ctx.subtypes.map(_.typeclass)
+  private def makeOneOffBuilder[A](ctx: SealedTrait[ArgBuilder, A], oneOfInputName: String): ArgBuilder[A] =
+    new ArgBuilder[A] {
+      private lazy val builders = ctx.subtypes.map(_.typeclass)
 
-    def build(input: InputValue): Either[ExecutionError, A] = input match {
-      case InputValue.ObjectValue(value) if value.size == 1 =>
-        builders.view
-          .map(_.build(input))
-          .find(_.isRight)
-          .getOrElse(Left(ExecutionError(s"Invalid oneOf input $value for trait ${ctx.typeName.short}")))
-      case InputValue.ObjectValue(_)                        => Left(ExecutionError("Exactly one key must be specified for oneOf inputs"))
-      case _                                                => Left(ExecutionError(s"Can't build a trait from input $input"))
+      def build(input: InputValue): Either[ExecutionError, A] = input match {
+        case InputValue.ObjectValue(obj) =>
+          obj.get(oneOfInputName) match {
+            case Some(inner @ InputValue.ObjectValue(fields)) if fields.sizeCompare(1) == 0 =>
+              builders.view
+                .map(_.build(inner))
+                .find(_.isRight)
+                .getOrElse(Left(ExecutionError(s"Invalid oneOf input $inner for trait ${ctx.typeName.short}}")))
+
+            case v => Left(ExecutionError(s"Exactly one key must be specified for oneOf inputs: $v"))
+          }
+        case _                           => Left(ExecutionError(s"Can't build a trait from input $input"))
+      }
     }
-  }
 
 }
 

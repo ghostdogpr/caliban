@@ -141,29 +141,23 @@ trait CommonSchemaDerivation[R] {
           Some(getDirectives(ctx.annotations))
         )
       } else if (isOneOffInputName.isDefined) {
+        val inner = makeInputObject(
+          Some(ctx.annotations.collectFirst { case GQLInputName(suffix) => suffix }
+            .getOrElse(customizeInputTypeName(getName(ctx)))),
+          getDescription(ctx),
+          ctx.subtypes
+            .flatMap(_.typeclass.toType_(isInput = true).inputFields.getOrElse(Nil))
+            .toList
+            .map(_.nullable),
+          Some(ctx.typeName.full),
+          Some(List(Directive("oneOf"))),
+          isOneOf = true
+        ).nonNull
+
         makeInputObject(
           None,
           None,
-          List(
-            __InputValue(
-              isOneOffInputName.getOrElse(""),
-              None,
-              () =>
-                makeInputObject(
-                  Some(ctx.annotations.collectFirst { case GQLInputName(suffix) => suffix }
-                    .getOrElse(customizeInputTypeName(getName(ctx)))),
-                  getDescription(ctx),
-                  ctx.subtypes
-                    .flatMap(_.typeclass.toType_(isInput = true).inputFields.getOrElse(Nil))
-                    .toList
-                    .map(_.nullable),
-                  Some(ctx.typeName.full),
-                  Some(List(Directive("oneOf"))),
-                  isOneOf = true
-                ).nonNull,
-              None
-            )
-          ),
+          List(__InputValue(isOneOffInputName.getOrElse(""), None, () => inner, None)),
           Some(ctx.typeName.full),
           Some(List(Directive("oneOf"))),
           isOneOf = true

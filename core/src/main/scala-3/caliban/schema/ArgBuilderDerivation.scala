@@ -4,7 +4,7 @@ import caliban.CalibanError.ExecutionError
 import caliban.{ schema, CalibanError, InputValue }
 import caliban.Value.*
 import caliban.schema.macros.Macros
-import caliban.schema.Annotations.{ GQLDefault, GQLName }
+import caliban.schema.Annotations.{ GQLDefault, GQLName, GQLOneOfInput }
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
@@ -49,7 +49,8 @@ trait CommonArgBuilderDerivation {
           inline if (Macros.isValidOneOffInput[A])
             makeOneOffBuilder[A](
               _recurse[A, m.MirroredElemLabels, m.MirroredElemTypes](),
-              constValue[m.MirroredLabel]
+              constValue[m.MirroredLabel],
+              Macros.annotations[A]
             )
           else
             error(
@@ -97,19 +98,25 @@ trait CommonArgBuilderDerivation {
 
   private def makeOneOffBuilder[A](
     _subTypes: => List[(String, List[Any], ArgBuilder[Any])],
-    _traitLabel: => String
+    _traitLabel: => String,
+    _annotations: => List[Any]
   ): ArgBuilder[A] = new ArgBuilder[A] {
-    private lazy val builders   = _subTypes.map(_._3).asInstanceOf[List[ArgBuilder[A]]]
-    private lazy val traitLabel = _traitLabel
+    private lazy val builders       = _subTypes.map(_._3).asInstanceOf[List[ArgBuilder[A]]]
+    private lazy val traitLabel     = _traitLabel
+    private lazy val oneOfInputName = _annotations.collectFirst { case GQLOneOfInput(name) => name }.getOrElse("")
 
     def build(input: InputValue): Either[ExecutionError, A] = input match {
-      case InputValue.ObjectValue(value) if value.sizeCompare(1) == 0 =>
-        builders.view
-          .map(_.build(input))
-          .find(_.isRight)
-          .getOrElse(Left(ExecutionError(s"Invalid oneOf input $value for trait $traitLabel")))
-      case InputValue.ObjectValue(_)                                  => Left(ExecutionError("Exactly one key must be specified for oneOf inputs"))
-      case _                                                          => Left(ExecutionError(s"Can't build a trait from input $input"))
+      case InputValue.ObjectValue(obj) =>
+        obj.get(oneOfInputName) match {
+          case Some(inner @ InputValue.ObjectValue(fields)) if fields.sizeCompare(1) == 0 =>
+            builders.view
+              .map(_.build(inner))
+              .find(_.isRight)
+              .getOrElse(Left(ExecutionError(s"Invalid oneOf input $inner for trait $traitLabel")))
+
+          case v => Left(ExecutionError(s"Exactly one key must be specified for oneOf inputs: $v"))
+        }
+      case _                           => Left(ExecutionError(s"Can't build a trait from input $input"))
     }
   }
 

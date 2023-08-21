@@ -92,11 +92,14 @@ trait CommonSchemaDerivation {
     annotations: List[Any]
   )(ordinal: A => Int): Schema[R, A] = new Schema[R, A] {
 
-    private lazy val members = _members
+    private lazy val members        = _members.toVector // Vector has ~O(1) performance for `.apply` as opposed to List's O(n)
+    private lazy val membersOrdered = members.sortBy(_._1).toList
 
-    private lazy val subTypes = members.map { case (label, subTypeAnnotations, schema, _) =>
+    private lazy val subTypes = membersOrdered.map { (label, subTypeAnnotations, schema, _) =>
       (label, schema.toType_(), subTypeAnnotations)
-    }.sortBy { case (label, _, _) => label }
+    }
+
+    private lazy val subtypesInput = membersOrdered.map(_._3.toType_(true))
 
     private lazy val isEnum = subTypes.forall { (_, t, _) =>
       t.fields(__DeprecatedArgs(Some(true))).forall(_.isEmpty)
@@ -113,9 +116,29 @@ trait CommonSchemaDerivation {
       case _          => false
     }
 
+    private lazy val oneOfInputName = annotations.collectFirst { case GQLOneOfInput(name) => name }
+
     def toType(isInput: Boolean, isSubscription: Boolean): __Type =
       if (!isInterface && !isUnion && subTypes.nonEmpty && isEnum) mkEnum(annotations, info, subTypes)
-      else if (!isInterface)
+      else if (oneOfInputName.nonEmpty) {
+        val inner = makeInputObject(
+          Some(getInputName(annotations).getOrElse(customizeInputTypeName(getName(annotations, info)))),
+          getDescription(annotations),
+          subtypesInput.flatMap(_.inputFields.getOrElse(Nil)).map(_.nullable),
+          Some(info.full),
+          Some(List(Directive("oneOf"))),
+          isOneOf = true
+        ).nonNull
+
+        makeInputObject(
+          None,
+          None,
+          List(__InputValue(oneOfInputName.getOrElse(""), None, () => inner, None)),
+          Some(info.full),
+          Some(List(Directive("oneOf"))),
+          isOneOf = true
+        )
+      } else if (!isInterface)
         makeUnion(
           Some(getName(annotations, info)),
           getDescription(annotations),
@@ -233,13 +256,13 @@ trait CommonSchemaDerivation {
     makeEnum(
       Some(getName(annotations, info)),
       getDescription(annotations),
-      subTypes.collect { case (name, __Type(_, _, description, _, _, _, _, _, _, _, _, _), annotations) =>
+      subTypes.collect { case (name, __Type(_, _, description, _, _, _, _, _, _, _, _, _, _), annotations) =>
         __EnumValue(
           name,
           description,
           getDeprecatedReason(annotations).isDefined,
           getDeprecatedReason(annotations),
-          Some(annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
+          Some(annotations.collect { case GQLDirective(dir) => dir }).filter(_.nonEmpty)
         )
       },
       Some(info.full),

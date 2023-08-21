@@ -1,14 +1,13 @@
 package caliban.execution
 
 import java.util.UUID
-
 import caliban.CalibanError.ExecutionError
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, IntValue, NullValue, StringValue }
 import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
-import caliban.schema.Annotations.{ GQLInterface, GQLName, GQLValueType }
+import caliban.schema.Annotations.{ GQLInterface, GQLName, GQLOneOfInput, GQLValueType }
 import caliban.schema._
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
@@ -1248,6 +1247,40 @@ object ExecutionSpec extends ZIOSpecDefault {
             response.data.toString == """{"bases":[{"id":"1","name":"base 1","inner":[{"a":"a"}]},{"id":"2","name":"base 2","inner":[{"b":2}]}]}"""
           )
         }
+      },
+      test("oneOf inputs") {
+        @GQLOneOfInput("fooInput")
+        sealed trait Foo
+
+        object Foo {
+          case class FooString(stringValue: String) extends Foo
+          case class FooInt(intValue: Int)          extends Foo
+        }
+
+        case class Queries(foo: Foo => String)
+
+        implicit val fooStringAb: ArgBuilder[Foo.FooString] = ArgBuilder.gen
+        implicit val fooIntAb: ArgBuilder[Foo.FooInt]       = ArgBuilder.gen
+        implicit val fooAb: ArgBuilder[Foo]                 = ArgBuilder.gen
+        implicit val schema: Schema[Any, Queries]           = Schema.gen
+
+        val api: GraphQL[Any] = graphQL(RootResolver(Queries {
+          case Foo.FooString(value) => value
+          case Foo.FooInt(value)    => value.toString
+        }))
+
+        val q1 = gqldoc("""{ foo(fooInput: {stringValue: "hello"}) }""")
+        val q2 = gqldoc("""{ foo(fooInput: {intValue: 42}) }""")
+
+        for {
+          i  <- api.interpreter
+          r1 <- i.execute(q1)
+          r2 <- i.execute(q2)
+        } yield assertTrue(
+          r1.data.toString == """{"foo":"hello"}""",
+          r2.data.toString == """{"foo":"42"}"""
+        )
+
       }
     )
 }

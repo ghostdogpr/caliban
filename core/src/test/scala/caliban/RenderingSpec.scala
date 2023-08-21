@@ -173,7 +173,7 @@ object RenderingSpec extends ZIOSpecDefault {
         val api = graphQL(resolver)
         checkApi(api)
       },
-      test("foo") {
+      test("@oneOf input") {
 
         @GQLOneOfInput("fooInput")
         sealed trait Foo
