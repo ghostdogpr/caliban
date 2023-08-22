@@ -34,17 +34,18 @@ object ValueRenderer {
   }
 
   lazy val inputObjectValueRenderer: Renderer[InputValue.ObjectValue] =
-    Renderer.char('{') ++ DocumentRenderer
+    Renderer.char('{') ++ Renderer
       .map(
         Renderer.string,
         inputValueRenderer,
-        Renderer.char(',') ++ Renderer.space
+        Renderer.char(',') ++ Renderer.spaceOrEmpty,
+        Renderer.char(':') ++ Renderer.spaceOrEmpty
       )
       .contramap[InputValue.ObjectValue](_.fields) ++ Renderer.char('}')
 
   lazy val inputListValueRenderer: Renderer[InputValue.ListValue] =
     Renderer.char('[') ++ inputValueRenderer
-      .list(Renderer.char(',') ++ Renderer.space)
+      .list(Renderer.char(',') ++ Renderer.spaceOrEmpty)
       .contramap[InputValue.ListValue](_.values) ++ Renderer.char(']')
 
   lazy val enumInputValueRenderer: Renderer[Value.EnumValue] = new Renderer[Value.EnumValue] {
@@ -89,7 +90,7 @@ object ValueRenderer {
 
   lazy val responseListValueRenderer: Renderer[ResponseValue.ListValue] =
     Renderer.char('[') ++ responseValueRenderer
-      .list(Renderer.char(',') ++ Renderer.space)
+      .list(Renderer.char(',') ++ Renderer.spaceOrEmpty)
       .contramap[ResponseValue.ListValue](_.values) ++ Renderer.char(']')
 
   lazy val responseObjectValueRenderer: Renderer[ResponseValue.ObjectValue] = new Renderer[ResponseValue.ObjectValue] {

@@ -110,6 +110,8 @@ object Renderer {
       write.append(char)
   }
 
+  def comma: Renderer[Any] = char(',')
+
   /**
    * A Renderer which always renders a string.
    */
@@ -136,7 +138,7 @@ object Renderer {
   /**
    * A Renderer which renders a space character when in non-compact mode.
    */
-  lazy val space: Renderer[Any] = new Renderer[Any] {
+  lazy val spaceOrEmpty: Renderer[Any] = new Renderer[Any] {
 
     override protected[caliban] def unsafeRender(value: Any, indent: Option[Int], write: StringBuilder): Unit =
       if (indent.isDefined) write.append(' ')
@@ -158,8 +160,25 @@ object Renderer {
       if (indent.isDefined) write.append('\n') else write.append(' ')
   }
 
-  lazy val newline: Renderer[Any] =
-    Renderer.char('\n')
+  lazy val newline: Renderer[Any] = char('\n')
+
+  def map[K, V](
+    keyRender: Renderer[K],
+    valueRender: Renderer[V],
+    separator: Renderer[Any],
+    delimiter: Renderer[Any]
+  ): Renderer[Map[K, V]] = new Renderer[Map[K, V]] {
+    override def unsafeRender(value: Map[K, V], indent: Option[Int], write: StringBuilder): Unit = {
+      var first = true
+      value.foreach { case (k, v) =>
+        if (first) first = false
+        else separator.unsafeRender((), indent, write)
+        keyRender.unsafeRender(k, indent, write)
+        delimiter.unsafeRender((), indent, write)
+        valueRender.unsafeRender(v, indent, write)
+      }
+    }
+  }
 
   private final case class Combined[-A](renderers: List[Renderer[A]]) extends Renderer[A] {
     override def unsafeRender(value: A, indent: Option[Int], write: StringBuilder): Unit =
