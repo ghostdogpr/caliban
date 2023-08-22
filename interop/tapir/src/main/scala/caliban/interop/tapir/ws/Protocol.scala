@@ -82,7 +82,7 @@ object Protocol {
                                case GraphQLWSInput(Ops.ConnectionInit, id, payload)  =>
                                  val before     = ZIO.whenCase((webSocketHooks.beforeInit, payload)) {
                                    case (Some(beforeInit), Some(payload)) =>
-                                     beforeInit(payload).catchAll(e => output.offer(Right(handler.error(id, e))))
+                                     beforeInit(payload).catchAll(_ => output.offer(Left(GraphQLWSClose(4403, "Forbidden"))))
                                  }
                                  val ackPayload = webSocketHooks.onAck.fold[URIO[R, Option[ResponseValue]]](ZIO.none)(_.option)
                                  val response   =
