@@ -4,7 +4,7 @@ import caliban.Value.EnumValue
 import caliban.introspection.adt.*
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations.*
-import caliban.schema.Step.ObjectStep
+import caliban.schema.Step.{ FunctionStep, ObjectStep }
 import caliban.schema.Types.*
 import caliban.schema.macros.{ Macros, TypeInfo }
 
