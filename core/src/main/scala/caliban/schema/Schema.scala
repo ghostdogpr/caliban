@@ -393,7 +393,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
         kvSchema.toType_(isInput, isSubscription).nonNull.list
 
-      override def resolveFieldLazily                          = true
+      override def resolveFieldLazily: Boolean                 = evA.resolveFieldLazily || evB.resolveFieldLazily
       override def resolve(value: Map[A, B]): Step[RA with RB] = ListStep(value.toList.map(kvSchema.resolve))
     }
   implicit def functionSchema[RA, RB, A, B](implicit
