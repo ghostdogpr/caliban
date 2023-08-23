@@ -16,9 +16,10 @@ import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt._
 import caliban.parsing.Parser
+import caliban.rendering.DocumentRenderer
 import caliban.schema._
 import caliban.validation.Utils.isObjectType
-import caliban.{ Configurator, InputValue, Rendering, Value }
+import caliban.{ Configurator, InputValue, Value }
 import zio.{ IO, ZIO }
 import zio.prelude._
 import zio.prelude.fx.ZPure
@@ -507,7 +508,7 @@ object Validator {
           .fromOption(currentType.allFields.find(_.name == field.name))
           .orElseFail(
             ValidationError(
-              s"Field '${field.name}' does not exist on type '${Rendering.renderTypeName(currentType)}'.",
+              s"Field '${field.name}' does not exist on type '${DocumentRenderer.renderTypeName(currentType)}'.",
               "The target field of a field selection must be defined on the scoped type of the selection set. There are no limitations on alias names."
             )
           )
