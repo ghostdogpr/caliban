@@ -85,6 +85,8 @@ trait CommonSchemaDerivation[R] {
           Some(ctx.typeName.full)
         )
 
+    override def resolveFieldLazily: Boolean = !ctx.isObject
+
     override def resolve(value: T): Step[R] =
       if (ctx.isObject) PureStep(EnumValue(getName(ctx)))
       else if ((ctx.isValueClass || isValueType(ctx)) && ctx.parameters.nonEmpty) {
@@ -92,7 +94,13 @@ trait CommonSchemaDerivation[R] {
         head.typeclass.resolve(head.dereference(value))
       } else {
         val fields = Map.newBuilder[String, Step[R]]
-        ctx.parameters.foreach(p => fields += getName(p) -> p.typeclass.resolve(p.dereference(value)))
+        ctx.parameters.foreach(p =>
+          fields += getName(p) -> {
+            lazy val step = p.typeclass.resolve(p.dereference(value))
+            if (p.typeclass.resolveFieldLazily) FunctionStep(_ => step)
+            else step
+          }
+        )
         ObjectStep(getName(ctx), fields.result())
       }
   }

@@ -154,6 +154,8 @@ trait CommonSchemaDerivation {
       else if (isInput) mkInputObject[R](annotations, fields, info, paramAnnotations)(isInput, isSubscription)
       else mkObject[R](annotations, fields, info, paramAnnotations)(isInput, isSubscription)
 
+    override def resolveFieldLazily: Boolean = fields.nonEmpty
+
     def resolve(value: A): Step[R] =
       if (fields.isEmpty) PureStep(EnumValue(name))
       else if (isValueType) {
@@ -163,9 +165,11 @@ trait CommonSchemaDerivation {
         val fieldsBuilder = Map.newBuilder[String, Step[R]]
         fields.foreach { case (label, _, schema, index) =>
           val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
-          fieldsBuilder += getName(fieldAnnotations, label) -> schema.resolve(
-            value.asInstanceOf[Product].productElement(index)
-          )
+          fieldsBuilder += getName(fieldAnnotations, label) -> {
+            lazy val step = schema.resolve(value.asInstanceOf[Product].productElement(index))
+            if (schema.resolveFieldLazily) FunctionStep(_ => step)
+            else step
+          }
         }
         ObjectStep(name, fieldsBuilder.result())
       }
