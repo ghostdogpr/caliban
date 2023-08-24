@@ -78,6 +78,7 @@ object FieldMetricsSpec extends ZIOSpecDefault {
         }""")
       for {
         interpreter <- (api @@ Wrappers.metrics(extraLabels = Set(MetricLabel("test", "success")))).interpreter
+        _           <- TestClock.adjust(30.seconds)
         fiber       <- interpreter.execute(query).fork
         _           <- TestClock.adjust(30.seconds)
         res         <- fiber.join
@@ -87,14 +88,31 @@ object FieldMetricsSpec extends ZIOSpecDefault {
         totalRoot   <- metricTotal.tagged("field", "Queries.person").tagged("status", "ok").value
         total       <- metricTotal.tagged("field", "Friend.name").tagged("status", "ok").value
         totalError  <- metricTotal.tagged("field", "Friend.name").tagged("status", "error").value
-      } yield assertTrue(res.errors.size == 1) &&
-        assertTrue(getCountForDuration(root, 0.5) == 1) &&
-        assertTrue(getCountForDuration(name, 0.1) == 1) && // top-level name
-        assertTrue(getCountForDuration(name, 0.5) == 1) &&        // top level
-        assertTrue(getCountForDuration(friendsName, 0.5) == 3) && // three friends
-        assertTrue(totalRoot.count == 1.0) &&
-        assertTrue(total.count == 3.0) &&
-        assertTrue(totalError.count == 1.0)
+      } yield assertTrue(
+        res.errors.size == 1,
+        getCountForDuration(root, 0.025) == 0,
+        getCountForDuration(root, 0.05) == 1,
+        getCountForDuration(root, 0.5) == 1,
+        getCountForDuration(name, 0.075) == 0,
+        getCountForDuration(name, 0.1) == 1,
+        getCountForDuration(name, 0.5) == 1,
+        getCountForDuration(friendsName, 0.25) == 0,
+        getCountForDuration(friendsName, 0.5) == 3,
+        totalRoot.count == 1.0,
+        total.count == 3.0,
+        totalError.count == 1.0
+      )
     }
   )
 }
+
+/**
+ * Chunk((0.005,0),(0.01,0),(0.025,0),(0.05,1),(0.075,1),(0.1,1),(0.25,1),(0.5,1),(0.75,1),(1.0,1),(2.5,1),(5.0,1),(7.5,1),(10.0,1))
+ * Chunk((0.005,0),(0.01,0),(0.025,0),(0.05,0),(0.075,0),(0.1,0),(0.25,0),(0.5,0),(0.75,0),(1.0,0),(2.5,1),(5.0,1),(7.5,1),(10.0,1))
+ *
+ * Chunk((0.005,0),(0.01,0),(0.025,0),(0.05,0),(0.075,0),(0.1,1),(0.25,1),(0.5,1),(0.75,1),(1.0,1),(2.5,1),(5.0,1),(7.5,1),(10.0,1))
+ * Chunk((0.005,0),(0.01,0),(0.025,0),(0.05,0),(0.075,0),(0.1,1),(0.25,1),(0.5,1),(0.75,1),(1.0,1),(2.5,1),(5.0,1),(7.5,1),(10.0,1))
+ *
+ * Chunk((0.005,0),(0.01,0),(0.025,0),(0.05,0),(0.075,0),(0.1,0),(0.25,0),(0.5,3),(0.75,3),(1.0,3),(2.5,3),(5.0,3),(7.5,3),(10.0,3))
+ * Chunk((0.005,0),(0.01,0),(0.025,0),(0.05,0),(0.075,0),(0.1,0),(0.25,0),(0.5,3),(0.75,3),(1.0,3),(2.5,3),(5.0,3),(7.5,3),(10.0,3))
+ */

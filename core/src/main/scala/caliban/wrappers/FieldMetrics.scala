@@ -1,13 +1,14 @@
 package caliban.wrappers
 
-import caliban.CalibanError
-import caliban.ResponseValue
 import caliban.execution.FieldInfo
+import caliban.wrappers.Wrapper.OverallWrapper
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
 import zio._
-import zio.metrics.Metric
-import zio.query.ZQuery
 import zio.metrics.MetricKeyType.Histogram
-import zio.metrics.MetricLabel
+import zio.metrics.{ Metric, MetricLabel }
+import zio.query.ZQuery
+
+import scala.jdk.CollectionConverters._
 
 object FieldMetrics {
   private[caliban] val defaultBuckets = Histogram.Boundaries(
@@ -16,15 +17,33 @@ object FieldMetrics {
     )
   )
 
-  type Timing = (String, Long)
-  private def fieldDuration(name: String, field: String, buckets: Histogram.Boundaries) =
-    Metric.histogram(name, buckets).tagged("field", field)
+  private class Metrics(
+    succeeded: Metric.Counter[Long],
+    failed: Metric.Counter[Long],
+    duration: Metric.Histogram[Double]
+  ) {
+    def addFailure(fieldName: String): UIO[Unit] =
+      failed.tagged("field", fieldName).increment
 
-  private def fieldTotal(
+    def addSuccess(pathTimings: Map[Vector[Either[String, Int]], Double])(timing: Timing): UIO[Unit] = {
+      val offset = pathTimings.getOrElse(timing.path :+ Left(timing.name), 0.0)
+      succeeded.tagged("field", timing.fullName).increment *>
+        duration.tagged("field", timing.fullName).update(timing.duration - offset)
+    }
+  }
+
+  private case class Timing(
     name: String,
-    field: String,
-    status: String
-  ) = Metric.counter(name).tagged("field", field).tagged("status", status)
+    path: Vector[Either[String, Int]],
+    fullName: String,
+    duration: Double
+  )
+
+  private case class Refs(
+    timings: Ref[Vector[Timing]],
+    failures: Ref[List[String]],
+    startTime: Ref[Long]
+  )
 
   def wrapper(
     totalLabel: String = "graphql_fields_total",
@@ -34,68 +53,94 @@ object FieldMetrics {
   ): Wrapper.EffectfulWrapper[Any] =
     Wrapper.EffectfulWrapper(
       for {
-        ref <- Ref.make(List.empty[Timing])
-      } yield fieldDuration(totalLabel, durationLabel, ref, buckets, extraLabels)
+        timings   <- Ref.make(Vector.empty[Timing])
+        failures  <- Ref.make(List.empty[String])
+        startTime <- Ref.make(0L)
+        refs       = Refs(timings, failures, startTime)
+        counter    = Metric.counter(totalLabel).tagged(extraLabels)
+        metrics    = new Metrics(
+                       succeeded = counter.tagged("status", "ok"),
+                       failed = counter.tagged("status", "error"),
+                       duration = Metric.histogram(durationLabel, buckets).tagged(extraLabels)
+                     )
+      } yield overallWrapper(refs, metrics) |+| fieldWrapper(refs)
     )
 
-  private def fieldDuration(
-    totalLabel: String,
-    durationLabel: String,
-    ref: Ref[List[Timing]],
-    buckets: Histogram.Boundaries,
-    extraLabels: Set[MetricLabel]
-  ): Wrapper.FieldWrapper[Any] =
+  private def overallWrapper(refs: Refs, metrics: Metrics): OverallWrapper[Any] =
+    new OverallWrapper[Any] {
+      def wrap[R1](
+        process: GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]]
+      ): GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] =
+        (request: GraphQLRequest) =>
+          for {
+            nanoTime     <- Clock.nanoTime
+            _            <- refs.startTime.set(nanoTime)
+            result       <- process(request)
+            _            <- refs.failures.get.flatMap(ZIO.foreachDiscard(_)(metrics.addFailure))
+            timings      <- refs.timings.get
+            nodeDurations = resolveNodeDurations(timings)
+            _            <- ZIO.foreachDiscard(timings)(metrics.addSuccess(nodeDurations))
+          } yield result
+    }
+
+  private def resolveNodeDurations(timings: Vector[Timing]): Map[Vector[Either[String, Int]], Double] = {
+    val map = new java.util.HashMap[Vector[Either[String, Int]], Double]()
+    timings.foreach { t =>
+      val iter     = t.path.inits
+      var continue = true
+      while (continue) {
+        val segment = iter.next()
+        if (iter.hasNext) {
+          if (segment.last.isLeft) {
+            map.compute(
+              segment,
+              {
+                case (_, v) if v >= t.duration => v
+                case _                         =>
+                  continue = false
+                  t.duration
+              }
+            )
+          }
+        } else {
+          continue = false
+        }
+      }
+    }
+    map.asScala.toMap
+  }
+
+  private def fieldWrapper(refs: Refs): Wrapper.FieldWrapper[Any] =
     new Wrapper.FieldWrapper[Any] {
+
       override def wrap[R](
         query: ZQuery[R, CalibanError.ExecutionError, ResponseValue],
         info: FieldInfo
-      ): ZQuery[R, CalibanError.ExecutionError, ResponseValue] =
+      ): ZQuery[R, CalibanError.ExecutionError, ResponseValue] = {
+
+        def fieldName: String = {
+          val parent = info.parent.flatMap(_.name).getOrElse("Unknown")
+          new StringBuilder().addAll(parent).addOne('.').addAll(info.name).result().intern()
+        }
+
+        def makeTiming(duration: Double) =
+          Timing(
+            name = info.name,
+            path = info.path.view.reverse.toVector,
+            fullName = fieldName,
+            duration = duration
+          )
+
+        def recordFailure(e: CalibanError.ExecutionError) =
+          ZQuery.fromZIO(refs.failures.update(fieldName :: _) *> ZIO.fail(e))
+
         for {
-          summarized            <-
-            query
-              .foldQuery(
-                error =>
-                  ZQuery.fromZIO(
-                    fieldTotal(totalLabel, fieldName(info), "error").tagged(extraLabels).increment
-                  ) *> ZQuery.fail(error),
-                success =>
-                  ZQuery.fromZIO(fieldTotal(totalLabel, fieldName(info), "ok").tagged(extraLabels).increment) *> ZQuery
-                    .succeed(success)
-              )
-              .summarized(Clock.nanoTime)((_, _))
+          summarized            <- query.summarized(Clock.nanoTime)((_, _)).catchAll(recordFailure)
           ((start, end), result) = summarized
-          measure               <- ZQuery.fromZIO(for {
-                                     currentPath <- ZIO.succeed(toPath(info))
-                                     popped      <- ref.modify { state =>
-                                                      val (popped, rest) = state.partition { case (path, _) =>
-                                                        path.startsWith(currentPath)
-                                                      }
-                                                      (popped, rest)
-                                                    }
-                                     offset       = if (popped.isEmpty) ("", 0L)
-                                                    else popped.maxBy { case (_, duration) => duration }
-                                     duration     = end - start - offset._2
-                                     _           <- ref.update(current => (currentPath, duration + offset._2) :: current)
-                                   } yield duration / 1e9)
-          _                     <-
-            ZQuery.fromZIO(fieldDuration(durationLabel, fieldName(info), buckets).tagged(extraLabels).update(measure))
+          timing                 = makeTiming(duration = (end - start) / 1e9)
+          _                     <- ZQuery.fromZIO(refs.timings.update(_ :+ timing))
         } yield result
+      }
     }
 
-  private def fieldName(fieldInfo: FieldInfo): String = {
-    val parent = fieldInfo.parent.flatMap(_.name).getOrElse("Unknown")
-    s"$parent.${fieldInfo.details.name}"
-  }
-
-  private def toPath(info: FieldInfo) =
-    (Left(info.name) :: info.path).foldRight("") { case (part, acc) =>
-      val withDot =
-        if (acc == "") acc
-        else s"$acc."
-
-      withDot + (part match {
-        case Left(value) => value
-        case Right(i)    => i.toString
-      })
-    }
 }
