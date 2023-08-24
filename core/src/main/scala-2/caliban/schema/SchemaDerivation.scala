@@ -85,7 +85,7 @@ trait CommonSchemaDerivation[R] {
           Some(ctx.typeName.full)
         )
 
-    override def resolveFieldLazily: Boolean = !ctx.isObject
+    override private[schema] def resolveFieldLazily: Boolean = !ctx.isObject
 
     override def resolve(value: T): Step[R] =
       if (ctx.isObject) PureStep(EnumValue(getName(ctx)))

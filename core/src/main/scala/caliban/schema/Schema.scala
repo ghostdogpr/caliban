@@ -88,7 +88,7 @@ trait Schema[-R, T] { self =>
    * Should be `false` except for objects or wrappers of objects. This prevents fields of case classes to be resolved when they're not
    * requested in the query, which significantly improves performance in larger schemas
    */
-  private[caliban] def resolveFieldLazily: Boolean = false
+  private[schema] def resolveFieldLazily: Boolean = false
 
   /**
    * Builds a new `Schema` of `A` from an existing `Schema` of `T` and a function from `A` to `T`.
@@ -99,7 +99,7 @@ trait Schema[-R, T] { self =>
     override def arguments: List[__InputValue]                             = self.arguments
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = self.toType_(isInput, isSubscription)
     override def resolve(value: A): Step[R]                                = self.resolve(f(value))
-    override def resolveFieldLazily: Boolean                               = self.resolveFieldLazily
+    override private[schema] def resolveFieldLazily: Boolean               = self.resolveFieldLazily
   }
 
   /**
@@ -120,8 +120,8 @@ trait Schema[-R, T] { self =>
       case _                                                         => true
     }
 
-    override def resolveFieldLazily: Boolean = self.resolveFieldLazily
-    override def resolve(value: T): Step[R]  =
+    override private[schema] def resolveFieldLazily: Boolean = self.resolveFieldLazily
+    override def resolve(value: T): Step[R]                  =
       self.resolve(value) match {
         case o @ ObjectStep(_, fields)  =>
           if (renameTypename) ObjectStep(name, fields) else o
@@ -185,8 +185,8 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
 
       private lazy val fieldsForResolve = fields(false, false)
 
-      override def resolveFieldLazily: Boolean = true
-      override def resolve(value: A): Step[R1] = {
+      override private[schema] def resolveFieldLazily: Boolean = true
+      override def resolve(value: A): Step[R1]                 = {
         val fieldsBuilder = Map.newBuilder[String, Step[R1]]
         fieldsForResolve.foreach { case (f, plan) => fieldsBuilder += f.name -> plan(value) }
         ObjectStep(name, fieldsBuilder.result())
@@ -294,8 +294,8 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     override def optional: Boolean                                         = true
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
 
-    override def resolveFieldLazily: Boolean         = ev.resolveFieldLazily
-    override def resolve(value: Option[A]): Step[R0] =
+    override private[schema] def resolveFieldLazily: Boolean = ev.resolveFieldLazily
+    override def resolve(value: Option[A]): Step[R0]         =
       value match {
         case Some(value) => ev.resolve(value)
         case None        => NullStep
@@ -307,8 +307,8 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
       (if (ev.optional) t else t.nonNull).list
     }
 
-    override def resolveFieldLazily: Boolean       = ev.resolveFieldLazily
-    override def resolve(value: List[A]): Step[R0] = ListStep(value.map(ev.resolve))
+    override private[schema] def resolveFieldLazily: Boolean = ev.resolveFieldLazily
+    override def resolve(value: List[A]): Step[R0]           = ListStep(value.map(ev.resolve))
   }
   implicit def setSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Set[A]]                                        = listSchema[R0, A].contramap(_.toList)
   implicit def seqSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Seq[A]]                                        = listSchema[R0, A].contramap(_.toList)
@@ -393,7 +393,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
         kvSchema.toType_(isInput, isSubscription).nonNull.list
 
-      override def resolveFieldLazily: Boolean                 = evA.resolveFieldLazily || evB.resolveFieldLazily
+      override private[schema] def resolveFieldLazily: Boolean = evA.resolveFieldLazily || evB.resolveFieldLazily
       override def resolve(value: Map[A, B]): Step[RA with RB] = ListStep(value.toList.map(kvSchema.resolve))
     }
   implicit def functionSchema[RA, RB, A, B](implicit
