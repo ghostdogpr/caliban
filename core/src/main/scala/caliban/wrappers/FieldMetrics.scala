@@ -118,7 +118,7 @@ object FieldMetrics {
         info: FieldInfo
       ): ZQuery[R, CalibanError.ExecutionError, ResponseValue] = {
 
-        def fieldName: String = {
+        val fieldName: String = {
           val parent = info.parent.flatMap(_.name).getOrElse("Unknown")
           new StringBuilder().append(parent).append('.').append(info.name).result().intern()
         }
