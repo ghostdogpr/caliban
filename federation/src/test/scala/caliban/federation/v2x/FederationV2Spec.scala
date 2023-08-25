@@ -10,7 +10,9 @@ import caliban._
 import io.circe.Json
 import io.circe.parser.decode
 import zio.ZIO
+import zio.test.Assertion.{ hasSameElements, isSome }
 import zio.test.{ assertTrue, ZIOSpecDefault }
+import zio.test._
 
 object FederationV2Spec extends ZIOSpecDefault {
   override def spec =
@@ -18,29 +20,30 @@ object FederationV2Spec extends ZIOSpecDefault {
       test("includes schema directives - v2.0") {
         import caliban.federation.v2_0._
         makeSchemaDirectives(federated(_)).map { schemaDirectives =>
+          val linkDirective = schemaDirectives.find(_.name == "link")
+          val url           = linkDirective.flatMap(_.arguments.get("url"))
+          val imports       = linkDirective.toList
+            .flatMap(_.arguments.get("import"))
+            .collect { case ListValue(values) =>
+              values.collect { case StringValue(value) => value }
+            }
+            .flatten
+
           assertTrue(
-            schemaDirectives
-              .contains(
-                Directive(
-                  name = "link",
-                  Map(
-                    "url"    -> StringValue("https://specs.apollo.dev/federation/v2.0"),
-                    "import" -> ListValue(
-                      List(
-                        StringValue("@key"),
-                        StringValue("@requires"),
-                        StringValue("@provides"),
-                        StringValue("@external"),
-                        StringValue("@shareable"),
-                        StringValue("@tag"),
-                        StringValue("@inaccessible"),
-                        StringValue("@override"),
-                        StringValue("@extends")
-                      )
-                    )
-                  )
-                )
-              )
+            linkDirective.isDefined,
+            url.get == StringValue("https://specs.apollo.dev/federation/v2.0")
+          ) && assert(imports)(
+            hasSameElements(
+              "@key" ::
+                "@requires" ::
+                "@provides" ::
+                "@external" ::
+                "@shareable" ::
+                "@tag" ::
+                "@inaccessible" ::
+                "@override" ::
+                "@extends" :: Nil
+            )
           )
         }
       },
@@ -127,6 +130,18 @@ object FederationV2Spec extends ZIOSpecDefault {
           assertTrue(
             schemaDirectives == List(
               Directive(
+                "composeDirective",
+                Map(
+                  "name" -> StringValue("@myDirective")
+                )
+              ),
+              Directive(
+                "composeDirective",
+                Map(
+                  "name" -> StringValue("@hello")
+                )
+              ),
+              Directive(
                 "link",
                 Map(
                   "url"    -> StringValue("https://specs.apollo.dev/federation/v2.3"),
@@ -162,18 +177,6 @@ object FederationV2Spec extends ZIOSpecDefault {
                       )
                     )
                   )
-                )
-              ),
-              Directive(
-                "composeDirective",
-                Map(
-                  "name" -> StringValue("@myDirective")
-                )
-              ),
-              Directive(
-                "composeDirective",
-                Map(
-                  "name" -> StringValue("@hello")
                 )
               )
             )

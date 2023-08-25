@@ -7,22 +7,22 @@ import caliban.interop.circe._
 import caliban.interop.tapir.IsTapirSchema
 import caliban.interop.jsoniter.IsJsoniterCodec
 import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
+import caliban.rendering.ValueRenderer
 import zio.stream.Stream
 
-sealed trait InputValue {
-  def toInputString: String = toString
+sealed trait InputValue { self =>
+  def toInputString: String = ValueRenderer.inputValueRenderer.renderCompact(self)
 }
 object InputValue extends ValueJsonCompat {
   case class ListValue(values: List[InputValue])          extends InputValue {
     override def toString: String      = values.mkString("[", ",", "]")
-    override def toInputString: String = values.map(_.toInputString).mkString("[", ", ", "]")
+    override def toInputString: String = ValueRenderer.inputListValueRenderer.render(this)
   }
   case class ObjectValue(fields: Map[String, InputValue]) extends InputValue {
     override def toString: String =
       fields.map { case (name, value) => s""""$name:${value.toString}"""" }.mkString("{", ",", "}")
 
-    override def toInputString: String =
-      fields.map { case (name, value) => s"""$name: ${value.toInputString}""" }.mkString("{", ", ", "}")
+    override def toInputString: String = ValueRenderer.inputObjectValueRenderer.render(this)
   }
   case class VariableValue(name: String)                  extends InputValue {
     override def toString: String = s"$$$name"
@@ -77,11 +77,11 @@ sealed trait ResponseValue { self =>
 }
 object ResponseValue extends ValueJsonCompat {
   case class ListValue(values: List[ResponseValue])                extends ResponseValue {
-    override def toString: String = values.mkString("[", ",", "]")
+    override def toString: String = ValueRenderer.responseListValueRenderer.renderCompact(this)
   }
   case class ObjectValue(fields: List[(String, ResponseValue)])    extends ResponseValue {
     override def toString: String =
-      fields.map { case (name, value) => s""""$name":${value.toString}""" }.mkString("{", ",", "}")
+      ValueRenderer.responseObjectValueRenderer.renderCompact(this)
 
     override def hashCode: Int               = fields.toSet.hashCode()
     override def equals(other: Any): Boolean =
@@ -131,7 +131,7 @@ object Value {
   }
   case class EnumValue(value: String)     extends Value {
     override def toString: String      = s""""${value.replace("\"", "\\\"")}""""
-    override def toInputString: String = s"""${value.replace("\"", "\\\"")}"""
+    override def toInputString: String = ValueRenderer.enumInputValueRenderer.render(this)
   }
 
   object IntValue {

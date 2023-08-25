@@ -6,7 +6,7 @@ import caliban.execution.Field
 import caliban.introspection.adt.__Type
 import caliban.schema.{ ProxyRequest, Schema, Step }
 import caliban.tools.stitching.RemoteQuery.QueryRenderer
-import caliban.tools.stitching.RemoteResolver
+import caliban.tools.stitching.{ RemoteQuery, RemoteResolver }
 import caliban.transformers.Transformer
 import zio.query.DataSource
 import zio.{ Chunk, Task, ZIO }
@@ -81,7 +81,7 @@ trait Source[-R] {
       DataSource.fromFunctionBatchedZIO(s"${dataSource.identifier}Batched") { requests =>
         val requestsMap     = requests.groupBy(_.url).flatMap { case (url, requests) =>
           requests
-            .groupBy(request => QueryRenderer.renderField(request.field, ignoreArguments = true))
+            .groupBy(request => QueryRenderer.render(RemoteQuery(request.field.copy(arguments = Map.empty))))
             .toList
             .flatMap { case (_, requests) =>
               requests.headOption match {

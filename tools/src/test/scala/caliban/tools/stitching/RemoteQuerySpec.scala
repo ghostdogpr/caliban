@@ -53,7 +53,9 @@ object RemoteQuerySpec extends ZIOSpecDefault {
         i      <- api(ref)
         _      <- i.execute(query)
         actual <- ref.get
-      } yield assertTrue(actual == """query { union(value: "foo\"") { ...on Interface { id } } }""")
+      } yield assertTrue(
+        actual == """query{union(value:"foo\""){...on Interface{id}}}"""
+      )
     },
     test("correctly renders a query for a field") {
       val query = gqldoc("""{
@@ -66,7 +68,7 @@ object RemoteQuerySpec extends ZIOSpecDefault {
         _      <- i.execute(query)
         actual <- ref.get
       } yield assertTrue(
-        actual == """query { union(value: "bar") { ...on Interface { id } ...on A { id } ...on B { id } } }"""
+        actual == """query{union(value:"bar"){...on Interface{id} ...on A{id} ...on B{id}}}"""
       )
     }
   )

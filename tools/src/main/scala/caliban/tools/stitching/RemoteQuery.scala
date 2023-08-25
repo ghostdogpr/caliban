@@ -1,64 +1,51 @@
 package caliban.tools.stitching
 
+import caliban._
 import caliban.execution.Field
-import caliban.{ GraphQLRequest, InputValue }
+import caliban.parsing.SourceMapper
+import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
+import caliban.parsing.adt.{ Document, OperationType }
+import caliban.rendering.DocumentRenderer
 
 case class RemoteQuery(field: Field) { self =>
   def toGraphQLRequest: GraphQLRequest =
-    GraphQLRequest(query =
-      Some(
-        RemoteQuery.QueryRenderer.render(self)
-      )
+    GraphQLRequest(
+      query = Some(DocumentRenderer.renderCompact(toDocument))
     )
+
+  def toDocument: Document = RemoteQuery.toDocument(OperationType.Query, field)
 }
 
 case class RemoteMutation(field: Field) { self =>
   def toGraphQLRequest: GraphQLRequest =
     GraphQLRequest(query =
       Some(
-        RemoteQuery.QueryRenderer.render(self)
+        DocumentRenderer.renderCompact(toDocument)
       )
     )
+
+  def toDocument: Document = RemoteQuery.toDocument(OperationType.Mutation, field)
 }
 
 object RemoteQuery {
   object QueryRenderer {
-    def render(r: RemoteMutation): String = {
-      val s = renderField(r.field)
-      if (r.field.name.isEmpty) s"mutation $s" else s"mutation { $s }"
-    }
-    def render(r: RemoteQuery): String    = {
-      val s = renderField(r.field)
-      if (r.field.name.isEmpty) s"query $s" else s"query { $s }"
-    }
-
-    def renderField(field: Field, ignoreArguments: Boolean = false): String = {
-      val children = renderFields(field)
-      val args     = if (ignoreArguments) "" else renderArguments(field.arguments)
-      val alias    = field.alias.map(a => s"$a: ").getOrElse("")
-      val str      = s"$alias${field.name}$args$children"
-
-      field.targets
-        .map(typeConditions => typeConditions.map(condition => s"...on $condition { $str }").mkString("\n"))
-        .getOrElse(str)
-    }
-
-    private def renderFields(f: Field): String =
-      if (f.fields.isEmpty) ""
-      else {
-        val isRoot = f.parentType.isEmpty
-        val fields = if (isRoot) f.fields.map(renderField(_)) else "__typename" :: f.fields.map(renderField(_))
-        fields.mkString(" { ", " ", " }")
-      }
-
-    private def renderArguments(args: Map[String, InputValue]): String =
-      if (args.isEmpty) ""
-      else
-        args.map { case (k, v) =>
-          k.split('.').toList.reverse match {
-            case Nil          => ""
-            case head :: tail => tail.foldLeft(s"$head: ${v.toInputString}")((acc, elem) => s"$elem: { $acc }")
-          }
-        }.mkString("(", ", ", ")")
+    def render(r: RemoteMutation): String =
+      DocumentRenderer.renderCompact(r.toDocument)
+    def render(r: RemoteQuery): String    =
+      DocumentRenderer.renderCompact(r.toDocument)
   }
+
+  def toDocument(operationType: OperationType, field: Field): Document =
+    Document(
+      List(
+        OperationDefinition(
+          operationType,
+          None,
+          Nil,
+          Nil,
+          field.fields.map(_.toSelection)
+        )
+      ),
+      SourceMapper.empty
+    )
 }
