@@ -37,17 +37,9 @@ object Gateway extends ZIOAppDefault {
       targetTypeName = "Book",
       targetFieldName = "author",
       argumentMappings = Map("authorId" -> (v => "input" -> ObjectValue(Map("ids" -> ListValue(List(v)))))),
-      filterBatchedValues = (result, field) =>
-        result.asListValue.fold(result)(list =>
-          ResponseValue.ListValue(list.values.filter {
-            case ResponseValue.ObjectValue(fields) =>
-              fields.toMap
-                .get("id")
-                .map(v => Map("input" -> ObjectValue(Map("ids" -> ListValue(List(v.toInputValue))))))
-                .contains(field.arguments)
-            case _                                 => true
-          })
-        )
+      mapBatchResultToArguments = { case ResponseValue.ObjectValue(fields) =>
+        fields.toMap.get("id").map(("authorId", _)).toMap
+      }
     )
 
   def run: Task[Unit] =

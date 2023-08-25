@@ -2,7 +2,6 @@ package caliban.tools
 
 import caliban.CalibanError.ValidationError
 import caliban._
-import caliban.execution.Field
 import caliban.introspection.adt.__Type
 import caliban.schema.{ ProxyRequest, Schema, Step }
 import caliban.transformers.Transformer
@@ -29,7 +28,7 @@ trait Source[-R] {
     targetTypeName: String,
     targetFieldName: String,
     argumentMappings: Map[String, InputValue => (String, InputValue)],
-    filterBatchedValues: (ResponseValue, Field) => ResponseValue = (v, _) => v
+    mapBatchResultToArguments: PartialFunction[ResponseValue, Map[String, ResponseValue]] = PartialFunction.empty
   ): Source[R with R1] = new Source[R with R1] {
     def toGraphQL: Task[GraphQL[R with R1]] =
       (self.toGraphQL <&> source.toGraphQL).flatMap { case (original, source) =>
@@ -69,7 +68,7 @@ trait Source[-R] {
                   )
                 else field
               },
-            RemoteDataSource.batchDataSource(step.dataSource)(filterBatchedValues)
+            RemoteDataSource.batchDataSource(step.dataSource)(argumentMappings, mapBatchResultToArguments)
           )
         case other                    => other
       }

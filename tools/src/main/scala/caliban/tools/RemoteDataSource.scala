@@ -19,9 +19,10 @@ object RemoteDataSource {
       } yield body).mapError(e => CalibanError.ExecutionError(e.toString, innerThrowable = Some(e)))
     }
 
-  def batchDataSource[R](
-    dataSource: DataSource[R, ProxyRequest]
-  )(filterBatchedValues: (ResponseValue, Field) => ResponseValue): DataSource[R, ProxyRequest] =
+  def batchDataSource[R](dataSource: DataSource[R, ProxyRequest])(
+    argumentMappings: Map[String, InputValue => (String, InputValue)],
+    mapBatchResultToArguments: PartialFunction[ResponseValue, Map[String, ResponseValue]]
+  ): DataSource[R, ProxyRequest] =
     DataSource.fromFunctionBatchedZIO(s"${dataSource.identifier}Batched") { requests =>
       val requestsMap     = requests.groupBy(_.url).flatMap { case (url, requests) =>
         requests
@@ -49,7 +50,17 @@ object RemoteDataSource {
           requests
             .flatMap(requestsMap.get)
             .flatMap { case (req, field) => results.lookup(req).map(_ -> field) }
-            .collect { case (Right(value), field) => filterBatchedValues(value, field) }
+            .collect { case (Right(value), field) =>
+              value.asListValue.fold(value)(
+                _.filter(
+                  mapBatchResultToArguments
+                    .lift(_)
+                    .fold(true)(_.flatMap { case (k, v) =>
+                      argumentMappings.get(k).map(_(v.toInputValue))
+                    } == field.arguments)
+                )
+              )
+            }
         )
     }
 

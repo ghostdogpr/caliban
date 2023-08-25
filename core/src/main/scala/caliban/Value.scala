@@ -77,7 +77,8 @@ sealed trait ResponseValue { self =>
 }
 object ResponseValue extends ValueJsonCompat {
   case class ListValue(values: List[ResponseValue])                extends ResponseValue {
-    override def toString: String = ValueRenderer.responseListValueRenderer.renderCompact(this)
+    override def toString: String                      = ValueRenderer.responseListValueRenderer.renderCompact(this)
+    def filter(f: ResponseValue => Boolean): ListValue = ListValue(values.filter(f))
   }
   case class ObjectValue(fields: List[(String, ResponseValue)])    extends ResponseValue {
     override def toString: String =
