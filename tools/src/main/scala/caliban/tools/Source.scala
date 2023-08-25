@@ -4,17 +4,9 @@ import caliban.CalibanError.ValidationError
 import caliban._
 import caliban.execution.Field
 import caliban.introspection.adt.__Type
-import caliban.parsing.SourceMapper
-import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
-import caliban.parsing.adt.{ Document, OperationType }
-import caliban.rendering.DocumentRenderer
-import caliban.schema.{ ProxyRequest, Schema, Step, Types }
-import caliban.tools.Source.makeDocument
+import caliban.schema.{ ProxyRequest, Schema, Step }
 import caliban.transformers.Transformer
-import sttp.client3.jsoniter._
-import sttp.client3.{ basicRequest, DeserializationException, HttpError, UriContext }
-import zio.query.DataSource
-import zio.{ Chunk, Task, ZIO }
+import zio.{ Task, ZIO }
 
 trait Source[-R] {
   self =>
@@ -77,85 +69,10 @@ trait Source[-R] {
                   )
                 else field
               },
-            batchDataSource(step.dataSource)
+            RemoteDataSource.batchDataSource(step.dataSource)(filterBatchedValues)
           )
         case other                    => other
       }
-
-    def batchDataSource(dataSource: DataSource[R1, ProxyRequest]): DataSource[R1, ProxyRequest] =
-      DataSource.fromFunctionBatchedZIO(s"${dataSource.identifier}Batched") { requests =>
-        val requestsMap     = requests.groupBy(_.url).flatMap { case (url, requests) =>
-          requests
-            .groupBy(request =>
-              DocumentRenderer
-                .renderCompact(makeDocument(OperationType.Query, request.field.copy(arguments = Map.empty)))
-            )
-            .toList
-            .flatMap { case (_, requests) =>
-              requests.headOption match {
-                case Some(head) =>
-                  val batchedRequest = requests.map(_.field).tail.foldLeft(Option(head.field)) {
-                    case (None, _)      => None
-                    case (Some(f1), f2) => combineFieldArguments(f1, f2)
-                  }
-                  requests.map(request =>
-                    (
-                      request,
-                      (
-                        ProxyRequest(
-                          url,
-                          head.headers,
-                          batchedRequest.getOrElse(request.field)
-                        ),
-                        request.field
-                      )
-                    )
-                  )
-                case None       => Chunk.empty
-              }
-            }
-        }
-        val batchedRequests = Chunk.fromIterable(requestsMap.values.map(_._1)).distinct
-
-        dataSource
-          .runAll(Chunk.single(batchedRequests))
-          .map(results =>
-            requests
-              .flatMap(requestsMap.get)
-              .flatMap { case (req, field) => results.lookup(req).map(_ -> field) }
-              .collect { case (Right(value), field) => filterBatchedValues(value, field) }
-          )
-      }
-  }
-
-  private def combineFieldArguments(f1: Field, f2: Field): Option[Field] =
-    mergeInputValueMaps(f1.arguments, f2.arguments).flatMap { mergedArguments =>
-      import zio.prelude._
-      (f1.fields zip f2.fields).forEach { case (f1, f2) => combineFieldArguments(f1, f2) }.map { mergedFields =>
-        f1.copy(arguments = mergedArguments, fields = mergedFields)
-      }
-    }
-
-  private def mergeInputValueMaps(
-    m1: Map[String, InputValue],
-    m2: Map[String, InputValue]
-  ): Option[Map[String, InputValue]] = {
-    val keys = m1.keySet ++ m2.keySet
-    keys.foldLeft(Option(Map.empty[String, InputValue])) {
-      case (None, _)        => None
-      case (Some(acc), key) =>
-        (m1.get(key), m2.get(key)) match {
-          case (Some(i1), Some(i2)) =>
-            (i1, i2) match {
-              case (InputValue.ListValue(v1), InputValue.ListValue(v2))     =>
-                Some(acc.updated(key, InputValue.ListValue((v1 ++ v2).distinct)))
-              case (InputValue.ObjectValue(v1), InputValue.ObjectValue(v2)) =>
-                mergeInputValueMaps(v1, v2).map(merged => acc.updated(key, InputValue.ObjectValue(merged)))
-              case _                                                        => None
-            }
-          case _                    => None
-        }
-    }
   }
 }
 
@@ -184,67 +101,12 @@ object Source {
         remoteSchema <- ZIO
                           .succeed(RemoteSchema.parseRemoteSchema(doc))
                           .someOrFail(new Throwable("Failed to parse remote schema"))
-        schema        = new Schema[SttpClient, self.T] {
-                          override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-                            remoteSchema.queryType
-
-                          override def resolve(value: self.T): Step[SttpClient] =
-                            Step.ProxyStep(ProxyRequest(url, headers, _), dataSource)
-                        }
-      } yield schema
+      } yield new Schema[SttpClient, self.T] {
+        override def toType(isInput: Boolean, isSubscription: Boolean): __Type = remoteSchema.queryType
+        override def resolve(value: self.T): Step[SttpClient]                  =
+          Step.ProxyStep(ProxyRequest(url, headers, _), RemoteDataSource.dataSource)
+      }
   }
-
-  private def makeDocument(operationType: OperationType, field: Field): Document =
-    Document(
-      List(
-        OperationDefinition(
-          operationType,
-          None,
-          Nil,
-          Nil,
-          if (field.isRoot) field.fields.map(f => addTypeName(f).toSelection)
-          else List(addTypeName(field).toSelection)
-        )
-      ),
-      SourceMapper.empty
-    )
-
-  private def addTypeName(field: Field): Field =
-    if (field.fields.isEmpty) field
-    else field.copy(fields = Field("__typename", Types.string, None) :: field.fields.map(addTypeName))
-
-  private val dataSource: DataSource[SttpClient, ProxyRequest] =
-    DataSource.fromFunctionZIO[SttpClient, Throwable, ProxyRequest, ResponseValue]("RemoteDataSource") { request =>
-      val gqlRequest =
-        GraphQLRequest(query = Some(DocumentRenderer.renderCompact(makeDocument(OperationType.Query, request.field))))
-
-      val sttpRequest = basicRequest
-        .post(uri"${request.url}")
-        .body(gqlRequest)
-        .headers(request.headers)
-        .response(asJson[GraphQLResponse[CalibanError]])
-        .mapResponse(resp =>
-          resp.fold(
-            {
-              case DeserializationException(body, error) =>
-                Left(CalibanError.ExecutionError(s"${error.getMessage}: $body", innerThrowable = Some(error)))
-              case HttpError(_, statusCode)              => Left(CalibanError.ExecutionError(s"HTTP Error: $statusCode"))
-            },
-            resp =>
-              Right(resp.data match {
-                case v @ ResponseValue.ObjectValue(fields) if !request.field.isRoot =>
-                  // if it was not a root field, return the inner response instead
-                  fields.headOption.map(_._2).getOrElse(v)
-                case x                                                              => x
-              })
-          )
-        )
-
-      (for {
-        res  <- ZIO.serviceWithZIO[SttpClient](_.send(sttpRequest))
-        body <- ZIO.fromEither(res.body)
-      } yield body).mapError(e => CalibanError.ExecutionError(e.toString, innerThrowable = Some(e)))
-    }
 
   def graphQL(url: String, headers: Map[String, String] = Map.empty): Source[SttpClient] = GraphQLSource(url, headers)
   def rest(url: String): Source[SttpClient]                                              = GraphQLSource(url, Map.empty)
