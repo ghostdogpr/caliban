@@ -437,16 +437,17 @@ object DocumentRenderer extends Renderer[Document] {
         value match {
           case InputObjectTypeDefinition(description, name, directives, fields) =>
             newlineOrSpace(indent, write)
+            newline(indent, write)
             descriptionRenderer.unsafeRender(description, indent, write)
             write append "input "
             write append name
             directivesRenderer.unsafeRender(directives, indent, write)
             space(indent, write)
             write append '{'
+            newline(indent, write)
             fieldsRenderer.unsafeRender(fields, increment(indent), write)
             newline(indent, write)
             write append '}'
-            newline(indent, write)
         }
     }
 
