@@ -12,6 +12,7 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{
   InputValueDefinition
 }
 import caliban.parsing.adt.{ Definition, Directive }
+import caliban.rendering.DocumentRenderer
 import caliban.schema.Annotations.GQLOneOfInput
 import caliban.schema.{ ArgBuilder, Schema }
 import caliban.schema.Schema.auto._
@@ -22,7 +23,7 @@ import zio.test._
 
 object RenderingSpec extends ZIOSpecDefault {
   def fixDirectives(directives: List[Directive]): List[Directive] =
-    directives.map(_.copy(index = 0))
+    directives.map(_.copy(index = 0)).sortBy(_.name)
 
   def fixFields(fields: List[FieldDefinition]): List[FieldDefinition] =
     fields.map(field => field.copy(args = fixInputValues(field.args), directives = fixDirectives(field.directives)))
@@ -57,7 +58,7 @@ object RenderingSpec extends ZIOSpecDefault {
   def checkApi[R](api: GraphQL[R]): IO[ParsingError, TestResult] = {
     val definitions = fixDefinitions(api.toDocument.definitions.filter {
       case d: Definition.TypeSystemDefinition.TypeDefinition.ScalarTypeDefinition =>
-        !Rendering.isBuiltinScalar(d.name)
+        !DocumentRenderer.isBuiltinScalar(d.name)
       case _                                                                      => true
     })
 
@@ -71,7 +72,7 @@ object RenderingSpec extends ZIOSpecDefault {
       test("it should render directives") {
         val api = graphQL(
           resolver,
-          directives = List(Directives.Test, Directives.Repeatable),
+          directives = List(Directives.Repeatable, Directives.Test),
           schemaDirectives = List(SchemaDirectives.Link)
         )
         checkApi(api)
@@ -95,19 +96,15 @@ object RenderingSpec extends ZIOSpecDefault {
       test(
         "it should not render a schema definition without schema directives if no queries, mutations, or subscription"
       ) {
-        assert(graphQL(InvalidSchemas.resolverEmpty).render.trim)(
-          equalTo("")
-        )
+        assertTrue(graphQL(InvalidSchemas.resolverEmpty).render.trim == "")
       },
       test(
         "it should render a schema extension with schema directives even if no queries, mutations, or subscription"
       ) {
         val renderedType =
           graphQL(InvalidSchemas.resolverEmpty, schemaDirectives = List(SchemaDirectives.Link)).render.trim
-        assert(renderedType)(
-          equalTo(
-            """extend schema @link(url: "https://example.com", import: ["@key", {name: "@provides", as: "@self"}])"""
-          )
+        assertTrue(
+          renderedType == """extend schema @link(url: "https://example.com", import: ["@key", {name: "@provides", as: "@self"}])"""
         )
       },
       test("it should render object arguments in type directives") {
@@ -130,8 +127,8 @@ object RenderingSpec extends ZIOSpecDefault {
             )
           )
         )
-        val renderedType = Rendering.renderTypes(List(testType))
-        assert(renderedType)(equalTo("type TestType @testdirective(object: {key1: \"value1\",key2: \"value2\"})"))
+        val renderedType = DocumentRenderer.typesRenderer.render(List(testType)).trim
+        assertTrue(renderedType == "type TestType @testdirective(object: {key1: \"value1\", key2: \"value2\"})")
       },
       test(
         "it should escape \", \\, backspace, linefeed, carriage-return and tab inside a normally quoted description string"
@@ -141,10 +138,8 @@ object RenderingSpec extends ZIOSpecDefault {
           name = Some("TestType"),
           description = Some("A \"TestType\" description with \\, \b, \f, \r and \t")
         )
-        val renderedType = Rendering.renderTypes(List(testType))
-        assert(renderedType)(
-          equalTo("\"A \\\"TestType\\\" description with \\\\, \\b, \\f, \\r and \\t\"\ntype TestType")
-        )
+        val renderedType = DocumentRenderer.typesRenderer.render(List(testType)).trim
+        assertTrue(renderedType == "\"A \\\"TestType\\\" description with \\\\, \\b, \\f, \\r and \\t\"\ntype TestType")
       },
       test("it should escape \"\"\" inside a triple-quoted description string") {
         val testType     = __Type(
@@ -152,9 +147,9 @@ object RenderingSpec extends ZIOSpecDefault {
           name = Some("TestType"),
           description = Some("A multiline \"TestType\" description\ngiven inside \"\"\"-quotes\n")
         )
-        val renderedType = Rendering.renderTypes(List(testType))
-        assert(renderedType)(
-          equalTo("\"\"\"\nA multiline \"TestType\" description\ngiven inside \\\"\"\"-quotes\n\n\"\"\"\ntype TestType")
+        val renderedType = DocumentRenderer.typesRenderer.render(List(testType)).trim
+        assertTrue(
+          renderedType == "\"\"\"\nA multiline \"TestType\" description\ngiven inside \\\"\"\"-quotes\n\n\"\"\"\ntype TestType"
         )
       },
       test("it should render single line descriptions") {
@@ -172,6 +167,12 @@ object RenderingSpec extends ZIOSpecDefault {
       test("it should render multi line descriptions ending in quote") {
         val api = graphQL(resolver)
         checkApi(api)
+      },
+      test("it should render compact") {
+        val rendered = DocumentRenderer.renderCompact(graphQL(resolver).toDocument)
+        assertTrue(
+          rendered == """schema{query:Query} "Description of custom scalar emphasizing proper captain ship names" scalar CaptainShipName @specifiedBy(url:"http://someUrl") @tag union Role @uniondirective=Captain|Engineer|Mechanic|Pilot enum Origin @enumdirective{BELT,EARTH,MARS,MOON @deprecated(reason:"Use: EARTH | MARS | BELT")} input CharacterInput @inputobjdirective{name:String! @external nicknames:[String!]! @required origin:Origin!}interface Human{ name:String! @external}type Captain{ shipName:CaptainShipName!}type Character implements Human @key(name:"name"){ name:String! @external nicknames:[String!]! @required origin:Origin! role:Role}type Engineer{ shipName:String!}type Mechanic{ shipName:String!}type Narrator implements Human{ name:String!}type Pilot{ shipName:String!}"Queries" type Query{ "Return all characters from a given origin" characters(origin:Origin):[Character!]! character(name:String!):Character @deprecated(reason:"Use `characters`") charactersIn(names:[String!]! @lowercase):[Character!]! exists(character:CharacterInput!):Boolean! human:Human!}"""
+        )
       },
       test("@oneOf input as value type") {
         case class Queries(foo: Foo => String)

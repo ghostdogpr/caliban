@@ -1,6 +1,6 @@
-import caliban.Rendering.renderTypes
 import caliban.introspection.adt.__Directive
 import caliban.parsing.adt.Directive
+import caliban.rendering.DocumentRenderer
 import caliban.schema.Types.collectTypes
 import caliban.schema._
 import caliban.wrappers.Wrapper
@@ -48,5 +48,5 @@ package object caliban {
    * This variant of the method allows specifying the environment type when it's not `Any`.
    */
   def renderWith[R, T](implicit schema: Schema[R, T]): String =
-    renderTypes(collectTypes(schema.toType_(), Nil))
+    DocumentRenderer.typesRenderer.render(collectTypes(schema.toType_(), Nil))
 }
