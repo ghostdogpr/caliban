@@ -1,14 +1,17 @@
 package caliban.execution
 
 import caliban.Value.BooleanValue
+import caliban.execution.Field.addTypeName
 import caliban.introspection.adt.__Type
 import caliban.parsing.SourceMapper
-import caliban.parsing.adt.Definition.ExecutableDefinition.FragmentDefinition
+import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.Selection.{ Field => F, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.NamedType
-import caliban.parsing.adt.{ Directive, LocationInfo, Selection, VariableDefinition }
+import caliban.parsing.adt.{ Directive, Document, LocationInfo, OperationType, Selection, VariableDefinition }
+import caliban.parsing.parsers.Parsers.field
+import caliban.rendering.DocumentRenderer
 import caliban.schema.{ RootType, Types }
-import caliban.{ InputValue, Value }
+import caliban.{ GraphQLRequest, InputValue, Value }
 
 import scala.collection.mutable
 import scala.jdk.CollectionConverters._
@@ -104,6 +107,28 @@ case class Field(
 
     loop(this)
   }
+
+  def toGraphQLRequest(operationType: OperationType, withTypeName: Boolean): GraphQLRequest =
+    GraphQLRequest(query =
+      Some(
+        DocumentRenderer.renderCompact(
+          Document(
+            List(
+              OperationDefinition(
+                operationType,
+                None,
+                Nil,
+                Nil,
+                // if it was a root field, remove that field and keep its selection only
+                if (isRoot) fields.map(f => (if (withTypeName) addTypeName(f) else f).toSelection)
+                else List((if (withTypeName) addTypeName(self) else self).toSelection)
+              )
+            ),
+            SourceMapper.empty
+          )
+        )
+      )
+    )
 }
 
 object Field {
@@ -270,4 +295,8 @@ object Field {
       case Some(BooleanValue(value)) => value
       case _                         => default
     }
+
+  private def addTypeName(field: Field): Field =
+    if (field.fields.isEmpty) field
+    else field.copy(fields = Field("__typename", Types.string, None) :: field.fields.map(addTypeName))
 }

@@ -3,15 +3,12 @@ package caliban.tools
 import caliban.CalibanError.ExecutionError
 import caliban._
 import caliban.execution.Field
-import caliban.parsing.SourceMapper
-import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
-import caliban.parsing.adt.{ Document, OperationType }
-import caliban.rendering.DocumentRenderer
-import caliban.schema.{ ProxyRequest, Types }
+import caliban.parsing.adt.OperationType
+import caliban.schema.ProxyRequest
 import sttp.client3.jsoniter._
 import sttp.client3.{ basicRequest, DeserializationException, HttpError, Identity, RequestT, UriContext }
-import zio.{ Chunk, ZIO }
 import zio.query.DataSource
+import zio.{ Chunk, ZIO }
 
 object RemoteDataSource {
   val dataSource: DataSource[SttpClient, ProxyRequest] =
@@ -86,38 +83,10 @@ object RemoteDataSource {
     }
   }
 
-  private def addTypeName(field: Field): Field =
-    if (field.fields.isEmpty) field
-    else field.copy(fields = Field("__typename", Types.string, None) :: field.fields.map(addTypeName))
-
-  private def makeGraphQLRequest(request: ProxyRequest): GraphQLRequest =
-    GraphQLRequest(query =
-      Some(
-        DocumentRenderer.renderCompact(
-          Document(
-            List(
-              OperationDefinition(
-                OperationType.Query,
-                None,
-                Nil,
-                Nil,
-                // if it was a root field, remove that field and keep its selection only
-                if (request.field.isRoot) request.field.fields.map(f => addTypeName(f).toSelection)
-                else List(addTypeName(request.field).toSelection)
-              )
-            ),
-            SourceMapper.empty
-          )
-        )
-      )
-    )
-
-  private def makeSttpRequest(request: ProxyRequest): RequestT[Identity, Either[ExecutionError, ResponseValue], Any] = {
-    val gqlRequest = makeGraphQLRequest(request)
-
+  private def makeSttpRequest(request: ProxyRequest): RequestT[Identity, Either[ExecutionError, ResponseValue], Any] =
     basicRequest
       .post(uri"${request.url}")
-      .body(gqlRequest)
+      .body(request.field.toGraphQLRequest(OperationType.Query, withTypeName = true))
       .headers(request.headers)
       .response(asJson[GraphQLResponse[CalibanError]])
       .mapResponse(resp =>
@@ -136,5 +105,4 @@ object RemoteDataSource {
             })
         )
       )
-  }
 }

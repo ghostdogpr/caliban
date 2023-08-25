@@ -10,10 +10,9 @@ import caliban.Value.IntValue.IntNumber
 import caliban.Value.StringValue
 import caliban.execution.ExecutionRequest
 import caliban.execution.Field
-import caliban.tools.stitching.RemoteQuery
+import caliban.parsing.adt.OperationType
 import caliban.wrappers.Wrapper.ExecutionWrapper
 import io.opentelemetry.api.trace.SpanKind
-import zio.telemetry.opentelemetry.tracing.ErrorMapper
 import zio.telemetry.opentelemetry.tracing.Tracing
 import zio._
 
@@ -33,7 +32,7 @@ object SchemaTracer {
               "query",
               SpanKind.INTERNAL
             ) {
-              ZIO.foreach(attributes(request.field)) { case (k, v) =>
+              ZIO.foreachDiscard(attributes(request.field)) { case (k, v) =>
                 tracer.setAttribute(k, v)
               } *> f(request)
             }
@@ -41,12 +40,10 @@ object SchemaTracer {
       }
   }
 
-  private def attributes[T, R](
-    field: Field
-  ) = List("query" -> graphQLQuery(field))
+  private def attributes(field: Field): List[(String, String)] = List("query" -> graphQLQuery(field))
 
   private def graphQLQuery(field: Field): String =
-    RemoteQuery.apply(maskField(field)).toGraphQLRequest.query.getOrElse("")
+    maskField(field).toGraphQLRequest(OperationType.Query, withTypeName = false).query.getOrElse("")
 
   private def maskArguments(args: Map[String, InputValue]): Map[String, InputValue] =
     args.map { case (k, v) =>
@@ -58,7 +55,7 @@ object SchemaTracer {
         case x                   => x
       }
       (k, v1)
-    }.toMap
+    }
 
   private def maskField(f: Field): Field =
     f.copy(
