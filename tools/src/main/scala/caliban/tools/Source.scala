@@ -4,10 +4,15 @@ import caliban.CalibanError.ValidationError
 import caliban._
 import caliban.execution.Field
 import caliban.introspection.adt.__Type
+import caliban.parsing.SourceMapper
+import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
+import caliban.parsing.adt.{ Document, OperationType, Selection }
+import caliban.rendering.DocumentRenderer
 import caliban.schema.{ ProxyRequest, Schema, Step }
-import caliban.tools.stitching.RemoteQuery.QueryRenderer
-import caliban.tools.stitching.{ RemoteQuery, RemoteResolver }
+import caliban.tools.Source.makeDocument
 import caliban.transformers.Transformer
+import sttp.client3.jsoniter._
+import sttp.client3.{ basicRequest, DeserializationException, HttpError, UriContext }
 import zio.query.DataSource
 import zio.{ Chunk, Task, ZIO }
 
@@ -81,7 +86,10 @@ trait Source[-R] {
       DataSource.fromFunctionBatchedZIO(s"${dataSource.identifier}Batched") { requests =>
         val requestsMap     = requests.groupBy(_.url).flatMap { case (url, requests) =>
           requests
-            .groupBy(request => QueryRenderer.render(RemoteQuery(request.field.copy(arguments = Map.empty))))
+            .groupBy(request =>
+              DocumentRenderer
+                .renderCompact(makeDocument(OperationType.Query, request.field.copy(arguments = Map.empty)))
+            )
             .toList
             .flatMap { case (_, requests) =>
               requests.headOption match {
@@ -186,13 +194,63 @@ object Source {
       } yield schema
   }
 
+  private def makeDocument(operationType: OperationType, field: Field): Document =
+    Document(
+      List(
+        OperationDefinition(
+          operationType,
+          None,
+          Nil,
+          Nil,
+          if (field.parentType.isEmpty) field.fields.map(f => addTypeName(f.toSelection))
+          else List(addTypeName(field.toSelection))
+        )
+      ),
+      SourceMapper.empty
+    )
+
+  private def addTypeName(selection: Selection): Selection =
+    selection match {
+      case f: Selection.Field =>
+        if (f.selectionSet.isEmpty) f
+        else
+          f.copy(selectionSet =
+            Selection.Field(None, "__typename", Map.empty, Nil, Nil, 0) :: f.selectionSet.map(addTypeName)
+          )
+      case other              => other
+    }
+
   private val dataSource: DataSource[SttpClient, ProxyRequest] =
     DataSource.fromFunctionZIO[SttpClient, Throwable, ProxyRequest, ResponseValue]("RemoteDataSource") { request =>
-      val remoteResolver =
-        if (request.field.parentType.isEmpty) RemoteResolver.fromUrl2(request.url, request.headers)
-        else RemoteResolver.fromUrl(request.url, request.headers)
+      val gqlRequest =
+        GraphQLRequest(query = Some(DocumentRenderer.renderCompact(makeDocument(OperationType.Query, request.field))))
 
-      remoteResolver.run(request.field) // TODO: error handling
+      val sttpRequest = basicRequest
+        .post(uri"${request.url}")
+        .body(gqlRequest)
+        .headers(request.headers)
+        .response(asJson[GraphQLResponse[CalibanError]])
+        .mapResponse(resp =>
+          resp.fold(
+            {
+              case DeserializationException(body, error) =>
+                Left(CalibanError.ExecutionError(s"${error.getMessage}: $body", innerThrowable = Some(error)))
+              case HttpError(_, statusCode)              => Left(CalibanError.ExecutionError(s"HTTP Error: $statusCode"))
+            },
+            resp =>
+              Right(resp.data match {
+                case v @ ResponseValue.ObjectValue(fields) if request.field.parentType.nonEmpty =>
+                  // if it was not a root field, return the inner response instead
+                  fields.headOption.map(_._2).getOrElse(v)
+                case x                                                                          => x
+              })
+          )
+        )
+
+      (for {
+        res  <- ZIO.serviceWithZIO[SttpClient](_.send(sttpRequest))
+        body <- ZIO.fromEither(res.body)
+      } yield body).mapError(e => CalibanError.ExecutionError(e.toString, innerThrowable = Some(e)))
     }
 
   def graphQL(url: String, headers: Map[String, String] = Map.empty): Source[SttpClient] = GraphQLSource(url, headers)
