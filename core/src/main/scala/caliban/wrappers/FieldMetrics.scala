@@ -17,32 +17,39 @@ object FieldMetrics {
     )
   )
 
-  private class Metrics(
+  private class Metrics private (
     succeeded: Metric.Counter[Long],
     failed: Metric.Counter[Long],
     duration: Metric.Histogram[Double]
   ) {
-    def addFailure(fieldName: String): UIO[Unit] =
-      failed.tagged("field", fieldName).increment
+    def recordFailure(fieldName: String): UIO[Unit] = failed.tagged("field", fieldName).increment
 
-    def addSuccess(pathTimings: Map[Vector[Either[String, Int]], Double])(timing: Timing): UIO[Unit] = {
-      val offset = pathTimings.getOrElse(timing.path :+ Left(timing.name), 0.0)
+    def recordSuccess(nodeOffsets: Map[Vector[Either[String, Int]], Long])(timing: Timing): UIO[Unit] = {
+      val d = timing.duration - nodeOffsets.getOrElse(timing.path :+ Left(timing.name), 0L)
       succeeded.tagged("field", timing.fullName).increment *>
-        duration.tagged("field", timing.fullName).update(timing.duration - offset)
+        duration.tagged("field", timing.fullName).update(d / 1e9)
     }
+  }
+
+  private object Metrics {
+    def apply(counter: Metric.Counter[Long], histogram: Metric.Histogram[Double]): Metrics =
+      new Metrics(
+        succeeded = counter.tagged("status", "ok"),
+        failed = counter.tagged("status", "error"),
+        duration = histogram
+      )
   }
 
   private case class Timing(
     name: String,
     path: Vector[Either[String, Int]],
     fullName: String,
-    duration: Double
+    duration: Long
   )
 
   private case class Refs(
-    timings: Ref[Vector[Timing]],
-    failures: Ref[List[String]],
-    startTime: Ref[Long]
+    timings: Ref[List[Timing]],
+    failures: Ref[List[String]]
   )
 
   def wrapper(
@@ -53,16 +60,13 @@ object FieldMetrics {
   ): Wrapper.EffectfulWrapper[Any] =
     Wrapper.EffectfulWrapper(
       for {
-        timings   <- Ref.make(Vector.empty[Timing])
-        failures  <- Ref.make(List.empty[String])
-        startTime <- Ref.make(0L)
-        refs       = Refs(timings, failures, startTime)
-        counter    = Metric.counter(totalLabel).tagged(extraLabels)
-        metrics    = new Metrics(
-                       succeeded = counter.tagged("status", "ok"),
-                       failed = counter.tagged("status", "error"),
-                       duration = Metric.histogram(durationLabel, buckets).tagged(extraLabels)
-                     )
+        timings  <- Ref.make(List.empty[Timing])
+        failures <- Ref.make(List.empty[String])
+        refs      = Refs(timings, failures)
+        metrics   = Metrics(
+                      Metric.counter(totalLabel).tagged(extraLabels),
+                      Metric.histogram(durationLabel, buckets).tagged(extraLabels)
+                    )
       } yield overallWrapper(refs, metrics) |+| fieldWrapper(refs)
     )
 
@@ -73,37 +77,33 @@ object FieldMetrics {
       ): GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] =
         (request: GraphQLRequest) =>
           for {
-            nanoTime     <- Clock.nanoTime
-            _            <- refs.startTime.set(nanoTime)
-            result       <- process(request)
-            _            <- refs.failures.get.flatMap(ZIO.foreachDiscard(_)(metrics.addFailure))
-            timings      <- refs.timings.get
-            nodeDurations = resolveNodeDurations(timings)
-            _            <- ZIO.foreachDiscard(timings)(metrics.addSuccess(nodeDurations))
+            result     <- process(request)
+            _          <- refs.failures.get.flatMap(ZIO.foreachDiscard(_)(metrics.recordFailure))
+            timings    <- refs.timings.get
+            nodeOffsets = resolveNodeOffsets(timings)
+            _          <- ZIO.foreachDiscard(timings)(metrics.recordSuccess(nodeOffsets))
           } yield result
     }
 
-  private def resolveNodeDurations(timings: Vector[Timing]): Map[Vector[Either[String, Int]], Double] = {
-    val map = new java.util.HashMap[Vector[Either[String, Int]], Double]()
+  private def resolveNodeOffsets(timings: List[Timing]): Map[Vector[Either[String, Int]], Long] = {
+    val map = new java.util.HashMap[Vector[Either[String, Int]], Long]()
     timings.foreach { t =>
       val iter     = t.path.inits
       var continue = true
       while (continue) {
         val segment = iter.next()
-        if (iter.hasNext) {
-          if (segment.last.isLeft) {
-            map.compute(
-              segment,
-              {
-                case (_, v) if v >= t.duration => v
-                case _                         =>
-                  continue = false
-                  t.duration
-              }
-            )
-          }
-        } else {
-          continue = false
+        if (!iter.hasNext) {
+          continue = false // Last element of `.inits` is an empty list
+        } else if (segment.last.isLeft) { // List indices are not fields so we don't care about recording their offset
+          map.compute(
+            segment,
+            {
+              case (_, v) if v >= t.duration =>
+                continue = false // We know that any subsequent segments will have a smaller offset
+                v
+              case _                         => t.duration
+            }
+          )
         }
       }
     }
@@ -112,8 +112,7 @@ object FieldMetrics {
 
   private def fieldWrapper(refs: Refs): Wrapper.FieldWrapper[Any] =
     new Wrapper.FieldWrapper[Any] {
-
-      override def wrap[R](
+      def wrap[R](
         query: ZQuery[R, CalibanError.ExecutionError, ResponseValue],
         info: FieldInfo
       ): ZQuery[R, CalibanError.ExecutionError, ResponseValue] = {
@@ -123,7 +122,7 @@ object FieldMetrics {
           new StringBuilder().append(parent).append('.').append(info.name).result().intern()
         }
 
-        def makeTiming(duration: Double) =
+        def makeTiming(duration: Long) =
           Timing(
             name = info.name,
             path = info.path.view.reverse.toVector,
@@ -137,8 +136,8 @@ object FieldMetrics {
         for {
           summarized            <- query.summarized(Clock.nanoTime)((_, _)).catchAll(recordFailure)
           ((start, end), result) = summarized
-          timing                 = makeTiming(duration = (end - start) / 1e9)
-          _                     <- ZQuery.fromZIO(refs.timings.update(_ :+ timing))
+          timing                 = makeTiming(duration = end - start)
+          _                     <- ZQuery.fromZIO(refs.timings.update(timing :: _))
         } yield result
       }
     }
