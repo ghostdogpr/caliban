@@ -1,14 +1,12 @@
 package caliban.execution
 
 import caliban.Value.BooleanValue
-import caliban.execution.Field.addTypeName
 import caliban.introspection.adt.__Type
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.Selection.{ Field => F, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.NamedType
-import caliban.parsing.adt.{ Directive, Document, LocationInfo, OperationType, Selection, VariableDefinition }
-import caliban.parsing.parsers.Parsers.field
+import caliban.parsing.adt._
 import caliban.rendering.DocumentRenderer
 import caliban.schema.{ RootType, Types }
 import caliban.{ GraphQLRequest, InputValue, Value }
@@ -108,7 +106,7 @@ case class Field(
     loop(this)
   }
 
-  def toGraphQLRequest(operationType: OperationType, withTypeName: Boolean): GraphQLRequest =
+  def toGraphQLRequest(operationType: OperationType, addTypeName: Boolean): GraphQLRequest =
     GraphQLRequest(query =
       Some(
         DocumentRenderer.renderCompact(
@@ -120,8 +118,8 @@ case class Field(
                 Nil,
                 Nil,
                 // if it was a root field, remove that field and keep its selection only
-                if (isRoot) fields.map(f => (if (withTypeName) addTypeName(f) else f).toSelection)
-                else List((if (withTypeName) addTypeName(self) else self).toSelection)
+                if (isRoot) fields.map(f => (if (addTypeName) f.withTypeName else f).toSelection)
+                else List((if (addTypeName) withTypeName else self).toSelection)
               )
             ),
             SourceMapper.empty
@@ -129,6 +127,10 @@ case class Field(
         )
       )
     )
+
+  private def withTypeName: Field =
+    if (fields.isEmpty) self
+    else copy(fields = Field("__typename", Types.string, None) :: fields.map(_.withTypeName))
 }
 
 object Field {
@@ -295,8 +297,4 @@ object Field {
       case Some(BooleanValue(value)) => value
       case _                         => default
     }
-
-  private def addTypeName(field: Field): Field =
-    if (field.fields.isEmpty) field
-    else field.copy(fields = Field("__typename", Types.string, None) :: field.fields.map(addTypeName))
 }
