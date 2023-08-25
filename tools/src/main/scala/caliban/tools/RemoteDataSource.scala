@@ -89,20 +89,13 @@ object RemoteDataSource {
       .body(request.field.withTypeName.toGraphQLRequest(OperationType.Query))
       .headers(request.headers)
       .response(asJson[GraphQLResponse[CalibanError]])
-      .mapResponse(resp =>
-        resp.fold(
-          {
-            case DeserializationException(body, error) =>
-              Left(ExecutionError(s"${error.getMessage}: $body", innerThrowable = Some(error)))
-            case HttpError(_, statusCode)              => Left(ExecutionError(s"HTTP Error: $statusCode"))
-          },
-          resp =>
-            Right(resp.data match {
-              case v @ ResponseValue.ObjectValue(fields) if !request.field.isRoot =>
-                // if it was not a root field, return the inner response instead
-                fields.headOption.map(_._2).getOrElse(v)
-              case x                                                              => x
-            })
-        )
-      )
+      .mapResponse(_.map(_.data match {
+        // if it was not a root field, return the inner response instead
+        case v @ ResponseValue.ObjectValue(fields) if !request.field.isRoot => fields.headOption.map(_._2).getOrElse(v)
+        case other                                                          => other
+      }).left.map {
+        case DeserializationException(body, error) =>
+          ExecutionError(s"${error.getMessage}: $body", innerThrowable = Some(error))
+        case HttpError(_, statusCode)              => ExecutionError(s"HTTP Error: $statusCode")
+      })
 }
