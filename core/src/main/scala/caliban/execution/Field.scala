@@ -106,7 +106,7 @@ case class Field(
     loop(this)
   }
 
-  def toGraphQLRequest(operationType: OperationType, addTypeName: Boolean): GraphQLRequest =
+  def toGraphQLRequest(operationType: OperationType): GraphQLRequest =
     GraphQLRequest(query =
       Some(
         DocumentRenderer.renderCompact(
@@ -118,8 +118,7 @@ case class Field(
                 Nil,
                 Nil,
                 // if it was a root field, remove that field and keep its selection only
-                if (isRoot) fields.map(f => (if (addTypeName) f.withTypeName else f).toSelection)
-                else List((if (addTypeName) withTypeName else self).toSelection)
+                if (isRoot) fields.map(_.toSelection) else List(toSelection)
               )
             ),
             SourceMapper.empty
@@ -128,7 +127,7 @@ case class Field(
       )
     )
 
-  private def withTypeName: Field =
+  def withTypeName: Field =
     if (fields.isEmpty) self
     else copy(fields = Field("__typename", Types.string, None) :: fields.map(_.withTypeName))
 }

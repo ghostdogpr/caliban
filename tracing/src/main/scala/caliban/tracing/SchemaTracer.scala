@@ -43,7 +43,7 @@ object SchemaTracer {
   private def attributes(field: Field): List[(String, String)] = List("query" -> graphQLQuery(field))
 
   private def graphQLQuery(field: Field): String =
-    maskField(field).toGraphQLRequest(OperationType.Query, addTypeName = false).query.getOrElse("")
+    maskField(field).toGraphQLRequest(OperationType.Query).query.getOrElse("")
 
   private def maskArguments(args: Map[String, InputValue]): Map[String, InputValue] =
     args.map { case (k, v) =>
