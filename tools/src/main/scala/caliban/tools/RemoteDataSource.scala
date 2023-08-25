@@ -86,7 +86,7 @@ object RemoteDataSource {
   private def makeSttpRequest(request: ProxyRequest): RequestT[Identity, Either[ExecutionError, ResponseValue], Any] =
     basicRequest
       .post(uri"${request.url}")
-      .body(request.field.toGraphQLRequest(OperationType.Query, addTypeName = true))
+      .body(request.field.withTypeName.toGraphQLRequest(OperationType.Query))
       .headers(request.headers)
       .response(asJson[GraphQLResponse[CalibanError]])
       .mapResponse(resp =>
