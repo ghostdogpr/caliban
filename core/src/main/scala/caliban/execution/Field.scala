@@ -42,6 +42,7 @@ case class Field(
   fragment: Option[Fragment] = None
 ) { self =>
   lazy val locationInfo: LocationInfo = _locationInfo()
+  lazy val isRoot: Boolean            = parentType.isEmpty
 
   def combine(other: Field): Field =
     self.copy(

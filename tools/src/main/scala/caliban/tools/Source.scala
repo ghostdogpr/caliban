@@ -6,9 +6,9 @@ import caliban.execution.Field
 import caliban.introspection.adt.__Type
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
-import caliban.parsing.adt.{ Document, OperationType, Selection }
+import caliban.parsing.adt.{ Document, OperationType }
 import caliban.rendering.DocumentRenderer
-import caliban.schema.{ ProxyRequest, Schema, Step }
+import caliban.schema.{ ProxyRequest, Schema, Step, Types }
 import caliban.tools.Source.makeDocument
 import caliban.transformers.Transformer
 import sttp.client3.jsoniter._
@@ -202,23 +202,16 @@ object Source {
           None,
           Nil,
           Nil,
-          if (field.parentType.isEmpty) field.fields.map(f => addTypeName(f.toSelection))
-          else List(addTypeName(field.toSelection))
+          if (field.isRoot) field.fields.map(f => addTypeName(f).toSelection)
+          else List(addTypeName(field).toSelection)
         )
       ),
       SourceMapper.empty
     )
 
-  private def addTypeName(selection: Selection): Selection =
-    selection match {
-      case f: Selection.Field =>
-        if (f.selectionSet.isEmpty) f
-        else
-          f.copy(selectionSet =
-            Selection.Field(None, "__typename", Map.empty, Nil, Nil, 0) :: f.selectionSet.map(addTypeName)
-          )
-      case other              => other
-    }
+  private def addTypeName(field: Field): Field =
+    if (field.fields.isEmpty) field
+    else field.copy(fields = Field("__typename", Types.string, None) :: field.fields.map(addTypeName))
 
   private val dataSource: DataSource[SttpClient, ProxyRequest] =
     DataSource.fromFunctionZIO[SttpClient, Throwable, ProxyRequest, ResponseValue]("RemoteDataSource") { request =>
@@ -239,10 +232,10 @@ object Source {
             },
             resp =>
               Right(resp.data match {
-                case v @ ResponseValue.ObjectValue(fields) if request.field.parentType.nonEmpty =>
+                case v @ ResponseValue.ObjectValue(fields) if !request.field.isRoot =>
                   // if it was not a root field, return the inner response instead
                   fields.headOption.map(_._2).getOrElse(v)
-                case x                                                                          => x
+                case x                                                              => x
               })
           )
         )
