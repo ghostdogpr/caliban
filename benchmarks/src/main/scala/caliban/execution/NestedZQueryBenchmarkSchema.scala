@@ -3,7 +3,7 @@ package caliban.execution
 import caliban.InputValue
 import caliban.InputValue.ObjectValue
 import caliban.Value.IntValue
-import caliban.schema.{ ArgBuilder, FieldAttributes, GenericSchema, Schema }
+import caliban.schema.{ ArgBuilder, Schema }
 import zio.query.ZQuery
 
 object NestedZQueryBenchmarkSchema {
@@ -14,14 +14,14 @@ object NestedZQueryBenchmarkSchema {
 
   implicit val simpleEntitySchema: Schema[Any, SimpleEntity]       = Schema.gen
   implicit val multipleEntitySchema: Schema[Any, MultifieldEntity] = Schema.gen
-  lazy implicit val deepEntitySchema: Schema[Any, DeepEntity]      = obj[Any, DeepEntity]("DeepEntity") { implicit fa =>
+
+  implicit val deepArgsBuilder: ArgBuilder[DeepArgs]          = ArgBuilder.gen
+  lazy implicit val deepEntitySchema: Schema[Any, DeepEntity] = obj[Any, DeepEntity]("DeepEntity") { implicit fa =>
     List(
       field[DeepEntity]("next")(_.next),
       field[DeepEntity]("nested")(_.nested)
     )
   }
-
-  implicit val deepArgsBuilder: ArgBuilder[DeepArgs] = ArgBuilder.derived
 
   lazy implicit val deepArgsSchema: Schema[Any, DeepArgs] =
     obj[Any, DeepArgs]("DeepArgs") { implicit fa =>
@@ -109,11 +109,11 @@ object NestedZQueryBenchmarkSchema {
     }
   }""".stripMargin
 
-  val deepWithArgs100Elements: DeepWithArgsRoot   = generateDeepWithArgs(100)
-  val deepWithArgs1000Elements: DeepWithArgsRoot  = generateDeepWithArgs(1000)
+  val deepWithArgs100Elements: DeepWithArgsRoot  = generateDeepWithArgs(100)
+  val deepWithArgs1000Elements: DeepWithArgsRoot = generateDeepWithArgs(1000)
 
-  val deepArgs100Elements: Map[String, InputValue] = generateDeepArgs(100)
-  val deepArgs1000Elements:  Map[String, InputValue] = generateDeepArgs(1000)
+  val deepArgs100Elements: Map[String, InputValue]  = generateDeepArgs(100)
+  val deepArgs1000Elements: Map[String, InputValue] = generateDeepArgs(1000)
 
   val deepWithArgsQuery: String =
     """query IntrospectionQuery($args: DeepArgsInput!) {

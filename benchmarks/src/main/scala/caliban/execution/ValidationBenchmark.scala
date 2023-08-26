@@ -1,7 +1,6 @@
 package caliban.execution
 
-import caliban.*
-import caliban.Value.IntValue
+import caliban._
 import caliban.parsing.{ Parser, VariablesCoercer }
 import caliban.schema.RootType
 import caliban.validation.Validator
@@ -18,7 +17,7 @@ import org.openjdk.jmh.annotations.{
 }
 
 import java.util.concurrent.TimeUnit
-import zio.*
+import zio._
 
 @State(Scope.Thread)
 @BenchmarkMode(Array(Mode.Throughput))
