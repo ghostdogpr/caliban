@@ -431,7 +431,7 @@ object DocumentRenderer extends Renderer[Document] {
 
   private lazy val inputObjectTypeDefinition: Renderer[InputObjectTypeDefinition] =
     new Renderer[InputObjectTypeDefinition] {
-      private val fieldsRenderer = inputValueDefinitionRenderer.list(Renderer.newlineOrSpace)
+      private val fieldsRenderer = inputValueDefinitionRenderer.list(Renderer.newlineOrSpace, omitFirst = false)
 
       override def unsafeRender(value: InputObjectTypeDefinition, indent: Option[Int], write: StringBuilder): Unit =
         value match {
