@@ -106,7 +106,11 @@ object TestUtils {
   @GQLOneOfInput
   sealed trait NameOrOrigin
   object NameOrOrigin {
-    case class ByName(name: String)     extends NameOrOrigin
+    @GQLValueType
+    @GQLOneOfInputName("name")
+    case class ByName(name: String) extends NameOrOrigin
+    @GQLValueType
+    @GQLOneOfInputName("origin")
     case class ByOrigin(origin: Origin) extends NameOrOrigin
 
     case class Wrapper(nameOrOrigin: NameOrOrigin)
@@ -141,7 +145,7 @@ object TestUtils {
   implicit val characterSchema: Schema[Any, Character]           = genAll
   implicit val querySchema: Schema[Any, Query]                   = genAll
   implicit val queryIOSchema: Schema[Any, QueryIO]               = genAll
-  implicit val queryOneOffSchema: Schema[Any, QueryWithOneOf]    = genAll
+  implicit val queryOneOfSchema: Schema[Any, QueryWithOneOf]     = genAll
   implicit val mutationIOSchema: Schema[Any, MutationIO]         = genAll
   implicit val subscriptionIOSchema: Schema[Any, SubscriptionIO] = genAll
 

@@ -65,7 +65,12 @@ object Annotations {
   case class GQLDefault(value: String) extends StaticAnnotation
 
   /**
-   * Annotation to make a sealed trait as a GraphQL @oneOff input
+   * Annotation to make a sealed trait as a GraphQL @oneOf input
    */
   case class GQLOneOfInput() extends StaticAnnotation
+
+  /**
+   * Annotation used to rename the field name of a @oneOf input
+   */
+  case class GQLOneOfInputName(value: String) extends StaticAnnotation
 }

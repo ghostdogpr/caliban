@@ -4,7 +4,7 @@ import caliban.CalibanError.ExecutionError
 import caliban.{ schema, CalibanError, InputValue }
 import caliban.Value.*
 import caliban.schema.macros.Macros
-import caliban.schema.Annotations.{ GQLDefault, GQLName }
+import caliban.schema.Annotations.{ GQLDefault, GQLName, GQLOneOfInputName, GQLValueType }
 
 import scala.deriving.Mirror
 import scala.compiletime.*
@@ -34,15 +34,10 @@ trait CommonArgBuilderDerivation {
     inline summonInline[Mirror.Of[A]] match {
       case m: Mirror.SumOf[A] =>
         inline if (Macros.hasOneOfInputAnnotation[A]) {
-          inline if (Macros.isValidOneOffInput[A])
-            makeOneOffBuilder[A](
-              recurse[A, m.MirroredElemLabels, m.MirroredElemTypes](),
-              constValue[m.MirroredLabel]
-            )
-          else
-            error(
-              "Invalid oneOf input. OneOff inputs must be sealed traits with 2 or more case classes extending them that:\n\t1. Have a single non-nullable field\n\t2. Do not have duplicated field names\n\t"
-            )
+          makeOneOfBuilder[A](
+            recurse[A, m.MirroredElemLabels, m.MirroredElemTypes](),
+            constValue[m.MirroredLabel]
+          )
         } else
           makeSumArgBuilder[A](
             recurse[A, m.MirroredElemLabels, m.MirroredElemTypes](),
@@ -83,19 +78,34 @@ trait CommonArgBuilderDerivation {
       }
   }
 
-  private def makeOneOffBuilder[A](
+  private def makeOneOfBuilder[A](
     _subTypes: => List[(String, List[Any], ArgBuilder[Any])],
     _traitLabel: => String
   ): ArgBuilder[A] = new ArgBuilder[A] {
-    private lazy val builders   = _subTypes.map(_._3).asInstanceOf[List[ArgBuilder[A]]]
+
+    private val builders = _subTypes.map { (label, annotations, argBuilder) =>
+      val name        = Types.oneOfInputFieldName(label, annotations)
+      val isValueType = annotations.exists { case GQLValueType(_) => true; case _ => false }
+
+      name -> (argBuilder, isValueType)
+    }.toMap.asInstanceOf[Map[String, (ArgBuilder[A], Boolean)]]
+
     private lazy val traitLabel = _traitLabel
 
     def build(input: InputValue): Either[ExecutionError, A] = input match {
       case InputValue.ObjectValue(fields) if fields.size == 1 =>
-        builders.view
-          .map(_.build(input))
-          .find(_.isRight)
-          .getOrElse(Left(ExecutionError(s"Invalid oneOf input $fields for trait $traitLabel")))
+        val (key, innerValue) = fields.head
+        builders
+          .get(key)
+          .toRight(ExecutionError(s"Invalid oneOf input $fields for trait $traitLabel"))
+          .flatMap {
+            case (builder, true) => builder.build(innerValue)
+            case (builder, _) =>
+              innerValue match {
+                case _: InputValue.ObjectValue => builder.build(innerValue)
+                case _                         => Left(ExecutionError(s"Can't build a trait from input $input"))
+              }
+          }
       case InputValue.ObjectValue(_)                          =>
         Left(ExecutionError("Exactly one key must be specified for oneOf inputs"))
       case _                                                  =>

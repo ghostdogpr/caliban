@@ -4,15 +4,15 @@ import java.util.UUID
 import caliban.CalibanError.ExecutionError
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
-import caliban.Value.{ BooleanValue, IntValue, NullValue, StringValue }
+import caliban.Value.{BooleanValue, IntValue, NullValue, StringValue}
 import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
-import caliban.schema.Annotations.{ GQLInterface, GQLName, GQLOneOfInput, GQLValueType }
+import caliban.schema.Annotations.{GQLInterface, GQLName, GQLOneOfInput, GQLOneOfInputName, GQLValueType}
 import caliban.schema._
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import caliban._
-import zio.{ FiberRef, IO, Task, UIO, ZIO, ZLayer }
+import zio.{FiberRef, IO, Task, UIO, ZIO, ZLayer}
 import zio.stream.ZStream
 import zio.test._
 
@@ -1253,7 +1253,11 @@ object ExecutionSpec extends ZIOSpecDefault {
         @GQLOneOfInput
         sealed trait Foo
         object Foo {
+          @GQLValueType
+          @GQLOneOfInputName("stringValue")
           case class FooString(stringValue: String) extends Foo
+          @GQLValueType
+          @GQLOneOfInputName("intValue")
           case class FooInt(intValue: Int)          extends Foo
 
           case class Wrapper(fooInput: Foo)

@@ -130,13 +130,7 @@ trait CommonSchemaDerivation[R] {
         case _          => false
       }
 
-      lazy val subtypeInputFields =
-        ctx.subtypes.map(_.typeclass.toType_(isInput = true).inputFields.getOrElse(Nil)).toList
-
-      lazy val isOneOfInput =
-        ctx.annotations.contains(GQLOneOfInput()) &&
-          subtypeInputFields.nonEmpty &&
-          subtypeInputFields.forall(_.size == 1)
+      val isOneOfInput = ctx.annotations.contains(GQLOneOfInput())
 
       if (isEnum && subtypes.nonEmpty && !isInterface && !isUnion && !isOneOfInput) {
         makeEnum(
@@ -154,12 +148,20 @@ trait CommonSchemaDerivation[R] {
           Some(ctx.typeName.full),
           Some(getDirectives(ctx.annotations))
         )
-      } else if (isOneOfInput) {
+      } else if (isOneOfInput && isInput) {
         makeInputObject(
           Some(ctx.annotations.collectFirst { case GQLInputName(suffix) => suffix }
             .getOrElse(customizeInputTypeName(getName(ctx)))),
           getDescription(ctx),
-          subtypeInputFields.flatten.map(_.nullable),
+          ctx.subtypes.toList.map { p =>
+            __InputValue(
+              oneOfInputFieldName(p.typeName.short, p.annotations),
+              getDescription(p.annotations),
+              () => p.typeclass.toType_(isInput = true),
+              None,
+              None
+            )
+          },
           Some(ctx.typeName.full),
           Some(List(Directive("oneOf"))),
           isOneOf = true

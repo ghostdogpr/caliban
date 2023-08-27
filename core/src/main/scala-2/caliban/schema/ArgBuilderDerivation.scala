@@ -3,7 +3,7 @@ package caliban.schema
 import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.Value._
-import caliban.schema.Annotations.{ GQLDefault, GQLName, GQLOneOfInput }
+import caliban.schema.Annotations.{ GQLDefault, GQLName, GQLOneOfInput, GQLOneOfInputName, GQLValueType }
 import magnolia._
 import mercator.Monadic
 
@@ -38,7 +38,7 @@ trait CommonArgBuilderDerivation {
       }
 
   def dispatch[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] =
-    if (ctx.annotations.contains(GQLOneOfInput())) makeOneOffBuilder(ctx)
+    if (ctx.annotations.contains(GQLOneOfInput())) makeOneOfBuilder(ctx)
     else makeSumBuilder(ctx)
 
   private def makeSumBuilder[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] = input =>
@@ -58,18 +58,32 @@ trait CommonArgBuilderDerivation {
       case None        => Left(ExecutionError(s"Can't build a trait from input $input"))
     }
 
-  private def makeOneOffBuilder[A](ctx: SealedTrait[ArgBuilder, A]): ArgBuilder[A] =
+  private def makeOneOfBuilder[A](ctx: SealedTrait[ArgBuilder, A]): ArgBuilder[A] =
     new ArgBuilder[A] {
-      private lazy val builders = ctx.subtypes.map(_.typeclass)
+
+      private val builders = ctx.subtypes.map { p =>
+        val name        = Types.oneOfInputFieldName(p.typeName.short, p.annotations)
+        val isValueType = p.annotations.exists { case GQLValueType(_) => true; case _ => false }
+
+        name -> (p.typeclass, isValueType)
+      }.toMap
 
       def build(input: InputValue): Either[ExecutionError, A] = input match {
         case InputValue.ObjectValue(fields) if fields.size == 1 =>
-          builders.view
-            .map(_.build(input))
-            .find(_.isRight)
-            .getOrElse(Left(ExecutionError(s"Invalid oneOf input $fields for trait ${ctx.typeName.short}}")))
+          val (key, innerValue) = fields.head
+          builders
+            .get(key)
+            .toRight(ExecutionError(s"Invalid oneOf input $fields for trait ${ctx.typeName.short}}"))
+            .flatMap {
+              case (builder, true) => builder.build(innerValue)
+              case (builder, _)    =>
+                innerValue match {
+                  case _: InputValue.ObjectValue => builder.build(innerValue)
+                  case _                         => Left(ExecutionError(s"Can't build a trait from input $input"))
+                }
+            }
         case InputValue.ObjectValue(_)                          =>
-          Left(ExecutionError(s"Exactly one key must be specified for oneOf inputs"))
+          Left(ExecutionError("Exactly one key must be specified for oneOf inputs"))
         case _                                                  =>
           Left(ExecutionError(s"Can't build a trait from input $input"))
       }

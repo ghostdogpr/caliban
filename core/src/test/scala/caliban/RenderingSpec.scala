@@ -2,23 +2,22 @@ package caliban
 
 import caliban.CalibanError.ParsingError
 import caliban.TestUtils._
-import caliban.introspection.adt.{ __Directive, __DirectiveLocation, __Type, __TypeKind }
+import caliban.introspection.adt.{ __Type, __TypeKind }
 import caliban.parsing.Parser
-import caliban.parsing.adt.Definition.{ TypeSystemDefinition, TypeSystemExtension }
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{
   EnumValueDefinition,
   FieldDefinition,
   InputValueDefinition
 }
+import caliban.parsing.adt.Definition.{ TypeSystemDefinition, TypeSystemExtension }
 import caliban.parsing.adt.{ Definition, Directive }
 import caliban.rendering.DocumentRenderer
-import caliban.schema.Annotations.GQLOneOfInput
-import caliban.schema.{ ArgBuilder, Schema }
+import caliban.schema.Annotations.{ GQLOneOfInput, GQLOneOfInputName, GQLValueType }
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
+import caliban.schema.{ ArgBuilder, Schema }
 import zio.IO
-import zio.test.Assertion._
 import zio.test._
 
 object RenderingSpec extends ZIOSpecDefault {
@@ -174,49 +173,49 @@ object RenderingSpec extends ZIOSpecDefault {
           rendered == """schema{query:Query} "Description of custom scalar emphasizing proper captain ship names" scalar CaptainShipName @specifiedBy(url:"http://someUrl") @tag union Role @uniondirective=Captain|Engineer|Mechanic|Pilot enum Origin @enumdirective{BELT,EARTH,MARS,MOON @deprecated(reason:"Use: EARTH | MARS | BELT")} input CharacterInput @inputobjdirective{name:String! @external nicknames:[String!]! @required origin:Origin!}interface Human{ name:String! @external}type Captain{ shipName:CaptainShipName!}type Character implements Human @key(name:"name"){ name:String! @external nicknames:[String!]! @required origin:Origin! role:Role}type Engineer{ shipName:String!}type Mechanic{ shipName:String!}type Narrator implements Human{ name:String!}type Pilot{ shipName:String!}"Queries" type Query{ "Return all characters from a given origin" characters(origin:Origin):[Character!]! character(name:String!):Character @deprecated(reason:"Use `characters`") charactersIn(names:[String!]! @lowercase):[Character!]! exists(character:CharacterInput!):Boolean! human:Human!}"""
         )
       },
-      test("@oneOf input as value type") {
-        case class Queries(foo: Foo => String)
+      suite("@oneOf inputs") {
+        def expected(label: String) =
+          s"""schema {
+             |  query: Queries
+             |}
+             |
+             |input FooInput @oneOf {
+             |  intValue: FooIntInput
+             |  stringValue: String
+             |  otherIntField: OtherIntFieldInput
+             |  otherStringField: String
+             |}
+             |
+             |input FooIntInput {
+             |  intValue: Int!
+             |}
+             |
+             |input OtherIntFieldInput {
+             |  intValue: Int!
+             |}
+             |
+             |type Queries {
+             |  foo($label: FooInput!): String!
+             |}""".stripMargin
 
-        implicit val schema: Schema[Any, Queries] = Schema.gen
-        val resolver                              = RootResolver(Queries(_.toString))
+        List(
+          test("as value types") {
+            case class Queries(foo: Foo => String)
 
-        val expected =
-          """schema {
-            |  query: Queries
-            |}
-            |
-            |input FooInput @oneOf {
-            |  intValue: Int
-            |  stringValue: String
-            |}
-            |
-            |type Queries {
-            |  foo(value: FooInput!): String!
-            |}""".stripMargin
+            implicit val schema: Schema[Any, Queries] = Schema.gen
+            val resolver                              = RootResolver(Queries(_.toString))
 
-        assertTrue(graphQL(resolver).render == expected)
-      },
-      test("@oneOf input wrapped in a case class") {
-        case class Queries(foo: Foo.Wrapped => String)
+            assertTrue(graphQL(resolver).render == expected("value"))
+          },
+          test("wrapped in a case class") {
+            case class Queries(foo: Foo.Wrapped => String)
 
-        implicit val schema: Schema[Any, Queries] = Schema.gen
-        val resolver                              = RootResolver(Queries(_.toString))
+            implicit val schema: Schema[Any, Queries] = Schema.gen
+            val resolver                              = RootResolver(Queries(_.toString))
 
-        val expected =
-          """schema {
-            |  query: Queries
-            |}
-            |
-            |input FooInput @oneOf {
-            |  intValue: Int
-            |  stringValue: String
-            |}
-            |
-            |type Queries {
-            |  foo(fooInput: FooInput!): String!
-            |}""".stripMargin
-
-        assertTrue(graphQL(resolver).render == expected)
+            assertTrue(graphQL(resolver).render == expected("fooInput"))
+          }
+        )
       }
     )
 
@@ -224,8 +223,14 @@ object RenderingSpec extends ZIOSpecDefault {
   sealed trait Foo
 
   object Foo {
+    @GQLValueType
+    @GQLOneOfInputName("stringValue")
     case class FooString(stringValue: String) extends Foo
-    case class FooInt(intValue: Int)          extends Foo
+    @GQLValueType
+    case class OtherStringField(someField: String) extends Foo
+    @GQLOneOfInputName("intValue")
+    case class FooInt(intValue: Int) extends Foo
+    case class OtherIntField(intValue: Int) extends Foo
 
     case class Wrapped(fooInput: Foo)
   }

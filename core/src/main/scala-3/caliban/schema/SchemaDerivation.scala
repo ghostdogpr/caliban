@@ -82,10 +82,12 @@ trait CommonSchemaDerivation {
     annotations: List[Any]
   )(ordinal: A => Int): Schema[R, A] = new Schema[R, A] {
 
-    private lazy val members        = _members.toVector // Vector has ~O(1) performance for `.apply` as opposed to List's O(n)
+    // Vector has ~O(1) performance for `.apply` as opposed to List's O(n)
+    private lazy val members = _members.map(v => (v._1, v._2, v._3)).toVector
+
     private lazy val membersOrdered = members.sortBy(_._1).toList
 
-    private lazy val subTypes = membersOrdered.map { (label, subTypeAnnotations, schema, _) =>
+    private lazy val subTypes = membersOrdered.map { (label, subTypeAnnotations, schema) =>
       (label, schema.toType_(), subTypeAnnotations)
     }
 
@@ -107,16 +109,10 @@ trait CommonSchemaDerivation {
     private lazy val isOneOfInput = annotations.contains(GQLOneOfInput())
 
     def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-      if (!isInterface && !isUnion && subTypes.nonEmpty && isEnum && !isOneOfInput) mkEnum(annotations, info, subTypes)
-      else if (isOneOfInput) {
-        makeInputObject(
-          Some(getInputName(annotations).getOrElse(customizeInputTypeName(getName(annotations, info)))),
-          getDescription(annotations),
-          membersOrdered.map(_._3.toType_(true)).flatMap(_.inputFields.getOrElse(Nil)).map(_.nullable),
-          Some(info.full),
-          Some(List(Directive("oneOf"))),
-          isOneOf = true
-        )
+      if (!isInterface && !isUnion && membersOrdered.nonEmpty && isEnum && !isOneOfInput)
+        mkEnum(annotations, info, subTypes)
+      else if (isOneOfInput && isInput) {
+        mkOneOfInput(annotations, membersOrdered, info)
       } else if (!isInterface)
         makeUnion(
           Some(getName(annotations, info)),
@@ -131,7 +127,7 @@ trait CommonSchemaDerivation {
       }
 
     def resolve(value: A): Step[R] = {
-      val (label, _, schema, _) = members(ordinal(value))
+      val (label, _, schema) = members(ordinal(value))
       if (isEnum) PureStep(EnumValue(label)) else schema.resolve(value)
     }
   }
@@ -175,7 +171,7 @@ trait CommonSchemaDerivation {
         head._3.resolve(value.asInstanceOf[Product].productElement(head._4))
       } else {
         val fieldsBuilder = Map.newBuilder[String, Step[R]]
-        fields.foreach { case (label, _, schema, index) =>
+        fields.foreach { (label, _, schema, index) =>
           val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
           lazy val step        = schema.resolve(value.asInstanceOf[Product].productElement(index))
           fieldsBuilder += getName(fieldAnnotations, label) -> {
@@ -303,6 +299,28 @@ trait CommonSchemaDerivation {
     Some(info.full),
     Some(getDirectives(annotations))
   )
+
+  private def mkOneOfInput[R](
+    annotations: List[Any],
+    members: List[(String, List[Any], Schema[R, Any])],
+    info: TypeInfo
+  ) =
+    makeInputObject(
+      Some(getInputName(annotations).getOrElse(customizeInputTypeName(getName(annotations, info)))),
+      getDescription(annotations),
+      members.map { (label, annotations, schema) =>
+        __InputValue(
+          oneOfInputFieldName(label, annotations),
+          getDescription(annotations),
+          () => schema.toType_(isInput = true),
+          None,
+          None
+        )
+      },
+      Some(info.full),
+      Some(List(Directive("oneOf"))),
+      isOneOf = true
+    )
 
   private def mkObject[R](
     annotations: List[Any],
