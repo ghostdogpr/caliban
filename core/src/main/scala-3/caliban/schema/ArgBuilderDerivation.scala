@@ -100,7 +100,7 @@ trait CommonArgBuilderDerivation {
           .toRight(ExecutionError(s"Invalid oneOf input $fields for trait $traitLabel"))
           .flatMap {
             case (builder, true) => builder.build(innerValue)
-            case (builder, _) =>
+            case (builder, _)    =>
               innerValue match {
                 case _: InputValue.ObjectValue => builder.build(innerValue)
                 case _                         => Left(ExecutionError(s"Can't build a trait from input $input"))
