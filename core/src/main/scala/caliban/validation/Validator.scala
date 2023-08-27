@@ -82,6 +82,11 @@ object Validator {
   def failValidation(msg: String, explanatoryText: String): EReader[Any, ValidationError, Nothing] =
     ZPure.fail(ValidationError(msg, explanatoryText))
 
+  private def failValidationWhen(
+    cond: Boolean
+  )(msg: => String, explanatoryText: => String): EReader[Any, ValidationError, Unit] =
+    if (cond) failValidation(msg, explanatoryText) else ZPure.unit
+
   /**
    * Prepare the request for execution.
    * Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
@@ -353,14 +358,20 @@ object Validator {
             )
           )
         } *> ZPure.foreachDiscard(op.variableDefinitions) { v =>
-          val t = Type.innerType(v.variableType)
-          ZPure.whenCase(context.rootType.types.get(t).map(_.kind)) {
+          val t = context.rootType.types.get(Type.innerType(v.variableType))
+          ZPure.whenCase(t.map(_.kind)) {
             case Some(__TypeKind.OBJECT) | Some(__TypeKind.UNION) | Some(__TypeKind.INTERFACE) =>
               failValidation(
                 s"Type of variable '${v.name}' is not a valid input type.",
                 "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
               )
-          }
+          } *>
+            ZPure.when(t.flatMap(_.isOneOf).getOrElse(false)) {
+              validateOneOfInputValue(
+                context.variables.getOrElse(v.name, NullValue),
+                s"Variable '${v.name}'"
+              )
+            }
         } *> {
           val variableUsages = collectVariablesUsed(context, op.selectionSet)
           ZPure.foreachDiscard(variableUsages)(v =>
@@ -525,8 +536,14 @@ object Validator {
     currentType: __Type,
     context: Context
   ): EReader[Any, ValidationError, Unit] =
-    ZPure.foreachDiscard(f.args.filter(_._type.kind == __TypeKind.NON_NULL))(arg =>
-      (arg.defaultValue, field.arguments.get(arg.name)) match {
+    ZPure.foreachDiscard(f.args.filter(_._type.kind == __TypeKind.NON_NULL)) { arg =>
+      val fieldArgs = field.arguments.get(arg.name)
+      ZPure.when(arg._type.innerType._isOneOfInput) {
+        validateOneOfInputValue(
+          fieldArgs.getOrElse(NullValue),
+          s"Argument '${arg.name}' on field '${field.name}'"
+        )
+      } *> ZPure.whenCase(arg.defaultValue, fieldArgs) {
         case (None, None) | (None, Some(NullValue)) =>
           failValidation(
             s"Required argument '${arg.name}' is null or missing on field '${field.name}' of type '${currentType.name
@@ -540,9 +557,8 @@ object Validator {
               .getOrElse("")}'.",
             "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
           )
-        case _                          => ZPure.unit[Unit]
       }
-    ) *>
+    } *>
       ZPure.foreachDiscard(field.arguments) { case (arg, argValue) =>
         f.args.find(_.name == arg) match {
           case None             =>
@@ -611,6 +627,23 @@ object Validator {
       case _                                                                           => ZPure.unit[Unit]
     }
   } *> ValueValidator.validateInputTypes(inputValue, argValue, context, errorContext)
+
+  private def validateOneOfInputValue(
+    inputValue: InputValue,
+    errorContext: => String
+  ): EReader[Any, ValidationError, Unit] =
+    ZPure
+      .whenCase(inputValue match {
+        case InputValue.ObjectValue(fields) if fields.size == 1 => fields.headOption.map(_._2)
+        case vv: InputValue.VariableValue                       => Some(vv)
+        case _                                                  => None
+      }) { case None | Some(NullValue) =>
+        failValidation(
+          s"$errorContext is not a valid @oneOf input",
+          "@oneOf input arguments must specify exactly one non-null key"
+        )
+      }
+      .unit
 
   private def checkVariableUsageAllowed(
     variableDefinition: VariableDefinition,
@@ -837,13 +870,28 @@ object Validator {
       ZPure.foreachDiscard(fields)(validateInputValue(_, inputObjectContext)) *>
         noDuplicateInputValueName(fields, inputObjectContext)
 
+    def validateOneOfFields(fields: List[__InputValue]): EReader[Any, ValidationError, Unit] =
+      failValidationWhen(fields.size <= 1)(
+        s"$inputObjectContext @oneOf has less than 2 fields",
+        "@oneOf inputs must have at least 2 possible fields"
+      ) *> ZPure.foreachDiscard(fields) { f =>
+        failValidationWhen(f.defaultValue.isDefined)(
+          s"$inputObjectContext @oneOf argument has a default value",
+          "@oneOf input fields cannot have default values"
+        ) *>
+          failValidationWhen(!f._type.isNullable)(
+            s"$inputObjectContext @oneOf argument is not nullable",
+            "All of @oneOf input fields must be nullable according to the spec"
+          )
+      }
+
     t.inputFields match {
       case None | Some(Nil) =>
         failValidation(
           s"$inputObjectContext does not have fields",
           "An Input Object type must define one or more input fields"
         )
-      case Some(fields)     => validateFields(fields)
+      case Some(fields)     => ZPure.when(t._isOneOfInput)(validateOneOfFields(fields)) *> validateFields(fields)
     }
   }
 

@@ -131,5 +131,5 @@ case class __Type(
 
   lazy val innerType: __Type = Types.innerType(this)
 
-  def _isOneOfInput: Boolean = isOneOf.getOrElse(false)
+  private[caliban] def _isOneOfInput: Boolean = isOneOf.getOrElse(false)
 }

@@ -2,6 +2,7 @@ package caliban.execution
 
 import java.util.UUID
 import caliban.CalibanError.ExecutionError
+import caliban.InputValue.ObjectValue
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, IntValue, NullValue, StringValue }
@@ -1285,22 +1286,18 @@ object ExecutionSpec extends ZIOSpecDefault {
           )
         )
 
-        val q1 = gqldoc("""{ foo(fooInput: {stringValue: "hello"}) }""")
-        val q2 = gqldoc("""{ foo(fooInput: {intValue: 42}) }""")
-        val q3 = gqldoc("""{ fooUnwrapped(value: {intValue: 42}) }""")
-
-        for {
-          _  <- api.validateRootSchema
-          i  <- api.interpreter
-          r1 <- i.execute(q1)
-          r2 <- i.execute(q2)
-          r3 <- i.execute(q3)
-        } yield assertTrue(
-          r1.data.toString == """{"foo":"hello"}""",
-          r2.data.toString == """{"foo":"42"}""",
-          r3.data.toString == """{"fooUnwrapped":"42"}"""
+        val cases = List(
+          gqldoc("""{ foo(fooInput: {stringValue: "hello"}) }""")                 -> """{"foo":"hello"}""",
+          gqldoc("""{ foo(fooInput: {intValue: 42}) }""")                         -> """{"foo":"42"}""",
+          gqldoc("""{ fooUnwrapped(value: {intValue: 42}) }""")                   -> """{"fooUnwrapped":"42"}""",
+          gqldoc("""query Foo($args: FooInput!){ fooUnwrapped(value: $args) }""") -> """{"fooUnwrapped":"42"}"""
         )
 
+        ZIO.foldLeft(cases)(assertCompletes) { case (acc, (query, expected)) =>
+          api.interpreter
+            .flatMap(_.execute(query, variables = Map("args" -> ObjectValue(Map("intValue" -> IntValue(42))))))
+            .map(response => assertTrue(response.data.toString == expected))
+        }
       }
     )
 }

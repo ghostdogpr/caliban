@@ -83,33 +83,32 @@ trait CommonArgBuilderDerivation {
     _traitLabel: => String
   ): ArgBuilder[A] = new ArgBuilder[A] {
 
-    private val builders = _subTypes.map { (label, annotations, argBuilder) =>
-      val name        = Types.oneOfInputFieldName(label, annotations)
-      val isValueType = annotations.exists { case GQLValueType(_) => true; case _ => false }
-
-      name -> (argBuilder, isValueType)
-    }.toMap.asInstanceOf[Map[String, (ArgBuilder[A], Boolean)]]
+    private lazy val builders: Map[String, (ArgBuilder[A], Boolean)] =
+      _subTypes.map { (label, annotations, argBuilder) =>
+        val name        = Types.oneOfInputFieldName(label, annotations)
+        val isValueType = annotations.exists { case GQLValueType(_) => true; case _ => false }
+        name -> (argBuilder.asInstanceOf[ArgBuilder[A]], isValueType)
+      }.toMap
 
     private lazy val traitLabel = _traitLabel
 
+    private def error(input: InputValue) = ExecutionError(s"Invalid oneOf input $input for trait $traitLabel")
+
     def build(input: InputValue): Either[ExecutionError, A] = input match {
-      case InputValue.ObjectValue(fields) if fields.size == 1 =>
-        val (key, innerValue) = fields.head
-        builders
-          .get(key)
-          .toRight(ExecutionError(s"Invalid oneOf input $fields for trait $traitLabel"))
-          .flatMap {
-            case (builder, true) => builder.build(innerValue)
-            case (builder, _)    =>
+      case InputValue.ObjectValue(fields) =>
+        fields.toList match {
+          case (key, innerValue) :: Nil =>
+            builders.get(key).toRight(error(input)).flatMap { (builder, isValueType) =>
               innerValue match {
-                case _: InputValue.ObjectValue => builder.build(innerValue)
-                case _                         => Left(ExecutionError(s"Can't build a trait from input $input"))
+                case v: InputValue.ObjectValue if !isValueType => builder.build(v)
+                case v if isValueType                          => builder.build(v)
+                case _                                         => Left(error(input))
               }
-          }
-      case InputValue.ObjectValue(_)                          =>
-        Left(ExecutionError("Exactly one key must be specified for oneOf inputs"))
-      case _                                                  =>
-        Left(ExecutionError(s"Can't build a trait from input $input"))
+            }
+          case _                        =>
+            Left(ExecutionError("Exactly one key must be specified for oneOf inputs"))
+        }
+      case _                              => Left(error(input))
     }
   }
 
