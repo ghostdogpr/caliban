@@ -118,13 +118,8 @@ case class __Type(
       case _                   => true
     }
 
-  def list: __Type     = __Type(__TypeKind.LIST, ofType = Some(self))
-  def nonNull: __Type  = __Type(__TypeKind.NON_NULL, ofType = Some(self))
-  def nullable: __Type =
-    (kind, ofType) match {
-      case (__TypeKind.NON_NULL, Some(inner)) => inner
-      case _                                  => self
-    }
+  def list: __Type    = __Type(__TypeKind.LIST, ofType = Some(self))
+  def nonNull: __Type = __Type(__TypeKind.NON_NULL, ofType = Some(self))
 
   lazy val allFields: List[__Field] =
     fields(__DeprecatedArgs(Some(true))).getOrElse(Nil)

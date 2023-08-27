@@ -17,6 +17,4 @@ case class __InputValue(
   }
 
   private[caliban] lazy val _type: __Type = `type`()
-
-  private[caliban] def nullable: __InputValue = copy(`type` = () => _type.nullable)
 }

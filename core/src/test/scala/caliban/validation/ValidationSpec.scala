@@ -509,6 +509,24 @@ object ValidationSpec extends ZIOSpecDefault {
                   )
                 )
             }
+          },
+          test("schema is valid") {
+            api.validateRootSchema.as(assertCompletes)
+          },
+          test("schema is invalid") {
+            @GQLOneOfInput
+            sealed trait Foo
+            object Foo {
+              case class Bar(value: String) extends Foo
+            }
+
+            case class Queries(foo: Foo => String)
+            implicit val abInner: ArgBuilder[Foo.Bar] = ArgBuilder.gen
+            implicit val ab: ArgBuilder[Foo]          = ArgBuilder.gen
+            implicit val schema: Schema[Any, Queries] = Schema.gen
+
+            graphQL(RootResolver(Queries(_.toString))).validateRootSchema
+              .fold(_ => assertCompletes, _ => assertNever("Schema should be invalid"))
           }
         )
       }
