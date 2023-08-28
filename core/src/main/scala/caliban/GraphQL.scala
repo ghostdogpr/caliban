@@ -105,9 +105,8 @@ trait GraphQL[-R] { self =>
                                                           }
                   typeToValidate                        = if (intro) introspectionRootType else rootType
                   schemaToExecute                       = if (intro) introspectionRootSchema else schema
-                  validatedVariables                   <-
-                    VariablesCoercer
-                      .coerceVariables(request.variables.getOrElse(Map.empty), doc, typeToValidate, skipValidation)
+                  unsafeVars                            = request.variables.getOrElse(Map.empty)
+                  coercedVars                          <- VariablesCoercer.coerceVariables(unsafeVars, doc, typeToValidate, skipValidation)
                   validate                              = (doc: Document) =>
                                                             for {
                                                               config       <- Configurator.configuration
@@ -116,7 +115,7 @@ trait GraphQL[-R] { self =>
                                                                                 typeToValidate,
                                                                                 schemaToExecute,
                                                                                 request.operationName,
-                                                                                validatedVariables,
+                                                                                coercedVars,
                                                                                 config.skipValidation,
                                                                                 config.validations
                                                                               )
