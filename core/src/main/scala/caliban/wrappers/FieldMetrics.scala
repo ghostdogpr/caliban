@@ -5,7 +5,7 @@ import caliban.wrappers.Wrapper.OverallWrapper
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
 import zio._
 import zio.metrics.MetricKeyType.Histogram
-import zio.metrics.{ Metric, MetricLabel }
+import zio.metrics.{ Metric, MetricKey, MetricLabel }
 import zio.query.ZQuery
 
 import scala.jdk.CollectionConverters._
@@ -17,27 +17,29 @@ object FieldMetrics {
     )
   )
 
-  private class Metrics private (
-    succeeded: Metric.Counter[Long],
-    failed: Metric.Counter[Long],
-    duration: Metric.Histogram[Double]
+  private class Metrics(
+    totalLabel: String,
+    durationLabel: String,
+    buckets: Histogram.Boundaries,
+    extraLabels: Set[MetricLabel]
   ) {
-    def recordFailure(fieldName: String): UIO[Unit] = failed.tagged("field", fieldName).increment
 
-    def recordSuccess(nodeOffsets: Map[Vector[Either[String, Int]], Long])(timing: Timing): UIO[Unit] = {
-      val d = timing.duration - nodeOffsets.getOrElse(timing.path :+ Left(timing.name), 0L)
-      succeeded.tagged("field", timing.fullName).increment *>
-        duration.tagged("field", timing.fullName).update(d / 1e9)
-    }
-  }
+    def recordFailures(fieldNames: List[String]): UIO[Unit] =
+      ZIO.foreachDiscard(fieldNames)(fn => failed.tagged("field", fn).increment)
 
-  private object Metrics {
-    def apply(counter: Metric.Counter[Long], histogram: Metric.Histogram[Double]): Metrics =
-      new Metrics(
-        succeeded = counter.tagged("status", "ok"),
-        failed = counter.tagged("status", "error"),
-        duration = histogram
-      )
+    def recordSuccesses(nodeOffsets: Map[Vector[Either[String, Int]], Long], timings: List[Timing]): UIO[Unit] =
+      ZIO.foreachDiscard(timings) { timing =>
+        val d = timing.duration - nodeOffsets.getOrElse(timing.path :+ Left(timing.name), 0L)
+        succeeded.tagged(Set(MetricLabel("field", timing.fullName))).increment *>
+          duration.tagged(Set(MetricLabel("field", timing.fullName))).update(d / 1e9)
+      }
+
+    private lazy val failed = makeCounter("error")
+    private val succeeded   = makeCounter("ok")
+    private val duration    = Metric.fromMetricKey(MetricKey.histogram(durationLabel, buckets).tagged(extraLabels))
+
+    private def makeCounter(status: String) =
+      Metric.fromMetricKey(MetricKey.counter(totalLabel).tagged(extraLabels + MetricLabel("status", status)))
   }
 
   private case class Timing(
@@ -45,11 +47,6 @@ object FieldMetrics {
     path: Vector[Either[String, Int]],
     fullName: String,
     duration: Long
-  )
-
-  private case class Refs(
-    timings: Ref[List[Timing]],
-    failures: Ref[List[String]]
   )
 
   def wrapper(
@@ -62,27 +59,27 @@ object FieldMetrics {
       for {
         timings  <- Ref.make(List.empty[Timing])
         failures <- Ref.make(List.empty[String])
-        refs      = Refs(timings, failures)
-        metrics   = Metrics(
-                      Metric.counter(totalLabel).tagged(extraLabels),
-                      Metric.histogram(durationLabel, buckets).tagged(extraLabels)
-                    )
-      } yield overallWrapper(refs, metrics) |+| fieldWrapper(refs)
+        metrics   = new Metrics(totalLabel, durationLabel, buckets, extraLabels)
+      } yield overallWrapper(timings, failures, metrics) |+| fieldWrapper(timings, failures)
     )
 
-  private def overallWrapper(refs: Refs, metrics: Metrics): OverallWrapper[Any] =
+  private def overallWrapper(
+    timings: Ref[List[Timing]],
+    failures: Ref[List[String]],
+    metrics: Metrics
+  ): OverallWrapper[Any] =
     new OverallWrapper[Any] {
       def wrap[R1](
         process: GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]]
       ): GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] =
         (request: GraphQLRequest) =>
-          for {
-            result     <- process(request)
-            _          <- refs.failures.get.flatMap(ZIO.foreachDiscard(_)(metrics.recordFailure))
-            timings    <- refs.timings.get
-            nodeOffsets = resolveNodeOffsets(timings)
-            _          <- ZIO.foreachDiscard(timings)(metrics.recordSuccess(nodeOffsets))
-          } yield result
+          process(request) <*
+            (for {
+              _          <- failures.get.flatMap(metrics.recordFailures)
+              timings    <- timings.get
+              nodeOffsets = resolveNodeOffsets(timings)
+              _          <- metrics.recordSuccesses(nodeOffsets, timings)
+            } yield ()).forkDaemon
     }
 
   private def resolveNodeOffsets(timings: List[Timing]): Map[Vector[Either[String, Int]], Long] = {
@@ -110,16 +107,16 @@ object FieldMetrics {
     map.asScala.toMap
   }
 
-  private def fieldWrapper(refs: Refs): Wrapper.FieldWrapper[Any] =
+  private def fieldWrapper(timings: Ref[List[Timing]], failures: Ref[List[String]]): Wrapper.FieldWrapper[Any] =
     new Wrapper.FieldWrapper[Any] {
       def wrap[R](
         query: ZQuery[R, CalibanError.ExecutionError, ResponseValue],
         info: FieldInfo
       ): ZQuery[R, CalibanError.ExecutionError, ResponseValue] = {
 
-        val fieldName: String = {
+        def fieldName: String = {
           val parent = info.parent.flatMap(_.name).getOrElse("Unknown")
-          new StringBuilder().append(parent).append('.').append(info.name).result().intern()
+          new StringBuilder().append(parent).append('.').append(info.name).result()
         }
 
         def makeTiming(duration: Long) =
@@ -131,13 +128,13 @@ object FieldMetrics {
           )
 
         def recordFailure(e: CalibanError.ExecutionError) =
-          ZQuery.fromZIO(refs.failures.update(fieldName :: _) *> ZIO.fail(e))
+          ZQuery.fromZIO(failures.update(fieldName :: _) *> ZIO.fail(e))
 
         for {
-          summarized            <- query.summarized(Clock.nanoTime)((_, _)).catchAll(recordFailure)
-          ((start, end), result) = summarized
-          timing                 = makeTiming(duration = end - start)
-          _                     <- ZQuery.fromZIO(refs.timings.update(timing :: _))
+          summarized        <- query.summarized(Clock.nanoTime)((s, e) => e - s).catchAll(recordFailure)
+          (duration, result) = summarized
+          timing             = makeTiming(duration)
+          _                 <- ZQuery.fromZIO(timings.update(timing :: _))
         } yield result
       }
     }
