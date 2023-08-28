@@ -106,11 +106,7 @@ object TestUtils {
   @GQLOneOfInput
   sealed trait NameOrOrigin
   object NameOrOrigin {
-    @GQLValueType
-    @GQLOneOfInputName("name")
-    case class ByName(name: String) extends NameOrOrigin
-    @GQLValueType
-    @GQLOneOfInputName("origin")
+    case class ByName(name: String)     extends NameOrOrigin
     case class ByOrigin(origin: Origin) extends NameOrOrigin
 
     case class Wrapper(nameOrOrigin: NameOrOrigin)

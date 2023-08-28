@@ -1,5 +1,6 @@
 package caliban.schema
 
+import caliban.CalibanError.ValidationError
 import caliban.Value._
 import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
@@ -54,7 +55,8 @@ trait CommonSchemaDerivation[R] {
                   if (p.typeclass.optional) p.typeclass.toType_(isInput, isSubscription)
                   else p.typeclass.toType_(isInput, isSubscription).nonNull,
                 p.annotations.collectFirst { case GQLDefault(v) => v },
-                Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
+                Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty),
+                Some(ctx.typeName.short),
               )
             )
             .toList,
@@ -153,14 +155,8 @@ trait CommonSchemaDerivation[R] {
           Some(ctx.annotations.collectFirst { case GQLInputName(suffix) => suffix }
             .getOrElse(customizeInputTypeName(getName(ctx)))),
           getDescription(ctx),
-          ctx.subtypes.toList.map { p =>
-            __InputValue(
-              oneOfInputFieldName(p.typeName.short, p.annotations),
-              getDescription(p.annotations),
-              () => p.typeclass.toType_(isInput = true),
-              None,
-              None
-            )
+          ctx.subtypes.toList.flatMap { p =>
+            p.typeclass.toType_(isInput = true).inputFields.getOrElse(Nil).map(_.nullable)
           },
           Some(ctx.typeName.full),
           Some(List(Directive("oneOf"))),

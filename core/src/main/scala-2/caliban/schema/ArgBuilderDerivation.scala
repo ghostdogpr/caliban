@@ -3,7 +3,7 @@ package caliban.schema
 import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.Value._
-import caliban.schema.Annotations.{ GQLDefault, GQLName, GQLOneOfInput, GQLOneOfInputName, GQLValueType }
+import caliban.schema.Annotations.{ GQLDefault, GQLName, GQLOneOfInput }
 import magnolia._
 import mercator.Monadic
 
@@ -61,31 +61,20 @@ trait CommonArgBuilderDerivation {
   private def makeOneOfBuilder[A](ctx: SealedTrait[ArgBuilder, A]): ArgBuilder[A] =
     new ArgBuilder[A] {
 
-      private val builders =
-        ctx.subtypes.map { p =>
-          val name        = Types.oneOfInputFieldName(p.typeName.short, p.annotations)
-          val isValueType = p.annotations.exists { case GQLValueType(_) => true; case _ => false }
-          name -> (p.typeclass, isValueType)
-        }.toMap
-
-      private def error(input: InputValue) =
+      private def inputError(input: InputValue) =
         ExecutionError(s"Invalid oneOf input $input for trait ${ctx.typeName.short}")
 
+      private val combined = ctx.subtypes.map(_.typeclass).toList.asInstanceOf[List[ArgBuilder[A]]] match {
+        case head :: tail =>
+          tail.foldLeft(head)(_ orElse _).orElse(input => Left(inputError(input)))
+        case _            =>
+          (_ => Left(ExecutionError("OneOf Input Objects must have at least one subtype"))): ArgBuilder[A]
+      }
+
       def build(input: InputValue): Either[ExecutionError, A] = input match {
-        case InputValue.ObjectValue(fields) =>
-          fields.toList match {
-            case (key, innerValue) :: Nil =>
-              builders.get(key).toRight(error(input)).flatMap { case (builder, isValueType) =>
-                innerValue match {
-                  case v: InputValue.ObjectValue if !isValueType => builder.build(v)
-                  case v if isValueType                          => builder.build(v)
-                  case _                                         => Left(error(input))
-                }
-              }
-            case _                        =>
-              Left(ExecutionError("Exactly one key must be specified for oneOf inputs"))
-          }
-        case _                              => Left(error(input))
+        case InputValue.ObjectValue(f) if f.size == 1 => combined.build(input)
+        case InputValue.ObjectValue(_)                => Left(ExecutionError("Exactly one key must be specified for oneOf inputs"))
+        case _                                        => Left(inputError(input))
       }
     }
 

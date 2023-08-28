@@ -69,8 +69,4 @@ object Annotations {
    */
   case class GQLOneOfInput() extends StaticAnnotation
 
-  /**
-   * Annotation used to rename the field name of a @oneOf input
-   */
-  case class GQLOneOfInputName(value: String) extends StaticAnnotation
 }

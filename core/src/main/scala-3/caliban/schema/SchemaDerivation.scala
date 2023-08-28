@@ -293,7 +293,8 @@ trait CommonSchemaDerivation {
           if (schema.optional) schema.toType_(isInput, isSubscription)
           else schema.toType_(isInput, isSubscription).nonNull,
         getDefaultValue(fieldAnnotations),
-        Some(getDirectives(fieldAnnotations)).filter(_.nonEmpty)
+        Some(getDirectives(fieldAnnotations)).filter(_.nonEmpty),
+        Some(info.short)
       )
     },
     Some(info.full),
@@ -308,14 +309,8 @@ trait CommonSchemaDerivation {
     makeInputObject(
       Some(getInputName(annotations).getOrElse(customizeInputTypeName(getName(annotations, info)))),
       getDescription(annotations),
-      members.map { (label, annotations, schema) =>
-        __InputValue(
-          oneOfInputFieldName(label, annotations),
-          getDescription(annotations),
-          () => schema.toType_(isInput = true),
-          None,
-          None
-        )
+      members.flatMap { (_, _, schema) =>
+        schema.toType_(isInput = true).inputFields.getOrElse(Nil).map(_.nullable)
       },
       Some(info.full),
       Some(List(Directive("oneOf"))),

@@ -2,7 +2,6 @@ package caliban.schema
 
 import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
-import caliban.schema.Annotations.GQLOneOfInputName
 
 import scala.annotation.tailrec
 
@@ -215,10 +214,4 @@ object Types {
       case _                   => t.name
     }).getOrElse("")
 
-  private[caliban] def oneOfInputFieldName(typeName: String, annotations: Seq[Any]): String =
-    annotations.collectFirst { case GQLOneOfInputName(name) => name }.getOrElse {
-      val s = typeName.toCharArray
-      s(0) = s(0).toLower
-      new String(s)
-    }
 }

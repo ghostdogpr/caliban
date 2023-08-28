@@ -4,7 +4,7 @@ import caliban.CalibanError.ExecutionError
 import caliban.{ schema, CalibanError, InputValue }
 import caliban.Value.*
 import caliban.schema.macros.Macros
-import caliban.schema.Annotations.{ GQLDefault, GQLName, GQLOneOfInputName, GQLValueType }
+import caliban.schema.Annotations.{ GQLDefault, GQLExcluded, GQLName }
 
 import scala.deriving.Mirror
 import scala.compiletime.*
@@ -82,33 +82,23 @@ trait CommonArgBuilderDerivation {
     _subTypes: => List[(String, List[Any], ArgBuilder[Any])],
     _traitLabel: => String
   ): ArgBuilder[A] = new ArgBuilder[A] {
-
-    private lazy val builders: Map[String, (ArgBuilder[A], Boolean)] =
-      _subTypes.map { (label, annotations, argBuilder) =>
-        val name        = Types.oneOfInputFieldName(label, annotations)
-        val isValueType = annotations.exists { case GQLValueType(_) => true; case _ => false }
-        name -> (argBuilder.asInstanceOf[ArgBuilder[A]], isValueType)
-      }.toMap
-
     private lazy val traitLabel = _traitLabel
 
-    private def error(input: InputValue) = ExecutionError(s"Invalid oneOf input $input for trait $traitLabel")
+    private lazy val combined: ArgBuilder[A] =
+      _subTypes.map(_._3).asInstanceOf[List[ArgBuilder[A]]] match {
+        case head :: tail =>
+          tail.foldLeft(head)(_ orElse _).orElse((input: InputValue) => Left(inputError(input)))
+        case _            =>
+          (_: InputValue) => Left(ExecutionError("OneOf Input Objects must have at least one subtype"))
+      }
+
+    private def inputError(input: InputValue) =
+      ExecutionError(s"Invalid oneOf input $input for trait $traitLabel")
 
     def build(input: InputValue): Either[ExecutionError, A] = input match {
-      case InputValue.ObjectValue(fields) =>
-        fields.toList match {
-          case (key, innerValue) :: Nil =>
-            builders.get(key).toRight(error(input)).flatMap { (builder, isValueType) =>
-              innerValue match {
-                case v: InputValue.ObjectValue if !isValueType => builder.build(v)
-                case v if isValueType                          => builder.build(v)
-                case _                                         => Left(error(input))
-              }
-            }
-          case _                        =>
-            Left(ExecutionError("Exactly one key must be specified for oneOf inputs"))
-        }
-      case _                              => Left(error(input))
+      case InputValue.ObjectValue(f) if f.size == 1 => combined.build(input)
+      case InputValue.ObjectValue(_)                => Left(ExecutionError("Exactly one key must be specified for oneOf inputs"))
+      case _                                        => Left(inputError(input))
     }
   }
 
@@ -116,20 +106,23 @@ trait CommonArgBuilderDerivation {
     _fields: => List[(String, List[Any], ArgBuilder[Any])],
     _annotations: => Map[String, List[Any]]
   )(fromProduct: Product => A): ArgBuilder[A] = new ArgBuilder[A] {
-    private lazy val fields      = _fields
+
     private lazy val annotations = _annotations
 
+    private lazy val fields = _fields.map { (label, _, builder) =>
+      val labelList  = annotations.get(label)
+      val default    = labelList.flatMap(_.collectFirst { case GQLDefault(v) => v })
+      val finalLabel = labelList.flatMap(_.collectFirst { case GQLName(name) => name }).getOrElse(label)
+      (finalLabel, default, builder)
+    }
+
     def build(input: InputValue): Either[ExecutionError, A] =
-      fields.view.map { (label, _, builder) =>
+      fields.view.map { (label, default, builder) =>
         input match {
-          case InputValue.ObjectValue(fields) =>
-            val labelList  = annotations.get(label)
-            def default    = labelList.flatMap(_.collectFirst { case GQLDefault(v) => v })
-            val finalLabel = labelList.flatMap(_.collectFirst { case GQLName(name) => name }).getOrElse(label)
-            fields.get(finalLabel).fold(builder.buildMissing(default))(builder.build)
+          case InputValue.ObjectValue(fields) => fields.get(label).fold(builder.buildMissing(default))(builder.build)
           case value                          => builder.build(value)
         }
-      }.foldLeft[Either[ExecutionError, Tuple]](Right(EmptyTuple)) { case (acc, item) =>
+      }.foldLeft[Either[ExecutionError, Tuple]](Right(EmptyTuple)) { (acc, item) =>
         item match {
           case Right(value) => acc.map(_ :* value)
           case Left(e)      => Left(e)

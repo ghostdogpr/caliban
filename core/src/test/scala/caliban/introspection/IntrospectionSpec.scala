@@ -158,7 +158,7 @@ object IntrospectionSpec extends ZIOSpecDefault {
           )
         }
       },
-      test("introspect schema with oneOf") {
+      test("introspect schema with OneOf input objects") {
         val interpreter = graphQL(resolverOneOf).interpreter
 
         interpreter.flatMap(_.execute(fullIntrospectionQuery)).map { response =>
@@ -196,7 +196,7 @@ object IntrospectionSpec extends ZIOSpecDefault {
           assertTrue(response.data.toString == """{"__type":null}""")
         }
       },
-      test("introspect oneOf types") {
+      test("introspect OneOf input object types") {
         val interpreter = graphQL(resolverOneOf).interpreter
 
         def query(name: String) =

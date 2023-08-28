@@ -13,7 +13,7 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{
 import caliban.parsing.adt.Definition.{ TypeSystemDefinition, TypeSystemExtension }
 import caliban.parsing.adt.{ Definition, Directive }
 import caliban.rendering.DocumentRenderer
-import caliban.schema.Annotations.{ GQLOneOfInput, GQLOneOfInputName, GQLValueType }
+import caliban.schema.Annotations.GQLOneOfInput
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.{ ArgBuilder, Schema }
@@ -173,24 +173,24 @@ object RenderingSpec extends ZIOSpecDefault {
           rendered == """schema{query:Query} "Description of custom scalar emphasizing proper captain ship names" scalar CaptainShipName @specifiedBy(url:"http://someUrl") @tag union Role @uniondirective=Captain|Engineer|Mechanic|Pilot enum Origin @enumdirective{BELT,EARTH,MARS,MOON @deprecated(reason:"Use: EARTH | MARS | BELT")} input CharacterInput @inputobjdirective{name:String! @external nicknames:[String!]! @required origin:Origin!}interface Human{ name:String! @external}type Captain{ shipName:CaptainShipName!}type Character implements Human @key(name:"name"){ name:String! @external nicknames:[String!]! @required origin:Origin! role:Role}type Engineer{ shipName:String!}type Mechanic{ shipName:String!}type Narrator implements Human{ name:String!}type Pilot{ shipName:String!}"Queries" type Query{ "Return all characters from a given origin" characters(origin:Origin):[Character!]! character(name:String!):Character @deprecated(reason:"Use `characters`") charactersIn(names:[String!]! @lowercase):[Character!]! exists(character:CharacterInput!):Boolean! human:Human!}"""
         )
       },
-      suite("@oneOf inputs") {
+      suite("OneOf input objects") {
         def expected(label: String) =
           s"""schema {
              |  query: Queries
              |}
              |
              |input FooInput @oneOf {
-             |  intValue: FooIntInput
              |  stringValue: String
-             |  otherIntField: OtherIntFieldInput
              |  otherStringField: String
+             |  intValue: FooIntInput
+             |  otherIntField: FooInt2Input
              |}
              |
-             |input FooIntInput {
+             |input FooInt2Input {
              |  intValue: Int!
              |}
              |
-             |input OtherIntFieldInput {
+             |input FooIntInput {
              |  intValue: Int!
              |}
              |
@@ -223,18 +223,21 @@ object RenderingSpec extends ZIOSpecDefault {
   sealed trait Foo
 
   object Foo {
-    @GQLValueType
-    @GQLOneOfInputName("stringValue")
-    case class FooString(stringValue: String) extends Foo
-    @GQLValueType
-    case class OtherStringField(someField: String) extends Foo
-    @GQLOneOfInputName("intValue")
-    case class FooInt(intValue: Int) extends Foo
-    case class OtherIntField(intValue: Int) extends Foo
+    case class ArgA(stringValue: String)      extends Foo
+    case class ArgB(otherStringField: String) extends Foo
+    case class ArgC(intValue: FooInt)         extends Foo
+    case class ArgD(otherIntField: FooInt2)   extends Foo
+
+    case class FooInt(intValue: Int)
+    case class FooInt2(intValue: Int)
 
     case class Wrapped(fooInput: Foo)
   }
 
-  implicit val fooAb: ArgBuilder[Foo]      = ArgBuilder.gen
-  implicit val fooSchema: Schema[Any, Foo] = Schema.gen
+  implicit val fooIntAb: ArgBuilder[Foo.FooInt]        = ArgBuilder.gen
+  implicit val fooInt2Ab: ArgBuilder[Foo.FooInt2]      = ArgBuilder.gen
+  implicit val fooAb: ArgBuilder[Foo]                  = ArgBuilder.gen
+  implicit val fooIntSchema: Schema[Any, Foo.FooInt]   = Schema.gen
+  implicit val fooInt2Schema: Schema[Any, Foo.FooInt2] = Schema.gen
+  implicit val fooSchema: Schema[Any, Foo]             = Schema.gen
 }

@@ -6,7 +6,7 @@ import caliban.InputValue.ObjectValue
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, IntValue, NullValue, StringValue }
-import caliban.schema.Annotations.{ GQLDefault, GQLOneOfInput, GQLOneOfInputName, GQLValueType }
+import caliban.schema.Annotations.{ GQLDefault, GQLOneOfInput }
 import caliban.schema.{ ArgBuilder, Schema }
 import zio.{ IO, UIO, ZIO }
 import zio.test.Assertion._
@@ -386,25 +386,25 @@ object ValidationSpec extends ZIOSpecDefault {
           assertTrue(response.errors.isEmpty)
         }
       },
-      suite("@oneOf inputs") {
+      suite("OneOf input objects") {
         import caliban.schema.Schema.auto._
         import caliban.schema.ArgBuilder.auto._
 
         @GQLOneOfInput
         sealed trait Foo
         object Foo {
-          @GQLValueType
-          case class FooString(stringValue: String) extends Foo
-          @GQLOneOfInputName("fooInt")
-          case class IntObj(intValue: Int) extends Foo
+          case class FooString(fooString: String) extends Foo
+          case class FooInt(fooInt: IntObj)       extends Foo
           case class Wrapper(fooInput: Foo)
         }
 
+        case class IntObj(intValue: Int)
         case class Bar(foo2: Foo => String)
         case class Queries(foo: Foo.Wrapper => String, fooUnwrapped: Foo => String, bar: Bar)
 
+        implicit val intObjAb: ArgBuilder[IntObj]           = ArgBuilder.gen
         implicit val fooStringAb: ArgBuilder[Foo.FooString] = ArgBuilder.gen
-        implicit val fooIntAb: ArgBuilder[Foo.IntObj]       = ArgBuilder.gen
+        implicit val fooIntAb: ArgBuilder[Foo.FooInt]       = ArgBuilder.gen
         implicit val fooAb: ArgBuilder[Foo]                 = ArgBuilder.gen
         implicit val barSchema: Schema[Any, Bar]            = Schema.gen
         implicit val schema: Schema[Any, Queries]           = Schema.gen
@@ -484,7 +484,7 @@ object ValidationSpec extends ZIOSpecDefault {
                 .map(resp =>
                   acc && assertTrue(
                     resp.errors.nonEmpty && resp.errors.forall {
-                      case ValidationError(msg, _, _, _) => msg.contains("is not a valid @oneOf input")
+                      case ValidationError(msg, _, _, _) => msg.contains("is not a valid OneOf Input Object")
                       case _                             => false
                     }
                   )
@@ -503,30 +503,35 @@ object ValidationSpec extends ZIOSpecDefault {
                 .map(resp =>
                   acc && assertTrue(
                     resp.errors.nonEmpty && resp.errors.forall {
-                      case ValidationError(msg, _, _, _) => msg.contains("is not a valid @oneOf input")
+                      case ValidationError(msg, _, _, _) => msg.contains("is not a valid OneOf Input Object")
                       case _                             => false
                     }
                   )
                 )
             }
           },
+          test("OneOf variables cannot be nullable") {
+            val variablesQuery =
+              """
+                |query Foo($args1: FooInput){
+                |  foo(fooInput: $args1)
+                |}
+                |""".stripMargin
+
+            api.interpreter
+              .flatMap(_.execute(variablesQuery, variables = Map("args1" -> validInputs.head)))
+              .map(resp =>
+                assertTrue(
+                  resp.errors.nonEmpty,
+                  resp.errors.forall {
+                    case ValidationError("Variable 'args1' cannot be nullable.", _, _, _) => true
+                    case _                                                                => false
+                  }
+                )
+              )
+          },
           test("schema is valid") {
             api.validateRootSchema.as(assertCompletes)
-          },
-          test("schema is invalid") {
-            @GQLOneOfInput
-            sealed trait Foo
-            object Foo {
-              case class Bar(value: String) extends Foo
-            }
-
-            case class Queries(foo: Foo => String)
-            implicit val abInner: ArgBuilder[Foo.Bar] = ArgBuilder.gen
-            implicit val ab: ArgBuilder[Foo]          = ArgBuilder.gen
-            implicit val schema: Schema[Any, Queries] = Schema.gen
-
-            graphQL(RootResolver(Queries(_.toString))).validateRootSchema
-              .fold(_ => assertCompletes, _ => assertNever("Schema should be invalid"))
           }
         )
       }

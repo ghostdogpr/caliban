@@ -367,10 +367,14 @@ object Validator {
               )
           } *>
             ZPure.when(t.flatMap(_.isOneOf).getOrElse(false)) {
-              validateOneOfInputValue(
-                context.variables.getOrElse(v.name, NullValue),
-                s"Variable '${v.name}'"
-              )
+              failValidationWhen(v.variableType.nullable)(
+                s"Variable '${v.name}' cannot be nullable.",
+                "Variables used for OneOf Input Object fields must be non-nullable."
+              ) *>
+                validateOneOfInputValue(
+                  context.variables.getOrElse(v.name, NullValue),
+                  s"Variable '${v.name}'"
+                )
             }
         } *> {
           val variableUsages = collectVariablesUsed(context, op.selectionSet)
@@ -543,7 +547,7 @@ object Validator {
           fieldArgs.getOrElse(NullValue),
           s"Argument '${arg.name}' on field '${field.name}'"
         )
-      } *> ZPure.whenCase(arg.defaultValue, fieldArgs) {
+      } *> ZPure.whenCase((arg.defaultValue, fieldArgs)) {
         case (None, None) | (None, Some(NullValue)) =>
           failValidation(
             s"Required argument '${arg.name}' is null or missing on field '${field.name}' of type '${currentType.name
@@ -639,8 +643,8 @@ object Validator {
         case _                                                  => None
       }) { case None | Some(NullValue) =>
         failValidation(
-          s"$errorContext is not a valid @oneOf input",
-          "@oneOf input arguments must specify exactly one non-null key"
+          s"$errorContext is not a valid OneOf Input Object",
+          "OneOf Input Object arguments must specify exactly one non-null key"
         )
       }
       .unit
@@ -856,34 +860,41 @@ object Validator {
   private[caliban] def validateInputObject(t: __Type): EReader[Any, ValidationError, Unit] = {
     val inputObjectContext = s"""InputObject '${t.name.getOrElse("")}'"""
 
-    def noDuplicateInputValueName(
-      inputValues: List[__InputValue],
-      errorContext: String
-    ): EReader[Any, ValidationError, Unit] = {
-      val messageBuilder = (i: __InputValue) => s"$errorContext has repeated fields: ${i.name}"
+    def noDuplicateInputValueName(inputValues: List[__InputValue]): EReader[Any, ValidationError, Unit] = {
+      val messageBuilder = (i: __InputValue) => s"$inputObjectContext has repeated fields: ${i.name}"
       val explanatory    =
         "The input field must have a unique name within that Input Object type; no two input fields may share the same name"
       noDuplicateName[__InputValue](inputValues, _.name, messageBuilder, explanatory)
     }
 
+    def noDuplicatedOneOfOrigin(inputValues: List[__InputValue]): EReader[Any, ValidationError, Unit] = {
+      val resolveOrigin  = (i: __InputValue) => i.parentTypeName.getOrElse("<unexpected validation error>")
+      val messageBuilder = (i: __InputValue) =>
+        s"OneOf $inputObjectContext has multiple arguments from the same case class: ${resolveOrigin(i)}"
+      val explanatory    = "All case classes used as arguments to OneOf Input Objects must have exactly one field"
+      noDuplicateName[__InputValue](inputValues, resolveOrigin, messageBuilder, explanatory)
+    }
+
     def validateFields(fields: List[__InputValue]): EReader[Any, ValidationError, Unit] =
       ZPure.foreachDiscard(fields)(validateInputValue(_, inputObjectContext)) *>
-        noDuplicateInputValueName(fields, inputObjectContext)
+        noDuplicateInputValueName(fields)
 
     def validateOneOfFields(fields: List[__InputValue]): EReader[Any, ValidationError, Unit] =
       failValidationWhen(fields.size <= 1)(
-        s"$inputObjectContext @oneOf has less than 2 fields",
-        "@oneOf inputs must have at least 2 possible fields"
-      ) *> ZPure.foreachDiscard(fields) { f =>
-        failValidationWhen(f.defaultValue.isDefined)(
-          s"$inputObjectContext @oneOf argument has a default value",
-          "@oneOf input fields cannot have default values"
-        ) *>
-          failValidationWhen(!f._type.isNullable)(
-            s"$inputObjectContext @oneOf argument is not nullable",
-            "All of @oneOf input fields must be nullable according to the spec"
-          )
-      }
+        s"OneOf $inputObjectContext has less than 2 fields",
+        "OneOf input objects must have at least 2 possible fields"
+      ) *>
+        noDuplicatedOneOfOrigin(fields) *>
+        ZPure.foreachDiscard(fields) { f =>
+          failValidationWhen(f.defaultValue.isDefined)(
+            s"OneOf $inputObjectContext argument has a default value",
+            "Fields of OneOf input objects cannot have default values"
+          ) *>
+            failValidationWhen(!f._type.isNullable)(
+              s"OneOf $inputObjectContext argument is not nullable",
+              "All of OneOf input fields must be declared as nullable in the schema according to the spec"
+            )
+        }
 
     t.inputFields match {
       case None | Some(Nil) =>
