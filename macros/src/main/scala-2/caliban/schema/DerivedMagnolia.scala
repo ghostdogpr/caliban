@@ -1,7 +1,7 @@
 package caliban.schema
 
 object DerivedMagnolia {
-  import magnolia.Magnolia
+  import magnolia1.Magnolia
 
   import scala.reflect.macros.whitebox
 
