@@ -56,7 +56,7 @@ trait CommonSchemaDerivation[R] {
                   else p.typeclass.toType_(isInput, isSubscription).nonNull,
                 p.annotations.collectFirst { case GQLDefault(v) => v },
                 Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty),
-                Some(ctx.typeName.short),
+                Some(ctx.typeName.short)
               )
             )
             .toList,
