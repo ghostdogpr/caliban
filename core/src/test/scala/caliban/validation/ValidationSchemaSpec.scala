@@ -331,10 +331,10 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
         )
       },
       suite("OneOf input objects")(
-        test("must have 2 or more possible arguments") {
+        test("must have at least one input field") {
           @GQLOneOfInput
           sealed trait Foo
-          case class ArgA(arg: String) extends Foo
+          case object ArgA extends Foo
           case class Queries(foo: Foo => String)
 
           implicit val ab: ArgBuilder[Foo]          = ArgBuilder.gen
@@ -342,10 +342,10 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
 
           check(
             graphQL(RootResolver(Queries(_.toString))),
-            "OneOf InputObject 'FooInput' has less than 2 fields"
+            "OneOf InputObject 'FooInput' does not have fields"
           )
         },
-        test("must have 2 or more possible arguments") {
+        test("case classes extending OneOf sealed traits must have a single argument") {
           @GQLOneOfInput
           sealed trait Foo
           case class ArgA(foo: String, bar: String) extends Foo
@@ -387,7 +387,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
 
           check(
             graphQL(RootResolver(Queries(_.toString))),
-            "InputObject 'FooInput' has repeated fields: foo"
+            "OneOf InputObject 'FooInput' has repeated fields: foo"
           )
         }
       )

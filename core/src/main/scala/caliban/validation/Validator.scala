@@ -858,7 +858,7 @@ object Validator {
     }
 
   private[caliban] def validateInputObject(t: __Type): EReader[Any, ValidationError, Unit] = {
-    val inputObjectContext = s"""InputObject '${t.name.getOrElse("")}'"""
+    val inputObjectContext = s"""${if (t._isOneOfInput) "OneOf " else ""}InputObject '${t.name.getOrElse("")}'"""
 
     def noDuplicateInputValueName(inputValues: List[__InputValue]): EReader[Any, ValidationError, Unit] = {
       val messageBuilder = (i: __InputValue) => s"$inputObjectContext has repeated fields: ${i.name}"
@@ -870,7 +870,7 @@ object Validator {
     def noDuplicatedOneOfOrigin(inputValues: List[__InputValue]): EReader[Any, ValidationError, Unit] = {
       val resolveOrigin  = (i: __InputValue) => i.parentTypeName.getOrElse("<unexpected validation error>")
       val messageBuilder = (i: __InputValue) =>
-        s"OneOf $inputObjectContext has multiple arguments from the same case class: ${resolveOrigin(i)}"
+        s"$inputObjectContext has multiple arguments from the same case class: ${resolveOrigin(i)}"
       val explanatory    = "All case classes used as arguments to OneOf Input Objects must have exactly one field"
       noDuplicateName[__InputValue](inputValues, resolveOrigin, messageBuilder, explanatory)
     }
@@ -880,18 +880,14 @@ object Validator {
         noDuplicateInputValueName(fields)
 
     def validateOneOfFields(fields: List[__InputValue]): EReader[Any, ValidationError, Unit] =
-      failValidationWhen(fields.size <= 1)(
-        s"OneOf $inputObjectContext has less than 2 fields",
-        "OneOf input objects must have at least 2 possible fields"
-      ) *>
-        noDuplicatedOneOfOrigin(fields) *>
+      noDuplicatedOneOfOrigin(fields) *>
         ZPure.foreachDiscard(fields) { f =>
           failValidationWhen(f.defaultValue.isDefined)(
-            s"OneOf $inputObjectContext argument has a default value",
+            s"$inputObjectContext argument has a default value",
             "Fields of OneOf input objects cannot have default values"
           ) *>
             failValidationWhen(!f._type.isNullable)(
-              s"OneOf $inputObjectContext argument is not nullable",
+              s"$inputObjectContext argument is not nullable",
               "All of OneOf input fields must be declared as nullable in the schema according to the spec"
             )
         }
