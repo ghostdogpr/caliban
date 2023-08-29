@@ -83,9 +83,12 @@ object FieldMetrics {
     }
 
   private def resolveNodeOffsets(timings: List[Timing]): Map[Vector[Either[String, Int]], Long] = {
-    val map = new java.util.HashMap[Vector[Either[String, Int]], Long]()
-    timings.foreach { t =>
+    val map       = new java.util.HashMap[Vector[Either[String, Int]], Long]()
+    var remaining = timings
+    while (remaining != Nil) {
+      val t        = remaining.head
       val iter     = t.path.inits
+      val duration = t.duration
       var continue = true
       while (continue) {
         val segment = iter.next()
@@ -94,15 +97,15 @@ object FieldMetrics {
         } else if (segment.last.isLeft) { // List indices are not fields so we don't care about recording their offset
           map.compute(
             segment,
-            {
-              case (_, v) if v >= t.duration =>
+            (_, v) =>
+              if (v >= duration) {
                 continue = false // We know that any subsequent segments will have a smaller offset
                 v
-              case _                         => t.duration
-            }
+              } else duration
           )
         }
       }
+      remaining = remaining.tail
     }
     map.asScala.toMap
   }
