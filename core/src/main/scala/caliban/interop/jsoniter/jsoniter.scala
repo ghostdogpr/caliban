@@ -195,10 +195,12 @@ private[caliban] object ValueJsoniter {
     var digits = 0
     var b      = in.nextByte()
     if (b == '-') b = in.nextByte()
-    try while (b >= '0' && b <= '9') {
-      b = in.nextByte()
-      digits += 1
-    } catch {
+    try
+      while (b >= '0' && b <= '9') {
+        b = in.nextByte()
+        digits += 1
+      }
+    catch {
       case _: JsonReaderException => // ignore the end of input error for now
     }
     in.rollbackToMark()

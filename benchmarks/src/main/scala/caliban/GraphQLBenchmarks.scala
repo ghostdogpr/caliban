@@ -252,7 +252,7 @@ class GraphQLBenchmarks {
       )
     )
 
-    val gql: GraphQL[Any] = graphQL(resolver)
+    val gql: GraphQL[Any]  = graphQL(resolver)
     val document: Document = gql.toDocument
 
     val interpreter: GraphQLInterpreter[Any, CalibanError] = run(gql.interpreter)
