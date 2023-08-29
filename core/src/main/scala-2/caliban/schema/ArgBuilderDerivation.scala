@@ -5,8 +5,7 @@ import caliban.InputValue
 import caliban.Value._
 import caliban.schema.Annotations.GQLDefault
 import caliban.schema.Annotations.GQLName
-import magnolia._
-import mercator.Monadic
+import magnolia1._
 
 import scala.language.experimental.macros
 
@@ -26,7 +25,7 @@ trait CommonArgBuilderDerivation {
     override def map[A, B](from: EitherExecutionError[A])(fn: A => B): EitherExecutionError[B] = from.map(fn)
   }
 
-  def combine[T](ctx: CaseClass[ArgBuilder, T]): ArgBuilder[T] =
+  def join[T](ctx: CaseClass[ArgBuilder, T]): ArgBuilder[T] =
     (input: InputValue) =>
       ctx.constructMonadic { p =>
         input match {
@@ -38,7 +37,7 @@ trait CommonArgBuilderDerivation {
         }
       }
 
-  def dispatch[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] = input =>
+  def split[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] = input =>
     (input match {
       case EnumValue(value)   => Some(value)
       case StringValue(value) => Some(value)
