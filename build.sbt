@@ -18,11 +18,12 @@ val jsoniterVersion           = "2.23.3"
 val laminextVersion           = "0.16.2"
 val magnoliaVersion           = "0.17.0"
 val mercatorVersion           = "0.2.1"
+val pekkoVersion              = "1.0.1"
 val playVersion               = "2.8.20"
 val playJsonVersion           = "2.9.4"
 val scalafmtVersion           = "3.7.13"
 val sttpVersion               = "3.9.0"
-val tapirVersion              = "1.4.0"
+val tapirVersion              = "1.7.3"
 val zioVersion                = "2.0.16"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.0.0.8"
@@ -84,6 +85,7 @@ lazy val root = project
     core,
     http4s,
     akkaHttp,
+    pekkoHttp,
     play,
     zioHttp,
     catsInterop,
@@ -365,6 +367,26 @@ lazy val akkaHttp = project
       "com.softwaremill.sttp.tapir"   %% "tapir-akka-http-server"     % tapirVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-json-play"            % tapirVersion % Test,
       compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.2").cross(CrossVersion.full))
+    )
+  )
+  .dependsOn(core, tapirInterop % "compile->compile;test->test")
+
+lazy val pekkoHttp = project
+  .in(file("adapters/pekko-http"))
+  .settings(name := "caliban-pekko-http")
+  .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
+  .settings(
+    skip           := (scalaVersion.value == scala3),
+    ideSkipProject := (scalaVersion.value == scala3),
+    crossScalaVersions -= scala3,
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    libraryDependencies ++= Seq(
+      "org.apache.pekko"              %% "pekko-http"                  % "1.0.0",
+      "org.apache.pekko"              %% "pekko-serialization-jackson" % pekkoVersion,
+      "com.softwaremill.sttp.tapir"   %% "tapir-pekko-http-server"     % tapirVersion,
+      "com.softwaremill.sttp.tapir"   %% "tapir-json-play"             % tapirVersion % Test,
+      compilerPlugin(("org.typelevel" %% "kind-projector"              % "0.13.2").cross(CrossVersion.full))
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
