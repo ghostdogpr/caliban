@@ -377,9 +377,6 @@ lazy val pekkoHttp = project
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
   .settings(
-    skip           := (scalaVersion.value == scala3),
-    ideSkipProject := (scalaVersion.value == scala3),
-    crossScalaVersions -= scala3,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "org.apache.pekko"              %% "pekko-http"                  % "1.0.0",
