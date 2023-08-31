@@ -372,6 +372,7 @@ lazy val akkaHttp = project
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
 
+// Note: scala3 is blocked by a scala 3 version of tapir-json-play
 lazy val pekkoHttp = project
   .in(file("adapters/pekko-http"))
   .settings(name := "caliban-pekko-http")
