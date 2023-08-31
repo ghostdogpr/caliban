@@ -366,28 +366,24 @@ lazy val akkaHttp = project
       "com.typesafe.akka"             %% "akka-http"                  % "10.2.10",
       "com.typesafe.akka"             %% "akka-serialization-jackson" % akkaVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-akka-http-server"     % tapirVersion,
-      "com.softwaremill.sttp.tapir"   %% "tapir-json-play"            % tapirVersion % Test,
+      "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"           % tapirVersion % Test,
       compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.2").cross(CrossVersion.full))
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
 
-// Note: scala3 is blocked by a scala 3 version of tapir-json-play
 lazy val pekkoHttp = project
   .in(file("adapters/pekko-http"))
   .settings(name := "caliban-pekko-http")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
   .settings(
-    skip           := (scalaVersion.value == scala3),
-    ideSkipProject := (scalaVersion.value == scala3),
-    crossScalaVersions -= scala3,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "org.apache.pekko"              %% "pekko-http"                  % "1.0.0",
       "org.apache.pekko"              %% "pekko-serialization-jackson" % pekkoVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-pekko-http-server"     % tapirVersion,
-      "com.softwaremill.sttp.tapir"   %% "tapir-json-play"             % tapirVersion % Test,
+      "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"            % tapirVersion % Test,
       compilerPlugin(("org.typelevel" %% "kind-projector"              % "0.13.2").cross(CrossVersion.full))
     )
   )
