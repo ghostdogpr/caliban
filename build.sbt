@@ -379,12 +379,14 @@ lazy val pekkoHttp = project
   .settings(enableMimaSettingsJVM)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
-    libraryDependencies ++= Seq(
-      "org.apache.pekko"              %% "pekko-http"                  % "1.0.0",
-      "org.apache.pekko"              %% "pekko-serialization-jackson" % pekkoVersion,
-      "com.softwaremill.sttp.tapir"   %% "tapir-pekko-http-server"     % tapirVersion,
-      "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"            % tapirVersion % Test,
-      compilerPlugin(("org.typelevel" %% "kind-projector"              % "0.13.2").cross(CrossVersion.full))
+    libraryDependencies ++= {
+      if (scalaVersion.value == scala3) Seq()
+      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
+    } ++ Seq(
+      "org.apache.pekko"            %% "pekko-http"                  % "1.0.0",
+      "org.apache.pekko"            %% "pekko-serialization-jackson" % pekkoVersion,
+      "com.softwaremill.sttp.tapir" %% "tapir-pekko-http-server"     % tapirVersion,
+      "com.softwaremill.sttp.tapir" %% "tapir-json-circe"            % tapirVersion % Test
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
