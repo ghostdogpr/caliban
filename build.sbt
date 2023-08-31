@@ -323,14 +323,14 @@ lazy val http4s = project
         "dev.zio"                               %% "zio-interop-cats"        % zioInteropCats3Version,
         "org.typelevel"                         %% "cats-effect"             % catsEffect3Version,
         "com.softwaremill.sttp.tapir"           %% "tapir-http4s-server-zio" % zioHttpTapirVersion,
-        "com.softwaremill.sttp.tapir"           %% "tapir-json-circe"        % zioHttpTapirVersion    % Test,
-        "com.softwaremill.sttp.tapir"           %% "tapir-jsoniter-scala"    % zioHttpTapirVersion    % Test,
-        "org.http4s"                            %% "http4s-ember-server"     % http4sVersion          % Test,
-        "dev.zio"                               %% "zio-test"                % zioVersion             % Test,
-        "dev.zio"                               %% "zio-test-sbt"            % zioVersion             % Test,
-        "com.softwaremill.sttp.client3"         %% "circe"                   % sttpVersion            % Test,
-        "io.circe"                              %% "circe-generic"           % circeVersion           % Test,
-        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"   % jsoniterVersion        % Test
+        "com.softwaremill.sttp.tapir"           %% "tapir-json-circe"        % zioHttpTapirVersion % Test,
+        "com.softwaremill.sttp.tapir"           %% "tapir-jsoniter-scala"    % zioHttpTapirVersion % Test,
+        "org.http4s"                            %% "http4s-ember-server"     % http4sVersion       % Test,
+        "dev.zio"                               %% "zio-test"                % zioVersion          % Test,
+        "dev.zio"                               %% "zio-test-sbt"            % zioVersion          % Test,
+        "com.softwaremill.sttp.client3"         %% "circe"                   % sttpVersion         % Test,
+        "io.circe"                              %% "circe-generic"           % circeVersion        % Test,
+        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"   % jsoniterVersion     % Test
       )
   )
   .dependsOn(core % "compile->compile;test->test", tapirInterop % "compile->compile;test->test", catsInterop)
@@ -346,8 +346,8 @@ lazy val zioHttp = project
     libraryDependencies ++= Seq(
       "dev.zio"                     %% "zio-http"              % zioHttpVersion,
       "com.softwaremill.sttp.tapir" %% "tapir-zio-http-server" % zioHttpTapirVersion,
-      "dev.zio"                     %% "zio-json"              % zioJsonVersion % Test,
-      "com.softwaremill.sttp.tapir" %% "tapir-json-zio"        % zioHttpTapirVersion   % Test
+      "dev.zio"                     %% "zio-json"              % zioJsonVersion      % Test,
+      "com.softwaremill.sttp.tapir" %% "tapir-json-zio"        % zioHttpTapirVersion % Test
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
