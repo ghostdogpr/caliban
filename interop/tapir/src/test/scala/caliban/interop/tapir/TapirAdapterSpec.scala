@@ -59,27 +59,35 @@ object TapirAdapterSpec {
     val httpClient   = new TapirClient(httpUri)
     val uploadClient = uploadUri.map(new TapirClient(_))
     val run          = (request: GraphQLRequest) => httpClient.runPost(request)
+    val runGet       = (request: GraphQLRequest) => httpClient.runGet(request)
     val runUpload    = uploadClient.map(client => (request: List[Part[BasicRequestBody]]) => client.runUpload(request))
     val runWS        = wsUri.map(wsUri =>
       SttpClientInterpreter()
         .toRequestThrowDecodeFailures(WebSocketInterpreter.makeWebSocketEndpoint, Some(wsUri))
     )
 
+    def testHttpEndpoint(method: String) =
+      for {
+        _run     <- method match {
+                      case "POST" => ZIO.succeed(run)
+                      case "GET"  => ZIO.succeed(runGet)
+                      case _      => ZIO.fail(new RuntimeException(s"Unsupported test method $method"))
+                    }
+        res      <- ZIO.serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](
+                      _run(GraphQLRequest(Some("{ characters { name }  }"))).send(_)
+                    )
+        response <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
+      } yield assertTrue(
+        res.contentType.contains(MediaType.ApplicationJson.toString()),
+        response.is(_.left).data.toString ==
+          """{"characters":[{"name":"James Holden"},{"name":"Naomi Nagata"},{"name":"Amos Burton"},{"name":"Alex Kamal"},{"name":"Chrisjen Avasarala"},{"name":"Josephus Miller"},{"name":"Roberta Draper"}]}"""
+      )
+
     val tests: List[Option[Spec[SttpBackend[Task, ZioStreams with WebSockets], Throwable]]] = List(
       Some(
         suite("http")(
-          test("test POST http endpoint") {
-            for {
-              res      <- ZIO.serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](
-                            run(GraphQLRequest(Some("{ characters { name }  }"))).send(_)
-                          )
-              response <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
-            } yield assertTrue(
-              res.contentType.contains(MediaType.ApplicationJson.toString()),
-              response.is(_.left).data.toString ==
-                """{"characters":[{"name":"James Holden"},{"name":"Naomi Nagata"},{"name":"Amos Burton"},{"name":"Alex Kamal"},{"name":"Chrisjen Avasarala"},{"name":"Josephus Miller"},{"name":"Roberta Draper"}]}"""
-            )
-          },
+          test("test POST http endpoint")(testHttpEndpoint("POST")),
+          test("test GET http endpoint")(testHttpEndpoint("GET")),
           test("test interceptor failure") {
             for {
               res      <- ZIO.serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](
