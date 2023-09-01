@@ -35,7 +35,7 @@ object PlayAdapterSpec extends ZIOSpecDefault {
       runtime     <- ZIO.runtime[TestService with Uploads]
       interpreter <- TestApi.api.interpreter
       router       = Router.from {
-                       case req @ POST(p"/api/graphql")    =>
+                       case req @ (GET(p"/api/graphql") | POST(p"/api/graphql"))    =>
                          PlayAdapter
                            .makeHttpService(
                              HttpInterpreter(interpreter)
