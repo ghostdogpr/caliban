@@ -512,6 +512,7 @@ lazy val examples = project
   )
   .dependsOn(
     akkaHttp,
+    pekkoHttp,
     http4s,
     catsInterop,
     play,
