@@ -21,7 +21,7 @@ import zio.stream.ZStream
 
 import scala.concurrent.{ ExecutionContext, Future }
 
-class PekkoHttpAdapter private (private val options: PekkoHttpServerOptions)(implicit ec: ExecutionContext) {
+class PekkoHttpAdapter private (val options: PekkoHttpServerOptions)(implicit ec: ExecutionContext) {
   private val pekkoInterpreter = PekkoHttpServerInterpreter(options)(ec)
 
   def makeHttpService[R, E](
