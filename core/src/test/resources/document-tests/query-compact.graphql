@@ -1,0 +1,1 @@
+query Hello($name:String!){hello(name:$name,inline:{age:42})@skip(if:true){message ...on Hello{message} ...FragmentHello}} fragment FragmentHello on Hello{test}
