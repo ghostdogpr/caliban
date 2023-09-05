@@ -18,11 +18,12 @@ val jsoniterVersion           = "2.23.3"
 val laminextVersion           = "0.16.2"
 val magnoliaVersion           = "0.17.0"
 val mercatorVersion           = "0.2.1"
+val pekkoVersion              = "1.0.1"
 val playVersion               = "2.8.20"
 val playJsonVersion           = "2.9.4"
 val scalafmtVersion           = "3.7.13"
 val sttpVersion               = "3.9.0"
-val tapirVersion              = "1.4.0"
+val tapirVersion              = "1.7.3"
 val zioVersion                = "2.0.16"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.0.0.8"
@@ -31,6 +32,7 @@ val zioConfigVersion          = "3.0.7"
 val zqueryVersion             = "0.4.0"
 val zioJsonVersion            = "0.6.1"
 val zioHttpVersion            = "3.0.0-RC1"
+val zioHttpTapirVersion       = "1.4.0"
 val zioOpenTelemetryVersion   = "3.0.0-RC15"
 val zioPreludeVersion         = "1.0.0-RC20"
 
@@ -84,6 +86,7 @@ lazy val root = project
     core,
     http4s,
     akkaHttp,
+    pekkoHttp,
     play,
     zioHttp,
     catsInterop,
@@ -319,15 +322,15 @@ lazy val http4s = project
       Seq(
         "dev.zio"                               %% "zio-interop-cats"        % zioInteropCats3Version,
         "org.typelevel"                         %% "cats-effect"             % catsEffect3Version,
-        "com.softwaremill.sttp.tapir"           %% "tapir-http4s-server-zio" % tapirVersion,
-        "com.softwaremill.sttp.tapir"           %% "tapir-json-circe"        % tapirVersion    % Test,
-        "com.softwaremill.sttp.tapir"           %% "tapir-jsoniter-scala"    % tapirVersion    % Test,
-        "org.http4s"                            %% "http4s-ember-server"     % http4sVersion   % Test,
-        "dev.zio"                               %% "zio-test"                % zioVersion      % Test,
-        "dev.zio"                               %% "zio-test-sbt"            % zioVersion      % Test,
-        "com.softwaremill.sttp.client3"         %% "circe"                   % sttpVersion     % Test,
-        "io.circe"                              %% "circe-generic"           % circeVersion    % Test,
-        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"   % jsoniterVersion % Test
+        "com.softwaremill.sttp.tapir"           %% "tapir-http4s-server-zio" % zioHttpTapirVersion,
+        "com.softwaremill.sttp.tapir"           %% "tapir-json-circe"        % zioHttpTapirVersion % Test,
+        "com.softwaremill.sttp.tapir"           %% "tapir-jsoniter-scala"    % zioHttpTapirVersion % Test,
+        "org.http4s"                            %% "http4s-ember-server"     % http4sVersion       % Test,
+        "dev.zio"                               %% "zio-test"                % zioVersion          % Test,
+        "dev.zio"                               %% "zio-test-sbt"            % zioVersion          % Test,
+        "com.softwaremill.sttp.client3"         %% "circe"                   % sttpVersion         % Test,
+        "io.circe"                              %% "circe-generic"           % circeVersion        % Test,
+        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"   % jsoniterVersion     % Test
       )
   )
   .dependsOn(core % "compile->compile;test->test", tapirInterop % "compile->compile;test->test", catsInterop)
@@ -342,9 +345,9 @@ lazy val zioHttp = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "dev.zio"                     %% "zio-http"              % zioHttpVersion,
-      "com.softwaremill.sttp.tapir" %% "tapir-zio-http-server" % tapirVersion,
-      "dev.zio"                     %% "zio-json"              % zioJsonVersion % Test,
-      "com.softwaremill.sttp.tapir" %% "tapir-json-zio"        % tapirVersion   % Test
+      "com.softwaremill.sttp.tapir" %% "tapir-zio-http-server" % zioHttpTapirVersion,
+      "dev.zio"                     %% "zio-json"              % zioJsonVersion      % Test,
+      "com.softwaremill.sttp.tapir" %% "tapir-json-zio"        % zioHttpTapirVersion % Test
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
@@ -363,8 +366,27 @@ lazy val akkaHttp = project
       "com.typesafe.akka"             %% "akka-http"                  % "10.2.10",
       "com.typesafe.akka"             %% "akka-serialization-jackson" % akkaVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-akka-http-server"     % tapirVersion,
-      "com.softwaremill.sttp.tapir"   %% "tapir-json-play"            % tapirVersion % Test,
+      "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"           % tapirVersion % Test,
       compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.2").cross(CrossVersion.full))
+    )
+  )
+  .dependsOn(core, tapirInterop % "compile->compile;test->test")
+
+lazy val pekkoHttp = project
+  .in(file("adapters/pekko-http"))
+  .settings(name := "caliban-pekko-http")
+  .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
+  .settings(
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    libraryDependencies ++= {
+      if (scalaVersion.value == scala3) Seq()
+      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
+    } ++ Seq(
+      "org.apache.pekko"            %% "pekko-http"                  % "1.0.0",
+      "org.apache.pekko"            %% "pekko-serialization-jackson" % pekkoVersion,
+      "com.softwaremill.sttp.tapir" %% "tapir-pekko-http-server"     % tapirVersion,
+      "com.softwaremill.sttp.tapir" %% "tapir-json-circe"            % tapirVersion % Test
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
