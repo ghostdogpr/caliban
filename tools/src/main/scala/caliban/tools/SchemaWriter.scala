@@ -61,26 +61,28 @@ object SchemaWriter {
 
     def writeObject(typedef: ObjectTypeDefinition, extend: String): String =
       s"""${writeDescription(typedef.description)}final case class ${typedef.name}(${typedef.fields
-        .map(writeField(_, typedef))
-        .mkString(", ")})$extend$derivesSchema"""
+          .map(writeField(_, typedef))
+          .mkString(", ")})$extend$derivesSchema"""
 
     def writeInputObject(typedef: InputObjectTypeDefinition): String = {
       val name            = typedef.name
       val maybeAnnotation = if (preserveInputNames) s"""@GQLInputName("$name")\n""" else ""
       s"""$maybeAnnotation${writeDescription(typedef.description)}final case class $name(${typedef.fields
-        .map(writeInputValue)
-        .mkString(", ")})$derivesSchemaAndArgBuilder"""
+          .map(writeInputValue)
+          .mkString(", ")})$derivesSchemaAndArgBuilder"""
     }
 
     def writeEnum(typedef: EnumTypeDefinition): String =
-      s"""${writeDescription(typedef.description)}sealed trait ${typedef.name} extends scala.Product with scala.Serializable$derivesSchemaAndArgBuilder
+      s"""${writeDescription(
+          typedef.description
+        )}sealed trait ${typedef.name} extends scala.Product with scala.Serializable$derivesSchemaAndArgBuilder
 
           object ${typedef.name} {
             ${typedef.enumValuesDefinition
-        .map(v =>
-          s"${writeDescription(v.description)}case object ${safeName(v.enumValue)} extends ${typedef.name}$derivesSchemaAndArgBuilder"
-        )
-        .mkString("\n")}
+          .map(v =>
+            s"${writeDescription(v.description)}case object ${safeName(v.enumValue)} extends ${typedef.name}$derivesSchemaAndArgBuilder"
+          )
+          .mkString("\n")}
           }
        """
 
@@ -126,17 +128,17 @@ object SchemaWriter {
         s"""${unions.keys.map(writeUnionSealedTrait).mkString("\n")}
 
         ${unionsWithoutReusedMembers.map { case (union, objects) => writeNotReusedMembers(union, objects) }
-          .mkString("\n")}
+            .mkString("\n")}
 
         ${reusedUnionMembers.map { case (objectType, unions) => writeReusedUnionMember(objectType, unions) }
-          .mkString("\n")}
+            .mkString("\n")}
          """
       } else ""
 
     def writeUnionSealedTrait(union: UnionTypeDefinition): String =
       s"""${writeDescription(
-        union.description
-      )}sealed trait ${union.name} extends scala.Product with scala.Serializable$derivesSchema"""
+          union.description
+        )}sealed trait ${union.name} extends scala.Product with scala.Serializable$derivesSchema"""
 
     def writeReusedUnionMember(typedef: ObjectTypeDefinition, unions: List[UnionTypeDefinition]): String =
       s"${writeObject(typedef, s" extends ${unions.map(_.name).mkString(" with ")}")}"
@@ -144,21 +146,23 @@ object SchemaWriter {
     def writeNotReusedMembers(typedef: UnionTypeDefinition, objects: List[ObjectTypeDefinition]): String =
       s"""object ${typedef.name} {
             ${objects
-        .map(o => s"${writeObject(o, s" extends ${typedef.name}")}")
-        .mkString("\n")}
+          .map(o => s"${writeObject(o, s" extends ${typedef.name}")}")
+          .mkString("\n")}
           }
        """
 
     def writeInterface(interface: InterfaceTypeDefinition, impls: List[ObjectTypeDefinition]): String =
       s"""@GQLInterface
-        ${writeDescription(interface.description)}sealed trait ${interface.name} extends scala.Product with scala.Serializable {
+        ${writeDescription(
+          interface.description
+        )}sealed trait ${interface.name} extends scala.Product with scala.Serializable {
          ${interface.fields.map(field => s"def ${safeName(field.name)} : ${writeType(field.ofType)}").mkString("\n")}
         }
 
           object ${interface.name} {
             ${impls
-        .map(o => s"${writeObject(o, s" extends ${interface.name}")}")
-        .mkString("\n")}
+          .map(o => s"${writeObject(o, s" extends ${interface.name}")}")
+          .mkString("\n")}
           }
        """
 
@@ -276,23 +280,23 @@ object SchemaWriter {
 
     val typesAndOperations = s"""
       ${if (hasTypes)
-      "object Types {\n" +
-        argsTypes + "\n" +
-        objects + "\n" +
-        inputs + "\n" +
-        unions + "\n" +
-        interfacesStr + "\n" +
-        enums + "\n" +
-        "\n}\n"
-    else ""}
+        "object Types {\n" +
+          argsTypes + "\n" +
+          objects + "\n" +
+          inputs + "\n" +
+          unions + "\n" +
+          interfacesStr + "\n" +
+          enums + "\n" +
+          "\n}\n"
+      else ""}
 
       ${if (hasOperations)
-      "object Operations {\n" +
-        queries + "\n\n" +
-        mutations + "\n\n" +
-        subscriptions + "\n" +
-        "\n}"
-    else ""}
+        "object Operations {\n" +
+          queries + "\n\n" +
+          mutations + "\n\n" +
+          subscriptions + "\n" +
+          "\n}"
+      else ""}
       """
 
     s"""${packageName.fold("")(p => s"package $p\n\n")}${if (hasTypes && hasOperations) "import Types._\n" else ""}

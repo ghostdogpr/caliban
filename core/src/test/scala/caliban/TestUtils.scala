@@ -36,7 +36,7 @@ object TestUtils {
     case object MARS  extends Origin
     case object BELT  extends Origin
     @GQLDeprecated("Use: EARTH | MARS | BELT")
-    case object MOON extends Origin
+    case object MOON  extends Origin
   }
 
   @GQLDirective(Directive("uniondirective"))
@@ -409,7 +409,7 @@ object TestUtils {
       sealed trait FieldInterface {
         val a: String
       }
-      object FieldInterface {
+      object FieldInterface       {
         case class FieldObject(a: String, b: Int) extends FieldInterface
       }
       case class TestFieldObject(fieldInterface: FieldObject)
