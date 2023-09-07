@@ -12,7 +12,7 @@ import zio.prelude.fx.ZPure
 import zio.prelude._
 
 object ValueValidator {
-  def validateDefaultValue(field: __InputValue, errorContext: String): EReader[Any, ValidationError, Unit] =
+  def validateDefaultValue(field: __InputValue, errorContext: => String): EReader[Any, ValidationError, Unit] =
     field.defaultValue match {
       case Some(v) =>
         for {
@@ -34,14 +34,14 @@ object ValueValidator {
     inputValue: __InputValue,
     argValue: InputValue,
     context: Context,
-    errorContext: String
+    errorContext: => String
   ): EReader[Any, ValidationError, Unit] = validateType(inputValue._type, argValue, context, errorContext)
 
   def validateType(
     inputType: __Type,
     argValue: InputValue,
     context: Context,
-    errorContext: String
+    errorContext: => String
   ): EReader[Any, ValidationError, Unit] =
     argValue match {
       case v: VariableValue =>
@@ -113,7 +113,7 @@ object ValueValidator {
         }
     }
 
-  def validateEnum(value: String, inputType: __Type, errorContext: String): EReader[Any, ValidationError, Unit] = {
+  def validateEnum(value: String, inputType: __Type, errorContext: => String): EReader[Any, ValidationError, Unit] = {
     val possible = inputType
       .enumValues(__DeprecatedArgs(Some(true)))
       .getOrElse(List.empty)
@@ -133,7 +133,7 @@ object ValueValidator {
   def validateScalar(
     inputType: __Type,
     argValue: InputValue,
-    errorContext: String
+    errorContext: => String
   ): EReader[Any, ValidationError, Unit] =
     inputType.name.getOrElse("") match {
       case "String"  =>

@@ -10,6 +10,8 @@ import zio.query.ZQuery
 import zio.{ UIO, ZIO }
 
 import scala.annotation.tailrec
+import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
 
 /**
  * A `Wrapper[-R]` represents an extra layer of computation that can be applied on top of Caliban's query handling.
@@ -141,38 +143,28 @@ object Wrapper {
       List[FieldWrapper[R]],
       List[IntrospectionWrapper[R]]
     )
-  ] =
-    ZIO
-      .foldLeft(wrappers)(
-        (
-          List.empty[OverallWrapper[R]],
-          List.empty[ParsingWrapper[R]],
-          List.empty[ValidationWrapper[R]],
-          List.empty[ExecutionWrapper[R]],
-          List.empty[FieldWrapper[R]],
-          List.empty[IntrospectionWrapper[R]]
-        )
-      ) {
-        case ((o, p, v, e, f, i), wrapper: OverallWrapper[R])       => ZIO.succeed((wrapper :: o, p, v, e, f, i))
-        case ((o, p, v, e, f, i), wrapper: ParsingWrapper[R])       => ZIO.succeed((o, wrapper :: p, v, e, f, i))
-        case ((o, p, v, e, f, i), wrapper: ValidationWrapper[R])    => ZIO.succeed((o, p, wrapper :: v, e, f, i))
-        case ((o, p, v, e, f, i), wrapper: ExecutionWrapper[R])     => ZIO.succeed((o, p, v, wrapper :: e, f, i))
-        case ((o, p, v, e, f, i), wrapper: FieldWrapper[R])         => ZIO.succeed((o, p, v, e, wrapper :: f, i))
-        case ((o, p, v, e, f, i), wrapper: IntrospectionWrapper[R]) => ZIO.succeed((o, p, v, e, f, wrapper :: i))
-        case ((o, p, v, e, f, i), CombinedWrapper(wrappers))        =>
-          decompose(wrappers).map { case (o2, p2, v2, e2, f2, i2) =>
-            (o2 ++ o, p2 ++ p, v2 ++ v, e2 ++ e, f2 ++ f, i2 ++ i)
-          }
-        case ((o, p, v, e, f, i), EffectfulWrapper(wrapper))        =>
-          wrapper.flatMap(w =>
-            decompose(List(w)).map { case (o2, p2, v2, e2, f2, i2) =>
-              (o2 ++ o, p2 ++ p, v2 ++ v, e2 ++ e, f2 ++ f, i2 ++ i)
-            }
-          )
-      }
-      .map { case (o, p, v, e, f, i) =>
-        def sort[W <: Wrapper[R]]: List[W] => List[W] = _.sortBy(_.priority)
+  ] = ZIO.suspendSucceed {
+    val o = ArrayBuffer.empty[OverallWrapper[R]]
+    val p = ArrayBuffer.empty[ParsingWrapper[R]]
+    val v = ArrayBuffer.empty[ValidationWrapper[R]]
+    val e = ArrayBuffer.empty[ExecutionWrapper[R]]
+    val f = ArrayBuffer.empty[FieldWrapper[R]]
+    val i = ArrayBuffer.empty[IntrospectionWrapper[R]]
 
-        (sort(o), sort(p), sort(v), sort(e), sort(f), sort(i))
-      }
+    def loop(wrapper: Wrapper[R]): UIO[Unit] = wrapper match {
+      case wrapper: OverallWrapper[R]       => ZIO.succeed(o addOne wrapper)
+      case wrapper: ParsingWrapper[R]       => ZIO.succeed(p addOne wrapper)
+      case wrapper: ValidationWrapper[R]    => ZIO.succeed(v addOne wrapper)
+      case wrapper: ExecutionWrapper[R]     => ZIO.succeed(e addOne wrapper)
+      case wrapper: FieldWrapper[R]         => ZIO.succeed(f addOne wrapper)
+      case wrapper: IntrospectionWrapper[R] => ZIO.succeed(i addOne wrapper)
+      case CombinedWrapper(wrappers)        => ZIO.foreachDiscard(wrappers)(loop)
+      case EffectfulWrapper(wrapper)        => wrapper.flatMap(loop)
+    }
+
+    def finalize[W <: Wrapper[R]](buffer: ArrayBuffer[W]): List[W] = buffer.sortInPlaceBy(_.priority).toList
+
+    ZIO.foreachDiscard(wrappers)(loop).as(finalize(o), finalize(p), finalize(v), finalize(e), finalize(f), finalize(i))
+  }
+
 }
