@@ -10,6 +10,7 @@ import caliban.Value.IntValue.IntNumber
 import caliban.Value.StringValue
 import caliban.execution.ExecutionRequest
 import caliban.execution.Field
+import caliban.parsing.adt.OperationType
 import caliban.tools.stitching.RemoteQuery
 import caliban.wrappers.Wrapper.ExecutionWrapper
 import io.opentelemetry.api.trace.SpanKind
@@ -30,7 +31,7 @@ object SchemaTracer {
         else
           ZIO.serviceWithZIO[Tracing](tracer =>
             tracer.span[R, Nothing, GraphQLResponse[CalibanError]](
-              "query",
+              spanName(request),
               SpanKind.INTERNAL
             ) {
               ZIO.foreach(attributes(request.field)) { case (k, v) =>
@@ -39,6 +40,20 @@ object SchemaTracer {
             }
           )
       }
+  }
+
+  private def spanName(request: ExecutionRequest): String = {
+    val operationTypeString = request.operationType match {
+      case OperationType.Query => "query"
+      case OperationType.Mutation => "mutation"
+      case OperationType.Subscription => "subscription"
+    }
+
+    // The span name MUST be of the format <graphql.operation.type> <graphql.operation.name>
+    // provided that graphql.operation.type and graphql.operation.name are available. If
+    // graphql.operation.name is not available, the span SHOULD be named <graphql.operation.type>.
+    // When <graphql.operation.type> is not available, GraphQL Operation MAY be used as span name.
+    Seq(Some(operationTypeString), request.operationName).flatten.mkString(" ")
   }
 
   private def attributes[T, R](
