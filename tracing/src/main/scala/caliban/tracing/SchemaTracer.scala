@@ -43,7 +43,7 @@ object SchemaTracer {
 
   private def attributes[T, R](
     field: Field
-  ) = List("query" -> graphQLQuery(field))
+  ) = List("document" -> graphQLQuery(field))
 
   private def graphQLQuery(field: Field): String =
     RemoteQuery.apply(maskField(field)).toGraphQLRequest.query.getOrElse("")
