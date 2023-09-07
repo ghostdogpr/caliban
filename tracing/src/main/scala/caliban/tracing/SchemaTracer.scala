@@ -44,8 +44,8 @@ object SchemaTracer {
 
   private def spanName(request: ExecutionRequest): String = {
     val operationTypeString = request.operationType match {
-      case OperationType.Query => "query"
-      case OperationType.Mutation => "mutation"
+      case OperationType.Query        => "query"
+      case OperationType.Mutation     => "mutation"
       case OperationType.Subscription => "subscription"
     }
 
