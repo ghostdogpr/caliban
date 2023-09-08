@@ -191,7 +191,7 @@ object Validator {
       selectionSet: List[Selection]
     ): mutable.Builder[InputValue, List[InputValue]] = {
       // ugly mutable code but it's worth it for the speed ;)
-      def add(list: Iterable[InputValue]) = if (list.nonEmpty) builder.addAll(list)
+      def add(list: Iterable[InputValue]) = if (list.nonEmpty) builder ++= list
 
       selectionSet.foreach {
         case FragmentSpread(name, directives)                    =>
@@ -220,7 +220,7 @@ object Validator {
       values.foreach {
         case InputValue.ListValue(values)   => collectVariableValues(builder, values)
         case InputValue.ObjectValue(fields) => collectVariableValues(builder, fields.values.toList)
-        case v: VariableValue               => builder.addOne(v.name)
+        case v: VariableValue               => builder += v.name
         case _                              => ()
       }
       builder
