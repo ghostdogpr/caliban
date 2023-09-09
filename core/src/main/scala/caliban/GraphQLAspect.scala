@@ -1,5 +1,8 @@
 package caliban
 
+import caliban.introspection.adt.{ __Directive, __Type }
+import caliban.parsing.adt.Directive
+
 /**
  * A `GraphQLAspect` is wrapping type similar to a polymorphic function, which is capable
  * of transforming a GraphQL into another while possibly enlarging the required environment type.
@@ -15,4 +18,20 @@ trait GraphQLAspect[+LowerR, -UpperR] { self =>
       def apply[R >: LowerR1 <: UpperR1](gql: GraphQL[R]): GraphQL[R] =
         other(self(gql))
     }
+}
+
+object GraphQLAspect {
+
+  def withSchemaDirectives(directives: List[Directive]): GraphQLAspect[Nothing, Any] = new GraphQLAspect[Nothing, Any] {
+    def apply[R](gql: GraphQL[R]): GraphQL[R] = gql.withSchemaDirectives(directives)
+  }
+
+  def withDirectives(directives: List[__Directive]): GraphQLAspect[Nothing, Any] = new GraphQLAspect[Nothing, Any] {
+    def apply[R](gql: GraphQL[R]): GraphQL[R] = gql.withAdditionalDirectives(directives)
+  }
+
+  def withTypes(types: List[__Type]): GraphQLAspect[Nothing, Any] = new GraphQLAspect[Nothing, Any] {
+    def apply[R](gql: GraphQL[R]): GraphQL[R] = gql.withAdditionalTypes(types)
+  }
+
 }
