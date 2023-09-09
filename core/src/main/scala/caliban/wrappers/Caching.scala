@@ -15,21 +15,19 @@ import zio.{ durationInt, Duration, FiberRef, Ref, UIO, Unsafe, ZIO }
 
 import java.util.concurrent.{ ConcurrentHashMap, TimeUnit }
 
-sealed trait Caching {
-
-  def aspect: GraphQLAspect[Nothing, Any]
-
+case class CacheSettings(defaultMaxAge: Duration, defaultScope: CacheScope) {
+  def withMaxAge(maxAge: Duration): CacheSettings = copy(defaultMaxAge = maxAge)
+  def withScope(scope: CacheScope): CacheSettings = copy(defaultScope = scope)
 }
 
-case class CacheSettings(defaultMaxAge: Option[Duration], defaultScope: Option[CacheScope]) {
-  def withMaxAge(maxAge: Duration): CacheSettings = copy(defaultMaxAge = Some(maxAge))
-  def withScope(scope: CacheScope): CacheSettings = copy(defaultScope = Some(scope))
+object CacheSettings {
+  val default = CacheSettings(0.seconds, CacheScope.Public)
 }
 
 object Caching {
   private val directiveName = "cacheControl"
 
-  private val cacheDirectives = List(
+  private val cacheDirectives                                                              = List(
     __Directive(
       name = directiveName,
       description = None,
@@ -72,21 +70,23 @@ object Caching {
           )
         )
       )
+  def aspect(settings: CacheSettings = CacheSettings.default): GraphQLAspect[Nothing, Any] = Default(settings)
 
-  def apply(settings: CacheSettings = CacheSettings(Some(0.seconds), Some(CacheScope.Public))): Caching = Default(
-    settings
-  )
+  private case class Default(settings: CacheSettings) extends GraphQLAspect[Nothing, Any] {
+    private val _typeCache = new ConcurrentHashMap[String, Option[CacheHint]]()
 
-  private case class Default(settings: CacheSettings) extends Caching {
-    private val _typeCache                           = new ConcurrentHashMap[String, Option[CacheHint]]()
-    override def aspect: GraphQLAspect[Nothing, Any] =
-      GraphQLAspect.withDirectives(cacheDirectives) @@
-        GraphQLAspect.withTypes(CacheScope.schema.toType_() :: Nil) @@
-        EffectfulWrapper(
-          Ref
-            .make(CachePolicy(CacheHint.default))
-            .map(state => staticWrapper(state) |+| fieldWrapper(state) |+| overallWrapper(state))
-        )
+    def apply[R](gql: GraphQL[R]): GraphQL[R] = {
+      val wrapper = EffectfulWrapper(
+        Ref
+          .make(CachePolicy(CacheHint.default))
+          .map(state => staticWrapper(state) |+| fieldWrapper(state) |+| overallWrapper(state))
+      )
+
+      gql
+        .withAdditionalDirectives(cacheDirectives)
+        .withAdditionalTypes(CacheScope.schema.toType_() :: Nil)
+        .withWrapper(wrapper)
+    }
 
     private[caliban] def cacheHintFromType(typ: __Type): Option[CacheHint] = {
       val key = typ.name.getOrElse(typ.toString)
@@ -145,8 +145,8 @@ object Caching {
       ): GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] = { (request: GraphQLRequest) =>
         (f(request) zipWith state.get) { (response, cacheState) =>
           val cacheControl = cacheState.hint
-          val maxAge       = cacheControl.maxAge orElse settings.defaultMaxAge getOrElse 0.seconds
-          val scope        = cacheControl.scope orElse settings.defaultScope getOrElse CacheScope.Public
+          val maxAge       = cacheControl.maxAge getOrElse settings.defaultMaxAge
+          val scope        = cacheControl.scope getOrElse settings.defaultScope
           response.copy(
             extensions = Some(
               ResponseValue.ObjectValue(

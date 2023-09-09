@@ -67,5 +67,5 @@ object TestApi extends GenericSchema[TestService with Uploads] {
       printErrors @@                  // wrapper that logs errors
       apolloTracing @@                // wrapper for https://github.com/apollographql/apollo-tracing
       DeferSupport.defer @@
-      Caching().aspect
+      Caching.aspect()
 }

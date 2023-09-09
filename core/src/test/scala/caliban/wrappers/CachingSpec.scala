@@ -5,7 +5,7 @@ import caliban.{ graphQL, ResponseValue, RootResolver, Value }
 import caliban.schema.Schema
 import caliban.wrappers.Caching.{ CacheHint, CacheScope, GQLCacheControl }
 import zio.{ durationInt, UIO, ZIO }
-import zio.test.{ assertTrue, assertZIO, ZIOSpecDefault }
+import zio.test.{ assertTrue, ZIOSpecDefault }
 
 object CachingSpec extends ZIOSpecDefault {
   import Fixture._
@@ -222,7 +222,7 @@ object CachingSpec extends ZIOSpecDefault {
           )
         )
       )
-    ) @@ Caching().aspect
+    ) @@ Caching.aspect()
 
   }
 }
