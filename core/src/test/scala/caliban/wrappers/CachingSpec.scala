@@ -222,7 +222,7 @@ object CachingSpec extends ZIOSpecDefault {
           )
         )
       )
-    ) @@ Caching.aspect()
+    ) @@ Caching.extension()
 
   }
 }

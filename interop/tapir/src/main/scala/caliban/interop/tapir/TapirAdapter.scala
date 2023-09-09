@@ -3,6 +3,7 @@ package caliban.interop.tapir
 import caliban._
 import caliban.ResponseValue.StreamValue
 import caliban.Value.IntValue
+import caliban.wrappers.Caching
 import sttp.capabilities.{ Streams, WebSockets }
 import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.zio.ZioStreams.Pipe
@@ -198,14 +199,14 @@ object TapirAdapter {
 
   private def computeCacheDirective(extensions: Option[ResponseValue.ObjectValue]): Option[String] =
     extensions
-      .flatMap(_.fields.collectFirst { case ("cacheControl", ResponseValue.ObjectValue(fields)) =>
+      .flatMap(_.fields.collectFirst { case (Caching.DirectiveName, ResponseValue.ObjectValue(fields)) =>
         fields.collectFirst { case ("policy", ResponseValue.ObjectValue(fields)) =>
-          val maxAge = fields.collectFirst { case ("maxAge", v: IntValue) =>
+          val maxAge = fields.collectFirst { case (Caching.MaxAgeName, v: IntValue) =>
             CacheDirective.MaxAge(FiniteDuration(v.toInt, TimeUnit.SECONDS))
           }
           val scope  = fields.collectFirst {
-            case ("scope", Value.EnumValue("PRIVATE")) => CacheDirective.Private
-            case ("scope", Value.EnumValue("PUBLIC"))  => CacheDirective.Public
+            case (Caching.ScopeName, Value.EnumValue("PRIVATE")) => CacheDirective.Private
+            case (Caching.ScopeName, Value.EnumValue("PUBLIC"))  => CacheDirective.Public
           }.getOrElse(CacheDirective.Public)
 
           maxAge.toList :+ scope
