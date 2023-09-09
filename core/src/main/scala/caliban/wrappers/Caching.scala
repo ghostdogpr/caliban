@@ -155,6 +155,8 @@ object Caching {
       case (Public, Private)  => Ordering.GreaterThan
     }
 
+    implicit val ordering: scala.math.Ordering[CacheScope] = ord.toScala
+
     implicit val schema: Schema[Any, CacheScope] = Schema.gen
   }
 
