@@ -1,13 +1,18 @@
 package caliban.interop.tapir
 
+import caliban.Value.IntValue
 import caliban._
 import caliban.interop.tapir.TapirAdapter._
 import sttp.capabilities.Streams
+import sttp.model.headers.CacheDirective
 import sttp.model.{ headers => _, _ }
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.model.ServerRequest
 import sttp.tapir._
 import zio._
+
+import java.util.concurrent.TimeUnit
+import scala.concurrent.duration.FiniteDuration
 
 sealed trait HttpInterpreter[-R, E] { self =>
   protected def endpoints[S](streams: Streams[S]): List[
@@ -118,6 +123,7 @@ object HttpInterpreter {
         )
         .in(extractFromRequest(identity))
         .out(header[MediaType](HeaderNames.ContentType))
+        .out(header[Option[String]](HeaderNames.CacheControl))
         .out(outputBody(streams))
         .errorOut(errorBody)
 
@@ -142,6 +148,7 @@ object HttpInterpreter {
         )
         .in(extractFromRequest(identity))
         .out(header[MediaType](HeaderNames.ContentType))
+        .out(header[Option[String]](HeaderNames.CacheControl))
         .out(outputBody(streams))
         .errorOut(errorBody)
 

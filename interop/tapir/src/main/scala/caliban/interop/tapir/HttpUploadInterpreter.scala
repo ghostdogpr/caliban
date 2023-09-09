@@ -135,6 +135,7 @@ object HttpUploadInterpreter {
       .in(multipartBody)
       .in(extractFromRequest(identity))
       .out(header[MediaType](HeaderNames.ContentType))
+      .out(header[Option[String]](HeaderNames.CacheControl))
       .out(outputBody(streams))
       .errorOut(errorBody)
 }

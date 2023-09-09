@@ -2,9 +2,11 @@ package caliban.interop.tapir
 
 import caliban._
 import caliban.ResponseValue.StreamValue
+import caliban.Value.IntValue
 import sttp.capabilities.{ Streams, WebSockets }
 import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.zio.ZioStreams.Pipe
+import sttp.model.headers.CacheDirective
 import sttp.model.{ headers => _, _ }
 import sttp.monad.MonadError
 import sttp.tapir.Codec.JsonCodec
@@ -15,7 +17,9 @@ import zio._
 import zio.stream.{ ZChannel, ZPipeline, ZSink, ZStream }
 
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.TimeUnit
 import scala.concurrent.Future
+import scala.concurrent.duration.FiniteDuration
 
 object TapirAdapter {
 
@@ -41,7 +45,7 @@ object TapirAdapter {
   }
 
   private type CalibanBody[BS]   = Either[ResponseValue, BS]
-  type CalibanResponse[BS]       = (MediaType, CalibanBody[BS])
+  type CalibanResponse[BS]       = (MediaType, Option[String], CalibanBody[BS])
   type CalibanEndpoint[R, BS, S] =
     ServerEndpoint.Full[Unit, Unit, (GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse[BS], S, RIO[R, *]]
 
@@ -93,15 +97,16 @@ object TapirAdapter {
   )(implicit
     streamConstructor: StreamConstructor[BS],
     responseCodec: JsonCodec[ResponseValue]
-  ): (MediaType, CalibanBody[BS]) =
+  ): (MediaType, Option[String], CalibanBody[BS]) =
     response match {
       case resp @ GraphQLResponse(StreamValue(stream), _, _, _) =>
         (
           MediaType.MultipartMixed.copy(otherParameters = DeferMultipart.DeferHeaderParams),
+          None,
           encodeMultipartMixedResponse(resp, stream)
         )
       case response                                             =>
-        (MediaType.ApplicationJson, encodeSingleResponse(response))
+        (MediaType.ApplicationJson, computeCacheDirective(response.extensions), encodeSingleResponse(response))
     }
 
   private object DeferMultipart {
@@ -190,4 +195,22 @@ object TapirAdapter {
 
   def isFtv1Header(r: Header): Boolean =
     r.name == GraphQLRequest.`apollo-federation-include-trace` && r.value == GraphQLRequest.ftv1
+
+  private def computeCacheDirective(extensions: Option[ResponseValue.ObjectValue]): Option[String] =
+    extensions
+      .flatMap(_.fields.collectFirst { case ("cacheControl", ResponseValue.ObjectValue(fields)) =>
+        fields.collectFirst { case ("policy", ResponseValue.ObjectValue(fields)) =>
+          val maxAge = fields.collectFirst { case ("maxAge", v: IntValue) =>
+            CacheDirective.MaxAge(FiniteDuration(v.toInt, TimeUnit.SECONDS))
+          }
+          val scope  = fields.collectFirst {
+            case ("scope", Value.EnumValue("PRIVATE")) => CacheDirective.Private
+            case ("scope", Value.EnumValue("PUBLIC"))  => CacheDirective.Public
+          }.getOrElse(CacheDirective.Public)
+
+          maxAge.toList :+ scope
+        }
+      })
+      .flatten
+      .map(_.mkString(", "))
 }
