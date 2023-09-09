@@ -83,7 +83,9 @@ object Caching {
       GraphQLAspect.withDirectives(cacheDirectives) @@
         GraphQLAspect.withTypes(CacheScope.schema.toType_() :: Nil) @@
         EffectfulWrapper(
-          Ref.make(CacheState()).map(state => staticWrapper(state) |+| fieldWrapper(state) |+| overallWrapper(state))
+          Ref
+            .make(CachePolicy(CacheHint.default))
+            .map(state => staticWrapper(state) |+| fieldWrapper(state) |+| overallWrapper(state))
         )
 
     private[caliban] def cacheHintFromType(typ: __Type): Option[CacheHint] = {
@@ -104,7 +106,7 @@ object Caching {
       }
     }
 
-    private def staticWrapper(state: Ref[CacheState]): ValidationWrapper[Any] = new ValidationWrapper[Any] {
+    private def staticWrapper(state: Ref[CachePolicy]): ValidationWrapper[Any] = new ValidationWrapper[Any] {
       override def wrap[R1](
         f: Document => ZIO[R1, CalibanError.ValidationError, ExecutionRequest]
       ): Document => ZIO[R1, CalibanError.ValidationError, ExecutionRequest] = { (d: Document) =>
@@ -119,31 +121,30 @@ object Caching {
 
           val updated = loop(CachePolicy(CacheHint.default), request.field)
 
-          state.update(s => s.copy(policy = updated merge s.policy)).as(request)
+          state.update(updated.merge).as(request)
         }
       }
     }
 
-    private def fieldWrapper(state: Ref[CacheState]): FieldWrapper[Any] = new FieldWrapper[Any](false) {
+    private def fieldWrapper(state: Ref[CachePolicy]): FieldWrapper[Any] = new FieldWrapper[Any](false) {
       override def wrap[R1](
         query: ZQuery[R1, CalibanError.ExecutionError, ResponseValue],
         info: FieldInfo
       ): ZQuery[R1, CalibanError.ExecutionError, ResponseValue] =
         query.mapZIO { result =>
           cacheOverride.get.flatMap {
-            case Some(overrideValue) =>
-              state.update(s => s.copy(policy = s.policy.restrict(Some(overrideValue)))) as result
+            case Some(overrideValue) => state.update(_.restrict(Some(overrideValue))) as result
             case None                => ZIO.succeed(result)
           }
         }
     }
 
-    private def overallWrapper(state: Ref[CacheState]): OverallWrapper[Any] = new OverallWrapper[Any] {
+    private def overallWrapper(state: Ref[CachePolicy]): OverallWrapper[Any] = new OverallWrapper[Any] {
       override def wrap[R1](
         f: GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]]
       ): GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] = { (request: GraphQLRequest) =>
         (f(request) zipWith state.get) { (response, cacheState) =>
-          val cacheControl = cacheState.policy.hint
+          val cacheControl = cacheState.hint
           val maxAge       = cacheControl.maxAge orElse settings.defaultMaxAge getOrElse 0.seconds
           val scope        = cacheControl.scope orElse settings.defaultScope getOrElse CacheScope.Public
           response.copy(
