@@ -11,6 +11,7 @@ The following adapters are provided:
 - `ZHttpAdapter` exposes a route for zio-http. This one doesn't support uploads yet.
 - `PlayHttpAdapter` exposes a route for play.
 - `AkkaHttpAdapter` exposes a route for akka.
+- `PekkoHttpAdapter` exposes a route for pekko.
 
 To use them, you first need to transform your `GraphQLInterpreter` into a new type of interpreter that supports the protocol you want to use.
 There are 3 of them:
@@ -105,4 +106,4 @@ All existing adapters are actually using a common adapter under the hood, called
 This adapter, available in the `caliban-tapir` dependency which has the same 3 methods `makeHttpService`, `makeHttpUploadService` and `makeWebSocketService`.
 
 The main differences between these and the methods from the built-in adapters is that they return one or several tapir `ServerEndpoint`,
-which you can then pass to a tapir interpreter. The returned `ServerEndpoint` use `RIO[R, *]` as an effect type, but you can easily transform it to another effect type. A helper `convertHttpEndpointToFuture` allows converting the effect type to a scala `Future` (this is used in the Akka and Play interpreters).
+which you can then pass to a tapir interpreter. The returned `ServerEndpoint` use `RIO[R, *]` as an effect type, but you can easily transform it to another effect type. A helper `convertHttpEndpointToFuture` allows converting the effect type to a scala `Future` (this is used in the Akka, Pekko, and Play interpreters).
