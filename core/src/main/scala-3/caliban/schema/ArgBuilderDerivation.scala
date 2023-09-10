@@ -3,7 +3,6 @@ package caliban.schema
 import caliban.CalibanError.ExecutionError
 import caliban.{ CalibanError, InputValue }
 import caliban.Value.*
-import caliban.schema.macros.Macros
 import caliban.schema.Annotations.GQLDefault
 import caliban.schema.Annotations.GQLName
 
