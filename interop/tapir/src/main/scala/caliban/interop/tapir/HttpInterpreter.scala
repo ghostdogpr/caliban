@@ -11,9 +11,6 @@ import sttp.tapir.model.ServerRequest
 import sttp.tapir._
 import zio._
 
-import java.util.concurrent.TimeUnit
-import scala.concurrent.duration.FiniteDuration
-
 sealed trait HttpInterpreter[-R, E] { self =>
   protected def endpoints[S](streams: Streams[S]): List[
     PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse[streams.BinaryStream], S]

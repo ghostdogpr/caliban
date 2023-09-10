@@ -200,18 +200,9 @@ object TapirAdapter {
   private def computeCacheDirective(extensions: Option[ResponseValue.ObjectValue]): Option[String] =
     extensions
       .flatMap(_.fields.collectFirst { case (Caching.DirectiveName, ResponseValue.ObjectValue(fields)) =>
-        fields.collectFirst { case ("policy", ResponseValue.ObjectValue(fields)) =>
-          val maxAge = fields.collectFirst { case (Caching.MaxAgeName, v: IntValue) =>
-            CacheDirective.MaxAge(FiniteDuration(v.toInt, TimeUnit.SECONDS))
-          }
-          val scope  = fields.collectFirst {
-            case (Caching.ScopeName, Value.EnumValue("PRIVATE")) => CacheDirective.Private
-            case (Caching.ScopeName, Value.EnumValue("PUBLIC"))  => CacheDirective.Public
-          }.getOrElse(CacheDirective.Public)
-
-          maxAge.toList :+ scope
+        fields.collectFirst { case ("httpHeader", Value.StringValue(cacheHeader)) =>
+          cacheHeader
         }
       })
       .flatten
-      .map(_.mkString(", "))
 }

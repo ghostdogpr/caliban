@@ -1,12 +1,13 @@
 package caliban.wrappers
 
+import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value._
 import caliban._
 import caliban.execution.{ ExecutionRequest, Field, FieldInfo }
-import caliban.introspection.adt.{ __Directive, __DirectiveLocation, __InputValue, __Type }
+import caliban.introspection.adt._
 import caliban.parsing.adt.{ Directive, Document }
 import caliban.schema.Annotations.{ GQLDirective, GQLName }
-import caliban.schema.{ Schema, Types }
+import caliban.schema.Types
 import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper, ValidationWrapper }
 import zio.prelude._
 import zio.query.ZQuery
@@ -37,7 +38,7 @@ object Caching {
         __InputValue(
           name = ScopeName,
           None,
-          `type` = () => CacheScope.schema.toType_(),
+          `type` = () => CacheScope._type,
           defaultValue = None
         ),
         __InputValue(
@@ -80,7 +81,8 @@ object Caching {
 
   case class CacheSettings(
     defaultMaxAge: Duration,
-    defaultScope: CacheScope
+    defaultScope: CacheScope,
+    toHeader: CachePolicy => String = _.hint.toHeaderString
   ) {
     def withMaxAge(maxAge: Duration): CacheSettings = copy(defaultMaxAge = maxAge)
 
@@ -95,7 +97,15 @@ object Caching {
    * Overrides the cache hint for a particular field. This can be used to dynamically set the cache hint within
    * a resolver
    */
-  def setCacheHint(hint: CacheHint): UIO[Unit] = cacheOverride.set(Some(hint))
+  def setCacheHint(hint: CacheHint): UIO[Unit] = cacheOverride.update {
+    case Some(hint0) => Some(mostRestrictive(hint0, hint))
+    case None        => Some(hint)
+  }
+
+  /**
+   * Disables caching for the current query
+   */
+  def disableCaching: UIO[Unit] = cacheOverride.set(Some(CacheHint(Some(0.seconds))))
 
   case class CachePolicy(hint: CacheHint) {
     def merge(that: CachePolicy): CachePolicy =
@@ -106,36 +116,17 @@ object Caching {
       case None    => this
     }
 
-    private def mostRestrictive(
-      parent: CacheHint,
-      current: CacheHint
-    ): CacheHint = {
-      val scope         = List(parent.scope, current.scope).flatten.minOption
-      val shouldInherit = current.inheritMaxAge
-      val maxAge        =
-        if (shouldInherit) parent.maxAge
-        else
-          (current.maxAge, parent.maxAge) match {
-            case (Some(a), Some(b)) => Some(a min b)
-            case (Some(a), None)    => Some(a)
-            case (None, Some(b))    => Some(b)
-            case (None, None)       => None
-          }
-      CacheHint(maxAge, scope, shouldInherit)
-    }
-  }
-
-  case class CacheHint(
-    maxAge: Option[Duration] = None,
-    scope: Option[CacheScope] = None,
-    inheritMaxAge: Boolean = false
-  )
-
-  object CacheHint {
-    val default: CacheHint = CacheHint()
+    def toResponseValue(toHeader: CachePolicy => String) =
+      ObjectValue(
+        List(
+          "version"    -> IntValue(2),
+          "httpHeader" -> StringValue(toHeader(this))
+        )
+      )
   }
 
   sealed trait CacheScope
+
   object CacheScope {
 
     @GQLName("PRIVATE")
@@ -157,7 +148,56 @@ object Caching {
 
     implicit val ordering: scala.math.Ordering[CacheScope] = ord.toScala
 
-    implicit val schema: Schema[Any, CacheScope] = Schema.gen
+    val _type = __Type(
+      __TypeKind.ENUM,
+      Some("CacheScope"),
+      Some("The scope of the cache"),
+      enumValues = _ =>
+        Some(
+          List(
+            __EnumValue(
+              "PRIVATE",
+              Some("The cache is private to the user"),
+              deprecationReason = None,
+              isDeprecated = false,
+              directives = None
+            ),
+            __EnumValue(
+              "PUBLIC",
+              Some("The cache is public"),
+              deprecationReason = None,
+              isDeprecated = false,
+              directives = None
+            )
+          )
+        )
+    )
+  }
+
+  case class CacheHint(
+    maxAge: Option[Duration] = None,
+    scope: Option[CacheScope] = None,
+    inheritMaxAge: Boolean = false
+  ) { self =>
+    def toHeaderString: String = {
+      val computedMaxAge = maxAge.fold(0L)(_.toSeconds)
+      val cacheable      = computedMaxAge > 0L
+      if (!cacheable) "no-store"
+      else {
+        val b = new StringBuilder()
+        b.append("max-age=")
+        b.append(computedMaxAge)
+        scope.foreach { s =>
+          b.append(", ")
+          b.append(s.toString.toLowerCase)
+        }
+        b.toString()
+      }
+    }
+  }
+
+  object CacheHint {
+    val default: CacheHint = CacheHint()
   }
 
   private case class Default[-R1](settings: CacheSettings) extends GraphQLAspect[Nothing, R1] {
@@ -165,33 +205,20 @@ object Caching {
 
     def apply[R <: R1](gql: GraphQL[R]): GraphQL[R] = {
       val wrapper = EffectfulWrapper(
-        Ref
+        cacheOverride.set(None) *> Ref
           .make(CachePolicy(CacheHint.default))
           .map(state => staticWrapper(state) |+| fieldWrapper(state) |+| overallWrapper(state))
       )
 
       gql
         .withAdditionalDirectives(cacheDirectives)
-        .withAdditionalTypes(CacheScope.schema.toType_() :: Nil)
+        .withAdditionalTypes(CacheScope._type :: Nil)
         .withWrapper(wrapper)
     }
 
     private[caliban] def cacheHintFromType(typ: __Type): Option[CacheHint] = {
       val key = typ.name.getOrElse(typ.toString)
-      Option(_typeCache.get(key)) match {
-        case Some(Some(hint)) => Some(hint)
-        case Some(None)       => None
-        case None             =>
-          typ.directives match {
-            case Some(dirs) =>
-              val hint = extractCacheDirective(dirs)
-              hint.foreach(h => _typeCache.put(key, Some(h)))
-              hint
-            case None       =>
-              _typeCache.put(key, None)
-              None
-          }
-      }
+      _typeCache.computeIfAbsent(key, _ => typ.directives.flatMap(extractCacheDirective))
     }
 
     private def staticWrapper(state: Ref[CachePolicy]): ValidationWrapper[Any] = new ValidationWrapper[Any] {
@@ -199,15 +226,18 @@ object Caching {
         f: Document => ZIO[R, CalibanError.ValidationError, ExecutionRequest]
       ): Document => ZIO[R, CalibanError.ValidationError, ExecutionRequest] = { (d: Document) =>
         f(d).flatMap { request =>
-          def loop(policy: CachePolicy, field: Field): CachePolicy = {
-            val fieldHint = extractCacheDirective(field.directives)
-            val typeHint  = field.parentType.flatMap(cacheHintFromType)
-            val newPolicy = policy.restrict(fieldHint orElse typeHint)
+          def loop(policy: CachePolicy, field: Field, parentHint: Option[CacheHint]): CachePolicy = {
+            val fieldHint   = extractCacheDirective(field.directives)
+            val isInherited = fieldHint.exists(_.inheritMaxAge)
+            val typeHint    = field.parentType.flatMap(cacheHintFromType)
+            val actualHint  = (if (isInherited) parentHint else fieldHint) orElse typeHint
 
-            field.fields.foldLeft(newPolicy)(loop)
+            val newPolicy = policy.restrict(actualHint)
+
+            field.fields.foldLeft(newPolicy)(loop(_, _, actualHint))
           }
 
-          val updated = loop(CachePolicy(CacheHint.default), request.field)
+          val updated = loop(CachePolicy(CacheHint.default), request.field, None)
 
           state.update(updated.merge).as(request)
         }
@@ -231,36 +261,41 @@ object Caching {
       override def wrap[R](
         f: GraphQLRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]]
       ): GraphQLRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]] = { (request: GraphQLRequest) =>
-        (f(request) zipWith state.get) { (response, cacheState) =>
-          val cacheControl = cacheState.hint
-          val maxAge       = cacheControl.maxAge getOrElse settings.defaultMaxAge
-          val scope        = cacheControl.scope getOrElse settings.defaultScope
-          response.copy(
-            extensions = Some(
-              ResponseValue.ObjectValue(
-                response.extensions.foldLeft[List[(String, ResponseValue)]](
-                  List(
-                    DirectiveName -> ResponseValue.ObjectValue(
-                      List(
-                        "version" -> IntValue(2),
-                        "policy"  -> ResponseValue.ObjectValue(
-                          List(
-                            MaxAgeName -> IntValue(maxAge.toSeconds),
-                            ScopeName  -> StringValue(scope.toString)
-                          )
-                        )
-                      )
-                    )
-                  )
-                )((s, extensions) => extensions.fields ++ s)
+        (f(request) zipWith state.get) {
+          case (response, cacheState) if response.errors.isEmpty =>
+            response.copy(
+              extensions = Some(
+                ObjectValue(
+                  (DirectiveName -> cacheState.toResponseValue(settings.toHeader)) :: response.extensions.fold(
+                    List.empty[(String, ResponseValue)]
+                  )(_.fields)
+                )
               )
             )
-          )
+          case (response, _)                                     => response
 
         }
       }
     }
 
+  }
+
+  private def mostRestrictive(
+    parent: CacheHint,
+    current: CacheHint
+  ): CacheHint = {
+    val scope         = List(parent.scope, current.scope).flatten.minOption
+    val shouldInherit = current.inheritMaxAge
+    val maxAge        =
+      if (shouldInherit && parent.maxAge.isDefined) parent.maxAge
+      else
+        (current.maxAge, parent.maxAge) match {
+          case (Some(a), Some(b)) => Some(a min b)
+          case (Some(a), None)    => Some(a)
+          case (None, Some(b))    => Some(b)
+          case (None, None)       => None
+        }
+    CacheHint(maxAge, scope, shouldInherit)
   }
 
   private def extractCacheDirective(directives: List[Directive]): Option[CacheHint] =

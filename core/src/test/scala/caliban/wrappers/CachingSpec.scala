@@ -1,11 +1,11 @@
 package caliban.wrappers
 
-import caliban.Value.IntValue
-import caliban.{ graphQL, ResponseValue, RootResolver, Value }
+import caliban.Value.{ IntValue, StringValue }
 import caliban.schema.Schema
 import caliban.wrappers.Caching.{ CacheHint, CacheScope, GQLCacheControl }
-import zio.{ durationInt, UIO, ZIO }
+import caliban.{ graphQL, ResponseValue, RootResolver }
 import zio.test.{ assertTrue, ZIOSpecDefault }
+import zio.{ durationInt, UIO, ZIO }
 
 object CachingSpec extends ZIOSpecDefault {
   import Fixture._
@@ -20,13 +20,8 @@ object CachingSpec extends ZIOSpecDefault {
         assertTrue(
           extensions.get == ResponseValue.ObjectValue(
             List(
-              "version" -> IntValue(2),
-              "policy"  -> ResponseValue.ObjectValue(
-                List(
-                  "maxAge" -> Value.IntValue(60),
-                  "scope"  -> Value.StringValue("PUBLIC")
-                )
-              )
+              "version"    -> IntValue(2),
+              "httpHeader" -> StringValue("max-age=60, public")
             )
           )
         )
@@ -41,13 +36,8 @@ object CachingSpec extends ZIOSpecDefault {
         assertTrue(
           extensions.get == ResponseValue.ObjectValue(
             List(
-              "version" -> IntValue(2),
-              "policy"  -> ResponseValue.ObjectValue(
-                List(
-                  "maxAge" -> Value.IntValue(60),
-                  "scope"  -> Value.StringValue("PRIVATE")
-                )
-              )
+              "version"    -> IntValue(2),
+              "httpHeader" -> StringValue("max-age=60, private")
             )
           )
         )
@@ -62,13 +52,8 @@ object CachingSpec extends ZIOSpecDefault {
         assertTrue(
           extensions.get == ResponseValue.ObjectValue(
             List(
-              "version" -> IntValue(2),
-              "policy"  -> ResponseValue.ObjectValue(
-                List(
-                  "maxAge" -> Value.IntValue(30),
-                  "scope"  -> Value.StringValue("PUBLIC")
-                )
-              )
+              "version"    -> IntValue(2),
+              "httpHeader" -> StringValue("max-age=30, public")
             )
           )
         )
@@ -83,13 +68,8 @@ object CachingSpec extends ZIOSpecDefault {
         assertTrue(
           extensions.get == ResponseValue.ObjectValue(
             List(
-              "version" -> IntValue(2),
-              "policy"  -> ResponseValue.ObjectValue(
-                List(
-                  "maxAge" -> Value.IntValue(30),
-                  "scope"  -> Value.StringValue("PRIVATE")
-                )
-              )
+              "version"    -> IntValue(2),
+              "httpHeader" -> StringValue("max-age=30, private")
             )
           )
         )
@@ -104,13 +84,8 @@ object CachingSpec extends ZIOSpecDefault {
         assertTrue(
           extensions.get == ResponseValue.ObjectValue(
             List(
-              "version" -> IntValue(2),
-              "policy"  -> ResponseValue.ObjectValue(
-                List(
-                  "maxAge" -> Value.IntValue(30),
-                  "scope"  -> Value.StringValue("PRIVATE")
-                )
-              )
+              "version"    -> IntValue(2),
+              "httpHeader" -> StringValue("max-age=30, private")
             )
           )
         )
@@ -125,13 +100,8 @@ object CachingSpec extends ZIOSpecDefault {
         assertTrue(
           extensions.get == ResponseValue.ObjectValue(
             List(
-              "version" -> IntValue(2),
-              "policy"  -> ResponseValue.ObjectValue(
-                List(
-                  "maxAge" -> Value.IntValue(30),
-                  "scope"  -> Value.StringValue("PUBLIC")
-                )
-              )
+              "version"    -> IntValue(2),
+              "httpHeader" -> StringValue("max-age=30, public")
             )
           )
         )
@@ -146,13 +116,40 @@ object CachingSpec extends ZIOSpecDefault {
         assertTrue(
           extensions.get == ResponseValue.ObjectValue(
             List(
-              "version" -> IntValue(2),
-              "policy"  -> ResponseValue.ObjectValue(
-                List(
-                  "maxAge" -> Value.IntValue(10),
-                  "scope"  -> Value.StringValue("PRIVATE")
-                )
-              )
+              "version"    -> IntValue(2),
+              "httpHeader" -> StringValue("max-age=10, private")
+            )
+          )
+        )
+      }
+    },
+    test("disable caching") {
+      val query = """query { disableCaching { field } }"""
+      for {
+        res <- api.interpreter.flatMap(_.execute(query))
+      } yield {
+        val extensions = res.extensions.flatMap(_.fields.collectFirst { case ("cacheControl", v) => v })
+        assertTrue(
+          extensions.get == ResponseValue.ObjectValue(
+            List(
+              "version"    -> IntValue(2),
+              "httpHeader" -> StringValue("no-store")
+            )
+          )
+        )
+      }
+    },
+    test("inherited fields") {
+      val query = """query { inheritedField { field { field } } }"""
+      for {
+        res <- api.interpreter.flatMap(_.execute(query))
+      } yield {
+        val extensions = res.extensions.flatMap(_.fields.collectFirst { case ("cacheControl", v) => v })
+        assertTrue(
+          extensions.get == ResponseValue.ObjectValue(
+            List(
+              "version"    -> IntValue(2),
+              "httpHeader" -> StringValue("max-age=60, public")
             )
           )
         )
@@ -195,6 +192,14 @@ object CachingSpec extends ZIOSpecDefault {
       @GQLCacheControl(maxAge = Some(1.minute), scope = Some(CacheScope.Public)) field: UIO[NestedField]
     )
 
+    case class NestedInheritedField(
+      @GQLCacheControl(None, None, inheritMaxAge = true) field: UIO[String]
+    )
+
+    case class InheritedField(
+      @GQLCacheControl(None, None, inheritMaxAge = true) field: UIO[NestedInheritedField]
+    )
+
     @GQLCacheControl(maxAge = Some(1.minute), scope = Some(CacheScope.Public))
     case class Query(
       publicCachedType: PublicCachedType,
@@ -203,7 +208,9 @@ object CachingSpec extends ZIOSpecDefault {
       privateCachedOverrideField: PrivateCachedOverrideField,
       mostRestrictiveField: MostRestrictiveField,
       mostRestrictiveNestedField: MostRestrictiveNestedField,
-      overrideField: UIO[PublicCachedType]
+      overrideField: UIO[PublicCachedType],
+      disableCaching: UIO[PublicCachedType],
+      inheritedField: InheritedField
     )
 
     implicit val querySchema: Schema[Any, Query] = Schema.auto.genAll[Any, Query]
@@ -219,7 +226,9 @@ object CachingSpec extends ZIOSpecDefault {
           MostRestrictiveNestedField(ZIO.succeed(NestedField(ZIO.succeed("mostRestrictiveNestedField")))),
           Caching.setCacheHint(CacheHint(Some(10.second), scope = Some(CacheScope.Private))) as PublicCachedType(
             ZIO.succeed("overrideField")
-          )
+          ),
+          Caching.disableCaching as PublicCachedType(ZIO.succeed("disableCaching")),
+          InheritedField(ZIO.succeed(NestedInheritedField(ZIO.succeed("inheritedField"))))
         )
       )
     ) @@ Caching.extension()
