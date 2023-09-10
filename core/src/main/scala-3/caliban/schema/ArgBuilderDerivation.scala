@@ -5,6 +5,7 @@ import caliban.{ CalibanError, InputValue }
 import caliban.Value.*
 import caliban.schema.Annotations.GQLDefault
 import caliban.schema.Annotations.GQLName
+import caliban.schema.macros.Macros
 
 import scala.deriving.Mirror
 import scala.compiletime.*
