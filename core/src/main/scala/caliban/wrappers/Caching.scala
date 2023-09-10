@@ -1,6 +1,6 @@
 package caliban.wrappers
 
-import caliban.ResponseValue.{ ListValue, ObjectValue }
+import caliban.ResponseValue.ObjectValue
 import caliban.Value._
 import caliban._
 import caliban.execution.{ ExecutionRequest, Field, FieldInfo }
@@ -52,11 +52,38 @@ object Caching {
     )
   )
 
+  def aspect[R](output: Ref[CachePolicy] => Wrapper[R]): GraphQLAspect[Nothing, R] =
+    new Default(output)
+
   /**
    * Computes the total cache policy for a query and stores it in the extensions of the response.
    * The result can then be used by http adapters to set the appropriate cache headers.
    */
-  def extension(settings: CacheSettings = CacheSettings.default): GraphQLAspect[Nothing, Any] = Default(settings)
+  def extension(settings: CacheSettings = CacheSettings.default): GraphQLAspect[Nothing, Any] = {
+    def extensionBuilder(state: Ref[CachePolicy]): OverallWrapper[Any] =
+      new OverallWrapper[Any] {
+        override def wrap[R](
+          f: GraphQLRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]]
+        ): GraphQLRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]] = { (request: GraphQLRequest) =>
+          (f(request) zipWith state.get) {
+            case (response, cacheState) if response.errors.isEmpty =>
+              response.copy(
+                extensions = Some(
+                  ObjectValue(
+                    (DirectiveName -> cacheState.toResponseValue(settings.toHeader)) :: response.extensions.fold(
+                      List.empty[(String, ResponseValue)]
+                    )(_.fields)
+                  )
+                )
+              )
+            case (response, _)                                     => response
+
+          }
+        }
+      }
+
+    aspect(extensionBuilder)
+  }
 
   /**
    * Assigns a cache hint to a field or a type
@@ -200,14 +227,14 @@ object Caching {
     val default: CacheHint = CacheHint()
   }
 
-  private case class Default[-R1](settings: CacheSettings) extends GraphQLAspect[Nothing, R1] {
+  private class Default[-R1](inner: Ref[CachePolicy] => Wrapper[R1]) extends GraphQLAspect[Nothing, R1] {
     private val _typeCache = new ConcurrentHashMap[String, Option[CacheHint]]()
 
     def apply[R <: R1](gql: GraphQL[R]): GraphQL[R] = {
       val wrapper = EffectfulWrapper(
         cacheOverride.set(None) *> Ref
           .make(CachePolicy(CacheHint.default))
-          .map(state => staticWrapper(state) |+| fieldWrapper(state) |+| overallWrapper(state))
+          .map(state => staticWrapper(state) |+| fieldWrapper(state) |+| inner(state))
       )
 
       gql
@@ -255,27 +282,6 @@ object Caching {
             case None                => ZIO.succeed(result)
           }
         }
-    }
-
-    private def overallWrapper(state: Ref[CachePolicy]): OverallWrapper[Any] = new OverallWrapper[Any] {
-      override def wrap[R](
-        f: GraphQLRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]]
-      ): GraphQLRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]] = { (request: GraphQLRequest) =>
-        (f(request) zipWith state.get) {
-          case (response, cacheState) if response.errors.isEmpty =>
-            response.copy(
-              extensions = Some(
-                ObjectValue(
-                  (DirectiveName -> cacheState.toResponseValue(settings.toHeader)) :: response.extensions.fold(
-                    List.empty[(String, ResponseValue)]
-                  )(_.fields)
-                )
-              )
-            )
-          case (response, _)                                     => response
-
-        }
-      }
     }
 
   }
