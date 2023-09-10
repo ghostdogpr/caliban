@@ -5,7 +5,7 @@ import caliban.schema.Annotations.GQLExcluded
 import scala.quoted.*
 import scala.compiletime.*
 
-private[caliban] object Macros {
+object Macros {
   // this code was inspired from WIP in magnolia
   // https://github.com/propensive/magnolia/blob/b937cf2c7dabebb8236e7e948f37a354777fa9b7/src/core/macro.scala
 
