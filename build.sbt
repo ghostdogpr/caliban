@@ -656,8 +656,8 @@ lazy val enableMimaSettingsJVM =
     mimaFailOnProblem     := enforceMimaCompatibility,
     mimaPreviousArtifacts := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
     mimaBinaryIssueFilters ++= Seq(
-      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.validation.ValueValidator.validate*"),
-      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.validation.Validator.validateFields")
+      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.validation.ValueValidator.*"),
+      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.validation.Validator.*")
     )
   )
 
