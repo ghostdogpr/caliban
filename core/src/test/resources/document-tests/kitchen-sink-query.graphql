@@ -1,0 +1,34 @@
+query {
+  id
+  name
+}
+
+mutation {
+  thatThing
+  thatThingWithArgs(input: {id: 1, name: "test"}) {
+    id
+    name
+  }
+}
+
+mutation WithArgs($args: InputType!) {
+  thatThingWithArgs(input: $args) {
+    id @include(if: false)
+    name
+    ... on SomeType @skip(if: true) {
+      someField
+    }
+    ...SomeTypeFragment
+  }
+}
+
+subscription {
+  event {
+    id
+    name
+  }
+}
+
+fragment SomeTypeFragment on SomeType {
+  someField
+}

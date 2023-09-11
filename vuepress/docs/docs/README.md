@@ -8,28 +8,28 @@ The design principles of Caliban are the following:
 
 - **pure interface**: errors and effects are returned explicitly (no exceptions thrown), all returned types are referentially transparent (no usage of `Future`).
 - **minimal amount of boilerplate**: no need to manually define a schema for every type in your API. Let the compiler do the boring work.
-- **excellent interoperability**: out-of-the-box support for major HTTP server libraries ([http4s](https://http4s.org/), [Akka HTTP](https://doc.akka.io/docs/akka-http/current/index.html), [Play](https://www.playframework.com/), [ZIO HTTP](https://github.com/dream11/zio-http)), effect types (Future, [ZIO](https://zio.dev/), [Cats Effect](https://typelevel.org/cats-effect/), [Monix](https://monix.io/)), Json libraries ([Circe](https://circe.github.io/circe/), [Jsoniter](https://github.com/plokhotnyuk/jsoniter-scala), [Play Json](https://github.com/playframework/play-json), [ZIO Json](https://github.com/zio/zio-json)), various integrations ([Apollo Tracing](https://github.com/apollographql/apollo-tracing), [Apollo Federation](https://www.apollographql.com/docs/federation/), [Tapir](https://tapir.softwaremill.com/en/latest/), etc.) and more.
+- **excellent interoperability**: out-of-the-box support for major HTTP server libraries ([http4s](https://http4s.org/), [Akka HTTP](https://doc.akka.io/docs/akka-http/current/index.html), [Pekko HTTP](https://github.com/apache/incubator-pekko-http), [Play](https://www.playframework.com/), [ZIO HTTP](https://github.com/dream11/zio-http)), effect types (Future, [ZIO](https://zio.dev/), [Cats Effect](https://typelevel.org/cats-effect/), [Monix](https://monix.io/)), Json libraries ([Circe](https://circe.github.io/circe/), [Jsoniter](https://github.com/plokhotnyuk/jsoniter-scala), [Play Json](https://github.com/playframework/play-json), [ZIO Json](https://github.com/zio/zio-json)), various integrations ([Apollo Tracing](https://github.com/apollographql/apollo-tracing), [Apollo Federation](https://www.apollographql.com/docs/federation/), [Tapir](https://tapir.softwaremill.com/en/latest/), etc.) and more.
 
 ## Dependencies
 
 To use `caliban`, add the following dependency to your `build.sbt` file:
 
 ```scala
-"com.github.ghostdogpr" %% "caliban" % "2.3.0"
+"com.github.ghostdogpr" %% "caliban" % "2.3.1"
 ```
 
 The following modules are optional:
 
 ```scala
-"com.github.ghostdogpr" %% "caliban-http4s"     % "2.3.0" // routes for http4s
-"com.github.ghostdogpr" %% "caliban-akka-http"  % "2.3.0" // routes for akka-http
-"com.github.ghostdogpr" %% "caliban-play"       % "2.3.0" // routes for play
-"com.github.ghostdogpr" %% "caliban-zio-http"   % "2.3.0" // routes for zio-http
-"com.github.ghostdogpr" %% "caliban-cats"       % "2.3.0" // interop with cats effect
-"com.github.ghostdogpr" %% "caliban-monix"      % "2.3.0" // interop with monix
-"com.github.ghostdogpr" %% "caliban-tapir"      % "2.3.0" // interop with tapir
-"com.github.ghostdogpr" %% "caliban-federation" % "2.3.0" // interop with apollo federation
-"com.github.ghostdogpr" %% "caliban-tracing"    % "2.3.0" // interop with zio-telemetry
+"com.github.ghostdogpr" %% "caliban-http4s"     % "2.3.1" // routes for http4s
+"com.github.ghostdogpr" %% "caliban-akka-http"  % "2.3.1" // routes for akka-http
+"com.github.ghostdogpr" %% "caliban-play"       % "2.3.1" // routes for play
+"com.github.ghostdogpr" %% "caliban-zio-http"   % "2.3.1" // routes for zio-http
+"com.github.ghostdogpr" %% "caliban-cats"       % "2.3.1" // interop with cats effect
+"com.github.ghostdogpr" %% "caliban-monix"      % "2.3.1" // interop with monix
+"com.github.ghostdogpr" %% "caliban-tapir"      % "2.3.1" // interop with tapir
+"com.github.ghostdogpr" %% "caliban-federation" % "2.3.1" // interop with apollo federation
+"com.github.ghostdogpr" %% "caliban-tracing"    % "2.3.1" // interop with zio-telemetry
 ```
 
 Support for JSON encoding / decoding of the inputs and responses is enabled by adding **one** of the following dependencies to your `build.sbt` file:
@@ -142,7 +142,7 @@ A `CalibanError` can be:
 - an `ExecutionError`: an error happened while executing the query
 
 Caliban itself is not tied to any web framework, you are free to expose this function using the protocol and library of your choice.
-The [caliban-http4s](https://github.com/ghostdogpr/caliban/tree/series/2.x/adapters/http4s) module provides an `Http4sAdapter` that exposes an interpreter over HTTP and WebSocket using http4s. There are also similar adapters for Akka HTTP, Play and zio-http.
+The [caliban-http4s](https://github.com/ghostdogpr/caliban/tree/series/2.x/adapters/http4s) module provides an `Http4sAdapter` that exposes an interpreter over HTTP and WebSocket using http4s. There are also similar adapters for Akka HTTP, Pekko HTTP, Play and zio-http.
 Read more on the [adapters' documentation](adapters.md).
 
 ::: tip Combining GraphQL APIs
