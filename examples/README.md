@@ -3,13 +3,14 @@
 To run the examples without the rest of the project, add this to your build.sbt:
 
 ```scala
-val calibanVersion = "2.3.0"
+val calibanVersion = "2.3.1"
 
 libraryDependencies ++= Seq(
   "com.github.ghostdogpr"         %% "caliban"                       % calibanVersion,
   "com.github.ghostdogpr"         %% "caliban-http4s"                % calibanVersion,
   "com.github.ghostdogpr"         %% "caliban-play"                  % calibanVersion,
   "com.github.ghostdogpr"         %% "caliban-akka-http"             % calibanVersion,
+  "com.github.ghostdogpr"         %% "caliban-pekko-http"            % calibanVersion,
   "com.github.ghostdogpr"         %% "caliban-zio-http"              % calibanVersion,
   "com.github.ghostdogpr"         %% "caliban-cats"                  % calibanVersion,
   "com.github.ghostdogpr"         %% "caliban-federation"            % calibanVersion,

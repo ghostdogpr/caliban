@@ -160,6 +160,11 @@ object Renderer {
       if (indent.isDefined) write.append('\n') else write.append(' ')
   }
 
+  lazy val newlineOrEmpty: Renderer[Any] = new Renderer[Any] {
+    override protected[caliban] def unsafeRender(value: Any, indent: Option[Int], write: StringBuilder): Unit =
+      if (indent.isDefined) write.append('\n')
+  }
+
   lazy val newline: Renderer[Any] = char('\n')
 
   def map[K, V](
