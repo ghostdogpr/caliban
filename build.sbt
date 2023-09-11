@@ -16,8 +16,7 @@ val http4sVersion             = "0.23.23"
 val javaTimeVersion           = "2.5.0"
 val jsoniterVersion           = "2.23.4"
 val laminextVersion           = "0.16.2"
-val magnoliaVersion           = "0.17.0"
-val mercatorVersion           = "0.2.1"
+val magnoliaVersion           = "1.1.5"
 val pekkoVersion              = "1.0.1"
 val playVersion               = "2.8.20"
 val playJsonVersion           = "2.9.4"
@@ -114,8 +113,8 @@ lazy val macros = project
         Seq.empty
       } else {
         Seq(
-          "com.propensive" %% "magnolia" % magnoliaVersion,
-          "com.propensive" %% "mercator" % mercatorVersion
+          "com.softwaremill.magnolia1_2" %% "magnolia"      % magnoliaVersion,
+          "org.scala-lang"                % "scala-reflect" % scalaVersion.value
         )
       }
     }
@@ -136,8 +135,6 @@ lazy val core = project
           Seq("org.scala-lang.modules" %% "scala-collection-compat" % "2.11.0")
         } else Seq()
         scala212Deps ++ Seq(
-          "com.propensive"    %% "magnolia"  % magnoliaVersion,
-          "com.propensive"    %% "mercator"  % mercatorVersion,
           "com.typesafe.play" %% "play-json" % playJsonVersion % Optional
         )
       }
@@ -631,12 +628,14 @@ lazy val commonSettings = Def.settings(
         "-opt-inline-from:<source>",
         "-opt-warnings",
         "-opt:l:inline",
+        "-opt:l:method",
         "-explaintypes"
       )
     case Some((2, 13)) =>
       Seq(
         "-Xlint:-byname-implicit",
-        "-explaintypes"
+        "-explaintypes",
+        "-opt:l:method"
       )
 
     case Some((3, _)) =>
@@ -655,7 +654,9 @@ lazy val enableMimaSettingsJVM =
   Def.settings(
     mimaFailOnProblem     := enforceMimaCompatibility,
     mimaPreviousArtifacts := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
-    mimaBinaryIssueFilters ++= Seq()
+    mimaBinaryIssueFilters ++= Seq(
+      ProblemFilters.exclude[Problem]("caliban.schema.*")
+    )
   )
 
 lazy val enableMimaSettingsJS =
