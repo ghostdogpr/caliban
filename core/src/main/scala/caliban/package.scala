@@ -84,10 +84,13 @@ package object caliban {
           if (hasSubscription) subscriptionSchema.toType_().name else None,
           schemaDescription
         ) ::
-          (if (hasQuery) collectTypes(querySchema.toType_()).flatMap(_.toTypeDefinition) else Nil) ++
-          (if (hasMutation) collectTypes(mutationSchema.toType_()).flatMap(_.toTypeDefinition) else Nil) ++
-          (if (hasSubscription) collectTypes(subscriptionSchema.toType_()).flatMap(_.toTypeDefinition) else Nil) ++
-          directives.map(_.toDirectiveDefinition),
+          ((if (hasQuery) collectTypes(querySchema.toType_()).flatMap(_.toTypeDefinition) else Nil)
+            ++ (if (hasMutation) collectTypes(mutationSchema.toType_()).flatMap(_.toTypeDefinition) else Nil)
+            ++ (if (hasSubscription) collectTypes(subscriptionSchema.toType_()).flatMap(_.toTypeDefinition) else Nil))
+            .groupBy(_.name)
+            .flatMap(_._2.headOption)
+            .toList
+          ++ directives.map(_.toDirectiveDefinition),
         SourceMapper.empty
       )
     )
