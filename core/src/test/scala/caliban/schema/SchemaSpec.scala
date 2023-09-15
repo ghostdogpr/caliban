@@ -262,6 +262,28 @@ object SchemaSpec extends ZIOSpecDefault {
         object schema extends GenericSchema[Env]
         import schema.auto._
         assertTrue(caliban.renderSchemaWith[Env, EnvironmentSchema, Unit, Unit]().nonEmpty)
+      },
+      test("renderSchema should not produce duplicated types") {
+        object schema extends GenericSchema[Env]
+        import schema.auto._
+        val expected = """schema {
+                         |  query: EnvironmentSchema
+                         |  mutation: Mutation
+                         |}
+                         |
+                         |type Box {
+                         |  value: Int!
+                         |}
+                         |
+                         |type EnvironmentSchema {
+                         |  test: Int
+                         |  box: Box!
+                         |}
+                         |
+                         |type Mutation {
+                         |  mutBox(value: Int!): Box!
+                         |}""".stripMargin
+        assertTrue(caliban.renderSchemaWith[Env, EnvironmentSchema, Mutation, Unit]() == expected)
       }
     )
 
@@ -270,7 +292,9 @@ object SchemaSpec extends ZIOSpecDefault {
   case class FutureFieldSchema(q: Future[Int])
   case class IDSchema(id: UUID)
   trait Env
-  case class EnvironmentSchema(test: RIO[Env, Int])
+  case class Box(value: Int)
+  case class EnvironmentSchema(test: RIO[Env, Int], box: Box)
+  case class Mutation(mutBox: Int => Box)
 
   @GQLInterface
   sealed trait MyInterface
