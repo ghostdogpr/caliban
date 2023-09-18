@@ -4,6 +4,7 @@ import caliban.GraphQLRequest.{ `apollo-federation-include-trace`, ftv1 }
 import caliban.Value.StringValue
 import caliban.interop.circe.{ IsCirceDecoder, IsCirceEncoder }
 import caliban.interop.jsoniter.IsJsoniterCodec
+import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
 import caliban.interop.tapir.IsTapirSchema
 import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
 
@@ -25,7 +26,7 @@ case class GraphQLRequest(
 
 }
 
-object GraphQLRequest extends GraphQLRequestJsonCompat {
+object GraphQLRequest {
   implicit def circeDecoder[F[_]: IsCirceDecoder]: F[GraphQLRequest]     =
     caliban.interop.circe.json.GraphQLRequestCirce.graphQLRequestDecoder.asInstanceOf[F[GraphQLRequest]]
   implicit def circeEncoder[F[_]: IsCirceEncoder]: F[GraphQLRequest]     =
@@ -38,6 +39,10 @@ object GraphQLRequest extends GraphQLRequestJsonCompat {
     caliban.interop.tapir.schema.requestSchema.asInstanceOf[F[GraphQLRequest]]
   implicit def jsoniterCodec[F[_]: IsJsoniterCodec]: F[GraphQLRequest]   =
     caliban.interop.jsoniter.GraphQLRequestJsoniter.graphQLRequestCodec.asInstanceOf[F[GraphQLRequest]]
+  implicit def playJsonReads[F[_]: IsPlayJsonReads]: F[GraphQLRequest]   =
+    caliban.interop.play.json.GraphQLRequestPlayJson.graphQLRequestReads.asInstanceOf[F[GraphQLRequest]]
+  implicit def playJsonWrites[F[_]: IsPlayJsonWrites]: F[GraphQLRequest] =
+    caliban.interop.play.json.GraphQLRequestPlayJson.graphQLRequestWrites.asInstanceOf[F[GraphQLRequest]]
 
   private[caliban] val ftv1                              = "ftv1"
   private[caliban] val `apollo-federation-include-trace` = "apollo-federation-include-trace"

@@ -19,7 +19,7 @@ val laminextVersion           = "0.16.2"
 val magnoliaVersion           = "1.1.6"
 val pekkoVersion              = "1.0.1"
 val playVersion               = "2.8.20"
-val playJsonVersion           = "2.9.4"
+val playJsonVersion           = "2.10.1"
 val scalafmtVersion           = "3.7.14"
 val sttpVersion               = "3.9.0"
 val tapirVersion              = "1.7.3"
@@ -131,11 +131,8 @@ lazy val core = project
       if (scalaVersion.value == scala3) {
         Seq()
       } else {
-        val scala212Deps = if (scalaVersion.value == scala212) {
-          Seq("org.scala-lang.modules" %% "scala-collection-compat" % "2.11.0")
-        } else Seq()
-        scala212Deps ++ Seq(
-          "com.typesafe.play" %% "play-json" % playJsonVersion % Optional
+        Seq(
+          "org.scala-lang.modules" %% "scala-collection-compat" % "2.11.0"
         )
       }
     } ++
@@ -152,7 +149,8 @@ lazy val core = project
         "io.circe"                              %% "circe-core"            % circeVersion    % Optional,
         "io.circe"                              %% "circe-parser"          % circeVersion    % Test,
         "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"   % jsoniterVersion % Optional,
-        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % Provided
+        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % Provided,
+        "com.typesafe.play"                     %% "play-json"             % playJsonVersion % Optional
       )
   )
   .dependsOn(macros)
