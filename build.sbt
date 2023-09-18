@@ -653,7 +653,16 @@ lazy val enableMimaSettingsJVM =
     mimaBinaryIssueFilters ++= Seq(
       ProblemFilters.exclude[Problem]("caliban.schema.*"),
       ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.validation.ValueValidator.*"),
-      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.validation.Validator.*")
+      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.validation.Validator.*"),
+      ProblemFilters.exclude[MissingTypesProblem]("caliban.*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.ResponseValue.*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.InputValue.*"),
+      ProblemFilters.exclude[MissingClassProblem]("caliban.GraphQLWSOutputJsonCompat"),
+      ProblemFilters.exclude[MissingClassProblem]("caliban.GraphQLWSInputJsonCompat"),
+      ProblemFilters.exclude[MissingClassProblem]("caliban.GraphQLResponseJsonCompat"),
+      ProblemFilters.exclude[MissingClassProblem]("caliban.GraphQLRequestJsonCompat"),
+      ProblemFilters.exclude[MissingClassProblem]("caliban.CalibanErrorJsonCompat"),
+      ProblemFilters.exclude[MissingClassProblem]("caliban.ValueJsonCompat")
     )
   )
 
