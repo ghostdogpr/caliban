@@ -128,12 +128,10 @@ lazy val core = project
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
-      if (scalaVersion.value == scala3) {
-        Seq()
+      if (scalaVersion.value == scala212) {
+        Seq("org.scala-lang.modules" %% "scala-collection-compat" % "2.11.0")
       } else {
-        Seq(
-          "org.scala-lang.modules" %% "scala-collection-compat" % "2.11.0"
-        )
+        Seq()
       }
     } ++
       Seq(
