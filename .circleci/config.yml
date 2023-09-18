@@ -3,11 +3,12 @@ jobs:
   lint:
     docker:
       - image: cimg/openjdk:11.0-node
+    resource_class: large
     steps:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.11 check
+      - run: sbt ++2.13.12 check
       - run: sbt ++3.3.1 check
       - save_cache:
           key: sbtcache
@@ -68,7 +69,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.11 core/test http4s/test akkaHttp/test pekkoHttp/test play/test zioHttp/test examples/compile catsInterop/compile benchmarks/compile monixInterop/compile tapirInterop/test clientJVM/test tools/test federation/test reporting/test tracing/test
+      - run: sbt ++2.13.12 core/test http4s/test akkaHttp/test pekkoHttp/test play/test zioHttp/test examples/compile catsInterop/compile benchmarks/compile monixInterop/compile tapirInterop/test clientJVM/test tools/test federation/test reporting/test tracing/test
       - save_cache:
           key: sbtcache
           paths:
@@ -99,7 +100,7 @@ jobs:
       - restore_cache:
           key: sbtcache
       - run: ./.circleci/install-native-deps.sh
-      - run: sbt ++2.13.11 clientJS/test clientLaminextJS/Test/fastLinkJS clientNative/Test/nativeLink
+      - run: sbt ++2.13.12 clientJS/test clientLaminextJS/Test/fastLinkJS clientNative/Test/nativeLink
       - save_cache:
           key: sbtcache
           paths:
@@ -125,13 +126,14 @@ jobs:
   test213_docs:
     docker:
       - image: cimg/openjdk:11.0-node
+    resource_class: large
     steps:
       - checkout
       - restore_cache:
           key: sbtcache
       - run: |
-          sbt ++2.13.11 docs/mdoc
-          sbt "++2.13.11 doc"
+          sbt ++2.13.12 docs/mdoc
+          sbt "++2.13.12 doc"
       - save_cache:
           key: sbtcache
           paths:
@@ -141,11 +143,12 @@ jobs:
   test_mima:
     docker:
       - image: cimg/openjdk:11.0-node
+    resource_class: large
     steps:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.11 http4s/mimaReportBinaryIssues akkaHttp/mimaReportBinaryIssues pekkoHttp/mimaReportBinaryIssues play/mimaReportBinaryIssues zioHttp/mimaReportBinaryIssues catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tracing/mimaReportBinaryIssues tools/mimaReportBinaryIssues core/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues
+      - run: sbt ++2.13.12 http4s/mimaReportBinaryIssues akkaHttp/mimaReportBinaryIssues pekkoHttp/mimaReportBinaryIssues play/mimaReportBinaryIssues zioHttp/mimaReportBinaryIssues catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tracing/mimaReportBinaryIssues tools/mimaReportBinaryIssues core/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues
       - run: sbt ++3.3.0 catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues zioHttp/mimaReportBinaryIssues http4s/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tracing/mimaReportBinaryIssues tools/mimaReportBinaryIssues core/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues pekkoHttp/mimaReportBinaryIssues
       - save_cache:
           key: sbtcache
