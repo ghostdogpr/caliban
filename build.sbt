@@ -128,15 +128,10 @@ lazy val core = project
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
-      if (scalaVersion.value == scala3) {
-        Seq()
+      if (scalaVersion.value == scala212) {
+        Seq("org.scala-lang.modules" %% "scala-collection-compat" % "2.11.0")
       } else {
-        val scala212Deps = if (scalaVersion.value == scala212) {
-          Seq("org.scala-lang.modules" %% "scala-collection-compat" % "2.11.0")
-        } else Seq()
-        scala212Deps ++ Seq(
-          "com.typesafe.play" %% "play-json" % playJsonVersion % Optional
-        )
+        Seq()
       }
     } ++
       Seq(
@@ -152,7 +147,8 @@ lazy val core = project
         "io.circe"                              %% "circe-core"            % circeVersion    % Optional,
         "io.circe"                              %% "circe-parser"          % circeVersion    % Test,
         "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"   % jsoniterVersion % Optional,
-        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % Provided
+        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % Provided,
+        "com.typesafe.play"                     %% "play-json"             % playJsonVersion % Optional
       )
   )
   .dependsOn(macros)
@@ -657,7 +653,16 @@ lazy val enableMimaSettingsJVM =
     mimaBinaryIssueFilters ++= Seq(
       ProblemFilters.exclude[Problem]("caliban.schema.*"),
       ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.validation.ValueValidator.*"),
-      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.validation.Validator.*")
+      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.validation.Validator.*"),
+      ProblemFilters.exclude[MissingTypesProblem]("caliban.*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.ResponseValue.*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.InputValue.*"),
+      ProblemFilters.exclude[MissingClassProblem]("caliban.GraphQLWSOutputJsonCompat"),
+      ProblemFilters.exclude[MissingClassProblem]("caliban.GraphQLWSInputJsonCompat"),
+      ProblemFilters.exclude[MissingClassProblem]("caliban.GraphQLResponseJsonCompat"),
+      ProblemFilters.exclude[MissingClassProblem]("caliban.GraphQLRequestJsonCompat"),
+      ProblemFilters.exclude[MissingClassProblem]("caliban.CalibanErrorJsonCompat"),
+      ProblemFilters.exclude[MissingClassProblem]("caliban.ValueJsonCompat")
     )
   )
 

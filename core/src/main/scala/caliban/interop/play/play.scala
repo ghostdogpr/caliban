@@ -43,7 +43,7 @@ object json {
 
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = makeScalar("Json")
     override def resolve(value: JsValue): Step[Any]                        =
-      QueryStep(ZQuery.fromZIO(ZIO.fromEither(parse(value))).map(PureStep))
+      QueryStep(ZQuery.fromZIO(ZIO.fromEither(parse(value))).map(PureStep.apply))
   }
   implicit val jsonArgBuilder: ArgBuilder[JsValue] = (input: InputValue) => Right(Json.toJson(input))
 

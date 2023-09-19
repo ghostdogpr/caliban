@@ -4,6 +4,7 @@ import caliban.ResponseValue._
 import caliban.Value._
 import caliban.interop.circe._
 import caliban.interop.jsoniter.IsJsoniterCodec
+import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
 import caliban.interop.tapir.IsTapirSchema
 import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
 
@@ -37,7 +38,7 @@ case class GraphQLResponse[+E](
     })))
 }
 
-object GraphQLResponse extends GraphQLResponseJsonCompat {
+object GraphQLResponse {
   implicit def circeEncoder[F[_]: IsCirceEncoder, E]: F[GraphQLResponse[E]]     =
     caliban.interop.circe.json.GraphQLResponseCirce.graphQLResponseEncoder.asInstanceOf[F[GraphQLResponse[E]]]
   implicit def circeDecoder[F[_]: IsCirceDecoder, E]: F[GraphQLResponse[E]]     =
@@ -50,4 +51,8 @@ object GraphQLResponse extends GraphQLResponseJsonCompat {
     caliban.interop.tapir.schema.responseSchema.asInstanceOf[F[GraphQLResponse[E]]]
   implicit def jsoniterCodec[F[_]: IsJsoniterCodec, E]: F[GraphQLResponse[E]]   =
     caliban.interop.jsoniter.GraphQLResponseJsoniter.graphQLResponseCodec.asInstanceOf[F[GraphQLResponse[E]]]
+  implicit def playJsonWrites[F[_]: IsPlayJsonWrites, E]: F[GraphQLResponse[E]] =
+    caliban.interop.play.json.GraphQLResponsePlayJson.graphQLResponseWrites.asInstanceOf[F[GraphQLResponse[E]]]
+  implicit def playJsonReads[F[_]: IsPlayJsonReads, E]: F[GraphQLResponse[E]]   =
+    caliban.interop.play.json.GraphQLResponsePlayJson.graphQLResponseReads.asInstanceOf[F[GraphQLResponse[E]]]
 }
