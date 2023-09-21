@@ -3,6 +3,7 @@ package caliban.introspection.adt
 import caliban.Value.StringValue
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{ FieldDefinition, InputValueDefinition }
 import caliban.parsing.adt.Directive
+import caliban.schema.Annotations.GQLExcluded
 
 case class __Field(
   name: String,
@@ -11,7 +12,7 @@ case class __Field(
   `type`: () => __Type,
   isDeprecated: Boolean = false,
   deprecationReason: Option[String] = None,
-  directives: Option[List[Directive]] = None
+  @GQLExcluded directives: Option[List[Directive]] = None
 ) {
   def toFieldDefinition: FieldDefinition = {
     val allDirectives = (if (isDeprecated)

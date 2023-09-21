@@ -184,6 +184,30 @@ object IntrospectionSpec extends ZIOSpecDefault {
         interpreter.flatMap(_.execute(query)).map { response =>
           assertTrue(response.data.toString == """{"__type":null}""")
         }
+      },
+      test("introspect the in introspection itself") {
+        val interpreter = graphQL(resolverIO).interpreter
+        val query       = gqldoc("""
+              query IntrospectionQuery {
+                __type(name: "__Schema") {
+                  name
+                  fields {
+                    name
+                  }
+                }
+                __schema {
+                  types {
+                    name
+                  }
+                }
+              }
+            """)
+
+        interpreter.flatMap(_.execute(query)).map { response =>
+          assertTrue(
+            response.data.toString == """{"__type":{"name":"__Schema","fields":[{"name":"description"},{"name":"queryType"},{"name":"mutationType"},{"name":"subscriptionType"},{"name":"types"},{"name":"directives"}]},"__schema":{"types":[{"name":"Boolean"},{"name":"Captain"},{"name":"CaptainShipName"},{"name":"Character"},{"name":"Engineer"},{"name":"Float"},{"name":"Int"},{"name":"Mechanic"},{"name":"Origin"},{"name":"Pilot"},{"name":"QueryIO"},{"name":"Role"},{"name":"String"},{"name":"__Directive"},{"name":"__DirectiveLocation"},{"name":"__EnumValue"},{"name":"__Field"},{"name":"__InputValue"},{"name":"__Schema"},{"name":"__Type"},{"name":"__TypeKind"}]}}"""
+          )
+        }
       }
     )
 }
