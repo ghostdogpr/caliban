@@ -236,7 +236,6 @@ object RenderingSpec extends ZIOSpecDefault {
       reparsed <- Parser.parseQuery(rendered).either
     } yield assertTrue(input == rendered, reparsed.isRight))
 
-
   @GQLOneOfInput
   sealed trait Foo
 

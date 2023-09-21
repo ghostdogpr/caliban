@@ -662,7 +662,9 @@ lazy val enableMimaSettingsJVM =
       ProblemFilters.exclude[MissingClassProblem]("caliban.GraphQLResponseJsonCompat"),
       ProblemFilters.exclude[MissingClassProblem]("caliban.GraphQLRequestJsonCompat"),
       ProblemFilters.exclude[MissingClassProblem]("caliban.CalibanErrorJsonCompat"),
-      ProblemFilters.exclude[MissingClassProblem]("caliban.ValueJsonCompat")
+      ProblemFilters.exclude[MissingClassProblem]("caliban.ValueJsonCompat"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.introspection.adt.__InputValue.*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.introspection.adt.__Type.*")
     )
   )
 

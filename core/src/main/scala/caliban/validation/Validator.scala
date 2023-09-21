@@ -887,7 +887,7 @@ object Validator {
 
     def validateFields(fields: List[__InputValue]): EReader[Any, ValidationError, Unit] =
       ZPure.foreachDiscard(fields)(validateInputValue(_, inputObjectContext)) *>
-        noDuplicateInputValueName(fields)
+        noDuplicateInputValueName(fields, inputObjectContext)
 
     def validateOneOfFields(fields: List[__InputValue]): EReader[Any, ValidationError, Unit] =
       noDuplicatedOneOfOrigin(fields) *>
