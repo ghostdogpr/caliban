@@ -24,7 +24,7 @@ import zio.test.{ Live, ZIOSpecDefault }
 import scala.language.postfixOps
 
 object PlayAdapterSpec extends ZIOSpecDefault {
-  import sttp.tapir.json.play._
+  import sttp.tapir.json.circe._
 
   private val envLayer = TestService.make(sampleCharacters) ++ Uploads.empty
 
