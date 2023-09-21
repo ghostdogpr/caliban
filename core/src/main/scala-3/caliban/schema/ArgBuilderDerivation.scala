@@ -3,8 +3,8 @@ package caliban.schema
 import caliban.CalibanError.ExecutionError
 import caliban.{ schema, CalibanError, InputValue }
 import caliban.Value.*
-import caliban.schema.macros.Macros
 import caliban.schema.Annotations.{ GQLDefault, GQLExcluded, GQLName }
+import caliban.schema.macros.Macros
 
 import scala.deriving.Mirror
 import scala.compiletime.*

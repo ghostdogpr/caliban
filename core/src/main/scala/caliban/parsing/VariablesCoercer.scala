@@ -9,6 +9,8 @@ import caliban.parsing.adt._
 import caliban.schema.RootType
 import caliban.{ GraphQLRequest, InputValue, Value }
 import zio._
+import zio.prelude.EReader
+import zio.prelude.fx.ZPure
 
 object VariablesCoercer {
   private val primitiveTypes: List[__Type] = List(
@@ -23,56 +25,69 @@ object VariablesCoercer {
     doc: Document,
     rootType: RootType,
     skipValidation: Boolean
-  )(implicit trace: Trace): IO[ValidationError, GraphQLRequest] = {
+  )(implicit trace: Trace): IO[ValidationError, GraphQLRequest] =
+    coerceVariables(req.variables.getOrElse(Map.empty), doc, rootType, skipValidation)
+      .map(m => req.copy(variables = Some(m)))
+
+  def coerceVariables(
+    variables: Map[String, InputValue],
+    doc: Document,
+    rootType: RootType,
+    skipValidation: Boolean
+  )(implicit trace: Trace): IO[ValidationError, Map[String, InputValue]] = {
     val variableDefinitions = doc.operationDefinitions.flatMap(_.variableDefinitions)
-    val variables           = req.variables.getOrElse(Map.empty)
 
-    ZIO
-      .foldLeft(variableDefinitions)(Map.empty[String, InputValue]) { case (coercedValues, definition) =>
+    // Scala 2's compiler loves inferring `ZPure.succeed` as ZPure[Nothing, Nothing, Any, R, E, A] so we help it out
+    type F[+A] = EReader[Any, ValidationError, A]
+
+    variableDefinitions
+      .foldLeft[F[List[(String, InputValue)]]](ZPure.succeed(Nil)) { case (coercedValues, definition) =>
         val variableName = definition.name
-        ZIO
-          .fromEither(isInputType(definition.variableType, rootType))
-          .mapError(e =>
-            ValidationError(
-              s"Type of variable '$variableName' $e",
-              "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
-            )
-          )
-          .unless(skipValidation) *> {
-          val value =
-            variables
-              .get(definition.name)
-              .map(inputValue =>
-                rewriteValues(
-                  inputValue,
-                  definition.variableType,
-                  rootType,
-                  s"Variable '$variableName'"
-                ).catchSome { case _ if skipValidation => ZIO.succeed(inputValue) }
+        ZPure.unless[Nothing, Unit, Any, ValidationError, Unit](skipValidation)(
+          ZPure
+            .fromEither(isInputType(definition.variableType, rootType))
+            .mapError(e =>
+              ValidationError(
+                s"Type of variable '$variableName' $e",
+                "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
               )
-              .orElse(definition.defaultValue.map(ZIO.succeed(_)))
-
-          (value, definition.variableType.nullable) match {
-            case (None, nullable) =>
-              if (skipValidation || nullable) ZIO.succeed(coercedValues)
-              else
-                ZIO.fail(
-                  ValidationError(
-                    s"Variable '$variableName' is null but is specified to be non-null.",
-                    "The value of a variable must be compatible with its type."
-                  )
+            )
+        ) *> {
+          variables
+            .get(definition.name)
+            .map[F[InputValue]](inputValue =>
+              rewriteValues(
+                inputValue,
+                definition.variableType,
+                rootType,
+                s"Variable '$variableName'"
+              ).catchSome { case _ if skipValidation => ZPure.succeed(inputValue) }
+            )
+            .orElse(definition.defaultValue.map[F[InputValue]](ZPure.succeed)) match {
+            case Some(v)                                                 =>
+              for {
+                values <- coercedValues
+                value  <- v
+              } yield (definition.name -> value) :: values
+            case _ if definition.variableType.nullable || skipValidation => coercedValues
+            case _                                                       =>
+              ZPure.fail(
+                ValidationError(
+                  s"Variable '$variableName' is null but is specified to be non-null.",
+                  "The value of a variable must be compatible with its type."
                 )
-            case (Some(v), _)     => v.map(value => coercedValues + (definition.name -> value))
+              )
           }
         }
       }
-      .map(coercedValues => req.copy(variables = Some(coercedValues)))
+      .map(_.toMap)
+      .toZIO
   }
 
   // https://spec.graphql.org/June2018/#IsInputType()
   private def isInputType(t: Type, rootType: RootType): Either[String, Unit] =
     t match {
-      case NamedType(name, nonNull)  =>
+      case NamedType(name, _)  =>
         rootType.types
           .get(name)
           .map { t =>
@@ -80,7 +95,7 @@ object VariablesCoercer {
               .map(_ => s"is not a valid input type.")
           }
           .getOrElse({ Left(s"is not a valid input type.") })
-      case ListType(ofType, nonNull) =>
+      case ListType(ofType, _) =>
         isInputType(ofType, rootType).left.map(_ => s"is not a valid input type.")
     }
 
@@ -90,7 +105,7 @@ object VariablesCoercer {
       case LIST | NON_NULL              =>
         t.ofType.fold[Either[__Type, Unit]](Left(t))(isInputType)
       case SCALAR | ENUM | INPUT_OBJECT => Right(())
-      case other                        => Left(t)
+      case _                            => Left(t)
     }
   }
 
@@ -98,17 +113,17 @@ object VariablesCoercer {
     value: InputValue,
     `type`: Type,
     rootType: RootType,
-    context: String
-  ): IO[ValidationError, InputValue] =
+    context: => String
+  ): EReader[Any, ValidationError, InputValue] =
     resolveType(rootType, `type`) match {
       case Some(typ) => coerceValues(value, typ, context)
-      case None      => ZIO.succeed(value)
+      case None      => ZPure.succeed(value)
     }
 
   private def resolveType(rootType: RootType, `type`: Type): Option[__Type] =
     `type` match {
-      case NamedType(name, nonNull)  => rootType.types.get(name)
-      case ListType(ofType, nonNull) =>
+      case NamedType(name, _)  => rootType.types.get(name)
+      case ListType(ofType, _) =>
         Some(
           __Type(
             kind = __TypeKind.LIST,
@@ -126,26 +141,44 @@ object VariablesCoercer {
   private def coerceValues(
     value: InputValue,
     typ: __Type,
-    context: String
-  ): IO[ValidationError, InputValue] =
+    context: => String // Careful not to materialize unless we need to fail!
+  ): EReader[Any, ValidationError, InputValue] =
     typ.kind match {
+      case __TypeKind.NON_NULL =>
+        value match {
+          case NullValue =>
+            ZPure.fail(
+              ValidationError(
+                s"$context $value is null, should be ${typ.toType(true)}",
+                "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
+              )
+            )
+          case _         =>
+            typ.ofType
+              .map(innerType => ZPure.suspend(coerceValues(value, innerType, context)))
+              .getOrElse(ZPure.succeed(value))
+        }
+
+      // Break early
+      case _ if value.isInstanceOf[NullValue.type] =>
+        ZPure.succeed(NullValue)
+
       case __TypeKind.INPUT_OBJECT =>
         value match {
           case InputValue.ObjectValue(fields) =>
             val defs = typ.inputFields.getOrElse(List.empty)
-            ZIO
-              .foreach(fields) { case (k, v) =>
+            ZPure
+              .foreach(fields: Iterable[(String, InputValue)]) { case (k, v) =>
                 defs
                   .find(_.name == k)
                   .map(field => coerceValues(v, field._type, s"$context at field '${field.name}'").map(k -> _))
                   .getOrElse {
-                    ZIO.fail(ValidationError(s"$context field '$k' does not exist", coercionDescription))
+                    ZPure.fail(ValidationError(s"$context field '$k' does not exist", coercionDescription))
                   }
               }
-              .map(InputValue.ObjectValue(_))
-          case NullValue                      => ZIO.succeed(NullValue)
+              .map(l => InputValue.ObjectValue(l.toMap))
           case v                              =>
-            ZIO.fail(
+            ZPure.fail(
               ValidationError(
                 s"$context cannot coerce $v to ${typ.name.getOrElse("Input Object")}",
                 coercionDescription
@@ -155,42 +188,25 @@ object VariablesCoercer {
 
       case __TypeKind.LIST =>
         typ.ofType match {
-          case None           => ZIO.succeed(value)
+          case None           => ZPure.succeed(value)
           case Some(itemType) =>
             value match {
-              case NullValue         => ZIO.succeed(NullValue)
               case ListValue(values) =>
-                ZIO
+                ZPure
                   .foreach(values.zipWithIndex) { case (value, i) =>
                     coerceValues(value, itemType, s"$context at index '$i'")
                   }
                   .map(ListValue(_))
               case v                 =>
-                coerceValues(v, itemType, context).map(iv => ListValue(List(iv)))
+                ZPure.suspend(coerceValues(v, itemType, context).map(iv => ListValue(List(iv))))
             }
-        }
-
-      case __TypeKind.NON_NULL =>
-        value match {
-          case NullValue =>
-            ZIO.fail(
-              ValidationError(
-                s"$context $value is null, should be ${typ.toType(true)}",
-                "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
-              )
-            )
-          case _         =>
-            typ.ofType
-              .map(innerType => coerceValues(value, innerType, context))
-              .getOrElse(ZIO.succeed(value))
         }
 
       case __TypeKind.ENUM =>
         value match {
-          case StringValue(value) => ZIO.succeed(Value.EnumValue(value))
-          case NullValue          => ZIO.succeed(NullValue)
+          case StringValue(value) => ZPure.succeed(Value.EnumValue(value))
           case v                  =>
-            ZIO.fail(
+            ZPure.fail(
               ValidationError(
                 s"$context with value $v cannot be coerced into ${typ.toType(false)}.",
                 coercionDescription
@@ -200,10 +216,9 @@ object VariablesCoercer {
 
       case __TypeKind.SCALAR if typ.name.contains("String") =>
         value match {
-          case NullValue      => ZIO.succeed(NullValue)
-          case v: StringValue => ZIO.succeed(v)
+          case v: StringValue => ZPure.succeed(v)
           case v              =>
-            ZIO.fail(
+            ZPure.fail(
               ValidationError(
                 s"$context with value $v cannot be coerced into String.",
                 coercionDescription
@@ -213,10 +228,9 @@ object VariablesCoercer {
 
       case __TypeKind.SCALAR if typ.name.contains("Boolean") =>
         value match {
-          case NullValue       => ZIO.succeed(NullValue)
-          case v: BooleanValue => ZIO.succeed(v)
+          case v: BooleanValue => ZPure.succeed(v)
           case v               =>
-            ZIO.fail(
+            ZPure.fail(
               ValidationError(
                 s"$context with value $v cannot be coerced into Boolean.",
                 coercionDescription
@@ -226,10 +240,9 @@ object VariablesCoercer {
 
       case __TypeKind.SCALAR if typ.name.contains("Int") =>
         value match {
-          case NullValue   => ZIO.succeed(NullValue)
-          case v: IntValue => ZIO.succeed(v)
+          case v: IntValue => ZPure.succeed(v)
           case v           =>
-            ZIO.fail(
+            ZPure.fail(
               ValidationError(
                 s"$context with value $v cannot be coerced into Int.",
                 coercionDescription
@@ -239,13 +252,12 @@ object VariablesCoercer {
 
       case __TypeKind.SCALAR if typ.name.contains("Float") =>
         value match {
-          case NullValue                    => ZIO.succeed(NullValue)
-          case v: FloatValue                => ZIO.succeed(v)
-          case IntValue.IntNumber(value)    => ZIO.succeed(Value.FloatValue(value.toDouble))
-          case IntValue.LongNumber(value)   => ZIO.succeed(Value.FloatValue(value.toDouble))
-          case IntValue.BigIntNumber(value) => ZIO.succeed(Value.FloatValue(BigDecimal(value)))
+          case v: FloatValue                => ZPure.succeed(v)
+          case IntValue.IntNumber(value)    => ZPure.succeed(Value.FloatValue(value.toDouble))
+          case IntValue.LongNumber(value)   => ZPure.succeed(Value.FloatValue(value.toDouble))
+          case IntValue.BigIntNumber(value) => ZPure.succeed(Value.FloatValue(BigDecimal(value)))
           case v                            =>
-            ZIO.fail(
+            ZPure.fail(
               ValidationError(
                 s"$context with value $v cannot be coerced into Float.",
                 coercionDescription
@@ -253,6 +265,6 @@ object VariablesCoercer {
             )
         }
       case _                                               =>
-        ZIO.succeed(value)
+        ZPure.succeed(value)
     }
 }

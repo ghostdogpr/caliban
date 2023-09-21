@@ -4,6 +4,7 @@ import scala.util.Try
 import caliban.interop.circe._
 import caliban.interop.tapir.IsTapirSchema
 import caliban.interop.jsoniter.IsJsoniterCodec
+import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
 import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
 import caliban.rendering.ValueRenderer
 import zio.stream.Stream
@@ -11,7 +12,7 @@ import zio.stream.Stream
 sealed trait InputValue { self =>
   def toInputString: String = ValueRenderer.inputValueRenderer.renderCompact(self)
 }
-object InputValue extends ValueJsonCompat {
+object InputValue       {
   case class ListValue(values: List[InputValue])          extends InputValue {
     override def toString: String      = values.mkString("[", ",", "]")
     override def toInputString: String = ValueRenderer.inputListValueRenderer.render(this)
@@ -36,6 +37,10 @@ object InputValue extends ValueJsonCompat {
     caliban.interop.zio.ValueZIOJson.inputValueDecoder.asInstanceOf[F[InputValue]]
   implicit def jsoniterCodec[F[_]: IsJsoniterCodec]: F[InputValue]             =
     caliban.interop.jsoniter.ValueJsoniter.inputValueCodec.asInstanceOf[F[InputValue]]
+  implicit def inputValuePlayJsonWrites[F[_]: IsPlayJsonWrites]: F[InputValue] =
+    caliban.interop.play.json.ValuePlayJson.inputValueWrites.asInstanceOf[F[InputValue]]
+  implicit def inputValuePlayJsonReads[F[_]: IsPlayJsonReads]: F[InputValue]   =
+    caliban.interop.play.json.ValuePlayJson.inputValueReads.asInstanceOf[F[InputValue]]
 }
 
 sealed trait ResponseValue { self =>
@@ -58,7 +63,7 @@ sealed trait ResponseValue { self =>
     case _                                                              => other
   }
 }
-object ResponseValue extends ValueJsonCompat {
+object ResponseValue {
   case class ListValue(values: List[ResponseValue])                extends ResponseValue {
     override def toString: String = ValueRenderer.responseListValueRenderer.renderCompact(this)
   }
@@ -89,6 +94,10 @@ object ResponseValue extends ValueJsonCompat {
     caliban.interop.zio.ValueZIOJson.responseValueDecoder.asInstanceOf[F[ResponseValue]]
   implicit def jsoniterCodec[F[_]: IsJsoniterCodec]: F[ResponseValue]                =
     caliban.interop.jsoniter.ValueJsoniter.responseValueCodec.asInstanceOf[F[ResponseValue]]
+  implicit def responseValuePlayJsonWrites[F[_]: IsPlayJsonWrites]: F[ResponseValue] =
+    caliban.interop.play.json.ValuePlayJson.responseValueWrites.asInstanceOf[F[ResponseValue]]
+  implicit def responseValuePlayJsonReads[F[_]: IsPlayJsonReads]: F[ResponseValue]   =
+    caliban.interop.play.json.ValuePlayJson.responseValueReads.asInstanceOf[F[ResponseValue]]
 }
 
 sealed trait Value extends InputValue with ResponseValue

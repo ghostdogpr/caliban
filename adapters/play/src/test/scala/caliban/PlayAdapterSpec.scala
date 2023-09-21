@@ -35,18 +35,18 @@ object PlayAdapterSpec extends ZIOSpecDefault {
       runtime     <- ZIO.runtime[TestService with Uploads]
       interpreter <- TestApi.api.interpreter
       router       = Router.from {
-                       case req @ POST(p"/api/graphql")    =>
+                       case req @ (GET(p"/api/graphql") | POST(p"/api/graphql")) =>
                          PlayAdapter
                            .makeHttpService(
                              HttpInterpreter(interpreter)
                                .intercept(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
                            )(runtime, mat)
                            .apply(req)
-                       case req @ POST(p"/upload/graphql") =>
+                       case req @ POST(p"/upload/graphql")                       =>
                          PlayAdapter
                            .makeHttpUploadService(HttpUploadInterpreter(interpreter))(runtime, mat, implicitly, implicitly)
                            .apply(req)
-                       case req @ GET(p"/ws/graphql")      =>
+                       case req @ GET(p"/ws/graphql")                            =>
                          PlayAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))(runtime, mat).apply(req)
                      }
       _           <- ZIO

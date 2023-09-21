@@ -4,8 +4,7 @@ import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.Value._
 import caliban.schema.Annotations.{ GQLDefault, GQLName, GQLOneOfInput }
-import magnolia._
-import mercator.Monadic
+import magnolia1._
 
 import scala.language.experimental.macros
 
@@ -25,7 +24,7 @@ trait CommonArgBuilderDerivation {
     override def map[A, B](from: EitherExecutionError[A])(fn: A => B): EitherExecutionError[B] = from.map(fn)
   }
 
-  def combine[T](ctx: CaseClass[ArgBuilder, T]): ArgBuilder[T] =
+  def join[T](ctx: CaseClass[ArgBuilder, T]): ArgBuilder[T] =
     (input: InputValue) =>
       ctx.constructMonadic { p =>
         input match {
@@ -37,7 +36,7 @@ trait CommonArgBuilderDerivation {
         }
       }
 
-  def dispatch[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] =
+  def split[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] =
     if (ctx.annotations.contains(GQLOneOfInput())) makeOneOfBuilder(ctx)
     else makeSumBuilder(ctx)
 

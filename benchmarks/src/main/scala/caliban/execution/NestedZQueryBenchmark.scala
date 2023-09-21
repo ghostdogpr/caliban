@@ -1,6 +1,7 @@
 package caliban.execution
 
 import caliban._
+import caliban.wrappers.{ ApolloTracing, Wrappers }
 import org.openjdk.jmh.annotations._
 import zio.{ Runtime, Task, Unsafe, ZLayer }
 
@@ -63,6 +64,20 @@ class NestedZQueryBenchmark {
       graphQL[Any, DeepRoot, Unit, Unit](
         RootResolver[DeepRoot](NestedZQueryBenchmarkSchema.deep10000Elements)
       ).interpreter
+    )
+
+  val metricsInterpreter: GraphQLInterpreter[Any, CalibanError] =
+    run(
+      graphQL[Any, MultifieldRoot, Unit, Unit](
+        RootResolver(NestedZQueryBenchmarkSchema.multifield1000Elements)
+      ).withWrapper(Wrappers.metrics()).interpreter
+    )
+
+  val apolloInterpreter: GraphQLInterpreter[Any, CalibanError] =
+    run(
+      graphQL[Any, MultifieldRoot, Unit, Unit](
+        RootResolver(NestedZQueryBenchmarkSchema.multifield1000Elements)
+      ).withWrapper(ApolloTracing.apolloTracing).interpreter
     )
 
   @Benchmark
@@ -255,6 +270,30 @@ class NestedZQueryBenchmark {
   @Benchmark
   def deepBatchedQuery10000(): Any = {
     val io = deep10000.execute(deepQuery).provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Batched)))
+    run(io)
+  }
+
+  @Benchmark
+  def noWrappersBenchmark(): Any = {
+    val io = multifield1000
+      .execute(multifieldQuery)
+      .provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Batched)))
+    run(io)
+  }
+
+  @Benchmark
+  def apolloTracingBenchmark(): Any = {
+    val io = apolloInterpreter
+      .execute(multifieldQuery)
+      .provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Batched)))
+    run(io)
+  }
+
+  @Benchmark
+  def metricsBenchmark(): Any = {
+    val io = metricsInterpreter
+      .execute(multifieldQuery)
+      .provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Batched)))
     run(io)
   }
 }

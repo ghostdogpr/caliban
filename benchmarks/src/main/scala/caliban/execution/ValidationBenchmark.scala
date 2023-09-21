@@ -1,7 +1,7 @@
 package caliban.execution
 
 import caliban._
-import caliban.parsing.Parser
+import caliban.parsing.{ Parser, VariablesCoercer }
 import caliban.schema.RootType
 import caliban.validation.Validator
 import org.openjdk.jmh.annotations.{
@@ -41,9 +41,10 @@ class ValidationBenchmark {
 
   import NestedZQueryBenchmarkSchema._
 
-  val parsedSimpleQuery     = run(Parser.parseQuery(simpleQuery))
-  val parsedMultifieldQuery = run(Parser.parseQuery(multifieldQuery))
-  val parsedDeepQuery       = run(Parser.parseQuery(deepQuery))
+  val parsedSimpleQuery       = run(Parser.parseQuery(simpleQuery))
+  val parsedMultifieldQuery   = run(Parser.parseQuery(multifieldQuery))
+  val parsedDeepQuery         = run(Parser.parseQuery(deepQuery))
+  val parsedDeepWithArgsQuery = run(Parser.parseQuery(deepWithArgsQuery))
 
   val simple100Type = run(
     toSchema(graphQL[Any, SimpleRoot, Unit, Unit](RootResolver(NestedZQueryBenchmarkSchema.simple100Elements)))
@@ -115,6 +116,23 @@ class ValidationBenchmark {
       )
     )
 
+  val deepWithArgs100Type  =
+    run(
+      toSchema(
+        graphQL[Any, DeepWithArgsRoot, Unit, Unit](
+          RootResolver[DeepWithArgsRoot](NestedZQueryBenchmarkSchema.deepWithArgs100Elements)
+        )
+      )
+    )
+  val deepWithArgs1000Type =
+    run(
+      toSchema(
+        graphQL[Any, DeepWithArgsRoot, Unit, Unit](
+          RootResolver[DeepWithArgsRoot](NestedZQueryBenchmarkSchema.deepWithArgs1000Elements)
+        )
+      )
+    )
+
   @Benchmark
   def simple100(): Any = {
     val io = Validator.validate(parsedSimpleQuery, simple100Type)
@@ -166,6 +184,19 @@ class ValidationBenchmark {
   @Benchmark
   def deep10000(): Any = {
     val io = Validator.validate(parsedDeepQuery, deep10000Type)
+    run(io)
+  }
+
+  @Benchmark
+  def variableCoercer100(): Any = {
+    val io = VariablesCoercer.coerceVariables(deepArgs100Elements, parsedDeepWithArgsQuery, deepWithArgs100Type, false)
+    run(io)
+  }
+
+  @Benchmark
+  def variableCoercer1000(): Any = {
+    val io =
+      VariablesCoercer.coerceVariables(deepArgs1000Elements, parsedDeepWithArgsQuery, deepWithArgs1000Type, false)
     run(io)
   }
 

@@ -16,7 +16,7 @@ import caliban.interop.tapir.{
 }
 import caliban.uploads.Uploads
 import sttp.client3.UriContext
-import sttp.tapir.json.play._
+import sttp.tapir.json.circe._
 import zio._
 import zio.test._
 

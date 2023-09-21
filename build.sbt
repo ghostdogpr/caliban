@@ -3,36 +3,37 @@ import org.scalajs.linker.interface.ModuleSplitStyle
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
 val scala212 = "2.12.18"
-val scala213 = "2.13.11"
-val scala3   = "3.3.0"
+val scala213 = "2.13.12"
+val scala3   = "3.3.1"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion               = "2.6.20"
 val catsEffect3Version        = "3.5.1"
 val catsMtlVersion            = "1.3.0"
-val circeVersion              = "0.14.5"
-val fs2Version                = "3.8.0"
+val circeVersion              = "0.14.6"
+val fs2Version                = "3.9.2"
 val http4sVersion             = "0.23.23"
 val javaTimeVersion           = "2.5.0"
-val jsoniterVersion           = "2.23.2"
+val jsoniterVersion           = "2.23.4"
 val laminextVersion           = "0.16.2"
-val magnoliaVersion           = "0.17.0"
-val mercatorVersion           = "0.2.1"
+val magnoliaVersion           = "1.1.6"
+val pekkoVersion              = "1.0.1"
 val playVersion               = "2.8.20"
-val playJsonVersion           = "2.9.4"
-val scalafmtVersion           = "3.7.12"
+val playJsonVersion           = "2.10.1"
+val scalafmtVersion           = "3.7.14"
 val sttpVersion               = "3.9.0"
-val tapirVersion              = "1.4.0"
-val zioVersion                = "2.0.15"
+val tapirVersion              = "1.7.3"
+val zioVersion                = "2.0.17"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.0.0.8"
 val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "3.0.7"
 val zqueryVersion             = "0.4.0"
-val zioJsonVersion            = "0.6.0"
+val zioJsonVersion            = "0.6.2"
 val zioHttpVersion            = "3.0.0-RC1"
+val zioHttpTapirVersion       = "1.4.0"
 val zioOpenTelemetryVersion   = "3.0.0-RC15"
-val zioPreludeVersion         = "1.0.0-RC20"
+val zioPreludeVersion         = "1.0.0-RC21"
 
 inThisBuild(
   List(
@@ -84,6 +85,7 @@ lazy val root = project
     core,
     http4s,
     akkaHttp,
+    pekkoHttp,
     play,
     zioHttp,
     catsInterop,
@@ -111,8 +113,8 @@ lazy val macros = project
         Seq.empty
       } else {
         Seq(
-          "com.propensive" %% "magnolia" % magnoliaVersion,
-          "com.propensive" %% "mercator" % mercatorVersion
+          "com.softwaremill.magnolia1_2" %% "magnolia"      % magnoliaVersion,
+          "org.scala-lang"                % "scala-reflect" % scalaVersion.value
         )
       }
     }
@@ -126,17 +128,10 @@ lazy val core = project
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
-      if (scalaVersion.value == scala3) {
-        Seq()
+      if (scalaVersion.value == scala212) {
+        Seq("org.scala-lang.modules" %% "scala-collection-compat" % "2.11.0")
       } else {
-        val scala212Deps = if (scalaVersion.value == scala212) {
-          Seq("org.scala-lang.modules" %% "scala-collection-compat" % "2.11.0")
-        } else Seq()
-        scala212Deps ++ Seq(
-          "com.propensive"    %% "magnolia"  % magnoliaVersion,
-          "com.propensive"    %% "mercator"  % mercatorVersion,
-          "com.typesafe.play" %% "play-json" % playJsonVersion % Optional
-        )
+        Seq()
       }
     } ++
       Seq(
@@ -152,7 +147,8 @@ lazy val core = project
         "io.circe"                              %% "circe-core"            % circeVersion    % Optional,
         "io.circe"                              %% "circe-parser"          % circeVersion    % Test,
         "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"   % jsoniterVersion % Optional,
-        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % Provided
+        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % Provided,
+        "com.typesafe.play"                     %% "play-json"             % playJsonVersion % Optional
       )
   )
   .dependsOn(macros)
@@ -205,7 +201,7 @@ lazy val tracing = project
       "dev.zio"         %% "zio-opentelemetry"         % zioOpenTelemetryVersion,
       "dev.zio"         %% "zio-test"                  % zioVersion % Test,
       "dev.zio"         %% "zio-test-sbt"              % zioVersion % Test,
-      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.29.0"   % Test
+      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.30.1"   % Test
     )
   )
   .dependsOn(core, tools)
@@ -319,15 +315,15 @@ lazy val http4s = project
       Seq(
         "dev.zio"                               %% "zio-interop-cats"        % zioInteropCats3Version,
         "org.typelevel"                         %% "cats-effect"             % catsEffect3Version,
-        "com.softwaremill.sttp.tapir"           %% "tapir-http4s-server-zio" % tapirVersion,
-        "com.softwaremill.sttp.tapir"           %% "tapir-json-circe"        % tapirVersion    % Test,
-        "com.softwaremill.sttp.tapir"           %% "tapir-jsoniter-scala"    % tapirVersion    % Test,
-        "org.http4s"                            %% "http4s-ember-server"     % http4sVersion   % Test,
-        "dev.zio"                               %% "zio-test"                % zioVersion      % Test,
-        "dev.zio"                               %% "zio-test-sbt"            % zioVersion      % Test,
-        "com.softwaremill.sttp.client3"         %% "circe"                   % sttpVersion     % Test,
-        "io.circe"                              %% "circe-generic"           % circeVersion    % Test,
-        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"   % jsoniterVersion % Test
+        "com.softwaremill.sttp.tapir"           %% "tapir-http4s-server-zio" % zioHttpTapirVersion,
+        "com.softwaremill.sttp.tapir"           %% "tapir-json-circe"        % zioHttpTapirVersion % Test,
+        "com.softwaremill.sttp.tapir"           %% "tapir-jsoniter-scala"    % zioHttpTapirVersion % Test,
+        "org.http4s"                            %% "http4s-ember-server"     % http4sVersion       % Test,
+        "dev.zio"                               %% "zio-test"                % zioVersion          % Test,
+        "dev.zio"                               %% "zio-test-sbt"            % zioVersion          % Test,
+        "com.softwaremill.sttp.client3"         %% "circe"                   % sttpVersion         % Test,
+        "io.circe"                              %% "circe-generic"           % circeVersion        % Test,
+        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"   % jsoniterVersion     % Test
       )
   )
   .dependsOn(core % "compile->compile;test->test", tapirInterop % "compile->compile;test->test", catsInterop)
@@ -342,9 +338,9 @@ lazy val zioHttp = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "dev.zio"                     %% "zio-http"              % zioHttpVersion,
-      "com.softwaremill.sttp.tapir" %% "tapir-zio-http-server" % tapirVersion,
-      "dev.zio"                     %% "zio-json"              % zioJsonVersion % Test,
-      "com.softwaremill.sttp.tapir" %% "tapir-json-zio"        % tapirVersion   % Test
+      "com.softwaremill.sttp.tapir" %% "tapir-zio-http-server" % zioHttpTapirVersion,
+      "dev.zio"                     %% "zio-json"              % zioJsonVersion      % Test,
+      "com.softwaremill.sttp.tapir" %% "tapir-json-zio"        % zioHttpTapirVersion % Test
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
@@ -363,8 +359,27 @@ lazy val akkaHttp = project
       "com.typesafe.akka"             %% "akka-http"                  % "10.2.10",
       "com.typesafe.akka"             %% "akka-serialization-jackson" % akkaVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-akka-http-server"     % tapirVersion,
-      "com.softwaremill.sttp.tapir"   %% "tapir-json-play"            % tapirVersion % Test,
+      "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"           % tapirVersion % Test,
       compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.2").cross(CrossVersion.full))
+    )
+  )
+  .dependsOn(core, tapirInterop % "compile->compile;test->test")
+
+lazy val pekkoHttp = project
+  .in(file("adapters/pekko-http"))
+  .settings(name := "caliban-pekko-http")
+  .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
+  .settings(
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    libraryDependencies ++= {
+      if (scalaVersion.value == scala3) Seq()
+      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
+    } ++ Seq(
+      "org.apache.pekko"            %% "pekko-http"                  % "1.0.0",
+      "org.apache.pekko"            %% "pekko-serialization-jackson" % pekkoVersion,
+      "com.softwaremill.sttp.tapir" %% "tapir-pekko-http-server"     % tapirVersion,
+      "com.softwaremill.sttp.tapir" %% "tapir-json-circe"            % tapirVersion % Test
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
@@ -490,6 +505,7 @@ lazy val examples = project
   )
   .dependsOn(
     akkaHttp,
+    pekkoHttp,
     http4s,
     catsInterop,
     play,
@@ -608,12 +624,14 @@ lazy val commonSettings = Def.settings(
         "-opt-inline-from:<source>",
         "-opt-warnings",
         "-opt:l:inline",
+        "-opt:l:method",
         "-explaintypes"
       )
     case Some((2, 13)) =>
       Seq(
         "-Xlint:-byname-implicit",
-        "-explaintypes"
+        "-explaintypes",
+        "-opt:l:method"
       )
 
     case Some((3, _)) =>
@@ -632,7 +650,20 @@ lazy val enableMimaSettingsJVM =
   Def.settings(
     mimaFailOnProblem     := enforceMimaCompatibility,
     mimaPreviousArtifacts := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
-    mimaBinaryIssueFilters ++= Seq()
+    mimaBinaryIssueFilters ++= Seq(
+      ProblemFilters.exclude[Problem]("caliban.schema.*"),
+      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.validation.ValueValidator.*"),
+      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.validation.Validator.*"),
+      ProblemFilters.exclude[MissingTypesProblem]("caliban.*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.ResponseValue.*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.InputValue.*"),
+      ProblemFilters.exclude[MissingClassProblem]("caliban.GraphQLWSOutputJsonCompat"),
+      ProblemFilters.exclude[MissingClassProblem]("caliban.GraphQLWSInputJsonCompat"),
+      ProblemFilters.exclude[MissingClassProblem]("caliban.GraphQLResponseJsonCompat"),
+      ProblemFilters.exclude[MissingClassProblem]("caliban.GraphQLRequestJsonCompat"),
+      ProblemFilters.exclude[MissingClassProblem]("caliban.CalibanErrorJsonCompat"),
+      ProblemFilters.exclude[MissingClassProblem]("caliban.ValueJsonCompat")
+    )
   )
 
 lazy val enableMimaSettingsJS =

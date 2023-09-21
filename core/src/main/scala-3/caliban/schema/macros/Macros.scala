@@ -4,7 +4,7 @@ import caliban.schema.Annotations.{ GQLExcluded, GQLOneOfInput }
 
 import scala.quoted.*
 
-private[caliban] object Macros {
+object Macros {
   // this code was inspired from WIP in magnolia
   // https://github.com/propensive/magnolia/blob/b937cf2c7dabebb8236e7e948f37a354777fa9b7/src/core/macro.scala
 
@@ -16,7 +16,7 @@ private[caliban] object Macros {
   inline def implicitExists[T]: Boolean                     = ${ implicitExistsImpl[T] }
   inline def hasOneOfInputAnnotation[P]: Boolean            = ${ hasOneOfInputAnnotationImpl[P] }
 
-  def annotationsImpl[T: Type](using qctx: Quotes): Expr[List[Any]] = {
+  private def annotationsImpl[T: Type](using qctx: Quotes): Expr[List[Any]] = {
     import qctx.reflect.*
     val tpe = TypeRepr.of[T]
     Expr.ofList {
@@ -26,7 +26,7 @@ private[caliban] object Macros {
     }
   }
 
-  def paramAnnotationsImpl[T: Type](using qctx: Quotes): Expr[List[(String, List[Any])]] = {
+  private def paramAnnotationsImpl[T: Type](using qctx: Quotes): Expr[List[(String, List[Any])]] = {
     import qctx.reflect.*
     val tpe = TypeRepr.of[T]
     Expr.ofList {
@@ -39,7 +39,7 @@ private[caliban] object Macros {
     }
   }
 
-  def typeInfoImpl[T: Type](using qctx: Quotes): Expr[TypeInfo] = {
+  private def typeInfoImpl[T: Type](using qctx: Quotes): Expr[TypeInfo] = {
     import qctx.reflect.*
 
     def normalizedName(s: Symbol): String = if (s.flags.is(Flags.Module)) s.name.stripSuffix("$") else s.name
@@ -67,7 +67,7 @@ private[caliban] object Macros {
   /**
    * Tests whether type argument [[FieldT]] in [[Parent]] is annotated with [[GQLExcluded]]
    */
-  def isFieldExcludedImpl[Parent: Type, FieldT: Type](using qctx: Quotes): Expr[Boolean] = {
+  private def isFieldExcludedImpl[Parent: Type, FieldT: Type](using qctx: Quotes): Expr[Boolean] = {
     import qctx.reflect.*
     Expr(TypeRepr.of[Parent].typeSymbol.primaryConstructor.paramSymss.flatten.exists { v =>
       Type.valueOfConstant[FieldT].map(_ == v.name).getOrElse(false)
@@ -75,15 +75,15 @@ private[caliban] object Macros {
     })
   }
 
-  def implicitExistsImpl[T: Type](using q: Quotes): Expr[Boolean] = {
-    import quotes.reflect._
+  private def implicitExistsImpl[T: Type](using q: Quotes): Expr[Boolean] = {
+    import quotes.reflect.*
     Implicits.search(TypeRepr.of[T]) match {
       case _: ImplicitSearchSuccess => Expr(true)
       case _: ImplicitSearchFailure => Expr(false)
     }
   }
 
-  def isEnumFieldImpl[P: Type, T: Type](using q: Quotes): Expr[Boolean] = {
+  private def isEnumFieldImpl[P: Type, T: Type](using q: Quotes): Expr[Boolean] = {
     import q.reflect.*
     Expr(TypeRepr.of[P].typeSymbol.flags.is(Flags.Enum) && TypeRepr.of[T].typeSymbol.flags.is(Flags.Enum))
   }

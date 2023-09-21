@@ -25,6 +25,7 @@ import zio.prelude._
 import zio.prelude.fx.ZPure
 
 import scala.annotation.tailrec
+import scala.collection.mutable
 
 object Validator {
 
@@ -102,9 +103,9 @@ object Validator {
   ): IO[ValidationError, ExecutionRequest] = {
     val fragments: EReader[Any, ValidationError, Map[String, FragmentDefinition]] = if (skipValidation) {
       ZPure.succeed[Unit, Map[String, FragmentDefinition]](
-        collectDefinitions(document)._2.foldLeft(Map.empty[String, FragmentDefinition]) { case (m, f) =>
-          m.updated(f.name, f)
-        }
+        collectDefinitions(document)._2
+          .foldLeft(List.empty[(String, FragmentDefinition)]) { case (l, f) => (f.name, f) :: l }
+          .toMap
       )
     } else check(document, rootType, variables, validations)
 
@@ -190,10 +191,12 @@ object Validator {
     }
 
   private def collectVariablesUsed(context: Context, selectionSet: List[Selection]): Set[String] = {
-    def collectValues(selectionSet: List[Selection]): List[InputValue] = {
+    def collectValues(
+      builder: mutable.Builder[InputValue, List[InputValue]],
+      selectionSet: List[Selection]
+    ): mutable.Builder[InputValue, List[InputValue]] = {
       // ugly mutable code but it's worth it for the speed ;)
-      val inputValues                     = List.newBuilder[InputValue]
-      def add(list: Iterable[InputValue]) = if (list.nonEmpty) inputValues ++= list
+      def add(list: Iterable[InputValue]) = if (list.nonEmpty) builder ++= list
 
       selectionSet.foreach {
         case FragmentSpread(name, directives)                    =>
@@ -202,30 +205,34 @@ object Validator {
             .get(name)
             .foreach { f =>
               f.directives.foreach(d => add(d.arguments.values))
-              add(collectValues(f.selectionSet))
+              collectValues(builder, f.selectionSet)
             }
         case Field(_, _, arguments, directives, selectionSet, _) =>
           add(arguments.values)
           directives.foreach(d => add(d.arguments.values))
-          add(collectValues(selectionSet))
+          collectValues(builder, selectionSet)
         case InlineFragment(_, directives, selectionSet)         =>
           directives.foreach(d => add(d.arguments.values))
-          add(collectValues(selectionSet))
+          collectValues(builder, selectionSet)
       }
-      inputValues.result()
+      builder
     }
 
-    def collectVariableValues(values: List[InputValue]): List[VariableValue] =
-      values.flatMap {
-        case InputValue.ListValue(values)   => collectVariableValues(values)
-        case InputValue.ObjectValue(fields) => collectVariableValues(fields.values.toList)
-        case v: VariableValue               => List(v)
-        case _: Value                       => List()
+    def collectVariableValues(
+      builder: mutable.Builder[String, Set[String]],
+      values: List[InputValue]
+    ): mutable.Builder[String, Set[String]] = {
+      values.foreach {
+        case InputValue.ListValue(values)   => collectVariableValues(builder, values)
+        case InputValue.ObjectValue(fields) => collectVariableValues(builder, fields.values.toList)
+        case v: VariableValue               => builder += v.name
+        case _                              => ()
       }
+      builder
+    }
 
-    val allValues = collectValues(selectionSet)
-    val varValues = collectVariableValues(allValues)
-    varValues.map(_.name).toSet
+    val allValues = collectValues(List.newBuilder, selectionSet).result()
+    collectVariableValues(Set.newBuilder, allValues).result()
   }
 
   private def collectSelectionSets(selectionSet: List[Selection]): List[Selection] = {
@@ -313,7 +320,7 @@ object Validator {
     for {
       directives <- collectAllDirectives(context)
       _          <- ZPure.foreachDiscard(directives) { case (d, location) =>
-                      (Introspector.directives ++ context.rootType.additionalDirectives).find(_.name == d.name) match {
+                      (context.rootType.additionalDirectives ::: Introspector.directives).find(_.name == d.name) match {
                         case None            =>
                           failValidation(
                             s"Directive '${d.name}' is not supported.",
@@ -584,7 +591,7 @@ object Validator {
     inputValue: __InputValue,
     argValue: InputValue,
     context: Context,
-    errorContext: String
+    errorContext: => String
   ): EReader[Any, ValidationError, Unit] = {
     val t           = inputValue._type
     val inputType   = if (t.kind == __TypeKind.NON_NULL) t.ofType.getOrElse(t) else t
@@ -858,11 +865,14 @@ object Validator {
     }
 
   private[caliban] def validateInputObject(t: __Type): EReader[Any, ValidationError, Unit] = {
-    val inputObjectContext = s"""${if (t._isOneOfInput) "OneOf " else ""}InputObject '${t.name.getOrElse("")}'"""
+    lazy val inputObjectContext = s"""${if (t._isOneOfInput) "OneOf " else ""}InputObject '${t.name.getOrElse("")}'"""
 
-    def noDuplicateInputValueName(inputValues: List[__InputValue]): EReader[Any, ValidationError, Unit] = {
-      val messageBuilder = (i: __InputValue) => s"$inputObjectContext has repeated fields: ${i.name}"
-      val explanatory    =
+    def noDuplicateInputValueName(
+      inputValues: List[__InputValue],
+      errorContext: => String
+    ): EReader[Any, ValidationError, Unit] = {
+      val messageBuilder = (i: __InputValue) => s"$errorContext has repeated fields: ${i.name}"
+      def explanatory    =
         "The input field must have a unique name within that Input Object type; no two input fields may share the same name"
       noDuplicateName[__InputValue](inputValues, _.name, messageBuilder, explanatory)
     }
@@ -904,9 +914,9 @@ object Validator {
 
   private[caliban] def validateInputValue(
     inputValue: __InputValue,
-    errorContext: String
+    errorContext: => String
   ): EReader[Any, ValidationError, Unit] = {
-    val fieldContext = s"InputValue '${inputValue.name}' of $errorContext"
+    lazy val fieldContext = s"InputValue '${inputValue.name}' of $errorContext"
     for {
       _ <- ValueValidator.validateDefaultValue(inputValue, fieldContext)
       _ <- checkName(inputValue.name, fieldContext)
@@ -915,7 +925,7 @@ object Validator {
   }
 
   private[caliban] def validateInterface(t: __Type): EReader[Any, ValidationError, Unit] = {
-    val interfaceContext = s"Interface '${t.name.getOrElse("")}'"
+    lazy val interfaceContext = s"Interface '${t.name.getOrElse("")}'"
 
     t.allFields match {
       case Nil    =>
@@ -973,7 +983,7 @@ object Validator {
         }
 
         ZPure.foreachDiscard(objectFields) { objField =>
-          val fieldContext = s"Field '${objField.name}'"
+          lazy val fieldContext = s"Field '${objField.name}'"
 
           supertypeFields.find(_.name == objField.name) match {
             case None             => ZPure.unit
@@ -1036,7 +1046,7 @@ object Validator {
   private def isListField(field: __Field) =
     field._type.kind == __TypeKind.LIST
 
-  private[caliban] def onlyInputType(`type`: __Type, errorContext: String): EReader[Any, ValidationError, Unit] = {
+  private[caliban] def onlyInputType(`type`: __Type, errorContext: => String): EReader[Any, ValidationError, Unit] = {
     // https://spec.graphql.org/June2018/#IsInputType()
     def isInputType(t: __Type): Either[__Type, Unit] = {
       import __TypeKind._
@@ -1057,10 +1067,10 @@ object Validator {
     }
   }
 
-  private[caliban] def validateFields(fields: List[__Field], context: String): EReader[Any, ValidationError, Unit] =
+  private[caliban] def validateFields(fields: List[__Field], context: => String): EReader[Any, ValidationError, Unit] =
     noDuplicateFieldName(fields, context) <*
       ZPure.foreachDiscard(fields) { field =>
-        val fieldContext = s"Field '${field.name}' of $context"
+        lazy val fieldContext = s"Field '${field.name}' of $context"
         for {
           _ <- checkName(field.name, fieldContext)
           _ <- onlyOutputType(field._type, fieldContext)
@@ -1068,14 +1078,14 @@ object Validator {
         } yield ()
       }
 
-  private[caliban] def noDuplicateFieldName(fields: List[__Field], errorContext: String) = {
+  private[caliban] def noDuplicateFieldName(fields: List[__Field], errorContext: => String) = {
     val messageBuilder = (f: __Field) => s"$errorContext has repeated fields: ${f.name}"
-    val explanatory    =
+    def explanatory    =
       "The field must have a unique name within that Interface type; no two fields may share the same name"
     noDuplicateName[__Field](fields, _.name, messageBuilder, explanatory)
   }
 
-  private[caliban] def onlyOutputType(`type`: __Type, errorContext: String): EReader[Any, ValidationError, Unit] = {
+  private[caliban] def onlyOutputType(`type`: __Type, errorContext: => String): EReader[Any, ValidationError, Unit] = {
     // https://spec.graphql.org/June2018/#IsOutputType()
     def isOutputType(t: __Type): Either[__Type, Unit] = {
       import __TypeKind._
@@ -1100,7 +1110,7 @@ object Validator {
     listOfNamed: List[T],
     nameExtractor: T => String,
     messageBuilder: T => String,
-    explanatoryText: String
+    explanatoryText: => String
   ): EReader[Any, ValidationError, Unit] =
     listOfNamed
       .groupBy(nameExtractor(_))
@@ -1109,7 +1119,7 @@ object Validator {
         failValidation(messageBuilder(duplicate), explanatoryText)
       )
 
-  private[caliban] def checkName(name: String, fieldContext: String): EReader[Any, ValidationError, Unit] =
+  private[caliban] def checkName(name: String, fieldContext: => String): EReader[Any, ValidationError, Unit] =
     ZPure
       .fromEither(Parser.parseName(name).unit)
       .mapError(e =>
@@ -1121,7 +1131,7 @@ object Validator {
 
   private[caliban] def doesNotStartWithUnderscore(
     name: String,
-    errorContext: String
+    errorContext: => String
   ): EReader[Any, ValidationError, Unit] =
     ZPure
       .when(name.startsWith("__"))(
@@ -1188,13 +1198,16 @@ object Validator {
 
   private def validateDirectives(types: List[__Type]): EReader[Any, ValidationError, Unit] = {
 
-    def validateArguments(args: Map[String, InputValue], errorContext: String): EReader[Any, ValidationError, Unit] = {
+    def validateArguments(
+      args: Map[String, InputValue],
+      errorContext: => String
+    ): EReader[Any, ValidationError, Unit] = {
       val argumentErrorContextBuilder = (name: String) => s"Argument '$name' of $errorContext"
       ZPure.foreachDiscard(args.keys)(argName => checkName(argName, argumentErrorContextBuilder(argName)))
     }
 
-    def validateDirective(directive: Directive, errorContext: String) = {
-      val directiveErrorContext = s"Directive '${directive.name}' of $errorContext"
+    def validateDirective(directive: Directive, errorContext: => String) = {
+      lazy val directiveErrorContext = s"Directive '${directive.name}' of $errorContext"
 
       checkName(directive.name, directiveErrorContext) *>
         validateArguments(directive.arguments, directiveErrorContext)
@@ -1202,13 +1215,13 @@ object Validator {
 
     def validateDirectives(
       directives: Option[List[Directive]],
-      errorContext: String
+      errorContext: => String
     ): EReader[Any, ValidationError, Unit] =
       ZPure.foreachDiscard(directives.getOrElse(List.empty))(validateDirective(_, errorContext))
 
     def validateInputValueDirectives(
       inputValues: List[__InputValue],
-      errorContext: String
+      errorContext: => String
     ): EReader[Any, ValidationError, Unit] = {
       val inputValueErrorContextBuilder = (name: String) => s"InputValue '$name' of $errorContext"
       ZPure.foreachDiscard(inputValues)(iv => validateDirectives(iv.directives, inputValueErrorContextBuilder(iv.name)))
@@ -1216,15 +1229,15 @@ object Validator {
 
     def validateFieldDirectives(
       field: __Field,
-      errorContext: String
+      errorContext: => String
     ): EReader[Any, ValidationError, Unit] = {
-      val fieldErrorContext = s"Field '${field.name}' of $errorContext"
+      lazy val fieldErrorContext = s"Field '${field.name}' of $errorContext"
       validateDirectives(field.directives, fieldErrorContext) *>
         validateInputValueDirectives(field.args, fieldErrorContext)
     }
 
     ZPure.foreachDiscard(types) { t =>
-      val typeErrorContext = s"Type '${t.name.getOrElse("")}'"
+      lazy val typeErrorContext = s"Type '${t.name.getOrElse("")}'"
       for {
         _ <- validateDirectives(t.directives, typeErrorContext)
         _ <- validateInputValueDirectives(t.inputFields.getOrElse(List.empty[__InputValue]), typeErrorContext)
