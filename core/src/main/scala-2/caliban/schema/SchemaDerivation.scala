@@ -6,7 +6,7 @@ import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
 import caliban.schema.Step.{ PureStep => _, _ }
 import caliban.schema.Types._
-import magnolia._
+import magnolia1._
 
 import scala.language.experimental.macros
 
@@ -35,7 +35,7 @@ trait CommonSchemaDerivation[R] {
       case _                  => false
     }
 
-  def combine[T](ctx: ReadOnlyCaseClass[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
+  def join[T](ctx: ReadOnlyCaseClass[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
       if ((ctx.isValueClass || isValueType(ctx)) && ctx.parameters.nonEmpty) {
         if (isScalarValueType(ctx)) makeScalar(getName(ctx), getDescription(ctx))
@@ -85,6 +85,8 @@ trait CommonSchemaDerivation[R] {
           Some(ctx.typeName.full)
         )
 
+    override private[schema] def resolveFieldLazily: Boolean = !ctx.isObject
+
     override def resolve(value: T): Step[R] =
       if (ctx.isObject) PureStep(EnumValue(getName(ctx)))
       else if ((ctx.isValueClass || isValueType(ctx)) && ctx.parameters.nonEmpty) {
@@ -92,12 +94,18 @@ trait CommonSchemaDerivation[R] {
         head.typeclass.resolve(head.dereference(value))
       } else {
         val fields = Map.newBuilder[String, Step[R]]
-        ctx.parameters.foreach(p => fields += getName(p) -> p.typeclass.resolve(p.dereference(value)))
+        ctx.parameters.foreach(p =>
+          fields += getName(p) -> {
+            lazy val step = p.typeclass.resolve(p.dereference(value))
+            if (p.typeclass.resolveFieldLazily) FunctionStep(_ => step)
+            else step
+          }
+        )
         ObjectStep(getName(ctx), fields.result())
       }
   }
 
-  def dispatch[T](ctx: SealedTrait[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
+  def split[T](ctx: SealedTrait[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
       val subtypes    =
         ctx.subtypes
@@ -195,7 +203,7 @@ trait CommonSchemaDerivation[R] {
       }
 
     override def resolve(value: T): Step[R] =
-      ctx.dispatch(value)(subType => subType.typeclass.resolve(subType.cast(value)))
+      ctx.split(value)(subType => subType.typeclass.resolve(subType.cast(value)))
   }
 
   private def getDirectives(annotations: Seq[Any]): List[Directive] =

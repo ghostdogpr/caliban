@@ -3,13 +3,14 @@ package caliban.introspection.adt
 import caliban.Value.StringValue
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.EnumValueDefinition
 import caliban.parsing.adt.Directive
+import caliban.schema.Annotations.GQLExcluded
 
 case class __EnumValue(
   name: String,
   description: Option[String],
   isDeprecated: Boolean,
   deprecationReason: Option[String],
-  directives: Option[List[Directive]]
+  @GQLExcluded directives: Option[List[Directive]]
 ) {
   def toEnumValueDefinition: EnumValueDefinition =
     EnumValueDefinition(

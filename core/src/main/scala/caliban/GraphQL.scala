@@ -80,14 +80,13 @@ trait GraphQL[-R] { self =>
 
       val introWrappers                               = wrappers.collect { case w: IntrospectionWrapper[R] => w }
       lazy val introspectionRootSchema: RootSchema[R] = Introspector.introspect(rootType, introWrappers)
-      lazy val introspectionRootType: RootType        = RootType(introspectionRootSchema.query.opType, None, None)
 
       new GraphQLInterpreter[R, CalibanError] {
         override def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
           for {
             document      <- Parser.parseQuery(query)
             intro          = Introspector.isIntrospection(document)
-            typeToValidate = if (intro) introspectionRootType else rootType
+            typeToValidate = if (intro) Introspector.introspectionRootType else rootType
             _             <- Validator.validate(document, typeToValidate)
           } yield ()
 
@@ -107,9 +106,10 @@ trait GraphQL[-R] { self =>
                   _                                    <- ZIO.when(intro && !enableIntrospection) {
                                                             ZIO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
                                                           }
-                  typeToValidate                        = if (intro) introspectionRootType else rootType
+                  typeToValidate                        = if (intro) Introspector.introspectionRootType else rootType
                   schemaToExecute                       = if (intro) introspectionRootSchema else schema
-                  validatedReq                         <- VariablesCoercer.coerceVariables(request, doc, typeToValidate, skipValidation)
+                  unsafeVars                            = request.variables.getOrElse(Map.empty)
+                  coercedVars                          <- VariablesCoercer.coerceVariables(unsafeVars, doc, typeToValidate, skipValidation)
                   validate                              = (doc: Document) =>
                                                             for {
                                                               config       <- Configurator.configuration
@@ -117,8 +117,8 @@ trait GraphQL[-R] { self =>
                                                                                 doc,
                                                                                 typeToValidate,
                                                                                 schemaToExecute,
-                                                                                validatedReq.operationName,
-                                                                                validatedReq.variables.getOrElse(Map.empty),
+                                                                                request.operationName,
+                                                                                coercedVars,
                                                                                 config.skipValidation,
                                                                                 config.validations
                                                                               )

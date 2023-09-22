@@ -5,6 +5,7 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt.{ Directive, Type }
+import caliban.schema.Annotations.GQLExcluded
 import caliban.schema.Types
 
 case class __Type(
@@ -18,8 +19,8 @@ case class __Type(
   inputFields: Option[List[__InputValue]] = None,
   ofType: Option[__Type] = None,
   specifiedBy: Option[String] = None,
-  directives: Option[List[Directive]] = None,
-  origin: Option[String] = None
+  @GQLExcluded directives: Option[List[Directive]] = None,
+  @GQLExcluded origin: Option[String] = None
 ) { self =>
   def |+|(that: __Type): __Type = __Type(
     kind,

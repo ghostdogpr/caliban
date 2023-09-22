@@ -1,6 +1,8 @@
 import caliban.execution.Feature
 import caliban.introspection.adt.__Directive
-import caliban.parsing.adt.Directive
+import caliban.parsing.SourceMapper
+import caliban.parsing.adt.Definition.TypeSystemDefinition.SchemaDefinition
+import caliban.parsing.adt.{ Directive, Document }
 import caliban.rendering.DocumentRenderer
 import caliban.schema.Types.collectTypes
 import caliban.schema._
@@ -52,4 +54,47 @@ package object caliban {
    */
   def renderWith[R, T](implicit schema: Schema[R, T]): String =
     DocumentRenderer.typesRenderer.render(collectTypes(schema.toType_(), Nil))
+
+  /**
+   * Returns a string that renders the given schema into the GraphQL SDL.
+   */
+  def renderSchema[Q, M, S](
+    directives: List[__Directive] = Nil,
+    schemaDirectives: List[Directive] = Nil,
+    schemaDescription: Option[String] = None
+  )(implicit querySchema: Schema[Any, Q], mutationSchema: Schema[Any, M], subscriptionSchema: Schema[Any, S]): String =
+    renderSchemaWith[Any, Q, M, S](directives, schemaDirectives, schemaDescription)
+
+  /**
+   * Returns a string that renders the given schema into the GraphQL SDL.
+   * This variant of the method allows specifying the environment type when it's not `Any`.
+   */
+  def renderSchemaWith[R, Q, M, S](
+    directives: List[__Directive] = Nil,
+    schemaDirectives: List[Directive] = Nil,
+    schemaDescription: Option[String] = None
+  )(implicit querySchema: Schema[R, Q], mutationSchema: Schema[R, M], subscriptionSchema: Schema[R, S]): String = {
+    val hasQuery        = querySchema.toType_().allFields.nonEmpty
+    val hasMutation     = mutationSchema.toType_().allFields.nonEmpty
+    val hasSubscription = subscriptionSchema.toType_().allFields.nonEmpty
+    DocumentRenderer.render(
+      Document(
+        SchemaDefinition(
+          schemaDirectives,
+          if (hasQuery) querySchema.toType_().name else None,
+          if (hasMutation) mutationSchema.toType_().name else None,
+          if (hasSubscription) subscriptionSchema.toType_().name else None,
+          schemaDescription
+        ) ::
+          ((if (hasQuery) collectTypes(querySchema.toType_()).flatMap(_.toTypeDefinition) else Nil)
+            ++ (if (hasMutation) collectTypes(mutationSchema.toType_()).flatMap(_.toTypeDefinition) else Nil)
+            ++ (if (hasSubscription) collectTypes(subscriptionSchema.toType_()).flatMap(_.toTypeDefinition) else Nil))
+            .groupBy(_.name)
+            .flatMap(_._2.headOption)
+            .toList
+          ++ directives.map(_.toDirectiveDefinition),
+        SourceMapper.empty
+      )
+    )
+  }
 }

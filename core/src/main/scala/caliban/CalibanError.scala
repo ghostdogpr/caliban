@@ -4,6 +4,7 @@ import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ IntValue, StringValue }
 import caliban.interop.circe.{ IsCirceDecoder, IsCirceEncoder }
 import caliban.interop.jsoniter.IsJsoniterCodec
+import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
 import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
 import caliban.parsing.adt.LocationInfo
 
@@ -17,7 +18,7 @@ sealed trait CalibanError extends Throwable with Product with Serializable {
   def toResponseValue: ResponseValue
 }
 
-object CalibanError extends CalibanErrorJsonCompat {
+object CalibanError {
 
   /**
    * Describes an error that happened while parsing a query.
@@ -103,4 +104,9 @@ object CalibanError extends CalibanErrorJsonCompat {
 
   implicit def jsoniterCodec[F[_]](implicit ev: IsJsoniterCodec[F]): F[CalibanError] =
     caliban.interop.jsoniter.ErrorJsoniter.errorValueCodec.asInstanceOf[F[CalibanError]]
+
+  implicit def playJsonWrites[F[_]](implicit ev: IsPlayJsonWrites[F]): F[CalibanError] =
+    caliban.interop.play.json.ErrorPlayJson.errorValueWrites.asInstanceOf[F[CalibanError]]
+  implicit def playJsonReads[F[_]](implicit ev: IsPlayJsonReads[F]): F[CalibanError]   =
+    caliban.interop.play.json.ErrorPlayJson.errorValueReads.asInstanceOf[F[CalibanError]]
 }
