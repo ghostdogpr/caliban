@@ -41,7 +41,7 @@ object Gateway extends ZIOAppDefault {
       }
     )
     .transform(Transformer.FilterField { case ("Query", "bookSells") => false })
-    .transform(Transformer.RenameType { case "authors_v1_Author" => "Author" })
+    .transform(Transformer.RenameType("authors_v1_Author", "Author"))
 
   def run: Task[Unit] =
     gateway.toGraphQL
