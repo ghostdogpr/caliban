@@ -12,7 +12,12 @@ trait Transformer[-R] {
 }
 
 object Transformer {
-  case class RenameType(f: PartialFunction[String, String])                        extends Transformer[Any] {
+
+  /**
+   * A transformer that allows renaming types.
+   * @param f a partial function that takes a type name and returns a new name for that type
+   */
+  case class RenameType(f: PartialFunction[String, String]) extends Transformer[Any] {
     private def rename(name: String): String = f.lift(name).getOrElse(name)
 
     val typeVisitor: TypeVisitor =
@@ -23,7 +28,12 @@ object Transformer {
       f.lift(name).map(ObjectStep(_, fields)).getOrElse(step)
     }
   }
-  case class RenameField(f: PartialFunction[(String, String), String])             extends Transformer[Any] {
+
+  /**
+   * A transformer that allows renaming fields.
+   * @param f a partial function that takes a type name and a field name and returns a new name for that field
+   */
+  case class RenameField(f: PartialFunction[(String, String), String]) extends Transformer[Any] {
     val typeVisitor: TypeVisitor =
       TypeVisitor.fields.modifyWith((t, field) =>
         field.copy(name = f.lift((t.name.getOrElse(""), field.name)).getOrElse(field.name))
@@ -39,6 +49,12 @@ object Transformer {
       )
     }
   }
+
+  /**
+   * A transformer that allows renaming arguments.
+   * @param f a partial function that takes a type name and a field name and returns another
+   *          partial function from an argument name to a new name for that argument
+   */
   case class RenameArgument(
     f: PartialFunction[(String, String), (PartialFunction[String, String], PartialFunction[String, String])]
   ) extends Transformer[Any] {
@@ -66,7 +82,13 @@ object Transformer {
       )
     }
   }
-  case class FilterInterface(f: PartialFunction[(String, String), Boolean])        extends Transformer[Any] {
+
+  /**
+   * A transformer that allows filtering types.
+   * @param f a partial function that takes a type name and an interface name and
+   *          returns a boolean (true means the type should be kept)
+   */
+  case class FilterInterface(f: PartialFunction[(String, String), Boolean]) extends Transformer[Any] {
     val typeVisitor: TypeVisitor =
       TypeVisitor.modify(t =>
         t.copy(interfaces =
@@ -78,7 +100,13 @@ object Transformer {
 
     def transformStep[R]: PartialFunction[Step[R], Step[R]] = { case step => step }
   }
-  case class FilterField(f: PartialFunction[(String, String), Boolean])            extends Transformer[Any] {
+
+  /**
+   * A transformer that allows filtering fields.
+   * @param f a partial function that takes a type name and a field name and
+   *          returns a boolean (true means the field should be kept)
+   */
+  case class FilterField(f: PartialFunction[(String, String), Boolean]) extends Transformer[Any] {
     val typeVisitor: TypeVisitor =
       TypeVisitor.fields.filterWith((t, field) => f.lift((t.name.getOrElse(""), field.name)).getOrElse(true)) |+|
         TypeVisitor.inputFields.filterWith((t, field) => f.lift((t.name.getOrElse(""), field.name)).getOrElse(true))
@@ -87,6 +115,12 @@ object Transformer {
       ObjectStep(typeName, fields.filter { case (fieldName, _) => f.lift((typeName, fieldName)).getOrElse(true) })
     }
   }
+
+  /**
+   * A transformer that allows filtering arguments.
+   * @param f a partial function that takes a type name, a field name and an argument name and
+   *          returns a boolean (true means the argument should be kept)
+   */
   case class FilterArgument(f: PartialFunction[(String, String, String), Boolean]) extends Transformer[Any] {
     val typeVisitor: TypeVisitor =
       TypeVisitor.fields.modifyWith((t, field) =>
