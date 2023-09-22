@@ -1,6 +1,6 @@
 package caliban.schema
 
-import caliban.introspection.adt.__Type
+import caliban.introspection.adt.{ __Type, TypeVisitor }
 import caliban.parsing.adt.Directive
 import caliban.schema.Types.collectTypes
 
@@ -17,7 +17,7 @@ case class RootSchemaBuilder[-R](
       (query ++ that.query).reduceOption(_ |+| _),
       (mutation ++ that.mutation).reduceOption(_ |+| _),
       (subscription ++ that.subscription).reduceOption(_ |+| _),
-      (additionalTypes ++ that.additionalTypes),
+      additionalTypes ++ that.additionalTypes,
       schemaDirectives ++ that.schemaDirectives,
       schemaDescription orElse that.schemaDescription
     )
@@ -32,4 +32,12 @@ case class RootSchemaBuilder[-R](
       .flatMap(_._2.headOption)
       .toList
   }
+
+  def visit(visitor: TypeVisitor): RootSchemaBuilder[R] =
+    copy(
+      query = query.map(query => query.copy(opType = visitor.visit(query.opType))),
+      mutation = mutation.map(mutation => mutation.copy(opType = visitor.visit(mutation.opType))),
+      subscription = subscription.map(subscription => subscription.copy(opType = visitor.visit(subscription.opType))),
+      additionalTypes = additionalTypes.map(visitor.visit)
+    )
 }

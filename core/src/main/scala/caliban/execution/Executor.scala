@@ -9,6 +9,7 @@ import caliban.parsing.adt._
 import caliban.schema.ReducedStep.DeferStep
 import caliban.schema.Step._
 import caliban.schema.{ ReducedStep, Step, Types }
+import caliban.transformers.Transformer
 import caliban.wrappers.Wrapper.FieldWrapper
 import zio._
 import zio.query.{ Cache, ZQuery }
@@ -25,20 +26,24 @@ object Executor {
    * @param plan an execution plan
    * @param fieldWrappers a list of field wrappers
    * @param queryExecution a strategy for executing queries in parallel or not
+   * @param featureSet a set of features to enable
+   * @param transformers a list of transformers
    */
   def executeRequest[R](
     request: ExecutionRequest,
     plan: Step[R],
     fieldWrappers: List[FieldWrapper[R]] = Nil,
     queryExecution: QueryExecution = QueryExecution.Parallel,
-    featureSet: Set[Feature] = Set.empty
+    featureSet: Set[Feature] = Set.empty,
+    transformers: List[Transformer[R]] = Nil
   )(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] = {
 
-    val execution                                                          = request.operationType match {
+    val execution = request.operationType match {
       case OperationType.Query        => queryExecution
       case OperationType.Mutation     => QueryExecution.Sequential
       case OperationType.Subscription => QueryExecution.Sequential
     }
+
     def collectAll[E, A](as: List[ZQuery[R, E, A]]): ZQuery[R, E, List[A]] =
       execution match {
         case QueryExecution.Sequential => ZQuery.collectAll(as)
@@ -52,7 +57,9 @@ object Executor {
       arguments: Map[String, InputValue],
       path: List[Either[String, Int]]
     ): ReducedStep[R] =
-      step match {
+      transformers.foldLeft(step) { case (step, transformer) =>
+        transformer.transformStep.lift(step).getOrElse(step)
+      } match {
         case s @ PureStep(value)            =>
           value match {
             case EnumValue(v) =>
