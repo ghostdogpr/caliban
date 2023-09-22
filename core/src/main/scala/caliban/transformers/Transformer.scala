@@ -40,37 +40,39 @@ object Transformer {
       )
     }
   }
-  case class RenameArgument(typeName: String, fieldName: String, fromArgName: String, toArgName: String)
-      extends Transformer[Any] {
+  case class RenameArgument(
+    f: PartialFunction[(String, String), (PartialFunction[String, String], PartialFunction[String, String])]
+  ) extends Transformer[Any] {
     val typeVisitor: TypeVisitor =
       TypeVisitor.fields.modifyWith((t, field) =>
-        if (t.name.contains(typeName) && field.name == fieldName)
-          field.copy(args = field.args.map(arg => if (arg.name == fromArgName) arg.copy(name = toArgName) else arg))
-        else field
+        f.lift((t.name.getOrElse(""), field.name)) match {
+          case Some((rename, _)) =>
+            field.copy(args =
+              field.args.map(arg => rename.lift(arg.name).fold(arg)(newName => arg.copy(name = newName)))
+            )
+          case None              => field
+        }
       )
 
     def transformStep[R]: PartialFunction[Step[R], Step[R]] = { case ObjectStep(typeName, fields) =>
       ObjectStep(
         typeName,
         fields.map { case (fieldName, step) =>
-          fieldName -> (if (typeName == this.typeName && fieldName == this.fieldName) step match {
-                          case FunctionStep(mapToStep) =>
-                            FunctionStep(args =>
-                              mapToStep(args.map { case (k, v) => if (k == toArgName) fromArgName -> v else k -> v })
-                            )
-                          case MetadataFunctionStep(f) =>
-                            MetadataFunctionStep(f(_) match {
-                              case FunctionStep(mapToStep) =>
-                                FunctionStep(args =>
-                                  mapToStep(args.map { case (k, v) =>
-                                    if (k == toArgName) fromArgName -> v else k -> v
-                                  })
-                                )
-                              case other                   => other
-                            })
-                          case other                   => other
-                        }
-                        else step)
+          fieldName -> (f.lift((typeName, fieldName)) match {
+            case Some((_, rename)) =>
+              step match {
+                case FunctionStep(mapToStep) =>
+                  FunctionStep(args => mapToStep(args.map { case (k, v) => rename.lift(k).getOrElse(k) -> v }))
+                case MetadataFunctionStep(f) =>
+                  MetadataFunctionStep(f(_) match {
+                    case FunctionStep(mapToStep) =>
+                      FunctionStep(args => mapToStep(args.map { case (k, v) => rename.lift(k).getOrElse(k) -> v }))
+                    case other                   => other
+                  })
+                case other                   => other
+              }
+            case None              => step
+          })
         }
       )
     }

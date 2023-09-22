@@ -50,7 +50,9 @@ object StitchingExample extends GenericSchema[Any] {
                        })
       apiSource   <- Source
                        .caliban(api)
-                       .transform(Transformer.RenameArgument("Queries", "GetUser", "repository", "repo"))
+                       .transform(Transformer.RenameArgument { case ("Queries", "GetUser") =>
+                         ({ case "repository" => "repo" }, { case "repo" => "repository" })
+                       })
                        .extend(
                          githubSource,
                          sourceFieldName = "repository",
