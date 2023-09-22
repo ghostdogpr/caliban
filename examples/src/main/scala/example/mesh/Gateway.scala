@@ -16,7 +16,6 @@ object Gateway extends ZIOAppDefault {
   val authors: Source[SttpClient] = Source.graphQL("http://localhost:8083/api/graphql")
 
   val gateway = stores
-    .transform(Transformer.FilterField { case ("Query", "bookSells") => false })
     .extend(
       stores,
       sourceFieldName = "bookSells",
@@ -41,6 +40,8 @@ object Gateway extends ZIOAppDefault {
         fields.toMap.get("id").map(("authorId", _)).toMap
       }
     )
+    .transform(Transformer.FilterField { case ("Query", "bookSells") => false })
+    .transform(Transformer.RenameType { case "authors_v1_Author" => "Author" })
 
   def run: Task[Unit] =
     gateway.toGraphQL
