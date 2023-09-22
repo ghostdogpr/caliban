@@ -275,19 +275,3 @@ trait GraphQL[-R] { self =>
     override protected val transformers: List[Transformer[R1]]     = transformer :: self.transformers
   }
 }
-
-object GraphQL {
-
-  /**
-   * Builds a GraphQL API for the given resolver.
-   *
-   * It requires an instance of [[caliban.schema.Schema]] for each operation type.
-   * This schema will be derived by Magnolia automatically.
-   */
-  @deprecated("Use caliban.graphQL", "2.1.0") def graphQL[R, Q, M, S: SubscriptionSchema](
-    resolver: RootResolver[Q, M, S],
-    directives: List[__Directive] = Nil,
-    schemaDirectives: List[Directive] = Nil
-  )(implicit querySchema: Schema[R, Q], mutationSchema: Schema[R, M], subscriptionSchema: Schema[R, S]): GraphQL[R] =
-    caliban.graphQL[R, Q, M, S](resolver, directives, schemaDirectives)
-}
