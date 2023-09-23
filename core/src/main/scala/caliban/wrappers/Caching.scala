@@ -234,7 +234,7 @@ object Caching {
       val wrapper = EffectfulWrapper(
         cacheOverride.set(None) *> Ref
           .make(CachePolicy(CacheHint.default))
-          .map(state => staticWrapper(state) |+| fieldWrapper(state) |+| inner(state))
+          .map(state => staticWrapper(state).skipForIntrospection |+| fieldWrapper(state) |+| inner(state))
       )
 
       gql
@@ -256,7 +256,7 @@ object Caching {
           def loop(policy: CachePolicy, field: Field, parentHint: Option[CacheHint]): CachePolicy = {
             val fieldHint   = extractCacheDirective(field.directives)
             val isInherited = fieldHint.exists(_.inheritMaxAge)
-            val typeHint    = field.parentType.flatMap(cacheHintFromType)
+            def typeHint    = field.parentType.flatMap(cacheHintFromType)
             val actualHint  = (if (isInherited) parentHint else fieldHint) orElse typeHint
 
             val newPolicy = policy.restrict(actualHint)
