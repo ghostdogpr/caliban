@@ -38,4 +38,13 @@ object FederationV2 {
     `import` = v2_1.`import` :+ Import("@interfaceObject")
   )
 
+  private[v2x] val v2_4 = Link(
+    url = s"$federationV2Url/v2.4",
+    `import` = v2_3.`import`
+  )
+  private[v2x] val v2_5 = Link(
+    url = s"$federationV2Url/v2.5",
+    `import` = v2_4.`import` :+ Import("@authenticated") :+ Import("@requiresScopes")
+  )
+
 }
