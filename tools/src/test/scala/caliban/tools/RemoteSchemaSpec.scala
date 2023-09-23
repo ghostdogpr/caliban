@@ -113,7 +113,7 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
       protected val additionalDirectives: List[__Directive]       = List()
       protected val wrappers: List[caliban.wrappers.Wrapper[Any]] = List()
       protected val features: Set[Feature]                        = Set.empty
-      protected val transformers: List[Transformer[Any]]          = Nil
+      protected val transformer: Transformer[Any]                 = Transformer.empty
     }
 
 }

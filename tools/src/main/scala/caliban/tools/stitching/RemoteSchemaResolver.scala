@@ -55,7 +55,7 @@ case class RemoteSchemaResolver(schema: __Schema, typeMap: Map[String, __Type]) 
       protected val schemaBuilder: caliban.schema.RootSchemaBuilder[R] = builder
       protected val wrappers: List[caliban.wrappers.Wrapper[R]]        = Nil
       protected val features: Set[Feature]                             = Set.empty
-      protected val transformers: List[Transformer[R]]                 = Nil
+      protected val transformer: Transformer[R]                        = Transformer.empty
     }
   }
 }

@@ -39,7 +39,7 @@ package object caliban {
     val wrappers: List[Wrapper[R]]              = Nil
     val additionalDirectives: List[__Directive] = directives
     val features: Set[Feature]                  = Set.empty
-    val transformers: List[Transformer[R]]      = Nil
+    val transformer: Transformer[R]             = Transformer.empty
   }
 
   /**

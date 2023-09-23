@@ -150,7 +150,7 @@ package object tapir {
     override protected val wrappers: List[Wrapper[R]]              = Nil
     override protected val additionalDirectives: List[__Directive] = Nil
     override protected val features: Set[Feature]                  = Set.empty
-    override protected val transformers: List[Transformer[R]]      = Nil
+    override protected val transformer: Transformer[R]             = Transformer.empty
   }
 
   private def extractPath[I](endpointName: Option[String], input: EndpointInput[I]): String =

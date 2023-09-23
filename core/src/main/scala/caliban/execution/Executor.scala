@@ -27,7 +27,7 @@ object Executor {
    * @param fieldWrappers a list of field wrappers
    * @param queryExecution a strategy for executing queries in parallel or not
    * @param featureSet a set of features to enable
-   * @param transformers a list of transformers
+   * @param transformer a transformer
    */
   def executeRequest[R](
     request: ExecutionRequest,
@@ -35,7 +35,7 @@ object Executor {
     fieldWrappers: List[FieldWrapper[R]] = Nil,
     queryExecution: QueryExecution = QueryExecution.Parallel,
     featureSet: Set[Feature] = Set.empty,
-    transformers: List[Transformer[R]] = Nil
+    transformer: Transformer[R] = Transformer.empty
   )(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] = {
 
     val execution = request.operationType match {
@@ -57,9 +57,7 @@ object Executor {
       arguments: Map[String, InputValue],
       path: List[Either[String, Int]]
     ): ReducedStep[R] =
-      transformers.foldLeft(step) { case (step, transformer) =>
-        transformer.transformStep.lift(step).getOrElse(step)
-      } match {
+      transformer.transformStep.lift(step).getOrElse(step) match {
         case s @ PureStep(value)            =>
           value match {
             case EnumValue(v) =>

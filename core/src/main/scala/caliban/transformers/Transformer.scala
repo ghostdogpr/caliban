@@ -5,13 +5,34 @@ import caliban.introspection.adt._
 import caliban.schema.Step
 import caliban.schema.Step.{ FunctionStep, MetadataFunctionStep, ObjectStep }
 
-trait Transformer[-R] {
+/**
+ * A transformer is able to modify a type, modifying its schema and the way it is resolved.
+ */
+trait Transformer[-R] { self =>
   val typeVisitor: TypeVisitor
 
   def transformStep[R1 <: R]: PartialFunction[Step[R1], Step[R1]]
+
+  def |+|[R0 <: R](that: Transformer[R0]): Transformer[R0] = new Transformer[R0] {
+    val typeVisitor: TypeVisitor = self.typeVisitor |+| that.typeVisitor
+
+    def transformStep[R1 <: R0]: PartialFunction[Step[R1], Step[R1]] =
+      Function.unlift { step =>
+        val modifiedStep = self.transformStep.lift(step).getOrElse(step)
+        that.transformStep.lift(modifiedStep)
+      }
+  }
 }
 
 object Transformer {
+
+  /**
+   * A transformer that does nothing.
+   */
+  val empty: Transformer[Any] = new Transformer[Any] {
+    val typeVisitor: TypeVisitor                               = TypeVisitor.empty
+    def transformStep[R1]: PartialFunction[Step[R1], Step[R1]] = PartialFunction.empty
+  }
 
   /**
    * A transformer that allows renaming types.

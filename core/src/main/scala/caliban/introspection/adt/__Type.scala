@@ -135,6 +135,7 @@ sealed trait TypeVisitor { self =>
   def visit(t: __Type): __Type = {
     def collect(visitor: TypeVisitor): __Type => __Type =
       visitor match {
+        case Empty           => identity
         case Modify(f)       => f
         case Combine(v1, v2) => collect(v1) andThen collect(v2)
       }
@@ -157,9 +158,14 @@ sealed trait TypeVisitor { self =>
 }
 
 object TypeVisitor {
+  private case object Empty                                    extends TypeVisitor {
+    override def |+|(that: TypeVisitor): TypeVisitor = that
+    override def visit(t: __Type): __Type            = t
+  }
   private case class Modify(f: __Type => __Type)               extends TypeVisitor
   private case class Combine(v1: TypeVisitor, v2: TypeVisitor) extends TypeVisitor
 
+  val empty: TypeVisitor                                               = Empty
   def modify(f: __Type => __Type): TypeVisitor                         = Modify(f)
   private[caliban] def modify[A](visitor: ListVisitor[A]): TypeVisitor = modify(t => visitor.visit(t))
 
