@@ -142,14 +142,14 @@ object WrappersSpec extends ZIOSpecDefault {
                 a
               }""".stripMargin)))
       },
-      test("Apollo Tracing") {
+      suite("Apollo Tracing") {
         case class Query(hero: Hero)
-        case class Hero(name: UIO[String], friends: List[Hero] = Nil)
+        case class Hero(name: UIO[String], friends: List[Hero] = Nil, bestFriend: Option[Hero] = None)
 
         object schema extends GenericSchema[Any] {
           implicit lazy val heroSchema: Schema[Any, Hero] = gen
 
-          def api(latch: Promise[Nothing, Unit]) =
+          def api(latch: Promise[Nothing, Unit], excludePureFields: Boolean) =
             graphQL(
               RootResolver(
                 Query(
@@ -163,7 +163,7 @@ object WrappersSpec extends ZIOSpecDefault {
                   )
                 )
               )
-            ) @@ ApolloTracing.apolloTracing
+            ) @@ ApolloTracing.apolloTracing(excludePureFields)
         }
 
         val query = gqldoc("""
@@ -173,21 +173,37 @@ object WrappersSpec extends ZIOSpecDefault {
                   friends {
                     name
                   }
+                  bestFriend {
+                    name
+                  }
                 }
               }""")
-        for {
-          latch       <- Promise.make[Nothing, Unit]
-          interpreter <- schema.api(latch).interpreter
-          fiber       <- interpreter.execute(query).map(_.extensions.map(_.toString)).fork
-          _           <- latch.await
-          _           <- TestClock.adjust(4 seconds)
-          result      <- fiber.join
-        } yield assert(result)(
-          isSome(
-            equalTo(
-              """{"tracing":{"version":1,"startTime":"1970-01-01T00:00:00.000Z","endTime":"1970-01-01T00:00:04.000Z","duration":4000000000,"parsing":{"startOffset":0,"duration":0},"validation":{"startOffset":0,"duration":0},"execution":{"resolvers":[{"path":["hero","name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":1000000000},{"path":["hero","friends",0,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":2000000000},{"path":["hero","friends",1,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":3000000000},{"path":["hero"],"parentType":"Query","fieldName":"hero","returnType":"Hero!","startOffset":0,"duration":4000000000},{"path":["hero","friends"],"parentType":"Hero","fieldName":"friends","returnType":"[Hero!]!","startOffset":0,"duration":4000000000},{"path":["hero","friends",2,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":4000000000}]}}}"""
-            )
-          )
+
+        def test_(excludePureFields: Boolean) =
+          for {
+            latch       <- Promise.make[Nothing, Unit]
+            interpreter <- schema.api(latch, excludePureFields).interpreter
+            fiber       <- interpreter.execute(query).map(_.extensions.map(_.toString)).fork
+            _           <- latch.await
+            _           <- TestClock.adjust(4 seconds)
+            result      <- fiber.join.flatMap(ZIO.fromOption(_))
+          } yield result
+
+        List(
+          test("excludePureFields = false") {
+            test_(false).map { res =>
+              assertTrue(
+                res == """{"tracing":{"version":1,"startTime":"1970-01-01T00:00:00.000Z","endTime":"1970-01-01T00:00:04.000Z","duration":4000000000,"parsing":{"startOffset":0,"duration":0},"validation":{"startOffset":0,"duration":0},"execution":{"resolvers":[{"path":["hero","bestFriend"],"parentType":"Hero","fieldName":"bestFriend","returnType":"Hero","startOffset":0,"duration":0},{"path":["hero","name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":1000000000},{"path":["hero","friends",0,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":2000000000},{"path":["hero","friends",1,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":3000000000},{"path":["hero"],"parentType":"Query","fieldName":"hero","returnType":"Hero!","startOffset":0,"duration":4000000000},{"path":["hero","friends"],"parentType":"Hero","fieldName":"friends","returnType":"[Hero!]!","startOffset":0,"duration":4000000000},{"path":["hero","friends",2,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":4000000000}]}}}"""
+              )
+            }
+          },
+          test("excludePureFields = true") {
+            test_(true).map { res =>
+              assertTrue(
+                res == """{"tracing":{"version":1,"startTime":"1970-01-01T00:00:00.000Z","endTime":"1970-01-01T00:00:04.000Z","duration":4000000000,"parsing":{"startOffset":0,"duration":0},"validation":{"startOffset":0,"duration":0},"execution":{"resolvers":[{"path":["hero","name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":1000000000},{"path":["hero","friends",0,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":2000000000},{"path":["hero","friends",1,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":3000000000},{"path":["hero"],"parentType":"Query","fieldName":"hero","returnType":"Hero!","startOffset":0,"duration":4000000000},{"path":["hero","friends"],"parentType":"Hero","fieldName":"friends","returnType":"[Hero!]!","startOffset":0,"duration":4000000000},{"path":["hero","friends",2,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":4000000000}]}}}"""
+              )
+            }
+          }
         )
       },
       test("Apollo Caching") {

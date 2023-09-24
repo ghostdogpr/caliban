@@ -18,8 +18,11 @@ object ApolloTracing {
   /**
    * Returns a wrapper that adds tracing information to every response
    * following Apollo Tracing format: https://github.com/apollographql/apollo-tracing.
+   *
+   * @param excludePureFields Optionally disable tracing of pure fields.
+   *                          Setting this to true can help improve performance at the cost of generating incomplete traces
    */
-  val apolloTracing: EffectfulWrapper[Any] =
+  def apolloTracing(excludePureFields: Boolean = false): EffectfulWrapper[Any] =
     EffectfulWrapper(
       Ref
         .make(Tracing())
@@ -27,7 +30,7 @@ object ApolloTracing {
           apolloTracingOverall(ref) |+|
             apolloTracingParsing(ref) |+|
             apolloTracingValidation(ref) |+|
-            apolloTracingField(ref)
+            apolloTracingField(ref, !excludePureFields)
         )
     )
 
@@ -166,8 +169,8 @@ object ApolloTracing {
           } yield result
     }
 
-  private def apolloTracingField(ref: Ref[Tracing]): FieldWrapper[Any] =
-    new FieldWrapper[Any](true) {
+  private def apolloTracingField(ref: Ref[Tracing], wrapPureValues: Boolean): FieldWrapper[Any] =
+    new FieldWrapper[Any](wrapPureValues) {
       def wrap[R1](
         query: ZQuery[R1, CalibanError.ExecutionError, ResponseValue],
         fieldInfo: FieldInfo
