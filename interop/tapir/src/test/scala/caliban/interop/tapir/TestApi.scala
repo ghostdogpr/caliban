@@ -64,7 +64,6 @@ object TestApi extends GenericSchema[TestService with Uploads] {
       maxDepth(30) @@                 // query analyzer that limit query depth
       timeout(3 seconds) @@           // wrapper that fails slow queries
       printSlowQueries(500 millis) @@ // wrapper that logs slow queries
-      printErrors @@                  // wrapper that logs errors
       apolloTracing @@                // wrapper for https://github.com/apollographql/apollo-tracing
       DeferSupport.defer
 }
