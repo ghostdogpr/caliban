@@ -175,10 +175,15 @@ object Wrappers {
 
   /**
    * Returns a wrapper that check directives on fields and can potentially fail the query
+   *
    * @param check a function from directives to a ZIO that can fail
+   * @param excludePureFields if true, pure fields will not be checked
    */
-  def checkDirectives[R](check: List[Directive] => ZIO[R, ExecutionError, Unit]): FieldWrapper[R] =
-    new FieldWrapper[R]() {
+  def checkDirectives[R](
+    check: List[Directive] => ZIO[R, ExecutionError, Unit],
+    excludePureFields: Boolean = true
+  ): FieldWrapper[R] =
+    new FieldWrapper[R](wrapPureValues = !excludePureFields) {
       def wrap[R1 <: R](
         query: ZQuery[R1, ExecutionError, ResponseValue],
         info: FieldInfo
