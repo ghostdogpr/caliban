@@ -17,9 +17,6 @@ trait CalibanKeys {
   def calibanSetting(url: URL)(setting: CalibanUrlSettings => CalibanUrlSettings): CalibanSettings     =
     setting.apply(CalibanUrlSettings(url = url, settings = CalibanCommonSettings.empty))
 
-  @deprecated("CodegenPlugin has been renamed to CalibanPlugin", "1.1.0")
-  val CodegenPlugin: CalibanPlugin.type = CalibanPlugin
-
   val calibanVersion = settingKey[String]("Version of the Caliban sbt plugin")
 }
 

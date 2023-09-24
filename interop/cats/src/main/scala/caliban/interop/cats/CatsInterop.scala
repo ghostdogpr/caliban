@@ -1,15 +1,14 @@
 package caliban.interop.cats
 
-import caliban.execution.QueryExecution
 import caliban.introspection.adt.__Type
 import caliban.schema.Step.QueryStep
 import caliban.schema.{ Schema, Step }
-import caliban.{ CalibanError, GraphQL, GraphQLInterpreter, GraphQLResponse, InputValue }
-import cats.{ ~>, Monad }
+import caliban._
+import cats.Monad
 import cats.effect.Async
 import cats.effect.std.Dispatcher
-import zio.{ RIO, Runtime, Tag, Task, ZEnvironment }
 import zio.query.ZQuery
+import zio.{ RIO, Runtime, Tag, ZEnvironment }
 
 /**
  * Interop between `F` and [[zio.RIO]]. The combination of [[ToEffect]] and [[FromEffect]].
@@ -193,21 +192,4 @@ object CatsInterop {
       override def resolve(value: F[A]): Step[R] =
         QueryStep(ZQuery.fromZIO(interop.fromEffect(value).map(ev.resolve)))
     }
-
-  @deprecated("Use `CatsInterop[F, Any].fromEffect` or `FromEffect[F, Any].fromEffect`", "1.4.0")
-  def fromEffect[F[_], A](fa: F[A])(implicit F: Dispatcher[F]): Task[A] =
-    FromEffect.forDispatcher[F, Any].fromEffect(fa)
-
-  @deprecated("Use `CatsInterop[F, R].toEffect` or `ToEffect[F, R].toEffect`", "1.4.0")
-  def toEffect[F[_], R, A](rio: RIO[R, A])(implicit F: Async[F], R: Runtime[R]): F[A] =
-    ToEffect.forAsync[F, R].toEffect(rio)
-
-  @deprecated("Use `CatsInterop[F, R].fromEffectK` or `FromEffect[F, R].fromEffectK`", "1.4.0")
-  def fromEffectK[F[_], R](implicit F: Dispatcher[F]): F ~> RIO[R, *] =
-    FromEffect.forDispatcher[F, R].fromEffectK
-
-  @deprecated("Use `CatsInterop[F, R].toEffectK` or `FromEffect[F, R].fromEffectK`", "1.4.0")
-  def toEffectK[F[_], R](implicit F: Async[F], R: Runtime[R]): RIO[R, *] ~> F =
-    ToEffect.forAsync[F, R].toEffectK
-
 }
