@@ -105,7 +105,23 @@ object Transformer {
   }
 
   /**
+   * A transformer that allows filtering fields.
+   * @param f a partial function that takes a type name and a field name and
+   *          returns a boolean (true means the field should be kept)
+   */
+  case class FilterField(f: PartialFunction[(String, String), Boolean]) extends Transformer[Any] {
+    val typeVisitor: TypeVisitor =
+      TypeVisitor.fields.filterWith((t, field) => f.lift((t.name.getOrElse(""), field.name)).getOrElse(true)) |+|
+        TypeVisitor.inputFields.filterWith((t, field) => f.lift((t.name.getOrElse(""), field.name)).getOrElse(true))
+
+    def transformStep[R]: PartialFunction[Step[R], Step[R]] = { case ObjectStep(typeName, fields) =>
+      ObjectStep(typeName, fields.filter { case (fieldName, _) => f.lift((typeName, fieldName)).getOrElse(true) })
+    }
+  }
+
+  /**
    * A transformer that allows filtering types.
+   *
    * @param f a partial function that takes a type name and an interface name and
    *          returns a boolean (true means the type should be kept)
    */
@@ -119,21 +135,8 @@ object Transformer {
         )
       )
 
-    def transformStep[R]: PartialFunction[Step[R], Step[R]] = { case step => step }
-  }
-
-  /**
-   * A transformer that allows filtering fields.
-   * @param f a partial function that takes a type name and a field name and
-   *          returns a boolean (true means the field should be kept)
-   */
-  case class FilterField(f: PartialFunction[(String, String), Boolean]) extends Transformer[Any] {
-    val typeVisitor: TypeVisitor =
-      TypeVisitor.fields.filterWith((t, field) => f.lift((t.name.getOrElse(""), field.name)).getOrElse(true)) |+|
-        TypeVisitor.inputFields.filterWith((t, field) => f.lift((t.name.getOrElse(""), field.name)).getOrElse(true))
-
-    def transformStep[R]: PartialFunction[Step[R], Step[R]] = { case ObjectStep(typeName, fields) =>
-      ObjectStep(typeName, fields.filter { case (fieldName, _) => f.lift((typeName, fieldName)).getOrElse(true) })
+    def transformStep[R]: PartialFunction[Step[R], Step[R]] = { case step =>
+      step
     }
   }
 
