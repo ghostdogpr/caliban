@@ -52,7 +52,7 @@ object HttpInterpreter {
       graphQLRequest: GraphQLRequest,
       serverRequest: ServerRequest
     )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]] =
-      interpreter.executeRequest(graphQLRequest).map(buildHttpResponse[E, BS])
+      interpreter.executeRequest(graphQLRequest).map(buildHttpResponse[E, BS](serverRequest))
   }
 
   private case class Intercepted[R1, R, E](
@@ -94,6 +94,9 @@ object HttpInterpreter {
 
       } yield req.copy(query = queryParams.get("query"), operationName = queryParams.get("operationName"))
 
+    def checkRequest(request: GraphQLRequest): DecodeResult[GraphQLRequest] =
+      if (request.isEmpty) DecodeResult.Missing else DecodeResult.Value(request)
+
     val postEndpoint
       : PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse[streams.BinaryStream], S] =
       endpoint.post
@@ -111,13 +114,14 @@ object HttpInterpreter {
                 )
               )
                 DecodeResult.Value(GraphQLRequest(query = Some(body)))
-              else requestCodec.decode(body)
+              else requestCodec.decode(body).flatMap(checkRequest)
 
             getRequest.map(request => headers.find(isFtv1Header).fold(request)(_ => request.withFederatedTracing))
           }(request => (Nil, requestCodec.encode(request), QueryParams()))
         )
         .in(extractFromRequest(identity))
         .out(header[MediaType](HeaderNames.ContentType))
+        .out(statusCode)
         .out(outputBody(streams))
         .errorOut(errorBody)
 
@@ -125,7 +129,7 @@ object HttpInterpreter {
       : PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse[streams.BinaryStream], S] =
       endpoint.get
         .in(
-          queryParams.mapDecode(queryFromQueryParams)(request =>
+          queryParams.mapDecode(queryFromQueryParams(_).flatMap(checkRequest))(request =>
             QueryParams.fromMap(
               Map(
                 "query"         -> request.query.getOrElse(""),
@@ -142,6 +146,7 @@ object HttpInterpreter {
         )
         .in(extractFromRequest(identity))
         .out(header[MediaType](HeaderNames.ContentType))
+        .out(statusCode)
         .out(outputBody(streams))
         .errorOut(errorBody)
 

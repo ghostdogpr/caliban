@@ -121,7 +121,7 @@ object PlayAdapter extends PlayAdapter(None) {
       Unit,
       Input,
       TapirResponse,
-      (MediaType, Either[ResponseValue, AkkaStreams.BinaryStream]),
+      (MediaType, StatusCode, Either[ResponseValue, AkkaStreams.BinaryStream]),
       AkkaStreams,
       Future
     ](

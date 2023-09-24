@@ -117,7 +117,7 @@ object PekkoHttpAdapter {
       Unit,
       I,
       TapirResponse,
-      (MediaType, Either[ResponseValue, PekkoStreams.BinaryStream]),
+      (MediaType, StatusCode, Either[ResponseValue, PekkoStreams.BinaryStream]),
       PekkoStreams,
       Future
     ](
