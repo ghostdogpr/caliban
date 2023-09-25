@@ -10,12 +10,14 @@ object Configurator {
    * Configuration for the execution of a GraphQL query.
    * @param skipValidation if true, the query will not be validated (in that case, the `validations` field is ignored). Default: false.
    * @param enableIntrospection if true, introspection queries are allowed. Default: true.
+   * @param allowMutationsOverGetRequests if true, mutations are allowed for GET requests. Note that this is highly discouraged as it goes against the recommended practices. Default: false.
    * @param queryExecution the execution strategy to use (sequential, parallel, batched). Default: parallel.
    * @param validations the validations to run on the query during the validation phase. Default: all available validations.
    */
   case class ExecutionConfiguration(
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
+    allowMutationsOverGetRequests: Boolean = false,
     queryExecution: QueryExecution = QueryExecution.Parallel,
     validations: List[QueryValidation] = AllValidations
   )
@@ -53,4 +55,10 @@ object Configurator {
    */
   def setQueryExecution(queryExecution: QueryExecution): URIO[Scope, Unit] =
     configRef.locallyScopedWith(_.copy(queryExecution = queryExecution))
+
+  /**
+   * Enable or disable mutations for GET requests. See [[ExecutionConfiguration]] for more details
+   */
+  def setAllowMutationsOverGetRequests(allow: Boolean): URIO[Scope, Unit] =
+    configRef.locallyScopedWith(_.copy(allowMutationsOverGetRequests = allow))
 }

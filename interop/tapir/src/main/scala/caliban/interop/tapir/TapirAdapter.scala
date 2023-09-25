@@ -120,7 +120,10 @@ object TapirAdapter {
           }.getOrElse(StatusCode.Ok)
         (GraphqlResponseJson.mediaType, code, encodeSingleResponse(resp, keepDataOnErrors = false))
       case resp                                                 =>
-        (MediaType.ApplicationJson, StatusCode.Ok, encodeSingleResponse(resp, keepDataOnErrors = true))
+        val code =
+          response.errors.collectFirst { case HttpRequestMethod.MutationOverGetError => StatusCode.BadRequest }
+            .getOrElse(StatusCode.Ok)
+        (MediaType.ApplicationJson, code, encodeSingleResponse(resp, keepDataOnErrors = true))
     }
   }
 

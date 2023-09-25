@@ -86,6 +86,14 @@ trait GraphQL[-R] { self =>
             _             <- Validator.validate(document, typeToValidate)
           } yield ()
 
+        private def checkHttpMethod(req: ExecutionRequest): IO[ValidationError, Unit] =
+          HttpRequestMethod.ref.get.flatMap {
+            case HttpRequestMethod.GET if req.operationType == OperationType.Mutation =>
+              ZIO.fail(HttpRequestMethod.MutationOverGetError)
+            case _                                                                    =>
+              ZIO.unit
+          }
+
         override def executeRequest(request: GraphQLRequest)(implicit
           trace: Trace
         ): URIO[R, GraphQLResponse[CalibanError]] =
@@ -118,20 +126,22 @@ trait GraphQL[-R] { self =>
                                                                                 config.skipValidation,
                                                                                 config.validations
                                                                               )
+                                                              _            <- ZIO.unless(config.allowMutationsOverGetRequests)(checkHttpMethod(executionReq))
                                                             } yield executionReq
                   executionRequest                     <- wrap(validate)(validationWrappers, doc)
-                  op                                    = executionRequest.operationType match {
-                                                            case OperationType.Query        => schemaToExecute.query
-                                                            case OperationType.Mutation     => schemaToExecute.mutation.getOrElse(schemaToExecute.query)
-                                                            case OperationType.Subscription =>
-                                                              schemaToExecute.subscription.getOrElse(schemaToExecute.query)
-                                                          }
-                  execute                               = (req: ExecutionRequest) =>
-                                                            for {
-                                                              queryExecution <- Configurator.configuration.map(_.queryExecution)
-                                                              res            <- Executor.executeRequest(req, op.plan, fieldWrappers, queryExecution, features)
-                                                            } yield res
-                  result                               <- wrap(execute)(executionWrappers, executionRequest)
+
+                  op      = executionRequest.operationType match {
+                              case OperationType.Query        => schemaToExecute.query
+                              case OperationType.Mutation     => schemaToExecute.mutation.getOrElse(schemaToExecute.query)
+                              case OperationType.Subscription =>
+                                schemaToExecute.subscription.getOrElse(schemaToExecute.query)
+                            }
+                  execute = (req: ExecutionRequest) =>
+                              for {
+                                queryExecution <- Configurator.configuration.map(_.queryExecution)
+                                res            <- Executor.executeRequest(req, op.plan, fieldWrappers, queryExecution, features)
+                              } yield res
+                  result <- wrap(execute)(executionWrappers, executionRequest)
                 } yield result).catchAll(Executor.fail)
               )(overallWrappers, request)
           }
