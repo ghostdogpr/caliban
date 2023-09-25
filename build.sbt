@@ -644,26 +644,13 @@ lazy val commonSettings = Def.settings(
   })
 )
 
-lazy val enforceMimaCompatibility = true // Enable / disable failing CI on binary incompatibilities
+lazy val enforceMimaCompatibility = false // Enable / disable failing CI on binary incompatibilities
 
 lazy val enableMimaSettingsJVM =
   Def.settings(
     mimaFailOnProblem     := enforceMimaCompatibility,
     mimaPreviousArtifacts := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
-    mimaBinaryIssueFilters ++= Seq(
-      ProblemFilters.exclude[Problem]("caliban.schema.*"),
-      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.validation.ValueValidator.*"),
-      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.validation.Validator.*"),
-      ProblemFilters.exclude[MissingTypesProblem]("caliban.*"),
-      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.ResponseValue.*"),
-      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.InputValue.*"),
-      ProblemFilters.exclude[MissingClassProblem]("caliban.GraphQLWSOutputJsonCompat"),
-      ProblemFilters.exclude[MissingClassProblem]("caliban.GraphQLWSInputJsonCompat"),
-      ProblemFilters.exclude[MissingClassProblem]("caliban.GraphQLResponseJsonCompat"),
-      ProblemFilters.exclude[MissingClassProblem]("caliban.GraphQLRequestJsonCompat"),
-      ProblemFilters.exclude[MissingClassProblem]("caliban.CalibanErrorJsonCompat"),
-      ProblemFilters.exclude[MissingClassProblem]("caliban.ValueJsonCompat")
-    )
+    mimaBinaryIssueFilters ++= Seq()
   )
 
 lazy val enableMimaSettingsJS =

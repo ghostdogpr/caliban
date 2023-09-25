@@ -44,6 +44,9 @@ object Introspector extends IntrospectionDerivation {
     )
   )
 
+  private val introspectionType       = introspectionSchema.toType_()
+  val introspectionRootType: RootType = RootType(introspectionType, None, None)
+
   /**
    * Generates a schema for introspecting the given type.
    */
@@ -61,7 +64,7 @@ object Introspector extends IntrospectionDerivation {
         case wrapper :: tail => wrap(wrapper.wrap(query))(tail)
       }
 
-    val types = rootType.types
+    val types = (rootType.types ++ introspectionRootType.types - "__Introspection")
       .updated("Boolean", Types.boolean) // because of skip and include
       .updated("String", Types.string)   // because of specifiedBy
       .values
@@ -81,7 +84,7 @@ object Introspector extends IntrospectionDerivation {
 
     RootSchema(
       Operation(
-        introspectionSchema.toType_(),
+        introspectionType,
         QueryStep(ZQuery.fromZIO(wrap(ZIO.succeed(resolver))(introWrappers)).map(introspectionSchema.resolve))
       ),
       None,
