@@ -22,7 +22,7 @@ val playVersion               = "2.8.20"
 val playJsonVersion           = "2.10.1"
 val scalafmtVersion           = "3.7.14"
 val sttpVersion               = "3.9.0"
-val tapirVersion              = "1.7.4"
+val tapirVersion              = "1.7.5"
 val zioVersion                = "2.0.17"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.0.0.8"
@@ -359,7 +359,7 @@ lazy val akkaHttp = project
       "com.typesafe.akka"             %% "akka-http"                  % "10.2.10",
       "com.typesafe.akka"             %% "akka-serialization-jackson" % akkaVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-akka-http-server"     % tapirVersion,
-      "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"           % tapirVersion % Test,
+      "com.softwaremill.sttp.tapir"   %% "tapir-json-play"            % tapirVersion % Test,
       compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.2").cross(CrossVersion.full))
     )
   )
@@ -379,7 +379,7 @@ lazy val pekkoHttp = project
       "org.apache.pekko"            %% "pekko-http"                  % "1.0.0",
       "org.apache.pekko"            %% "pekko-serialization-jackson" % pekkoVersion,
       "com.softwaremill.sttp.tapir" %% "tapir-pekko-http-server"     % tapirVersion,
-      "com.softwaremill.sttp.tapir" %% "tapir-json-play"             % tapirVersion % Test
+      "com.softwaremill.sttp.tapir" %% "tapir-json-circe"            % tapirVersion % Test
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
