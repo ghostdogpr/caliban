@@ -87,7 +87,7 @@ trait GraphQL[-R] { self =>
           } yield ()
 
         private def checkHttpMethod(req: ExecutionRequest): IO[ValidationError, Unit] =
-          HttpRequestMethod.ref.get.flatMap {
+          HttpRequestMethod.fiberRef.get.flatMap {
             case HttpRequestMethod.GET if req.operationType == OperationType.Mutation =>
               ZIO.fail(HttpRequestMethod.MutationOverGetError)
             case _                                                                    =>

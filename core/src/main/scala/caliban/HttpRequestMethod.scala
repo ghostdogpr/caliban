@@ -9,6 +9,6 @@ private[caliban] object HttpRequestMethod {
   case object GET  extends HttpRequestMethod
   case object POST extends HttpRequestMethod
 
-  val ref: FiberRef[HttpRequestMethod]      = Unsafe.unsafe(implicit u => FiberRef.unsafe.make(POST))
+  val fiberRef: FiberRef[HttpRequestMethod] = Unsafe.unsafe(implicit u => FiberRef.unsafe.make(POST))
   val MutationOverGetError: ValidationError = ValidationError("Mutations are not allowed for GET requests", "")
 }

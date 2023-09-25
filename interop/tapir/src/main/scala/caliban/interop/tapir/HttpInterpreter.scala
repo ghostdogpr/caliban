@@ -52,8 +52,10 @@ object HttpInterpreter {
       graphQLRequest: GraphQLRequest,
       serverRequest: ServerRequest
     )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]] =
-      setRequestMethod(serverRequest) *>
-        interpreter.executeRequest(graphQLRequest).map(buildHttpResponse[E, BS](serverRequest))
+      ZIO.scoped[R] {
+        setRequestMethod(serverRequest) *>
+          interpreter.executeRequest(graphQLRequest).map(buildHttpResponse[E, BS](serverRequest))
+      }
   }
 
   private case class Intercepted[R1, R, E](
@@ -154,6 +156,6 @@ object HttpInterpreter {
     postEndpoint :: getEndpoint :: Nil
   }
 
-  private def setRequestMethod(req: ServerRequest) =
-    ZIO.when(req.method == Method.GET)(HttpRequestMethod.ref.set(HttpRequestMethod.GET)).unit
+  private def setRequestMethod(req: ServerRequest): URIO[Scope, Unit] =
+    ZIO.when(req.method == Method.GET)(HttpRequestMethod.fiberRef.locallyScoped(HttpRequestMethod.GET)).unit
 }
