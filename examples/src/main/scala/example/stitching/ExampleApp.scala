@@ -116,9 +116,9 @@ object ExampleApp extends ZIOAppDefault {
           .serve(
             Http
               .collectHttp[Request] {
-                case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
-                case _ -> !! / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))
-                case _ -> !! / "graphiql"        => graphiql
+                case _ -> Root / "api" / "graphql" => ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
+                case _ -> Root / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))
+                case _ -> Root / "graphiql"        => graphiql
               }
           )
     } yield ())
