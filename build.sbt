@@ -359,7 +359,7 @@ lazy val akkaHttp = project
       "com.typesafe.akka"             %% "akka-http"                  % "10.2.10",
       "com.typesafe.akka"             %% "akka-serialization-jackson" % akkaVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-akka-http-server"     % tapirVersion,
-      "com.softwaremill.sttp.tapir"   %% "tapir-json-play"            % tapirVersion % Test,
+      "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"           % tapirVersion % Test,
       compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.2").cross(CrossVersion.full))
     )
   )
