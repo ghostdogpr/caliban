@@ -21,9 +21,10 @@ object ExampleApp extends ZIOAppDefault {
           .serve(
             Http
               .collectHttp[Request] {
-                case _ -> !! / "api" / "graphql" => ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
-                case _ -> !! / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))
-                case _ -> !! / "graphiql"        => graphiql
+                case _ -> Root / "api" / "graphql" => ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
+                case _ -> Root / "ws" / "graphql"  =>
+                  ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))
+                case _ -> Root / "graphiql"        => graphiql
               }
           )
       _           <- Console.printLine("Server online at http://localhost:8088/")
@@ -32,7 +33,11 @@ object ExampleApp extends ZIOAppDefault {
       .provide(
         ExampleService.make(sampleCharacters),
         ExampleApi.layer,
-        ZLayer.succeed(Server.Config.default.port(8088)),
+        ZLayer.succeed(
+          Server.Config.default
+            .port(8088)
+            .withWebSocketConfig(ZHttpAdapter.defaultWebSocketConfig)
+        ),
         Server.live
       )
 }

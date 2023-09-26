@@ -30,8 +30,7 @@ val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "3.0.7"
 val zqueryVersion             = "0.4.0"
 val zioJsonVersion            = "0.6.2"
-val zioHttpVersion            = "3.0.0-RC1"
-val zioHttpTapirVersion       = "1.4.0"
+val zioHttpVersion            = "3.0.0-RC2"
 val zioOpenTelemetryVersion   = "3.0.0-RC15"
 val zioPreludeVersion         = "1.0.0-RC21"
 
@@ -338,9 +337,9 @@ lazy val zioHttp = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "dev.zio"                     %% "zio-http"              % zioHttpVersion,
-      "com.softwaremill.sttp.tapir" %% "tapir-zio-http-server" % zioHttpTapirVersion,
-      "dev.zio"                     %% "zio-json"              % zioJsonVersion      % Test,
-      "com.softwaremill.sttp.tapir" %% "tapir-json-zio"        % zioHttpTapirVersion % Test
+      "com.softwaremill.sttp.tapir" %% "tapir-zio-http-server" % tapirVersion,
+      "dev.zio"                     %% "zio-json"              % zioJsonVersion % Test,
+      "com.softwaremill.sttp.tapir" %% "tapir-json-zio"        % tapirVersion   % Test
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
