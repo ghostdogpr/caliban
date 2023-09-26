@@ -22,7 +22,7 @@ val playVersion               = "2.8.20"
 val playJsonVersion           = "2.10.1"
 val scalafmtVersion           = "3.7.14"
 val sttpVersion               = "3.9.0"
-val tapirVersion              = "1.7.3"
+val tapirVersion              = "1.7.5"
 val zioVersion                = "2.0.17"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.0.0.8"
@@ -397,7 +397,7 @@ lazy val play = project
     libraryDependencies ++= Seq(
       "com.typesafe.play"             %% "play"                  % playVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-play-server"     % tapirVersion,
-      "com.softwaremill.sttp.tapir"   %% "tapir-json-play"       % tapirVersion % Test,
+      "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"      % tapirVersion % Test,
       "dev.zio"                       %% "zio-test"              % zioVersion   % Test,
       "dev.zio"                       %% "zio-test-sbt"          % zioVersion   % Test,
       "com.typesafe.play"             %% "play-akka-http-server" % playVersion  % Test,
