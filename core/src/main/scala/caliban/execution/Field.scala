@@ -43,6 +43,8 @@ case class Field(
 ) { self =>
   lazy val locationInfo: LocationInfo = _locationInfo()
 
+  private[caliban] lazy val aliasedName: String = alias.getOrElse(name)
+
   def combine(other: Field): Field =
     self.copy(
       fields = self.fields ::: other.fields,
@@ -121,11 +123,8 @@ object Field {
     def loop(selectionSet: List[Selection], fieldType: __Type, fragment: Option[Fragment]): List[Field] = {
       val map = new java.util.LinkedHashMap[(String, Option[String]), Field](selectionSet.length)
 
-      def addField(f: Field, condition: Option[String]): Unit = {
-        val name = f.alias.getOrElse(f.name)
-        val key  = (name, condition)
-        map.compute(key, (_, existing) => if (existing == null) f else existing.combine(f))
-      }
+      def addField(f: Field, condition: Option[String]): Unit =
+        map.compute((f.aliasedName, condition), (_, existing) => if (existing == null) f else existing.combine(f))
 
       val innerType = fieldType.innerType
 

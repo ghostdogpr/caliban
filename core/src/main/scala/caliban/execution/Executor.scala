@@ -59,7 +59,7 @@ object Executor {
               // special case of an hybrid union containing case objects, those should return an object instead of a string
               val obj = mergeFields(currentField, v).collectFirst {
                 case f: Field if f.name == "__typename" =>
-                  ObjectValue(List(f.alias.getOrElse(f.name) -> StringValue(v)))
+                  ObjectValue(List(f.aliasedName -> StringValue(v)))
                 case f: Field if f.name == "_"          =>
                   NullValue
               }
@@ -69,8 +69,10 @@ object Executor {
         case FunctionStep(step)             => reduceStep(step(arguments), currentField, Map(), path)
         case MetadataFunctionStep(step)     => reduceStep(step(currentField), currentField, arguments, path)
         case ListStep(steps)                =>
+          var i = -1
           reduceList(
-            steps.zipWithIndex.map { case (step, i) =>
+            steps.map { step =>
+              i += 1
               reduceStep(step, currentField, arguments, Right(i) :: path)
             },
             Types.listOf(currentField.fieldType).fold(false)(_.isNullable)
@@ -78,13 +80,13 @@ object Executor {
         case ObjectStep(objectName, fields) =>
           val filteredFields    = mergeFields(currentField, objectName)
           val (deferred, eager) = filteredFields.partitionMap {
-            case f @ Field(name @ "__typename", _, _, alias, _, _, _, directives, _, _, _) =>
-              Right((alias.getOrElse(name), PureStep(StringValue(objectName)), fieldInfo(f, path, directives)))
-            case f @ Field(name, _, _, alias, _, _, args, directives, _, _, fragment)      =>
-              val aliasedName = alias.getOrElse(name)
+            case f @ Field("__typename", _, _, _, _, _, _, directives, _, _, _)   =>
+              Right((f.aliasedName, PureStep(StringValue(objectName)), fieldInfo(f, path, directives)))
+            case f @ Field(name, _, _, _, _, _, args, directives, _, _, fragment) =>
+              val aliasedName = f.aliasedName
               val field       = fields
                 .get(name)
-                .fold(NullStep: ReducedStep[R])(reduceStep(_, f, args, Left(alias.getOrElse(name)) :: path))
+                .fold(NullStep: ReducedStep[R])(reduceStep(_, f, args, Left(aliasedName) :: path))
 
               val info = fieldInfo(f, path, directives)
 
@@ -268,13 +270,14 @@ object Executor {
 
   private[caliban] def mergeFields(field: Field, typeName: String): List[Field] = {
     // ugly mutable code but it's worth it for the speed ;)
-    val array = ArrayBuffer.empty[Field]
-    val map   = collection.mutable.Map.empty[String, Int]
-    var index = 0
+    val array    = ArrayBuffer.empty[Field]
+    val map      = collection.mutable.Map.empty[String, Int]
+    var index    = 0
+    var modified = false
 
     field.fields.foreach { field =>
       if (field._condition.forall(_.contains(typeName))) {
-        val name = field.alias.getOrElse(field.name)
+        val name = field.aliasedName
         map.get(name) match {
           case None        =>
             // first time we see this field, add it to the array
@@ -282,29 +285,43 @@ object Executor {
             map.update(name, index)
             index = index + 1
           case Some(index) =>
+            modified = true
             // field already existed, merge it
             val f = array(index)
             array(index) = f.copy(fields = f.fields ::: field.fields)
         }
-      }
+      } else modified = true
     }
 
-    array.toList
+    // Avoid materializing the buffer if no modification took place
+    if (modified) array.toList else field.fields
   }
 
   private def fieldInfo(field: Field, path: List[Either[String, Int]], fieldDirectives: List[Directive]): FieldInfo =
-    FieldInfo(field.alias.getOrElse(field.name), field, path, fieldDirectives, field.parentType)
+    FieldInfo(field.aliasedName, field, path, fieldDirectives, field.parentType)
 
-  private def reduceList[R](list: List[ReducedStep[R]], areItemsNullable: Boolean): ReducedStep[R] =
-    if (list.forall(_.isInstanceOf[PureStep]))
-      PureStep(ListValue(list.asInstanceOf[List[PureStep]].map(_.value)))
+  private def reduceList[R](list: List[ReducedStep[R]], areItemsNullable: Boolean): ReducedStep[R] = {
+    var isPure = true
+    val pures  = List.newBuilder[ResponseValue]
+    var tail   = list
+    while (isPure && tail.nonEmpty)
+      tail.head match {
+        case step: PureStep =>
+          pures += step.value
+          tail = tail.tail
+        case _              =>
+          isPure = false
+      }
+
+    if (isPure) PureStep(ListValue(pures.result()))
     else ReducedStep.ListStep(list, areItemsNullable)
+  }
 
   private def reduceObject[R](
     items: List[(String, ReducedStep[R], FieldInfo)],
     fieldWrappers: List[FieldWrapper[R]]
   ): ReducedStep[R] =
-    if (!fieldWrappers.exists(_.wrapPureValues) && items.map(_._2).forall(_.isInstanceOf[PureStep]))
+    if (!fieldWrappers.exists(_.wrapPureValues) && items.forall(_._2.isInstanceOf[PureStep]))
       PureStep(ObjectValue(items.asInstanceOf[List[(String, PureStep, FieldInfo)]].map { case (k, v, _) =>
         (k, v.value)
       }))
