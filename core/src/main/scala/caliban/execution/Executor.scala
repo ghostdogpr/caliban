@@ -290,7 +290,9 @@ object Executor {
             val f = array(index)
             array(index) = f.copy(fields = f.fields ::: field.fields)
         }
-      } else modified = true
+      } else {
+        modified = true
+      }
     }
 
     // Avoid materializing the buffer if no modification took place
@@ -301,19 +303,19 @@ object Executor {
     FieldInfo(field.aliasedName, field, path, fieldDirectives, field.parentType)
 
   private def reduceList[R](list: List[ReducedStep[R]], areItemsNullable: Boolean): ReducedStep[R] = {
-    var isPure = true
+    var allPure = true
     val pures  = List.newBuilder[ResponseValue]
     var tail   = list
-    while (isPure && tail.nonEmpty)
+    while (allPure && tail.nonEmpty)
       tail.head match {
         case step: PureStep =>
           pures += step.value
           tail = tail.tail
         case _              =>
-          isPure = false
+          allPure = false
       }
 
-    if (isPure) PureStep(ListValue(pures.result()))
+    if (allPure) PureStep(ListValue(pures.result()))
     else ReducedStep.ListStep(list, areItemsNullable)
   }
 
@@ -321,7 +323,7 @@ object Executor {
     items: List[(String, ReducedStep[R], FieldInfo)],
     fieldWrappers: List[FieldWrapper[R]]
   ): ReducedStep[R] =
-    if (!fieldWrappers.exists(_.wrapPureValues) && items.forall(_._2.isInstanceOf[PureStep]))
+    if (!fieldWrappers.exists(_.wrapPureValues) && items.forall(_._2.isPure))
       PureStep(ObjectValue(items.asInstanceOf[List[(String, PureStep, FieldInfo)]].map { case (k, v, _) =>
         (k, v.value)
       }))

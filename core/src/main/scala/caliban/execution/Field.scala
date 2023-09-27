@@ -43,7 +43,7 @@ case class Field(
 ) { self =>
   lazy val locationInfo: LocationInfo = _locationInfo()
 
-  private[caliban] lazy val aliasedName: String = alias.getOrElse(name)
+  private[caliban] val aliasedName: String = alias.getOrElse(name)
 
   def combine(other: Field): Field =
     self.copy(
