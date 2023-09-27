@@ -14,7 +14,7 @@ val circeVersion              = "0.14.6"
 val fs2Version                = "3.9.2"
 val http4sVersion             = "0.23.23"
 val javaTimeVersion           = "2.5.0"
-val jsoniterVersion           = "2.23.4"
+val jsoniterVersion           = "2.23.5"
 val laminextVersion           = "0.16.2"
 val magnoliaVersion           = "1.1.6"
 val pekkoVersion              = "1.0.1"
@@ -23,12 +23,12 @@ val playJsonVersion           = "2.10.1"
 val scalafmtVersion           = "3.7.14"
 val sttpVersion               = "3.9.0"
 val tapirVersion              = "1.7.5"
-val zioVersion                = "2.0.17"
+val zioVersion                = "2.0.18"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.0.0.8"
 val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "3.0.7"
-val zqueryVersion             = "0.4.0"
+val zqueryVersion             = "0.5.0"
 val zioJsonVersion            = "0.6.2"
 val zioHttpVersion            = "3.0.0-RC2"
 val zioOpenTelemetryVersion   = "3.0.0-RC15"
@@ -174,7 +174,7 @@ lazy val tools = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "org.scalameta"                  % "scalafmt-interfaces" % scalafmtVersion,
-      "io.get-coursier"                % "interface"           % "1.0.18",
+      "io.get-coursier"                % "interface"           % "1.0.19",
       "com.softwaremill.sttp.client3" %% "zio"                 % sttpVersion,
       "dev.zio"                       %% "zio-config"          % zioConfigVersion,
       "dev.zio"                       %% "zio-config-magnolia" % zioConfigVersion,
