@@ -7,7 +7,7 @@ import example.optimizations.CommonData._
 import zio.Console.printLine
 import zio.query.DataSource.fromFunctionBatchedZIO
 import zio.query.{ CompletedRequestMap, DataSource, Request, ZQuery }
-import zio.{ ExitCode, ZIOAppDefault }
+import zio.{ Exit, ExitCode, ZIOAppDefault }
 
 /**
  * Optimized implementation of https://blog.apollographql.com/optimizing-your-graphql-request-waterfalls-7c3f3360b051
@@ -57,10 +57,10 @@ object OptimizedTest extends ZIOAppDefault {
   val UserDataSource: DataSource[Any, GetUser] = DataSource.Batched.make("UserDataSource") { requests =>
     requests.toList match {
       case head :: Nil =>
-        printLine("getUser").orDie.as(CompletedRequestMap.empty.insert(head)(Right(fakeUser(head.id))))
+        printLine("getUser").orDie.as(CompletedRequestMap.empty.insert(head)(Exit.succeed(fakeUser(head.id))))
       case list        =>
         printLine("getUsers").orDie.as(list.foldLeft(CompletedRequestMap.empty) { case (map, req) =>
-          map.insert(req)(Right(fakeUser(req.id)))
+          map.insert(req)(Exit.succeed(fakeUser(req.id)))
         })
     }
   }
