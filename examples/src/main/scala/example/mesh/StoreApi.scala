@@ -38,7 +38,7 @@ object StoreApi extends ZIOAppDefault {
     api.interpreter
       .flatMap(interpreter =>
         Server.serve(
-          Http.collectHttp[Request] { case _ -> !! / "api" / "graphql" =>
+          Http.collectHttp[Request] { case _ -> Root / "api" / "graphql" =>
             ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
           }
         )
