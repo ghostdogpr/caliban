@@ -8,7 +8,7 @@ import caliban.schema.ProxyRequest
 import sttp.client3.jsoniter._
 import sttp.client3.{ basicRequest, DeserializationException, HttpError, Identity, RequestT, UriContext }
 import zio.query.DataSource
-import zio.{ Chunk, ZIO }
+import zio.{ Chunk, Exit, ZIO }
 
 object RemoteDataSource {
   val dataSource: DataSource[SttpClient, ProxyRequest] =
@@ -50,7 +50,7 @@ object RemoteDataSource {
           requests
             .flatMap(requestsMap.get)
             .flatMap { case (req, field) => results.lookup(req).map(_ -> field) }
-            .collect { case (Right(value), field) =>
+            .collect { case (Exit.Success(value), field) =>
               value.asListValue.fold(value)(
                 _.filter(
                   mapBatchResultToArguments
