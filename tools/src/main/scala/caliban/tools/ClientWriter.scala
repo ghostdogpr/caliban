@@ -10,7 +10,7 @@ import scala.annotation.tailrec
 
 object ClientWriter {
 
-  val MaxTupleLength = 22
+  private val MaxTupleLength = 22
 
   def write(
     schema: Document,
@@ -177,21 +177,23 @@ object ClientWriter {
           if (optionalUnion) {
             (
               s"[$typeLetter]",
-              s"(${unionTypes.map(t => s"""on${t.name}: scala.Option[SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]] = None""").mkString(", ")})",
+              s"(${unionTypes
+                .map(t => s"""${safeTypeName(s"on${t.name}")}: scala.Option[SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]] = None""")
+                .mkString(", ")})",
               s"${writeType(field.ofType).replace(fieldType, s"scala.Option[$typeLetter]")}",
               writeTypeBuilder(
                 field.ofType,
-                s"ChoiceOf(Map(${unionTypes.map(t => s""""${t.name}" -> on${t.name}.fold[FieldBuilder[scala.Option[A]]](NullField)(a => OptionOf(Obj(a)))""").mkString(", ")}))"
+                s"ChoiceOf(Map(${unionTypes.map(t => s""""${t.name}" -> ${safeTypeName(s"on${t.name}")}.fold[FieldBuilder[scala.Option[A]]](NullField)(a => OptionOf(Obj(a)))""").mkString(", ")}))"
               )
             )
           } else {
             (
               s"[$typeLetter]",
-              s"(${unionTypes.map(t => s"""on${t.name}: SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]""").mkString(", ")})",
+              s"(${unionTypes.map(t => s"""${safeTypeName(s"on${t.name}")}: SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]""").mkString(", ")})",
               writeType(field.ofType).replace(fieldType, typeLetter),
               writeTypeBuilder(
                 field.ofType,
-                s"ChoiceOf(Map(${unionTypes.map(t => s""""${t.name}" -> Obj(on${t.name})""").mkString(", ")}))"
+                s"ChoiceOf(Map(${unionTypes.map(t => s""""${t.name}" -> Obj(${safeTypeName(s"on${t.name}")})""").mkString(", ")}))"
               )
             )
           }
@@ -206,21 +208,23 @@ object ClientWriter {
           } else if (optionalInterface) {
             (
               s"[$typeLetter]",
-              s"(${interfaceTypes.map(t => s"""on${t.name}: scala.Option[SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]] = None""").mkString(", ")})",
+              s"(${interfaceTypes
+                .map(t => s"""${safeTypeName(s"on${t.name}")}: scala.Option[SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]] = None""")
+                .mkString(", ")})",
               s"${writeType(field.ofType).replace(fieldType, s"""scala.Option[$typeLetter]""")}",
               writeTypeBuilder(
                 field.ofType,
-                s"ChoiceOf(Map(${interfaceTypes.map(t => s""""${t.name}" -> on${t.name}.fold[FieldBuilder[scala.Option[A]]](NullField)(a => OptionOf(Obj(a)))""").mkString(", ")}))"
+                s"ChoiceOf(Map(${interfaceTypes.map(t => s""""${t.name}" -> ${safeTypeName(s"on${t.name}")}.fold[FieldBuilder[scala.Option[A]]](NullField)(a => OptionOf(Obj(a)))""").mkString(", ")}))"
               )
             )
           } else {
             (
               s"[$typeLetter]",
-              s"(${interfaceTypes.map(t => s"""on${t.name}: SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]""").mkString(", ")})",
+              s"(${interfaceTypes.map(t => s"""${safeTypeName(s"on${t.name}")}: SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]""").mkString(", ")})",
               writeType(field.ofType).replace(fieldType, typeLetter),
               writeTypeBuilder(
                 field.ofType,
-                s"ChoiceOf(Map(${interfaceTypes.map(t => s""""${t.name}" -> Obj(on${t.name})""").mkString(", ")}))"
+                s"ChoiceOf(Map(${interfaceTypes.map(t => s""""${t.name}" -> Obj(${safeTypeName(s"on${t.name}")})""").mkString(", ")}))"
               )
             )
           }

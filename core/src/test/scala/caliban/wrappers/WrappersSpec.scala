@@ -8,7 +8,8 @@ import caliban.TestUtils._
 import caliban.Value.{ IntValue, StringValue }
 import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
-import caliban.parsing.adt.Document
+import caliban.parsing.adt.{ Directive, Document }
+import caliban.schema.Annotations.GQLDirective
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
 import caliban.schema.Schema.auto._
 import caliban.validation.Validator
@@ -423,6 +424,44 @@ object WrappersSpec extends ZIOSpecDefault {
           interpreter <- (gql @@ (maxFields(5).skipForIntrospection |+| maxDepth(1).skipForIntrospection)).interpreter
           result      <- interpreter.executeRequest(GraphQLRequest(query = Some(TestUtils.introspectionQuery)))
         } yield assertTrue(result.asJson.hcursor.downField("errors").failed)
+      },
+      test("check directives") {
+        // setup the annotation
+        val directiveName = "requiredRole"
+        val attributeName = "role"
+        case class RequiredRole(role: String)
+            extends GQLDirective(Directive(directiveName, Map(attributeName -> StringValue(role))))
+
+        // declare the schema
+        case class SomeObject(@RequiredRole("admin") a: UIO[String])
+        case class Query(o: SomeObject)
+
+        // create our wrapper that checks directive and fail if the role is not the expected one
+        case class Context(role: String)
+        val wrapper = Wrappers.checkDirectives(directives =>
+          for {
+            currentRole   <- ZIO.serviceWith[Context](_.role)
+            restrictedRole = directives.find(_.name == directiveName).flatMap(_.arguments.get(attributeName)).flatMap {
+                               case StringValue(role) => Some(role)
+                               case _                 => None
+                             }
+            _             <- ZIO.unless(restrictedRole.forall(_ == currentRole))(ZIO.fail(ExecutionError("Unauthorized")))
+          } yield ()
+        )
+
+        val gql = graphQL(RootResolver(Query(SomeObject(ZIO.succeed("a"))))) @@ wrapper
+
+        for {
+          interpreter <- gql.interpreter
+          req          = GraphQLRequest(query = Some("{ o { a } }"))
+          // we have the required role, it should succeed
+          result      <- interpreter.executeRequest(req).provide(ZLayer.succeed(Context("admin")))
+          // we don't have the required role, it should fail
+          result2     <- interpreter.executeRequest(req).provide(ZLayer.succeed(Context("user")))
+        } yield assertTrue(
+          result.asJson.hcursor.downField("errors").failed,
+          result2.asJson.hcursor.downField("errors").succeeded
+        )
       }
     )
 }

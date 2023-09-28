@@ -90,5 +90,4 @@ object NaiveTest extends ZIOAppDefault {
   override def run =
     api.interpreter
       .flatMap(_.execute(query).map(res => ExitCode(res.errors.length)))
-      .exitCode
 }
