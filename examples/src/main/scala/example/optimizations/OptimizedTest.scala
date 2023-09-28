@@ -7,7 +7,7 @@ import example.optimizations.CommonData._
 import zio.Console.printLine
 import zio.query.DataSource.fromFunctionBatchedZIO
 import zio.query.{ CompletedRequestMap, DataSource, Request, ZQuery }
-import zio.{ ExitCode, ZIOAppDefault }
+import zio.{ Exit, ExitCode, ZIOAppDefault }
 
 /**
  * Optimized implementation of https://blog.apollographql.com/optimizing-your-graphql-request-waterfalls-7c3f3360b051
@@ -17,59 +17,55 @@ object OptimizedTest extends ZIOAppDefault {
 
   type ConsoleQuery[A] = ZQuery[Any, Nothing, A]
 
-  case class Queries(user: UserArgs => ConsoleQuery[User])
+  case class Queries(user: UserArgs => User)
 
   case class User(
-    fullName: String,
-    username: String,
-    picture: SizeArgs => String,
+    fullName: ConsoleQuery[String],
+    username: ConsoleQuery[String],
+    picture: SizeArgs => ConsoleQuery[String],
     upcomingEvents: FirstArgs => ConsoleQuery[List[Event]]
   )
 
   case class Event(
-    id: Int,
-    name: String,
-    date: String,
-    startTime: String,
-    endTime: String,
+    id: ConsoleQuery[Int],
+    name: ConsoleQuery[String],
+    date: ConsoleQuery[String],
+    startTime: ConsoleQuery[String],
+    endTime: ConsoleQuery[String],
     viewerRsvp: ConsoleQuery[ViewerMetadata],
     tags: ConsoleQuery[List[Tag]],
     venue: ConsoleQuery[Venue],
     attendingFriendsOfViewer: FirstArgs => ConsoleQuery[List[User]]
   )
 
-  def fakeUser(id: Int) = User(
-    "name",
-    "name",
-    args => s"picture of size ${args.size}",
-    args => getUpcomingEventIdsForUser(id, args.first).flatMap(ZQuery.foreachPar(_)(getEvent))
+  case class UserData(fullName: String, username: String, picture: Int => String)
+
+  case class EventData(
+    id: Int,
+    name: String,
+    date: String,
+    startTime: String,
+    endTime: String,
+    venueId: Int,
+    tagIds: List[Int]
   )
 
-  def fakeEvent(id: Int) = Event(
-    id,
-    "name",
-    "date",
-    "start",
-    "end",
-    getViewerMetadataForEvent(id),
-    getTags(List(1, 2, 3, 4, 5)),
-    getVenue(id),
-    args => getViewerFriendIdsAttendingEvent(id, args.first).flatMap(ZQuery.foreachPar(_)(getUser))
-  )
+  def fakeUser(id: Int)  = UserData("name", "name", size => s"picture of size $size")
+  def fakeEvent(id: Int) = EventData(id, "name", "date", "start", "end", 0, List(1, 2, 3, 4, 5))
 
-  case class GetUser(id: Int) extends Request[Nothing, User]
+  case class GetUser(id: Int) extends Request[Nothing, UserData]
   val UserDataSource: DataSource[Any, GetUser] = DataSource.Batched.make("UserDataSource") { requests =>
     requests.toList match {
       case head :: Nil =>
-        printLine("getUser").orDie.as(CompletedRequestMap.empty.insert(head)(Right(fakeUser(head.id))))
+        printLine("getUser").orDie.as(CompletedRequestMap.empty.insert(head)(Exit.succeed(fakeUser(head.id))))
       case list        =>
         printLine("getUsers").orDie.as(list.foldLeft(CompletedRequestMap.empty) { case (map, req) =>
-          map.insert(req)(Right(fakeUser(req.id)))
+          map.insert(req)(Exit.succeed(fakeUser(req.id)))
         })
     }
   }
 
-  case class GetEvent(id: Int) extends Request[Nothing, Event]
+  case class GetEvent(id: Int) extends Request[Nothing, EventData]
   val EventDataSource: DataSource[Any, GetEvent] =
     fromFunctionBatchedZIO("EventDataSource")(requests => printLine("getEvents").as(requests.map(r => fakeEvent(r.id))))
 
@@ -101,8 +97,8 @@ object OptimizedTest extends ZIOAppDefault {
       printLine("getUpcomingEventIdsForUser").as(requests.map(r => (1 to r.first).toList))
     }
 
-  def getUser(id: Int): ConsoleQuery[User]                                           = ZQuery.fromRequest(GetUser(id))(UserDataSource)
-  def getEvent(id: Int): ConsoleQuery[Event]                                         = ZQuery.fromRequest(GetEvent(id))(EventDataSource)
+  def getUser(id: Int): ConsoleQuery[UserData]                                       = ZQuery.fromRequest(GetUser(id))(UserDataSource)
+  def getEvent(id: Int): ConsoleQuery[EventData]                                     = ZQuery.fromRequest(GetEvent(id))(EventDataSource)
   def getVenue(id: Int): ConsoleQuery[Venue]                                         = ZQuery.fromRequest(GetVenue(id))(VenueDataSource)
   def getTags(ids: List[Int]): ConsoleQuery[List[Tag]]                               = ZQuery.fromRequest(GetTags(ids))(TagsDataSource)
   def getViewerMetadataForEvent(id: Int): ConsoleQuery[ViewerMetadata]               =
@@ -122,11 +118,31 @@ object OptimizedTest extends ZIOAppDefault {
   implicit def user: Schema[Any, User]                           = Schema.gen
   implicit val queriesSchema: Schema[Any, Queries]               = Schema.gen
 
-  val resolver = Queries(args => getUser(args.id))
+  def userResolver(id: Int): User =
+    User(
+      getUser(id).map(_.fullName),
+      getUser(id).map(_.username),
+      args => getUser(id).map(_.picture(args.size)),
+      args => getUpcomingEventIdsForUser(id, args.first).map(_.map(eventResolver))
+    )
+
+  def eventResolver(id: Int): Event =
+    Event(
+      getEvent(id).map(_.id),
+      getEvent(id).map(_.name),
+      getEvent(id).map(_.date),
+      getEvent(id).map(_.startTime),
+      getEvent(id).map(_.endTime),
+      getViewerMetadataForEvent(id),
+      getEvent(id).flatMap(event => getTags(event.tagIds)),
+      getEvent(id).flatMap(event => getVenue(event.venueId)),
+      args => getViewerFriendIdsAttendingEvent(id, args.first).map(_.map(userResolver))
+    )
+
+  val resolver = Queries(args => userResolver(args.id))
   val api      = graphQL(RootResolver(resolver))
 
   override def run =
     api.interpreter
       .flatMap(_.execute(query).map(res => ExitCode(res.errors.length)))
-      .exitCode
 }
