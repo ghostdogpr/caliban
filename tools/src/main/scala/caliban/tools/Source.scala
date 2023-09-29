@@ -113,21 +113,11 @@ object Source {
             QueryStep(
               ZQuery
                 .fromRequest(ProxyRequest(url, headers, field))(RemoteDataSource.dataSource)
-                .map(responseValueToStep)
+                .map(PureStep.apply)
             )
           )
       }
   }
-
-  private def responseValueToStep(responseValue: ResponseValue): Step[Any] =
-    responseValue match {
-      case ResponseValue.ListValue(values)   => Step.ListStep(values.map(responseValueToStep))
-      case ResponseValue.ObjectValue(fields) =>
-        val typeName = fields.toMap.get("__typename").collect { case StringValue(value) => value }.getOrElse("")
-        Step.ObjectStep(typeName, fields.map { case (k, v) => k -> responseValueToStep(v) }.toMap)
-      case ResponseValue.StreamValue(stream) => Step.StreamStep(stream.map(responseValueToStep))
-      case value: Value                      => PureStep(value)
-    }
 
   def graphQL(url: String, headers: Map[String, String] = Map.empty): Source[SttpClient] = GraphQLSource(url, headers)
   def rest(url: String): Source[SttpClient]                                              = GraphQLSource(url, Map.empty)

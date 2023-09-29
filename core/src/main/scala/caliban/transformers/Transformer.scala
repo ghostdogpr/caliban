@@ -1,10 +1,11 @@
 package caliban.transformers
 
+import caliban.Value.StringValue
 import caliban.execution.Field
 import caliban.introspection.adt._
-import caliban.schema.Step.{ FunctionStep, ListStep, MetadataFunctionStep, ObjectStep, QueryStep }
+import caliban.schema.Step.{ FunctionStep, MetadataFunctionStep, ObjectStep, QueryStep }
 import caliban.schema.{ PureStep, Step }
-import caliban.{ InputValue, ResponseValue }
+import caliban.{ InputValue, ResponseValue, Value }
 
 /**
  * A transformer is able to modify a type, modifying its schema and the way it is resolved.
@@ -198,36 +199,36 @@ object Transformer {
     }
 
     def transformStep[R1 <: R]: PartialFunction[(Step[R1], Field), Step[R1]] = {
-      case (ObjectStep(`typeName`, fields), _)                                   =>
+      case (ObjectStep(`typeName`, fields), _)                                                   =>
         ObjectStep[R1](typeName, fields + (fieldName -> sourceStep))
-      case (QueryStep(inner), field) if field.name == sourceFieldDefinition.name =>
+      case (QueryStep(inner), field) if field.isRoot || field.name == sourceFieldDefinition.name =>
         QueryStep(inner.map {
-          case ListStep(steps) =>
-            ListStep(steps.filter { step =>
-              stepToResponseValueToStep(step) // TODO converted twice, can't do better?
-                .flatMap(mapBatchResultToArguments.lift)
-                .fold(true)(
-                  _.flatMap { case (k, v) =>
-                    argumentMappings.get(k).map(_(v.toInputValue))
-                  } == field.arguments
+          case PureStep(value) =>
+            responseValueToStep(
+              value.asListValue.fold(value)(
+                _.filter(
+                  mapBatchResultToArguments
+                    .lift(_)
+                    .fold(true)(_.flatMap { case (k, v) =>
+                      argumentMappings.get(k).map(_(v.toInputValue))
+                    } == field.arguments)
                 )
-            })
+              )
+            )
           case other           => other
         })
     }
   }
 
-  private def stepToResponseValueToStep[R](step: Step[R]): Option[ResponseValue] = {
-    import zio.prelude._
-    step match {
-      case PureStep(value)       => Some(value)
-      case ListStep(steps)       =>
-        steps.forEach(stepToResponseValueToStep).map(ResponseValue.ListValue.apply)
-      case ObjectStep(_, fields) =>
-        fields.forEach(stepToResponseValueToStep).map(map => ResponseValue.ObjectValue(map.toList))
-      case _                     => None
+  private def responseValueToStep(responseValue: ResponseValue): Step[Any] =
+    responseValue match {
+      case ResponseValue.ListValue(values)   => Step.ListStep(values.map(responseValueToStep))
+      case ResponseValue.ObjectValue(fields) =>
+        val typeName = fields.toMap.get("__typename").collect { case StringValue(value) => value }.getOrElse("")
+        Step.ObjectStep(typeName, fields.map { case (k, v) => k -> responseValueToStep(v) }.toMap)
+      case ResponseValue.StreamValue(stream) => Step.StreamStep(stream.map(responseValueToStep))
+      case value: Value                      => PureStep(value)
     }
-  }
 
   private def mapFunctionStep[R](step: Step[R])(f: Map[String, InputValue] => Map[String, InputValue]): Step[R] =
     step match {
