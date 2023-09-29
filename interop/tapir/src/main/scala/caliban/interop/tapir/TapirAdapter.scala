@@ -2,12 +2,10 @@ package caliban.interop.tapir
 
 import caliban._
 import caliban.ResponseValue.StreamValue
-import caliban.Value.IntValue
 import caliban.wrappers.Caching
 import sttp.capabilities.{ Streams, WebSockets }
 import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.zio.ZioStreams.Pipe
-import sttp.model.headers.CacheDirective
 import sttp.model.{ headers => _, _ }
 import sttp.monad.MonadError
 import sttp.tapir.Codec.JsonCodec
@@ -15,12 +13,10 @@ import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.{ headers, _ }
 import zio._
-import zio.stream.{ ZChannel, ZPipeline, ZSink, ZStream }
+import zio.stream.{ ZChannel, ZPipeline, ZStream }
 
 import java.nio.charset.StandardCharsets
-import java.util.concurrent.TimeUnit
 import scala.concurrent.Future
-import scala.concurrent.duration.FiniteDuration
 
 object TapirAdapter {
 
