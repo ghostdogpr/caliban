@@ -65,7 +65,7 @@ sealed trait ResponseValue { self =>
     case _                                                              => other
   }
 
-  def toInputValue: InputValue =
+  lazy val toInputValue: InputValue =
     self match {
       case ResponseValue.ListValue(values)   => InputValue.ListValue(values.map(_.toInputValue))
       case ResponseValue.ObjectValue(fields) =>

@@ -4,22 +4,18 @@ import caliban.CalibanError.ExecutionError
 import caliban.Value.NullValue
 import caliban.execution.{ Field, FieldInfo }
 import caliban.{ InputValue, ResponseValue }
+import zio.query.ZQuery
 import zio.stream.ZStream
-import zio.query.{ DataSource, ZQuery }
-
-case class ProxyRequest(url: String, headers: Map[String, String], field: Field)
-    extends zio.query.Request[Throwable, ResponseValue]
 
 sealed trait Step[-R]
 
 object Step {
-  case class ListStep[-R](steps: List[Step[R]])                                                         extends Step[R]
-  case class FunctionStep[-R](step: Map[String, InputValue] => Step[R])                                 extends Step[R]
-  case class MetadataFunctionStep[-R](step: Field => Step[R])                                           extends Step[R]
-  case class ProxyStep[-R](makeRequest: Field => ProxyRequest, dataSource: DataSource[R, ProxyRequest]) extends Step[R]
-  case class ObjectStep[-R](name: String, fields: Map[String, Step[R]])                                 extends Step[R]
-  case class QueryStep[-R](query: ZQuery[R, Throwable, Step[R]])                                        extends Step[R]
-  case class StreamStep[-R](inner: ZStream[R, Throwable, Step[R]])                                      extends Step[R]
+  case class ListStep[-R](steps: List[Step[R]])                         extends Step[R]
+  case class FunctionStep[-R](step: Map[String, InputValue] => Step[R]) extends Step[R]
+  case class MetadataFunctionStep[-R](step: Field => Step[R])           extends Step[R]
+  case class ObjectStep[-R](name: String, fields: Map[String, Step[R]]) extends Step[R]
+  case class QueryStep[-R](query: ZQuery[R, Throwable, Step[R]])        extends Step[R]
+  case class StreamStep[-R](inner: ZStream[R, Throwable, Step[R]])      extends Step[R]
 
   // PureStep is both a Step and a ReducedStep so it is defined outside this object
   // This is to avoid boxing/unboxing pure values during step reduction

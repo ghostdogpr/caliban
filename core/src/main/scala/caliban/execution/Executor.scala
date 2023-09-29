@@ -57,8 +57,8 @@ object Executor {
       arguments: Map[String, InputValue],
       path: List[Either[String, Int]]
     ): ReducedStep[R] =
-      transformer.transformStep.lift(step).getOrElse(step) match {
-        case s @ PureStep(value)                =>
+      transformer.transformStep.lift((step, currentField)).getOrElse(step) match {
+        case s @ PureStep(value)            =>
           value match {
             case EnumValue(v) =>
               // special case of an hybrid union containing case objects, those should return an object instead of a string
@@ -71,25 +71,28 @@ object Executor {
               obj.fold(s)(PureStep(_))
             case _            => s
           }
-        case FunctionStep(step)                 => reduceStep(step(arguments), currentField, Map(), path)
-        case MetadataFunctionStep(step)         => reduceStep(step(currentField), currentField, arguments, path)
-        case ListStep(steps)                    =>
+        case FunctionStep(step)             => reduceStep(step(arguments), currentField, Map(), path)
+        case MetadataFunctionStep(f)        =>
+          val _currentField = transformer.transformField.lift((step, currentField)).getOrElse(currentField)
+          reduceStep(f(_currentField), currentField, arguments, path)
+        case ListStep(steps)                =>
           reduceList(
             steps.zipWithIndex.map { case (step, i) =>
               reduceStep(step, currentField, arguments, Right(i) :: path)
             },
             Types.listOf(currentField.fieldType).fold(false)(_.isNullable)
           )
-        case ObjectStep(objectName, fields)     =>
+        case ObjectStep(objectName, fields) =>
           val filteredFields    = mergeFields(currentField, objectName)
           val (deferred, eager) = filteredFields.partitionMap {
             case f @ Field(name @ "__typename", _, _, alias, _, _, _, directives, _, _, _) =>
               Right((alias.getOrElse(name), PureStep(StringValue(objectName)), fieldInfo(f, path, directives)))
             case f @ Field(name, _, _, alias, _, _, args, directives, _, _, fragment)      =>
               val aliasedName = alias.getOrElse(name)
+              val f2          = transformer.transformField.lift((step, f)).getOrElse(f)
               val field       = fields
                 .get(name)
-                .fold(NullStep: ReducedStep[R])(reduceStep(_, f, args, Left(alias.getOrElse(name)) :: path))
+                .fold(NullStep: ReducedStep[R])(reduceStep(_, f2, args, Left(alias.getOrElse(name)) :: path))
 
               val info = fieldInfo(f, path, directives)
 
@@ -113,14 +116,14 @@ object Executor {
                 path
               )
           }
-        case QueryStep(inner)                   =>
+        case QueryStep(inner)               =>
           ReducedStep.QueryStep(
             inner.foldCauseQuery(
               e => ZQuery.failCause(effectfulExecutionError(path, Some(currentField.locationInfo), e)),
               a => ZQuery.succeed(reduceStep(a, currentField, arguments, path))
             )
           )
-        case StreamStep(stream)                 =>
+        case StreamStep(stream)             =>
           if (request.operationType == OperationType.Subscription) {
             ReducedStep.StreamStep(
               stream
@@ -135,27 +138,6 @@ object Executor {
               path
             )
           }
-        case ProxyStep(makeRequest, dataSource) =>
-          reduceStep(
-            QueryStep(
-              ZQuery
-                .fromRequest(makeRequest(Transformer.patchField(currentField, transformer)))(dataSource)
-                .map(responseValueToStep)
-            ),
-            currentField,
-            arguments,
-            path
-          )
-      }
-
-    def responseValueToStep(responseValue: ResponseValue): Step[Any] =
-      responseValue match {
-        case ResponseValue.ListValue(values)   => Step.ListStep(values.map(responseValueToStep))
-        case ResponseValue.ObjectValue(fields) =>
-          val typeName = fields.toMap.get("__typename").collect { case StringValue(value) => value }.getOrElse("")
-          Step.ObjectStep(typeName, fields.map { case (k, v) => k -> responseValueToStep(v) }.toMap)
-        case ResponseValue.StreamValue(stream) => Step.StreamStep(stream.map(responseValueToStep))
-        case value: Value                      => PureStep(value)
       }
 
     def makeQuery(
