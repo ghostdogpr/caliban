@@ -4,64 +4,46 @@ import caliban.CalibanError.ExecutionError
 import caliban._
 import caliban.execution.Field
 import caliban.parsing.adt.OperationType
-import caliban.schema.ProxyRequest
 import sttp.client3.jsoniter._
 import sttp.client3.{ basicRequest, DeserializationException, HttpError, Identity, RequestT, UriContext }
 import zio.query.DataSource
-import zio.{ Chunk, Exit, ZIO }
+import zio.{ Chunk, ZIO }
 
 object RemoteDataSource {
+  case class ProxyRequest(url: String, headers: Map[String, String], field: Field)
+      extends zio.query.Request[Throwable, ResponseValue]
+
   val dataSource: DataSource[SttpClient, ProxyRequest] =
-    DataSource.fromFunctionZIO[SttpClient, Throwable, ProxyRequest, ResponseValue]("RemoteDataSource") { request =>
-      (for {
-        res  <- ZIO.serviceWithZIO[SttpClient](_.send(makeSttpRequest(request)))
-        body <- ZIO.fromEither(res.body)
-      } yield body).mapError(e => CalibanError.ExecutionError(e.toString, innerThrowable = Some(e)))
-    }
-
-  def batchDataSource[R](dataSource: DataSource[R, ProxyRequest])(
-    argumentMappings: Map[String, InputValue => (String, InputValue)],
-    mapBatchResultToArguments: PartialFunction[ResponseValue, Map[String, ResponseValue]]
-  ): DataSource[R, ProxyRequest] =
-    DataSource.fromFunctionBatchedZIO(s"${dataSource.identifier}Batched") { requests =>
-      val requestsMap     = requests.groupBy(_.url).flatMap { case (url, requests) =>
-        requests
-          .groupBy(_.field.copy(arguments = Map.empty).toSelection)
-          .toList
-          .flatMap { case (_, requests) =>
-            requests.toList match {
-              case Nil          => Chunk.empty
-              case head :: tail =>
-                val batchedRequest = tail.map(_.field).foldLeft(Option(head.field)) {
-                  case (None, _)      => None
-                  case (Some(f1), f2) => combineFieldArguments(f1, f2)
-                }
-                requests.map(request =>
-                  (request, (ProxyRequest(url, head.headers, batchedRequest.getOrElse(request.field)), request.field))
-                )
-            }
-          }
-      }
-      val batchedRequests = Chunk.fromIterable(requestsMap.values.map(_._1)).distinct
-
-      dataSource
-        .runAll(Chunk.single(batchedRequests))
-        .map(results =>
+    DataSource.fromFunctionBatchedZIO[SttpClient, Throwable, ProxyRequest, ResponseValue]("RemoteDataSource") {
+      requests =>
+        val requestsMap     = requests.groupBy(_.url).flatMap { case (url, requests) =>
           requests
-            .flatMap(requestsMap.get)
-            .flatMap { case (req, field) => results.lookup(req).map(_ -> field) }
-            .collect { case (Exit.Success(value), field) =>
-              value.asListValue.fold(value)(
-                _.filter(
-                  mapBatchResultToArguments
-                    .lift(_)
-                    .fold(true)(_.flatMap { case (k, v) =>
-                      argumentMappings.get(k).map(_(v.toInputValue))
-                    } == field.arguments)
-                )
-              )
+            .groupBy(_.field.copy(arguments = Map.empty).toSelection)
+            .toList
+            .flatMap { case (_, requests) =>
+              requests.toList match {
+                case Nil          => Chunk.empty
+                case head :: tail =>
+                  val batchedRequest = tail.map(_.field).foldLeft(Option(head.field)) {
+                    case (None, _)      => None
+                    case (Some(f1), f2) => combineFieldArguments(f1, f2)
+                  }
+                  requests
+                    .map(request => (request, ProxyRequest(url, head.headers, batchedRequest.getOrElse(request.field))))
+              }
             }
-        )
+        }
+        val batchedRequests = Chunk.fromIterable(requestsMap.values).distinct
+
+        ZIO
+          .foreachPar(batchedRequests)(request =>
+            (for {
+              res  <- ZIO.serviceWithZIO[SttpClient](_.send(makeSttpRequest(request)))
+              body <- ZIO.fromEither(res.body)
+            } yield request -> body).mapError(e => CalibanError.ExecutionError(e.toString, innerThrowable = Some(e)))
+          )
+          .map(_.toMap)
+          .map(results => requests.flatMap(requestsMap.get).flatMap(results.get))
     }
 
   private def combineFieldArguments(f1: Field, f2: Field): Option[Field] =
