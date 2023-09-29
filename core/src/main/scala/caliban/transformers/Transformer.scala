@@ -1,6 +1,7 @@
 package caliban.transformers
 
 import caliban.InputValue
+import caliban.execution.Field
 import caliban.introspection.adt._
 import caliban.schema.Step
 import caliban.schema.Step.{ FunctionStep, MetadataFunctionStep, ObjectStep }
@@ -11,16 +12,15 @@ import caliban.schema.Step.{ FunctionStep, MetadataFunctionStep, ObjectStep }
 trait Transformer[-R] { self =>
   val typeVisitor: TypeVisitor
 
-  def transformStep[R1 <: R]: PartialFunction[Step[R1], Step[R1]]
+  def transformStep[R1 <: R]: PartialFunction[(Step[R1], Field), Step[R1]]
 
   def |+|[R0 <: R](that: Transformer[R0]): Transformer[R0] = new Transformer[R0] {
     val typeVisitor: TypeVisitor = self.typeVisitor |+| that.typeVisitor
 
-    def transformStep[R1 <: R0]: PartialFunction[Step[R1], Step[R1]] =
-      Function.unlift { step =>
-        val modifiedStep = self.transformStep.lift(step).getOrElse(step)
-        that.transformStep.lift(modifiedStep)
-      }
+    def transformStep[R1 <: R0]: PartialFunction[(Step[R1], Field), Step[R1]] = { case (step, field) =>
+      val modifiedStep = self.transformStep.lift((step, field)).getOrElse(step)
+      that.transformStep.lift((modifiedStep, field)).getOrElse(modifiedStep)
+    }
   }
 }
 
@@ -30,8 +30,14 @@ object Transformer {
    * A transformer that does nothing.
    */
   val empty: Transformer[Any] = new Transformer[Any] {
-    val typeVisitor: TypeVisitor                               = TypeVisitor.empty
-    def transformStep[R1]: PartialFunction[Step[R1], Step[R1]] = PartialFunction.empty
+    val typeVisitor: TypeVisitor = TypeVisitor.empty
+
+    def transformStep[R1]: PartialFunction[(Step[R1], Field), Step[R1]] = PartialFunction.empty
+
+    override def |+|[R0](that: Transformer[R0]): Transformer[R0] = new Transformer[R0] {
+      val typeVisitor: TypeVisitor                                              = that.typeVisitor
+      def transformStep[R1 <: R0]: PartialFunction[(Step[R1], Field), Step[R1]] = that.transformStep
+    }
   }
 
   /**
@@ -45,7 +51,7 @@ object Transformer {
       TypeVisitor.modify(t => t.copy(name = t.name.map(rename))) |+|
         TypeVisitor.enumValues.modify(v => v.copy(name = rename(v.name)))
 
-    def transformStep[R]: PartialFunction[Step[R], Step[R]] = { case step @ ObjectStep(name, fields) =>
+    def transformStep[R]: PartialFunction[(Step[R], Field), Step[R]] = { case (step @ ObjectStep(name, fields), _) =>
       f.lift(name).map(ObjectStep(_, fields)).getOrElse(step)
     }
   }
@@ -63,7 +69,7 @@ object Transformer {
           field.copy(name = f.lift((t.name.getOrElse(""), field.name)).getOrElse(field.name))
         )
 
-    def transformStep[R]: PartialFunction[Step[R], Step[R]] = { case ObjectStep(typeName, fields) =>
+    def transformStep[R]: PartialFunction[(Step[R], Field), Step[R]] = { case (ObjectStep(typeName, fields), _) =>
       ObjectStep(
         typeName,
         fields.map { case (fieldName, step) => f.lift((typeName, fieldName)).getOrElse(fieldName) -> step }
@@ -90,7 +96,7 @@ object Transformer {
         }
       )
 
-    def transformStep[R]: PartialFunction[Step[R], Step[R]] = { case ObjectStep(typeName, fields) =>
+    def transformStep[R]: PartialFunction[(Step[R], Field), Step[R]] = { case (ObjectStep(typeName, fields), _) =>
       ObjectStep(
         typeName,
         fields.map { case (fieldName, step) =>
@@ -114,7 +120,7 @@ object Transformer {
       TypeVisitor.fields.filterWith((t, field) => f.lift((t.name.getOrElse(""), field.name)).getOrElse(true)) |+|
         TypeVisitor.inputFields.filterWith((t, field) => f.lift((t.name.getOrElse(""), field.name)).getOrElse(true))
 
-    def transformStep[R]: PartialFunction[Step[R], Step[R]] = { case ObjectStep(typeName, fields) =>
+    def transformStep[R]: PartialFunction[(Step[R], Field), Step[R]] = { case (ObjectStep(typeName, fields), _) =>
       ObjectStep(typeName, fields.filter { case (fieldName, _) => f.lift((typeName, fieldName)).getOrElse(true) })
     }
   }
@@ -135,9 +141,7 @@ object Transformer {
         )
       )
 
-    def transformStep[R]: PartialFunction[Step[R], Step[R]] = { case step =>
-      step
-    }
+    def transformStep[R]: PartialFunction[(Step[R], Field), Step[R]] = { case (step, _) => step }
   }
 
   /**
@@ -153,7 +157,7 @@ object Transformer {
         )
       )
 
-    def transformStep[R]: PartialFunction[Step[R], Step[R]] = { case ObjectStep(typeName, fields) =>
+    def transformStep[R]: PartialFunction[(Step[R], Field), Step[R]] = { case (ObjectStep(typeName, fields), _) =>
       ObjectStep(
         typeName,
         fields.map { case (fieldName, step) =>
