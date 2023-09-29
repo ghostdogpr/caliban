@@ -1,6 +1,7 @@
 package caliban.tools
 
 import caliban.CalibanError.ExecutionError
+import caliban.ResponseValue.ObjectValue
 import caliban._
 import caliban.execution.Field
 import caliban.parsing.adt.OperationType
@@ -44,7 +45,16 @@ object RemoteDataSource {
             } yield request -> body).mapError(e => CalibanError.ExecutionError(e.toString, innerThrowable = Some(e)))
           )
           .map(_.toMap)
-          .map(results => requests.flatMap(requestsMap.get).flatMap(results.get))
+          .map(results =>
+            requests.flatMap(req =>
+              requestsMap.get(req).flatMap(results.get).map {
+                case value @ ObjectValue(fields) if !req.field.isRoot =>
+                  fields.collectFirst { case (fieldName, value) if req.field.name == fieldName => value }
+                    .getOrElse(value)
+                case other                                            => other
+              }
+            )
+          )
     }
 
   private def combineFieldArguments(f1: Field, f2: Field): Option[Field] =
@@ -83,11 +93,7 @@ object RemoteDataSource {
       .body(request.field.withTypeName.toGraphQLRequest(OperationType.Query))
       .headers(request.headers)
       .response(asJson[GraphQLResponse[CalibanError]])
-      .mapResponse(_.map(_.data match {
-        // if it was not a root field, return the inner response instead
-        case v @ ResponseValue.ObjectValue(fields) if !request.field.isRoot => fields.headOption.map(_._2).getOrElse(v)
-        case other                                                          => other
-      }).left.map {
+      .mapResponse(_.map(_.data).left.map {
         case DeserializationException(body, error) =>
           ExecutionError(s"${error.getMessage}: $body", innerThrowable = Some(error))
         case HttpError(_, statusCode)              => ExecutionError(s"HTTP Error: $statusCode")
