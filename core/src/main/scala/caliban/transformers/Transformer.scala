@@ -188,6 +188,7 @@ object Transformer {
         if (t.name.contains(typeName)) List(sourceFieldDefinition.copy(name = fieldName, args = Nil)) else Nil
       )
 
+    // TODO this is called only for ObjectStep and MetadataFunctionStep, weird?
     override def transformField[R1 <: R]: PartialFunction[(Step[R1], Field), Field] = {
       case (ObjectStep(`typeName`, fields), field) if field.name == fieldName =>
         val pureFields = fields.collect { case (name, PureStep(value)) => name -> value.toInputValue }
@@ -203,7 +204,7 @@ object Transformer {
         QueryStep(inner.map {
           case ListStep(steps) =>
             ListStep(steps.filter { step =>
-              stepToResponseValueToStep(step)
+              stepToResponseValueToStep(step) // TODO converted twice, can't do better?
                 .flatMap(mapBatchResultToArguments.lift)
                 .fold(true)(
                   _.flatMap { case (k, v) =>
@@ -220,7 +221,8 @@ object Transformer {
     import zio.prelude._
     step match {
       case PureStep(value)       => Some(value)
-      case ListStep(steps)       => steps.forEach(stepToResponseValueToStep).map(ResponseValue.ListValue)
+      case ListStep(steps)       =>
+        steps.forEach(stepToResponseValueToStep).map(ResponseValue.ListValue.apply)
       case ObjectStep(_, fields) =>
         fields.forEach(stepToResponseValueToStep).map(map => ResponseValue.ObjectValue(map.toList))
       case _                     => None
