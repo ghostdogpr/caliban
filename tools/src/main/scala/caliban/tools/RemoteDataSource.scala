@@ -33,6 +33,7 @@ object RemoteDataSource {
               }
             }
         }
+        // TODO requests to the same url with different fields should be batched
         val batchedRequests = Chunk.fromIterable(requestsMap.values).distinct
 
         ZIO
