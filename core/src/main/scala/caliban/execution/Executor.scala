@@ -9,7 +9,6 @@ import caliban.parsing.adt._
 import caliban.schema.ReducedStep.DeferStep
 import caliban.schema.Step._
 import caliban.schema.{ ReducedStep, Step, Types }
-import caliban.transformers.Transformer
 import caliban.wrappers.Wrapper.FieldWrapper
 import zio._
 import zio.query.{ Cache, ZQuery }
@@ -27,15 +26,13 @@ object Executor {
    * @param fieldWrappers a list of field wrappers
    * @param queryExecution a strategy for executing queries in parallel or not
    * @param featureSet a set of features to enable
-   * @param transformer a transformer
    */
   def executeRequest[R](
     request: ExecutionRequest,
     plan: Step[R],
     fieldWrappers: List[FieldWrapper[R]] = Nil,
     queryExecution: QueryExecution = QueryExecution.Parallel,
-    featureSet: Set[Feature] = Set.empty,
-    transformer: Transformer[R] = Transformer.empty
+    featureSet: Set[Feature] = Set.empty
   )(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] = {
 
     val execution = request.operationType match {
@@ -57,7 +54,7 @@ object Executor {
       arguments: Map[String, InputValue],
       path: List[Either[String, Int]]
     ): ReducedStep[R] =
-      transformer.transformStep.lift((step, currentField)).getOrElse(step) match {
+      step match {
         case s @ PureStep(value)            =>
           value match {
             case EnumValue(v) =>
@@ -72,9 +69,7 @@ object Executor {
             case _            => s
           }
         case FunctionStep(step)             => reduceStep(step(arguments), currentField, Map(), path)
-        case MetadataFunctionStep(f)        =>
-          val _currentField = transformer.transformField.lift((step, currentField)).getOrElse(currentField)
-          reduceStep(f(_currentField), currentField, arguments, path)
+        case MetadataFunctionStep(f)        => reduceStep(f(currentField), currentField, arguments, path)
         case ListStep(steps)                =>
           reduceList(
             steps.zipWithIndex.map { case (step, i) =>
@@ -89,10 +84,9 @@ object Executor {
               Right((alias.getOrElse(name), PureStep(StringValue(objectName)), fieldInfo(f, path, directives)))
             case f @ Field(name, _, _, alias, _, _, args, directives, _, _, fragment)      =>
               val aliasedName = alias.getOrElse(name)
-              val f2          = transformer.transformField.lift((step, f)).getOrElse(f)
               val field       = fields
                 .get(name)
-                .fold(NullStep: ReducedStep[R])(reduceStep(_, f2, args, Left(alias.getOrElse(name)) :: path))
+                .fold(NullStep: ReducedStep[R])(reduceStep(_, f, args, Left(alias.getOrElse(name)) :: path))
 
               val info = fieldInfo(f, path, directives)
 

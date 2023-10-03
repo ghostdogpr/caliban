@@ -2,12 +2,12 @@ package example.stitching
 
 import caliban._
 import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
+import caliban.introspection.adt.TypeVisitor
 import caliban.schema.Annotations.GQLExcluded
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import caliban.schema._
-import caliban.tools.Source
-import caliban.transformers.Transformer
+import caliban.tools.gateway.{ SubGraph, SuperGraph }
 import caliban.wrappers.Wrappers
 import sttp.client3.httpclient.zio._
 import zio._
@@ -37,31 +37,31 @@ object StitchingExample extends GenericSchema[Any] {
 
   val enrichedApi =
     for {
-      config      <- ZIO.service[Configuration]
-      headers      = Map("Authorization" -> s"Bearer ${config.githubToken}")
-      githubSource = Source
-                       .graphQL(GITHUB_API, headers)
-                       // remove interfaces that Repository extends
-                       .transform(Transformer.FilterInterface { case ("Repository", _) => false })
-                       // restrict exposed remote fields
-                       .transform(Transformer.FilterField {
-                         case ("Repository", "name") => true
-                         case ("Repository", _)      => false
-                       })
-      apiSource   <- Source
-                       .caliban(api)
-                       .transform(Transformer.RenameArgument { case ("Queries", "GetUser") =>
-                         ({ case "repository" => "repo" }, { case "repo" => "repository" })
-                       })
-                       .extend(
-                         githubSource,
-                         sourceFieldName = "repository",
-                         targetTypeName = "AppUser",
-                         targetFieldName = "featuredRepository",
-                         argumentMappings = Map("repository" -> ("name" -> _), "name" -> ("owner" -> _))
-                       )
-                       .toGraphQL
-    } yield apiSource
+      config     <- ZIO.service[Configuration]
+      headers     = Map("Authorization" -> s"Bearer ${config.githubToken}")
+      github      = SubGraph.graphQL("Github", GITHUB_API, headers)
+      caliban     = SubGraph.caliban("Caliban", api)
+      superGraph <- SuperGraph
+                      .compose(List(github, caliban))
+                      // remove interfaces that Repository extends
+                      .transform(TypeVisitor.filterInterface { case ("Repository", _) => false })
+                      // restrict exposed remote fields
+                      .transform(TypeVisitor.filterField {
+                        case ("Repository", "name") => true
+                        case ("Repository", _)      => false
+                      })
+                      .transform(TypeVisitor.renameArgument { case ("Queries", "GetUser") =>
+                        ({ case "repository" => "repo" }, { case "repo" => "repository" })
+                      })
+                      .extend(
+                        github.name,
+                        sourceFieldName = "repository",
+                        targetTypeName = "AppUser",
+                        targetFieldName = "featuredRepository",
+                        argumentMappings = Map("repository" -> ("name" -> _), "name" -> ("owner" -> _))
+                      )
+                      .build
+    } yield superGraph
 }
 
 case class Configuration(githubToken: String)
@@ -94,7 +94,8 @@ object ExampleApp extends ZIOAppDefault {
             Http
               .collectHttp[Request] {
                 case _ -> Root / "api" / "graphql" => ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
-                case _ -> Root / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))
+                case _ -> Root / "ws" / "graphql"  =>
+                  ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))
                 case _ -> Root / "graphiql"        => graphiql
               }
           )

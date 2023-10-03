@@ -1,7 +1,7 @@
 package caliban.execution
 
 import caliban.Value.BooleanValue
-import caliban.introspection.adt.__Type
+import caliban.introspection.adt.{ __Field, __Type }
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.Selection.{ Field => F, FragmentSpread, InlineFragment }
@@ -42,8 +42,9 @@ case class Field(
   _locationInfo: () => LocationInfo = () => LocationInfo.origin,
   fragment: Option[Fragment] = None
 ) { self =>
-  lazy val locationInfo: LocationInfo = _locationInfo()
-  lazy val isRoot: Boolean            = parentType.isEmpty
+  lazy val locationInfo: LocationInfo  = _locationInfo()
+  lazy val isRoot: Boolean             = parentType.isEmpty
+  lazy val definition: Option[__Field] = parentType.flatMap(_.allFields.find(_.name == name))
 
   def combine(other: Field): Field =
     self.copy(

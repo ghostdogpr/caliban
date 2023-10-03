@@ -185,6 +185,51 @@ object TypeVisitor {
     val set: __Type => (List[Directive] => List[Directive]) => __Type =
       t => f => t.copy(directives = t.directives.map(f))
   }
+
+  def renameType(f: PartialFunction[String, String]): TypeVisitor = {
+    def rename(name: String): String = f.lift(name).getOrElse(name)
+
+    TypeVisitor.modify(t => t.copy(name = t.name.map(rename))) |+|
+      TypeVisitor.enumValues.modify(v => v.copy(name = rename(v.name)))
+  }
+
+  def renameField(f: PartialFunction[(String, String), String]): TypeVisitor =
+    TypeVisitor.fields.modifyWith((t, field) =>
+      field.copy(name = f.lift((t.name.getOrElse(""), field.name)).getOrElse(field.name))
+    ) |+|
+      TypeVisitor.inputFields.modifyWith((t, field) =>
+        field.copy(name = f.lift((t.name.getOrElse(""), field.name)).getOrElse(field.name))
+      )
+
+  def renameArgument(
+    f: PartialFunction[(String, String), (PartialFunction[String, String], PartialFunction[String, String])]
+  ): TypeVisitor =
+    TypeVisitor.fields.modifyWith((t, field) =>
+      f.lift((t.name.getOrElse(""), field.name)) match {
+        case Some((rename, _)) =>
+          field.copy(args = field.args.map(arg => rename.lift(arg.name).fold(arg)(newName => arg.copy(name = newName))))
+        case None              => field
+      }
+    )
+
+  def filterField(f: PartialFunction[(String, String), Boolean]): TypeVisitor =
+    TypeVisitor.fields.filterWith((t, field) => f.lift((t.name.getOrElse(""), field.name)).getOrElse(true)) |+|
+      TypeVisitor.inputFields.filterWith((t, field) => f.lift((t.name.getOrElse(""), field.name)).getOrElse(true))
+
+  def filterInterface(f: PartialFunction[(String, String), Boolean]): TypeVisitor =
+    TypeVisitor.modify(t =>
+      t.copy(interfaces =
+        () =>
+          t.interfaces()
+            .map(_.filter(interface => f.lift((t.name.getOrElse(""), interface.name.getOrElse(""))).getOrElse(true)))
+      )
+    )
+
+  def filterArgument(f: PartialFunction[(String, String, String), Boolean]): TypeVisitor =
+    TypeVisitor.fields.modifyWith((t, field) =>
+      field.copy(args = field.args.filter(arg => f.lift((t.name.getOrElse(""), field.name, arg.name)).getOrElse(true)))
+    )
+
 }
 
 private[caliban] sealed abstract class ListVisitor[A](implicit val set: __Type => (List[A] => List[A]) => __Type) {

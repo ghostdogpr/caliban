@@ -13,6 +13,18 @@ import zio.stream.Stream
 
 sealed trait InputValue { self =>
   def toInputString: String = ValueRenderer.inputValueRenderer.renderCompact(self)
+
+  lazy val asInputListValue: Option[InputValue.ListValue] =
+    self match {
+      case v: InputValue.ListValue => Some(v)
+      case _                       => None
+    }
+
+  lazy val asInputObjectValue: Option[InputValue.ObjectValue] =
+    self match {
+      case v: InputValue.ObjectValue => Some(v)
+      case _                         => None
+    }
 }
 object InputValue       {
   case class ListValue(values: List[InputValue])          extends InputValue {
@@ -79,6 +91,12 @@ sealed trait ResponseValue { self =>
       case v: ResponseValue.ListValue => Some(v)
       case _                          => None
     }
+
+  lazy val asObjectValue: Option[ResponseValue.ObjectValue] =
+    self match {
+      case v: ResponseValue.ObjectValue => Some(v)
+      case _                            => None
+    }
 }
 object ResponseValue {
   case class ListValue(values: List[ResponseValue])                extends ResponseValue {
@@ -95,6 +113,9 @@ object ResponseValue {
         case o: ObjectValue => o.hashCode() == hashCode
         case _              => false
       }
+
+    private lazy val toMap: Map[String, ResponseValue] = fields.toMap
+    def get(key: String): ResponseValue                = toMap.getOrElse(key, NullValue)
   }
   case class StreamValue(stream: Stream[Throwable, ResponseValue]) extends ResponseValue {
     override def toString: String = "<stream>"

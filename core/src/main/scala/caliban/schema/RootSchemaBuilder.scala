@@ -22,7 +22,7 @@ case class RootSchemaBuilder[-R](
       schemaDescription orElse that.schemaDescription
     )
 
-  def types: List[__Type] = {
+  lazy val types: List[__Type] = {
     val init = additionalTypes.foldLeft(List.empty[__Type]) { case (acc, t) => collectTypes(t, acc) }
     (init ++
       query.map(_.opType).fold(List.empty[__Type])(collectTypes(_, init)) ++

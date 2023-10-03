@@ -6,7 +6,6 @@ import caliban.parsing.adt.{ Directive, Document }
 import caliban.rendering.DocumentRenderer
 import caliban.schema.Types.collectTypes
 import caliban.schema._
-import caliban.transformers.Transformer
 import caliban.wrappers.Wrapper
 
 package object caliban {
@@ -39,7 +38,6 @@ package object caliban {
     val wrappers: List[Wrapper[R]]              = Nil
     val additionalDirectives: List[__Directive] = directives
     val features: Set[Feature]                  = Set.empty
-    val transformer: Transformer[R]             = Transformer.empty
   }
 
   /**

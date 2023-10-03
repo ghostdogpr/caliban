@@ -10,7 +10,6 @@ import zio.test._
 import schema.Annotations._
 import caliban.Macros.gqldoc
 import caliban.execution.Feature
-import caliban.transformers.Transformer
 
 object RemoteSchemaSpec extends ZIOSpecDefault {
   sealed trait EnumType  extends Product with Serializable
@@ -113,7 +112,6 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
       protected val additionalDirectives: List[__Directive]       = Nil
       protected val wrappers: List[caliban.wrappers.Wrapper[Any]] = Nil
       protected val features: Set[Feature]                        = Set.empty
-      protected val transformer: Transformer[Any]                 = Transformer.empty
     }
 
 }
