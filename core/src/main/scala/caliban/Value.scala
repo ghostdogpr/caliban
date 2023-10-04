@@ -4,8 +4,8 @@ import scala.util.Try
 import caliban.interop.circe._
 import caliban.interop.tapir.IsTapirSchema
 import caliban.interop.jsoniter.IsJsoniterCodec
-import caliban.interop.play.{IsPlayJsonReads, IsPlayJsonWrites}
-import caliban.interop.zio.{IsZIOJsonDecoder, IsZIOJsonEncoder}
+import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
+import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
 import caliban.rendering.ValueRenderer
 import zio.stream.Stream
 

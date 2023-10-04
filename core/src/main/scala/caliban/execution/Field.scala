@@ -118,11 +118,11 @@ object Field {
     directives: List[Directive],
     rootType: RootType
   ): Field = {
-    val memoizedFragments      = new mutable.HashMap[String, (List[Field], Option[String])](fragments.size + 1, 1.0)
+    val memoizedFragments      = new mutable.HashMap[String, (List[Field], Option[String])]()
     val variableDefinitionsMap = variableDefinitions.map(v => v.name -> v).toMap
 
     def loop(selectionSet: List[Selection], fieldType: __Type, fragment: Option[Fragment]): List[Field] = {
-      val map = new java.util.LinkedHashMap[(String, Option[String]), Field](16, 1.0f)
+      val map = new java.util.LinkedHashMap[(String, Option[String]), Field]()
 
       def addField(f: Field, condition: Option[String]): Unit =
         map.compute((f.aliasedName, condition), (_, existing) => if (existing == null) f else existing.combine(f))
