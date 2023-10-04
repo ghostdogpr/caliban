@@ -3,7 +3,6 @@ package example.stitching
 import caliban._
 import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
 import caliban.introspection.adt.TypeVisitor
-import caliban.schema.Annotations.GQLExcluded
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import caliban.schema._
@@ -39,17 +38,10 @@ object StitchingExample extends GenericSchema[Any] {
     for {
       config     <- ZIO.service[Configuration]
       headers     = Map("Authorization" -> s"Bearer ${config.githubToken}")
-      github      = SubGraph.graphQL("Github", GITHUB_API, headers)
+      github      = SubGraph.graphQL("Github", GITHUB_API, headers, exposeAtRoot = false)
       caliban     = SubGraph.caliban("Caliban", api)
       superGraph <- SuperGraph
                       .compose(List(github, caliban))
-                      // remove interfaces that Repository extends
-                      .transform(TypeVisitor.filterInterface { case ("Repository", _) => false })
-                      // restrict exposed remote fields
-                      .transform(TypeVisitor.filterField {
-                        case ("Repository", "name") => true
-                        case ("Repository", _)      => false
-                      })
 //                      .transform(TypeVisitor.renameArgument { case ("Queries", "GetUser") =>
 //                        ({ case "repository" => "repo" }, { case "repo" => "repository" })
 //                      })
@@ -60,6 +52,13 @@ object StitchingExample extends GenericSchema[Any] {
                         targetFieldName = "featuredRepository",
                         argumentMappings = Map("repository" -> ("name" -> _), "name" -> ("owner" -> _))
                       )
+                      // restrict exposed remote fields
+                      .transform(TypeVisitor.filterField {
+                        case ("Repository", "name") => true
+                        case ("Repository", _)      => false
+                      })
+                      // remove interfaces that Repository extends
+                      .transform(TypeVisitor.filterInterface { case ("Repository", _) => false })
                       .build
     } yield superGraph
 }
