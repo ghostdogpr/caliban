@@ -156,6 +156,12 @@ trait GraphQL[-R] { self =>
       override protected val wrappers: List[Wrapper[R2]]             = wrapper :: self.wrappers
       override protected val additionalDirectives: List[__Directive] = self.additionalDirectives
       override protected val features: Set[Feature]                  = self.features
+      override protected def resolve[R1 <: R2](
+        op: Operation[R1],
+        fieldWrappers: List[FieldWrapper[R1]],
+        isIntrospection: Boolean
+      )(req: ExecutionRequest): URIO[R1, GraphQLResponse[CalibanError]] =
+        self.resolve(op, fieldWrappers, isIntrospection)(req)
     }
 
   /**

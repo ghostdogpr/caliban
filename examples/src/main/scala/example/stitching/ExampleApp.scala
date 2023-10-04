@@ -15,7 +15,7 @@ import zio._
 object StitchingExample extends GenericSchema[Any] {
   val GITHUB_API = "https://api.github.com/graphql"
 
-  case class AppUser(id: String, name: String, @GQLExcluded repository: String)
+  case class AppUser(id: String, name: String, repository: String)
   case class GetUserQuery(name: String, repository: String)
   case class Queries(GetUser: GetUserQuery => URIO[Any, AppUser])
 
@@ -50,9 +50,9 @@ object StitchingExample extends GenericSchema[Any] {
                         case ("Repository", "name") => true
                         case ("Repository", _)      => false
                       })
-                      .transform(TypeVisitor.renameArgument { case ("Queries", "GetUser") =>
-                        ({ case "repository" => "repo" }, { case "repo" => "repository" })
-                      })
+//                      .transform(TypeVisitor.renameArgument { case ("Queries", "GetUser") =>
+//                        ({ case "repository" => "repo" }, { case "repo" => "repository" })
+//                      })
                       .extend(
                         github.name,
                         sourceFieldName = "repository",
@@ -86,8 +86,10 @@ object ExampleApp extends ZIOAppDefault {
 
   def run =
     (for {
+      _           <- ZIO.debug("Building schema")
       api         <- StitchingExample.enrichedApi
       interpreter <- (api @@ Wrappers.printErrors).interpreter
+      _           <- ZIO.debug("Starting server")
       _           <-
         Server
           .serve(

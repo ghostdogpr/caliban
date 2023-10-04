@@ -201,6 +201,7 @@ object TypeVisitor {
         field.copy(name = f.lift((t.name.getOrElse(""), field.name)).getOrElse(field.name))
       )
 
+  // TODO doesn't work
   def renameArgument(
     f: PartialFunction[(String, String), (PartialFunction[String, String], PartialFunction[String, String])]
   ): TypeVisitor =
