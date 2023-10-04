@@ -73,7 +73,7 @@ object SubGraph {
           def run(field: Field): ZIO[R, ExecutionError, ResponseValue] =
             interpreter
               .executeRequest(field.toGraphQLRequest(OperationType.Query))
-              .map(_.toResponseValue)
+              .map(_.data) // TODO: handle errors
         }
     }
 }
