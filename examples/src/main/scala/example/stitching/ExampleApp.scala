@@ -54,8 +54,10 @@ object StitchingExample extends GenericSchema[Any] {
                       )
                       // restrict exposed remote fields
                       .transform(TypeVisitor.filterField {
-                        case ("Repository", "name") => true
-                        case ("Repository", _)      => false
+                        case ("Repository", "name")    => true
+                        case ("Repository", _)         => false
+                        case ("AppUser", "repository") => false
+                        case ("AppUser", _)            => true
                       })
                       // remove interfaces that Repository extends
                       .transform(TypeVisitor.filterInterface { case ("Repository", _) => false })
