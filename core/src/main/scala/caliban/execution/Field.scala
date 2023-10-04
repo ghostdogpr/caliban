@@ -219,8 +219,6 @@ object Field {
     if (directive.arguments.isEmpty) directive
     else directive.copy(arguments = resolveVariables(directive.arguments, variableDefinitions, variableValues))
 
-  private val emptyVariables = Map.empty[String, InputValue]
-
   private def resolveVariables(
     arguments: Map[String, InputValue],
     variableDefinitions: Map[String, VariableDefinition],
@@ -240,7 +238,7 @@ object Field {
         case value: Value                   =>
           Some(value)
       }
-    if (arguments.isEmpty) emptyVariables
+    if (arguments.isEmpty) Map.empty[String, InputValue]
     else arguments.flatMap { case (k, v) => resolveVariable(v).map(k -> _) }
   }
 
