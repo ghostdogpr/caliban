@@ -12,13 +12,18 @@ import sttp.client3.jsoniter._
 import sttp.client3.{ basicRequest, DeserializationException, HttpError, Identity, RequestT, UriContext }
 import zio.{ RIO, ZIO }
 
-abstract class SubGraph[-R](val name: String) {
+abstract class SubGraph[-R](val name: String, val exposeAtRoot: Boolean) {
   def build: RIO[R, SubGraphData[R]]
 }
 
 object SubGraph {
-  def graphQL(name: String, url: String, headers: Map[String, String] = Map.empty): SubGraph[SttpClient] =
-    new SubGraph[SttpClient](name) { self =>
+  def graphQL(
+    name: String,
+    url: String,
+    headers: Map[String, String] = Map.empty,
+    exposeAtRoot: Boolean = true
+  ): SubGraph[SttpClient] =
+    new SubGraph[SttpClient](name, exposeAtRoot) { self =>
       def makeRequest(field: Field): RequestT[Identity, Either[ExecutionError, ResponseValue], Any] =
         basicRequest
           .post(uri"$url")
@@ -43,7 +48,7 @@ object SubGraph {
           remoteSchema <- ZIO
                             .succeed(RemoteSchema.parseRemoteSchema(doc))
                             .someOrFail(new Throwable("Failed to parse remote schema"))
-        } yield new SubGraphData[SttpClient](self.name, remoteSchema) {
+        } yield new SubGraphData[SttpClient](self.name, self.exposeAtRoot, remoteSchema) {
           def run(field: Field): ZIO[SttpClient, ExecutionError, ResponseValue] =
             (for {
               res  <- ZIO.serviceWithZIO[SttpClient](_.send(makeRequest(field)))
@@ -52,8 +57,8 @@ object SubGraph {
         }
     }
 
-  def caliban[R](name: String, api: GraphQL[R]): SubGraph[R] =
-    new SubGraph[R](name) { self =>
+  def caliban[R](name: String, api: GraphQL[R], exposeAtRoot: Boolean = true): SubGraph[R] =
+    new SubGraph[R](name, exposeAtRoot) { self =>
       def build: RIO[R, SubGraphData[R]] =
         for {
           interpreter  <- api.interpreter
@@ -61,6 +66,7 @@ object SubGraph {
           rootSchema   <- Validator.validateSchema(schemaBuilder)
         } yield new SubGraphData[R](
           self.name,
+          self.exposeAtRoot,
           __Schema(
             schemaBuilder.schemaDescription,
             rootSchema.query.opType,
@@ -78,6 +84,6 @@ object SubGraph {
     }
 }
 
-private[caliban] abstract class SubGraphData[-R](val name: String, val schema: __Schema) {
+private[caliban] abstract class SubGraphData[-R](val name: String, val exposeAtRoot: Boolean, val schema: __Schema) {
   def run(field: Field): ZIO[R, ExecutionError, ResponseValue]
 }

@@ -86,8 +86,8 @@ private case class SuperGraphQL[-R](
   private val subGraphMap: Map[String, SubGraphData[R]] = subGraphs.map(g => g.name -> g).toMap
 
   protected val schemaBuilder: RootSchemaBuilder[R] = {
-    val builder = subGraphs
-      .map(subGraph =>
+    val builder = subGraphs.collect {
+      case subGraph if subGraph.exposeAtRoot =>
         RootSchemaBuilder(
           Some(Operation(subGraph.schema.queryType, NullStep)),
           subGraph.schema.mutationType.map(mutation => Operation(mutation, NullStep)),
@@ -100,8 +100,7 @@ private case class SuperGraphQL[-R](
           // TODO mutation and subscription
           )
         )
-      )
-      .reduceLeft(_ |+| _)
+    }.reduceLeft(_ |+| _)
     transformers.foldLeft(builder) { case (builder, transformer) => builder.visit(transformer) }
   }
 
