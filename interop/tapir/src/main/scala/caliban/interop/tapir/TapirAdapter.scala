@@ -99,8 +99,15 @@ object TapirAdapter {
     streamConstructor: StreamConstructor[BS],
     responseCodec: JsonCodec[ResponseValue]
   ): (MediaType, StatusCode, CalibanBody[BS]) = {
+
+    /**
+     * NOTE: From  1st January 2025 this logic should be changed to use `application/graphql-response+json` as the
+     * default content-type when the client does not specify an accept header.
+     *
+     * @see [[https://graphql.github.io/graphql-over-http/draft/#sec-Legacy-watershed]]
+     */
     def acceptsGqlJson = request.acceptsContentTypes.fold(
-      _ => false, // NOTE: 1st January 2025 this should be changed to `true`
+      _ => false,
       _.exists {
         case ContentTypeRange("application", "graphql-response+json", _) => true
         case _                                                           => false

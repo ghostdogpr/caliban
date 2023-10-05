@@ -1,6 +1,7 @@
 package caliban
 
 import caliban.CalibanError.ValidationError
+import caliban.Configurator.ExecutionConfiguration
 import caliban.execution.{ ExecutionRequest, Executor, Feature }
 import caliban.introspection.Introspector
 import caliban.introspection.adt._
@@ -86,13 +87,15 @@ trait GraphQL[-R] { self =>
             _             <- Validator.validate(document, typeToValidate)
           } yield ()
 
-        private def checkHttpMethod(req: ExecutionRequest): IO[ValidationError, Unit] =
-          HttpRequestMethod.fiberRef.get.flatMap {
-            case HttpRequestMethod.GET if req.operationType == OperationType.Mutation =>
-              ZIO.fail(HttpRequestMethod.MutationOverGetError)
-            case _                                                                    =>
-              ZIO.unit
-          }
+        private def checkHttpMethod(cfg: ExecutionConfiguration)(req: ExecutionRequest): IO[ValidationError, Unit] =
+          ZIO
+            .when(req.operationType == OperationType.Mutation && !cfg.allowMutationsOverGetRequests) {
+              HttpRequestMethod.get.flatMap {
+                case HttpRequestMethod.GET => ZIO.fail(HttpRequestMethod.MutationOverGetError)
+                case _                     => ZIO.unit
+              }
+            }
+            .unit
 
         override def executeRequest(request: GraphQLRequest)(implicit
           trace: Trace
@@ -126,22 +129,21 @@ trait GraphQL[-R] { self =>
                                                                                 config.skipValidation,
                                                                                 config.validations
                                                                               )
-                                                              _            <- ZIO.unless(config.allowMutationsOverGetRequests)(checkHttpMethod(executionReq))
+                                                              _            <- checkHttpMethod(config)(executionReq)
                                                             } yield executionReq
                   executionRequest                     <- wrap(validate)(validationWrappers, doc)
-
-                  op      = executionRequest.operationType match {
-                              case OperationType.Query        => schemaToExecute.query
-                              case OperationType.Mutation     => schemaToExecute.mutation.getOrElse(schemaToExecute.query)
-                              case OperationType.Subscription =>
-                                schemaToExecute.subscription.getOrElse(schemaToExecute.query)
-                            }
-                  execute = (req: ExecutionRequest) =>
-                              for {
-                                queryExecution <- Configurator.configuration.map(_.queryExecution)
-                                res            <- Executor.executeRequest(req, op.plan, fieldWrappers, queryExecution, features)
-                              } yield res
-                  result <- wrap(execute)(executionWrappers, executionRequest)
+                  op                                    = executionRequest.operationType match {
+                                                            case OperationType.Query        => schemaToExecute.query
+                                                            case OperationType.Mutation     => schemaToExecute.mutation.getOrElse(schemaToExecute.query)
+                                                            case OperationType.Subscription =>
+                                                              schemaToExecute.subscription.getOrElse(schemaToExecute.query)
+                                                          }
+                  execute                               = (req: ExecutionRequest) =>
+                                                            for {
+                                                              queryExecution <- Configurator.configuration.map(_.queryExecution)
+                                                              res            <- Executor.executeRequest(req, op.plan, fieldWrappers, queryExecution, features)
+                                                            } yield res
+                  result                               <- wrap(execute)(executionWrappers, executionRequest)
                 } yield result).catchAll(Executor.fail)
               )(overallWrappers, request)
           }

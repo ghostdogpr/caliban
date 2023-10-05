@@ -52,9 +52,14 @@ object HttpInterpreter {
       graphQLRequest: GraphQLRequest,
       serverRequest: ServerRequest
     )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]] =
-      ZIO.scoped[R] {
-        setRequestMethod(serverRequest) *>
-          interpreter.executeRequest(graphQLRequest).map(buildHttpResponse[E, BS](serverRequest))
+      setRequestMethod(serverRequest)(interpreter.executeRequest(graphQLRequest))
+        .map(buildHttpResponse[E, BS](serverRequest))
+
+    private def setRequestMethod(req: ServerRequest)(exec: URIO[R, GraphQLResponse[E]]): URIO[R, GraphQLResponse[E]] =
+      req.method match {
+        case Method.POST => HttpRequestMethod.setWith(HttpRequestMethod.POST)(exec)
+        case Method.GET  => HttpRequestMethod.setWith(HttpRequestMethod.GET)(exec)
+        case _           => exec
       }
   }
 
@@ -155,7 +160,4 @@ object HttpInterpreter {
 
     postEndpoint :: getEndpoint :: Nil
   }
-
-  private def setRequestMethod(req: ServerRequest): URIO[Scope, Unit] =
-    ZIO.when(req.method == Method.GET)(HttpRequestMethod.fiberRef.locallyScoped(HttpRequestMethod.GET)).unit
 }
