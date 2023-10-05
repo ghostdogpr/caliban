@@ -8,13 +8,13 @@ val scala3   = "3.3.1"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion               = "2.6.20"
-val catsEffect3Version        = "3.5.1"
+val catsEffect3Version        = "3.5.2"
 val catsMtlVersion            = "1.3.0"
 val circeVersion              = "0.14.6"
 val fs2Version                = "3.9.2"
 val http4sVersion             = "0.23.23"
 val javaTimeVersion           = "2.5.0"
-val jsoniterVersion           = "2.23.4"
+val jsoniterVersion           = "2.23.5"
 val laminextVersion           = "0.16.2"
 val magnoliaVersion           = "1.1.6"
 val pekkoVersion              = "1.0.1"
@@ -22,16 +22,15 @@ val playVersion               = "2.8.20"
 val playJsonVersion           = "2.10.1"
 val scalafmtVersion           = "3.7.14"
 val sttpVersion               = "3.9.0"
-val tapirVersion              = "1.7.3"
-val zioVersion                = "2.0.17"
+val tapirVersion              = "1.7.6"
+val zioVersion                = "2.0.18"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.0.0.8"
 val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "3.0.7"
-val zqueryVersion             = "0.4.0"
+val zqueryVersion             = "0.5.1"
 val zioJsonVersion            = "0.6.2"
-val zioHttpVersion            = "3.0.0-RC1"
-val zioHttpTapirVersion       = "1.4.0"
+val zioHttpVersion            = "3.0.0-RC2"
 val zioOpenTelemetryVersion   = "3.0.0-RC15"
 val zioPreludeVersion         = "1.0.0-RC21"
 
@@ -175,7 +174,7 @@ lazy val tools = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "org.scalameta"                  % "scalafmt-interfaces" % scalafmtVersion,
-      "io.get-coursier"                % "interface"           % "1.0.18",
+      "io.get-coursier"                % "interface"           % "1.0.19",
       "com.softwaremill.sttp.client3" %% "zio"                 % sttpVersion,
       "dev.zio"                       %% "zio-config"          % zioConfigVersion,
       "dev.zio"                       %% "zio-config-magnolia" % zioConfigVersion,
@@ -338,9 +337,9 @@ lazy val zioHttp = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
       "dev.zio"                     %% "zio-http"              % zioHttpVersion,
-      "com.softwaremill.sttp.tapir" %% "tapir-zio-http-server" % zioHttpTapirVersion,
-      "dev.zio"                     %% "zio-json"              % zioJsonVersion      % Test,
-      "com.softwaremill.sttp.tapir" %% "tapir-json-zio"        % zioHttpTapirVersion % Test
+      "com.softwaremill.sttp.tapir" %% "tapir-zio-http-server" % tapirVersion,
+      "dev.zio"                     %% "zio-json"              % zioJsonVersion % Test,
+      "com.softwaremill.sttp.tapir" %% "tapir-json-zio"        % tapirVersion   % Test
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
@@ -397,7 +396,7 @@ lazy val play = project
     libraryDependencies ++= Seq(
       "com.typesafe.play"             %% "play"                  % playVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-play-server"     % tapirVersion,
-      "com.softwaremill.sttp.tapir"   %% "tapir-json-play"       % tapirVersion % Test,
+      "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"      % tapirVersion % Test,
       "dev.zio"                       %% "zio-test"              % zioVersion   % Test,
       "dev.zio"                       %% "zio-test-sbt"          % zioVersion   % Test,
       "com.typesafe.play"             %% "play-akka-http-server" % playVersion  % Test,

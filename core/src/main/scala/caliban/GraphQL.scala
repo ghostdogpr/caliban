@@ -65,20 +65,20 @@ trait GraphQL[-R] { self =>
 
   private lazy val cachedInterpreter =
     Validator.validateSchemaEither(schemaBuilder).map { schema =>
-      lazy val rootType =
-        RootType(
-          schema.query.opType,
-          schema.mutation.map(_.opType),
-          schema.subscription.map(_.opType),
-          schemaBuilder.additionalTypes,
-          additionalDirectives,
-          schemaBuilder.schemaDescription
-        )
-
-      val introWrappers                               = wrappers.collect { case w: IntrospectionWrapper[R] => w }
-      lazy val introspectionRootSchema: RootSchema[R] = Introspector.introspect(rootType, introWrappers)
-
       new GraphQLInterpreter[R, CalibanError] {
+        private val rootType =
+          RootType(
+            schema.query.opType,
+            schema.mutation.map(_.opType),
+            schema.subscription.map(_.opType),
+            schemaBuilder.additionalTypes,
+            additionalDirectives,
+            schemaBuilder.schemaDescription
+          )
+
+        private val introWrappers                               = wrappers.collect { case w: IntrospectionWrapper[R] => w }
+        private lazy val introspectionRootSchema: RootSchema[R] = Introspector.introspect(rootType, introWrappers)
+
         override def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
           for {
             document      <- Parser.parseQuery(query)

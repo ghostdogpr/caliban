@@ -512,7 +512,7 @@ object Validator {
     ZPure
       .when(field.name != "__typename") {
         ZPure
-          .fromOption(currentType.allFields.find(_.name == field.name))
+          .fromOption(currentType.allFieldsMap.get(field.name))
           .orElseFail(
             ValidationError(
               s"Field '${field.name}' does not exist on type '${DocumentRenderer.renderTypeName(currentType)}'.",
@@ -883,8 +883,7 @@ object Validator {
     val objectContext = s"Object '${obj.name.getOrElse("")}'"
 
     def validateInterfaceFields(obj: __Type) = {
-      def fieldNames(t: __Type) =
-        t.allFields.map(_.name).toSet
+      def fieldNames(t: __Type) = t.allFieldsMap.keySet
 
       val supertype = obj.interfaces().toList.flatten
 
