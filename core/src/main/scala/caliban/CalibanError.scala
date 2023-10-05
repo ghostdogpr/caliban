@@ -8,10 +8,12 @@ import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
 import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
 import caliban.parsing.adt.LocationInfo
 
+import scala.util.control.NoStackTrace
+
 /**
  * The base type for all Caliban errors.
  */
-sealed trait CalibanError extends Throwable with Product with Serializable {
+sealed trait CalibanError extends NoStackTrace with Product with Serializable {
   def msg: String
   override def getMessage: String = msg
 
