@@ -280,23 +280,20 @@ object SchemaWriterSpec extends ZIOSpecDefault {
          |
          |object Types {
          |
+         |  final case class Captain(
+         |    @GQLDescription(\"ship\")
+         |    shipName: String
+         |  ) extends Role
+         |      with Role2
+         |  final case class Pilot(shipName: String)   extends Role with Role2
+         |  final case class Stewart(shipName: String) extends Role2
+         |
          |  @GQLDescription(\"\"\"role
          |Captain or Pilot\"\"\")
          |  sealed trait Role extends scala.Product with scala.Serializable
          |  @GQLDescription(\"\"\"role2
          |Captain or Pilot or Stewart\"\"\")
          |  sealed trait Role2 extends scala.Product with scala.Serializable
-         |
-         |  object Role2 {
-         |    final case class Stewart(shipName: String) extends Role2
-         |  }
-         |
-         |  final case class Captain(
-         |    @GQLDescription("ship")
-         |    shipName: String
-         |  ) extends Role
-         |      with Role2
-         |  final case class Pilot(shipName: String) extends Role with Role2
          |
          |}"""
     ),
@@ -555,6 +552,14 @@ object SchemaWriterSpec extends ZIOSpecDefault {
          |
          |object Types {
          |
+         |  final case class Admin(
+         |    id: java.util.UUID,
+         |    @GQLDescription(\"firstName\")
+         |    firstName: String,
+         |    lastName: String
+         |  ) extends Person
+         |  final case class Customer(id: java.util.UUID, firstName: String, lastName: String, email: String) extends Person
+         |
          |  @GQLInterface
          |  @GQLDescription(\"\"\"person
          |Admin or Customer\"\"\")
@@ -562,16 +567,6 @@ object SchemaWriterSpec extends ZIOSpecDefault {
          |    def id: java.util.UUID
          |    def firstName: String
          |    def lastName: String
-         |  }
-         |
-         |  object Person {
-         |    final case class Admin(
-         |      id: java.util.UUID,
-         |      @GQLDescription("firstName")
-         |      firstName: String,
-         |      lastName: String
-         |    ) extends Person
-         |    final case class Customer(id: java.util.UUID, firstName: String, lastName: String, email: String) extends Person
          |  }
          |
          |}"""
@@ -652,17 +647,14 @@ object SchemaWriterSpec extends ZIOSpecDefault {
         |  final case class CharacterFriendsConnectionArgs(first: scala.Option[Int], after: scala.Option[ID])
         |      derives caliban.schema.Schema.SemiAuto,
         |        caliban.schema.ArgBuilder
+        |  final case class Human(friendsConnection: CharacterFriendsConnectionArgs => FriendsConnection) extends Character
+        |      derives caliban.schema.Schema.SemiAuto
+        |  final case class Droid(friendsConnection: CharacterFriendsConnectionArgs => FriendsConnection) extends Character
+        |      derives caliban.schema.Schema.SemiAuto
         |
         |  @GQLInterface
         |  sealed trait Character extends scala.Product with scala.Serializable derives caliban.schema.Schema.SemiAuto {
         |    def friendsConnection: CharacterFriendsConnectionArgs => FriendsConnection
-        |  }
-        |
-        |  object Character {
-        |    final case class Human(friendsConnection: CharacterFriendsConnectionArgs => FriendsConnection) extends Character
-        |        derives caliban.schema.Schema.SemiAuto
-        |    final case class Droid(friendsConnection: CharacterFriendsConnectionArgs => FriendsConnection) extends Character
-        |        derives caliban.schema.Schema.SemiAuto
         |  }
         |
         |}""".stripMargin

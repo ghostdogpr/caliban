@@ -72,10 +72,15 @@ object SchemaWriter {
          |${op.fields.map(c => writeSubscriptionField(c, op)).mkString(",\n")}
          |)$derivesSchema""".stripMargin
 
-    def writeObject(typedef: ObjectTypeDefinition, extend: String): String =
+    def writeObject(typedef: ObjectTypeDefinition, extend: List[String]): String = {
+      val extendRendered = extend match {
+        case Nil      => ""
+        case nonEmpty => s" extends ${nonEmpty.mkString(" with ")}"
+      }
       s"""${writeDescription(typedef.description)}final case class ${typedef.name}(${typedef.fields
         .map(field => writeField(field, inheritedFromInterface(typedef, field).getOrElse(typedef)))
-        .mkString(", ")})$extend$derivesSchema"""
+        .mkString(", ")})$extendRendered$derivesSchema"""
+    }
 
     def writeInputObject(typedef: InputObjectTypeDefinition): String = {
       val name            = typedef.name
@@ -97,82 +102,19 @@ object SchemaWriter {
           }
        """
 
-    def writeUnions(unions: Map[UnionTypeDefinition, List[ObjectTypeDefinition]]): String =
-      if (unions.nonEmpty) {
-        val flattened = unions.toList.flatMap { case (unionType, objectTypes) => objectTypes.map(_ -> unionType) }
-
-        val (unionsWithoutReusedMembers, reusedUnionMembers) = flattened
-          .foldLeft(
-            (
-              Map.empty[UnionTypeDefinition, List[ObjectTypeDefinition]],
-              Map.empty[ObjectTypeDefinition, List[UnionTypeDefinition]]
-            )
-          ) {
-            case (
-                  (unionsWithoutReusedMembers, reusedUnionMembers),
-                  (objectType, unionType)
-                ) =>
-              val isReused = reusedUnionMembers.contains(objectType) ||
-                flattened.exists { case (_objectType, _unionType) =>
-                  _unionType.name != unionType.name && _objectType.name == objectType.name
-                }
-
-              if (isReused) {
-                (
-                  unionsWithoutReusedMembers,
-                  reusedUnionMembers.updated(
-                    objectType,
-                    reusedUnionMembers.getOrElse(objectType, List.empty) :+ unionType
-                  )
-                )
-              } else {
-                (
-                  unionsWithoutReusedMembers.updated(
-                    unionType,
-                    unionsWithoutReusedMembers.getOrElse(unionType, List.empty) :+ objectType
-                  ),
-                  reusedUnionMembers
-                )
-              }
-          }
-
-        s"""${unions.keys.map(writeUnionSealedTrait).mkString("\n")}
-
-        ${unionsWithoutReusedMembers.map { case (union, objects) => writeNotReusedMembers(union, objects) }
-          .mkString("\n")}
-
-        ${reusedUnionMembers.map { case (objectType, unions) => writeReusedUnionMember(objectType, unions) }
-          .mkString("\n")}
-         """
-      } else ""
+    def writeUnions(unions: List[UnionTypeDefinition]): String =
+      unions.map(x => writeUnionSealedTrait(x)).mkString("\n")
 
     def writeUnionSealedTrait(union: UnionTypeDefinition): String =
       s"""${writeDescription(
         union.description
       )}sealed trait ${union.name} extends scala.Product with scala.Serializable$derivesSchema"""
 
-    def writeReusedUnionMember(typedef: ObjectTypeDefinition, unions: List[UnionTypeDefinition]): String =
-      s"${writeObject(typedef, s" extends ${unions.map(_.name).mkString(" with ")}")}"
-
-    def writeNotReusedMembers(typedef: UnionTypeDefinition, objects: List[ObjectTypeDefinition]): String =
-      s"""object ${typedef.name} {
-            ${objects
-        .map(o => s"${writeObject(o, s" extends ${typedef.name}")}")
-        .mkString("\n")}
-          }
-       """
-
-    def writeInterface(interface: InterfaceTypeDefinition, impls: List[ObjectTypeDefinition]): String =
+    def writeInterface(interface: InterfaceTypeDefinition): String =
       s"""@GQLInterface
         ${writeDescription(interface.description)}sealed trait ${interface.name} extends scala.Product with scala.Serializable $derivesSchema {
          ${interface.fields.map(field => "def " + writeField(field, interface)).mkString("\n")}
         }
-
-          object ${interface.name} {
-            ${impls
-        .map(o => s"${writeObject(o, s" extends ${interface.name}")}")
-        .mkString("\n")}
-          }
        """
 
     def writeField(field: FieldDefinition, of: TypeDefinition): String =
@@ -215,13 +157,7 @@ object SchemaWriter {
     def writeType(t: Type): String = {
       def write(name: String): String = scalarMappings
         .flatMap(_.get(name))
-        .getOrElse(checkIsInterfaceImpl(name))
-
-      def checkIsInterfaceImpl(name: String): String = interfaceImplementationsMap.find { case (_, impls) =>
-        impls.exists(_.name == name)
-      }.map { case (interface, _) =>
-        s"${interface.name}.$name"
-      }.getOrElse(name)
+        .getOrElse(name)
 
       t match {
         case NamedType(name, true)   => write(name)
@@ -253,12 +189,10 @@ object SchemaWriter {
       .map(union => (union, union.memberTypes.flatMap(schema.objectTypeDefinition)))
       .toMap
 
-    val unions = writeUnions(unionTypes)
+    val unions = writeUnions(schema.unionTypeDefinitions)
 
-    val interfaceImplementations = interfaceImplementationsMap.values.flatten
-
-    val interfacesStr = interfaceImplementationsMap.map { case (interface, impls) =>
-      writeInterface(interface, impls)
+    val interfacesStr = schema.interfaceTypeDefinitions.map { interface =>
+      writeInterface(interface)
     }.mkString("\n")
 
     val objects = schema.objectTypeDefinitions
@@ -266,11 +200,13 @@ object SchemaWriter {
         reservedType(obj) ||
           schemaDef.exists(_.query.getOrElse("Query") == obj.name) ||
           schemaDef.exists(_.mutation.getOrElse("Mutation") == obj.name) ||
-          schemaDef.exists(_.subscription.getOrElse("Subscription") == obj.name) ||
-          unionTypes.values.flatten.exists(_.name == obj.name) ||
-          interfaceImplementations.exists(_.name == obj.name)
+          schemaDef.exists(_.subscription.getOrElse("Subscription") == obj.name)
       )
-      .map(writeObject(_, ""))
+      .map { obj =>
+        val extendsInterfaces = obj.implements.map(name => name.name)
+        val partOfUnionTypes  = unionTypes.collect { case (u, os) if os.exists(_.name == obj.name) => u.name }
+        writeObject(obj, extend = extendsInterfaces ++ partOfUnionTypes)
+      }
       .mkString("\n")
 
     val inputs = schema.inputObjectTypeDefinitions.map(writeInputObject).mkString("\n")
