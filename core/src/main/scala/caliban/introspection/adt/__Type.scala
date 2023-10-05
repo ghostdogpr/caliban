@@ -118,11 +118,14 @@ case class __Type(
       case _                   => true
     }
 
-  def list: __Type    = __Type(__TypeKind.LIST, ofType = Some(self))
-  def nonNull: __Type = __Type(__TypeKind.NON_NULL, ofType = Some(self))
+  lazy val list: __Type    = __Type(__TypeKind.LIST, ofType = Some(self))
+  lazy val nonNull: __Type = __Type(__TypeKind.NON_NULL, ofType = Some(self))
 
   lazy val allFields: List[__Field] =
     fields(__DeprecatedArgs(Some(true))).getOrElse(Nil)
+
+  private[caliban] lazy val allFieldsMap: Map[String, __Field] =
+    allFields.map(f => f.name -> f).toMap
 
   lazy val innerType: __Type = Types.innerType(this)
 }

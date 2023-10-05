@@ -15,7 +15,7 @@ import zio.query.{ Cache, ZQuery }
 import zio.stream.ZStream
 
 import scala.annotation.tailrec
-import scala.collection.mutable.ArrayBuffer
+import scala.jdk.CollectionConverters._
 
 object Executor {
 
@@ -33,6 +33,7 @@ object Executor {
     queryExecution: QueryExecution = QueryExecution.Parallel,
     featureSet: Set[Feature] = Set.empty
   )(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] = {
+    val wrapPureValues = fieldWrappers.exists(_.wrapPureValues)
 
     val execution                                                          = request.operationType match {
       case OperationType.Query        => queryExecution
@@ -57,10 +58,10 @@ object Executor {
           value match {
             case EnumValue(v) =>
               // special case of an hybrid union containing case objects, those should return an object instead of a string
-              val obj = mergeFields(currentField, v).collectFirst {
-                case f: Field if f.name == "__typename" =>
-                  ObjectValue(List(f.alias.getOrElse(f.name) -> StringValue(v)))
-                case f: Field if f.name == "_"          =>
+              val obj = currentField.fields.view.filter(_._condition.forall(_.contains(v))).collectFirst {
+                case f if f.name == "__typename" =>
+                  ObjectValue(List(f.aliasedName -> StringValue(v)))
+                case f if f.name == "_"          =>
                   NullValue
               }
               obj.fold(s)(PureStep(_))
@@ -78,13 +79,13 @@ object Executor {
         case ObjectStep(objectName, fields) =>
           val filteredFields    = mergeFields(currentField, objectName)
           val (deferred, eager) = filteredFields.partitionMap {
-            case f @ Field(name @ "__typename", _, _, alias, _, _, _, directives, _, _, _) =>
-              Right((alias.getOrElse(name), PureStep(StringValue(objectName)), fieldInfo(f, path, directives)))
-            case f @ Field(name, _, _, alias, _, _, args, directives, _, _, fragment)      =>
-              val aliasedName = alias.getOrElse(name)
+            case f @ Field("__typename", _, _, _, _, _, _, directives, _, _, _)   =>
+              Right((f.aliasedName, PureStep(StringValue(objectName)), fieldInfo(f, path, directives)))
+            case f @ Field(name, _, _, _, _, _, args, directives, _, _, fragment) =>
+              val aliasedName = f.aliasedName
               val field       = fields
                 .get(name)
-                .fold(NullStep: ReducedStep[R])(reduceStep(_, f, args, Left(alias.getOrElse(name)) :: path))
+                .fold(NullStep: ReducedStep[R])(reduceStep(_, f, args, Left(aliasedName) :: path))
 
               val info = fieldInfo(f, path, directives)
 
@@ -97,13 +98,13 @@ object Executor {
           }
 
           deferred match {
-            case Nil => reduceObject(eager, fieldWrappers)
+            case Nil => reduceObject(eager, wrapPureValues)
             case d   =>
               DeferStep(
-                reduceObject(eager, fieldWrappers),
+                reduceObject(eager, wrapPureValues),
                 d.groupBy(_._1).toList.map { case (label, labelAndFields) =>
                   val (_, fields) = labelAndFields.unzip
-                  reduceObject(fields, fieldWrappers) -> label
+                  reduceObject(fields, wrapPureValues) -> label
                 },
                 path
               )
@@ -268,32 +269,31 @@ object Executor {
 
   private[caliban] def mergeFields(field: Field, typeName: String): List[Field] = {
     // ugly mutable code but it's worth it for the speed ;)
-    val array = ArrayBuffer.empty[Field]
-    val map   = collection.mutable.Map.empty[String, Int]
-    var index = 0
+    val map      = new java.util.LinkedHashMap[String, Field]()
+    var modified = false
 
     field.fields.foreach { field =>
       if (field._condition.forall(_.contains(typeName))) {
-        val name = field.alias.getOrElse(field.name)
-        map.get(name) match {
-          case None        =>
-            // first time we see this field, add it to the array
-            array += field
-            map.update(name, index)
-            index = index + 1
-          case Some(index) =>
-            // field already existed, merge it
-            val f = array(index)
-            array(index) = f.copy(fields = f.fields ::: field.fields)
-        }
+        map.compute(
+          field.aliasedName,
+          (_, f) =>
+            if (f == null) field
+            else {
+              modified = true
+              f.copy(fields = f.fields ::: field.fields)
+            }
+        )
+      } else {
+        modified = true
       }
     }
 
-    array.toList
+    // Avoid conversions if no modification took place
+    if (modified) map.values().asScala.toList else field.fields
   }
 
   private def fieldInfo(field: Field, path: List[Either[String, Int]], fieldDirectives: List[Directive]): FieldInfo =
-    FieldInfo(field.alias.getOrElse(field.name), field, path, fieldDirectives, field.parentType)
+    FieldInfo(field.aliasedName, field, path, fieldDirectives, field.parentType)
 
   private def reduceList[R](list: List[ReducedStep[R]], areItemsNullable: Boolean): ReducedStep[R] =
     if (list.forall(_.isInstanceOf[PureStep]))
@@ -302,9 +302,9 @@ object Executor {
 
   private def reduceObject[R](
     items: List[(String, ReducedStep[R], FieldInfo)],
-    fieldWrappers: List[FieldWrapper[R]]
+    wrapPureValues: Boolean
   ): ReducedStep[R] =
-    if (!fieldWrappers.exists(_.wrapPureValues) && items.map(_._2).forall(_.isInstanceOf[PureStep]))
+    if (!wrapPureValues && items.forall(_._2.isPure))
       PureStep(ObjectValue(items.asInstanceOf[List[(String, PureStep, FieldInfo)]].map { case (k, v, _) =>
         (k, v.value)
       }))
