@@ -22,7 +22,9 @@ package object validation {
     operations: List[OperationDefinition],
     fragments: Map[String, FragmentDefinition],
     selectionSets: List[Selection],
-    variables: Map[String, InputValue]
+    variables: Map[String, InputValue],
+    httpMethod: Option[HttpRequestMethod],
+    isMutation: Boolean
   ) {
     lazy val variableDefinitions: Map[String, VariableDefinition] =
       operations.flatMap(_.variableDefinitions.map(d => d.name -> d)).toMap
@@ -30,6 +32,15 @@ package object validation {
 
   object Context {
     val empty: Context =
-      Context(Document(Nil, SourceMapper.empty), RootType(Types.boolean, None, None), Nil, Map.empty, Nil, Map.empty)
+      Context(
+        Document(Nil, SourceMapper.empty),
+        RootType(Types.boolean, None, None),
+        Nil,
+        Map.empty,
+        Nil,
+        Map.empty,
+        None,
+        isMutation = false
+      )
   }
 }

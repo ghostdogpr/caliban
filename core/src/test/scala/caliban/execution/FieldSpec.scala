@@ -65,7 +65,8 @@ object FieldSpec extends ZIOSpecDefault {
                  operationName = None,
                  Map.empty,
                  skipValidation = false,
-                 validations = AllValidations
+                 validations = AllValidations,
+                 requestMethod = HttpRequestMethod.POST
                )
   } yield req
 

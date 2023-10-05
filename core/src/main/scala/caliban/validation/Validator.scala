@@ -19,7 +19,7 @@ import caliban.parsing.Parser
 import caliban.rendering.DocumentRenderer
 import caliban.schema._
 import caliban.validation.Utils.isObjectType
-import caliban.{ Configurator, InputValue, Value }
+import caliban.{ Configurator, HttpRequestMethod, InputValue, Value }
 import zio.{ IO, ZIO }
 import zio.prelude._
 import zio.prelude.fx.ZPure
@@ -42,14 +42,17 @@ object Validator {
       validateDirectives,
       validateVariables,
       validateSubscriptionOperation,
-      validateDocumentFields
+      validateDocumentFields,
+      validateHttpMethod
     )
 
   /**
    * Verifies that the given document is valid for this type. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
   def validate(document: Document, rootType: RootType): IO[ValidationError, Unit] =
-    Configurator.configuration.map(_.validations).flatMap(check(document, rootType, Map.empty, _).unit.toZIO)
+    Configurator.configuration
+      .map(_.validations)
+      .flatMap(check(document, rootType, Map.empty, _, None, isMutation = false).unit.toZIO)
 
   /**
    * Verifies that the given schema is valid. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
@@ -94,72 +97,83 @@ object Validator {
     operationName: Option[String],
     variables: Map[String, InputValue],
     skipValidation: Boolean,
-    validations: List[QueryValidation]
-  ): IO[ValidationError, ExecutionRequest] = {
-    val fragments: EReader[Any, ValidationError, Map[String, FragmentDefinition]] = if (skipValidation) {
-      ZPure.succeed[Unit, Map[String, FragmentDefinition]](
-        collectDefinitions(document)._2
-          .foldLeft(List.empty[(String, FragmentDefinition)]) { case (l, f) => (f.name, f) :: l }
-          .toMap
-      )
-    } else check(document, rootType, variables, validations)
+    validations: List[QueryValidation],
+    requestMethod: HttpRequestMethod
+  ): IO[ValidationError, ExecutionRequest] =
+    extractOperationDefinition(document, operationName).flatMap { op =>
+      val fragments: EReader[Any, ValidationError, Map[String, FragmentDefinition]] = if (skipValidation) {
+        ZPure.succeed[Unit, Map[String, FragmentDefinition]](
+          collectDefinitions(document)._2
+            .foldLeft(List.empty[(String, FragmentDefinition)]) { case (l, f) => (f.name, f) :: l }
+            .toMap
+        )
+      } else {
+        val isMutation = op.operationType == OperationType.Mutation
+        check(document, rootType, variables, validations, Some(requestMethod), isMutation)
+      }
 
-    fragments.flatMap { fragments =>
-      val operation = operationName match {
-        case Some(name) =>
-          document.definitions.collectFirst { case op: OperationDefinition if op.name.contains(name) => op }
-            .toRight(s"Unknown operation $name.")
-        case None       =>
-          document.definitions.collect { case op: OperationDefinition => op } match {
-            case head :: Nil => Right(head)
-            case _           => Left("Operation name is required.")
+      val operation = op.operationType match {
+        case Query        => ZPure.succeed[Unit, Operation[R]](rootSchema.query)
+        case Mutation     =>
+          rootSchema.mutation match {
+            case Some(m) => ZPure.succeed[Unit, Operation[R]](m)
+            case None    => failValidation("Mutations are not supported on this schema", "")
+          }
+        case Subscription =>
+          rootSchema.subscription match {
+            case Some(m) => ZPure.succeed[Unit, Operation[R]](m)
+            case None    => failValidation("Subscriptions are not supported on this schema", "")
           }
       }
 
-      operation match {
-        case Left(error) => failValidation(error, "")
-        case Right(op)   =>
-          (op.operationType match {
-            case Query        => ZPure.succeed[Unit, Operation[R]](rootSchema.query)
-            case Mutation     =>
-              rootSchema.mutation match {
-                case Some(m) => ZPure.succeed[Unit, Operation[R]](m)
-                case None    => failValidation("Mutations are not supported on this schema", "")
-              }
-            case Subscription =>
-              rootSchema.subscription match {
-                case Some(m) => ZPure.succeed[Unit, Operation[R]](m)
-                case None    => failValidation("Subscriptions are not supported on this schema", "")
-              }
-          }).map(operation =>
-            ExecutionRequest(
-              F(
-                op.selectionSet,
-                fragments,
-                variables,
-                op.variableDefinitions,
-                operation.opType,
-                document.sourceMapper,
-                op.directives,
-                rootType
-              ),
-              op.operationType
-            )
-          )
+      (operation <*> fragments).map { case (operation, fragments) =>
+        ExecutionRequest(
+          F(
+            op.selectionSet,
+            fragments,
+            variables,
+            op.variableDefinitions,
+            operation.opType,
+            document.sourceMapper,
+            op.directives,
+            rootType
+          ),
+          op.operationType
+        )
       }
+    }.toZIO
+
+  private def extractOperationDefinition(
+    document: Document,
+    operationName: Option[String]
+  ): EReader[Any, ValidationError, OperationDefinition] = {
+    val operation = operationName match {
+      case Some(name) =>
+        document.definitions.collectFirst { case op: OperationDefinition if op.name.contains(name) => op }
+          .toRight(s"Unknown operation $name.")
+      case None       =>
+        document.definitions.collect { case op: OperationDefinition => op } match {
+          case head :: Nil => Right(head)
+          case _           => Left("Operation name is required.")
+        }
     }
-  }.toZIO
+
+    operation.fold(failValidation(_, ""), ZPure.succeed)
+  }
 
   private def check(
     document: Document,
     rootType: RootType,
     variables: Map[String, InputValue],
-    validations: List[QueryValidation]
+    validations: List[QueryValidation],
+    httpMethod: Option[HttpRequestMethod],
+    isMutation: Boolean
   ): EReader[Any, ValidationError, Map[String, FragmentDefinition]] = {
     val (operations, fragments, _, _) = collectDefinitions(document)
     validateFragments(fragments).flatMap { fragmentMap =>
       val selectionSets = collectSelectionSets(operations.flatMap(_.selectionSet) ++ fragments.flatMap(_.selectionSet))
-      val context       = Context(document, rootType, operations, fragmentMap, selectionSets, variables)
+      val context       =
+        Context(document, rootType, operations, fragmentMap, selectionSets, variables, httpMethod, isMutation)
       ZPure.foreachDiscard(validations)(identity).provideService(context) as fragmentMap
     }
   }
@@ -441,6 +455,13 @@ object Validator {
       case _: TypeSystemDefinition                            => ZPure.unit
       case _: TypeSystemExtension                             => ZPure.unit
     }
+  }
+
+  lazy val validateHttpMethod: QueryValidation = ZPure.serviceWithPure { context =>
+    if (context.isMutation && context.httpMethod.contains(HttpRequestMethod.GET))
+      ZPure.fail(HttpRequestMethod.MutationOverGetError)
+    else
+      ZPure.unit
   }
 
   private def validateSelectionSet(
