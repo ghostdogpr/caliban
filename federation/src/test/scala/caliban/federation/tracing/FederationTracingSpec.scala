@@ -33,7 +33,7 @@ object FederationTracingSpec extends ZIOSpecDefault {
 
   case class Queries(me: ZQuery[Any, Nothing, User])
 
-  val api = graphQL(
+  def api(excludePureFields: Boolean) = graphQL(
     RootResolver(
       Queries(
         me = ZQuery.succeed(
@@ -46,7 +46,7 @@ object FederationTracingSpec extends ZIOSpecDefault {
         )
       )
     )
-  ) @@ ApolloFederatedTracing.wrapper
+  ) @@ ApolloFederatedTracing.wrapper(excludePureFields)
 
   val query = gqldoc("query { me { id username { first, family: last } parents { name } age } }")
   val body  = ObjectValue(
@@ -115,6 +115,25 @@ object FederationTracingSpec extends ZIOSpecDefault {
       ))
     )
   )
+  val expectedTraceNoPure = Trace(
+    Some(Timestamp(1, 0)),
+    Some(Timestamp(1, 100000000)),
+    100000000,
+    Some(
+      sortNode(Node(
+        Node.Id.Empty,
+        child = Vector(
+          Node(
+            ResponseName("me"), "", "User!", "Queries", None, 0, 100000000, Vector(),
+            Vector(
+              Node(ResponseName("parents"), "", "[Parent!]!", "User", child = Vector()),
+              Node(ResponseName("username"), "", "Name!", "User", None, 0, 100000000, Vector(), Vector())
+            )
+          )
+        )
+      ))
+    )
+  )
   // format: on
 
   def parseTrace(trace: String) = Trace.parseFrom(Base64.getDecoder.decode(trace))
@@ -124,33 +143,38 @@ object FederationTracingSpec extends ZIOSpecDefault {
       test("disabled by default") {
         for {
           _           <- TestClock.setTime(Instant.ofEpochSecond(1))
-          interpreter <- api.interpreter
+          interpreter <- api(false).interpreter
           resultFiber <- interpreter.execute(query).fork
           result      <- TestClock.adjust(1.second) *> resultFiber.join
         } yield assertTrue(result.data == body) && assert(result.extensions)(isNone)
       },
-      test("enabled") {
-        for {
-          _              <- TestClock.setTime(Instant.ofEpochSecond(1))
-          interpreter    <- api.interpreter
-          resultFiber    <-
-            interpreter
-              .execute(
-                query,
-                extensions = Map(GraphQLRequest.`apollo-federation-include-trace` -> StringValue(GraphQLRequest.ftv1))
-              )
-              .fork
-          result         <- TestClock.adjust(1.second) *> resultFiber.join
-          actualBody      = result.data
-          actualExtension = result.extensions.flatMap(_.fields.collectFirst { case ("ftv1", StringValue(ftv1)) =>
-                              parseTrace(ftv1)
-                            })
-          sortedTrace     = actualExtension.map(trace =>
-                              trace.copy(
-                                root = trace.root.map(sortNode)
+      suite("enabled") {
+        def test_(excludePureFields: Boolean, expectedTrace: Trace) =
+          for {
+            _              <- TestClock.setTime(Instant.ofEpochSecond(1))
+            interpreter    <- api(excludePureFields).interpreter
+            resultFiber    <-
+              interpreter
+                .execute(
+                  query,
+                  extensions = Map(GraphQLRequest.`apollo-federation-include-trace` -> StringValue(GraphQLRequest.ftv1))
+                )
+                .fork
+            result         <- TestClock.adjust(1.second) *> resultFiber.join
+            actualBody      = result.data
+            actualExtension = result.extensions.flatMap(_.fields.collectFirst { case ("ftv1", StringValue(ftv1)) =>
+                                parseTrace(ftv1)
+                              })
+            sortedTrace     = actualExtension.map(trace =>
+                                trace.copy(
+                                  root = trace.root.map(sortNode)
+                                )
                               )
-                            )
-        } yield assertTrue(actualBody == body) && assertTrue(sortedTrace.get == expectedTrace)
+          } yield assertTrue(actualBody == body) && assertTrue(sortedTrace.get == expectedTrace)
+        List(
+          test("excludePureFields = false")(test_(false, expectedTrace)),
+          test("excludePureFields = true")(test_(true, expectedTraceNoPure))
+        )
       }
     ) @@ flaky @@ timed
 }
