@@ -58,10 +58,10 @@ object Executor {
           value match {
             case EnumValue(v) =>
               // special case of an hybrid union containing case objects, those should return an object instead of a string
-              val obj = currentField.fields.collectFirst {
-                case f: Field if f.name == "__typename" =>
+              val obj = currentField.fields.view.filter(_._condition.forall(_.contains(v))).collectFirst {
+                case f if f.name == "__typename" =>
                   ObjectValue(List(f.aliasedName -> StringValue(v)))
-                case f: Field if f.name == "_"          =>
+                case f if f.name == "_"          =>
                   NullValue
               }
               obj.fold(s)(PureStep(_))
