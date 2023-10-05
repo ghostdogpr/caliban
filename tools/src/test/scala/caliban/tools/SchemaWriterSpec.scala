@@ -654,7 +654,7 @@ object SchemaWriterSpec extends ZIOSpecDefault {
         |        caliban.schema.ArgBuilder
         |
         |  @GQLInterface
-        |  sealed trait Character extends scala.Product with scala.Serializable {
+        |  sealed trait Character extends scala.Product with scala.Serializable derives caliban.schema.Schema.SemiAuto {
         |    def friendsConnection: CharacterFriendsConnectionArgs => FriendsConnection
         |  }
         |

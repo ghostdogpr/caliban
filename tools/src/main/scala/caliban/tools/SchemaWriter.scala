@@ -164,7 +164,7 @@ object SchemaWriter {
 
     def writeInterface(interface: InterfaceTypeDefinition, impls: List[ObjectTypeDefinition]): String =
       s"""@GQLInterface
-        ${writeDescription(interface.description)}sealed trait ${interface.name} extends scala.Product with scala.Serializable {
+        ${writeDescription(interface.description)}sealed trait ${interface.name} extends scala.Product with scala.Serializable $derivesSchema {
          ${interface.fields.map(field => "def " + writeField(field, interface)).mkString("\n")}
         }
 
