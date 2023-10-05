@@ -117,7 +117,7 @@ object AkkaHttpAdapter {
       Unit,
       I,
       TapirResponse,
-      (MediaType, Either[ResponseValue, AkkaStreams.BinaryStream]),
+      (MediaType, StatusCode, Either[ResponseValue, AkkaStreams.BinaryStream]),
       AkkaStreams,
       Future
     ](

@@ -1,6 +1,7 @@
 package caliban
 
 import caliban.CalibanError.ValidationError
+import caliban.Configurator.ExecutionConfiguration
 import caliban.execution.{ ExecutionRequest, Executor, Feature }
 import caliban.introspection.Introspector
 import caliban.introspection.adt._
@@ -86,6 +87,16 @@ trait GraphQL[-R] { self =>
             _             <- Validator.validate(document, typeToValidate)
           } yield ()
 
+        private def checkHttpMethod(cfg: ExecutionConfiguration)(req: ExecutionRequest): IO[ValidationError, Unit] =
+          ZIO
+            .when(req.operationType == OperationType.Mutation && !cfg.allowMutationsOverGetRequests) {
+              HttpRequestMethod.get.flatMap {
+                case HttpRequestMethod.GET => ZIO.fail(HttpRequestMethod.MutationOverGetError)
+                case _                     => ZIO.unit
+              }
+            }
+            .unit
+
         override def executeRequest(request: GraphQLRequest)(implicit
           trace: Trace
         ): URIO[R, GraphQLResponse[CalibanError]] =
@@ -118,6 +129,7 @@ trait GraphQL[-R] { self =>
                                                                                 config.skipValidation,
                                                                                 config.validations
                                                                               )
+                                                              _            <- checkHttpMethod(config)(executionReq)
                                                             } yield executionReq
                   executionRequest                     <- wrap(validate)(validationWrappers, doc)
                   op                                    = executionRequest.operationType match {

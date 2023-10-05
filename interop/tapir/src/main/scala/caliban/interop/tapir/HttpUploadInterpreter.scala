@@ -101,7 +101,7 @@ object HttpUploadInterpreter {
       graphQLRequest: GraphQLRequest,
       serverRequest: ServerRequest
     )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]] =
-      interpreter.executeRequest(graphQLRequest).map(buildHttpResponse[E, BS])
+      interpreter.executeRequest(graphQLRequest).map(buildHttpResponse[E, BS](serverRequest))
   }
 
   private case class Intercepted[R1, R, E](
@@ -135,6 +135,7 @@ object HttpUploadInterpreter {
       .in(multipartBody)
       .in(extractFromRequest(identity))
       .out(header[MediaType](HeaderNames.ContentType))
+      .out(statusCode)
       .out(outputBody(streams))
       .errorOut(errorBody)
 }
