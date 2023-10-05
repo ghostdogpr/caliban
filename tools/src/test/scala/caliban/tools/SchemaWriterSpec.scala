@@ -630,6 +630,45 @@ object SchemaWriterSpec extends ZIOSpecDefault {
         |  ) derives caliban.schema.Schema.SemiAuto
         |
         |}""".stripMargin
+    ),
+    (
+      "inherits field with args",
+      gen(
+        """
+        |interface Character {
+        |    friendsConnection(first: Int, after: ID): FriendsConnection!
+        |}
+        |type Human implements Character {
+        |    friendsConnection(first: Int, after: ID): FriendsConnection!
+        |}
+        |type Droid implements Character {
+        |    friendsConnection(first: Int, after: ID): FriendsConnection!
+        |}""",
+        addDerives = true
+      ),
+      """import caliban.schema.Annotations._
+        |
+        |object Types {
+        |  final case class HumanFriendsConnectionArgs(first: scala.Option[Int], after: scala.Option[ID])
+        |      derives caliban.schema.Schema.SemiAuto,
+        |        caliban.schema.ArgBuilder
+        |  final case class DroidFriendsConnectionArgs(first: scala.Option[Int], after: scala.Option[ID])
+        |      derives caliban.schema.Schema.SemiAuto,
+        |        caliban.schema.ArgBuilder
+        |
+        |  @GQLInterface
+        |  sealed trait Character extends scala.Product with scala.Serializable {
+        |    def friendsConnection: FriendsConnection
+        |  }
+        |
+        |  object Character {
+        |    final case class Human(friendsConnection: HumanFriendsConnectionArgs => FriendsConnection) extends Character
+        |        derives caliban.schema.Schema.SemiAuto
+        |    final case class Droid(friendsConnection: DroidFriendsConnectionArgs => FriendsConnection) extends Character
+        |        derives caliban.schema.Schema.SemiAuto
+        |  }
+        |
+        |}""".stripMargin
     )
   )
 
