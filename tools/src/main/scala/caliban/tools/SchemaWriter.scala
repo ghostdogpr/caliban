@@ -1,8 +1,11 @@
 package caliban.tools
 
+import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt.{ Document, Type }
+
+import scala.collection.compat._
 
 object SchemaWriter {
 
@@ -22,13 +25,23 @@ object SchemaWriter {
     val derivesSchemaAndArgBuilder: String =
       if (addDerives) " derives caliban.schema.Schema.SemiAuto, caliban.schema.ArgBuilder" else ""
 
-    val interfaceImplementationsMap = (for {
+    val interfaceImplementationsMap: Map[InterfaceTypeDefinition, List[ObjectTypeDefinition]] = (for {
       objectDef    <- schema.objectTypeDefinitions
       interfaceDef <- schema.interfaceTypeDefinitions
       if objectDef.implements.exists(_.name == interfaceDef.name)
     } yield interfaceDef -> objectDef).groupBy(_._1).map { case (definition, tuples) =>
       definition -> tuples.map(_._2)
     }
+
+    val interfacesExtendedForObject: Map[ObjectTypeDefinition, List[InterfaceTypeDefinition]] =
+      interfaceImplementationsMap.iterator.flatMap { case (i, os) => os.map(o => (o, i)) }.toList.groupMap {
+        case (o, _) => o
+      } { case (_, i) => i }
+
+    def inheritedFromInterface(obj: ObjectTypeDefinition, field: FieldDefinition): Option[InterfaceTypeDefinition] =
+      interfacesExtendedForObject.get(obj) flatMap { interfaces =>
+        interfaces.find(_.fields.exists(_.name == field.name))
+      }
 
     def reservedType(typeDefinition: ObjectTypeDefinition): Boolean =
       typeDefinition.name == "Query" || typeDefinition.name == "Mutation" || typeDefinition.name == "Subscription"
@@ -61,7 +74,7 @@ object SchemaWriter {
 
     def writeObject(typedef: ObjectTypeDefinition, extend: String): String =
       s"""${writeDescription(typedef.description)}final case class ${typedef.name}(${typedef.fields
-        .map(writeField(_, typedef))
+        .map(field => writeField(field, inheritedFromInterface(typedef, field).getOrElse(typedef)))
         .mkString(", ")})$extend$derivesSchema"""
 
     def writeInputObject(typedef: InputObjectTypeDefinition): String = {
@@ -152,7 +165,7 @@ object SchemaWriter {
     def writeInterface(interface: InterfaceTypeDefinition, impls: List[ObjectTypeDefinition]): String =
       s"""@GQLInterface
         ${writeDescription(interface.description)}sealed trait ${interface.name} extends scala.Product with scala.Serializable {
-         ${interface.fields.map(field => s"def ${safeName(field.name)} : ${writeType(field.ofType)}").mkString("\n")}
+         ${interface.fields.map(field => "def " + writeField(field, interface)).mkString("\n")}
         }
 
           object ${interface.name} {
@@ -162,7 +175,7 @@ object SchemaWriter {
           }
        """
 
-    def writeField(field: FieldDefinition, of: ObjectTypeDefinition): String =
+    def writeField(field: FieldDefinition, of: TypeDefinition): String =
       if (field.args.nonEmpty) {
         s"${writeDescription(field.description)}${safeName(field.name)} : ${argsName(field, of)} => ${writeType(field.ofType)}"
       } else {
@@ -172,7 +185,7 @@ object SchemaWriter {
     def writeInputValue(value: InputValueDefinition): String =
       s"""${writeDescription(value.description)}${safeName(value.name)} : ${writeType(value.ofType)}"""
 
-    def writeArguments(field: FieldDefinition, of: ObjectTypeDefinition): String = {
+    def writeArguments(field: FieldDefinition, of: TypeDefinition): String = {
       def fields(args: List[InputValueDefinition]): String =
         s"${args.map(arg => s"${safeName(arg.name)} : ${writeType(arg.ofType)}").mkString(", ")}"
 
@@ -183,7 +196,7 @@ object SchemaWriter {
       }
     }
 
-    def argsName(field: FieldDefinition, od: ObjectTypeDefinition): String =
+    def argsName(field: FieldDefinition, od: TypeDefinition): String =
       s"${od.name.capitalize}${field.name.capitalize}Args"
 
     def escapeDoubleQuotes(input: String): String =
@@ -220,9 +233,21 @@ object SchemaWriter {
 
     val schemaDef = schema.schemaDefinition
 
-    val argsTypes = schema.objectTypeDefinitions
-      .flatMap(typeDef => typeDef.fields.filter(_.args.nonEmpty).map(writeArguments(_, typeDef)))
-      .mkString("\n")
+    val argsTypes = {
+      val fromObjects: List[(FieldDefinition, TypeDefinition)]    =
+        schema.objectTypeDefinitions.flatMap { typeDef =>
+          typeDef.fields.collect {
+            case f if f.args.nonEmpty && inheritedFromInterface(typeDef, f).isEmpty => (f, typeDef)
+          }
+        }
+      val fromInterfaces: List[(FieldDefinition, TypeDefinition)] =
+        schema.interfaceTypeDefinitions.flatMap(typeDef =>
+          typeDef.fields.collect { case f if f.args.nonEmpty => (f, typeDef) }
+        )
+
+      (fromObjects ++ fromInterfaces).map { case (field, typeDef) => writeArguments(field, typeDef) }
+        .mkString("\n")
+    }
 
     val unionTypes = schema.unionTypeDefinitions
       .map(union => (union, union.memberTypes.flatMap(schema.objectTypeDefinition)))

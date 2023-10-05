@@ -649,22 +649,19 @@ object SchemaWriterSpec extends ZIOSpecDefault {
       """import caliban.schema.Annotations._
         |
         |object Types {
-        |  final case class HumanFriendsConnectionArgs(first: scala.Option[Int], after: scala.Option[ID])
-        |      derives caliban.schema.Schema.SemiAuto,
-        |        caliban.schema.ArgBuilder
-        |  final case class DroidFriendsConnectionArgs(first: scala.Option[Int], after: scala.Option[ID])
+        |  final case class CharacterFriendsConnectionArgs(first: scala.Option[Int], after: scala.Option[ID])
         |      derives caliban.schema.Schema.SemiAuto,
         |        caliban.schema.ArgBuilder
         |
         |  @GQLInterface
         |  sealed trait Character extends scala.Product with scala.Serializable {
-        |    def friendsConnection: FriendsConnection
+        |    def friendsConnection: CharacterFriendsConnectionArgs => FriendsConnection
         |  }
         |
         |  object Character {
-        |    final case class Human(friendsConnection: HumanFriendsConnectionArgs => FriendsConnection) extends Character
+        |    final case class Human(friendsConnection: CharacterFriendsConnectionArgs => FriendsConnection) extends Character
         |        derives caliban.schema.Schema.SemiAuto
-        |    final case class Droid(friendsConnection: DroidFriendsConnectionArgs => FriendsConnection) extends Character
+        |    final case class Droid(friendsConnection: CharacterFriendsConnectionArgs => FriendsConnection) extends Character
         |        derives caliban.schema.Schema.SemiAuto
         |  }
         |
