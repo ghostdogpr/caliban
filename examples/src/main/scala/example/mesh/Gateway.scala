@@ -67,5 +67,5 @@ object Gateway extends ZIOAppDefault {
           }
         )
       )
-      .provide(ZLayer.succeed(Server.Config.default.port(8080)), Server.live, HttpClientZioBackend.layer())
+      .provide(ZLayer.succeed(Server.Config.default.port(8084)), Server.live, HttpClientZioBackend.layer())
 }
