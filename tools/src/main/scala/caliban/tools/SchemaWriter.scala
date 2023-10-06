@@ -17,7 +17,8 @@ object SchemaWriter {
     scalarMappings: Option[Map[String, String]],
     isEffectTypeAbstract: Boolean = false,
     preserveInputNames: Boolean = false,
-    addDerives: Boolean = false
+    addDerives: Boolean = false,
+    effectStrategy: EffectStrategy = EffectStrategy.AlwaysPure
   ): String = {
     val derivesSchema: String =
       if (addDerives) " derives caliban.schema.Schema.SemiAuto" else ""
@@ -48,7 +49,7 @@ object SchemaWriter {
 
     def writeRootField(field: FieldDefinition, od: ObjectTypeDefinition): String = {
       val argsTypeName = if (field.args.nonEmpty) s" ${argsName(field, od)} =>" else ""
-      s"${safeName(field.name)} :$argsTypeName $effect[${writeType(field.ofType)}]"
+      s"${safeName(field.name)} :$argsTypeName ${writeEffectType(field.ofType)}"
     }
 
     def writeRootQueryOrMutationDef(op: ObjectTypeDefinition): String = {
@@ -63,7 +64,7 @@ object SchemaWriter {
       "%s:%s ZStream[Any, Nothing, %s]".format(
         safeName(field.name),
         if (field.args.nonEmpty) s" ${argsName(field, od)} =>" else "",
-        writeType(field.ofType)
+        writeMaybeEffectType(od, field)
       )
 
     def writeRootSubscriptionDef(op: ObjectTypeDefinition): String =
@@ -119,9 +120,9 @@ object SchemaWriter {
 
     def writeField(field: FieldDefinition, of: TypeDefinition): String =
       if (field.args.nonEmpty) {
-        s"${writeDescription(field.description)}${safeName(field.name)} : ${argsName(field, of)} => ${writeType(field.ofType)}"
+        s"${writeDescription(field.description)}${safeName(field.name)} : ${argsName(field, of)} => ${writeMaybeEffectType(of, field)}"
       } else {
-        s"""${writeDescription(field.description)}${safeName(field.name)} : ${writeType(field.ofType)}"""
+        s"""${writeDescription(field.description)}${safeName(field.name)} : ${writeMaybeEffectType(of, field)}"""
       }
 
     def writeInputValue(value: InputValueDefinition): String =
@@ -153,6 +154,15 @@ object SchemaWriter {
           s"""@GQLDescription("${escapeDoubleQuotes(d)}")
              |""".stripMargin
       }
+
+    def writeMaybeEffectType(owner: TypeDefinition, field: FieldDefinition): String =
+      effectStrategy.decide(owner, field) match {
+        case EffectStrategy.Effectful => writeEffectType(field.ofType)
+        case EffectStrategy.Pure      => writeType(field.ofType)
+      }
+
+    def writeEffectType(t: Type) =
+      s"$effect[${writeType(t)}]"
 
     def writeType(t: Type): String = {
       def write(name: String): String = scalarMappings
