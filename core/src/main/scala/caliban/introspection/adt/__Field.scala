@@ -42,7 +42,7 @@ case class __Field(
 case class Extend(
   sourceGraph: String,
   sourceFieldName: String,
-  argumentMappings: Map[String, InputValue => (String, InputValue)],
+  argumentMappings: Map[String, InputValue => (String, InputValue)] = Map.empty,
   filterBatchResults: Option[(Map[String, InputValue], ResponseValue) => Boolean] = None
 )
 

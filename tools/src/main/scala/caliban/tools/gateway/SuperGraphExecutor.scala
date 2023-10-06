@@ -22,28 +22,30 @@ private case class SuperGraphExecutor[-R](
 ) extends GraphQL[R] {
   private val subGraphMap: Map[String, SubGraphExecutor[R]] = subGraphs.map(g => g.name -> g).toMap
 
-  protected val schemaBuilder: RootSchemaBuilder[R] = {
+  protected val wrappers: List[Wrapper[R]]              = Nil
+  protected val additionalDirectives: List[__Directive] = Nil
+  protected val features: Set[Feature]                  = Set.empty
+  protected val schemaBuilder: RootSchemaBuilder[R]     = {
     val builder = subGraphs.collect {
       case subGraph if subGraph.exposeAtRoot =>
+        val rootTypes = Set(
+          subGraph.schema.queryType.name,
+          subGraph.schema.mutationType.flatMap(_.name),
+          subGraph.schema.subscriptionType.flatMap(_.name)
+        ).flatten
         RootSchemaBuilder(
           Some(Operation(subGraph.schema.queryType, NullStep)),
           subGraph.schema.mutationType.map(mutation => Operation(mutation, NullStep)),
           subGraph.schema.subscriptionType.map(subscription => Operation(subscription, NullStep))
         ).visit(
           TypeVisitor.fields.modifyWith((t, field) =>
-            if (t.name == subGraph.schema.queryType.name)
-              field.copy(extend = Some(Extend(subGraph.name, field.name, Map.empty, None)))
+            if (t.name.exists(rootTypes.contains)) field.copy(extend = Some(Extend(subGraph.name, field.name)))
             else field
-          // TODO mutation and subscription
           )
         )
     }.reduceLeft(_ |+| _)
     transformers.foldLeft(builder) { case (builder, transformer) => builder.visit(transformer) }
   }
-
-  protected val wrappers: List[Wrapper[R]]              = Nil
-  protected val additionalDirectives: List[__Directive] = Nil
-  protected val features: Set[Feature]                  = Set.empty
 
   protected override def resolve[R1 <: R](
     op: Operation[R1],
