@@ -4,5 +4,6 @@ import caliban.parsing.adt.OperationType
 
 case class ExecutionRequest(
   field: Field,
-  operationType: OperationType
+  operationType: OperationType,
+  operationName: Option[String]
 )

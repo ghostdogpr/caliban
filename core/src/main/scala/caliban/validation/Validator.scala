@@ -143,7 +143,8 @@ object Validator {
                 op.directives,
                 rootType
               ),
-              op.operationType
+              op.operationType,
+              operationName
             )
           )
       }
