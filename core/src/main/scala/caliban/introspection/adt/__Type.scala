@@ -199,7 +199,7 @@ object TypeVisitor {
         .fold(field)(newName =>
           field.copy(
             name = newName,
-            renameField = field.renameField andThen ((name: String) => if (name == newName) field.name else name)
+            renameInput = field.renameInput andThen ((name: String) => if (name == newName) field.name else name)
           )
         )
     ) |+|

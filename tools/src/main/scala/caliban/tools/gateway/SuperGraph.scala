@@ -127,7 +127,7 @@ private case class SuperGraphQL[-R](
 
   private def makeResolver(field: caliban.execution.Field): Resolver.Field =
     Resolver.Field(
-      field.definition.fold(identity[String] _)(_.renameField)(field.name),
+      field.definition.fold(identity[String] _)(_.renameInput)(field.name),
       field.definition.flatMap(_.extend) match {
         case Some(extend) =>
           Resolver.Fetch(

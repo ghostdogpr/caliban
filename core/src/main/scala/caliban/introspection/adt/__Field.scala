@@ -16,7 +16,7 @@ case class __Field(
   deprecationReason: Option[String] = None,
   @GQLExcluded directives: Option[List[Directive]] = None,
   @GQLExcluded extend: Option[Extend] = None,
-  @GQLExcluded renameField: String => String = identity
+  @GQLExcluded renameInput: String => String = identity
 ) {
   def toFieldDefinition: FieldDefinition = {
     val allDirectives = (if (isDeprecated)
