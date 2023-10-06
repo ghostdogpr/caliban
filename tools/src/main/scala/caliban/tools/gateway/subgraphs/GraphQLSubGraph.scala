@@ -41,7 +41,7 @@ case class GraphQLSubGraph(name: String, url: String, headers: Map[String, Strin
   private def makeRequest(field: Field): RequestT[Identity, Either[ExecutionError, ResponseValue], Any] =
     basicRequest
       .post(uri"$url")
-      .body(field.withTypeName.toGraphQLRequest(OperationType.Query))
+      .body(field.withTypeName.toGraphQLRequest(OperationType.Query)) // TODO: other operation types
       .headers(headers)
       .response(asJson[GraphQLResponse[CalibanError]])
       .mapResponse(_.map(_.data).left.map {

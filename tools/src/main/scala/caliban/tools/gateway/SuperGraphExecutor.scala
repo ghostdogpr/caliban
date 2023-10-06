@@ -49,7 +49,7 @@ private case class SuperGraphExecutor[-R](
 
   protected override def resolve[R1 <: R](
     op: Operation[R1],
-    fieldWrappers: List[FieldWrapper[R1]], // TODO field wrappers
+    fieldWrappers: List[FieldWrapper[R1]],
     isIntrospection: Boolean
   )(req: ExecutionRequest): URIO[R1, GraphQLResponse[CalibanError]] =
     if (isIntrospection)
