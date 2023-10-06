@@ -15,7 +15,8 @@ case class __Field(
   isDeprecated: Boolean = false,
   deprecationReason: Option[String] = None,
   @GQLExcluded directives: Option[List[Directive]] = None,
-  @GQLExcluded extend: Option[Extend] = None
+  @GQLExcluded extend: Option[Extend] = None,
+  @GQLExcluded renameField: String => String = identity
 ) {
   def toFieldDefinition: FieldDefinition = {
     val allDirectives = (if (isDeprecated)
@@ -33,6 +34,9 @@ case class __Field(
     InputValueDefinition(description, name, _type.toType(), None, directives.getOrElse(Nil))
 
   private[caliban] lazy val _type: __Type = `type`()
+
+  private[caliban] lazy val renameArguments: String => String =
+    args.foldLeft(identity[String] _) { case (renameInput, arg) => renameInput andThen arg.renameInput }
 }
 
 case class Extend(

@@ -42,9 +42,8 @@ object StitchingExample extends GenericSchema[Any] {
       caliban     = SubGraph.caliban("Caliban", api)
       superGraph <- SuperGraph
                       .compose(List(github, caliban))
-//                      .transform(TypeVisitor.renameArgument { case ("Queries", "GetUser") =>
-//                        ({ case "repository" => "repo" }, { case "repo" => "repository" })
-//                      })
+                      .transform(TypeVisitor.renameField { case ("Queries", "GetUser") => "user" })
+                      .transform(TypeVisitor.renameArgument { case ("Queries", "user") => ("repository", "repo") })
                       .extend(
                         github.name,
                         sourceFieldName = "repository",

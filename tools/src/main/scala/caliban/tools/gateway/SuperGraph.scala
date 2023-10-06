@@ -127,7 +127,7 @@ private case class SuperGraphQL[-R](
 
   private def makeResolver(field: caliban.execution.Field): Resolver.Field =
     Resolver.Field(
-      field.name,
+      field.definition.fold(identity[String] _)(_.renameField)(field.name),
       field.definition.flatMap(_.extend) match {
         case Some(extend) =>
           Resolver.Fetch(
@@ -141,8 +141,8 @@ private case class SuperGraphQL[-R](
           val extract: ObjectValue => ResponseValue = if (field.isRoot) identity else _.get(field.name)
           Resolver.Extract(extract, field.fields.map(makeResolver))
       },
-      field.alias,
-      field.arguments
+      field.alias.getOrElse(field.name),
+      field.arguments.map { case (k, v) => field.definition.fold(identity[String] _)(_.renameArguments)(k) -> v }
     )
 
   private def resolveField(field: Resolver.Field, parent: ResponseValue): ZQuery[R, ExecutionError, ResponseValue] =
@@ -154,7 +154,7 @@ private case class SuperGraphQL[-R](
               .foreachBatched(children)(child => resolveField(child, res).map(child -> _))
               .map(children =>
                 res.copy(fields = fields ++ children.map { case (field, response) =>
-                  field.alias.getOrElse(field.name) -> response
+                  field.outputName -> response
                 })
               )
           case other                     => ZQuery.succeed(other)
@@ -193,17 +193,13 @@ private case class SuperGraphQL[-R](
                   ZQuery
                     .foreachBatched(values)(value =>
                       ZQuery
-                        .foreachBatched(fields)(field =>
-                          resolveField(field, value).map(field.alias.getOrElse(field.name) -> _)
-                        )
+                        .foreachBatched(fields)(field => resolveField(field, value).map(field.outputName -> _))
                         .map(ObjectValue.apply)
                     )
                     .map(ListValue.apply)
                 case value             =>
                   ZQuery
-                    .foreachBatched(fields)(field =>
-                      resolveField(field, value).map(field.alias.getOrElse(field.name) -> _)
-                    )
+                    .foreachBatched(fields)(field => resolveField(field, value).map(field.outputName -> _))
                     .map(ObjectValue.apply)
               }
           case None           => ZQuery.fail(ExecutionError(s"Subgraph $subGraph not found"))
@@ -225,91 +221,9 @@ object Resolver {
   case class Field(
     name: String,
     resolver: Resolver,
-    alias: Option[String] = None,
+    outputName: String,
     arguments: Map[String, InputValue] = Map.empty
   )
-
-  val test: Field =
-    Field(
-      "",
-      Extract(
-        identity,
-        List(
-          Field(
-            "stores",
-            Fetch(
-              "Stores",
-              "stores",
-              List(
-                Field("id", Extract(_.get("id"))),
-                Field("name", Extract(_.get("name"))),
-                Field("name", Extract(_.get("name")), Some("name2")),
-                Field(
-                  "bookSells",
-                  Fetch(
-                    "Stores",
-                    "bookSells",
-                    argumentMappings = Map("id" -> ("storeId" -> _)),
-                    fields = List(
-                      Field("sellsCount", Extract(_.get("sellsCount"))),
-                      Field(
-                        "book",
-                        Fetch(
-                          "Books",
-                          "book",
-                          argumentMappings = Map("bookId" -> ("id" -> _)),
-                          fields = List(
-                            Field("id", Extract(_.get("id"))),
-                            Field("title", Extract(_.get("title"))),
-                            Field(
-                              "author",
-                              Fetch(
-                                "Authors",
-                                "authors_v1_AuthorsService_GetAuthors",
-                                argumentMappings = Map(
-                                  "authorId" -> (v =>
-                                    "input" -> InputValue.ObjectValue(Map("ids" -> InputValue.ListValue(List(v))))
-                                  )
-                                ),
-                                filterBatchResults = Some((arguments, responseValue) =>
-                                  arguments
-                                    .get("input")
-                                    .flatMap(_.asInputObjectValue)
-                                    .flatMap(_.fields.get("ids"))
-                                    .flatMap(_.asInputListValue)
-                                    .exists(
-                                      _.values.contains(
-                                        responseValue.asObjectValue.map(_.get("id").toInputValue).getOrElse(NullValue)
-                                      )
-                                    )
-                                ),
-                                fields = List(Field("id", Extract(_.get("id"))), Field("name", Extract(_.get("name"))))
-                              )
-                            )
-                          )
-                        )
-                      )
-                    )
-                  )
-                ),
-                Field(
-                  "bookSells",
-                  Fetch(
-                    "Stores",
-                    "bookSells",
-                    argumentMappings = Map("id" -> ("storeId" -> _)),
-                    fields = List(
-                      Field("sellsCount", Extract(_.get("sellsCount")))
-                    )
-                  ),
-                  Some("bookSells2")
-                )
-              )
-            )
-          )
-        )
-      )
-    )
 
   case class FetchRequest[-R](
     subGraph: SubGraphData[R],

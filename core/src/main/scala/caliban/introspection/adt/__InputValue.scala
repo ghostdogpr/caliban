@@ -10,7 +10,8 @@ case class __InputValue(
   description: Option[String],
   `type`: () => __Type,
   defaultValue: Option[String],
-  @GQLExcluded directives: Option[List[Directive]] = None
+  @GQLExcluded directives: Option[List[Directive]] = None,
+  @GQLExcluded renameInput: String => String = identity
 ) {
   def toInputValueDefinition: InputValueDefinition = {
     val default = defaultValue.flatMap(v => Parser.parseInputValue(v).toOption)

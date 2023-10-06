@@ -195,21 +195,41 @@ object TypeVisitor {
 
   def renameField(f: PartialFunction[(String, String), String]): TypeVisitor =
     TypeVisitor.fields.modifyWith((t, field) =>
-      field.copy(name = f.lift((t.name.getOrElse(""), field.name)).getOrElse(field.name))
+      f.lift(t.name.getOrElse("") -> field.name)
+        .fold(field)(newName =>
+          field.copy(
+            name = newName,
+            renameField = field.renameField andThen ((name: String) => if (name == newName) field.name else name)
+          )
+        )
     ) |+|
       TypeVisitor.inputFields.modifyWith((t, field) =>
-        field.copy(name = f.lift((t.name.getOrElse(""), field.name)).getOrElse(field.name))
+        f.lift(t.name.getOrElse("") -> field.name)
+          .fold(field)(newName =>
+            field.copy(
+              name = newName,
+              renameInput = field.renameInput andThen ((name: String) => if (name == newName) field.name else name)
+            )
+          )
       )
 
-  // TODO doesn't work
   def renameArgument(
-    f: PartialFunction[(String, String), (PartialFunction[String, String], PartialFunction[String, String])]
+    f: PartialFunction[(String, String), (String, String)]
   ): TypeVisitor =
     TypeVisitor.fields.modifyWith((t, field) =>
       f.lift((t.name.getOrElse(""), field.name)) match {
-        case Some((rename, _)) =>
-          field.copy(args = field.args.map(arg => rename.lift(arg.name).fold(arg)(newName => arg.copy(name = newName))))
-        case None              => field
+        case Some((oldName, newName)) =>
+          field.copy(args =
+            field.args.map(arg =>
+              if (arg.name == oldName)
+                arg.copy(
+                  name = newName,
+                  renameInput = arg.renameInput andThen ((name: String) => if (name == newName) oldName else name)
+                )
+              else arg
+            )
+          )
+        case None                     => field
       }
     )
 
