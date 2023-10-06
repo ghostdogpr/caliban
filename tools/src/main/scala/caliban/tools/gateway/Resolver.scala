@@ -14,12 +14,7 @@ object Resolver {
     filterBatchResults: Option[(Map[String, InputValue], ResponseValue) => Boolean] = None
   ) extends Resolver
 
-  case class Field(
-    name: String,
-    resolver: Resolver,
-    outputName: String,
-    arguments: Map[String, InputValue] = Map.empty
-  )
+  case class Field(name: String, resolver: Resolver, outputName: String, arguments: Map[String, InputValue])
 
   object Field {
     def apply(field: caliban.execution.Field): Resolver.Field =
