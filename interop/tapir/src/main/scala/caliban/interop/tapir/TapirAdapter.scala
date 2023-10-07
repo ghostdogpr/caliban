@@ -127,7 +127,12 @@ object TapirAdapter {
           response.errors.collectFirst { case _: CalibanError.ParsingError | _: CalibanError.ValidationError =>
             StatusCode.BadRequest
           }.getOrElse(StatusCode.Ok)
-        (GraphqlResponseJson.mediaType, code, encodeSingleResponse(resp, keepDataOnErrors = false))
+        (
+          GraphqlResponseJson.mediaType,
+          code,
+          computeCacheDirective(response.extensions),
+          encodeSingleResponse(resp, keepDataOnErrors = false)
+        )
       case resp                                                 =>
         val code =
           response.errors.collectFirst { case HttpRequestMethod.MutationOverGetError => StatusCode.BadRequest }
