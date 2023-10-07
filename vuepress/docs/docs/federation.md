@@ -98,7 +98,7 @@ Federated tracing is slightly different from standard apollo-tracing thus it com
 import caliban.federation.tracing.ApolloFederatedTracing
 
 
-val api = schema @@ federated(resolver, additionalResolvers: _*) @@ ApolloFederatedTracing.wrapper
+val api = schema @@ federated(resolver, additionalResolvers: _*) @@ ApolloFederatedTracing.wrapper()
 ```
 In federated tracing the gateway communicates with the implementing service via a header `apollo-federation-include-trace`,
 for now the only value it can send is `ftv1`. Thus if you detect this header then you should enable tracing otherwise you can disable it.

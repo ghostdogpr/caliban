@@ -42,7 +42,7 @@ object TapirAdapter {
   }
 
   private type CalibanBody[BS]   = Either[ResponseValue, BS]
-  type CalibanResponse[BS]       = (MediaType, Option[String], CalibanBody[BS])
+  type CalibanResponse[BS]       = (MediaType, StatusCode, Option[String], CalibanBody[BS])
   type CalibanEndpoint[R, BS, S] =
     ServerEndpoint.Full[Unit, Unit, (GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse[BS], S, RIO[R, *]]
 
@@ -83,6 +83,9 @@ object TapirAdapter {
       oneOfVariantValueMatcher[CalibanBody.Single](customCodecJsonBody[ResponseValue].map(Left(_)) { case Left(value) =>
         value
       }) { case Left(_) => true },
+      oneOfVariantValueMatcher[CalibanBody.Single]({
+        stringBodyUtf8AnyFormat(codec.format(GraphqlResponseJson)).map(Left(_)) { case Left(value) => value }
+      }) { case Left(_) => true },
       oneOfVariantValueMatcher[CalibanBody.Stream[stream.BinaryStream]](
         streamTextBody(stream)(CodecFormat.Json(), Some(StandardCharsets.UTF_8)).toEndpointIO
           .map(Right(_)) { case Right(value) => value }
@@ -90,21 +93,53 @@ object TapirAdapter {
     )
 
   def buildHttpResponse[E, BS](
+    request: ServerRequest
+  )(
     response: GraphQLResponse[E]
   )(implicit
     streamConstructor: StreamConstructor[BS],
     responseCodec: JsonCodec[ResponseValue]
-  ): (MediaType, Option[String], CalibanBody[BS]) =
+  ): (MediaType, StatusCode, Option[String], CalibanBody[BS]) = {
+
+    /**
+     * NOTE: From  1st January 2025 this logic should be changed to use `application/graphql-response+json` as the
+     * default content-type when the client does not specify an accept header.
+     *
+     * @see [[https://graphql.github.io/graphql-over-http/draft/#sec-Legacy-watershed]]
+     */
+    def acceptsGqlJson = request.acceptsContentTypes.fold(
+      _ => false,
+      _.exists {
+        case ContentTypeRange("application", "graphql-response+json", _) => true
+        case _                                                           => false
+      }
+    )
     response match {
       case resp @ GraphQLResponse(StreamValue(stream), _, _, _) =>
         (
-          MediaType.MultipartMixed.copy(otherParameters = DeferMultipart.DeferHeaderParams),
+          DeferMultipart.mediaType,
+          StatusCode.Ok,
           None,
           encodeMultipartMixedResponse(resp, stream)
         )
-      case response                                             =>
-        (MediaType.ApplicationJson, computeCacheDirective(response.extensions), encodeSingleResponse(response))
+      case resp if acceptsGqlJson                               =>
+        val code =
+          response.errors.collectFirst { case _: CalibanError.ParsingError | _: CalibanError.ValidationError =>
+            StatusCode.BadRequest
+          }.getOrElse(StatusCode.Ok)
+        (GraphqlResponseJson.mediaType, code, encodeSingleResponse(resp, keepDataOnErrors = false))
+      case resp                                                 =>
+        val code =
+          response.errors.collectFirst { case HttpRequestMethod.MutationOverGetError => StatusCode.BadRequest }
+            .getOrElse(StatusCode.Ok)
+        (
+          MediaType.ApplicationJson,
+          code,
+          computeCacheDirective(response.extensions),
+          encodeSingleResponse(resp, keepDataOnErrors = true)
+        )
     }
+  }
 
   private object DeferMultipart {
     private val Newline        = "\r\n"
@@ -117,7 +152,13 @@ object TapirAdapter {
     val InnerBoundary = s"$Newline$Boundary$SubHeader"
     val EndBoundary   = s"$Newline-----$Newline"
 
-    val DeferHeaderParams: Map[String, String] = Map("boundary" -> BoundaryHeader, "deferSpec" -> DeferSpec)
+    private val DeferHeaderParams: Map[String, String] = Map("boundary" -> BoundaryHeader, "deferSpec" -> DeferSpec)
+
+    val mediaType: MediaType = MediaType.MultipartMixed.copy(otherParameters = DeferHeaderParams)
+  }
+
+  private object GraphqlResponseJson extends CodecFormat {
+    override val mediaType: MediaType = MediaType("application", "graphql-response+json")
   }
 
   private def encodeMultipartMixedResponse[E, BS](
@@ -154,8 +195,8 @@ object TapirAdapter {
     )
   }
 
-  private def encodeSingleResponse[E](response: GraphQLResponse[E]) =
-    Left(response.toResponseValue)
+  private def encodeSingleResponse[E](response: GraphQLResponse[E], keepDataOnErrors: Boolean) =
+    Left(response.toResponseValue(keepDataOnErrors))
 
   def convertHttpEndpointToFuture[R](
     endpoint: ServerEndpoint[ZioStreams, RIO[R, *]]

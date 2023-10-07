@@ -36,8 +36,15 @@ trait CommonSchemaDerivation[R] {
     }
 
   def join[T](ctx: ReadOnlyCaseClass[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
-    override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-      if ((ctx.isValueClass || isValueType(ctx)) && ctx.parameters.nonEmpty) {
+    private lazy val fields = ctx.parameters.map { p =>
+      (getName(p), p.typeclass, p.dereference _)
+    }
+
+    private lazy val _isValueType = (ctx.isValueClass || isValueType(ctx)) && ctx.parameters.nonEmpty
+
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
+      val _ = fields // Initializes lazy val
+      if (_isValueType) {
         if (isScalarValueType(ctx)) makeScalar(getName(ctx), getDescription(ctx))
         else ctx.parameters.head.typeclass.toType_(isInput, isSubscription)
       } else if (isInput)
@@ -84,25 +91,31 @@ trait CommonSchemaDerivation[R] {
           getDirectives(ctx),
           Some(ctx.typeName.full)
         )
+    }
 
-    override private[schema] def resolveFieldLazily: Boolean = !ctx.isObject
+    override private[schema] lazy val resolveFieldLazily: Boolean = !(ctx.isObject || _isValueType)
 
     override def resolve(value: T): Step[R] =
       if (ctx.isObject) PureStep(EnumValue(getName(ctx)))
-      else if ((ctx.isValueClass || isValueType(ctx)) && ctx.parameters.nonEmpty) {
-        val head = ctx.parameters.head
-        head.typeclass.resolve(head.dereference(value))
-      } else {
-        val fields = Map.newBuilder[String, Step[R]]
-        ctx.parameters.foreach(p =>
-          fields += getName(p) -> {
-            lazy val step = p.typeclass.resolve(p.dereference(value))
-            if (p.typeclass.resolveFieldLazily) FunctionStep(_ => step)
-            else step
-          }
-        )
-        ObjectStep(getName(ctx), fields.result())
+      else if (_isValueType) resolveValueType(value)
+      else resolveObject(value)
+
+    private def resolveValueType(value: T): Step[R] = {
+      val head = ctx.parameters.head
+      head.typeclass.resolve(head.dereference(value))
+    }
+
+    private def resolveObject(value: T): Step[R] = {
+      val fieldsBuilder = Map.newBuilder[String, Step[R]]
+      fields.foreach { case (name, schema, dereference) =>
+        fieldsBuilder += name -> {
+          lazy val step = schema.resolve(dereference(value))
+          if (schema.resolveFieldLazily) FunctionStep(_ => step)
+          else step
+        }
       }
+      ObjectStep(getName(ctx), fieldsBuilder.result())
+    }
   }
 
   def split[T](ctx: SealedTrait[Typeclass, T]): Typeclass[T] = new Typeclass[T] {

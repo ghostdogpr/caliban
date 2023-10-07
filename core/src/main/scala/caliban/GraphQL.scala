@@ -1,6 +1,7 @@
 package caliban
 
 import caliban.CalibanError.ValidationError
+import caliban.Configurator.ExecutionConfiguration
 import caliban.execution.{ ExecutionRequest, Executor, Feature }
 import caliban.introspection.Introspector
 import caliban.introspection.adt._
@@ -64,20 +65,20 @@ trait GraphQL[-R] { self =>
 
   private lazy val cachedInterpreter =
     Validator.validateSchemaEither(schemaBuilder).map { schema =>
-      lazy val rootType =
-        RootType(
-          schema.query.opType,
-          schema.mutation.map(_.opType),
-          schema.subscription.map(_.opType),
-          schemaBuilder.additionalTypes,
-          additionalDirectives,
-          schemaBuilder.schemaDescription
-        )
-
-      val introWrappers                               = wrappers.collect { case w: IntrospectionWrapper[R] => w }
-      lazy val introspectionRootSchema: RootSchema[R] = Introspector.introspect(rootType, introWrappers)
-
       new GraphQLInterpreter[R, CalibanError] {
+        private val rootType =
+          RootType(
+            schema.query.opType,
+            schema.mutation.map(_.opType),
+            schema.subscription.map(_.opType),
+            schemaBuilder.additionalTypes,
+            additionalDirectives,
+            schemaBuilder.schemaDescription
+          )
+
+        private val introWrappers                               = wrappers.collect { case w: IntrospectionWrapper[R] => w }
+        private lazy val introspectionRootSchema: RootSchema[R] = Introspector.introspect(rootType, introWrappers)
+
         override def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
           for {
             document      <- Parser.parseQuery(query)
@@ -85,6 +86,16 @@ trait GraphQL[-R] { self =>
             typeToValidate = if (intro) Introspector.introspectionRootType else rootType
             _             <- Validator.validate(document, typeToValidate)
           } yield ()
+
+        private def checkHttpMethod(cfg: ExecutionConfiguration)(req: ExecutionRequest): IO[ValidationError, Unit] =
+          ZIO
+            .when(req.operationType == OperationType.Mutation && !cfg.allowMutationsOverGetRequests) {
+              HttpRequestMethod.get.flatMap {
+                case HttpRequestMethod.GET => ZIO.fail(HttpRequestMethod.MutationOverGetError)
+                case _                     => ZIO.unit
+              }
+            }
+            .unit
 
         override def executeRequest(request: GraphQLRequest)(implicit
           trace: Trace
@@ -118,6 +129,7 @@ trait GraphQL[-R] { self =>
                                                                                 config.skipValidation,
                                                                                 config.validations
                                                                               )
+                                                              _            <- checkHttpMethod(config)(executionReq)
                                                             } yield executionReq
                   executionRequest                     <- wrap(validate)(validationWrappers, doc)
                   op                                    = executionRequest.operationType match {
