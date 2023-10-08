@@ -1,12 +1,12 @@
 package example.stitching
 
 import caliban._
+import caliban.gateway.{ SubGraph, SuperGraph }
 import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
 import caliban.introspection.adt.TypeVisitor
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import caliban.schema._
-import caliban.tools.gateway.{ SubGraph, SuperGraph }
 import caliban.wrappers.Wrappers
 import sttp.client3.httpclient.zio._
 import zio._

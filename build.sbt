@@ -95,6 +95,7 @@ lazy val root = project
     clientNative,
     clientLaminext,
     tools,
+    gateway,
     codegenSbt,
     federation,
     reporting,
@@ -183,6 +184,25 @@ lazy val tools = project
     )
   )
   .dependsOn(core, clientJVM)
+
+lazy val gateway = project
+  .in(file("gateway"))
+  .enablePlugins(BuildInfoPlugin)
+  .settings(name := "caliban-gateway")
+  .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
+  .settings(
+    buildInfoPackage := "caliban.gateway",
+    buildInfoObject  := "BuildInfo"
+  )
+  .settings(
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio-test"     % zioVersion % Test,
+      "dev.zio" %% "zio-test-sbt" % zioVersion % Test
+    )
+  )
+  .dependsOn(tools)
 
 lazy val tracing = project
   .in(file("tracing"))
@@ -513,7 +533,8 @@ lazy val examples = project
     clientJVM,
     federation,
     zioHttp,
-    tools
+    tools,
+    gateway
   )
 
 lazy val reporting = project

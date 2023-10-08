@@ -1,20 +1,20 @@
-package caliban.tools.gateway
+package caliban.gateway
 
 import caliban.CalibanError.ExecutionError
-import caliban.{ CalibanError, GraphQL, GraphQLResponse, ResponseValue }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.NullValue
-import caliban.execution.{ ExecutionRequest, Executor, Feature, Field, QueryExecution }
+import caliban.execution._
+import caliban.gateway.FetchDataSource.FetchRequest
+import caliban.gateway.SubGraph.SubGraphExecutor
 import caliban.introspection.adt.{ __Directive, Extend, TypeVisitor }
 import caliban.schema.Step.NullStep
 import caliban.schema.{ Operation, RootSchemaBuilder, Types }
-import caliban.tools.gateway.FetchDataSource.FetchRequest
-import caliban.tools.gateway.SubGraph.SubGraphExecutor
 import caliban.wrappers.Wrapper
 import caliban.wrappers.Wrapper.FieldWrapper
-import zio.{ Chunk, URIO }
+import caliban.{ CalibanError, GraphQL, GraphQLResponse, ResponseValue }
 import zio.prelude.NonEmptyList
 import zio.query.ZQuery
+import zio.{ Chunk, URIO }
 
 private case class SuperGraphExecutor[-R](
   private val subGraphs: NonEmptyList[SubGraphExecutor[R]],

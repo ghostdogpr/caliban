@@ -1,12 +1,12 @@
-package caliban.tools.gateway.subgraphs
+package caliban.gateway.subgraphs
 
 import caliban.CalibanError.ExecutionError
 import caliban.execution.Field
+import caliban.gateway.SubGraph
+import caliban.gateway.SubGraph.SubGraphExecutor
 import caliban.introspection.adt.__Schema
 import caliban.parsing.adt.OperationType
-import caliban.tools.gateway.SubGraph
-import caliban.tools.gateway.SubGraph.SubGraphExecutor
-import caliban.tools.{ Options, RemoteSchema, SchemaLoader, SttpClient }
+import caliban.tools.{ Options, SchemaLoader, SttpClient }
 import caliban.{ CalibanError, GraphQLResponse, ResponseValue }
 import sttp.client3.jsoniter._
 import sttp.client3.{ basicRequest, DeserializationException, HttpError, Identity, RequestT, UriContext }

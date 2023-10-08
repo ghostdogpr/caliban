@@ -1,13 +1,13 @@
-package caliban.tools.gateway.subgraphs
+package caliban.gateway.subgraphs
 
 import caliban.CalibanError.ExecutionError
 import caliban.{ GraphQL, ResponseValue }
 import caliban.execution.Field
+import caliban.gateway.SubGraph
+import caliban.gateway.SubGraph.SubGraphExecutor
 import caliban.introspection.Introspector
 import caliban.introspection.adt.__Schema
 import caliban.parsing.adt.OperationType
-import caliban.tools.gateway.SubGraph
-import caliban.tools.gateway.SubGraph.SubGraphExecutor
 import caliban.validation.Validator
 import zio.{ RIO, ZIO }
 

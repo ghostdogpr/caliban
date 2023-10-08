@@ -3,10 +3,10 @@ package example.mesh
 import caliban.InputValue.{ ListValue, ObjectValue }
 import caliban.Value.NullValue
 import caliban.ZHttpAdapter
+import caliban.gateway.{ SubGraph, SuperGraph }
 import caliban.interop.tapir.HttpInterpreter
 import caliban.introspection.adt.TypeVisitor
 import caliban.tools.SttpClient
-import caliban.tools.gateway.{ SubGraph, SuperGraph }
 import sttp.client3.httpclient.zio.HttpClientZioBackend
 import sttp.tapir.json.circe._
 import zio._

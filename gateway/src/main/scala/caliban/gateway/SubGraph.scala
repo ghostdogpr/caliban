@@ -1,13 +1,13 @@
-package caliban.tools.gateway
+package caliban.gateway
 
 import caliban.CalibanError.ExecutionError
 import caliban.execution.Field
+import caliban.gateway.SubGraph.SubGraphExecutor
+import caliban.gateway.subgraphs.{CalibanSubGraph, GraphQLSubGraph}
 import caliban.introspection.adt.__Schema
 import caliban.tools.SttpClient
-import caliban.tools.gateway.SubGraph.SubGraphExecutor
-import caliban.tools.gateway.subgraphs.{ CalibanSubGraph, GraphQLSubGraph }
-import caliban.{ GraphQL, ResponseValue }
-import zio.{ RIO, ZIO }
+import caliban.{GraphQL, ResponseValue}
+import zio.{RIO, ZIO}
 
 trait SubGraph[-R] {
   val name: String

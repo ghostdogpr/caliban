@@ -1,15 +1,17 @@
-package caliban.tools
+package caliban.gateway
 
+import caliban.Macros.gqldoc
 import caliban._
+import caliban.execution.Feature
+import caliban.gateway.subgraphs.RemoteSchema
 import caliban.introspection.adt._
-import caliban.schema._
+import caliban.schema.Annotations._
 import caliban.schema.Schema.auto._
+import caliban.schema._
+import caliban.tools.SchemaLoader
 import zio._
 import zio.test.Assertion._
 import zio.test._
-import schema.Annotations._
-import caliban.Macros.gqldoc
-import caliban.execution.Feature
 
 object RemoteSchemaSpec extends ZIOSpecDefault {
   sealed trait EnumType  extends Product with Serializable
