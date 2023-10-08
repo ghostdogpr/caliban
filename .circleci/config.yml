@@ -24,7 +24,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.12.18 core/test http4s/test akkaHttp/test pekkoHttp/test play/test zioHttp/test examples/compile catsInterop/compile tools/test codegenSbt/test clientJVM/test monixInterop/compile tapirInterop/test federation/test reporting/test tracing/test
+      - run: sbt ++2.12.18 core/test http4s/test akkaHttp/test pekkoHttp/test play/test zioHttp/test examples/compile catsInterop/compile tools/test gateway/test codegenSbt/test clientJVM/test monixInterop/compile tapirInterop/test federation/test reporting/test tracing/test
       - save_cache:
           key: sbtcache
           paths:
@@ -69,7 +69,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.12 core/test http4s/test akkaHttp/test pekkoHttp/test play/test zioHttp/test examples/compile catsInterop/compile benchmarks/compile monixInterop/compile tapirInterop/test clientJVM/test tools/test federation/test reporting/test tracing/test
+      - run: sbt ++2.13.12 core/test http4s/test akkaHttp/test pekkoHttp/test play/test zioHttp/test examples/compile catsInterop/compile benchmarks/compile monixInterop/compile tapirInterop/test clientJVM/test tools/test gateway/test federation/test reporting/test tracing/test
       - save_cache:
           key: sbtcache
           paths:
@@ -84,7 +84,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++3.3.1 core/test catsInterop/compile benchmarks/compile monixInterop/compile clientJVM/test clientJS/compile zioHttp/test tapirInterop/test pekkoHttp/test http4s/test federation/test tools/test reporting/test tracing/test
+      - run: sbt ++3.3.1 core/test catsInterop/compile benchmarks/compile monixInterop/compile clientJVM/test clientJS/compile zioHttp/test tapirInterop/test pekkoHttp/test http4s/test federation/test tools/test gateway/test reporting/test tracing/test
       - save_cache:
           key: sbtcache
           paths:
