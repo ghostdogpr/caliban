@@ -16,7 +16,8 @@ val http4sVersion             = "0.23.23"
 val javaTimeVersion           = "2.5.0"
 val jsoniterVersion           = "2.24.1"
 val laminextVersion           = "0.16.2"
-val magnoliaVersion           = "1.1.6"
+val magnoliaScala2Version     = "1.1.6"
+val magnoliaScala3Version     = "1.3.3"
 val pekkoVersion              = "1.0.1"
 val playVersion               = "2.8.20"
 val playJsonVersion           = "2.10.1"
@@ -109,10 +110,12 @@ lazy val macros = project
   .settings(
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) {
-        Seq.empty
+        Seq(
+          "com.softwaremill.magnolia1_3" %% "magnolia" % magnoliaScala3Version
+        )
       } else {
         Seq(
-          "com.softwaremill.magnolia1_2" %% "magnolia"      % magnoliaVersion,
+          "com.softwaremill.magnolia1_2" %% "magnolia"      % magnoliaScala2Version,
           "org.scala-lang"                % "scala-reflect" % scalaVersion.value
         )
       }
