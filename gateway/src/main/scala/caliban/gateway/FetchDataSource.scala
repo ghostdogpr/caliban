@@ -1,13 +1,13 @@
-package caliban.tools.gateway
+package caliban.gateway
 
 import caliban.CalibanError.ExecutionError
-import caliban.execution.Field
-import caliban.{ InputValue, ResponseValue }
 import caliban.ResponseValue.ObjectValue
+import caliban.execution.Field
+import caliban.gateway.SubGraph.SubGraphExecutor
 import caliban.schema.Types
-import caliban.tools.gateway.SubGraph.SubGraphExecutor
-import zio.{ Chunk, ZIO }
+import caliban.{ InputValue, ResponseValue }
 import zio.query.DataSource
+import zio.{ Chunk, ZIO }
 
 object FetchDataSource {
   private[caliban] case class FetchRequest[-R](

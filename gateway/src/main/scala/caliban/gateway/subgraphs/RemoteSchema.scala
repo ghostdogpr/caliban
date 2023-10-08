@@ -1,10 +1,10 @@
-package caliban.tools
+package caliban.gateway.subgraphs
 
-import caliban.parsing.adt._
 import caliban.Value.StringValue
 import caliban.introspection.adt._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition._
+import caliban.parsing.adt._
 
 object RemoteSchema {
 

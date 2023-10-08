@@ -1,7 +1,7 @@
-package caliban.tools.gateway
+package caliban.gateway
 
 import caliban.ResponseValue.ObjectValue
-import caliban.{ InputValue, ResponseValue }
+import caliban.{InputValue, ResponseValue}
 
 sealed trait Resolver
 object Resolver {
