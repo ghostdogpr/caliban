@@ -1,9 +1,9 @@
 package caliban.gateway
 
 import caliban._
-import caliban.introspection.adt.{Extend, TypeVisitor, __Schema}
+import caliban.introspection.adt.{ __Schema, Extend, TypeVisitor }
 import zio.prelude.NonEmptyList
-import zio.{Chunk, RIO, ZIO}
+import zio.{ Chunk, RIO, ZIO }
 
 case class SuperGraph[-R](
   protected val subGraphs: List[SubGraph[R]],
