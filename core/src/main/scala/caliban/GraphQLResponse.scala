@@ -17,9 +17,9 @@ case class GraphQLResponse[+E](
   extensions: Option[ObjectValue] = None,
   hasNext: Option[Boolean] = None
 ) {
-  def toResponseValue: ResponseValue = toResponseValue(true)
+  def toResponseValue: ResponseValue = toResponseValue(keepDataOnErrors = true)
 
-  def toResponseValue(keepDataOnErrors: Boolean): ResponseValue = {
+  def toResponseValue(keepDataOnErrors: Boolean, excludeExtensions: Option[Set[String]] = None): ResponseValue = {
     val hasErrors = errors.nonEmpty
     ObjectValue(
       List(
@@ -30,7 +30,9 @@ case class GraphQLResponse[+E](
                          case e               => ObjectValue(List("message" -> StringValue(e.toString)))
                        }))
                      else None),
-        "extensions" -> extensions,
+        "extensions" -> excludeExtensions.fold(extensions)(excl =>
+          extensions.map(obj => ObjectValue(obj.fields.filterNot(f => excl.contains(f._1))))
+        ),
         "hasNext"    -> hasNext.map(BooleanValue.apply)
       ).collect { case (name, Some(v)) => name -> v }
     )

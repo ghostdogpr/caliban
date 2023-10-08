@@ -123,25 +123,35 @@ object TapirAdapter {
           encodeMultipartMixedResponse(resp, stream)
         )
       case resp if acceptsGqlJson                               =>
-        val code =
+        val code           =
           response.errors.collectFirst { case _: CalibanError.ParsingError | _: CalibanError.ValidationError =>
             StatusCode.BadRequest
           }.getOrElse(StatusCode.Ok)
+        val cacheDirective = computeCacheDirective(response.extensions)
         (
           GraphqlResponseJson.mediaType,
           code,
           computeCacheDirective(response.extensions),
-          encodeSingleResponse(resp, keepDataOnErrors = false)
+          encodeSingleResponse(
+            resp,
+            keepDataOnErrors = false,
+            excludeExtensions = cacheDirective.map(_ => Set(Caching.DirectiveName))
+          )
         )
       case resp                                                 =>
-        val code =
+        val code           =
           response.errors.collectFirst { case HttpRequestMethod.MutationOverGetError => StatusCode.BadRequest }
             .getOrElse(StatusCode.Ok)
+        val cacheDirective = computeCacheDirective(response.extensions)
         (
           MediaType.ApplicationJson,
           code,
-          computeCacheDirective(response.extensions),
-          encodeSingleResponse(resp, keepDataOnErrors = true)
+          cacheDirective,
+          encodeSingleResponse(
+            resp,
+            keepDataOnErrors = true,
+            excludeExtensions = cacheDirective.map(_ => Set(Caching.DirectiveName))
+          )
         )
     }
   }
@@ -200,8 +210,12 @@ object TapirAdapter {
     )
   }
 
-  private def encodeSingleResponse[E](response: GraphQLResponse[E], keepDataOnErrors: Boolean) =
-    Left(response.toResponseValue(keepDataOnErrors))
+  private def encodeSingleResponse[E](
+    response: GraphQLResponse[E],
+    keepDataOnErrors: Boolean,
+    excludeExtensions: Option[Set[String]]
+  ) =
+    Left(response.toResponseValue(keepDataOnErrors, excludeExtensions))
 
   def convertHttpEndpointToFuture[R](
     endpoint: ServerEndpoint[ZioStreams, RIO[R, *]]
