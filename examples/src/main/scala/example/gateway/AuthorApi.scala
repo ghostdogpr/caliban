@@ -1,4 +1,4 @@
-package example.mesh
+package example.gateway
 
 import caliban.Value.StringValue
 import caliban._

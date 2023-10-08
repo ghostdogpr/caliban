@@ -1,4 +1,4 @@
-package example.mesh
+package example.gateway
 
 import caliban.InputValue.{ ListValue, ObjectValue }
 import caliban.Value.NullValue
