@@ -77,7 +77,7 @@ class NestedZQueryBenchmark {
     run(
       graphQL[Any, MultifieldRoot, Unit, Unit](
         RootResolver(NestedZQueryBenchmarkSchema.multifield1000Elements)
-      ).withWrapper(ApolloTracing.apolloTracing).interpreter
+      ).withWrapper(ApolloTracing.apolloTracing()).interpreter
     )
 
   @Benchmark

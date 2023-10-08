@@ -24,6 +24,9 @@ case class GraphQLRequest(
   def withFederatedTracing: GraphQLRequest =
     withExtension(`apollo-federation-include-trace`, StringValue(ftv1))
 
+  private[caliban] def isEmpty: Boolean =
+    operationName.isEmpty && query.isEmpty && extensions.isEmpty
+
 }
 
 object GraphQLRequest {

@@ -11,6 +11,8 @@ import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
 import caliban.rendering.ValueRenderer
 import zio.stream.Stream
 
+import scala.util.hashing.MurmurHash3
+
 sealed trait InputValue { self =>
   def toInputString: String = ValueRenderer.inputValueRenderer.renderCompact(self)
 
@@ -107,10 +109,10 @@ object ResponseValue {
     override def toString: String =
       ValueRenderer.responseObjectValueRenderer.renderCompact(this)
 
-    override def hashCode: Int               = fields.toSet.hashCode()
+    override lazy val hashCode: Int          = MurmurHash3.unorderedHash(fields)
     override def equals(other: Any): Boolean =
       other match {
-        case o: ObjectValue => o.hashCode() == hashCode
+        case o: ObjectValue => o.hashCode == hashCode
         case _              => false
       }
 

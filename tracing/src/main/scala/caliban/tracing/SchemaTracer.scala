@@ -29,7 +29,7 @@ object SchemaTracer {
         else
           ZIO.serviceWithZIO[Tracing](tracer =>
             tracer.span[R, Nothing, GraphQLResponse[CalibanError]](
-              "query",
+              spanName(request),
               SpanKind.INTERNAL
             ) {
               ZIO.foreachDiscard(attributes(request.field)) { case (k, v) =>
@@ -40,7 +40,23 @@ object SchemaTracer {
       }
   }
 
-  private def attributes(field: Field): List[(String, String)] = List("query" -> graphQLQuery(field))
+  private def spanName(request: ExecutionRequest): String = {
+    val operationTypeString = request.operationType match {
+      case OperationType.Query        => "query"
+      case OperationType.Mutation     => "mutation"
+      case OperationType.Subscription => "subscription"
+    }
+
+    // The span name MUST be of the format <graphql.operation.type> <graphql.operation.name>
+    // provided that graphql.operation.type and graphql.operation.name are available. If
+    // graphql.operation.name is not available, the span SHOULD be named <graphql.operation.type>.
+    // When <graphql.operation.type> is not available, GraphQL Operation MAY be used as span name.
+    Seq(Some(operationTypeString), request.operationName).flatten.mkString(" ")
+  }
+
+  private def attributes[T, R](
+    field: Field
+  ) = List("document" -> graphQLQuery(field))
 
   private def graphQLQuery(field: Field): String =
     maskField(field).toGraphQLRequest(OperationType.Query).query.getOrElse("")

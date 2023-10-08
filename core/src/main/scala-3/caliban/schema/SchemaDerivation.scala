@@ -6,7 +6,8 @@ import caliban.parsing.adt.Directive
 import caliban.schema.Annotations.*
 import caliban.schema.Step.{ FunctionStep, ObjectStep }
 import caliban.schema.Types.*
-import caliban.schema.macros.{ Macros, TypeInfo }
+import caliban.schema.macros.Macros
+import magnolia1.{ Macro as MagnoliaMacro, TypeInfo }
 
 import scala.compiletime.*
 import scala.deriving.Mirror
@@ -47,7 +48,7 @@ trait CommonSchemaDerivation {
           else
             (
               constValue[name].toString,
-              Macros.annotations[t], {
+              MagnoliaMacro.anns[t], {
                 if (Macros.isEnumField[P, t])
                   if (!Macros.implicitExists[Schema[R, t]]) derived[R, t]
                   else summonInline[Schema[R, t]]
@@ -63,16 +64,16 @@ trait CommonSchemaDerivation {
       case m: Mirror.SumOf[A] =>
         makeSumSchema[R, A](
           recurse[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()(),
-          Macros.typeInfo[A],
-          Macros.annotations[A]
+          MagnoliaMacro.typeInfo[A],
+          MagnoliaMacro.anns[A]
         )(m.ordinal)
 
       case m: Mirror.ProductOf[A] =>
         makeProductSchema[R, A](
           recurse[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()(),
-          Macros.typeInfo[A],
-          Macros.annotations[A],
-          Macros.paramAnnotations[A].toMap
+          MagnoliaMacro.typeInfo[A],
+          MagnoliaMacro.anns[A],
+          MagnoliaMacro.paramAnns[A].toMap
         )
     }
 
@@ -82,11 +83,11 @@ trait CommonSchemaDerivation {
     annotations: List[Any]
   )(ordinal: A => Int): Schema[R, A] = new Schema[R, A] {
 
-    private lazy val members = _members
+    private lazy val members = _members.toVector // Vector's .apply is O(1) vs List's O(N)
 
     private lazy val subTypes = members.map { case (label, subTypeAnnotations, schema, _) =>
       (label, schema.toType_(), subTypeAnnotations)
-    }.sortBy { case (label, _, _) => label }
+    }.sortBy { case (label, _, _) => label }.toList
 
     private lazy val isEnum = subTypes.forall { (_, t, _) =>
       t.fields(__DeprecatedArgs(Some(true))).forall(_.isEmpty)
@@ -131,48 +132,55 @@ trait CommonSchemaDerivation {
     paramAnnotations: Map[String, List[Any]]
   ): Schema[R, A] = new Schema[R, A] {
 
-    private lazy val fields = _fields
+    private lazy val fields = _fields.map { case (label, _, schema, index) =>
+      val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
+      (getName(fieldAnnotations, label), fieldAnnotations, schema, index)
+    }
 
-    private lazy val isValueType: Boolean =
+    private val isValueType: Boolean =
       annotations.exists {
         case GQLValueType(_) => true
         case _               => false
       }
 
-    private lazy val isScalarValueType: Boolean =
+    private def isScalarValueType: Boolean =
       annotations.exists {
         case GQLValueType(true) => true
         case _                  => false
       }
 
-    private lazy val name = getName(annotations, info)
+    private val name = getName(annotations, info)
 
     def toType(isInput: Boolean, isSubscription: Boolean): __Type =
       if (isValueType && fields.nonEmpty)
         if (isScalarValueType) makeScalar(name, getDescription(annotations))
         else fields.head._3.toType_(isInput, isSubscription)
-      else if (isInput) mkInputObject[R](annotations, fields, info, paramAnnotations)(isInput, isSubscription)
-      else mkObject[R](annotations, fields, info, paramAnnotations)(isInput, isSubscription)
+      else if (isInput) mkInputObject[R](annotations, fields, info)(isInput, isSubscription)
+      else mkObject[R](annotations, fields, info)(isInput, isSubscription)
 
-    override private[schema] lazy val resolveFieldLazily: Boolean = fields.nonEmpty
+    override private[schema] lazy val resolveFieldLazily: Boolean = (!isValueType) && fields.isEmpty
 
     def resolve(value: A): Step[R] =
       if (fields.isEmpty) PureStep(EnumValue(name))
-      else if (isValueType) {
-        val head = fields.head
-        head._3.resolve(value.asInstanceOf[Product].productElement(head._4))
-      } else {
-        val fieldsBuilder = Map.newBuilder[String, Step[R]]
-        fields.foreach { case (label, _, schema, index) =>
-          val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
-          lazy val step        = schema.resolve(value.asInstanceOf[Product].productElement(index))
-          fieldsBuilder += getName(fieldAnnotations, label) -> {
-            if (schema.resolveFieldLazily) FunctionStep(_ => step)
-            else step
-          }
+      else if (isValueType) resolveValueType(value)
+      else resolveObject(value)
+
+    private def resolveValueType(value: A): Step[R] = {
+      val head = fields.head
+      head._3.resolve(value.asInstanceOf[Product].productElement(head._4))
+    }
+
+    private def resolveObject(value: A): Step[R] = {
+      val fieldsBuilder = Map.newBuilder[String, Step[R]]
+      fields.foreach { case (name, _, schema, index) =>
+        lazy val step = schema.resolve(value.asInstanceOf[Product].productElement(index))
+        fieldsBuilder += name -> {
+          if (schema.resolveFieldLazily) FunctionStep(_ => step)
+          else step
         }
-        ObjectStep(name, fieldsBuilder.result())
       }
+      ObjectStep(name, fieldsBuilder.result())
+    }
   }
 
   // see https://github.com/graphql/graphql-spec/issues/568
@@ -271,15 +279,13 @@ trait CommonSchemaDerivation {
   private def mkInputObject[R](
     annotations: List[Any],
     fields: List[(String, List[Any], Schema[R, Any], Int)],
-    info: TypeInfo,
-    paramAnnotations: Map[String, List[Any]]
+    info: TypeInfo
   )(isInput: Boolean, isSubscription: Boolean) = makeInputObject(
     Some(getInputName(annotations).getOrElse(customizeInputTypeName(getName(annotations, info)))),
     getDescription(annotations),
-    fields.map { (label, _, schema, _) =>
-      val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
+    fields.map { (name, fieldAnnotations, schema, _) =>
       __InputValue(
-        getName(fieldAnnotations, label),
+        name,
         getDescription(fieldAnnotations),
         () =>
           if (schema.optional) schema.toType_(isInput, isSubscription)
@@ -295,19 +301,14 @@ trait CommonSchemaDerivation {
   private def mkObject[R](
     annotations: List[Any],
     fields: List[(String, List[Any], Schema[R, Any], Int)],
-    info: TypeInfo,
-    paramAnnotations: Map[String, List[Any]]
+    info: TypeInfo
   )(isInput: Boolean, isSubscription: Boolean) = makeObject(
     Some(getName(annotations, info)),
     getDescription(annotations),
-    fields.filterNot { case (label, _, _, _) =>
-      paramAnnotations.getOrElse(label, Nil).contains(GQLExcluded())
-    }.map { case (label, _, schema, _) =>
-      val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
+    fields.map { case (name, fieldAnnotations, schema, _) =>
       val deprecatedReason = getDeprecatedReason(fieldAnnotations)
-
       __Field(
-        getName(fieldAnnotations, label),
+        name,
         getDescription(fieldAnnotations),
         schema.arguments,
         () =>
@@ -321,6 +322,7 @@ trait CommonSchemaDerivation {
     getDirectives(annotations),
     Some(info.full)
   )
+
 }
 
 trait SchemaDerivation[R] extends CommonSchemaDerivation {

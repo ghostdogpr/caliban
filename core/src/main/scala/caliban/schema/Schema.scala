@@ -115,7 +115,7 @@ trait Schema[-R, T] { self =>
       self.toType_(isInput, isSubscription).copy(name = Some(newName))
     }
 
-    lazy val renameTypename: Boolean = self.toType_().kind match {
+    private val renameTypename: Boolean = self.toType_().kind match {
       case __TypeKind.UNION | __TypeKind.ENUM | __TypeKind.INTERFACE => false
       case _                                                         => true
     }
@@ -334,10 +334,10 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     evA: Schema[RA, A],
     evB: Schema[RB, B]
   ): Schema[RA with RB, Either[A, B]] = {
-    lazy val typeAName: String   = Types.name(evA.toType_())
-    lazy val typeBName: String   = Types.name(evB.toType_())
-    lazy val name: String        = s"Either${typeAName}Or$typeBName"
-    lazy val description: String = s"Either $typeAName or $typeBName"
+    val typeAName: String   = Types.name(evA.toType_())
+    val typeBName: String   = Types.name(evB.toType_())
+    val name: String        = s"Either${typeAName}Or$typeBName"
+    val description: String = s"Either $typeAName or $typeBName"
 
     implicit val leftSchema: Schema[RA, A]  = new Schema[RA, A] {
       override def optional: Boolean                                         = true
@@ -363,8 +363,8 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     evA: Schema[RA, A],
     evB: Schema[RB, B]
   ): Schema[RA with RB, (A, B)] = {
-    lazy val typeAName: String = Types.name(evA.toType_())
-    lazy val typeBName: String = Types.name(evB.toType_())
+    val typeAName: String = Types.name(evA.toType_())
+    val typeBName: String = Types.name(evB.toType_())
 
     obj[RA with RB, (A, B)](
       s"Tuple${typeAName}And$typeBName",
@@ -378,17 +378,18 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   }
   implicit def mapSchema[RA, RB, A, B](implicit evA: Schema[RA, A], evB: Schema[RB, B]): Schema[RA with RB, Map[A, B]] =
     new Schema[RA with RB, Map[A, B]] {
-      lazy val typeAName: String   = Types.name(evA.toType_())
-      lazy val typeBName: String   = Types.name(evB.toType_())
-      lazy val name: String        = s"KV$typeAName$typeBName"
-      lazy val description: String = s"A key-value pair of $typeAName and $typeBName"
+      private lazy val typeAName: String   = Types.name(evA.toType_())
+      private lazy val typeBName: String   = Types.name(evB.toType_())
+      private lazy val name: String        = s"KV$typeAName$typeBName"
+      private lazy val description: String = s"A key-value pair of $typeAName and $typeBName"
 
-      lazy val kvSchema: Schema[RA with RB, (A, B)] = obj[RA with RB, (A, B)](name, Some(description))(implicit ft =>
-        List(
-          field("key", Some("Key"))(_._1),
-          field("value", Some("Value"))(_._2)
+      private lazy val kvSchema: Schema[RA with RB, (A, B)] =
+        obj[RA with RB, (A, B)](name, Some(description))(implicit ft =>
+          List(
+            field("key", Some("Key"))(_._1),
+            field("value", Some("Value"))(_._2)
+          )
         )
-      )
 
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
         kvSchema.toType_(isInput, isSubscription).nonNull.list
