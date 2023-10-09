@@ -413,7 +413,7 @@ object WrappersSpec extends ZIOSpecDefault {
           Set(
             __DirectiveLocation.QUERY
           ),
-          Nil,
+          _ => Nil,
           isRepeatable = false
         )
         val interpreter          = (graphQL(

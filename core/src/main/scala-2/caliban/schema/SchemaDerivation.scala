@@ -61,6 +61,8 @@ trait CommonSchemaDerivation[R] {
                   if (p.typeclass.optional) p.typeclass.toType_(isInput, isSubscription)
                   else p.typeclass.toType_(isInput, isSubscription).nonNull,
                 p.annotations.collectFirst { case GQLDefault(v) => v },
+                p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
+                p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
                 Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
               )
             )
@@ -75,7 +77,7 @@ trait CommonSchemaDerivation[R] {
           ctx.parameters
             .filterNot(_.annotations.exists(_ == GQLExcluded()))
             .map(p =>
-              __Field(
+              Types.makeField(
                 getName(p),
                 getDescription(p),
                 p.typeclass.arguments,
@@ -128,11 +130,8 @@ trait CommonSchemaDerivation[R] {
             tpe.name.getOrElse("")
           }
       val isEnum      = subtypes.forall {
-        case (t, _)
-            if t.fields(__DeprecatedArgs(Some(true))).forall(_.isEmpty)
-              && t.inputFields.forall(_.isEmpty) =>
-          true
-        case _ => false
+        case (t, _) if t.allFields.isEmpty && t.allInputFields.isEmpty => true
+        case _                                                         => false
       }
       val isInterface = ctx.annotations.exists {
         case GQLInterface() => true
@@ -206,7 +205,7 @@ trait CommonSchemaDerivation[R] {
                     Some(
                       "Fake field because GraphQL does not support empty objects. Do not query, use __typename instead."
                     ),
-                    Nil,
+                    _ => Nil,
                     () => makeScalar("Boolean")
                   )
                 )

@@ -177,7 +177,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
             Some(customizeInputTypeName(name)),
             description,
             fields(isInput, isSubscription).map { case (f, _) =>
-              __InputValue(f.name, f.description, f.`type`, None, f.directives)
+              __InputValue(f.name, f.description, f.`type`, None, directives = f.directives)
             },
             directives = Some(directives)
           )
@@ -405,8 +405,10 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     new Schema[RB, A => B] {
       private lazy val inputType                 = ev1.toType_(true)
       private val unwrappedArgumentName          = "value"
-      override def arguments: List[__InputValue] =
-        inputType.inputFields.getOrElse(
+      override def arguments: List[__InputValue] = {
+        val input = inputType.allInputFields
+        if (input.nonEmpty) input
+        else
           handleInput(List.empty[__InputValue])(
             List(
               __InputValue(
@@ -417,7 +419,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
               )
             )
           )
-        )
+      }
 
       override def optional: Boolean                                         = ev2.optional
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev2.toType_(isInput, isSubscription)
@@ -649,7 +651,7 @@ abstract class PartiallyAppliedFieldBase[V](name: String, description: Option[St
     __Field(
       name,
       description,
-      Nil,
+      _ => Nil,
       () =>
         if (ev.optional) ev.toType_(ft.isInput, ft.isSubscription)
         else ev.toType_(ft.isInput, ft.isSubscription).nonNull,
@@ -678,7 +680,7 @@ case class PartiallyAppliedFieldLazy[V](name: String, description: Option[String
 case class PartiallyAppliedFieldWithArgs[V, A](name: String, description: Option[String], directives: List[Directive]) {
   def apply[R, V1](fn: V => (A => V1))(implicit ev1: Schema[R, A => V1], fa: FieldAttributes): (__Field, V => Step[R]) =
     (
-      __Field(
+      Types.makeField(
         name,
         description,
         ev1.arguments,

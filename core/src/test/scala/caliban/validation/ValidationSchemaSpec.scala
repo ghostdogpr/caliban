@@ -160,8 +160,8 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
                 description = None,
                 fields = () =>
                   List(
-                    __Field("A", None, List.empty, `type` = () => __Type(__TypeKind.SCALAR)),
-                    __Field("A", None, List.empty, `type` = () => __Type(__TypeKind.SCALAR))
+                    __Field("A", None, _ => Nil, `type` = () => __Type(__TypeKind.SCALAR)),
+                    __Field("A", None, _ => Nil, `type` = () => __Type(__TypeKind.SCALAR))
                   ),
                 subTypes = Nil
               ),
@@ -184,7 +184,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
                     __Field(
                       "InputField",
                       None,
-                      List.empty,
+                      _ => Nil,
                       `type` = () => __Type(name = Some("InputType"), kind = __TypeKind.INPUT_OBJECT)
                     )
                   ),
@@ -325,6 +325,12 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
             check(
               graphQL(resolverQueryNoObject),
               "The query root operation is not an object type."
+            )
+          },
+          test("input field is deprecated and non null with no default value") {
+            check(
+              graphQL(resolverQueryInputDeprecated),
+              "InputValue 'a' of Field 'test' of Object 'QueryInputDeprecated' has no default value, is non-null and deprecated."
             )
           }
         )
