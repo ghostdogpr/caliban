@@ -290,8 +290,8 @@ trait CommonSchemaDerivation {
           if (schema.optional) schema.toType_(isInput, isSubscription)
           else schema.toType_(isInput, isSubscription).nonNull,
         getDefaultValue(fieldAnnotations),
-        getDeprecatedReason(annotations).isDefined,
-        getDeprecatedReason(annotations),
+        getDeprecatedReason(fieldAnnotations).isDefined,
+        getDeprecatedReason(fieldAnnotations),
         Some(getDirectives(fieldAnnotations)).filter(_.nonEmpty)
       )
     },
