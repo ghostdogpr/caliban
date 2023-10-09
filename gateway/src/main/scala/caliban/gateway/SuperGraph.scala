@@ -26,7 +26,7 @@ case class SuperGraph[-R](
     targetTypeName: String,
     targetFieldName: String,
     argumentMappings: Map[String, InputValue => (String, InputValue)],
-    filterBatchResults: (ResponseValue.ObjectValue, ResponseValue.ObjectValue) => Boolean = (_, _) => true
+    filterBatchResults: Option[(ResponseValue.ObjectValue, ResponseValue.ObjectValue) => Boolean] = None
   ): SuperGraph[R] =
     transformWith(
       _.get(sourceGraph.name)

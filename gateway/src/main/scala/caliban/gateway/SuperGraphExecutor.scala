@@ -64,7 +64,7 @@ private case class SuperGraphExecutor[-R](
 
   private def resolveField(field: Resolver.Field, parent: ResponseValue): ZQuery[R, ExecutionError, ResponseValue] =
     field.resolver match {
-      case Resolver.Extract(extract, children)                                                           =>
+      case Resolver.Extract(extract, children)                                                     =>
         extract(parent.asObjectValue.getOrElse(ObjectValue(Nil))) match {
           case res @ ObjectValue(fields) =>
             ZQuery
@@ -76,7 +76,7 @@ private case class SuperGraphExecutor[-R](
               )
           case other                     => ZQuery.succeed(other)
         }
-      case Resolver.Fetch(subGraph, sourceFieldName, fields, argumentMappings, mapBatchResultToArgument) =>
+      case Resolver.Fetch(subGraph, sourceFieldName, fields, argumentMappings, filterBatchResults) =>
         subGraphMap.get(subGraph) match {
           case Some(subGraph) =>
             lazy val parentObject = parent.asObjectValue.getOrElse(ObjectValue(Nil))
@@ -97,13 +97,18 @@ private case class SuperGraphExecutor[-R](
                     )
                     .distinct
                     .map(name => Field(name, Types.string, None)),
-                  arguments
+                  arguments,
+                  filterBatchResults.isDefined
                 )
               )(FetchDataSource[R]) // TODO don't make new datasource for each request
               .map(_.asObjectValue.map(_.get(sourceFieldName)).getOrElse(NullValue))
               .map(value =>
                 value.asListValue
-                  .fold(value)(_.filter(_.asObjectValue.fold(true)(v => mapBatchResultToArgument(parentObject, v))))
+                  .fold(value)(values =>
+                    filterBatchResults.fold(value)(map =>
+                      values.filter(_.asObjectValue.fold(true)(v => map(parentObject, v)))
+                    )
+                  )
               )
               .flatMap {
                 case ListValue(values) =>

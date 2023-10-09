@@ -11,7 +11,7 @@ object Resolver {
     sourceFieldName: String,
     fields: List[Field],
     argumentMappings: Map[String, InputValue => (String, InputValue)] = Map.empty,
-    filterBatchResults: (ResponseValue.ObjectValue, ResponseValue.ObjectValue) => Boolean
+    filterBatchResults: Option[(ResponseValue.ObjectValue, ResponseValue.ObjectValue) => Boolean]
   ) extends Resolver
 
   case class Field(name: String, resolver: Resolver, outputName: String, arguments: Map[String, InputValue])
