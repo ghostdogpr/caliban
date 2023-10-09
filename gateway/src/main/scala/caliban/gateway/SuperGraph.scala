@@ -21,15 +21,15 @@ case class SuperGraph[-R](
     new SuperGraph(self.subGraphs, self.transformers :+ makeTransformer)
 
   def extend(
-    sourceGraph: String,
+    sourceGraph: SubGraph[Nothing],
     sourceFieldName: String,
     targetTypeName: String,
     targetFieldName: String,
     argumentMappings: Map[String, InputValue => (String, InputValue)],
-    filterBatchResults: Option[(Map[String, InputValue], ResponseValue) => Boolean] = None
+    filterBatchResults: (ResponseValue.ObjectValue, ResponseValue.ObjectValue) => Boolean = (_, _) => true
   ): SuperGraph[R] =
     transformWith(
-      _.get(sourceGraph)
+      _.get(sourceGraph.name)
         .fold(TypeVisitor.empty)(schema =>
           schema.queryType.allFields.find(_.name == sourceFieldName) orElse
             schema.mutationType.flatMap(_.allFields.find(_.name == sourceFieldName)) orElse
@@ -41,7 +41,7 @@ case class SuperGraph[-R](
                     fieldDefinition.copy(
                       name = targetFieldName,
                       args = Nil,
-                      extend = Some(Extend(sourceGraph, sourceFieldName, argumentMappings, filterBatchResults))
+                      extend = Some(Extend(sourceGraph.name, sourceFieldName, argumentMappings, filterBatchResults))
                     )
                   )
                 else Nil
