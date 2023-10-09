@@ -48,7 +48,7 @@ object SchemaWriter {
 
     def writeRootField(field: FieldDefinition, od: ObjectTypeDefinition): String = {
       val argsTypeName = if (field.args.nonEmpty) s" ${argsName(field, od)} =>" else ""
-      s"${safeName(field.name)} :$argsTypeName $effect[${writeType(field.ofType)}]"
+      s"${safeName(field.name)} :$argsTypeName ${writeEffectType(field.ofType)}"
     }
 
     def writeRootQueryOrMutationDef(op: ObjectTypeDefinition): String = {
@@ -119,9 +119,9 @@ object SchemaWriter {
 
     def writeField(field: FieldDefinition, of: TypeDefinition): String =
       if (field.args.nonEmpty) {
-        s"${writeDescription(field.description)}${safeName(field.name)} : ${argsName(field, of)} => ${writeType(field.ofType)}"
+        s"${writeDescription(field.description)}${safeName(field.name)} : ${argsName(field, of)} => ${writeMaybeEffectType(of, field)}"
       } else {
-        s"""${writeDescription(field.description)}${safeName(field.name)} : ${writeType(field.ofType)}"""
+        s"""${writeDescription(field.description)}${safeName(field.name)} : ${writeMaybeEffectType(of, field)}"""
       }
 
     def writeInputValue(value: InputValueDefinition): String =
@@ -153,6 +153,14 @@ object SchemaWriter {
           s"""@GQLDescription("${escapeDoubleQuotes(d)}")
              |""".stripMargin
       }
+
+    def writeMaybeEffectType(owner: TypeDefinition, field: FieldDefinition): String =
+      if (field.directives.exists(d => d.name == "lazy"))
+        writeEffectType(field.ofType)
+      else writeType(field.ofType)
+
+    def writeEffectType(t: Type) =
+      s"$effect[${writeType(t)}]"
 
     def writeType(t: Type): String = {
       def write(name: String): String = scalarMappings

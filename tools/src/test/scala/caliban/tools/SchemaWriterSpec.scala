@@ -660,6 +660,23 @@ object SchemaWriterSpec extends ZIOSpecDefault {
         |}""".stripMargin
     ),
     (
+      "recognize @lazy intention and generate side-effecting field",
+      gen(
+        """
+        |directive @lazy on FIELD_DEFINITION
+        |
+        |type Foo {
+        |  bar: String!
+        |  baz: String! @lazy
+        |}"""
+      ),
+      """object Types {
+        |
+        |  final case class Foo(bar: String, baz: zio.UIO[String])
+        |
+        |}""".stripMargin
+    ),
+    (
       "type appears in type union and implements interface",
       gen(
         """
