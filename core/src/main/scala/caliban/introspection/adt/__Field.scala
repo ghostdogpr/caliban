@@ -43,7 +43,7 @@ case class Extend(
   sourceGraph: String,
   sourceFieldName: String,
   argumentMappings: Map[String, InputValue => (String, InputValue)] = Map.empty,
-  filterBatchResults: (ResponseValue.ObjectValue, ResponseValue.ObjectValue) => Boolean = (_, _) => true
+  filterBatchResults: Option[(ResponseValue.ObjectValue, ResponseValue.ObjectValue) => Boolean] = None
 )
 
 object Extend {

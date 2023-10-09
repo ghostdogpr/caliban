@@ -14,7 +14,8 @@ object FetchDataSource {
     subGraph: SubGraphExecutor[R],
     sourceFieldName: String,
     fields: List[Field],
-    arguments: Map[String, InputValue]
+    arguments: Map[String, InputValue],
+    batchEnabled: Boolean
   ) extends zio.query.Request[ExecutionError, ResponseValue]
 
   private[caliban] def apply[R]: DataSource[R, FetchRequest[R]] =
@@ -27,6 +28,7 @@ object FetchDataSource {
               .foldLeft(Field("", Types.string, None) -> Map.empty[FetchRequest[R], String]) {
                 case ((field, rootFieldMap), (sourceFieldName, requests)) =>
                   val (mergedFields, updatedRootFieldMap) = {
+                    val batchEnabled           = requests.forall(_.batchEnabled)
                     val fields                 = requests
                       .map(request =>
                         request -> Field(
@@ -40,18 +42,23 @@ object FetchDataSource {
                     val (firstReq, firstField) = fields.head
                     fields.tail.foldLeft((List(firstField), Map(firstReq -> sourceFieldName))) {
                       case ((fields, rootFieldMap), (request, field)) =>
-                        val (merged, res) = fields
-                          .foldLeft((false, List.empty[Field])) { case ((merged, res), f) =>
-                            if (merged) (merged, f :: res)
-                            else
-                              combineFieldArguments(field, f) // TODO also combine subfields
-                                .fold((false, f :: res))(merged =>
-                                  (
-                                    true,
-                                    merged.copy(alias = f.alias, fields = (f.fields ++ field.fields).distinct) :: res
-                                  )
-                                )
-                          }
+                        val (merged, res) = {
+                          if (batchEnabled)
+                            fields
+                              .foldLeft((false, List.empty[Field])) { case ((merged, res), f) =>
+                                if (merged) (merged, f :: res)
+                                else
+                                  combineFieldArguments(field, f) // TODO also combine subfields
+                                    .fold((false, f :: res))(merged =>
+                                      (
+                                        true,
+                                        merged
+                                          .copy(alias = f.alias, fields = (f.fields ++ field.fields).distinct) :: res
+                                      )
+                                    )
+                              }
+                          else (false, fields)
+                        }
                         if (merged) (res, rootFieldMap.updated(request, field.name))
                         else {
                           val alias = s"${field.name}${res.size}"

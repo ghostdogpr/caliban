@@ -41,7 +41,7 @@ object Gateway extends ZIOAppDefault {
         targetTypeName = "Book",
         targetFieldName = "author",
         argumentMappings = Map("authorId" -> (v => "input" -> ObjectValue(Map("ids" -> ListValue(List(v)))))),
-        filterBatchResults = _.get("authorId") == _.get("id")
+        filterBatchResults = Some(_.get("authorId") == _.get("id"))
       )
 
   def run: Task[Unit] =
