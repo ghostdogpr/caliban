@@ -63,7 +63,7 @@ object SchemaWriter {
       "%s:%s ZStream[Any, Nothing, %s]".format(
         safeName(field.name),
         if (field.args.nonEmpty) s" ${argsName(field, od)} =>" else "",
-        writeMaybeEffectType(od, field)
+        writeType(field.ofType)
       )
 
     def writeRootSubscriptionDef(op: ObjectTypeDefinition): String =
