@@ -15,8 +15,7 @@ object SchemaWriterSpec extends ZIOSpecDefault {
     scalarMappings: Map[String, String] = Map.empty,
     isEffectTypeAbstract: Boolean = false,
     preserveInputNames: Boolean = false,
-    addDerives: Boolean = false,
-    effectStrategy: EffectStrategy = EffectStrategy.AlwaysPure
+    addDerives: Boolean = false
   ): Task[String] = Parser
     .parseQuery(schema.stripMargin)
     .flatMap(doc =>
@@ -30,8 +29,7 @@ object SchemaWriterSpec extends ZIOSpecDefault {
             Some(scalarMappings),
             isEffectTypeAbstract,
             preserveInputNames,
-            addDerives,
-            effectStrategy = effectStrategy
+            addDerives
           ),
           Some(".scalafmt-for-test.conf")
         )
@@ -662,7 +660,7 @@ object SchemaWriterSpec extends ZIOSpecDefault {
         |}""".stripMargin
     ),
     (
-      "EffectStrategy.EffectfulIfTaggedWith",
+      "recognize @lazy intention and generate side-effecting field",
       gen(
         """
         |directive @lazy on FIELD_DEFINITION
@@ -670,30 +668,11 @@ object SchemaWriterSpec extends ZIOSpecDefault {
         |type Foo {
         |  bar: String!
         |  baz: String! @lazy
-        |}""",
-        effectStrategy = EffectStrategy.EffectfulIfTaggedWith("lazy")
+        |}"""
       ),
       """object Types {
         |
         |  final case class Foo(bar: String, baz: zio.UIO[String])
-        |
-        |}""".stripMargin
-    ),
-    (
-      "EffectStrategy.PureIfTaggedWith",
-      gen(
-        """
-        |directive @pure on FIELD_DEFINITION
-        |
-        |type Foo {
-        |  bar: String!
-        |  baz: String! @pure
-        |}""",
-        effectStrategy = EffectStrategy.PureIfTaggedWith("pure")
-      ),
-      """object Types {
-        |
-        |  final case class Foo(bar: zio.UIO[String], baz: String)
         |
         |}""".stripMargin
     ),

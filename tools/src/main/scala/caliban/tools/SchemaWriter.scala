@@ -17,8 +17,7 @@ object SchemaWriter {
     scalarMappings: Option[Map[String, String]],
     isEffectTypeAbstract: Boolean = false,
     preserveInputNames: Boolean = false,
-    addDerives: Boolean = false,
-    effectStrategy: EffectStrategy = EffectStrategy.AlwaysPure
+    addDerives: Boolean = false
   ): String = {
     val derivesSchema: String =
       if (addDerives) " derives caliban.schema.Schema.SemiAuto" else ""
@@ -156,10 +155,9 @@ object SchemaWriter {
       }
 
     def writeMaybeEffectType(owner: TypeDefinition, field: FieldDefinition): String =
-      effectStrategy.decide(owner, field) match {
-        case EffectStrategy.Effectful => writeEffectType(field.ofType)
-        case EffectStrategy.Pure      => writeType(field.ofType)
-      }
+      if (field.directives.exists(d => d.name == "lazy"))
+        writeEffectType(field.ofType)
+      else writeType(field.ofType)
 
     def writeEffectType(t: Type) =
       s"$effect[${writeType(t)}]"
