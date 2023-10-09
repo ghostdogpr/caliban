@@ -79,8 +79,9 @@ private case class SuperGraphExecutor[-R](
       case Resolver.Fetch(subGraph, sourceFieldName, fields, argumentMappings, mapBatchResultToArgument) =>
         subGraphMap.get(subGraph) match {
           case Some(subGraph) =>
-            val arguments = field.arguments ++ argumentMappings.map { case (k, f) =>
-              f(parent.asObjectValue.map(_.get(k)).map(_.toInputValue).getOrElse(NullValue))
+            lazy val parentObject = parent.asObjectValue.getOrElse(ObjectValue(Nil))
+            val arguments         = field.arguments ++ argumentMappings.map { case (k, f) =>
+              f(parentObject.get(k).toInputValue)
             }.filterNot { case (_, v) => v == NullValue }
             ZQuery
               .fromRequest(
@@ -102,8 +103,7 @@ private case class SuperGraphExecutor[-R](
               .map(_.asObjectValue.map(_.get(sourceFieldName)).getOrElse(NullValue))
               .map(value =>
                 value.asListValue
-                  .map(_.filter(v => mapBatchResultToArgument.fold(true)(_(arguments, v))))
-                  .getOrElse(value)
+                  .fold(value)(_.filter(_.asObjectValue.fold(true)(v => mapBatchResultToArgument(parentObject, v))))
               )
               .flatMap {
                 case ListValue(values) =>

@@ -45,7 +45,7 @@ object StitchingExample extends GenericSchema[Any] {
                       .transform(TypeVisitor.renameField { case ("Queries", "GetUser") => "user" })
                       .transform(TypeVisitor.renameArgument { case ("Queries", "user") => ("repository", "repo") })
                       .extend(
-                        github.name,
+                        github,
                         sourceFieldName = "repository",
                         targetTypeName = "AppUser",
                         targetFieldName = "featuredRepository",

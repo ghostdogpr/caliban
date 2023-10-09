@@ -1,7 +1,6 @@
 package example.gateway
 
 import caliban.InputValue.{ ListValue, ObjectValue }
-import caliban.Value.NullValue
 import caliban.ZHttpAdapter
 import caliban.gateway.{ SubGraph, SuperGraph }
 import caliban.interop.tapir.HttpInterpreter
@@ -23,37 +22,26 @@ object Gateway extends ZIOAppDefault {
       .transform(TypeVisitor.filterField { case ("Query", fieldName) => fieldName == "stores" })
       .transform(TypeVisitor.renameType { case "authors_v1_Author" => "Author" })
       .extend(
-        stores.name,
+        stores,
         sourceFieldName = "bookSells",
         targetTypeName = "Store",
         targetFieldName = "bookSells",
         argumentMappings = Map("id" -> ("storeId" -> _))
       )
       .extend(
-        books.name,
+        books,
         sourceFieldName = "book",
         targetTypeName = "Sells",
         targetFieldName = "book",
         argumentMappings = Map("bookId" -> ("id" -> _))
       )
       .extend(
-        authors.name,
+        authors,
         sourceFieldName = "authors_v1_AuthorsService_GetAuthors",
         targetTypeName = "Book",
         targetFieldName = "author",
         argumentMappings = Map("authorId" -> (v => "input" -> ObjectValue(Map("ids" -> ListValue(List(v)))))),
-        filterBatchResults = Some((arguments, responseValue) =>
-          arguments
-            .get("input")
-            .flatMap(_.asInputObjectValue)
-            .flatMap(_.fields.get("ids"))
-            .flatMap(_.asInputListValue)
-            .exists(
-              _.values.contains(
-                responseValue.asObjectValue.map(_.get("id").toInputValue).getOrElse(NullValue)
-              )
-            )
-        )
+        filterBatchResults = _.get("authorId") == _.get("id")
       )
 
   def run: Task[Unit] =
