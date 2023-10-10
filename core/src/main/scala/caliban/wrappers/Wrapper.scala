@@ -44,7 +44,7 @@ object Wrapper {
    * A wrapper that doesn't do anything.
    * Useful for cases where we want to programmatically decide whether we'll use a wrapper or not
    */
-  object Empty extends Wrapper[Any] {
+  case object Empty extends Wrapper[Any] {
     override def |+|[R1 <: Any](that: Wrapper[R1]): Wrapper[R1]   = that
     override def apply[R1 <: Any](that: GraphQL[R1]): GraphQL[R1] = that
   }
