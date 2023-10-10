@@ -7,7 +7,7 @@ import caliban.parsing.adt.Document
 import caliban.wrappers.Wrapper.CombinedWrapper
 import caliban._
 import zio.query.ZQuery
-import zio.{ UIO, ZIO }
+import zio.{ UIO, URIO, ZIO }
 
 import scala.annotation.tailrec
 import scala.collection.mutable.{ ArrayBuffer, ListBuffer }
@@ -39,6 +39,16 @@ object Wrapper {
 
   sealed trait SimpleWrapper[-R, E, A, Info] extends Wrapper[R] {
     def wrap[R1 <: R](f: Info => ZIO[R1, E, A]): Info => ZIO[R1, E, A]
+  }
+
+  /**
+   * A wrapper that doesn't do anything.
+   * Useful for cases where we want to programmatically decide whether we'll use a wrapper or not
+   */
+  val empty: Wrapper[Any] = new OverallWrapper[Any] {
+    def wrap[R1 <: Any](
+      f: GraphQLRequest => URIO[R1, GraphQLResponse[CalibanError]]
+    ): GraphQLRequest => URIO[R1, GraphQLResponse[CalibanError]] = f
   }
 
   /**
