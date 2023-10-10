@@ -1,16 +1,16 @@
 package caliban.wrappers
 
 import caliban.CalibanError.{ ExecutionError, ParsingError, ValidationError }
+import caliban._
 import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.introspection.adt.__Introspection
 import caliban.parsing.adt.Document
 import caliban.wrappers.Wrapper.CombinedWrapper
-import caliban._
 import zio.query.ZQuery
-import zio.{ UIO, URIO, ZIO }
+import zio.{ UIO, ZIO }
 
 import scala.annotation.tailrec
-import scala.collection.mutable.{ ArrayBuffer, ListBuffer }
+import scala.collection.mutable.ListBuffer
 
 /**
  * A `Wrapper[-R]` represents an extra layer of computation that can be applied on top of Caliban's query handling.
@@ -29,7 +29,10 @@ import scala.collection.mutable.{ ArrayBuffer, ListBuffer }
 sealed trait Wrapper[-R] extends GraphQLAspect[Nothing, R] { self =>
   val priority: Int = 0
 
-  def |+|[R1 <: R](that: Wrapper[R1]): Wrapper[R1] = CombinedWrapper(List(self, that))
+  def |+|[R1 <: R](that: Wrapper[R1]): Wrapper[R1] = that match {
+    case Wrapper.Empty => self
+    case _             => CombinedWrapper(List(self, that))
+  }
 
   def apply[R1 <: R](that: GraphQL[R1]): GraphQL[R1] =
     that.withWrapper(self)
@@ -37,18 +40,19 @@ sealed trait Wrapper[-R] extends GraphQLAspect[Nothing, R] { self =>
 
 object Wrapper {
 
-  sealed trait SimpleWrapper[-R, E, A, Info] extends Wrapper[R] {
-    def wrap[R1 <: R](f: Info => ZIO[R1, E, A]): Info => ZIO[R1, E, A]
-  }
-
   /**
    * A wrapper that doesn't do anything.
    * Useful for cases where we want to programmatically decide whether we'll use a wrapper or not
    */
-  val empty: Wrapper[Any] = new OverallWrapper[Any] {
-    def wrap[R1 <: Any](
-      f: GraphQLRequest => URIO[R1, GraphQLResponse[CalibanError]]
-    ): GraphQLRequest => URIO[R1, GraphQLResponse[CalibanError]] = f
+  object Empty extends Wrapper[Any] {
+    override def |+|[R1 <: Any](that: Wrapper[R1]): Wrapper[R1]   = that
+    override def apply[R1 <: Any](that: GraphQL[R1]): GraphQL[R1] = that
+  }
+
+  def empty[R]: Wrapper[R] = Empty
+
+  sealed trait SimpleWrapper[-R, E, A, Info] extends Wrapper[R] {
+    def wrap[R1 <: R](f: Info => ZIO[R1, E, A]): Info => ZIO[R1, E, A]
   }
 
   /**
@@ -169,6 +173,7 @@ object Wrapper {
       case wrapper: IntrospectionWrapper[R] => ZIO.succeed(i append wrapper)
       case CombinedWrapper(wrappers)        => ZIO.foreachDiscard(wrappers)(loop)
       case EffectfulWrapper(wrapper)        => wrapper.flatMap(loop)
+      case Wrapper.Empty                    => ZIO.unit
     }
 
     def finalize[W <: Wrapper[R]](buffer: ListBuffer[W]): List[W] = buffer.sortBy(_.priority).result()

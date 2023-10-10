@@ -15,7 +15,7 @@ import caliban.schema.Schema.auto._
 import caliban.validation.Validator
 import caliban.wrappers.ApolloCaching.GQLCacheControl
 import caliban.wrappers.ApolloPersistedQueries.apolloPersistedQueries
-import caliban.wrappers.Wrapper.{ ExecutionWrapper, FieldWrapper, ValidationWrapper }
+import caliban.wrappers.Wrapper.{ CombinedWrapper, ExecutionWrapper, FieldWrapper, ValidationWrapper }
 import caliban.wrappers.Wrappers._
 import io.circe.syntax._
 import zio._
@@ -490,6 +490,26 @@ object WrappersSpec extends ZIOSpecDefault {
           result.asJson.hcursor.downField("errors").failed,
           result2.asJson.hcursor.downField("errors").succeeded
         )
-      }
+      },
+      suite("Empty wrapper")(
+        test("is not combined with other wrappers") {
+          List(
+            Wrapper.empty |+| maxFields(10) |+| Wrapper.empty,
+            Wrapper.empty |+| maxFields(10),
+            maxFields(10) |+| Wrapper.empty
+          ).foldLeft(assertCompletes) { case (result, wrapper) =>
+            (wrapper match {
+              case CombinedWrapper(_) => assertNever("Empty wrapper should not be combined")
+              case _                  => assertCompletes
+            }) && result
+          }
+        },
+        test("is ignored when used as an aspect") {
+          case class Test(test: String)
+          val gql = graphQL(RootResolver(Test("ok")))
+
+          assertTrue(gql == gql @@ Wrapper.empty)
+        }
+      )
     )
 }
