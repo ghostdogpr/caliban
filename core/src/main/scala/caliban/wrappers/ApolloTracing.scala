@@ -15,6 +15,8 @@ import zio.query.ZQuery
 
 object ApolloTracing {
 
+  private val isEnabledRef = Unsafe.unsafe(implicit u => FiberRef.unsafe.make(true))
+
   /**
    * Returns a wrapper that adds tracing information to every response
    * following Apollo Tracing format: https://github.com/apollographql/apollo-tracing.
@@ -22,18 +24,35 @@ object ApolloTracing {
    * @param excludePureFields Optionally disable tracing of pure fields.
    *                          Setting this to true can help improve performance at the cost of generating incomplete traces.
    *                          WARNING: Use this with caution as it could potentially cause issues if the tracing client expects all queried fields to be included in the traces
+   * @see [[enabled]] and [[enabledWith]] to optionally control whether tracing is enabled for the current scope
+   *      This can be used in combination with `HttpInterpreter.configure` from the `caliban-tapir` module or
+   *      http middlewares to enable / disable tracing based on the request params (e.g., headers)
    */
   def apolloTracing(excludePureFields: Boolean = false): EffectfulWrapper[Any] =
     EffectfulWrapper(
-      Ref
-        .make(Tracing())
-        .map(ref =>
-          apolloTracingOverall(ref) |+|
-            apolloTracingParsing(ref) |+|
-            apolloTracingValidation(ref) |+|
-            apolloTracingField(ref, !excludePureFields)
+      ZIO
+        .whenZIO(isEnabledRef.get)(
+          Ref
+            .make(Tracing())
+            .map(ref =>
+              apolloTracingOverall(ref) |+|
+                apolloTracingParsing(ref) |+|
+                apolloTracingValidation(ref) |+|
+                apolloTracingField(ref, !excludePureFields)
+            )
         )
+        .someOrElse(Wrapper.empty)
     )
+
+  /**
+   * Disable or enable tracing for the current scope
+   */
+  def enabled(value: Boolean): ZIO[Scope, Nothing, Unit] = isEnabledRef.locallyScoped(value)
+
+  /**
+   * Disable or enable tracing for the provided effect
+   */
+  def enabledWith[R, E, A](value: Boolean)(zio: ZIO[R, E, A]): ZIO[R, E, A] = isEnabledRef.locally(value)(zio)
 
   private val dateFormatter: DateTimeFormatter = DateTimeFormatter
     .ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")

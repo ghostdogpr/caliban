@@ -15,7 +15,7 @@ import caliban.schema.Schema.auto._
 import caliban.validation.Validator
 import caliban.wrappers.ApolloCaching.GQLCacheControl
 import caliban.wrappers.ApolloPersistedQueries.apolloPersistedQueries
-import caliban.wrappers.Wrapper.{ ExecutionWrapper, FieldWrapper, ValidationWrapper }
+import caliban.wrappers.Wrapper.{ CombinedWrapper, ExecutionWrapper, FieldWrapper, ValidationWrapper }
 import caliban.wrappers.Wrappers._
 import io.circe.syntax._
 import zio._
@@ -186,7 +186,7 @@ object WrappersSpec extends ZIOSpecDefault {
             fiber       <- interpreter.execute(query).map(_.extensions.map(_.toString)).fork
             _           <- latch.await
             _           <- TestClock.adjust(4 seconds)
-            result      <- fiber.join.flatMap(ZIO.fromOption(_))
+            result      <- fiber.join.map(_.getOrElse("null"))
           } yield result
 
         List(
@@ -203,6 +203,18 @@ object WrappersSpec extends ZIOSpecDefault {
                 res == """{"tracing":{"version":1,"startTime":"1970-01-01T00:00:00.000Z","endTime":"1970-01-01T00:00:04.000Z","duration":4000000000,"parsing":{"startOffset":0,"duration":0},"validation":{"startOffset":0,"duration":0},"execution":{"resolvers":[{"path":["hero","name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":1000000000},{"path":["hero","friends",0,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":2000000000},{"path":["hero","friends",1,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":3000000000},{"path":["hero"],"parentType":"Query","fieldName":"hero","returnType":"Hero!","startOffset":0,"duration":4000000000},{"path":["hero","friends"],"parentType":"Hero","fieldName":"friends","returnType":"[Hero!]!","startOffset":0,"duration":4000000000},{"path":["hero","friends",2,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":4000000000}]}}}"""
               )
             }
+          },
+          test("enabled") {
+            for {
+              r1 <- ZIO.scoped(ApolloTracing.enabled(false) *> test_(false))
+              r2 <- test_(false)
+            } yield assertTrue(r1 == "null", r2 != "null")
+          },
+          test("enabledWith") {
+            for {
+              r1 <- ApolloTracing.enabledWith(value = false)(test_(false))
+              r2 <- test_(false)
+            } yield assertTrue(r1 == "null", r2 != "null")
           }
         )
       },
@@ -478,6 +490,26 @@ object WrappersSpec extends ZIOSpecDefault {
           result.asJson.hcursor.downField("errors").failed,
           result2.asJson.hcursor.downField("errors").succeeded
         )
-      }
+      },
+      suite("Empty wrapper")(
+        test("is not combined with other wrappers") {
+          List(
+            Wrapper.empty |+| maxFields(10) |+| Wrapper.empty,
+            Wrapper.empty |+| maxFields(10),
+            maxFields(10) |+| Wrapper.empty
+          ).foldLeft(assertCompletes) { case (result, wrapper) =>
+            (wrapper match {
+              case CombinedWrapper(_) => assertNever("Empty wrapper should not be combined")
+              case _                  => assertCompletes
+            }) && result
+          }
+        },
+        test("is ignored when used as an aspect") {
+          case class Test(test: String)
+          val gql = graphQL(RootResolver(Test("ok")))
+
+          assertTrue(gql == gql @@ Wrapper.empty)
+        }
+      )
     )
 }
