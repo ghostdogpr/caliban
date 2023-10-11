@@ -6,15 +6,18 @@ case class __Directive(
   name: String,
   description: Option[String],
   locations: Set[__DirectiveLocation],
-  args: List[__InputValue],
+  args: __DeprecatedArgs => List[__InputValue],
   isRepeatable: Boolean
 ) {
   def toDirectiveDefinition: DirectiveDefinition =
     DirectiveDefinition(
       description,
       name,
-      args.map(_.toInputValueDefinition),
+      allArgs.map(_.toInputValueDefinition),
       isRepeatable,
       locations.map(_.toDirectiveLocation)
     )
+
+  lazy val allArgs: List[__InputValue] =
+    args(__DeprecatedArgs(Some(true)))
 }

@@ -29,7 +29,6 @@ private[federation] object FederationHelpers {
     "fields",
     None,
     () => Types.makeScalar("_FieldSet"),
-    None,
     None
   )
 
