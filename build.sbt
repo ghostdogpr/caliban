@@ -181,8 +181,9 @@ lazy val tools = project
       "com.softwaremill.sttp.client3" %% "zio"                 % sttpVersion,
       "dev.zio"                       %% "zio-config"          % zioConfigVersion,
       "dev.zio"                       %% "zio-config-magnolia" % zioConfigVersion,
-      "dev.zio"                       %% "zio-test"            % zioVersion % Test,
-      "dev.zio"                       %% "zio-test-sbt"        % zioVersion % Test
+      "dev.zio"                       %% "zio-test"            % zioVersion     % Test,
+      "dev.zio"                       %% "zio-test-sbt"        % zioVersion     % Test,
+      "dev.zio"                       %% "zio-json"            % zioJsonVersion % Test
     )
   )
   .dependsOn(core, clientJVM)

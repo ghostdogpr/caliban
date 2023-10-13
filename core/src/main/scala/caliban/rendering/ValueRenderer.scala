@@ -19,9 +19,9 @@ object ValueRenderer {
           write ++= name
         case StringValue(str)               =>
           write += '"'
-          unsafeFastEscape(str, write)
+          Renderer.escapedString.unsafeRender(str, indent, write)
           write += '"'
-        case Value.EnumValue(value)         => unsafeFastEscape(value, write)
+        case Value.EnumValue(value)         => Renderer.escapedString.unsafeRender(value, indent, write)
         case Value.BooleanValue(value)      => write append value
         case Value.NullValue                => write ++= "null"
         case IntNumber(value)               => write append value
@@ -54,7 +54,7 @@ object ValueRenderer {
       indent: Option[Int],
       write: StringBuilder
     ): Unit =
-      unsafeFastEscape(value.value, write)
+      Renderer.escapedString.unsafeRender(value.value, indent, write)
   }
 
   lazy val responseValueRenderer: Renderer[ResponseValue] = new Renderer[ResponseValue] {
@@ -70,11 +70,11 @@ object ValueRenderer {
           responseObjectValueRenderer.unsafeRender(in, indent, write)
         case StringValue(str)                =>
           write += '"'
-          unsafeFastEscape(str, write)
+          Renderer.escapedString.unsafeRender(str, indent, write)
           write += '"'
         case Value.EnumValue(value)          =>
           write += '"'
-          unsafeFastEscape(value, write)
+          Renderer.escapedString.unsafeRender(value, indent, write)
           write += '"'
         case Value.BooleanValue(value)       => write append value
         case Value.NullValue                 => write append "null"
@@ -115,18 +115,6 @@ object ValueRenderer {
         responseValueRenderer.unsafeRender(field._2, indent, write)
       }
       write += '}'
-    }
-  }
-
-  private def unsafeFastEscape(str: String, write: StringBuilder): Unit = {
-    var i = 0
-    while (i < str.length) {
-      (str.charAt(i): @switch) match {
-        case '"'  => write ++= "\\\""
-        case '\n' => write ++= "\\n"
-        case c    => write += c
-      }
-      i += 1
     }
   }
 
