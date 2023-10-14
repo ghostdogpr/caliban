@@ -12,8 +12,6 @@ import caliban.parsing.adt.{ Directive, Document }
 import caliban.schema.Annotations.GQLDirective
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
 import caliban.schema.Schema.auto._
-import caliban.validation.Validator
-import caliban.wrappers.ApolloCaching.GQLCacheControl
 import caliban.wrappers.ApolloPersistedQueries.apolloPersistedQueries
 import caliban.wrappers.Wrapper.{ ExecutionWrapper, FieldWrapper, ValidationWrapper }
 import caliban.wrappers.Wrappers._
@@ -23,9 +21,12 @@ import zio.query.ZQuery
 import zio.test.Assertion._
 import zio.test._
 
+import scala.annotation.nowarn
 import scala.language.postfixOps
 
+@nowarn("msg=deprecated")
 object WrappersSpec extends ZIOSpecDefault {
+  import caliban.wrappers.ApolloCaching.GQLCacheControl
 
   override def spec =
     suite("WrappersSpec")(

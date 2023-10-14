@@ -21,6 +21,7 @@ object ApolloCaching {
 
   private val directiveName = "cacheControl"
 
+  @deprecated("Use `caliban.wrappers.Caching` for a more flexible implementation", "2.4.0")
   case class GQLCacheControl(maxAge: Option[Duration] = None, scope: Option[CacheScope] = None)
       extends GQLDirective(CacheControl(scope, maxAge))
 
