@@ -2,7 +2,8 @@ package caliban.interop.tapir
 
 import caliban.interop.tapir.TestData.Origin._
 import caliban.interop.tapir.TestData.Role._
-import zio.{ UIO, ZIO }
+import caliban.wrappers.Caching.{ CacheScope, GQLCacheControl }
+import zio.{ durationInt, UIO, ZIO }
 
 object TestData {
 
@@ -23,6 +24,7 @@ object TestData {
     case class Mechanic(shipName: String) extends Role
   }
 
+  @GQLCacheControl(maxAge = Some(10.seconds), scope = Some(CacheScope.Public))
   case class Character(
     name: String,
     nicknames: List[String],

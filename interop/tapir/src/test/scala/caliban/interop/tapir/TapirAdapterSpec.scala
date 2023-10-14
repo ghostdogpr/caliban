@@ -6,6 +6,7 @@ import caliban._
 import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.{ Effect, WebSockets }
 import sttp.client3.asynchttpclient.zio.AsyncHttpClientZioBackend
+import sttp.client3.httpclient.zio.SttpClient
 import sttp.client3.{ BasicRequestBody, DeserializationException, HttpError, ResponseException, SttpBackend }
 import sttp.model._
 import sttp.tapir.Codec.JsonCodec
@@ -156,6 +157,21 @@ object TapirAdapterSpec {
               body <-
                 ZIO.fromEither(res.body).mapError(e => new Throwable(s"Failed to parse result: $res, ${e.getMessage}"))
             } yield assertTrue(body.isRight, body.toOption.exists(_.size == 9))
+          },
+          test("test caching directives") {
+            val q =
+              """{ characters { name } }"""
+
+            val r = run(GraphQLRequest())
+              .header(Header("content-type", "application/graphql; charset=utf-8"), replaceExisting = true)
+              .body(q)
+              .contentLength(q.length)
+
+            for {
+              backend    <- ZIO.service[SttpClient]
+              res        <- backend.send(r)
+              cacheHeader = res.headers.collectFirst { case h if h.is("Cache-Control") => h }
+            } yield assertTrue(cacheHeader.get == Header("cache-control", "max-age=10, public"))
           },
           suite("Accept application/graphql-response+json") {
             val contentT     = "application/graphql-response+json"

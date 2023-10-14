@@ -2,6 +2,7 @@ package caliban.interop.tapir
 
 import caliban._
 import caliban.ResponseValue.StreamValue
+import caliban.wrappers.Caching
 import sttp.capabilities.{ Streams, WebSockets }
 import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.zio.ZioStreams.Pipe
@@ -12,7 +13,7 @@ import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.{ headers, _ }
 import zio._
-import zio.stream.{ ZChannel, ZPipeline, ZSink, ZStream }
+import zio.stream.{ ZChannel, ZPipeline, ZStream }
 
 import java.nio.charset.StandardCharsets
 import scala.concurrent.Future
@@ -41,7 +42,7 @@ object TapirAdapter {
   }
 
   private type CalibanBody[BS]   = Either[ResponseValue, BS]
-  type CalibanResponse[BS]       = (MediaType, StatusCode, CalibanBody[BS])
+  type CalibanResponse[BS]       = (MediaType, StatusCode, Option[String], CalibanBody[BS])
   type CalibanEndpoint[R, BS, S] =
     ServerEndpoint.Full[Unit, Unit, (GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse[BS], S, RIO[R, *]]
 
@@ -98,7 +99,7 @@ object TapirAdapter {
   )(implicit
     streamConstructor: StreamConstructor[BS],
     responseCodec: JsonCodec[ResponseValue]
-  ): (MediaType, StatusCode, CalibanBody[BS]) = {
+  ): (MediaType, StatusCode, Option[String], CalibanBody[BS]) = {
 
     /**
      * NOTE: From  1st January 2025 this logic should be changed to use `application/graphql-response+json` as the
@@ -118,19 +119,40 @@ object TapirAdapter {
         (
           DeferMultipart.mediaType,
           StatusCode.Ok,
+          None,
           encodeMultipartMixedResponse(resp, stream)
         )
       case resp if acceptsGqlJson                               =>
-        val code =
+        val code           =
           response.errors.collectFirst { case _: CalibanError.ParsingError | _: CalibanError.ValidationError =>
             StatusCode.BadRequest
           }.getOrElse(StatusCode.Ok)
-        (GraphqlResponseJson.mediaType, code, encodeSingleResponse(resp, keepDataOnErrors = false))
+        val cacheDirective = computeCacheDirective(response.extensions)
+        (
+          GraphqlResponseJson.mediaType,
+          code,
+          computeCacheDirective(response.extensions),
+          encodeSingleResponse(
+            resp,
+            keepDataOnErrors = false,
+            excludeExtensions = cacheDirective.map(_ => Set(Caching.DirectiveName))
+          )
+        )
       case resp                                                 =>
-        val code =
+        val code           =
           response.errors.collectFirst { case HttpRequestMethod.MutationOverGetError => StatusCode.BadRequest }
             .getOrElse(StatusCode.Ok)
-        (MediaType.ApplicationJson, code, encodeSingleResponse(resp, keepDataOnErrors = true))
+        val cacheDirective = computeCacheDirective(response.extensions)
+        (
+          MediaType.ApplicationJson,
+          code,
+          cacheDirective,
+          encodeSingleResponse(
+            resp,
+            keepDataOnErrors = true,
+            excludeExtensions = cacheDirective.map(_ => Set(Caching.DirectiveName))
+          )
+        )
     }
   }
 
@@ -188,8 +210,12 @@ object TapirAdapter {
     )
   }
 
-  private def encodeSingleResponse[E](response: GraphQLResponse[E], keepDataOnErrors: Boolean) =
-    Left(response.toResponseValue(keepDataOnErrors))
+  private def encodeSingleResponse[E](
+    response: GraphQLResponse[E],
+    keepDataOnErrors: Boolean,
+    excludeExtensions: Option[Set[String]]
+  ) =
+    Left(response.toResponseValue(keepDataOnErrors, excludeExtensions))
 
   def convertHttpEndpointToFuture[R](
     endpoint: ServerEndpoint[ZioStreams, RIO[R, *]]
@@ -226,4 +252,13 @@ object TapirAdapter {
 
   def isFtv1Header(r: Header): Boolean =
     r.name == GraphQLRequest.`apollo-federation-include-trace` && r.value == GraphQLRequest.ftv1
+
+  private def computeCacheDirective(extensions: Option[ResponseValue.ObjectValue]): Option[String] =
+    extensions
+      .flatMap(_.fields.collectFirst { case (Caching.DirectiveName, ResponseValue.ObjectValue(fields)) =>
+        fields.collectFirst { case ("httpHeader", Value.StringValue(cacheHeader)) =>
+          cacheHeader
+        }
+      })
+      .flatten
 }
