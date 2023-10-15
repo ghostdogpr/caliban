@@ -5,7 +5,7 @@ Caliban allows you to perform additional actions at various levels of a query pr
 - modify a query before it's executed
 - add timeouts to queries or fields
 - log each field execution time
-- support [Apollo Tracing](https://github.com/apollographql/apollo-tracing), [Apollo Caching](https://github.com/apollographql/apollo-cache-control) or anything similar
+- support [Apollo Tracing](https://github.com/apollographql/apollo-tracing), [Apollo Caching](https://www.apollographql.com/docs/apollo-server/performance/caching) or anything similar
 - etc.
 
 ## Wrapper types
@@ -73,7 +73,7 @@ Caliban comes with a few pre-made wrappers in `caliban.wrappers.Wrappers`:
 
 In addition to those, Caliban also ships with some non-spec but standard wrappers
 - `caliban.wrappers.ApolloTracing.apolloTracing` returns a wrapper that adds tracing data into the `extensions` field of each response following [Apollo Tracing](https://github.com/apollographql/apollo-tracing) format.
-- `caliban.wrappers.ApolloCaching.apolloCaching` returns a wrapper that adds caching hints to properly annotated fields using the [Apollo Caching](https://github.com/apollographql/apollo-cache-control) format.
+- `caliban.wrappers.Caching.extension` returns a wrapper that computes the total cache policy for a query and stores it in the extensions of the response.  The result can then be used by http adapters to set the appropriate cache headers in the response.
 - `caliban.wrappers.ApolloPersistedQueries.apolloPersistedQueries` returns a wrapper that caches and retrieves query using a hash using the [Apollo Persisted Queries](https://github.com/apollographql/apollo-link-persisted-queries) format.
 
 They can be used like this:
@@ -83,8 +83,8 @@ val api =
     maxDepth(50) @@
     timeout(3 seconds) @@
     printSlowQueries(500 millis) @@
-    apolloTracing @@
-    apolloCaching
+    apolloTracing() @@
+    Caching.extension()
 ```
 
 ## Wrapping the interpreter
