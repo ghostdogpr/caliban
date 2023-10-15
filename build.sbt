@@ -553,7 +553,7 @@ lazy val benchmarks = project
       "org.sangria-graphql"                   %% "sangria-circe"       % "1.3.2",
       "edu.gemini"                            %% "gsp-graphql-core"    % "0.13.0",
       "edu.gemini"                            %% "gsp-graphql-generic" % "0.13.0",
-      "io.github.valdemargr"                  %% "gql-server"          % "0.3.2",
+      "io.github.valdemargr"                  %% "gql-server"          % "0.3.3",
       "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core" % jsoniterVersion,
       "io.circe"                              %% "circe-parser"        % circeVersion,
       "dev.zio"                               %% "zio-json"            % zioJsonVersion
