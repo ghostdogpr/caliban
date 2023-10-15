@@ -28,26 +28,27 @@ object Caching {
       name = DirectiveName,
       description = None,
       locations = Set(__DirectiveLocation.FIELD_DEFINITION, __DirectiveLocation.OBJECT),
-      args = List(
-        __InputValue(
-          name = MaxAgeName,
-          None,
-          `type` = () => Types.int,
-          defaultValue = None
+      args = _ =>
+        List(
+          __InputValue(
+            name = MaxAgeName,
+            None,
+            `type` = () => Types.int,
+            defaultValue = None
+          ),
+          __InputValue(
+            name = ScopeName,
+            None,
+            `type` = () => CacheScope._type,
+            defaultValue = None
+          ),
+          __InputValue(
+            name = InheritMaxAgeName,
+            None,
+            `type` = () => Types.boolean,
+            defaultValue = None
+          )
         ),
-        __InputValue(
-          name = ScopeName,
-          None,
-          `type` = () => CacheScope._type,
-          defaultValue = None
-        ),
-        __InputValue(
-          name = InheritMaxAgeName,
-          None,
-          `type` = () => Types.boolean,
-          defaultValue = None
-        )
-      ),
       isRepeatable = false
     )
   )
