@@ -30,11 +30,11 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
           .serve(
             Http
               .collectHttp[Request] {
-                case _ -> !! / "api" / "graphql" =>
+                case _ -> Root / "api" / "graphql" =>
                   ZHttpAdapter.makeHttpService(
                     HttpInterpreter(interpreter).intercept(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
                   )
-                case _ -> !! / "ws" / "graphql"  =>
+                case _ -> Root / "ws" / "graphql"  =>
                   ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))
               }
           )
@@ -53,7 +53,11 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
     suite.provideShared(
       apiLayer,
       Scope.default,
-      Server.defaultWith(_.port(8089).responseCompression())
+      Server.defaultWith(
+        _.withWebSocketConfig(ZHttpAdapter.defaultWebSocketConfig)
+          .port(8089)
+          .responseCompression()
+      )
     )
   }
 }

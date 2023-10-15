@@ -108,7 +108,9 @@ object DocumentRenderer extends Renderer[Document] {
             newlineOrSpace(indent, writer)
           case value                         =>
             pad(indent, writer)
-            unsafeFastEscape(value, writer)
+            writer append '"'
+            Renderer.escapedString.unsafeRender(value, indent, writer)
+            writer append '"'
             newlineOrSpace(indent, writer)
         }
     }
@@ -665,25 +667,6 @@ object DocumentRenderer extends Renderer[Document] {
     if (indentation.isDefined) writer append '\n' else writer append ','
 
   private def increment(indentation: Option[Int]): Option[Int] = indentation.map(_ + 1)
-
-  private def unsafeFastEscape(value: String, writer: StringBuilder) = {
-    writer.append('"')
-    var i = 0
-    while (i < value.length) {
-      (value.charAt(i): @switch) match {
-        case '\\' => writer.append("\\\\")
-        case '\b' => writer.append("\\b")
-        case '\f' => writer.append("\\f")
-        case '\n' => writer.append("\\n")
-        case '\r' => writer.append("\\r")
-        case '\t' => writer.append("\\t")
-        case '"'  => writer.append("\\\"")
-        case c    => writer.append(c)
-      }
-      i += 1
-    }
-    writer.append('"')
-  }
 
   /**
    * A zero allocation version of triple quote escaping.

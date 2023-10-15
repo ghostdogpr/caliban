@@ -184,15 +184,7 @@ object TestUtils {
       name = "test",
       description = Some("Test directive"),
       locations = Set(__DirectiveLocation.FIELD_DEFINITION),
-      args = List(
-        __InputValue(
-          "foo",
-          None,
-          () => Types.int,
-          None,
-          None
-        )
-      ),
+      args = _ => List(__InputValue("foo", None, () => Types.int, None)),
       isRepeatable = false
     )
 
@@ -200,15 +192,7 @@ object TestUtils {
       name = "repeatable",
       description = Some("Repeatable test directive"),
       locations = Set(__DirectiveLocation.FIELD_DEFINITION),
-      args = List(
-        __InputValue(
-          "bar",
-          None,
-          () => Types.int,
-          None,
-          None
-        )
-      ),
+      args = _ => List(__InputValue("bar", None, () => Types.int, None)),
       isRepeatable = true
     )
   }
@@ -386,7 +370,7 @@ object TestUtils {
             __Field(
               name,
               description = None,
-              args = List.empty,
+              args = _ => Nil,
               `type` = () => Types.string
             )
           )
@@ -404,13 +388,13 @@ object TestUtils {
               __Field(
                 name = "a",
                 description = None,
-                args = Nil,
+                args = _ => Nil,
                 `type` = () => Types.int     // bad type, interface type is string
               ),
               __Field(
                 name = "b",
                 description = None,
-                args = Nil,
+                args = _ => Nil,
                 `type` = () => Types.boolean // bad type, interface type is string
               )
             )
@@ -456,25 +440,25 @@ object TestUtils {
       val fieldInterface             = Types.makeInterface(
         name = Some("FieldInterface"),
         description = None,
-        fields = () => List(__Field("a", None, Nil, () => Types.string)),
+        fields = () => List(__Field("a", None, _ => Nil, () => Types.string)),
         subTypes = Nil
       )
       val fieldObject                = __Type(
         kind = __TypeKind.OBJECT,
         name = Some("FieldObject"),
         interfaces = () => Some(List(fieldInterface)),
-        fields = _ => Some(List(__Field("a", None, Nil, () => Types.string)))
+        fields = _ => Some(List(__Field("a", None, _ => Nil, () => Types.string)))
       )
       val withListFieldInterface     = Types.makeInterface(
         name = Some("WithListFieldInterface"),
         description = None,
-        fields = () => List(__Field("a", None, Nil, () => fieldInterface.list)),
+        fields = () => List(__Field("a", None, _ => Nil, () => fieldInterface.list)),
         subTypes = Nil
       )
       val objectWrongListItemSubtype = __Type(
         kind = __TypeKind.OBJECT,
         name = Some("ObjectWrongListItemSubtype"),
-        fields = _ => Some(List(__Field("a", None, Nil, () => Types.string.list))),
+        fields = _ => Some(List(__Field("a", None, _ => Nil, () => Types.string.list))),
         interfaces = () => Some(List(withListFieldInterface))
       )
 
@@ -507,10 +491,16 @@ object TestUtils {
               __Field(
                 "fieldWithArg",
                 None,
-                List(
-                  __InputValue(name = "arg", description = None, `type` = () => Types.string, defaultValue = None),
-                  __InputValue(name = "extraArg", description = None, `type` = () => Types.string, defaultValue = None)
-                ),
+                _ =>
+                  List(
+                    __InputValue(name = "arg", description = None, `type` = () => Types.string, defaultValue = None),
+                    __InputValue(
+                      name = "extraArg",
+                      description = None,
+                      `type` = () => Types.string,
+                      defaultValue = None
+                    )
+                  ),
                 () => Types.string
               )
             )
@@ -529,15 +519,16 @@ object TestUtils {
               __Field(
                 "fieldWithArg",
                 None,
-                List(
-                  __InputValue(name = "arg", description = None, `type` = () => Types.string, defaultValue = None),
-                  __InputValue(
-                    name = "extraArg",
-                    description = None,
-                    `type` = () => Types.string.nonNull,
-                    defaultValue = None
-                  )
-                ),
+                _ =>
+                  List(
+                    __InputValue(name = "arg", description = None, `type` = () => Types.string, defaultValue = None),
+                    __InputValue(
+                      name = "extraArg",
+                      description = None,
+                      `type` = () => Types.string.nonNull,
+                      defaultValue = None
+                    )
+                  ),
                 () => Types.string
               )
             )
@@ -555,7 +546,7 @@ object TestUtils {
               name = "fieldWithArg",
               description = None,
               `type` = () => Types.string,
-              args =
+              args = _ =>
                 List(__InputValue(name = "arg", description = None, `type` = () => Types.string, defaultValue = None))
             )
           ),
@@ -613,6 +604,10 @@ object TestUtils {
     val resolverBadFieldName = RootResolver(WrongFieldName(1))
 
     val resolverQueryNoObject = RootResolver(Map("a" -> "b"))
+
+    case class Args(@GQLDeprecated("reason") a: String)
+    case class QueryInputDeprecated(test: Args => String)
+    val resolverQueryInputDeprecated = RootResolver(QueryInputDeprecated(args => args.a))
   }
 
   val introspectionQuery =

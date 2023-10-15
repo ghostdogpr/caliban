@@ -61,8 +61,8 @@ object Auth {
   }
 
   val middleware =
-    HttpAppMiddleware.customAuthZIO { headers =>
-      val user = headers.get(Header.Authorization).map(_.renderedValue)
+    HttpAppMiddleware.customAuthZIO { req =>
+      val user = req.headers.get(Header.Authorization).map(_.renderedValue)
       ZIO.serviceWithZIO[Auth](_.setUser(user)).as(true)
     }
 }
@@ -92,10 +92,10 @@ object AuthExampleApp extends ZIOAppDefault {
                        .install(
                          Http
                            .collectHttp[Request] {
-                             case _ -> !! / "api" / "graphql" =>
+                             case _ -> Root / "api" / "graphql" =>
                                ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter)) @@ Auth.middleware
-                             case _ -> !! / "ws" / "graphql"  => Auth.WebSockets.live(interpreter)
-                             case _ -> !! / "graphiql"        => graphiql
+                             case _ -> Root / "ws" / "graphql"  => Auth.WebSockets.live(interpreter)
+                             case _ -> Root / "graphiql"        => graphiql
                            }
                        )
       _           <- ZIO.logInfo(s"Server started on port $port")
@@ -105,7 +105,11 @@ object AuthExampleApp extends ZIOAppDefault {
         ExampleService.make(sampleCharacters),
         ExampleApi.layer,
         Auth.http,
-        ZLayer.succeed(Server.Config.default.port(8088)),
+        ZLayer.succeed(
+          Server.Config.default
+            .port(8088)
+            .withWebSocketConfig(ZHttpAdapter.defaultWebSocketConfig)
+        ),
         Server.live
       )
       .exitCode

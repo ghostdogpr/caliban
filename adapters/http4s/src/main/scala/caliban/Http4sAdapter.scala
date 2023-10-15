@@ -58,7 +58,7 @@ object Http4sAdapter {
   ): HttpRoutes[RIO[R1, *]] =
     ZHttp4sServerInterpreter[R1]()
       .fromWebSocket(interpreter.serverEndpoint[R1])
-      .toRoutes(builder.asInstanceOf[WebSocketBuilder2[RIO[R1, *]]])
+      .toRoutes[Any](builder.asInstanceOf[WebSocketBuilder2[RIO[R1, *]]])
 
   def makeWebSocketServiceF[F[_]: Async, R, E](builder: WebSocketBuilder2[F], interpreter: WebSocketInterpreter[R, E])(
     implicit

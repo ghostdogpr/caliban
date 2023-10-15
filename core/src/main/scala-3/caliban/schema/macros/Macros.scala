@@ -4,65 +4,13 @@ import caliban.schema.Annotations.{ GQLExcluded, GQLOneOfInput }
 
 import scala.quoted.*
 
+export magnolia1.TypeInfo
+
 object Macros {
-  // this code was inspired from WIP in magnolia
-  // https://github.com/propensive/magnolia/blob/b937cf2c7dabebb8236e7e948f37a354777fa9b7/src/core/macro.scala
-
-  inline def annotations[T]: List[Any]                      = ${ annotationsImpl[T] }
-  inline def paramAnnotations[T]: List[(String, List[Any])] = ${ paramAnnotationsImpl[T] }
-  inline def typeInfo[T]: TypeInfo                          = ${ typeInfoImpl[T] }
-  inline def isFieldExcluded[P, T]: Boolean                 = ${ isFieldExcludedImpl[P, T] }
-  inline def isEnumField[P, T]: Boolean                     = ${ isEnumFieldImpl[P, T] }
-  inline def implicitExists[T]: Boolean                     = ${ implicitExistsImpl[T] }
-  inline def hasOneOfInputAnnotation[P]: Boolean            = ${ hasOneOfInputAnnotationImpl[P] }
-
-  private def annotationsImpl[T: Type](using qctx: Quotes): Expr[List[Any]] = {
-    import qctx.reflect.*
-    val tpe = TypeRepr.of[T]
-    Expr.ofList {
-      tpe.typeSymbol.annotations.filter { a =>
-        a.tpe.typeSymbol.maybeOwner.isNoSymbol || (a.tpe.typeSymbol.owner.fullName != "scala.annotation.internal" && a.tpe.typeSymbol.owner.fullName != "jdk.internal")
-      }.map(_.asExpr.asInstanceOf[Expr[Any]])
-    }
-  }
-
-  private def paramAnnotationsImpl[T: Type](using qctx: Quotes): Expr[List[(String, List[Any])]] = {
-    import qctx.reflect.*
-    val tpe = TypeRepr.of[T]
-    Expr.ofList {
-      tpe.typeSymbol.primaryConstructor.paramSymss.flatten.map { field =>
-        Expr(field.name) -> field.annotations.filter { a =>
-          a.tpe.typeSymbol.maybeOwner.isNoSymbol ||
-          (a.tpe.typeSymbol.owner.fullName != "scala.annotation.internal" && a.tpe.typeSymbol.owner.fullName != "jdk.internal")
-        }.map(_.asExpr.asInstanceOf[Expr[Any]])
-      }.filter(_._2.nonEmpty).map((name, anns) => Expr.ofTuple(name, Expr.ofList(anns)))
-    }
-  }
-
-  private def typeInfoImpl[T: Type](using qctx: Quotes): Expr[TypeInfo] = {
-    import qctx.reflect.*
-
-    def normalizedName(s: Symbol): String = if (s.flags.is(Flags.Module)) s.name.stripSuffix("$") else s.name
-    def name(tpe: TypeRepr): Expr[String] = Expr(normalizedName(tpe.typeSymbol))
-
-    def ownerNameChain(sym: Symbol): List[String] =
-      if (sym.isNoSymbol) List.empty
-      else if (sym == defn.EmptyPackageClass) List.empty
-      else if (sym == defn.RootPackage) List.empty
-      else if (sym == defn.RootClass) List.empty
-      else ownerNameChain(sym.owner) :+ normalizedName(sym)
-
-    def owner(tpe: TypeRepr): Expr[String] = Expr(ownerNameChain(tpe.typeSymbol.maybeOwner).mkString("."))
-
-    def typeInfo(tpe: TypeRepr): Expr[TypeInfo] = tpe match {
-      case AppliedType(tpe, args) =>
-        '{ TypeInfo(${ owner(tpe) }, ${ name(tpe) }, ${ Expr.ofList(args.map(typeInfo)) }) }
-      case _                      =>
-        '{ TypeInfo(${ owner(tpe) }, ${ name(tpe) }, Nil) }
-    }
-
-    typeInfo(TypeRepr.of[T])
-  }
+  inline def isFieldExcluded[P, T]: Boolean      = ${ isFieldExcludedImpl[P, T] }
+  inline def isEnumField[P, T]: Boolean          = ${ isEnumFieldImpl[P, T] }
+  inline def implicitExists[T]: Boolean          = ${ implicitExistsImpl[T] }
+  inline def hasOneOfInputAnnotation[P]: Boolean = ${ hasOneOfInputAnnotationImpl[P] }
 
   /**
    * Tests whether type argument [[FieldT]] in [[Parent]] is annotated with [[GQLExcluded]]

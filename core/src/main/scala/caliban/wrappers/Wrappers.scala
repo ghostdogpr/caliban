@@ -2,14 +2,15 @@ package caliban.wrappers
 
 import caliban.CalibanError.{ ExecutionError, ValidationError }
 import caliban.Value.NullValue
-import caliban.execution.{ ExecutionRequest, Field }
-import caliban.parsing.adt.Document
-import caliban.wrappers.Wrapper.{ OverallWrapper, ValidationWrapper }
-import caliban.{ CalibanError, Configurator, GraphQLRequest, GraphQLResponse }
+import caliban.execution.{ ExecutionRequest, Field, FieldInfo }
+import caliban.parsing.adt.{ Directive, Document }
+import caliban.wrappers.Wrapper.{ FieldWrapper, OverallWrapper, ValidationWrapper }
+import caliban.{ CalibanError, Configurator, GraphQLRequest, GraphQLResponse, ResponseValue }
 import zio.Console.{ printLine, printLineError }
 import zio._
 import zio.metrics.MetricKeyType.Histogram
 import zio.metrics.MetricLabel
+import zio.query.ZQuery
 
 import scala.annotation.tailrec
 
@@ -172,4 +173,23 @@ object Wrappers {
   private def innerFields(fields: List[Field]): UIO[Int] =
     ZIO.foreach(fields)(countFields).map(_.sum + fields.length)
 
+  /**
+   * Returns a wrapper that check directives on fields and can potentially fail the query
+   *
+   * @param check a function from directives to a ZIO that can fail
+   * @param excludePureFields if true, pure fields will not be checked
+   */
+  def checkDirectives[R](
+    check: List[Directive] => ZIO[R, ExecutionError, Unit],
+    excludePureFields: Boolean = true
+  ): FieldWrapper[R] =
+    new FieldWrapper[R](wrapPureValues = !excludePureFields) {
+      def wrap[R1 <: R](
+        query: ZQuery[R1, ExecutionError, ResponseValue],
+        info: FieldInfo
+      ): ZQuery[R1, ExecutionError, ResponseValue] = {
+        val directives = info.parent.flatMap(_.allFieldsMap.get(info.name)).flatMap(_.directives).getOrElse(Nil)
+        ZQuery.fromZIO(check(directives)) *> query
+      }
+    }
 }

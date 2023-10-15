@@ -17,20 +17,26 @@ case class GraphQLResponse[+E](
   extensions: Option[ObjectValue] = None,
   hasNext: Option[Boolean] = None
 ) {
-  def toResponseValue: ResponseValue =
+  def toResponseValue: ResponseValue = toResponseValue(keepDataOnErrors = true)
+
+  def toResponseValue(keepDataOnErrors: Boolean, excludeExtensions: Option[Set[String]] = None): ResponseValue = {
+    val hasErrors = errors.nonEmpty
     ObjectValue(
       List(
-        "data"       -> Some(data),
-        "errors"     -> (if (errors.nonEmpty)
+        "data"       -> (if (!hasErrors || keepDataOnErrors) Some(data) else None),
+        "errors"     -> (if (hasErrors)
                        Some(ListValue(errors.map {
                          case e: CalibanError => e.toResponseValue
                          case e               => ObjectValue(List("message" -> StringValue(e.toString)))
                        }))
                      else None),
-        "extensions" -> extensions,
+        "extensions" -> excludeExtensions.fold(extensions)(excl =>
+          extensions.map(obj => ObjectValue(obj.fields.filterNot(f => excl.contains(f._1))))
+        ),
         "hasNext"    -> hasNext.map(BooleanValue.apply)
       ).collect { case (name, Some(v)) => name -> v }
     )
+  }
 
   def withExtension(key: String, value: ResponseValue): GraphQLResponse[E] =
     copy(extensions = Some(ObjectValue(extensions.foldLeft(List(key -> value)) { case (value, ObjectValue(fields)) =>

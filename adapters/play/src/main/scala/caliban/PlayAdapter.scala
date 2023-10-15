@@ -7,7 +7,7 @@ import caliban.PlayAdapter.convertHttpStreamingEndpoint
 import caliban.interop.tapir.TapirAdapter._
 import caliban.interop.tapir.{ HttpInterpreter, HttpUploadInterpreter, StreamConstructor, WebSocketInterpreter }
 import play.api.routing.Router.Routes
-import sttp.capabilities.WebSockets
+import sttp.capabilities.{ akka, WebSockets }
 import sttp.capabilities.akka.AkkaStreams
 import sttp.capabilities.akka.AkkaStreams.Pipe
 import sttp.model.{ MediaType, StatusCode }
@@ -121,7 +121,7 @@ object PlayAdapter extends PlayAdapter(None) {
       Unit,
       Input,
       TapirResponse,
-      (MediaType, Either[ResponseValue, AkkaStreams.BinaryStream]),
+      CalibanResponse[akka.AkkaStreams.BinaryStream],
       AkkaStreams,
       Future
     ](

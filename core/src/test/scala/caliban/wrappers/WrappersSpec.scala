@@ -8,13 +8,12 @@ import caliban.TestUtils._
 import caliban.Value.{ IntValue, StringValue }
 import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
-import caliban.parsing.adt.Document
+import caliban.parsing.adt.{ Directive, Document }
+import caliban.schema.Annotations.GQLDirective
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
 import caliban.schema.Schema.auto._
-import caliban.validation.Validator
-import caliban.wrappers.ApolloCaching.GQLCacheControl
 import caliban.wrappers.ApolloPersistedQueries.apolloPersistedQueries
-import caliban.wrappers.Wrapper.{ ExecutionWrapper, FieldWrapper, ValidationWrapper }
+import caliban.wrappers.Wrapper.{ CombinedWrapper, ExecutionWrapper, FieldWrapper, ValidationWrapper }
 import caliban.wrappers.Wrappers._
 import io.circe.syntax._
 import zio._
@@ -22,9 +21,12 @@ import zio.query.ZQuery
 import zio.test.Assertion._
 import zio.test._
 
+import scala.annotation.nowarn
 import scala.language.postfixOps
 
+@nowarn("msg=deprecated")
 object WrappersSpec extends ZIOSpecDefault {
+  import caliban.wrappers.ApolloCaching.GQLCacheControl
 
   override def spec =
     suite("WrappersSpec")(
@@ -141,14 +143,14 @@ object WrappersSpec extends ZIOSpecDefault {
                 a
               }""".stripMargin)))
       },
-      test("Apollo Tracing") {
+      suite("Apollo Tracing") {
         case class Query(hero: Hero)
-        case class Hero(name: UIO[String], friends: List[Hero] = Nil)
+        case class Hero(name: UIO[String], friends: List[Hero] = Nil, bestFriend: Option[Hero] = None)
 
         object schema extends GenericSchema[Any] {
           implicit lazy val heroSchema: Schema[Any, Hero] = gen
 
-          def api(latch: Promise[Nothing, Unit]) =
+          def api(latch: Promise[Nothing, Unit], excludePureFields: Boolean) =
             graphQL(
               RootResolver(
                 Query(
@@ -162,7 +164,7 @@ object WrappersSpec extends ZIOSpecDefault {
                   )
                 )
               )
-            ) @@ ApolloTracing.apolloTracing
+            ) @@ ApolloTracing.apolloTracing(excludePureFields)
         }
 
         val query = gqldoc("""
@@ -172,21 +174,49 @@ object WrappersSpec extends ZIOSpecDefault {
                   friends {
                     name
                   }
+                  bestFriend {
+                    name
+                  }
                 }
               }""")
-        for {
-          latch       <- Promise.make[Nothing, Unit]
-          interpreter <- schema.api(latch).interpreter
-          fiber       <- interpreter.execute(query).map(_.extensions.map(_.toString)).fork
-          _           <- latch.await
-          _           <- TestClock.adjust(4 seconds)
-          result      <- fiber.join
-        } yield assert(result)(
-          isSome(
-            equalTo(
-              """{"tracing":{"version":1,"startTime":"1970-01-01T00:00:00.000Z","endTime":"1970-01-01T00:00:04.000Z","duration":4000000000,"parsing":{"startOffset":0,"duration":0},"validation":{"startOffset":0,"duration":0},"execution":{"resolvers":[{"path":["hero","name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":1000000000},{"path":["hero","friends",0,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":2000000000},{"path":["hero","friends",1,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":3000000000},{"path":["hero"],"parentType":"Query","fieldName":"hero","returnType":"Hero!","startOffset":0,"duration":4000000000},{"path":["hero","friends"],"parentType":"Hero","fieldName":"friends","returnType":"[Hero!]!","startOffset":0,"duration":4000000000},{"path":["hero","friends",2,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":4000000000}]}}}"""
-            )
-          )
+
+        def test_(excludePureFields: Boolean) =
+          for {
+            latch       <- Promise.make[Nothing, Unit]
+            interpreter <- schema.api(latch, excludePureFields).interpreter
+            fiber       <- interpreter.execute(query).map(_.extensions.map(_.toString)).fork
+            _           <- latch.await
+            _           <- TestClock.adjust(4 seconds)
+            result      <- fiber.join.map(_.getOrElse("null"))
+          } yield result
+
+        List(
+          test("excludePureFields = false") {
+            test_(false).map { res =>
+              assertTrue(
+                res == """{"tracing":{"version":1,"startTime":"1970-01-01T00:00:00.000Z","endTime":"1970-01-01T00:00:04.000Z","duration":4000000000,"parsing":{"startOffset":0,"duration":0},"validation":{"startOffset":0,"duration":0},"execution":{"resolvers":[{"path":["hero","bestFriend"],"parentType":"Hero","fieldName":"bestFriend","returnType":"Hero","startOffset":0,"duration":0},{"path":["hero","name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":1000000000},{"path":["hero","friends",0,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":2000000000},{"path":["hero","friends",1,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":3000000000},{"path":["hero"],"parentType":"Query","fieldName":"hero","returnType":"Hero!","startOffset":0,"duration":4000000000},{"path":["hero","friends"],"parentType":"Hero","fieldName":"friends","returnType":"[Hero!]!","startOffset":0,"duration":4000000000},{"path":["hero","friends",2,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":4000000000}]}}}"""
+              )
+            }
+          },
+          test("excludePureFields = true") {
+            test_(true).map { res =>
+              assertTrue(
+                res == """{"tracing":{"version":1,"startTime":"1970-01-01T00:00:00.000Z","endTime":"1970-01-01T00:00:04.000Z","duration":4000000000,"parsing":{"startOffset":0,"duration":0},"validation":{"startOffset":0,"duration":0},"execution":{"resolvers":[{"path":["hero","name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":1000000000},{"path":["hero","friends",0,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":2000000000},{"path":["hero","friends",1,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":3000000000},{"path":["hero"],"parentType":"Query","fieldName":"hero","returnType":"Hero!","startOffset":0,"duration":4000000000},{"path":["hero","friends"],"parentType":"Hero","fieldName":"friends","returnType":"[Hero!]!","startOffset":0,"duration":4000000000},{"path":["hero","friends",2,"name"],"parentType":"Hero","fieldName":"name","returnType":"String!","startOffset":0,"duration":4000000000}]}}}"""
+              )
+            }
+          },
+          test("enabled") {
+            for {
+              r1 <- ZIO.scoped(ApolloTracing.enabled(false) *> test_(false))
+              r2 <- test_(false)
+            } yield assertTrue(r1 == "null", r2 != "null")
+          },
+          test("enabledWith") {
+            for {
+              r1 <- ApolloTracing.enabledWith(value = false)(test_(false))
+              r2 <- test_(false)
+            } yield assertTrue(r1 == "null", r2 != "null")
+          }
         )
       },
       test("Apollo Caching") {
@@ -396,7 +426,7 @@ object WrappersSpec extends ZIOSpecDefault {
           Set(
             __DirectiveLocation.QUERY
           ),
-          Nil,
+          _ => Nil,
           isRepeatable = false
         )
         val interpreter          = (graphQL(
@@ -423,6 +453,64 @@ object WrappersSpec extends ZIOSpecDefault {
           interpreter <- (gql @@ (maxFields(5).skipForIntrospection |+| maxDepth(1).skipForIntrospection)).interpreter
           result      <- interpreter.executeRequest(GraphQLRequest(query = Some(TestUtils.introspectionQuery)))
         } yield assertTrue(result.asJson.hcursor.downField("errors").failed)
-      }
+      },
+      test("check directives") {
+        // setup the annotation
+        val directiveName = "requiredRole"
+        val attributeName = "role"
+        case class RequiredRole(role: String)
+            extends GQLDirective(Directive(directiveName, Map(attributeName -> StringValue(role))))
+
+        // declare the schema
+        case class SomeObject(@RequiredRole("admin") a: UIO[String])
+        case class Query(o: SomeObject)
+
+        // create our wrapper that checks directive and fail if the role is not the expected one
+        case class Context(role: String)
+        val wrapper = Wrappers.checkDirectives(directives =>
+          for {
+            currentRole   <- ZIO.serviceWith[Context](_.role)
+            restrictedRole = directives.find(_.name == directiveName).flatMap(_.arguments.get(attributeName)).flatMap {
+                               case StringValue(role) => Some(role)
+                               case _                 => None
+                             }
+            _             <- ZIO.unless(restrictedRole.forall(_ == currentRole))(ZIO.fail(ExecutionError("Unauthorized")))
+          } yield ()
+        )
+
+        val gql = graphQL(RootResolver(Query(SomeObject(ZIO.succeed("a"))))) @@ wrapper
+
+        for {
+          interpreter <- gql.interpreter
+          req          = GraphQLRequest(query = Some("{ o { a } }"))
+          // we have the required role, it should succeed
+          result      <- interpreter.executeRequest(req).provide(ZLayer.succeed(Context("admin")))
+          // we don't have the required role, it should fail
+          result2     <- interpreter.executeRequest(req).provide(ZLayer.succeed(Context("user")))
+        } yield assertTrue(
+          result.asJson.hcursor.downField("errors").failed,
+          result2.asJson.hcursor.downField("errors").succeeded
+        )
+      },
+      suite("Empty wrapper")(
+        test("is not combined with other wrappers") {
+          List(
+            Wrapper.empty |+| maxFields(10) |+| Wrapper.empty,
+            Wrapper.empty |+| maxFields(10),
+            maxFields(10) |+| Wrapper.empty
+          ).foldLeft(assertCompletes) { case (result, wrapper) =>
+            (wrapper match {
+              case CombinedWrapper(_) => assertNever("Empty wrapper should not be combined")
+              case _                  => assertCompletes
+            }) && result
+          }
+        },
+        test("is ignored when used as an aspect") {
+          case class Test(test: String)
+          val gql = graphQL(RootResolver(Test("ok")))
+
+          assertTrue(gql == gql @@ Wrapper.empty)
+        }
+      )
     )
 }

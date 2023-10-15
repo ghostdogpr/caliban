@@ -36,13 +36,11 @@ object FieldMap {
     ): FieldMap = {
       val responseName = f.alias.getOrElse(f.name)
 
-      parentType.allFields.collectFirst {
-        case f1 if f1.name == f.name =>
-          val sf    = SelectedField(parentType, selection, f1)
-          val entry = self.get(responseName).map(_ + sf).getOrElse(Set(sf))
-          self + (responseName -> entry)
+      parentType.allFieldsMap.get(f.name).fold(self) { f1 =>
+        val sf    = SelectedField(parentType, selection, f1)
+        val entry = self.get(responseName).map(_ + sf).getOrElse(Set(sf))
+        self + (responseName -> entry)
       }
-        .getOrElse(self)
     }
   }
 

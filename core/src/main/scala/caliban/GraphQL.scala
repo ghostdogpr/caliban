@@ -1,6 +1,7 @@
 package caliban
 
 import caliban.CalibanError.ValidationError
+import caliban.Configurator.ExecutionConfiguration
 import caliban.execution.{ ExecutionRequest, Executor, Feature }
 import caliban.introspection.Introspector
 import caliban.introspection.adt._
@@ -64,28 +65,37 @@ trait GraphQL[-R] { self =>
 
   private lazy val cachedInterpreter =
     Validator.validateSchemaEither(schemaBuilder).map { schema =>
-      lazy val rootType =
-        RootType(
-          schema.query.opType,
-          schema.mutation.map(_.opType),
-          schema.subscription.map(_.opType),
-          schemaBuilder.additionalTypes,
-          additionalDirectives,
-          schemaBuilder.schemaDescription
-        )
-
-      val introWrappers                               = wrappers.collect { case w: IntrospectionWrapper[R] => w }
-      lazy val introspectionRootSchema: RootSchema[R] = Introspector.introspect(rootType, introWrappers)
-      lazy val introspectionRootType: RootType        = RootType(introspectionRootSchema.query.opType, None, None)
-
       new GraphQLInterpreter[R, CalibanError] {
+        private val rootType =
+          RootType(
+            schema.query.opType,
+            schema.mutation.map(_.opType),
+            schema.subscription.map(_.opType),
+            schemaBuilder.additionalTypes,
+            additionalDirectives,
+            schemaBuilder.schemaDescription
+          )
+
+        private val introWrappers                               = wrappers.collect { case w: IntrospectionWrapper[R] => w }
+        private lazy val introspectionRootSchema: RootSchema[R] = Introspector.introspect(rootType, introWrappers)
+
         override def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
           for {
             document      <- Parser.parseQuery(query)
             intro          = Introspector.isIntrospection(document)
-            typeToValidate = if (intro) introspectionRootType else rootType
+            typeToValidate = if (intro) Introspector.introspectionRootType else rootType
             _             <- Validator.validate(document, typeToValidate)
           } yield ()
+
+        private def checkHttpMethod(cfg: ExecutionConfiguration)(req: ExecutionRequest): IO[ValidationError, Unit] =
+          ZIO
+            .when(req.operationType == OperationType.Mutation && !cfg.allowMutationsOverGetRequests) {
+              HttpRequestMethod.get.flatMap {
+                case HttpRequestMethod.GET => ZIO.fail(HttpRequestMethod.MutationOverGetError)
+                case _                     => ZIO.unit
+              }
+            }
+            .unit
 
         override def executeRequest(request: GraphQLRequest)(implicit
           trace: Trace
@@ -103,7 +113,7 @@ trait GraphQL[-R] { self =>
                   _                                    <- ZIO.when(intro && !enableIntrospection) {
                                                             ZIO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
                                                           }
-                  typeToValidate                        = if (intro) introspectionRootType else rootType
+                  typeToValidate                        = if (intro) Introspector.introspectionRootType else rootType
                   schemaToExecute                       = if (intro) introspectionRootSchema else schema
                   unsafeVars                            = request.variables.getOrElse(Map.empty)
                   coercedVars                          <- VariablesCoercer.coerceVariables(unsafeVars, doc, typeToValidate, skipValidation)
@@ -119,6 +129,7 @@ trait GraphQL[-R] { self =>
                                                                                 config.skipValidation,
                                                                                 config.validations
                                                                               )
+                                                              _            <- checkHttpMethod(config)(executionReq)
                                                             } yield executionReq
                   executionRequest                     <- wrap(validate)(validationWrappers, doc)
                   op                                    = executionRequest.operationType match {
@@ -246,20 +257,4 @@ trait GraphQL[-R] { self =>
     override protected val additionalDirectives: List[__Directive] = self.additionalDirectives
     override protected val features: Set[Feature]                  = self.features + feature
   }
-}
-
-object GraphQL {
-
-  /**
-   * Builds a GraphQL API for the given resolver.
-   *
-   * It requires an instance of [[caliban.schema.Schema]] for each operation type.
-   * This schema will be derived by Magnolia automatically.
-   */
-  @deprecated("Use caliban.graphQL", "2.1.0") def graphQL[R, Q, M, S: SubscriptionSchema](
-    resolver: RootResolver[Q, M, S],
-    directives: List[__Directive] = Nil,
-    schemaDirectives: List[Directive] = Nil
-  )(implicit querySchema: Schema[R, Q], mutationSchema: Schema[R, M], subscriptionSchema: Schema[R, S]): GraphQL[R] =
-    caliban.graphQL[R, Q, M, S](resolver, directives, schemaDirectives)
 }

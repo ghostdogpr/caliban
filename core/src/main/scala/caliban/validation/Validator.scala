@@ -148,7 +148,8 @@ object Validator {
                 op.directives,
                 rootType
               ),
-              op.operationType
+              op.operationType,
+              operationName
             )
           )
       }
@@ -328,7 +329,7 @@ object Validator {
                           )
                         case Some(directive) =>
                           ZPure.foreachDiscard(d.arguments) { case (arg, argValue) =>
-                            directive.args.find(_.name == arg) match {
+                            directive.allArgs.find(_.name == arg) match {
                               case None             =>
                                 failValidation(
                                   s"Argument '$arg' is not defined on directive '${d.name}' ($location).",
@@ -527,7 +528,7 @@ object Validator {
     ZPure
       .when(field.name != "__typename") {
         ZPure
-          .fromOption(currentType.allFields.find(_.name == field.name))
+          .fromOption(currentType.allFieldsMap.get(field.name))
           .orElseFail(
             ValidationError(
               s"Field '${field.name}' does not exist on type '${DocumentRenderer.renderTypeName(currentType)}'.",
@@ -547,7 +548,7 @@ object Validator {
     currentType: __Type,
     context: Context
   ): EReader[Any, ValidationError, Unit] =
-    ZPure.foreachDiscard(f.args.filter(_._type.kind == __TypeKind.NON_NULL)) { arg =>
+    ZPure.foreachDiscard(f.allArgs.filter(_._type.kind == __TypeKind.NON_NULL)) { arg =>
       val fieldArgs = field.arguments.get(arg.name)
       ZPure.when(arg._type.innerType._isOneOfInput) {
         validateOneOfInputValue(
@@ -571,7 +572,7 @@ object Validator {
       }
     } *>
       ZPure.foreachDiscard(field.arguments) { case (arg, argValue) =>
-        f.args.find(_.name == arg) match {
+        f.allArgs.find(_.name == arg) match {
           case None             =>
             failValidation(
               s"Argument '$arg' is not defined on field '${field.name}' of type '${currentType.name.getOrElse("")}'.",
@@ -595,7 +596,7 @@ object Validator {
   ): EReader[Any, ValidationError, Unit] = {
     val t           = inputValue._type
     val inputType   = if (t.kind == __TypeKind.NON_NULL) t.ofType.getOrElse(t) else t
-    val inputFields = inputType.inputFields.getOrElse(Nil)
+    val inputFields = inputType.allInputFields
 
     argValue match {
       case InputValue.ObjectValue(fields) if inputType.kind == __TypeKind.INPUT_OBJECT =>
@@ -839,9 +840,9 @@ object Validator {
     }
 
   private[caliban] def validateEnum(t: __Type): EReader[Any, ValidationError, Unit] =
-    t.enumValues(__DeprecatedArgs(Some(true))) match {
-      case Some(_ :: _) => ZPure.unit
-      case _            =>
+    t.allEnumValues match {
+      case _ :: _ => ZPure.unit
+      case Nil    =>
         failValidation(
           s"Enum ${t.name.getOrElse("")} doesn't contain any values",
           "An Enum type must define one or more unique enum values."
@@ -902,13 +903,13 @@ object Validator {
             )
         }
 
-    t.inputFields match {
-      case None | Some(Nil) =>
+    t.allInputFields match {
+      case Nil    =>
         failValidation(
           s"$inputObjectContext does not have fields",
           "An Input Object type must define one or more input fields"
         )
-      case Some(fields)     => ZPure.when(t._isOneOfInput)(validateOneOfFields(fields)) *> validateFields(fields)
+      case fields => ZPure.when(t._isOneOfInput)(validateOneOfFields(fields)) *> validateFields(fields)
     }
   }
 
@@ -941,8 +942,7 @@ object Validator {
     val objectContext = s"Object '${obj.name.getOrElse("")}'"
 
     def validateInterfaceFields(obj: __Type) = {
-      def fieldNames(t: __Type) =
-        t.allFields.map(_.name).toSet
+      def fieldNames(t: __Type) = t.allFieldsMap.keySet
 
       val supertype = obj.interfaces().toList.flatten
 
@@ -988,8 +988,8 @@ object Validator {
           supertypeFields.find(_.name == objField.name) match {
             case None             => ZPure.unit
             case Some(superField) =>
-              val superArgs = superField.args.map(arg => (arg.name, arg)).toMap
-              val extraArgs = objField.args.filter { arg =>
+              val superArgs = superField.allArgs.map(arg => (arg.name, arg)).toMap
+              val extraArgs = objField.allArgs.filter { arg =>
                 superArgs.get(arg.name).fold(true)(superArg => !Types.same(arg._type, superArg._type))
               }
 
@@ -1074,7 +1074,7 @@ object Validator {
         for {
           _ <- checkName(field.name, fieldContext)
           _ <- onlyOutputType(field._type, fieldContext)
-          _ <- ZPure.foreachDiscard(field.args)(validateInputValue(_, fieldContext))
+          _ <- ZPure.foreachDiscard(field.allArgs)(validateInputValue(_, fieldContext))
         } yield ()
       }
 
@@ -1233,14 +1233,14 @@ object Validator {
     ): EReader[Any, ValidationError, Unit] = {
       lazy val fieldErrorContext = s"Field '${field.name}' of $errorContext"
       validateDirectives(field.directives, fieldErrorContext) *>
-        validateInputValueDirectives(field.args, fieldErrorContext)
+        validateInputValueDirectives(field.allArgs, fieldErrorContext)
     }
 
     ZPure.foreachDiscard(types) { t =>
       lazy val typeErrorContext = s"Type '${t.name.getOrElse("")}'"
       for {
         _ <- validateDirectives(t.directives, typeErrorContext)
-        _ <- validateInputValueDirectives(t.inputFields.getOrElse(List.empty[__InputValue]), typeErrorContext)
+        _ <- validateInputValueDirectives(t.allInputFields, typeErrorContext)
         _ <- ZPure.foreachDiscard(t.allFields)(validateFieldDirectives(_, typeErrorContext))
       } yield ()
     }

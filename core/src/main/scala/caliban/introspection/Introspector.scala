@@ -21,7 +21,7 @@ object Introspector extends IntrospectionDerivation {
         "The @skip directive may be provided for fields, fragment spreads, and inline fragments, and allows for conditional exclusion during execution as described by the if argument."
       ),
       Set(__DirectiveLocation.FIELD, __DirectiveLocation.FRAGMENT_SPREAD, __DirectiveLocation.INLINE_FRAGMENT),
-      List(__InputValue("if", None, () => Types.boolean.nonNull, None)),
+      _ => List(__InputValue("if", None, () => Types.boolean.nonNull, None)),
       isRepeatable = false
     ),
     __Directive(
@@ -30,7 +30,7 @@ object Introspector extends IntrospectionDerivation {
         "The @include directive may be provided for fields, fragment spreads, and inline fragments, and allows for conditional inclusion during execution as described by the if argument."
       ),
       Set(__DirectiveLocation.FIELD, __DirectiveLocation.FRAGMENT_SPREAD, __DirectiveLocation.INLINE_FRAGMENT),
-      List(__InputValue("if", None, () => Types.boolean.nonNull, None)),
+      _ => List(__InputValue("if", None, () => Types.boolean.nonNull, None)),
       isRepeatable = false
     ),
     __Directive(
@@ -39,10 +39,13 @@ object Introspector extends IntrospectionDerivation {
         "The @specifiedBy directive is used within the type system definition language to provide a URL for specifying the behavior of custom scalar types. The URL should point to a human-readable specification of the data format, serialization, and coercion rules. It must not appear on built-in scalar types."
       ),
       Set(__DirectiveLocation.SCALAR),
-      List(__InputValue("url", None, () => Types.string.nonNull, None)),
+      _ => List(__InputValue("url", None, () => Types.string.nonNull, None)),
       isRepeatable = false
     )
   )
+
+  private val introspectionType       = introspectionSchema.toType_()
+  val introspectionRootType: RootType = RootType(introspectionType, None, None)
 
   private val oneOfDirective =
     __Directive(
@@ -72,7 +75,7 @@ object Introspector extends IntrospectionDerivation {
         case wrapper :: tail => wrap(wrapper.wrap(query))(tail)
       }
 
-    val types = rootType.types
+    val types = (rootType.types ++ introspectionRootType.types - "__Introspection")
       .updated("Boolean", Types.boolean) // because of skip and include
       .updated("String", Types.string)   // because of specifiedBy
       .values
@@ -95,7 +98,7 @@ object Introspector extends IntrospectionDerivation {
 
     RootSchema(
       Operation(
-        introspectionSchema.toType_(),
+        introspectionType,
         QueryStep(ZQuery.fromZIO(wrap(ZIO.succeed(resolver))(introWrappers)).map(introspectionSchema.resolve))
       ),
       None,

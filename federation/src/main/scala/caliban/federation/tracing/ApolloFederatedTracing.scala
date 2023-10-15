@@ -22,12 +22,17 @@ import java.util.concurrent.TimeUnit
  */
 object ApolloFederatedTracing {
 
-  val wrapper: EffectfulWrapper[Any] =
+  /**
+   * @param excludePureFields Optionally disable tracing of pure fields.
+   *                          Setting this to true can help improve performance at the cost of generating incomplete traces.
+   *                          WARNING: Use this with caution as it could potentially cause issues if the tracing client expects all queried fields to be included in the traces
+   */
+  def wrapper(excludePureFields: Boolean = false): EffectfulWrapper[Any] =
     EffectfulWrapper(
       for {
         tracing <- Ref.make(Tracing(NodeTrie.empty))
         enabled <- Ref.make(false)
-      } yield apolloTracingOverall(tracing, enabled) |+| apolloTracingField(tracing, enabled)
+      } yield apolloTracingOverall(tracing, enabled) |+| apolloTracingField(tracing, enabled, !excludePureFields)
     )
 
   private def toTimestamp(epochMilli: Long): Timestamp =
@@ -78,8 +83,8 @@ object ApolloFederatedTracing {
           )
     }
 
-  private def apolloTracingField(ref: Ref[Tracing], enabled: Ref[Boolean]): FieldWrapper[Any] =
-    new FieldWrapper[Any](true) {
+  private def apolloTracingField(ref: Ref[Tracing], enabled: Ref[Boolean], wrapPureValues: Boolean): FieldWrapper[Any] =
+    new FieldWrapper[Any](wrapPureValues) {
       def wrap[R1](
         query: ZQuery[R1, CalibanError.ExecutionError, ResponseValue],
         fieldInfo: FieldInfo

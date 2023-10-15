@@ -8,6 +8,8 @@ import caliban.schema.Annotations.GQLInterface
 import caliban.schema.Schema.auto._
 import zio._
 import zio.test._
+import zio.json._
+import zio.json.ast.Json
 
 object RemoteQuerySpec extends ZIOSpecDefault {
   sealed trait Union
@@ -69,6 +71,95 @@ object RemoteQuerySpec extends ZIOSpecDefault {
         actual <- ref.get
       } yield assertTrue(
         actual == """query{union(value:"bar"){...on Interface{id} ...on A{id} ...on B{id}}}"""
+      )
+    },
+    test("correctly renders a query for a field of json escaped characters") {
+      val query = gqldoc("""{
+               union(value: "{\"foo\": \" \\n \\\" \\r \\r\\n \\t \\\\ \\b \\f \"}") { ...on Interface { id } }
+             }""")
+
+      for {
+        ref    <- Ref.make[String]("")
+        i      <- api(ref)
+        _      <- i.execute(query)
+        actual <- ref.get
+
+        // What we expect from the query
+        expectedValue = """"{\"foo\": \" \\n \\\" \\r \\r\\n \\t \\\\ \\b \\f \"}""""
+        isValidJson   = expectedValue.fromJson[Json]
+      } yield assertTrue(
+        actual == s"""query{union(value:${expectedValue}){...on Interface{id}}}""",
+        isValidJson.isRight
+      )
+    },
+    test("correctly renders a query for a field of json escaped quote") {
+      val query = gqldoc("""{
+               union(value: "{\"foo\": \"\"}") { ...on Interface { id } }
+             }""")
+
+      for {
+        ref    <- Ref.make[String]("")
+        i      <- api(ref)
+        _      <- i.execute(query)
+        actual <- ref.get
+      } yield assertTrue(
+        actual == """query{union(value:"{\"foo\": \"\"}"){...on Interface{id}}}"""
+      )
+    },
+    test("correctly renders a query for a field of json escaped newline") {
+      val query = gqldoc("""{
+               union(value: "{\"foo\": \"\\n\"}") { ...on Interface { id } }
+             }""")
+
+      for {
+        ref    <- Ref.make[String]("")
+        i      <- api(ref)
+        _      <- i.execute(query)
+        actual <- ref.get
+      } yield assertTrue(
+        actual == """query{union(value:"{\"foo\": \"\\n\"}"){...on Interface{id}}}"""
+      )
+    },
+    test("correctly renders a query for a field of json escaped escaped quote") {
+      val query = gqldoc("""{
+               union(value: "{\"foo\": \"\\\"\"}") { ...on Interface { id } }
+             }""")
+
+      for {
+        ref    <- Ref.make[String]("")
+        i      <- api(ref)
+        _      <- i.execute(query)
+        actual <- ref.get
+      } yield assertTrue(
+        actual == """query{union(value:"{\"foo\": \"\\\"\"}"){...on Interface{id}}}"""
+      )
+    },
+    test("correctly renders a query for a field of json escaped carriage return") {
+      val query = gqldoc("""{
+               union(value: "{\"foo\": \"\\r\"}") { ...on Interface { id } }
+             }""")
+
+      for {
+        ref    <- Ref.make[String]("")
+        i      <- api(ref)
+        _      <- i.execute(query)
+        actual <- ref.get
+      } yield assertTrue(
+        actual == """query{union(value:"{\"foo\": \"\\r\"}"){...on Interface{id}}}"""
+      )
+    },
+    test("correctly renders a query for a field of json escaped tab") {
+      val query = gqldoc("""{
+               union(value: "{\"foo\": \"\\t\"}") { ...on Interface { id } }
+             }""")
+
+      for {
+        ref    <- Ref.make[String]("")
+        i      <- api(ref)
+        _      <- i.execute(query)
+        actual <- ref.get
+      } yield assertTrue(
+        actual == """query{union(value:"{\"foo\": \"\\t\"}"){...on Interface{id}}}"""
       )
     }
   )

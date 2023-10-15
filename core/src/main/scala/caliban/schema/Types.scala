@@ -61,6 +61,27 @@ object Types {
       origin = origin
     )
 
+  def makeField(
+    name: String,
+    description: Option[String],
+    arguments: List[__InputValue],
+    `type`: () => __Type,
+    isDeprecated: Boolean = false,
+    deprecationReason: Option[String] = None,
+    directives: Option[List[Directive]] = None
+  ): __Field =
+    __Field(
+      name,
+      description,
+      args =>
+        if (args.includeDeprecated.getOrElse(false)) arguments
+        else arguments.filter(!_.isDeprecated),
+      `type`,
+      isDeprecated,
+      deprecationReason,
+      directives
+    )
+
   def makeInputObject(
     name: Option[String],
     description: Option[String],
@@ -73,7 +94,9 @@ object Types {
       __TypeKind.INPUT_OBJECT,
       name,
       description,
-      inputFields = Some(fields),
+      inputFields = args =>
+        if (args.includeDeprecated.getOrElse(false)) Some(fields)
+        else Some(fields.filter(!_.isDeprecated)),
       origin = origin,
       directives = directives,
       isOneOf = Some(isOneOf)
@@ -144,8 +167,8 @@ object Types {
             } else t :: existingTypes
           )
         val embeddedTypes =
-          t.allFields.flatMap(f => f.`type` :: f.args.map(_.`type`)) ++
-            t.inputFields.getOrElse(Nil).map(_.`type`) ++
+          t.allFields.flatMap(f => f.`type` :: f.allArgs.map(_.`type`)) ++
+            t.allInputFields.map(_.`type`) ++
             t.interfaces().getOrElse(Nil).map(() => _)
         val list2         = embeddedTypes.foldLeft(list1) { case (types, f) =>
           val t = innerType(f())
@@ -162,11 +185,11 @@ object Types {
    */
   def unify(l: List[__Field]): Option[__Type] =
     l.headOption.flatMap { first =>
-      val args                            = first.args.map(_._type)
+      val args                            = first.allArgs.map(_._type)
       def _unify(f2: __Field)(t1: __Type) =
         if (
-          args.length == f2.args.length &&
-          args.zip(f2.args.map(_._type)).forall(v => same(v._1, v._2))
+          args.length == f2.allArgs.length &&
+          args.zip(f2.allArgs.map(_._type)).forall(v => same(v._1, v._2))
         )
           unify(t1, f2._type)
         else None

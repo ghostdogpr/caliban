@@ -5,6 +5,7 @@ import caliban.{ schema, CalibanError, InputValue }
 import caliban.Value.*
 import caliban.schema.Annotations.{ GQLDefault, GQLExcluded, GQLName }
 import caliban.schema.macros.Macros
+import magnolia1.Macro as MagnoliaMacro
 
 import scala.deriving.Mirror
 import scala.compiletime.*
@@ -20,7 +21,7 @@ trait CommonArgBuilderDerivation {
         recurse[P, names, ts](
           (
             constValue[name].toString,
-            Macros.annotations[t], {
+            MagnoliaMacro.anns[t], {
               if (Macros.isEnumField[P, t])
                 if (!Macros.implicitExists[ArgBuilder[t]]) derived[t]
                 else summonInline[ArgBuilder[t]]
@@ -47,7 +48,7 @@ trait CommonArgBuilderDerivation {
       case m: Mirror.ProductOf[A] =>
         makeProductArgBuilder(
           recurse[A, m.MirroredElemLabels, m.MirroredElemTypes](),
-          Macros.paramAnnotations[A].to(Map)
+          MagnoliaMacro.paramAnns[A].to(Map)
         )(m.fromProduct)
     }
 

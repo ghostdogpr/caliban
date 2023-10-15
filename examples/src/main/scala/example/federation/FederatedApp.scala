@@ -41,7 +41,8 @@ object FederatedApp extends CatsApp {
                            )
                            .build
                            .toScopedZIO
-                           .forever
+          _           <- Console.printLine("Server online at http://localhost:8089/\nPress RETURN to stop...")
+          _           <- Console.readLine
         } yield ()
       )
 
@@ -64,7 +65,8 @@ object FederatedApp extends CatsApp {
                            )
                            .build
                            .toScopedZIO
-                           .forever
+          _           <- Console.printLine("Server online at http://localhost:8088/\nPress RETURN to stop...")
+          _           <- Console.readLine
         } yield ()
       )
 

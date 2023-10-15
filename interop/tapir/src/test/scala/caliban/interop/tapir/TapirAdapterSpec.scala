@@ -6,6 +6,7 @@ import caliban._
 import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.{ Effect, WebSockets }
 import sttp.client3.asynchttpclient.zio.AsyncHttpClientZioBackend
+import sttp.client3.httpclient.zio.SttpClient
 import sttp.client3.{ BasicRequestBody, DeserializationException, HttpError, ResponseException, SttpBackend }
 import sttp.model._
 import sttp.tapir.Codec.JsonCodec
@@ -66,19 +67,34 @@ object TapirAdapterSpec {
         .toRequestThrowDecodeFailures(WebSocketInterpreter.makeWebSocketEndpoint, Some(wsUri))
     )
 
-    def testHttpEndpoint(method: String) =
+    val acceptApplicationJson = Header.accept("application/json")
+
+    def runHttpRequest(
+      method: String,
+      acceptHeader: Header = acceptApplicationJson,
+      query: String = "{ characters { name }  }"
+    ) =
       for {
-        _run     <- method match {
-                      case "POST" => ZIO.succeed(run)
-                      case "GET"  => ZIO.succeed(runGet)
-                      case _      => ZIO.fail(new RuntimeException(s"Unsupported test method $method"))
-                    }
-        res      <- ZIO.serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](
-                      _run(GraphQLRequest(Some("{ characters { name }  }"))).send(_)
-                    )
+        _run <- method match {
+                  case "POST" => ZIO.succeed(run)
+                  case "GET"  => ZIO.succeed(runGet)
+                  case _      => ZIO.fail(new RuntimeException(s"Unsupported test method $method"))
+                }
+        res  <- ZIO.serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]] {
+                  _run(GraphQLRequest(Some(query))).header(acceptHeader, replaceExisting = true).send(_)
+                }
+      } yield res
+
+    def testHttpEndpoint(
+      method: String,
+      acceptHeader: Header = acceptApplicationJson,
+      expectedContentType: String = MediaType.ApplicationJson.toString()
+    ) =
+      for {
+        res      <- runHttpRequest(method, acceptHeader)
         response <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
       } yield assertTrue(
-        res.contentType.contains(MediaType.ApplicationJson.toString()),
+        res.contentType.contains(expectedContentType),
         response.is(_.left).data.toString ==
           """{"characters":[{"name":"James Holden"},{"name":"Naomi Nagata"},{"name":"Amos Burton"},{"name":"Alex Kamal"},{"name":"Chrisjen Avasarala"},{"name":"Josephus Miller"},{"name":"Roberta Draper"}]}"""
       )
@@ -141,6 +157,93 @@ object TapirAdapterSpec {
               body <-
                 ZIO.fromEither(res.body).mapError(e => new Throwable(s"Failed to parse result: $res, ${e.getMessage}"))
             } yield assertTrue(body.isRight, body.toOption.exists(_.size == 9))
+          },
+          test("test caching directives") {
+            val q =
+              """{ characters { name } }"""
+
+            val r = run(GraphQLRequest())
+              .header(Header("content-type", "application/graphql; charset=utf-8"), replaceExisting = true)
+              .body(q)
+              .contentLength(q.length)
+
+            for {
+              backend    <- ZIO.service[SttpClient]
+              res        <- backend.send(r)
+              cacheHeader = res.headers.collectFirst { case h if h.is("Cache-Control") => h }
+            } yield assertTrue(cacheHeader.get == Header("cache-control", "max-age=10, public"))
+          },
+          suite("Accept application/graphql-response+json") {
+            val contentT     = "application/graphql-response+json"
+            val acceptHeader = Header.accept(contentT)
+
+            List(
+              test("Succeeds for GET and POST requests") {
+                testHttpEndpoint("GET", acceptHeader, contentT) &&
+                testHttpEndpoint("POST", acceptHeader, contentT)
+              },
+              test("Content-type matches the request Accept header") {
+                def test_(method: String) =
+                  for {
+                    resp <- runHttpRequest(method, acceptHeader)
+                    body <- ZIO.fromEither(resp.body)
+                  } yield assertTrue(
+                    resp.is200,
+                    resp.contentType.contains(contentT),
+                    body.isLeft
+                  )
+                test_("GET") && test_("POST")
+              },
+              test("Returns 400 status code on parsing errors") {
+                def test_(method: String) =
+                  for {
+                    resp  <- runHttpRequest(method, acceptHeader, query = "{characters { name }")
+                    error <-
+                      resp.body.fold(ZIO.succeed(_), v => ZIO.fail(new Throwable(s"expected request to fail $v")))
+                  } yield assertTrue(
+                    resp.code == StatusCode.BadRequest,
+                    resp.contentType.contains(contentT),
+                    !error.toString.contains("\"data\"")
+                  )
+                test_("GET") && test_("POST")
+              },
+              test("Returns 400 status code on validation errors") {
+                def test_(method: String) =
+                  for {
+                    resp  <- runHttpRequest(method, acceptHeader, query = "{characterss { name }}")
+                    error <-
+                      resp.body.fold(ZIO.succeed(_), v => ZIO.fail(new Throwable(s"expected request to fail: $v")))
+                  } yield assertTrue(
+                    resp.code == StatusCode.BadRequest,
+                    resp.contentType.contains(contentT),
+                    !error.toString.contains("\"data\"")
+                  )
+                test_("GET") && test_("POST")
+              },
+              test("Returns 400 status code on variable coersion errors") {
+                def test_(method: String) =
+                  for {
+                    resp  <- runHttpRequest(method, acceptHeader, query = "{character(name: 42) { name }}")
+                    error <-
+                      resp.body.fold(ZIO.succeed(_), v => ZIO.fail(new Throwable(s"expected request to fail: $v")))
+                  } yield assertTrue(
+                    resp.code == StatusCode.BadRequest,
+                    resp.contentType.contains(contentT),
+                    !error.toString.contains("\"data\"")
+                  )
+                test_("GET") && test_("POST")
+              }
+            )
+          },
+          test("returns 400 status code on invalid GET requests") {
+            ZIO
+              .serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](runGet(GraphQLRequest(None)).send(_))
+              .map(r => assertTrue(r.code.code == 400))
+          },
+          test("returns 400 status code on invalid POST requests") {
+            ZIO
+              .serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](run(GraphQLRequest(None)).send(_))
+              .map(r => assertTrue(r.code.code == 400))
           }
         )
       ),
@@ -388,7 +491,10 @@ object TapirAdapterSpec {
             .mapLeft(s => HttpError(s, StatusCode.UnprocessableEntity))
         ),
         ConditionalResponseAs(
-          _.contentType.exists(MediaType.unsafeParse(_) == MediaType.ApplicationJson),
+          _.contentType.exists { ct =>
+            val mt = MediaType.unsafeParse(ct)
+            mt == MediaType.ApplicationJson || mt == MediaType("application", "graphql-response+json")
+          },
           asJsonBody[GraphQLResponse[CalibanError]](codec).mapRight(Left(_))
         )
       )

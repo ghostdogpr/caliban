@@ -37,8 +37,15 @@ trait CommonSchemaDerivation[R] {
     }
 
   def join[T](ctx: ReadOnlyCaseClass[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
-    override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-      if ((ctx.isValueClass || isValueType(ctx)) && ctx.parameters.nonEmpty) {
+    private lazy val fields = ctx.parameters.map { p =>
+      (getName(p), p.typeclass, p.dereference _)
+    }
+
+    private lazy val _isValueType = (ctx.isValueClass || isValueType(ctx)) && ctx.parameters.nonEmpty
+
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
+      val _ = fields // Initializes lazy val
+      if (_isValueType) {
         if (isScalarValueType(ctx)) makeScalar(getName(ctx), getDescription(ctx))
         else ctx.parameters.head.typeclass.toType_(isInput, isSubscription)
       } else if (isInput) {
@@ -55,6 +62,8 @@ trait CommonSchemaDerivation[R] {
                   if (p.typeclass.optional) p.typeclass.toType_(isInput, isSubscription)
                   else p.typeclass.toType_(isInput, isSubscription).nonNull,
                 p.annotations.collectFirst { case GQLDefault(v) => v },
+                p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
+                p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
                 Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty),
                 Some(ctx.typeName.short)
               )
@@ -70,7 +79,7 @@ trait CommonSchemaDerivation[R] {
           ctx.parameters
             .filterNot(_.annotations.exists(_ == GQLExcluded()))
             .map(p =>
-              __Field(
+              Types.makeField(
                 getName(p),
                 getDescription(p),
                 p.typeclass.arguments,
@@ -86,25 +95,31 @@ trait CommonSchemaDerivation[R] {
           getDirectives(ctx),
           Some(ctx.typeName.full)
         )
+    }
 
-    override private[schema] def resolveFieldLazily: Boolean = !ctx.isObject
+    override private[schema] lazy val resolveFieldLazily: Boolean = !(ctx.isObject || _isValueType)
 
     override def resolve(value: T): Step[R] =
       if (ctx.isObject) PureStep(EnumValue(getName(ctx)))
-      else if ((ctx.isValueClass || isValueType(ctx)) && ctx.parameters.nonEmpty) {
-        val head = ctx.parameters.head
-        head.typeclass.resolve(head.dereference(value))
-      } else {
-        val fields = Map.newBuilder[String, Step[R]]
-        ctx.parameters.foreach(p =>
-          fields += getName(p) -> {
-            lazy val step = p.typeclass.resolve(p.dereference(value))
-            if (p.typeclass.resolveFieldLazily) FunctionStep(_ => step)
-            else step
-          }
-        )
-        ObjectStep(getName(ctx), fields.result())
+      else if (_isValueType) resolveValueType(value)
+      else resolveObject(value)
+
+    private def resolveValueType(value: T): Step[R] = {
+      val head = ctx.parameters.head
+      head.typeclass.resolve(head.dereference(value))
+    }
+
+    private def resolveObject(value: T): Step[R] = {
+      val fieldsBuilder = Map.newBuilder[String, Step[R]]
+      fields.foreach { case (name, schema, dereference) =>
+        fieldsBuilder += name -> {
+          lazy val step = schema.resolve(dereference(value))
+          if (schema.resolveFieldLazily) FunctionStep(_ => step)
+          else step
+        }
       }
+      ObjectStep(getName(ctx), fieldsBuilder.result())
+    }
   }
 
   def split[T](ctx: SealedTrait[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
@@ -117,11 +132,8 @@ trait CommonSchemaDerivation[R] {
             tpe.name.getOrElse("")
           }
       val isEnum      = subtypes.forall {
-        case (t, _)
-            if t.fields(__DeprecatedArgs(Some(true))).forall(_.isEmpty)
-              && t.inputFields.forall(_.isEmpty) =>
-          true
-        case _ => false
+        case (t, _) if t.allFields.isEmpty && t.allInputFields.isEmpty => true
+        case _                                                         => false
       }
       val isInterface = ctx.annotations.exists {
         case GQLInterface() => true
@@ -209,7 +221,7 @@ trait CommonSchemaDerivation[R] {
                     Some(
                       "Fake field because GraphQL does not support empty objects. Do not query, use __typename instead."
                     ),
-                    Nil,
+                    _ => Nil,
                     () => makeScalar("Boolean")
                   )
                 )
