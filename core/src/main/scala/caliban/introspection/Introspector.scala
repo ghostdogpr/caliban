@@ -54,7 +54,7 @@ object Introspector extends IntrospectionDerivation {
         "The `@oneOf` directive is used within the type system definition language to indicate an Input Object is a OneOf Input Object."
       ),
       Set(__DirectiveLocation.INPUT_OBJECT),
-      Nil,
+      _ => Nil,
       isRepeatable = false
     )
 

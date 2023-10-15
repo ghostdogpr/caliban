@@ -168,7 +168,7 @@ trait CommonSchemaDerivation[R] {
             .getOrElse(customizeInputTypeName(getName(ctx)))),
           getDescription(ctx),
           ctx.subtypes.toList.flatMap { p =>
-            p.typeclass.toType_(isInput = true).inputFields.getOrElse(Nil).map(_.nullable)
+            p.typeclass.toType_(isInput = true).allInputFields.map(_.nullable)
           },
           Some(ctx.typeName.full),
           Some(List(Directive("oneOf"))),

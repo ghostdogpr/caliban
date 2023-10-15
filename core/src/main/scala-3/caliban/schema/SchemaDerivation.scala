@@ -87,9 +87,9 @@ trait CommonSchemaDerivation {
 
     private lazy val membersOrdered = members.sortBy(_._1).toList
 
-    private lazy val subTypes = membersOrdered.map { (label, subTypeAnnotations, schema) =>
+    private lazy val subTypes = membersOrdered.map { (label, subTypeAnnotations, schema, _) =>
       (label, schema.toType_(), subTypeAnnotations)
-    }.sortBy { case (label, _, _) => label }.toList
+    }.toList
 
     private lazy val isEnum = subTypes.forall { (_, t, _) =>
       t.allFields.isEmpty && t.allInputFields.isEmpty
@@ -108,10 +108,9 @@ trait CommonSchemaDerivation {
     private lazy val isOneOfInput = annotations.contains(GQLOneOfInput())
 
     def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-      if (!isInterface && !isUnion && membersOrdered.nonEmpty && isEnum && !isOneOfInput)
-        mkEnum(annotations, info, subTypes)
+      if (!isInterface && !isUnion && subTypes.nonEmpty && isEnum && !isOneOfInput) mkEnum(annotations, info, subTypes)
       else if (isOneOfInput && isInput) {
-        mkOneOfInput(annotations, membersOrdered, info)
+        mkOneOfInput(annotations, membersOrdered.map(_._3), info)
       } else if (!isInterface)
         makeUnion(
           Some(getName(annotations, info)),
@@ -309,15 +308,13 @@ trait CommonSchemaDerivation {
 
   private def mkOneOfInput[R](
     annotations: List[Any],
-    members: List[(String, List[Any], Schema[R, Any])],
+    schemas: List[Schema[R, Any]],
     info: TypeInfo
   ) =
     makeInputObject(
       Some(getInputName(annotations).getOrElse(customizeInputTypeName(getName(annotations, info)))),
       getDescription(annotations),
-      members.flatMap { (_, _, schema) =>
-        schema.toType_(isInput = true).inputFields.getOrElse(Nil).map(_.nullable)
-      },
+      schemas.flatMap(_.toType_(isInput = true).allInputFields.map(_.nullable)),
       Some(info.full),
       Some(List(Directive("oneOf"))),
       isOneOf = true
