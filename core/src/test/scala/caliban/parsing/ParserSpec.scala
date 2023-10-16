@@ -3,6 +3,7 @@ package caliban.parsing
 import caliban.CalibanError.ParsingError
 import caliban.InputValue
 import caliban.InputValue._
+import caliban.Value.IntValue.IntNumber
 import caliban.Value._
 import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.Definition.TypeSystemDefinition
@@ -658,13 +659,19 @@ object ParserSpec extends ZIOSpecDefault {
         }
       },
       test("extend schema with directives") {
-        val gqlSchemaExtension = "extend schema @addedDirective"
+        val gqlSchemaExtension = "extend schema @addedDirective(test: 2, list: [1])"
         Parser.parseQuery(gqlSchemaExtension).map { doc =>
           assertTrue(
             doc == Document(
               List(
                 SchemaExtension(
-                  List(Directive("addedDirective", index = 14)),
+                  List(
+                    Directive(
+                      "addedDirective",
+                      Map("test" -> IntNumber(2), "list" -> ListValue(List(IntNumber(1)))),
+                      index = 14
+                    )
+                  ),
                   None,
                   None,
                   None
