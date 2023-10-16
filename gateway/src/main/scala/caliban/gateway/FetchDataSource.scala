@@ -89,11 +89,7 @@ object FetchDataSource {
               requestsMap
                 .get(req)
                 .flatMap { case key @ (_, _, (_, rootFieldMap)) =>
-                  for {
-                    result <- results.get(key)
-                    obj    <- result.asObjectValue
-                    res    <- rootFieldMap.get(req).map(obj.get)
-                  } yield res
+                  results.get(key).flatMap(result => rootFieldMap.get(req).map(result.asObjectValue.get))
                 }
                 .getOrElse(NullValue)
             )

@@ -76,10 +76,10 @@ sealed trait ResponseValue { self =>
       case value: Value                      => value
     }
 
-  lazy val asObjectValue: Option[ResponseValue.ObjectValue] =
+  lazy val asObjectValue: ResponseValue.ObjectValue =
     self match {
-      case v: ResponseValue.ObjectValue => Some(v)
-      case _                            => None
+      case v: ResponseValue.ObjectValue => v
+      case _                            => ResponseValue.ObjectValue(Nil)
     }
 }
 object ResponseValue {
