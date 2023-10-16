@@ -112,17 +112,13 @@ private case class SuperGraphExecutor[-R](
                   filterBatchResults.isDefined
                 )
               )(FetchDataSource[R]) // TODO don't make new datasource for each request
-              .map(value =>
-                value.asListValue
-                  .fold(value)(values =>
-                    filterBatchResults.fold(value)(map =>
-                      values.filter(_.asObjectValue.fold(true)(v => map(parentObject, v)))
-                    )
-                  )
-              )
               .flatMap {
                 case ListValue(values) =>
-                  foreach(values)(value =>
+                  val filteredValues = filterBatchResults match {
+                    case Some(filter) => values.filter(_.asObjectValue.fold(true)(filter(parentObject, _)))
+                    case _            => values
+                  }
+                  foreach(filteredValues)(value =>
                     foreach(fields)(field => resolveField(field, value, operationType).map(field.outputName -> _))
                       .map(ObjectValue.apply)
                   ).map(ListValue.apply)
