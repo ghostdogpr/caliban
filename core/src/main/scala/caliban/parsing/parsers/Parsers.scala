@@ -157,7 +157,7 @@ object Parsers extends SelectionParsers {
     P(directives).map(SchemaExtension(_, None, None, None))
 
   def schemaExtension(implicit ev: P[Any]): P[SchemaExtension] =
-    P("extend schema" ~/ (schemaExtensionWithOptionalDirectivesAndOperations | schemaExtensionWithDirectives))
+    P("extend schema" ~/ (NoCut(schemaExtensionWithOptionalDirectivesAndOperations) | schemaExtensionWithDirectives))
 
   def scalarTypeExtension(implicit ev: P[Any]): P[ScalarTypeExtension] =
     P("extend scalar" ~/ name ~ directives).map { case (name, directives) =>
@@ -201,8 +201,8 @@ object Parsers extends SelectionParsers {
   def objectTypeExtension(implicit ev: P[Any]): P[ObjectTypeExtension] =
     P(
       "extend type" ~/ (
-        objectTypeExtensionWithOptionalInterfacesOptionalDirectivesAndFields |
-          objectTypeExtensionWithOptionalInterfacesAndDirectives |
+        NoCut(objectTypeExtensionWithOptionalInterfacesOptionalDirectivesAndFields) |
+          NoCut(objectTypeExtensionWithOptionalInterfacesAndDirectives) |
           objectTypeExtensionWithInterfaces
       )
     )
@@ -220,7 +220,7 @@ object Parsers extends SelectionParsers {
   def interfaceTypeExtension(implicit ev: P[Any]): P[InterfaceTypeExtension] =
     P(
       "extend interface" ~/ (
-        interfaceTypeExtensionWithOptionalDirectivesAndFields |
+        NoCut(interfaceTypeExtensionWithOptionalDirectivesAndFields) |
           interfaceTypeExtensionWithDirectives
       )
     )
@@ -236,7 +236,10 @@ object Parsers extends SelectionParsers {
     }
 
   def unionTypeExtension(implicit ev: P[Any]): P[UnionTypeExtension] =
-    P("extend union" ~/ (unionTypeExtensionWithOptionalDirectivesAndUnionMembers | unionTypeExtensionWithDirectives))
+    P(
+      "extend union" ~/
+        (NoCut(unionTypeExtensionWithOptionalDirectivesAndUnionMembers) | unionTypeExtensionWithDirectives)
+    )
 
   def enumTypeExtensionWithOptionalDirectivesAndValues(implicit ev: P[Any]): P[EnumTypeExtension] =
     P(enumName ~ directives.? ~ "{" ~ enumValueDefinition.rep ~ "}").map {
@@ -250,7 +253,7 @@ object Parsers extends SelectionParsers {
     }
 
   def enumTypeExtension(implicit ev: P[Any]): P[EnumTypeExtension] =
-    P("extend enum" ~/ (enumTypeExtensionWithOptionalDirectivesAndValues | enumTypeExtensionWithDirectives))
+    P("extend enum" ~/ (NoCut(enumTypeExtensionWithOptionalDirectivesAndValues) | enumTypeExtensionWithDirectives))
 
   def inputObjectTypeExtensionWithOptionalDirectivesAndFields(implicit ev: P[Any]): P[InputObjectTypeExtension] =
     P(name ~ directives.? ~ "{" ~ argumentDefinition.rep ~ "}").map { case (name, directives, fields) =>
@@ -265,7 +268,7 @@ object Parsers extends SelectionParsers {
   def inputObjectTypeExtension(implicit ev: P[Any]): P[InputObjectTypeExtension] =
     P(
       "extend input" ~/ (
-        inputObjectTypeExtensionWithOptionalDirectivesAndFields |
+        NoCut(inputObjectTypeExtensionWithOptionalDirectivesAndFields) |
           inputObjectTypeExtensionWithDirectives
       )
     )
