@@ -5,6 +5,7 @@ import caliban.execution.Field
 import caliban.gateway.SubGraph.SubGraphExecutor
 import caliban.gateway.subgraphs.{ CalibanSubGraph, GraphQLSubGraph }
 import caliban.introspection.adt.__Schema
+import caliban.parsing.adt.OperationType
 import caliban.tools.SttpClient
 import caliban.{ GraphQL, ResponseValue }
 import zio.{ RIO, ZIO }
@@ -19,7 +20,7 @@ object SubGraph {
     val name: String
     val exposeAtRoot: Boolean
     val schema: __Schema
-    def run(field: Field): ZIO[R, ExecutionError, ResponseValue]
+    def run(field: Field, operationType: OperationType): ZIO[R, ExecutionError, ResponseValue]
   }
 
   def graphQL(

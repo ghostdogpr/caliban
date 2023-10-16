@@ -31,17 +31,20 @@ case class GraphQLSubGraph(name: String, url: String, headers: Map[String, Strin
       val exposeAtRoot: Boolean = self.exposeAtRoot
       val schema: __Schema      = remoteSchema
 
-      def run(field: Field): ZIO[SttpClient, ExecutionError, ResponseValue] =
+      def run(field: Field, operationType: OperationType): ZIO[SttpClient, ExecutionError, ResponseValue] =
         (for {
-          res <- ZIO.serviceWithZIO[SttpClient](_.send(makeRequest(field)))
+          res <- ZIO.serviceWithZIO[SttpClient](_.send(makeRequest(field, operationType)))
           body <- ZIO.fromEither(res.body) // TODO: handle errors
         } yield body).mapError(e => CalibanError.ExecutionError(e.toString, innerThrowable = Some(e)))
     }
 
-  private def makeRequest(field: Field): RequestT[Identity, Either[ExecutionError, ResponseValue], Any] =
+  private def makeRequest(
+    field: Field,
+    operationType: OperationType
+  ): RequestT[Identity, Either[ExecutionError, ResponseValue], Any] =
     basicRequest
       .post(uri"$url")
-      .body(field.withTypeName.toGraphQLRequest(OperationType.Query)) // TODO: other operation types
+      .body(field.withTypeName.toGraphQLRequest(operationType))
       .headers(headers)
       .response(asJson[GraphQLResponse[CalibanError]])
       .mapResponse(_.map(_.data).left.map {
