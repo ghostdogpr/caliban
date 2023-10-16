@@ -29,9 +29,9 @@ case class CalibanSubGraph[R](name: String, api: GraphQL[R], exposeAtRoot: Boole
         Introspector.directives ++ api.getAdditionalDirectives
       )
 
-      def run(field: Field): ZIO[R, ExecutionError, ResponseValue] =
+      def run(field: Field, operationType: OperationType): ZIO[R, ExecutionError, ResponseValue] =
         interpreter
-          .executeRequest(field.toGraphQLRequest(OperationType.Query))
+          .executeRequest(field.toGraphQLRequest(operationType))
           .map(_.data) // TODO: handle errors
     }
 }

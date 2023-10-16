@@ -7,6 +7,7 @@ import caliban.execution._
 import caliban.gateway.FetchDataSource.FetchRequest
 import caliban.gateway.SubGraph.SubGraphExecutor
 import caliban.introspection.adt.{ __Directive, Extend, TypeVisitor }
+import caliban.parsing.adt.OperationType
 import caliban.schema.Step.NullStep
 import caliban.schema.{ Operation, RootSchemaBuilder, Types }
 import caliban.wrappers.Wrapper
@@ -55,20 +56,29 @@ private case class SuperGraphExecutor[-R](
     if (isIntrospection)
       Executor.executeRequest(req, op.plan, fieldWrappers, QueryExecution.Parallel, features)
     else
-      resolveField(Resolver.Field(req.field), NullValue)
+      resolveField(Resolver.Field(req.field), NullValue, req.operationType)
         .fold(
           error => GraphQLResponse(NullValue, List(error)),
           result => GraphQLResponse(result, Nil)
         )
         .run
 
-  private def resolveField(field: Resolver.Field, parent: ResponseValue): ZQuery[R, ExecutionError, ResponseValue] =
+  private def resolveField(
+    field: Resolver.Field,
+    parent: ResponseValue,
+    operationType: OperationType
+  ): ZQuery[R, ExecutionError, ResponseValue] = {
+    def foreach[A, B](resolvers: List[A])(f: A => ZQuery[R, ExecutionError, B]): ZQuery[R, ExecutionError, List[B]] =
+      operationType match {
+        case OperationType.Query | OperationType.Subscription => ZQuery.foreachBatched(resolvers)(f)
+        case OperationType.Mutation                           => ZQuery.foreach(resolvers)(f)
+      }
+
     field.resolver match {
       case Resolver.Extract(extract, children)                                                     =>
         extract(parent.asObjectValue.getOrElse(ObjectValue(Nil))) match {
           case res @ ObjectValue(fields) =>
-            ZQuery
-              .foreachBatched(children)(child => resolveField(child, res).map(child -> _))
+            foreach(children)(child => resolveField(child, res, operationType).map(child -> _))
               .map(children =>
                 res.copy(fields = fields ++ children.map { case (field, response) =>
                   field.outputName -> response
@@ -88,6 +98,7 @@ private case class SuperGraphExecutor[-R](
                 FetchRequest(
                   subGraph,
                   sourceFieldName,
+                  operationType,
                   fields
                     .flatMap(f =>
                       f.resolver match {
@@ -112,19 +123,16 @@ private case class SuperGraphExecutor[-R](
               )
               .flatMap {
                 case ListValue(values) =>
-                  ZQuery
-                    .foreachBatched(values)(value =>
-                      ZQuery
-                        .foreachBatched(fields)(field => resolveField(field, value).map(field.outputName -> _))
-                        .map(ObjectValue.apply)
-                    )
-                    .map(ListValue.apply)
+                  foreach(values)(value =>
+                    foreach(fields)(field => resolveField(field, value, operationType).map(field.outputName -> _))
+                      .map(ObjectValue.apply)
+                  ).map(ListValue.apply)
                 case value             =>
-                  ZQuery
-                    .foreachBatched(fields)(field => resolveField(field, value).map(field.outputName -> _))
+                  foreach(fields)(field => resolveField(field, value, operationType).map(field.outputName -> _))
                     .map(ObjectValue.apply)
               }
           case None           => ZQuery.fail(ExecutionError(s"Subgraph $subGraph not found"))
         }
     }
+  }
 }
