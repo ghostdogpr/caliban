@@ -1,7 +1,7 @@
 package caliban.gateway
 
 import caliban.CalibanError.ExecutionError
-import caliban.ResponseValue.ObjectValue
+import caliban.Value.NullValue
 import caliban.execution.Field
 import caliban.gateway.SubGraph.SubGraphExecutor
 import caliban.parsing.adt.OperationType
@@ -85,17 +85,17 @@ object FetchDataSource {
           }
           .map(_.toMap)
           .map(results =>
-            requests.flatMap(req =>
-              requestsMap.get(req).flatMap { case key @ (_, _, (_, rootFieldMap)) =>
-                results.get(key).map {
-                  case ObjectValue(fields) =>
-                    val fieldName = rootFieldMap.get(req)
-                    ObjectValue(fields.collect {
-                      case (k, v) if fieldName.contains(k) => req.sourceFieldName -> v
-                    })
-                  case other               => other
+            requests.map(req =>
+              requestsMap
+                .get(req)
+                .flatMap { case key @ (_, _, (_, rootFieldMap)) =>
+                  for {
+                    result <- results.get(key)
+                    obj    <- result.asObjectValue
+                    res    <- rootFieldMap.get(req).map(obj.get)
+                  } yield res
                 }
-              }
+                .getOrElse(NullValue)
             )
           )
     }

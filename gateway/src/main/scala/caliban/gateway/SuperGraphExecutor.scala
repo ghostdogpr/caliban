@@ -112,7 +112,6 @@ private case class SuperGraphExecutor[-R](
                   filterBatchResults.isDefined
                 )
               )(FetchDataSource[R]) // TODO don't make new datasource for each request
-              .map(_.asObjectValue.map(_.get(sourceFieldName)).getOrElse(NullValue))
               .map(value =>
                 value.asListValue
                   .fold(value)(values =>
