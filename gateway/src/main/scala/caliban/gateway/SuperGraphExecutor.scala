@@ -13,7 +13,7 @@ import caliban.schema.Step.NullStep
 import caliban.schema.{ Operation, RootSchemaBuilder, Types }
 import caliban.wrappers.Wrapper
 import caliban.wrappers.Wrapper.FieldWrapper
-import caliban.{ CalibanError, GraphQL, GraphQLResponse, InputValue, ResponseValue }
+import caliban.{ CalibanError, GraphQL, GraphQLResponse, ResponseValue }
 import zio.prelude.NonEmptyList
 import zio.query.ZQuery
 import zio.{ Chunk, URIO }
@@ -57,14 +57,14 @@ private case class SuperGraphExecutor[-R](
     if (isIntrospection)
       Executor.executeRequest(req, op.plan, fieldWrappers, QueryExecution.Parallel, features)
     else
-      resolveField(Resolver.Field(req.field), req.operationType)
+      resolveRootField(Resolver.Field(req.field), req.operationType)
         .fold(
           error => GraphQLResponse(NullValue, List(error)),
           result => GraphQLResponse(result, Nil)
         )
         .run
 
-  private def resolveField(
+  private def resolveRootField(
     root: Resolver.Field,
     operationType: OperationType
   ): ZQuery[R, ExecutionError, ResponseValue] = {
@@ -76,7 +76,7 @@ private case class SuperGraphExecutor[-R](
         case OperationType.Mutation                           => ZQuery.foreach(resolvers)(f)
       }
 
-    def resolve(field: Resolver.Field, parent: ResponseValue): ZQuery[R, ExecutionError, ResponseValue] =
+    def resolveField(field: Resolver.Field, parent: ResponseValue): ZQuery[R, ExecutionError, ResponseValue] =
       field.resolver match {
         case extractor: Extractor => resolveExtractor(extractor, parent)
         case fetcher: Fetcher     => resolveFetcher(fetcher, parent)
@@ -84,12 +84,10 @@ private case class SuperGraphExecutor[-R](
 
     def resolveExtractor(extractor: Extractor, parent: ResponseValue): ZQuery[R, ExecutionError, ResponseValue] =
       extractor.extract(parent.asObjectValue) match {
-        case res @ ObjectValue(fields) =>
-          foreach(extractor.fields)(child => resolve(child, res).map(child -> _))
-            .map(children =>
-              res.copy(fields = fields ++ children.map { case (field, response) => field.outputName -> response })
-            )
-        case other                     => ZQuery.succeed(other)
+        case parent @ ObjectValue(parentFields) =>
+          foreach(extractor.fields)(field => resolveField(field, parent).map(field.outputName -> _))
+            .map(fields => parent.copy(fields = parentFields ++ fields))
+        case other                              => ZQuery.succeed(other)
       }
 
     def resolveFetcher(fetcher: Fetcher, parent: ResponseValue): ZQuery[R, ExecutionError, ResponseValue] =
@@ -112,26 +110,23 @@ private case class SuperGraphExecutor[-R](
               case (_, v) => v == NullValue
             }
           val batchEnabled      = fetcher.filterBatchResults.isDefined
-          ZQuery
-            .fromRequest(FetchRequest(subGraph, sourceFieldName, operationType, fields, arguments, batchEnabled))(
-              dataSource
-            )
-            .flatMap {
-              case ListValue(values) =>
-                val filteredValues = fetcher.filterBatchResults match {
-                  case Some(filter) => values.filter(value => filter(parentObject, value.asObjectValue))
-                  case _            => values
-                }
-                foreach(filteredValues)(resolveObject(fetcher.fields, _)).map(ListValue.apply)
-              case value             =>
-                resolveObject(fetcher.fields, value)
-            }
+          val fetch             = FetchRequest(subGraph, sourceFieldName, operationType, fields, arguments, batchEnabled)
+          ZQuery.fromRequest(fetch)(dataSource).flatMap {
+            case ListValue(values) =>
+              val filteredValues = fetcher.filterBatchResults match {
+                case Some(filter) => values.filter(value => filter(parentObject, value.asObjectValue))
+                case _            => values
+              }
+              foreach(filteredValues)(resolveObject(fetcher.fields, _)).map(ListValue.apply)
+            case value             =>
+              resolveObject(fetcher.fields, value)
+          }
         case None           => ZQuery.fail(ExecutionError(s"Subgraph ${fetcher.subGraph} not found"))
       }
 
     def resolveObject(fields: List[Resolver.Field], value: ResponseValue): ZQuery[R, ExecutionError, ObjectValue] =
-      foreach(fields)(field => resolve(field, value).map(field.outputName -> _)).map(ObjectValue.apply)
+      foreach(fields)(field => resolveField(field, value).map(field.outputName -> _)).map(ObjectValue.apply)
 
-    resolve(root, NullValue)
+    resolveField(root, NullValue)
   }
 }
