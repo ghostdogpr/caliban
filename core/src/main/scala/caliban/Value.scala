@@ -15,18 +15,6 @@ import scala.util.hashing.MurmurHash3
 
 sealed trait InputValue { self =>
   def toInputString: String = ValueRenderer.inputValueRenderer.renderCompact(self)
-
-  lazy val asInputListValue: Option[InputValue.ListValue] =
-    self match {
-      case v: InputValue.ListValue => Some(v)
-      case _                       => None
-    }
-
-  lazy val asInputObjectValue: Option[InputValue.ObjectValue] =
-    self match {
-      case v: InputValue.ObjectValue => Some(v)
-      case _                         => None
-    }
 }
 object InputValue       {
   case class ListValue(values: List[InputValue])          extends InputValue {
@@ -88,12 +76,6 @@ sealed trait ResponseValue { self =>
       case value: Value                      => value
     }
 
-  lazy val asListValue: Option[ResponseValue.ListValue] =
-    self match {
-      case v: ResponseValue.ListValue => Some(v)
-      case _                          => None
-    }
-
   lazy val asObjectValue: Option[ResponseValue.ObjectValue] =
     self match {
       case v: ResponseValue.ObjectValue => Some(v)
@@ -102,8 +84,7 @@ sealed trait ResponseValue { self =>
 }
 object ResponseValue {
   case class ListValue(values: List[ResponseValue])                extends ResponseValue {
-    override def toString: String                      = ValueRenderer.responseListValueRenderer.renderCompact(this)
-    def filter(f: ResponseValue => Boolean): ListValue = ListValue(values.filter(f))
+    override def toString: String = ValueRenderer.responseListValueRenderer.renderCompact(this)
   }
   case class ObjectValue(fields: List[(String, ResponseValue)])    extends ResponseValue {
     override def toString: String =
