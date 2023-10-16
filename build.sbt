@@ -182,8 +182,9 @@ lazy val tools = project
       "com.softwaremill.sttp.client3" %% "zio"                 % sttpVersion,
       "dev.zio"                       %% "zio-config"          % zioConfigVersion,
       "dev.zio"                       %% "zio-config-magnolia" % zioConfigVersion,
-      "dev.zio"                       %% "zio-test"            % zioVersion % Test,
-      "dev.zio"                       %% "zio-test-sbt"        % zioVersion % Test
+      "dev.zio"                       %% "zio-test"            % zioVersion     % Test,
+      "dev.zio"                       %% "zio-test-sbt"        % zioVersion     % Test,
+      "dev.zio"                       %% "zio-json"            % zioJsonVersion % Test
     )
   )
   .dependsOn(core, clientJVM)
@@ -223,7 +224,7 @@ lazy val tracing = project
       "dev.zio"         %% "zio-opentelemetry"         % zioOpenTelemetryVersion,
       "dev.zio"         %% "zio-test"                  % zioVersion % Test,
       "dev.zio"         %% "zio-test-sbt"              % zioVersion % Test,
-      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.30.1"   % Test
+      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.31.0"   % Test
     )
   )
   .dependsOn(core, tools)
@@ -573,6 +574,7 @@ lazy val benchmarks = project
       "org.sangria-graphql"                   %% "sangria-circe"       % "1.3.2",
       "edu.gemini"                            %% "gsp-graphql-core"    % "0.13.0",
       "edu.gemini"                            %% "gsp-graphql-generic" % "0.13.0",
+      "io.github.valdemargr"                  %% "gql-server"          % "0.3.3",
       "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core" % jsoniterVersion,
       "io.circe"                              %% "circe-parser"        % circeVersion,
       "dev.zio"                               %% "zio-json"            % zioJsonVersion
@@ -667,7 +669,7 @@ lazy val commonSettings = Def.settings(
   })
 )
 
-lazy val enforceMimaCompatibility = false // Enable / disable failing CI on binary incompatibilities
+lazy val enforceMimaCompatibility = true // Enable / disable failing CI on binary incompatibilities
 
 lazy val enableMimaSettingsJVM =
   Def.settings(

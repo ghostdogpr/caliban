@@ -280,23 +280,20 @@ object SchemaWriterSpec extends ZIOSpecDefault {
          |
          |object Types {
          |
+         |  final case class Captain(
+         |    @GQLDescription(\"ship\")
+         |    shipName: String
+         |  ) extends Role
+         |      with Role2
+         |  final case class Pilot(shipName: String)   extends Role with Role2
+         |  final case class Stewart(shipName: String) extends Role2
+         |
          |  @GQLDescription(\"\"\"role
          |Captain or Pilot\"\"\")
          |  sealed trait Role extends scala.Product with scala.Serializable
          |  @GQLDescription(\"\"\"role2
          |Captain or Pilot or Stewart\"\"\")
          |  sealed trait Role2 extends scala.Product with scala.Serializable
-         |
-         |  object Role2 {
-         |    final case class Stewart(shipName: String) extends Role2
-         |  }
-         |
-         |  final case class Captain(
-         |    @GQLDescription("ship")
-         |    shipName: String
-         |  ) extends Role
-         |      with Role2
-         |  final case class Pilot(shipName: String) extends Role with Role2
          |
          |}"""
     ),
@@ -555,6 +552,14 @@ object SchemaWriterSpec extends ZIOSpecDefault {
          |
          |object Types {
          |
+         |  final case class Admin(
+         |    id: java.util.UUID,
+         |    @GQLDescription(\"firstName\")
+         |    firstName: String,
+         |    lastName: String
+         |  ) extends Person
+         |  final case class Customer(id: java.util.UUID, firstName: String, lastName: String, email: String) extends Person
+         |
          |  @GQLInterface
          |  @GQLDescription(\"\"\"person
          |Admin or Customer\"\"\")
@@ -562,16 +567,6 @@ object SchemaWriterSpec extends ZIOSpecDefault {
          |    def id: java.util.UUID
          |    def firstName: String
          |    def lastName: String
-         |  }
-         |
-         |  object Person {
-         |    final case class Admin(
-         |      id: java.util.UUID,
-         |      @GQLDescription("firstName")
-         |      firstName: String,
-         |      lastName: String
-         |    ) extends Person
-         |    final case class Customer(id: java.util.UUID, firstName: String, lastName: String, email: String) extends Person
          |  }
          |
          |}"""
@@ -627,6 +622,115 @@ object SchemaWriterSpec extends ZIOSpecDefault {
         |
         |  final case class Query(
         |    hero: QueryHeroArgs => zio.UIO[scala.Option[Hero]]
+        |  ) derives caliban.schema.Schema.SemiAuto
+        |
+        |}""".stripMargin
+    ),
+    (
+      "inherits field with args",
+      gen(
+        """
+        |interface Character {
+        |    friendsConnection(first: Int, after: ID): FriendsConnection!
+        |}
+        |type Human implements Character {
+        |    friendsConnection(first: Int, after: ID): FriendsConnection!
+        |}
+        |type Droid implements Character {
+        |    friendsConnection(first: Int, after: ID): FriendsConnection!
+        |}""",
+        addDerives = true
+      ),
+      """import caliban.schema.Annotations._
+        |
+        |object Types {
+        |  final case class CharacterFriendsConnectionArgs(first: scala.Option[Int], after: scala.Option[ID])
+        |      derives caliban.schema.Schema.SemiAuto,
+        |        caliban.schema.ArgBuilder
+        |  final case class Human(friendsConnection: CharacterFriendsConnectionArgs => FriendsConnection) extends Character
+        |      derives caliban.schema.Schema.SemiAuto
+        |  final case class Droid(friendsConnection: CharacterFriendsConnectionArgs => FriendsConnection) extends Character
+        |      derives caliban.schema.Schema.SemiAuto
+        |
+        |  @GQLInterface
+        |  sealed trait Character extends scala.Product with scala.Serializable derives caliban.schema.Schema.SemiAuto {
+        |    def friendsConnection: CharacterFriendsConnectionArgs => FriendsConnection
+        |  }
+        |
+        |}""".stripMargin
+    ),
+    (
+      "recognize @lazy intention and generate side-effecting field",
+      gen(
+        """
+        |directive @lazy on FIELD_DEFINITION
+        |
+        |type Foo {
+        |  bar: String!
+        |  baz: String! @lazy
+        |}"""
+      ),
+      """object Types {
+        |
+        |  final case class Foo(bar: String, baz: zio.UIO[String])
+        |
+        |}""".stripMargin
+    ),
+    (
+      "type appears in type union and implements interface",
+      gen(
+        """
+        |schema {
+        |  query: Query
+        |}
+        |
+        |union AllErrors = Bar | Foo | FooBar
+        |
+        |interface Error {
+        |  message: String!
+        |}
+        |
+        |type Bar implements Error {
+        |  message: String!
+        |}
+        |
+        |type Foo implements Error {
+        |  message: String!
+        |}
+        |
+        |type FooBar implements Error {
+        |  message: String!
+        |}
+        |
+        |type Query {
+        |  errorInterface: Error!
+        |  errorUnion: AllErrors!
+        |}""",
+        addDerives = true
+      ),
+      """import Types._
+        |
+        |import caliban.schema.Annotations._
+        |
+        |object Types {
+        |
+        |  final case class Bar(message: String)    extends Error with AllErrors derives caliban.schema.Schema.SemiAuto
+        |  final case class Foo(message: String)    extends Error with AllErrors derives caliban.schema.Schema.SemiAuto
+        |  final case class FooBar(message: String) extends Error with AllErrors derives caliban.schema.Schema.SemiAuto
+        |
+        |  sealed trait AllErrors extends scala.Product with scala.Serializable derives caliban.schema.Schema.SemiAuto
+        |  @GQLInterface
+        |  sealed trait Error extends scala.Product with scala.Serializable derives caliban.schema.Schema.SemiAuto {
+        |    def message: String
+        |  }
+        |
+        |}
+        |
+        |object Operations {
+        |
+        |  final case class Query(
+        |    errorInterface: zio.UIO[Error],
+        |    errorUnion: zio.UIO[AllErrors]
         |  ) derives caliban.schema.Schema.SemiAuto
         |
         |}""".stripMargin

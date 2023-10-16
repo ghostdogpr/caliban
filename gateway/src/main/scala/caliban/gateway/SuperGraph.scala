@@ -40,7 +40,7 @@ case class SuperGraph[-R](
                   List(
                     fieldDefinition.copy(
                       name = targetFieldName,
-                      args = Nil,
+                      args = _ => Nil,
                       extend = Some(Extend(sourceGraph.name, sourceFieldName, argumentMappings, filterBatchResults))
                     )
                   )

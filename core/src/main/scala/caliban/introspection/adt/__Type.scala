@@ -16,7 +16,7 @@ case class __Type(
   interfaces: () => Option[List[__Type]] = () => None,
   possibleTypes: Option[List[__Type]] = None,
   enumValues: __DeprecatedArgs => Option[List[__EnumValue]] = _ => None,
-  inputFields: Option[List[__InputValue]] = None,
+  inputFields: __DeprecatedArgs => Option[List[__InputValue]] = _ => None,
   ofType: Option[__Type] = None,
   specifiedBy: Option[String] = None,
   @GQLExcluded directives: Option[List[Directive]] = None,
@@ -30,7 +30,7 @@ case class __Type(
     () => (interfaces() ++ that.interfaces()).reduceOption(_ ++ _),
     (possibleTypes ++ that.possibleTypes).reduceOption(_ ++ _),
     args => (enumValues(args) ++ that.enumValues(args)).reduceOption(_ ++ _),
-    (inputFields ++ that.inputFields).reduceOption(_ ++ _),
+    args => (inputFields(args) ++ that.inputFields(args)).reduceOption(_ ++ _),
     (ofType ++ that.ofType).reduceOption(_ |+| _),
     (specifiedBy ++ that.specifiedBy).reduceOption((_, b) => b),
     (directives ++ that.directives).reduceOption(_ ++ _),
@@ -106,7 +106,7 @@ case class __Type(
             description,
             name.getOrElse(""),
             directives.getOrElse(Nil),
-            inputFields.getOrElse(Nil).map(_.toInputValueDefinition)
+            allInputFields.map(_.toInputValueDefinition)
           )
         )
       case _                       => None
@@ -123,6 +123,12 @@ case class __Type(
 
   lazy val allFields: List[__Field] =
     fields(__DeprecatedArgs(Some(true))).getOrElse(Nil)
+
+  lazy val allInputFields: List[__InputValue] =
+    inputFields(__DeprecatedArgs(Some(true))).getOrElse(Nil)
+
+  lazy val allEnumValues: List[__EnumValue] =
+    enumValues(__DeprecatedArgs(Some(true))).getOrElse(Nil)
 
   private[caliban] lazy val allFieldsMap: Map[String, __Field] =
     allFields.map(f => f.name -> f).toMap
@@ -149,7 +155,8 @@ sealed trait TypeVisitor { self =>
       f(
         t.copy(
           fields = args => t.fields(args).map(_.map(field => field.copy(`type` = () => loop(field.`type`())))),
-          inputFields = t.inputFields.map(_.map(field => field.copy(`type` = () => loop(field.`type`())))),
+          inputFields =
+            args => t.inputFields(args).map(_.map(field => field.copy(`type` = () => loop(field.`type`())))),
           interfaces = () => t.interfaces().map(_.map(loop)),
           possibleTypes = t.possibleTypes.map(_.map(loop)),
           ofType = t.ofType.map(loop)
@@ -178,7 +185,7 @@ object TypeVisitor {
   }
   object inputFields extends ListVisitorConstructors[__InputValue] {
     val set: __Type => (List[__InputValue] => List[__InputValue]) => __Type =
-      t => f => t.copy(inputFields = t.inputFields.map(f))
+      t => f => t.copy(inputFields = args => t.inputFields(args).map(f))
   }
   object enumValues  extends ListVisitorConstructors[__EnumValue]  {
     val set: __Type => (List[__EnumValue] => List[__EnumValue]) => __Type =
@@ -223,14 +230,17 @@ object TypeVisitor {
       f.lift((t.name.getOrElse(""), field.name)) match {
         case Some((oldName, newName)) =>
           field.copy(args =
-            field.args.map(arg =>
-              if (arg.name == oldName)
-                arg.copy(
-                  name = newName,
-                  renameInput = arg.renameInput andThen ((name: String) => if (name == newName) oldName else name)
+            args =>
+              field
+                .args(args)
+                .map(arg =>
+                  if (arg.name == oldName)
+                    arg.copy(
+                      name = newName,
+                      renameInput = arg.renameInput andThen ((name: String) => if (name == newName) oldName else name)
+                    )
+                  else arg
                 )
-              else arg
-            )
           )
         case None                     => field
       }
@@ -251,7 +261,9 @@ object TypeVisitor {
 
   def filterArgument(f: PartialFunction[(String, String, String), Boolean]): TypeVisitor =
     TypeVisitor.fields.modifyWith((t, field) =>
-      field.copy(args = field.args.filter(arg => f.lift((t.name.getOrElse(""), field.name, arg.name)).getOrElse(true)))
+      field.copy(args =
+        args => field.args(args).filter(arg => f.lift((t.name.getOrElse(""), field.name, arg.name)).getOrElse(true))
+      )
     )
 
 }

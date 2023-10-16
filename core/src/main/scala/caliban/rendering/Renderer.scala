@@ -1,5 +1,7 @@
 package caliban.rendering
 
+import scala.annotation.switch
+
 /**
  * The inverse of a `Parser` over some type A.
  * A renderer can be used to render a value of type A to a string in either a regular or compact format.
@@ -126,6 +128,28 @@ object Renderer {
   lazy val string: Renderer[String] = new Renderer[String] {
     override def unsafeRender(value: String, indent: Option[Int], write: StringBuilder): Unit =
       write.append(value)
+  }
+
+  lazy val escapedString: Renderer[String] = new Renderer[String] {
+    override def unsafeRender(value: String, indent: Option[Int], write: StringBuilder): Unit =
+      unsafeFastEscape(value, write)
+
+    private def unsafeFastEscape(value: String, writer: StringBuilder): Unit = {
+      var i = 0
+      while (i < value.length) {
+        (value.charAt(i): @switch) match {
+          case '\\' => writer.append("\\\\")
+          case '\b' => writer.append("\\b")
+          case '\f' => writer.append("\\f")
+          case '\n' => writer.append("\\n")
+          case '\r' => writer.append("\\r")
+          case '\t' => writer.append("\\t")
+          case '"'  => writer.append("\\\"")
+          case c    => writer.append(c)
+        }
+        i += 1
+      }
+    }
   }
 
   /**

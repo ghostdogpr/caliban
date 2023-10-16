@@ -90,8 +90,7 @@ trait CommonSchemaDerivation {
     }.sortBy { case (label, _, _) => label }.toList
 
     private lazy val isEnum = subTypes.forall { (_, t, _) =>
-      t.fields(__DeprecatedArgs(Some(true))).forall(_.isEmpty)
-      && t.inputFields.forall(_.isEmpty)
+      t.allFields.isEmpty && t.allInputFields.isEmpty
     }
 
     private lazy val isInterface = annotations.exists {
@@ -196,7 +195,7 @@ trait CommonSchemaDerivation {
                   Some(
                     "Fake field because GraphQL does not support empty objects. Do not query, use __typename instead."
                   ),
-                  Nil,
+                  _ => Nil,
                   () => makeScalar("Boolean")
                 )
               )
@@ -291,6 +290,8 @@ trait CommonSchemaDerivation {
           if (schema.optional) schema.toType_(isInput, isSubscription)
           else schema.toType_(isInput, isSubscription).nonNull,
         getDefaultValue(fieldAnnotations),
+        getDeprecatedReason(fieldAnnotations).isDefined,
+        getDeprecatedReason(fieldAnnotations),
         Some(getDirectives(fieldAnnotations)).filter(_.nonEmpty)
       )
     },
@@ -307,7 +308,7 @@ trait CommonSchemaDerivation {
     getDescription(annotations),
     fields.map { case (name, fieldAnnotations, schema, _) =>
       val deprecatedReason = getDeprecatedReason(fieldAnnotations)
-      __Field(
+      Types.makeField(
         name,
         getDescription(fieldAnnotations),
         schema.arguments,

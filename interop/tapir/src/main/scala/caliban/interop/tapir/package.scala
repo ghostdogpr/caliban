@@ -82,7 +82,7 @@ package object tapir {
     def getArgs(t: __Type, optional: Boolean): List[__InputValue] =
       t.kind match {
         case __TypeKind.INPUT_OBJECT =>
-          val fields = t.inputFields.getOrElse(Nil)
+          val fields = t.allInputFields
           if (fields.forall(_.name.matches(s"_[0-9]+")) && fields.length == argNames.size) {
             fields.map(f =>
               argNames.get(f.name).flatten match {
@@ -104,7 +104,7 @@ package object tapir {
           Some(name),
           None,
           List(
-            __Field(
+            Types.makeField(
               extractPath(serverEndpoint.endpoint.info.name, serverEndpoint.endpoint.input),
               serverEndpoint.endpoint.info.description,
               getArgs(inputSchema.toType_(isInput = true), inputSchema.optional),

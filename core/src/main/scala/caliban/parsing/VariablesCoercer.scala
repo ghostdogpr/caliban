@@ -166,7 +166,7 @@ object VariablesCoercer {
       case __TypeKind.INPUT_OBJECT =>
         value match {
           case InputValue.ObjectValue(fields) =>
-            val defs = typ.inputFields.getOrElse(List.empty)
+            val defs = typ.allInputFields
             ZPure
               .foreach(fields: Iterable[(String, InputValue)]) { case (k, v) =>
                 defs

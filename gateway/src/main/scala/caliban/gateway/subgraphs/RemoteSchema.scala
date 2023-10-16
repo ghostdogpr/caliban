@@ -62,7 +62,10 @@ object RemoteSchema {
     __Field(
       name = definition.name,
       description = definition.description,
-      args = definition.args.map(toInputValue(_, definitions)),
+      args = (args: __DeprecatedArgs) =>
+        definition.args
+          .map(toInputValue(_, definitions))
+          .filter(filterDeprecated(_, args)),
       `type` = toType(definition.ofType, definitions),
       isDeprecated = isDeprecated(definition.directives),
       deprecationReason = deprecationReason(definition.directives),
@@ -214,11 +217,12 @@ object RemoteSchema {
       kind = __TypeKind.INPUT_OBJECT,
       name = Some(definition.name),
       description = definition.description,
-      inputFields =
+      inputFields = (args: __DeprecatedArgs) =>
         if (definition.fields.nonEmpty)
           Some(
             definition.fields
-              .map(f => toInputValue(f, definitions))
+              .map(toInputValue(_, definitions))
+              .filter(filterDeprecated(_, args))
           )
         else None,
       directives = toDirectives(definition.directives)
@@ -273,7 +277,10 @@ object RemoteSchema {
     __Directive(
       name = definition.name,
       description = definition.description,
-      args = definition.args.map(toInputValue(_, definitions)),
+      args = (args: __DeprecatedArgs) =>
+        definition.args
+          .map(toInputValue(_, definitions))
+          .filter(filterDeprecated(_, args)),
       isRepeatable = definition.isRepeatable,
       locations = definition.locations.map(toDirectiveLocation)
     )
@@ -307,6 +314,10 @@ object RemoteSchema {
     else !x.isDeprecated
 
   private def filterDeprecated(x: __EnumValue, deprecated: __DeprecatedArgs): Boolean =
+    if (deprecated.includeDeprecated.getOrElse(true)) true
+    else !x.isDeprecated
+
+  private def filterDeprecated(x: __InputValue, deprecated: __DeprecatedArgs): Boolean =
     if (deprecated.includeDeprecated.getOrElse(true)) true
     else !x.isDeprecated
 

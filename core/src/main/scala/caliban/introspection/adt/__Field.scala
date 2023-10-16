@@ -10,7 +10,7 @@ import caliban.schema.Schema
 case class __Field(
   name: String,
   description: Option[String],
-  args: List[__InputValue],
+  args: __DeprecatedArgs => List[__InputValue],
   `type`: () => __Type,
   isDeprecated: Boolean = false,
   deprecationReason: Option[String] = None,
@@ -27,16 +27,19 @@ case class __Field(
                              )
                            )
                          else Nil) ++ directives.getOrElse(Nil)
-    FieldDefinition(description, name, args.map(_.toInputValueDefinition), _type.toType(), allDirectives)
+    FieldDefinition(description, name, allArgs.map(_.toInputValueDefinition), _type.toType(), allDirectives)
   }
 
   def toInputValueDefinition: InputValueDefinition =
     InputValueDefinition(description, name, _type.toType(), None, directives.getOrElse(Nil))
 
+  lazy val allArgs: List[__InputValue] =
+    args(__DeprecatedArgs(Some(true)))
+
   private[caliban] lazy val _type: __Type = `type`()
 
   private[caliban] lazy val renameArguments: String => String =
-    args.foldLeft(identity[String] _) { case (renameInput, arg) => renameInput andThen arg.renameInput }
+    allArgs.foldLeft(identity[String] _) { case (renameInput, arg) => renameInput andThen arg.renameInput }
 }
 
 case class Extend(

@@ -27,7 +27,14 @@ object ValueValidator {
           _     <- Validator.validateInputValues(field, value, Context.empty, errorContext)
         } yield ()
       case None    =>
-        ZPure.unit
+        ZPure
+          .when(!field.`type`().isNullable && field.isDeprecated) {
+            failValidation(
+              s"$errorContext has no default value, is non-null and deprecated.",
+              "If input field type is Non-Null and a default value is not defined, the `@deprecated` directive must not be applied to this input field."
+            )
+          }
+          .unit
     }
 
   def validateInputTypes(
@@ -74,7 +81,7 @@ object ValueValidator {
           case INPUT_OBJECT =>
             argValue match {
               case ObjectValue(fields) =>
-                inputType.inputFields.getOrElse(List.empty).forEach_ { f =>
+                inputType.allInputFields.forEach_ { f =>
                   fields.collectFirst { case (name, fieldValue) if name == f.name => fieldValue } match {
                     case Some(value) =>
                       validateType(f._type, value, context, s"Field ${f.name} in $errorContext")

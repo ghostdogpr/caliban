@@ -10,7 +10,8 @@ object DeferSupport {
     "defer",
     Some(""),
     Set(__DirectiveLocation.FRAGMENT_SPREAD, __DirectiveLocation.INLINE_FRAGMENT),
-    List(__InputValue("if", None, () => Types.boolean, None), __InputValue("label", None, () => Types.string, None)),
+    _ =>
+      List(__InputValue("if", None, () => Types.boolean, None), __InputValue("label", None, () => Types.string, None)),
     isRepeatable = false
   )
 
