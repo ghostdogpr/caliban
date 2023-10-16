@@ -15,12 +15,13 @@ object Resolver {
     filterBatchResults: Option[(ResponseValue.ObjectValue, ResponseValue.ObjectValue) => Boolean]
   ) extends Resolver
 
-  case class Field(name: String, resolver: Resolver, outputName: String)
+  case class Field(name: String, outputName: String, resolver: Resolver)
 
   object Field {
     def apply(field: caliban.execution.Field): Resolver.Field =
       Resolver.Field(
         field.definition.fold(identity[String] _)(_.renameInput)(field.name),
+        field.alias.getOrElse(field.name),
         field.definition.flatMap(_.extend) match {
           case Some(extend) =>
             Fetcher(
@@ -35,8 +36,7 @@ object Resolver {
             )
           case None         =>
             Extractor(if (field.isRoot) identity else _.get(field.name), field.fields.map(apply))
-        },
-        field.alias.getOrElse(field.name)
+        }
       )
   }
 }
