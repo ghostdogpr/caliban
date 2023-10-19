@@ -111,7 +111,7 @@ object TapirAdapter {
       _ => false,
       _.exists {
         case ContentTypeRange("application", "graphql-response+json", _, _) => true
-        case _                                                           => false
+        case _                                                              => false
       }
     )
     response match {
