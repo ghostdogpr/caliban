@@ -53,12 +53,13 @@ case class SuperGraph[-R](
 
   def build: RIO[R, GraphQL[R]] =
     for {
-      subGraphs   <- ZIO.foreachPar(self.subGraphs)(_.build)
-      nel         <- ZIO
-                       .succeed(NonEmptyList.fromIterableOption(subGraphs))
-                       .someOrFail(new Throwable("At least one subgraph must be defined"))
-      subGraphsMap = subGraphs.map(g => g.name -> g.schema).toMap
-    } yield SuperGraphExecutor(nel, transformers.map(_(subGraphsMap)))
+      subGraphs        <- ZIO.foreachPar(self.subGraphs)(_.build)
+      nel              <- ZIO
+                            .succeed(NonEmptyList.fromIterableOption(subGraphs))
+                            .someOrFail(new Throwable("At least one subgraph must be defined"))
+      subGraphsMap      = subGraphs.map(g => g.name -> g.schema).toMap
+      subGraphsVisitors = Chunk.fromIterable(subGraphs).flatMap(_.visitors)
+    } yield SuperGraphExecutor(nel, subGraphsVisitors ++ transformers.map(_(subGraphsMap)))
 }
 
 object SuperGraph {

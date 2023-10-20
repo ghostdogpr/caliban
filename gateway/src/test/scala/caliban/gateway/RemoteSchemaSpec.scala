@@ -58,7 +58,7 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
     test("is isomorphic") {
       for {
         introspected <- SchemaLoader.fromCaliban(api).load
-        remoteSchema <- ZIO.fromOption(RemoteSchema.parseRemoteSchema(introspected))
+        remoteSchema  = RemoteSchema.parseRemoteSchema(introspected)
         remoteAPI    <- ZIO.succeed(fromRemoteSchema(remoteSchema))
         sdl           = api.render
         remoteSDL     = remoteAPI.render
@@ -95,7 +95,7 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
 
       for {
         introspected <- SchemaLoader.fromCaliban(api).load
-        remoteSchema <- ZIO.fromOption(RemoteSchema.parseRemoteSchema(introspected))
+        remoteSchema  = RemoteSchema.parseRemoteSchema(introspected)
         remoteAPI    <- ZIO.succeed(fromRemoteSchema(remoteSchema))
         interpreter  <- remoteAPI.interpreter
         res          <- interpreter.check(query)

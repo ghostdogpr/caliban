@@ -16,16 +16,14 @@ case class GraphQLSubGraph(name: String, url: String, headers: Map[String, Strin
     extends SubGraph[SttpClient] { self =>
   def build: RIO[SttpClient, SubGraphExecutor[SttpClient]] =
     for {
-      doc          <- SchemaLoader
-                        .fromIntrospection(
-                          url,
-                          Some(headers.map { case (k, v) => Options.Header(k, v) }.toList),
-                          supportIsRepeatable = false
-                        )
-                        .load
-      remoteSchema <- ZIO
-                        .succeed(RemoteSchema.parseRemoteSchema(doc))
-                        .someOrFail(new Throwable("Failed to parse remote schema"))
+      doc         <- SchemaLoader
+                       .fromIntrospection(
+                         url,
+                         Some(headers.map { case (k, v) => Options.Header(k, v) }.toList),
+                         supportIsRepeatable = false
+                       )
+                       .load
+      remoteSchema = RemoteSchema.parseRemoteSchema(doc)
     } yield new SubGraphExecutor[SttpClient] {
       val name: String          = self.name
       val exposeAtRoot: Boolean = self.exposeAtRoot

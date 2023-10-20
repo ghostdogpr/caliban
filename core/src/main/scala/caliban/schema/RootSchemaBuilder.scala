@@ -33,11 +33,6 @@ case class RootSchemaBuilder[-R](
       .toList
   }
 
-  def findStepWithFieldName(name: String): Option[(Step[R], __Field)] =
-    query.flatMap(_.opType.allFields.find(_.name == name)).flatMap(f => query.map(_.plan -> f)) orElse
-      mutation.flatMap(_.opType.allFields.find(_.name == name)).flatMap(f => mutation.map(_.plan -> f)) orElse
-      subscription.flatMap(_.opType.allFields.find(_.name == name)).flatMap(f => subscription.map(_.plan -> f))
-
   def visit(visitor: TypeVisitor): RootSchemaBuilder[R] =
     copy(
       query = query.map(query => query.copy(opType = visitor.visit(query.opType))),
