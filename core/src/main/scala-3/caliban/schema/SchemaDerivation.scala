@@ -48,7 +48,7 @@ trait CommonSchemaDerivation {
           else
             (
               constValue[name].toString,
-              MagnoliaMacro.anns[t], {
+              Macros.annotations[t], {
                 if (Macros.isEnumField[P, t])
                   if (!Macros.implicitExists[Schema[R, t]]) derived[R, t]
                   else summonInline[Schema[R, t]]
@@ -65,15 +65,15 @@ trait CommonSchemaDerivation {
         makeSumSchema[R, A](
           recurse[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()(),
           MagnoliaMacro.typeInfo[A],
-          MagnoliaMacro.anns[A]
+          Macros.annotations[A]
         )(m.ordinal)
 
       case m: Mirror.ProductOf[A] =>
         makeProductSchema[R, A](
           recurse[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()(),
           MagnoliaMacro.typeInfo[A],
-          MagnoliaMacro.anns[A],
-          MagnoliaMacro.paramAnns[A].toMap
+          Macros.annotations[A],
+          Macros.paramAnnotations[A].toMap
         )
     }
 
