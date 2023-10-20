@@ -13,26 +13,24 @@ object RemoteSchema {
    * which can in turn be used for more advanced use cases such as schema
    * stitching.
    */
-  def parseRemoteSchema(doc: Document): Option[__Schema] = {
+  def parseRemoteSchema(doc: Document): __Schema = {
     val queries = doc.schemaDefinition
       .flatMap(_.query)
       .flatMap(doc.objectTypeDefinition)
+      .getOrElse(ObjectTypeDefinition(None, "Query", Nil, Nil, Nil))
 
     val mutations = doc.schemaDefinition
       .flatMap(_.mutation)
       .flatMap(doc.objectTypeDefinition)
 
-    queries
-      .map(queries =>
-        __Schema(
-          description = doc.schemaDefinition.flatMap(_.description),
-          queryType = toObjectType(queries, doc.typeDefinitions),
-          mutationType = mutations.map(toObjectType(_, doc.typeDefinitions)),
-          subscriptionType = None,
-          types = doc.typeDefinitions.map(toTypeDefinition(_, doc.typeDefinitions)),
-          directives = doc.directiveDefinitions.map(toDirective(_, doc.typeDefinitions))
-        )
-      )
+    __Schema(
+      description = doc.schemaDefinition.flatMap(_.description),
+      queryType = toObjectType(queries, doc.typeDefinitions),
+      mutationType = mutations.map(toObjectType(_, doc.typeDefinitions)),
+      subscriptionType = None,
+      types = doc.typeDefinitions.map(toTypeDefinition(_, doc.typeDefinitions)),
+      directives = doc.directiveDefinitions.map(toDirective(_, doc.typeDefinitions))
+    )
   }
 
   private def toObjectType(
