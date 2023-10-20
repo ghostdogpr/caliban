@@ -6,8 +6,7 @@ import caliban.parsing.adt.Directive
 import caliban.schema.Annotations.*
 import caliban.schema.Step.{ FunctionStep, ObjectStep }
 import caliban.schema.Types.*
-import caliban.schema.macros.Macros
-import magnolia1.{ Macro as MagnoliaMacro, TypeInfo }
+import caliban.schema.macros.{ Macros, TypeInfo }
 
 import scala.compiletime.*
 import scala.deriving.Mirror
@@ -48,7 +47,7 @@ trait CommonSchemaDerivation {
           else
             (
               constValue[name].toString,
-              MagnoliaMacro.anns[t], {
+              Macros.annotations[t], {
                 if (Macros.isEnumField[P, t])
                   if (!Macros.implicitExists[Schema[R, t]]) derived[R, t]
                   else summonInline[Schema[R, t]]
@@ -64,16 +63,16 @@ trait CommonSchemaDerivation {
       case m: Mirror.SumOf[A] =>
         makeSumSchema[R, A](
           recurse[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()(),
-          MagnoliaMacro.typeInfo[A],
-          MagnoliaMacro.anns[A]
+          Macros.typeInfo[A],
+          Macros.annotations[A]
         )(m.ordinal)
 
       case m: Mirror.ProductOf[A] =>
         makeProductSchema[R, A](
           recurse[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()(),
-          MagnoliaMacro.typeInfo[A],
-          MagnoliaMacro.anns[A],
-          MagnoliaMacro.paramAnns[A].toMap
+          Macros.typeInfo[A],
+          Macros.annotations[A],
+          Macros.paramAnnotations[A].toMap
         )
     }
 
