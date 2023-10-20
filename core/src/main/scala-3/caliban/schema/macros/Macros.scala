@@ -7,9 +7,34 @@ import scala.quoted.*
 export magnolia1.TypeInfo
 
 object Macros {
-  inline def isFieldExcluded[P, T]: Boolean = ${ isFieldExcludedImpl[P, T] }
-  inline def isEnumField[P, T]: Boolean     = ${ isEnumFieldImpl[P, T] }
-  inline def implicitExists[T]: Boolean     = ${ implicitExistsImpl[T] }
+  inline def annotations[T]: List[Any]                      = ${ annotationsImpl[T] }
+  inline def paramAnnotations[T]: List[(String, List[Any])] = ${ paramAnnotationsImpl[T] }
+  inline def isFieldExcluded[P, T]: Boolean                 = ${ isFieldExcludedImpl[P, T] }
+  inline def isEnumField[P, T]: Boolean                     = ${ isEnumFieldImpl[P, T] }
+  inline def implicitExists[T]: Boolean                     = ${ implicitExistsImpl[T] }
+
+  private def annotationsImpl[T: Type](using qctx: Quotes): Expr[List[Any]] = {
+    import qctx.reflect.*
+    val tpe = TypeRepr.of[T]
+    Expr.ofList {
+      tpe.typeSymbol.annotations.filter { a =>
+        a.tpe.typeSymbol.maybeOwner.isNoSymbol || (a.tpe.typeSymbol.owner.fullName != "scala.annotation.internal" && a.tpe.typeSymbol.owner.fullName != "jdk.internal")
+      }.map(_.asExpr.asInstanceOf[Expr[Any]])
+    }
+  }
+
+  private def paramAnnotationsImpl[T: Type](using qctx: Quotes): Expr[List[(String, List[Any])]] = {
+    import qctx.reflect.*
+    val tpe = TypeRepr.of[T]
+    Expr.ofList {
+      tpe.typeSymbol.primaryConstructor.paramSymss.flatten.map { field =>
+        Expr(field.name) -> field.annotations.filter { a =>
+          a.tpe.typeSymbol.maybeOwner.isNoSymbol ||
+            (a.tpe.typeSymbol.owner.fullName != "scala.annotation.internal" && a.tpe.typeSymbol.owner.fullName != "jdk.internal")
+        }.map(_.asExpr.asInstanceOf[Expr[Any]])
+      }.filter(_._2.nonEmpty).map((name, anns) => Expr.ofTuple(name, Expr.ofList(anns)))
+    }
+  }
 
   /**
    * Tests whether type argument [[FieldT]] in [[Parent]] is annotated with [[GQLExcluded]]
