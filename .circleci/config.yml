@@ -76,9 +76,9 @@ jobs:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
-  test213_jdk21:
+  test213_jdk17:
     docker:
-      - image: cimg/openjdk:21.0-node
+      - image: cimg/openjdk:17.0-node
     resource_class: large
     steps:
       - checkout
@@ -106,9 +106,9 @@ jobs:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
-  test3_jdk21:
+  test3_jdk17:
     docker:
-      - image: cimg/openjdk:21.0-node
+      - image: cimg/openjdk:17.0-node
     resource_class: large
     steps:
       - checkout
@@ -269,7 +269,7 @@ workflows:
           filters:
             tags:
               only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
-      - test213_jdk21:
+      - test213_jdk17:
           requires:
             - lint
           filters:
@@ -287,7 +287,7 @@ workflows:
           filters:
             tags:
               only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
-      - test3_jdk21:
+      - test3_jdk17:
           requires:
             - lint
           filters:
@@ -306,11 +306,11 @@ workflows:
             - scripted212_jdk
             - scripted3_jdk
             - test213_jdk
-            - test213_jdk21
+            - test213_jdk17
             - test213_js_native
             - test213_docs
             - test3_jdk
-            - test3_jdk21
+            - test3_jdk17
             - test3_js_native
             - test_mima
           filters:
