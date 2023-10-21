@@ -78,28 +78,36 @@ private case class SuperGraphExecutor[-R](
 
     def resolveField(field: Resolver.Field, parent: ResponseValue): ZQuery[R, ExecutionError, ResponseValue] =
       field.resolver match {
-        case extractor: Extractor => resolveExtractor(extractor, parent)
-        case fetcher: Fetcher     => resolveFetcher(fetcher, parent)
+        case extractor: Extractor => resolveExtractor(extractor, field, parent)
+        case fetcher: Fetcher     => resolveFetcher(fetcher, field, parent)
       }
 
-    def resolveExtractor(extractor: Extractor, parent: ResponseValue): ZQuery[R, ExecutionError, ResponseValue] =
+    def resolveExtractor(
+      extractor: Extractor,
+      field: Resolver.Field,
+      parent: ResponseValue
+    ): ZQuery[R, ExecutionError, ResponseValue] =
       extractor.extract(parent.asObjectValue) match {
         case parent: ObjectValue =>
-          foreach(extractor.fields)(field => resolveField(field, parent).map(field.outputName -> _))
+          foreach(field.fields)(field => resolveField(field, parent).map(field.outputName -> _))
             .map(fields => parent.copy(fields = fields))
         case other               => ZQuery.succeed(other)
       }
 
-    def resolveFetcher(fetcher: Fetcher, parent: ResponseValue): ZQuery[R, ExecutionError, ResponseValue] =
+    def resolveFetcher(
+      fetcher: Fetcher,
+      field: Resolver.Field,
+      parent: ResponseValue
+    ): ZQuery[R, ExecutionError, ResponseValue] =
       subGraphMap.get(fetcher.extend.sourceGraph) match {
         case Some(subGraph) =>
           lazy val parentObject = parent.asObjectValue
           val sourceFieldName   = fetcher.extend.sourceFieldName
-          val fields            = getFieldsToFetch(fetcher.fields, fetcher.extend.target.map(Set(_))) ++
+          val fields            = getFieldsToFetch(field.fields, fetcher.extend.target.map(Set(_))) ++
             fetcher.extend.additionalFields.map(name =>
               caliban.execution.Field(name, Types.string, None, targets = fetcher.extend.target.map(Set(_)))
             )
-          val arguments         = fetcher.arguments ++
+          val arguments         = field.arguments ++
             fetcher.extend.argumentMappings.map { case (k, f) => f(parentObject.get(k).toInputValue) }.filterNot {
               case (_, v) => v == NullValue
             }
@@ -111,15 +119,15 @@ private case class SuperGraphExecutor[-R](
                 case Some(filter) => values.filter(value => filter(parentObject, value.asObjectValue))
                 case _            => values
               }
-              (fetcher.fields, filteredValues) match {
+              (field.fields, filteredValues) match {
                 // special case of a single item we don't want to wrap in a list (e.g. entity fetching)
                 case (field :: Nil, value :: Nil) if field.eliminate =>
                   resolveField(field, value)
                 case _                                               =>
-                  foreach(filteredValues)(resolveObject(fetcher.fields, _)).map(ListValue.apply)
+                  foreach(filteredValues)(resolveObject(field.fields, _)).map(ListValue.apply)
               }
             case value             =>
-              resolveObject(fetcher.fields, value)
+              resolveObject(field.fields, value)
           }
         case None           => ZQuery.fail(ExecutionError(s"Subgraph ${fetcher.extend.sourceGraph} not found"))
       }
@@ -134,9 +142,9 @@ private case class SuperGraphExecutor[-R](
     fields
       .flatMap(f =>
         f.resolver match {
-          case Extractor(_, _)       =>
+          case _: Extractor    =>
             List(Field(f.name, Types.string, None, fields = getFieldsToFetch(f.fields, None), targets = targets))
-          case Fetcher(extend, _, _) =>
+          case Fetcher(extend) =>
             extend.argumentMappings.keys.toList.map(Field(_, Types.string, None))
         }
       )
