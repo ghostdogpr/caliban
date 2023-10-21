@@ -1,8 +1,11 @@
 package caliban.schema
 
-import caliban._
+import caliban.*
 import caliban.RootResolver
+import caliban.schema.Annotations.GQLInterface
 import zio.test.{ assertTrue, ZIOSpecDefault }
+
+import java.time.Instant
 
 object Scala3DerivesSpec extends ZIOSpecDefault {
 
@@ -96,7 +99,82 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
             assertTrue(gql.render == expected)
           }
         )
-      }
+      },
+      suite("derivation of case classes containing Instants")(
+        test("product schema") {
+          final case class Foo(i: Instant) derives Schema.SemiAuto, ArgBuilder
+          final case class Bar(foo: Foo) derives Schema.SemiAuto
+          final case class Query(f: Foo => Bar) derives Schema.SemiAuto
+
+          val gql = graphQL(RootResolver(Query(Bar(_))))
+          assertTrue(
+            gql.render ==
+              """schema {
+                |  query: Query
+                |}
+                |"An instantaneous point on the time-line represented by a standard date time string"
+                |scalar Instant
+
+                |type Bar {
+                |  foo: Foo!
+                |}
+
+                |type Foo {
+                |  i: Instant!
+                |}
+
+                |type Query {
+                |  f(i: Instant!): Bar!
+                |}""".stripMargin
+          )
+        },
+        test("sum schema") {
+          @GQLInterface
+          sealed trait Foo derives Schema.SemiAuto {
+            val i: Instant
+          }
+          object Foo {
+            final case class FooA(i: Instant, s1: String) extends Foo derives Schema.SemiAuto, ArgBuilder
+            final case class FooB(i: Instant, i1: Int)    extends Foo derives Schema.SemiAuto, ArgBuilder
+          }
+
+          final case class Bar(foo: Foo) derives Schema.SemiAuto
+          final case class Query(f: Foo.FooA => Bar) derives Schema.SemiAuto
+
+          val gql = graphQL(RootResolver(Query(Bar(_))))
+
+          assertTrue(
+            gql.render ==
+              """schema {
+                |  query: Query
+                |}
+                |"An instantaneous point on the time-line represented by a standard date time string"
+                |scalar Instant
+
+                |interface Foo {
+                |  i: Instant!
+                |}
+
+                |type Bar {
+                |  foo: Foo!
+                |}
+
+                |type FooA implements Foo {
+                |  i: Instant!
+                |  s1: String!
+                |}
+
+                |type FooB implements Foo {
+                |  i: Instant!
+                |  i1: Int!
+                |}
+
+                |type Query {
+                |  f(i: Instant!, s1: String!): Bar!
+                |}""".stripMargin
+          )
+        }
+      )
     )
   }
 }
