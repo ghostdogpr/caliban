@@ -76,9 +76,39 @@ jobs:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
+  test213_jdk17:
+    docker:
+      - image: cimg/openjdk:17.0-node
+    resource_class: large
+    steps:
+      - checkout
+      - restore_cache:
+          key: sbtcache
+      - run: sbt ++2.13.12 core/test http4s/test akkaHttp/test pekkoHttp/test play/test zioHttp/test examples/compile catsInterop/compile benchmarks/compile monixInterop/compile tapirInterop/test clientJVM/test tools/test federation/test reporting/test tracing/test
+      - save_cache:
+          key: sbtcache
+          paths:
+            - "~/.ivy2/cache"
+            - "~/.sbt"
+            - "~/.m2"
   test3_jdk:
     docker:
       - image: cimg/openjdk:11.0-node
+    resource_class: large
+    steps:
+      - checkout
+      - restore_cache:
+          key: sbtcache
+      - run: sbt ++3.3.1 core/test catsInterop/compile benchmarks/compile monixInterop/compile clientJVM/test clientJS/compile zioHttp/test tapirInterop/test pekkoHttp/test http4s/test federation/test tools/test reporting/test tracing/test
+      - save_cache:
+          key: sbtcache
+          paths:
+            - "~/.ivy2/cache"
+            - "~/.sbt"
+            - "~/.m2"
+  test3_jdk17:
+    docker:
+      - image: cimg/openjdk:17.0-node
     resource_class: large
     steps:
       - checkout
@@ -149,7 +179,7 @@ jobs:
       - restore_cache:
           key: sbtcache
       - run: sbt ++2.13.12 http4s/mimaReportBinaryIssues akkaHttp/mimaReportBinaryIssues pekkoHttp/mimaReportBinaryIssues play/mimaReportBinaryIssues zioHttp/mimaReportBinaryIssues catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tracing/mimaReportBinaryIssues tools/mimaReportBinaryIssues core/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues
-      - run: sbt ++3.3.0 catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues zioHttp/mimaReportBinaryIssues http4s/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tracing/mimaReportBinaryIssues tools/mimaReportBinaryIssues core/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues pekkoHttp/mimaReportBinaryIssues
+      - run: sbt ++3.3.1 catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues zioHttp/mimaReportBinaryIssues http4s/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tracing/mimaReportBinaryIssues tools/mimaReportBinaryIssues core/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues pekkoHttp/mimaReportBinaryIssues
       - save_cache:
           key: sbtcache
           paths:
@@ -239,6 +269,15 @@ workflows:
           filters:
             tags:
               only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
+      - test213_jdk17:
+          requires:
+            - lint
+          filters:
+            branches:
+              only:
+                - series/2.x
+            tags:
+              only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
       - test213_docs:
           requires:
             - lint
@@ -249,6 +288,15 @@ workflows:
           requires:
             - lint
           filters:
+            tags:
+              only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
+      - test3_jdk17:
+          requires:
+            - lint
+          filters:
+            branches:
+              only:
+                - series/2.x
             tags:
               only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
       - test_mima:
@@ -264,9 +312,11 @@ workflows:
             - scripted212_jdk
             - scripted3_jdk
             - test213_jdk
+            - test213_jdk17
             - test213_js_native
             - test213_docs
             - test3_jdk
+            - test3_jdk17
             - test3_js_native
             - test_mima
           filters:
