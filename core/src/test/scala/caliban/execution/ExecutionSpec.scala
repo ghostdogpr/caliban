@@ -5,7 +5,7 @@ import caliban.CalibanError.ExecutionError
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, IntValue, NullValue, StringValue }
-import caliban.introspection.adt.{ __EnumValue, __Type }
+import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
 import caliban.schema.Annotations.{ GQLInterface, GQLName, GQLValueType }
 import caliban.schema._

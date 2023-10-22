@@ -3,7 +3,7 @@ package caliban.schema
 import java.util.UUID
 import caliban.Value.StringValue
 import caliban._
-import caliban.introspection.adt.{ __DeprecatedArgs, __EnumValue, __Type, __TypeKind }
+import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations.{ GQLDirective, GQLExcluded, GQLInterface, GQLUnion, GQLValueType }
 import caliban.schema.Schema.auto._
