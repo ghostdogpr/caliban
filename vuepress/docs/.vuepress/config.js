@@ -87,6 +87,10 @@ module.exports = {
           {
             title: 'Examples',
             path: 'examples'
+          },
+          {
+            title: 'Managing Dependencies',
+            path: 'managing-dependencies'
           }]
         }
       }

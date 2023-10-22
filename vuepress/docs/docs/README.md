@@ -52,6 +52,11 @@ import sttp.tapir.json.zio._
 
 For more info on the adapters and the JSON implementations, see [here](adapters.md#json-handling).
 
+::: tip Managing dependency versions
+Starting with version 2.4.2, Caliban provides an SBT plugin to help manage dependency versions.
+Check out the [Managing Dependencies](managing-dependencies.md) section for more info!
+:::
+
 ## A simple example
 
 Creating a GraphQL API with Caliban is as simple as creating a case class. Indeed, the whole GraphQL schema will be derived from a case class structure (its fields and the other types it references), and the resolver is just an instance of that case class.

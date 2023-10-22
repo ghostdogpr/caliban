@@ -97,6 +97,7 @@ lazy val root = project
     clientLaminext,
     tools,
     codegenSbt,
+    buildinfoSbt,
     federation,
     reporting,
     tracing
@@ -245,6 +246,38 @@ lazy val codegenSbt = project
     }
   )
   .dependsOn(tools)
+
+lazy val buildinfoSbt = project
+  .in(file(".buildinfo-sbt"))
+  .settings(name := "caliban-build-info")
+  .enablePlugins(BuildInfoPlugin, SbtPlugin)
+  .settings(
+    skip             := (scalaVersion.value != scala212),
+    ideSkipProject   := (scalaVersion.value != scala212),
+    buildInfoKeys    := Seq[BuildInfoKey](
+      "caliban"     -> version.value,
+      "akka"        -> akkaVersion,
+      "cats"        -> catsEffect3Version,
+      "circe"       -> circeVersion,
+      "fs2"         -> fs2Version,
+      "http4s"      -> http4sVersion,
+      "jsoniter"    -> jsoniterVersion,
+      "pekko"       -> pekkoVersion,
+      "play"        -> playVersion,
+      "`play-json`" -> playJsonVersion,
+      "sttp"        -> sttpVersion,
+      "tapir"       -> tapirVersion,
+      "zio"         -> zioVersion,
+      "`zio-http`"  -> zioHttpVersion,
+      "`zio-query`" -> zqueryVersion
+    ),
+    buildInfoPackage := "caliban",
+    buildInfoObject  := "BuildVersions"
+  )
+  .settings(
+    sbtPlugin          := true,
+    crossScalaVersions := Seq(scala212)
+  )
 
 lazy val catsInterop = project
   .in(file("interop/cats"))
