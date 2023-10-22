@@ -5,7 +5,7 @@ In some cases, users might need to include additional modules from one of these 
 
 Let's use the `caliban-http4s` module as an example, where a user needs to include the server implementation:
 
-```scala mdoc:silent
+```scala
 val calibanVersion  = "2.4.1"
 val http4sVersion   = ??? // what version should we use?
 
