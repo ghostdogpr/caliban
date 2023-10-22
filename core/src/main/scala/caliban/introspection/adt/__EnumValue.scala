@@ -28,7 +28,7 @@ case class __EnumValue(
 }
 
 object __EnumValue {
-  def apply(
+  def simple(
     name: String,
     description: Option[String] = None,
     isDeprecated: Boolean = false,

@@ -299,7 +299,7 @@ object SchemaSpec extends ZIOSpecDefault {
         case class Query(myEnum: EnumLikeUnion)
 
         implicit val myEnumSchema: Schema[Any, EnumLikeUnion] =
-          Schema.enumSchema("Foo", Some("foo description"), List(__EnumValue("A")), repr = _.toString)
+          Schema.enumSchema("Foo", Some("foo description"), List(__EnumValue.simple("A")), repr = _.toString)
 
         val gql = graphQL(RootResolver(Query(EnumLikeUnion.A)))
         assertTrue(
