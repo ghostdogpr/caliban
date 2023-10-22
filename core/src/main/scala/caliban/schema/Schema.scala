@@ -200,6 +200,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
    * @param values       list of possible enum values
    * @param directives   the directives to add to the type
    * @param repr         function that defines how to convert A into a string. WARNING: The resulting string must be contained in the values list
+   * @see [[enumValue]]  convenience method for creating enum values required by this method
    */
   def enumSchema[A](
     name: String,
@@ -219,6 +220,20 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
       else QueryStep(ZQuery.fail(ExecutionError(s"Invalid enum value '$asString'")))
     }
   }
+
+  def enumValue(
+    name: String,
+    description: Option[String] = None,
+    isDeprecated: Boolean = false,
+    deprecationReason: Option[String] = None,
+    directives: List[Directive] = List.empty
+  ): __EnumValue = __EnumValue(
+    name,
+    description,
+    isDeprecated,
+    deprecationReason,
+    directives = if (directives.nonEmpty) Some(directives) else None
+  )
 
   /**
    * Manually defines a field from a name, a description, some directives and a resolver.

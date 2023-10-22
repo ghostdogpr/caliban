@@ -1270,7 +1270,7 @@ object ExecutionSpec extends ZIOSpecDefault {
           case object B extends MyEnum
         }
         implicit val enumSchema: Schema[Any, MyEnum] =
-          Schema.enumSchema("Foo", values = List(__EnumValue.simple("A")), repr = _.toString)
+          Schema.enumSchema("Foo", values = List(enumValue("A")), repr = _.toString)
 
         case class Query(valid: MyEnum, invalid: MyEnum)
 

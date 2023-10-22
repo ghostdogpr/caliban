@@ -26,19 +26,3 @@ case class __EnumValue(
        else Nil) ++ directives.getOrElse(Nil)
     )
 }
-
-object __EnumValue {
-  def simple(
-    name: String,
-    description: Option[String] = None,
-    isDeprecated: Boolean = false,
-    deprecationReason: Option[String] = None,
-    directives: List[Directive] = List.empty
-  ): __EnumValue = new __EnumValue(
-    name,
-    description,
-    isDeprecated,
-    deprecationReason,
-    if (directives.isEmpty) None else Some(directives)
-  )
-}
