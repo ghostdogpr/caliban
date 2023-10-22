@@ -3,7 +3,7 @@ package caliban.schema
 import java.util.UUID
 import caliban.Value.StringValue
 import caliban._
-import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
+import caliban.introspection.adt.{ __DeprecatedArgs, __EnumValue, __Type, __TypeKind }
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations.{ GQLDirective, GQLExcluded, GQLInterface, GQLUnion, GQLValueType }
 import caliban.schema.Schema.auto._
@@ -293,6 +293,30 @@ object SchemaSpec extends ZIOSpecDefault {
                          |  mutBox(value: Int!): Box!
                          |}""".stripMargin
         assertTrue(caliban.renderSchemaWith[Env, EnvironmentSchema, Mutation, Unit]() == expected)
+      },
+      test("custom enum schema") {
+
+        case class Query(myEnum: EnumLikeUnion)
+
+        implicit val myEnumSchema: Schema[Any, EnumLikeUnion] =
+          Schema.enumSchema("Foo", Some("foo description"), List(__EnumValue("A")), repr = _.toString)
+
+        val gql = graphQL(RootResolver(Query(EnumLikeUnion.A)))
+        assertTrue(
+          gql.render ==
+            """schema {
+              |  query: Query
+              |}
+              |
+              |"foo description"
+              |enum Foo {
+              |  A
+              |}
+              |
+              |type Query {
+              |  myEnum: Foo!
+              |}""".stripMargin
+        )
       }
     )
 

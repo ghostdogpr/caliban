@@ -194,6 +194,33 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     }
 
   /**
+   * Creates an enum schema for a type A
+   * @param name         name of the scalar type
+   * @param description  description of the scalar type
+   * @param values       list of possible enum values
+   * @param directives   the directives to add to the type
+   * @param repr         function that defines how to convert A into a string. WARNING: The resulting string must be contained in the values list
+   */
+  def enumSchema[A](
+    name: String,
+    description: Option[String] = None,
+    values: List[__EnumValue],
+    directives: List[Directive] = List.empty,
+    repr: A => String
+  ): Schema[Any, A] = new Schema[Any, A] {
+    private val validEnumValues = values.map(_.name).toSet
+
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
+      makeEnum(Some(name), description, values, None, if (directives.nonEmpty) Some(directives) else None)
+
+    override def resolve(value: A): Step[Any] = {
+      val asString = repr(value)
+      if (validEnumValues.contains(asString)) PureStep(EnumValue(asString))
+      else QueryStep(ZQuery.fail(ExecutionError(s"Invalid enum value '$asString'")))
+    }
+  }
+
+  /**
    * Manually defines a field from a name, a description, some directives and a resolver.
    * If the field is a function that should be called lazily, use `fieldLazy` instead.
    * If the field takes arguments, use `fieldWithArgs` instead.
