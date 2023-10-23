@@ -37,23 +37,37 @@ trait CommonSchemaDerivation {
       case _                 => s"${name}Input"
     }
 
-  inline def recurse[R, P, Label, A <: Tuple](
-    inline values: List[(String, List[Any], Schema[R, Any], Int)] = Nil
-  )(inline index: Int = 0): List[(String, List[Any], Schema[R, Any], Int)] =
+  inline def recurseSum[R, P, Label, A <: Tuple](
+    inline values: List[(String, List[Any], Schema[R, Any])] = Nil
+  ): List[(String, List[Any], Schema[R, Any])] =
     inline erasedValue[(Label, A)] match {
       case (_: EmptyTuple, _)                 => values.reverse
       case (_: (name *: names), _: (t *: ts)) =>
-        recurse[R, P, names, ts] {
+        recurseSum[R, P, names, ts] {
+          (
+            constValue[name].toString,
+            MagnoliaMacro.anns[t], {
+              if (Macros.isEnumField[P, t])
+                if (!Macros.implicitExists[Schema[R, t]]) derived[R, t]
+                else summonInline[Schema[R, t]]
+              else summonInline[Schema[R, t]]
+            }.asInstanceOf[Schema[R, Any]]
+          ) :: values
+        }
+    }
+
+  inline def recurseProduct[R, P, Label, A <: Tuple](
+    inline values: List[(String, Schema[R, Any], Int)] = Nil
+  )(inline index: Int = 0): List[(String, Schema[R, Any], Int)] =
+    inline erasedValue[(Label, A)] match {
+      case (_: EmptyTuple, _)                 => values.reverse
+      case (_: (name *: names), _: (t *: ts)) =>
+        recurseProduct[R, P, names, ts] {
           inline if (Macros.isFieldExcluded[P, name]) values
           else
             (
               constValue[name].toString,
-              MagnoliaMacro.anns[t], {
-                if (Macros.isEnumField[P, t])
-                  if (!Macros.implicitExists[Schema[R, t]]) derived[R, t]
-                  else summonInline[Schema[R, t]]
-                else summonInline[Schema[R, t]]
-              }.asInstanceOf[Schema[R, Any]],
+              summonInline[Schema[R, t]].asInstanceOf[Schema[R, Any]],
               index
             ) :: values
         }(index + 1)
@@ -63,14 +77,14 @@ trait CommonSchemaDerivation {
     inline summonInline[Mirror.Of[A]] match {
       case m: Mirror.SumOf[A] =>
         makeSumSchema[R, A](
-          recurse[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()(),
+          recurseSum[R, A, m.MirroredElemLabels, m.MirroredElemTypes](),
           MagnoliaMacro.typeInfo[A],
           MagnoliaMacro.anns[A]
         )(m.ordinal)
 
       case m: Mirror.ProductOf[A] =>
         makeProductSchema[R, A](
-          recurse[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()(),
+          recurseProduct[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()(),
           MagnoliaMacro.typeInfo[A],
           MagnoliaMacro.anns[A],
           MagnoliaMacro.paramAnns[A].toMap
@@ -78,14 +92,14 @@ trait CommonSchemaDerivation {
     }
 
   private def makeSumSchema[R, A](
-    _members: => List[(String, List[Any], Schema[R, Any], Int)],
+    _members: => List[(String, List[Any], Schema[R, Any])],
     info: TypeInfo,
     annotations: List[Any]
   )(ordinal: A => Int): Schema[R, A] = new Schema[R, A] {
 
     private lazy val members = _members.toVector // Vector's .apply is O(1) vs List's O(N)
 
-    private lazy val subTypes = members.map { case (label, subTypeAnnotations, schema, _) =>
+    private lazy val subTypes = members.map { case (label, subTypeAnnotations, schema) =>
       (label, schema.toType_(), subTypeAnnotations)
     }.sortBy { case (label, _, _) => label }.toList
 
@@ -119,19 +133,19 @@ trait CommonSchemaDerivation {
       }
 
     def resolve(value: A): Step[R] = {
-      val (label, _, schema, _) = members(ordinal(value))
+      val (label, _, schema) = members(ordinal(value))
       if (isEnum) PureStep(EnumValue(label)) else schema.resolve(value)
     }
   }
 
   private def makeProductSchema[R, A](
-    _fields: => List[(String, List[Any], Schema[R, Any], Int)],
+    _fields: => List[(String, Schema[R, Any], Int)],
     info: TypeInfo,
     annotations: List[Any],
     paramAnnotations: Map[String, List[Any]]
   ): Schema[R, A] = new Schema[R, A] {
 
-    private lazy val fields = _fields.map { case (label, _, schema, index) =>
+    private lazy val fields = _fields.map { case (label, schema, index) =>
       val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
       (getName(fieldAnnotations, label), fieldAnnotations, schema, index)
     }

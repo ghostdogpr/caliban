@@ -16,8 +16,9 @@ object Macros {
    */
   private def isFieldExcludedImpl[Parent: Type, FieldT: Type](using qctx: Quotes): Expr[Boolean] = {
     import qctx.reflect.*
+    val fieldName = Type.valueOfConstant[FieldT]
     Expr(TypeRepr.of[Parent].typeSymbol.primaryConstructor.paramSymss.flatten.exists { v =>
-      Type.valueOfConstant[FieldT].map(_ == v.name).getOrElse(false)
+      fieldName.map(_ == v.name).getOrElse(false)
       && v.annotations.exists(_.tpe =:= TypeRepr.of[GQLExcluded])
     })
   }

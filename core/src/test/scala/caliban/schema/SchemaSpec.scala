@@ -293,6 +293,30 @@ object SchemaSpec extends ZIOSpecDefault {
                          |  mutBox(value: Int!): Box!
                          |}""".stripMargin
         assertTrue(caliban.renderSchemaWith[Env, EnvironmentSchema, Mutation, Unit]() == expected)
+      },
+      test("custom enum schema") {
+
+        case class Query(myEnum: EnumLikeUnion)
+
+        implicit val myEnumSchema: Schema[Any, EnumLikeUnion] =
+          enumSchema("Foo", Some("foo description"), List(enumValue("A")), repr = _.toString)
+
+        val gql = graphQL(RootResolver(Query(EnumLikeUnion.A)))
+        assertTrue(
+          gql.render ==
+            """schema {
+              |  query: Query
+              |}
+              |
+              |"foo description"
+              |enum Foo {
+              |  A
+              |}
+              |
+              |type Query {
+              |  myEnum: Foo!
+              |}""".stripMargin
+        )
       }
     )
 

@@ -1,7 +1,6 @@
 package caliban.execution
 
 import java.util.UUID
-
 import caliban.CalibanError.ExecutionError
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
@@ -1263,6 +1262,29 @@ object ExecutionSpec extends ZIOSpecDefault {
             response.data.toString == """{"bases":[{"id":"1","name":"base 1","inner":[{"a":"a"}]},{"id":"2","name":"base 2","inner":[{"b":2}]}]}"""
           )
         }
+      },
+      test("custom enum schemas") {
+        trait MyEnum
+        object MyEnum {
+          case object A extends MyEnum
+          case object B extends MyEnum
+        }
+        implicit val enumSchema: Schema[Any, MyEnum] =
+          Schema.enumSchema("Foo", values = List(enumValue("A")), repr = _.toString)
+
+        case class Query(valid: MyEnum, invalid: MyEnum)
+
+        val api: GraphQL[Any] = graphQL(RootResolver(Query(MyEnum.A, MyEnum.B)))
+
+        for {
+          interpreter <- api.interpreter
+          valid       <- interpreter.execute(gqldoc("""{ valid }"""))
+          invalid     <- interpreter.execute(gqldoc("""{ invalid }"""))
+        } yield assertTrue(
+          valid.data.toString == """{"valid":"A"}""",
+          invalid.data.toString == "null",
+          invalid.errors.nonEmpty
+        )
       }
     )
 }
