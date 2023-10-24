@@ -78,27 +78,29 @@ object SchemaWriter {
         case nonEmpty => s" extends ${nonEmpty.mkString(" with ")}"
       }
       s"""${writeDescription(typedef.description)}final case class ${typedef.name}(${typedef.fields
-        .map(field => writeField(field, inheritedFromInterface(typedef, field).getOrElse(typedef)))
-        .mkString(", ")})$extendRendered$derivesSchema"""
+          .map(field => writeField(field, inheritedFromInterface(typedef, field).getOrElse(typedef)))
+          .mkString(", ")})$extendRendered$derivesSchema"""
     }
 
     def writeInputObject(typedef: InputObjectTypeDefinition): String = {
       val name            = typedef.name
       val maybeAnnotation = if (preserveInputNames) s"""@GQLInputName("$name")\n""" else ""
       s"""$maybeAnnotation${writeDescription(typedef.description)}final case class $name(${typedef.fields
-        .map(writeInputValue)
-        .mkString(", ")})$derivesSchemaAndArgBuilder"""
+          .map(writeInputValue)
+          .mkString(", ")})$derivesSchemaAndArgBuilder"""
     }
 
     def writeEnum(typedef: EnumTypeDefinition): String =
-      s"""${writeDescription(typedef.description)}sealed trait ${typedef.name} extends scala.Product with scala.Serializable$derivesSchemaAndArgBuilder
+      s"""${writeDescription(
+          typedef.description
+        )}sealed trait ${typedef.name} extends scala.Product with scala.Serializable$derivesSchemaAndArgBuilder
 
           object ${typedef.name} {
             ${typedef.enumValuesDefinition
-        .map(v =>
-          s"${writeDescription(v.description)}case object ${safeName(v.enumValue)} extends ${typedef.name}$derivesSchemaAndArgBuilder"
-        )
-        .mkString("\n")}
+          .map(v =>
+            s"${writeDescription(v.description)}case object ${safeName(v.enumValue)} extends ${typedef.name}$derivesSchemaAndArgBuilder"
+          )
+          .mkString("\n")}
           }
        """
 
@@ -107,12 +109,14 @@ object SchemaWriter {
 
     def writeUnionSealedTrait(union: UnionTypeDefinition): String =
       s"""${writeDescription(
-        union.description
-      )}sealed trait ${union.name} extends scala.Product with scala.Serializable$derivesSchema"""
+          union.description
+        )}sealed trait ${union.name} extends scala.Product with scala.Serializable$derivesSchema"""
 
     def writeInterface(interface: InterfaceTypeDefinition): String =
       s"""@GQLInterface
-        ${writeDescription(interface.description)}sealed trait ${interface.name} extends scala.Product with scala.Serializable $derivesSchema {
+        ${writeDescription(
+          interface.description
+        )}sealed trait ${interface.name} extends scala.Product with scala.Serializable $derivesSchema {
          ${interface.fields.map(field => "def " + writeField(field, interface)).mkString("\n")}
         }
        """
@@ -245,23 +249,23 @@ object SchemaWriter {
 
     val typesAndOperations = s"""
       ${if (hasTypes)
-      "object Types {\n" +
-        argsTypes + "\n" +
-        objects + "\n" +
-        inputs + "\n" +
-        unions + "\n" +
-        interfacesStr + "\n" +
-        enums + "\n" +
-        "\n}\n"
-    else ""}
+        "object Types {\n" +
+          argsTypes + "\n" +
+          objects + "\n" +
+          inputs + "\n" +
+          unions + "\n" +
+          interfacesStr + "\n" +
+          enums + "\n" +
+          "\n}\n"
+      else ""}
 
       ${if (hasOperations)
-      "object Operations {\n" +
-        queries + "\n\n" +
-        mutations + "\n\n" +
-        subscriptions + "\n" +
-        "\n}"
-    else ""}
+        "object Operations {\n" +
+          queries + "\n\n" +
+          mutations + "\n\n" +
+          subscriptions + "\n" +
+          "\n}"
+      else ""}
       """
 
     s"""${packageName.fold("")(p => s"package $p\n\n")}${if (hasTypes && hasOperations) "import Types._\n" else ""}
