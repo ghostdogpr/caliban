@@ -110,8 +110,8 @@ object TapirAdapter {
     def acceptsGqlJson = request.acceptsContentTypes.fold(
       _ => false,
       _.exists {
-        case ContentTypeRange("application", "graphql-response+json", _) => true
-        case _                                                           => false
+        case ContentTypeRange("application", "graphql-response+json", _, _) => true
+        case _                                                              => false
       }
     )
     response match {
