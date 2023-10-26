@@ -53,7 +53,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt codegenScriptedScala3
+      - run: sbt ++2.12.18 codegenScriptedScala3
       - save_cache:
           key: sbtcache
           paths:
