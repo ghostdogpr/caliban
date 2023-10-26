@@ -1,19 +1,19 @@
 package example.play
 
-import akka.actor.ActorSystem
 import caliban._
-import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
 import caliban.interop.tapir.TapirAdapter.TapirResponse
+import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
 import caliban.schema.GenericSchema
+import org.apache.pekko.actor.ActorSystem
 import play.api.Mode
 import play.api.routing._
 import play.api.routing.sird._
-import play.core.server.{ AkkaHttpServer, ServerConfig }
+import play.core.server.{ PekkoHttpServer, ServerConfig }
 import sttp.model.StatusCode
 import sttp.tapir.json.play._
 import sttp.tapir.model.ServerRequest
 import zio.stream.ZStream
-import zio.{ FiberRef, RIO, Runtime, ULayer, Unsafe, ZIO, ZLayer }
+import zio.{ RIO, Runtime, Unsafe, ZIO, ZLayer }
 
 import scala.concurrent.ExecutionContextExecutor
 import scala.io.StdIn.readLine
@@ -53,7 +53,7 @@ object AuthExampleApp extends App {
 
   val interpreter = Unsafe.unsafe(implicit u => runtime.unsafe.run(api.interpreter).getOrThrow())
 
-  val server = AkkaHttpServer.fromRouterWithComponents(
+  val server = PekkoHttpServer.fromRouterWithComponents(
     ServerConfig(
       mode = Mode.Dev,
       port = Some(8088),
