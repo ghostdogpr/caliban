@@ -483,7 +483,9 @@ object TapirAdapterSpec {
       fromMetadata(
         asStringAlways.map(error => Left(HttpError(error, StatusCode.UnprocessableEntity))),
         ConditionalResponseAs(
-          _.contentType.exists(_.startsWith("multipart/mixed")),
+          _.contentType.exists(
+            MediaType.unsafeParse(_).matches(ContentTypeRange("multipart", "mixed", ContentTypeRange.Wildcard))
+          ),
           asStream(ZioStreams)(readMultipartResponse)
             .mapRight(Right(_))
             .mapLeft(s => HttpError(s, StatusCode.UnprocessableEntity))
