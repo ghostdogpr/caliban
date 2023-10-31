@@ -105,7 +105,7 @@ import caliban.ZHttpAdapter
 object ExampleApp extends ZIOAppDefault {
   import sttp.tapir.json.circe._
 
-  private val graphiql = Handler.fromStream(ZStream.fromResource("graphiql.html")).sandbox
+  private val graphiql = Handler.fromResource("graphiql.html").sandbox
 
   override def run =
     (for {

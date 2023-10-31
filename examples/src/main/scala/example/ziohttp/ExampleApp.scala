@@ -5,13 +5,12 @@ import example.{ ExampleApi, ExampleService }
 import caliban.{ GraphQL, ZHttpAdapter }
 import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
 import zio._
-import zio.stream._
 import zio.http._
 
 object ExampleApp extends ZIOAppDefault {
   import sttp.tapir.json.circe._
 
-  private val graphiql = Handler.fromStream(ZStream.fromResource("graphiql.html")).sandbox
+  private val graphiql = Handler.fromResource("graphiql.html").sandbox
 
   override def run: ZIO[Any, Throwable, Unit] =
     (for {

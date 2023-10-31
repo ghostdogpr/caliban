@@ -82,7 +82,7 @@ object Authed extends GenericSchema[Auth] {
 }
 
 object AuthExampleApp extends ZIOAppDefault {
-  private val graphiql = Handler.fromStream(ZStream.fromResource("graphiql.html")).sandbox
+  private val graphiql = Handler.fromResource("graphiql.html").sandbox
 
   override def run: URIO[Any, ExitCode] =
     (for {
