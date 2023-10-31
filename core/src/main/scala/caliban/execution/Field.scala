@@ -43,7 +43,7 @@ case class Field(
 ) { self =>
   lazy val locationInfo: LocationInfo = _locationInfo()
 
-  private[caliban] val fieldNames: Set[String] =
+  private[caliban] lazy val fieldNames: Set[String] =
     fields.foldLeft(Set.newBuilder[String]) { case (sb, f) => sb += f.name }.result()
 
   private[caliban] val aliasedName: String = alias.getOrElse(name)
