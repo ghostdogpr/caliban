@@ -163,38 +163,18 @@ object NestedZQueryBenchmarkSchema {
   }
 
   private def generateMulti(n: Int) = {
-    val entities = (1 to n)
-      .map(i =>
-        MultifieldEntity(
-          i,
-          ZQuery.succeed(i),
-          ZQuery.succeed(i),
-          ZQuery.succeed(i),
-          ZQuery.succeed(i),
-          ZQuery.succeed(i),
-          ZQuery.succeed(
-            NestedObject(
-              i,
-              ZQuery.succeed(i),
-              ZQuery.succeed(i),
-              ZQuery.succeed(i),
-              ZQuery.succeed(i),
-              ZQuery.succeed(i),
-              ZQuery.succeed(i),
-              ZQuery.succeed(i),
-              ZQuery.succeed(i),
-              ZQuery.succeed(i),
-              ZQuery.succeed(i),
-              ZQuery.succeed(i),
-              ZQuery.succeed(i),
-              ZQuery.succeed(i),
-              ZQuery.succeed(i),
-              ZQuery.succeed(i)
-            )
-          )
-        )
+    val entities = (1 to n).map { i =>
+      val qi = ZQuery.succeed(i)
+      MultifieldEntity(
+        i,
+        qi,
+        qi,
+        qi,
+        qi,
+        qi,
+        ZQuery.succeed(NestedObject(i, qi, qi, qi, qi, qi, qi, qi, qi, qi, qi, qi, qi, qi, qi, qi))
       )
-      .toList
+    }.toList
     MultifieldRoot(ZQuery.succeed(entities))
   }
 
