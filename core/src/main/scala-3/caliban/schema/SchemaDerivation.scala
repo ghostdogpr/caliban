@@ -171,8 +171,6 @@ trait CommonSchemaDerivation {
       else if (isInput) mkInputObject[R](annotations, fields, info)(isInput, isSubscription)
       else mkObject[R](annotations, fields, info)(isInput, isSubscription)
 
-    override private[schema] lazy val resolveFieldLazily: Boolean = (!isValueType) && fields.isEmpty
-
     def resolve(value: A): Step[R] =
       if (fields.isEmpty) PureStep(EnumValue(name))
       else if (isValueType) resolveValueType(value)

@@ -95,8 +95,6 @@ trait CommonSchemaDerivation[R] {
         )
     }
 
-    override private[schema] lazy val resolveFieldLazily: Boolean = !(ctx.isObject || _isValueType)
-
     override def resolve(value: T): Step[R] =
       if (ctx.isObject) PureStep(EnumValue(getName(ctx)))
       else if (_isValueType) resolveValueType(value)
