@@ -81,9 +81,6 @@ trait Schema[-R, T] { self =>
    */
   def arguments: List[__InputValue] = Nil
 
-  @deprecated("No longer needed")
-  private[schema] def resolveFieldLazily: Boolean = false
-
   /**
    * Builds a new `Schema` of `A` from an existing `Schema` of `T` and a function from `A` to `T`.
    * @param f a function from `A` to `T`.
