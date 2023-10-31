@@ -174,19 +174,19 @@ trait CommonSchemaDerivation {
     def resolve(value: A): Step[R] =
       if (fields.isEmpty) PureStep(EnumValue(name))
       else if (isValueType) resolveValueType(value)
-      else resolveObject(value)
+      else MetadataFunctionStep[R](f => resolveObject(value, f.fieldNames))
 
     private def resolveValueType(value: A): Step[R] = {
       val head = fields.head
       head._3.resolve(value.asInstanceOf[Product].productElement(head._4))
     }
 
-    private def resolveObject(value: A): Step[R] = MetadataFunctionStep[R] { field =>
+    private def resolveObject(value: A, queriedFields: Set[String]): Step[R] = {
       val fieldsBuilder = Map.newBuilder[String, Step[R]]
       fields.foreach {
-        case (name, _, schema, index) if field.fieldNames.contains(name) =>
+        case (name, _, schema, index) if queriedFields.contains(name) =>
           fieldsBuilder += name -> schema.resolve(value.asInstanceOf[Product].productElement(index))
-        case _                                                           => ()
+        case _                                                        => ()
       }
       ObjectStep(name, fieldsBuilder.result())
     }

@@ -98,19 +98,19 @@ trait CommonSchemaDerivation[R] {
     override def resolve(value: T): Step[R] =
       if (ctx.isObject) PureStep(EnumValue(getName(ctx)))
       else if (_isValueType) resolveValueType(value)
-      else resolveObject(value)
+      else MetadataFunctionStep[R](f => resolveObject(value, f.fieldNames))
 
     private def resolveValueType(value: T): Step[R] = {
       val head = ctx.parameters.head
       head.typeclass.resolve(head.dereference(value))
     }
 
-    private def resolveObject(value: T): Step[R] = MetadataFunctionStep[R] { field =>
+    private def resolveObject(value: T, queriedFields: Set[String]): Step[R] = {
       val fieldsBuilder = Map.newBuilder[String, Step[R]]
       fields.foreach {
-        case (name, schema, dereference) if field.fieldNames.contains(name) =>
+        case (name, schema, dereference) if queriedFields.contains(name) =>
           fieldsBuilder += name -> schema.resolve(dereference(value))
-        case _                                                              => ()
+        case _                                                           => ()
       }
       ObjectStep(getName(ctx), fieldsBuilder.result())
     }
