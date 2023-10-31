@@ -105,7 +105,7 @@ import caliban.ZHttpAdapter
 object ExampleApp extends ZIOAppDefault {
   import sttp.tapir.json.circe._
 
-  private val graphiql = Handler.fromStream(ZStream.fromResource("graphiql.html")).toHttp.withDefaultErrorResponse
+  private val graphiql = Handler.fromStream(ZStream.fromResource("graphiql.html")).sandbox
 
   override def run =
     (for {
@@ -114,12 +114,14 @@ object ExampleApp extends ZIOAppDefault {
       _           <-
         Server
           .serve(
-            Http
-              .collectHttp[Request] {
-                case _ -> Root / "api" / "graphql" => ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
-                case _ -> Root / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))
-                case _ -> Root / "graphiql"        => graphiql
-              }
+            Routes(
+              Method.ANY / "api" / "graphql" ->
+                ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter)).toHandler,
+              Method.ANY / "ws" / "graphql"  ->
+                ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter)).toHandler,
+              Method.ANY / "graphiql"        ->
+                graphiql
+            ).toHttpApp
           )
     } yield ())
       .provide(

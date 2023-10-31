@@ -28,15 +28,16 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
       _           <-
         Server
           .serve(
-            Http
-              .collectHttp[Request] {
-                case _ -> Root / "api" / "graphql" =>
-                  ZHttpAdapter.makeHttpService(
+            Routes(
+              Method.ANY / "api" / "graphql" ->
+                ZHttpAdapter
+                  .makeHttpService(
                     HttpInterpreter(interpreter).intercept(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
                   )
-                case _ -> Root / "ws" / "graphql"  =>
-                  ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))
-              }
+                  .toHandler,
+              Method.ANY / "ws" / "graphql"  ->
+                ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter)).toHandler
+            ).toHttpApp
           )
           .forkScoped
       _           <- Live.live(Clock.sleep(3 seconds))
@@ -54,7 +55,7 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
       apiLayer,
       Scope.default,
       Server.defaultWith(
-        _.withWebSocketConfig(ZHttpAdapter.defaultWebSocketConfig)
+        _.webSocketConfig(ZHttpAdapter.defaultWebSocketConfig)
           .port(8089)
           .responseCompression()
       )

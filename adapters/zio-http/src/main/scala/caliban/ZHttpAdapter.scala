@@ -10,20 +10,18 @@ object ZHttpAdapter {
 
   val defaultWebSocketConfig: WebSocketConfig = {
     val subProtocols = List(Protocol.Legacy.name, Protocol.GraphQLWS.name).mkString(",")
-    WebSocketConfig.default.withSubProtocol(Some(subProtocols))
+    WebSocketConfig.default.subProtocol(Some(subProtocols))
   }
 
   def makeHttpService[R, E](interpreter: HttpInterpreter[R, E])(implicit
     serverOptions: ZioHttpServerOptions[R] = ZioHttpServerOptions.default[R]
-  ): App[R] =
+  ): HttpApp[R] =
     ZioHttpInterpreter(serverOptions)
       .toHttp(interpreter.serverEndpoints[R, ZioStreams](ZioStreams))
-      .withDefaultErrorResponse
 
   def makeWebSocketService[R, E](interpreter: WebSocketInterpreter[R, E])(implicit
     serverOptions: ZioHttpServerOptions[R] = ZioHttpServerOptions.default[R]
-  ): App[R] =
+  ): HttpApp[R] =
     ZioHttpInterpreter(serverOptions)
       .toHttp(interpreter.serverEndpoint[R])
-      .withDefaultErrorResponse
 }
