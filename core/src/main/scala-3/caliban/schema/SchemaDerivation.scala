@@ -4,7 +4,7 @@ import caliban.Value.EnumValue
 import caliban.introspection.adt.*
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations.*
-import caliban.schema.Step.{ FunctionStep, ObjectStep }
+import caliban.schema.Step.{ FunctionStep, MetadataFunctionStep, ObjectStep }
 import caliban.schema.Types.*
 import caliban.schema.macros.Macros
 import magnolia1.{ Macro as MagnoliaMacro, TypeInfo }
@@ -183,14 +183,12 @@ trait CommonSchemaDerivation {
       head._3.resolve(value.asInstanceOf[Product].productElement(head._4))
     }
 
-    private def resolveObject(value: A): Step[R] = {
+    private def resolveObject(value: A): Step[R] = MetadataFunctionStep[R] { field =>
       val fieldsBuilder = Map.newBuilder[String, Step[R]]
-      fields.foreach { case (name, _, schema, index) =>
-        lazy val step = schema.resolve(value.asInstanceOf[Product].productElement(index))
-        fieldsBuilder += name -> {
-          if (schema.resolveFieldLazily) FunctionStep(_ => step)
-          else step
-        }
+      fields.foreach {
+        case (name, _, schema, index) if field.fieldNames.contains(name) =>
+          fieldsBuilder += name -> schema.resolve(value.asInstanceOf[Product].productElement(index))
+        case _                                                           => ()
       }
       ObjectStep(name, fieldsBuilder.result())
     }

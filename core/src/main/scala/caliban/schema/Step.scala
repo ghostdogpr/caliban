@@ -28,10 +28,15 @@ object Step {
    * Merge 2 root steps. Root steps are supposed to be objects so we ignore other cases.
    */
   def mergeRootSteps[R](step1: Step[R], step2: Step[R]): Step[R] = (step1, step2) match {
-    case (ObjectStep(name, fields1), ObjectStep(_, fields2)) =>
-      ObjectStep(name, fields1 ++ fields2) // fields2 override fields1 in case of conflict
-    case (ObjectStep(_, _), _) => step1 // if only step1 is an object, keep it
-    case _                     => step2 // otherwise keep step2
+    case (MetadataFunctionStep(l), MetadataFunctionStep(r))  => MetadataFunctionStep(f => mergeRootSteps(l(f), r(f)))
+    case (MetadataFunctionStep(l), r)                        => MetadataFunctionStep(f => mergeRootSteps(l(f), r))
+    case (l, MetadataFunctionStep(r))                        => MetadataFunctionStep(f => mergeRootSteps(l, r(f)))
+    // fields2 override fields1 in case of conflict
+    case (ObjectStep(name, fields1), ObjectStep(_, fields2)) => ObjectStep(name, fields1 ++ fields2)
+    // if only step1 is an object, keep it
+    case (ObjectStep(_, _), _)                               => step1
+    // otherwise keep step2
+    case _                                                   => step2
   }
 }
 

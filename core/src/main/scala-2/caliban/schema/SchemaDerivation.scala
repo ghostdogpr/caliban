@@ -107,14 +107,12 @@ trait CommonSchemaDerivation[R] {
       head.typeclass.resolve(head.dereference(value))
     }
 
-    private def resolveObject(value: T): Step[R] = {
+    private def resolveObject(value: T): Step[R] = MetadataFunctionStep[R] { field =>
       val fieldsBuilder = Map.newBuilder[String, Step[R]]
-      fields.foreach { case (name, schema, dereference) =>
-        fieldsBuilder += name -> {
-          lazy val step = schema.resolve(dereference(value))
-          if (schema.resolveFieldLazily) FunctionStep(_ => step)
-          else step
-        }
+      fields.foreach {
+        case (name, schema, dereference) if field.fieldNames.contains(name) =>
+          fieldsBuilder += name -> schema.resolve(dereference(value))
+        case _                                                              => ()
       }
       ObjectStep(getName(ctx), fieldsBuilder.result())
     }
