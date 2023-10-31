@@ -31,6 +31,9 @@ object Step {
     case (MetadataFunctionStep(l), MetadataFunctionStep(r))  => MetadataFunctionStep(f => mergeRootSteps(l(f), r(f)))
     case (MetadataFunctionStep(l), r)                        => MetadataFunctionStep(f => mergeRootSteps(l(f), r))
     case (l, MetadataFunctionStep(r))                        => MetadataFunctionStep(f => mergeRootSteps(l, r(f)))
+    case (FunctionStep(l), FunctionStep(r))                  => FunctionStep(args => mergeRootSteps(l(args), r(args)))
+    case (FunctionStep(l), r)                                => FunctionStep(args => mergeRootSteps(l(args), r))
+    case (l, FunctionStep(r))                                => FunctionStep(args => mergeRootSteps(l, r(args)))
     // fields2 override fields1 in case of conflict
     case (ObjectStep(name, fields1), ObjectStep(_, fields2)) => ObjectStep(name, fields1 ++ fields2)
     // if only step1 is an object, keep it

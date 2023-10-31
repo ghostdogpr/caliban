@@ -115,6 +115,7 @@ trait Schema[-R, T] { self =>
         case ObjectStep(_, fields)   => ObjectStep(name, fields)
         case PureStep(EnumValue(_))  => PureStep(EnumValue(name))
         case MetadataFunctionStep(s) => MetadataFunctionStep(field => loop(s(field)))
+        case FunctionStep(s)         => FunctionStep(args => loop(s(args)))
         case other                   => other
       }
 
